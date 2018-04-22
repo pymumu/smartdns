@@ -1,0 +1,9 @@
+#http://clang.llvm.org/docs/ClangFormatStyleOptions.html
+
+BasedOnStyle: LLVM
+IndentWidth: 4
+TabWidth: 4
+UseTab: ForContinuationAndIndentation
+MaxEmptyLinesToKeep: 1
+AllowShortFunctionsOnASingleLine: Empty
+BreakBeforeBraces: Linux
