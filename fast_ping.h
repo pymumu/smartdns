@@ -13,8 +13,13 @@ typedef enum {
 	FAST_PING_UDP
 } FAST_PING_TYPE;
 
-typedef void (*fast_ping_result)(const char *host, int seqno, struct timeval *tv, void *userptr);
-int fast_ping_result_callback(fast_ping_result result);
+typedef enum {
+	PING_RESULT_RESPONSE = 1,
+	PING_RESULT_TIMEOUT = 2,
+} FAST_PING_RESULT;
+
+typedef void (*fast_ping_result)(const char *host, FAST_PING_RESULT result, int seqno, struct timeval *tv, void *userptr);
+void fast_ping_result_callback(fast_ping_result result);
 
 int fast_ping_start(const char *host, int timeout, void *userptr);
 
@@ -22,7 +27,7 @@ int fast_ping_stop(const char *host);
 
 int fast_ping_init();
 
-int fast_ping_exit();
+void fast_ping_exit();
 
 #ifdef __cpluscplus
 }

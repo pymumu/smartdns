@@ -2,6 +2,7 @@
 #include "atomic.h"
 #include "hashtable.h"
 #include <errno.h>
+#include <arpa/inet.h>
 #include <linux/filter.h>
 #include <netdb.h>
 #include <netinet/icmp6.h>
@@ -45,6 +46,10 @@ struct ping_host_struct {
 
     int fd;
     unsigned int seq;
+    struct timeval last;
+    int interval;
+    int timeout;
+    int send;
     struct sockaddr_storage addr;
     socklen_t addr_len;
     struct fast_ping_packet packet;
@@ -54,7 +59,7 @@ struct fast_ping_struct {
     int run;
     pthread_t tid;
     pthread_mutex_t lock;
-    int ident;
+    unsigned short ident;
 
     int epoll_fd;
     int fd_icmp;
@@ -82,7 +87,7 @@ uint16_t _fast_ping_checksum(uint16_t *header, size_t len)
     return htons(~((sum >> 16) + (sum & 0xffff)));
 }
 
-int fast_ping_result_callback(fast_ping_result result)
+void fast_ping_result_callback(fast_ping_result result)
 {
     ping_callback = result;
 }
@@ -148,7 +153,7 @@ void _fast_ping_install_filter_v4(int sock)
     }
 }
 
-static struct addrinfo *_fast_ping_getaddr(const u_char *host, int type, int protocol)
+static struct addrinfo *_fast_ping_getaddr(const char *host, int type, int protocol)
 {
     struct addrinfo hints;
     struct addrinfo *result = NULL;
@@ -170,7 +175,7 @@ errout:
     return NULL;
 }
 
-static int _fast_ping_getdomain(const u_char *host)
+static int _fast_ping_getdomain(const char *host)
 {
     struct addrinfo hints;
     struct addrinfo *result = NULL;
@@ -197,12 +202,12 @@ errout:
     return -1;
 }
 
-int _fast_ping_host_get(struct ping_host_struct *ping_host)
+static void _fast_ping_host_get(struct ping_host_struct *ping_host)
 {
     atomic_inc(&ping_host->ref);
 }
 
-int _fast_ping_host_put(struct ping_host_struct *ping_host)
+static void _fast_ping_host_put(struct ping_host_struct *ping_host)
 {
     pthread_mutex_lock(&ping.map_lock);
     if (atomic_dec_and_test(&ping_host->ref)) {
@@ -214,7 +219,7 @@ int _fast_ping_host_put(struct ping_host_struct *ping_host)
     pthread_mutex_unlock(&ping.map_lock);
 
     if (ping_host == NULL) {
-        return -1;
+        return ;
     }
 
     free(ping_host);
@@ -280,34 +285,48 @@ errout:
 
 static int _fast_ping_sendping(struct ping_host_struct *ping_host)
 {
+    int ret = -1;
+
     if (ping_host->type == AF_INET) {
-        return _fast_ping_sendping_v4(ping_host);
+        ret = _fast_ping_sendping_v4(ping_host);
     } else if (ping_host->type == AF_INET6) {
-        return _fast_ping_sendping_v6(ping_host);
+        ret = _fast_ping_sendping_v6(ping_host);
     }
 
-    return -1;
+    if (ret != 0) {
+        return ret;
+    }
+
+    ping_host->send = 1;
+    gettimeofday(&ping_host->last, 0);
+
+    return 0;
 }
 
 static int _fast_ping_create_sock(int protocol)
 {
-    int fd;
+    int fd = -1;
     struct ping_host_struct *icmp_host = NULL;
     struct epoll_event event;
 
-    fd = socket(AF_INET, SOCK_RAW, protocol);
-    if (fd < 0) {
-        fprintf(stderr, "create icmp socket failed.\n");
-        goto errout;
-    }
     switch (protocol) {
     case IPPROTO_ICMP:
+        fd = socket(AF_INET, SOCK_RAW, protocol);
+        if (fd < 0) {
+            fprintf(stderr, "create icmp socket failed.\n");
+            goto errout;
+        }
         _fast_ping_install_filter_v4(fd);
         icmp_host = &ping.icmp_host;
         break;
     case IPPROTO_ICMPV6:
+        fd = socket(AF_INET6, SOCK_RAW, protocol);
+        if (fd < 0) {
+            fprintf(stderr, "create icmp socket failed.\n");
+            goto errout;
+        }
         _fast_ping_install_filter_v6(fd);
-        icmp_host = &ping.icmp_host;
+        icmp_host = &ping.icmp6_host;
         break;
     }
 
@@ -371,7 +390,6 @@ int fast_ping_start(const char *host, int timeout, void *userptr)
     struct addrinfo *gai = NULL;
     int domain = -1;
     int icmp_proto = 0;
-    char ip[PING_MAX_HOSTLEN];
     uint32_t hostkey;
     uint32_t addrkey;
 
@@ -402,17 +420,20 @@ int fast_ping_start(const char *host, int timeout, void *userptr)
         goto errout;
     }
 
-    memset(ping_host, 0, sizeof(ping_host));
+    int interval = 1000;
+    memset(ping_host, 0, sizeof(*ping_host));
     strncpy(ping_host->host, host, PING_MAX_HOSTLEN);
     ping_host->type = domain;
     ping_host->fd = _fast_ping_create_icmp(icmp_proto);
+    ping_host->timeout = timeout;
+    ping_host->interval = interval;
     memcpy(&ping_host->addr, gai->ai_addr, gai->ai_addrlen);
     ping_host->addr_len = gai->ai_addrlen;
 
     atomic_set(&ping_host->ref, 0);
 
     hostkey = hash_string(ping_host->host);
-	addrkey = jhash(&ping_host->addr, ping_host->addr_len, 0);
+    addrkey = jhash(&ping_host->addr, ping_host->addr_len, 0);
     pthread_mutex_lock(&ping.map_lock);
     _fast_ping_host_get(ping_host);
     hash_add(ping.hostmap, &ping_host->host_node, hostkey);
@@ -467,12 +488,10 @@ void tv_sub(struct timeval *out, struct timeval *in)
 
 static int _fast_ping_icmp6_packet(struct ping_host_struct *ping_host, u_char *packet_data, int data_len, struct timeval *tvrecv)
 {
-    int hlen;
     int icmp_len;
     struct fast_ping_packet *packet = (struct fast_ping_packet *)packet_data;
     struct icmp6_hdr *icmp6 = &packet->icmp6;
     struct timeval tvresult = *tvrecv;
-    double rtt;
 
     if (icmp6->icmp6_type != ICMP6_ECHO_REPLY) {
         return -1;
@@ -489,7 +508,7 @@ static int _fast_ping_icmp6_packet(struct ping_host_struct *ping_host, u_char *p
 
     struct timeval *tvsend = &packet->msg.tv;
     tv_sub(&tvresult, tvsend);
-    ping_callback(ping_host->host, ping_host->seq, &tvresult, ping_host->userptr);
+    ping_callback(ping_host->host, PING_RESULT_RESPONSE, ping_host->seq, &tvresult, ping_host->userptr);
 
     return 0;
 }
@@ -527,7 +546,7 @@ static int _fast_ping_icmp_packet(struct ping_host_struct *ping_host, u_char *pa
     struct timeval *tvsend = &packet->msg.tv;
     tv_sub(&tvresult, tvsend);
 
-    ping_callback(ping_host->host, ping_host->seq, &tvresult, ping_host->userptr);
+    ping_callback(ping_host->host, PING_RESULT_RESPONSE, ping_host->seq, &tvresult, ping_host->userptr);
 
     return 0;
 }
@@ -551,14 +570,7 @@ errout:
     return -1;
 }
 
-static int _fast_ping_create_tcp(struct ping_host_struct *ping_host)
-{
-    return -1;
-}
-
-static int _fast_ping_ping_host(struct ping_host_struct *ping_host) {}
-
-static int _fast_ping_gethost_by_addr(u_char *host, struct sockaddr *addr, socklen_t addr_len)
+static int _fast_ping_gethost_by_addr(char *host, struct sockaddr *addr, socklen_t addr_len)
 {
     struct sockaddr_storage *addr_store = (struct sockaddr_storage *)addr;
     host[0] = 0;
@@ -603,7 +615,7 @@ static int _fast_ping_process(struct ping_host_struct *ping_host, struct timeval
         goto errout;
     }
 
-	addrkey = jhash(&from, from_len, 0);
+    addrkey = jhash(&from, from_len, 0);
     pthread_mutex_lock(&ping.map_lock);
     hash_for_each_possible(ping.addrmap, recv_ping_host, addr_node, addrkey)
     {
@@ -617,6 +629,8 @@ static int _fast_ping_process(struct ping_host_struct *ping_host, struct timeval
         return -1;
     }
 
+    recv_ping_host->send = 0;
+
     _fast_ping_recvping(recv_ping_host, inpacket, len, now);
     return 0;
 errout:
@@ -628,10 +642,24 @@ static void _fast_ping_period_run()
     struct ping_host_struct *ping_host;
     struct hlist_node *tmp;
     int i = 0;
+    struct timeval now;
+    struct timeval interval;
+    uint64_t millisecond;
+    gettimeofday(&now, 0);
+
     pthread_mutex_lock(&ping.map_lock);
     hash_for_each_safe(ping.addrmap, i, tmp, ping_host, addr_node)
     {
-        _fast_ping_sendping(ping_host);
+        interval = now;
+        tv_sub(&interval, &ping_host->last);
+        millisecond = interval.tv_sec * 1000 + interval.tv_usec / 1000;
+        if (millisecond > ping_host->timeout && ping_host->send == 1) {
+            ping_callback(ping_host->host, PING_RESULT_TIMEOUT, ping_host->seq, &interval, ping_host->userptr);  
+            ping_host->send = 0;          
+        }
+        if (millisecond >= ping_host->interval) {
+            _fast_ping_sendping(ping_host);
+        } 
     }
     pthread_mutex_unlock(&ping.map_lock);
 }
@@ -643,14 +671,19 @@ static void *_fast_ping_work(void *arg)
     int i;
     struct timeval last = { 0 };
     struct timeval now = { 0 };
+    struct timeval diff = {0};
+    uint millisec = 0;
 
     while (ping.run) {
-        if (last.tv_sec != now.tv_sec) {
+        diff = now;
+        tv_sub(&diff, &last);
+        millisec = diff.tv_sec * 1000 + diff.tv_usec / 1000;
+        if (millisec >= 100) {
             _fast_ping_period_run();
             last = now;
         }
 
-        num = epoll_wait(ping.epoll_fd, events, PING_MAX_EVENTS, 1000);
+        num = epoll_wait(ping.epoll_fd, events, PING_MAX_EVENTS, 100);
         if (num < 0) {
             gettimeofday(&now, 0);
             usleep(100000);
@@ -727,7 +760,7 @@ errout:
     return -1;
 }
 
-int fast_ping_exit()
+void fast_ping_exit()
 {
     if (ping.tid > 0) {
         void *ret = NULL;
@@ -737,12 +770,12 @@ int fast_ping_exit()
 
     if (ping.fd_icmp > 0) {
         close(ping.fd_icmp);
-        ping.fd_icmp < 0;
+        ping.fd_icmp = -1;
     }
 
     if (ping.fd_icmp6 > 0) {
         close(ping.fd_icmp6);
-        ping.fd_icmp6 < 0;
+        ping.fd_icmp6 = -1;
     }
 
     pthread_mutex_destroy(&ping.lock);

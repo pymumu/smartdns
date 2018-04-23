@@ -1,8 +1,10 @@
 
 BIN=smartdns 
-OBJS=smartdns.o fast_ping.o 
-CFLAGS=-g -O0
-CFLAGS=-Iinclude
+OBJS=smartdns.o fast_ping.o lib/bitops.o
+CFLAGS=-g -O0 -Wall
+CFLAGS +=-Iinclude
+CXXFLAGS=-g -O0 -Wall -std=c++11
+CXXFLAGS +=-Iinclude
 
 .PHONY: all
 

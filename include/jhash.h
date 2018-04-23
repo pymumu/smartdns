@@ -79,7 +79,7 @@ static inline uint32_t __get_unaligned_cpu32(const void *p)
 static inline uint32_t jhash(const void *key, uint32_t length, uint32_t initval)
 {
 	uint32_t a, b, c;
-	const uint8_t *k = key;
+	const uint8_t *k = (uint8_t *)key;
 
 	/* Set up the internal state */
 	a = b = c = JHASH_INITVAL + length + initval;

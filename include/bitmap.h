@@ -5,6 +5,8 @@
 #include <string.h>
 #include <stdlib.h>
 #include "bitops.h"
+#include "findbit.h"
+
 
 #define DECLARE_BITMAP(name,bits) \
 	unsigned long name[BITS_TO_LONGS(bits)]
@@ -101,7 +103,7 @@ static inline int test_and_set_bit(int nr, unsigned long *addr)
  */
 static inline unsigned long *bitmap_alloc(int nbits)
 {
-	return calloc(1, BITS_TO_LONGS(nbits) * sizeof(unsigned long));
+	return (unsigned long *)calloc(1, BITS_TO_LONGS(nbits) * sizeof(unsigned long));
 }
 
 /*

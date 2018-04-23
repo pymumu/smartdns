@@ -2,6 +2,7 @@
 #ifndef _GENERIC_ATOMIC_H
 #define _GENERIC_ATOMIC_H
 
+
 /* Check GCC version, just to be safe */
 #if !defined(__GNUC__) || (__GNUC__ < 4) || (__GNUC_MINOR__ < 1)
 # error atomic.h works only with GCC newer than version 4.1

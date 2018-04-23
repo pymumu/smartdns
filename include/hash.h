@@ -1,6 +1,7 @@
 #ifndef _GENERIC_HASH_H
 #define _GENERIC_HASH_H
 
+#include "bitmap.h"
 #include "jhash.h"
 
 /* Fast hashing routine for ints,  longs and pointers.
@@ -112,6 +113,17 @@ int __ilog2_u64(uint64_t n)
 	__ilog2_u32(n) :			\
 	__ilog2_u64(n)				\
  )
+
+
+#if BITS_PER_LONG == 32
+#define GOLDEN_RATIO_PRIME GOLDEN_RATIO_32
+#define hash_long(val, bits) hash_32(val, bits)
+#elif BITS_PER_LONG == 64
+#define hash_long(val, bits) hash_64(val, bits)
+#define GOLDEN_RATIO_PRIME GOLDEN_RATIO_64
+#else
+#error Wordsize not 32 or 64
+#endif
 
 /*
  * This hash multiplies the input by a large odd number and takes the
