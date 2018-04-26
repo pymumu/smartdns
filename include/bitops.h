@@ -77,31 +77,7 @@ static inline unsigned long __ffs(unsigned long word)
 
 static inline int fls(int x)
 {
-	int r = 32;
-
-	if (!x)
-		return 0;
-	if (!(x & 0xffff0000u)) {
-		x <<= 16;
-		r -= 16;
-	}
-	if (!(x & 0xff000000u)) {
-		x <<= 8;
-		r -= 8;
-	}
-	if (!(x & 0xf0000000u)) {
-		x <<= 4;
-		r -= 4;
-	}
-	if (!(x & 0xc0000000u)) {
-		x <<= 2;
-		r -= 2;
-	}
-	if (!(x & 0x80000000u)) {
-		x <<= 1;
-		r -= 1;
-	}
-	return r;
+	return 32 - __builtin_clz(x);
 }
 
 /**
@@ -126,9 +102,7 @@ static inline int fls64(uint64_t x)
 #elif BITS_PER_LONG == 64
 static inline int fls64(uint64_t x)
 {
-	if (x == 0)
-		return 0;
-	return __fls(x) + 1;
+	return 64 - __builtin_clzll(x);
 }
 #else
 #error BITS_PER_LONG not 32 or 64

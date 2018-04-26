@@ -426,7 +426,7 @@ int fast_ping_start(const char *host, int timeout, void *userptr)
     ping_host->type = domain;
     ping_host->fd = _fast_ping_create_icmp(icmp_proto);
     ping_host->timeout = timeout;
-    ping_host->interval = interval;
+    ping_host->interval = (timeout > interval) ? timeout : interval;
     memcpy(&ping_host->addr, gai->ai_addr, gai->ai_addrlen);
     ping_host->addr_len = gai->ai_addrlen;
 
