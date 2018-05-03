@@ -31,7 +31,7 @@ struct dns_query_server {
     int fd;
     int type;
     char host[DNS_HOSTNAME_LEN];
-    list_head list;
+    struct list_head list;
 };
 
 struct dns_client {
@@ -39,7 +39,7 @@ struct dns_client {
     int run;
     int epoll_fd;
 
-    list_head dns_server_list;
+    struct list_head dns_server_list;
 
     pthread_mutex_t map_lock;
     DECLARE_HASHTABLE(hostmap, 6);
