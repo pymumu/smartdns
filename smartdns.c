@@ -26,6 +26,12 @@ int smartdns_init()
 
     fast_ping_result_callback(smartdns_ping_result);
 
+    ret = dns_client_init();
+    if (ret != 0) {
+        fprintf(stderr, "start dns client failed.\n");
+        goto errout;
+    }
+
     return 0;
 errout:
 
@@ -49,6 +55,8 @@ int smartdns_run()
 void smartdns_exit()
 {
     fast_ping_exit();
+
+    dns_client_exit();
 }
 
 struct data {

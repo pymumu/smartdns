@@ -417,7 +417,7 @@ int fast_ping_start(const char *host, int timeout, void *userptr)
 
     ping_host = malloc(sizeof(*ping_host));
     if (ping_host == NULL) {
-        goto errout;
+        goto errout; 
     }
 
     int interval = 1000;
@@ -477,7 +477,7 @@ int fast_ping_stop(const char *host)
     return 0;
 }
 
-void tv_sub(struct timeval *out, struct timeval *in)
+static void tv_sub(struct timeval *out, struct timeval *in)
 {
     if ((out->tv_usec -= in->tv_usec) < 0) { /* out -= in */
         --out->tv_sec;
