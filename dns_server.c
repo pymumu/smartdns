@@ -144,7 +144,7 @@ int dns_server_socket(void)
         goto errout;
     }
 
-    if (bind() != 0) {
+    if (bind(fd, ) != 0) {
         fprintf(stderr, "bind failed.\n");
         goto errout;
     }
