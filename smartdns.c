@@ -1,4 +1,6 @@
 #include "fast_ping.h"
+#include "dns_client.h"
+#include "dns_server.h"
 #include "hashtable.h"
 #include "list.h"
 #include <stdio.h>
@@ -26,6 +28,12 @@ int smartdns_init()
 
     fast_ping_result_callback(smartdns_ping_result);
 
+    ret = dns_server_init();
+    if (ret != 0) {
+        fprintf(stderr, "start dns server failed.\n");
+        goto errout;
+    }
+
     ret = dns_client_init();
     if (ret != 0) {
         fprintf(stderr, "start dns client failed.\n");
@@ -40,16 +48,7 @@ errout:
 
 int smartdns_run()
 {
-    fast_ping_start("192.168.1.1", 2000, 0);
-    fast_ping_start("192.168.1.35", 2000, 0);
-    fast_ping_start("14.215.177.38", 2000, 0);
-    fast_ping_start("113.96.161.87", 2000, 0);
-    fast_ping_start("::1", 2000, 0);
-    fast_ping_start("12.4.3.1", 1000, 0);
-    while (1) {
-        sleep(10);
-        //fast_ping_stop("192.168.1.35");
-    }
+    return dns_server_run();
 }
 
 void smartdns_exit()
@@ -57,6 +56,8 @@ void smartdns_exit()
     fast_ping_exit();
 
     dns_client_exit();
+
+    dns_server_exit();
 }
 
 struct data {
