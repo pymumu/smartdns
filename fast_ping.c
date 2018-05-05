@@ -392,6 +392,7 @@ int fast_ping_start(const char *host, int timeout, void *userptr)
     int icmp_proto = 0;
     uint32_t hostkey;
     uint32_t addrkey;
+    int fd = -1;
 
     domain = _fast_ping_getdomain(host);
     if (domain < 0) {
@@ -410,10 +411,15 @@ int fast_ping_start(const char *host, int timeout, void *userptr)
         break;
     }
 
+    fd = _fast_ping_create_icmp(icmp_proto);
+    if (fd < 0) {
+		goto errout;
+	}
+
     gai = _fast_ping_getaddr(host, SOCK_RAW, icmp_proto);
     if (gai == NULL) {
-        return -1;
-    }
+		goto errout;
+	}
 
     ping_host = malloc(sizeof(*ping_host));
     if (ping_host == NULL) {
@@ -424,8 +430,8 @@ int fast_ping_start(const char *host, int timeout, void *userptr)
     memset(ping_host, 0, sizeof(*ping_host));
     strncpy(ping_host->host, host, PING_MAX_HOSTLEN);
     ping_host->type = domain;
-    ping_host->fd = _fast_ping_create_icmp(icmp_proto);
-    ping_host->timeout = timeout;
+	ping_host->fd = fd;
+	ping_host->timeout = timeout;
     ping_host->interval = (timeout > interval) ? timeout : interval;
     memcpy(&ping_host->addr, gai->ai_addr, gai->ai_addrlen);
     ping_host->addr_len = gai->ai_addrlen;
@@ -445,6 +451,10 @@ int fast_ping_start(const char *host, int timeout, void *userptr)
     _fast_ping_sendping(ping_host);
     return 0;
 errout:
+    if (fd > 0) {
+		close(fd);
+	}
+    
     if (gai) {
         freeaddrinfo(gai);
     }
