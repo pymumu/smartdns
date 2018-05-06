@@ -1,5 +1,6 @@
 #include "dns_server.h"
 #include "hashtable.h"
+#include "dns.h"
 #include <arpa/inet.h>
 #include <errno.h>
 #include <linux/filter.h>
@@ -50,9 +51,11 @@ void _dns_server_period_run()
 static int _dns_server_process(struct timeval *now)
 {
     int len;
-    u_char inpacket[DNS_INPACKET_SIZE];
-    struct sockaddr_storage from;
-    socklen_t from_len = sizeof(from);
+    char inpacket[DNS_INPACKET_SIZE];
+    char rsppacket[DNS_INPACKET_SIZE];
+	struct dns_packet *packet = (struct dns_packet *)rsppacket;
+	struct sockaddr_storage from;
+	socklen_t from_len = sizeof(from);
 
     len = recvfrom(server.fd, inpacket, sizeof(inpacket), 0, (struct sockaddr *)&from, (socklen_t *)&from_len);
     if (len < 0) {
@@ -60,7 +63,13 @@ static int _dns_server_process(struct timeval *now)
         goto errout;
     }
 
-    return 0;
+	dns_decode(packet, inpacket, len);
+
+	printf("head.id = %d\n", packet->head.id);
+    printf("head.an_count = %d\n", packet->head.ancount);
+    printf("head.qd_count = %d\n", packet->head.qdcount);
+
+	return 0;
 errout:
     return -1;
 }
@@ -99,7 +108,12 @@ int dns_server_run(void)
         gettimeofday(&now, 0);
         for (i = 0; i < num; i++) {
             struct epoll_event *event = &events[i];
-            _dns_server_process(&now);
+            if (event->data.fd != server.fd) {
+				fprintf(stderr, "invalid fd\n");
+				continue;
+			}
+
+			_dns_server_process(&now);
         }
     }
 
@@ -109,7 +123,7 @@ int dns_server_run(void)
     return 0;
 }
 
-static struct addrinfo *_dns_server_getaddr(const char *host, int port, int type, int protocol)
+static struct addrinfo *_dns_server_getaddr(const char *host, const char *port, int type, int protocol)
 {
     struct addrinfo hints;
     struct addrinfo *result = NULL;
@@ -118,8 +132,9 @@ static struct addrinfo *_dns_server_getaddr(const char *host, int port, int type
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = type;
     hints.ai_protocol = protocol;
-    if (getaddrinfo(host, port, &hints, &result) != 0) {
-        fprintf(stderr, "get addr info failed. %s\n", strerror(errno));
+	hints.ai_flags = AI_PASSIVE;
+	if (getaddrinfo(host, port, &hints, &result) != 0) {
+		fprintf(stderr, "get addr info failed. %s\n", strerror(errno));
         goto errout;
     }
 
@@ -131,20 +146,37 @@ errout:
     return NULL;
 }
 
+int dns_server_start(void) 
+{
+	struct epoll_event event;
+	event.events = EPOLLIN;
+	event.data.fd = server.fd;
+	if (epoll_ctl(server.epoll_fd, EPOLL_CTL_ADD, server.fd, &event) != 0) {
+		fprintf(stderr, "epoll ctl failed.");
+		return -1;
+	}
+
+	return 0;
+}
+
 int dns_server_socket(void)
 {
     int fd = -1;
     struct addrinfo *gai = NULL;
 
-    gai = _dns_server_getaddr(NULL, 53, SOCK_DGRAM, 0);
+    gai = _dns_server_getaddr(NULL, "53", SOCK_DGRAM, 0);
+    if (gai == NULL) {
+		fprintf(stderr, "get address failed.\n");
+		goto errout;
+	}
 
-    fd = socket(gai->ai_family, gai->ai_socktype, gai->ai_protocol);
+	fd = socket(gai->ai_family, gai->ai_socktype, gai->ai_protocol);
     if (fd < 0) {
         fprintf(stderr, "create socket failed.\n");
         goto errout;
     }
 
-    if (bind(fd, ) != 0) {
+    if (bind(fd, gai->ai_addr, gai->ai_addrlen) != 0) {
         fprintf(stderr, "bind failed.\n");
         goto errout;
     }
@@ -152,7 +184,7 @@ int dns_server_socket(void)
     server.fd = fd;
     freeaddrinfo(gai);
 
-    return 0;
+    return fd;
 errout:
     if (fd > 0) {
         close(fd);
@@ -183,13 +215,24 @@ int dns_server_init(void)
         goto errout;
     }
 
-    pthread_mutex_init(&server.map_lock, 0);
+	fd = dns_server_socket();
+    if (fd < 0) {
+		fprintf(stderr, "create server socket failed.\n");
+		goto errout;
+	}
+
+	pthread_mutex_init(&server.map_lock, 0);
     hash_init(server.hostmap);
     server.epoll_fd = epollfd;
     server.fd = fd;
     server.run = 1;
 
-    return 0;
+    if (dns_server_start() != 0) {
+		fprintf(stderr, "start service failed.\n");
+		goto errout;
+	}
+
+	return 0;
 errout:
     server.run = 0;
 
