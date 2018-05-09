@@ -701,7 +701,7 @@ int main()
   struct sockaddr_in addr;
   int nbytes, rc;
   int sock;
-  int port = 9000;
+  int port = 53;
 
   struct Message msg;
   memset(&msg, 0, sizeof(struct Message));

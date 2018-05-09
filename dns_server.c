@@ -51,8 +51,8 @@ void _dns_server_period_run()
 static int _dns_server_process(struct timeval *now)
 {
     int len;
-    char inpacket[DNS_INPACKET_SIZE];
-    char rsppacket[DNS_INPACKET_SIZE];
+    unsigned char inpacket[DNS_INPACKET_SIZE];
+    unsigned char rsppacket[DNS_INPACKET_SIZE];
 	struct dns_packet *packet = (struct dns_packet *)rsppacket;
 	struct sockaddr_storage from;
 	socklen_t from_len = sizeof(from);
