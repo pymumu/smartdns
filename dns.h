@@ -79,14 +79,6 @@ struct dns_qds {
 	unsigned short classes;
 };
 
-struct dns_rrs {
-	unsigned short type;
-	unsigned short classes;
-	unsigned int ttl;
-	unsigned short rd_length;
-	char rd_data[0];
-};
-
 typedef uint32_t TTL;
 
 typedef struct dns_question_t /* RFC-1035 */
@@ -148,12 +140,26 @@ typedef union dns_answer_t {
 	dns_aaaa_t aaaa;
 } dns_answer_t;
 
+#define DNS_RR_QD 0
+#define DNS_RR_AN 1
+#define DNS_RR_NS 2
+#define DNS_RR_NR 3
+
+struct dns_rrs {
+	unsigned short next;
+	unsigned short len;
+	unsigned char data[0];
+};
+
 struct dns_packet {
 	struct dns_head head;
-	dns_question_t *questions;
-	dns_answer_t *answers;
-	dns_answer_t *nameservers;
-	dns_answer_t *additional;
+	unsigned short questions;
+	unsigned short answers;
+	unsigned short nameservers;
+	unsigned short additional;
+	int size;
+	int len;
+	unsigned char data[0];
 };
 
 int dns_decode(struct dns_packet *packet, unsigned char *data, int size);

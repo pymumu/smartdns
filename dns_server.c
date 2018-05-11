@@ -63,6 +63,7 @@ static int _dns_server_process(struct timeval *now)
         goto errout;
     }
 
+    dns_packet_init(packet, sizeof(rsppacket));
 	dns_decode(packet, inpacket, len);
 
 	printf("head.id = %d\n", packet->head.id);
