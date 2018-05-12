@@ -46,6 +46,7 @@ static void tv_sub(struct timeval *out, struct timeval *in)
 
 void _dns_server_period_run()
 {
+	return;
 	unsigned char packet_data[DNS_INPACKET_SIZE];
 	unsigned char data[DNS_INPACKET_SIZE];
 
@@ -93,13 +94,19 @@ static int _dns_server_process(struct timeval *now)
 		goto errout;
 	}
 
-	dns_decode(packet, DNS_INPACKET_SIZE, inpacket, len);
+	len = dns_decode(packet, DNS_INPACKET_SIZE, inpacket, len);
+	if (len) {
+		printf("decode failed.\n");
+		goto errout;
+	}
 
 	int count;
 	struct dns_rrs *rrs;
 	char name[128];
 	int i = 0;
 	int ttl;
+	int qtype;
+	int qclass;
 
 	rrs = dns_get_rrs_start(packet, DNS_RRS_AN, &count);
 	for (i = 0; i < count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
@@ -108,6 +115,18 @@ static int _dns_server_process(struct timeval *now)
 			unsigned char addr[4];
 			dns_get_A(rrs, name, 128, &ttl, addr);
 			printf("%s %d : %d.%d.%d.%d\n", name, ttl, addr[0], addr[1], addr[2], addr[3]);
+		} break;
+		default:
+			break;
+		}
+	}
+
+	rrs = dns_get_rrs_start(packet, DNS_RRS_QD, &count);
+	for (i = 0; i < count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
+		switch (rrs->type) {
+		case DNS_T_CNAME: {
+			dns_get_domain(rrs, name, 128, &qtype, &qclass);
+			printf("domain: %s qtype: %d  qclass: %d\n", name, qtype, qclass);
 		} break;
 		default:
 			break;

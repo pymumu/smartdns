@@ -71,10 +71,10 @@ struct dns_head {
 	unsigned short id;      // identification number
 	unsigned short qr;      /* Query/Response Flag */
 	unsigned short opcode;  /* Operation Code */
-	unsigned char aa;      /* Authoritative Answer Flag */
-	unsigned char tc;      /* Truncation Flag */
-	unsigned char rd;      /* Recursion Desired */
-	unsigned char ra;      /* Recursion Available */
+	unsigned char aa;       /* Authoritative Answer Flag */
+	unsigned char tc;       /* Truncation Flag */
+	unsigned char rd;       /* Recursion Desired */
+	unsigned char ra;       /* Recursion Available */
 	unsigned short rcode;   /* Response Code */
 	unsigned short qdcount; // number of question entries
 	unsigned short ancount; // number of answer entries
@@ -98,6 +98,20 @@ struct dns_packet {
 	int size;
 	int len;
 	unsigned char data[0];
+};
+
+struct dns_data_context
+{
+	unsigned char *data;
+	unsigned char *ptr;
+	unsigned int maxsize;
+};
+
+struct dns_context {
+	struct dns_packet *packet;
+	unsigned char *data;
+	unsigned int maxsize;
+	unsigned char *ptr;
 };
 
 struct dns_rrs *dns_get_rrs_next(struct dns_packet *packet, struct dns_rrs *rrs);
