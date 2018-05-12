@@ -14,7 +14,15 @@
 #define RA_MASK 0x8000
 #define RCODE_MASK 0x000F
 
-typedef enum dns_section { DNS_S_QD = 0x01, DNS_S_AN = 0x02, DNS_S_NS = 0x04, DNS_S_AR = 0x08, DNS_S_ALL = 0x0f } dns_section_t;
+#define DNS_RR_A_LEN 4
+#define DNS_RR_AAAA_LEN 16
+
+#define DNS_RRS_QD 0
+#define DNS_RRS_AN 1
+#define DNS_RRS_NS 2
+#define DNS_RRS_NR 3
+
+#define DNS_RR_END (-1)
 
 typedef enum dns_class { DNS_C_IN = 1, DNS_C_ANY = 255 } dns_class_t;
 
@@ -63,87 +71,16 @@ struct dns_head {
 	unsigned short id;      // identification number
 	unsigned short qr;      /* Query/Response Flag */
 	unsigned short opcode;  /* Operation Code */
-	unsigned short aa;      /* Authoritative Answer Flag */
-	unsigned short tc;      /* Truncation Flag */
-	unsigned short rd;      /* Recursion Desired */
-	unsigned short ra;      /* Recursion Available */
+	unsigned char aa;      /* Authoritative Answer Flag */
+	unsigned char tc;      /* Truncation Flag */
+	unsigned char rd;      /* Recursion Desired */
+	unsigned char ra;      /* Recursion Available */
 	unsigned short rcode;   /* Response Code */
 	unsigned short qdcount; // number of question entries
 	unsigned short ancount; // number of answer entries
 	unsigned short nscount; // number of authority entries
 	unsigned short nrcount; // number of addititional resource entries
 } __attribute__((packed));
-
-struct dns_qds {
-	unsigned short type;
-	unsigned short classes;
-};
-
-typedef uint32_t TTL;
-
-typedef struct dns_question_t /* RFC-1035 */
-{
-	const char *name;
-	dns_type_t type;
-	dns_class_t class;
-} dns_question_t;
-
-typedef struct dns_generic_t /* RFC-1035 */
-{
-	const char *name;
-	dns_type_t type;
-	dns_class_t class;
-	TTL ttl;
-} dns_generic_t;
-
-typedef struct dns_a_t /* RFC-1035 */
-{
-	const char *name;
-	dns_type_t type;
-	dns_class_t class;
-	TTL ttl;
-	in_addr_t address;
-} dns_a_t;
-
-typedef struct dns_aaaa_t /* RFC-1886 */
-{
-	const char *name;
-	dns_type_t type;
-	dns_class_t class;
-	TTL ttl;
-	struct in6_addr address;
-} dns_aaaa_t;
-
-typedef struct dns_cname_t /* RFC-1035 */
-{
-	const char *name;
-	dns_type_t type;
-	dns_class_t class;
-	TTL ttl;
-	const char *cname;
-} dns_cname_t;
-
-typedef struct dns_ptr_t /* RFC-1035 */
-{
-	const char *name;
-	dns_type_t type;
-	dns_class_t class;
-	TTL ttl;
-	const char *ptr;
-} dns_ptr_t;
-
-typedef union dns_answer_t {
-	dns_generic_t generic;
-	dns_a_t a;
-	dns_cname_t cname;
-	dns_ptr_t ptr;
-	dns_aaaa_t aaaa;
-} dns_answer_t;
-
-#define DNS_RR_QD 0
-#define DNS_RR_AN 1
-#define DNS_RR_NS 2
-#define DNS_RR_NR 3
 
 struct dns_rrs {
 	unsigned short next;
@@ -163,18 +100,26 @@ struct dns_packet {
 	unsigned char data[0];
 };
 
-int dns_decode(struct dns_packet *packet, unsigned char *data, int size);
+struct dns_rrs *dns_get_rrs_next(struct dns_packet *packet, struct dns_rrs *rrs);
 
-int dns_encode(unsigned char *data, int size, struct dns_packet *packet);
+struct dns_rrs *dns_get_rrs_start(struct dns_packet *packet, int type, int *count);
 
-int dns_packet_init(struct dns_packet *packet, int size);
+int dns_add_A(struct dns_packet *packet, char *domain, int ttl, unsigned char addr[4]);
+
+int dns_get_A(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, unsigned char addr[4]);
+
+int dns_add_AAAA(struct dns_packet *packet, char *domain, int ttl, unsigned char addr[16]);
+
+int dns_get_AAAA(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, unsigned char addr[16]);
 
 int dns_get_domain(struct dns_rrs *rrs, char *domain, int maxsize, int *qtype, int *qclass);
 
 int dns_add_domain(struct dns_packet *packet, char *domain, int qtype, int qclass);
 
-struct dns_rrs *dns_rr_get_next(struct dns_packet *packet, struct dns_rrs *rrs);
+int dns_decode(struct dns_packet *packet, int maxsize, unsigned char *data, int size);
 
-struct dns_rrs *dns_rr_get_start(struct dns_packet *packet, int type, int *count);
+int dns_encode(unsigned char *data, int size, struct dns_packet *packet);
+
+int dns_packet_init(struct dns_packet *packet, int size, struct dns_head *head);
 
 #endif
