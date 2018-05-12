@@ -102,7 +102,7 @@ unsigned char *dns_rr_add_start(struct dns_packet *packet, int *maxlen)
     return rrs->data;
 }
 
-int dns_rr_add_end(struct dns_packet *packet, int type, int len)
+int dns_rr_add_end(struct dns_packet *packet, int type, dns_type_t rrtype, int len)
 {
     struct dns_rrs *rrs;
     struct dns_head *head = &packet->head;
@@ -140,7 +140,8 @@ int dns_rr_add_end(struct dns_packet *packet, int type, int len)
     *count += 1;
     rrs->next = *start;
     rrs->len = len;
-    *start = packet->len;
+	rrs->type = rrtype;
+	*start = packet->len;
     packet->len += len;
     return 0;
 }
@@ -257,13 +258,17 @@ int dns_decode_qd(unsigned char *data, int size, char *domain, int domain_size, 
     return len;
 }
 
+/*
+ * Format:
+ * |DNS_NAME\0(string)|qtype(short)|qclass(short)|
+ */
 int dns_add_domain(struct dns_packet *packet, char *domain, int qtype, int qclass)
 {
     int maxlen = 0;
     int i;
     int len = 0;
     unsigned char *data = dns_rr_add_start(packet, &maxlen);
-    unsigned char *data_ptr = data;
+
     if (data == NULL) {
         return -1;
     }
@@ -287,13 +292,12 @@ int dns_add_domain(struct dns_packet *packet, char *domain, int qtype, int qclas
     data += 2;
     len += 2;
 
-    return dns_rr_add_end(packet, DNS_RR_QD, len);
+    return dns_rr_add_end(packet, DNS_RR_QD, DNS_T_CNAME, len);
 }
 
-int dns_add_A(struct dns_packet *packet, char *domain, int qtype, int qclass)
+int dns_add_A(struct dns_packet *packet, unsigned char addr[4])
 {
     int maxlen = 0;
-    int i;
     int len = 0;
     unsigned char *data = dns_rr_add_start(packet, &maxlen);
     unsigned char *data_ptr = data;
@@ -301,23 +305,27 @@ int dns_add_A(struct dns_packet *packet, char *domain, int qtype, int qclass)
         return -1;
     }
 
+	memcpy(data, addr, 4);
+	data += 4;
+	len += 4;
 
-    return dns_rr_add_end(packet, DNS_RR_AN, len);
+	return dns_rr_add_end(packet, DNS_RR_AN, DNS_T_A, len);
 }
 
-int dns_add_AAAA(struct dns_packet *packet, char *domain, int qtype, int qclass)
+int dns_add_AAAA(struct dns_packet *packet, unsigned char addr[16])
 {
     int maxlen = 0;
-    int i;
     int len = 0;
     unsigned char *data = dns_rr_add_start(packet, &maxlen);
-    unsigned char *data_ptr = data;
     if (data == NULL) {
         return -1;
     }
 
+	memcpy(data, addr, 4);
+	data += 4;
+	len += 4;
 
-    return dns_rr_add_end(packet, DNS_RR_AN, len);
+    return dns_rr_add_end(packet, DNS_RR_AN, DNS_T_AAAA, len);
 }
 
 int dns_get_domain(struct dns_rrs *rrs, char *domain, int maxsize, int *qtype, int *qclass)

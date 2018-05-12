@@ -148,6 +148,7 @@ typedef union dns_answer_t {
 struct dns_rrs {
 	unsigned short next;
 	unsigned short len;
+	dns_type_t type;
 	unsigned char data[0];
 };
 
@@ -163,5 +164,17 @@ struct dns_packet {
 };
 
 int dns_decode(struct dns_packet *packet, unsigned char *data, int size);
+
+int dns_encode(unsigned char *data, int size, struct dns_packet *packet);
+
+int dns_packet_init(struct dns_packet *packet, int size);
+
+int dns_get_domain(struct dns_rrs *rrs, char *domain, int maxsize, int *qtype, int *qclass);
+
+int dns_add_domain(struct dns_packet *packet, char *domain, int qtype, int qclass);
+
+struct dns_rrs *dns_rr_get_next(struct dns_packet *packet, struct dns_rrs *rrs);
+
+struct dns_rrs *dns_rr_get_start(struct dns_packet *packet, int type, int *count);
 
 #endif
