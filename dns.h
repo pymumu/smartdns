@@ -22,7 +22,7 @@
 #define DNS_RRS_NS 2
 #define DNS_RRS_NR 3
 
-#define DNS_RR_END (-1)
+#define DNS_RR_END (0XFFFF)
 
 typedef enum dns_class { DNS_C_IN = 1, DNS_C_ANY = 255 } dns_class_t;
 
@@ -117,6 +117,10 @@ struct dns_context {
 struct dns_rrs *dns_get_rrs_next(struct dns_packet *packet, struct dns_rrs *rrs);
 
 struct dns_rrs *dns_get_rrs_start(struct dns_packet *packet, int type, int *count);
+
+int dns_add_CNAME(struct dns_packet *packet, char *domain, int ttl, char *cname);
+
+int dns_get_CNAME(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, char *cname, int cname_size);
 
 int dns_add_A(struct dns_packet *packet, char *domain, int ttl, unsigned char addr[4]);
 

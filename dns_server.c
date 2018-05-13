@@ -46,7 +46,7 @@ static void tv_sub(struct timeval *out, struct timeval *in)
 
 void _dns_server_period_run()
 {
-	return;
+	
 	unsigned char packet_data[DNS_INPACKET_SIZE];
 	unsigned char data[DNS_INPACKET_SIZE];
 
@@ -64,7 +64,7 @@ void _dns_server_period_run()
 	socklen_t to_len = sizeof(to);
 
 	dns_packet_init(packet, DNS_INPACKET_SIZE, &head);
-	dns_add_domain(packet, "www.baidu.com", 1, 1);
+	dns_add_domain(packet, "www.huawei.com", 1, 1);
 	len = dns_encode(data, DNS_INPACKET_SIZE, packet);
 
 	memset(&to, 0, sizeof(to));
@@ -75,8 +75,6 @@ void _dns_server_period_run()
 	if (len < 0) {
 		printf("send failed.");
 	}
-
-	printf("send %d\n", len);
 }
 
 static int _dns_server_process(struct timeval *now)
@@ -97,6 +95,7 @@ static int _dns_server_process(struct timeval *now)
 	len = dns_decode(packet, DNS_INPACKET_SIZE, inpacket, len);
 	if (len) {
 		printf("decode failed.\n");
+		return 0;
 		goto errout;
 	}
 
@@ -116,6 +115,11 @@ static int _dns_server_process(struct timeval *now)
 			dns_get_A(rrs, name, 128, &ttl, addr);
 			printf("%s %d : %d.%d.%d.%d\n", name, ttl, addr[0], addr[1], addr[2], addr[3]);
 		} break;
+		case DNS_T_CNAME: {
+			char cname[128];
+			dns_get_CNAME(rrs, name, 128, &ttl, cname, 128);
+			printf("%s %d : %s\n", name, ttl, cname);
+		} break;
 		default:
 			break;
 		}
@@ -133,6 +137,7 @@ static int _dns_server_process(struct timeval *now)
 		}
 	}
 
+	printf("\n");
 	return 0;
 errout:
 	return -1;
@@ -157,7 +162,7 @@ int dns_server_run(void)
 			last = now;
 		}
 
-		num = epoll_wait(server.epoll_fd, events, DNS_MAX_EVENTS, 100);
+		num = epoll_wait(server.epoll_fd, events, DNS_MAX_EVENTS, 1000);
 		if (num < 0) {
 			gettimeofday(&now, 0);
 			usleep(100000);
