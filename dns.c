@@ -363,7 +363,7 @@ int dns_get_AAAA(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, unsig
 	data_context.maxsize = rrs->len;
 
 	ret = _dns_get_rr_head(&data_context, domain, maxsize, &qtype, &qclass, ttl, &rr_len);
-	if (ret <= 0) {
+	if (ret < 0) {
 		return -1;
 	}
 
@@ -562,7 +562,7 @@ int _dns_encode_qr_head(struct dns_context *context, char *domain, int qtype, in
 {
 	int ret = 0;
 	ret = _dns_encode_domain(context, domain);
-	if (ret <= 0) {
+	if (ret < 0) {
 		return -1;
 	}
 
@@ -581,7 +581,7 @@ int _dns_decode_rr_head(struct dns_context *context, char *domain, int domain_si
 	int len = 0;
 
 	len = _dns_decode_qr_head(context, domain, domain_size, qtype, qclass);
-	if (len <= 0) {
+	if (len < 0) {
 		return -1;
 	}
 
@@ -599,7 +599,7 @@ int _dns_encode_rr_head(struct dns_context *context, char *domain, int qtype, in
 {
 	int ret = 0;
 	ret = _dns_encode_qr_head(context, domain, qtype, qclass);
-	if (ret <= 0) {
+	if (ret < 0) {
 		return -1;
 	}
 
@@ -648,7 +648,7 @@ int _dns_encode_A(struct dns_context *context, struct dns_rrs *rrs)
 	}
 
 	ret = _dns_encode_rr_head(context, domain, qtype, qclass, ttl, DNS_RR_A_LEN);
-	if (ret <= 0) {
+	if (ret < 0) {
 		return -1;
 	}
 
@@ -688,7 +688,7 @@ int _dns_encode_AAAA(struct dns_context *context, struct dns_rrs *rrs)
 	data_context.maxsize = rrs->len;
 
 	ret = _dns_get_rr_head(&data_context, domain, DNS_MAX_CNAME_LEN, &qtype, &qclass, &ttl, &rr_len);
-	if (ret <= 0) {
+	if (ret < 0) {
 		return -1;
 	}
 
@@ -697,7 +697,7 @@ int _dns_encode_AAAA(struct dns_context *context, struct dns_rrs *rrs)
 	}
 
 	ret = _dns_encode_rr_head(context, domain, qtype, qclass, ttl, DNS_RR_AAAA_LEN);
-	if (ret <= 0) {
+	if (ret < 0) {
 		return -1;
 	}
 
@@ -725,7 +725,7 @@ int _dns_decode_qd(struct dns_context *context)
 	}
 
 	len = dns_add_domain(packet, domain, qtype, qclass);
-	if (len <= 0) {
+	if (len < 0) {
 		return -1;
 	}
 
@@ -792,12 +792,12 @@ int _dns_encode_qd(struct dns_context *context, struct dns_rrs *rrs)
 	data_context.maxsize = rrs->len;
 
 	ret = _dns_get_qr_head(&data_context, domain, DNS_MAX_CNAME_LEN, &qtype, &qclass);
-	if (ret <= 0) {
+	if (ret < 0) {
 		return -1;
 	}
 
 	ret = _dns_encode_qr_head(context, domain, qtype, qclass);
-	if (ret <= 0) {
+	if (ret < 0) {
 		return -1;
 	}
 
@@ -836,7 +836,7 @@ int _dns_decode_body(struct dns_context *context)
 
 	for (i = 0; i < head->qdcount; i++) {
 		ret = _dns_decode_qd(context);
-		if (ret <= 0) {
+		if (ret < 0) {
 			return -1;
 		}
 		head->qdcount--;
@@ -844,7 +844,7 @@ int _dns_decode_body(struct dns_context *context)
 
 	for (i = 0; i < head->ancount; i++) {
 		ret = _dns_decode_an(context);
-		if (ret <= 0) {
+		if (ret < 0) {
 			return -1;
 		}
 		head->ancount--;
@@ -866,7 +866,7 @@ int _dns_encode_body(struct dns_context *context)
 	head->qdcount = count;
 	for (i = 0; i < count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
 		len = _dns_encode_qd(context, rrs);
-		if (len <= 0) {
+		if (len < 0) {
 			return -1;
 		}
 	}
@@ -875,7 +875,7 @@ int _dns_encode_body(struct dns_context *context)
 	head->ancount = count;
 	for (i = 0; i < count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
 		len = _dns_encode_an(context, rrs);
-		if (len <= 0) {
+		if (len < 0) {
 			return -1;
 		}
 	}
@@ -944,12 +944,12 @@ int dns_encode(unsigned char *data, int size, struct dns_packet *packet)
 	context.maxsize = size;
 
 	ret = _dns_encode_head(&context);
-	if (ret <= 0) {
+	if (ret < 0) {
 		return -1;
 	}
 
 	ret = _dns_encode_body(&context);
-	if (ret <= 0) {
+	if (ret < 0) {
 		return -1;
 	}
 
