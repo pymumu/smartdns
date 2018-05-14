@@ -56,7 +56,7 @@ void _dns_server_period_run()
 	memset(&head, 0, sizeof(head));
 	head.rcode = 0;
 	head.qr = 0;
-	head.ra = 1;
+	head.ra = 0;
 	head.id = 1;
 
 	int len;
@@ -85,12 +85,14 @@ static int _dns_server_process(struct timeval *now)
 	struct dns_packet *packet = (struct dns_packet *)rsppacket;
 	struct sockaddr_storage from;
 	socklen_t from_len = sizeof(from);
+	int data_len;
 
 	len = recvfrom(server.fd, inpacket, sizeof(inpacket), 0, (struct sockaddr *)&from, (socklen_t *)&from_len);
 	if (len < 0) {
 		fprintf(stderr, "recvfrom failed, %s\n", strerror(errno));
 		goto errout;
 	}
+	data_len = len;
 
 	len = dns_decode(packet, DNS_INPACKET_SIZE, inpacket, len);
 	if (len) {
@@ -107,6 +109,22 @@ static int _dns_server_process(struct timeval *now)
 	int qtype;
 	int qclass;
 
+	printf("qdcount = %d, ancount = %d, nscount = %d, nrcount = %d, len = %d\n", 
+		packet->head.qdcount, packet->head.ancount, packet->head.nscount, 
+		packet->head.nrcount, data_len);
+		
+	rrs = dns_get_rrs_start(packet, DNS_RRS_QD, &count);
+	for (i = 0; i < count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
+		switch (rrs->type) {
+		case DNS_T_CNAME: {
+			dns_get_domain(rrs, name, 128, &qtype, &qclass);
+			printf("domain: %s qtype: %d  qclass: %d\n", name, qtype, qclass);
+		} break;
+		default:
+			break;
+		}
+	}
+
 	rrs = dns_get_rrs_start(packet, DNS_RRS_AN, &count);
 	for (i = 0; i < count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
 		switch (rrs->type) {
@@ -119,18 +137,6 @@ static int _dns_server_process(struct timeval *now)
 			char cname[128];
 			dns_get_CNAME(rrs, name, 128, &ttl, cname, 128);
 			printf("%s %d : %s\n", name, ttl, cname);
-		} break;
-		default:
-			break;
-		}
-	}
-
-	rrs = dns_get_rrs_start(packet, DNS_RRS_QD, &count);
-	for (i = 0; i < count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
-		switch (rrs->type) {
-		case DNS_T_CNAME: {
-			dns_get_domain(rrs, name, 128, &qtype, &qclass);
-			printf("domain: %s qtype: %d  qclass: %d\n", name, qtype, qclass);
 		} break;
 		default:
 			break;

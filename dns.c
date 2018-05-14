@@ -109,6 +109,7 @@ unsigned char *_dns_add_rrs_start(struct dns_packet *packet, int *maxlen)
 int dns_rr_add_end(struct dns_packet *packet, int type, dns_type_t rrtype, int len)
 {
     struct dns_rrs *rrs;
+    struct dns_rrs *rrs_next;
     struct dns_head *head = &packet->head;
     unsigned char *end = packet->data + packet->len;
     rrs = (struct dns_rrs *)end;
@@ -141,11 +142,21 @@ int dns_rr_add_end(struct dns_packet *packet, int type, dns_type_t rrtype, int l
         break;
     }
 
+    if (*start != DNS_RR_END) {
+        rrs_next = (struct dns_rrs *)(packet->data + *start);
+        while (rrs_next->next != DNS_RR_END) {
+            rrs_next = (struct dns_rrs *)(packet->data + rrs_next->next);
+        }
+		rrs_next->next = packet->len;
+    } else {
+		*start = packet->len;
+    }
+
+    rrs->next = DNS_RR_END;//*start;
     *count += 1;
-    rrs->next = *start;
     rrs->len = len;
     rrs->type = rrtype;
-    *start = packet->len;
+    //*start = packet->len;
     packet->len += len + sizeof(*rrs);
     return 0;
 }
@@ -518,7 +529,6 @@ int _dns_decode_head(struct dns_context *context)
     head->nscount = dns_read_short(&context->ptr);
     head->nrcount = dns_read_short(&context->ptr);
 
-	printf("qd = %d, an = %d\n", head->qdcount, head->ancount);
     return 0;
 }
 
