@@ -1,3 +1,21 @@
+/*************************************************************************
+ *
+ * Copyright (C) 2018 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ *
+ * smartdns is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * smartdns is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
 #include "dns_server.h"
 #include "dns.h"
 #include "hashtable.h"
@@ -46,7 +64,6 @@ static void tv_sub(struct timeval *out, struct timeval *in)
 
 void _dns_server_period_run()
 {
-	
 	unsigned char packet_data[DNS_INPACKET_SIZE];
 	unsigned char data[DNS_INPACKET_SIZE];
 
@@ -56,6 +73,7 @@ void _dns_server_period_run()
 	memset(&head, 0, sizeof(head));
 	head.rcode = 0;
 	head.qr = 0;
+	head.rd = 1;
 	head.ra = 0;
 	head.id = 1;
 
@@ -82,7 +100,12 @@ static int _dns_server_process(struct timeval *now)
 	int len;
 	unsigned char inpacket[DNS_INPACKET_SIZE];
 	unsigned char rsppacket[DNS_INPACKET_SIZE];
+	unsigned char aswpacket[DNS_INPACKET_SIZE];
+	unsigned char outpacket[DNS_INPACKET_SIZE];
+
 	struct dns_packet *packet = (struct dns_packet *)rsppacket;
+	struct dns_packet *anspacket = (struct dns_packet *)aswpacket;
+
 	struct sockaddr_storage from;
 	socklen_t from_len = sizeof(from);
 	int data_len;
@@ -105,41 +128,81 @@ static int _dns_server_process(struct timeval *now)
 	struct dns_rrs *rrs;
 	char name[128];
 	int i = 0;
+	int j = 0;
 	int ttl;
 	int qtype;
 	int qclass;
 
-	printf("qdcount = %d, ancount = %d, nscount = %d, nrcount = %d, len = %d\n", 
-		packet->head.qdcount, packet->head.ancount, packet->head.nscount, 
-		packet->head.nrcount, data_len);
-		
+	struct dns_head head;
+	memset(&head, 0, sizeof(head));
+	head.rcode = 0;
+	head.qr = 1;
+	head.rd = 1;
+	head.ra = 0;
+	head.id = packet->head.id;
+	int n = 0;
+
+	dns_packet_init(anspacket, DNS_INPACKET_SIZE, &head);
+
+	printf("qdcount = %d, ancount = %d, nscount = %d, nrcount = %d, len = %d\n", packet->head.qdcount, packet->head.ancount, packet->head.nscount,
+		   packet->head.nrcount, data_len);
+
 	rrs = dns_get_rrs_start(packet, DNS_RRS_QD, &count);
 	for (i = 0; i < count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
-		switch (rrs->type) {
-		case DNS_T_CNAME: {
-			dns_get_domain(rrs, name, 128, &qtype, &qclass);
-			printf("domain: %s qtype: %d  qclass: %d\n", name, qtype, qclass);
+		dns_get_domain(rrs, name, 128, &qtype, &qclass);
+		printf("domain: %s qtype: %d  qclass: %d\n", name, qtype, qclass);
+		switch (qtype) {
+		case DNS_T_A: {
+			unsigned char addr[4];
+			addr[0] = 192;
+			addr[1] = 188;
+			addr[2] = 9;
+			addr[3] = 8;
+			dns_add_A(anspacket, DNS_RRS_AN, name, 60 * 60, addr);
+			n++;
+		} break;
+		case DNS_T_AAAA: {
+			unsigned char addr[16];
+			addr[0] = 192;
+			addr[1] = 188;
+			addr[2] = 9;
+			addr[3] = 8;
+			dns_add_AAAA(anspacket, DNS_RRS_AN, name, 60 * 60, addr);
+			n++;
+		} break;
+		case DNS_T_PTR:{
+			dns_add_PTR(anspacket, DNS_RRS_AN, name, 60 * 60, "raspberrypi.larva-family.com");
+			n++;
 		} break;
 		default:
 			break;
 		}
 	}
 
-	rrs = dns_get_rrs_start(packet, DNS_RRS_AN, &count);
-	for (i = 0; i < count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
-		switch (rrs->type) {
-		case DNS_T_A: {
-			unsigned char addr[4];
-			dns_get_A(rrs, name, 128, &ttl, addr);
-			printf("%s %d : %d.%d.%d.%d\n", name, ttl, addr[0], addr[1], addr[2], addr[3]);
-		} break;
-		case DNS_T_CNAME: {
-			char cname[128];
-			dns_get_CNAME(rrs, name, 128, &ttl, cname, 128);
-			printf("%s %d : %s\n", name, ttl, cname);
-		} break;
-		default:
-			break;
+	if (n > 0 && packet->head.qr == 0) {
+		dns_add_CNAME(anspacket, DNS_RRS_AN, name, 60 * 60, name);
+		len = dns_encode(outpacket, DNS_INPACKET_SIZE, anspacket);
+		sendto(server.fd, outpacket, len, 0, (struct sockaddr *)&from, from_len);
+	}
+
+	for (j = 1; j < DNS_RRS_END; j++) {
+		rrs = dns_get_rrs_start(packet, j, &count);
+		for (i = 0; i < count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
+			switch (rrs->type) {
+			case DNS_T_A: {
+				unsigned char addr[4];
+				dns_get_A(rrs, name, 128, &ttl, addr);
+				printf("%s %d : %d.%d.%d.%d\n", name, ttl, addr[0], addr[1], addr[2], addr[3]);
+			} break;
+			case DNS_T_NS:
+			case DNS_T_CNAME: {
+				char cname[128];
+				dns_get_CNAME(rrs, name, 128, &ttl, cname, 128);
+				printf("%s %d : %s\n", name, ttl, cname);
+			} break;
+			default:
+				break;
+			}
 		}
 	}
 
