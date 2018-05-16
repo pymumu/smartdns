@@ -8,7 +8,9 @@
 
 #define DNS_RR_A_LEN 4
 #define DNS_RR_AAAA_LEN 16
-#define DNS_MAX_CNAME_LEN 128
+#define DNS_MAX_CNAME_LEN 256
+#define DNS_IN_PACKSIZE 512
+#define DNS_PACKSIZE (512 * 2)
 
 typedef enum dns_rr_type {
 	DNS_RRS_QD = 0,
@@ -125,18 +127,22 @@ int dns_add_CNAME(struct dns_packet *packet, dns_rr_type type, char *domain, int
 
 int dns_get_CNAME(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, char *cname, int cname_size);
 
-int dns_add_A(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, unsigned char addr[4]);
+int dns_add_A(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, unsigned char addr[DNS_RR_A_LEN]);
 
-int dns_get_A(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, unsigned char addr[4]);
+int dns_get_A(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, unsigned char addr[DNS_RR_A_LEN]);
 
 int dns_add_PTR(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, char *cname);
 
 int dns_get_PTR(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, char *cname, int cname_size);
 
-int dns_add_AAAA(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, unsigned char addr[16]);
+int dns_add_AAAA(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, unsigned char addr[DNS_RR_AAAA_LEN]);
 
-int dns_get_AAAA(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, unsigned char addr[16]);
+int dns_get_AAAA(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, unsigned char addr[DNS_RR_AAAA_LEN]);
 
+
+/* 
+ * Packet operation
+ */
 int dns_decode(struct dns_packet *packet, int maxsize, unsigned char *data, int size);
 
 int dns_encode(unsigned char *data, int size, struct dns_packet *packet);

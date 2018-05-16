@@ -18,6 +18,7 @@
 
 #include "dns_server.h"
 #include "dns.h"
+#include "list.h"
 #include "hashtable.h"
 #include <arpa/inet.h>
 #include <errno.h>
@@ -39,8 +40,6 @@
 
 #define DNS_MAX_EVENTS 256
 
-#define DNS_INPACKET_SIZE 512
-
 struct dns_server {
 	int run;
 	int epoll_fd;
@@ -49,6 +48,12 @@ struct dns_server {
 
 	pthread_mutex_t map_lock;
 	DECLARE_HASHTABLE(hostmap, 6);
+};
+
+
+struct dns_request {
+	struct hlist_node map;
+	char host[DNS_MAX_CNAME_LEN];
 };
 
 static struct dns_server server;
@@ -64,8 +69,8 @@ static void tv_sub(struct timeval *out, struct timeval *in)
 
 void _dns_server_period_run()
 {
-	unsigned char packet_data[DNS_INPACKET_SIZE];
-	unsigned char data[DNS_INPACKET_SIZE];
+	unsigned char packet_data[DNS_PACKSIZE];
+	unsigned char data[DNS_IN_PACKSIZE];
 
 	struct dns_packet *packet = (struct dns_packet *)packet_data;
 
@@ -81,9 +86,9 @@ void _dns_server_period_run()
 	struct sockaddr_in to;
 	socklen_t to_len = sizeof(to);
 
-	dns_packet_init(packet, DNS_INPACKET_SIZE, &head);
-	dns_add_domain(packet, "www.huawei.com", 1, 1);
-	len = dns_encode(data, DNS_INPACKET_SIZE, packet);
+	dns_packet_init(packet, DNS_PACKSIZE, &head);
+	dns_add_domain(packet, "www.huawei.com", DNS_T_A, 1);
+	len = dns_encode(data, DNS_IN_PACKSIZE, packet);
 
 	memset(&to, 0, sizeof(to));
 	to.sin_addr.s_addr = inet_addr("192.168.1.1");
@@ -98,10 +103,10 @@ void _dns_server_period_run()
 static int _dns_server_process(struct timeval *now)
 {
 	int len;
-	unsigned char inpacket[DNS_INPACKET_SIZE];
-	unsigned char rsppacket[DNS_INPACKET_SIZE];
-	unsigned char aswpacket[DNS_INPACKET_SIZE];
-	unsigned char outpacket[DNS_INPACKET_SIZE];
+	unsigned char inpacket[DNS_IN_PACKSIZE];
+	unsigned char rsppacket[DNS_PACKSIZE];
+	unsigned char aswpacket[DNS_PACKSIZE];
+	unsigned char outpacket[DNS_IN_PACKSIZE];
 
 	struct dns_packet *packet = (struct dns_packet *)rsppacket;
 	struct dns_packet *anspacket = (struct dns_packet *)aswpacket;
@@ -117,7 +122,7 @@ static int _dns_server_process(struct timeval *now)
 	}
 	data_len = len;
 
-	len = dns_decode(packet, DNS_INPACKET_SIZE, inpacket, len);
+	len = dns_decode(packet, DNS_PACKSIZE, inpacket, len);
 	if (len) {
 		printf("decode failed.\n");
 		return 0;
@@ -137,12 +142,12 @@ static int _dns_server_process(struct timeval *now)
 	memset(&head, 0, sizeof(head));
 	head.rcode = 0;
 	head.qr = 1;
-	head.rd = 1;
-	head.ra = 0;
+	head.rd = packet->head.rd;
+	head.ra = packet->head.ra;
 	head.id = packet->head.id;
 	int n = 0;
 
-	dns_packet_init(anspacket, DNS_INPACKET_SIZE, &head);
+	dns_packet_init(anspacket, DNS_PACKSIZE, &head);
 
 	printf("qdcount = %d, ancount = %d, nscount = %d, nrcount = %d, len = %d\n", packet->head.qdcount, packet->head.ancount, packet->head.nscount,
 		   packet->head.nrcount, data_len);
@@ -155,18 +160,16 @@ static int _dns_server_process(struct timeval *now)
 		case DNS_T_A: {
 			unsigned char addr[4];
 			addr[0] = 192;
-			addr[1] = 188;
+			addr[1] = 148;
 			addr[2] = 9;
-			addr[3] = 8;
+			addr[3] = 3;
 			dns_add_A(anspacket, DNS_RRS_AN, name, 60 * 60, addr);
 			n++;
 		} break;
 		case DNS_T_AAAA: {
 			unsigned char addr[16];
-			addr[0] = 192;
-			addr[1] = 188;
-			addr[2] = 9;
-			addr[3] = 8;
+			memset(addr, 0, 16);
+			addr[0] = 1;
 			dns_add_AAAA(anspacket, DNS_RRS_AN, name, 60 * 60, addr);
 			n++;
 		} break;
@@ -180,8 +183,8 @@ static int _dns_server_process(struct timeval *now)
 	}
 
 	if (n > 0 && packet->head.qr == 0) {
-		dns_add_CNAME(anspacket, DNS_RRS_AN, name, 60 * 60, name);
-		len = dns_encode(outpacket, DNS_INPACKET_SIZE, anspacket);
+		dns_add_domain(anspacket, name, qtype, qclass);
+		len = dns_encode(outpacket, DNS_IN_PACKSIZE, anspacket);
 		sendto(server.fd, outpacket, len, 0, (struct sockaddr *)&from, from_len);
 	}
 

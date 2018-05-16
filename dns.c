@@ -132,7 +132,7 @@ unsigned char *_dns_add_rrs_start(struct dns_packet *packet, int *maxlen)
 	return rrs->data;
 }
 
-int dns_rr_add_end(struct dns_packet *packet, int type, dns_type_t rrtype, int len)
+int dns_rr_add_end(struct dns_packet *packet, int type, dns_type_t rtype, int len)
 {
 	struct dns_rrs *rrs;
 	struct dns_rrs *rrs_next;
@@ -181,7 +181,7 @@ int dns_rr_add_end(struct dns_packet *packet, int type, dns_type_t rrtype, int l
 	rrs->next = DNS_RR_END; //*start;
 	*count += 1;
 	rrs->len = len;
-	rrs->type = rrtype;
+	rrs->type = rtype;
 	packet->len += len + sizeof(*rrs);
 	return 0;
 }
@@ -293,20 +293,18 @@ int _dns_get_rr_head(struct dns_data_context *data_context, char *domain, int ma
 	return len;
 }
 
-int dns_add_CNAME(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, char *cname)
+int dns_add_RAW(struct dns_packet *packet, dns_rr_type rrtype, dns_type_t rtype, char *domain, int ttl, void *raw, int raw_len)
 {
 	int maxlen = 0;
 	int len = 0;
 	struct dns_data_context data_context;
-	int rr_len = 0;
 
-	rr_len = strnlen(cname, maxlen - 1) + 1;
 	unsigned char *data = _dns_add_rrs_start(packet, &maxlen);
 	if (data == NULL) {
 		return -1;
 	}
 
-	if (rr_len >= maxlen) {
+	if (raw_len >= maxlen) {
 		return -1;
 	}
 
@@ -314,180 +312,98 @@ int dns_add_CNAME(struct dns_packet *packet, dns_rr_type type, char *domain, int
 	data_context.ptr = data;
 	data_context.maxsize = maxlen;
 
-	len = _dns_add_rr_head(&data_context, domain, DNS_T_CNAME, DNS_C_IN, ttl, rr_len);
+	len = _dns_add_rr_head(&data_context, domain, rtype, DNS_C_IN, ttl, raw_len);
 	if (len < 0) {
 		return -1;
 	}
 
-	memcpy(data_context.ptr, cname, rr_len);
-	data_context.ptr += rr_len;
+	memcpy(data_context.ptr, raw, raw_len);
+	data_context.ptr += raw_len;
 	len = data_context.ptr - data_context.data;
 
-	return dns_rr_add_end(packet, type, DNS_T_CNAME, len);
+	return dns_rr_add_end(packet, rrtype, rtype, len);
+}
+
+int dns_get_RAW(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, void *raw, int raw_len)
+{
+	int qtype = 0;
+	int qclass = 0;
+	int rr_len = 0;
+	int ret = 0;
+	struct dns_data_context data_context;
+
+	unsigned char *data = rrs->data;
+
+	data_context.data = data;
+	data_context.ptr = data;
+	data_context.maxsize = rrs->len;
+
+	ret = _dns_get_rr_head(&data_context, domain, maxsize, &qtype, &qclass, ttl, &rr_len);
+	if (ret < 0) {
+		return -1;
+	}
+
+	if (qtype != rrs->type || rr_len > raw_len) {
+		return -1;
+	}
+
+	memcpy(raw, data_context.ptr, rr_len);
+	data_context.ptr += rr_len;
+
+	return 0;
+}
+
+int dns_add_CNAME(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, char *cname)
+{
+	int rr_len = strnlen(cname, DNS_MAX_CNAME_LEN) + 1;
+	return dns_add_RAW(packet, type, DNS_T_CNAME, domain, ttl, cname, rr_len);
 }
 
 int dns_get_CNAME(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, char *cname, int cname_size)
 {
-	int qtype = 0;
-	int qclass = 0;
-	int rr_len = 0;
-	int ret = 0;
-	struct dns_data_context data_context;
-
-	unsigned char *data = rrs->data;
-
-	if (rrs->type != DNS_T_CNAME) {
-		return -1;
-	}
-
-	data_context.data = data;
-	data_context.ptr = data;
-	data_context.maxsize = rrs->len;
-
-	ret = _dns_get_rr_head(&data_context, domain, maxsize, &qtype, &qclass, ttl, &rr_len);
-	if (ret < 0) {
-		return -1;
-	}
-
-	if (qtype != DNS_T_CNAME || rr_len > cname_size) {
-		return -1;
-	}
-
-	memcpy(cname, data_context.ptr, rr_len);
-
-	return 0;
+	return dns_get_RAW(rrs, domain, maxsize, ttl, cname, cname_size);
 }
 
-int dns_add_A(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, unsigned char addr[4])
+int dns_add_A(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, unsigned char addr[DNS_RR_A_LEN])
 {
-	int maxlen = 0;
-	int len = 0;
-	struct dns_data_context data_context;
+	return dns_add_RAW(packet, type, DNS_T_A, domain, ttl, addr, DNS_RR_A_LEN);
+}
 
-	unsigned char *data = _dns_add_rrs_start(packet, &maxlen);
-	if (data == NULL) {
-		return -1;
-	}
-
-	data_context.data = data;
-	data_context.ptr = data;
-	data_context.maxsize = maxlen;
-
-	len = _dns_add_rr_head(&data_context, domain, DNS_T_A, DNS_C_IN, ttl, DNS_RR_A_LEN);
-	if (len < 0) {
-		return -1;
-	}
-
-	memcpy(data_context.ptr, addr, DNS_RR_A_LEN);
-	data_context.ptr += DNS_RR_A_LEN;
-	len = data_context.ptr - data_context.data;
-
-	return dns_rr_add_end(packet, type, DNS_T_A, len);
+int dns_get_A(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, unsigned char addr[DNS_RR_A_LEN])
+{
+	return dns_get_RAW(rrs, domain, maxsize, ttl, addr, DNS_RR_A_LEN);
 }
 
 int dns_add_PTR(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, char *cname)
 {
-	return dns_add_CNAME(packet, type, domain, ttl, cname);
+	int rr_len = strnlen(cname, DNS_MAX_CNAME_LEN) + 1;
+	return dns_add_RAW(packet, type, DNS_T_PTR, domain, ttl, cname, rr_len);
 }
 
 int dns_get_PTR(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, char *cname, int cname_size)
 {
-	return dns_get_CNAME(rrs, domain, maxsize, ttl, cname, cname_size);
+	return dns_get_RAW(rrs, domain, maxsize, ttl, cname, cname_size);
 }
 
-int dns_get_A(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, unsigned char addr[4])
+int dns_add_NS(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, char *cname)
 {
-	int qtype = 0;
-	int qclass = 0;
-	int rr_len = 0;
-	int ret = 0;
-	struct dns_data_context data_context;
-
-	unsigned char *data = rrs->data;
-
-	if (rrs->type != DNS_T_A) {
-		return -1;
-	}
-
-	data_context.data = data;
-	data_context.ptr = data;
-	data_context.maxsize = rrs->len;
-
-	ret = _dns_get_rr_head(&data_context, domain, maxsize, &qtype, &qclass, ttl, &rr_len);
-	if (ret < 0) {
-		return -1;
-	}
-
-	if (qtype != DNS_T_A || rr_len != DNS_RR_A_LEN) {
-		return -1;
-	}
-
-	memcpy(addr, data_context.ptr, DNS_RR_A_LEN);
-
-	return 0;
+	int rr_len = strnlen(cname, DNS_MAX_CNAME_LEN) + 1;
+	return dns_add_RAW(packet, type, DNS_T_NS, domain, ttl, cname, rr_len);
 }
 
-int dns_add_AAAA(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, unsigned char addr[16])
+int dns_get_NS(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, char *cname, int cname_size)
 {
-	int maxlen = 0;
-	int len = 0;
-	struct dns_data_context data_context;
-
-	unsigned char *data = _dns_add_rrs_start(packet, &maxlen);
-	if (data == NULL) {
-		return -1;
-	}
-
-	data_context.data = data;
-	data_context.ptr = data;
-	data_context.maxsize = maxlen;
-
-	len = _dns_add_rr_head(&data_context, domain, DNS_T_AAAA, DNS_C_IN, ttl, DNS_RR_AAAA_LEN);
-	if (len < 0) {
-		return -1;
-	}
-
-	memcpy(data_context.ptr, addr, DNS_RR_AAAA_LEN);
-	data_context.ptr += DNS_RR_AAAA_LEN;
-	len = data_context.ptr - data_context.data;
-
-	return dns_rr_add_end(packet, type, DNS_T_AAAA, len);
+	return dns_get_RAW(rrs, domain, maxsize, ttl, cname, cname_size);
 }
 
-int dns_get_AAAA(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, unsigned char addr[16])
+int dns_add_AAAA(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, unsigned char addr[DNS_RR_AAAA_LEN])
 {
-	int qtype = 0;
-	int qclass = 0;
-	int rr_len = 0;
-	int ret = 0;
-	struct dns_data_context data_context;
+	return dns_add_RAW(packet, type, DNS_T_AAAA, domain, ttl, addr, DNS_RR_AAAA_LEN);
+}
 
-	if (rrs->type != DNS_T_AAAA) {
-		return -1;
-	}
-
-	unsigned char *data = rrs->data;
-
-	if (rrs->type != DNS_T_AAAA) {
-		return -1;
-	}
-
-	data_context.data = data;
-	data_context.ptr = data;
-	data_context.maxsize = rrs->len;
-
-	ret = _dns_get_rr_head(&data_context, domain, maxsize, &qtype, &qclass, ttl, &rr_len);
-	if (ret < 0) {
-		return -1;
-	}
-
-	if (qtype != DNS_T_AAAA || rr_len != DNS_RR_AAAA_LEN) {
-		return -1;
-	}
-
-	memcpy(addr, data_context.ptr, DNS_RR_AAAA_LEN);
-
-	return 0;
+int dns_get_AAAA(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, unsigned char addr[DNS_RR_AAAA_LEN])
+{
+	return dns_get_RAW(rrs, domain, maxsize, ttl, addr, DNS_RR_AAAA_LEN);
 }
 
 /*
@@ -785,10 +701,11 @@ int _dns_encode_CNAME(struct dns_context *context, struct dns_rrs *rrs)
 		return -1;
 	}
 
-	ret = _dns_encode_domain(context, (char *)rrs->data);
+	ret = _dns_encode_domain(context, (char *)data_context.ptr);
 	if (ret < 0) {
 		return -1;
 	}
+	data_context.ptr += strnlen((char*)(data_context.ptr), DNS_MAX_CNAME_LEN) + 1;
 
 	return 0;
 }
@@ -838,6 +755,7 @@ int _dns_encode_A(struct dns_context *context, struct dns_rrs *rrs)
 
 	memcpy(context->ptr, data_context.ptr, DNS_RR_A_LEN);
 	context->ptr += DNS_RR_A_LEN;
+	data_context.ptr += DNS_RR_A_LEN;
 
 	return 0;
 }
@@ -852,42 +770,7 @@ int _dns_decode_PTR(struct dns_context *context, char *name, int name_size)
 
 int _dns_encode_PTR(struct dns_context *context, struct dns_rrs *rrs)
 {
-	int ret;
-	int qtype = 0;
-	int qclass = 0;
-	int ttl = 0;
-	char domain[DNS_MAX_CNAME_LEN];
-	int rr_len;
-	struct dns_data_context data_context;
-
-	data_context.data = rrs->data;
-	data_context.ptr = rrs->data;
-	data_context.maxsize = rrs->len;
-
-	ret = _dns_get_rr_head(&data_context, domain, DNS_MAX_CNAME_LEN, &qtype, &qclass, &ttl, &rr_len);
-	if (ret < 0) {
-		return -1;
-	}
-
-	if (rr_len >= data_context.maxsize) {
-		return -1;
-	}
-
-	ret = _dns_encode_rr_head(context, domain, qtype, qclass, ttl, rr_len);
-	if (ret < 0) {
-		return -1;
-	}
-
-	if (_dns_left_len(context) < rr_len) {
-		return -1;
-	}
-	
-	ret = _dns_encode_domain(context, (char *)data_context.ptr);
-    if (ret < 0) {
-		return -1;
-	}
-
-	return 0;
+	return _dns_encode_CNAME(context, rrs);
 }
 
 int _dns_decode_AAAA(struct dns_context *context, unsigned char addr[DNS_RR_AAAA_LEN])
@@ -933,8 +816,9 @@ int _dns_encode_AAAA(struct dns_context *context, struct dns_rrs *rrs)
 		return -1;
 	}
 
-	memcpy(context->ptr, context->ptr, DNS_RR_AAAA_LEN);
+	memcpy(context->ptr, data_context.ptr, DNS_RR_AAAA_LEN);
 	context->ptr += DNS_RR_AAAA_LEN;
+	data_context.ptr += DNS_RR_AAAA_LEN;
 
 	return 0;
 }
@@ -952,40 +836,7 @@ int _dns_decode_NS(struct dns_context *context, unsigned char addr[4])
 
 int _dns_encode_NS(struct dns_context *context, struct dns_rrs *rrs)
 {
-	int ret;
-	int qtype = 0;
-	int qclass = 0;
-	int ttl = 0;
-	char domain[DNS_MAX_CNAME_LEN];
-	int rr_len;
-	struct dns_data_context data_context;
-
-	data_context.data = rrs->data;
-	data_context.ptr = rrs->data;
-	data_context.maxsize = rrs->len;
-
-	ret = _dns_get_rr_head(&data_context, domain, DNS_MAX_CNAME_LEN, &qtype, &qclass, &ttl, &rr_len);
-	if (ret < 0) {
-		return -1;
-	}
-
-	if (rr_len != DNS_RR_A_LEN) {
-		return -1;
-	}
-
-	ret = _dns_encode_rr_head(context, domain, qtype, qclass, ttl, DNS_RR_A_LEN);
-	if (ret < 0) {
-		return -1;
-	}
-
-	if (_dns_left_len(context) < DNS_RR_A_LEN) {
-		return -1;
-	}
-
-	memcpy(context->ptr, rrs->data, DNS_RR_A_LEN);
-	context->ptr += DNS_RR_A_LEN;
-
-	return 0;
+	return _dns_encode_CNAME(context, rrs);
 }
 
 int _dns_decode_qd(struct dns_context *context)
@@ -1047,6 +898,18 @@ int _dns_decode_an(struct dns_context *context, dns_rr_type type)
 		}
 
 		ret = dns_add_CNAME(packet, type, domain, ttl, cname);
+		if (ret < 0) {
+			return -1;
+		}
+	} break;
+	case DNS_T_NS: {
+		char ns[DNS_MAX_CNAME_LEN];
+		ret = _dns_decode_CNAME(context, ns, DNS_MAX_CNAME_LEN);
+		if (ret < 0) {
+			return -1;
+		}
+
+		ret = dns_add_NS(packet, type, domain, ttl, ns);
 		if (ret < 0) {
 			return -1;
 		}
