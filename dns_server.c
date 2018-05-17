@@ -18,8 +18,9 @@
 
 #include "dns_server.h"
 #include "dns.h"
-#include "list.h"
 #include "hashtable.h"
+#include "list.h"
+#include "dns_client.h"
 #include <arpa/inet.h>
 #include <errno.h>
 #include <linux/filter.h>
@@ -50,10 +51,23 @@ struct dns_server {
 	DECLARE_HASHTABLE(hostmap, 6);
 };
 
-
 struct dns_request {
 	struct hlist_node map;
-	char host[DNS_MAX_CNAME_LEN];
+	char domain[DNS_MAX_CNAME_LEN];
+	unsigned short qtype;
+	unsigned short id;
+	unsigned short ss_family;
+	socklen_t addr_len;
+	union {
+		struct sockaddr_in in;
+		struct sockaddr_in6 in6;
+		struct sockaddr addr;
+	};
+
+	union {
+		unsigned char ipv4_addr[DNS_RR_A_LEN];
+		unsigned char ipv6_addr[DNS_RR_AAAA_LEN];
+	};
 };
 
 static struct dns_server server;
@@ -69,6 +83,7 @@ static void tv_sub(struct timeval *out, struct timeval *in)
 
 void _dns_server_period_run()
 {
+	return;
 	unsigned char packet_data[DNS_PACKSIZE];
 	unsigned char data[DNS_IN_PACKSIZE];
 
@@ -98,121 +113,198 @@ void _dns_server_period_run()
 	if (len < 0) {
 		printf("send failed.");
 	}
+	printf("send.\n");
+}
+
+static int _dns_server_forward_request(unsigned char *inpacket, int inpacket_len)
+{
+	printf("forward request.\n");
+	return -1;
+}
+
+static int _dns_recv_addr(struct dns_request *request, struct sockaddr_storage *from, socklen_t from_len)
+{
+	switch (from->ss_family) {
+	case AF_INET:
+		memcpy(&request->in, from, from_len);
+		request->addr_len = from_len;
+		break;
+	case AF_INET6:
+		memcpy(&request->in6, from, from_len);
+		request->addr_len = from_len;
+		break;
+	default:
+		return -1;
+		break;
+	}
+
+	return 0;
+}
+
+static int _dns_add_rrs(struct dns_packet *packet, struct dns_request *request)
+{
+	int qtype;
+	int ret = -1;
+
+	qtype = request->qtype;
+
+	switch (qtype) {
+	case DNS_T_PTR: {
+		char hostname[DNS_MAX_CNAME_LEN];
+		if (getdomainname(hostname, DNS_MAX_CNAME_LEN) != 0) {
+			if (gethostname(hostname, DNS_MAX_CNAME_LEN) != 0) {
+				return -1;
+			}
+		}
+
+		if (strncmp(hostname, "(none)", DNS_MAX_CNAME_LEN) == 0) {
+			if (gethostname(hostname, DNS_MAX_CNAME_LEN) != 0) {
+				return -1;
+			}
+		}
+
+		ret = dns_add_PTR(packet, DNS_RRS_AN, request->domain, 60 * 60, hostname);
+	} break;
+	case DNS_T_A:
+		ret = dns_add_A(packet, DNS_RRS_AN, request->domain, 60 * 60, request->ipv4_addr);
+		break;
+	case DNS_T_AAAA:
+		ret = dns_add_AAAA(packet, DNS_RRS_AN, request->domain, 60 * 60, request->ipv6_addr);
+		break;
+	default:
+		break;
+	}
+	return ret;
+}
+
+static int _dns_reply(struct dns_request *request)
+{
+	unsigned char inpacket[DNS_IN_PACKSIZE];
+	unsigned char packet_buff[DNS_PACKSIZE];
+	struct dns_packet *packet = (struct dns_packet *)packet_buff;
+	struct dns_head head;
+	int ret = 0;
+	int encode_len = 0;
+	int send_len = 0;
+
+	memset(&head, 0, sizeof(head));
+	head.id = request->id;
+	head.qr = DNS_OP_IQUERY;
+	head.rd = 1;
+	head.ra = 0;
+	ret = dns_packet_init(packet, DNS_PACKSIZE, &head);
+	if (ret != 0) {
+		return -1;
+	}
+
+	ret = dns_add_domain(packet, request->domain, request->qtype, DNS_C_IN);
+	if (ret != 0) {
+		return -1;
+	}
+
+	ret = _dns_add_rrs(packet, request);
+	if (ret != 0) {
+		return -1;
+	}
+
+	encode_len = dns_encode(inpacket, DNS_IN_PACKSIZE, packet);
+	if (encode_len <= 0) {
+		return -1;
+	}
+
+	send_len = sendto(server.fd, inpacket, encode_len, 0, &request->addr, request->addr_len);
+	if (send_len != encode_len) {
+		printf("send failed.");
+	}
+
+	return 0;
+}
+
+static int _dns_server_recv(unsigned char *inpacket, int inpacket_len, struct sockaddr_storage *from, socklen_t from_len)
+{
+	int decode_len;
+	int ret = -1;
+	unsigned char packet_buff[DNS_PACKSIZE];
+	struct dns_packet *packet = (struct dns_packet *)packet_buff;
+	struct dns_request *request = NULL;
+	struct dns_rrs *rrs;
+	int rr_count = 0;
+	int i = 0;
+	int qclass;
+	int qtype;
+
+	decode_len = dns_decode(packet, DNS_PACKSIZE, inpacket, inpacket_len);
+	if (decode_len < 0) {
+		printf("decode failed.\n");
+		goto errout;
+	}
+
+	if (packet->head.qr != DNS_OP_QUERY) {
+		goto errout;
+	}
+
+	request = malloc(sizeof(*request));
+	if (request == NULL) {
+		printf("malloc failed.\n");
+		goto errout;
+	}
+
+	if (_dns_recv_addr(request, from, from_len) != 0) {
+		goto errout;
+	}
+
+	request->id = packet->head.id;
+
+	rrs = dns_get_rrs_start(packet, DNS_RRS_QD, &rr_count);
+	if (rr_count > 1) {
+		goto errout;
+	}
+
+	for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
+		ret = dns_get_domain(rrs, request->domain, sizeof(request->domain), &qtype, &qclass);
+		if (ret != 0) {
+			goto errout;
+		}
+
+		request->qtype = qtype;
+	}
+
+	switch (qtype) {
+	case DNS_T_PTR:
+		ret = _dns_reply(request);
+		free(request);
+		return ret;
+		break;
+	default:
+		break;
+	}
+
+	dns_client_query(request->domain, request);
+
+	free(request);
+	return 0;
+errout:
+	if (request) {
+		ret = _dns_server_forward_request(inpacket, inpacket_len);
+		free(request);
+	}
+	return ret;
 }
 
 static int _dns_server_process(struct timeval *now)
 {
 	int len;
 	unsigned char inpacket[DNS_IN_PACKSIZE];
-	unsigned char rsppacket[DNS_PACKSIZE];
-	unsigned char aswpacket[DNS_PACKSIZE];
-	unsigned char outpacket[DNS_IN_PACKSIZE];
-
-	struct dns_packet *packet = (struct dns_packet *)rsppacket;
-	struct dns_packet *anspacket = (struct dns_packet *)aswpacket;
-
 	struct sockaddr_storage from;
 	socklen_t from_len = sizeof(from);
-	int data_len;
 
 	len = recvfrom(server.fd, inpacket, sizeof(inpacket), 0, (struct sockaddr *)&from, (socklen_t *)&from_len);
 	if (len < 0) {
 		fprintf(stderr, "recvfrom failed, %s\n", strerror(errno));
-		goto errout;
-	}
-	data_len = len;
-
-	len = dns_decode(packet, DNS_PACKSIZE, inpacket, len);
-	if (len) {
-		printf("decode failed.\n");
-		return 0;
-		goto errout;
+		return -1;
 	}
 
-	int count;
-	struct dns_rrs *rrs;
-	char name[128];
-	int i = 0;
-	int j = 0;
-	int ttl;
-	int qtype;
-	int qclass;
-
-	struct dns_head head;
-	memset(&head, 0, sizeof(head));
-	head.rcode = 0;
-	head.qr = 1;
-	head.rd = packet->head.rd;
-	head.ra = packet->head.ra;
-	head.id = packet->head.id;
-	int n = 0;
-
-	dns_packet_init(anspacket, DNS_PACKSIZE, &head);
-
-	printf("qdcount = %d, ancount = %d, nscount = %d, nrcount = %d, len = %d\n", packet->head.qdcount, packet->head.ancount, packet->head.nscount,
-		   packet->head.nrcount, data_len);
-
-	rrs = dns_get_rrs_start(packet, DNS_RRS_QD, &count);
-	for (i = 0; i < count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
-		dns_get_domain(rrs, name, 128, &qtype, &qclass);
-		printf("domain: %s qtype: %d  qclass: %d\n", name, qtype, qclass);
-		switch (qtype) {
-		case DNS_T_A: {
-			unsigned char addr[4];
-			addr[0] = 192;
-			addr[1] = 148;
-			addr[2] = 9;
-			addr[3] = 3;
-			dns_add_A(anspacket, DNS_RRS_AN, name, 60 * 60, addr);
-			n++;
-		} break;
-		case DNS_T_AAAA: {
-			unsigned char addr[16];
-			memset(addr, 0, 16);
-			addr[0] = 1;
-			dns_add_AAAA(anspacket, DNS_RRS_AN, name, 60 * 60, addr);
-			n++;
-		} break;
-		case DNS_T_PTR:{
-			dns_add_PTR(anspacket, DNS_RRS_AN, name, 60 * 60, "raspberrypi.larva-family.com");
-			n++;
-		} break;
-		default:
-			break;
-		}
-	}
-
-	if (n > 0 && packet->head.qr == 0) {
-		dns_add_domain(anspacket, name, qtype, qclass);
-		len = dns_encode(outpacket, DNS_IN_PACKSIZE, anspacket);
-		sendto(server.fd, outpacket, len, 0, (struct sockaddr *)&from, from_len);
-	}
-
-	for (j = 1; j < DNS_RRS_END; j++) {
-		rrs = dns_get_rrs_start(packet, j, &count);
-		for (i = 0; i < count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
-			switch (rrs->type) {
-			case DNS_T_A: {
-				unsigned char addr[4];
-				dns_get_A(rrs, name, 128, &ttl, addr);
-				printf("%s %d : %d.%d.%d.%d\n", name, ttl, addr[0], addr[1], addr[2], addr[3]);
-			} break;
-			case DNS_T_NS:
-			case DNS_T_CNAME: {
-				char cname[128];
-				dns_get_CNAME(rrs, name, 128, &ttl, cname, 128);
-				printf("%s %d : %s\n", name, ttl, cname);
-			} break;
-			default:
-				break;
-			}
-		}
-	}
-
-	printf("\n");
-	return 0;
-errout:
-	return -1;
+	return _dns_server_recv(inpacket, len, &from, from_len);
 }
 
 int dns_server_run(void)
@@ -229,7 +321,7 @@ int dns_server_run(void)
 		diff = now;
 		tv_sub(&diff, &last);
 		millisec = diff.tv_sec * 1000 + diff.tv_usec / 1000;
-		if (millisec >= 100) {
+		if (millisec >= 1000) {
 			_dns_server_period_run();
 			last = now;
 		}
@@ -337,6 +429,11 @@ errout:
 	return -1;
 }
 
+static int dns_server_resolve_callback(char *domain, unsigned char *addr, int addr_type, void *user_ptr)
+{
+	return 0;
+}
+
 int dns_server_init(void)
 {
 	pthread_attr_t attr;
@@ -367,6 +464,8 @@ int dns_server_init(void)
 	server.epoll_fd = epollfd;
 	server.fd = fd;
 	server.run = 1;
+
+	dns_register_callback(dns_server_resolve_callback);
 
 	if (dns_server_start() != 0) {
 		fprintf(stderr, "start service failed.\n");
