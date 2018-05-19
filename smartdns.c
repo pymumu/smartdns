@@ -21,18 +21,10 @@
 #include "dns_server.h"
 #include "hashtable.h"
 #include "list.h"
+#include "tlog.h"
 #include <stdio.h>
 #include <stdlib.h>
 
-void smartdns_ping_result(const char *host, FAST_PING_RESULT result, int seqno, struct timeval *tv, void *userptr)
-{
-    if (result == PING_RESULT_RESPONSE) {
-        double rtt = tv->tv_sec * 1000.0 + tv->tv_usec / 1000.0;
-        printf("%16s: seq=%d time=%.3f\n", host, seqno, rtt);
-    } else if (result == PING_RESULT_TIMEOUT) {
-		printf("%16s: seq=%d timeout\n", host, seqno);
-    }
-}
 
 int smartdns_init()
 {
@@ -43,8 +35,6 @@ int smartdns_init()
         fprintf(stderr, "start ping failed.\n");
         goto errout;
     }
-
-    fast_ping_result_callback(smartdns_ping_result);
 
     ret = dns_server_init();
     if (ret != 0) {
@@ -58,7 +48,10 @@ int smartdns_init()
         goto errout;
     }
 
-    return 0;
+	//dns_add_server("192.168.1.1", 53, DNS_SERVER_UDP);
+    dns_add_server("114.114.114.114", 53, DNS_SERVER_UDP);
+	dns_add_server("123.207.137.88", 53, DNS_SERVER_UDP);
+	return 0;
 errout:
 
     return -1;

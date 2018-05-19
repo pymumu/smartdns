@@ -18,6 +18,8 @@
 
 #include "dns_server.h"
 #include "dns.h"
+#include "util.h"
+#include "atomic.h"
 #include "hashtable.h"
 #include "list.h"
 #include "dns_client.h"
@@ -52,6 +54,7 @@ struct dns_server {
 };
 
 struct dns_request {
+	atomic_t refcnt;
 	struct hlist_node map;
 	char domain[DNS_MAX_CNAME_LEN];
 	unsigned short qtype;
@@ -71,15 +74,6 @@ struct dns_request {
 };
 
 static struct dns_server server;
-
-static void tv_sub(struct timeval *out, struct timeval *in)
-{
-	if ((out->tv_usec -= in->tv_usec) < 0) { /* out -= in */
-		--out->tv_sec;
-		out->tv_usec += 1000000;
-	}
-	out->tv_sec -= in->tv_sec;
-}
 
 void _dns_server_period_run()
 {
@@ -177,6 +171,7 @@ static int _dns_add_rrs(struct dns_packet *packet, struct dns_request *request)
 	return ret;
 }
 
+
 static int _dns_reply(struct dns_request *request)
 {
 	unsigned char inpacket[DNS_IN_PACKSIZE];
@@ -219,6 +214,40 @@ static int _dns_reply(struct dns_request *request)
 
 	return 0;
 }
+
+
+static int dns_server_resolve_callback(char *domain, struct dns_result *result, void *user_ptr)
+{
+	struct dns_request *request = user_ptr;
+
+	if (user_ptr == NULL) {
+		return -1;
+	}
+
+
+	memcpy(request->ipv4_addr, result->addr_ipv4, 4);
+	//memcpy(request->ipv6_addr, result->addr_ipv6, 16);
+	request->qtype = DNS_T_A;
+
+	printf("----------------%s--%d.%d.%d.%d-\n", domain, 
+		request->ipv4_addr[0], 
+		request->ipv4_addr[1], 
+		request->ipv4_addr[2], 
+		request->ipv4_addr[3]);
+	_dns_reply(request);
+
+	if (!atomic_dec_and_test(&request->refcnt)) {
+		return 0;
+
+	}
+
+	printf("free query server %p\n", request);
+	memset(request, 0, sizeof(*request));
+	free(request);
+
+	return 0;
+}
+
 
 static int _dns_server_recv(unsigned char *inpacket, int inpacket_len, struct sockaddr_storage *from, socklen_t from_len)
 {
@@ -279,9 +308,10 @@ static int _dns_server_recv(unsigned char *inpacket, int inpacket_len, struct so
 		break;
 	}
 
-	dns_client_query(request->domain, request);
+	printf("query server %p\n", request);
+	atomic_set(&request->refcnt, 1);
+	dns_client_query(request->domain, dns_server_resolve_callback, request);
 
-	free(request);
 	return 0;
 errout:
 	if (request) {
@@ -291,7 +321,7 @@ errout:
 	return ret;
 }
 
-static int _dns_server_process(struct timeval *now)
+static int _dns_server_process(unsigned long now)
 {
 	int len;
 	unsigned char inpacket[DNS_IN_PACKSIZE];
@@ -312,33 +342,34 @@ int dns_server_run(void)
 	struct epoll_event events[DNS_MAX_EVENTS + 1];
 	int num;
 	int i;
-	struct timeval last = {0};
-	struct timeval now = {0};
-	struct timeval diff = {0};
-	uint millisec = 0;
+	unsigned long now = {0};
+	int sleep = 1000;
+	int sleep_time = 0;
+	unsigned long expect_time = 0;
 
-	while (server.run) {
-		diff = now;
-		tv_sub(&diff, &last);
-		millisec = diff.tv_sec * 1000 + diff.tv_usec / 1000;
-		if (millisec >= 1000) {
-			_dns_server_period_run();
-			last = now;
-		}
+    now = get_tick_count() - sleep;
+    expect_time = now + sleep;
+    while (server.run) {
+        now = get_tick_count();
+        if (now - expect_time >= 0) {
+            _dns_server_period_run();
+            sleep_time = sleep - (now - expect_time);
+			if (sleep_time < 0) {
+				sleep_time = 0;
+				
+			}
+            expect_time += sleep;
+        }
 
-		num = epoll_wait(server.epoll_fd, events, DNS_MAX_EVENTS, 1000);
+		num = epoll_wait(server.epoll_fd, events, DNS_MAX_EVENTS, sleep_time);
 		if (num < 0) {
-			gettimeofday(&now, 0);
 			usleep(100000);
 			continue;
 		}
 
 		if (num == 0) {
-			gettimeofday(&now, 0);
 			continue;
 		}
-
-		gettimeofday(&now, 0);
 		for (i = 0; i < num; i++) {
 			struct epoll_event *event = &events[i];
 			if (event->data.fd != server.fd) {
@@ -346,7 +377,7 @@ int dns_server_run(void)
 				continue;
 			}
 
-			_dns_server_process(&now);
+			_dns_server_process(now);
 		}
 	}
 
@@ -429,11 +460,6 @@ errout:
 	return -1;
 }
 
-static int dns_server_resolve_callback(char *domain, unsigned char *addr, int addr_type, void *user_ptr)
-{
-	return 0;
-}
-
 int dns_server_init(void)
 {
 	pthread_attr_t attr;
@@ -464,8 +490,6 @@ int dns_server_init(void)
 	server.epoll_fd = epollfd;
 	server.fd = fd;
 	server.run = 1;
-
-	dns_register_callback(dns_server_resolve_callback);
 
 	if (dns_server_start() != 0) {
 		fprintf(stderr, "start service failed.\n");

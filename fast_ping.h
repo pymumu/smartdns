@@ -2,7 +2,7 @@
 #define FAST_PING_H
 
 #include <sys/time.h>
-
+#include <netdb.h>
 #ifdef __cpluscplus
 extern "C" {
 #endif
@@ -18,10 +18,9 @@ typedef enum {
 	PING_RESULT_TIMEOUT = 2,
 } FAST_PING_RESULT;
 
-typedef void (*fast_ping_result)(const char *host, FAST_PING_RESULT result, int seqno, struct timeval *tv, void *userptr);
-void fast_ping_result_callback(fast_ping_result result);
+typedef void (*fast_ping_result)(const char *host, FAST_PING_RESULT result, struct sockaddr *addr, socklen_t addr_len, int seqno, struct timeval *tv, void *userptr);
 
-int fast_ping_start(const char *host, int timeout, void *userptr);
+int fast_ping_start(const char *host, int count, int timeout, fast_ping_result ping_callback, void *userptr);
 
 int fast_ping_stop(const char *host);
 
