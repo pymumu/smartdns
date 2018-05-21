@@ -25,12 +25,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-
 int smartdns_init()
 {
     int ret;
 
-    ret = fast_ping_init();
+	ret = tlog_init(".", "smartdns.log", 1024 * 1024, 8, 1, 0, 0);
+    if (ret != 0) {
+		fprintf(stderr, "start tlog failed.\n");
+		goto errout;
+	}
+
+	ret = fast_ping_init();
     if (ret != 0) {
         fprintf(stderr, "start ping failed.\n");
         goto errout;
@@ -48,9 +53,10 @@ int smartdns_init()
         goto errout;
     }
 
-	//dns_add_server("192.168.1.1", 53, DNS_SERVER_UDP);
+	dns_add_server("192.168.1.1", 53, DNS_SERVER_UDP);
     dns_add_server("114.114.114.114", 53, DNS_SERVER_UDP);
 	dns_add_server("123.207.137.88", 53, DNS_SERVER_UDP);
+	fast_ping_start("192.168.1.1", 10, 1000, 0, 0);
 	return 0;
 errout:
 
@@ -65,10 +71,9 @@ int smartdns_run()
 void smartdns_exit()
 {
     fast_ping_exit();
-
     dns_client_exit();
-
     dns_server_exit();
+	tlog_exit();
 }
 
 struct data {
@@ -193,13 +198,21 @@ int rbtree_test()
 }
 #endif
 
+#include <signal.h>
+
+void sig_handle(int sig)
+{
+	tlog(TLOG_ERROR, "process exit.\n");
+	sleep(1);
+	_exit(0);
+}
 int main(int argc, char *argv[])
 {
     int ret;
 
     atexit(smartdns_exit);
-
-    ret = smartdns_init();
+	signal(SIGABRT, sig_handle);
+	ret = smartdns_init();
     if (ret != 0) {
         fprintf(stderr, "init smartdns failed.\n");
         goto errout;

@@ -92,6 +92,29 @@ static inline void atomic_dec( atomic_t *v )
 }
 
 /**
+ * Increment atomic variable
+ * @param v pointer of type atomic_t
+ *
+ * Atomically increments @v by 1.
+ */
+static inline int atomic_inc_return( atomic_t *v )
+{
+	return __sync_fetch_and_add(&v->counter, 1);
+}
+
+/**
+ * @brief decrement atomic variable
+ * @param v: pointer of type atomic_t
+ *
+ * Atomically decrements @v by 1.  Note that the guaranteed
+ * useful range of an atomic_t is only 24 bits.
+ */
+static inline int atomic_dec_return( atomic_t *v )
+{
+	return __sync_fetch_and_sub(&v->counter, 1);
+}
+
+/**
  * @brief Decrement and test
  * @param v pointer of type atomic_t
  *

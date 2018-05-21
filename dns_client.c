@@ -23,6 +23,7 @@
 #include "hashtable.h"
 #include "list.h"
 #include "util.h"
+#include "tlog.h"
 #include <arpa/inet.h>
 #include <errno.h>
 #include <linux/filter.h>
@@ -73,6 +74,7 @@ struct dns_client {
 
 struct dns_server_info {
 	struct list_head list;
+	struct ping_host_struct *ping_host;
 	dns_server_type_t type;
 	unsigned short ss_family;
 	socklen_t addr_len;
@@ -85,6 +87,7 @@ struct dns_server_info {
 
 struct dns_query_struct {
 	atomic_t refcnt;
+	unsigned short sid;
 	struct list_head dns_request_list;
 	struct hlist_node domain_node;
 	char domain[DNS_MAX_CNAME_LEN];
@@ -96,6 +99,7 @@ struct dns_query_struct {
 };
 
 static struct dns_client client;
+static atomic_t dns_client_sid = ATOMIC_INIT(0);
 
 static struct addrinfo *_dns_client_getaddr(const char *host, char *port, int type, int protocol)
 {
@@ -163,13 +167,14 @@ int _dns_client_server_add(char *server_ip, struct addrinfo *gai, dns_server_typ
 		goto errout;
 	}
 	memcpy(&server_info->addr, gai->ai_addr, gai->ai_addrlen);
+
+	if (fast_ping_start(server_ip, 0, 60000, NULL, server_info) == NULL) {
+		goto errout;
+	}
+
 	pthread_mutex_lock(&client.server_list_lock);
 	list_add(&server_info->list, &client.dns_server_list);
 	pthread_mutex_unlock(&client.server_list_lock);
-
-	if (fast_ping_start(server_ip, 0, 60000, NULL, server_info) != 0) {
-		goto errout;
-	}
 	return 0;
 errout:
 	if (server_info) {
@@ -194,7 +199,7 @@ int _dns_client_server_remove(char *server_ip, struct addrinfo *gai, dns_server_
 		}
 		list_del(&server_info->list);
 		pthread_mutex_unlock(&client.server_list_lock);
-		if (fast_ping_stop(server_ip) != 0) {
+		if (fast_ping_stop(server_info->ping_host) != 0) {
 			printf("stop ping failed.\n");
 		}
 		free(server_info);
@@ -279,7 +284,10 @@ void _dns_client_query_release(struct dns_query_struct *query)
 	list_del(&query->dns_request_list);
 	hash_del(&query->domain_node);
 	pthread_mutex_unlock(&client.domain_map_lock);
+	tlog(TLOG_ERROR, "-------------%p, %d\n", query, atomic_read(&query->refcnt));
 	_dns_client_query_complete(query);
+	//TODO double free BUG://
+	memset(query, 0, sizeof(*query));
 	free(query);
 }
 
@@ -288,7 +296,7 @@ void _dns_client_query_get(struct dns_query_struct *query)
 	atomic_inc(&query->refcnt);
 }
 
-void dns_client_ping_result(const char *host, FAST_PING_RESULT result, struct sockaddr *addr, socklen_t addr_len, int seqno, struct timeval *tv, void *userptr)
+void dns_client_ping_result(struct ping_host_struct *ping_host, const char *host, FAST_PING_RESULT result, struct sockaddr *addr, socklen_t addr_len, int seqno, struct timeval *tv, void *userptr)
 {
 	struct dns_query_struct *query = userptr;
 
@@ -344,13 +352,16 @@ void _dns_client_period_run()
 	return;
 }
 
-static struct dns_query_struct *_dns_client_get_request(char *domain)
+static struct dns_query_struct *_dns_client_get_request(unsigned short sid, char *domain)
 {
 	struct dns_query_struct *query = NULL;
 	struct hlist_node *tmp = NULL;
+	unsigned int key;
 
+	key = hash_string(domain);
+	key = jhash(&sid, sizeof(sid), key);
 	pthread_mutex_lock(&client.domain_map_lock);
-	hash_for_each_possible_safe(client.domain_map, query, tmp, domain_node, hash_string(domain))
+	hash_for_each_possible_safe(client.domain_map, query, tmp, domain_node, key)
 	{
 		if (strncmp(query->domain, domain, DNS_MAX_CNAME_LEN) != 0) {
 			continue;
@@ -374,7 +385,7 @@ static int _dns_client_process_answer(char *domain, struct dns_packet *packet)
 	int ret = -1;
 	int A_num = 0;
 
-	query = _dns_client_get_request(domain);
+	query = _dns_client_get_request(packet->head.id, domain);
 	if (query == NULL) {
 		return -1;
 	}
@@ -389,7 +400,7 @@ static int _dns_client_process_answer(char *domain, struct dns_packet *packet)
 				printf("%s %d : %d.%d.%d.%d\n", name, ttl, addr[0], addr[1], addr[2], addr[3]);
 				sprintf(name, "%d.%d.%d.%d", addr[0], addr[1], addr[2], addr[3]);
 				_dns_client_query_get(query);
-				if (fast_ping_start(name, 1, 900, dns_client_ping_result, query) != 0) {
+				if (fast_ping_start(name, 1, 700, dns_client_ping_result, query) == NULL) {
 					_dns_client_query_release(query);
 				}
 				A_num++;
@@ -400,7 +411,7 @@ static int _dns_client_process_answer(char *domain, struct dns_packet *packet)
 				sprintf(name, "%x:%x:%x:%x:%x:%x:%x:%x:%x:%x:%x:%x:%x:%x:%x:%x", addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr[6], addr[7],
 						addr[8], addr[9], addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
 				_dns_client_query_get(query);
-				if (fast_ping_start(name, 1, 900, dns_client_ping_result, query) != 0) {
+				if (fast_ping_start(name, 1, 700, dns_client_ping_result, query) == NULL) {
 					_dns_client_query_release(query);
 				}
 			} break;
@@ -451,8 +462,8 @@ static int _dns_client_recv(unsigned char *inpacket, int inpacket_len, struct so
 		return -1;
 	}
 
-	printf("qdcount = %d, ancount = %d, nscount = %d, nrcount = %d, len = %d\n", packet->head.qdcount, packet->head.ancount, packet->head.nscount,
-		   packet->head.nrcount, inpacket_len);
+	printf("qdcount = %d, ancount = %d, nscount = %d, nrcount = %d, len = %d, id = %d\n", packet->head.qdcount, packet->head.ancount, packet->head.nscount,
+		   packet->head.nrcount, inpacket_len, packet->head.id);
 
 	rrs = dns_get_rrs_start(packet, DNS_RRS_QD, &rr_count);
 	for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
@@ -574,7 +585,7 @@ static int _dns_client_send_query(struct dns_query_struct *query, char *doamin)
 	head.qr = DNS_OP_QUERY;
 	head.rd = 0;
 	head.ra = 0;
-	head.id = 1;
+	head.id = query->sid;
 
 	dns_packet_init(packet, DNS_PACKSIZE, &head);
 	dns_add_domain(packet, doamin, DNS_T_A, DNS_C_IN);
@@ -591,6 +602,7 @@ int dns_client_query(char *domain, dns_client_callback callback, void *user_ptr)
 {
 	struct dns_query_struct *query = NULL;
 	int ret = 0;
+	unsigned int key = 0;
 
 	query = malloc(sizeof(*query));
 	if (query == NULL) {
@@ -605,6 +617,7 @@ int dns_client_query(char *domain, dns_client_callback callback, void *user_ptr)
 	query->callback = callback;
 	query->result.ttl_v4 = -1;
 	query->result.ttl_v6 = -1;
+	query->sid = atomic_inc_return(&dns_client_sid);
 
 	_dns_client_query_get(query);
 	ret = _dns_client_send_query(query, domain);
@@ -612,9 +625,11 @@ int dns_client_query(char *domain, dns_client_callback callback, void *user_ptr)
 		goto errout_del_list;
 	}
 
+	key = hash_string(domain);
+	key = jhash(&query->sid, sizeof(query->sid), key);
 	pthread_mutex_lock(&client.domain_map_lock);
 	list_add_tail(&query->dns_request_list, &client.dns_request_list);
-	hash_add(client.domain_map, &query->domain_node, hash_string(domain));
+	hash_add(client.domain_map, &query->domain_node, key);
 	pthread_mutex_unlock(&client.domain_map_lock);
 
 	return 0;
@@ -730,14 +745,6 @@ int dns_client_init()
 		goto errout;
 	}
 
-	client.run = 1;
-	client.udp = fd;
-	ret = pthread_create(&client.tid, &attr, _dns_client_work, NULL);
-	if (ret != 0) {
-		fprintf(stderr, "create client work thread failed, %s\n", strerror(errno));
-		goto errout;
-	}
-
 	pthread_mutex_init(&client.server_list_lock, 0);
 	INIT_LIST_HEAD(&client.dns_server_list);
 
@@ -747,6 +754,13 @@ int dns_client_init()
 	INIT_LIST_HEAD(&client.dns_request_list);
 
 	client.epoll_fd = epollfd;
+	client.run = 1;
+	client.udp = fd;
+	ret = pthread_create(&client.tid, &attr, _dns_client_work, NULL);
+	if (ret != 0) {
+		fprintf(stderr, "create client work thread failed, %s\n", strerror(errno));
+		goto errout;
+	}
 
 	if (dns_client_start()) {
 		fprintf(stderr, "start client failed.\n");

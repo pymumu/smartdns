@@ -9,6 +9,7 @@ extern "C" {
 
 typedef enum {
 	FAST_PING_ICMP = 1,
+	FAST_PING_ICMP6 = 2,
 	FAST_PING_TCP,
 	FAST_PING_UDP
 } FAST_PING_TYPE;
@@ -18,11 +19,12 @@ typedef enum {
 	PING_RESULT_TIMEOUT = 2,
 } FAST_PING_RESULT;
 
-typedef void (*fast_ping_result)(const char *host, FAST_PING_RESULT result, struct sockaddr *addr, socklen_t addr_len, int seqno, struct timeval *tv, void *userptr);
+struct ping_host_struct;
+typedef void (*fast_ping_result)(struct ping_host_struct *ping_host, const char *host, FAST_PING_RESULT result, struct sockaddr *addr, socklen_t addr_len, int seqno, struct timeval *tv, void *userptr);
 
-int fast_ping_start(const char *host, int count, int timeout, fast_ping_result ping_callback, void *userptr);
+struct ping_host_struct *fast_ping_start(const char *host, int count, int timeout, fast_ping_result ping_callback, void *userptr);
 
-int fast_ping_stop(const char *host);
+int fast_ping_stop(struct ping_host_struct *ping_host);
 
 int fast_ping_init();
 

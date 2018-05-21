@@ -20,6 +20,7 @@
 #include "dns.h"
 #include "util.h"
 #include "atomic.h"
+#include "tlog.h"
 #include "hashtable.h"
 #include "list.h"
 #include "dns_client.h"
@@ -157,13 +158,13 @@ static int _dns_add_rrs(struct dns_packet *packet, struct dns_request *request)
 			}
 		}
 
-		ret = dns_add_PTR(packet, DNS_RRS_AN, request->domain, 60 * 60, hostname);
+		ret = dns_add_PTR(packet, DNS_RRS_AN, request->domain, 30, hostname);
 	} break;
 	case DNS_T_A:
-		ret = dns_add_A(packet, DNS_RRS_AN, request->domain, 60 * 60, request->ipv4_addr);
+		ret = dns_add_A(packet, DNS_RRS_AN, request->domain, 30, request->ipv4_addr);
 		break;
 	case DNS_T_AAAA:
-		ret = dns_add_AAAA(packet, DNS_RRS_AN, request->domain, 60 * 60, request->ipv6_addr);
+		ret = dns_add_AAAA(packet, DNS_RRS_AN, request->domain, 30, request->ipv6_addr);
 		break;
 	default:
 		break;
@@ -224,7 +225,6 @@ static int dns_server_resolve_callback(char *domain, struct dns_result *result, 
 		return -1;
 	}
 
-
 	memcpy(request->ipv4_addr, result->addr_ipv4, 4);
 	//memcpy(request->ipv6_addr, result->addr_ipv6, 16);
 	request->qtype = DNS_T_A;
@@ -241,7 +241,7 @@ static int dns_server_resolve_callback(char *domain, struct dns_result *result, 
 
 	}
 
-	printf("free query server %p\n", request);
+	tlog(TLOG_ERROR, "free query server %p\n", request);
 	memset(request, 0, sizeof(*request));
 	free(request);
 
@@ -308,7 +308,7 @@ static int _dns_server_recv(unsigned char *inpacket, int inpacket_len, struct so
 		break;
 	}
 
-	printf("query server %p\n", request);
+	tlog(TLOG_ERROR, "query server %p\n", request);
 	atomic_set(&request->refcnt, 1);
 	dns_client_query(request->domain, dns_server_resolve_callback, request);
 
