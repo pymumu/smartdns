@@ -40,6 +40,11 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <sys/types.h>
+       #include <sys/stat.h>
+       #include <fcntl.h>
+
+
 
 #define DNS_MAX_HOSTNAME 256
 
@@ -378,12 +383,13 @@ static int _dns_client_process_answer(char *domain, struct dns_packet *packet)
 	struct dns_query_struct *query;
 	int ttl;
 	char name[DNS_MAX_CNAME_LEN];
+	char alias[DNS_MAX_CNAME_LEN] = {0};
+	char ip[DNS_MAX_CNAME_LEN] = {0};
 	int rr_count;
 	int i = 0;
 	int j = 0;
 	struct dns_rrs *rrs = NULL;
 	int ret = -1;
-	int A_num = 0;
 
 	query = _dns_client_get_request(packet->head.id, domain);
 	if (query == NULL) {
@@ -398,12 +404,14 @@ static int _dns_client_process_answer(char *domain, struct dns_packet *packet)
 				unsigned char addr[4];
 				dns_get_A(rrs, name, DNS_MAX_CNAME_LEN, &ttl, addr);
 				printf("%s %d : %d.%d.%d.%d\n", name, ttl, addr[0], addr[1], addr[2], addr[3]);
-				sprintf(name, "%d.%d.%d.%d", addr[0], addr[1], addr[2], addr[3]);
-				_dns_client_query_get(query);
-				if (fast_ping_start(name, 1, 700, dns_client_ping_result, query) == NULL) {
-					_dns_client_query_release(query);
+				sprintf(ip, "%d.%d.%d.%d", addr[0], addr[1], addr[2], addr[3]);
+
+				if (strncmp(name, domain, DNS_MAX_CNAME_LEN) == 0 || strncmp(alias, name, DNS_MAX_CNAME_LEN) == 0) {
+					_dns_client_query_get(query);
+					if (fast_ping_start(ip, 1, 700, dns_client_ping_result, query) == NULL) {
+						_dns_client_query_release(query);
+					}
 				}
-				A_num++;
 			} break;
 			case DNS_T_AAAA: {
 				unsigned char addr[16];
@@ -424,6 +432,7 @@ static int _dns_client_process_answer(char *domain, struct dns_packet *packet)
 				char cname[128];
 				dns_get_CNAME(rrs, name, 128, &ttl, cname, 128);
 				printf("%s %d : %s\n", name, ttl, cname);
+				strncpy(alias, cname, DNS_MAX_CNAME_LEN);
 			} break;
 			default:
 				break;
@@ -431,10 +440,12 @@ static int _dns_client_process_answer(char *domain, struct dns_packet *packet)
 		}
 	}
 
+	pthread_mutex_lock(&client.server_list_lock);
 	query->dns_request_sent--;
-	if (query->dns_request_sent <= 0) {
+	if (query->dns_request_sent < 0) {
 		_dns_client_query_release(query);
 	}
+	pthread_mutex_unlock(&client.server_list_lock);
 
 	return ret;
 }
@@ -451,9 +462,14 @@ static int _dns_client_recv(unsigned char *inpacket, int inpacket_len, struct so
 	unsigned char packet_buff[DNS_PACKSIZE];
 	struct dns_packet *packet = (struct dns_packet *)packet_buff;
 
+	packet->head.tc = 0;
 	len = dns_decode(packet, DNS_PACKSIZE, inpacket, inpacket_len);
 	if (len != 0) {
-		printf("decode failed, packet len = %d\n", inpacket_len);
+		tlog(TLOG_ERROR, "decode failed, packet len = %d, tc=%d, %d\n", inpacket_len, 
+			packet->head.tc, packet->head.id);
+				int fd = open("dns.bin", O_CREAT | O_TRUNC | O_RDWR);
+		write(fd, inpacket, inpacket_len);
+		close(fd);
 		return -1;
 	}
 
@@ -462,13 +478,20 @@ static int _dns_client_recv(unsigned char *inpacket, int inpacket_len, struct so
 		return -1;
 	}
 
-	printf("qdcount = %d, ancount = %d, nscount = %d, nrcount = %d, len = %d, id = %d\n", packet->head.qdcount, packet->head.ancount, packet->head.nscount,
-		   packet->head.nrcount, inpacket_len, packet->head.id);
+	printf("qdcount = %d, ancount = %d, nscount = %d, nrcount = %d, len = %d, id = %d, rd = %d, ra = %d, rcode = %d\n", packet->head.qdcount, packet->head.ancount, packet->head.nscount,
+		   packet->head.nrcount, inpacket_len, packet->head.id, packet->head.rd, packet->head.ra,
+		   packet->head.rcode);
 
 	rrs = dns_get_rrs_start(packet, DNS_RRS_QD, &rr_count);
 	for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
 		dns_get_domain(rrs, name, DNS_MAX_CNAME_LEN, &qtype, &qclass);
 		printf("domain: %s qtype: %d  qclass: %d\n", name, qtype, qclass);
+	}
+
+	if (packet->head.rcode != DNS_RC_NOERROR) {
+		tlog(TLOG_ERROR, "inquery failed, %s, rcode = %d\n", name, packet->head.rcode);
+		//TODO set response to dns_server.c
+		return -1;
 	}
 
 	return _dns_client_process_answer(name, packet);
@@ -480,12 +503,15 @@ static int _dns_client_process(struct dns_query_struct *dns_query, unsigned long
 	unsigned char inpacket[DNS_IN_PACKSIZE];
 	struct sockaddr_storage from;
 	socklen_t from_len = sizeof(from);
+	char from_host[DNS_MAX_CNAME_LEN];
 
 	len = recvfrom(client.udp, inpacket, sizeof(inpacket), 0, (struct sockaddr *)&from, (socklen_t *)&from_len);
 	if (len < 0) {
 		fprintf(stderr, "recvfrom failed, %s\n", strerror(errno));
 		return -1;
 	}
+
+	tlog(TLOG_INFO, "recv from %s", gethost_by_addr(from_host, (struct sockaddr *)&from, from_len));
 
 	return _dns_client_recv(inpacket, len, &from, from_len);
 }
@@ -625,6 +651,8 @@ int dns_client_query(char *domain, dns_client_callback callback, void *user_ptr)
 		goto errout_del_list;
 	}
 
+	tlog(TLOG_ERROR, "send request %s, id %d\n", domain, query->sid);
+
 	key = hash_string(domain);
 	key = jhash(&query->sid, sizeof(query->sid), key);
 	pthread_mutex_lock(&client.domain_map_lock);
@@ -719,6 +747,28 @@ errout:
 	return -1;
 }
 
+void dns_debug(void)
+{
+	char data[1024];
+	int len;
+	char buff[4096];
+
+	int fd = open("dns.bin", O_RDWR);
+	if (fd < 0) {
+		return;
+	}
+	len = read(fd, data, 1024);
+	close(fd);
+	if (len < 0) {
+		return;
+	}
+
+	struct dns_packet *packet = buff;
+	if (dns_decode(packet, 4096, data, len) != 0) {
+		printf("decode failed.\n");
+	}
+}
+
 int dns_client_init()
 {
 	pthread_attr_t attr;
@@ -726,7 +776,10 @@ int dns_client_init()
 	int ret;
 	int fd = 1;
 
-	if (client.epoll_fd > 0) {
+	//dns_debug();
+
+	if (client.epoll_fd > 0)
+	{
 		return -1;
 	}
 

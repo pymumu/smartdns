@@ -17,6 +17,7 @@
  */
 
 #include "dns.h"
+#include "tlog.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -515,6 +516,9 @@ int _dns_decode_domain(struct dns_context *context, char *output, int size)
 	int is_compressed = 0;
 
 	while (1) {
+		if (ptr > context->data + context->maxsize || ptr < context->data) {
+			return -1;
+		}
 		len = *ptr;
 		if (len == 0) {
 			*(output - 1) = 0;
@@ -528,21 +532,27 @@ int _dns_decode_domain(struct dns_context *context, char *output, int size)
 				context->ptr = ptr;
 			}
 			ptr = context->data + len;
-			if (context->maxsize - (ptr - context->data) < 1) {
+			if (context->maxsize - (ptr - context->data) < 0) {
+				tlog(TLOG_ERROR, "length is not enouth %d:%d, %p, %p", context->maxsize, ptr-context->data, 
+					context->ptr, context->data);
 				return -1;
 			}
 			is_compressed = 1;
 			continue;
 		}
 
-		if (context->maxsize - (ptr - context->data) < 1) {
+		if (context->maxsize - (ptr - context->data) < 0) {
+			tlog(TLOG_ERROR, "length is not enouth %d:%d, %p, %p", context->maxsize, ptr-context->data, 
+					context->ptr, context->data);
 			return -1;
 		}
 
 		ptr++;
 		if (output_len < size - 1) {
 			copy_len = (len < size - output_len) ? len : size - 1 - output_len;
-			if (context->maxsize - (ptr - context->data) < 1) {
+			if (context->maxsize - (ptr - context->data) < 0) {
+				tlog(TLOG_ERROR, "length is not enouth %d:%d, %p, %p", context->maxsize, ptr-context->data, 
+					context->ptr, context->data);
 				return -1;
 			}
 			memcpy(output, ptr, copy_len);
@@ -594,10 +604,12 @@ int _dns_decode_qr_head(struct dns_context *context, char *domain, int domain_si
 
 	ret = _dns_decode_domain(context, domain, domain_size);
 	if (ret < 0) {
+		tlog(TLOG_ERROR, "decode domain failed.");
 		return -1;
 	}
 
 	if (_dns_left_len(context) < 4) {
+		tlog(TLOG_ERROR, "left length is not enough, %s.", domain);
 		return -1;
 	}
 
@@ -631,10 +643,12 @@ int _dns_decode_rr_head(struct dns_context *context, char *domain, int domain_si
 
 	len = _dns_decode_qr_head(context, domain, domain_size, qtype, qclass);
 	if (len < 0) {
+		tlog(TLOG_ERROR, "decode qr head failed.");
 		return -1;
 	}
 
 	if (_dns_left_len(context) < 6) {
+		tlog(TLOG_ERROR, "left length is not enough.");
 		return -1;
 	}
 
@@ -873,6 +887,7 @@ int _dns_decode_an(struct dns_context *context, dns_rr_type type)
 
 	ret = _dns_decode_rr_head(context, domain, DNS_MAX_CNAME_LEN, &qtype, &qclass, &ttl, &rr_len);
 	if (ret < 0) {
+		tlog(TLOG_ERROR, "decode head failed.");
 		return -1;
 	}
 	start = context->ptr;
@@ -882,11 +897,13 @@ int _dns_decode_an(struct dns_context *context, dns_rr_type type)
 		unsigned char addr[DNS_RR_A_LEN];
 		ret = _dns_decode_A(context, addr);
 		if (ret < 0) {
+			tlog(TLOG_ERROR, "decode A failed, %s", domain);
 			return -1;
 		}
 
 		ret = dns_add_A(packet, type, domain, ttl, addr);
 		if (ret < 0) {
+			tlog(TLOG_ERROR, "add A failed, %s", domain);
 			return -1;
 		}
 	} break;
@@ -894,11 +911,13 @@ int _dns_decode_an(struct dns_context *context, dns_rr_type type)
 		char cname[DNS_MAX_CNAME_LEN];
 		ret = _dns_decode_CNAME(context, cname, DNS_MAX_CNAME_LEN);
 		if (ret < 0) {
+			tlog(TLOG_ERROR, "decode CNAME failed, %s", domain);
 			return -1;
 		}
 
 		ret = dns_add_CNAME(packet, type, domain, ttl, cname);
 		if (ret < 0) {
+			tlog(TLOG_ERROR, "add CNAME failed, %s", domain);
 			return -1;
 		}
 	} break;
@@ -906,11 +925,13 @@ int _dns_decode_an(struct dns_context *context, dns_rr_type type)
 		char ns[DNS_MAX_CNAME_LEN];
 		ret = _dns_decode_CNAME(context, ns, DNS_MAX_CNAME_LEN);
 		if (ret < 0) {
+			tlog(TLOG_ERROR, "decode NS failed, %s", domain);
 			return -1;
 		}
 
 		ret = dns_add_NS(packet, type, domain, ttl, ns);
 		if (ret < 0) {
+			tlog(TLOG_ERROR, "add NS failed, %s", domain);
 			return -1;
 		}
 	} break;
@@ -918,11 +939,13 @@ int _dns_decode_an(struct dns_context *context, dns_rr_type type)
 		char name[DNS_MAX_CNAME_LEN];
 		ret = _dns_decode_PTR(context, name, DNS_MAX_CNAME_LEN);
 		if (ret < 0) {
+			tlog(TLOG_ERROR, "decode PTR failed, %s", domain);
 			return -1;
 		}
 
 		ret = dns_add_PTR(packet, type, domain, ttl, name);
 		if (ret < 0) {
+			tlog(TLOG_ERROR, "add PTR failed, %s", domain);
 			return -1;
 		}
 	} break;
@@ -930,11 +953,13 @@ int _dns_decode_an(struct dns_context *context, dns_rr_type type)
 		unsigned char addr[DNS_RR_AAAA_LEN];
 		ret = _dns_decode_AAAA(context, addr);
 		if (ret < 0) {
+			tlog(TLOG_ERROR, "decode AAAA failed, %s", domain);
 			return -1;
 		}
 
 		ret = dns_add_AAAA(packet, type, domain, ttl, addr);
 		if (ret < 0) {
+			tlog(TLOG_ERROR, "add AAAA failed, %s", domain);
 			return -1;
 		}
 	} break;
@@ -944,6 +969,8 @@ int _dns_decode_an(struct dns_context *context, dns_rr_type type)
 	}
 
 	if (context->ptr - start != rr_len) {
+		tlog(TLOG_ERROR, "length mitchmatch , %s, %d:%d", domain, 
+			context->ptr - start, rr_len);
 		return -1;
 	}
 
@@ -1014,6 +1041,7 @@ int _dns_decode_body(struct dns_context *context)
 	for (i = 0; i < head->qdcount; i++) {
 		ret = _dns_decode_qd(context);
 		if (ret < 0) {
+			tlog(TLOG_ERROR, "decode qd failed.");
 			return -1;
 		}
 		head->qdcount--;
@@ -1022,6 +1050,7 @@ int _dns_decode_body(struct dns_context *context)
 	for (i = 0; i < head->ancount; i++) {
 		ret = _dns_decode_an(context, DNS_RRS_AN);
 		if (ret < 0) {
+			tlog(TLOG_ERROR, "decode an failed.");
 			return -1;
 		}
 		head->ancount--;
@@ -1030,6 +1059,7 @@ int _dns_decode_body(struct dns_context *context)
 	for (i = 0; i < head->nscount; i++) {
 		ret = _dns_decode_an(context, DNS_RRS_NS);
 		if (ret < 0) {
+			tlog(TLOG_ERROR, "decode ns failed.");
 			return -1;
 		}
 		head->nscount--;
@@ -1038,6 +1068,7 @@ int _dns_decode_body(struct dns_context *context)
 	for (i = 0; i < head->nrcount; i++) {
 		ret = _dns_decode_an(context, DNS_RRS_NR);
 		if (ret < 0) {
+			tlog(TLOG_ERROR, "decode nr failed.");
 			return -1;
 		}
 		head->nrcount--;
@@ -1119,6 +1150,7 @@ int dns_decode(struct dns_packet *packet, int maxsize, unsigned char *data, int 
 
 	ret = _dns_decode_body(&context);
 	if (ret < 0) {
+		tlog(TLOG_ERROR, "decode body failed.\n");
 		return -1;
 	}
 

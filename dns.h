@@ -9,7 +9,7 @@
 #define DNS_RR_A_LEN 4
 #define DNS_RR_AAAA_LEN 16
 #define DNS_MAX_CNAME_LEN 256
-#define DNS_IN_PACKSIZE 512
+#define DNS_IN_PACKSIZE (512 * 2)
 #define DNS_PACKSIZE (512 * 4)
 
 typedef enum dns_rr_type {

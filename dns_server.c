@@ -58,6 +58,7 @@ struct dns_request {
 	atomic_t refcnt;
 	struct hlist_node map;
 	char domain[DNS_MAX_CNAME_LEN];
+	char alias[DNS_MAX_CNAME_LEN];
 	unsigned short qtype;
 	unsigned short id;
 	unsigned short ss_family;
@@ -169,6 +170,7 @@ static int _dns_add_rrs(struct dns_packet *packet, struct dns_request *request)
 	default:
 		break;
 	}
+
 	return ret;
 }
 
@@ -226,7 +228,8 @@ static int dns_server_resolve_callback(char *domain, struct dns_result *result, 
 	}
 
 	memcpy(request->ipv4_addr, result->addr_ipv4, 4);
-	//memcpy(request->ipv6_addr, result->addr_ipv6, 16);
+	strncpy(request->alias, result->alias, DNS_MAX_CNAME_LEN);
+	// memcpy(request->ipv6_addr, result->addr_ipv6, 16);
 	request->qtype = DNS_T_A;
 
 	printf("----------------%s--%d.%d.%d.%d-\n", domain, 

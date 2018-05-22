@@ -559,15 +559,18 @@ static struct fast_ping_packet *_fast_ping_icmp6_packet(struct ping_host_struct 
 	struct icmp6_hdr *icmp6 = &packet->icmp6;
 
 	if (icmp6->icmp6_type != ICMP6_ECHO_REPLY) {
+		tlog(TLOG_ERROR, "icmp6 type faild, %d:%d", icmp6->icmp6_type, ICMP6_ECHO_REPLY);
 		return NULL;
 	}
 
 	icmp_len = data_len;
 	if (icmp_len < 16) {
+		tlog(TLOG_ERROR, "length is invalid, %d", icmp_len);
 		return NULL;
 	}
 
 	if (icmp6->icmp6_id != ping.ident) {
+		tlog(TLOG_ERROR, "ident failed, %d:%d", icmp6->icmp6_id, ping.ident);
 		return NULL;
 	}
 
@@ -583,6 +586,7 @@ static struct fast_ping_packet *_fast_ping_icmp_packet(struct ping_host_struct *
 	int icmp_len;
 
 	if (ip->ip_p != IPPROTO_ICMP) {
+		tlog(TLOG_ERROR, "ip type faild, %d:%d", ip->ip_p, IPPROTO_ICMP);
 		return NULL;
 	}
 
@@ -592,14 +596,17 @@ static struct fast_ping_packet *_fast_ping_icmp_packet(struct ping_host_struct *
 	icmp_len = data_len - hlen;
 
 	if (icmp_len < 16) {
+		tlog(TLOG_ERROR, "length is invalid, %d", icmp_len);
 		return NULL;
 	}
 
 	if (icmp->icmp_type != ICMP_ECHOREPLY) {
+		tlog(TLOG_ERROR, "icmp type faild, %d:%d", icmp->icmp_type, ICMP_ECHOREPLY);
 		return NULL;
 	}
 
 	if (icmp->icmp_id != ping.ident) {
+		tlog(TLOG_ERROR, "ident failed, %d:%d", icmp->icmp_id, ping.ident);
 		return NULL;
 	}
 
@@ -621,6 +628,7 @@ struct fast_ping_packet *_fast_ping_recv_packet(struct ping_host_struct *ping_ho
 			goto errout;
 		}
 	} else {
+		tlog(TLOG_ERROR, "ping host type is invalid, %d", ping_host->type);
 		goto errout;
 	}
 

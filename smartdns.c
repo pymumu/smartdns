@@ -35,6 +35,8 @@ int smartdns_init()
 		goto errout;
 	}
 
+	tlog_setlogscreen(1);
+
 	ret = fast_ping_init();
     if (ret != 0) {
         fprintf(stderr, "start ping failed.\n");
@@ -53,10 +55,11 @@ int smartdns_init()
         goto errout;
     }
 
-	dns_add_server("192.168.1.1", 53, DNS_SERVER_UDP);
+	//dns_add_server("192.168.1.1", 53, DNS_SERVER_UDP);
     dns_add_server("114.114.114.114", 53, DNS_SERVER_UDP);
 	dns_add_server("123.207.137.88", 53, DNS_SERVER_UDP);
-	fast_ping_start("192.168.1.1", 10, 1000, 0, 0);
+	dns_add_server("193.112.15.186", 53, DNS_SERVER_UDP);
+	//dns_add_server("202.141.178.13", 5353, DNS_SERVER_UDP);
 	return 0;
 errout:
 
