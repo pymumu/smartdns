@@ -396,6 +396,14 @@ static int _dns_client_process_answer(char *domain, struct dns_packet *packet)
 		return -1;
 	}
 
+	pthread_mutex_lock(&client.server_list_lock);
+	query->dns_request_sent--;
+	if (query->dns_request_sent < 0) {
+		pthread_mutex_unlock(&client.server_list_lock);
+		return -1;
+	}
+	pthread_mutex_unlock(&client.server_list_lock);
+
 	for (j = 1; j < DNS_RRS_END; j++) {
 		rrs = dns_get_rrs_start(packet, j, &rr_count);
 		for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
@@ -441,8 +449,7 @@ static int _dns_client_process_answer(char *domain, struct dns_packet *packet)
 	}
 
 	pthread_mutex_lock(&client.server_list_lock);
-	query->dns_request_sent--;
-	if (query->dns_request_sent < 0) {
+	if (query->dns_request_sent <= 0) {
 		_dns_client_query_release(query);
 	}
 	pthread_mutex_unlock(&client.server_list_lock);
@@ -583,6 +590,7 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 		switch (server_info->type) {
 		case DNS_SERVER_UDP:
 			ret = _dns_client_send_udp(server_info, packet, len);
+			break;
 		default:
 			ret = -1;
 			break;
