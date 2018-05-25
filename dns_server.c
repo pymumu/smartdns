@@ -232,7 +232,7 @@ static int dns_server_resolve_callback(char *domain, struct dns_result *result, 
 	// memcpy(request->ipv6_addr, result->addr_ipv6, 16);
 	request->qtype = DNS_T_A;
 
-	printf("----------------%s--%d.%d.%d.%d-\n", domain, 
+	tlog(TLOG_INFO, "result: %s,  %d.%d.%d.%d\n", domain, 
 		request->ipv4_addr[0], 
 		request->ipv4_addr[1], 
 		request->ipv4_addr[2], 
@@ -244,7 +244,6 @@ static int dns_server_resolve_callback(char *domain, struct dns_result *result, 
 
 	}
 
-	tlog(TLOG_ERROR, "free query server %p\n", request);
 	memset(request, 0, sizeof(*request));
 	free(request);
 
@@ -257,6 +256,7 @@ static int _dns_server_recv(unsigned char *inpacket, int inpacket_len, struct so
 	int decode_len;
 	int ret = -1;
 	unsigned char packet_buff[DNS_PACKSIZE];
+	char name[DNS_MAX_CNAME_LEN];
 	struct dns_packet *packet = (struct dns_packet *)packet_buff;
 	struct dns_request *request = NULL;
 	struct dns_rrs *rrs;
@@ -311,7 +311,7 @@ static int _dns_server_recv(unsigned char *inpacket, int inpacket_len, struct so
 		break;
 	}
 
-	tlog(TLOG_ERROR, "query server %p\n", request);
+	tlog(TLOG_INFO, "query server %s from %s\n", request->domain, gethost_by_addr(name, (struct sockaddr *)from, from_len));
 	atomic_set(&request->refcnt, 1);
 	dns_client_query(request->domain, dns_server_resolve_callback, request);
 

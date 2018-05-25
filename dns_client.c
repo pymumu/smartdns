@@ -22,10 +22,11 @@
 #include "fast_ping.h"
 #include "hashtable.h"
 #include "list.h"
-#include "util.h"
 #include "tlog.h"
+#include "util.h"
 #include <arpa/inet.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <linux/filter.h>
 #include <netdb.h>
 #include <netinet/icmp6.h>
@@ -38,13 +39,9 @@
 #include <string.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include <sys/types.h>
-       #include <sys/stat.h>
-       #include <fcntl.h>
-
-
 
 #define DNS_MAX_HOSTNAME 256
 
@@ -96,9 +93,10 @@ struct dns_query_struct {
 	struct list_head dns_request_list;
 	struct hlist_node domain_node;
 	char domain[DNS_MAX_CNAME_LEN];
-	int dns_request_sent;
+	atomic_t dns_request_sent;
 	void *user_ptr;
 	unsigned long send_tick;
+	atomic_t notified;
 	dns_client_callback callback;
 	struct dns_result result;
 };
@@ -267,31 +265,34 @@ int dns_remove_server(char *server_ip, int port, dns_server_type_t server_type)
 	return _dns_client_server_operate(server_ip, port, server_type, 1);
 }
 
-
 int _dns_client_query_complete(struct dns_query_struct *query)
 {
 	int ret = -1;
 	if (query->callback) {
 		ret = query->callback(query->domain, &query->result, query->user_ptr);
 	}
-    
+
 	return ret;
 }
 
-
-void _dns_client_query_release(struct dns_query_struct *query)
+void _dns_client_query_release(struct dns_query_struct *query, int locked)
 {
 	if (!atomic_dec_and_test(&query->refcnt)) {
 		return;
 	}
 
-	pthread_mutex_lock(&client.domain_map_lock);
-	list_del(&query->dns_request_list);
-	hash_del(&query->domain_node);
-	pthread_mutex_unlock(&client.domain_map_lock);
-	tlog(TLOG_ERROR, "-------------%p, %d\n", query, atomic_read(&query->refcnt));
-	_dns_client_query_complete(query);
-	//TODO double free BUG://
+	if (locked == 0) {
+		pthread_mutex_lock(&client.domain_map_lock);
+		list_del(&query->dns_request_list);
+		hash_del(&query->domain_node);
+		pthread_mutex_unlock(&client.domain_map_lock);
+	} else {
+		list_del(&query->dns_request_list);
+		hash_del(&query->domain_node);
+	}
+	if (atomic_inc_return(&query->notified) == 1) {
+		_dns_client_query_complete(query);
+	}
 	memset(query, 0, sizeof(*query));
 	free(query);
 }
@@ -301,10 +302,11 @@ void _dns_client_query_get(struct dns_query_struct *query)
 	atomic_inc(&query->refcnt);
 }
 
-void dns_client_ping_result(struct ping_host_struct *ping_host, const char *host, FAST_PING_RESULT result, struct sockaddr *addr, socklen_t addr_len, int seqno, struct timeval *tv, void *userptr)
+void dns_client_ping_result(struct ping_host_struct *ping_host, const char *host, FAST_PING_RESULT result, struct sockaddr *addr, socklen_t addr_len, int seqno,
+							struct timeval *tv, void *userptr)
 {
 	struct dns_query_struct *query = userptr;
-
+	int may_complete = 0;
 	if (query == NULL) {
 		return;
 	}
@@ -325,12 +327,12 @@ void dns_client_ping_result(struct ping_host_struct *ping_host, const char *host
 		addr_in6 = (struct sockaddr_in6 *)addr;
 		if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
 			if (query->result.ttl_v4 > rtt) {
-                query->result.ttl_v4 = rtt;
+				query->result.ttl_v4 = rtt;
 				memcpy(query->result.addr_ipv4, addr_in6->sin6_addr.s6_addr + 12, 4);
 			}
 		} else {
 			if (query->result.ttl_v6 > rtt) {
-                query->result.ttl_v6 = rtt;
+				query->result.ttl_v6 = rtt;
 				memcpy(query->result.addr_ipv6, addr_in6->sin6_addr.s6_addr, 16);
 			}
 		}
@@ -338,8 +340,20 @@ void dns_client_ping_result(struct ping_host_struct *ping_host, const char *host
 	default:
 		break;
 	}
-	printf("from %15s: seq=%d time=%d\n", host, seqno, rtt);
-	_dns_client_query_release(query);
+
+	if (rtt < 100) {
+		may_complete = 1;
+	} else if (rtt < (get_tick_count() - query->send_tick) * 10) {
+		may_complete = 1;
+	}
+
+	if (may_complete) {
+		if (atomic_inc_return(&query->notified) == 1) {
+			_dns_client_query_complete(query);
+		}
+	}
+	tlog(TLOG_INFO, "from %15s: seq=%d time=%d\n", host, seqno, rtt);
+	_dns_client_query_release(query, 0);
 }
 
 void _dns_client_period_run()
@@ -351,6 +365,8 @@ void _dns_client_period_run()
 	list_for_each_entry_safe(query, tmp, &client.dns_request_list, dns_request_list)
 	{
 		if (now - query->send_tick > 500) {
+			atomic_set(&query->dns_request_sent, -1);
+			_dns_client_query_release(query, 1);
 		}
 	}
 	pthread_mutex_unlock(&client.domain_map_lock);
@@ -390,19 +406,25 @@ static int _dns_client_process_answer(char *domain, struct dns_packet *packet)
 	int j = 0;
 	struct dns_rrs *rrs = NULL;
 	int ret = -1;
+	int request_num = 0;
 
 	query = _dns_client_get_request(packet->head.id, domain);
 	if (query == NULL) {
 		return -1;
 	}
 
-	pthread_mutex_lock(&client.server_list_lock);
-	query->dns_request_sent--;
-	if (query->dns_request_sent < 0) {
-		pthread_mutex_unlock(&client.server_list_lock);
+	request_num = atomic_dec_return(&query->dns_request_sent);
+	if (request_num < 0) {
 		return -1;
 	}
-	pthread_mutex_unlock(&client.server_list_lock);
+
+	if (packet->head.rcode != DNS_RC_NOERROR) {
+		tlog(TLOG_ERROR, "inquery failed, %s, rcode = %d\n", name, packet->head.rcode);
+		if (request_num == 0) {
+			_dns_client_query_release(query, 0);
+		}
+		return -1;
+	}
 
 	for (j = 1; j < DNS_RRS_END; j++) {
 		rrs = dns_get_rrs_start(packet, j, &rr_count);
@@ -411,35 +433,35 @@ static int _dns_client_process_answer(char *domain, struct dns_packet *packet)
 			case DNS_T_A: {
 				unsigned char addr[4];
 				dns_get_A(rrs, name, DNS_MAX_CNAME_LEN, &ttl, addr);
-				printf("%s %d : %d.%d.%d.%d\n", name, ttl, addr[0], addr[1], addr[2], addr[3]);
+				tlog(TLOG_DEBUG, "%s %d : %d.%d.%d.%d", name, ttl, addr[0], addr[1], addr[2], addr[3]);
 				sprintf(ip, "%d.%d.%d.%d", addr[0], addr[1], addr[2], addr[3]);
 
 				if (strncmp(name, domain, DNS_MAX_CNAME_LEN) == 0 || strncmp(alias, name, DNS_MAX_CNAME_LEN) == 0) {
 					_dns_client_query_get(query);
-					if (fast_ping_start(ip, 1, 700, dns_client_ping_result, query) == NULL) {
-						_dns_client_query_release(query);
+					if (fast_ping_start(ip, 1, 500, dns_client_ping_result, query) == NULL) {
+						_dns_client_query_release(query, 0);
 					}
 				}
 			} break;
 			case DNS_T_AAAA: {
 				unsigned char addr[16];
 				dns_get_AAAA(rrs, name, DNS_MAX_CNAME_LEN, &ttl, addr);
-				sprintf(name, "%x:%x:%x:%x:%x:%x:%x:%x:%x:%x:%x:%x:%x:%x:%x:%x", addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr[6], addr[7],
-						addr[8], addr[9], addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
+				sprintf(name, "%x%x:%x%x:%x%x:%x%x:%x%x:%x%x:%x%x:%x%x", addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr[6], addr[7], addr[8],
+						addr[9], addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
 				_dns_client_query_get(query);
-				if (fast_ping_start(name, 1, 700, dns_client_ping_result, query) == NULL) {
-					_dns_client_query_release(query);
+				if (fast_ping_start(name, 1, 500, dns_client_ping_result, query) == NULL) {
+					_dns_client_query_release(query, 0);
 				}
 			} break;
 			case DNS_T_NS: {
 				char cname[128];
 				dns_get_CNAME(rrs, name, 128, &ttl, cname, 128);
-				printf("NS: %s %d : %s\n", name, ttl, cname);
+				tlog(TLOG_INFO, "NS: %s %d : %s\n", name, ttl, cname);
 			} break;
 			case DNS_T_CNAME: {
 				char cname[128];
 				dns_get_CNAME(rrs, name, 128, &ttl, cname, 128);
-				printf("%s %d : %s\n", name, ttl, cname);
+				tlog(TLOG_DEBUG, "%s %d : %s\n", name, ttl, cname);
 				strncpy(alias, cname, DNS_MAX_CNAME_LEN);
 			} break;
 			default:
@@ -448,11 +470,9 @@ static int _dns_client_process_answer(char *domain, struct dns_packet *packet)
 		}
 	}
 
-	pthread_mutex_lock(&client.server_list_lock);
-	if (query->dns_request_sent <= 0) {
-		_dns_client_query_release(query);
+	if (request_num == 0) {
+		_dns_client_query_release(query, 0);
 	}
-	pthread_mutex_unlock(&client.server_list_lock);
 
 	return ret;
 }
@@ -472,9 +492,8 @@ static int _dns_client_recv(unsigned char *inpacket, int inpacket_len, struct so
 	packet->head.tc = 0;
 	len = dns_decode(packet, DNS_PACKSIZE, inpacket, inpacket_len);
 	if (len != 0) {
-		tlog(TLOG_ERROR, "decode failed, packet len = %d, tc=%d, %d\n", inpacket_len, 
-			packet->head.tc, packet->head.id);
-				int fd = open("dns.bin", O_CREAT | O_TRUNC | O_RDWR);
+		tlog(TLOG_ERROR, "decode failed, packet len = %d, tc=%d, %d\n", inpacket_len, packet->head.tc, packet->head.id);
+		int fd = open("dns.bin", O_CREAT | O_TRUNC | O_RDWR);
 		write(fd, inpacket, inpacket_len);
 		close(fd);
 		return -1;
@@ -485,20 +504,13 @@ static int _dns_client_recv(unsigned char *inpacket, int inpacket_len, struct so
 		return -1;
 	}
 
-	printf("qdcount = %d, ancount = %d, nscount = %d, nrcount = %d, len = %d, id = %d, rd = %d, ra = %d, rcode = %d\n", packet->head.qdcount, packet->head.ancount, packet->head.nscount,
-		   packet->head.nrcount, inpacket_len, packet->head.id, packet->head.rd, packet->head.ra,
-		   packet->head.rcode);
+	tlog(TLOG_DEBUG, "qdcount = %d, ancount = %d, nscount = %d, nrcount = %d, len = %d, id = %d, rd = %d, ra = %d, rcode = %d\n", packet->head.qdcount,
+		 packet->head.ancount, packet->head.nscount, packet->head.nrcount, inpacket_len, packet->head.id, packet->head.rd, packet->head.ra, packet->head.rcode);
 
 	rrs = dns_get_rrs_start(packet, DNS_RRS_QD, &rr_count);
 	for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
 		dns_get_domain(rrs, name, DNS_MAX_CNAME_LEN, &qtype, &qclass);
-		printf("domain: %s qtype: %d  qclass: %d\n", name, qtype, qclass);
-	}
-
-	if (packet->head.rcode != DNS_RC_NOERROR) {
-		tlog(TLOG_ERROR, "inquery failed, %s, rcode = %d\n", name, packet->head.rcode);
-		//TODO set response to dns_server.c
-		return -1;
+		tlog(TLOG_DEBUG, "domain: %s qtype: %d  qclass: %d\n", name, qtype, qclass);
 	}
 
 	return _dns_client_process_answer(name, packet);
@@ -600,7 +612,7 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 			continue;
 		}
 
-		query->dns_request_sent++;
+		atomic_inc(&query->dns_request_sent);
 	}
 	pthread_mutex_unlock(&client.server_list_lock);
 	return 0;
@@ -617,7 +629,8 @@ static int _dns_client_send_query(struct dns_query_struct *query, char *doamin)
 	memset(&head, 0, sizeof(head));
 	head.rcode = 0;
 	head.qr = DNS_OP_QUERY;
-	head.rd = 0;
+	head.aa = 1;
+	head.rd = 1;
 	head.ra = 0;
 	head.id = query->sid;
 
@@ -646,6 +659,8 @@ int dns_client_query(char *domain, dns_client_callback callback, void *user_ptr)
 	INIT_HLIST_NODE(&query->domain_node);
 	INIT_LIST_HEAD(&query->dns_request_list);
 	atomic_set(&query->refcnt, 0);
+	atomic_set(&query->notified, 0);
+	atomic_set(&query->dns_request_sent, 0);
 	strncpy(query->domain, domain, DNS_MAX_CNAME_LEN);
 	query->user_ptr = user_ptr;
 	query->callback = callback;
@@ -659,7 +674,7 @@ int dns_client_query(char *domain, dns_client_callback callback, void *user_ptr)
 		goto errout_del_list;
 	}
 
-	tlog(TLOG_ERROR, "send request %s, id %d\n", domain, query->sid);
+	tlog(TLOG_INFO, "send request %s, id %d\n", domain, query->sid);
 
 	key = hash_string(domain);
 	key = jhash(&query->sid, sizeof(query->sid), key);
@@ -757,7 +772,7 @@ errout:
 
 void dns_debug(void)
 {
-	char data[1024];
+	unsigned char data[1024];
 	int len;
 	char buff[4096];
 
@@ -771,7 +786,7 @@ void dns_debug(void)
 		return;
 	}
 
-	struct dns_packet *packet = buff;
+	struct dns_packet *packet = (struct dns_packet *)buff;
 	if (dns_decode(packet, 4096, data, len) != 0) {
 		printf("decode failed.\n");
 	}
@@ -784,10 +799,9 @@ int dns_client_init()
 	int ret;
 	int fd = 1;
 
-	//dns_debug();
+	// dns_debug();
 
-	if (client.epoll_fd > 0)
-	{
+	if (client.epoll_fd > 0) {
 		return -1;
 	}
 

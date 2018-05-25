@@ -659,7 +659,8 @@ static int _fast_ping_process_icmp(struct ping_host_struct *ping_host, struct ti
 
 	packet = _fast_ping_recv_packet(ping_host, inpacket, len, now);
 	if (packet == NULL) {
-		tlog(TLOG_ERROR, "recv ping packet failed.");
+		char name[PING_MAX_HOSTLEN];
+		tlog(TLOG_ERROR, "recv ping packet from %s failed.", gethost_by_addr(name, (struct sockaddr *)&from, from_len));
 		goto errout;
 	}
 

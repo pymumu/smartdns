@@ -55,11 +55,13 @@ int smartdns_init()
         goto errout;
     }
 
-	//dns_add_server("192.168.1.1", 53, DNS_SERVER_UDP);
+	dns_add_server("192.168.1.1", 53, DNS_SERVER_UDP);
     dns_add_server("114.114.114.114", 53, DNS_SERVER_UDP);
 	dns_add_server("123.207.137.88", 53, DNS_SERVER_UDP);
 	dns_add_server("193.112.15.186", 53, DNS_SERVER_UDP);
-	//dns_add_server("202.141.178.13", 5353, DNS_SERVER_UDP);
+	dns_add_server("202.141.178.13", 5353, DNS_SERVER_UDP);
+    dns_add_server("208.67.222.222", 5353, DNS_SERVER_UDP);
+    
 	return 0;
 errout:
 

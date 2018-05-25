@@ -1116,7 +1116,7 @@ int dns_packet_init(struct dns_packet *packet, int size, struct dns_head *head)
 	init_head->qr = head->qr;
 	init_head->opcode = head->opcode;
 	init_head->aa = head->aa;
-	init_head->tc = 0;
+	init_head->tc = head->tc;
 	init_head->rd = head->rd;
 	init_head->ra = head->ra;
 	init_head->rcode = head->rcode;
