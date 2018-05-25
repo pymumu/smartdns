@@ -366,7 +366,7 @@ void _dns_client_period_run()
 	{
 		if (now - query->send_tick > 500) {
 			atomic_set(&query->dns_request_sent, -1);
-			_dns_client_query_release(query, 1);
+			//_dns_client_query_release(query, 1);
 		}
 	}
 	pthread_mutex_unlock(&client.domain_map_lock);
@@ -584,6 +584,7 @@ static int _dns_client_send_udp(struct dns_server_info *server_info, void *packe
 	send_len = sendto(client.udp, packet, len, 0, (struct sockaddr *)&server_info->addr, server_info->addr_len);
 	if (send_len != len) {
 		printf("send to server failed.");
+		abort();
 		return -1;
 	}
 
@@ -611,6 +612,7 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 		if (ret != 0) {
 			continue;
 		}
+
 
 		atomic_inc(&query->dns_request_sent);
 	}
@@ -669,19 +671,19 @@ int dns_client_query(char *domain, dns_client_callback callback, void *user_ptr)
 	query->sid = atomic_inc_return(&dns_client_sid);
 
 	_dns_client_query_get(query);
-	ret = _dns_client_send_query(query, domain);
-	if (ret != 0) {
-		goto errout_del_list;
-	}
-
-	tlog(TLOG_INFO, "send request %s, id %d\n", domain, query->sid);
-
 	key = hash_string(domain);
 	key = jhash(&query->sid, sizeof(query->sid), key);
 	pthread_mutex_lock(&client.domain_map_lock);
 	list_add_tail(&query->dns_request_list, &client.dns_request_list);
 	hash_add(client.domain_map, &query->domain_node, key);
 	pthread_mutex_unlock(&client.domain_map_lock);
+
+	ret = _dns_client_send_query(query, domain);
+	if (ret != 0) {
+		goto errout_del_list;
+	}
+
+	tlog(TLOG_INFO, "send request %s, id %d\n", domain, query->sid);
 
 	return 0;
 errout_del_list:
