@@ -187,7 +187,7 @@ static struct addrinfo *_fast_ping_getaddr(const char *host, int type, int proto
 	hints.ai_socktype = type;
 	hints.ai_protocol = protocol;
 	if (getaddrinfo(host, NULL, &hints, &result) != 0) {
-		fprintf(stderr, "get addr info failed. %s\n", strerror(errno));
+		tlog(TLOG_ERROR, "get addr info failed. %s\n", strerror(errno));
 		goto errout;
 	}
 
@@ -210,7 +210,7 @@ static int _fast_ping_getdomain(const char *host)
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_protocol = 0;
 	if (getaddrinfo(host, NULL, &hints, &result) != 0) {
-		fprintf(stderr, "get addr info failed. %s\n", strerror(errno));
+		tlog(TLOG_ERROR, "get addr info failed. %s\n", strerror(errno));
 		goto errout;
 	}
 
@@ -235,8 +235,8 @@ static void _fast_ping_host_put(struct ping_host_struct *ping_host)
 {
 	pthread_mutex_lock(&ping.map_lock);
 	if (atomic_dec_and_test(&ping_host->ref)) {
-		hlist_del(&ping_host->host_node);
-		hlist_del(&ping_host->addr_node);
+		hash_del(&ping_host->host_node);
+		hash_del(&ping_host->addr_node);
 	} else {
 		ping_host = NULL;
 	}
@@ -252,8 +252,8 @@ static void _fast_ping_host_put(struct ping_host_struct *ping_host)
 static void _fast_ping_host_put_locked(struct ping_host_struct *ping_host)
 {
 	if (atomic_dec_and_test(&ping_host->ref)) {
-		hlist_del(&ping_host->host_node);
-		hlist_del(&ping_host->addr_node);
+		hash_del(&ping_host->host_node);
+		hash_del(&ping_host->addr_node);
 	} else {
 		ping_host = NULL;
 	}
@@ -261,6 +261,12 @@ static void _fast_ping_host_put_locked(struct ping_host_struct *ping_host)
 	if (ping_host == NULL) {
 		return;
 	}
+
+	struct timeval tv;
+	tv.tv_sec = 0;
+	tv.tv_usec = 0;
+	
+	ping_host->ping_callback(ping_host, ping_host->host, PING_RESULT_END, &ping_host->addr, ping_host->addr_len, ping_host->seq, &tv, ping_host->userptr);
 
 	free(ping_host);
 }
@@ -286,7 +292,7 @@ static int _fast_ping_sendping_v6(struct ping_host_struct *ping_host)
 
 	len = sendto(ping_host->fd, &ping_host->packet, sizeof(struct fast_ping_packet), 0, (struct sockaddr *)&ping_host->addr, ping_host->addr_len);
 	if (len < 0 || len != sizeof(struct fast_ping_packet)) {
-		fprintf(stderr, "sendto %s\n", strerror(errno));
+		tlog(TLOG_ERROR, "sendto %s\n", strerror(errno));
 		goto errout;
 	}
 
@@ -317,7 +323,7 @@ static int _fast_ping_sendping_v4(struct ping_host_struct *ping_host)
 
 	len = sendto(ping_host->fd, packet, sizeof(struct fast_ping_packet), 0, (struct sockaddr *)&ping_host->addr, ping_host->addr_len);
 	if (len < 0 || len != sizeof(struct fast_ping_packet)) {
-		fprintf(stderr, "sendto %s\n", strerror(errno));
+		tlog(TLOG_ERROR, "sendto %s\n", strerror(errno));
 		goto errout;
 	}
 
@@ -337,12 +343,12 @@ static int _fast_ping_sendping(struct ping_host_struct *ping_host)
 		ret = _fast_ping_sendping_v6(ping_host);
 	}
 
+	ping_host->send = 1;
+	gettimeofday(&ping_host->last, 0);
+
 	if (ret != 0) {
 		return ret;
 	}
-
-	ping_host->send = 1;
-	gettimeofday(&ping_host->last, 0);
 
 	return 0;
 }
@@ -352,12 +358,14 @@ static int _fast_ping_create_sock(FAST_PING_TYPE type)
 	int fd = -1;
 	struct ping_host_struct *icmp_host = NULL;
 	struct epoll_event event;
+	int buffsize = 64 * 1024;
+	socklen_t optlen = sizeof(buffsize);
 
 	switch (type) {
 	case FAST_PING_ICMP:
 		fd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
 		if (fd < 0) {
-			fprintf(stderr, "create icmp socket failed.\n");
+			tlog(TLOG_ERROR, "create icmp socket failed.\n");
 			goto errout;
 		}
 		_fast_ping_install_filter_v4(fd);
@@ -366,7 +374,7 @@ static int _fast_ping_create_sock(FAST_PING_TYPE type)
 	case FAST_PING_ICMP6:
 		fd = socket(AF_INET6, SOCK_RAW, IPPROTO_ICMPV6);
 		if (fd < 0) {
-			fprintf(stderr, "create icmp socket failed.\n");
+			tlog(TLOG_ERROR, "create icmp socket failed.\n");
 			goto errout;
 		}
 		_fast_ping_install_filter_v6(fd);
@@ -375,6 +383,9 @@ static int _fast_ping_create_sock(FAST_PING_TYPE type)
 	default:
 		return -1;
 	}
+
+	setsockopt(fd, SOL_SOCKET, SO_SNDBUF, (const char *)&buffsize, optlen);
+	setsockopt(fd, SOL_SOCKET, SO_RCVBUF, (const char *)&buffsize, optlen);
 
 	event.events = EPOLLIN;
 	event.data.ptr = icmp_host;
@@ -435,9 +446,9 @@ void fast_ping_print_result(struct ping_host_struct *ping_host, const char *host
 {
 	if (result == PING_RESULT_RESPONSE) {
 		double rtt = tv->tv_sec * 1000.0 + tv->tv_usec / 1000.0;
-		printf("from %15s: seq=%d time=%.3f\n", host, seqno, rtt);
+		tlog(TLOG_INFO, "from %15s: seq=%d time=%.3f\n", host, seqno, rtt);
 	} else if (result == PING_RESULT_TIMEOUT) {
-		printf("from %15s: seq=%d timeout\n", host, seqno);
+		tlog(TLOG_INFO, "from %15s: seq=%d timeout\n", host, seqno);
 	}
 }
 
@@ -508,6 +519,8 @@ struct ping_host_struct *fast_ping_start(const char *host, int count, int timeou
 	}
 	memcpy(&ping_host->addr, gai->ai_addr, gai->ai_addrlen);
 
+	_fast_ping_sendping(ping_host);
+
 	hostkey = hash_string(ping_host->host);
 	addrkey = jhash(&ping_host->addr, ping_host->addr_len, 0);
 	addrkey = jhash(&ping_host->sid, sizeof(ping_host->sid), addrkey);
@@ -519,7 +532,6 @@ struct ping_host_struct *fast_ping_start(const char *host, int count, int timeou
 
 	freeaddrinfo(gai);
 
-	_fast_ping_sendping(ping_host);
 	return ping_host;
 errout:
 	if (fd > 0) {
@@ -653,14 +665,14 @@ static int _fast_ping_process_icmp(struct ping_host_struct *ping_host, struct ti
 
 	len = recvfrom(ping_host->fd, inpacket, sizeof(inpacket), 0, (struct sockaddr *)&from, (socklen_t *)&from_len);
 	if (len < 0) {
-		fprintf(stderr, "recvfrom failed, %s\n", strerror(errno));
+		tlog(TLOG_ERROR, "recvfrom failed, %s\n", strerror(errno));
 		goto errout;
 	}
 
 	packet = _fast_ping_recv_packet(ping_host, inpacket, len, now);
 	if (packet == NULL) {
 		char name[PING_MAX_HOSTLEN];
-		tlog(TLOG_ERROR, "recv ping packet from %s failed.", gethost_by_addr(name, (struct sockaddr *)&from, from_len));
+		tlog(TLOG_DEBUG, "recv ping packet from %s failed.", gethost_by_addr(name, (struct sockaddr *)&from, from_len));
 		goto errout;
 	}
 
@@ -676,6 +688,7 @@ static int _fast_ping_process_icmp(struct ping_host_struct *ping_host, struct ti
 			break;
 		}
 	}
+
 	pthread_mutex_unlock(&ping.map_lock);
 
 	if (recv_ping_host == NULL) {
@@ -695,9 +708,10 @@ static int _fast_ping_process_icmp(struct ping_host_struct *ping_host, struct ti
 
 	recv_ping_host->send = 0;
 
-	if (recv_ping_host->count == 0) {
+	if (recv_ping_host->count == 1) {
 		_fast_ping_host_put(recv_ping_host);
 	}
+
 	return 0;
 errout:
 	return -1;
@@ -726,7 +740,7 @@ static void _fast_ping_period_run()
 	int i = 0;
 	struct timeval now;
 	struct timeval interval;
-	uint64_t millisecond;
+	int64_t millisecond;
 	gettimeofday(&now, 0);
 
 	pthread_mutex_lock(&ping.map_lock);
@@ -735,7 +749,7 @@ static void _fast_ping_period_run()
 		interval = now;
 		tv_sub(&interval, &ping_host->last);
 		millisecond = interval.tv_sec * 1000 + interval.tv_usec / 1000;
-		if (millisecond > ping_host->timeout && ping_host->send == 1) {
+		if (millisecond >= ping_host->timeout && ping_host->send == 1) {
 			ping_host->ping_callback(ping_host, ping_host->host, PING_RESULT_TIMEOUT, &ping_host->addr, ping_host->addr_len, ping_host->seq, &interval,
 									 ping_host->userptr);
 			ping_host->send = 0;
@@ -744,12 +758,15 @@ static void _fast_ping_period_run()
 		if (millisecond < ping_host->interval) {
 			continue;
 		}
-		if (ping_host->count >= 0) {
+
+		if (ping_host->count > 0) {
+			if (ping_host->count == 1) {
+				hash_del(&ping_host->host_node);
+				hash_del(&ping_host->addr_node);
+				_fast_ping_host_put_locked(ping_host);
+				continue;
+			}
 			ping_host->count--;
-		}
-		if (ping_host->count == 0) {
-			_fast_ping_host_put_locked(ping_host);
-			continue;
 		}
 
 		_fast_ping_sendping(ping_host);
@@ -817,7 +834,7 @@ int fast_ping_init()
 
 	epollfd = epoll_create1(EPOLL_CLOEXEC);
 	if (epollfd < 0) {
-		fprintf(stderr, "create epoll failed, %s\n", strerror(errno));
+		tlog(TLOG_ERROR, "create epoll failed, %s\n", strerror(errno));
 		goto errout;
 	}
 
@@ -830,7 +847,7 @@ int fast_ping_init()
 	ping.run = 1;
 	ret = pthread_create(&ping.tid, &attr, _fast_ping_work, NULL);
 	if (ret != 0) {
-		fprintf(stderr, "create ping work thread failed, %s\n", strerror(errno));
+		tlog(TLOG_ERROR, "create ping work thread failed, %s\n", strerror(errno));
 		goto errout;
 	}
 

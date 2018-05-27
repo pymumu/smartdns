@@ -17,6 +17,7 @@ typedef enum {
 typedef enum {
 	PING_RESULT_RESPONSE = 1,
 	PING_RESULT_TIMEOUT = 2,
+	PING_RESULT_END = 3,
 } FAST_PING_RESULT;
 
 struct ping_host_struct;

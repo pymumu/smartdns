@@ -187,9 +187,11 @@ static int _dns_reply(struct dns_request *request)
 
 	memset(&head, 0, sizeof(head));
 	head.id = request->id;
-	head.qr = DNS_OP_IQUERY;
+	head.qr = DNS_QR_ANSWER;
+	head.opcode = DNS_OP_QUERY;
 	head.rd = 1;
 	head.ra = 0;
+	head.rcode = DNS_RC_NOERROR;
 	ret = dns_packet_init(packet, DNS_PACKSIZE, &head);
 	if (ret != 0) {
 		return -1;
@@ -223,8 +225,18 @@ static int dns_server_resolve_callback(char *domain, struct dns_result *result, 
 {
 	struct dns_request *request = user_ptr;
 
+	int refcnt;
+
 	if (user_ptr == NULL) {
 		return -1;
+	}
+
+	refcnt = atomic_dec_return(&request->refcnt);
+	if (refcnt) {
+		if (refcnt < 0) {
+			abort();
+		}
+		return 0;
 	}
 
 	memcpy(request->ipv4_addr, result->addr_ipv4, 4);
@@ -239,10 +251,6 @@ static int dns_server_resolve_callback(char *domain, struct dns_result *result, 
 		request->ipv4_addr[3]);
 	_dns_reply(request);
 
-	if (!atomic_dec_and_test(&request->refcnt)) {
-		return 0;
-
-	}
 
 	memset(request, 0, sizeof(*request));
 	free(request);
@@ -271,7 +279,7 @@ static int _dns_server_recv(unsigned char *inpacket, int inpacket_len, struct so
 		goto errout;
 	}
 
-	if (packet->head.qr != DNS_OP_QUERY) {
+	if (packet->head.qr != DNS_QR_QUERY) {
 		goto errout;
 	}
 
@@ -333,7 +341,7 @@ static int _dns_server_process(unsigned long now)
 
 	len = recvfrom(server.fd, inpacket, sizeof(inpacket), 0, (struct sockaddr *)&from, (socklen_t *)&from_len);
 	if (len < 0) {
-		fprintf(stderr, "recvfrom failed, %s\n", strerror(errno));
+		tlog(TLOG_ERROR, "recvfrom failed, %s\n", strerror(errno));
 		return -1;
 	}
 
@@ -376,7 +384,7 @@ int dns_server_run(void)
 		for (i = 0; i < num; i++) {
 			struct epoll_event *event = &events[i];
 			if (event->data.fd != server.fd) {
-				fprintf(stderr, "invalid fd\n");
+				tlog(TLOG_ERROR, "invalid fd\n");
 				continue;
 			}
 
@@ -401,7 +409,7 @@ static struct addrinfo *_dns_server_getaddr(const char *host, const char *port, 
 	hints.ai_protocol = protocol;
 	hints.ai_flags = AI_PASSIVE;
 	if (getaddrinfo(host, port, &hints, &result) != 0) {
-		fprintf(stderr, "get addr info failed. %s\n", strerror(errno));
+		tlog(TLOG_ERROR, "get addr info failed. %s\n", strerror(errno));
 		goto errout;
 	}
 
@@ -419,7 +427,7 @@ int dns_server_start(void)
 	event.events = EPOLLIN;
 	event.data.fd = server.fd;
 	if (epoll_ctl(server.epoll_fd, EPOLL_CTL_ADD, server.fd, &event) != 0) {
-		fprintf(stderr, "epoll ctl failed.");
+		tlog(TLOG_ERROR, "epoll ctl failed.");
 		return -1;
 	}
 
@@ -433,18 +441,18 @@ int dns_server_socket(void)
 
 	gai = _dns_server_getaddr(NULL, "53", SOCK_DGRAM, 0);
 	if (gai == NULL) {
-		fprintf(stderr, "get address failed.\n");
+		tlog(TLOG_ERROR, "get address failed.\n");
 		goto errout;
 	}
 
 	fd = socket(gai->ai_family, gai->ai_socktype, gai->ai_protocol);
 	if (fd < 0) {
-		fprintf(stderr, "create socket failed.\n");
+		tlog(TLOG_ERROR, "create socket failed.\n");
 		goto errout;
 	}
 
 	if (bind(fd, gai->ai_addr, gai->ai_addrlen) != 0) {
-		fprintf(stderr, "bind failed.\n");
+		tlog(TLOG_ERROR, "bind failed.\n");
 		goto errout;
 	}
 
@@ -478,13 +486,13 @@ int dns_server_init(void)
 
 	epollfd = epoll_create1(EPOLL_CLOEXEC);
 	if (epollfd < 0) {
-		fprintf(stderr, "create epoll failed, %s\n", strerror(errno));
+		tlog(TLOG_ERROR, "create epoll failed, %s\n", strerror(errno));
 		goto errout;
 	}
 
 	fd = dns_server_socket();
 	if (fd < 0) {
-		fprintf(stderr, "create server socket failed.\n");
+		tlog(TLOG_ERROR, "create server socket failed.\n");
 		goto errout;
 	}
 
@@ -495,7 +503,7 @@ int dns_server_init(void)
 	server.run = 1;
 
 	if (dns_server_start() != 0) {
-		fprintf(stderr, "start service failed.\n");
+		tlog(TLOG_ERROR, "start service failed.\n");
 		goto errout;
 	}
 

@@ -497,6 +497,11 @@ int _dns_encode_head(struct dns_context *context)
 
 	int fields = 0;
 	fields |= (head->qr << 15) & QR_MASK;
+	fields |= (head->opcode << 11) & OPCODE_MASK;
+	fields |= (head->aa << 10) & AA_MASK;
+	fields |= (head->tc << 9) & TC_MASK;
+	fields |= (head->rd << 8) & RD_MASK;
+	fields |= (head->ra << 7) & RA_MASK;
 	fields |= (head->rcode << 0) & RCODE_MASK;
 	dns_write_short(&context->ptr, fields);
 

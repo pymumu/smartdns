@@ -99,7 +99,7 @@ static inline void atomic_dec( atomic_t *v )
  */
 static inline int atomic_inc_return( atomic_t *v )
 {
-	return __sync_fetch_and_add(&v->counter, 1);
+	return __sync_add_and_fetch(&v->counter, 1);
 }
 
 /**
@@ -111,7 +111,7 @@ static inline int atomic_inc_return( atomic_t *v )
  */
 static inline int atomic_dec_return( atomic_t *v )
 {
-	return __sync_fetch_and_sub(&v->counter, 1);
+	return __sync_sub_and_fetch(&v->counter, 1);
 }
 
 /**

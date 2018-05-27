@@ -12,6 +12,11 @@
 #define DNS_IN_PACKSIZE (512 * 2)
 #define DNS_PACKSIZE (512 * 4)
 
+typedef enum dns_qr {
+	DNS_QR_QUERY = 0,
+	DNS_QR_ANSWER = 1,
+}dns_qr;
+
 typedef enum dns_rr_type {
 	DNS_RRS_QD = 0,
 	DNS_RRS_AN = 1,

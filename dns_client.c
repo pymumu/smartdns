@@ -108,13 +108,17 @@ static struct addrinfo *_dns_client_getaddr(const char *host, char *port, int ty
 {
 	struct addrinfo hints;
 	struct addrinfo *result = NULL;
+	int ret = 0;
 
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = type;
 	hints.ai_protocol = protocol;
-	if (getaddrinfo(host, port, &hints, &result) != 0) {
-		fprintf(stderr, "get addr info failed. %s\n", strerror(errno));
+
+	ret = getaddrinfo(host, port, &hints, &result);
+	if (ret != 0) {
+		tlog(TLOG_ERROR, "get addr info failed. %s\n", gai_strerror(errno));
+		tlog(TLOG_ERROR, "host = %s, port = %s, type = %d, protocol = %d", host, port, type, protocol);
 		goto errout;
 	}
 
@@ -268,6 +272,11 @@ int dns_remove_server(char *server_ip, int port, dns_server_type_t server_type)
 int _dns_client_query_complete(struct dns_query_struct *query)
 {
 	int ret = -1;
+	if (atomic_inc_return(&query->notified) != 1) {
+		return 0;
+	}
+
+	tlog(TLOG_INFO, "call back result : %s", query->domain);
 	if (query->callback) {
 		ret = query->callback(query->domain, &query->result, query->user_ptr);
 	}
@@ -275,26 +284,35 @@ int _dns_client_query_complete(struct dns_query_struct *query)
 	return ret;
 }
 
-void _dns_client_query_release(struct dns_query_struct *query, int locked)
+void _dns_client_query_release(struct dns_query_struct *query)
 {
-	if (!atomic_dec_and_test(&query->refcnt)) {
+	int refcnt = atomic_dec_return(&query->refcnt);
+	if (refcnt) {
+		if (refcnt < 0) {
+			tlog(TLOG_ERROR, "BUG: refcnt is %d", refcnt);
+			abort();
+		}
 		return;
 	}
 
+	_dns_client_query_complete(query);
+	memset(query, 0, sizeof(*query));
+	free(query);
+}
+
+void _dns_client_query_remove(struct dns_query_struct *query, int locked)
+{
 	if (locked == 0) {
 		pthread_mutex_lock(&client.domain_map_lock);
-		list_del(&query->dns_request_list);
+		list_del_init(&query->dns_request_list);
 		hash_del(&query->domain_node);
 		pthread_mutex_unlock(&client.domain_map_lock);
 	} else {
-		list_del(&query->dns_request_list);
+		list_del_init(&query->dns_request_list);
 		hash_del(&query->domain_node);
 	}
-	if (atomic_inc_return(&query->notified) == 1) {
-		_dns_client_query_complete(query);
-	}
-	memset(query, 0, sizeof(*query));
-	free(query);
+
+	_dns_client_query_release(query);
 }
 
 void _dns_client_query_get(struct dns_query_struct *query)
@@ -308,6 +326,11 @@ void dns_client_ping_result(struct ping_host_struct *ping_host, const char *host
 	struct dns_query_struct *query = userptr;
 	int may_complete = 0;
 	if (query == NULL) {
+		return;
+	}
+
+	if (result == PING_RESULT_END) {
+		_dns_client_query_release(query);
 		return;
 	}
 
@@ -340,6 +363,11 @@ void dns_client_ping_result(struct ping_host_struct *ping_host, const char *host
 	default:
 		break;
 	}
+	if (result == PING_RESULT_RESPONSE) {
+		tlog(TLOG_INFO, "from %15s: seq=%d time=%d\n", host, seqno, rtt);
+	} else {
+		tlog(TLOG_INFO, "from %15s: seq=%d timeout\n", host, seqno);
+	}
 
 	if (rtt < 100) {
 		may_complete = 1;
@@ -348,12 +376,8 @@ void dns_client_ping_result(struct ping_host_struct *ping_host, const char *host
 	}
 
 	if (may_complete) {
-		if (atomic_inc_return(&query->notified) == 1) {
-			_dns_client_query_complete(query);
-		}
+		_dns_client_query_complete(query);
 	}
-	tlog(TLOG_INFO, "from %15s: seq=%d time=%d\n", host, seqno, rtt);
-	_dns_client_query_release(query, 0);
 }
 
 void _dns_client_period_run()
@@ -364,9 +388,9 @@ void _dns_client_period_run()
 	pthread_mutex_lock(&client.domain_map_lock);
 	list_for_each_entry_safe(query, tmp, &client.dns_request_list, dns_request_list)
 	{
-		if (now - query->send_tick > 500) {
-			atomic_set(&query->dns_request_sent, -1);
-			//_dns_client_query_release(query, 1);
+		if (now - query->send_tick >= 2000) {
+			_dns_client_query_complete(query);
+			_dns_client_query_remove(query, 1);
 		}
 	}
 	pthread_mutex_unlock(&client.domain_map_lock);
@@ -405,23 +429,23 @@ static int _dns_client_process_answer(char *domain, struct dns_packet *packet)
 	int i = 0;
 	int j = 0;
 	struct dns_rrs *rrs = NULL;
-	int ret = -1;
 	int request_num = 0;
 
 	query = _dns_client_get_request(packet->head.id, domain);
 	if (query == NULL) {
-		return -1;
+		return 0;
 	}
 
 	request_num = atomic_dec_return(&query->dns_request_sent);
 	if (request_num < 0) {
+		tlog(TLOG_ERROR, "send count is invalid, %d", request_num);
 		return -1;
 	}
 
 	if (packet->head.rcode != DNS_RC_NOERROR) {
 		tlog(TLOG_ERROR, "inquery failed, %s, rcode = %d\n", name, packet->head.rcode);
 		if (request_num == 0) {
-			_dns_client_query_release(query, 0);
+			_dns_client_query_remove(query, 0);
 		}
 		return -1;
 	}
@@ -439,7 +463,7 @@ static int _dns_client_process_answer(char *domain, struct dns_packet *packet)
 				if (strncmp(name, domain, DNS_MAX_CNAME_LEN) == 0 || strncmp(alias, name, DNS_MAX_CNAME_LEN) == 0) {
 					_dns_client_query_get(query);
 					if (fast_ping_start(ip, 1, 500, dns_client_ping_result, query) == NULL) {
-						_dns_client_query_release(query, 0);
+						_dns_client_query_release(query);
 					}
 				}
 			} break;
@@ -450,7 +474,7 @@ static int _dns_client_process_answer(char *domain, struct dns_packet *packet)
 						addr[9], addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
 				_dns_client_query_get(query);
 				if (fast_ping_start(name, 1, 500, dns_client_ping_result, query) == NULL) {
-					_dns_client_query_release(query, 0);
+					_dns_client_query_release(query);
 				}
 			} break;
 			case DNS_T_NS: {
@@ -471,10 +495,10 @@ static int _dns_client_process_answer(char *domain, struct dns_packet *packet)
 	}
 
 	if (request_num == 0) {
-		_dns_client_query_release(query, 0);
+		_dns_client_query_remove(query, 0);
 	}
 
-	return ret;
+	return 0;
 }
 
 static int _dns_client_recv(unsigned char *inpacket, int inpacket_len, struct sockaddr_storage *from, socklen_t from_len)
@@ -513,7 +537,13 @@ static int _dns_client_recv(unsigned char *inpacket, int inpacket_len, struct so
 		tlog(TLOG_DEBUG, "domain: %s qtype: %d  qclass: %d\n", name, qtype, qclass);
 	}
 
-	return _dns_client_process_answer(name, packet);
+	if (_dns_client_process_answer(name, packet) != 0) {
+		char host[DNS_HOSTNAME_LEN];
+		tlog(TLOG_ERROR, "process answer failed, %s from %s", name, gethost_by_addr(host, (struct sockaddr *)from, from_len));
+		return -1;
+	}
+
+	return 0;
 }
 
 static int _dns_client_process(struct dns_query_struct *dns_query, unsigned long now)
@@ -526,7 +556,7 @@ static int _dns_client_process(struct dns_query_struct *dns_query, unsigned long
 
 	len = recvfrom(client.udp, inpacket, sizeof(inpacket), 0, (struct sockaddr *)&from, (socklen_t *)&from_len);
 	if (len < 0) {
-		fprintf(stderr, "recvfrom failed, %s\n", strerror(errno));
+		tlog(TLOG_ERROR, "recvfrom failed, %s\n", strerror(errno));
 		return -1;
 	}
 
@@ -600,6 +630,7 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 	pthread_mutex_lock(&client.server_list_lock);
 	list_for_each_entry_safe(server_info, tmp, &client.dns_server_list, list)
 	{
+		atomic_inc(&query->dns_request_sent);
 		switch (server_info->type) {
 		case DNS_SERVER_UDP:
 			ret = _dns_client_send_udp(server_info, packet, len);
@@ -610,11 +641,9 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 		}
 
 		if (ret != 0) {
+			atomic_dec(&query->dns_request_sent);
 			continue;
 		}
-
-
-		atomic_inc(&query->dns_request_sent);
 	}
 	pthread_mutex_unlock(&client.server_list_lock);
 	return 0;
@@ -629,18 +658,19 @@ static int _dns_client_send_query(struct dns_query_struct *query, char *doamin)
 
 	struct dns_head head;
 	memset(&head, 0, sizeof(head));
-	head.rcode = 0;
-	head.qr = DNS_OP_QUERY;
+	head.id = query->sid;
+	head.qr = DNS_QR_QUERY;
+	head.opcode = DNS_OP_QUERY;
 	head.aa = 1;
 	head.rd = 1;
-	head.ra = 0;
-	head.id = query->sid;
+	head.ra = 1;
+	head.rcode = 0;
 
 	dns_packet_init(packet, DNS_PACKSIZE, &head);
 	dns_add_domain(packet, doamin, DNS_T_A, DNS_C_IN);
 	encode_len = dns_encode(inpacket, DNS_IN_PACKSIZE, packet);
 	if (encode_len <= 0) {
-		printf("encode query failed.\n");
+		tlog(TLOG_ERROR, "encode query failed.");
 		return -1;
 	}
 
@@ -689,7 +719,7 @@ int dns_client_query(char *domain, dns_client_callback callback, void *user_ptr)
 errout_del_list:
 	atomic_dec(&query->refcnt);
 	pthread_mutex_lock(&client.domain_map_lock);
-	list_del(&query->dns_request_list);
+	list_del_init(&query->dns_request_list);
 	hash_del(&query->domain_node);
 	pthread_mutex_unlock(&client.domain_map_lock);
 errout:
@@ -715,7 +745,7 @@ static struct addrinfo *_dns_server_getaddr(const char *host, const char *port, 
 	hints.ai_protocol = protocol;
 	hints.ai_flags = AI_PASSIVE;
 	if (getaddrinfo(host, port, &hints, &result) != 0) {
-		fprintf(stderr, "get addr info failed. %s\n", strerror(errno));
+		tlog(TLOG_ERROR, "get addr info failed. %s\n", strerror(errno));
 		goto errout;
 	}
 
@@ -733,7 +763,7 @@ int dns_client_start(void)
 	event.events = EPOLLIN;
 	event.data.fd = client.udp;
 	if (epoll_ctl(client.epoll_fd, EPOLL_CTL_ADD, client.udp, &event) != 0) {
-		fprintf(stderr, "epoll ctl failed.");
+		tlog(TLOG_ERROR, "epoll ctl failed.");
 		return -1;
 	}
 
@@ -747,13 +777,13 @@ int dns_client_socket(void)
 
 	gai = _dns_server_getaddr(NULL, "53", SOCK_DGRAM, 0);
 	if (gai == NULL) {
-		fprintf(stderr, "get address failed.\n");
+		tlog(TLOG_ERROR, "get address failed.\n");
 		goto errout;
 	}
 
 	fd = socket(gai->ai_family, gai->ai_socktype, gai->ai_protocol);
 	if (fd < 0) {
-		fprintf(stderr, "create socket failed.\n");
+		tlog(TLOG_ERROR, "create socket failed.\n");
 		goto errout;
 	}
 
@@ -812,13 +842,13 @@ int dns_client_init()
 
 	epollfd = epoll_create1(EPOLL_CLOEXEC);
 	if (epollfd < 0) {
-		fprintf(stderr, "create epoll failed, %s\n", strerror(errno));
+		tlog(TLOG_ERROR, "create epoll failed, %s\n", strerror(errno));
 		goto errout;
 	}
 
 	fd = dns_client_socket();
 	if (fd < 0) {
-		fprintf(stderr, "create client socket failed.\n");
+		tlog(TLOG_ERROR, "create client socket failed.\n");
 		goto errout;
 	}
 
@@ -835,12 +865,12 @@ int dns_client_init()
 	client.udp = fd;
 	ret = pthread_create(&client.tid, &attr, _dns_client_work, NULL);
 	if (ret != 0) {
-		fprintf(stderr, "create client work thread failed, %s\n", strerror(errno));
+		tlog(TLOG_ERROR, "create client work thread failed, %s\n", strerror(errno));
 		goto errout;
 	}
 
 	if (dns_client_start()) {
-		fprintf(stderr, "start client failed.\n");
+		tlog(TLOG_ERROR, "start client failed.\n");
 		goto errout;
 	}
 

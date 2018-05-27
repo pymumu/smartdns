@@ -22,8 +22,25 @@
 #include "hashtable.h"
 #include "list.h"
 #include "tlog.h"
+#include "atomic.h"
 #include <stdio.h>
 #include <stdlib.h>
+
+atomic_t r = ATOMIC_INIT(0);
+
+void print_result(struct ping_host_struct *ping_host, const char *host, FAST_PING_RESULT result, struct sockaddr *addr, socklen_t addr_len, int seqno,
+							struct timeval *tv, void *userptr)
+{
+	atomic_inc(&r);
+    #if 0
+	if (result == PING_RESULT_RESPONSE) {
+		double rtt = tv->tv_sec * 1000.0 + tv->tv_usec / 1000.0;
+		printf("from %15s: seq=%d time=%.3f\n", host, seqno, rtt);
+	} else if (result == PING_RESULT_TIMEOUT) {
+		printf("from %15s: seq=%d timeout\n", host, seqno);
+	}
+    #endif
+}
 
 int smartdns_init()
 {
@@ -61,7 +78,32 @@ int smartdns_init()
 	dns_add_server("193.112.15.186", 53, DNS_SERVER_UDP);
 	dns_add_server("202.141.178.13", 5353, DNS_SERVER_UDP);
     dns_add_server("208.67.222.222", 5353, DNS_SERVER_UDP);
-    
+	dns_add_server("77.88.8.8", 53, DNS_SERVER_UDP);
+	dns_add_server("202.141.162.123", 53, DNS_SERVER_UDP);
+	dns_add_server("101.132.183.99", 53, DNS_SERVER_UDP);
+
+	// int i = 0;
+	// for(i = 0; i < 10; i++)
+    // {
+	// 	fast_ping_start("205.185.208.142", 1, 1000, print_result, NULL);
+    //     fast_ping_start("205.185.208.142", 1, 1000, print_result, NULL);
+    //     fast_ping_start("205.185.208.142", 1, 1000, print_result, NULL);
+    //     fast_ping_start("205.185.208.142", 1, 1000, print_result, NULL);
+    //     fast_ping_start("192.168.1.1", 1, 1000, print_result, NULL);
+    //     fast_ping_start("192.168.1.1", 1, 1000, print_result, NULL);
+    //     fast_ping_start("192.168.1.1", 1, 1000, print_result, NULL);
+    //     fast_ping_start("192.168.1.1", 1, 1000, print_result, NULL);
+    //     fast_ping_start("123.207.137.88", 1, 1000, print_result, NULL);
+    //     fast_ping_start("123.207.137.88", 1, 1000, print_result, NULL);
+    //     fast_ping_start("123.207.137.88", 1, 1000, print_result, NULL);
+    //     fast_ping_start("123.207.137.88", 1, 1000, print_result, NULL);
+	// }
+
+	// sleep(2);
+	// printf("i = %d, n = %d\n", i, atomic_read(&r));
+
+    fast_ping_start("192.168.1.1", 10, 1000, NULL, NULL);
+
 	return 0;
 errout:
 
