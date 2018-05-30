@@ -22,9 +22,9 @@ int dns_client_init(void);
 
 typedef int (*dns_client_callback)(char *domain, struct dns_result *result, void *user_ptr);
 
-int dns_client_query(char *domain, dns_client_callback callback, void *user_ptr);
+int dns_client_query(char *domain, int qtype, dns_client_callback callback, void *user_ptr);
 
-int dns_client_query_raw(char *domain, unsigned char *raw, int raw_len, void *user_ptr);
+int dns_client_query_raw(char *domain, int qtype, unsigned char *raw, int raw_len, void *user_ptr);
 
 void dns_client_exit(void);
 

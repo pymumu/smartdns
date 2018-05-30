@@ -102,8 +102,6 @@ int smartdns_init()
 	// sleep(2);
 	// printf("i = %d, n = %d\n", i, atomic_read(&r));
 
-    fast_ping_start("192.168.1.1", 10, 1000, NULL, NULL);
-
 	return 0;
 errout:
 

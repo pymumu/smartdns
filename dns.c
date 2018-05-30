@@ -26,7 +26,7 @@
 #define AA_MASK 0x0400
 #define TC_MASK 0x0200
 #define RD_MASK 0x0100
-#define RA_MASK 0x8000
+#define RA_MASK 0x0080
 #define RCODE_MASK 0x000F
 
 #define DNS_RR_END (0XFFFF)

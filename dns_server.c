@@ -17,13 +17,13 @@
  */
 
 #include "dns_server.h"
-#include "dns.h"
-#include "util.h"
 #include "atomic.h"
-#include "tlog.h"
+#include "dns.h"
+#include "dns_client.h"
 #include "hashtable.h"
 #include "list.h"
-#include "dns_client.h"
+#include "tlog.h"
+#include "util.h"
 #include <arpa/inet.h>
 #include <errno.h>
 #include <linux/filter.h>
@@ -59,6 +59,7 @@ struct dns_request {
 	struct hlist_node map;
 	char domain[DNS_MAX_CNAME_LEN];
 	char alias[DNS_MAX_CNAME_LEN];
+	struct dns_head head;
 	unsigned short qtype;
 	unsigned short id;
 	unsigned short ss_family;
@@ -69,10 +70,8 @@ struct dns_request {
 		struct sockaddr addr;
 	};
 
-	union {
-		unsigned char ipv4_addr[DNS_RR_A_LEN];
-		unsigned char ipv6_addr[DNS_RR_AAAA_LEN];
-	};
+	unsigned char ipv4_addr[DNS_RR_A_LEN];
+	unsigned char ipv6_addr[DNS_RR_AAAA_LEN];
 };
 
 static struct dns_server server;
@@ -174,7 +173,6 @@ static int _dns_add_rrs(struct dns_packet *packet, struct dns_request *request)
 	return ret;
 }
 
-
 static int _dns_reply(struct dns_request *request)
 {
 	unsigned char inpacket[DNS_IN_PACKSIZE];
@@ -189,8 +187,10 @@ static int _dns_reply(struct dns_request *request)
 	head.id = request->id;
 	head.qr = DNS_QR_ANSWER;
 	head.opcode = DNS_OP_QUERY;
-	head.rd = 1;
+	head.rd = 0;
 	head.ra = 0;
+	head.aa = 0;
+	head.tc = 0;
 	head.rcode = DNS_RC_NOERROR;
 	ret = dns_packet_init(packet, DNS_PACKSIZE, &head);
 	if (ret != 0) {
@@ -214,12 +214,11 @@ static int _dns_reply(struct dns_request *request)
 
 	send_len = sendto(server.fd, inpacket, encode_len, 0, &request->addr, request->addr_len);
 	if (send_len != encode_len) {
-		printf("send failed.");
+		tlog(TLOG_ERROR, "send failed.");
 	}
 
 	return 0;
 }
-
 
 static int dns_server_resolve_callback(char *domain, struct dns_result *result, void *user_ptr)
 {
@@ -241,23 +240,23 @@ static int dns_server_resolve_callback(char *domain, struct dns_result *result, 
 
 	memcpy(request->ipv4_addr, result->addr_ipv4, 4);
 	strncpy(request->alias, result->alias, DNS_MAX_CNAME_LEN);
-	// memcpy(request->ipv6_addr, result->addr_ipv6, 16);
-	request->qtype = DNS_T_A;
+	memcpy(request->ipv6_addr, result->addr_ipv6, 16);
 
-	tlog(TLOG_INFO, "result: %s,  %d.%d.%d.%d\n", domain, 
-		request->ipv4_addr[0], 
-		request->ipv4_addr[1], 
-		request->ipv4_addr[2], 
-		request->ipv4_addr[3]);
+	if (request->qtype == DNS_T_A) {
+		tlog(TLOG_INFO, "result: %s,  %d.%d.%d.%d\n", domain, request->ipv4_addr[0], request->ipv4_addr[1], request->ipv4_addr[2], request->ipv4_addr[3]);
+	} else if (request->qtype == DNS_T_AAAA) {
+		tlog(TLOG_INFO, "result :%s, %x%x:%x%x:%x%x:%x%x:%x%x:%x%x:%x%x:%x%x", domain, request->ipv6_addr[0], request->ipv6_addr[1], request->ipv6_addr[2],
+			 request->ipv6_addr[3], request->ipv6_addr[4], request->ipv6_addr[5], request->ipv6_addr[6], request->ipv6_addr[7], request->ipv6_addr[8],
+			 request->ipv6_addr[9], request->ipv6_addr[10], request->ipv6_addr[11], request->ipv6_addr[12], request->ipv6_addr[13], request->ipv6_addr[14],
+			 request->ipv6_addr[15]);
+	}
 	_dns_reply(request);
-
 
 	memset(request, 0, sizeof(*request));
 	free(request);
 
 	return 0;
 }
-
 
 static int _dns_server_recv(unsigned char *inpacket, int inpacket_len, struct sockaddr_storage *from, socklen_t from_len)
 {
@@ -294,6 +293,7 @@ static int _dns_server_recv(unsigned char *inpacket, int inpacket_len, struct so
 	}
 
 	request->id = packet->head.id;
+	memcpy(&request->head, &packet->head, sizeof(struct dns_head));
 
 	rrs = dns_get_rrs_start(packet, DNS_RRS_QD, &rr_count);
 	if (rr_count > 1) {
@@ -315,13 +315,17 @@ static int _dns_server_recv(unsigned char *inpacket, int inpacket_len, struct so
 		free(request);
 		return ret;
 		break;
+	case DNS_T_A:
+		break;
 	default:
+		tlog(TLOG_INFO, "unsupport qtype: %d, domain: %s", qtype, request->domain);
+		return ret;
 		break;
 	}
 
-	tlog(TLOG_INFO, "query server %s from %s\n", request->domain, gethost_by_addr(name, (struct sockaddr *)from, from_len));
+	tlog(TLOG_INFO, "query server %s from %s, qtype = %d\n", request->domain, gethost_by_addr(name, (struct sockaddr *)from, from_len), qtype);
 	atomic_set(&request->refcnt, 1);
-	dns_client_query(request->domain, dns_server_resolve_callback, request);
+	dns_client_query(request->domain, qtype, dns_server_resolve_callback, request);
 
 	return 0;
 errout:
@@ -358,19 +362,18 @@ int dns_server_run(void)
 	int sleep_time = 0;
 	unsigned long expect_time = 0;
 
-    now = get_tick_count() - sleep;
-    expect_time = now + sleep;
-    while (server.run) {
-        now = get_tick_count();
-        if (now - expect_time >= 0) {
-            _dns_server_period_run();
-            sleep_time = sleep - (now - expect_time);
+	now = get_tick_count() - sleep;
+	expect_time = now + sleep;
+	while (server.run) {
+		now = get_tick_count();
+		if (now - expect_time >= 0) {
+			_dns_server_period_run();
+			sleep_time = sleep - (now - expect_time);
 			if (sleep_time < 0) {
 				sleep_time = 0;
-				
 			}
-            expect_time += sleep;
-        }
+			expect_time += sleep;
+		}
 
 		num = epoll_wait(server.epoll_fd, events, DNS_MAX_EVENTS, sleep_time);
 		if (num < 0) {
@@ -388,7 +391,9 @@ int dns_server_run(void)
 				continue;
 			}
 
-			_dns_server_process(now);
+			if (_dns_server_process(now) != 0) {
+				tlog(TLOG_ERROR, "dns server process failed.");
+			}
 		}
 	}
 

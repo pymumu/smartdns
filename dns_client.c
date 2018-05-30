@@ -93,6 +93,7 @@ struct dns_query_struct {
 	struct list_head dns_request_list;
 	struct hlist_node domain_node;
 	char domain[DNS_MAX_CNAME_LEN];
+	int qtype;
 	atomic_t dns_request_sent;
 	void *user_ptr;
 	unsigned long send_tick;
@@ -276,7 +277,7 @@ int _dns_client_query_complete(struct dns_query_struct *query)
 		return 0;
 	}
 
-	tlog(TLOG_INFO, "call back result : %s", query->domain);
+	tlog(TLOG_DEBUG, "call back result : %s", query->domain);
 	if (query->callback) {
 		ret = query->callback(query->domain, &query->result, query->user_ptr);
 	}
@@ -364,9 +365,9 @@ void dns_client_ping_result(struct ping_host_struct *ping_host, const char *host
 		break;
 	}
 	if (result == PING_RESULT_RESPONSE) {
-		tlog(TLOG_INFO, "from %15s: seq=%d time=%d\n", host, seqno, rtt);
+		tlog(TLOG_DEBUG, "from %15s: seq=%d time=%d\n", host, seqno, rtt);
 	} else {
-		tlog(TLOG_INFO, "from %15s: seq=%d timeout\n", host, seqno);
+		tlog(TLOG_DEBUG, "from %15s: seq=%d timeout\n", host, seqno);
 	}
 
 	if (rtt < 100) {
@@ -517,9 +518,6 @@ static int _dns_client_recv(unsigned char *inpacket, int inpacket_len, struct so
 	len = dns_decode(packet, DNS_PACKSIZE, inpacket, inpacket_len);
 	if (len != 0) {
 		tlog(TLOG_ERROR, "decode failed, packet len = %d, tc=%d, %d\n", inpacket_len, packet->head.tc, packet->head.id);
-		int fd = open("dns.bin", O_CREAT | O_TRUNC | O_RDWR);
-		write(fd, inpacket, inpacket_len);
-		close(fd);
 		return -1;
 	}
 
@@ -560,9 +558,16 @@ static int _dns_client_process(struct dns_query_struct *dns_query, unsigned long
 		return -1;
 	}
 
-	tlog(TLOG_INFO, "recv from %s", gethost_by_addr(from_host, (struct sockaddr *)&from, from_len));
+	tlog(TLOG_DEBUG, "recv from %s", gethost_by_addr(from_host, (struct sockaddr *)&from, from_len));
 
-	return _dns_client_recv(inpacket, len, &from, from_len);
+	if (_dns_client_recv(inpacket, len, &from, from_len) != 0) {
+		int fd = open("dns.bin", O_CREAT | O_TRUNC | O_RDWR);
+		write(fd, inpacket, len);
+		close(fd);
+		return -1;
+	}
+
+	return 0;
 }
 
 static void *_dns_client_work(void *arg)
@@ -667,7 +672,7 @@ static int _dns_client_send_query(struct dns_query_struct *query, char *doamin)
 	head.rcode = 0;
 
 	dns_packet_init(packet, DNS_PACKSIZE, &head);
-	dns_add_domain(packet, doamin, DNS_T_A, DNS_C_IN);
+	dns_add_domain(packet, doamin, query->qtype, DNS_C_IN);
 	encode_len = dns_encode(inpacket, DNS_IN_PACKSIZE, packet);
 	if (encode_len <= 0) {
 		tlog(TLOG_ERROR, "encode query failed.");
@@ -677,7 +682,7 @@ static int _dns_client_send_query(struct dns_query_struct *query, char *doamin)
 	return _dns_client_send_packet(query, inpacket, encode_len);
 }
 
-int dns_client_query(char *domain, dns_client_callback callback, void *user_ptr)
+int dns_client_query(char *domain, int qtype, dns_client_callback callback, void *user_ptr)
 {
 	struct dns_query_struct *query = NULL;
 	int ret = 0;
@@ -698,6 +703,7 @@ int dns_client_query(char *domain, dns_client_callback callback, void *user_ptr)
 	query->callback = callback;
 	query->result.ttl_v4 = -1;
 	query->result.ttl_v6 = -1;
+	query->qtype = qtype;
 	query->sid = atomic_inc_return(&dns_client_sid);
 
 	_dns_client_query_get(query);
@@ -729,7 +735,7 @@ errout:
 	return -1;
 }
 
-int dns_client_query_raw(char *domain, unsigned char *raw, int raw_len, void *user_ptr)
+int dns_client_query_raw(char *domain, int qtype, unsigned char *raw, int raw_len, void *user_ptr)
 {
 	return -1;
 }
