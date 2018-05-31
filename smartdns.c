@@ -53,6 +53,7 @@ int smartdns_init()
 	}
 
 	tlog_setlogscreen(1);
+	//tlog_setlevel(TLOG_DEBUG);
 
 	ret = fast_ping_init();
     if (ret != 0) {
