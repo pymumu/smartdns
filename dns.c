@@ -758,6 +758,8 @@ int _dns_encode_CNAME(struct dns_context *context, struct dns_rrs *rrs)
 		return -1;
 	}
 
+	/* when code domain, len must plus 1, because of length at the begining */
+	rr_len++;
 	if (rr_len > rrs->len) {
 		return -1;
 	}

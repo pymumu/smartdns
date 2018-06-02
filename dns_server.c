@@ -170,7 +170,7 @@ static int _dns_add_rrs(struct dns_packet *packet, struct dns_request *request)
 				return -1;
 			}
 		}
-		
+
 		ret = dns_add_PTR(packet, DNS_RRS_AN, request->domain, 30, hostname);
 	} break;
 	case DNS_T_A:
@@ -486,7 +486,7 @@ static int _dns_server_process_ptr(struct dns_request *request, struct dns_packe
 		default:
 			break;
 		}
-		if (strncmp(request->domain, reverse_addr, sizeof(reverse_addr)) != 0) {
+		if (strncmp(request->domain, reverse_addr, sizeof(reverse_addr)) == 0) {
 			found = 1;
 			break;
 		}
