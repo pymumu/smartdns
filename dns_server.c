@@ -62,7 +62,6 @@ struct dns_request {
 	atomic_t refcnt;
 	struct hlist_node map;
 	char domain[DNS_MAX_CNAME_LEN];
-	char alias[DNS_MAX_CNAME_LEN];
 	struct dns_head head;
 	unsigned long send_tick;
 	unsigned short qtype;
@@ -76,11 +75,21 @@ struct dns_request {
 		struct sockaddr addr;
 	};
 
+	int has_ptr;
+
+	int has_cname;
+	char alias[DNS_MAX_CNAME_LEN];
+
+	int has_ipv4;
 	int ttl_v4;
 	unsigned char ipv4_addr[DNS_RR_A_LEN];
 
+	int has_ipv6;
 	int ttl_v6;
 	unsigned char ipv6_addr[DNS_RR_AAAA_LEN];
+
+	struct dns_soa soa;
+	int has_soa;
 
 	atomic_t notified;
 
@@ -151,13 +160,9 @@ static int _dns_recv_addr(struct dns_request *request, struct sockaddr_storage *
 
 static int _dns_add_rrs(struct dns_packet *packet, struct dns_request *request)
 {
-	int qtype;
-	int ret = -1;
-
-	qtype = request->qtype;
-
-	switch (qtype) {
-	case DNS_T_PTR: {
+	int ret = 0;
+	char *domain = request->domain;
+	if (request->has_ptr) {
 		char hostname[DNS_MAX_CNAME_LEN];
 		if (getdomainname(hostname, DNS_MAX_CNAME_LEN) != 0) {
 			if (gethostname(hostname, DNS_MAX_CNAME_LEN) != 0) {
@@ -172,15 +177,26 @@ static int _dns_add_rrs(struct dns_packet *packet, struct dns_request *request)
 		}
 
 		ret = dns_add_PTR(packet, DNS_RRS_AN, request->domain, 30, hostname);
-	} break;
-	case DNS_T_A:
-		ret = dns_add_A(packet, DNS_RRS_AN, request->domain, 30, request->ipv4_addr);
-		break;
-	case DNS_T_AAAA:
-		ret = dns_add_AAAA(packet, DNS_RRS_AN, request->domain, 30, request->ipv6_addr);
-		break;
-	default:
-		break;
+	}
+
+	if (request->has_cname) {
+		ret |= dns_add_CNAME(packet, DNS_RRS_AN, request->domain, 30, request->alias);
+		domain = request->alias;
+	}
+
+	if (request->has_ipv4 && request->qtype == DNS_T_A) {
+		ret |= dns_add_A(packet, DNS_RRS_AN, domain, 30, request->ipv4_addr);
+	}
+
+	if (request->has_ipv6 && request->qtype == DNS_T_AAAA) {
+		if (request->has_ipv4) {
+			ret |= dns_add_A(packet, DNS_RRS_AN, domain, 30, request->ipv4_addr);
+		}
+		ret |= dns_add_AAAA(packet, DNS_RRS_AN, domain, 30, request->ipv6_addr);
+	}
+
+	if (request->has_soa) {
+		ret |= dns_add_SOA(packet, DNS_RRS_NS, domain, 0, &request->soa);
 	}
 
 	return ret;
@@ -313,6 +329,7 @@ void _dns_server_ping_result(struct ping_host_struct *ping_host, const char *hos
 		addr_in = (struct sockaddr_in *)addr;
 		if (request->ttl_v4 > rtt) {
 			request->ttl_v4 = rtt;
+			request->has_ipv4 = 1;
 			memcpy(request->ipv4_addr, &addr_in->sin_addr.s_addr, 4);
 		}
 	} break;
@@ -322,11 +339,13 @@ void _dns_server_ping_result(struct ping_host_struct *ping_host, const char *hos
 		if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
 			if (request->ttl_v4 > rtt) {
 				request->ttl_v4 = rtt;
+				request->has_ipv4 = 1;
 				memcpy(request->ipv4_addr, addr_in6->sin6_addr.s6_addr + 12, 4);
 			}
 		} else {
 			if (request->ttl_v6 > rtt) {
 				request->ttl_v6 = rtt;
+				request->has_ipv6 = 1;
 				memcpy(request->ipv6_addr, addr_in6->sin6_addr.s6_addr, 16);
 			}
 		}
@@ -355,7 +374,6 @@ static int _dns_client_process_answer(struct dns_request *request, char *domain,
 {
 	int ttl;
 	char name[DNS_MAX_CNAME_LEN] = {0};
-	char alias[DNS_MAX_CNAME_LEN] = {0};
 	char ip[DNS_MAX_CNAME_LEN] = {0};
 	int rr_count;
 	int i = 0;
@@ -382,7 +400,7 @@ static int _dns_client_process_answer(struct dns_request *request, char *domain,
 				tlog(TLOG_INFO, "%s %d : %d.%d.%d.%d", name, ttl, addr[0], addr[1], addr[2], addr[3]);
 				sprintf(ip, "%d.%d.%d.%d", addr[0], addr[1], addr[2], addr[3]);
 
-				if (strncmp(name, domain, DNS_MAX_CNAME_LEN) == 0 || strncmp(alias, name, DNS_MAX_CNAME_LEN) == 0) {
+				if (strncmp(name, domain, DNS_MAX_CNAME_LEN) == 0 || strncmp(request->alias, name, DNS_MAX_CNAME_LEN) == 0) {
 					_dns_server_request_get(request);
 					if (fast_ping_start(ip, 1, 1000, _dns_server_ping_result, request) == NULL) {
 						_dns_server_request_release(request);
@@ -408,9 +426,17 @@ static int _dns_client_process_answer(struct dns_request *request, char *domain,
 				char cname[128];
 				dns_get_CNAME(rrs, name, 128, &ttl, cname, 128);
 				tlog(TLOG_DEBUG, "%s %d : %s\n", name, ttl, cname);
-				strncpy(alias, cname, DNS_MAX_CNAME_LEN);
+				strncpy(request->alias, cname, DNS_MAX_CNAME_LEN);
+				request->has_cname = 1;
 			} break;
+			case DNS_T_SOA: {
+				request->has_soa = 1;
+				dns_get_SOA(rrs, name, 128, &ttl, &request->soa);
+				tlog(TLOG_INFO, "SOA: mname: %s, rname: %s, serial: %d, refresh: %d, retry: %d, expire: %d, minimum: %d", request->soa.mname,
+					 request->soa.rname, request->soa.serial, request->soa.refresh, request->soa.retry, request->soa.expire, request->soa.minimum);
+			}
 			default:
+				tlog(TLOG_INFO, "%s, qtype: %d", name, rrs->type);
 				break;
 			}
 		}
@@ -477,15 +503,21 @@ static int _dns_server_process_ptr(struct dns_request *request, struct dns_packe
 				snprintf(reverse_addr, sizeof(reverse_addr), "%d.%d.%d.%d.in-addr.arpa", addr[3], addr[2], addr[1], addr[0]);
 			} else {
 				addr = addr_in6->sin6_addr.s6_addr;
-				snprintf(reverse_addr, sizeof(reverse_addr), "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x.in-addr.arpa", addr[15],
-						 addr[14], addr[13], addr[12], addr[11], addr[10], addr[9], addr[8], addr[7], addr[6], addr[5], addr[4], addr[3], addr[2], addr[1],
-						 addr[0]);
+				snprintf(reverse_addr, sizeof(reverse_addr),
+						 "%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.ip6.arpa", addr[15] & 0xF,
+						 (addr[15] >> 4) & 0xF, addr[14] & 0xF, (addr[14] >> 4) & 0xF, addr[13] & 0xF, (addr[13] >> 4) & 0xF, addr[12] & 0xF,
+						 (addr[12] >> 4) & 0xF, addr[11] & 0xF, (addr[11] >> 4) & 0xF, addr[10] & 0xF, (addr[10] >> 4) & 0xF, addr[9] & 0xF,
+						 (addr[9] >> 4) & 0xF, addr[8] & 0xF, (addr[8] >> 4) & 0xF, addr[7] & 0xF, (addr[7] >> 4) & 0xF, addr[6] & 0xF, (addr[6] >> 4) & 0xF,
+						 addr[5] & 0xF, (addr[5] >> 4) & 0xF, addr[4] & 0xF, (addr[4] >> 4) & 0xF, addr[3] & 0xF, (addr[3] >> 4) & 0xF, addr[2] & 0xF,
+						 (addr[2] >> 4) & 0xF, addr[1] & 0xF, (addr[1] >> 4) & 0xF, addr[0] & 0xF, (addr[0] >> 4) & 0xF);
 			}
 		} break;
 		default:
+			continue;
 			break;
 		}
-		if (strncmp(request->domain, reverse_addr, sizeof(reverse_addr)) == 0) {
+
+		if (strstr(request->domain, reverse_addr) != NULL) {
 			found = 1;
 			break;
 		}
@@ -496,6 +528,7 @@ static int _dns_server_process_ptr(struct dns_request *request, struct dns_packe
 	}
 
 	request->rcode = DNS_RC_NOERROR;
+	request->has_ptr = 1;
 	_dns_reply(request);
 
 	freeifaddrs(ifaddr);
@@ -626,7 +659,7 @@ int dns_server_run(void)
 	expect_time = now + sleep;
 	while (server.run) {
 		now = get_tick_count();
-		if (now - expect_time >= 0) {
+		if (now >= expect_time) {
 			_dns_server_period_run();
 			sleep_time = sleep - (now - expect_time);
 			if (sleep_time < 0) {

@@ -206,7 +206,7 @@ int _dns_client_server_remove(char *server_ip, struct addrinfo *gai, dns_server_
 		list_del(&server_info->list);
 		pthread_mutex_unlock(&client.server_list_lock);
 		if (fast_ping_stop(server_info->ping_host) != 0) {
-			printf("stop ping failed.\n");
+			tlog(TLOG_ERROR, "stop ping failed.\n");
 		}
 		free(server_info);
 		return 0;
@@ -367,7 +367,7 @@ static int _dns_client_recv(unsigned char *inpacket, int inpacket_len, struct so
 	}
 
 	if (packet->head.qr != DNS_OP_IQUERY) {
-		printf("message type error.\n");
+		tlog(TLOG_ERROR, "message type error.\n");
 		return -1;
 	}
 
@@ -442,7 +442,7 @@ static void *_dns_client_work(void *arg)
 	expect_time = now + sleep;
 	while (client.run) {
 		now = get_tick_count();
-		if (now - expect_time >= 0) {
+		if (now >= expect_time) {
 			_dns_client_period_run();
 			sleep_time = sleep - (now - expect_time);
 			if (sleep_time < 0) {
@@ -476,8 +476,7 @@ static int _dns_client_send_udp(struct dns_server_info *server_info, void *packe
 	int send_len = 0;
 	send_len = sendto(client.udp, packet, len, 0, (struct sockaddr *)&server_info->addr, server_info->addr_len);
 	if (send_len != len) {
-		printf("send to server failed.");
-		abort();
+		tlog(TLOG_ERROR, "send to server failed.");
 		return -1;
 	}
 
@@ -559,6 +558,7 @@ int dns_client_query(char *domain, int qtype, dns_client_callback callback, void
 	query->user_ptr = user_ptr;
 	query->callback = callback;
 	query->qtype = qtype;
+	query->send_tick = 0;
 	query->sid = atomic_inc_return(&dns_client_sid);
 
 	_dns_client_query_get(query);
@@ -568,7 +568,6 @@ int dns_client_query(char *domain, int qtype, dns_client_callback callback, void
 	list_add_tail(&query->dns_request_list, &client.dns_request_list);
 	hash_add(client.domain_map, &query->domain_node, key);
 	pthread_mutex_unlock(&client.domain_map_lock);
-
 
 	ret = _dns_client_send_query(query, domain);
 	if (ret != 0) {
@@ -586,6 +585,7 @@ errout_del_list:
 	pthread_mutex_unlock(&client.domain_map_lock);
 errout:
 	if (query) {
+		tlog(TLOG_ERROR, "release %p", query);
 		free(query);
 	}
 	return -1;
@@ -682,8 +682,18 @@ void dns_debug(void)
 
 	struct dns_packet *packet = (struct dns_packet *)buff;
 	if (dns_decode(packet, 4096, data, len) != 0) {
-		printf("decode failed.\n");
+		tlog(TLOG_ERROR, "decode failed.\n");
 	}
+
+	memset(data, 0, sizeof(data));
+	len = dns_encode(data, 1024, packet);
+	if (len < 0) {
+		tlog(TLOG_ERROR, "encode failed.\n");
+	}
+
+	fd = open("dns-cmp.bin", O_CREAT | O_TRUNC | O_RDWR);
+		write(fd, data, len);
+		close(fd);
 }
 
 int dns_client_init()
@@ -692,8 +702,6 @@ int dns_client_init()
 	int epollfd = -1;
 	int ret;
 	int fd = 1;
-
-	// dns_debug();
 
 	if (client.epoll_fd > 0) {
 		return -1;

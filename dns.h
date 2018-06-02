@@ -15,7 +15,7 @@
 typedef enum dns_qr {
 	DNS_QR_QUERY = 0,
 	DNS_QR_ANSWER = 1,
-}dns_qr;
+} dns_qr;
 
 typedef enum dns_rr_type {
 	DNS_RRS_QD = 0,
@@ -114,6 +114,16 @@ struct dns_context {
 	unsigned char *ptr;
 };
 
+struct dns_soa {
+	char mname[DNS_MAX_CNAME_LEN];
+	char rname[DNS_MAX_CNAME_LEN];
+	unsigned int serial;
+	unsigned int refresh;
+	unsigned int retry;
+	unsigned int expire;
+	unsigned int minimum;
+} __attribute__((packed));;
+
 struct dns_rrs *dns_get_rrs_next(struct dns_packet *packet, struct dns_rrs *rrs);
 
 struct dns_rrs *dns_get_rrs_start(struct dns_packet *packet, dns_rr_type type, int *count);
@@ -144,8 +154,10 @@ int dns_add_AAAA(struct dns_packet *packet, dns_rr_type type, char *domain, int 
 
 int dns_get_AAAA(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, unsigned char addr[DNS_RR_AAAA_LEN]);
 
+int dns_add_SOA(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, struct dns_soa *soa);
 
-/* 
+int dns_get_SOA(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, struct dns_soa *soa);
+/*
  * Packet operation
  */
 int dns_decode(struct dns_packet *packet, int maxsize, unsigned char *data, int size);

@@ -325,7 +325,7 @@ int dns_add_RAW(struct dns_packet *packet, dns_rr_type rrtype, dns_type_t rtype,
 	return dns_rr_add_end(packet, rrtype, rtype, len);
 }
 
-int dns_get_RAW(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, void *raw, int raw_len)
+int dns_get_RAW(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, void *raw, int *raw_len)
 {
 	int qtype = 0;
 	int qclass = 0;
@@ -344,12 +344,13 @@ int dns_get_RAW(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, void *
 		return -1;
 	}
 
-	if (qtype != rrs->type || rr_len > raw_len) {
+	if (qtype != rrs->type || rr_len > *raw_len) {
 		return -1;
 	}
 
 	memcpy(raw, data_context.ptr, rr_len);
 	data_context.ptr += rr_len;
+	*raw_len = rr_len;
 
 	return 0;
 }
@@ -362,7 +363,8 @@ int dns_add_CNAME(struct dns_packet *packet, dns_rr_type type, char *domain, int
 
 int dns_get_CNAME(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, char *cname, int cname_size)
 {
-	return dns_get_RAW(rrs, domain, maxsize, ttl, cname, cname_size);
+	int len = cname_size;
+	return dns_get_RAW(rrs, domain, maxsize, ttl, cname, &len);
 }
 
 int dns_add_A(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, unsigned char addr[DNS_RR_A_LEN])
@@ -372,7 +374,8 @@ int dns_add_A(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl
 
 int dns_get_A(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, unsigned char addr[DNS_RR_A_LEN])
 {
-	return dns_get_RAW(rrs, domain, maxsize, ttl, addr, DNS_RR_A_LEN);
+	int len = DNS_RR_A_LEN;
+	return dns_get_RAW(rrs, domain, maxsize, ttl, addr, &len);
 }
 
 int dns_add_PTR(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, char *cname)
@@ -383,7 +386,8 @@ int dns_add_PTR(struct dns_packet *packet, dns_rr_type type, char *domain, int t
 
 int dns_get_PTR(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, char *cname, int cname_size)
 {
-	return dns_get_RAW(rrs, domain, maxsize, ttl, cname, cname_size);
+	int len = cname_size;
+	return dns_get_RAW(rrs, domain, maxsize, ttl, cname, &len);
 }
 
 int dns_add_NS(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, char *cname)
@@ -394,7 +398,8 @@ int dns_add_NS(struct dns_packet *packet, dns_rr_type type, char *domain, int tt
 
 int dns_get_NS(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, char *cname, int cname_size)
 {
-	return dns_get_RAW(rrs, domain, maxsize, ttl, cname, cname_size);
+	int len = cname_size;
+	return dns_get_RAW(rrs, domain, maxsize, ttl, cname, &len);
 }
 
 int dns_add_AAAA(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, unsigned char addr[DNS_RR_AAAA_LEN])
@@ -404,7 +409,56 @@ int dns_add_AAAA(struct dns_packet *packet, dns_rr_type type, char *domain, int 
 
 int dns_get_AAAA(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, unsigned char addr[DNS_RR_AAAA_LEN])
 {
-	return dns_get_RAW(rrs, domain, maxsize, ttl, addr, DNS_RR_AAAA_LEN);
+	int len = DNS_RR_AAAA_LEN;
+	return dns_get_RAW(rrs, domain, maxsize, ttl, addr, &len);
+}
+
+int dns_add_SOA(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, struct dns_soa *soa)
+{
+	unsigned char data[sizeof(*soa)];
+	unsigned char *ptr = data;
+	int len = 0;
+	strncpy((char *)ptr, soa->mname, DNS_MAX_CNAME_LEN - 1);
+	ptr += strnlen(soa->mname, DNS_MAX_CNAME_LEN - 1) + 1;
+	strncpy((char *)ptr, soa->rname, DNS_MAX_CNAME_LEN - 1);
+	ptr += strnlen(soa->rname, DNS_MAX_CNAME_LEN - 1) + 1;
+	dns_write_int(&ptr, soa->serial);
+	dns_write_int(&ptr, soa->refresh);
+	dns_write_int(&ptr, soa->retry);
+	dns_write_int(&ptr, soa->expire);
+	dns_write_int(&ptr, soa->minimum);
+	len = ptr - data;
+
+	return dns_add_RAW(packet, type, DNS_T_SOA, domain, ttl, data, len);
+}
+
+int dns_get_SOA(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, struct dns_soa *soa)
+{
+	unsigned char data[sizeof(*soa)];
+	unsigned char *ptr = data;
+	int len = sizeof(data);
+
+	if (dns_get_RAW(rrs, domain, maxsize, ttl, data, &len) != 0) {
+		return -1;
+	}
+
+	strncpy(soa->mname, (char *)ptr, DNS_MAX_CNAME_LEN - 1);
+	ptr += strnlen(soa->mname, DNS_MAX_CNAME_LEN - 1) + 1;
+	if (ptr - data >= len) {
+		return -1;
+	}
+	strncpy(soa->rname, (char *)ptr, DNS_MAX_CNAME_LEN - 1);
+	ptr += strnlen(soa->rname, DNS_MAX_CNAME_LEN - 1) + 1;
+	if (ptr - data + 20 > len) {
+		return -1;
+	}
+	soa->serial = dns_read_int(&ptr);
+	soa->refresh = dns_read_int(&ptr);
+	soa->retry = dns_read_int(&ptr);
+	soa->expire = dns_read_int(&ptr);
+	soa->minimum = dns_read_int(&ptr);
+
+	return 0;
 }
 
 /*
@@ -538,8 +592,7 @@ static int _dns_decode_domain(struct dns_context *context, char *output, int siz
 			}
 			ptr = context->data + len;
 			if (context->maxsize - (ptr - context->data) < 0) {
-				tlog(TLOG_ERROR, "length is not enouth %d:%d, %p, %p", context->maxsize, ptr-context->data, 
-					context->ptr, context->data);
+				tlog(TLOG_ERROR, "length is not enouth %d:%d, %p, %p", context->maxsize, ptr - context->data, context->ptr, context->data);
 				return -1;
 			}
 			is_compressed = 1;
@@ -547,8 +600,7 @@ static int _dns_decode_domain(struct dns_context *context, char *output, int siz
 		}
 
 		if (context->maxsize - (ptr - context->data) < 0) {
-			tlog(TLOG_ERROR, "length is not enouth %d:%d, %p, %p", context->maxsize, ptr-context->data, 
-					context->ptr, context->data);
+			tlog(TLOG_ERROR, "length is not enouth %d:%d, %p, %p", context->maxsize, ptr - context->data, context->ptr, context->data);
 			return -1;
 		}
 
@@ -556,8 +608,7 @@ static int _dns_decode_domain(struct dns_context *context, char *output, int siz
 		if (output_len < size - 1) {
 			copy_len = (len < size - output_len) ? len : size - 1 - output_len;
 			if (context->maxsize - (ptr - context->data) < 0) {
-				tlog(TLOG_ERROR, "length is not enouth %d:%d, %p, %p", context->maxsize, ptr-context->data, 
-					context->ptr, context->data);
+				tlog(TLOG_ERROR, "length is not enouth %d:%d, %p, %p", context->maxsize, ptr - context->data, context->ptr, context->data);
 				return -1;
 			}
 			memcpy(output, ptr, copy_len);
@@ -713,7 +764,7 @@ static int _dns_encode_raw(struct dns_context *context, struct dns_rrs *rrs)
 	context->ptr += rr_len;
 	data_context.ptr += rr_len;
 
-	return 0;	
+	return 0;
 }
 
 static int _dns_decode_raw(struct dns_context *context, unsigned char *raw, int len)
@@ -726,7 +777,6 @@ static int _dns_decode_raw(struct dns_context *context, unsigned char *raw, int 
 	context->ptr += len;
 	return 0;
 }
-
 
 int _dns_decode_CNAME(struct dns_context *context, char *cname, int cname_size)
 {
@@ -774,7 +824,97 @@ int _dns_encode_CNAME(struct dns_context *context, struct dns_rrs *rrs)
 		return -1;
 	}
 
-	data_context.ptr += strnlen((char*)(data_context.ptr), DNS_MAX_CNAME_LEN) + 1;
+	data_context.ptr += strnlen((char *)(data_context.ptr), DNS_MAX_CNAME_LEN) + 1;
+
+	return 0;
+}
+
+int _dns_decode_SOA(struct dns_context *context, struct dns_soa *soa)
+{
+	int ret = 0;
+	ret = _dns_decode_domain(context, soa->mname, DNS_MAX_CNAME_LEN - 1);
+	if (ret < 0) {
+		return -1;
+	}
+
+	ret = _dns_decode_domain(context, soa->rname, DNS_MAX_CNAME_LEN - 1);
+	if (ret < 0) {
+		return -1;
+	}
+
+	if (_dns_left_len(context) < 20) {
+		return -1;
+	}
+
+	soa->serial = dns_read_int(&context->ptr);
+	soa->refresh = dns_read_int(&context->ptr);
+	soa->retry = dns_read_int(&context->ptr);
+	soa->expire = dns_read_int(&context->ptr);
+	soa->minimum = dns_read_int(&context->ptr);
+
+	return 0;
+}
+
+int _dns_encode_SOA(struct dns_context *context, struct dns_rrs *rrs)
+{
+	int ret;
+	int qtype = 0;
+	int qclass = 0;
+	int ttl = 0;
+	char domain[DNS_MAX_CNAME_LEN];
+	int rr_len;
+	struct dns_data_context data_context;
+
+	data_context.data = rrs->data;
+	data_context.ptr = rrs->data;
+	data_context.maxsize = rrs->len;
+
+	ret = _dns_get_rr_head(&data_context, domain, DNS_MAX_CNAME_LEN, &qtype, &qclass, &ttl, &rr_len);
+	if (ret < 0) {
+		return -1;
+	}
+
+	/* when code two domain, len must plus 2, because of length at the begining */
+	rr_len += 2;
+	if (rr_len > rrs->len) {
+		return -1;
+	}
+
+	ret = _dns_encode_rr_head(context, domain, qtype, qclass, ttl, rr_len);
+	if (ret < 0) {
+		return -1;
+	}
+
+	/* mname */
+	ret = _dns_encode_domain(context, (char *)data_context.ptr);
+	if (ret < 0) {
+		return -1;
+	}
+
+	data_context.ptr += strnlen((char *)(data_context.ptr), DNS_MAX_CNAME_LEN) + 1;
+
+	/* rname */
+	ret = _dns_encode_domain(context, (char *)data_context.ptr);
+	if (ret < 0) {
+		return -1;
+	}
+
+	data_context.ptr += strnlen((char *)(data_context.ptr), DNS_MAX_CNAME_LEN) + 1;
+
+	if (_dns_left_len(context) < 20) {
+		return -1;
+	}
+
+	dns_write_int(&context->ptr, *(unsigned int *)data_context.ptr);
+	data_context.ptr += 4;
+	dns_write_int(&context->ptr, *(unsigned int *)data_context.ptr);
+	data_context.ptr += 4;
+	dns_write_int(&context->ptr, *(unsigned int *)data_context.ptr);
+	data_context.ptr += 4;
+	dns_write_int(&context->ptr, *(unsigned int *)data_context.ptr);
+	data_context.ptr += 4;
+	dns_write_int(&context->ptr, *(unsigned int *)data_context.ptr);
+	data_context.ptr += 4;
 
 	return 0;
 }
@@ -847,6 +987,20 @@ static int _dns_decode_an(struct dns_context *context, dns_rr_type type)
 			return -1;
 		}
 	} break;
+	case DNS_T_SOA: {
+		struct dns_soa soa;
+		ret = _dns_decode_SOA(context, &soa);
+		if (ret < 0) {
+			tlog(TLOG_ERROR, "decode CNAME failed, %s", domain);
+			return -1;
+		}
+
+		ret = dns_add_SOA(packet, type, domain, ttl, &soa);
+		if (ret < 0) {
+			tlog(TLOG_ERROR, "add CNAME failed, %s", domain);
+			return -1;
+		}
+	} break;
 	case DNS_T_NS: {
 		char ns[DNS_MAX_CNAME_LEN];
 		ret = _dns_decode_CNAME(context, ns, DNS_MAX_CNAME_LEN);
@@ -891,12 +1045,12 @@ static int _dns_decode_an(struct dns_context *context, dns_rr_type type)
 	} break;
 	default:
 		context->ptr += rr_len;
+		tlog(TLOG_DEBUG, "type = %d", qtype);
 		break;
 	}
 
 	if (context->ptr - start != rr_len) {
-		tlog(TLOG_ERROR, "length mitchmatch , %s, %d:%d", domain, 
-			context->ptr - start, rr_len);
+		tlog(TLOG_ERROR, "length mitchmatch , %s, %d:%d", domain, context->ptr - start, rr_len);
 		return -1;
 	}
 
@@ -932,20 +1086,22 @@ static int _dns_encode_an(struct dns_context *context, struct dns_rrs *rrs)
 {
 	int ret;
 	switch (rrs->type) {
-	case DNS_T_A: {
+	case DNS_T_A:
+	case DNS_T_AAAA: {
 		ret = _dns_encode_raw(context, rrs);
 		if (ret < 0) {
 			return -1;
 		}
 	} break;
+	case DNS_T_CNAME:
 	case DNS_T_PTR:
 		ret = _dns_encode_CNAME(context, rrs);
 		if (ret < 0) {
 			return -1;
 		}
 		break;
-	case DNS_T_AAAA:
-		ret = _dns_encode_raw(context, rrs);
+	case DNS_T_SOA:
+		ret = _dns_encode_SOA(context, rrs);
 		if (ret < 0) {
 			return -1;
 		}
@@ -1023,6 +1179,24 @@ static int _dns_encode_body(struct dns_context *context)
 
 	rrs = dns_get_rrs_start(packet, DNS_RRS_AN, &count);
 	head->ancount = count;
+	for (i = 0; i < count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
+		len = _dns_encode_an(context, rrs);
+		if (len < 0) {
+			return -1;
+		}
+	}
+
+	rrs = dns_get_rrs_start(packet, DNS_RRS_NS, &count);
+	head->nscount = count;
+	for (i = 0; i < count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
+		len = _dns_encode_an(context, rrs);
+		if (len < 0) {
+			return -1;
+		}
+	}
+
+	rrs = dns_get_rrs_start(packet, DNS_RRS_NR, &count);
+	head->nrcount = count;
 	for (i = 0; i < count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
 		len = _dns_encode_an(context, rrs);
 		if (len < 0) {

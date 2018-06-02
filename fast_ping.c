@@ -520,7 +520,7 @@ struct ping_host_struct *fast_ping_start(const char *host, int count, int timeou
 	memcpy(&ping_host->addr, gai->ai_addr, gai->ai_addrlen);
 
 	if (_fast_ping_sendping(ping_host) != 0) {
-		
+		goto errout1;
 	}
 
 	hostkey = hash_string(ping_host->host);
@@ -539,7 +539,7 @@ errout:
 	if (fd > 0) {
 		close(fd);
 	}
-
+errout1:
 	if (gai) {
 		freeaddrinfo(gai);
 	}
