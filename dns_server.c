@@ -451,7 +451,6 @@ static int _dns_server_process_ptr(struct dns_request *request, struct dns_packe
 	struct ifaddrs *ifa = NULL;
 	unsigned char *addr;
 	char reverse_addr[128] = {0};
-	char host_name[DNS_MAX_CNAME_LEN];
 	int found = 0;
 
 	if (getifaddrs(&ifaddr) == -1) {
@@ -496,6 +495,7 @@ static int _dns_server_process_ptr(struct dns_request *request, struct dns_packe
 		goto errout;
 	}
 
+	request->rcode = DNS_RC_NOERROR;
 	_dns_reply(request);
 
 	freeifaddrs(ifaddr);
