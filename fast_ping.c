@@ -519,7 +519,9 @@ struct ping_host_struct *fast_ping_start(const char *host, int count, int timeou
 	}
 	memcpy(&ping_host->addr, gai->ai_addr, gai->ai_addrlen);
 
-	_fast_ping_sendping(ping_host);
+	if (_fast_ping_sendping(ping_host) != 0) {
+		
+	}
 
 	hostkey = hash_string(ping_host->host);
 	addrkey = jhash(&ping_host->addr, ping_host->addr_len, 0);

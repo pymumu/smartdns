@@ -27,6 +27,8 @@
 #include "util.h"
 #include <arpa/inet.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <ifaddrs.h>
 #include <linux/filter.h>
 #include <netdb.h>
 #include <netinet/icmp6.h>
@@ -39,6 +41,7 @@
 #include <string.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -64,6 +67,7 @@ struct dns_request {
 	unsigned long send_tick;
 	unsigned short qtype;
 	unsigned short id;
+	unsigned short rcode;
 	unsigned short ss_family;
 	socklen_t addr_len;
 	union {
@@ -115,14 +119,14 @@ void _dns_server_period_run()
 
 	len = sendto(server.fd, data, len, 0, (struct sockaddr *)&to, to_len);
 	if (len < 0) {
-		printf("send failed.");
+		tlog(TLOG_ERROR, "send failed.");
 	}
-	printf("send.\n");
+	tlog(TLOG_ERROR, "send.\n");
 }
 
 static int _dns_server_forward_request(unsigned char *inpacket, int inpacket_len)
 {
-	printf("forward request.\n");
+	tlog(TLOG_ERROR, "forward request.\n");
 	return -1;
 }
 
@@ -166,7 +170,7 @@ static int _dns_add_rrs(struct dns_packet *packet, struct dns_request *request)
 				return -1;
 			}
 		}
-
+		
 		ret = dns_add_PTR(packet, DNS_RRS_AN, request->domain, 30, hostname);
 	} break;
 	case DNS_T_A:
@@ -215,7 +219,8 @@ static int _dns_reply(struct dns_request *request)
 	head.ra = 0;
 	head.aa = 0;
 	head.tc = 0;
-	head.rcode = DNS_RC_NOERROR;
+	head.rcode = request->rcode;
+
 	ret = dns_packet_init(packet, DNS_PACKSIZE, &head);
 	if (ret != 0) {
 		return -1;
@@ -251,13 +256,13 @@ int _dns_server_request_complete(struct dns_request *request)
 	}
 
 	if (request->qtype == DNS_T_A) {
-		tlog(TLOG_INFO, "result: %s,  %d.%d.%d.%d\n", request->domain, request->ipv4_addr[0], request->ipv4_addr[1], request->ipv4_addr[2],
-			 request->ipv4_addr[3]);
+		tlog(TLOG_INFO, "result: %s, rcode: %d,  %d.%d.%d.%d\n", request->domain, request->rcode, request->ipv4_addr[0], request->ipv4_addr[1],
+			 request->ipv4_addr[2], request->ipv4_addr[3]);
 	} else if (request->qtype == DNS_T_AAAA) {
-		tlog(TLOG_INFO, "result :%s, %x%x:%x%x:%x%x:%x%x:%x%x:%x%x:%x%x:%x%x", request->domain, request->ipv6_addr[0], request->ipv6_addr[1],
-			 request->ipv6_addr[2], request->ipv6_addr[3], request->ipv6_addr[4], request->ipv6_addr[5], request->ipv6_addr[6], request->ipv6_addr[7],
-			 request->ipv6_addr[8], request->ipv6_addr[9], request->ipv6_addr[10], request->ipv6_addr[11], request->ipv6_addr[12], request->ipv6_addr[13],
-			 request->ipv6_addr[14], request->ipv6_addr[15]);
+		tlog(TLOG_INFO, "result :%s, rcode: %d,  %x%x:%x%x:%x%x:%x%x:%x%x:%x%x:%x%x:%x%x", request->domain, request->rcode, request->ipv6_addr[0],
+			 request->ipv6_addr[1], request->ipv6_addr[2], request->ipv6_addr[3], request->ipv6_addr[4], request->ipv6_addr[5], request->ipv6_addr[6],
+			 request->ipv6_addr[7], request->ipv6_addr[8], request->ipv6_addr[9], request->ipv6_addr[10], request->ipv6_addr[11], request->ipv6_addr[12],
+			 request->ipv6_addr[13], request->ipv6_addr[14], request->ipv6_addr[15]);
 	}
 
 	_dns_reply(request);
@@ -349,7 +354,7 @@ void _dns_server_ping_result(struct ping_host_struct *ping_host, const char *hos
 static int _dns_client_process_answer(struct dns_request *request, char *domain, struct dns_packet *packet)
 {
 	int ttl;
-	char name[DNS_MAX_CNAME_LEN];
+	char name[DNS_MAX_CNAME_LEN] = {0};
 	char alias[DNS_MAX_CNAME_LEN] = {0};
 	char ip[DNS_MAX_CNAME_LEN] = {0};
 	int rr_count;
@@ -358,9 +363,14 @@ static int _dns_client_process_answer(struct dns_request *request, char *domain,
 	struct dns_rrs *rrs = NULL;
 
 	if (packet->head.rcode != DNS_RC_NOERROR) {
-		tlog(TLOG_ERROR, "inquery failed, %s, rcode = %d\n", name, packet->head.rcode);
+		if (request->rcode == (unsigned short)-1) {
+			request->rcode = packet->head.rcode;
+		}
+		tlog(TLOG_ERROR, "inquery failed, %s, rcode = %d, id = %d\n", domain, packet->head.rcode, packet->head.id);
 		return -1;
 	}
+
+	request->rcode = packet->head.rcode;
 
 	for (j = 1; j < DNS_RRS_END; j++) {
 		rrs = dns_get_rrs_start(packet, j, &rr_count);
@@ -369,12 +379,12 @@ static int _dns_client_process_answer(struct dns_request *request, char *domain,
 			case DNS_T_A: {
 				unsigned char addr[4];
 				dns_get_A(rrs, name, DNS_MAX_CNAME_LEN, &ttl, addr);
-				tlog(TLOG_DEBUG, "%s %d : %d.%d.%d.%d", name, ttl, addr[0], addr[1], addr[2], addr[3]);
+				tlog(TLOG_INFO, "%s %d : %d.%d.%d.%d", name, ttl, addr[0], addr[1], addr[2], addr[3]);
 				sprintf(ip, "%d.%d.%d.%d", addr[0], addr[1], addr[2], addr[3]);
 
 				if (strncmp(name, domain, DNS_MAX_CNAME_LEN) == 0 || strncmp(alias, name, DNS_MAX_CNAME_LEN) == 0) {
 					_dns_server_request_get(request);
-					if (fast_ping_start(ip, 1, 500, _dns_server_ping_result, request) == NULL) {
+					if (fast_ping_start(ip, 1, 1000, _dns_server_ping_result, request) == NULL) {
 						_dns_server_request_release(request);
 					}
 				}
@@ -385,7 +395,7 @@ static int _dns_client_process_answer(struct dns_request *request, char *domain,
 				sprintf(name, "%x%x:%x%x:%x%x:%x%x:%x%x:%x%x:%x%x:%x%x", addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr[6], addr[7], addr[8],
 						addr[9], addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
 				_dns_server_request_get(request);
-				if (fast_ping_start(name, 1, 500, _dns_server_ping_result, request) == NULL) {
+				if (fast_ping_start(name, 1, 1000, _dns_server_ping_result, request) == NULL) {
 					_dns_server_request_release(request);
 				}
 			} break;
@@ -435,6 +445,68 @@ static int dns_server_resolve_callback(char *domain, dns_result_type rtype, stru
 	return 0;
 }
 
+static int _dns_server_process_ptr(struct dns_request *request, struct dns_packet *packet)
+{
+	struct ifaddrs *ifaddr = NULL;
+	struct ifaddrs *ifa = NULL;
+	unsigned char *addr;
+	char reverse_addr[128] = {0};
+	char host_name[DNS_MAX_CNAME_LEN];
+	int found = 0;
+
+	if (getifaddrs(&ifaddr) == -1) {
+		return -1;
+	}
+
+	for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
+		if (ifa->ifa_addr == NULL) {
+			continue;
+		}
+
+		switch (ifa->ifa_addr->sa_family) {
+		case AF_INET: {
+			struct sockaddr_in *addr_in;
+			addr_in = (struct sockaddr_in *)ifa->ifa_addr;
+			addr = (unsigned char *)&(addr_in->sin_addr.s_addr);
+			snprintf(reverse_addr, sizeof(reverse_addr), "%d.%d.%d.%d.in-addr.arpa", addr[3], addr[2], addr[1], addr[0]);
+		} break;
+		case AF_INET6: {
+			struct sockaddr_in6 *addr_in6;
+			addr_in6 = (struct sockaddr_in6 *)ifa->ifa_addr;
+			if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
+				addr = addr_in6->sin6_addr.s6_addr + 12;
+				snprintf(reverse_addr, sizeof(reverse_addr), "%d.%d.%d.%d.in-addr.arpa", addr[3], addr[2], addr[1], addr[0]);
+			} else {
+				addr = addr_in6->sin6_addr.s6_addr;
+				snprintf(reverse_addr, sizeof(reverse_addr), "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x.in-addr.arpa", addr[15],
+						 addr[14], addr[13], addr[12], addr[11], addr[10], addr[9], addr[8], addr[7], addr[6], addr[5], addr[4], addr[3], addr[2], addr[1],
+						 addr[0]);
+			}
+		} break;
+		default:
+			break;
+		}
+		if (strncmp(request->domain, reverse_addr, sizeof(reverse_addr)) != 0) {
+			found = 1;
+			break;
+		}
+	}
+
+	if (found == 0) {
+		goto errout;
+	}
+
+	_dns_reply(request);
+
+	freeifaddrs(ifaddr);
+	return 0;
+errout:
+	if (ifaddr) {
+		freeifaddrs(ifaddr);
+	}
+	return -1;
+}
+
 static int _dns_server_recv(unsigned char *inpacket, int inpacket_len, struct sockaddr_storage *from, socklen_t from_len)
 {
 	int decode_len;
@@ -451,7 +523,7 @@ static int _dns_server_recv(unsigned char *inpacket, int inpacket_len, struct so
 
 	decode_len = dns_decode(packet, DNS_PACKSIZE, inpacket, inpacket_len);
 	if (decode_len < 0) {
-		printf("decode failed.\n");
+		tlog(TLOG_ERROR, "decode failed.\n");
 		goto errout;
 	}
 
@@ -463,8 +535,9 @@ static int _dns_server_recv(unsigned char *inpacket, int inpacket_len, struct so
 	memset(request, 0, sizeof(*request));
 	request->ttl_v4 = -1;
 	request->ttl_v6 = -1;
+	request->rcode = -1;
 	if (request == NULL) {
-		printf("malloc failed.\n");
+		tlog(TLOG_ERROR, "malloc failed.\n");
 		goto errout;
 	}
 
@@ -491,14 +564,20 @@ static int _dns_server_recv(unsigned char *inpacket, int inpacket_len, struct so
 
 	switch (qtype) {
 	case DNS_T_PTR:
-		ret = _dns_reply(request);
-		free(request);
-		return ret;
+		ret = _dns_server_process_ptr(request, packet);
+		if (ret == 0) {
+			free(request);
+			return ret;
+		} else {
+			request->passthrough = 1;
+		}
 		break;
 	case DNS_T_A:
 		break;
+	case DNS_T_AAAA:
+		break;
 	default:
-		tlog(TLOG_INFO, "unsupport qtype: %d, domain: %s", qtype, request->domain);
+		tlog(TLOG_DEBUG, "unsupport qtype: %d, domain: %s", qtype, request->domain);
 		request->passthrough = 1;
 		break;
 	}
