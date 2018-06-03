@@ -98,40 +98,7 @@ struct dns_request {
 
 static struct dns_server server;
 
-void _dns_server_period_run()
-{
-	return;
-	unsigned char packet_data[DNS_PACKSIZE];
-	unsigned char data[DNS_IN_PACKSIZE];
-
-	struct dns_packet *packet = (struct dns_packet *)packet_data;
-
-	struct dns_head head;
-	memset(&head, 0, sizeof(head));
-	head.rcode = 0;
-	head.qr = 0;
-	head.rd = 1;
-	head.ra = 0;
-	head.id = 1;
-
-	int len;
-	struct sockaddr_in to;
-	socklen_t to_len = sizeof(to);
-
-	dns_packet_init(packet, DNS_PACKSIZE, &head);
-	dns_add_domain(packet, "www.huawei.com", DNS_T_A, 1);
-	len = dns_encode(data, DNS_IN_PACKSIZE, packet);
-
-	memset(&to, 0, sizeof(to));
-	to.sin_addr.s_addr = inet_addr("192.168.1.1");
-	to.sin_port = htons(53);
-
-	len = sendto(server.fd, data, len, 0, (struct sockaddr *)&to, to_len);
-	if (len < 0) {
-		tlog(TLOG_ERROR, "send failed.");
-	}
-	tlog(TLOG_ERROR, "send.\n");
-}
+void _dns_server_period_run() {}
 
 static int _dns_server_forward_request(unsigned char *inpacket, int inpacket_len)
 {

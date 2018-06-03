@@ -246,6 +246,12 @@ static void _fast_ping_host_put(struct ping_host_struct *ping_host)
 		return;
 	}
 
+	struct timeval tv;
+	tv.tv_sec = 0;
+	tv.tv_usec = 0;
+
+	ping_host->ping_callback(ping_host, ping_host->host, PING_RESULT_END, &ping_host->addr, ping_host->addr_len, ping_host->seq, &tv, ping_host->userptr);
+
 	free(ping_host);
 }
 
@@ -265,7 +271,7 @@ static void _fast_ping_host_put_locked(struct ping_host_struct *ping_host)
 	struct timeval tv;
 	tv.tv_sec = 0;
 	tv.tv_usec = 0;
-	
+
 	ping_host->ping_callback(ping_host, ping_host->host, PING_RESULT_END, &ping_host->addr, ping_host->addr_len, ping_host->seq, &tv, ping_host->userptr);
 
 	free(ping_host);

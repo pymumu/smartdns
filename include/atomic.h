@@ -76,7 +76,7 @@ static inline int atomic_sub_and_test( int i, atomic_t *v )
  */
 static inline void atomic_inc( atomic_t *v )
 {
-	(void)__sync_fetch_and_add(&v->counter, 1);
+	(void)__sync_add_and_fetch(&v->counter, 1);
 }
 
 /**
@@ -88,7 +88,7 @@ static inline void atomic_inc( atomic_t *v )
  */
 static inline void atomic_dec( atomic_t *v )
 {
-	(void)__sync_fetch_and_sub(&v->counter, 1);
+	(void)__sync_sub_and_fetch(&v->counter, 1);
 }
 
 /**
