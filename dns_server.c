@@ -58,6 +58,16 @@ struct dns_server {
 	DECLARE_HASHTABLE(hostmap, 6);
 };
 
+struct dns_ip_address {
+	struct hlist_node node;
+	dns_type_t addr_type;
+	union {
+		unsigned char ipv4_addr[DNS_RR_A_LEN];
+		unsigned char ipv6_addr[DNS_RR_AAAA_LEN];
+		unsigned char addr[0];
+	};
+};
+
 struct dns_request {
 	atomic_t refcnt;
 	struct hlist_node map;
@@ -94,6 +104,8 @@ struct dns_request {
 	atomic_t notified;
 
 	int passthrough;
+
+	DECLARE_HASHTABLE(ip_map, 4);
 };
 
 static struct dns_server server;
@@ -255,6 +267,10 @@ int _dns_server_request_complete(struct dns_request *request)
 
 void _dns_server_request_release(struct dns_request *request)
 {
+	struct dns_ip_address *addr_map;
+	struct hlist_node *tmp;
+	int bucket = 0;
+
 	int refcnt = atomic_dec_return(&request->refcnt);
 	if (refcnt) {
 		if (refcnt < 0) {
@@ -265,6 +281,10 @@ void _dns_server_request_release(struct dns_request *request)
 	}
 
 	_dns_server_request_complete(request);
+	hash_for_each_safe(request->ip_map, bucket, tmp, addr_map, node) {
+		hash_del(&addr_map->node);
+		free(addr_map);
+	}
 	memset(request, 0, sizeof(*request));
 	free(request);
 }
@@ -337,6 +357,47 @@ void _dns_server_ping_result(struct ping_host_struct *ping_host, const char *hos
 	}
 }
 
+int _dns_ip_address_check_add(struct dns_request *request, unsigned char *addr, dns_type_t addr_type)
+{
+	int key = 0;
+	struct dns_ip_address *addr_map = NULL;
+	int addr_len = 0;
+
+	if (addr_type == DNS_T_A) {
+		addr_len = DNS_RR_A_LEN;
+	} else if (addr_type == DNS_T_AAAA) {
+		addr_len = DNS_RR_AAAA_LEN;
+	} else {
+		return -1;
+	}
+
+	key = jhash(addr, addr_len, 0);
+	hash_for_each_possible(request->ip_map, addr_map, node, key)
+	{
+		if (addr_type == DNS_T_A) {
+			if (memcmp(addr_map->ipv4_addr, addr, addr_len) == 0) {
+				return -1;
+			}
+		} else if (addr_type == DNS_T_AAAA) {
+			if (memcmp(addr_map->ipv6_addr, addr, addr_len) == 0) {
+				return -1;
+			}
+		}
+	}
+
+	addr_map = malloc(sizeof(*addr_map));
+	if (addr_map == NULL) {
+		tlog(TLOG_ERROR, "malloc failed");
+		return -1;
+	}
+
+	addr_map->addr_type = addr_type;
+	memcpy(addr_map->addr, addr, addr_len);
+	hash_add(request->ip_map, &addr_map->node, key);
+
+	return 0;
+}
+
 static int _dns_client_process_answer(struct dns_request *request, char *domain, struct dns_packet *packet)
 {
 	int ttl;
@@ -363,12 +424,16 @@ static int _dns_client_process_answer(struct dns_request *request, char *domain,
 			switch (rrs->type) {
 			case DNS_T_A: {
 				unsigned char addr[4];
+				_dns_server_request_get(request);
 				dns_get_A(rrs, name, DNS_MAX_CNAME_LEN, &ttl, addr);
+				if (_dns_ip_address_check_add(request, addr, DNS_T_A) != 0) {
+					_dns_server_request_release(request);
+					break;
+				}
 				tlog(TLOG_INFO, "%s %d : %d.%d.%d.%d", name, ttl, addr[0], addr[1], addr[2], addr[3]);
 				sprintf(ip, "%d.%d.%d.%d", addr[0], addr[1], addr[2], addr[3]);
 
 				if (strncmp(name, domain, DNS_MAX_CNAME_LEN) == 0 || strncmp(request->alias, name, DNS_MAX_CNAME_LEN) == 0) {
-					_dns_server_request_get(request);
 					if (fast_ping_start(ip, 1, 1000, _dns_server_ping_result, request) == NULL) {
 						_dns_server_request_release(request);
 					}
@@ -376,10 +441,15 @@ static int _dns_client_process_answer(struct dns_request *request, char *domain,
 			} break;
 			case DNS_T_AAAA: {
 				unsigned char addr[16];
+				_dns_server_request_get(request);
 				dns_get_AAAA(rrs, name, DNS_MAX_CNAME_LEN, &ttl, addr);
+				if (_dns_ip_address_check_add(request, addr, DNS_T_AAAA) != 0) {
+					_dns_server_request_release(request);
+					break;
+				}
+
 				sprintf(name, "%x%x:%x%x:%x%x:%x%x:%x%x:%x%x:%x%x:%x%x", addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr[6], addr[7], addr[8],
 						addr[9], addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
-				_dns_server_request_get(request);
 				if (fast_ping_start(name, 1, 1000, _dns_server_ping_result, request) == NULL) {
 					_dns_server_request_release(request);
 				}
@@ -547,6 +617,7 @@ static int _dns_server_recv(unsigned char *inpacket, int inpacket_len, struct so
 
 	request->id = packet->head.id;
 	memcpy(&request->head, &packet->head, sizeof(struct dns_head));
+	hash_init(request->ip_map);
 
 	rrs = dns_get_rrs_start(packet, DNS_RRS_QD, &rr_count);
 	if (rr_count > 1) {

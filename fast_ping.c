@@ -298,7 +298,8 @@ static int _fast_ping_sendping_v6(struct ping_host_struct *ping_host)
 
 	len = sendto(ping_host->fd, &ping_host->packet, sizeof(struct fast_ping_packet), 0, (struct sockaddr *)&ping_host->addr, ping_host->addr_len);
 	if (len < 0 || len != sizeof(struct fast_ping_packet)) {
-		tlog(TLOG_ERROR, "sendto %s\n", strerror(errno));
+		char ping_host_name[PING_MAX_HOSTLEN];
+		tlog(TLOG_ERROR, "sendto %s %s\n", gethost_by_addr(ping_host_name, (struct sockaddr *)&ping_host->addr, ping_host->addr_len), strerror(errno));
 		goto errout;
 	}
 

@@ -1,4 +1,3 @@
-//Source: http://golubenco.org/atomic-operations.html
 #ifndef _GENERIC_ATOMIC_H
 #define _GENERIC_ATOMIC_H
 

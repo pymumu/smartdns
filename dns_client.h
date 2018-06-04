@@ -10,14 +10,6 @@ typedef enum {
 	DNS_SERVER_TYPE_END,
 } dns_server_type_t;
 
-struct dns_result {
-	char alias[DNS_MAX_CNAME_LEN];
-	unsigned long ttl_v4;
-	unsigned char addr_ipv4[4];
-	unsigned long ttl_v6;
-	unsigned char addr_ipv6[16];
-};
-
 typedef enum dns_result_type {
 	DNS_QUERY_ERR,
 	DNS_QUERY_RESULT = 1,

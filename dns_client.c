@@ -174,9 +174,9 @@ int _dns_client_server_add(char *server_ip, struct addrinfo *gai, dns_server_typ
 	}
 	memcpy(&server_info->addr, gai->ai_addr, gai->ai_addrlen);
 
-	if (fast_ping_start(server_ip, 0, 60000, NULL, server_info) == NULL) {
-		goto errout;
-	}
+	// if (fast_ping_start(server_ip, 0, 60000, NULL, server_info) == NULL) {
+	// 	goto errout;
+	// }
 
 	pthread_mutex_lock(&client.server_list_lock);
 	list_add(&server_info->list, &client.dns_server_list);
@@ -205,9 +205,9 @@ int _dns_client_server_remove(char *server_ip, struct addrinfo *gai, dns_server_
 		}
 		list_del(&server_info->list);
 		pthread_mutex_unlock(&client.server_list_lock);
-		if (fast_ping_stop(server_info->ping_host) != 0) {
-			tlog(TLOG_ERROR, "stop ping failed.\n");
-		}
+		// if (fast_ping_stop(server_info->ping_host) != 0) {
+		// 	tlog(TLOG_ERROR, "stop ping failed.\n");
+		// }
 		free(server_info);
 		return 0;
 	}
