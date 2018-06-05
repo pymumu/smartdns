@@ -426,6 +426,10 @@ static int _dns_client_process_answer(struct dns_request *request, char *domain,
 				unsigned char addr[4];
 				_dns_server_request_get(request);
 				dns_get_A(rrs, name, DNS_MAX_CNAME_LEN, &ttl, addr);
+				if (request->has_ipv4 == 0) {
+					memcpy(request->ipv4_addr, addr, DNS_RR_A_LEN);
+					request->has_ipv4 = 1;
+				}
 				if (_dns_ip_address_check_add(request, addr, DNS_T_A) != 0) {
 					_dns_server_request_release(request);
 					break;
@@ -443,6 +447,12 @@ static int _dns_client_process_answer(struct dns_request *request, char *domain,
 				unsigned char addr[16];
 				_dns_server_request_get(request);
 				dns_get_AAAA(rrs, name, DNS_MAX_CNAME_LEN, &ttl, addr);
+
+				if (request->has_ipv6 == 0) {
+					memcpy(request->ipv6_addr, addr, DNS_RR_AAAA_LEN);
+					request->has_ipv6 = 1;
+				}
+
 				if (_dns_ip_address_check_add(request, addr, DNS_T_AAAA) != 0) {
 					_dns_server_request_release(request);
 					break;

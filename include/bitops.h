@@ -1,4 +1,3 @@
-/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _GENERIC_BITOPS_H_
 #define _GENERIC_BITOPS_H_
 

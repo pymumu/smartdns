@@ -416,7 +416,7 @@ static int _dns_client_process(struct dns_query_struct *dns_query, unsigned long
 		return -1;
 	}
 
-	tlog(TLOG_INFO, "recv from %s", gethost_by_addr(from_host, (struct sockaddr *)&from, from_len));
+	tlog(TLOG_DEBUG, "recv from %s", gethost_by_addr(from_host, (struct sockaddr *)&from, from_len));
 
 	if (_dns_client_recv(inpacket, len, &from, from_len) != 0) {
 		int fd = open("dns.bin", O_CREAT | O_TRUNC | O_RDWR);
