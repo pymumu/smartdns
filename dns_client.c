@@ -169,7 +169,8 @@ int _dns_client_server_add(char *server_ip, struct addrinfo *gai, dns_server_typ
 	server_info->ss_family = gai->ai_family;
 	server_info->addr_len = gai->ai_addrlen;
 	server_info->type = server_type;
-	if (gai->ai_addrlen > sizeof(server_info->addr)) {
+	if (gai->ai_addrlen > sizeof(server_info->in6)) {
+		tlog(TLOG_ERROR, "addr len invalid, %d, %d, %d", gai->ai_addrlen, sizeof(server_info->addr), server_info->ss_family);
 		goto errout;
 	}
 	memcpy(&server_info->addr, gai->ai_addr, gai->ai_addrlen);
@@ -235,6 +236,7 @@ int _dns_client_server_operate(char *server_ip, int port, dns_server_type_t serv
 	snprintf(port_s, 8, "%d", port);
 	gai = _dns_client_getaddr(server_ip, port_s, sock_type, 0);
 	if (gai == NULL) {
+		tlog(TLOG_ERROR, "get address failed, %s:%d", server_ip, port);
 		goto errout;
 	}
 

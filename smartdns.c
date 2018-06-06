@@ -22,6 +22,7 @@
 #include "hashtable.h"
 #include "list.h"
 #include "tlog.h"
+#include "conf.h"
 #include "atomic.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,13 +43,33 @@ void print_result(struct ping_host_struct *ping_host, const char *host, FAST_PIN
     #endif
 }
 
+int smartdns_add_servers(void)
+{
+	int i = 0;
+	int ret = 0;
+	for (i = 0; i < dns_conf_server_num; i++) {
+		ret = dns_add_server(dns_conf_servers[i].server, dns_conf_servers[i].port, dns_conf_servers[i].type);
+		if (ret != 0) {
+			tlog(TLOG_ERROR, "add server failed, %s:%d", dns_conf_servers[i].server, dns_conf_servers[i].port);
+			return -1;
+		}
+    }
+
+	return 0;
+}
+
 int smartdns_init()
 {
     int ret;
 
+	if (load_conf("smartdns.conf") != 0) {
+		fprintf(stderr, "load config failed.");
+		goto errout;
+	}
+
 	ret = tlog_init(".", "smartdns.log", 1024 * 1024, 8, 1, 0, 0);
     if (ret != 0) {
-		fprintf(stderr, "start tlog failed.\n");
+		tlog(TLOG_ERROR, "start tlog failed.\n");
 		goto errout;
 	}
 
@@ -57,22 +78,29 @@ int smartdns_init()
 
 	ret = fast_ping_init();
     if (ret != 0) {
-        fprintf(stderr, "start ping failed.\n");
+        tlog(TLOG_ERROR, "start ping failed.\n");
         goto errout;
     }
 
     ret = dns_server_init();
     if (ret != 0) {
-        fprintf(stderr, "start dns server failed.\n");
+        tlog(TLOG_ERROR, "start dns server failed.\n");
         goto errout;
     }
 
     ret = dns_client_init();
     if (ret != 0) {
-        fprintf(stderr, "start dns client failed.\n");
+        tlog(TLOG_ERROR, "start dns client failed.\n");
         goto errout;
     }
 
+	ret = smartdns_add_servers();
+    if (ret != 0) {
+		tlog(TLOG_ERROR, "add servers failed.");
+		goto errout;
+	}
+
+    /*
 	dns_add_server("192.168.1.1", 53, DNS_SERVER_UDP);
     dns_add_server("114.114.114.114", 53, DNS_SERVER_UDP);
 	dns_add_server("123.207.137.88", 53, DNS_SERVER_UDP);
@@ -82,7 +110,7 @@ int smartdns_init()
 	dns_add_server("77.88.8.8", 53, DNS_SERVER_UDP);
 	dns_add_server("202.141.162.123", 53, DNS_SERVER_UDP);
 	dns_add_server("101.132.183.99", 53, DNS_SERVER_UDP);
-
+    */
 	// int i = 0;
 	// for(i = 0; i < 10; i++)
     // {
@@ -249,18 +277,17 @@ int rbtree_test()
 void sig_handle(int sig)
 {
 	tlog(TLOG_ERROR, "process exit.\n");
-	sleep(1);
 	_exit(0);
 }
+
 int main(int argc, char *argv[])
 {
     int ret;
 
-    atexit(smartdns_exit);
+	atexit(smartdns_exit);
 	signal(SIGABRT, sig_handle);
 	ret = smartdns_init();
     if (ret != 0) {
-        fprintf(stderr, "init smartdns failed.\n");
         goto errout;
     }
 

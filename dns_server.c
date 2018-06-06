@@ -25,6 +25,7 @@
 #include "list.h"
 #include "tlog.h"
 #include "util.h"
+#include "conf.h"
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -784,8 +785,10 @@ int dns_server_socket(void)
 {
 	int fd = -1;
 	struct addrinfo *gai = NULL;
+	char port_str[8];
 
-	gai = _dns_server_getaddr(NULL, "53", SOCK_DGRAM, 0);
+	snprintf(port_str, sizeof(port_str), "%d", dns_conf_port);
+	gai = _dns_server_getaddr(NULL, port_str, SOCK_DGRAM, 0);
 	if (gai == NULL) {
 		tlog(TLOG_ERROR, "get address failed.\n");
 		goto errout;
