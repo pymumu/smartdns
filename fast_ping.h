@@ -23,7 +23,7 @@ typedef enum {
 struct ping_host_struct;
 typedef void (*fast_ping_result)(struct ping_host_struct *ping_host, const char *host, FAST_PING_RESULT result, struct sockaddr *addr, socklen_t addr_len, int seqno, struct timeval *tv, void *userptr);
 
-struct ping_host_struct *fast_ping_start(const char *host, int count, int timeout, fast_ping_result ping_callback, void *userptr);
+struct ping_host_struct *fast_ping_start(const char *host, int count, int interval, int timeout, fast_ping_result ping_callback, void *userptr);
 
 int fast_ping_stop(struct ping_host_struct *ping_host);
 

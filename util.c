@@ -1,17 +1,17 @@
 #include "util.h"
-#include <time.h>
 #include <arpa/inet.h>
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 unsigned long get_tick_count()
 {
-    struct timespec ts;
+	struct timespec ts;
 
-    clock_gettime(CLOCK_MONOTONIC, &ts);
+	clock_gettime(CLOCK_MONOTONIC, &ts);
 
-    return (ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
+	return (ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
 }
 
 char *gethost_by_addr(char *host, struct sockaddr *addr, socklen_t addr_len)
@@ -42,4 +42,50 @@ char *gethost_by_addr(char *host, struct sockaddr *addr, socklen_t addr_len)
 	return host;
 errout:
 	return NULL;
+}
+
+int parse_ip(char *value, char *ip, int *port)
+{
+	int offset = 0;
+	char *colon = NULL;
+
+	if (strstr(value, "[")) {
+		/* ipv6 with port */
+		char *bracket_end = strstr(value, "]");
+		if (bracket_end == NULL) {
+			return -1;
+		}
+
+		offset = bracket_end - value - 1;
+		memcpy(ip, value + 1, offset);
+		ip[offset] = 0;
+
+		colon = bracket_end + 1;
+
+	} else if (strstr(value, "::")) {
+		/* ipv6 without port */
+		strncpy(ip, value, MAX_IP_LEN);
+		colon = NULL;
+	} else {
+		/* ipv4 */
+		colon = strstr(value, ":");
+		if (colon == NULL) {
+			/* without port */
+			strncpy(ip, value, MAX_IP_LEN);
+		} else {
+			/* with port */
+			offset = colon - value;
+			colon++;
+			memcpy(ip, value, offset);
+		}
+	}
+
+	if (colon) {
+		/* get port num */
+		*port = atoi(colon);
+	} else {
+		*port = PORT_NOT_DEFINED;
+	}
+
+	return 0;
 }

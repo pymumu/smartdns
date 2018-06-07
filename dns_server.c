@@ -18,6 +18,7 @@
 
 #include "dns_server.h"
 #include "atomic.h"
+#include "conf.h"
 #include "dns.h"
 #include "dns_client.h"
 #include "fast_ping.h"
@@ -25,7 +26,6 @@
 #include "list.h"
 #include "tlog.h"
 #include "util.h"
-#include "conf.h"
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -282,7 +282,8 @@ void _dns_server_request_release(struct dns_request *request)
 	}
 
 	_dns_server_request_complete(request);
-	hash_for_each_safe(request->ip_map, bucket, tmp, addr_map, node) {
+	hash_for_each_safe(request->ip_map, bucket, tmp, addr_map, node)
+	{
 		hash_del(&addr_map->node);
 		free(addr_map);
 	}
@@ -399,7 +400,7 @@ int _dns_ip_address_check_add(struct dns_request *request, unsigned char *addr, 
 	return 0;
 }
 
-static int _dns_client_process_answer(struct dns_request *request, char *domain, struct dns_packet *packet)
+static int _dns_server_process_answer(struct dns_request *request, char *domain, struct dns_packet *packet)
 {
 	int ttl;
 	char name[DNS_MAX_CNAME_LEN] = {0};
@@ -435,11 +436,11 @@ static int _dns_client_process_answer(struct dns_request *request, char *domain,
 					_dns_server_request_release(request);
 					break;
 				}
-				tlog(TLOG_INFO, "%s %d : %d.%d.%d.%d", name, ttl, addr[0], addr[1], addr[2], addr[3]);
+				tlog(TLOG_DEBUG, "domain: %s TTL:%d IP: %d.%d.%d.%d", name, ttl, addr[0], addr[1], addr[2], addr[3]);
 				sprintf(ip, "%d.%d.%d.%d", addr[0], addr[1], addr[2], addr[3]);
 
 				if (strncmp(name, domain, DNS_MAX_CNAME_LEN) == 0 || strncmp(request->alias, name, DNS_MAX_CNAME_LEN) == 0) {
-					if (fast_ping_start(ip, 1, 1000, _dns_server_ping_result, request) == NULL) {
+					if (fast_ping_start(ip, 1, 0, 1000, _dns_server_ping_result, request) == NULL) {
 						_dns_server_request_release(request);
 					}
 				}
@@ -459,16 +460,19 @@ static int _dns_client_process_answer(struct dns_request *request, char *domain,
 					break;
 				}
 
+				tlog(TLOG_DEBUG, "domain: %s TTL: %d IP: %x%x:%x%x:%x%x:%x%x:%x%x:%x%x:%x%x:%x%x", name, ttl, addr[0], addr[1], addr[2], addr[3], addr[4],
+					 addr[5], addr[6], addr[7], addr[8], addr[9], addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
+
 				sprintf(name, "%x%x:%x%x:%x%x:%x%x:%x%x:%x%x:%x%x:%x%x", addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr[6], addr[7], addr[8],
 						addr[9], addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
-				if (fast_ping_start(name, 1, 1000, _dns_server_ping_result, request) == NULL) {
+				if (fast_ping_start(name, 1, 0, 1000, _dns_server_ping_result, request) == NULL) {
 					_dns_server_request_release(request);
 				}
 			} break;
 			case DNS_T_NS: {
 				char cname[128];
 				dns_get_CNAME(rrs, name, 128, &ttl, cname, 128);
-				tlog(TLOG_INFO, "NS: %s %d : %s\n", name, ttl, cname);
+				tlog(TLOG_DEBUG, "NS: %s %d : %s\n", name, ttl, cname);
 			} break;
 			case DNS_T_CNAME: {
 				char cname[128];
@@ -507,7 +511,7 @@ static int dns_server_resolve_callback(char *domain, dns_result_type rtype, stru
 			_dns_reply_inpacket(request, inpacket, inpacket_len);
 			return -1;
 		}
-		_dns_client_process_answer(request, domain, packet);
+		_dns_server_process_answer(request, domain, packet);
 		return 0;
 	} else if (rtype == DNS_QUERY_ERR) {
 		tlog(TLOG_ERROR, "request faield, %s", domain);
@@ -616,7 +620,7 @@ static int _dns_server_recv(unsigned char *inpacket, int inpacket_len, struct so
 	memset(request, 0, sizeof(*request));
 	request->ttl_v4 = -1;
 	request->ttl_v6 = -1;
-	request->rcode = -1;
+	request->rcode = DNS_RC_SERVFAIL;
 	if (request == NULL) {
 		tlog(TLOG_ERROR, "malloc failed.\n");
 		goto errout;

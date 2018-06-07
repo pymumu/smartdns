@@ -1,5 +1,6 @@
 #include "conf.h"
 #include "tlog.h"
+#include "util.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,7 +9,6 @@
 #define MAX_LINE_LEN 1024
 #define MAX_KEY_LEN 64
 
-#define DEFAULT_DNS_PORT 53
 #define DEFAULT_DNS_CACHE_SIZE 512
 
 int dns_conf_port = DEFAULT_DNS_PORT;
@@ -28,67 +28,28 @@ int config_port(char *value)
 	return 0;
 }
 
-int config_parse_ip(char *value, char *ip, unsigned short *port)
-{
-	int offset = 0;
-	char *colon = NULL;
-
-	if (strstr(value, "[")) {
-		/* ipv6 with port */
-		char *bracket_end = strstr(value, "]");
-		if (bracket_end == NULL) {
-			return -1;
-		}
-
-		offset = bracket_end - value - 1;
-		memcpy(ip, value + 1, offset);
-		ip[offset] = 0;
-
-		colon = bracket_end + 1;
-
-	} else if (strstr(value, "::")) {
-		/* ipv6 without port */
-		strncpy(ip, value, DNS_MAX_IPLEN);
-		colon = NULL;
-	} else {
-		/* ipv4 */
-		colon = strstr(value, ":");
-		if (colon == NULL) {
-			/* without port */
-			strncpy(ip, value, DNS_MAX_IPLEN);
-		} else {
-			/* with port */
-			offset = colon - value;
-			colon++;
-			memcpy(ip, value, offset);
-		}
-	}
-
-	if (colon) {
-		/* get port num */
-		*port = atoi(colon);
-	} else {
-		*port = DEFAULT_DNS_PORT;
-	}
-
-	return 0;
-}
-
 int config_server(char *value, dns_conf_server_type_t type)
 {
 	int index = dns_conf_server_num;
 	struct dns_servers *server;
+	int port = -1;
+
 	if (index >= DNS_MAX_SERVERS) {
 		tlog(TLOG_ERROR, "exceeds max server number");
 		return -1;
 	}
 
 	server = &dns_conf_servers[index];
-    if (config_parse_ip(value, server->server, &server->port) != 0) {
+    if (parse_ip(value, server->server, &port) != 0) {
 		return -1;
     }
 
+	if (port == PORT_NOT_DEFINED) {
+		port= DEFAULT_DNS_PORT;
+	} 
+	
 	server->type = type;
+	server->port = port;
 	dns_conf_server_num++;
 
 	return 0;

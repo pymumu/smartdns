@@ -175,9 +175,9 @@ int _dns_client_server_add(char *server_ip, struct addrinfo *gai, dns_server_typ
 	}
 	memcpy(&server_info->addr, gai->ai_addr, gai->ai_addrlen);
 
-	// if (fast_ping_start(server_ip, 0, 60000, NULL, server_info) == NULL) {
-	// 	goto errout;
-	// }
+	if (fast_ping_start(server_ip, 0, 60000, 1000, NULL, server_info) == NULL) {
+		goto errout;
+	}
 
 	pthread_mutex_lock(&client.server_list_lock);
 	list_add(&server_info->list, &client.dns_server_list);
@@ -206,9 +206,9 @@ int _dns_client_server_remove(char *server_ip, struct addrinfo *gai, dns_server_
 		}
 		list_del(&server_info->list);
 		pthread_mutex_unlock(&client.server_list_lock);
-		// if (fast_ping_stop(server_info->ping_host) != 0) {
-		// 	tlog(TLOG_ERROR, "stop ping failed.\n");
-		// }
+		if (fast_ping_stop(server_info->ping_host) != 0) {
+			tlog(TLOG_ERROR, "stop ping failed.\n");
+		}
 		free(server_info);
 		return 0;
 	}
@@ -478,7 +478,6 @@ static int _dns_client_send_udp(struct dns_server_info *server_info, void *packe
 	int send_len = 0;
 	send_len = sendto(client.udp, packet, len, 0, (struct sockaddr *)&server_info->addr, server_info->addr_len);
 	if (send_len != len) {
-		tlog(TLOG_ERROR, "send to server failed.");
 		return -1;
 	}
 
@@ -505,6 +504,8 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 		}
 
 		if (ret != 0) {
+			char server_addr[128];
+			tlog(TLOG_ERROR, "send query to %s failed, %s", gethost_by_addr(server_addr, &server_info->addr, server_info->addr_len), strerror(errno));
 			atomic_dec(&query->dns_request_sent);
 			continue;
 		}
@@ -694,8 +695,8 @@ void dns_debug(void)
 	}
 
 	fd = open("dns-cmp.bin", O_CREAT | O_TRUNC | O_RDWR);
-		write(fd, data, len);
-		close(fd);
+	write(fd, data, len);
+	close(fd);
 }
 
 int dns_client_init()
@@ -703,7 +704,7 @@ int dns_client_init()
 	pthread_attr_t attr;
 	int epollfd = -1;
 	int ret;
-	int fd = 1;
+	int fd = -1;
 
 	if (client.epoll_fd > 0) {
 		return -1;

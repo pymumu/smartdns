@@ -2,6 +2,8 @@
 
 #define DNS_MAX_SERVERS 32
 #define DNS_MAX_IPLEN 64
+#define DNS_MAX_PATH 1024
+#define DEFAULT_DNS_PORT 53
 
 typedef enum dns_conf_server_type {
 	DNS_CONF_TYPE_UDP,
@@ -19,6 +21,10 @@ extern int dns_conf_port;
 extern int dns_conf_cachesize;
 extern struct dns_servers dns_conf_servers[DNS_MAX_SERVERS];
 extern int dns_conf_server_num;
+extern int dns_conf_verbose;
+extern int dns_conf_loglevel;
+extern char dns_conf_logfile[DNS_MAX_PATH];
+extern int dns_conf_lognum;
 
 int load_conf(const char *file);
 

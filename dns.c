@@ -1045,7 +1045,7 @@ static int _dns_decode_an(struct dns_context *context, dns_rr_type type)
 	} break;
 	default:
 		context->ptr += rr_len;
-		tlog(TLOG_DEBUG, "type = %d", qtype);
+		tlog(TLOG_DEBUG, "DNS type = %d not supported", qtype);
 		break;
 	}
 

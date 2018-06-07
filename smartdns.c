@@ -1,7 +1,7 @@
 /*************************************************************************
-*
-* Copyright (C) 2018 Ruilin Peng (Nick) <pymumu@gmail.com>.
-*
+ *
+ * Copyright (C) 2018 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
@@ -16,31 +16,74 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "fast_ping.h"
+#include "atomic.h"
+#include "conf.h"
 #include "dns_client.h"
 #include "dns_server.h"
+#include "fast_ping.h"
 #include "hashtable.h"
 #include "list.h"
 #include "tlog.h"
-#include "conf.h"
-#include "atomic.h"
+#include "util.h"
+#include <errno.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
-atomic_t r = ATOMIC_INIT(0);
+#define RESOLVE_FILE "/etc/resolv.conf"
+#define MAX_LINE_LEN 1024
+#define MAX_KEY_LEN 64
 
-void print_result(struct ping_host_struct *ping_host, const char *host, FAST_PING_RESULT result, struct sockaddr *addr, socklen_t addr_len, int seqno,
-							struct timeval *tv, void *userptr)
+int smartdns_load_from_resolv(void)
 {
-	atomic_inc(&r);
-    #if 0
-	if (result == PING_RESULT_RESPONSE) {
-		double rtt = tv->tv_sec * 1000.0 + tv->tv_usec / 1000.0;
-		printf("from %15s: seq=%d time=%.3f\n", host, seqno, rtt);
-	} else if (result == PING_RESULT_TIMEOUT) {
-		printf("from %15s: seq=%d timeout\n", host, seqno);
+	FILE *fp = NULL;
+	char line[MAX_LINE_LEN];
+	char key[MAX_KEY_LEN];
+	char value[MAX_LINE_LEN];
+	char ns_ip[DNS_MAX_IPLEN];
+	int port = PORT_NOT_DEFINED;
+	int ret = -1;
+
+	int filed_num = 0;
+	int line_num = 0;
+
+	fp = fopen(RESOLVE_FILE, "r");
+	if (fp == NULL) {
+		tlog(TLOG_ERROR, "open %s failed, %s", RESOLVE_FILE, strerror(errno));
+		return -1;
 	}
-    #endif
+
+	while (fgets(line, MAX_LINE_LEN, fp)) {
+		line_num++;
+		filed_num = sscanf(line, "%63s %1023[^\r\n]s", key, value);
+
+		if (filed_num != 2) {
+			continue;
+		}
+
+		if (strncmp(key, "nameserver", MAX_KEY_LEN) != 0) {
+			continue;
+		}
+
+		if (parse_ip(value, ns_ip, &port) != 0) {
+			continue;
+		}
+
+		if (port == PORT_NOT_DEFINED) {
+			port = DEFAULT_DNS_PORT;
+		}
+
+		strncpy(dns_conf_servers[dns_conf_server_num].server, ns_ip, DNS_MAX_IPLEN);
+		dns_conf_servers[dns_conf_server_num].port = port;
+		dns_conf_servers[dns_conf_server_num].type = DNS_SERVER_UDP;
+		dns_conf_server_num++;
+		ret = 0;
+	}
+
+	fclose(fp);
+
+	return ret;
 }
 
 int smartdns_add_servers(void)
@@ -53,226 +96,77 @@ int smartdns_add_servers(void)
 			tlog(TLOG_ERROR, "add server failed, %s:%d", dns_conf_servers[i].server, dns_conf_servers[i].port);
 			return -1;
 		}
-    }
+	}
 
 	return 0;
 }
 
 int smartdns_init()
 {
-    int ret;
+	int ret;
 
 	if (load_conf("smartdns.conf") != 0) {
 		fprintf(stderr, "load config failed.");
-		goto errout;
 	}
 
 	ret = tlog_init(".", "smartdns.log", 1024 * 1024, 8, 1, 0, 0);
-    if (ret != 0) {
+	if (ret != 0) {
 		tlog(TLOG_ERROR, "start tlog failed.\n");
 		goto errout;
 	}
 
 	tlog_setlogscreen(1);
-	//tlog_setlevel(TLOG_ERROR);
+	tlog_setlevel(TLOG_DEBUG);
+
+	if (dns_conf_server_num <= 0) {
+		if (smartdns_load_from_resolv() != 0) {
+			tlog(TLOG_ERROR, "load dns from resolv failed.");
+			goto errout;
+		}
+	}
 
 	ret = fast_ping_init();
-    if (ret != 0) {
-        tlog(TLOG_ERROR, "start ping failed.\n");
-        goto errout;
-    }
+	if (ret != 0) {
+		tlog(TLOG_ERROR, "start ping failed.\n");
+		goto errout;
+	}
 
-    ret = dns_server_init();
-    if (ret != 0) {
-        tlog(TLOG_ERROR, "start dns server failed.\n");
-        goto errout;
-    }
+	ret = dns_server_init();
+	if (ret != 0) {
+		tlog(TLOG_ERROR, "start dns server failed.\n");
+		goto errout;
+	}
 
-    ret = dns_client_init();
-    if (ret != 0) {
-        tlog(TLOG_ERROR, "start dns client failed.\n");
-        goto errout;
-    }
+	ret = dns_client_init();
+	if (ret != 0) {
+		tlog(TLOG_ERROR, "start dns client failed.\n");
+		goto errout;
+	}
 
 	ret = smartdns_add_servers();
-    if (ret != 0) {
+	if (ret != 0) {
 		tlog(TLOG_ERROR, "add servers failed.");
 		goto errout;
 	}
 
-    /*
-	dns_add_server("192.168.1.1", 53, DNS_SERVER_UDP);
-    dns_add_server("114.114.114.114", 53, DNS_SERVER_UDP);
-	dns_add_server("123.207.137.88", 53, DNS_SERVER_UDP);
-	dns_add_server("193.112.15.186", 53, DNS_SERVER_UDP);
-	dns_add_server("202.141.178.13", 5353, DNS_SERVER_UDP);
-    dns_add_server("208.67.222.222", 5353, DNS_SERVER_UDP);
-	dns_add_server("77.88.8.8", 53, DNS_SERVER_UDP);
-	dns_add_server("202.141.162.123", 53, DNS_SERVER_UDP);
-	dns_add_server("101.132.183.99", 53, DNS_SERVER_UDP);
-    */
-	// int i = 0;
-	// for(i = 0; i < 10; i++)
-    // {
-	// 	fast_ping_start("205.185.208.142", 1, 1000, print_result, NULL);
-    //     fast_ping_start("205.185.208.142", 1, 1000, print_result, NULL);
-    //     fast_ping_start("205.185.208.142", 1, 1000, print_result, NULL);
-    //     fast_ping_start("205.185.208.142", 1, 1000, print_result, NULL);
-    //     fast_ping_start("192.168.1.1", 1, 1000, print_result, NULL);
-    //     fast_ping_start("192.168.1.1", 1, 1000, print_result, NULL);
-    //     fast_ping_start("192.168.1.1", 1, 1000, print_result, NULL);
-    //     fast_ping_start("192.168.1.1", 1, 1000, print_result, NULL);
-    //     fast_ping_start("123.207.137.88", 1, 1000, print_result, NULL);
-    //     fast_ping_start("123.207.137.88", 1, 1000, print_result, NULL);
-    //     fast_ping_start("123.207.137.88", 1, 1000, print_result, NULL);
-    //     fast_ping_start("123.207.137.88", 1, 1000, print_result, NULL);
-	// }
-
-	// sleep(2);
-	// printf("i = %d, n = %d\n", i, atomic_read(&r));
-
 	return 0;
 errout:
 
-    return -1;
+	return -1;
 }
 
 int smartdns_run()
 {
-    return dns_server_run();
+	return dns_server_run();
 }
 
 void smartdns_exit()
 {
-    fast_ping_exit();
-    dns_client_exit();
-    dns_server_exit();
+	fast_ping_exit();
+	dns_client_exit();
+	dns_server_exit();
 	tlog_exit();
 }
-
-struct data {
-    struct list_head list;
-    int n;
-};
-
-void list_test()
-{
-    struct list_head head;
-    struct list_head *iter;
-    int i = 0;
-
-    INIT_LIST_HEAD(&head);
-
-    for (i = 0; i < 10; i++) {
-        struct data *h = malloc(sizeof(struct data));
-        h->n = i;
-        list_add(&h->list, &head);
-    }
-
-    list_for_each(iter, &head)
-    {
-        struct data *d = list_entry(iter, struct data, list);
-        printf("%d\n", d->n);
-    }
-}
-
-struct data_hash {
-    struct hlist_node node;
-    int n;
-    char str[32];
-};
-
-int hash_test()
-{
-    DEFINE_HASHTABLE(ht, 7);
-    struct data_hash *temp;
-    struct data_hash *obj;
-    int i;
-    int key;
-
-    for (i = 11; i < 17; i++) {
-        temp = malloc(sizeof(struct data_hash));
-        temp->n = i * i;
-        hash_add(ht, &temp->node, temp->n);
-    }
-
-    for (i = 11; i < 17; i++) {
-        key = i * i;
-        hash_for_each_possible(ht, obj, node, key)
-        {
-            printf("value: %d\n", obj->n);
-        };
-    }
-
-    return 0;
-}
-
-int hash_string_test()
-{
-    DEFINE_HASHTABLE(ht, 7);
-    struct data_hash *temp;
-    struct data_hash *obj;
-    int i;
-    int key;
-
-    for (i = 0; i < 10; i++) {
-        temp = malloc(sizeof(struct data_hash));
-        sprintf(temp->str, "%d", i);
-        hash_add(ht, &temp->node, hash_string(temp->str));
-    }
-
-    for (i = 0; i < 10; i++) {
-        char key_str[32];
-        sprintf(key_str, "%d", i);
-        key = hash_string(key_str);
-        hash_for_each_possible(ht, obj, node, key)
-        {
-            printf("i = %d value: %s\n", i, obj->str);
-        };
-    }
-
-    return 0;
-}
-
-#if 0
-struct data_rbtree {
-	struct rb_node list;
-	int value;
-};
-
-int rbtree_test()
-{
-	struct rb_root root;
-	struct rb_node *n;
-	RB_EMPTY_ROOT(&root);
-	int i;
-
-	for (i = 0; i < 10; i++)
-	{
-		struct data_rbtree *r = malloc(sizeof(struct data_rbtree));
-		r->value = i;
-		rb_insert(&r->list, &root);
-	}
-
-	n = rb_first(&root);
-	int num = 5;
-	while (n) {
-		struct data_rbtree *r = container_of(n, struct data_rbtree, list);
-		if (r->value < num) {
-			n = n->rb_left;
-		} else if (r->value > num) {
-			n = n->rb_right;
-		} else {
-			printf("n = %d\n", r->value);
-			break;
-		}
-	}
-
-	return 0;
-}
-#endif
-
-#include <signal.h>
 
 void sig_handle(int sig)
 {
@@ -282,18 +176,18 @@ void sig_handle(int sig)
 
 int main(int argc, char *argv[])
 {
-    int ret;
+	int ret;
 
 	atexit(smartdns_exit);
 	signal(SIGABRT, sig_handle);
 	ret = smartdns_init();
-    if (ret != 0) {
-        goto errout;
-    }
+	if (ret != 0) {
+		goto errout;
+	}
 
-    return smartdns_run();
+	return smartdns_run();
 
 errout:
 
-    return 1;
+	return 1;
 }

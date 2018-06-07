@@ -298,8 +298,11 @@ static int _fast_ping_sendping_v6(struct ping_host_struct *ping_host)
 
 	len = sendto(ping_host->fd, &ping_host->packet, sizeof(struct fast_ping_packet), 0, (struct sockaddr *)&ping_host->addr, ping_host->addr_len);
 	if (len < 0 || len != sizeof(struct fast_ping_packet)) {
+		if (errno == ENETUNREACH) {
+			goto errout;
+		}
 		char ping_host_name[PING_MAX_HOSTLEN];
-		tlog(TLOG_ERROR, "sendto %s %s\n", gethost_by_addr(ping_host_name, (struct sockaddr *)&ping_host->addr, ping_host->addr_len), strerror(errno));
+		tlog(TLOG_ERROR, "sendto %s %s", gethost_by_addr(ping_host_name, (struct sockaddr *)&ping_host->addr, ping_host->addr_len), strerror(errno));
 		goto errout;
 	}
 
@@ -459,7 +462,7 @@ void fast_ping_print_result(struct ping_host_struct *ping_host, const char *host
 	}
 }
 
-struct ping_host_struct *fast_ping_start(const char *host, int count, int timeout, fast_ping_result ping_callback, void *userptr)
+struct ping_host_struct *fast_ping_start(const char *host, int count, int interval, int timeout, fast_ping_result ping_callback, void *userptr)
 {
 	struct ping_host_struct *ping_host = NULL;
 	struct addrinfo *gai = NULL;
@@ -504,7 +507,6 @@ struct ping_host_struct *fast_ping_start(const char *host, int count, int timeou
 		goto errout;
 	}
 
-	int interval = 1000;
 	memset(ping_host, 0, sizeof(*ping_host));
 	strncpy(ping_host->host, host, PING_MAX_HOSTLEN);
 	ping_host->fd = fd;
