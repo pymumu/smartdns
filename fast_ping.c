@@ -302,7 +302,8 @@ static int _fast_ping_sendping_v6(struct ping_host_struct *ping_host)
 			goto errout;
 		}
 		char ping_host_name[PING_MAX_HOSTLEN];
-		tlog(TLOG_ERROR, "sendto %s %s", gethost_by_addr(ping_host_name, (struct sockaddr *)&ping_host->addr, ping_host->addr_len), strerror(errno));
+		tlog(TLOG_ERROR, "sendto %s, id %d, %s", gethost_by_addr(ping_host_name, (struct sockaddr *)&ping_host->addr, ping_host->addr_len), ping_host->sid,
+			 strerror(errno));
 		goto errout;
 	}
 
@@ -333,7 +334,12 @@ static int _fast_ping_sendping_v4(struct ping_host_struct *ping_host)
 
 	len = sendto(ping_host->fd, packet, sizeof(struct fast_ping_packet), 0, (struct sockaddr *)&ping_host->addr, ping_host->addr_len);
 	if (len < 0 || len != sizeof(struct fast_ping_packet)) {
-		tlog(TLOG_ERROR, "sendto %s\n", strerror(errno));
+		if (errno == ENETUNREACH) {
+			goto errout;
+		}
+		char ping_host_name[PING_MAX_HOSTLEN];
+		tlog(TLOG_ERROR, "sendto %s, id %d, %s", gethost_by_addr(ping_host_name, (struct sockaddr *)&ping_host->addr, ping_host->addr_len), ping_host->sid,
+			 strerror(errno));
 		goto errout;
 	}
 
@@ -528,6 +534,7 @@ struct ping_host_struct *fast_ping_start(const char *host, int count, int interv
 	}
 	memcpy(&ping_host->addr, gai->ai_addr, gai->ai_addrlen);
 
+	tlog(TLOG_DEBUG, "ping %s, id = %d", host, ping_host->sid);
 	if (_fast_ping_sendping(ping_host) != 0) {
 		goto errout1;
 	}
@@ -542,6 +549,7 @@ struct ping_host_struct *fast_ping_start(const char *host, int count, int interv
 	pthread_mutex_unlock(&ping.map_lock);
 
 	freeaddrinfo(gai);
+
 
 	return ping_host;
 errout:
@@ -582,7 +590,7 @@ static struct fast_ping_packet *_fast_ping_icmp6_packet(struct ping_host_struct 
 	struct icmp6_hdr *icmp6 = &packet->icmp6;
 
 	if (icmp6->icmp6_type != ICMP6_ECHO_REPLY) {
-		tlog(TLOG_ERROR, "icmp6 type faild, %d:%d", icmp6->icmp6_type, ICMP6_ECHO_REPLY);
+		tlog(TLOG_DEBUG, "icmp6 type faild, %d:%d", icmp6->icmp6_type, ICMP6_ECHO_REPLY);
 		return NULL;
 	}
 
@@ -624,7 +632,7 @@ static struct fast_ping_packet *_fast_ping_icmp_packet(struct ping_host_struct *
 	}
 
 	if (icmp->icmp_type != ICMP_ECHOREPLY) {
-		tlog(TLOG_ERROR, "icmp type faild, %d:%d", icmp->icmp_type, ICMP_ECHOREPLY);
+		tlog(TLOG_DEBUG, "icmp type faild, %d:%d", icmp->icmp_type, ICMP_ECHOREPLY);
 		return NULL;
 	}
 

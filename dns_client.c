@@ -495,8 +495,9 @@ static void *_dns_client_work(void *arg)
     int sleep_time;
     unsigned int expect_time = 0;
 
-    now = get_tick_count() - sleep;
-    expect_time = now + sleep;
+	sleep_time = sleep;
+	now = get_tick_count() - sleep;
+	expect_time = now + sleep;
     while (client.run) {
         now = get_tick_count();
         if (now >= expect_time) {

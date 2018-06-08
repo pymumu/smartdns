@@ -414,7 +414,7 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 		if (request->rcode == DNS_RC_SERVFAIL) {
 			request->rcode = packet->head.rcode;
 		}
-		tlog(TLOG_ERROR, "inquery failed, %s, rcode = %d, id = %d\n", domain, packet->head.rcode, packet->head.id);
+		tlog(TLOG_DEBUG, "inquery failed, %s, rcode = %d, id = %d\n", domain, packet->head.rcode, packet->head.id);
 		return -1;
 	}
 
@@ -429,6 +429,12 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 				unsigned char addr[4];
 				_dns_server_request_get(request);
 				dns_get_A(rrs, name, DNS_MAX_CNAME_LEN, &ttl, addr);
+
+				if (addr[0] == 127) {
+					_dns_server_request_release(request);
+					break;
+				}
+
 				if (request->has_ipv4 == 0) {
 					memcpy(request->ipv4_addr, addr, DNS_RR_A_LEN);
 					request->has_ipv4 = 1;
@@ -709,6 +715,7 @@ int dns_server_run(void)
 	int sleep_time = 0;
 	unsigned long expect_time = 0;
 
+	sleep_time = sleep;
 	now = get_tick_count() - sleep;
 	expect_time = now + sleep;
 	while (server.run) {
