@@ -35,10 +35,10 @@ short dns_read_short(unsigned char **buffer)
 {
 	unsigned short value;
 
-	value = *((unsigned short *)(*buffer));
+	value = ntohs(*((unsigned short *)(*buffer)));
 	*buffer += 2;
 
-	return ntohs(value);
+	return value;
 }
 
 void dns_write_char(unsigned char **buffer, unsigned char value)
@@ -63,7 +63,7 @@ void dns_write_short(unsigned char **buffer, unsigned short value)
 
 void dns_write_int(unsigned char **buffer, unsigned int value)
 {
-	value = htons(value);
+	value = htonl(value);
 	*((unsigned int *)(*buffer)) = value;
 	*buffer += 4;
 }
@@ -72,10 +72,10 @@ unsigned int dns_read_int(unsigned char **buffer)
 {
 	unsigned int value;
 
-	value = *((unsigned int *)(*buffer));
+	value = ntohl(*((unsigned int *)(*buffer)));
 	*buffer += 4;
 
-	return ntohs(value);
+	return value;
 }
 
 struct dns_rrs *dns_get_rrs_start(struct dns_packet *packet, dns_rr_type type, int *count)

@@ -211,7 +211,7 @@ static int _dns_reply(struct dns_request *request)
 	head.id = request->id;
 	head.qr = DNS_QR_ANSWER;
 	head.opcode = DNS_OP_QUERY;
-	head.rd = 0;
+	head.rd = 1;
 	head.ra = 0;
 	head.aa = 0;
 	head.tc = 0;
@@ -411,12 +411,13 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 	struct dns_rrs *rrs = NULL;
 
 	if (packet->head.rcode != DNS_RC_NOERROR) {
-		if (request->rcode == (unsigned short)-1) {
+		if (request->rcode == DNS_RC_SERVFAIL) {
 			request->rcode = packet->head.rcode;
 		}
 		tlog(TLOG_ERROR, "inquery failed, %s, rcode = %d, id = %d\n", domain, packet->head.rcode, packet->head.id);
 		return -1;
 	}
+
 
 	request->rcode = packet->head.rcode;
 
