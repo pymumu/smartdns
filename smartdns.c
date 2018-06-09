@@ -116,7 +116,7 @@ int smartdns_init()
 	}
 
 	tlog_setlogscreen(1);
-	tlog_setlevel(TLOG_INFO);
+	tlog_setlevel(TLOG_ERROR);
 
 	if (dns_conf_server_num <= 0) {
 		if (smartdns_load_from_resolv() != 0) {
@@ -142,7 +142,6 @@ int smartdns_init()
 		tlog(TLOG_ERROR, "start dns client failed.\n");
 		goto errout;
 	}
-
 	ret = smartdns_add_servers();
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "add servers failed.");

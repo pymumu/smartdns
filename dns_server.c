@@ -55,8 +55,8 @@ struct dns_server {
 
 	int fd;
 
-	pthread_mutex_t map_lock;
-	DECLARE_HASHTABLE(hostmap, 6);
+	pthread_mutex_t request_list_lock;
+	struct list_head request_list;
 };
 
 struct dns_ip_address {
@@ -71,7 +71,7 @@ struct dns_ip_address {
 
 struct dns_request {
 	atomic_t refcnt;
-	struct hlist_node map;
+	struct list_head list;
 	char domain[DNS_MAX_CNAME_LEN];
 	struct dns_head head;
 	unsigned long send_tick;
@@ -85,6 +85,9 @@ struct dns_request {
 		struct sockaddr_in6 in6;
 		struct sockaddr addr;
 	};
+
+	int has_ping_result;
+	int has_ping_tcp;
 
 	int has_ptr;
 
@@ -106,12 +109,11 @@ struct dns_request {
 
 	int passthrough;
 
+	pthread_mutex_t ip_map_lock;
 	DECLARE_HASHTABLE(ip_map, 4);
 };
 
 static struct dns_server server;
-
-void _dns_server_period_run() {}
 
 static int _dns_server_forward_request(unsigned char *inpacket, int inpacket_len)
 {
@@ -255,10 +257,10 @@ int _dns_server_request_complete(struct dns_request *request)
 		tlog(TLOG_INFO, "result: %s, rcode: %d,  %d.%d.%d.%d\n", request->domain, request->rcode, request->ipv4_addr[0], request->ipv4_addr[1],
 			 request->ipv4_addr[2], request->ipv4_addr[3]);
 	} else if (request->qtype == DNS_T_AAAA) {
-		tlog(TLOG_INFO, "result :%s, rcode: %d,  %x%x:%x%x:%x%x:%x%x:%x%x:%x%x:%x%x:%x%x", request->domain, request->rcode, request->ipv6_addr[0],
-			 request->ipv6_addr[1], request->ipv6_addr[2], request->ipv6_addr[3], request->ipv6_addr[4], request->ipv6_addr[5], request->ipv6_addr[6],
-			 request->ipv6_addr[7], request->ipv6_addr[8], request->ipv6_addr[9], request->ipv6_addr[10], request->ipv6_addr[11], request->ipv6_addr[12],
-			 request->ipv6_addr[13], request->ipv6_addr[14], request->ipv6_addr[15]);
+		tlog(TLOG_INFO, "result :%s, rcode: %d,  %.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", request->domain, request->rcode,
+			 request->ipv6_addr[0], request->ipv6_addr[1], request->ipv6_addr[2], request->ipv6_addr[3], request->ipv6_addr[4], request->ipv6_addr[5],
+			 request->ipv6_addr[6], request->ipv6_addr[7], request->ipv6_addr[8], request->ipv6_addr[9], request->ipv6_addr[10], request->ipv6_addr[11],
+			 request->ipv6_addr[12], request->ipv6_addr[13], request->ipv6_addr[14], request->ipv6_addr[15]);
 	}
 
 	_dns_reply(request);
@@ -266,7 +268,7 @@ int _dns_server_request_complete(struct dns_request *request)
 	return ret;
 }
 
-void _dns_server_request_release(struct dns_request *request)
+void _dns_server_request_release_lock(struct dns_request *request, int locked)
 {
 	struct dns_ip_address *addr_map;
 	struct hlist_node *tmp;
@@ -281,14 +283,28 @@ void _dns_server_request_release(struct dns_request *request)
 		return;
 	}
 
+	if (locked == 0) {
+		pthread_mutex_lock(&server.request_list_lock);
+		list_del(&request->list);
+		pthread_mutex_unlock(&server.request_list_lock);
+	} else {
+		list_del(&request->list);
+	}
+
 	_dns_server_request_complete(request);
 	hash_for_each_safe(request->ip_map, bucket, tmp, addr_map, node)
 	{
 		hash_del(&addr_map->node);
 		free(addr_map);
 	}
+	pthread_mutex_destroy(&request->ip_map_lock);
 	memset(request, 0, sizeof(*request));
 	free(request);
+}
+
+void _dns_server_request_release(struct dns_request *request)
+{
+	_dns_server_request_release_lock(request, 0);
 }
 
 void _dns_server_request_get(struct dns_request *request)
@@ -343,6 +359,7 @@ void _dns_server_ping_result(struct ping_host_struct *ping_host, const char *hos
 		break;
 	}
 	if (result == PING_RESULT_RESPONSE) {
+		request->has_ping_result = 1;
 		tlog(TLOG_DEBUG, "from %15s: seq=%d time=%d\n", host, seqno, rtt);
 	} else {
 		tlog(TLOG_DEBUG, "from %15s: seq=%d timeout\n", host, seqno);
@@ -374,18 +391,22 @@ int _dns_ip_address_check_add(struct dns_request *request, unsigned char *addr, 
 	}
 
 	key = jhash(addr, addr_len, 0);
+	pthread_mutex_lock(&request->ip_map_lock);
 	hash_for_each_possible(request->ip_map, addr_map, node, key)
 	{
 		if (addr_type == DNS_T_A) {
 			if (memcmp(addr_map->ipv4_addr, addr, addr_len) == 0) {
+				pthread_mutex_unlock(&request->ip_map_lock);
 				return -1;
 			}
 		} else if (addr_type == DNS_T_AAAA) {
 			if (memcmp(addr_map->ipv6_addr, addr, addr_len) == 0) {
+				pthread_mutex_unlock(&request->ip_map_lock);
 				return -1;
 			}
 		}
 	}
+	pthread_mutex_unlock(&request->ip_map_lock);
 
 	addr_map = malloc(sizeof(*addr_map));
 	if (addr_map == NULL) {
@@ -417,7 +438,6 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 		tlog(TLOG_DEBUG, "inquery failed, %s, rcode = %d, id = %d\n", domain, packet->head.rcode, packet->head.id);
 		return -1;
 	}
-
 
 	request->rcode = packet->head.rcode;
 
@@ -467,11 +487,12 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 					break;
 				}
 
-				tlog(TLOG_DEBUG, "domain: %s TTL: %d IP: %x%x:%x%x:%x%x:%x%x:%x%x:%x%x:%x%x:%x%x", name, ttl, addr[0], addr[1], addr[2], addr[3], addr[4],
-					 addr[5], addr[6], addr[7], addr[8], addr[9], addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
+				tlog(TLOG_DEBUG, "domain: %s TTL: %d IP: %.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", name, ttl, addr[0], addr[1],
+					 addr[2], addr[3], addr[4], addr[5], addr[6], addr[7], addr[8], addr[9], addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
 
-				sprintf(name, "%x%x:%x%x:%x%x:%x%x:%x%x:%x%x:%x%x:%x%x", addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr[6], addr[7], addr[8],
-						addr[9], addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
+				sprintf(name, "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", addr[0], addr[1], addr[2], addr[3], addr[4], addr[5],
+						addr[6], addr[7], addr[8], addr[9], addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
+
 				if (fast_ping_start(name, 1, 0, 1000, _dns_server_ping_result, request) == NULL) {
 					_dns_server_request_release(request);
 				}
@@ -625,6 +646,7 @@ static int _dns_server_recv(unsigned char *inpacket, int inpacket_len, struct so
 
 	request = malloc(sizeof(*request));
 	memset(request, 0, sizeof(*request));
+	pthread_mutex_init(&request->ip_map_lock, 0);
 	request->ttl_v4 = -1;
 	request->ttl_v6 = -1;
 	request->rcode = DNS_RC_SERVFAIL;
@@ -676,6 +698,11 @@ static int _dns_server_recv(unsigned char *inpacket, int inpacket_len, struct so
 	}
 
 	tlog(TLOG_INFO, "query server %s from %s, qtype = %d\n", request->domain, gethost_by_addr(name, (struct sockaddr *)from, from_len), qtype);
+
+	pthread_mutex_lock(&server.request_list_lock);
+	list_add_tail(&request->list, &server.request_list);
+	pthread_mutex_unlock(&server.request_list_lock);
+
 	_dns_server_request_get(request);
 	request->send_tick = get_tick_count();
 	dns_client_query(request->domain, qtype, dns_server_resolve_callback, request);
@@ -705,13 +732,74 @@ static int _dns_server_process(unsigned long now)
 	return _dns_server_recv(inpacket, len, &from, from_len);
 }
 
+void _dns_server_tcp_ping_check(struct dns_request *request)
+{
+	struct dns_ip_address *addr_map;
+	int bucket = 0;
+	char name[DNS_MAX_CNAME_LEN] = {0};
+	char ip[DNS_MAX_CNAME_LEN] = {0};
+
+	if (request->has_ping_result) {
+		return;
+	}
+
+	if (request->has_ping_tcp) {
+		return;
+	}
+
+	pthread_mutex_lock(&request->ip_map_lock);
+	hash_for_each(request->ip_map, bucket, addr_map, node)
+	{
+		switch (addr_map->addr_type) {
+		case DNS_T_A: {
+			_dns_server_request_get(request);
+			sprintf(ip, "%d.%d.%d.%d:80", addr_map->ipv4_addr[0], addr_map->ipv4_addr[1], addr_map->ipv4_addr[2], addr_map->ipv4_addr[3]);
+			if (fast_ping_start(ip, 1, 0, 1000, _dns_server_ping_result, request) == NULL) {
+				_dns_server_request_release_lock(request, 1);
+			}
+		} break;
+		case DNS_T_AAAA: {
+			_dns_server_request_get(request);
+			sprintf(name, "[%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x]:80", addr_map->ipv6_addr[0], addr_map->ipv6_addr[1],
+					addr_map->ipv6_addr[2], addr_map->ipv6_addr[3], addr_map->ipv6_addr[4], addr_map->ipv6_addr[5], addr_map->ipv6_addr[6],
+					addr_map->ipv6_addr[7], addr_map->ipv6_addr[8], addr_map->ipv6_addr[9], addr_map->ipv6_addr[10], addr_map->ipv6_addr[11],
+					addr_map->ipv6_addr[12], addr_map->ipv6_addr[13], addr_map->ipv6_addr[14], addr_map->ipv6_addr[15]);
+
+			if (fast_ping_start(name, 1, 0, 1000, _dns_server_ping_result, request) == NULL) {
+				_dns_server_request_release_lock(request, 1);
+			}
+		} break;
+		default:
+			break;
+		}
+	}
+	pthread_mutex_unlock(&request->ip_map_lock);
+
+	request->has_ping_tcp = 1;
+}
+
+void _dns_server_period_run()
+{
+	struct dns_request *request, *tmp;
+	unsigned long now = get_tick_count();
+
+	pthread_mutex_lock(&server.request_list_lock);
+	list_for_each_entry_safe(request, tmp, &server.request_list, list)
+	{
+		if (request->send_tick < now - 500 && request->has_ping_tcp == 0) {
+			_dns_server_tcp_ping_check(request);
+		}
+	}
+	pthread_mutex_unlock(&server.request_list_lock);
+}
+
 int dns_server_run(void)
 {
 	struct epoll_event events[DNS_MAX_EVENTS + 1];
 	int num;
 	int i;
 	unsigned long now = {0};
-	int sleep = 1000;
+	int sleep = 100;
 	int sleep_time = 0;
 	unsigned long expect_time = 0;
 
@@ -798,9 +886,20 @@ int dns_server_socket(void)
 	int fd = -1;
 	struct addrinfo *gai = NULL;
 	char port_str[8];
+	char ip[MAX_IP_LEN];
+	int port;
+	char *host = NULL;
 
-	snprintf(port_str, sizeof(port_str), "%d", dns_conf_port);
-	gai = _dns_server_getaddr(NULL, port_str, SOCK_DGRAM, 0);
+	if (parse_ip(dns_conf_server_ip, ip, &port) == 0) {
+		host = ip;
+	}
+
+	if (port <= 0) {
+		port = DEFAULT_DNS_PORT;
+	}
+
+	snprintf(port_str, sizeof(port_str), "%d", port);
+	gai = _dns_server_getaddr(host, port_str, SOCK_DGRAM, 0);
 	if (gai == NULL) {
 		tlog(TLOG_ERROR, "get address failed.\n");
 		goto errout;
@@ -857,8 +956,8 @@ int dns_server_init(void)
 		goto errout;
 	}
 
-	pthread_mutex_init(&server.map_lock, 0);
-	hash_init(server.hostmap);
+	pthread_mutex_init(&server.request_list_lock, 0);
+	INIT_LIST_HEAD(&server.request_list);
 	server.epoll_fd = epollfd;
 	server.fd = fd;
 	server.run = 1;
@@ -880,7 +979,7 @@ errout:
 		close(epollfd);
 	}
 
-	pthread_mutex_destroy(&server.map_lock);
+	pthread_mutex_destroy(&server.request_list_lock);
 
 	return -1;
 }
@@ -894,5 +993,5 @@ void dns_server_exit(void)
 		server.fd = -1;
 	}
 
-	pthread_mutex_destroy(&server.map_lock);
+	pthread_mutex_destroy(&server.request_list_lock);
 }

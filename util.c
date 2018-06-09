@@ -44,10 +44,12 @@ errout:
 	return NULL;
 }
 
-int parse_ip(char *value, char *ip, int *port)
+int parse_ip(const char *value, char *ip, int *port)
 {
 	int offset = 0;
 	char *colon = NULL;
+
+	colon = strstr(value, ":");
 
 	if (strstr(value, "[")) {
 		/* ipv6 with port */
@@ -60,9 +62,11 @@ int parse_ip(char *value, char *ip, int *port)
 		memcpy(ip, value + 1, offset);
 		ip[offset] = 0;
 
-		colon = bracket_end + 1;
-
-	} else if (strstr(value, "::")) {
+		colon = strstr(bracket_end, ":");
+		if (colon) {
+			colon++;
+		}
+	} else if (colon && strstr(colon + 1, ":")) {
 		/* ipv6 without port */
 		strncpy(ip, value, MAX_IP_LEN);
 		colon = NULL;
@@ -77,6 +81,7 @@ int parse_ip(char *value, char *ip, int *port)
 			offset = colon - value;
 			colon++;
 			memcpy(ip, value, offset);
+			ip[offset] = 0;
 		}
 	}
 
@@ -85,6 +90,10 @@ int parse_ip(char *value, char *ip, int *port)
 		*port = atoi(colon);
 	} else {
 		*port = PORT_NOT_DEFINED;
+	}
+
+	if (ip[0] == 0) {
+		return -1;
 	}
 
 	return 0;

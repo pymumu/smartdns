@@ -10,7 +10,7 @@ CXXFLAGS +=-Iinclude
 .PHONY: all
 
 all: $(BIN)
-
+ 
 $(BIN) : $(OBJS)
 	$(CC) $(OBJS) -o $@ -lpthread 
 

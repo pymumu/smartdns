@@ -11,19 +11,14 @@
 
 #define DEFAULT_DNS_CACHE_SIZE 512
 
-int dns_conf_port = DEFAULT_DNS_PORT;
+char dns_conf_server_ip[DNS_MAX_IPLEN];
 int dns_conf_cachesize = DEFAULT_DNS_CACHE_SIZE;
 struct dns_servers dns_conf_servers[DNS_MAX_SERVERS];
 int dns_conf_server_num;
 
-int config_port(char *value)
+int config_bind(char *value)
 {
-	int port = atoi(value);
-	if (port <= 0 || port >= 65535) {
-		return -1;
-	}
-
-	dns_conf_port = port;
+	strncpy(dns_conf_server_ip, value, DNS_MAX_IPLEN);
 
 	return 0;
 }
@@ -88,7 +83,7 @@ struct config_item {
 };
 
 struct config_item config_item[] = {
-	{"port", config_port},
+	{"bind", config_bind},
 	{"server", config_server_udp},
     {"server-tcp", config_server_tcp},
     {"server-http", config_server_http},
