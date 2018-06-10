@@ -323,6 +323,7 @@ void _dns_server_ping_result(struct ping_host_struct *ping_host, const char *hos
 
 	if (result == PING_RESULT_END) {
 		_dns_server_request_release(request);
+		fast_ping_stop(ping_host);
 		return;
 	}
 
