@@ -422,11 +422,16 @@ int dns_add_SOA(struct dns_packet *packet, dns_rr_type type, char *domain, int t
 	ptr += strnlen(soa->mname, DNS_MAX_CNAME_LEN - 1) + 1;
 	strncpy((char *)ptr, soa->rname, DNS_MAX_CNAME_LEN - 1);
 	ptr += strnlen(soa->rname, DNS_MAX_CNAME_LEN - 1) + 1;
-	dns_write_int(&ptr, soa->serial);
-	dns_write_int(&ptr, soa->refresh);
-	dns_write_int(&ptr, soa->retry);
-	dns_write_int(&ptr, soa->expire);
-	dns_write_int(&ptr, soa->minimum);
+	*((unsigned int *)ptr) = soa->serial;
+	ptr += 4;
+	*((unsigned int *)ptr) = soa->refresh;
+	ptr += 4;
+	*((unsigned int *)ptr) = soa->retry;
+	ptr += 4;
+	*((unsigned int *)ptr) = soa->expire;
+	ptr += 4;
+	*((unsigned int *)ptr) = soa->minimum;
+	ptr += 4;
 	len = ptr - data;
 
 	return dns_add_RAW(packet, type, DNS_T_SOA, domain, ttl, data, len);
@@ -452,11 +457,16 @@ int dns_get_SOA(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, struct
 	if (ptr - data + 20 > len) {
 		return -1;
 	}
-	soa->serial = dns_read_int(&ptr);
-	soa->refresh = dns_read_int(&ptr);
-	soa->retry = dns_read_int(&ptr);
-	soa->expire = dns_read_int(&ptr);
-	soa->minimum = dns_read_int(&ptr);
+	soa->serial = *((unsigned int *)ptr);
+	ptr += 4;
+	soa->refresh = *((unsigned int *)ptr);
+	ptr += 4;
+	soa->retry = *((unsigned int *)ptr);
+	ptr += 4;
+	soa->expire = *((unsigned int *)ptr);
+	ptr += 4;
+	soa->minimum = *((unsigned int *)ptr);
+	ptr += 4;
 
 	return 0;
 }
@@ -580,7 +590,7 @@ static int _dns_decode_domain(struct dns_context *context, char *output, int siz
 		}
 		len = *ptr;
 		if (len == 0) {
-			*(output - 1) = 0;
+			*output = 0;
 			ptr++;
 			break;
 		}
@@ -597,6 +607,11 @@ static int _dns_decode_domain(struct dns_context *context, char *output, int siz
 			}
 			is_compressed = 1;
 			continue;
+		}
+
+		if (output_len > 0) {
+			*output = '.';
+			output++;
 		}
 
 		if (context->maxsize - (ptr - context->data) < 0) {
@@ -617,8 +632,6 @@ static int _dns_decode_domain(struct dns_context *context, char *output, int siz
 		ptr += len;
 		output += len;
 		output_len += len;
-		*output = '.';
-		output++;
 	}
 
 	if (is_compressed == 0) {
@@ -631,6 +644,7 @@ static int _dns_decode_domain(struct dns_context *context, char *output, int siz
 static int _dns_encode_domain(struct dns_context *context, char *domain)
 {
 	int num = 0;
+	int total_len = 0;
 	unsigned char *ptr_num = context->ptr++;
 
 	while (_dns_left_len(context) > 1 && *domain != 0) {
@@ -646,11 +660,14 @@ static int _dns_encode_domain(struct dns_context *context, char *domain)
 		num++;
 		context->ptr++;
 		domain++;
+		total_len++;
 	}
 
 	*ptr_num = num;
-	*(context->ptr) = 0;
-	context->ptr++;
+	if (total_len > 0) {
+		*(context->ptr) = 0;
+		context->ptr++;
+	}
 	return 0;
 }
 

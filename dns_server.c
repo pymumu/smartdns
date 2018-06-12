@@ -72,6 +72,8 @@ struct dns_ip_address {
 struct dns_request {
 	atomic_t refcnt;
 	struct list_head list;
+	struct list_head check_list;
+
 	char domain[DNS_MAX_CNAME_LEN];
 	struct dns_head head;
 	unsigned long send_tick;
@@ -268,7 +270,7 @@ int _dns_server_request_complete(struct dns_request *request)
 	return ret;
 }
 
-void _dns_server_request_release_lock(struct dns_request *request, int locked)
+void _dns_server_request_release(struct dns_request *request)
 {
 	struct dns_ip_address *addr_map;
 	struct hlist_node *tmp;
@@ -283,13 +285,9 @@ void _dns_server_request_release_lock(struct dns_request *request, int locked)
 		return;
 	}
 
-	if (locked == 0) {
-		pthread_mutex_lock(&server.request_list_lock);
-		list_del(&request->list);
-		pthread_mutex_unlock(&server.request_list_lock);
-	} else {
-		list_del(&request->list);
-	}
+	pthread_mutex_lock(&server.request_list_lock);
+	list_del(&request->list);
+	pthread_mutex_unlock(&server.request_list_lock);
 
 	_dns_server_request_complete(request);
 	hash_for_each_safe(request->ip_map, bucket, tmp, addr_map, node)
@@ -300,11 +298,6 @@ void _dns_server_request_release_lock(struct dns_request *request, int locked)
 	pthread_mutex_destroy(&request->ip_map_lock);
 	memset(request, 0, sizeof(*request));
 	free(request);
-}
-
-void _dns_server_request_release(struct dns_request *request)
-{
-	_dns_server_request_release_lock(request, 0);
 }
 
 void _dns_server_request_get(struct dns_request *request)
@@ -451,8 +444,16 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 				_dns_server_request_get(request);
 				dns_get_A(rrs, name, DNS_MAX_CNAME_LEN, &ttl, addr);
 
-				if (addr[0] == 127) {
+				tlog(TLOG_DEBUG, "domain: %s TTL:%d IP: %d.%d.%d.%d", name, ttl, addr[0], addr[1], addr[2], addr[3]);
+
+				if (strncmp(name, domain, DNS_MAX_CNAME_LEN) != 0 && strncmp(request->alias, name, DNS_MAX_CNAME_LEN) != 0) {
 					_dns_server_request_release(request);
+					break;
+				}
+
+				if (addr[0] == 0) {
+					_dns_server_request_release(request);
+					tlog(TLOG_ERROR, "Ad blocker, domain: %s", domain);
 					break;
 				}
 
@@ -464,19 +465,23 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 					_dns_server_request_release(request);
 					break;
 				}
-				tlog(TLOG_DEBUG, "domain: %s TTL:%d IP: %d.%d.%d.%d", name, ttl, addr[0], addr[1], addr[2], addr[3]);
 				sprintf(ip, "%d.%d.%d.%d", addr[0], addr[1], addr[2], addr[3]);
 
-				if (strncmp(name, domain, DNS_MAX_CNAME_LEN) == 0 || strncmp(request->alias, name, DNS_MAX_CNAME_LEN) == 0) {
-					if (fast_ping_start(ip, 1, 0, 1000, _dns_server_ping_result, request) == NULL) {
-						_dns_server_request_release(request);
-					}
+				if (fast_ping_start(ip, 1, 0, 1000, _dns_server_ping_result, request) == NULL) {
+					_dns_server_request_release(request);
 				}
 			} break;
 			case DNS_T_AAAA: {
 				unsigned char addr[16];
 				_dns_server_request_get(request);
 				dns_get_AAAA(rrs, name, DNS_MAX_CNAME_LEN, &ttl, addr);
+
+				tlog(TLOG_DEBUG, "domain: %s TTL: %d IP: %.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", name, ttl, addr[0], addr[1],
+					 addr[2], addr[3], addr[4], addr[5], addr[6], addr[7], addr[8], addr[9], addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
+				if (strncmp(name, domain, DNS_MAX_CNAME_LEN) != 0 && strncmp(request->alias, name, DNS_MAX_CNAME_LEN) != 0) {
+					_dns_server_request_release(request);
+					break;
+				}
 
 				if (request->has_ipv6 == 0) {
 					memcpy(request->ipv6_addr, addr, DNS_RR_AAAA_LEN);
@@ -487,9 +492,6 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 					_dns_server_request_release(request);
 					break;
 				}
-
-				tlog(TLOG_DEBUG, "domain: %s TTL: %d IP: %.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", name, ttl, addr[0], addr[1],
-					 addr[2], addr[3], addr[4], addr[5], addr[6], addr[7], addr[8], addr[9], addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
 
 				sprintf(name, "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", addr[0], addr[1], addr[2], addr[3], addr[4], addr[5],
 						addr[6], addr[7], addr[8], addr[9], addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
@@ -756,7 +758,7 @@ void _dns_server_tcp_ping_check(struct dns_request *request)
 			_dns_server_request_get(request);
 			sprintf(ip, "%d.%d.%d.%d:80", addr_map->ipv4_addr[0], addr_map->ipv4_addr[1], addr_map->ipv4_addr[2], addr_map->ipv4_addr[3]);
 			if (fast_ping_start(ip, 1, 0, 1000, _dns_server_ping_result, request) == NULL) {
-				_dns_server_request_release_lock(request, 1);
+				_dns_server_request_release(request);
 			}
 		} break;
 		case DNS_T_AAAA: {
@@ -767,7 +769,7 @@ void _dns_server_tcp_ping_check(struct dns_request *request)
 					addr_map->ipv6_addr[12], addr_map->ipv6_addr[13], addr_map->ipv6_addr[14], addr_map->ipv6_addr[15]);
 
 			if (fast_ping_start(name, 1, 0, 1000, _dns_server_ping_result, request) == NULL) {
-				_dns_server_request_release_lock(request, 1);
+				_dns_server_request_release(request);
 			}
 		} break;
 		default:
@@ -782,16 +784,26 @@ void _dns_server_tcp_ping_check(struct dns_request *request)
 void _dns_server_period_run()
 {
 	struct dns_request *request, *tmp;
+	LIST_HEAD(check_list);
+
 	unsigned long now = get_tick_count();
 
 	pthread_mutex_lock(&server.request_list_lock);
 	list_for_each_entry_safe(request, tmp, &server.request_list, list)
 	{
 		if (request->send_tick < now - 500 && request->has_ping_tcp == 0) {
-			_dns_server_tcp_ping_check(request);
+			_dns_server_request_get(request);
+			list_add_tail(&request->check_list, &check_list);
 		}
 	}
 	pthread_mutex_unlock(&server.request_list_lock);
+
+	list_for_each_entry_safe(request, tmp, &check_list, check_list)
+	{
+		_dns_server_tcp_ping_check(request);
+		list_del_init(&request->check_list);
+		_dns_server_request_release(request);
+	}
 }
 
 int dns_server_run(void)
@@ -872,6 +884,7 @@ errout:
 int dns_server_start(void)
 {
 	struct epoll_event event;
+	memset(&event, 0, sizeof(event));
 	event.events = EPOLLIN;
 	event.data.fd = server.fd;
 	if (epoll_ctl(server.epoll_fd, EPOLL_CTL_ADD, server.fd, &event) != 0) {
@@ -985,13 +998,33 @@ errout:
 	return -1;
 }
 
+void dns_server_stop(void)
+{
+	server.run = 0;
+}
+
 void dns_server_exit(void)
 {
+	struct dns_request *request, *tmp;
+	LIST_HEAD(remove_list);
+
 	server.run = 0;
 
 	if (server.fd > 0) {
 		close(server.fd);
 		server.fd = -1;
+	}
+
+	pthread_mutex_lock(&server.request_list_lock);
+	list_for_each_entry_safe(request, tmp, &server.request_list, list)
+	{
+		list_add_tail(&request->check_list, &remove_list);
+	}
+	pthread_mutex_unlock(&server.request_list_lock);
+
+	list_for_each_entry_safe(request, tmp, &remove_list, check_list)
+	{
+		_dns_server_request_release(request);
 	}
 
 	pthread_mutex_destroy(&server.request_list_lock);

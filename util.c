@@ -31,6 +31,7 @@ char *gethost_by_addr(char *host, struct sockaddr *addr, socklen_t addr_len)
 			struct sockaddr_in addr_in4;
 			memset(&addr_in4, 0, sizeof(addr_in4));
 			memcpy(&addr_in4.sin_addr.s_addr, addr_in6->sin6_addr.s6_addr + 12, sizeof(addr_in4.sin_addr.s_addr));
+			inet_ntop(AF_INET, &addr_in4.sin_addr, host, addr_len);
 		} else {
 			inet_ntop(AF_INET6, &addr_in6->sin6_addr, host, addr_len);
 		}

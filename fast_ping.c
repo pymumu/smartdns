@@ -61,7 +61,6 @@ struct fast_ping_packet {
 struct ping_host_struct {
 	atomic_t ref;
 	atomic_t notified;
-	struct hlist_node host_node;
 	struct hlist_node addr_node;
 	struct list_head action_list;
 	FAST_PING_TYPE type;
@@ -102,7 +101,6 @@ struct fast_ping_struct {
 	struct ping_host_struct icmp6_host;
 
 	pthread_mutex_t map_lock;
-	DECLARE_HASHTABLE(hostmap, 6);
 	DECLARE_HASHTABLE(addrmap, 6);
 };
 
@@ -243,7 +241,6 @@ static void _fast_ping_host_put(struct ping_host_struct *ping_host)
 	}
 
 	pthread_mutex_lock(&ping.map_lock);
-	hash_del(&ping_host->host_node);
 	hash_del(&ping_host->addr_node);
 	pthread_mutex_unlock(&ping.map_lock);
 
@@ -261,6 +258,7 @@ static void _fast_ping_host_put(struct ping_host_struct *ping_host)
 
 	tlog(TLOG_DEBUG, "ping %p end", ping_host);
 
+	memset(ping_host, 0, sizeof(*ping_host));
 	free(ping_host);
 }
 
@@ -276,6 +274,7 @@ static void _fast_ping_host_remove(struct ping_host_struct *ping_host)
 		tv.tv_usec = 0;
 
 		ping_host->ping_callback(ping_host, ping_host->host, PING_RESULT_END, &ping_host->addr, ping_host->addr_len, ping_host->seq, &tv, ping_host->userptr);
+		return;
 	}
 
 	return _fast_ping_host_put(ping_host);
@@ -380,6 +379,7 @@ static int _fast_ping_sendping_tcp(struct ping_host_struct *ping_host)
 		}
 	}
 
+	memset(&event, 0, sizeof(event));
 	event.events = EPOLLIN | EPOLLOUT;
 	event.data.ptr = ping_host;
 	if (epoll_ctl(ping.epoll_fd, EPOLL_CTL_ADD, fd, &event) != 0) {
@@ -456,6 +456,7 @@ static int _fast_ping_create_icmp_sock(FAST_PING_TYPE type)
 	setsockopt(fd, SOL_SOCKET, SO_SNDBUF, (const char *)&buffsize, optlen);
 	setsockopt(fd, SOL_SOCKET, SO_RCVBUF, (const char *)&buffsize, optlen);
 
+	memset(&event, 0, sizeof(event));
 	event.events = EPOLLIN;
 	event.data.ptr = icmp_host;
 	if (epoll_ctl(ping.epoll_fd, EPOLL_CTL_ADD, fd, &event) != 0) {
@@ -527,7 +528,6 @@ struct ping_host_struct *fast_ping_start(const char *host, int count, int interv
 	struct addrinfo *gai = NULL;
 	int domain = -1;
 	int icmp_proto = 0;
-	uint32_t hostkey;
 	uint32_t addrkey;
 	char ip_str[PING_MAX_HOSTLEN];
 	char port_str[MAX_IP_LEN];
@@ -613,16 +613,12 @@ struct ping_host_struct *fast_ping_start(const char *host, int count, int interv
 
 	tlog(TLOG_DEBUG, "ping %s, id = %d", host, ping_host->sid);
 
-	hostkey = hash_string(ping_host->host);
 	addrkey = jhash(&ping_host->addr, ping_host->addr_len, 0);
 	addrkey = jhash(&ping_host->sid, sizeof(ping_host->sid), addrkey);
-	pthread_mutex_lock(&ping.map_lock);
 	_fast_ping_host_get(ping_host);
-	hash_add(ping.hostmap, &ping_host->host_node, hostkey);
-	pthread_mutex_unlock(&ping.map_lock);
 
 	if (_fast_ping_sendping(ping_host) != 0) {
-		goto errout1;
+		goto errout;
 	}
 
 	freeaddrinfo(gai);
@@ -632,10 +628,6 @@ struct ping_host_struct *fast_ping_start(const char *host, int count, int interv
 	pthread_mutex_unlock(&ping.map_lock);
 
 	return ping_host;
-errout1:
-    pthread_mutex_lock(&ping.map_lock);
-	hash_del(&ping_host->host_node);
-	pthread_mutex_unlock(&ping.map_lock);
 errout:
 	if (gai) {
 		freeaddrinfo(gai);
@@ -650,6 +642,8 @@ errout:
 
 int fast_ping_stop(struct ping_host_struct *ping_host)
 {
+	atomic_inc_return(&ping_host->notified);
+	_fast_ping_host_remove(ping_host);
 	_fast_ping_host_put(ping_host);
 	return 0;
 }
@@ -875,10 +869,33 @@ static int _fast_ping_process(struct ping_host_struct *ping_host, struct epoll_e
 	return ret;
 }
 
+static void _fast_ping_remove_all(void)
+{
+	struct ping_host_struct *ping_host = NULL;
+	struct ping_host_struct *ping_host_tmp = NULL;
+	struct hlist_node *tmp = NULL;
+	int i;
+
+	LIST_HEAD(remove_list);
+
+	pthread_mutex_lock(&ping.map_lock);
+	hash_for_each_safe(ping.addrmap, i, tmp, ping_host, addr_node)
+	{
+		list_add_tail(&ping_host->action_list, &remove_list);
+	}
+	pthread_mutex_unlock(&ping.map_lock);
+
+	list_for_each_entry_safe(ping_host, ping_host_tmp, &remove_list, action_list)
+	{
+		_fast_ping_host_remove(ping_host);
+	}
+}
+
 static void _fast_ping_period_run()
 {
-	struct ping_host_struct *ping_host;
-	struct hlist_node *tmp;
+	struct ping_host_struct *ping_host = NULL;
+	struct ping_host_struct *ping_host_tmp = NULL;
+	struct hlist_node *tmp = NULL;
 	int i = 0;
 	struct timeval now;
 	struct timeval interval;
@@ -894,6 +911,7 @@ static void _fast_ping_period_run()
 		millisecond = interval.tv_sec * 1000 + interval.tv_usec / 1000;
 		if (millisecond >= ping_host->timeout && ping_host->send == 1) {
 			list_add_tail(&ping_host->action_list, &action);
+			_fast_ping_host_get(ping_host);
 			continue;
 		}
 
@@ -902,10 +920,11 @@ static void _fast_ping_period_run()
 		}
 
 		list_add_tail(&ping_host->action_list, &action);
+		_fast_ping_host_get(ping_host);
 	}
 	pthread_mutex_unlock(&ping.map_lock);
 
-	list_for_each_entry(ping_host, &action, action_list)
+	list_for_each_entry_safe(ping_host, ping_host_tmp, &action, action_list)
 	{
 		interval = now;
 		tv_sub(&interval, &ping_host->last);
@@ -917,18 +936,24 @@ static void _fast_ping_period_run()
 		}
 
 		if (millisecond < ping_host->interval) {
+			list_del(&ping_host->action_list);
+			_fast_ping_host_put(ping_host);
 			continue;
 		}
 
 		if (ping_host->count > 0) {
 			if (ping_host->count == 1) {
 				_fast_ping_host_remove(ping_host);
+				list_del(&ping_host->action_list);
+				_fast_ping_host_put(ping_host);
 				continue;
 			}
 			ping_host->count--;
 		}
 
 		_fast_ping_sendping(ping_host);
+		list_del(&ping_host->action_list);
+		_fast_ping_host_put(ping_host);
 	}
 }
 
@@ -998,7 +1023,6 @@ int fast_ping_init()
 
 	pthread_mutex_init(&ping.map_lock, 0);
 	pthread_mutex_init(&ping.lock, 0);
-	hash_init(ping.hostmap);
 	hash_init(ping.addrmap);
 	ping.epoll_fd = epollfd;
 	ping.ident = getpid();
@@ -1044,6 +1068,8 @@ void fast_ping_exit()
 		close(ping.fd_icmp6);
 		ping.fd_icmp6 = -1;
 	}
+
+	_fast_ping_remove_all();
 
 	pthread_mutex_destroy(&ping.lock);
 	pthread_mutex_destroy(&ping.map_lock);

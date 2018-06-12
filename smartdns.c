@@ -161,14 +161,23 @@ int smartdns_run()
 
 void smartdns_exit()
 {
-	fast_ping_exit();
-	dns_client_exit();
 	dns_server_exit();
+	dns_client_exit();
+	fast_ping_exit();
 	tlog_exit();
 }
 
 void sig_handle(int sig)
 {
+
+	switch (sig) {
+	case SIGINT:
+		dns_server_stop();
+		return;
+		break;
+	default:
+		break;
+	}
 	tlog(TLOG_ERROR, "process exit.\n");
 	_exit(0);
 }
@@ -177,12 +186,15 @@ int main(int argc, char *argv[])
 {
 	int ret;
 
-	atexit(smartdns_exit);
 	signal(SIGABRT, sig_handle);
+	
 	ret = smartdns_init();
 	if (ret != 0) {
 		goto errout;
 	}
+
+	signal(SIGINT, sig_handle);
+	atexit(smartdns_exit);
 
 	return smartdns_run();
 
