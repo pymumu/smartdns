@@ -15,6 +15,7 @@ char dns_conf_server_ip[DNS_MAX_IPLEN];
 int dns_conf_cachesize = DEFAULT_DNS_CACHE_SIZE;
 struct dns_servers dns_conf_servers[DNS_MAX_SERVERS];
 int dns_conf_server_num;
+int dns_conf_loglevel = TLOG_ERROR;
 
 int config_bind(char *value)
 {
@@ -77,6 +78,21 @@ int config_cache_size(char *value)
 	return 0;
 }
 
+int config_log_level(char *value)
+{
+	if (strncmp("debug", value, MAX_LINE_LEN) == 0) {
+		dns_conf_loglevel = TLOG_DEBUG;
+	} else if (strncmp("info", value, MAX_LINE_LEN) == 0) {
+		dns_conf_loglevel = TLOG_INFO;
+	} else if (strncmp("warn", value, MAX_LINE_LEN) == 0) {
+		dns_conf_loglevel = TLOG_WARN;
+	} else if (strncmp("error", value, MAX_LINE_LEN) == 0) {
+		dns_conf_loglevel = TLOG_ERROR;
+	}
+
+	return 0;
+}
+
 struct config_item {
 	const char *item;
 	int (*item_func)(char *value);
@@ -88,6 +104,7 @@ struct config_item config_item[] = {
     {"server-tcp", config_server_tcp},
     {"server-http", config_server_http},
 	{"cache-size", config_cache_size},
+	{"loglevel", config_log_level},
 };
 int config_item_num = sizeof(config_item) / sizeof(struct config_item);
 

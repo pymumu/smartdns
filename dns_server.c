@@ -270,6 +270,19 @@ int _dns_server_request_complete(struct dns_request *request)
 	return ret;
 }
 
+void _dns_server_request_release(struct dns_request *request);
+void _dns_server_request_remove(struct dns_request *request)
+{
+	pthread_mutex_lock(&server.request_list_lock);
+	if (list_empty(&request->list)) {
+		pthread_mutex_unlock(&server.request_list_lock);
+		return;
+	}
+	list_del_init(&request->list);
+	pthread_mutex_unlock(&server.request_list_lock);
+	_dns_server_request_release(request);
+}
+
 void _dns_server_request_release(struct dns_request *request)
 {
 	struct dns_ip_address *addr_map;
@@ -286,7 +299,7 @@ void _dns_server_request_release(struct dns_request *request)
 	}
 
 	pthread_mutex_lock(&server.request_list_lock);
-	list_del(&request->list);
+	list_del_init(&request->list);
 	pthread_mutex_unlock(&server.request_list_lock);
 
 	_dns_server_request_complete(request);
@@ -367,7 +380,17 @@ void _dns_server_ping_result(struct ping_host_struct *ping_host, const char *hos
 
 	if (may_complete) {
 		_dns_server_request_complete(request);
+		_dns_server_request_remove(request);
 	}
+}
+
+int _dns_server_ping(struct dns_request *request, char *ip)
+{
+	if (fast_ping_start(ip, 1, 0, 1000, _dns_server_ping_result, request) == NULL) {
+		return -1;
+	}
+
+	return 0;
 }
 
 int _dns_ip_address_check_add(struct dns_request *request, unsigned char *addr, dns_type_t addr_type)
@@ -453,7 +476,7 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 
 				if (addr[0] == 0) {
 					_dns_server_request_release(request);
-					tlog(TLOG_ERROR, "Ad blocker, domain: %s", domain);
+					tlog(TLOG_WARN, "Ad blocker, domain: %s", domain);
 					break;
 				}
 
@@ -467,7 +490,7 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 				}
 				sprintf(ip, "%d.%d.%d.%d", addr[0], addr[1], addr[2], addr[3]);
 
-				if (fast_ping_start(ip, 1, 0, 1000, _dns_server_ping_result, request) == NULL) {
+				if (_dns_server_ping(request, ip) != 0) {
 					_dns_server_request_release(request);
 				}
 			} break;
@@ -496,7 +519,7 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 				sprintf(name, "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", addr[0], addr[1], addr[2], addr[3], addr[4], addr[5],
 						addr[6], addr[7], addr[8], addr[9], addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
 
-				if (fast_ping_start(name, 1, 0, 1000, _dns_server_ping_result, request) == NULL) {
+				if (_dns_server_ping(request, ip) != 0) {
 					_dns_server_request_release(request);
 				}
 			} break;
@@ -548,6 +571,9 @@ static int dns_server_resolve_callback(char *domain, dns_result_type rtype, stru
 		tlog(TLOG_ERROR, "request faield, %s", domain);
 		return -1;
 	} else {
+		if (request->has_ipv4 == 0 && request->has_ipv6 == 0) {
+			_dns_server_request_remove(request);
+		}
 		_dns_server_request_release(request);
 	}
 
@@ -702,6 +728,7 @@ static int _dns_server_recv(unsigned char *inpacket, int inpacket_len, struct so
 
 	tlog(TLOG_INFO, "query server %s from %s, qtype = %d\n", request->domain, gethost_by_addr(name, (struct sockaddr *)from, from_len), qtype);
 
+	_dns_server_request_get(request);
 	pthread_mutex_lock(&server.request_list_lock);
 	list_add_tail(&request->list, &server.request_list);
 	pthread_mutex_unlock(&server.request_list_lock);
@@ -757,7 +784,7 @@ void _dns_server_tcp_ping_check(struct dns_request *request)
 		case DNS_T_A: {
 			_dns_server_request_get(request);
 			sprintf(ip, "%d.%d.%d.%d:80", addr_map->ipv4_addr[0], addr_map->ipv4_addr[1], addr_map->ipv4_addr[2], addr_map->ipv4_addr[3]);
-			if (fast_ping_start(ip, 1, 0, 1000, _dns_server_ping_result, request) == NULL) {
+			if (_dns_server_ping(request, ip) != 0) {
 				_dns_server_request_release(request);
 			}
 		} break;
@@ -768,7 +795,7 @@ void _dns_server_tcp_ping_check(struct dns_request *request)
 					addr_map->ipv6_addr[7], addr_map->ipv6_addr[8], addr_map->ipv6_addr[9], addr_map->ipv6_addr[10], addr_map->ipv6_addr[11],
 					addr_map->ipv6_addr[12], addr_map->ipv6_addr[13], addr_map->ipv6_addr[14], addr_map->ipv6_addr[15]);
 
-			if (fast_ping_start(name, 1, 0, 1000, _dns_server_ping_result, request) == NULL) {
+			if (_dns_server_ping(request, ip) != 0) {
 				_dns_server_request_release(request);
 			}
 		} break;
@@ -801,6 +828,7 @@ void _dns_server_period_run()
 	list_for_each_entry_safe(request, tmp, &check_list, check_list)
 	{
 		_dns_server_tcp_ping_check(request);
+		_dns_server_request_remove(request);
 		list_del_init(&request->check_list);
 		_dns_server_request_release(request);
 	}
