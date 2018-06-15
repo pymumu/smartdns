@@ -1,0 +1,204 @@
+#!/bin/sh
+#
+# Copyright (C) 2018 Ruilin Peng (Nick) <pymumu@gmail.com>
+#
+
+INST_DIR=$(cd $(dirname $0);pwd)
+
+showhelp()
+{
+	echo "Usage: install [OPTION]"
+	echo "Options:"
+	echo " -i               install smartdns."
+	echo " -u               uninstall smartdns."
+	echo " --prefix [dir]   prefix directory."
+	echo " -h               show this message."
+}
+
+start_service()
+{
+	if [ $ISSYSTEMD -ne 0 ]; then
+		chkconfig smartdns on
+		service smartdns start
+		return $?
+	fi
+
+	systemctl daemon-reload
+	systemctl enable smartdns
+	systemctl start smartdns
+}
+
+stop_service()
+{
+	if [ $ISSYSTEMD -ne 0 ]; then
+		service smartdns stop
+		chkconfig smartdns off
+		return 0
+	fi
+
+	systemctl stop smartdns
+	systemctl disable smartdns
+
+	return 0
+}
+
+clean_service()
+{
+	if [ $ISSYSTEMD -ne 0 ]; then
+		return 0
+	fi
+	systemctl daemon-reload
+}
+
+get_systemd_path()
+{
+	service="`systemctl --no-legend| grep .service | head -n 1 | awk '{print $1}'`"
+	SERVICE_PATH="`systemctl show $service | grep FragmentPath | awk -F'=' '{print $2}'`"
+	dirname $SERVICE_PATH
+}
+
+install_files()
+{
+	install -v -d $SMARTDNS_CONF_DIR
+	if [ $? -ne 0 ]; then
+		return 1
+	fi
+
+	install -v -m 0755 -t $PREFIX/usr/sbin src/smartdns
+	if [ $? -ne 0 ]; then
+		return 1
+	fi
+
+	install -v -m 0640 -t  $PREFIX$SMARTDNS_CONF_DIR etc/smartdns/smartdns.conf
+	if [ $? -ne 0 ]; then
+		return 1
+	fi
+
+	install -v -m 0640 -t  $PREFIX/etc/default etc/default/smartdns
+	if [ $? -ne 0 ]; then
+		return 1
+	fi
+	
+	install -v -m 0755 -t $SMARTDNS_INIT_DIR etc/init.d/smartdns 
+	if [ $? -ne 0 ]; then
+		return 1
+	fi
+
+	if [ $ISSYSTEMD -eq 0 ]; then
+		SYSTEM_UNIT_PATH="`get_systemd_path`"
+		if [ -z "$SYSTEM_UNIT_PATH" ]; then
+			return 1
+		fi
+		install -v -m 0644 -t $PREFIX$SYSTEM_UNIT_PATH systemd/smartdns.service 
+		if [ $? -ne 0 ]; then
+			return 1
+		fi
+	fi
+
+	return 0
+}
+
+uninstall_smartdns()
+{
+	if [ -z "$PREFIX" ]; then
+		stop_service
+	fi	
+	rm -f $PREFIX$SMARTDNS_CONF_DIR/smartdns.conf
+	rmdir $PREFIX$SMARTDNS_CONF_DIR
+	rm -f $PREFIX/usr/sbin/smartdns
+	rm -f $PREFIX/etc/default/smartdns
+
+	if [ $ISSYSTEMD -eq 0 ]; then
+		SYSTEM_UNIT_PATH="`get_systemd_path`"
+		if [ ! -z "$SYSTEM_UNIT_PATH" ]; then
+			rm -f $PREFIX$SYSTEM_UNIT_PATH/smartdns.service
+		fi
+	fi
+
+	if [ -z "$PREFIX" ]; then
+		clean_service
+	fi	
+}
+
+
+install_smartdns()
+{
+	local ret
+
+	install_files
+	ret=$?
+	if [ $ret -ne 0 ]; then
+		uninstall_smartdns
+		return $ret
+	fi
+
+	if [ -z "$PREFIX" ]; then
+		start_service
+	fi
+
+	return 0
+}
+
+
+
+init_dir()
+{
+	SMARTDNS_CONF_DIR=$PREFIX/etc/smartdns
+	SMARTDNS_INIT_DIR=$PREFIX/etc/init.d
+	which systemctl >/dev/null 2>&1
+	ISSYSTEMD="$?"
+
+	cd $INST_DIR
+}
+
+main()
+{
+	ACTION=""
+
+	OPTS=`getopt -o iuh --long help,prefix: \
+		-n  "" -- "$@"`
+
+	if [ $? != 0 ] ; then echo "Terminating..." >&2 ; exit 1 ; fi
+
+	# Note the quotes around `$TEMP': they are essential!
+	eval set -- "$OPTS"
+
+	while true; do
+		case "$1" in
+		--prefix)
+			PREFIX="$2"
+			shift 2;;
+		-h | --help )
+			showhelp
+			return 0
+			shift ;;
+		-i )
+			ACTION="INSTALL"
+			shift ;;
+		-u )
+			ACTION="UNINSTALL"
+			shift ;;
+		-- ) shift; break ;;
+		* ) break ;;
+  		esac
+	done
+
+	init_dir
+
+	if [ -z "$ACTION" ]; then
+		showhelp
+		return 0
+	elif [ "$ACTION" = "INSTALL" ]; then
+		install_smartdns
+		return $?
+	elif [ "$ACTION" = "UNINSTALL" ]; then
+		uninstall_smartdns
+		return 0
+	fi	
+
+}
+
+main $@
+exit $?
+
+

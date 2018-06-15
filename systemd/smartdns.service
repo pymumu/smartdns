@@ -1,0 +1,14 @@
+[Unit]
+Description=smart dns server
+After=network.target 
+
+[Service]
+PIDFile=/var/run/smartdns.pid
+EnvironmentFile=/etc/default/smartdns
+ExecStart=/usr/sbin/smartdns $SMART_DNS_OPTS
+KillMode=process
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+Alias=smartdns.service

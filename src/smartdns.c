@@ -26,14 +26,36 @@
 #include "tlog.h"
 #include "util.h"
 #include <errno.h>
+#include <fcntl.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 #define RESOLVE_FILE "/etc/resolv.conf"
 #define MAX_LINE_LEN 1024
 #define MAX_KEY_LEN 64
+#define SMARTDNS_CONF_FILE "/etc/smartdns/smartdns.conf"
+#define SMARTDNS_LOG_PATH "/var/log"
+#define SMARTDNS_LOG_FILE "smartdns.log"
+#define SMARTDNS_PID_FILE "/var/run/smartdns.pid"
+#define TMP_BUFF_LEN_32 32
+
+void help(void)
+{
+	/* clang-format off */
+	char *help = ""
+		"Usage: smartdns [OPTION]...\n"
+		"Start smartdns server.\n"
+		"  -f            run forground.\n"
+		"  -c [conf]     config file.\n"
+		"  -h            show this help message.\n"
+		"\n";
+	/* clang-format on */
+	printf(help);
+}
 
 int smartdns_load_from_resolv(void)
 {
@@ -101,15 +123,56 @@ int smartdns_add_servers(void)
 	return 0;
 }
 
-int smartdns_init()
+int create_pid_file(const char *pid_file)
+{
+	int fd;
+	int flags;
+	char buff[TMP_BUFF_LEN_32];
+
+	/*  create pid file, and lock this file */
+	fd = open(pid_file, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+	if (fd == -1) {
+		fprintf(stderr, "create pid file failed, %s", strerror(errno));
+		return -1;
+	}
+
+	flags = fcntl(fd, F_GETFD);
+	if (flags < 0) {
+		fprintf(stderr, "Could not get flags for PID file %s", pid_file);
+		goto errout;
+	}
+
+	flags |= FD_CLOEXEC;
+	if (fcntl(fd, F_SETFD, flags) == -1) {
+		fprintf(stderr, "Could not set flags for PID file %s", pid_file);
+		goto errout;
+	}
+
+	if (lockf(fd, F_TLOCK, 0) < 0) {
+		fprintf(stderr, "Server is already running.\n");
+		goto errout;
+	}
+
+	snprintf(buff, TMP_BUFF_LEN_32, "%d\n", getpid());
+
+	if (write(fd, buff, strnlen(buff, TMP_BUFF_LEN_32)) < 0) {
+		fprintf(stderr, "write pid to file failed, %s.\n", strerror(errno));
+		goto errout;
+	}
+
+	return 0;
+errout:
+	if (fd > 0) {
+		close(fd);
+	}
+	return -1;
+}
+
+int smartdns_init(void)
 {
 	int ret;
 
-	if (load_conf("smartdns.conf") != 0) {
-		fprintf(stderr, "load config failed.");
-	}
-
-	ret = tlog_init(".", "smartdns.log", 1024 * 1024, 8, 1, 0, 0);
+	ret = tlog_init(SMARTDNS_LOG_PATH, SMARTDNS_LOG_FILE, 1024 * 1024, 8, 1, 0, 0);
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "start tlog failed.\n");
 		goto errout;
@@ -154,12 +217,12 @@ errout:
 	return -1;
 }
 
-int smartdns_run()
+int smartdns_run(void)
 {
 	return dns_server_run();
 }
 
-void smartdns_exit()
+void smartdns_exit(void)
 {
 	dns_server_exit();
 	dns_client_exit();
@@ -185,11 +248,46 @@ void sig_handle(int sig)
 int main(int argc, char *argv[])
 {
 	int ret;
+	int is_forground = 0;
+	int opt;
+	char config_file[MAX_LINE_LEN];
+
+	strncpy(config_file, SMARTDNS_CONF_FILE, MAX_LINE_LEN);
+
+	while ((opt = getopt(argc, argv, "fhc:")) != -1) {
+		switch (opt) {
+		case 'f':
+			is_forground = 1;
+			break;
+		case 'c':
+			snprintf(config_file, sizeof(config_file), optarg);
+			break;
+		case 'h':
+			help();
+			return 1;
+		}
+	}
+
+	if (is_forground == 0) {
+		if (daemon(0, 0) < 0) {
+			fprintf(stderr, "run daemon process failed, %s\n", strerror(errno));
+			return 1;
+		}
+	}
 
 	signal(SIGABRT, sig_handle);
-	
+
+	if (load_conf(config_file) != 0) {
+	}
+
+	if (create_pid_file(SMARTDNS_PID_FILE) != 0) {
+		fprintf(stderr, "create pid file failed, %s\n", strerror(errno));
+		goto errout;
+	}
+
 	ret = smartdns_init();
 	if (ret != 0) {
+		usleep(100000);
 		goto errout;
 	}
 

@@ -9,8 +9,8 @@
 #define DNS_RR_A_LEN 4
 #define DNS_RR_AAAA_LEN 16
 #define DNS_MAX_CNAME_LEN 256
-#define DNS_IN_PACKSIZE (512 * 2)
-#define DNS_PACKSIZE (512 * 4)
+#define DNS_IN_PACKSIZE (512 * 4)
+#define DNS_PACKSIZE (512 * 8)
 
 typedef enum dns_qr {
 	DNS_QR_QUERY = 0,
@@ -68,8 +68,9 @@ typedef enum dns_rtcode {
 	DNS_RC_BADVERS = 16,
 } dns_rtcode_t; /* dns_rcode */
 
+/* dns packet head */
 struct dns_head {
-	unsigned short id;      // identification number
+	unsigned short id;      /* identification number */
 	unsigned short qr;      /* Query/Response Flag */
 	unsigned short opcode;  /* Operation Code */
 	unsigned char aa;       /* Authoritative Answer Flag */
@@ -77,10 +78,10 @@ struct dns_head {
 	unsigned char rd;       /* Recursion Desired */
 	unsigned char ra;       /* Recursion Available */
 	unsigned short rcode;   /* Response Code */
-	unsigned short qdcount; // number of question entries
-	unsigned short ancount; // number of answer entries
-	unsigned short nscount; // number of authority entries
-	unsigned short nrcount; // number of addititional resource entries
+	unsigned short qdcount; /* number of question entries */
+	unsigned short ancount; /* number of answer entries */
+	unsigned short nscount; /* number of authority entries */
+	unsigned short nrcount; /* number of addititional resource entries */
 } __attribute__((packed));
 
 struct dns_rrs {
@@ -90,6 +91,7 @@ struct dns_rrs {
 	unsigned char data[0];
 };
 
+/* packet haed */
 struct dns_packet {
 	struct dns_head head;
 	unsigned short questions;
@@ -101,12 +103,14 @@ struct dns_packet {
 	unsigned char data[0];
 };
 
+/* RRS encode/decode context */
 struct dns_data_context {
 	unsigned char *data;
 	unsigned char *ptr;
 	unsigned int maxsize;
 };
 
+/* packet encode/decode context */
 struct dns_context {
 	struct dns_packet *packet;
 	unsigned char *data;
@@ -114,6 +118,7 @@ struct dns_context {
 	unsigned char *ptr;
 };
 
+/* SOA data */
 struct dns_soa {
 	char mname[DNS_MAX_CNAME_LEN];
 	char rname[DNS_MAX_CNAME_LEN];
@@ -122,46 +127,39 @@ struct dns_soa {
 	unsigned int retry;
 	unsigned int expire;
 	unsigned int minimum;
-} __attribute__((packed));;
+} __attribute__((packed));
+;
 
 struct dns_rrs *dns_get_rrs_next(struct dns_packet *packet, struct dns_rrs *rrs);
-
 struct dns_rrs *dns_get_rrs_start(struct dns_packet *packet, dns_rr_type type, int *count);
 
 /*
  * Question
  */
 int dns_add_domain(struct dns_packet *packet, char *domain, int qtype, int qclass);
-
 int dns_get_domain(struct dns_rrs *rrs, char *domain, int maxsize, int *qtype, int *qclass);
 
 /*
  * Answers
  */
 int dns_add_CNAME(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, char *cname);
-
 int dns_get_CNAME(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, char *cname, int cname_size);
 
 int dns_add_A(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, unsigned char addr[DNS_RR_A_LEN]);
-
 int dns_get_A(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, unsigned char addr[DNS_RR_A_LEN]);
 
 int dns_add_PTR(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, char *cname);
-
 int dns_get_PTR(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, char *cname, int cname_size);
 
 int dns_add_AAAA(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, unsigned char addr[DNS_RR_AAAA_LEN]);
-
 int dns_get_AAAA(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, unsigned char addr[DNS_RR_AAAA_LEN]);
 
 int dns_add_SOA(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, struct dns_soa *soa);
-
 int dns_get_SOA(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, struct dns_soa *soa);
 /*
  * Packet operation
  */
 int dns_decode(struct dns_packet *packet, int maxsize, unsigned char *data, int size);
-
 int dns_encode(unsigned char *data, int size, struct dns_packet *packet);
 
 int dns_packet_init(struct dns_packet *packet, int size, struct dns_head *head);

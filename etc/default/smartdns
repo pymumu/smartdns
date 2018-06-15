@@ -1,0 +1,5 @@
+# Default settings for smartdns server. This file is sourced by /bin/sh from
+# /etc/init.d/smartdns.
+
+# Options to pass to smartdns
+SMART_DNS_OPTS=

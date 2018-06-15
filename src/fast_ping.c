@@ -891,7 +891,7 @@ static void _fast_ping_remove_all(void)
 	}
 }
 
-static void _fast_ping_period_run()
+static void _fast_ping_period_run(void)
 {
 	struct ping_host_struct *ping_host = NULL;
 	struct ping_host_struct *ping_host_tmp = NULL;
@@ -1002,7 +1002,7 @@ static void *_fast_ping_work(void *arg)
 	return NULL;
 }
 
-int fast_ping_init()
+int fast_ping_init(void)
 {
 	pthread_attr_t attr;
 	int epollfd = -1;
@@ -1051,7 +1051,7 @@ errout:
 	return -1;
 }
 
-void fast_ping_exit()
+void fast_ping_exit(void)
 {
 	if (ping.tid > 0) {
 		void *ret = NULL;

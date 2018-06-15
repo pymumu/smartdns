@@ -49,16 +49,18 @@
 
 #define DNS_MAX_EVENTS 256
 
+/* dns server data */
 struct dns_server {
 	int run;
 	int epoll_fd;
-
 	int fd;
 
+	/* dns request list */
 	pthread_mutex_t request_list_lock;
 	struct list_head request_list;
 };
 
+/* ip address lists of domain */
 struct dns_ip_address {
 	struct hlist_node node;
 	dns_type_t addr_type;
@@ -71,9 +73,13 @@ struct dns_ip_address {
 
 struct dns_request {
 	atomic_t refcnt;
+	/* dns request list */
 	struct list_head list;
+
+	/* dns request timeout check list */
 	struct list_head check_list;
 
+	/* dns query */
 	char domain[DNS_MAX_CNAME_LEN];
 	struct dns_head head;
 	unsigned long send_tick;
@@ -90,7 +96,6 @@ struct dns_request {
 
 	int has_ping_result;
 	int has_ping_tcp;
-
 	int has_ptr;
 
 	int has_cname;
@@ -109,6 +114,7 @@ struct dns_request {
 
 	atomic_t notified;
 
+	/* send original raw packet to server/client like proxy */
 	int passthrough;
 
 	pthread_mutex_t ip_map_lock;
@@ -464,6 +470,10 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 			switch (rrs->type) {
 			case DNS_T_A: {
 				unsigned char addr[4];
+				if (request->qtype != DNS_T_A) {
+					/* ignore non-matched query type */
+					break;
+				}
 				_dns_server_request_get(request);
 				dns_get_A(rrs, name, DNS_MAX_CNAME_LEN, &ttl, addr);
 
@@ -496,6 +506,10 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 			} break;
 			case DNS_T_AAAA: {
 				unsigned char addr[16];
+				if (request->qtype != DNS_T_AAAA) {
+					/* ignore non-matched query type */
+					break;
+				}
 				_dns_server_request_get(request);
 				dns_get_AAAA(rrs, name, DNS_MAX_CNAME_LEN, &ttl, addr);
 
@@ -808,7 +822,7 @@ void _dns_server_tcp_ping_check(struct dns_request *request)
 	request->has_ping_tcp = 1;
 }
 
-void _dns_server_period_run()
+void _dns_server_period_run(void)
 {
 	struct dns_request *request, *tmp;
 	LIST_HEAD(check_list);

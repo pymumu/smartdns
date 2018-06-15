@@ -18,8 +18,12 @@
 
 #include "dns.h"
 #include "tlog.h"
+#include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 #define QR_MASK 0x8000
 #define OPCODE_MASK 0x7800
@@ -28,25 +32,26 @@
 #define RD_MASK 0x0100
 #define RA_MASK 0x0080
 #define RCODE_MASK 0x000F
-
 #define DNS_RR_END (0XFFFF)
 
+/* read short and move pointer */
 short dns_read_short(unsigned char **buffer)
 {
 	unsigned short value;
 
 	value = ntohs(*((unsigned short *)(*buffer)));
 	*buffer += 2;
-
 	return value;
 }
 
+/* write char and move pointer */
 void dns_write_char(unsigned char **buffer, unsigned char value)
 {
 	**buffer = value;
 	*buffer += 1;
 }
 
+/* read char and move pointer */
 unsigned char dns_read_char(unsigned char **buffer)
 {
 	unsigned char value = **buffer;
@@ -54,6 +59,7 @@ unsigned char dns_read_char(unsigned char **buffer)
 	return value;
 }
 
+/* write short and move pointer */
 void dns_write_short(unsigned char **buffer, unsigned short value)
 {
 	value = htons(value);
@@ -61,6 +67,7 @@ void dns_write_short(unsigned char **buffer, unsigned short value)
 	*buffer += 2;
 }
 
+/* write int and move pointer */
 void dns_write_int(unsigned char **buffer, unsigned int value)
 {
 	value = htonl(value);
@@ -68,6 +75,7 @@ void dns_write_int(unsigned char **buffer, unsigned int value)
 	*buffer += 4;
 }
 
+/* read int and move pointer */
 unsigned int dns_read_int(unsigned char **buffer)
 {
 	unsigned int value;
@@ -78,11 +86,13 @@ unsigned int dns_read_int(unsigned char **buffer)
 	return value;
 }
 
+/* iterator get rrs begin */
 struct dns_rrs *dns_get_rrs_start(struct dns_packet *packet, dns_rr_type type, int *count)
 {
 	unsigned short start;
 	struct dns_head *head = &packet->head;
 
+	/* get rrs count by rrs type */
 	switch (type) {
 	case DNS_RRS_QD:
 		*count = head->qdcount;
@@ -105,13 +115,16 @@ struct dns_rrs *dns_get_rrs_start(struct dns_packet *packet, dns_rr_type type, i
 		break;
 	}
 
+	/* if not resource record, reutrn null */
 	if (start == DNS_RR_END) {
 		return NULL;
 	}
 
+	/* return rrs data start address */
 	return (struct dns_rrs *)(packet->data + start);
 }
 
+/* iterator next rrs */
 struct dns_rrs *dns_get_rrs_next(struct dns_packet *packet, struct dns_rrs *rrs)
 {
 	if (rrs->next == DNS_RR_END) {
@@ -121,28 +134,32 @@ struct dns_rrs *dns_get_rrs_next(struct dns_packet *packet, struct dns_rrs *rrs)
 	return (struct dns_rrs *)(packet->data + rrs->next);
 }
 
+/* iterator add rrs begin */
 unsigned char *_dns_add_rrs_start(struct dns_packet *packet, int *maxlen)
 {
 	struct dns_rrs *rrs;
 	unsigned char *end = packet->data + packet->len;
+
 	rrs = (struct dns_rrs *)end;
 	*maxlen = packet->size - packet->len - sizeof(*packet);
 	if (packet->len >= packet->size - sizeof(*packet)) {
+		/* if size exceeds max packet size, return NULL */
 		return NULL;
 	}
 	return rrs->data;
 }
 
+/* iterator add rrs end */
 int dns_rr_add_end(struct dns_packet *packet, int type, dns_type_t rtype, int len)
 {
 	struct dns_rrs *rrs;
 	struct dns_rrs *rrs_next;
 	struct dns_head *head = &packet->head;
 	unsigned char *end = packet->data + packet->len;
-	rrs = (struct dns_rrs *)end;
 	unsigned short *count;
 	unsigned short *start;
 
+	rrs = (struct dns_rrs *)end;
 	if (packet->len + len > packet->size - sizeof(*packet)) {
 		return -1;
 	}
@@ -169,6 +186,7 @@ int dns_rr_add_end(struct dns_packet *packet, int type, dns_type_t rtype, int le
 		break;
 	}
 
+	/* add data to end of dns_packet, and set previouse rrs point to this rrs */
 	if (*start != DNS_RR_END) {
 		rrs_next = (struct dns_rrs *)(packet->data + *start);
 		while (rrs_next->next != DNS_RR_END) {
@@ -179,21 +197,29 @@ int dns_rr_add_end(struct dns_packet *packet, int type, dns_type_t rtype, int le
 		*start = packet->len;
 	}
 
-	rrs->next = DNS_RR_END; //*start;
-	*count += 1;
+	/* update rrs head info */
 	rrs->len = len;
 	rrs->type = rtype;
+	rrs->next = DNS_RR_END;
+
+	/* update total data length */
+	*count += 1;
 	packet->len += len + sizeof(*rrs);
 	return 0;
 }
 
 static inline int _dns_data_left_len(struct dns_data_context *data_context)
 {
+	/* check whether data length out of bound */
 	return data_context->maxsize - (data_context->ptr - data_context->data);
 }
 
 int _dns_add_qr_head(struct dns_data_context *data_context, char *domain, int qtype, int qclass)
 {
+	/* question head */
+	/* |domain         |
+	 * |qtype | qclass |
+	 */
 	while (1) {
 		if (_dns_data_left_len(data_context) < 1) {
 			return -1;
@@ -223,7 +249,10 @@ int _dns_add_qr_head(struct dns_data_context *data_context, char *domain, int qt
 int _dns_get_qr_head(struct dns_data_context *data_context, char *domain, int maxsize, int *qtype, int *qclass)
 {
 	int i;
-
+	/* question head */
+	/* |domain         |
+	 * |qtype | qclass |
+	 */
 	for (i = 0; i < maxsize; i++) {
 		if (_dns_data_left_len(data_context) < 1) {
 			return -1;
@@ -257,6 +286,12 @@ int _dns_add_rr_head(struct dns_data_context *data_context, char *domain, int qt
 {
 	int len = 0;
 
+	/* resource record head */
+	/* |domain          |
+	 * |qtype  | qclass |
+	 * |       ttl      |
+	 * | rrlen | rrdata |
+	 */
 	len = _dns_add_qr_head(data_context, domain, qtype, qclass);
 	if (len < 0) {
 		return -1;
@@ -279,6 +314,12 @@ int _dns_get_rr_head(struct dns_data_context *data_context, char *domain, int ma
 {
 	int len = 0;
 
+	/* resource record head */
+	/* |domain          |
+	 * |qtype  | qclass |
+	 * |       ttl      |
+	 * | rrlen | rrdata |
+	 */
 	len = _dns_get_qr_head(data_context, domain, maxsize, qtype, qclass);
 
 	if (_dns_data_left_len(data_context) < 6) {
@@ -300,6 +341,12 @@ int dns_add_RAW(struct dns_packet *packet, dns_rr_type rrtype, dns_type_t rtype,
 	int len = 0;
 	struct dns_data_context data_context;
 
+	/* resource record */
+	/* |domain          |
+	 * |qtype  | qclass |
+	 * |       ttl      |
+	 * | rrlen | rrdata |
+	 */
 	unsigned char *data = _dns_add_rrs_start(packet, &maxlen);
 	if (data == NULL) {
 		return -1;
@@ -313,11 +360,13 @@ int dns_add_RAW(struct dns_packet *packet, dns_rr_type rrtype, dns_type_t rtype,
 	data_context.ptr = data;
 	data_context.maxsize = maxlen;
 
+	/* add rr head */
 	len = _dns_add_rr_head(&data_context, domain, rtype, DNS_C_IN, ttl, raw_len);
 	if (len < 0) {
 		return -1;
 	}
 
+	/* add rr data */
 	memcpy(data_context.ptr, raw, raw_len);
 	data_context.ptr += raw_len;
 	len = data_context.ptr - data_context.data;
@@ -333,12 +382,19 @@ int dns_get_RAW(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, void *
 	int ret = 0;
 	struct dns_data_context data_context;
 
+	/* resource record head */
+	/* |domain          |
+	 * |qtype  | qclass |
+	 * |       ttl      |
+	 * | rrlen | rrdata |
+	 */
 	unsigned char *data = rrs->data;
 
 	data_context.data = data;
 	data_context.ptr = data;
 	data_context.maxsize = rrs->len;
 
+	/* get rr head */
 	ret = _dns_get_rr_head(&data_context, domain, maxsize, &qtype, &qclass, ttl, &rr_len);
 	if (ret < 0) {
 		return -1;
@@ -348,6 +404,7 @@ int dns_get_RAW(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, void *
 		return -1;
 	}
 
+	/* get rr data */
 	memcpy(raw, data_context.ptr, rr_len);
 	data_context.ptr += rr_len;
 	*raw_len = rr_len;
@@ -415,6 +472,15 @@ int dns_get_AAAA(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, unsig
 
 int dns_add_SOA(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, struct dns_soa *soa)
 {
+	/* SOA */
+	/*| mname        |
+	 *| rname        |
+	 *| serial       |
+	 *| refersh      |
+	 *| retry        |
+	 *| expire       |
+	 *| minimum      |
+	 */
 	unsigned char data[sizeof(*soa)];
 	unsigned char *ptr = data;
 	int len = 0;
@@ -443,6 +509,15 @@ int dns_get_SOA(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, struct
 	unsigned char *ptr = data;
 	int len = sizeof(data);
 
+	/* SOA */
+	/*| mname        |
+	 *| rname        |
+	 *| serial       |
+	 *| refersh      |
+	 *| retry        |
+	 *| expire       |
+	 *| minimum      |
+	 */
 	if (dns_get_RAW(rrs, domain, maxsize, ttl, data, &len) != 0) {
 		return -1;
 	}
@@ -531,6 +606,23 @@ static int _dns_decode_head(struct dns_context *context)
 		return -1;
 	}
 
+	/*
+	0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F
+	+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+	|                      ID                       |
+	+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+	|QR|   Opcode  |AA|TC|RD|RA|   Z    |   RCODE   |
+	+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+	|                    QDCOUNT                    |
+	+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+	|                    ANCOUNT                    |
+	+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+	|                    NSCOUNT                    |
+	+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+	|                    ARCOUNT                    |
+	+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+	*/
+
 	head->id = dns_read_short(&context->ptr);
 	fields = dns_read_short(&context->ptr);
 	head->qr = (fields & QR_MASK) >> 15;
@@ -584,6 +676,7 @@ static int _dns_decode_domain(struct dns_context *context, char *output, int siz
 	unsigned char *ptr = context->ptr;
 	int is_compressed = 0;
 
+	/*[len]string[len]string...[0]0 */
 	while (1) {
 		if (ptr > context->data + context->maxsize || ptr < context->data) {
 			return -1;
@@ -595,35 +688,45 @@ static int _dns_decode_domain(struct dns_context *context, char *output, int siz
 			break;
 		}
 
+		/* compressed domain */
 		if (len >= 0xC0) {
+			/*
+			0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F
+			+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+			| 1  1|                OFFSET                   |
+			+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+			*/
+			/* read offset */
 			len = dns_read_short(&ptr) & 0x3FFF;
 			if (is_compressed == 0) {
 				context->ptr = ptr;
 			}
 			ptr = context->data + len;
 			if (context->maxsize - (ptr - context->data) < 0) {
-				tlog(TLOG_ERROR, "length is not enouth %d:%d, %p, %p", context->maxsize, ptr - context->data, context->ptr, context->data);
+				tlog(TLOG_ERROR, "length is not enouth %u:%ld, %p, %p", context->maxsize, (long)(ptr - context->data), context->ptr, context->data);
 				return -1;
 			}
 			is_compressed = 1;
 			continue;
 		}
 
+		/* change [len] to '.' */
 		if (output_len > 0) {
 			*output = '.';
 			output++;
 		}
 
 		if (context->maxsize - (ptr - context->data) < 0) {
-			tlog(TLOG_ERROR, "length is not enouth %d:%d, %p, %p", context->maxsize, ptr - context->data, context->ptr, context->data);
+			tlog(TLOG_ERROR, "length is not enouth %u:%ld, %p, %p", context->maxsize, (long)(ptr - context->data), context->ptr, context->data);
 			return -1;
 		}
 
 		ptr++;
 		if (output_len < size - 1) {
+			/* copy sub string */
 			copy_len = (len < size - output_len) ? len : size - 1 - output_len;
 			if (context->maxsize - (ptr - context->data) < 0) {
-				tlog(TLOG_ERROR, "length is not enouth %d:%d, %p, %p", context->maxsize, ptr - context->data, context->ptr, context->data);
+				tlog(TLOG_ERROR, "length is not enouth %u:%ld, %p, %p", context->maxsize, (long)(ptr - context->data), context->ptr, context->data);
 				return -1;
 			}
 			memcpy(output, ptr, copy_len);
@@ -647,6 +750,7 @@ static int _dns_encode_domain(struct dns_context *context, char *domain)
 	int total_len = 0;
 	unsigned char *ptr_num = context->ptr++;
 
+	/*[len]string[len]string...[0]0 */
 	while (_dns_left_len(context) > 1 && *domain != 0) {
 		if (*domain == '.') {
 			*ptr_num = num;
@@ -665,6 +769,7 @@ static int _dns_encode_domain(struct dns_context *context, char *domain)
 
 	*ptr_num = num;
 	if (total_len > 0) {
+		/* if domain is '\0', [domain] is '\0' */
 		*(context->ptr) = 0;
 		context->ptr++;
 	}
@@ -674,7 +779,19 @@ static int _dns_encode_domain(struct dns_context *context, char *domain)
 static int _dns_decode_qr_head(struct dns_context *context, char *domain, int domain_size, int *qtype, int *qclass)
 {
 	int ret = 0;
-
+	/*
+	0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F 
+	+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+	|                                               |
+	/                                               /
+	/                      NAME                     /
+	|                                               |
+	+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+	|                      TYPE                     |
+	+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+	|                     CLASS                     |
+	+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+	*/
 	ret = _dns_decode_domain(context, domain, domain_size);
 	if (ret < 0) {
 		tlog(TLOG_ERROR, "decode domain failed.");
@@ -758,6 +875,27 @@ static int _dns_encode_raw(struct dns_context *context, struct dns_rrs *rrs)
 	char domain[DNS_MAX_CNAME_LEN];
 	int rr_len;
 	struct dns_data_context data_context;
+	/*
+	0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F 
+	+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+	|                                               |
+	/                                               /
+	/                      NAME                     /
+	|                                               |
+	+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+	|                      TYPE                     |
+	+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+	|                     CLASS                     |
+	+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+	|                      TTL                      |
+	|                                               |
+	+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+	|                   RDLENGTH                    |
+	+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--|
+	/                     RDATA                     /
+	/                                               /
+	+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+	*/
 
 	data_context.data = rrs->data;
 	data_context.ptr = rrs->data;
@@ -968,6 +1106,7 @@ static int _dns_decode_an(struct dns_context *context, dns_rr_type type)
 	struct dns_packet *packet = context->packet;
 	unsigned char *start;
 
+	/* decode rr head */
 	ret = _dns_decode_rr_head(context, domain, DNS_MAX_CNAME_LEN, &qtype, &qclass, &ttl, &rr_len);
 	if (ret < 0) {
 		tlog(TLOG_ERROR, "decode head failed.");
@@ -975,6 +1114,7 @@ static int _dns_decode_an(struct dns_context *context, dns_rr_type type)
 	}
 	start = context->ptr;
 
+	/* decode answer */
 	switch (qtype) {
 	case DNS_T_A: {
 		unsigned char addr[DNS_RR_A_LEN];
@@ -1067,7 +1207,7 @@ static int _dns_decode_an(struct dns_context *context, dns_rr_type type)
 	}
 
 	if (context->ptr - start != rr_len) {
-		tlog(TLOG_ERROR, "length mitchmatch , %s, %d:%d", domain, context->ptr - start, rr_len);
+		tlog(TLOG_ERROR, "length mitchmatch , %s, %ld:%d", domain, (long)(context->ptr - start), rr_len);
 		return -1;
 	}
 
@@ -1296,4 +1436,36 @@ int dns_encode(unsigned char *data, int size, struct dns_packet *packet)
 	}
 
 	return context.ptr - context.data;
+}
+
+void dns_debug(void)
+{
+	unsigned char data[1024];
+	int len;
+	char buff[4096];
+
+	int fd = open("dns.bin", O_RDWR);
+	if (fd < 0) {
+		return;
+	}
+	len = read(fd, data, 1024);
+	close(fd);
+	if (len < 0) {
+		return;
+	}
+
+	struct dns_packet *packet = (struct dns_packet *)buff;
+	if (dns_decode(packet, 4096, data, len) != 0) {
+		tlog(TLOG_ERROR, "decode failed.\n");
+	}
+
+	memset(data, 0, sizeof(data));
+	len = dns_encode(data, 1024, packet);
+	if (len < 0) {
+		tlog(TLOG_ERROR, "encode failed.\n");
+	}
+
+	fd = open("dns-cmp.bin", O_CREAT | O_TRUNC | O_RDWR);
+	write(fd, data, len);
+	close(fd);
 }

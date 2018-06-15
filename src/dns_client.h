@@ -18,16 +18,18 @@ typedef enum dns_result_type {
 
 int dns_client_init(void);
 
+/* query result notify function */
 typedef int (*dns_client_callback)(char *domain, dns_result_type rtype, struct dns_packet *packet, unsigned char *inpacket, int inpacket_len, void *user_ptr);
 
+/* query domain */
 int dns_client_query(char *domain, int qtype, dns_client_callback callback, void *user_ptr);
-
-int dns_client_query_raw(char *domain, int qtype, unsigned char *raw, int raw_len, void *user_ptr);
 
 void dns_client_exit(void);
 
+/* add remote dns server */
 int dns_add_server(char *server_ip, int port, dns_server_type_t server_type);
 
+/* remove remote dns server */
 int dns_remove_server(char *server_ip, int port, dns_server_type_t server_type);
 
 #endif

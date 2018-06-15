@@ -19,6 +19,7 @@ int dns_conf_loglevel = TLOG_ERROR;
 
 int config_bind(char *value)
 {
+	/* server bind address */
 	strncpy(dns_conf_server_ip, value, DNS_MAX_IPLEN);
 
 	return 0;
@@ -36,10 +37,12 @@ int config_server(char *value, dns_conf_server_type_t type)
 	}
 
 	server = &dns_conf_servers[index];
+	/* parse ip, port from value */
     if (parse_ip(value, server->server, &port) != 0) {
 		return -1;
     }
 
+	/* if port is not defined, set port to default 53 */
 	if (port == PORT_NOT_DEFINED) {
 		port= DEFAULT_DNS_PORT;
 	} 
@@ -68,6 +71,7 @@ int config_server_http(char *value)
 
 int config_cache_size(char *value)
 {
+	/* read dns cache size */
 	int cache_size = atoi(value);
 	if (cache_size < 0) {
 		return -1;
@@ -80,6 +84,7 @@ int config_cache_size(char *value)
 
 int config_log_level(char *value)
 {
+	/* read log level and set */
 	if (strncmp("debug", value, MAX_LINE_LEN) == 0) {
 		dns_conf_loglevel = TLOG_DEBUG;
 	} else if (strncmp("info", value, MAX_LINE_LEN) == 0) {
@@ -131,10 +136,12 @@ int load_conf(const char *file)
 			continue;
 		}
 
+		/* comment, skip */
 		if (key[0] == '#') {
 			continue;
 		}
 
+		/* if field format is not key = value, error */
 		if (filed_num != 2) {
 			goto errout;
 		}
@@ -144,6 +151,7 @@ int load_conf(const char *file)
 				continue;
 			}
 
+			/* call item function */
 			if (config_item[i].item_func(value) != 0) {
 				goto errout;
 			}

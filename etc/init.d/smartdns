@@ -1,0 +1,77 @@
+#!/bin/sh
+
+### BEGIN INIT INFO
+# Provides:        smartdns
+# Required-Start:  $network 
+# Required-Stop:   $network 
+# Default-Start:   2 3 4 5
+# Default-Stop:
+# Short-Description: Start smartdns server
+### END INIT INFO
+
+PATH=/sbin:/bin:/usr/sbin:/usr/bin
+
+SMARTDNS=/usr/sbin/smartdns
+PIDFILE=/var/run/smartdns.pid
+
+test -x $SMARTDNS || exit 5
+
+case $1 in
+	start)
+		$SMARTDNS $JAIL_SHELL_OPTS
+		while true; do
+			if [ -e "$PIDFILE" ]; then
+				break;
+			fi
+			sleep .5
+		done
+		PID="`cat $PIDFILE 2>/dev/null`"
+		if [ -z "$PID" ]; then
+			echo "start smartdns server failed."
+			exit 1
+		fi
+		if [ ! -e "/proc/$PID" ]; then
+			echo "start smartdns server failed."
+			exit 1
+		fi
+		echo "start smartdns server success."
+		;;
+	stop)
+		if [ ! -f "$PIDFILE" ]; then
+			echo "smartdns server is stopped."
+			exit 0
+		fi
+		PID="`cat $PIDFILE 2>/dev/null`"
+		if [ ! -e "/proc/$PID" ] || [ -z "$PID" ]; then
+			echo "smartdns server is stopped"
+			exit 0
+		fi
+
+		kill -TERM $PID
+		if [ $? -ne 0 ]; then
+			echo "Stop smartdns server failed."
+			exit 1;
+		fi
+		rm -f $PIDFILE
+		echo "Stop smartdns server success."
+		;;
+	restart)
+		$0 stop && sleep 1 && $0 start
+		;;
+	status)
+		PID="`cat $PIDFILE 2>/dev/null`"
+		if [ ! -e "/proc/$PID" ] || [ -z "$PID" ]; then
+			echo "smartdns server is not running."
+			exit 1
+		fi
+		echo "smartdns server is running."
+		status=$?
+		;;
+	*)
+		echo "Usage: $0 {start|stop|restart|status}"
+		exit 2
+		;;
+esac
+
+exit $status
+

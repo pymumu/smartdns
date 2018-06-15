@@ -5,7 +5,7 @@
 #include <string.h>
 #include <time.h>
 
-unsigned long get_tick_count()
+unsigned long get_tick_count(void)
 {
 	struct timespec ts;
 

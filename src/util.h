@@ -8,7 +8,7 @@
 #define PORT_NOT_DEFINED -1
 #define MAX_IP_LEN 64
 
-unsigned long get_tick_count();
+unsigned long get_tick_count(void);
 
 char *gethost_by_addr(char *host, struct sockaddr *addr, socklen_t addr_len);
 
