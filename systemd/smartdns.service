@@ -4,10 +4,11 @@ After=network.target
 
 [Service]
 PIDFile=/var/run/smartdns.pid
-EnvironmentFile=/etc/default/smartdns
+EnvironmentFile=-/etc/default/smartdns
 ExecStart=/usr/sbin/smartdns $SMART_DNS_OPTS
 KillMode=process
-Restart=on-failure
+Restart=always
+RestartSec=0
 
 [Install]
 WantedBy=multi-user.target

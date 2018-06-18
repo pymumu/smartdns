@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2018 Ruilin Peng (Nick) <pymumu@gmail.com>
  */
-
+#define _GNU_SOURCE 
 #include "tlog.h"
 #include <dirent.h>
 #include <errno.h>

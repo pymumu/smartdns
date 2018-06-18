@@ -67,6 +67,9 @@ struct dns_client {
 
 	/* client socket */
 	int udp;
+
+	time_t last_send;
+	time_t last_recv;
 };
 
 /* dns server information */
@@ -188,6 +191,7 @@ int _dns_client_server_add(char *server_ip, struct addrinfo *gai, dns_server_typ
 	struct dns_server_info *server_info = NULL;
 
 	if (_dns_client_server_exist(gai, server_type) == 0) {
+		tlog(TLOG_WARN, "server exists.");
 		goto errout;
 	}
 
@@ -206,10 +210,13 @@ int _dns_client_server_add(char *server_ip, struct addrinfo *gai, dns_server_typ
 	memcpy(&server_info->addr, gai->ai_addr, gai->ai_addrlen);
 
 	/* start ping task */
+#if 0
 	server_info->ping_host = fast_ping_start(server_ip, 0, 60000, 1000, NULL, server_info);
 	if (server_info->ping_host == NULL) {
+		tlog(TLOG_ERROR, "start ping failed.");
 		goto errout;
 	}
+#endif
 
 	/* add to list */
 	pthread_mutex_lock(&client.server_list_lock);
@@ -236,8 +243,10 @@ void _dns_client_server_remove_all(void)
 	{
 		list_del(&server_info->list);
 		/* stop ping task */
-		if (fast_ping_stop(server_info->ping_host) != 0) {
-			tlog(TLOG_ERROR, "stop ping failed.\n");
+		if (server_info->ping_host) {
+			if (fast_ping_stop(server_info->ping_host) != 0) {
+				tlog(TLOG_ERROR, "stop ping failed.\n");
+			}
 		}
 		free(server_info);
 	}
@@ -280,6 +289,7 @@ int _dns_client_server_operate(char *server_ip, int port, dns_server_type_t serv
 	struct addrinfo *gai = NULL;
 
 	if (server_type >= DNS_SERVER_TYPE_END) {
+		tlog(TLOG_ERROR, "server type is invalid.");
 		return -1;
 	}
 
@@ -399,6 +409,107 @@ void _dns_client_query_get(struct dns_query_struct *query)
 	atomic_inc(&query->refcnt);
 }
 
+
+static struct addrinfo *_dns_server_getaddr(const char *host, const char *port, int type, int protocol)
+{
+	struct addrinfo hints;
+	struct addrinfo *result = NULL;
+
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_UNSPEC;
+	hints.ai_socktype = type;
+	hints.ai_protocol = protocol;
+	hints.ai_flags = AI_PASSIVE;
+	if (getaddrinfo(host, port, &hints, &result) != 0) {
+		tlog(TLOG_ERROR, "get addr info failed. %s\n", strerror(errno));
+		goto errout;
+	}
+
+	return result;
+errout:
+	if (result) {
+		freeaddrinfo(result);
+	}
+	return NULL;
+}
+
+int dns_client_start(void)
+{
+	struct epoll_event event;
+	memset(&event, 0, sizeof(event));
+	event.events = EPOLLIN;
+	event.data.fd = client.udp;
+	if (epoll_ctl(client.epoll_fd, EPOLL_CTL_ADD, client.udp, &event) != 0) {
+		tlog(TLOG_ERROR, "epoll ctl failed.");
+		return -1;
+	}
+
+	return 0;
+}
+
+int dns_client_socket(void)
+{
+	int fd = -1;
+	struct addrinfo *gai = NULL;
+
+	/* create udp socket */
+	gai = _dns_server_getaddr(NULL, "53", SOCK_DGRAM, 0);
+	if (gai == NULL) {
+		tlog(TLOG_ERROR, "get address failed.\n");
+		goto errout;
+	}
+
+	fd = socket(gai->ai_family, gai->ai_socktype, gai->ai_protocol);
+	if (fd < 0) {
+		tlog(TLOG_ERROR, "create socket failed.\n");
+		goto errout;
+	}
+
+	client.udp = fd;
+	freeaddrinfo(gai);
+
+	return fd;
+errout:
+	if (fd > 0) {
+		close(fd);
+	}
+
+	if (gai) {
+		freeaddrinfo(gai);
+	}
+	return -1;
+}
+
+void _dns_client_recreate_socket(void)
+{
+	int fd = -1;
+	int oldfd = client.udp;
+
+	pthread_mutex_lock(&client.server_list_lock);
+	fd = dns_client_socket();
+	if (fd < 0) {
+		tlog(TLOG_ERROR, "create socket failed.");
+		goto errout;
+	}
+
+	if (dns_client_start() != 0) {
+		tlog(TLOG_ERROR, "start socket failed.");
+		goto errout;
+	}
+
+	client.udp = fd;
+	close(oldfd);
+	pthread_mutex_unlock(&client.server_list_lock);
+	return;
+errout:
+	if (fd > 0) {
+		close(fd);
+	}
+	client.udp = oldfd;
+	pthread_mutex_unlock(&client.server_list_lock);
+	return;
+}
+
 void _dns_client_period_run(void)
 {
 	struct dns_query_struct *query, *tmp;
@@ -423,7 +534,18 @@ void _dns_client_period_run(void)
 		list_del_init(&query->period_list);
 		_dns_client_query_remove(query);
 		_dns_client_query_release(query);
+
+		/* For udp nat case. 
+		 * when router reconnect to internet, udp port may always marked as UNREPLIED.
+		 * dns query will timeout, and cannot reconnect again, 
+		 * create a new socket to communicate.
+		 */
+		if (client.last_send - 5 > client.last_recv) {
+			_dns_client_recreate_socket();
+			client.last_recv = client.last_send;
+		}
 	}
+
 	return;
 }
 
@@ -575,6 +697,7 @@ static int _dns_client_process(struct dns_query_struct *dns_query, unsigned long
 
 	tlog(TLOG_DEBUG, "recv from %s", gethost_by_addr(from_host, (struct sockaddr *)&from, from_len));
 
+	time(&client.last_recv);
 	if (_dns_client_recv(inpacket, len, &from, from_len) != 0) {
 		return -1;
 	}
@@ -676,6 +799,7 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 			atomic_dec(&query->dns_request_sent);
 			continue;
 		}
+		time(&client.last_send);
 	}
 	pthread_mutex_unlock(&client.server_list_lock);
 	return 0;
@@ -767,76 +891,6 @@ errout:
 	if (query) {
 		tlog(TLOG_ERROR, "release %p", query);
 		free(query);
-	}
-	return -1;
-}
-
-static struct addrinfo *_dns_server_getaddr(const char *host, const char *port, int type, int protocol)
-{
-	struct addrinfo hints;
-	struct addrinfo *result = NULL;
-
-	memset(&hints, 0, sizeof(hints));
-	hints.ai_family = AF_UNSPEC;
-	hints.ai_socktype = type;
-	hints.ai_protocol = protocol;
-	hints.ai_flags = AI_PASSIVE;
-	if (getaddrinfo(host, port, &hints, &result) != 0) {
-		tlog(TLOG_ERROR, "get addr info failed. %s\n", strerror(errno));
-		goto errout;
-	}
-
-	return result;
-errout:
-	if (result) {
-		freeaddrinfo(result);
-	}
-	return NULL;
-}
-
-int dns_client_start(void)
-{
-	struct epoll_event event;
-	memset(&event, 0, sizeof(event));
-	event.events = EPOLLIN;
-	event.data.fd = client.udp;
-	if (epoll_ctl(client.epoll_fd, EPOLL_CTL_ADD, client.udp, &event) != 0) {
-		tlog(TLOG_ERROR, "epoll ctl failed.");
-		return -1;
-	}
-
-	return 0;
-}
-
-int dns_client_socket(void)
-{
-	int fd = -1;
-	struct addrinfo *gai = NULL;
-
-	/* create udp socket */
-	gai = _dns_server_getaddr(NULL, "53", SOCK_DGRAM, 0);
-	if (gai == NULL) {
-		tlog(TLOG_ERROR, "get address failed.\n");
-		goto errout;
-	}
-
-	fd = socket(gai->ai_family, gai->ai_socktype, gai->ai_protocol);
-	if (fd < 0) {
-		tlog(TLOG_ERROR, "create socket failed.\n");
-		goto errout;
-	}
-
-	client.udp = fd;
-	freeaddrinfo(gai);
-
-	return fd;
-errout:
-	if (fd > 0) {
-		close(fd);
-	}
-
-	if (gai) {
-		freeaddrinfo(gai);
 	}
 	return -1;
 }
