@@ -51,6 +51,7 @@ void help(void)
 		"Start smartdns server.\n"
 		"  -f            run forground.\n"
 		"  -c [conf]     config file.\n"
+		"  -p [pid]      pid file path\n"
 		"  -h            show this help message.\n"
 		"\n";
 	/* clang-format on */
@@ -251,16 +252,21 @@ int main(int argc, char *argv[])
 	int is_forground = 0;
 	int opt;
 	char config_file[MAX_LINE_LEN];
+	char pid_file[MAX_LINE_LEN];
 
 	strncpy(config_file, SMARTDNS_CONF_FILE, MAX_LINE_LEN);
+	strncpy(pid_file, SMARTDNS_PID_FILE, MAX_LINE_LEN);
 
-	while ((opt = getopt(argc, argv, "fhc:")) != -1) {
+	while ((opt = getopt(argc, argv, "fhc:p:")) != -1) {
 		switch (opt) {
 		case 'f':
 			is_forground = 1;
 			break;
 		case 'c':
 			snprintf(config_file, sizeof(config_file), optarg);
+			break;
+		case 'p':
+			snprintf(pid_file, sizeof(pid_file), optarg);
 			break;
 		case 'h':
 			help();
@@ -280,7 +286,7 @@ int main(int argc, char *argv[])
 	if (load_conf(config_file) != 0) {
 	}
 
-	if (create_pid_file(SMARTDNS_PID_FILE) != 0) {
+	if (create_pid_file(pid_file) != 0) {
 		fprintf(stderr, "create pid file failed, %s\n", strerror(errno));
 		goto errout;
 	}
