@@ -1,9 +1,11 @@
 #include "util.h"
 #include <arpa/inet.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 unsigned long get_tick_count(void)
 {
@@ -94,6 +96,24 @@ int parse_ip(const char *value, char *ip, int *port)
 	}
 
 	if (ip[0] == 0) {
+		return -1;
+	}
+
+	return 0;
+}
+
+int set_fd_nonblock(int fd, int nonblock)
+{
+	int ret;
+	int flags = fcntl(fd, F_GETFL);
+
+	if (flags == -1) {
+		return -1;
+	}
+
+	flags = (nonblock) ? (flags | O_NONBLOCK) : (flags & ~O_NONBLOCK); 
+	ret = fcntl(fd, F_SETFL, flags);
+	if (ret == -1) {
 		return -1;
 	}
 

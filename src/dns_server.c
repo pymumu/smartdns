@@ -222,7 +222,7 @@ static int _dns_reply(struct dns_request *request)
 	head.qr = DNS_QR_ANSWER;
 	head.opcode = DNS_OP_QUERY;
 	head.rd = 1;
-	head.ra = 0;
+	head.ra = 1;
 	head.aa = 0;
 	head.tc = 0;
 	head.rcode = request->rcode;
@@ -945,6 +945,7 @@ int dns_server_socket(void)
 	char ip[MAX_IP_LEN];
 	int port;
 	char *host = NULL;
+	int optval = 1;
 
 	if (parse_ip(dns_conf_server_ip, ip, &port) == 0) {
 		host = ip;
@@ -964,6 +965,11 @@ int dns_server_socket(void)
 	fd = socket(gai->ai_family, gai->ai_socktype, gai->ai_protocol);
 	if (fd < 0) {
 		tlog(TLOG_ERROR, "create socket failed.\n");
+		goto errout;
+	}
+
+	if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) != 0) {
+		tlog(TLOG_ERROR, "set socket opt failed.");
 		goto errout;
 	}
 

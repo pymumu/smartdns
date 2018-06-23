@@ -14,4 +14,6 @@ char *gethost_by_addr(char *host, struct sockaddr *addr, socklen_t addr_len);
 
 int parse_ip(const char *value, char *ip, int *port);
 
+int set_fd_nonblock(int fd, int nonblock);
+
 #endif
