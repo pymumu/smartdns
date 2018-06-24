@@ -47,6 +47,39 @@ errout:
 	return NULL;
 }
 
+int getaddr_by_host(char *host, struct sockaddr *addr, socklen_t *addr_len)
+{
+	struct addrinfo hints;
+	struct addrinfo *result = NULL;
+	int ret = 0;
+
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_UNSPEC;
+	hints.ai_socktype = SOCK_STREAM;
+
+	ret = getaddrinfo(host, "53", &hints, &result);
+	if (ret != 0) {
+		goto errout;
+	}
+
+	if (result->ai_addrlen > *addr_len) {
+		result->ai_addrlen = *addr_len;
+	}
+
+	memcpy(addr, result->ai_addr, result->ai_addrlen);
+	*addr_len = result->ai_addrlen;
+
+	freeaddrinfo(result);
+
+	return 0;
+errout:
+	if (result) {
+		freeaddrinfo(result);
+	}
+	return -1;
+
+}
+
 int parse_ip(const char *value, char *ip, int *port)
 {
 	int offset = 0;

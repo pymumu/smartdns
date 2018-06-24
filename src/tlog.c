@@ -252,8 +252,8 @@ static int _tlog_log_buffer(char *buff, int maxlen, tlog_level level, const char
     struct tlog_info info;
 
     if (tlog_format == NULL) {
-        return -1;
-    }
+		return -1;
+	}
 
     if (level >= TLOG_END) {
         return -1;
@@ -288,8 +288,10 @@ int tlog_vext(tlog_level level, const char *file, int line, const char *func, vo
     int maxlen = 0;
 
     if (tlog.buff == NULL) {
-        return -1;
-    }
+        vprintf(format, ap);
+		printf("\n");
+		return -1;
+	}
 
     if (level < tlog_set_level) {
         return 0;

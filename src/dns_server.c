@@ -669,6 +669,63 @@ errout:
 	return -1;
 }
 
+static struct dns_address *_dns_server_get_address_by_domain(char *domain)
+{
+	struct dns_address *address;
+	char *match = NULL;
+	int domain_len;
+
+	list_for_each_entry(address, &dns_conf_address_list, list)
+	{
+		domain_len = strnlen(address->domain, DNS_MAX_CNAME_LEN);
+		match = strstr(domain, address->domain);
+		if (match) {
+			if (memcmp(address->domain, match, domain_len + 1) == 0) {
+				return address;
+			}
+		}
+	}
+
+	return NULL;
+}
+
+static int _dns_server_process_address(struct dns_request *request, struct dns_packet *packet)
+{
+	struct dns_address *address = NULL;
+
+	address = _dns_server_get_address_by_domain(request->domain);
+	if (address == NULL) {
+		goto errout;
+	}
+
+	if (request->qtype != address->addr_type) {
+		goto errout;
+	}
+
+	switch (request->qtype) {
+	case DNS_T_A:
+		memcpy(request->ipv4_addr, address->ipv4_addr, DNS_RR_A_LEN);
+		request->ttl_v4 = 600;
+		request->has_ipv4 = 1;
+		break;
+	case DNS_T_AAAA:
+		memcpy(request->ipv6_addr, address->ipv6_addr, DNS_RR_AAAA_LEN);
+		request->ttl_v6 = 600;
+		request->has_ipv6 = 1;
+		break;
+	default:
+		goto errout;
+		break;
+	}
+
+	request->rcode = DNS_RC_NOERROR;
+	_dns_reply(request);
+
+	return 0;
+errout:
+	return -1;
+}
+
 static int _dns_server_recv(unsigned char *inpacket, int inpacket_len, struct sockaddr_storage *from, socklen_t from_len)
 {
 	int decode_len;
@@ -744,6 +801,11 @@ static int _dns_server_recv(unsigned char *inpacket, int inpacket_len, struct so
 		tlog(TLOG_DEBUG, "unsupport qtype: %d, domain: %s", qtype, request->domain);
 		request->passthrough = 1;
 		break;
+	}
+
+	if (_dns_server_process_address(request, packet) == 0) {
+		free(request);
+		return 0;
 	}
 
 	tlog(TLOG_INFO, "query server %s from %s, qtype = %d\n", request->domain, gethost_by_addr(name, (struct sockaddr *)from, from_len), qtype);

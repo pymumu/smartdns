@@ -234,7 +234,6 @@ void smartdns_exit(void)
 
 void sig_handle(int sig)
 {
-
 	switch (sig) {
 	case SIGINT:
 		dns_server_stop();

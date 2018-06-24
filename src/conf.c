@@ -1,5 +1,7 @@
 #include "conf.h"
 #include "tlog.h"
+#include "list.h"
+#include "rbtree.h"
 #include "util.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,6 +18,7 @@ int dns_conf_cachesize = DEFAULT_DNS_CACHE_SIZE;
 struct dns_servers dns_conf_servers[DNS_MAX_SERVERS];
 int dns_conf_server_num;
 int dns_conf_loglevel = TLOG_ERROR;
+LIST_HEAD(dns_conf_address_list);
 
 int config_bind(char *value)
 {
@@ -38,19 +41,88 @@ int config_server(char *value, dns_conf_server_type_t type)
 
 	server = &dns_conf_servers[index];
 	/* parse ip, port from value */
-    if (parse_ip(value, server->server, &port) != 0) {
+	if (parse_ip(value, server->server, &port) != 0) {
 		return -1;
-    }
+	}
 
 	/* if port is not defined, set port to default 53 */
 	if (port == PORT_NOT_DEFINED) {
-		port= DEFAULT_DNS_PORT;
-	} 
-	
+		port = DEFAULT_DNS_PORT;
+	}
+
 	server->type = type;
 	server->port = port;
 	dns_conf_server_num++;
 
+	return 0;
+}
+
+int config_address(char *value)
+{
+	struct dns_address *address;
+	char ip[MAX_IP_LEN];
+	char *begin = NULL;
+	char *end = NULL;
+	int len = 0;
+	struct sockaddr_storage addr;
+	socklen_t addr_len = sizeof(addr);
+
+	begin = strstr(value, "/");
+	if (begin == NULL) {
+		goto errout;
+	}
+
+	begin++;
+	end = strstr(begin, "/");
+	if (end == NULL) {
+		goto errout;
+	}
+
+	address = malloc(sizeof(*address));
+	if (address == NULL) {
+		goto errout;
+	}
+
+	len = end - begin;
+	memcpy(address->domain, begin, len);
+	address->domain[len] = 0;
+	strncpy(ip, end + 1, MAX_IP_LEN);
+
+	if (getaddr_by_host(ip, (struct sockaddr *)&addr, &addr_len) != 0) {
+		goto errout;
+	}
+
+	switch (addr.ss_family) {
+	case AF_INET: {
+		struct sockaddr_in *addr_in;
+		addr_in = (struct sockaddr_in *)&addr;
+		memcpy(address->ipv4_addr, &addr_in->sin_addr.s_addr, 4);
+		address->addr_type = DNS_T_A;
+	} break;
+	case AF_INET6: {
+		struct sockaddr_in6 *addr_in6;
+		addr_in6 = (struct sockaddr_in6 *)&addr;
+		if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
+			memcpy(address->ipv4_addr, addr_in6->sin6_addr.s6_addr + 12, 4);
+			address->addr_type = DNS_T_A;
+		} else {
+			memcpy(address->ipv6_addr, addr_in6->sin6_addr.s6_addr, 16);
+			address->addr_type = DNS_T_AAAA;
+		}
+	} break;
+	default:
+		goto errout;
+	}
+
+	list_add_tail(&address->list, &dns_conf_address_list);
+
+	return 0;
+errout:
+	if (address) {
+		free(address);
+	}
+
+	tlog(TLOG_ERROR, "add address %s failed", value);
 	return 0;
 }
 
@@ -106,8 +178,9 @@ struct config_item {
 struct config_item config_item[] = {
 	{"bind", config_bind},
 	{"server", config_server_udp},
-    {"server-tcp", config_server_tcp},
-    {"server-http", config_server_http},
+	{"address", config_address},
+	{"server-tcp", config_server_tcp},
+	{"server-http", config_server_http},
 	{"cache-size", config_cache_size},
 	{"loglevel", config_log_level},
 };
