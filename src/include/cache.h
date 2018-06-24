@@ -13,6 +13,8 @@ struct cache_head *cache_new(int hashsize, void (*item_free)(struct cache_head *
 
 int cache_add(struct cache_head *head, struct cache_node *node, void *key, int key_len);
 
+int cache_del(struct cache_node *node);
+
 struct cache_node *cache_lookup(struct cache_head *head, void *key, int key_len);
 
 int cache_update(struct cache_head *head, void *key, int key_len);

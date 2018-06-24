@@ -99,13 +99,16 @@ struct dns_request {
 	int has_ptr;
 
 	int has_cname;
-	char alias[DNS_MAX_CNAME_LEN];
+	char cname[DNS_MAX_CNAME_LEN];
+	int ttl_cname;
 
 	int has_ipv4;
+	int ping_ttl_v4;
 	int ttl_v4;
 	unsigned char ipv4_addr[DNS_RR_A_LEN];
 
 	int has_ipv6;
+	int ping_ttl_v6;
 	int ttl_v6;
 	unsigned char ipv6_addr[DNS_RR_AAAA_LEN];
 
@@ -170,19 +173,19 @@ static int _dns_add_rrs(struct dns_packet *packet, struct dns_request *request)
 	}
 
 	if (request->has_cname) {
-		ret |= dns_add_CNAME(packet, DNS_RRS_AN, request->domain, 30, request->alias);
-		domain = request->alias;
+		ret |= dns_add_CNAME(packet, DNS_RRS_AN, request->domain, request->ttl_cname, request->cname);
+		domain = request->cname;
 	}
 
 	if (request->has_ipv4 && request->qtype == DNS_T_A) {
-		ret |= dns_add_A(packet, DNS_RRS_AN, domain, 30, request->ipv4_addr);
+		ret |= dns_add_A(packet, DNS_RRS_AN, domain, request->ttl_v4, request->ipv4_addr);
 	}
 
 	if (request->has_ipv6 && request->qtype == DNS_T_AAAA) {
 		if (request->has_ipv4) {
-			ret |= dns_add_A(packet, DNS_RRS_AN, domain, 30, request->ipv4_addr);
+			ret |= dns_add_A(packet, DNS_RRS_AN, domain, request->ttl_v4, request->ipv4_addr);
 		}
-		ret |= dns_add_AAAA(packet, DNS_RRS_AN, domain, 30, request->ipv6_addr);
+		ret |= dns_add_AAAA(packet, DNS_RRS_AN, domain, request->ttl_v6, request->ipv6_addr);
 	}
 
 	if (request->has_soa) {
@@ -345,8 +348,8 @@ void _dns_server_ping_result(struct ping_host_struct *ping_host, const char *hos
 	case AF_INET: {
 		struct sockaddr_in *addr_in;
 		addr_in = (struct sockaddr_in *)addr;
-		if (request->ttl_v4 > rtt) {
-			request->ttl_v4 = rtt;
+		if (request->ping_ttl_v4 > rtt) {
+			request->ping_ttl_v4 = rtt;
 			request->has_ipv4 = 1;
 			memcpy(request->ipv4_addr, &addr_in->sin_addr.s_addr, 4);
 		}
@@ -355,14 +358,14 @@ void _dns_server_ping_result(struct ping_host_struct *ping_host, const char *hos
 		struct sockaddr_in6 *addr_in6;
 		addr_in6 = (struct sockaddr_in6 *)addr;
 		if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
-			if (request->ttl_v4 > rtt) {
-				request->ttl_v4 = rtt;
+			if (request->ping_ttl_v4 > rtt) {
+				request->ping_ttl_v4 = rtt;
 				request->has_ipv4 = 1;
 				memcpy(request->ipv4_addr, addr_in6->sin6_addr.s6_addr + 12, 4);
 			}
 		} else {
-			if (request->ttl_v6 > rtt) {
-				request->ttl_v6 = rtt;
+			if (request->ping_ttl_v6 > rtt) {
+				request->ping_ttl_v6 = rtt;
 				request->has_ipv6 = 1;
 				memcpy(request->ipv6_addr, addr_in6->sin6_addr.s6_addr, 16);
 			}
@@ -479,7 +482,7 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 
 				tlog(TLOG_DEBUG, "domain: %s TTL:%d IP: %d.%d.%d.%d", name, ttl, addr[0], addr[1], addr[2], addr[3]);
 
-				if (strncmp(name, domain, DNS_MAX_CNAME_LEN) != 0 && strncmp(request->alias, name, DNS_MAX_CNAME_LEN) != 0) {
+				if (strncmp(name, domain, DNS_MAX_CNAME_LEN) != 0 && strncmp(request->cname, name, DNS_MAX_CNAME_LEN) != 0) {
 					_dns_server_request_release(request);
 					break;
 				}
@@ -492,6 +495,7 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 
 				if (request->has_ipv4 == 0) {
 					memcpy(request->ipv4_addr, addr, DNS_RR_A_LEN);
+					request->ttl_v4 = ttl;
 					request->has_ipv4 = 1;
 				}
 				if (_dns_ip_address_check_add(request, addr, DNS_T_A) != 0) {
@@ -515,13 +519,14 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 
 				tlog(TLOG_DEBUG, "domain: %s TTL: %d IP: %.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", name, ttl, addr[0], addr[1],
 					 addr[2], addr[3], addr[4], addr[5], addr[6], addr[7], addr[8], addr[9], addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
-				if (strncmp(name, domain, DNS_MAX_CNAME_LEN) != 0 && strncmp(request->alias, name, DNS_MAX_CNAME_LEN) != 0) {
+				if (strncmp(name, domain, DNS_MAX_CNAME_LEN) != 0 && strncmp(request->cname, name, DNS_MAX_CNAME_LEN) != 0) {
 					_dns_server_request_release(request);
 					break;
 				}
 
 				if (request->has_ipv6 == 0) {
 					memcpy(request->ipv6_addr, addr, DNS_RR_AAAA_LEN);
+					request->ttl_v6 = ttl;
 					request->has_ipv6 = 1;
 				}
 
@@ -546,7 +551,8 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 				char cname[128];
 				dns_get_CNAME(rrs, name, 128, &ttl, cname, 128);
 				tlog(TLOG_DEBUG, "%s %d : %s\n", name, ttl, cname);
-				strncpy(request->alias, cname, DNS_MAX_CNAME_LEN);
+				strncpy(request->cname, cname, DNS_MAX_CNAME_LEN);
+				request->ttl_cname = ttl;
 				request->has_cname = 1;
 			} break;
 			case DNS_T_SOA: {
@@ -690,8 +696,8 @@ static int _dns_server_recv(unsigned char *inpacket, int inpacket_len, struct so
 	request = malloc(sizeof(*request));
 	memset(request, 0, sizeof(*request));
 	pthread_mutex_init(&request->ip_map_lock, 0);
-	request->ttl_v4 = -1;
-	request->ttl_v6 = -1;
+	request->ping_ttl_v4 = -1;
+	request->ping_ttl_v6 = -1;
 	request->rcode = DNS_RC_SERVFAIL;
 	if (request == NULL) {
 		tlog(TLOG_ERROR, "malloc failed.\n");
