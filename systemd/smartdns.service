@@ -3,12 +3,15 @@ Description=smart dns server
 After=network.target 
 
 [Service]
+Type=forking
 PIDFile=/var/run/smartdns.pid
 EnvironmentFile=/etc/default/smartdns
 ExecStart=/usr/sbin/smartdns $SMART_DNS_OPTS
 KillMode=process
 Restart=always
-RestartSec=0
+RestartSec=2
+StartLimitBurst=0
+StartLimitIntervalSec=60
 
 [Install]
 WantedBy=multi-user.target

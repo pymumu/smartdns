@@ -669,31 +669,59 @@ errout:
 	return -1;
 }
 
-static struct dns_address *_dns_server_get_address_by_domain(char *domain)
+int _dns_server_art_iter_callback(void *data, const unsigned char *key, uint32_t key_len, void *value)
 {
-	struct dns_address *address;
-	char *match = NULL;
-	int domain_len;
+	struct dns_address **address;
+	address = data;
+	*address = value;
+	return 0;
+}
 
-	list_for_each_entry(address, &dns_conf_address_list, list)
-	{
-		domain_len = strnlen(address->domain, DNS_MAX_CNAME_LEN);
-		match = strstr(domain, address->domain);
-		if (match) {
-			if (memcmp(address->domain, match, domain_len + 1) == 0) {
-				return address;
-			}
-		}
+static int _dns_server_art_domain_cmp(const art_leaf *n, const unsigned char *prefix, int prefix_len)
+{
+    // Fail if the prefix length is too short
+    if (n->key_len > (uint32_t)prefix_len) {
+		return 1;
 	}
 
-	return NULL;
+    // Compare the keys
+    return memcmp(n->key, prefix, n->key_len);
+}
+
+static struct dns_address *_dns_server_get_address_by_domain(char *domain, int qtype)
+{
+	struct dns_address *address = NULL;
+	int domain_len;
+	char domain_key[DNS_MAX_CNAME_LEN];
+	char type = '4';
+
+	switch(qtype) {
+	case DNS_T_A:
+		type = '4';
+		break;
+	case DNS_T_AAAA:
+		type = '6';
+		break;
+	default:
+		return NULL;
+	}
+
+	domain_len = strlen(domain);
+	reverse_string(domain_key + 1, domain, domain_len);
+	domain_key[0] = type;
+	domain_len++;
+	if (art_iter_cmp(&dns_conf_address, (unsigned char *)domain_key, domain_len, _dns_server_art_iter_callback, _dns_server_art_domain_cmp, &address) != 0) {
+		return NULL;
+	}
+
+	return address;
 }
 
 static int _dns_server_process_address(struct dns_request *request, struct dns_packet *packet)
 {
 	struct dns_address *address = NULL;
 
-	address = _dns_server_get_address_by_domain(request->domain);
+	address = _dns_server_get_address_by_domain(request->domain, request->qtype);
 	if (address == NULL) {
 		goto errout;
 	}

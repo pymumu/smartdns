@@ -18,7 +18,7 @@ int dns_conf_cachesize = DEFAULT_DNS_CACHE_SIZE;
 struct dns_servers dns_conf_servers[DNS_MAX_SERVERS];
 int dns_conf_server_num;
 int dns_conf_loglevel = TLOG_ERROR;
-LIST_HEAD(dns_conf_address_list);
+art_tree dns_conf_address;
 
 int config_bind(char *value)
 {
@@ -57,15 +57,29 @@ int config_server(char *value, dns_conf_server_type_t type)
 	return 0;
 }
 
+int config_address_iter_cb(void *data, const unsigned char *key, uint32_t key_len, void *value)
+{
+	free(value);
+	return 0;
+}
+
+void config_address_destroy(void)
+{
+	art_iter(&dns_conf_address, config_address_iter_cb, 0);
+	art_tree_destroy(&dns_conf_address);
+}
+
 int config_address(char *value)
 {
 	struct dns_address *address;
 	char ip[MAX_IP_LEN];
+	char domain_key[DNS_MAX_CONF_CNAME_LEN];
 	char *begin = NULL;
 	char *end = NULL;
 	int len = 0;
 	struct sockaddr_storage addr;
 	socklen_t addr_len = sizeof(addr);
+	char type = '4';
 
 	begin = strstr(value, "/");
 	if (begin == NULL) {
@@ -87,6 +101,7 @@ int config_address(char *value)
 	memcpy(address->domain, begin, len);
 	address->domain[len] = 0;
 	strncpy(ip, end + 1, MAX_IP_LEN);
+	reverse_string(domain_key + 1, address->domain, len);
 
 	if (getaddr_by_host(ip, (struct sockaddr *)&addr, &addr_len) != 0) {
 		goto errout;
@@ -98,6 +113,7 @@ int config_address(char *value)
 		addr_in = (struct sockaddr_in *)&addr;
 		memcpy(address->ipv4_addr, &addr_in->sin_addr.s_addr, 4);
 		address->addr_type = DNS_T_A;
+		type = '4';
 	} break;
 	case AF_INET6: {
 		struct sockaddr_in6 *addr_in6;
@@ -105,16 +121,20 @@ int config_address(char *value)
 		if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
 			memcpy(address->ipv4_addr, addr_in6->sin6_addr.s6_addr + 12, 4);
 			address->addr_type = DNS_T_A;
+			type = '4';
 		} else {
 			memcpy(address->ipv6_addr, addr_in6->sin6_addr.s6_addr, 16);
 			address->addr_type = DNS_T_AAAA;
+			type = '6';
 		}
 	} break;
 	default:
 		goto errout;
 	}
 
-	list_add_tail(&address->list, &dns_conf_address_list);
+	domain_key[0] = type;
+	len++;
+	art_insert(&dns_conf_address, (unsigned char *)domain_key, len, address);
 
 	return 0;
 errout:
@@ -186,6 +206,18 @@ struct config_item config_item[] = {
 };
 int config_item_num = sizeof(config_item) / sizeof(struct config_item);
 
+int load_conf_init(void)
+{
+	art_tree_init(&dns_conf_address);
+
+	return 0;
+}
+
+void load_exit(void)
+{
+	config_address_destroy();
+}
+
 int load_conf(const char *file)
 {
 	FILE *fp = NULL;
@@ -195,6 +227,8 @@ int load_conf(const char *file)
 	int filed_num = 0;
 	int line_num = 0;
 	int i;
+
+	load_conf_init();
 
 	fp = fopen(file, "r");
 	if (fp == NULL) {

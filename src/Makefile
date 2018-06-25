@@ -1,6 +1,6 @@
 
 BIN=smartdns 
-OBJS=smartdns.o fast_ping.o lib/bitops.o dns_client.o dns_server.o dns.o util.o tlog.o conf.o lib/rbtree.o
+OBJS=smartdns.o fast_ping.o lib/bitops.o dns_client.o dns_server.o dns.o util.o tlog.o conf.o lib/rbtree.o lib/art.o
 CFLAGS=-g -O0 -Wall -Wstrict-prototypes -fno-omit-frame-pointer -Wstrict-aliasing 
 CFLAGS +=-Iinclude
 CFLAGS += -DBASE_FILE_NAME=\"$(notdir $<)\"

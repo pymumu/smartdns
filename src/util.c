@@ -77,7 +77,6 @@ errout:
 		freeaddrinfo(result);
 	}
 	return -1;
-
 }
 
 int parse_ip(const char *value, char *ip, int *port)
@@ -144,11 +143,26 @@ int set_fd_nonblock(int fd, int nonblock)
 		return -1;
 	}
 
-	flags = (nonblock) ? (flags | O_NONBLOCK) : (flags & ~O_NONBLOCK); 
+	flags = (nonblock) ? (flags | O_NONBLOCK) : (flags & ~O_NONBLOCK);
 	ret = fcntl(fd, F_SETFL, flags);
 	if (ret == -1) {
 		return -1;
 	}
 
 	return 0;
+}
+
+char *reverse_string(char *output, char *input, int len)
+{
+	char *begin = output;
+	len--;
+	while (len >= 0) {
+		*output = *(input + len);
+		output++;
+		len--;
+	}
+
+	*output = 0;
+
+	return begin;
 }

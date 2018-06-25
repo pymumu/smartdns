@@ -2,6 +2,7 @@
 #define _DNS_CONF
 
 #include "list.h"
+#include "art.h"
 #include "dns.h"
 
 #define DNS_MAX_SERVERS 32
@@ -41,8 +42,10 @@ extern int dns_conf_verbose;
 extern int dns_conf_loglevel;
 extern char dns_conf_logfile[DNS_MAX_PATH];
 extern int dns_conf_lognum;
-extern struct list_head dns_conf_address_list;
+extern art_tree dns_conf_address;
 
 int load_conf(const char *file);
+
+void load_exit(void);
 
 #endif // !_DNS_CONF

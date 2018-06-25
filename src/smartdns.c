@@ -16,6 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "art.h"
 #include "atomic.h"
 #include "conf.h"
 #include "dns_client.h"
@@ -230,6 +231,7 @@ void smartdns_exit(void)
 	dns_client_exit();
 	fast_ping_exit();
 	tlog_exit();
+	load_exit();
 }
 
 void sig_handle(int sig)
@@ -245,57 +247,6 @@ void sig_handle(int sig)
 	tlog(TLOG_ERROR, "process exit.\n");
 	_exit(0);
 }
-
-#if 0
-struct data_rbtree {
-	struct rb_node list;
-	int value;
-};
-
-int rbtree_test()
-{
-	struct rb_root root = RB_ROOT;
-	struct rb_node *n;
-	int i;
-
-	for (i = 0; i < 10; i++) {
-		struct data_rbtree *r = malloc(sizeof(struct data_rbtree));
-		struct rb_node **new = &root.rb_node, *parent = NULL;
-		r->value = i;
-
-		while (*new) {
-			parent = *new;
-			if (i < rb_entry(parent, struct data_rbtree, list)->value)
-				new = &parent->rb_left;
-			else
-				new = &parent->rb_right;
-		}
-
-		rb_link_node(&r->list, parent, new);
-		rb_insert_color(&r->list, &root);
-	}
-
-	n = root.rb_node;
-	int num = 5;
-	while (n) {
-		struct data_rbtree *r = rb_entry(n, struct data_rbtree, list);
-		if (r->value > num) {
-			n = n->rb_left;
-		} else if (r->value < num) {
-			n = n->rb_right;
-		} else {
-			printf("n = %d\n", r->value);
-			break;
-		}
-	}
-
-	struct rb_node *node;
-	for (node = rb_first(&root); node; node = rb_next(node))
-		printf("V = %d\n", rb_entry(node, struct data_rbtree, list)->value);
-
-	return 0;
-}
-#endif
 
 int main(int argc, char *argv[])
 {
