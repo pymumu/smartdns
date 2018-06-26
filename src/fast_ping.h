@@ -11,7 +11,8 @@ typedef enum {
 	FAST_PING_ICMP = 1,
 	FAST_PING_ICMP6 = 2,
 	FAST_PING_TCP,
-	FAST_PING_UDP
+	FAST_PING_UDP,
+	FAST_PING_END
 } FAST_PING_TYPE;
 
 typedef enum {

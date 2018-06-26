@@ -421,7 +421,8 @@ static void add_child48(art_node48 *n, art_node **ref, unsigned char c, void *ch
         n->n.num_children++;
     } else {
         art_node256 *new_node = (art_node256*)alloc_node(NODE256);
-        for (int i=0;i<256;i++) {
+		int i;
+		for (i=0;i<256;i++) {
             if (n->keys[i]) {
                 new_node->children[i] = n->children[n->keys[i] - 1];
             }
@@ -460,7 +461,8 @@ static void add_child16(art_node16 *n, art_node **ref, unsigned char c, void *ch
         #else
             // Compare the key to all 16 stored keys
             unsigned bitfield = 0;
-            for (short i = 0; i < 16; ++i) {
+			int i;
+			for (i = 0; i < 16; ++i) {
                 if (c < n->keys[i])
                     bitfield |= (1 << i);
             }
@@ -487,11 +489,12 @@ static void add_child16(art_node16 *n, art_node **ref, unsigned char c, void *ch
 
     } else {
         art_node48 *new_node = (art_node48*)alloc_node(NODE48);
+		int i;
 
-        // Copy the child pointers and populate the key map
+		// Copy the child pointers and populate the key map
         memcpy(new_node->children, n->children,
                 sizeof(void*)*n->n.num_children);
-        for (int i=0;i<n->n.num_children;i++) {
+        for (i=0;i<n->n.num_children;i++) {
             new_node->keys[n->keys[i]] = i + 1;
         }
         copy_header((art_node*)new_node, (art_node*)n);
@@ -685,7 +688,8 @@ static void remove_child256(art_node256 *n, art_node **ref, unsigned char c) {
         copy_header((art_node*)new_node, (art_node*)n);
 
         int pos = 0;
-        for (int i=0;i<256;i++) {
+		int i;
+		for (i=0;i<256;i++) {
             if (n->children[i]) {
                 new_node->children[pos] = n->children[i];
                 new_node->keys[i] = pos + 1;
@@ -708,7 +712,8 @@ static void remove_child48(art_node48 *n, art_node **ref, unsigned char c) {
         copy_header((art_node*)new_node, (art_node*)n);
 
         int child = 0;
-        for (int i=0;i<256;i++) {
+		int i;
+		for (i=0;i<256;i++) {
             pos = n->keys[i];
             if (pos) {
                 new_node->keys[child] = i;
@@ -853,23 +858,24 @@ static int recursive_iter(art_node *n, art_callback cb, void *data) {
     }
 
     int idx, res;
-    switch (n->type) {
+	int i;
+	switch (n->type) {
         case NODE4:
-            for (int i=0; i < n->num_children; i++) {
+            for (i=0; i < n->num_children; i++) {
                 res = recursive_iter(((art_node4*)n)->children[i], cb, data);
                 if (res) return res;
             }
             break;
 
         case NODE16:
-            for (int i=0; i < n->num_children; i++) {
+            for (i=0; i < n->num_children; i++) {
                 res = recursive_iter(((art_node16*)n)->children[i], cb, data);
                 if (res) return res;
             }
             break;
 
         case NODE48:
-            for (int i=0; i < 256; i++) {
+            for (i=0; i < 256; i++) {
                 idx = ((art_node48*)n)->keys[i];
                 if (!idx) continue;
 
@@ -879,7 +885,7 @@ static int recursive_iter(art_node *n, art_callback cb, void *data) {
             break;
 
         case NODE256:
-            for (int i=0; i < 256; i++) {
+            for (i=0; i < 256; i++) {
                 if (!((art_node256*)n)->children[i]) continue;
                 res = recursive_iter(((art_node256*)n)->children[i], cb, data);
                 if (res) return res;

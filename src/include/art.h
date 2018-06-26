@@ -149,7 +149,7 @@ int art_tree_destroy(art_tree *t);
 #ifdef BROKEN_GCC_C99_INLINE
 # define art_size(t) ((t)->size)
 #else
-inline uint64_t art_size(art_tree *t) {
+static inline uint64_t art_size(art_tree *t) {
     return t->size;
 }
 #endif

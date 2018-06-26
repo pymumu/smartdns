@@ -71,7 +71,7 @@ void config_address_destroy(void)
 
 int config_address(char *value)
 {
-	struct dns_address *address;
+	struct dns_address *address = NULL;
 	char ip[MAX_IP_LEN];
 	char domain_key[DNS_MAX_CONF_CNAME_LEN];
 	char *begin = NULL;

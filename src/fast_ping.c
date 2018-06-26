@@ -48,6 +48,7 @@ struct fast_ping_packet_msg {
 	struct timeval tv;
 	unsigned int sid;
 	unsigned int seq;
+	unsigned int cookie;
 };
 
 struct fast_ping_packet {
@@ -76,6 +77,8 @@ struct ping_host_struct {
 	int timeout;
 	int count;
 	int send;
+	int run;
+	unsigned int cookie;
 	unsigned int sid;
 	unsigned short port;
 	unsigned short ss_family;
@@ -258,13 +261,18 @@ static void _fast_ping_host_put(struct ping_host_struct *ping_host)
 
 	tlog(TLOG_DEBUG, "ping %p end", ping_host);
 
-	memset(ping_host, 0, sizeof(*ping_host));
+	// memset(ping_host, 0, sizeof(*ping_host));
+	ping_host->type = FAST_PING_END;
 	free(ping_host);
 }
 
 static void _fast_ping_host_remove(struct ping_host_struct *ping_host)
 {
 	pthread_mutex_lock(&ping.map_lock);
+	if (!hash_hashed(&ping_host->addr_node)) {
+		pthread_mutex_unlock(&ping.map_lock);
+		return;
+	}
 	hash_del(&ping_host->addr_node);
 	pthread_mutex_unlock(&ping.map_lock);
 
@@ -274,10 +282,9 @@ static void _fast_ping_host_remove(struct ping_host_struct *ping_host)
 		tv.tv_usec = 0;
 
 		ping_host->ping_callback(ping_host, ping_host->host, PING_RESULT_END, &ping_host->addr, ping_host->addr_len, ping_host->seq, &tv, ping_host->userptr);
-		return;
 	}
 
-	return _fast_ping_host_put(ping_host);
+	_fast_ping_host_put(ping_host);
 }
 
 static int _fast_ping_sendping_v6(struct ping_host_struct *ping_host)
@@ -296,6 +303,7 @@ static int _fast_ping_sendping_v6(struct ping_host_struct *ping_host)
 
 	gettimeofday(&packet->msg.tv, 0);
 	packet->msg.sid = ping_host->sid;
+	packet->msg.cookie = ping_host->cookie;
 	packet->msg.seq = ping_host->seq;
 	icmp6->icmp6_cksum = _fast_ping_checksum((void *)packet, sizeof(struct fast_ping_packet));
 
@@ -333,6 +341,7 @@ static int _fast_ping_sendping_v4(struct ping_host_struct *ping_host)
 	gettimeofday(&packet->msg.tv, 0);
 	packet->msg.sid = ping_host->sid;
 	packet->msg.seq = ping_host->seq;
+	packet->msg.cookie = ping_host->cookie;
 	icmp->icmp_cksum = _fast_ping_checksum((void *)packet, sizeof(struct fast_ping_packet));
 
 	len = sendto(ping.fd_icmp, packet, sizeof(struct fast_ping_packet), 0, (struct sockaddr *)&ping_host->addr, ping_host->addr_len);
@@ -356,7 +365,7 @@ static int _fast_ping_sendping_tcp(struct ping_host_struct *ping_host)
 {
 	struct epoll_event event;
 	int flags;
-	int fd = 0;
+	int fd = -1;
 
 	fd = socket(ping_host->ss_family, SOCK_STREAM, 0);
 	if (fd < 0) {
@@ -519,6 +528,8 @@ void fast_ping_print_result(struct ping_host_struct *ping_host, const char *host
 		tlog(TLOG_INFO, "from %15s: seq=%d time=%.3f\n", host, seqno, rtt);
 	} else if (result == PING_RESULT_TIMEOUT) {
 		tlog(TLOG_INFO, "from %15s: seq=%d timeout\n", host, seqno);
+	} else if (result == PING_RESULT_END) {
+		fast_ping_stop(ping_host);
 	}
 }
 
@@ -535,6 +546,7 @@ struct ping_host_struct *fast_ping_start(const char *host, int count, int interv
 	int port = -1;
 	FAST_PING_TYPE type;
 	int socktype = 0;
+	unsigned int seed;
 
 	if (parse_ip(host, ip_str, &port) != 0) {
 		goto errout;
@@ -597,6 +609,9 @@ struct ping_host_struct *fast_ping_start(const char *host, int count, int interv
 	atomic_set(&ping_host->ref, 0);
 	atomic_set(&ping_host->notified, 0);
 	ping_host->sid = atomic_inc_return(&ping_sid);
+	seed = ping_host->sid;
+	ping_host->cookie = rand_r(&seed);
+	ping_host->run = 0;
 	if (ping_callback) {
 		ping_host->ping_callback = ping_callback;
 	} else {
@@ -610,23 +625,25 @@ struct ping_host_struct *fast_ping_start(const char *host, int count, int interv
 		goto errout;
 	}
 	memcpy(&ping_host->addr, gai->ai_addr, gai->ai_addrlen);
+	freeaddrinfo(gai);
 
 	tlog(TLOG_DEBUG, "ping %s, id = %d", host, ping_host->sid);
 
 	addrkey = jhash(&ping_host->addr, ping_host->addr_len, 0);
 	addrkey = jhash(&ping_host->sid, sizeof(ping_host->sid), addrkey);
-	_fast_ping_host_get(ping_host);
-
-	if (_fast_ping_sendping(ping_host) != 0) {
-		goto errout;
-	}
-
-	freeaddrinfo(gai);
 	pthread_mutex_lock(&ping.map_lock);
 	_fast_ping_host_get(ping_host);
 	hash_add(ping.addrmap, &ping_host->addr_node, addrkey);
 	pthread_mutex_unlock(&ping.map_lock);
 
+	_fast_ping_host_get(ping_host);
+	_fast_ping_host_get(ping_host);
+	if (_fast_ping_sendping(ping_host) != 0) {
+		goto errout_remove;
+	}
+
+	ping_host->run = 1;
+	_fast_ping_host_put(ping_host);
 	return ping_host;
 errout:
 	if (gai) {
@@ -637,6 +654,10 @@ errout:
 		free(ping_host);
 	}
 
+	return NULL;
+errout_remove:
+	fast_ping_stop(ping_host);
+	_fast_ping_host_put(ping_host);
 	return NULL;
 }
 
@@ -755,6 +776,7 @@ static int _fast_ping_process_icmp(struct ping_host_struct *ping_host, struct ti
 	struct timeval *tvsend = NULL;
 	unsigned int sid;
 	unsigned int seq;
+	unsigned int cookie;
 
 	len = recvfrom(ping_host->fd, inpacket, sizeof(inpacket), 0, (struct sockaddr *)&from, (socklen_t *)&from_len);
 	if (len < 0) {
@@ -773,11 +795,13 @@ static int _fast_ping_process_icmp(struct ping_host_struct *ping_host, struct ti
 	tvsend = &packet->msg.tv;
 	sid = packet->msg.sid;
 	seq = packet->msg.seq;
+	cookie = packet->msg.cookie;
 	addrkey = jhash(&sid, sizeof(sid), addrkey);
 	pthread_mutex_lock(&ping.map_lock);
 	hash_for_each_possible(ping.addrmap, recv_ping_host, addr_node, addrkey)
 	{
-		if (recv_ping_host->addr_len == from_len && memcmp(&recv_ping_host->addr, &from, from_len) == 0 && recv_ping_host->sid == sid) {
+		if (recv_ping_host->addr_len == from_len && memcmp(&recv_ping_host->addr, &from, from_len) == 0 && recv_ping_host->sid == sid &&
+			recv_ping_host->cookie == cookie) {
 			break;
 		}
 	}
@@ -862,7 +886,10 @@ static int _fast_ping_process(struct ping_host_struct *ping_host, struct epoll_e
 		break;
 	case FAST_PING_TCP:
 		ret = _fast_ping_process_tcp(ping_host, event, now);
+		break;
 	default:
+		tlog(TLOG_ERROR, "BUG: type error : %d,", ping_host->type);
+		abort();
 		break;
 	}
 
@@ -906,6 +933,10 @@ static void _fast_ping_period_run(void)
 	pthread_mutex_lock(&ping.map_lock);
 	hash_for_each_safe(ping.addrmap, i, tmp, ping_host, addr_node)
 	{
+		if (ping_host->run == 0) {
+			continue;
+		}
+
 		interval = now;
 		tv_sub(&interval, &ping_host->last);
 		millisecond = interval.tv_sec * 1000 + interval.tv_usec / 1000;

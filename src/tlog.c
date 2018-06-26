@@ -287,15 +287,15 @@ int tlog_vext(tlog_level level, const char *file, int line, const char *func, vo
     int len;
     int maxlen = 0;
 
+    if (level < tlog_set_level) {
+        return 0;
+    }
+    
     if (tlog.buff == NULL) {
         vprintf(format, ap);
 		printf("\n");
 		return -1;
 	}
-
-    if (level < tlog_set_level) {
-        return 0;
-    }
 
     pthread_mutex_lock(&tlog.lock);
     do {

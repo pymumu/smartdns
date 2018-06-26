@@ -352,6 +352,11 @@ int dns_remove_server(char *server_ip, int port, dns_server_type_t server_type)
 	return _dns_client_server_operate(server_ip, port, server_type, 1);
 }
 
+void _dns_client_query_get(struct dns_query_struct *query)
+{
+	atomic_inc(&query->refcnt);
+}
+
 void _dns_client_query_release(struct dns_query_struct *query)
 {
 	int refcnt = atomic_dec_return(&query->refcnt);
@@ -419,11 +424,6 @@ void _dns_client_query_remove_all(void)
 	return;
 }
 
-void _dns_client_query_get(struct dns_query_struct *query)
-{
-	atomic_inc(&query->refcnt);
-}
-
 void _dns_client_period_run(void)
 {
 	struct dns_query_struct *query, *tmp;
@@ -459,8 +459,10 @@ void _dns_client_period_run(void)
 		list_for_each_entry(server_info, &client.dns_server_list, list)
 		{
 			if (server_info->last_send - 5 > server_info->last_recv) {
-				close(server_info->fd);
-				server_info->fd = 0;
+				if (server_info->fd > 0) {
+					close(server_info->fd);
+					server_info->fd = -1;
+				}
 			}
 		}
 		pthread_mutex_unlock(&client.server_list_lock);
@@ -482,13 +484,14 @@ static struct dns_query_struct *_dns_client_get_request(unsigned short sid, char
 	pthread_mutex_lock(&client.domain_map_lock);
 	hash_for_each_possible_safe(client.domain_map, query, tmp, domain_node, key)
 	{
+		if (sid != query->sid) {
+			continue;
+		}
+
 		if (strncmp(query->domain, domain, DNS_MAX_CNAME_LEN) != 0) {
 			continue;
 		}
 
-		if (sid != query->sid) {
-			continue;
-		}
 		query_result = query;
 		break;
 	}
@@ -932,10 +935,11 @@ static int _dns_client_send_data_to_buffer(struct dns_server_info *server_info, 
 	return 0;
 }
 
-static int _dns_client_send_tcp(struct dns_server_info *server_info, void *packet, int len)
+static int _dns_client_send_tcp(struct dns_server_info *server_info, void *packet, unsigned short len)
 {
 	int send_len = 0;
-	unsigned char inpacket[DNS_IN_PACKSIZE];
+	unsigned char inpacket_data[DNS_IN_PACKSIZE];
+	unsigned char *inpacket = inpacket_data;
 
 	/* TCP query format
 	 * | len (short) | dns query data | 
@@ -1076,12 +1080,14 @@ int dns_client_query(char *domain, int qtype, dns_client_callback callback, void
 	pthread_mutex_unlock(&client.domain_map_lock);
 
 	/* send query */
+	_dns_client_query_get(query);
 	ret = _dns_client_send_query(query, domain);
 	if (ret != 0) {
 		goto errout_del_list;
 	}
 
 	tlog(TLOG_INFO, "send request %s, id %d\n", domain, query->sid);
+	_dns_client_query_release(query);
 
 	return 0;
 errout_del_list:
@@ -1090,6 +1096,7 @@ errout_del_list:
 	list_del_init(&query->dns_request_list);
 	hash_del(&query->domain_node);
 	pthread_mutex_unlock(&client.domain_map_lock);
+	_dns_client_query_release(query);
 errout:
 	if (query) {
 		tlog(TLOG_ERROR, "release %p", query);
