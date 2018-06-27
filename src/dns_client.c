@@ -802,6 +802,7 @@ static int _dns_client_process_tcp(struct dns_server_info *server_info, struct e
 		/* tcp result format 
 	 	 * | len (short) | dns query result | 
 	 	 */
+		inpacket_data = server_info->recv_buff.data;
 		len = ntohs(*((unsigned short *)(inpacket_data)));
 		if (len <= 0 || len >= DNS_IN_PACKSIZE) {
 			/* data len is invalid */
@@ -820,7 +821,8 @@ static int _dns_client_process_tcp(struct dns_server_info *server_info, struct e
 		if (_dns_client_recv(inpacket_data, len, &server_info->addr, server_info->ai_addrlen) != 0) {
 			goto errout;
 		}
-		server_info->recv_buff.len -= (len + 2);
+		len += 2;
+		server_info->recv_buff.len -= len;
 
 		/* move to next result */
 		if (server_info->recv_buff.len > 0) {
@@ -836,8 +838,10 @@ errout:
 	pthread_mutex_lock(&client.server_list_lock);
 	server_info->recv_buff.len = 0;
 	server_info->send_buff.len = 0;
-	close(server_info->fd);
-	server_info->fd = 0;
+	if (server_info->fd > 0) {
+		close(server_info->fd);
+		server_info->fd = -1;
+	}
 	pthread_mutex_unlock(&client.server_list_lock);
 
 	return -1;
@@ -948,7 +952,7 @@ static int _dns_client_send_tcp(struct dns_server_info *server_info, void *packe
 	memcpy(inpacket + 2, packet, len);
 	len += 2;
 
-	send_len = send(server_info->fd, inpacket, len, 0);
+	send_len = send(server_info->fd, inpacket, len, MSG_NOSIGNAL);
 	if (send_len < 0) {
 		if (errno == EAGAIN) {
 			/* save data to buffer, and retry when EPOLLOUT is available */

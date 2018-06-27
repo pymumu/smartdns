@@ -560,7 +560,7 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 				dns_get_SOA(rrs, name, 128, &ttl, &request->soa);
 				tlog(TLOG_INFO, "SOA: mname: %s, rname: %s, serial: %d, refresh: %d, retry: %d, expire: %d, minimum: %d", request->soa.mname,
 					 request->soa.rname, request->soa.serial, request->soa.refresh, request->soa.retry, request->soa.expire, request->soa.minimum);
-			}
+			} break;
 			default:
 				tlog(TLOG_INFO, "%s, qtype: %d", name, rrs->type);
 				break;
@@ -679,13 +679,13 @@ int _dns_server_art_iter_callback(void *data, const unsigned char *key, uint32_t
 
 static int _dns_server_art_domain_cmp(const art_leaf *n, const unsigned char *prefix, int prefix_len)
 {
-    // Fail if the prefix length is too short
-    if (n->key_len > (uint32_t)prefix_len) {
+	// Fail if the prefix length is too short
+	if (n->key_len > (uint32_t)prefix_len) {
 		return 1;
 	}
 
-    // Compare the keys
-    return memcmp(n->key, prefix, n->key_len);
+	// Compare the keys
+	return memcmp(n->key, prefix, n->key_len);
 }
 
 static struct dns_address *_dns_server_get_address_by_domain(char *domain, int qtype)
@@ -695,7 +695,7 @@ static struct dns_address *_dns_server_get_address_by_domain(char *domain, int q
 	char domain_key[DNS_MAX_CNAME_LEN];
 	char type = '4';
 
-	switch(qtype) {
+	switch (qtype) {
 	case DNS_T_A:
 		type = '4';
 		break;
