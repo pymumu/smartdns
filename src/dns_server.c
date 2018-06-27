@@ -20,6 +20,7 @@
 #include "atomic.h"
 #include "conf.h"
 #include "dns.h"
+#include "dns_cache.h"
 #include "dns_client.h"
 #include "fast_ping.h"
 #include "hashtable.h"
@@ -332,6 +333,8 @@ void _dns_server_ping_result(struct ping_host_struct *ping_host, const char *hos
 {
 	struct dns_request *request = userptr;
 	int may_complete = 0;
+	int addr_type = 0;
+
 	if (request == NULL) {
 		return;
 	}
@@ -352,6 +355,7 @@ void _dns_server_ping_result(struct ping_host_struct *ping_host, const char *hos
 			request->ping_ttl_v4 = rtt;
 			request->has_ipv4 = 1;
 			memcpy(request->ipv4_addr, &addr_in->sin_addr.s_addr, 4);
+			addr_type = 4;
 		}
 	} break;
 	case AF_INET6: {
@@ -362,12 +366,14 @@ void _dns_server_ping_result(struct ping_host_struct *ping_host, const char *hos
 				request->ping_ttl_v4 = rtt;
 				request->has_ipv4 = 1;
 				memcpy(request->ipv4_addr, addr_in6->sin6_addr.s6_addr + 12, 4);
+				addr_type = 4;
 			}
 		} else {
 			if (request->ping_ttl_v6 > rtt) {
 				request->ping_ttl_v6 = rtt;
 				request->has_ipv6 = 1;
 				memcpy(request->ipv6_addr, addr_in6->sin6_addr.s6_addr, 16);
+				addr_type = 6;
 			}
 		}
 	} break;
@@ -390,6 +396,11 @@ void _dns_server_ping_result(struct ping_host_struct *ping_host, const char *hos
 	if (may_complete) {
 		_dns_server_request_complete(request);
 		_dns_server_request_remove(request);
+		if (addr_type == 4) {
+			dns_cache_insert(request->domain, request->ttl_v4, DNS_T_A, request->ipv4_addr, DNS_RR_A_LEN);
+		} else if (addr_type == 6) {
+			dns_cache_insert(request->domain, request->ttl_v6, DNS_T_AAAA, request->ipv6_addr, DNS_RR_AAAA_LEN);
+		}
 	}
 }
 
@@ -754,6 +765,44 @@ errout:
 	return -1;
 }
 
+static int _dns_server_process_cache(struct dns_request *request, struct dns_packet *packet)
+{
+	struct dns_cache *dns_cache = NULL;
+	
+	dns_cache = dns_cache_get(request->domain, request->qtype);
+	if (dns_cache == NULL) {
+		goto errout;
+	}
+
+	if (request->qtype != dns_cache->qtype) {
+		goto errout;
+	}
+
+	switch (request->qtype) {
+	case DNS_T_A:
+		memcpy(request->ipv4_addr, dns_cache->ipv4_addr, DNS_RR_A_LEN);
+		request->ttl_v4 = dns_cache_get_ttl(dns_cache);
+		request->has_ipv4 = 1;
+		break;
+	case DNS_T_AAAA:
+		memcpy(request->ipv6_addr, dns_cache->ipv6_addr, DNS_RR_AAAA_LEN);
+		request->ttl_v6 = dns_cache_get_ttl(dns_cache);
+		request->has_ipv6 = 1;
+		break;
+	default:
+		goto errout;
+		break;
+	}
+
+	request->rcode = DNS_RC_NOERROR;
+	_dns_reply(request);
+	dns_cache_release(dns_cache);
+
+	return 0;
+errout:
+	return -1;
+}
+
 static int _dns_server_recv(unsigned char *inpacket, int inpacket_len, struct sockaddr_storage *from, socklen_t from_len)
 {
 	int decode_len;
@@ -832,6 +881,11 @@ static int _dns_server_recv(unsigned char *inpacket, int inpacket_len, struct so
 	}
 
 	if (_dns_server_process_address(request, packet) == 0) {
+		free(request);
+		return 0;
+	}
+
+	if (_dns_server_process_cache(request, packet) == 0) {
 		free(request);
 		return 0;
 	}
@@ -1099,6 +1153,11 @@ int dns_server_init(void)
 		return -1;
 	}
 
+	if (dns_cache_init(1024) != 0) {
+		tlog(TLOG_ERROR, "init cache failed.");
+		return -1;
+	}
+
 	memset(&server, 0, sizeof(server));
 	pthread_attr_init(&attr);
 
@@ -1139,6 +1198,8 @@ errout:
 
 	pthread_mutex_destroy(&server.request_list_lock);
 
+	dns_cache_destroy();
+
 	return -1;
 }
 
@@ -1172,4 +1233,6 @@ void dns_server_exit(void)
 	}
 
 	pthread_mutex_destroy(&server.request_list_lock);
+
+	dns_cache_destroy();
 }
