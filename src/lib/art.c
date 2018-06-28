@@ -912,17 +912,46 @@ int art_iter(art_tree *t, art_callback cb, void *data) {
     return recursive_iter(t->root, cb, data);
 }
 
-int art_iter_cmp(art_tree *t, const unsigned char *key, int key_len, art_callback cb, art_key_cmp_callback key_cmp, void *data)
-{
+/**
+ * Checks if a leaf prefix matches
+ * @return 0 on success.
+ */
+static int leaf_prefix_matches(const art_leaf *n, const unsigned char *prefix, int prefix_len) {
+    // Fail if the key length is too short
+    if (n->key_len < (uint32_t)prefix_len) return 1;
+
+    // Compare the keys
+    return memcmp(n->key, prefix, prefix_len);
+}
+
+/**
+ * Iterates through the entries pairs in the map,
+ * invoking a callback for each that matches a given prefix.
+ * The call back gets a key, value for each and returns an integer stop value.
+ * If the callback returns non-zero, then the iteration stops.
+ * @arg t The tree to iterate over
+ * @arg prefix The prefix of keys to read
+ * @arg prefix_len The length of the prefix
+ * @arg cb The callback function to invoke
+ * @arg data Opaque handle passed to the callback
+ * @return 0 on success, or the return of the callback.
+ */
+int art_iter_prefix(art_tree *t, const unsigned char *key, int key_len, art_callback cb, void *data) {
     art_node **child;
     art_node *n = t->root;
     int prefix_len, depth = 0;
     while (n) {
+
+        if (IS_LEAF(n)) {
+            n = (art_node*)LEAF_RAW(n);
+            art_leaf *l = (art_leaf*)n;
+			printf("LEAF: %s\n", l->key);
+		} 
         // Might be a leaf
         if (IS_LEAF(n)) {
             n = (art_node*)LEAF_RAW(n);
             // Check if the expanded path matches
-            if (!key_cmp((art_leaf*)n, key, key_len)) {
+            if (!leaf_prefix_matches((art_leaf*)n, key, key_len)) {
                 art_leaf *l = (art_leaf*)n;
                 return cb(data, (const unsigned char*)l->key, l->key_len, l->value);
             }
@@ -932,7 +961,7 @@ int art_iter_cmp(art_tree *t, const unsigned char *key, int key_len, art_callbac
         // If the depth matches the prefix, we need to handle this node
         if (depth == key_len) {
             art_leaf *l = minimum(n);
-            if (!key_cmp(l, key, key_len))
+            if (!leaf_prefix_matches(l, key, key_len))
                return recursive_iter(n, cb, data);
             return 0;
         }
@@ -967,30 +996,54 @@ int art_iter_cmp(art_tree *t, const unsigned char *key, int key_len, art_callbac
     return 0;
 }
 
-/**
- * Checks if a leaf prefix matches
- * @return 0 on success.
- */
-static int leaf_prefix_matches(const art_leaf *n, const unsigned char *prefix, int prefix_len) {
+static int str_prefix_matches(const art_leaf *n, const unsigned char *str, int str_len) {
     // Fail if the key length is too short
-    if (n->key_len < (uint32_t)prefix_len) return 1;
+	if (n->key_len > (uint32_t)str_len) return 1;
 
     // Compare the keys
-    return memcmp(n->key, prefix, prefix_len);
+    return memcmp(str, n->key, n->key_len);
 }
 
-/**
- * Iterates through the entries pairs in the map,
- * invoking a callback for each that matches a given prefix.
- * The call back gets a key, value for each and returns an integer stop value.
- * If the callback returns non-zero, then the iteration stops.
- * @arg t The tree to iterate over
- * @arg prefix The prefix of keys to read
- * @arg prefix_len The length of the prefix
- * @arg cb The callback function to invoke
- * @arg data Opaque handle passed to the callback
- * @return 0 on success, or the return of the callback.
- */
-int art_iter_prefix(art_tree *t, const unsigned char *key, int key_len, art_callback cb, void *data) {
-	return art_iter_cmp(t, key, key_len, cb, leaf_prefix_matches, data);
+void *art_substring(const art_tree *t, const unsigned char *str, int str_len)
+{
+    art_node **child;
+    art_node *n = t->root;
+	art_leaf *found = NULL;
+
+	int prefix_len, depth = 0;
+    while (n) {
+        // Might be a leaf
+        if (IS_LEAF(n)) {
+            n = (art_node*)LEAF_RAW(n);
+            // Check if the expanded path matches
+            if (!str_prefix_matches((art_leaf*)n, str, str_len)) {
+				found = (art_leaf*)n;
+            }
+			break;
+		}
+
+        // Bail if the prefix does not match
+        if (n->partial_len) {
+            prefix_len = check_prefix(n, str, str_len, depth);
+            if (prefix_len != min(MAX_PREFIX_LEN, n->partial_len))
+				break;
+			depth = depth + n->partial_len;
+        }
+
+        art_leaf *l = maximum(n);
+        if (!str_prefix_matches(l, str, str_len)) {
+			found = l;
+		}
+
+        // Recursively search
+        child = find_child(n, str[depth]);
+        n = (child) ? *child : NULL;
+        depth++;
+    }
+
+    if (found == NULL) {
+		return NULL;
+	}
+
+    return found->value;
 }

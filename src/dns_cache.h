@@ -34,6 +34,8 @@ void dns_cache_release(struct dns_cache *dns_cache);
 
 void dns_cache_update(struct dns_cache *dns_cache);
 
+void dns_cache_invalidate(void);
+
 int dns_cache_get_ttl(struct dns_cache *dns_cache);
 
 void dns_cache_destroy(void);

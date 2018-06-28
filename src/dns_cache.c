@@ -37,6 +37,7 @@ void _dns_cache_delete(struct dns_cache *dns_cache)
 {
 	hash_del(&dns_cache->node);
 	list_del_init(&dns_cache->list);
+	dns_cache_head.num--;
 	free(dns_cache);
 }
 
@@ -92,12 +93,12 @@ int dns_cache_insert(char *domain, int ttl, dns_type_t qtype, unsigned char *add
 
 	pthread_mutex_lock(&dns_cache_head.lock);
 	hash_add(dns_cache_head.cache_hash, &dns_cache->node, key);
-	list_add(&dns_cache->list, &dns_cache_head.cache_list);
+	list_add_tail(&dns_cache->list, &dns_cache_head.cache_list);
 
 	dns_cache_head.num++;
 	if (dns_cache_head.num > dns_cache_head.size) {
 		struct dns_cache *del_cache;
-		del_cache = _dns_cache_last();
+		del_cache = _dns_cache_first();
 		dns_cache_release(del_cache);
 	}
 	pthread_mutex_unlock(&dns_cache_head.lock);
@@ -181,8 +182,37 @@ void dns_cache_delete(struct dns_cache *dns_cache)
 void dns_cache_update(struct dns_cache *dns_cache)
 {
 	pthread_mutex_lock(&dns_cache_head.lock);
-	list_del_init(&dns_cache->list);
-	list_add(&dns_cache->list, &dns_cache_head.cache_list);
+	if (!list_empty(&dns_cache->list)) {
+		list_del_init(&dns_cache->list);
+		list_add_tail(&dns_cache->list, &dns_cache_head.cache_list);
+	}
+	pthread_mutex_unlock(&dns_cache_head.lock);
+}
+
+void dns_cache_invalidate(void)
+{
+	struct dns_cache *dns_cache = NULL;
+	struct dns_cache *tmp;
+	time_t now;
+	int ttl = 0;
+
+	if (dns_cache_head.size <= 0) {
+		return;
+	}
+
+	time(&now);
+	pthread_mutex_lock(&dns_cache_head.lock);
+	list_for_each_entry_safe(dns_cache, tmp, &dns_cache_head.cache_list, list)
+	{
+		ttl = dns_cache->insert_time + dns_cache->ttl - now;
+		if (ttl > 0) {
+			break;
+		}
+
+		hash_del(&dns_cache->node);
+		list_del_init(&dns_cache->list);
+		dns_cache_release(dns_cache);
+	}
 	pthread_mutex_unlock(&dns_cache_head.lock);
 }
 

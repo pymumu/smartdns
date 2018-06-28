@@ -97,6 +97,7 @@ int config_address(char *value)
 		goto errout;
 	}
 
+	memset(address, 0, sizeof(*address));
 	len = end - begin;
 	memcpy(address->domain, begin, len);
 	address->domain[len] = 0;

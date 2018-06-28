@@ -680,28 +680,8 @@ errout:
 	return -1;
 }
 
-int _dns_server_art_iter_callback(void *data, const unsigned char *key, uint32_t key_len, void *value)
-{
-	struct dns_address **address;
-	address = data;
-	*address = value;
-	return 0;
-}
-
-static int _dns_server_art_domain_cmp(const art_leaf *n, const unsigned char *prefix, int prefix_len)
-{
-	// Fail if the prefix length is too short
-	if (n->key_len > (uint32_t)prefix_len) {
-		return 1;
-	}
-
-	// Compare the keys
-	return memcmp(n->key, prefix, n->key_len);
-}
-
 static struct dns_address *_dns_server_get_address_by_domain(char *domain, int qtype)
 {
-	struct dns_address *address = NULL;
 	int domain_len;
 	char domain_key[DNS_MAX_CNAME_LEN];
 	char type = '4';
@@ -721,11 +701,8 @@ static struct dns_address *_dns_server_get_address_by_domain(char *domain, int q
 	reverse_string(domain_key + 1, domain, domain_len);
 	domain_key[0] = type;
 	domain_len++;
-	if (art_iter_cmp(&dns_conf_address, (unsigned char *)domain_key, domain_len, _dns_server_art_iter_callback, _dns_server_art_domain_cmp, &address) != 0) {
-		return NULL;
-	}
 
-	return address;
+	return art_substring(&dns_conf_address, (unsigned char *)domain_key, domain_len);;
 }
 
 static int _dns_server_process_address(struct dns_request *request, struct dns_packet *packet)
@@ -796,6 +773,7 @@ static int _dns_server_process_cache(struct dns_request *request, struct dns_pac
 
 	request->rcode = DNS_RC_NOERROR;
 	_dns_reply(request);
+	dns_cache_update(dns_cache);
 	dns_cache_release(dns_cache);
 
 	return 0;
@@ -972,10 +950,26 @@ void _dns_server_tcp_ping_check(struct dns_request *request)
 	request->has_ping_tcp = 1;
 }
 
+void _dns_server_period_run_second(void)
+{
+	static unsigned int sec = 0;
+	sec++;
+
+	if (sec % 2 == 0) {
+		dns_cache_invalidate();
+	}
+}
+
 void _dns_server_period_run(void)
 {
 	struct dns_request *request, *tmp;
+	static unsigned int msec = 0;
 	LIST_HEAD(check_list);
+
+	msec++;
+	if (msec % 10 == 0) {
+		_dns_server_period_run_second();
+	}
 
 	unsigned long now = get_tick_count();
 
@@ -1153,7 +1147,7 @@ int dns_server_init(void)
 		return -1;
 	}
 
-	if (dns_cache_init(1024) != 0) {
+	if (dns_cache_init(dns_conf_cachesize) != 0) {
 		tlog(TLOG_ERROR, "init cache failed.");
 		return -1;
 	}
@@ -1229,7 +1223,7 @@ void dns_server_exit(void)
 
 	list_for_each_entry_safe(request, tmp, &remove_list, check_list)
 	{
-		_dns_server_request_release(request);
+		_dns_server_request_remove(request);
 	}
 
 	pthread_mutex_destroy(&server.request_list_lock);

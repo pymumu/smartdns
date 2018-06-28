@@ -186,6 +186,16 @@ void* art_delete(art_tree *t, const unsigned char *key, int key_len);
 void* art_search(const art_tree *t, const unsigned char *key, int key_len);
 
 /**
+ * Searches substring for a value in the ART tree
+ * @arg t The tree
+ * @arg str The key
+ * @arg str_len The length of the key
+ * @return NULL if the item was not found, otherwise
+ * the value pointer is returned.
+ */
+void *art_substring(const art_tree *t, const unsigned char *str, int str_len);
+
+/**
  * Returns the minimum valued leaf
  * @return The minimum leaf or NULL
  */
@@ -222,21 +232,6 @@ int art_iter(art_tree *t, art_callback cb, void *data);
  * @return 0 on success, or the return of the callback.
  */
 int art_iter_prefix(art_tree *t, const unsigned char *prefix, int prefix_len, art_callback cb, void *data);
-
-/**
- * Iterates through the entries pairs in the map,
- * invoking a callback for each that matches a given prefix.
- * The call back gets a key, value for each and returns an integer stop value.
- * If the callback returns non-zero, then the iteration stops.
- * @arg t The tree to iterate over
- * @arg prefix The prefix of keys to read
- * @arg prefix_len The length of the prefix
- * @arg cb The callback function to invoke
- * @arg data Opaque handle passed to the callback
- * @return 0 on success, or the return of the callback.
- */
-typedef int(*art_key_cmp_callback)(const art_leaf *n, const unsigned char *prefix, int prefix_len);
-int art_iter_cmp(art_tree *t, const unsigned char *str, int str_len, art_callback cb, art_key_cmp_callback key_cmp, void *data);
 
 #ifdef __cplusplus
 }
