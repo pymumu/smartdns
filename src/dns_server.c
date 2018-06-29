@@ -49,6 +49,7 @@
 #include <unistd.h>
 
 #define DNS_MAX_EVENTS 256
+#define DNS_SERVER_TMOUT_TTL (3 * 60)
 
 /* dns server data */
 struct dns_server {
@@ -268,11 +269,25 @@ int _dns_server_request_complete(struct dns_request *request)
 	if (request->qtype == DNS_T_A) {
 		tlog(TLOG_INFO, "result: %s, rcode: %d,  %d.%d.%d.%d\n", request->domain, request->rcode, request->ipv4_addr[0], request->ipv4_addr[1],
 			 request->ipv4_addr[2], request->ipv4_addr[3]);
+
+		if (request->has_ipv4) {
+			if (request->has_ping_result == 0 && request->ttl_v4 > DNS_SERVER_TMOUT_TTL) {
+				request->ttl_v4 = DNS_SERVER_TMOUT_TTL;
+			}
+		}
+		dns_cache_insert(request->domain, request->ttl_v4, DNS_T_A, request->ipv4_addr, DNS_RR_A_LEN);
 	} else if (request->qtype == DNS_T_AAAA) {
 		tlog(TLOG_INFO, "result :%s, rcode: %d,  %.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", request->domain, request->rcode,
 			 request->ipv6_addr[0], request->ipv6_addr[1], request->ipv6_addr[2], request->ipv6_addr[3], request->ipv6_addr[4], request->ipv6_addr[5],
 			 request->ipv6_addr[6], request->ipv6_addr[7], request->ipv6_addr[8], request->ipv6_addr[9], request->ipv6_addr[10], request->ipv6_addr[11],
 			 request->ipv6_addr[12], request->ipv6_addr[13], request->ipv6_addr[14], request->ipv6_addr[15]);
+
+		if (request->has_ipv6) {
+			if (request->has_ping_result == 0 && request->ttl_v6 > DNS_SERVER_TMOUT_TTL) {
+				request->ttl_v6 = DNS_SERVER_TMOUT_TTL;
+			}
+			dns_cache_insert(request->domain, request->ttl_v6, DNS_T_AAAA, request->ipv6_addr, DNS_RR_AAAA_LEN);
+		}
 	}
 
 	_dns_reply(request);
@@ -333,7 +348,6 @@ void _dns_server_ping_result(struct ping_host_struct *ping_host, const char *hos
 {
 	struct dns_request *request = userptr;
 	int may_complete = 0;
-	int addr_type = 0;
 
 	if (request == NULL) {
 		return;
@@ -355,7 +369,6 @@ void _dns_server_ping_result(struct ping_host_struct *ping_host, const char *hos
 			request->ping_ttl_v4 = rtt;
 			request->has_ipv4 = 1;
 			memcpy(request->ipv4_addr, &addr_in->sin_addr.s_addr, 4);
-			addr_type = 4;
 		}
 	} break;
 	case AF_INET6: {
@@ -366,14 +379,12 @@ void _dns_server_ping_result(struct ping_host_struct *ping_host, const char *hos
 				request->ping_ttl_v4 = rtt;
 				request->has_ipv4 = 1;
 				memcpy(request->ipv4_addr, addr_in6->sin6_addr.s6_addr + 12, 4);
-				addr_type = 4;
 			}
 		} else {
 			if (request->ping_ttl_v6 > rtt) {
 				request->ping_ttl_v6 = rtt;
 				request->has_ipv6 = 1;
 				memcpy(request->ipv6_addr, addr_in6->sin6_addr.s6_addr, 16);
-				addr_type = 6;
 			}
 		}
 	} break;
@@ -396,11 +407,6 @@ void _dns_server_ping_result(struct ping_host_struct *ping_host, const char *hos
 	if (may_complete) {
 		_dns_server_request_complete(request);
 		_dns_server_request_remove(request);
-		if (addr_type == 4) {
-			dns_cache_insert(request->domain, request->ttl_v4, DNS_T_A, request->ipv4_addr, DNS_RR_A_LEN);
-		} else if (addr_type == 6) {
-			dns_cache_insert(request->domain, request->ttl_v6, DNS_T_AAAA, request->ipv6_addr, DNS_RR_AAAA_LEN);
-		}
 	}
 }
 
@@ -508,6 +514,10 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 					memcpy(request->ipv4_addr, addr, DNS_RR_A_LEN);
 					request->ttl_v4 = ttl;
 					request->has_ipv4 = 1;
+				} else {
+					if (ttl < request->ttl_v4) {
+						request->ttl_v4 = ttl;
+					}
 				}
 				if (_dns_ip_address_check_add(request, addr, DNS_T_A) != 0) {
 					_dns_server_request_release(request);
@@ -539,6 +549,10 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 					memcpy(request->ipv6_addr, addr, DNS_RR_AAAA_LEN);
 					request->ttl_v6 = ttl;
 					request->has_ipv6 = 1;
+				} else {
+					if (ttl < request->ttl_v6) {
+						request->ttl_v6 = ttl;
+					}
 				}
 
 				if (_dns_ip_address_check_add(request, addr, DNS_T_AAAA) != 0) {
@@ -546,7 +560,7 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 					break;
 				}
 
-				sprintf(name, "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", addr[0], addr[1], addr[2], addr[3], addr[4], addr[5],
+				sprintf(ip, "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", addr[0], addr[1], addr[2], addr[3], addr[4], addr[5],
 						addr[6], addr[7], addr[8], addr[9], addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
 
 				if (_dns_server_ping(request, ip) != 0) {
@@ -702,7 +716,7 @@ static struct dns_address *_dns_server_get_address_by_domain(char *domain, int q
 	domain_key[0] = type;
 	domain_len++;
 
-	return art_substring(&dns_conf_address, (unsigned char *)domain_key, domain_len);;
+	return art_substring(&dns_conf_address, (unsigned char *)domain_key, domain_len);
 }
 
 static int _dns_server_process_address(struct dns_request *request, struct dns_packet *packet)
@@ -745,7 +759,7 @@ errout:
 static int _dns_server_process_cache(struct dns_request *request, struct dns_packet *packet)
 {
 	struct dns_cache *dns_cache = NULL;
-	
+
 	dns_cache = dns_cache_get(request->domain, request->qtype);
 	if (dns_cache == NULL) {
 		goto errout;

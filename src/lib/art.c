@@ -170,9 +170,9 @@ static art_node** find_child(art_node *n, unsigned char c) {
         case NODE4:
             p.p1 = (art_node4*)n;
             for (i=0 ; i < n->num_children; i++) {
-		/* this cast works around a bug in gcc 5.1 when unrolling loops
-		 * https://gcc.gnu.org/bugzilla/show_bug.cgi?id=59124
-		 */
+        /* this cast works around a bug in gcc 5.1 when unrolling loops
+         * https://gcc.gnu.org/bugzilla/show_bug.cgi?id=59124
+         */
                 if (((unsigned char*)p.p1->keys)[i] == c)
                     return &p.p1->children[i];
             }
@@ -421,8 +421,8 @@ static void add_child48(art_node48 *n, art_node **ref, unsigned char c, void *ch
         n->n.num_children++;
     } else {
         art_node256 *new_node = (art_node256*)alloc_node(NODE256);
-		int i;
-		for (i=0;i<256;i++) {
+        int i;
+        for (i=0;i<256;i++) {
             if (n->keys[i]) {
                 new_node->children[i] = n->children[n->keys[i] - 1];
             }
@@ -461,8 +461,8 @@ static void add_child16(art_node16 *n, art_node **ref, unsigned char c, void *ch
         #else
             // Compare the key to all 16 stored keys
             unsigned bitfield = 0;
-			int i;
-			for (i = 0; i < 16; ++i) {
+            int i;
+            for (i = 0; i < 16; ++i) {
                 if (c < n->keys[i])
                     bitfield |= (1 << i);
             }
@@ -489,9 +489,9 @@ static void add_child16(art_node16 *n, art_node **ref, unsigned char c, void *ch
 
     } else {
         art_node48 *new_node = (art_node48*)alloc_node(NODE48);
-		int i;
+        int i;
 
-		// Copy the child pointers and populate the key map
+        // Copy the child pointers and populate the key map
         memcpy(new_node->children, n->children,
                 sizeof(void*)*n->n.num_children);
         for (i=0;i<n->n.num_children;i++) {
@@ -688,8 +688,8 @@ static void remove_child256(art_node256 *n, art_node **ref, unsigned char c) {
         copy_header((art_node*)new_node, (art_node*)n);
 
         int pos = 0;
-		int i;
-		for (i=0;i<256;i++) {
+        int i;
+        for (i=0;i<256;i++) {
             if (n->children[i]) {
                 new_node->children[pos] = n->children[i];
                 new_node->keys[i] = pos + 1;
@@ -712,8 +712,8 @@ static void remove_child48(art_node48 *n, art_node **ref, unsigned char c) {
         copy_header((art_node*)new_node, (art_node*)n);
 
         int child = 0;
-		int i;
-		for (i=0;i<256;i++) {
+        int i;
+        for (i=0;i<256;i++) {
             pos = n->keys[i];
             if (pos) {
                 new_node->keys[child] = i;
@@ -858,8 +858,8 @@ static int recursive_iter(art_node *n, art_callback cb, void *data) {
     }
 
     int idx, res;
-	int i;
-	switch (n->type) {
+    int i;
+    switch (n->type) {
         case NODE4:
             for (i=0; i < n->num_children; i++) {
                 res = recursive_iter(((art_node4*)n)->children[i], cb, data);
@@ -941,12 +941,6 @@ int art_iter_prefix(art_tree *t, const unsigned char *key, int key_len, art_call
     art_node *n = t->root;
     int prefix_len, depth = 0;
     while (n) {
-
-        if (IS_LEAF(n)) {
-            n = (art_node*)LEAF_RAW(n);
-            art_leaf *l = (art_leaf*)n;
-			printf("LEAF: %s\n", l->key);
-		} 
         // Might be a leaf
         if (IS_LEAF(n)) {
             n = (art_node*)LEAF_RAW(n);
@@ -998,7 +992,7 @@ int art_iter_prefix(art_tree *t, const unsigned char *key, int key_len, art_call
 
 static int str_prefix_matches(const art_leaf *n, const unsigned char *str, int str_len) {
     // Fail if the key length is too short
-	if (n->key_len > (uint32_t)str_len) return 1;
+    if (n->key_len > (uint32_t)str_len) return 1;
 
     // Compare the keys
     return memcmp(str, n->key, n->key_len);
@@ -1008,32 +1002,39 @@ void *art_substring(const art_tree *t, const unsigned char *str, int str_len)
 {
     art_node **child;
     art_node *n = t->root;
-	art_leaf *found = NULL;
+    art_node *m;    
+    art_leaf *found = NULL;
+    int prefix_len, depth = 0;
 
-	int prefix_len, depth = 0;
     while (n) {
         // Might be a leaf
         if (IS_LEAF(n)) {
             n = (art_node*)LEAF_RAW(n);
             // Check if the expanded path matches
             if (!str_prefix_matches((art_leaf*)n, str, str_len)) {
-				found = (art_leaf*)n;
+                found = (art_leaf*)n;
             }
-			break;
-		}
+            break;
+        }
+
+        // Check if current is leaf
+    	child = find_child(n, 0);
+    	m = (child) ? *child : NULL;
+    	if (m && IS_LEAF(m)) {
+            m = (art_node*)LEAF_RAW(m);
+            // Check if the expanded path matches
+            if (!str_prefix_matches((art_leaf*)m, str, str_len)) {
+                found = (art_leaf*)m;
+            }
+    	}
 
         // Bail if the prefix does not match
         if (n->partial_len) {
             prefix_len = check_prefix(n, str, str_len, depth);
             if (prefix_len != min(MAX_PREFIX_LEN, n->partial_len))
-				break;
-			depth = depth + n->partial_len;
+                break;
+            depth = depth + n->partial_len;
         }
-
-        art_leaf *l = maximum(n);
-        if (!str_prefix_matches(l, str, str_len)) {
-			found = l;
-		}
 
         // Recursively search
         child = find_child(n, str[depth]);
@@ -1042,8 +1043,8 @@ void *art_substring(const art_tree *t, const unsigned char *str, int str_len)
     }
 
     if (found == NULL) {
-		return NULL;
-	}
+        return NULL;
+    }
 
     return found->value;
 }

@@ -9,6 +9,7 @@
 #define DNS_RR_A_LEN 4
 #define DNS_RR_AAAA_LEN 16
 #define DNS_MAX_CNAME_LEN 256
+#define DNS_MAX_OPT_LEN 256
 #define DNS_IN_PACKSIZE (512 * 4)
 #define DNS_PACKSIZE (512 * 8)
 
@@ -43,6 +44,11 @@ typedef enum dns_type {
 	DNS_T_AXFR = 252,
 	DNS_T_ALL = 255
 } dns_type_t;
+
+typedef enum dns_opt_code {
+	DNS_OPT_T_ECS = 8,
+	DNS_OPT_T_ALL = 255
+} dns_opt_code_t;
 
 typedef enum dns_opcode {
 	DNS_OP_QUERY = 0,
@@ -128,7 +134,24 @@ struct dns_soa {
 	unsigned int expire;
 	unsigned int minimum;
 } __attribute__((packed));
-;
+
+#define DNS_OPT_ECS_FAMILY_IPV4 1
+#define DNS_OPT_ECS_FAMILY_IPV6 2
+
+/* OPT ECS */
+struct dns_opt_ecs {
+	unsigned short family;
+	unsigned char source_prefix;
+	unsigned char scope_prefix;
+	unsigned char addr[DNS_RR_AAAA_LEN];
+};
+
+/* OPT */
+struct dns_opt {
+	unsigned short code;
+	unsigned short length;
+	unsigned char data[0];
+} __attribute__((packed));
 
 struct dns_rrs *dns_get_rrs_next(struct dns_packet *packet, struct dns_rrs *rrs);
 struct dns_rrs *dns_get_rrs_start(struct dns_packet *packet, dns_rr_type type, int *count);
@@ -156,6 +179,12 @@ int dns_get_AAAA(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, unsig
 
 int dns_add_SOA(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, struct dns_soa *soa);
 int dns_get_SOA(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, struct dns_soa *soa);
+
+int dns_add_OPT(struct dns_packet *packet, dns_rr_type type, unsigned short opt_code, unsigned short opt_len, struct dns_opt *opt);
+int dns_get_OPT(struct dns_rrs *rrs, unsigned short *opt_code, unsigned short *opt_len, struct dns_opt *opt, int *opt_maxlen);
+
+int dns_add_OPT_ECS(struct dns_packet *packet, dns_rr_type type, struct dns_opt_ecs *ecs);
+int dns_get_OPT_ECS(struct dns_rrs *rrs, unsigned short *opt_code, unsigned short *opt_len, struct dns_opt_ecs *ecs);
 /*
  * Packet operation
  */

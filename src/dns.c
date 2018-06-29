@@ -412,6 +412,95 @@ int dns_get_RAW(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, void *
 	return 0;
 }
 
+int dns_add_OPT(struct dns_packet *packet, dns_rr_type type, unsigned short opt_code, unsigned short opt_len, struct dns_opt *opt)
+{
+	// TODO
+	
+	int maxlen = 0;
+	int len = 0;
+	struct dns_data_context data_context;
+	int total_len = sizeof(*opt) + opt->length;
+	int ttl = 0;
+
+	/*
+    +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+  0: |                          OPTION-CODE                          |
+     +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+  2: |                         OPTION-LENGTH                         |
+     +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+  4: |                                                               |
+     /                          OPTION-DATA                          /
+     /                                                               /
+     +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+	*/
+	unsigned char *data = _dns_add_rrs_start(packet, &maxlen);
+	if (data == NULL) {
+		return -1;
+	}
+
+	if (total_len > maxlen) {
+		return -1;
+	}
+
+	data_context.data = data;
+	data_context.ptr = data;
+	data_context.maxsize = maxlen;
+
+	ttl = (opt_code << 16) | opt_len;
+
+	/* add rr head */
+	len = _dns_add_rr_head(&data_context, "", type, DNS_C_IN, ttl, total_len);
+	if (len < 0) {
+		return -1;
+	}
+
+	/* add rr data */
+	memcpy(data_context.ptr, opt, total_len);
+	data_context.ptr += total_len;
+	len = data_context.ptr - data_context.data;
+
+	return dns_rr_add_end(packet, type, DNS_T_OPT, len);
+}
+
+int dns_get_OPT(struct dns_rrs *rrs, unsigned short *opt_code, unsigned short *opt_len, struct dns_opt *opt, int *opt_maxlen)
+{
+	// TODO
+
+	int qtype = 0;
+	int qclass = 0;
+	int rr_len = 0;
+	int ret = 0;
+	struct dns_data_context data_context;
+	char domain[DNS_MAX_CNAME_LEN];
+	int maxsize = DNS_MAX_CNAME_LEN;
+	int ttl = 0;
+	unsigned char *data = rrs->data;
+
+	data_context.data = data;
+	data_context.ptr = data;
+	data_context.maxsize = rrs->len;
+
+	/* get rr head */
+	ret = _dns_get_rr_head(&data_context, domain, maxsize, &qtype, &qclass, &ttl, &rr_len);
+	if (ret < 0) {
+		return -1;
+	}
+
+	if (qtype != rrs->type || rr_len > *opt_len) {
+		return -1;
+	}
+
+	/* get rr data */
+	*opt_code = ttl >> 16;
+	*opt_len = ttl & 0xFFFF;
+	memcpy(opt, data_context.ptr, rr_len);
+	data_context.ptr += rr_len;
+	*opt_maxlen = rr_len;
+
+	return 0;
+}
+
+
 int dns_add_CNAME(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, char *cname)
 {
 	int rr_len = strnlen(cname, DNS_MAX_CNAME_LEN) + 1;
@@ -542,6 +631,47 @@ int dns_get_SOA(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, struct
 	ptr += 4;
 	soa->minimum = *((unsigned int *)ptr);
 	ptr += 4;
+
+	return 0;
+}
+
+int dns_add_OPT_ECS(struct dns_packet *packet, dns_rr_type type, struct dns_opt_ecs *ecs)
+{
+	// TODO
+	
+	unsigned char opt_data[DNS_MAX_OPT_LEN];
+	struct dns_opt *opt = (struct dns_opt *)opt_data;
+	int len = 0;
+
+	opt->code = DNS_OPT_T_ECS;
+	opt->length = sizeof(*ecs);
+	memcpy(opt->data, ecs, sizeof(*ecs));
+
+	/* ecs size 4 + bit of address*/
+	len = sizeof(*opt) + 4;
+	len += (ecs->source_prefix / 8);
+	len += (ecs->source_prefix % 8 > 0) ? 1 : 0;
+
+	return dns_add_OPT(packet, type, DNS_OPT_T_ECS, len, opt);
+}
+
+int dns_get_OPT_ECS(struct dns_rrs *rrs, unsigned short *opt_code, unsigned short *opt_len, struct dns_opt_ecs *ecs)
+{
+	// TODO
+	
+	unsigned char opt_data[DNS_MAX_OPT_LEN];
+	struct dns_opt *opt = (struct dns_opt *)opt_data;
+	int len = sizeof(opt_data);
+
+	if (dns_get_OPT(rrs, opt_code, opt_len, opt, &len) != 0) {
+		return -1;
+	}
+
+	if (opt->code != DNS_OPT_T_ECS) {
+		return -1;
+	}
+
+	memcpy(ecs, opt->data, opt->length);
 
 	return 0;
 }
@@ -1074,6 +1204,108 @@ int _dns_encode_SOA(struct dns_context *context, struct dns_rrs *rrs)
 	return 0;
 }
 
+
+static int _dns_decode_opt_ecs(struct dns_context *context, struct dns_opt_ecs *ecs)
+{
+	// TODO
+	
+	int len = 0;
+	if (_dns_left_len(context) < 4) {
+		return -1;
+	}
+
+	ecs->family = dns_read_short(&context->ptr);
+	ecs->source_prefix = dns_read_char(&context->ptr);
+	ecs->scope_prefix = dns_read_char(&context->ptr);
+	len = (ecs->source_prefix / 8);
+	len += (ecs->source_prefix % 8 > 0) ? 1 : 0;
+
+	if (_dns_left_len(context) < len) {
+		return -1;
+	}
+
+	memcpy(ecs->addr, context->ptr, len);
+	context->ptr += len;
+
+	return 0;
+}
+
+int _dns_encode_OPT(struct dns_context *context, struct dns_rrs *rrs)
+{
+	// TODO
+	
+	return 0;
+}
+
+static int _dns_decode_opt(struct dns_context *context, dns_rr_type type, unsigned int ttl, int rr_len)
+{
+	unsigned short opt_code;
+	unsigned short opt_len;
+	unsigned short ercode = (ttl >> 16) & 0xFFFF;
+	unsigned short ever = (ttl) & 0xFFFF;
+	unsigned char *start = context->ptr;
+	struct dns_packet *packet = context->packet;
+	int ret = 0;
+	/*
+	     Field Name   Field Type     Description
+     ------------------------------------------------------
+     NAME         domain name    empty (root domain)
+     TYPE         u_int16_t      OPT
+     CLASS        u_int16_t      sender's UDP payload size
+     TTL          u_int32_t      extended RCODE and flags
+     RDLEN        u_int16_t      describes RDATA
+     RDATA        octet stream   {attribute,value} pairs
+
+	                 +0 (MSB)                            +1 (LSB)
+     +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+  0: |                          OPTION-CODE                          |
+     +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+  2: |                         OPTION-LENGTH                         |
+     +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+  4: |                                                               |
+     /                          OPTION-DATA                          /
+     /                                                               /
+     +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+
+	TTL
+                 +0 (MSB)                            +1 (LSB)
+      +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+   0: |         EXTENDED-RCODE        |            VERSION            |
+      +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+   2: |                               Z                               |
+      +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+	*/
+
+	if (ercode != 0) {
+		tlog(TLOG_ERROR, "extend rcode invalid.");
+		return -1;
+	}
+	ever = ever;
+
+	while (context->ptr - start < rr_len) {
+		opt_code = dns_read_short(&context->ptr);
+		opt_len = dns_read_short(&context->ptr);
+		switch (opt_code) {
+		case DNS_OPT_T_ECS: {
+			struct dns_opt_ecs ecs;
+			ret = _dns_decode_opt_ecs(context, &ecs);
+			if (ret != 0 ) {
+				tlog(TLOG_ERROR, "decode ecs failed.");
+				return -1;
+			}
+
+			ret = dns_add_OPT_ECS(packet, type, &ecs);
+		} break;
+		default:
+			context->ptr += opt_len;
+			tlog(TLOG_DEBUG, "DNS opt type = %d not supported", opt_code);
+			break;
+		}				
+	}
+
+	return 0;
+}
+
 static int _dns_decode_qd(struct dns_context *context)
 {
 	struct dns_packet *packet = context->packet;
@@ -1200,6 +1432,19 @@ static int _dns_decode_an(struct dns_context *context, dns_rr_type type)
 			return -1;
 		}
 	} break;
+	case DNS_T_OPT: {
+		unsigned char  *opt_start = context->ptr;
+		ret = _dns_decode_opt(context, type, ttl, rr_len);
+		if (ret < 0) {
+			tlog(TLOG_ERROR, "decode opt failed, %s", domain);
+			return -1;
+		}
+
+		if (context->ptr - opt_start != rr_len) {
+			tlog(TLOG_ERROR, "opt length mitchmatch, %s\n", domain);
+			return -1;
+		}
+	} break;
 	default:
 		context->ptr += rr_len;
 		tlog(TLOG_DEBUG, "DNS type = %d not supported", qtype);
@@ -1259,6 +1504,12 @@ static int _dns_encode_an(struct dns_context *context, struct dns_rrs *rrs)
 		break;
 	case DNS_T_SOA:
 		ret = _dns_encode_SOA(context, rrs);
+		if (ret < 0) {
+			return -1;
+		}
+		break;
+	case DNS_T_OPT:
+		ret = _dns_encode_OPT(context, rrs);
 		if (ret < 0) {
 			return -1;
 		}

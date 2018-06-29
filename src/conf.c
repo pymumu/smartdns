@@ -72,11 +72,13 @@ void config_address_destroy(void)
 int config_address(char *value)
 {
 	struct dns_address *address = NULL;
+	struct dns_address *oldaddress;
 	char ip[MAX_IP_LEN];
 	char domain_key[DNS_MAX_CONF_CNAME_LEN];
 	char *begin = NULL;
 	char *end = NULL;
 	int len = 0;
+	int port;
 	struct sockaddr_storage addr;
 	socklen_t addr_len = sizeof(addr);
 	char type = '4';
@@ -101,8 +103,11 @@ int config_address(char *value)
 	len = end - begin;
 	memcpy(address->domain, begin, len);
 	address->domain[len] = 0;
-	strncpy(ip, end + 1, MAX_IP_LEN);
 	reverse_string(domain_key + 1, address->domain, len);
+
+	if (parse_ip(end + 1, ip, &port) != 0) {
+		goto errout;
+	}
 
 	if (getaddr_by_host(ip, (struct sockaddr *)&addr, &addr_len) != 0) {
 		goto errout;
@@ -135,7 +140,10 @@ int config_address(char *value)
 
 	domain_key[0] = type;
 	len++;
-	art_insert(&dns_conf_address, (unsigned char *)domain_key, len, address);
+	oldaddress = art_insert(&dns_conf_address, (unsigned char *)domain_key, len, address);
+	if (oldaddress) {
+		free(oldaddress);
+	}
 
 	return 0;
 errout:
