@@ -586,6 +586,47 @@ static void _tlog_wait_pid(int wait_hang)
     _tlog_log_unlock();
 }
 
+static void _tlog_close_all_fd(void)
+{
+	char path_name[PATH_MAX];
+    DIR *dir = NULL;
+    struct dirent *ent;
+
+	snprintf(path_name, sizeof(path_name), "/proc/self/fd/");
+    dir = opendir(path_name);
+    if (dir == NULL) {
+        fprintf(stderr, "open directory failed, %s\n", strerror(errno));
+        goto errout;
+    }
+
+	while ((ent = readdir(dir)) != NULL) {
+		int fd = atoi(ent->d_name);
+		if (fd < 0 || dirfd(dir) == fd) {
+			continue;
+		}
+		switch (fd) {
+        case STDIN_FILENO:
+        case STDOUT_FILENO:
+        case STDERR_FILENO:
+            continue; 
+            break; 
+        default:
+			break;
+        }
+
+		close(fd);
+	}
+
+	closedir(dir);
+
+	return;
+errout:
+    if (dir) {
+		closedir(dir);
+	}
+	return;
+}
+
 static int _tlog_archive_log(void)
 {
     char gzip_file[PATH_MAX];
@@ -621,15 +662,16 @@ static int _tlog_archive_log(void)
     if (tlog.zip_pid <= 0) {
         int pid = vfork();
         if (pid == 0) {
-            execl("/bin/sh", "sh", "-c", gzip_cmd, NULL);
-            _exit(1);
+			_tlog_close_all_fd();
+			execl("/bin/sh", "sh", "-c", gzip_cmd, NULL);
+			_exit(1);
         } else if (pid < 0) {
             goto errout;
         }
         tlog.zip_pid = pid;
-    }
+	}
 
-    return 0;
+	return 0;
 
 errout:
     _tlog_log_unlock();

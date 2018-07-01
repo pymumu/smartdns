@@ -16,6 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#define _GNU_SOURCE
 #include "art.h"
 #include "atomic.h"
 #include "conf.h"
@@ -175,7 +176,7 @@ int smartdns_init(void)
 {
 	int ret;
 
-	ret = tlog_init(SMARTDNS_LOG_PATH, SMARTDNS_LOG_FILE, 1024 * 1024, 8, 1, 0, 0);
+	ret = tlog_init(SMARTDNS_LOG_PATH, SMARTDNS_LOG_FILE, 1024 * 512, 8, 1, 0, 0);
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "start tlog failed.\n");
 		goto errout;
@@ -244,7 +245,8 @@ void sig_handle(int sig)
 	default:
 		break;
 	}
-	tlog(TLOG_ERROR, "process exit.\n");
+	tlog(TLOG_ERROR, "process exit with signal %d\n", sig);
+	sleep(1);
 	_exit(0);
 }
 
@@ -284,6 +286,11 @@ int main(int argc, char *argv[])
 	}
 
 	signal(SIGABRT, sig_handle);
+	signal(SIGPIPE, sig_handle);
+	signal(SIGBUS, sig_handle);
+	signal(SIGSEGV, sig_handle);
+	signal(SIGILL, sig_handle);
+	signal(SIGFPE, sig_handle);
 
 	if (load_conf(config_file) != 0) {
 	}

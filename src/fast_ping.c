@@ -237,11 +237,25 @@ static void _fast_ping_host_get(struct ping_host_struct *ping_host)
 	atomic_inc(&ping_host->ref);
 }
 
+static void _fast_ping_close_host_sock(struct ping_host_struct *ping_host)
+{
+	if (ping_host->fd < 0) {
+		return;
+	}
+	struct epoll_event *event;
+	event = (struct epoll_event *)1;
+	epoll_ctl(ping.epoll_fd, EPOLL_CTL_DEL, ping_host->fd, event);
+	close(ping_host->fd);
+	ping_host->fd = -1;
+}
+
 static void _fast_ping_host_put(struct ping_host_struct *ping_host)
 {
 	if (!atomic_dec_and_test(&ping_host->ref)) {
 		return;
 	}
+
+	_fast_ping_close_host_sock(ping_host);
 
 	pthread_mutex_lock(&ping.map_lock);
 	hash_del(&ping_host->addr_node);
@@ -254,13 +268,8 @@ static void _fast_ping_host_put(struct ping_host_struct *ping_host)
 
 		ping_host->ping_callback(ping_host, ping_host->host, PING_RESULT_END, &ping_host->addr, ping_host->addr_len, ping_host->seq, &tv, ping_host->userptr);
 	}
-	if (ping_host->fd > 0) {
-		close(ping_host->fd);
-		ping_host->fd = -1;
-	}
 
 	tlog(TLOG_DEBUG, "ping %p end", ping_host);
-
 	// memset(ping_host, 0, sizeof(*ping_host));
 	ping_host->type = FAST_PING_END;
 	free(ping_host);
@@ -268,12 +277,15 @@ static void _fast_ping_host_put(struct ping_host_struct *ping_host)
 
 static void _fast_ping_host_remove(struct ping_host_struct *ping_host)
 {
+	_fast_ping_close_host_sock(ping_host);
+
 	pthread_mutex_lock(&ping.map_lock);
 	if (!hash_hashed(&ping_host->addr_node)) {
 		pthread_mutex_unlock(&ping.map_lock);
 		return;
 	}
 	hash_del(&ping_host->addr_node);
+
 	pthread_mutex_unlock(&ping.map_lock);
 
 	if (atomic_inc_return(&ping_host->notified) == 1) {
@@ -367,6 +379,8 @@ static int _fast_ping_sendping_tcp(struct ping_host_struct *ping_host)
 	int flags;
 	int fd = -1;
 
+	_fast_ping_close_host_sock(ping_host);
+
 	fd = socket(ping_host->ss_family, SOCK_STREAM, 0);
 	if (fd < 0) {
 		goto errout;
@@ -388,23 +402,21 @@ static int _fast_ping_sendping_tcp(struct ping_host_struct *ping_host)
 		}
 	}
 
+	ping_host->fd = fd;
 	memset(&event, 0, sizeof(event));
 	event.events = EPOLLIN | EPOLLOUT;
 	event.data.ptr = ping_host;
 	if (epoll_ctl(ping.epoll_fd, EPOLL_CTL_ADD, fd, &event) != 0) {
+		ping_host->fd = -1;
 		goto errout;
 	}
-
-	if (ping_host->fd > 0) {
-		close(ping_host->fd);
-	}
-	ping_host->fd = fd;
 
 	return 0;
 
 errout:
 	if (fd > 0) {
 		close(fd);
+		ping_host->fd = -1;
 	}
 	return -1;
 }
@@ -857,20 +869,12 @@ static int _fast_ping_process_tcp(struct ping_host_struct *ping_host, struct epo
 
 	ping_host->send = 0;
 
-	if (ping_host->fd > 0) {
-		close(ping_host->fd);
-		ping_host->fd = -1;
-	}
-
 	if (ping_host->count == 1) {
 		_fast_ping_host_remove(ping_host);
 	}
 	return 0;
 errout:
-	if (ping_host->fd > 0) {
-		close(ping_host->fd);
-		ping_host->fd = -1;
-	}
+	_fast_ping_host_remove(ping_host);
 
 	return -1;
 }
@@ -888,7 +892,7 @@ static int _fast_ping_process(struct ping_host_struct *ping_host, struct epoll_e
 		ret = _fast_ping_process_tcp(ping_host, event, now);
 		break;
 	default:
-		tlog(TLOG_ERROR, "BUG: type error : %d,", ping_host->type);
+		tlog(TLOG_ERROR, "BUG: type error : %p, %d, %s, %d", ping_host, ping_host->sid, ping_host->host, ping_host->fd);
 		abort();
 		break;
 	}
@@ -993,37 +997,41 @@ static void *_fast_ping_work(void *arg)
 	struct epoll_event events[PING_MAX_EVENTS + 1];
 	int num;
 	int i;
-	struct timeval last = {0};
-	struct timeval now = {0};
-	struct timeval diff = {0};
-	uint millisec = 0;
+	unsigned long now = {0};
+	struct timeval tvnow = {0};
+	int sleep = 100;
+	int sleep_time = 0;
+	unsigned long expect_time = 0;
 
+	sleep_time = sleep;
+	now = get_tick_count() - sleep;
+	expect_time = now + sleep;
 	while (ping.run) {
-		diff = now;
-		tv_sub(&diff, &last);
-		millisec = diff.tv_sec * 1000 + diff.tv_usec / 1000;
-		if (millisec >= 100) {
+		now = get_tick_count();
+		if (now >= expect_time) {
 			_fast_ping_period_run();
-			last = now;
+			sleep_time = sleep - (now - expect_time);
+			if (sleep_time < 0) {
+				sleep_time = 0;
+			}
+			expect_time += sleep;
 		}
 
-		num = epoll_wait(ping.epoll_fd, events, PING_MAX_EVENTS, 100);
+		num = epoll_wait(ping.epoll_fd, events, PING_MAX_EVENTS, sleep_time);
 		if (num < 0) {
-			gettimeofday(&now, 0);
 			usleep(100000);
 			continue;
 		}
 
 		if (num == 0) {
-			gettimeofday(&now, 0);
 			continue;
 		}
 
-		gettimeofday(&now, 0);
+		gettimeofday(&tvnow, 0);
 		for (i = 0; i < num; i++) {
 			struct epoll_event *event = &events[i];
 			struct ping_host_struct *ping_host = (struct ping_host_struct *)event->data.ptr;
-			_fast_ping_process(ping_host, event, &now);
+			_fast_ping_process(ping_host, event, &tvnow);
 		}
 	}
 
