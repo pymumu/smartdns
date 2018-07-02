@@ -1,5 +1,7 @@
 /*
- * Copyright (C) 2018 Ruilin Peng (Nick) <pymumu@gmail.com>
+ * tinylog 
+ * Copyright (C) 2018 Ruilin Peng (Nick) <pymumu@gmail.com> 
+ * https://github.com/pymumu/tinylog
  */
 
 #ifndef TLOG_H

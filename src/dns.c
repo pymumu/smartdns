@@ -1228,6 +1228,9 @@ static int _dns_decode_opt_ecs(struct dns_context *context, struct dns_opt_ecs *
 	memcpy(ecs->addr, context->ptr, len);
 	context->ptr += len;
 
+	tlog(TLOG_DEBUG, "ECS: family:%d, source_prefix:%d, scope_prefix:%d, len:%d", ecs->family, ecs->source_prefix, ecs->scope_prefix, len);
+	tlog(TLOG_DEBUG, "%d.%d.%d.%d", ecs->addr[0], ecs->addr[1], ecs->addr[2], ecs->addr[3]);
+
 	return 0;
 }
 
@@ -1283,9 +1286,11 @@ static int _dns_decode_opt(struct dns_context *context, dns_rr_type type, unsign
 	}
 	ever = ever;
 
+	tlog(TLOG_DEBUG, "decode opt.");
 	while (context->ptr - start < rr_len) {
 		opt_code = dns_read_short(&context->ptr);
 		opt_len = dns_read_short(&context->ptr);
+		tlog(TLOG_DEBUG, "opt type %d", opt_code);
 		switch (opt_code) {
 		case DNS_OPT_T_ECS: {
 			struct dns_opt_ecs ecs;

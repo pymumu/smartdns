@@ -1,5 +1,7 @@
 /*
- * Copyright (C) 2018 Ruilin Peng (Nick) <pymumu@gmail.com>
+ * ttinylog 
+ * Copyright (C) 2018 Ruilin Peng (Nick) <pymumu@gmail.com> 
+ * https://github.com/pymumu/tinylog
  */
 #define _GNU_SOURCE 
 #include "tlog.h"
@@ -252,8 +254,8 @@ static int _tlog_log_buffer(char *buff, int maxlen, tlog_level level, const char
     struct tlog_info info;
 
     if (tlog_format == NULL) {
-		return -1;
-	}
+        return -1;
+    }
 
     if (level >= TLOG_END) {
         return -1;
@@ -293,9 +295,9 @@ int tlog_vext(tlog_level level, const char *file, int line, const char *func, vo
     
     if (tlog.buff == NULL) {
         vprintf(format, ap);
-		printf("\n");
-		return -1;
-	}
+        printf("\n");
+        return -1;
+    }
 
     pthread_mutex_lock(&tlog.lock);
     do {
@@ -407,8 +409,8 @@ static int _tlog_list_dir(const char *path, list_callback callback, void *userpt
     }
 
     while ((ent = readdir(dir)) != NULL) {
-		if (strncmp(".", ent->d_name, 2) == 0 || strncmp("..", ent->d_name, 3) == 0) {
-			continue;
+        if (strncmp(".", ent->d_name, 2) == 0 || strncmp("..", ent->d_name, 3) == 0) {
+            continue;
         }
         ret = callback(path, ent, userptr);
         if (ret != 0) {
@@ -588,43 +590,46 @@ static void _tlog_wait_pid(int wait_hang)
 
 static void _tlog_close_all_fd(void)
 {
-	char path_name[PATH_MAX];
+    char path_name[PATH_MAX];
     DIR *dir = NULL;
     struct dirent *ent;
+    int dir_fd = -1;
 
-	snprintf(path_name, sizeof(path_name), "/proc/self/fd/");
+    snprintf(path_name, sizeof(path_name), "/proc/self/fd/");
     dir = opendir(path_name);
     if (dir == NULL) {
         fprintf(stderr, "open directory failed, %s\n", strerror(errno));
         goto errout;
     }
 
-	while ((ent = readdir(dir)) != NULL) {
-		int fd = atoi(ent->d_name);
-		if (fd < 0 || dirfd(dir) == fd) {
-			continue;
-		}
-		switch (fd) {
+    dir_fd = dirfd(dir);
+
+    while ((ent = readdir(dir)) != NULL) {
+        int fd = atoi(ent->d_name);
+        if (fd < 0 || dir_fd == fd) {
+            continue;
+        }
+        switch (fd) {
         case STDIN_FILENO:
         case STDOUT_FILENO:
         case STDERR_FILENO:
             continue; 
             break; 
         default:
-			break;
+            break;
         }
 
-		close(fd);
-	}
+        close(fd);
+    }
 
-	closedir(dir);
+    closedir(dir);
 
-	return;
+    return;
 errout:
     if (dir) {
-		closedir(dir);
-	}
-	return;
+        closedir(dir);
+    }
+    return;
 }
 
 static int _tlog_archive_log(void)
@@ -662,16 +667,16 @@ static int _tlog_archive_log(void)
     if (tlog.zip_pid <= 0) {
         int pid = vfork();
         if (pid == 0) {
-			_tlog_close_all_fd();
-			execl("/bin/sh", "sh", "-c", gzip_cmd, NULL);
-			_exit(1);
+            _tlog_close_all_fd();
+            execl("/bin/sh", "sh", "-c", gzip_cmd, NULL);
+            _exit(1);
         } else if (pid < 0) {
             goto errout;
         }
         tlog.zip_pid = pid;
-	}
+    }
 
-	return 0;
+    return 0;
 
 errout:
     _tlog_log_unlock();
