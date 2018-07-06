@@ -1,0 +1,10 @@
+#! /bin/sh
+
+chmod +x /opt/usr/sbin/smartdns
+chmod +x /opt/etc/init.d/S50smartdns
+
+
+
+
+
+

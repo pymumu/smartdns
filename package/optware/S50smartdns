@@ -1,0 +1,63 @@
+#! /bin/sh
+
+SMARTDNS_BIN=/opt/usr/sbin/smartdns
+SMARTDNS_CONF=/opt/etc/smartdns/smartdns.conf
+SMARTDNS_PID="/var/run/smartdns.pid"
+SMARTDNS_PORT=535
+
+set_iptable()
+{
+	iptables -t nat -A PREROUTING -p udp --dport 53 -j REDIRECT --to-ports $SMARTDNS_PORT
+}
+
+clear_iptable()
+{
+	iptables -t nat -D PREROUTING -p udp --dport 53 -j REDIRECT --to-ports $SMARTDNS_PORT
+}
+
+case "$1" in
+	start)
+	set_iptable
+	if [ $? -ne 0 ]; then
+		exit 1
+	fi
+
+	$SMARTDNS_BIN -c $SMARTDNS_CONF -p $SMARTDNS_PID
+	if [ $? -ne 0 ]; then
+		clear_iptable
+	fi
+	;;
+	status)
+	pid="`cat $SMARTDNS_PID 2>/dev/null`"
+	if [ -z "$pid" ]; then
+		echo "smartdns not running."
+		return 0
+	fi
+
+	if [ -d "/proc/$pid" ]; then
+		echo "smartdns running"
+		return 0;
+	fi
+	echo "smartdns not running."
+	return 0;
+	;;
+	stop)
+	clear_iptable
+	pid="`cat $SMARTDNS_PID 2>/dev/null`"
+	kill -TERM $pid 2>/dev/null
+	;;
+	force-reload|restart)
+	$0 stop
+	$0 start
+	;;
+	enable)
+	nvram set apps_state_enable=2
+	nvram set apps_state_error=0
+	nvram set apps_state_install=5
+	nvram set apps_state_action=install
+	nvram set apps_u2ec_ex=2
+	;;
+	*)
+	;;
+esac
+

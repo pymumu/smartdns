@@ -1,0 +1,3 @@
+#! /bin/sh
+
+/opt/etc/init.d/S50smartdns stop
