@@ -12,7 +12,9 @@ struct dns_cache {
 	struct list_head list;
 	atomic_t ref;
 	char domain[DNS_MAX_CNAME_LEN];
-	unsigned ttl;
+	char cname[DNS_MAX_CNAME_LEN];
+	unsigned int cname_ttl;
+	unsigned int ttl;
 	time_t insert_time;
 	dns_type_t qtype;
 	union {
@@ -24,7 +26,7 @@ struct dns_cache {
 
 int dns_cache_init(int size);
 
-int dns_cache_insert(char *domain, int ttl, dns_type_t qtype, unsigned char *addr, int addr_len);
+int dns_cache_insert(char *domain, char *cname, int cname_ttl, int ttl, dns_type_t qtype, unsigned char *addr, int addr_len);
 
 struct dns_cache *dns_cache_get(char *domain, dns_type_t qtype);
 

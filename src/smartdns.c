@@ -30,6 +30,7 @@
 #include "util.h"
 #include <errno.h>
 #include <fcntl.h>
+#include <libgen.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -56,6 +57,8 @@ void help(void)
 		"  -c [conf]     config file.\n"
 		"  -p [pid]      pid file path\n"
 		"  -h            show this help message.\n"
+
+		"Online help: http://smartdns.github.io"
 		"\n";
 	/* clang-format on */
 	printf(help);
@@ -175,15 +178,28 @@ errout:
 int smartdns_init(void)
 {
 	int ret;
+	char logdir[DNS_MAX_PATH];
+	char logname[DNS_MAX_PATH];
 
-	ret = tlog_init(SMARTDNS_LOG_PATH, SMARTDNS_LOG_FILE, 1024 * 512, 8, 1, 0, 0);
+	if (dns_conf_log_file[0] != 0) {
+		strncpy(logdir, dns_conf_log_file, DNS_MAX_PATH);
+		strncpy(logname, dns_conf_log_file, DNS_MAX_PATH);
+
+		dirname(logdir);
+		basename(logname);
+	} else {
+		strncpy(logdir, SMARTDNS_LOG_PATH, DNS_MAX_PATH);
+		strncpy(logname, SMARTDNS_LOG_FILE, DNS_MAX_PATH);
+	}
+
+	ret = tlog_init(logdir, logname, dns_conf_log_size, dns_conf_log_num, 1, 0, 0);
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "start tlog failed.\n");
 		goto errout;
 	}
 
-	tlog_setlogscreen(1);
-	tlog_setlevel(dns_conf_loglevel);
+	/* tlog_setlogscreen(1); */
+	tlog_setlevel(dns_conf_log_level);
 
 	if (dns_conf_server_num <= 0) {
 		if (smartdns_load_from_resolv() != 0) {

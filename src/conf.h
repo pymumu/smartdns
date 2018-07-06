@@ -24,8 +24,6 @@ struct dns_servers {
 };
 
 struct dns_address {
-	struct list_head list;
-	char domain[DNS_MAX_CONF_CNAME_LEN];
 	dns_type_t addr_type;
 	union {
 		unsigned char ipv4_addr[DNS_RR_A_LEN];
@@ -38,11 +36,19 @@ extern char dns_conf_server_ip[DNS_MAX_IPLEN];
 extern int dns_conf_cachesize;
 extern struct dns_servers dns_conf_servers[DNS_MAX_SERVERS];
 extern int dns_conf_server_num;
-extern int dns_conf_verbose;
-extern int dns_conf_loglevel;
-extern char dns_conf_logfile[DNS_MAX_PATH];
-extern int dns_conf_lognum;
+
+extern int dns_conf_log_level;
+extern char dns_conf_log_file[DNS_MAX_PATH];
+extern int dns_conf_log_size;
+extern int dns_conf_log_num;
+
+extern char dns_conf_server_name[DNS_MAX_CONF_CNAME_LEN];
 extern art_tree dns_conf_address;
+
+extern int dns_conf_rr_ttl;
+extern int dns_conf_rr_ttl_min;
+extern int dns_conf_rr_ttl_max;
+
 
 int load_conf(const char *file);
 

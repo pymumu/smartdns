@@ -50,7 +50,7 @@ void dns_cache_release(struct dns_cache *dns_cache)
 	_dns_cache_delete(dns_cache);
 }
 
-int dns_cache_insert(char *domain, int ttl, dns_type_t qtype, unsigned char *addr, int addr_len)
+int dns_cache_insert(char *domain, char *cname, int cname_ttl, int ttl, dns_type_t qtype, unsigned char *addr, int addr_len)
 {
 	unsigned int key = 0;
 	struct dns_cache *dns_cache = NULL;
@@ -73,6 +73,7 @@ int dns_cache_insert(char *domain, int ttl, dns_type_t qtype, unsigned char *add
 	key = hash_string(domain);
 	key = jhash(&qtype, sizeof(qtype), key);
 	strncpy(dns_cache->domain, domain, DNS_MAX_CNAME_LEN);
+	dns_cache->cname[0] = 0;
 	dns_cache->qtype = qtype;
 	dns_cache->ttl = ttl;
 	atomic_set(&dns_cache->ref, 1);
@@ -89,6 +90,11 @@ int dns_cache_insert(char *domain, int ttl, dns_type_t qtype, unsigned char *add
 		memcpy(dns_cache->addr, addr, DNS_RR_AAAA_LEN);
 	} else {
 		goto errout;
+	}
+
+	if (cname) {
+		strncpy(dns_cache->cname, cname, DNS_MAX_CNAME_LEN);
+		dns_cache->cname_ttl = cname_ttl;
 	}
 
 	pthread_mutex_lock(&dns_cache_head.lock);

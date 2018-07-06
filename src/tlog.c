@@ -1,5 +1,5 @@
 /*
- * ttinylog 
+ * tinylog 
  * Copyright (C) 2018 Ruilin Peng (Nick) <pymumu@gmail.com> 
  * https://github.com/pymumu/tinylog
  */
@@ -19,6 +19,14 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+#ifndef likely
+# define likely(x)		__builtin_expect(!!(x), 1)
+#endif
+
+#ifndef unlikely
+# define unlikely(x)		__builtin_expect(!!(x), 0)
+#endif
 
 #define TLOG_BUFF_SIZE (1024 * 128)
 #define TLOG_MAX_LINE_LEN (1024)
@@ -292,8 +300,12 @@ int tlog_vext(tlog_level level, const char *file, int line, const char *func, vo
     if (level < tlog_set_level) {
         return 0;
     }
-    
-    if (tlog.buff == NULL) {
+
+    if (unlikely(tlog.logsize <= 0)) {
+		return 0;
+	}
+
+	if (unlikely(tlog.buff == NULL)) {
         vprintf(format, ap);
         printf("\n");
         return -1;
@@ -875,7 +887,7 @@ int tlog_init(const char *logdir, const char *logname, int maxlogsize, int maxlo
     tlog.block = (block != 0) ? 1 : 0;
     tlog.waiters = 0;
     tlog.dropped = 0;
-    tlog.logsize = (maxlogsize > 0) ? maxlogsize : TLOG_LOG_SIZE;
+    tlog.logsize = (maxlogsize >= 0) ? maxlogsize : TLOG_LOG_SIZE;
     tlog.logcount = (maxlogcount > 0) ? maxlogcount : TLOG_LOG_COUNT;
     tlog.fd = -1;
     tlog.filesize = 0;

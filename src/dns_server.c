@@ -159,16 +159,24 @@ static int _dns_add_rrs(struct dns_packet *packet, struct dns_request *request)
 	char *domain = request->domain;
 	if (request->has_ptr) {
 		char hostname[DNS_MAX_CNAME_LEN];
-		if (getdomainname(hostname, DNS_MAX_CNAME_LEN) != 0) {
-			if (gethostname(hostname, DNS_MAX_CNAME_LEN) != 0) {
-				return -1;
+		if (dns_conf_server_name[0] == 0) {
+			if (getdomainname(hostname, DNS_MAX_CNAME_LEN) != 0) {
+				if (gethostname(hostname, DNS_MAX_CNAME_LEN) != 0) {
+					return -1;
+				}
 			}
-		}
 
-		if (strncmp(hostname, "(none)", DNS_MAX_CNAME_LEN) == 0) {
-			if (gethostname(hostname, DNS_MAX_CNAME_LEN) != 0) {
-				return -1;
+			if (strncmp(hostname, "(none)", DNS_MAX_CNAME_LEN) == 0) {
+				if (gethostname(hostname, DNS_MAX_CNAME_LEN) != 0) {
+					return -1;
+				}
 			}
+
+			if (strncmp(hostname, "(none)", DNS_MAX_CNAME_LEN) == 0) {
+				strncpy(hostname, "smartdns", DNS_MAX_CNAME_LEN);
+			}
+		} else {
+			strncpy(hostname, dns_conf_server_name, DNS_MAX_CNAME_LEN);
 		}
 
 		ret = dns_add_PTR(packet, DNS_RRS_AN, request->domain, 30, hostname);
@@ -258,12 +266,20 @@ static int _dns_reply(struct dns_request *request)
 int _dns_server_request_complete(struct dns_request *request)
 {
 	int ret = -1;
+	char *cname = NULL;
+	int cname_ttl = 0;
+
 	if (atomic_inc_return(&request->notified) != 1) {
 		return 0;
 	}
 
 	if (request->passthrough) {
 		return 0;
+	}
+
+	if (request->has_cname) {
+		cname = request->cname;
+		cname_ttl = request->ttl_cname;
 	}
 
 	if (request->qtype == DNS_T_A) {
@@ -275,7 +291,8 @@ int _dns_server_request_complete(struct dns_request *request)
 				request->ttl_v4 = DNS_SERVER_TMOUT_TTL;
 			}
 		}
-		dns_cache_insert(request->domain, request->ttl_v4, DNS_T_A, request->ipv4_addr, DNS_RR_A_LEN);
+
+		dns_cache_insert(request->domain, cname, cname_ttl, request->ttl_v4, DNS_T_A, request->ipv4_addr, DNS_RR_A_LEN);
 	} else if (request->qtype == DNS_T_AAAA) {
 		tlog(TLOG_INFO, "result :%s, rcode: %d,  %.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", request->domain, request->rcode,
 			 request->ipv6_addr[0], request->ipv6_addr[1], request->ipv6_addr[2], request->ipv6_addr[3], request->ipv6_addr[4], request->ipv6_addr[5],
@@ -286,7 +303,7 @@ int _dns_server_request_complete(struct dns_request *request)
 			if (request->has_ping_result == 0 && request->ttl_v6 > DNS_SERVER_TMOUT_TTL) {
 				request->ttl_v6 = DNS_SERVER_TMOUT_TTL;
 			}
-			dns_cache_insert(request->domain, request->ttl_v6, DNS_T_AAAA, request->ipv6_addr, DNS_RR_AAAA_LEN);
+			dns_cache_insert(request->domain, cname, cname_ttl, request->ttl_v6, DNS_T_AAAA, request->ipv6_addr, DNS_RR_AAAA_LEN);
 		}
 	}
 
@@ -464,6 +481,20 @@ int _dns_ip_address_check_add(struct dns_request *request, unsigned char *addr, 
 	return 0;
 }
 
+static int _dns_server_get_conf_ttl(int ttl)
+{
+	if (dns_conf_rr_ttl > 0) {
+		return dns_conf_rr_ttl;
+	}
+
+	if (dns_conf_rr_ttl_max > 0 && ttl > dns_conf_rr_ttl_max) {
+		ttl = dns_conf_rr_ttl_max;
+	} else if (dns_conf_rr_ttl_min > 0 && ttl < dns_conf_rr_ttl_min) {
+		ttl = dns_conf_rr_ttl_min;
+	}
+	return ttl;
+}
+
 static int _dns_server_process_answer(struct dns_request *request, char *domain, struct dns_packet *packet)
 {
 	int ttl;
@@ -512,11 +543,11 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 
 				if (request->has_ipv4 == 0) {
 					memcpy(request->ipv4_addr, addr, DNS_RR_A_LEN);
-					request->ttl_v4 = ttl;
+					request->ttl_v4 = _dns_server_get_conf_ttl(ttl);
 					request->has_ipv4 = 1;
 				} else {
 					if (ttl < request->ttl_v4) {
-						request->ttl_v4 = ttl;
+						request->ttl_v4 = _dns_server_get_conf_ttl(ttl);
 					}
 				}
 				if (_dns_ip_address_check_add(request, addr, DNS_T_A) != 0) {
@@ -547,11 +578,11 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 
 				if (request->has_ipv6 == 0) {
 					memcpy(request->ipv6_addr, addr, DNS_RR_AAAA_LEN);
-					request->ttl_v6 = ttl;
+					request->ttl_v6 = _dns_server_get_conf_ttl(ttl);
 					request->has_ipv6 = 1;
 				} else {
 					if (ttl < request->ttl_v6) {
-						request->ttl_v6 = ttl;
+						request->ttl_v6 = _dns_server_get_conf_ttl(ttl);
 					}
 				}
 
@@ -783,6 +814,12 @@ static int _dns_server_process_cache(struct dns_request *request, struct dns_pac
 	default:
 		goto errout;
 		break;
+	}
+
+	if (dns_cache->cname[0] != 0) {
+		strncpy(request->cname, dns_cache->cname, DNS_MAX_CNAME_LEN);
+		request->has_cname = 1;
+		request->ttl_cname = dns_cache->cname_ttl;
 	}
 
 	request->rcode = DNS_RC_NOERROR;

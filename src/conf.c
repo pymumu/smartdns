@@ -16,15 +16,29 @@
 char dns_conf_server_ip[DNS_MAX_IPLEN];
 int dns_conf_cachesize = DEFAULT_DNS_CACHE_SIZE;
 struct dns_servers dns_conf_servers[DNS_MAX_SERVERS];
+char dns_conf_server_name[DNS_MAX_CONF_CNAME_LEN];
 int dns_conf_server_num;
-int dns_conf_loglevel = TLOG_ERROR;
+int dns_conf_log_level = TLOG_ERROR;
+char dns_conf_log_file[DNS_MAX_PATH];
+int dns_conf_log_size = 1024 * 1024;
+int dns_conf_log_num = 8;
+
 art_tree dns_conf_address;
+int dns_conf_rr_ttl;
+int dns_conf_rr_ttl_min;
+int dns_conf_rr_ttl_max;
 
 int config_bind(char *value)
 {
 	/* server bind address */
 	strncpy(dns_conf_server_ip, value, DNS_MAX_IPLEN);
 
+	return 0;
+}
+
+int config_server_name(char *value)
+{
+	strncpy(dns_conf_server_name, value, DNS_MAX_CNAME_LEN);
 	return 0;
 }
 
@@ -75,6 +89,7 @@ int config_address(char *value)
 	struct dns_address *oldaddress;
 	char ip[MAX_IP_LEN];
 	char domain_key[DNS_MAX_CONF_CNAME_LEN];
+	char domain[DNS_MAX_CONF_CNAME_LEN];
 	char *begin = NULL;
 	char *end = NULL;
 	int len = 0;
@@ -101,9 +116,9 @@ int config_address(char *value)
 
 	memset(address, 0, sizeof(*address));
 	len = end - begin;
-	memcpy(address->domain, begin, len);
-	address->domain[len] = 0;
-	reverse_string(domain_key + 1, address->domain, len);
+	memcpy(domain, begin, len);
+	domain[len] = 0;
+	reverse_string(domain_key + 1, domain, len);
 
 	if (parse_ip(end + 1, ip, &port) != 0) {
 		goto errout;
@@ -187,17 +202,101 @@ int config_log_level(char *value)
 {
 	/* read log level and set */
 	if (strncmp("debug", value, MAX_LINE_LEN) == 0) {
-		dns_conf_loglevel = TLOG_DEBUG;
+		dns_conf_log_level = TLOG_DEBUG;
 	} else if (strncmp("info", value, MAX_LINE_LEN) == 0) {
-		dns_conf_loglevel = TLOG_INFO;
+		dns_conf_log_level = TLOG_INFO;
 	} else if (strncmp("warn", value, MAX_LINE_LEN) == 0) {
-		dns_conf_loglevel = TLOG_WARN;
+		dns_conf_log_level = TLOG_WARN;
 	} else if (strncmp("error", value, MAX_LINE_LEN) == 0) {
-		dns_conf_loglevel = TLOG_ERROR;
+		dns_conf_log_level = TLOG_ERROR;
 	}
 
 	return 0;
 }
+
+int config_log_file(char *value)
+{
+	/* read dns cache size */
+	strncpy(dns_conf_log_file, value, DNS_MAX_PATH);
+
+	return 0;
+}
+
+int config_log_size(char *value)
+{
+	/* read dns cache size */
+	int base = 1;
+
+	if (strstr(value, "k") || strstr(value, "K")) {
+		base = 1024;
+	} else if (strstr(value, "m") || strstr(value, "M")) {
+		base = 1024 * 1024;
+	} else if (strstr(value, "g") || strstr(value, "G")) {
+		base = 1024 * 1024 * 1024;
+	}
+
+	int size = atoi(value);
+	if (size < 0) {
+		return -1;
+	}
+
+	dns_conf_log_size = size * base;
+
+	return 0;
+}
+
+int config_log_num(char *value)
+{
+	/* read dns cache size */
+	int num = atoi(value);
+	if (num < 0) {
+		return -1;
+	}
+
+	dns_conf_log_num = num;
+
+	return 0;
+}
+
+int config_rr_ttl(char *value)
+{
+	/* read dns cache size */
+	int ttl = atoi(value);
+	if (ttl < 0) {
+		return -1;
+	}
+
+	dns_conf_rr_ttl = ttl;
+
+	return 0;
+}
+
+int config_rr_ttl_min(char *value)
+{
+	/* read dns cache size */
+	int ttl = atoi(value);
+	if (ttl < 0) {
+		return -1;
+	}
+
+	dns_conf_rr_ttl_min = ttl;
+
+	return 0;
+}
+
+int config_rr_ttl_max(char *value)
+{
+	/* read dns cache size */
+	int ttl = atoi(value);
+	if (ttl < 0) {
+		return -1;
+	}
+
+	dns_conf_rr_ttl_max = ttl;
+
+	return 0;
+}
+
 
 struct config_item {
 	const char *item;
@@ -211,7 +310,13 @@ struct config_item config_item[] = {
 	{"server-tcp", config_server_tcp},
 	{"server-http", config_server_http},
 	{"cache-size", config_cache_size},
-	{"loglevel", config_log_level},
+	{"log-level", config_log_level},
+	{"log-file", config_log_file},
+	{"log-size", config_log_size},
+	{"log-num", config_log_num},
+	{"rr-ttl", config_rr_ttl},
+	{"rr-ttl-min", config_rr_ttl_min},
+	{"rr-ttl-max", config_rr_ttl_max},
 };
 int config_item_num = sizeof(config_item) / sizeof(struct config_item);
 
