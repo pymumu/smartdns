@@ -7,12 +7,22 @@ SMARTDNS_PORT=535
 
 set_iptable()
 {
-	iptables -t nat -A PREROUTING -p udp --dport 53 -j REDIRECT --to-ports $SMARTDNS_PORT
+	IPS="`ifconfig | grep "inet addr" | grep -v ":127" | grep "Bcast" | awk '{print $2}' | awk -F: '{print $2}'`"
+	for IP in $IPS
+	do
+		iptables -t nat -A PREROUTING -p udp -d $IP --dport 53 -j REDIRECT --to-ports $SMARTDNS_PORT 
+	done
+
 }
 
 clear_iptable()
 {
-	iptables -t nat -D PREROUTING -p udp --dport 53 -j REDIRECT --to-ports $SMARTDNS_PORT
+	IPS="`ifconfig | grep "inet addr" | grep -v ":127" | grep "Bcast" | awk '{print $2}' | awk -F: '{print $2}'`"
+	for IP in $IPS
+	do
+		iptables -t nat -D PREROUTING -p udp -d $IP --dport 53 -j REDIRECT --to-ports $SMARTDNS_PORT 
+	done
+	
 }
 
 case "$1" in
@@ -56,6 +66,9 @@ case "$1" in
 	nvram set apps_state_install=5
 	nvram set apps_state_action=install
 	nvram set apps_u2ec_ex=2
+	;;
+	firewall-start)
+	$0 restart
 	;;
 	*)
 	;;
