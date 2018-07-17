@@ -42,7 +42,7 @@ int config_server_name(char *value)
 	return 0;
 }
 
-int config_server(char *value, dns_conf_server_type_t type)
+int config_server(char *value, dns_server_type_t type)
 {
 	int index = dns_conf_server_num;
 	struct dns_servers *server;
@@ -172,17 +172,17 @@ errout:
 
 int config_server_udp(char *value)
 {
-	return config_server(value, DNS_CONF_TYPE_UDP);
+	return config_server(value, DNS_SERVER_UDP);
 }
 
 int config_server_tcp(char *value)
 {
-	return config_server(value, DNS_CONF_TYPE_TCP);
+	return config_server(value, DNS_SERVER_TCP);
 }
 
 int config_server_http(char *value)
 {
-	return config_server(value, DNS_CONF_TYPE_HTTP);
+	return config_server(value, DNS_SERVER_HTTP);
 }
 
 int config_cache_size(char *value)

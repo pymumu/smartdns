@@ -119,6 +119,8 @@ struct dns_request {
 
 	atomic_t notified;
 
+	atomic_t adblock;
+
 	/* send original raw packet to server/client like proxy */
 	int passthrough;
 
@@ -535,12 +537,6 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 					break;
 				}
 
-				if (addr[0] == 0) {
-					_dns_server_request_release(request);
-					tlog(TLOG_WARN, "Ad blocker, domain: %s", domain);
-					break;
-				}
-
 				if (request->has_ipv4 == 0) {
 					memcpy(request->ipv4_addr, addr, DNS_RR_A_LEN);
 					request->ttl_v4 = _dns_server_get_conf_ttl(ttl);
@@ -550,6 +546,14 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 						request->ttl_v4 = _dns_server_get_conf_ttl(ttl);
 					}
 				}
+
+				if (addr[0] == 0 || addr[0] == 127) {
+					if (atomic_inc_return(&request->adblock) <= 1) {
+						_dns_server_request_release(request);
+						break;
+					}
+				}
+
 				if (_dns_ip_address_check_add(request, addr, DNS_T_A) != 0) {
 					_dns_server_request_release(request);
 					break;
@@ -859,6 +863,7 @@ static int _dns_server_recv(unsigned char *inpacket, int inpacket_len, struct so
 	request = malloc(sizeof(*request));
 	memset(request, 0, sizeof(*request));
 	pthread_mutex_init(&request->ip_map_lock, 0);
+	atomic_set(&request->adblock, 0);
 	request->ping_ttl_v4 = -1;
 	request->ping_ttl_v6 = -1;
 	request->rcode = DNS_RC_SERVFAIL;

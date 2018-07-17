@@ -35,6 +35,8 @@
 #define RCODE_MASK 0x000F
 #define DNS_RR_END (0XFFFF)
 
+#define UNUSED(expr) do { (void)(expr); } while (0)
+
 /* read short and move pointer */
 short dns_read_short(unsigned char **buffer)
 {
@@ -833,7 +835,7 @@ static int _dns_decode_domain(struct dns_context *context, char *output, int siz
 				context->ptr = ptr;
 			}
 			ptr = context->data + len;
-			if (context->maxsize - (ptr - context->data) < 0) {
+			if (context->maxsize < (ptr - context->data)) {
 				tlog(TLOG_ERROR, "length is not enouth %u:%ld, %p, %p", context->maxsize, (long)(ptr - context->data), context->ptr, context->data);
 				return -1;
 			}
@@ -847,7 +849,7 @@ static int _dns_decode_domain(struct dns_context *context, char *output, int siz
 			output++;
 		}
 
-		if (context->maxsize - (ptr - context->data) < 0) {
+		if (context->maxsize < (ptr - context->data)) {
 			tlog(TLOG_ERROR, "length is not enouth %u:%ld, %p, %p", context->maxsize, (long)(ptr - context->data), context->ptr, context->data);
 			return -1;
 		}
@@ -856,7 +858,7 @@ static int _dns_decode_domain(struct dns_context *context, char *output, int siz
 		if (output_len < size - 1) {
 			/* copy sub string */
 			copy_len = (len < size - output_len) ? len : size - 1 - output_len;
-			if (context->maxsize - (ptr - context->data) < 0) {
+			if (context->maxsize < (ptr - context->data)) {
 				tlog(TLOG_ERROR, "length is not enouth %u:%ld, %p, %p", context->maxsize, (long)(ptr - context->data), context->ptr, context->data);
 				return -1;
 			}
@@ -1250,6 +1252,9 @@ static int _dns_decode_opt(struct dns_context *context, dns_rr_type type, unsign
 	unsigned char *start = context->ptr;
 	struct dns_packet *packet = context->packet;
 	int ret = 0;
+
+	UNUSED(ever);
+
 	/*
 	     Field Name   Field Type     Description
      ------------------------------------------------------
@@ -1284,7 +1289,7 @@ static int _dns_decode_opt(struct dns_context *context, dns_rr_type type, unsign
 		tlog(TLOG_ERROR, "extend rcode invalid.");
 		return -1;
 	}
-	ever = ever;
+	
 
 	tlog(TLOG_DEBUG, "decode opt.");
 	while (context->ptr - start < rr_len) {

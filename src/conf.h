@@ -4,6 +4,7 @@
 #include "list.h"
 #include "art.h"
 #include "dns.h"
+#include "dns_client.h"
 
 #define DNS_MAX_SERVERS 32
 #define DNS_MAX_IPLEN 64
@@ -11,16 +12,10 @@
 #define DEFAULT_DNS_PORT 53
 #define DNS_MAX_CONF_CNAME_LEN 128
 
-typedef enum dns_conf_server_type {
-	DNS_CONF_TYPE_UDP,
-	DNS_CONF_TYPE_TCP,
-	DNS_CONF_TYPE_HTTP,
-} dns_conf_server_type_t;
-
 struct dns_servers {
 	char server[DNS_MAX_IPLEN];
 	unsigned short port;
-	dns_conf_server_type_t type;
+	dns_server_type_t type;
 };
 
 struct dns_address {

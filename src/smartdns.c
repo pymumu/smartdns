@@ -61,7 +61,7 @@ void help(void)
 		"Online help: http://smartdns.github.io"
 		"\n";
 	/* clang-format on */
-	printf(help);
+	printf("%s", help);
 }
 
 int smartdns_load_from_resolv(void)
@@ -283,10 +283,10 @@ int main(int argc, char *argv[])
 			is_forground = 1;
 			break;
 		case 'c':
-			snprintf(config_file, sizeof(config_file), optarg);
+			snprintf(config_file, sizeof(config_file), "%s", optarg);
 			break;
 		case 'p':
-			snprintf(pid_file, sizeof(pid_file), optarg);
+			snprintf(pid_file, sizeof(pid_file), "%s", optarg);
 			break;
 		case 'h':
 			help();

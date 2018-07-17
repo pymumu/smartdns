@@ -1,0 +1,9 @@
+Source: smartdns  
+Maintainer: Nick Peng <pymumu@gmail.com>
+Build-Depends: debhelper (>= 8.0.0)
+Version: 
+Section: net
+Package: smartdns  
+Priority: extra  
+Architecture: armhf
+Description: a smartdns server

@@ -1,0 +1,21 @@
+#!/usr/bin/make -f  
+%:  
+	dh $@ --with systemd --builddirectory=./target/
+
+clean:
+	make -C ../src clean
+
+build:
+	make -C ../src
+
+override_dh_systemd_enable:
+	dh_systemd_enable --name=smartdns 
+
+override_dh_installinit:
+	dh_installinit --name=smartdns 
+
+override_dh_installdeb:
+	dh_installdeb
+	cp ../systemd/smartdns.service ${CURDIR}/debian/
+
+

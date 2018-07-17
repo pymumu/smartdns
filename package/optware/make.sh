@@ -1,9 +1,10 @@
 #/bin/sh
 
 CURR_DIR=`pwd`
-
-SMARTDNS_BIN=$CURR_DIR/../../src/smartdns
-SMARTDNS_CONF=$CURR_DIR/../../etc/smartdns/smartdns.conf
+VER="`date +"1.%Y.%m.%d-%H%M"`"
+SMARTDNS_DIR=$CURR_DIR/../../
+SMARTDNS_BIN=$SMARTDNS_DIR/src/smartdns
+SMARTDNS_CONF=$SMARTDNS_DIR/etc/smartdns/smartdns.conf
 ROOT=/tmp/smartdns-optware
 rm -fr $ROOT
 
@@ -18,11 +19,13 @@ cp $SMARTDNS_CONF  $ROOT/opt/etc/smartdns/
 cp S50smartdns $ROOT/opt/etc/init.d/
 cp $SMARTDNS_BIN $ROOT/opt/usr/sbin
 
+sed -i "s/^\(bind .*\):53/\1:535/g" $ROOT/opt/etc/smartdns/smartdns.conf
+
 cd $ROOT/control
 chmod +x *
 tar zcf ../control.tar.gz ./
 cd $ROOT
 
 tar zcf data.tar.gz opt
-tar zcf $CURR_DIR/smartdns.2018.7.6-1933.mipsbig.ipk control.tar.gz data.tar.gz debian-binary
+tar zcf $CURR_DIR/smartdns.$VER.mipsbig.ipk control.tar.gz data.tar.gz debian-binary
 rm -fr $ROOT/
