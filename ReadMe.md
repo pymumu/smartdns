@@ -154,7 +154,11 @@ Aliases:  www.baidu.com
 捐助
 ==============
 
+* Alipay 支付宝  
+![alipay](https://raw.githubusercontent.com/pymumu/backup/master/image/alipay_donate.jpg)
 
+* Wechat 微信  
+![wechat](https://raw.githubusercontent.com/pymumu/backup/master/image/wechat_donate.jpg)
 
 说明
 ==============
