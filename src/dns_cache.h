@@ -6,6 +6,7 @@
 #include "hash.h"
 #include "list.h"
 #include "atomic.h"
+#include <time.h>
 
 struct dns_cache {
 	struct hlist_node node;

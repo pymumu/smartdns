@@ -1,0 +1,11 @@
+Package: smartdns
+Architecture: mipsbig
+Priority: optional
+Section: net
+Version: 2018.7.6-1921
+Maintainer: pymumu
+Source: http://127.0.0.1/
+Description: A smart dns server
+Suggests: 
+Conflicts: 
+Enabled: yes

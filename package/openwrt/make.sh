@@ -1,9 +1,12 @@
 #/bin/sh
 
 CURR_DIR=$(cd $(dirname $0);pwd)
+
 VER="`date +"1.%Y.%m.%d-%H%M"`"
 SMARTDNS_DIR=$CURR_DIR/../../
 SMARTDNS_BIN=$SMARTDNS_DIR/src/smartdns
+SMARTDNS_CONF=$SMARTDNS_DIR/etc/smartdns/smartdns.conf
+ADDRESS_CONF=$CURR_DIR/address.conf
 
 showhelp()
 {
@@ -17,30 +20,34 @@ showhelp()
 
 build()
 {
-    ROOT=/tmp/smartdns-deiban
+    ROOT=/tmp/smartdns-openwrt
     rm -fr $ROOT
+
     mkdir -p $ROOT
+    cp $CURR_DIR/* $ROOT/ -af
     cd $ROOT/
+    mkdir $ROOT/root/usr/sbin -p
+    mkdir $ROOT/root/etc/init.d -p
+    mkdir $ROOT/root/etc/smartdns/ -p
 
-    cp $CURR_DIR/DEBIAN $ROOT/ -af
-    CONTROL=$ROOT/DEBIAN/control
-    mkdir $ROOT/usr/sbin -p
-    mkdir $ROOT/etc/smartdns/ -p
-    mkdir $ROOT/etc/default/ -p
-    mkdir $ROOT/lib/systemd/system/ -p
+    cp $SMARTDNS_CONF  $ROOT/root/etc/smartdns/
+    cp $ADDRESS_CONF $ROOT/root/etc/smartdns/
+    cp $CURR_DIR/files/etc $ROOT/root/ -af
+    cp $SMARTDNS_BIN $ROOT/root/usr/sbin
 
-    sed -i "s/Version:.*/Version: $VER/" $ROOT/DEBIAN/control
-    sed -i "s/Architecture:.*/Architecture: $ARCH/" $ROOT/DEBIAN/control
-    chmod 0755 $ROOT/DEBIAN/prerm
+    chmod +x $ROOT/root/etc/init.d/smartdns
 
-    cp $SMARTDNS_DIR/etc/smartdns/smartdns.conf  $ROOT/etc/smartdns/
-    cp $SMARTDNS_DIR/etc/default/smartdns  $ROOT/etc/default/
-    cp $SMARTDNS_DIR/systemd/smartdns.service $ROOT/lib/systemd/system/ 
-    cp $SMARTDNS_DIR/src/smartdns $ROOT/usr/sbin
-    chmod +x $ROOT/usr/sbin/smartdns
+    sed -i "s/^Architecture.*/Architecture: $ARCH/g" $ROOT/control/control
+    sed -i "s/Version:.*/Version: $VER/" $ROOT/control/control
+    sed -i "s/^\(bind .*\):53/\1:5353/g" $ROOT/root/etc/smartdns/smartdns.conf
 
-    dpkg -b $ROOT $OUTPUTDIR/smartdns.$VER.$ARCH.deb
+    cd $ROOT/control
+    chmod +x *
+    tar zcf ../control.tar.gz ./
+    cd $ROOT
 
+    tar zcf $ROOT/data.tar.gz -C root .
+    tar zcf $OUTPUTDIR/smartdns.$VER.$ARCH.ipk control.tar.gz data.tar.gz debian-binary
     rm -fr $ROOT/
 }
 
@@ -88,3 +95,5 @@ main()
 
 main $@
 exit $?
+
+

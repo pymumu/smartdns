@@ -1,9 +1,9 @@
 #/bin/sh
 
 CURR_DIR=$(cd $(dirname $0);pwd)
+
 VER="`date +"1.%Y.%m.%d-%H%M"`"
 SMARTDNS_DIR=$CURR_DIR/../../
-SMARTDNS_BIN=$SMARTDNS_DIR/src/smartdns
 
 showhelp()
 {
@@ -17,30 +17,26 @@ showhelp()
 
 build()
 {
-    ROOT=/tmp/smartdns-deiban
+    ROOT=/tmp/luci-app-smartdns
     rm -fr $ROOT
+
     mkdir -p $ROOT
+    cp $CURR_DIR/* $ROOT/ -af
     cd $ROOT/
+    mkdir $ROOT/root/usr/lib/lua/ -p
+    cp $ROOT/files/luci $ROOT/root/usr/lib/lua/ -af
+    cp $ROOT/files/etc $ROOT/root/ -af
+    
+    sed -i "s/^Architecture.*/Architecture: $ARCH/g" $ROOT/control/control
+    sed -i "s/Version:.*/Version: $VER/" $ROOT/control/control
 
-    cp $CURR_DIR/DEBIAN $ROOT/ -af
-    CONTROL=$ROOT/DEBIAN/control
-    mkdir $ROOT/usr/sbin -p
-    mkdir $ROOT/etc/smartdns/ -p
-    mkdir $ROOT/etc/default/ -p
-    mkdir $ROOT/lib/systemd/system/ -p
+    cd $ROOT/control
+    chmod +x *
+    tar zcf ../control.tar.gz ./
+    cd $ROOT
 
-    sed -i "s/Version:.*/Version: $VER/" $ROOT/DEBIAN/control
-    sed -i "s/Architecture:.*/Architecture: $ARCH/" $ROOT/DEBIAN/control
-    chmod 0755 $ROOT/DEBIAN/prerm
-
-    cp $SMARTDNS_DIR/etc/smartdns/smartdns.conf  $ROOT/etc/smartdns/
-    cp $SMARTDNS_DIR/etc/default/smartdns  $ROOT/etc/default/
-    cp $SMARTDNS_DIR/systemd/smartdns.service $ROOT/lib/systemd/system/ 
-    cp $SMARTDNS_DIR/src/smartdns $ROOT/usr/sbin
-    chmod +x $ROOT/usr/sbin/smartdns
-
-    dpkg -b $ROOT $OUTPUTDIR/smartdns.$VER.$ARCH.deb
-
+    tar zcf $ROOT/data.tar.gz -C root .
+    tar zcf $OUTPUTDIR/luci-app-smartdns.$VER.$ARCH.ipk control.tar.gz data.tar.gz debian-binary
     rm -fr $ROOT/
 }
 
@@ -88,3 +84,5 @@ main()
 
 main $@
 exit $?
+
+

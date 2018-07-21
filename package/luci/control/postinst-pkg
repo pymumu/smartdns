@@ -1,0 +1,4 @@
+[ -n "${IPKG_INSTROOT}" ] || {
+	(. /etc/uci-defaults/50_luci-smartdns) && rm -f /etc/uci-defaults/50_luci-smartdns
+	exit 0
+}
