@@ -155,10 +155,10 @@ Aliases:  www.baidu.com
 ==============
 
 * Alipay 支付宝  
-![alipay](https://github.com/pymumu/backup/blob/master/image/alipay_donate.jpg)
+![alipay](Doc/alipay_donate.jpg)
 
 * Wechat 微信  
-![wechat](https://github.com/pymumu/backup/blob/master/image/wechat_donate.jpg)
+![wechat](Doc/wechat_donate.jpg)
 
 说明
 ==============
