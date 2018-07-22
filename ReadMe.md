@@ -41,9 +41,10 @@ SmartDNS是一个运行在本地的DNS服务器，SmartDNS接受本地客户端�
 4. 将访问速度最快的Server IP返回给本地客户端。  
 
 
-使用
+使用  
 ==============
-下载配套安装包
+
+下载配套安装包  
 --------------
 下载配套版本的SmartDNS安装包，对应安装包配套关系如下。
 
@@ -184,8 +185,9 @@ vi /opt/etc/smartdns/smartdns.conf
 \\192.168.1.1\sda1\asusware.mipsbig\etc\init.d
 ```
 
-配置参数
+配置参数  
 ==============
+
 |参数|功能|默认值|配置值|例子|
 |--|--|--|--|--|
 |server-name|DNS服务器名称|操作系统主机名/smartdns|符合主机名规格的字符串|server-name smartdns
