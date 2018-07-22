@@ -2,7 +2,8 @@ SmartDNS
 ==============
 
 SmartDNS是一个运行在本地的DNS服务器，SmartDNS接受本地客户端的DNS查询请求，从多个上游DNS服务器获取DNS查询结果，并将访问速度最快的结果返回个客户端，避免DNS污染，提高网络访问速度。
-同时支持指定特定域名IP地址，并高性匹配，达到过滤广告的效果。
+同时支持指定特定域名IP地址，并高性匹配，达到过滤广告的效果。  
+与dnsmasq的all-servers不同，smartdns返回的是访问速度最快的解析结果。  
 
 支持树莓派，openwrt，华硕路由器等设备。  
 
@@ -54,9 +55,9 @@ SmartDNS是一个运行在本地的DNS服务器，SmartDNS接受本地客户端�
 |华硕原生固件(optware)|smartdns.xxxxxxx.mipsbig.ipk|支持MIPS大端架构的系统，如RT-AC55U, RT-AC66U.
 |华硕原生固件(optware)|smartdns.xxxxxxx.mipsel.ipk|支持MIPS小端架构的系统，如RT-AC68U。
 |openwrt 15.01|smartdns.xxxxxxxx.ar71xx.ipk|支持AR71XX MIPS系统。
-|openwrt 15.01|smartdns.xxxxxxxx.ramips.ipk|支持MT7620系统
+|openwrt 15.01|smartdns.xxxxxxxx.ramips.ipk|支持MT7620端等小系统
 |openwrt LEDE|smartdns.2xxxxxxxx.mips_24kc.ipk|支持AR71XX MIPS系统。
-|openwrt LEDE|smartdns.xxxxxxxx.mipsel_24kc.ipk|支持
+|openwrt LEDE|smartdns.xxxxxxxx.mipsel_24kc.ipk|支持MT7260等小端路由器
 |openwrt LUCI|luci-app-smartdns.xxxxxxxxx.xxxx.all.ipk|openwrt管理统一界面
 
 [此处下载](https://github.com/pymumu/smartdns/releases)
@@ -204,8 +205,9 @@ vi /opt/etc/smartdns/smartdns.conf
 |server-tcp|上游TCP DNS|无|[IP][:port]，可重复| server-tcp 8.8.8.8:53
 |address|指定域名IP地址|无|address /domain/ip| address /www.example.com/1.2.3.4
 
-[捐助](#donate)
+[Donate](#Donate)
 ==============
+如果你觉得此项目对你有帮助，请捐助我们，以使项目能持续发展，更加完善。
 * PayPal  
 [![Support via PayPal](https://cdn.rawgit.com/twolfson/paypal-github-button/1.0.0/dist/button.svg)](https://paypal.me/PengNick/)
 

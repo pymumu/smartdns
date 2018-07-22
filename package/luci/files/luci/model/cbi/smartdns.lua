@@ -28,7 +28,8 @@ o.datatype    = "port"
 o.rempty      = false
 
 o = s:option(Flag, "redirect", translate("redirect"), translate("redirect standard dns query from 53 to smartdns"))
-o.default     = true
+o.default     = "1"
+o.placeholder = "1"
 o.rempty      = false
 
 ---- cache-size
