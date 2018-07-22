@@ -1,7 +1,10 @@
 SmartDNS
 ==============
+
 SmartDNS是一个运行在本地的DNS服务器，SmartDNS接受本地客户端的DNS查询请求，从多个上游DNS服务器获取DNS查询结果，并将访问速度最快的结果返回个客户端，避免DNS污染，提高网络访问速度。
 同时支持指定特定域名IP地址，并高性匹配，达到过滤广告的效果。
+
+支持树莓派，openwrt，华硕路由器等设备。  
 
 特性
 --------------
@@ -31,7 +34,7 @@ SmartDNS是一个运行在本地的DNS服务器，SmartDNS接受本地客户端�
 
 架构
 -------------
-![Architecture](Doc/architecture.png)  
+![Architecture](doc/architecture.png)  
 1. SmartDNS接收本地网络设备的DNS查询请求，如PC，手机的查询请求。  
 2. SmartDNS将查询请求发送到多个上游DNS服务器，可采用标准UDP查询，非标准端口UDP查询，及TCP查询。  
 3. 上游DNS服务器返回域名对应的Server IP地址列表。SmartDNS检测与本地网络访问速度最快的Server IP。  
@@ -46,19 +49,27 @@ SmartDNS是一个运行在本地的DNS服务器，SmartDNS接受本地客户端�
 
 |系统 |安装包|说明
 |-----|-----|-----
-|标准Linux系统（树莓派）| smartdns.xxxxxxxx.armhf.deb|支持树莓派Raspbian stretch，Debian 9系统。
-|华硕原生固件|asusware.mipsbig.tar.gz|支持MIPS大端架构的系统，如RT-AC55U, RT-AC66U.
-|openwrt 15.01|smartdns.xxxxxxxx.ar71xx.ipk|支持AR71XX MIPS系统
-|openwrt LEDE|smartdns.1.2xxxxxxxx.mips_24kc.ipk|支持AR71XX MIPS系统。
-|openwrt LEDE|smartdns.1.2xxxxxxxx.mipsel_24kc.ipk|支持
+|标准Linux系统(树莓派)| smartdns.xxxxxxxx.armhf.deb|支持树莓派Raspbian stretch，Debian 9系统。
+|华硕原生固件(optware)|smartdns.xxxxxxx.mipsbig.ipk|支持MIPS大端架构的系统，如RT-AC55U, RT-AC66U.
+|华硕原生固件(optware)|smartdns.xxxxxxx.mipsel.ipk|支持MIPS小端架构的系统，如RT-AC68U。
+|openwrt 15.01|smartdns.xxxxxxxx.ar71xx.ipk|支持AR71XX MIPS系统。
+|openwrt 15.01|smartdns.xxxxxxxx.ramips.ipk|支持MT7620系统
+|openwrt LEDE|smartdns.2xxxxxxxx.mips_24kc.ipk|支持AR71XX MIPS系统。
+|openwrt LEDE|smartdns.xxxxxxxx.mipsel_24kc.ipk|支持
+|openwrt LUCI|luci-app-smartdns.xxxxxxxxx.xxxx.all.ipk|openwrt管理统一界面
+
+[此处下载](https://github.com/pymumu/smartdns/releases)
 
 标准Linux系统安装（树莓派）
 --------------
 1. 安装
+下载配套安装包`smartdns.xxxxxxxx.armhf.deb`，并上传到Linux系统中。 执行如下命令安装
 ```
 dpkg -i smartdns.xxxxxxxx.armhf.deb
 ```
 2. 修改配置
+安装完成后，可配置smartdns的上游服务器信息。具体配置参数参考`配置参数`说明。  
+一般情况下，只需要增加`server [IP]:port`, `server-tcp [IP]:port`配置项
 ```
 vi /etc/smartdns/smartdns.conf
 ```
@@ -67,36 +78,79 @@ vi /etc/smartdns/smartdns.conf
 systemctl enable smartdns
 systemctl start smartdns
 ```
-4. 修改本地路由器DNS指向树莓派  
+4. 将DNS请求转发的SmartDNS解析。  
+修改本地路由器的DNS服务器，将DNS服务器配置为SmartDNS。 
 * 登录到本地网络的路由器中，配置树莓派分配静态IP地址。
 * 修改WAN口或者DHCP DNS为树莓派IP地址。  
  注意：  
  I. 每款路由器配置方法不尽相同，请百度搜索相关的配置方法。  
  II.  华为等路由器可能不支持配置DNS为本地IP，请修改PC端，手机端DNS服务器为树莓派IP。
 
+5. 检测服务是否配置成功。  
+使用nslookup查询域名，看命令结果中的`服务器`项目是否显示为`Linux主机名`，如raspberry则表示生效  
+```
+C:\Users\meikechong>nslookup www.baidu.com  
+服务器:  raspberry  
+Address:  192.168.1.1  
+  
+非权威应答:  
+名称:    www.a.shifen.com  
+Address:  14.215.177.39  
+Aliases:  www.baidu.com  
+```
 
 openwrt/LEDE
 --------------
-1. 安装
+1. 安装  
 将软件使用winscp上传到路由器的/root目录，执行如下命令安装
 ```
 opkg install smartdns.xxxxxxxx.xxxx.ipk
+opkg install luci-app-smartdns.xxxxxxxx.xxxx.all.ipk
 ```
 
-2. 修改配置
-```
-vi /etc/smartdns/smartdns.conf
-```
-3. 启动服务
-```
+2. 修改配置  
+登陆openwrt管理页面，打开Services->SmartDNS进行配置。
+* 在Upstream Servers增加上游DNS服务器配置。
+* 在Domain Address指定特定域名的IP地址，可用于广告屏蔽。
 
-```
+3. 启动服务  
+勾选配置页面中的`Enable(启用)`来启动SmartDNS
+
 
 华硕路由器原生固件
 --------------
+1. 准备  
 在使用此软件时，需要确认路由器是否支持U盘，并准备好U盘一个。
 
-1. 解压安装包到U盘根目录，其目录格式如下。（此处仅列出smartdns相关文件）
+1. 启用SSH登录  
+登录管理界面，点击`系统管理`->点击`系统设置`，配置`Enable SSH`为`Lan Only`。  
+SSH登录用户名密码与管理界面相同。
+
+2. 下载`Download Master`
+在管理界面点击`USB相关应用`->点击`Download Master`下载。  
+下载完成后，启用`Download Master`，如果不需要下载功能，此处可以卸载`Download Master`，但要保证卸载前Download Master是启用的。  
+
+3. 安装SmartDNS
+将软件使用winscp上传到路由器的`/tmp/mnt/sda1`目录。（或网上邻居复制到sda1共享目录）  
+```
+ipkg install smartdns.xxxxxxx.mipsbig.ipk
+```
+
+4. 重启路由器生效服务
+待路由器启动后，使用nslookup查询域名，看命令结果中的`服务器`项目是否显示为`smartdns`，如显示smartdns则表示生效  
+```
+C:\Users\meikechong>nslookup www.baidu.com  
+服务器:  smartdns  
+Address:  192.168.1.1  
+  
+非权威应答:  
+名称:    www.a.shifen.com  
+Address:  14.215.177.39  
+Aliases:  www.baidu.com  
+```
+5. 额外说明
+上述过程，smartdns将安装到U盘根目录，采用optware的模式运行。
+其目录结构如下： （此处仅列出smartdns相关文件）   
 ```
 U盘
  └── asusware.mipsbig
@@ -113,24 +167,14 @@ U盘
           |          └── smartdns     
           ....
 ```
-2. 修改配置
+如要修改配置，可以ssh登录路由器，使用vi命令修改  
 ```
-vi asusware.mipsbig/etc/smartdns/smartdns.conf
+vi /opt/etc/smartdns/smartdns.conf
 ```
-3. 启动服务
-将U盘插入路由器后方USB插口，并重启路由器。
 
-4. 检测DNS服务是否生效
-待路由器启动后，使用nslookup查询域名，看命令结果中的`服务器`项目是否显示为`smartdns`，如显示smartdns则表示生效
+也可以通过网上邻居修改，网上邻居共享目录`sda1`看不到`asusware.mipsbig`目录，但可以直接在`文件管理器`中输入`asusware.mipsbig\etc\init.d`访问。  
 ```
-C:\Users\meikechong>nslookup www.baidu.com
-服务器:  smartdns
-Address:  192.168.1.1
-
-非权威应答:
-名称:    www.a.shifen.com
-Address:  14.215.177.39
-Aliases:  www.baidu.com
+\\192.168.1.1\sda1\asusware.mipsbig\etc\init.d
 ```
 
 配置参数
@@ -151,14 +195,16 @@ Aliases:  www.baidu.com
 |server-tcp|上游TCP DNS|无|[IP][:port]，可重复| server-tcp 8.8.8.8:53
 |address|指定域名IP地址|无|address /domain/ip| address /www.example.com/1.2.3.4
 
-捐助
+[捐助](#donate)
 ==============
+* PayPal  
+[![Support via PayPal](https://cdn.rawgit.com/twolfson/paypal-github-button/1.0.0/dist/button.svg)](https://paypal.me/PengNick/)
 
 * Alipay 支付宝  
-![alipay](Doc/alipay_donate.jpg)
+![alipay](doc/alipay_donate.jpg)
 
 * Wechat 微信  
-![wechat](Doc/wechat_donate.jpg)
+![wechat](doc/wechat_donate.jpg)
 
 说明
 ==============
