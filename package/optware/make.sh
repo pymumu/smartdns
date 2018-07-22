@@ -33,6 +33,7 @@ build()
     cp $SMARTDNS_BIN $ROOT/opt/usr/sbin
 
     sed -i "s/^\(bind .*\):53/\1:535/g" $ROOT/opt/etc/smartdns/smartdns.conf
+    sed -i "s/# *server-name smartdns/server-name smartdns/g" $ROOT/opt/etc/smartdns/smartdns.conf
     sed -i "s/^Architecture.*/Architecture: $ARCH/g" $ROOT/control/control
     sed -i "s/Version:.*/Version: $VER/" $ROOT/control/control
 

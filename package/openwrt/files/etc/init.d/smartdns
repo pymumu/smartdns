@@ -1,5 +1,5 @@
 #!/bin/sh /etc/rc.common
-# Copyright (C) 2008-2011 OpenWrt.org
+# Copyright (C) 2018 Nick Peng (pymumu@gmail.com)
 
 START=50
 SERVICE_USE_PID=1
@@ -97,7 +97,7 @@ start_service() {
 	config_foreach load_server "server"
 
 	echo "# address" >> $SMARTDNS_CONF_TMP
-	grep "^ *address" $ADDRESS_CONF >> $SMARTDNS_CONF_TMP
+	grep "^ *address " $ADDRESS_CONF >> $SMARTDNS_CONF_TMP
 
 	config_get_bool "enabled" "$section" "enabled" '0'
 	mv $SMARTDNS_CONF_TMP $SMARTDNS_CONF

@@ -13,58 +13,39 @@ else
 end
 
 -- Basic
-s = m:section(TypedSection, "smartdns", translate("SmartDNS Server"))
+s = m:section(TypedSection, "smartdns", translate("Settings"), translate("General Settings"))
 s.anonymous = true
 
-s:tab("settings", translate("Settings"))
-s:tab("help", translate("Technical Support"))
-
 ---- Eanble
-o = s:taboption("settings", Flag, "enabled", translate("Enable"), translate("Enable or disable smartdns server"))
+o = s:option(Flag, "enabled", translate("Enable"), translate("Enable or disable smartdns server"))
 o.rempty      = false
 
 ---- Port
-o = s:taboption("settings", Value, "port", translate("Local Port"), translate("Smartdns local server port"))
+o = s:option(Value, "port", translate("Local Port"), translate("Smartdns local server port"))
 o.placeholder = 5353
 o.default     = 5353
 o.datatype    = "port"
 o.rempty      = false
 
-o = s:taboption("settings", Flag, "redirect", translate("redirect"), translate("redirect standard dns query from 53 to smartdns"))
+o = s:option(Flag, "redirect", translate("redirect"), translate("redirect standard dns query from 53 to smartdns"))
 o.default     = true
 o.rempty      = false
 
 ---- cache-size
-o = s:taboption("settings", Value, "cache_size", translate("Cache Size"), translate("DNS domain result cache size"))
+o = s:option(Value, "cache_size", translate("Cache Size"), translate("DNS domain result cache size"))
 o.rempty      = true
 
 ---- rr-ttl
-o = s:taboption("settings", Value, "rr_ttl", translate("Domain TTL"), translate("TTL for all domain result."))
+o = s:option(Value, "rr_ttl", translate("Domain TTL"), translate("TTL for all domain result."))
 o.rempty      = true
 
 ---- rr-ttl-min
-o = s:taboption("settings", Value, "rr_ttl_min", translate("Domain TTL Min"), translate("Minimum TTL for all domain result."))
+o = s:option(Value, "rr_ttl_min", translate("Domain TTL Min"), translate("Minimum TTL for all domain result."))
 o.rempty      = true
 
 ---- rr-ttl-max
-o = s:taboption("settings", Value, "rr_ttl_min", translate("Domain TTL Max"), translate("Maximum TTL for all domain result."))
+o = s:option(Value, "rr_ttl_min", translate("Domain TTL Max"), translate("Maximum TTL for all domain result."))
 o.rempty      = true
-
-o = s:taboption("help", Button, "web")
-o.title = translate("SmartDNS official website")
-o.inputtitle = translate("open website")
-o.inputstyle = "apply"
-o.write = function()
-	luci.http.redirect("https://pymumu.github.io/")
-end
-
-o = s:taboption("help", Button, "Donate")
-o.title = translate("Donate to smartdns")
-o.inputtitle = translate("Donate")
-o.inputstyle = "apply"
-o.write = function()
-	luci.http.redirect("https://pymumu.github.io/smartdns")
-end
 
 -- Upstream servers
 s = m:section(TypedSection, "server", translate("Upstream Servers"), translate("Upstream Servers, support UDP, TCP protocol"))
@@ -114,6 +95,27 @@ end
 function addr.write(self, section, value)
 	value = value:gsub("\r\n?", "\n")
 	nixio.fs.writefile("/etc/smartdns/address.conf", value)
+end
+
+-- Doman addresss
+s = m:section(TypedSection, "smartdns", translate("Technical Support"), 
+	translate("Technical Support"))
+s.anonymous = true
+
+o = s:option(Button, "web")
+o.title = translate("SmartDNS official website")
+o.inputtitle = translate("open website")
+o.inputstyle = "apply"
+o.write = function()
+	luci.http.redirect("https://pymumu.github.io/smartdns")
+end
+
+o = s:option(Button, "Donate")
+o.title = translate("Donate to smartdns")
+o.inputtitle = translate("Donate")
+o.inputstyle = "apply"
+o.write = function()
+	luci.http.redirect("https://pymumu.github.io/smartdns/#donate")
 end
 
 return m
