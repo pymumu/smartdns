@@ -88,6 +88,7 @@ systemctl start smartdns
 
 5. 检测服务是否配置成功。  
 使用nslookup查询域名，看命令结果中的`服务器`项目是否显示为`Linux主机名`，如raspberry则表示生效  
+
 ```
 C:\Users\meikechong>nslookup www.baidu.com  
 服务器:  raspberry  
@@ -103,6 +104,7 @@ openwrt/LEDE
 --------------
 1. 安装  
 将软件使用winscp上传到路由器的/root目录，执行如下命令安装
+
 ```
 opkg install smartdns.xxxxxxxx.xxxx.ipk
 opkg install luci-app-smartdns.xxxxxxxx.xxxx.all.ipk
@@ -138,6 +140,7 @@ ipkg install smartdns.xxxxxxx.mipsbig.ipk
 
 4. 重启路由器生效服务
 待路由器启动后，使用nslookup查询域名，看命令结果中的`服务器`项目是否显示为`smartdns`，如显示smartdns则表示生效  
+
 ```
 C:\Users\meikechong>nslookup www.baidu.com  
 服务器:  smartdns  
@@ -148,9 +151,11 @@ Address:  192.168.1.1
 Address:  14.215.177.39  
 Aliases:  www.baidu.com  
 ```
+
 5. 额外说明
 上述过程，smartdns将安装到U盘根目录，采用optware的模式运行。
-其目录结构如下： （此处仅列出smartdns相关文件）   
+其目录结构如下： （此处仅列出smartdns相关文件）  
+ 
 ```
 U盘
  └── asusware.mipsbig
@@ -168,11 +173,13 @@ U盘
           ....
 ```
 如要修改配置，可以ssh登录路由器，使用vi命令修改  
+
 ```
 vi /opt/etc/smartdns/smartdns.conf
 ```
 
-也可以通过网上邻居修改，网上邻居共享目录`sda1`看不到`asusware.mipsbig`目录，但可以直接在`文件管理器`中输入`asusware.mipsbig\etc\init.d`访问。  
+也可以通过网上邻居修改，网上邻居共享目录`sda1`看不到`asusware.mipsbig`目录，但可以直接在`文件管理器`中输入`asusware.mipsbig\etc\init.d`访问。 
+ 
 ```
 \\192.168.1.1\sda1\asusware.mipsbig\etc\init.d
 ```
