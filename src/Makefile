@@ -7,13 +7,14 @@ CFLAGS +=-Iinclude
 CFLAGS += -DBASE_FILE_NAME=\"$(notdir $<)\"
 CXXFLAGS=-g -O0 -Wall -std=c++11 
 CXXFLAGS +=-Iinclude
+LDFLAGS += -lpthread 
 
 .PHONY: all
 
 all: $(BIN)
  
 $(BIN) : $(OBJS)
-	$(CC) $(OBJS) -o $@ -lpthread 
+	$(CC) $(OBJS) -o $@ $(LDFLAGS)
 
 clean:
 	$(RM) $(OBJS) $(BIN)
