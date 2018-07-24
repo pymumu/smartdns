@@ -55,10 +55,19 @@ SmartDNS是一个运行在本地的DNS服务器，SmartDNS接受本地客户端�
 |华硕原生固件(optware)|smartdns.xxxxxxx.mipsbig.ipk|支持MIPS大端架构的系统，如RT-AC55U, RT-AC66U.
 |华硕原生固件(optware)|smartdns.xxxxxxx.mipsel.ipk|支持MIPS小端架构的系统，如RT-AC68U。
 |openwrt 15.01|smartdns.xxxxxxxx.ar71xx.ipk|支持AR71XX MIPS系统。
-|openwrt 15.01|smartdns.xxxxxxxx.ramips.ipk|支持MT7620端等小系统
-|openwrt LEDE|smartdns.2xxxxxxxx.mips_24kc.ipk|支持AR71XX MIPS系统。
+|openwrt 15.01|smartdns.xxxxxxxx.ramips_24kec.ipk|支持MT7620等小端路由器
+|openwrt 15.01(潘多拉)|smartdns.xxxxxxxx.mipsel_24kec_dsp.ipk|支持MT7620系列的潘多拉固件
+|openwrt LEDE|smartdns.xxxxxxxx.mips_24kc.ipk|支持AR71XX MIPS系统。
 |openwrt LEDE|smartdns.xxxxxxxx.mipsel_24kc.ipk|支持MT7260等小端路由器
+|openwrt LEDE|smartdns.xxxxxxxx.x86_64.ipk|支持x86_64路由器
 |openwrt LUCI|luci-app-smartdns.xxxxxxxxx.xxxx.all.ipk|openwrt管理统一界面
+
+openwrt系统CPU架构比较多，请查看CPU架构后下载，CPU架构可在路由器管理界面找到，查看方法：
+* 登录路由器，点击`System`->`Software`，点击`Configuration` Tab页面，在opkg安装源中可找到对应软件架构，下载路径中可找到，如下，架构为ar71xx  
+
+```
+src/gz chaos_calmer_base http://downloads.openwrt.org/chaos_calmer/15.05/ar71xx/generic/packages/base
+```
 
 [此处下载](https://github.com/pymumu/smartdns/releases)
 

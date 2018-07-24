@@ -28,7 +28,7 @@ o.datatype    = "port"
 o.rempty      = false
 
 o = s:option(Flag, "redirect", translate("redirect"), translate("redirect standard dns query from 53 to smartdns"))
-o.default     = "1"
+o.default     = true
 o.placeholder = "1"
 o.rempty      = false
 
@@ -45,7 +45,7 @@ o = s:option(Value, "rr_ttl_min", translate("Domain TTL Min"), translate("Minimu
 o.rempty      = true
 
 ---- rr-ttl-max
-o = s:option(Value, "rr_ttl_min", translate("Domain TTL Max"), translate("Maximum TTL for all domain result."))
+o = s:option(Value, "rr_ttl_max", translate("Domain TTL Max"), translate("Maximum TTL for all domain result."))
 o.rempty      = true
 
 -- Upstream servers

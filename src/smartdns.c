@@ -58,7 +58,7 @@ void help(void)
 		"  -p [pid]      pid file path\n"
 		"  -h            show this help message.\n"
 
-		"Online help: http://smartdns.github.io"
+		"Online help: http://pymumu.github.io/smartdns"
 		"\n";
 	/* clang-format on */
 	printf("%s", help);
