@@ -1,4 +1,3 @@
 #!/bin/sh
 . ${IPKG_INSTROOT}/lib/functions.sh
 default_prerm $0 $@
-

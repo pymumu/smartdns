@@ -39,11 +39,11 @@ build()
 
     cd $ROOT/control
     chmod +x *
-    tar zcf ../control.tar.gz ./
+    tar zcf ../control.tar.gz --owner=0 --group=0 ./ 
     cd $ROOT
 
-    tar zcf data.tar.gz opt
-    tar zcf $OUTPUTDIR/smartdns.$VER.$ARCH.ipk control.tar.gz data.tar.gz debian-binary
+    tar zcf data.tar.gz --owner=0 --group=0 opt
+    tar zcf $OUTPUTDIR/smartdns.$VER.$ARCH.ipk --owner=0 --group=0 control.tar.gz data.tar.gz debian-binary
     rm -fr $ROOT/
 }
 

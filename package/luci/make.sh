@@ -26,9 +26,14 @@ build()
     mkdir $ROOT/root/usr/lib/lua/ -p
     cp $ROOT/files/luci $ROOT/root/usr/lib/lua/ -af
     cp $ROOT/files/etc $ROOT/root/ -af
+    INST_SIZE="`du -sb $ROOT/root/ | awk '{print $1}'`"
     
     sed -i "s/^Architecture.*/Architecture: $ARCH/g" $ROOT/control/control
     sed -i "s/Version:.*/Version: $VER/" $ROOT/control/control
+
+    if [ ! -z "$INST_SIZE" ]; then
+        echo "Installed-Size: $INST_SIZE" >> $ROOT/control/control
+    fi
 
     cd $ROOT/control
     chmod +x *

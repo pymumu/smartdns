@@ -36,18 +36,22 @@ build()
     cp $SMARTDNS_BIN $ROOT/root/usr/sbin
 
     chmod +x $ROOT/root/etc/init.d/smartdns
+    INST_SIZE="`du -sb $ROOT/root/ | awk '{print $1}'`"
 
     sed -i "s/^Architecture.*/Architecture: $ARCH/g" $ROOT/control/control
     sed -i "s/Version:.*/Version: $VER/" $ROOT/control/control
     sed -i "s/^\(bind .*\):53/\1:5353/g" $ROOT/root/etc/smartdns/smartdns.conf
+    if [ ! -z "$INST_SIZE" ]; then
+        echo "Installed-Size: $INST_SIZE" >> $ROOT/control/control
+    fi
 
     cd $ROOT/control
     chmod +x *
-    tar zcf ../control.tar.gz ./
+    tar zcf ../control.tar.gz --owner=0 --group=0 ./
     cd $ROOT
 
-    tar zcf $ROOT/data.tar.gz -C root .
-    tar zcf $OUTPUTDIR/smartdns.$VER.$ARCH.ipk control.tar.gz data.tar.gz debian-binary
+    tar zcf $ROOT/data.tar.gz -C root --owner=0 --group=0 .
+    tar zcf $OUTPUTDIR/smartdns.$VER.$ARCH.ipk --owner=0 --group=0 control.tar.gz data.tar.gz debian-binary
     rm -fr $ROOT/
 }
 
