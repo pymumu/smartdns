@@ -7,6 +7,62 @@ SmartDNS是一个运行在本地的DNS服务器，SmartDNS接受本地客户端�
 
 支持树莓派，openwrt，华硕路由器等设备。  
 
+**阿里DNS**
+```shell
+pi@raspberrypi:~/code/smartdns_build $ nslookup www.baidu.com 223.5.5.5
+Server:         223.5.5.5
+Address:        223.5.5.5#53
+
+Non-authoritative answer:
+www.baidu.com   canonical name = www.a.shifen.com.
+Name:   www.a.shifen.com
+Address: 180.97.33.108
+Name:   www.a.shifen.com
+Address: 180.97.33.107
+
+pi@raspberrypi:~/code/smartdns_build $ ping 180.97.33.107 -c 2
+PING 180.97.33.107 (180.97.33.107) 56(84) bytes of data.
+64 bytes from 180.97.33.107: icmp_seq=1 ttl=55 time=24.3 ms
+64 bytes from 180.97.33.107: icmp_seq=2 ttl=55 time=24.2 ms
+
+--- 180.97.33.107 ping statistics ---
+2 packets transmitted, 2 received, 0% packet loss, time 1001ms
+rtt min/avg/max/mdev = 24.275/24.327/24.380/0.164 ms
+pi@raspberrypi:~/code/smartdns_build $ ping 180.97.33.108 -c 2
+PING 180.97.33.108 (180.97.33.108) 56(84) bytes of data.
+64 bytes from 180.97.33.108: icmp_seq=1 ttl=55 time=31.1 ms
+64 bytes from 180.97.33.108: icmp_seq=2 ttl=55 time=31.0 ms
+
+--- 180.97.33.108 ping statistics ---
+2 packets transmitted, 2 received, 0% packet loss, time 1001ms
+rtt min/avg/max/mdev = 31.014/31.094/31.175/0.193 ms
+```
+
+**smartdns**
+
+```shell
+pi@raspberrypi:~/code/smartdns_build $ nslookup www.baidu.com
+Server:         192.168.1.1
+Address:        192.168.1.1#53
+
+Non-authoritative answer:
+www.baidu.com   canonical name = www.a.shifen.com.
+Name:   www.a.shifen.com
+Address: 14.215.177.39
+
+pi@raspberrypi:~/code/smartdns_build $ ping 14.215.177.39 -c 2
+PING 14.215.177.39 (14.215.177.39) 56(84) bytes of data.
+64 bytes from 14.215.177.39: icmp_seq=1 ttl=56 time=6.31 ms
+64 bytes from 14.215.177.39: icmp_seq=2 ttl=56 time=5.95 ms
+
+--- 14.215.177.39 ping statistics ---
+2 packets transmitted, 2 received, 0% packet loss, time 1001ms
+rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
+
+```
+
+从对比看出，smartdns找到访问www.baidu.com最快的IP地址，这样访问百度比阿里DNS速度快5倍。
+
 特性
 --------------
 1. **多DNS上游服务器**  
