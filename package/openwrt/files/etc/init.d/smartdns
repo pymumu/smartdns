@@ -64,6 +64,12 @@ load_server()
 start_service() {
 	local section="$1"
 	args=""
+
+	config_get "server_name" "$section" "server_name" ""
+	if [ ! -z "$server_name" ]; then
+		conf_append "server-name" "$server_name"	
+	fi
+
 	config_get "port" "$section" "port" "5353"
 	conf_append "bind" "[::]:$port"
 	SMARTDNS_PORT="$port"

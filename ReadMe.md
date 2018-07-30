@@ -7,6 +7,62 @@ SmartDNS是一个运行在本地的DNS服务器，SmartDNS接受本地客户端�
 
 支持树莓派，openwrt，华硕路由器等设备。  
 
+**阿里DNS**
+```shell
+pi@raspberrypi:~/code/smartdns_build $ nslookup www.baidu.com 223.5.5.5
+Server:         223.5.5.5
+Address:        223.5.5.5#53
+
+Non-authoritative answer:
+www.baidu.com   canonical name = www.a.shifen.com.
+Name:   www.a.shifen.com
+Address: 180.97.33.108
+Name:   www.a.shifen.com
+Address: 180.97.33.107
+
+pi@raspberrypi:~/code/smartdns_build $ ping 180.97.33.107 -c 2
+PING 180.97.33.107 (180.97.33.107) 56(84) bytes of data.
+64 bytes from 180.97.33.107: icmp_seq=1 ttl=55 time=24.3 ms
+64 bytes from 180.97.33.107: icmp_seq=2 ttl=55 time=24.2 ms
+
+--- 180.97.33.107 ping statistics ---
+2 packets transmitted, 2 received, 0% packet loss, time 1001ms
+rtt min/avg/max/mdev = 24.275/24.327/24.380/0.164 ms
+pi@raspberrypi:~/code/smartdns_build $ ping 180.97.33.108 -c 2
+PING 180.97.33.108 (180.97.33.108) 56(84) bytes of data.
+64 bytes from 180.97.33.108: icmp_seq=1 ttl=55 time=31.1 ms
+64 bytes from 180.97.33.108: icmp_seq=2 ttl=55 time=31.0 ms
+
+--- 180.97.33.108 ping statistics ---
+2 packets transmitted, 2 received, 0% packet loss, time 1001ms
+rtt min/avg/max/mdev = 31.014/31.094/31.175/0.193 ms
+```
+
+**smartdns**
+
+```shell
+pi@raspberrypi:~/code/smartdns_build $ nslookup www.baidu.com
+Server:         192.168.1.1
+Address:        192.168.1.1#53
+
+Non-authoritative answer:
+www.baidu.com   canonical name = www.a.shifen.com.
+Name:   www.a.shifen.com
+Address: 14.215.177.39
+
+pi@raspberrypi:~/code/smartdns_build $ ping 14.215.177.39 -c 2
+PING 14.215.177.39 (14.215.177.39) 56(84) bytes of data.
+64 bytes from 14.215.177.39: icmp_seq=1 ttl=56 time=6.31 ms
+64 bytes from 14.215.177.39: icmp_seq=2 ttl=56 time=5.95 ms
+
+--- 14.215.177.39 ping statistics ---
+2 packets transmitted, 2 received, 0% packet loss, time 1001ms
+rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
+
+```
+
+从对比看出，smartdns找到访问www.baidu.com最快的IP地址，这样访问百度比阿里DNS速度快5倍。
+
 特性
 --------------
 1. **多DNS上游服务器**  
@@ -52,19 +108,21 @@ SmartDNS是一个运行在本地的DNS服务器，SmartDNS接受本地客户端�
 |系统 |安装包|说明
 |-----|-----|-----
 |标准Linux系统(树莓派)| smartdns.xxxxxxxx.armhf.deb|支持树莓派Raspbian stretch，Debian 9系统。
+|标准Linux系统(x86_64)| smartdns.xxxxxxxx.x86_64..tar.gz|支持x86_64系统。
 |华硕原生固件(optware)|smartdns.xxxxxxx.mipsbig.ipk|支持MIPS大端架构的系统，如RT-AC55U, RT-AC66U.
 |华硕原生固件(optware)|smartdns.xxxxxxx.mipsel.ipk|支持MIPS小端架构的系统，如RT-AC68U。
 |openwrt 15.01|smartdns.xxxxxxxx.ar71xx.ipk|支持AR71XX MIPS系统。
-|openwrt 15.01|smartdns.xxxxxxxx.ramips_24kec.ipk|支持MT7620等小端路由器
+|openwrt 15.01|smartdns.xxxxxxxx.ramips_24kec.ipk|支持MT762X等小端路由器
 |openwrt 15.01(潘多拉)|smartdns.xxxxxxxx.mipsel_24kec_dsp.ipk|支持MT7620系列的潘多拉固件
 |openwrt LEDE|smartdns.xxxxxxxx.mips_24kc.ipk|支持AR71XX MIPS系统。
-|openwrt LEDE|smartdns.xxxxxxxx.mipsel_24kc.ipk|支持MT7260等小端路由器
+|openwrt LEDE|smartdns.xxxxxxxx.mipsel_24kc.ipk|支持MT726X等小端路由器
 |openwrt LEDE|smartdns.xxxxxxxx.x86_64.ipk|支持x86_64路由器
+|openwrt LEDE|smartdns.xxxxxxxxxxx.arm_cortex-a9.ipk|支持arm A9核心CPU的路由器
+|openwrt LEDE|smartdns.xxxxxxxxx.arm_cortex-a7_neon-vfpv4.ipk|支持arm A7核心CPU的路由器
 |openwrt LUCI|luci-app-smartdns.xxxxxxxxx.xxxx.all.ipk|openwrt管理统一界面
 
 openwrt系统CPU架构比较多，请查看CPU架构后下载，CPU架构可在路由器管理界面找到，查看方法：
-* 登录路由器，点击`System`->`Software`，点击`Configuration` Tab页面，在opkg安装源中可找到对应软件架构，下载路径中可找到，如下，架构为ar71xx  
-
+* 登录路由器，点击`System`->`Software`，点击`Configuration` Tab页面，在opkg安装源中可找到对应软件架构，下载路径中可找到，如下，架构为ar71xx
 ```
 src/gz chaos_calmer_base http://downloads.openwrt.org/chaos_calmer/15.05/ar71xx/generic/packages/base
 ```
@@ -123,11 +181,28 @@ opkg install luci-app-smartdns.xxxxxxxx.xxxx.all.ipk
 
 2. 修改配置  
 登陆openwrt管理页面，打开Services->SmartDNS进行配置。
-* 在Upstream Servers增加上游DNS服务器配置。
+* 在Upstream Servers增加上游DNS服务器配置，将以配置多个国内外DNS服务器。
 * 在Domain Address指定特定域名的IP地址，可用于广告屏蔽。
 
 3. 启动服务  
 勾选配置页面中的`Enable(启用)`来启动SmartDNS
+
+4. 检测服务是否配置成功。  
+使用nslookup查询域名，看命令结果中的`服务器`项目是否显示为`Linux主机名`，如`smartdns`则表示生效  
+```
+C:\Users\meikechong>nslookup www.baidu.com  
+服务器:  smartdns  
+Address:  192.168.1.1  
+  
+非权威应答:  
+名称:    www.a.shifen.com  
+Address:  14.215.177.39  
+Aliases:  www.baidu.com  
+```
+
+5. 注意：
+* 如已经安装chinaDNS，建议将chinaDNS的上游配置为SmartDNS。
+* SmartDNS默认情况，将53端口的请求转发到SmartDNS的本地端口，由`Redirect`配置选项控制。
 
 
 华硕路由器原生固件

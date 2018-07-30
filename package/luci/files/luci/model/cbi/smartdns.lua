@@ -20,6 +20,12 @@ s.anonymous = true
 o = s:option(Flag, "enabled", translate("Enable"), translate("Enable or disable smartdns server"))
 o.rempty      = false
 
+---- server name
+o = s:option(Value, "server_name", translate("Server Name"), translate("smartdns server name"))
+o.default     = "smartdns"
+o.datatype    = "hostname"
+o.rempty      = false
+
 ---- Port
 o = s:option(Value, "port", translate("Local Port"), translate("Smartdns local server port"))
 o.placeholder = 5353
@@ -27,7 +33,7 @@ o.default     = 5353
 o.datatype    = "port"
 o.rempty      = false
 
-o = s:option(Flag, "redirect", translate("redirect"), translate("redirect standard dns query from 53 to smartdns"))
+o = s:option(Flag, "redirect", translate("Redirect"), translate("redirect standard dns query from 53 to smartdns"))
 o.default     = true
 o.placeholder = "1"
 o.rempty      = false
@@ -49,7 +55,9 @@ o = s:option(Value, "rr_ttl_max", translate("Domain TTL Max"), translate("Maximu
 o.rempty      = true
 
 -- Upstream servers
-s = m:section(TypedSection, "server", translate("Upstream Servers"), translate("Upstream Servers, support UDP, TCP protocol"))
+s = m:section(TypedSection, "server", translate("Upstream Servers"), translate("Upstream Servers, support UDP, TCP protocol" ..
+	"Please configure multiple DNS servers. Including multiple foreign DNS servers."))
+	
 s.anonymous = true
 s.addremove = true
 s.template = "cbi/tblsection"

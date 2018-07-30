@@ -304,6 +304,7 @@ struct config_item {
 };
 
 struct config_item config_item[] = {
+	{"server-name", config_server_name},
 	{"bind", config_bind},
 	{"server", config_server_udp},
 	{"address", config_address},

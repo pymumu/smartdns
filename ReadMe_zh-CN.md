@@ -1,9 +1,67 @@
 SmartDNS
 ==============
+
 SmartDNS是一个运行在本地的DNS服务器，SmartDNS接受本地客户端的DNS查询请求，从多个上游DNS服务器获取DNS查询结果，并将访问速度最快的结果返回个客户端，避免DNS污染，提高网络访问速度。
-同时支持指定特定域名IP地址，并高性匹配，达到过滤广告的效果。
+同时支持指定特定域名IP地址，并高性匹配，达到过滤广告的效果。  
+与dnsmasq的all-servers不同，smartdns返回的是访问速度最快的解析结果。  
 
 支持树莓派，openwrt，华硕路由器等设备。  
+
+**阿里DNS**
+```shell
+pi@raspberrypi:~/code/smartdns_build $ nslookup www.baidu.com 223.5.5.5
+Server:         223.5.5.5
+Address:        223.5.5.5#53
+
+Non-authoritative answer:
+www.baidu.com   canonical name = www.a.shifen.com.
+Name:   www.a.shifen.com
+Address: 180.97.33.108
+Name:   www.a.shifen.com
+Address: 180.97.33.107
+
+pi@raspberrypi:~/code/smartdns_build $ ping 180.97.33.107 -c 2
+PING 180.97.33.107 (180.97.33.107) 56(84) bytes of data.
+64 bytes from 180.97.33.107: icmp_seq=1 ttl=55 time=24.3 ms
+64 bytes from 180.97.33.107: icmp_seq=2 ttl=55 time=24.2 ms
+
+--- 180.97.33.107 ping statistics ---
+2 packets transmitted, 2 received, 0% packet loss, time 1001ms
+rtt min/avg/max/mdev = 24.275/24.327/24.380/0.164 ms
+pi@raspberrypi:~/code/smartdns_build $ ping 180.97.33.108 -c 2
+PING 180.97.33.108 (180.97.33.108) 56(84) bytes of data.
+64 bytes from 180.97.33.108: icmp_seq=1 ttl=55 time=31.1 ms
+64 bytes from 180.97.33.108: icmp_seq=2 ttl=55 time=31.0 ms
+
+--- 180.97.33.108 ping statistics ---
+2 packets transmitted, 2 received, 0% packet loss, time 1001ms
+rtt min/avg/max/mdev = 31.014/31.094/31.175/0.193 ms
+```
+
+**smartdns**
+
+```shell
+pi@raspberrypi:~/code/smartdns_build $ nslookup www.baidu.com
+Server:         192.168.1.1
+Address:        192.168.1.1#53
+
+Non-authoritative answer:
+www.baidu.com   canonical name = www.a.shifen.com.
+Name:   www.a.shifen.com
+Address: 14.215.177.39
+
+pi@raspberrypi:~/code/smartdns_build $ ping 14.215.177.39 -c 2
+PING 14.215.177.39 (14.215.177.39) 56(84) bytes of data.
+64 bytes from 14.215.177.39: icmp_seq=1 ttl=56 time=6.31 ms
+64 bytes from 14.215.177.39: icmp_seq=2 ttl=56 time=5.95 ms
+
+--- 14.215.177.39 ping statistics ---
+2 packets transmitted, 2 received, 0% packet loss, time 1001ms
+rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
+
+```
+
+从对比看出，smartdns找到访问www.baidu.com最快的IP地址，这样访问百度比阿里DNS速度快5倍。
 
 特性
 --------------
@@ -40,22 +98,34 @@ SmartDNS是一个运行在本地的DNS服务器，SmartDNS接受本地客户端�
 4. 将访问速度最快的Server IP返回给本地客户端。  
 
 
-使用
+使用  
 ==============
-下载配套安装包
+
+下载配套安装包  
 --------------
 下载配套版本的SmartDNS安装包，对应安装包配套关系如下。
 
 |系统 |安装包|说明
 |-----|-----|-----
 |标准Linux系统(树莓派)| smartdns.xxxxxxxx.armhf.deb|支持树莓派Raspbian stretch，Debian 9系统。
+|标准Linux系统(x86_64)| smartdns.xxxxxxxx.x86_64..tar.gz|支持x86_64系统。
 |华硕原生固件(optware)|smartdns.xxxxxxx.mipsbig.ipk|支持MIPS大端架构的系统，如RT-AC55U, RT-AC66U.
 |华硕原生固件(optware)|smartdns.xxxxxxx.mipsel.ipk|支持MIPS小端架构的系统，如RT-AC68U。
 |openwrt 15.01|smartdns.xxxxxxxx.ar71xx.ipk|支持AR71XX MIPS系统。
-|openwrt 15.01|smartdns.xxxxxxxx.ramips.ipk|支持MT7620系统
-|openwrt LEDE|smartdns.2xxxxxxxx.mips_24kc.ipk|支持AR71XX MIPS系统。
-|openwrt LEDE|smartdns.xxxxxxxx.mipsel_24kc.ipk|支持
+|openwrt 15.01|smartdns.xxxxxxxx.ramips_24kec.ipk|支持MT762X等小端路由器
+|openwrt 15.01(潘多拉)|smartdns.xxxxxxxx.mipsel_24kec_dsp.ipk|支持MT7620系列的潘多拉固件
+|openwrt LEDE|smartdns.xxxxxxxx.mips_24kc.ipk|支持AR71XX MIPS系统。
+|openwrt LEDE|smartdns.xxxxxxxx.mipsel_24kc.ipk|支持MT726X等小端路由器
+|openwrt LEDE|smartdns.xxxxxxxx.x86_64.ipk|支持x86_64路由器
+|openwrt LEDE|smartdns.xxxxxxxxxxx.arm_cortex-a9.ipk|支持arm A9核心CPU的路由器
+|openwrt LEDE|smartdns.xxxxxxxxx.arm_cortex-a7_neon-vfpv4.ipk|支持arm A7核心CPU的路由器
 |openwrt LUCI|luci-app-smartdns.xxxxxxxxx.xxxx.all.ipk|openwrt管理统一界面
+
+openwrt系统CPU架构比较多，请查看CPU架构后下载，CPU架构可在路由器管理界面找到，查看方法：
+* 登录路由器，点击`System`->`Software`，点击`Configuration` Tab页面，在opkg安装源中可找到对应软件架构，下载路径中可找到，如下，架构为ar71xx
+```
+src/gz chaos_calmer_base http://downloads.openwrt.org/chaos_calmer/15.05/ar71xx/generic/packages/base
+```
 
 [此处下载](https://github.com/pymumu/smartdns/releases)
 
@@ -87,6 +157,7 @@ systemctl start smartdns
 
 5. 检测服务是否配置成功。  
 使用nslookup查询域名，看命令结果中的`服务器`项目是否显示为`Linux主机名`，如raspberry则表示生效  
+
 ```
 C:\Users\meikechong>nslookup www.baidu.com  
 服务器:  raspberry  
@@ -102,6 +173,7 @@ openwrt/LEDE
 --------------
 1. 安装  
 将软件使用winscp上传到路由器的/root目录，执行如下命令安装
+
 ```
 opkg install smartdns.xxxxxxxx.xxxx.ipk
 opkg install luci-app-smartdns.xxxxxxxx.xxxx.all.ipk
@@ -109,11 +181,28 @@ opkg install luci-app-smartdns.xxxxxxxx.xxxx.all.ipk
 
 2. 修改配置  
 登陆openwrt管理页面，打开Services->SmartDNS进行配置。
-* 在Upstream Servers增加上游DNS服务器配置。
+* 在Upstream Servers增加上游DNS服务器配置，将以配置多个国内外DNS服务器。
 * 在Domain Address指定特定域名的IP地址，可用于广告屏蔽。
 
 3. 启动服务  
 勾选配置页面中的`Enable(启用)`来启动SmartDNS
+
+4. 检测服务是否配置成功。  
+使用nslookup查询域名，看命令结果中的`服务器`项目是否显示为`Linux主机名`，如`smartdns`则表示生效  
+```
+C:\Users\meikechong>nslookup www.baidu.com  
+服务器:  smartdns  
+Address:  192.168.1.1  
+  
+非权威应答:  
+名称:    www.a.shifen.com  
+Address:  14.215.177.39  
+Aliases:  www.baidu.com  
+```
+
+5. 注意：
+* 如已经安装chinaDNS，建议将chinaDNS的上游配置为SmartDNS。
+* SmartDNS默认情况，将53端口的请求转发到SmartDNS的本地端口，由`Redirect`配置选项控制。
 
 
 华硕路由器原生固件
@@ -137,6 +226,7 @@ ipkg install smartdns.xxxxxxx.mipsbig.ipk
 
 4. 重启路由器生效服务
 待路由器启动后，使用nslookup查询域名，看命令结果中的`服务器`项目是否显示为`smartdns`，如显示smartdns则表示生效  
+
 ```
 C:\Users\meikechong>nslookup www.baidu.com  
 服务器:  smartdns  
@@ -147,9 +237,11 @@ Address:  192.168.1.1
 Address:  14.215.177.39  
 Aliases:  www.baidu.com  
 ```
+
 5. 额外说明
 上述过程，smartdns将安装到U盘根目录，采用optware的模式运行。
-其目录结构如下： （此处仅列出smartdns相关文件）   
+其目录结构如下： （此处仅列出smartdns相关文件）  
+ 
 ```
 U盘
  └── asusware.mipsbig
@@ -167,17 +259,20 @@ U盘
           ....
 ```
 如要修改配置，可以ssh登录路由器，使用vi命令修改  
+
 ```
 vi /opt/etc/smartdns/smartdns.conf
 ```
 
-也可以通过网上邻居修改，网上邻居共享目录`sda1`看不到`asusware.mipsbig`目录，但可以直接在`文件管理器`中输入`asusware.mipsbig\etc\init.d`访问。  
+也可以通过网上邻居修改，网上邻居共享目录`sda1`看不到`asusware.mipsbig`目录，但可以直接在`文件管理器`中输入`asusware.mipsbig\etc\init.d`访问。 
+ 
 ```
 \\192.168.1.1\sda1\asusware.mipsbig\etc\init.d
 ```
 
-配置参数
+配置参数  
 ==============
+
 |参数|功能|默认值|配置值|例子|
 |--|--|--|--|--|
 |server-name|DNS服务器名称|操作系统主机名/smartdns|符合主机名规格的字符串|server-name smartdns
@@ -194,8 +289,9 @@ vi /opt/etc/smartdns/smartdns.conf
 |server-tcp|上游TCP DNS|无|[IP][:port]，可重复| server-tcp 8.8.8.8:53
 |address|指定域名IP地址|无|address /domain/ip| address /www.example.com/1.2.3.4
 
-[捐助](#donate)
+[Donate](#Donate)
 ==============
+如果你觉得此项目对你有帮助，请捐助我们，以使项目能持续发展，更加完善。
 * PayPal  
 [![Support via PayPal](https://cdn.rawgit.com/twolfson/paypal-github-button/1.0.0/dist/button.svg)](https://paypal.me/PengNick/)
 
