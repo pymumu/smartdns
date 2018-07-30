@@ -21,7 +21,7 @@ o = s:option(Flag, "enabled", translate("Enable"), translate("Enable or disable 
 o.rempty      = false
 
 ---- server name
-o = s:option(Value, "server_name", translate("Server Name"), translate("smartdns server name"))
+o = s:option(Value, "server_name", translate("Server Name"), translate("Smartdns server name"))
 o.default     = "smartdns"
 o.datatype    = "hostname"
 o.rempty      = false
@@ -33,7 +33,7 @@ o.default     = 5353
 o.datatype    = "port"
 o.rempty      = false
 
-o = s:option(Flag, "redirect", translate("Redirect"), translate("redirect standard dns query from 53 to smartdns"))
+o = s:option(Flag, "redirect", translate("Redirect"), translate("Redirect standard dns query from 53 to smartdns"))
 o.default     = true
 o.placeholder = "1"
 o.rempty      = false
@@ -55,8 +55,8 @@ o = s:option(Value, "rr_ttl_max", translate("Domain TTL Max"), translate("Maximu
 o.rempty      = true
 
 -- Upstream servers
-s = m:section(TypedSection, "server", translate("Upstream Servers"), translate("Upstream Servers, support UDP, TCP protocol" ..
-	"Please configure multiple DNS servers. Including multiple foreign DNS servers."))
+s = m:section(TypedSection, "server", translate("Upstream Servers"), translate("Upstream Servers, support UDP, TCP protocol. " ..
+	"Please configure multiple DNS servers, including multiple foreign DNS servers."))
 	
 s.anonymous = true
 s.addremove = true
@@ -84,15 +84,13 @@ o.rempty      = false
 
 -- Doman addresss
 s = m:section(TypedSection, "smartdns", translate("Domain Address"), 
-	translate("DNS Server name"))
+	translate("Set Specific domain ip address."))
 s.anonymous = true
 
 ---- address
 addr = s:option(Value, "address",
 	translate(""), 
-	translate("Specify an IP address to return for any host in the given domains " ..
-	  "Queries in the domains are never forwarded and always replied to with the specified IP address which may be IPv4 or IPv6. " ..
-	  ""))
+	translate("Specify an IP address to return for any host in the given domains, Queries in the domains are never forwarded and always replied to with the specified IP address which may be IPv4 or IPv6."))
 
 addr.template = "cbi/tvalue"
 addr.rows = 20

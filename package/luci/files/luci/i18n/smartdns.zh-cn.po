@@ -1,0 +1,102 @@
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8\n"
+
+msgid "SmartDNS"
+msgstr "SmartDNS"
+
+msgid "Server Name"
+msgstr "服务器名称"
+
+msgid "Smartdns server name"
+msgstr "SmartDNS的服务器名称，默认为smartdns，留空为主机名"
+
+msgid "SmartDNS is a local dns server to find fastest ip."
+msgstr "本地高性能服务器，优化网络访问性能。"
+
+msgid "Enable or disable smartdns server"
+msgstr "启用或禁用SmartDNS服务"
+
+msgid "Smartdns local server port"
+msgstr "SmartDNS本地服务端口"
+
+msgid "Redirect"
+msgstr "重定向"
+
+msgid "Redirect standard dns query from 53 to smartdns"
+msgstr "将53端口的DNS请求重定向到SmartDNS"
+
+msgid "Cache Size"
+msgstr "缓存大小"
+
+msgid "DNS domain result cache size"
+msgstr "缓存DNS的结果，缓存大小，配置零则不缓存"
+
+msgid "Domain TTL"
+msgstr "域名TTL"
+
+msgid "TTL for all domain result."
+msgstr "设置所有域名的TTL值"
+
+msgid "Domain TTL Min"
+msgstr "域名TTL最小值"
+
+msgid "Minimum TTL for all domain result."
+msgstr "设置所有域名的TTL最小值"
+
+msgid "Domain TTL Max"
+msgstr "域名TTL最大值"
+
+msgid "Maximum TTL for all domain result."
+msgstr "设置所有域名的TTL最大值"
+
+msgid "Upstream Servers"
+msgstr "上游服务器"
+
+msgid "Upstream Servers, support UDP, TCP protocol. Please configure multiple DNS servers, including multiple foreign DNS servers."
+msgstr "上游DNS服务器列表，支持UDP，TCP协议，请配置多个上游DNS服务器，包括多个国内外服务器"
+
+msgid "DNS Server name"
+msgstr "DNS服务器名称"
+
+msgid "port"
+msgstr "端口"
+
+msgid "DNS Server port"
+msgstr "DNS服务器端口"
+
+msgid "DNS Server ip"
+msgstr "DNS服务器IP"
+
+msgid "type"
+msgstr "类型"
+
+msgid "DNS Server type"
+msgstr "协议类型"
+
+msgid "Domain Address"
+msgstr "域名地址"
+
+msgid "Set Specific domain ip address."
+msgstr "指定特定域名的IP地址"
+
+msgid "Specify an IP address to return for any host in the given domains, Queries in the domains are never forwarded and always replied to with the specified IP address which may be IPv4 or IPv6."
+msgstr "配置特定域名返回特定的IP地址，域名查询将不到上游服务器请求，直接返回配置的IP地址，可用于广告屏蔽。"
+
+msgid "Technical Support"
+msgstr "技术支持"
+
+msgid "SmartDNS official website"
+msgstr "SmartDNS官方网站"
+
+msgid "open website"
+msgstr "打开网站"
+
+msgid "Donate to smartdns"
+msgstr "捐助smartdns项目"
+
+msgid "Donate"
+msgstr "捐助"
+
+
+
+
