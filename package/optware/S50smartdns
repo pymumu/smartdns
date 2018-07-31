@@ -54,7 +54,7 @@ case "$1" in
 	stop)
 	clear_iptable
 	pid="`cat $SMARTDNS_PID 2>/dev/null`"
-	kill -TERM $pid 2>/dev/null
+	kill -9 $pid 2>/dev/null
 	;;
 	force-reload|restart)
 	$0 stop
