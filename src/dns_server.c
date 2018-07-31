@@ -125,6 +125,7 @@ struct dns_request {
 	int passthrough;
 
 	pthread_mutex_t ip_map_lock;
+	int ip_map_num;
 	DECLARE_HASHTABLE(ip_map, 4);
 };
 
@@ -468,6 +469,7 @@ int _dns_ip_address_check_add(struct dns_request *request, unsigned char *addr, 
 			}
 		}
 	}
+	request->ip_map_num++;
 	pthread_mutex_unlock(&request->ip_map_lock);
 
 	addr_map = malloc(sizeof(*addr_map));
@@ -635,6 +637,7 @@ static int dns_server_resolve_callback(char *domain, dns_result_type rtype, stru
 									   void *user_ptr)
 {
 	struct dns_request *request = user_ptr;
+	int ip_num = 0;
 
 	if (request == NULL) {
 		return -1;
@@ -651,6 +654,15 @@ static int dns_server_resolve_callback(char *domain, dns_result_type rtype, stru
 		tlog(TLOG_ERROR, "request faield, %s", domain);
 		return -1;
 	} else {
+		pthread_mutex_lock(&request->ip_map_lock);
+		ip_num = request->ip_map_num;
+		pthread_mutex_unlock(&request->ip_map_lock);
+		
+		/* Not need to wait check result if only has one ip address */
+		if (ip_num == 1) {
+			_dns_server_request_complete(request);
+		}
+
 		if (request->has_ipv4 == 0 && request->has_ipv6 == 0) {
 			_dns_server_request_remove(request);
 		}
