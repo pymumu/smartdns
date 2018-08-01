@@ -741,11 +741,22 @@ errout:
 	return -1;
 }
 
+static void _dns_server_log_rule(char *domain, unsigned char *rule_key, int rule_key_len)
+{
+	char rule_name[DNS_MAX_CNAME_LEN];
+	reverse_string(rule_name, (char *)rule_key, rule_key_len);
+	rule_name[rule_key_len - 1] = 0;
+	tlog(TLOG_INFO, "RULE-MATCH, domain: %s, rule: %s", domain, rule_name);
+}
+
 static struct dns_address *_dns_server_get_address_by_domain(char *domain, int qtype)
 {
 	int domain_len;
 	char domain_key[DNS_MAX_CNAME_LEN];
 	char type = '4';
+	unsigned char matched_key[DNS_MAX_CNAME_LEN];
+	int matched_key_len = DNS_MAX_CNAME_LEN;
+	struct dns_address *address = NULL;
 
 	switch (qtype) {
 	case DNS_T_A:
@@ -763,7 +774,18 @@ static struct dns_address *_dns_server_get_address_by_domain(char *domain, int q
 	domain_key[0] = type;
 	domain_len++;
 
-	return art_substring(&dns_conf_address, (unsigned char *)domain_key, domain_len);
+	if (likely(dns_conf_log_level > TLOG_INFO)) {
+		return art_substring(&dns_conf_address, (unsigned char *)domain_key, domain_len, NULL, NULL);
+	} 
+		
+	address = art_substring(&dns_conf_address, (unsigned char *)domain_key, domain_len, matched_key, &matched_key_len);
+	if (address == NULL) {
+		return NULL;
+	}
+
+	_dns_server_log_rule(domain, matched_key, matched_key_len);
+
+	return address;
 }
 
 static int _dns_server_process_address(struct dns_request *request, struct dns_packet *packet)

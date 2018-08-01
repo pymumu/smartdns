@@ -123,6 +123,7 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 
 openwrt系统CPU架构比较多，请查看CPU架构后下载，CPU架构可在路由器管理界面找到，查看方法：
 * 登录路由器，点击`System`->`Software`，点击`Configuration` Tab页面，在opkg安装源中可找到对应软件架构，下载路径中可找到，如下，架构为ar71xx
+
 ```
 src/gz chaos_calmer_base http://downloads.openwrt.org/chaos_calmer/15.05/ar71xx/generic/packages/base
 ```
@@ -133,20 +134,27 @@ src/gz chaos_calmer_base http://downloads.openwrt.org/chaos_calmer/15.05/ar71xx/
 --------------
 1. 安装
 下载配套安装包`smartdns.xxxxxxxx.armhf.deb`，并上传到Linux系统中。 执行如下命令安装
+
 ```
 dpkg -i smartdns.xxxxxxxx.armhf.deb
 ```
+
 2. 修改配置
 安装完成后，可配置smartdns的上游服务器信息。具体配置参数参考`配置参数`说明。  
 一般情况下，只需要增加`server [IP]:port`, `server-tcp [IP]:port`配置项
+尽可能配置多个上游DNS服务器，包括国内外的服务器。
+
 ```
 vi /etc/smartdns/smartdns.conf
 ```
+
 3. 启动服务
+
 ```
 systemctl enable smartdns
 systemctl start smartdns
 ```
+
 4. 将DNS请求转发的SmartDNS解析。  
 修改本地路由器的DNS服务器，将DNS服务器配置为SmartDNS。 
 * 登录到本地网络的路由器中，配置树莓派分配静态IP地址。
@@ -189,6 +197,7 @@ opkg install luci-app-smartdns.xxxxxxxx.xxxx.all.ipk
 
 4. 检测服务是否配置成功。  
 使用nslookup查询域名，看命令结果中的`服务器`项目是否显示为`Linux主机名`，如`smartdns`则表示生效  
+
 ```
 C:\Users\meikechong>nslookup www.baidu.com  
 服务器:  smartdns  
@@ -219,7 +228,8 @@ SSH登录用户名密码与管理界面相同。
 下载完成后，启用`Download Master`，如果不需要下载功能，此处可以卸载`Download Master`，但要保证卸载前Download Master是启用的。  
 
 3. 安装SmartDNS
-将软件使用winscp上传到路由器的`/tmp/mnt/sda1`目录。（或网上邻居复制到sda1共享目录）  
+将软件使用winscp上传到路由器的`/tmp/mnt/sda1`目录。（或网上邻居复制到sda1共享目录） 
+ 
 ```
 ipkg install smartdns.xxxxxxx.mipsbig.ipk
 ```

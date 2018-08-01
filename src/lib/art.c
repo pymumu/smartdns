@@ -998,7 +998,20 @@ static int str_prefix_matches(const art_leaf *n, const unsigned char *str, int s
     return memcmp(str, n->key, n->key_len);
 }
 
-void *art_substring(const art_tree *t, const unsigned char *str, int str_len)
+static void art_copy_key(art_leaf *leaf, unsigned char *key, int *key_len)
+{
+	int len;
+
+    if (key == NULL || key_len == NULL) {
+		return;
+	}
+
+	len = leaf->key_len > *key_len ? *key_len : leaf->key_len;
+	memcpy(key, leaf->key, len);
+	*key_len = len;
+}
+
+void *art_substring(const art_tree *t, const unsigned char *str, int str_len, unsigned char *key, int *key_len)
 {
     art_node **child;
     art_node *n = t->root;
@@ -1013,7 +1026,8 @@ void *art_substring(const art_tree *t, const unsigned char *str, int str_len)
             // Check if the expanded path matches
             if (!str_prefix_matches((art_leaf*)n, str, str_len)) {
                 found = (art_leaf*)n;
-            }
+				art_copy_key(found, key, key_len);
+			}
             break;
         }
 
@@ -1025,6 +1039,7 @@ void *art_substring(const art_tree *t, const unsigned char *str, int str_len)
             // Check if the expanded path matches
             if (!str_prefix_matches((art_leaf*)m, str, str_len)) {
                 found = (art_leaf*)m;
+                art_copy_key(found, key, key_len);
             }
     	}
 
