@@ -7,7 +7,11 @@ SmartDNS是一个运行在本地的DNS服务器，SmartDNS接受本地客户端�
 
 支持树莓派，openwrt，华硕路由器等设备。  
 
-**阿里DNS**
+软件效果展示
+==============
+**阿里DNS**  
+使用阿里DNS查询百度IP，并检测结果。  
+
 ```shell
 pi@raspberrypi:~/code/smartdns_build $ nslookup www.baidu.com 223.5.5.5
 Server:         223.5.5.5
@@ -38,8 +42,8 @@ PING 180.97.33.108 (180.97.33.108) 56(84) bytes of data.
 rtt min/avg/max/mdev = 31.014/31.094/31.175/0.193 ms
 ```
 
-**smartdns**
-
+**smartdns**  
+使用阿里SmartDNS查询百度IP，并检测结果。  
 ```shell
 pi@raspberrypi:~/code/smartdns_build $ nslookup www.baidu.com
 Server:         192.168.1.1
@@ -121,16 +125,17 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 |openwrt LEDE|smartdns.xxxxxxxxx.arm_cortex-a7_neon-vfpv4.ipk|支持arm A7核心CPU的路由器
 |openwrt LUCI|luci-app-smartdns.xxxxxxxxx.xxxx.all.ipk|openwrt管理统一界面
 
-openwrt系统CPU架构比较多，请查看CPU架构后下载，CPU架构可在路由器管理界面找到，查看方法：
+openwrt系统CPU架构比较多，上述表格未列出所有支持系统，请查看CPU架构后下载。  
+CPU架构可在路由器管理界面找到，查看方法：
 * 登录路由器，点击`System`->`Software`，点击`Configuration` Tab页面，在opkg安装源中可找到对应软件架构，下载路径中可找到，如下，架构为ar71xx
 
 ```
 src/gz chaos_calmer_base http://downloads.openwrt.org/chaos_calmer/15.05/ar71xx/generic/packages/base
 ```
 
-[此处下载](https://github.com/pymumu/smartdns/releases)
+请在Release页面下载：[此处下载](https://github.com/pymumu/smartdns/releases)
 
-标准Linux系统安装（树莓派）
+标准Linux系统安装（树莓派, X86_64系统）
 --------------
 1. 安装
 下载配套安装包`smartdns.xxxxxxxx.armhf.deb`，并上传到Linux系统中。 执行如下命令安装
@@ -164,23 +169,22 @@ systemctl start smartdns
  II.  华为等路由器可能不支持配置DNS为本地IP，请修改PC端，手机端DNS服务器为树莓派IP。
 
 5. 检测服务是否配置成功。  
-使用nslookup查询域名，看命令结果中的`服务器`项目是否显示为`Linux主机名`，如raspberry则表示生效  
+使用`nslookup -querytype=ptr 127.0.0.1`查询域名  
+看命令结果中的`name`项目是否显示为`smartdns`或`主机名`，如`smartdns`则表示生效  
 
 ```
-C:\Users\meikechong>nslookup www.baidu.com  
-服务器:  raspberry  
-Address:  192.168.1.1  
-  
-非权威应答:  
-名称:    www.a.shifen.com  
-Address:  14.215.177.39  
-Aliases:  www.baidu.com  
+pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 127.0.0.1
+Server:         192.168.1.1
+Address:        192.168.1.1#53
+
+Non-authoritative answer:
+1.0.0.127.in-addr.arpa  name = smartdns.
 ```
 
 openwrt/LEDE
 --------------
 1. 安装  
-将软件使用winscp上传到路由器的/root目录，执行如下命令安装
+将软件使用winscp上传到路由器的/root目录，执行如下命令安装  
 
 ```
 opkg install smartdns.xxxxxxxx.xxxx.ipk
@@ -195,18 +199,17 @@ opkg install luci-app-smartdns.xxxxxxxx.xxxx.all.ipk
 3. 启动服务  
 勾选配置页面中的`Enable(启用)`来启动SmartDNS
 
-4. 检测服务是否配置成功。  
-使用nslookup查询域名，看命令结果中的`服务器`项目是否显示为`Linux主机名`，如`smartdns`则表示生效  
+4. 检测服务是否配置成功  
+使用`nslookup -querytype=ptr 127.0.0.1`查询域名  
+看命令结果中的`name`项目是否显示为`smartdns`或`主机名`，如`smartdns`则表示生效  
 
 ```
-C:\Users\meikechong>nslookup www.baidu.com  
-服务器:  smartdns  
-Address:  192.168.1.1  
-  
-非权威应答:  
-名称:    www.a.shifen.com  
-Address:  14.215.177.39  
-Aliases:  www.baidu.com  
+pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 127.0.0.1
+Server:         192.168.1.1
+Address:        192.168.1.1#53
+
+Non-authoritative answer:
+1.0.0.127.in-addr.arpa  name = smartdns.
 ```
 
 5. 注意：
@@ -223,32 +226,31 @@ Aliases:  www.baidu.com
 登录管理界面，点击`系统管理`->点击`系统设置`，配置`Enable SSH`为`Lan Only`。  
 SSH登录用户名密码与管理界面相同。
 
-2. 下载`Download Master`
+2. 下载`Download Master`  
 在管理界面点击`USB相关应用`->点击`Download Master`下载。  
 下载完成后，启用`Download Master`，如果不需要下载功能，此处可以卸载`Download Master`，但要保证卸载前Download Master是启用的。  
 
-3. 安装SmartDNS
+3. 安装SmartDNS  
 将软件使用winscp上传到路由器的`/tmp/mnt/sda1`目录。（或网上邻居复制到sda1共享目录） 
  
 ```
 ipkg install smartdns.xxxxxxx.mipsbig.ipk
 ```
 
-4. 重启路由器生效服务
-待路由器启动后，使用nslookup查询域名，看命令结果中的`服务器`项目是否显示为`smartdns`，如显示smartdns则表示生效  
+4. 重启路由器生效服务  
+待路由器启动后，使用`nslookup -querytype=ptr 127.0.0.1`查询域名  
+看命令结果中的`name`项目是否显示为`smartdns`或`主机名`，如`smartdns`则表示生效  
 
 ```
-C:\Users\meikechong>nslookup www.baidu.com  
-服务器:  smartdns  
-Address:  192.168.1.1  
-  
-非权威应答:  
-名称:    www.a.shifen.com  
-Address:  14.215.177.39  
-Aliases:  www.baidu.com  
+pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 127.0.0.1
+Server:         192.168.1.1
+Address:        192.168.1.1#53
+
+Non-authoritative answer:
+1.0.0.127.in-addr.arpa  name = smartdns.
 ```
 
-5. 额外说明
+5. 额外说明  
 上述过程，smartdns将安装到U盘根目录，采用optware的模式运行。
 其目录结构如下： （此处仅列出smartdns相关文件）  
  
@@ -299,7 +301,7 @@ vi /opt/etc/smartdns/smartdns.conf
 |server-tcp|上游TCP DNS|无|[IP][:port]，可重复| server-tcp 8.8.8.8:53
 |address|指定域名IP地址|无|address /domain/ip| address /www.example.com/1.2.3.4
 
-[Donate](#Donate)
+[Donate](#Donate)  
 ==============
 如果你觉得此项目对你有帮助，请捐助我们，以使项目能持续发展，更加完善。
 * PayPal  
@@ -310,6 +312,15 @@ vi /opt/etc/smartdns/smartdns.conf
 
 * Wechat 微信  
 ![wechat](doc/wechat_donate.jpg)
+
+声明
+==============
+* `SmartDNS`著作权归属Nick Peng (pymumu at gmail.com)。
+* `SmartDNS`为免费软件，用户可以非商业性地复制和使用`SmartDNS`。
+* 禁止将 `SmartDNS` 用于商业用途。
+* 使用本软件的风险由用户自行承担，在适用法律允许的最大范围内，对因使用本产品所产生的损害及风险，包括但不限于直接或间接的个人损害、商业赢利的丧失、贸易中断、商业信息的丢失或任何其它经济损失，不承担任何责任。
+* 本软件不会未经用户同意收集任何用户信息。
+
 
 说明
 ==============
