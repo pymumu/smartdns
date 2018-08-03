@@ -1,16 +1,15 @@
 -- Copyright 2018 Nick Peng (pymumu@gmail.com)
 
-require("nixio.fs")
-require("luci.http")
+require ("nixio.fs")
+require ("luci.http")
+require ("luci.dispatcher")
+require ("nixio.fs")
 
-m = Map("smartdns", translate("SmartDNS"),
-	translate("SmartDNS is a local dns server to find fastest ip."))
+m = Map("smartdns")
+m.title	= translate("SmartDNS Server")
+m.description = translate("SmartDNS is a local high-performance DNS server, supports finding fastest IP, supports ad filtering, and supports avoiding DNS poisoning.")
 
-if luci.sys.call("pidof smartdns >/dev/null") == 0 then
-	m = Map("smartdns", translate("SmartDNS"), "%s - %s" %{translate("SmartDNS"), translate("RUNNING")})
-else
-	m = Map("smartdns", translate("SmartDNS"), "%s - %s" %{translate("SmartDNS"), translate("NOT RUNNING")})
-end
+m:section(SimpleSection).template  = "smartdns/smartdns_status"
 
 -- Basic
 s = m:section(TypedSection, "smartdns", translate("Settings"), translate("General Settings"))
@@ -18,6 +17,7 @@ s.anonymous = true
 
 ---- Eanble
 o = s:option(Flag, "enabled", translate("Enable"), translate("Enable or disable smartdns server"))
+o.default     = o.disabled
 o.rempty      = false
 
 ---- server name
@@ -33,10 +33,12 @@ o.default     = 5353
 o.datatype    = "port"
 o.rempty      = false
 
-o = s:option(Flag, "redirect", translate("Redirect"), translate("Redirect standard dns query from 53 to smartdns"))
-o.default     = true
-o.placeholder = "1"
-o.rempty      = false
+o = s:option(Flag, "redirect", translate("Redirect"), translate("Redirect standard dns query from 53 to smartdns, as default DNS server"))
+o.rmempty     = false
+o.default     = o.enabled
+o.cfgvalue    = function(...)
+    return Flag.cfgvalue(...) or "1"
+end
 
 ---- cache-size
 o = s:option(Value, "cache_size", translate("Cache Size"), translate("DNS domain result cache size"))

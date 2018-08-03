@@ -38,7 +38,7 @@ int config_bind(char *value)
 
 int config_server_name(char *value)
 {
-	strncpy(dns_conf_server_name, value, DNS_MAX_CNAME_LEN);
+	strncpy(dns_conf_server_name, value, DNS_MAX_CONF_CNAME_LEN);
 	return 0;
 }
 

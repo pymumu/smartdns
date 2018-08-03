@@ -4,6 +4,15 @@ msgstr "Content-Type: text/plain; charset=UTF-8\n"
 msgid "SmartDNS"
 msgstr "SmartDNS"
 
+msgid "SmartDNS is a local high-performance DNS server"
+msgstr "SmartDNS是一个本地高性能DNS服务器"
+
+msgid "SmartDNS Server"
+msgstr "SmartDNS 服务器"
+
+msgid "SmartDNS is a local high-performance DNS server, supports finding fastest IP, supports ad filtering, and supports avoiding DNS poisoning."
+msgstr "SmartDNS是一个本地高性能DNS服务器，支持避免域名污染，支持返回最快IP，支持广告过滤。"
+
 msgid "Server Name"
 msgstr "服务器名称"
 
@@ -22,8 +31,8 @@ msgstr "SmartDNS本地服务端口"
 msgid "Redirect"
 msgstr "重定向"
 
-msgid "Redirect standard dns query from 53 to smartdns"
-msgstr "将53端口的DNS请求重定向到SmartDNS"
+msgid "Redirect standard dns query from 53 to smartdns, as default DNS server"
+msgstr "将53端口的DNS请求重定向到SmartDNS, 替换默认DNS服务"
 
 msgid "Cache Size"
 msgstr "缓存大小"
