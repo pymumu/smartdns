@@ -5,7 +5,7 @@
    xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
    xmlns:svg="http://www.w3.org/2000/svg"
    xmlns="http://www.w3.org/2000/svg"
-   width="400"
+   width="1200"
    height="400"
    version="1.1"
    id="svg64">
@@ -77,4 +77,30 @@
        stroke-linejoin="null"
        style="font-weight:bold;font-size:40.22891617px;font-family:Sans-serif;text-anchor:middle;fill:#ffffff;stroke-width:0;stroke-dasharray:none">SMART DNS</text>
   </g>
+  <text
+     id="text881-6"
+     xml:space="preserve"
+     width="686.86316"
+     height="132.18472"
+     x="795.06732"
+     y="341.91434"
+     style="font-style:italic;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:112.85948181px;line-height:1.25;font-family:sans-serif;-inkscape-font-specification:'sans-serif Bold Italic';letter-spacing:0px;word-spacing:0px;fill:#ffffff;fill-opacity:1;stroke:none;stroke-width:0.99999994;filter:url(#filter1475)"
+     transform="matrix(0.97567876,0,0,1.0249275,-348,-28)">SMART DNS</text>
+  <text
+     id="text881"
+     xml:space="preserve"
+     width="686.86316"
+     height="132.18472"
+     x="437.26294"
+     y="313.84378"
+     style="font-style:italic;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:112.85948181px;line-height:1.25;font-family:sans-serif;-inkscape-font-specification:'sans-serif Bold Italic';letter-spacing:0px;word-spacing:0px;fill:#44aa00;fill-opacity:1;stroke:none;stroke-width:0.99999994"
+     transform="scale(0.97567876,1.0249275)">SMART DNS</text>
+  <path
+     style="fill:#ffffff;fill-opacity:1;stroke-width:1"
+     d="m 441.65562,210.91257 c -0.88204,-2.41088 -25.48884,-99.53854 -25.28394,-99.71615 0.11023,-0.0955 82.63937,7.82242 166.287,12.70657 441.76442,25.79446 492.06032,33.25639 492.46712,32.84951 0.2434,-0.24341 -1.0391,-5.66325 -4.0728,-19.37741 -3.0338,-13.71416 -10.3898,-49.06149 -10.2351,-49.21626 0.1548,-0.15478 40.7992,42.78952 61.5766,65.56737 l 47.2951,51.84877 -181.79602,2.636 c -164.57977,2.38637 -406.6402,2.35076 -489.82157,3.43357 -37.62504,0.48979 -56.01783,0.35743 -56.41639,-0.73197 z"
+     id="path0" />
+  <path
+     style="fill:#44aa00;fill-opacity:1;stroke-width:1"
+     d="m 449.65542,200.91226 c -0.88204,-2.41088 -19.48884,-73.53854 -19.28394,-73.71615 0.11023,-0.0955 68.63937,3.82242 152.28699,8.70657 441.76443,25.79446 502.06033,29.25639 502.46713,28.84951 0.2434,-0.24341 -2.0396,-11.66325 -5.0733,-25.37741 -3.0338,-13.71416 -5.3893,-25.06148 -5.2346,-25.21625 0.1548,-0.15478 17.0643,18.55053 37.5766,41.56736 l 37.2951,41.84877 -161.796,0.636 c -164.59583,0.64701 -408.64017,2.35076 -491.82159,3.43357 -37.62504,0.48979 -46.01783,0.35743 -46.41639,-0.73197 z"
+     id="path1" />
 </svg>
