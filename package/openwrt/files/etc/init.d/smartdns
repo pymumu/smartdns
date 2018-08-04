@@ -1,7 +1,7 @@
 #!/bin/sh /etc/rc.common
 # Copyright (C) 2018 Nick Peng (pymumu@gmail.com)
 
-START=90
+START=99
 SERVICE_USE_PID=1
 SERVICE_WRITE_PID=1
 SERVICE_DAEMONIZE=1
@@ -29,6 +29,11 @@ clear_iptable()
 	done
 	
 }
+
+service_triggers() {
+    procd_add_reload_trigger firewall
+}
+
 
 conf_append()
 {
