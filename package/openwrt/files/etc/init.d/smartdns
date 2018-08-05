@@ -101,6 +101,26 @@ start_service() {
 		conf_append "rr-ttl-max" "$rr_ttl_max"
 	fi
 
+	config_get "log_size" "$section" "log_size" "128K"
+	if [ ! -z "$log_size" ]; then
+		conf_append "log-size" "$log_size"
+	fi
+
+	config_get "log_num" "$section" "log_num" "3"
+	if [ ! -z "$log_num" ]; then
+		conf_append "log-num" "$log_num"
+	fi
+
+	config_get "log_level" "$section" "log_level" "error"
+	if [ ! -z "$log_level" ]; then
+		conf_append "log-level" "$log_level"
+	fi
+
+	config_get "log_file" "$section" "log_file" ""
+	if [ ! -z "$log_file" ]; then
+		conf_append "log-file" "$log_file"
+	fi
+
 	clear_iptable
 	config_get_bool "redirect" "$section" "redirect" '0'
 	if [ "$redirect" -eq 1 ]; then

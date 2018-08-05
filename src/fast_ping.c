@@ -321,12 +321,13 @@ static int _fast_ping_sendping_v6(struct ping_host_struct *ping_host)
 
 	len = sendto(ping.fd_icmp6, &ping_host->packet, sizeof(struct fast_ping_packet), 0, (struct sockaddr *)&ping_host->addr, ping_host->addr_len);
 	if (len < 0 || len != sizeof(struct fast_ping_packet)) {
+		int err = errno;
 		if (errno == ENETUNREACH) {
 			goto errout;
 		}
 		char ping_host_name[PING_MAX_HOSTLEN];
 		tlog(TLOG_ERROR, "sendto %s, id %d, %s", gethost_by_addr(ping_host_name, (struct sockaddr *)&ping_host->addr, ping_host->addr_len), ping_host->sid,
-			 strerror(errno));
+			 strerror(err));
 		goto errout;
 	}
 
@@ -358,12 +359,13 @@ static int _fast_ping_sendping_v4(struct ping_host_struct *ping_host)
 
 	len = sendto(ping.fd_icmp, packet, sizeof(struct fast_ping_packet), 0, (struct sockaddr *)&ping_host->addr, ping_host->addr_len);
 	if (len < 0 || len != sizeof(struct fast_ping_packet)) {
+		int err = errno;
 		if (errno == ENETUNREACH) {
 			goto errout;
 		}
 		char ping_host_name[PING_MAX_HOSTLEN];
 		tlog(TLOG_ERROR, "sendto %s, id %d, %s", gethost_by_addr(ping_host_name, (struct sockaddr *)&ping_host->addr, ping_host->addr_len), ping_host->sid,
-			 strerror(errno));
+			 strerror(err));
 		goto errout;
 	}
 

@@ -25,6 +25,9 @@ msgstr "本地高性能服务器，优化网络访问性能。"
 msgid "Enable or disable smartdns server"
 msgstr "启用或禁用SmartDNS服务"
 
+msgid "Local Port"
+msgstr "本地端口"
+
 msgid "Smartdns local server port"
 msgstr "SmartDNS本地服务端口"
 
