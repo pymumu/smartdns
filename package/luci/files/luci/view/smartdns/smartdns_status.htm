@@ -3,12 +3,23 @@ XHR.poll(3, '<%=luci.dispatcher.build_url("admin", "services", "smartdns", "stat
 	function(x, data) {
 		var tb = document.getElementById('smartdns_status');
 		if (data && tb) {
+			var links = "";
 			if (data.running) {
-				var links = '<b><font color=green>SmartDNS - <%:RUNNING%></font></b></em>';
-				tb.innerHTML = links;
+				links = '<b><font color=green>SmartDNS - <%:RUNNING%></font></b></em>';
+				if (data.redirect && data.redirect == 1) {
+					if (data.ipv4_works == 0) {
+						links += "<br></br><b><font color=red><%:IPV4 53 Port Redirect Failure%></font></b>"
+					}
+
+					if (data.ipv6_works == 0) {
+						links += "<br></br><b><font color=red><%:IPV6 53 Port Redirect Failure%></font></b>"
+					}
+				}
 			} else {
-				tb.innerHTML = '<b><font color=red>SmartDNS - <%:NOT RUNNING%></font></b>';
+				links = '<b><font color=red>SmartDNS - <%:NOT RUNNING%></font></b>';
 			}
+
+			tb.innerHTML = links;
 		}
 	}
 );

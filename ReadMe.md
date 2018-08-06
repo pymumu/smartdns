@@ -216,6 +216,9 @@ Non-authoritative answer:
 * 如已经安装chinaDNS，建议将chinaDNS的上游配置为SmartDNS。
 * SmartDNS默认情况，将53端口的请求转发到SmartDNS的本地端口，由`Redirect`配置选项控制。
 
+6. 界面提示重定向失败：
+* openwrt 15.01系统不支持IPV6重定向，如网络需要支持IPV6，请将DNSMASQ上游改为smartdns，或者将smartdns的端口改为53，并停用dnsmasq。
+* LEDE之后系统，请安装IPV6的nat转发驱动。点击`system`->`Software`，点击`update lists`更新软件列表后，安装`ip6tables-mod-nat`
 
 华硕路由器原生固件
 --------------

@@ -31,6 +31,12 @@ msgstr "本地端口"
 msgid "Smartdns local server port"
 msgstr "SmartDNS本地服务端口"
 
+msgid "IPV4 53 Port Redirect Failure"
+msgstr "IPV4 53端口重定向失败"
+
+msgid "IPV6 53 Port Redirect Failure"
+msgstr "IPV6 53端口重定向失败"
+
 msgid "Redirect"
 msgstr "重定向"
 
