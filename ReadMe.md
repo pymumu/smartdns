@@ -300,6 +300,7 @@ vi /opt/etc/smartdns/smartdns.conf
 |log-file|日志文件路径|/var/log/smartdns.log|路径|log-file /var/log/smartdns.log
 |log-size|日志大小|128K|数字+K,M,G|log-size 128K
 |log-num|日志归档个数|2|数字|log-num 2
+|conf-file|附加日志文件|无|文件路径|conf-file /etc/smartdns/smartdns.more.conf
 |server|上游UDP DNS|114.114.114.114|[ip][:port]，可重复| server 8.8.8.8:53
 |server-tcp|上游TCP DNS|无|[IP][:port]，可重复| server-tcp 8.8.8.8:53
 |address|指定域名IP地址|无|address /domain/ip| address /www.example.com/1.2.3.4
@@ -328,5 +329,13 @@ vi /opt/etc/smartdns/smartdns.conf
 说明
 ==============
 目前代码未开源，后续根据情况开源。
+
+  
+
+
+
+
+
+
 
 
