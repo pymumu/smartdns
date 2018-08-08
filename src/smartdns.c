@@ -182,11 +182,11 @@ int smartdns_init(void)
 	char logname[DNS_MAX_PATH];
 
 	if (dns_conf_log_file[0] != 0) {
-		strncpy(logdir, dns_conf_log_file, DNS_MAX_PATH);
-		strncpy(logname, dns_conf_log_file, DNS_MAX_PATH);
-
-		dirname(logdir);
-		basename(logname);
+		char dns_log_file[DNS_MAX_PATH];
+		strncpy(dns_log_file, dns_conf_log_file, DNS_MAX_PATH);
+		strncpy(logdir, dirname(dns_log_file), DNS_MAX_PATH);
+		strncpy(dns_log_file, dns_conf_log_file, DNS_MAX_PATH);
+		strncpy(logname, basename(dns_log_file), DNS_MAX_PATH);
 	} else {
 		strncpy(logdir, SMARTDNS_LOG_PATH, DNS_MAX_PATH);
 		strncpy(logname, SMARTDNS_LOG_FILE, DNS_MAX_PATH);

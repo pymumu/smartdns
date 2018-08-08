@@ -15,25 +15,28 @@ m:section(SimpleSection).template  = "smartdns/smartdns_status"
 s = m:section(TypedSection, "smartdns", translate("Settings"), translate("General Settings"))
 s.anonymous = true
 
+s:tab("settings", translate("General Settings"))
+s:tab("custom", translate("Custom Settings"))
+
 ---- Eanble
-o = s:option(Flag, "enabled", translate("Enable"), translate("Enable or disable smartdns server"))
+o = s:taboption("settings", Flag, "enabled", translate("Enable"), translate("Enable or disable smartdns server"))
 o.default     = o.disabled
 o.rempty      = false
 
 ---- server name
-o = s:option(Value, "server_name", translate("Server Name"), translate("Smartdns server name"))
+o = s:taboption("settings", Value, "server_name", translate("Server Name"), translate("Smartdns server name"))
 o.default     = "smartdns"
 o.datatype    = "hostname"
 o.rempty      = false
 
 ---- Port
-o = s:option(Value, "port", translate("Local Port"), translate("Smartdns local server port"))
+o = s:taboption("settings", Value, "port", translate("Local Port"), translate("Smartdns local server port"))
 o.placeholder = 5353
 o.default     = 5353
 o.datatype    = "port"
 o.rempty      = false
 
-o = s:option(Flag, "redirect", translate("Redirect"), translate("Redirect standard dns query from 53 to smartdns, as default DNS server"))
+o = s:taboption("settings", Flag, "redirect", translate("Redirect"), translate("Redirect standard dns query from 53 to smartdns, as default DNS server"))
 o.rmempty     = false
 o.default     = o.enabled
 o.cfgvalue    = function(...)
@@ -41,20 +44,39 @@ o.cfgvalue    = function(...)
 end
 
 ---- cache-size
-o = s:option(Value, "cache_size", translate("Cache Size"), translate("DNS domain result cache size"))
+o = s:taboption("settings", Value, "cache_size", translate("Cache Size"), translate("DNS domain result cache size"))
 o.rempty      = true
 
 ---- rr-ttl
-o = s:option(Value, "rr_ttl", translate("Domain TTL"), translate("TTL for all domain result."))
+o = s:taboption("settings", Value, "rr_ttl", translate("Domain TTL"), translate("TTL for all domain result."))
 o.rempty      = true
 
 ---- rr-ttl-min
-o = s:option(Value, "rr_ttl_min", translate("Domain TTL Min"), translate("Minimum TTL for all domain result."))
+o = s:taboption("settings", Value, "rr_ttl_min", translate("Domain TTL Min"), translate("Minimum TTL for all domain result."))
 o.rempty      = true
 
 ---- rr-ttl-max
-o = s:option(Value, "rr_ttl_max", translate("Domain TTL Max"), translate("Maximum TTL for all domain result."))
+o = s:taboption("settings", Value, "rr_ttl_max", translate("Domain TTL Max"), translate("Maximum TTL for all domain result."))
 o.rempty      = true
+
+
+----- custom settings
+custom = s:taboption("custom", Value, "Custom Settings",
+	translate(""), 
+	translate("smartdns custom settings"))
+
+custom.template = "cbi/tvalue"
+custom.rows = 20
+
+function custom.cfgvalue(self, section)
+	return nixio.fs.readfile("/etc/smartdns/custom.conf")
+end
+
+function custom.write(self, section, value)
+	value = value:gsub("\r\n?", "\n")
+	nixio.fs.writefile("/etc/smartdns/custom.conf", value)
+end
+
 
 -- Upstream servers
 s = m:section(TypedSection, "server", translate("Upstream Servers"), translate("Upstream Servers, support UDP, TCP protocol. " ..

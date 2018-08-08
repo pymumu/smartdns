@@ -1,1 +1,3 @@
 /etc/config/smartdns
+/etc/smartdns/address.conf
+/etc/smartdns/custom.conf

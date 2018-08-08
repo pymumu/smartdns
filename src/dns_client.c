@@ -870,7 +870,7 @@ static void *_dns_client_work(void *arg)
 	unsigned long now = {0};
 	unsigned int sleep = 100;
 	int sleep_time;
-	unsigned int expect_time = 0;
+	unsigned long expect_time = 0;
 
 	sleep_time = sleep;
 	now = get_tick_count() - sleep;

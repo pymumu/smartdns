@@ -8,6 +8,7 @@ SERVICE_DAEMONIZE=1
 BASECONFIGFILE="/etc/smartdns/smartdns.conf"
 SMARTDNS_CONF="/var/etc/smartdns.conf"
 ADDRESS_CONF="/etc/smartdns/address.conf"
+CUSTOM_CONF="/etc/smartdns/custom.conf"
 SMARTDNS_CONF_TMP="${SMARTDNS_CONF}.tmp"
 
 set_iptable()
@@ -141,8 +142,8 @@ start_service() {
 
 	config_foreach load_server "server"
 
-	echo "# address" >> $SMARTDNS_CONF_TMP
-	grep "^ *address " $ADDRESS_CONF >> $SMARTDNS_CONF_TMP
+	echo "conf-file $ADDRESS_CONF" >> $SMARTDNS_CONF_TMP
+	echo "conf-file $CUSTOM_CONF" >> $SMARTDNS_CONF_TMP
 
 	config_get_bool "enabled" "$section" "enabled" '0'
 	mv $SMARTDNS_CONF_TMP $SMARTDNS_CONF

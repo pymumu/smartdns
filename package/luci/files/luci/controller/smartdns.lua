@@ -27,8 +27,8 @@ function act_status()
 	e.local_port = smartdns.get_config_option("smartdns", "smartdns", "port", nil);
 	if e.redirect == "1" then 
 		if e.local_port ~= nil and e.local_port ~= "53" then
-			e.ipv4_works = luci.sys.call("iptables -t nat -nL PREROUTING | grep REDIRECT | grep dpt:53 | grep %q >/dev/null 2>&1" % e.local_port) == 0
-			e.ipv6_works = luci.sys.call("ip6tables -t nat -nL PREROUTING | grep REDIRECT | grep dpt:53 | grep %q >/dev/null 2>&1" % e.local_port) == 0
+			e.ipv4_works = luci.sys.call("iptables -t nat -nL PREROUTING 2>/dev/null | grep REDIRECT | grep dpt:53 | grep %q >/dev/null 2>&1" % e.local_port) == 0
+			e.ipv6_works = luci.sys.call("ip6tables -t nat -nL PREROUTING 2>/dev/null| grep REDIRECT | grep dpt:53 | grep %q >/dev/null 2>&1" % e.local_port) == 0
 		else
 			e.redirect = 0
 		end

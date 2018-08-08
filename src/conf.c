@@ -28,6 +28,8 @@ int dns_conf_rr_ttl;
 int dns_conf_rr_ttl_min;
 int dns_conf_rr_ttl_max;
 
+int load_conf_file(const char *file);
+
 int config_bind(char *value)
 {
 	/* server bind address */
@@ -116,7 +118,12 @@ int config_address(char *value)
 
 	memset(address, 0, sizeof(*address));
 	len = end - begin;
-	memcpy(domain, begin, len);
+	memcpy(domain + 1, begin, len);
+	
+	/* add dot for subdomain */
+	domain[0] = '.';
+	len++;
+
 	domain[len] = 0;
 	reverse_string(domain_key + 1, domain, len);
 
@@ -209,6 +216,8 @@ int config_log_level(char *value)
 		dns_conf_log_level = TLOG_WARN;
 	} else if (strncmp("error", value, MAX_LINE_LEN) == 0) {
 		dns_conf_log_level = TLOG_ERROR;
+	} else {
+		return -1;
 	}
 
 	return 0;
@@ -297,6 +306,18 @@ int config_rr_ttl_max(char *value)
 	return 0;
 }
 
+int config_addtional_file(char *value)
+{
+	char *file_path = value;
+
+	if (access(file_path, R_OK) != 0) {
+		tlog(TLOG_WARN, "conf file %s is not readable.", file_path);
+		return 0;
+	}
+
+	return load_conf_file(file_path);
+}
+
 
 struct config_item {
 	const char *item;
@@ -318,6 +339,7 @@ struct config_item config_item[] = {
 	{"rr-ttl", config_rr_ttl},
 	{"rr-ttl-min", config_rr_ttl_min},
 	{"rr-ttl-max", config_rr_ttl_max},
+	{"conf-file", config_addtional_file},
 };
 int config_item_num = sizeof(config_item) / sizeof(struct config_item);
 
@@ -333,7 +355,7 @@ void load_exit(void)
 	config_address_destroy();
 }
 
-int load_conf(const char *file)
+int load_conf_file(const char *file)
 {
 	FILE *fp = NULL;
 	char line[MAX_LINE_LEN];
@@ -342,8 +364,6 @@ int load_conf(const char *file)
 	int filed_num = 0;
 	int line_num = 0;
 	int i;
-
-	load_conf_init();
 
 	fp = fopen(file, "r");
 	if (fp == NULL) {
@@ -386,9 +406,17 @@ int load_conf(const char *file)
 
 	return 0;
 errout:
-	printf("invalid config at line %d: %s", line_num, line);
+	printf("invalid config at file %s:%d, %s", file, line_num, line);
+	tlog(TLOG_ERROR, "invalid config at file %s:%d, %s", file, line_num, line);
 	if (fp) {
 		fclose(fp);
 	}
 	return -1;
+}
+
+int load_conf(const char *file)
+{
+	load_conf_init();
+
+	return load_conf_file(file);
 }

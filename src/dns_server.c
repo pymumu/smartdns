@@ -773,6 +773,9 @@ static struct dns_address *_dns_server_get_address_by_domain(char *domain, int q
 	reverse_string(domain_key + 1, domain, domain_len);
 	domain_key[0] = type;
 	domain_len++;
+	domain_key[domain_len] = '.';
+	domain_len++;
+	domain_key[domain_len] = 0;
 
 	if (likely(dns_conf_log_level > TLOG_INFO)) {
 		return art_substring(&dns_conf_address, (unsigned char *)domain_key, domain_len, NULL, NULL);

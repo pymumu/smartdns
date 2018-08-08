@@ -7,6 +7,7 @@ SMARTDNS_DIR=$CURR_DIR/../../
 SMARTDNS_BIN=$SMARTDNS_DIR/src/smartdns
 SMARTDNS_CONF=$SMARTDNS_DIR/etc/smartdns/smartdns.conf
 ADDRESS_CONF=$CURR_DIR/address.conf
+CUSTOM_CONF=$CURR_DIR/custom.conf
 
 showhelp()
 {
@@ -32,6 +33,7 @@ build()
 
     cp $SMARTDNS_CONF  $ROOT/root/etc/smartdns/
     cp $ADDRESS_CONF $ROOT/root/etc/smartdns/
+    cp $CUSTOM_CONF $ROOT/root/etc/smartdns/
     cp $CURR_DIR/files/etc $ROOT/root/ -af
     cp $SMARTDNS_BIN $ROOT/root/usr/sbin
 
