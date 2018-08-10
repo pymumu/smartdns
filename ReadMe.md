@@ -115,6 +115,7 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 |标准Linux系统(x86_64)| smartdns.xxxxxxxx.x86_64..tar.gz|支持x86_64系统。
 |华硕原生固件(optware)|smartdns.xxxxxxx.mipsbig.ipk|支持MIPS大端架构的系统，如RT-AC55U, RT-AC66U.
 |华硕原生固件(optware)|smartdns.xxxxxxx.mipsel.ipk|支持MIPS小端架构的系统，如RT-AC68U。
+|华硕原生固件(optware)|smartdns.xxxxxxx.arm.ipk|支持arm小端架构的系统，如RT-AC88U。
 |openwrt 15.01|smartdns.xxxxxxxx.ar71xx.ipk|支持AR71XX MIPS系统。
 |openwrt 15.01|smartdns.xxxxxxxx.ramips_24kec.ipk|支持MT762X等小端路由器
 |openwrt 15.01(潘多拉)|smartdns.xxxxxxxx.mipsel_24kec_dsp.ipk|支持MT7620系列的潘多拉固件
@@ -125,9 +126,10 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 |openwrt LEDE|smartdns.xxxxxxxxx.arm_cortex-a7_neon-vfpv4.ipk|支持arm A7核心CPU的路由器
 |openwrt LUCI|luci-app-smartdns.xxxxxxxxx.xxxx.all.ipk|openwrt管理统一界面
 
-openwrt系统CPU架构比较多，上述表格未列出所有支持系统，请查看CPU架构后下载。  
-CPU架构可在路由器管理界面找到，查看方法：
-* 登录路由器，点击`System`->`Software`，点击`Configuration` Tab页面，在opkg安装源中可找到对应软件架构，下载路径中可找到，如下，架构为ar71xx
+* openwrt系统CPU架构比较多，上述表格未列出所有支持系统，请查看CPU架构后下载。 
+* merlin梅林固件理论和华硕固件一直，所以根据硬件类型安装相应的ipk包即可。（梅林暂时未验证，有问题提交issue） 
+* CPU架构可在路由器管理界面找到，查看方法：  
+登录路由器，点击`System`->`Software`，点击`Configuration` Tab页面，在opkg安装源中可找到对应软件架构，下载路径中可找到，如下，架构为ar71xx
 
 ```
 src/gz chaos_calmer_base http://downloads.openwrt.org/chaos_calmer/15.05/ar71xx/generic/packages/base
@@ -217,8 +219,14 @@ Non-authoritative answer:
 * SmartDNS默认情况，将53端口的请求转发到SmartDNS的本地端口，由`Redirect`配置选项控制。
 
 6. 界面提示重定向失败：
+* 检查iptable，ip6table命令是否正确安装。
 * openwrt 15.01系统不支持IPV6重定向，如网络需要支持IPV6，请将DNSMASQ上游改为smartdns，或者将smartdns的端口改为53，并停用dnsmasq。
 * LEDE之后系统，请安装IPV6的nat转发驱动。点击`system`->`Software`，点击`update lists`更新软件列表后，安装`ip6tables-mod-nat`
+* 使用如下命令检查路由规则是否生效。  
+
+```
+iptables -t nat -L PREROUTING | grep REDIRECT
+```
 
 华硕路由器原生固件
 --------------
@@ -300,7 +308,7 @@ vi /opt/etc/smartdns/smartdns.conf
 |log-file|日志文件路径|/var/log/smartdns.log|路径|log-file /var/log/smartdns.log
 |log-size|日志大小|128K|数字+K,M,G|log-size 128K
 |log-num|日志归档个数|2|数字|log-num 2
-|conf-file|附加日志文件|无|文件路径|conf-file /etc/smartdns/smartdns.more.conf
+|conf-file|附加配置文件|无|文件路径|conf-file /etc/smartdns/smartdns.more.conf
 |server|上游UDP DNS|114.114.114.114|[ip][:port]，可重复| server 8.8.8.8:53
 |server-tcp|上游TCP DNS|无|[IP][:port]，可重复| server-tcp 8.8.8.8:53
 |address|指定域名IP地址|无|address /domain/ip| address /www.example.com/1.2.3.4
@@ -329,12 +337,3 @@ vi /opt/etc/smartdns/smartdns.conf
 说明
 ==============
 目前代码未开源，后续根据情况开源。
-
-  
-
-
-
-
-
-
-

@@ -306,6 +306,11 @@ int config_rr_ttl_max(char *value)
 	return 0;
 }
 
+int conf_bogus_nxdomain(char *value)
+{
+	return 0;
+}
+
 int config_addtional_file(char *value)
 {
 	char *file_path = value;
@@ -339,6 +344,7 @@ struct config_item config_item[] = {
 	{"rr-ttl", config_rr_ttl},
 	{"rr-ttl-min", config_rr_ttl_min},
 	{"rr-ttl-max", config_rr_ttl_max},
+	{"bogus-nxdomain", conf_bogus_nxdomain}, 
 	{"conf-file", config_addtional_file},
 };
 int config_item_num = sizeof(config_item) / sizeof(struct config_item);

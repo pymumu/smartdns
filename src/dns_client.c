@@ -246,6 +246,16 @@ errout:
 	return -1;
 }
 
+static void _dns_client_close_socket(struct dns_server_info *server_info)
+{
+	if (server_info->fd <= 0) {
+		return;
+	}
+	epoll_ctl(client.epoll_fd, EPOLL_CTL_DEL, server_info->fd, NULL);
+	close(server_info->fd);
+	server_info->fd = -1;
+}
+
 /* remove all servers information */
 void _dns_client_server_remove_all(void)
 {
@@ -260,9 +270,8 @@ void _dns_client_server_remove_all(void)
 				tlog(TLOG_ERROR, "stop ping failed.\n");
 			}
 		}
-		if (server_info->fd > 0) {
-			close(server_info->fd);
-		}
+
+		_dns_client_close_socket(server_info);
 		free(server_info);
 	}
 	pthread_mutex_unlock(&client.server_list_lock);
@@ -459,10 +468,9 @@ void _dns_client_period_run(void)
 		list_for_each_entry(server_info, &client.dns_server_list, list)
 		{
 			if (server_info->last_send - 5 > server_info->last_recv) {
-				if (server_info->fd > 0) {
-					close(server_info->fd);
-					server_info->fd = -1;
-				}
+				server_info->recv_buff.len = 0;
+				server_info->send_buff.len = 0;
+				_dns_client_close_socket(server_info);
 			}
 		}
 		pthread_mutex_unlock(&client.server_list_lock);
@@ -776,8 +784,7 @@ static int _dns_client_process_tcp(struct dns_server_info *server_info, struct e
 	/* peer server close */
 	if (len == 0) {
 		pthread_mutex_lock(&client.server_list_lock);
-		close(server_info->fd);
-		server_info->fd = 0;
+		_dns_client_close_socket(server_info);
 		server_info->recv_buff.len = 0;
 		if (server_info->send_buff.len > 0) {
 			/* still remain request data, reconnect and send*/
@@ -838,10 +845,7 @@ errout:
 	pthread_mutex_lock(&client.server_list_lock);
 	server_info->recv_buff.len = 0;
 	server_info->send_buff.len = 0;
-	if (server_info->fd > 0) {
-		close(server_info->fd);
-		server_info->fd = -1;
-	}
+	_dns_client_close_socket(server_info);
 	pthread_mutex_unlock(&client.server_list_lock);
 
 	return -1;
