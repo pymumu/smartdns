@@ -550,7 +550,7 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 				}
 
 				if (addr[0] == 0 || addr[0] == 127) {
-					if (atomic_inc_return(&request->adblock) <= 1) {
+					if (atomic_inc_return(&request->adblock) <= dns_server_num() / 2) {
 						_dns_server_request_release(request);
 						break;
 					}

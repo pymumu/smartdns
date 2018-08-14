@@ -32,4 +32,6 @@ int dns_add_server(char *server_ip, int port, dns_server_type_t server_type);
 /* remove remote dns server */
 int dns_remove_server(char *server_ip, int port, dns_server_type_t server_type);
 
+int dns_server_num(void);
+
 #endif

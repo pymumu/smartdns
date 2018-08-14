@@ -61,6 +61,7 @@ struct dns_client {
 	/* query list */
 	pthread_mutex_t dns_request_lock;
 	struct list_head dns_request_list;
+	atomic_t dns_server_num;
 
 	/* query doman hash table, key: sid + domain */
 	pthread_mutex_t domain_map_lock;
@@ -234,6 +235,8 @@ int _dns_client_server_add(char *server_ip, struct addrinfo *gai, dns_server_typ
 	pthread_mutex_lock(&client.server_list_lock);
 	list_add(&server_info->list, &client.dns_server_list);
 	pthread_mutex_unlock(&client.server_list_lock);
+
+	atomic_inc(&client.dns_server_num);
 	return 0;
 errout:
 	if (server_info) {
@@ -299,6 +302,7 @@ int _dns_client_server_remove(char *server_ip, struct addrinfo *gai, dns_server_
 			tlog(TLOG_ERROR, "stop ping failed.\n");
 		}
 		free(server_info);
+		atomic_dec(&client.dns_server_num);
 		return 0;
 	}
 	pthread_mutex_unlock(&client.server_list_lock);
@@ -359,6 +363,11 @@ int dns_add_server(char *server_ip, int port, dns_server_type_t server_type)
 int dns_remove_server(char *server_ip, int port, dns_server_type_t server_type)
 {
 	return _dns_client_server_operate(server_ip, port, server_type, 1);
+}
+
+int dns_server_num(void)
+{
+	return atomic_read(&client.dns_server_num);
 }
 
 void _dns_client_query_get(struct dns_query_struct *query)
@@ -560,7 +569,9 @@ static int _dns_client_recv(unsigned char *inpacket, int inpacket_len, struct so
 	/* decode domain from udp packet */
 	len = dns_decode(packet, DNS_PACKSIZE, inpacket, inpacket_len);
 	if (len != 0) {
-		tlog(TLOG_ERROR, "decode failed, packet len = %d, tc=%d, %d\n", inpacket_len, packet->head.tc, packet->head.id);
+		char host_name[DNS_MAX_CNAME_LEN];
+		tlog(TLOG_ERROR, "decode failed, packet len = %d, tc = %d, id = %d, from = %s\n", inpacket_len, packet->head.tc, packet->head.id,
+			gethost_by_addr(host_name, from, from_len));
 		return -1;
 	}
 
@@ -1125,6 +1136,7 @@ int dns_client_init()
 
 	memset(&client, 0, sizeof(client));
 	pthread_attr_init(&attr);
+	atomic_set(&client.dns_server_num, 0);
 
 	epollfd = epoll_create1(EPOLL_CLOEXEC);
 	if (epollfd < 0) {
