@@ -188,7 +188,7 @@ int _dns_client_server_exist(struct addrinfo *gai, dns_server_type_t server_type
 			continue;
 		}
 
-		pthread_mutex_lock(&client.server_list_lock);
+		pthread_mutex_unlock(&client.server_list_lock);
 		return 0;
 	}
 
@@ -202,8 +202,7 @@ int _dns_client_server_add(char *server_ip, struct addrinfo *gai, dns_server_typ
 	struct dns_server_info *server_info = NULL;
 
 	if (_dns_client_server_exist(gai, server_type) == 0) {
-		tlog(TLOG_WARN, "server exists.");
-		goto errout;
+		return 0;
 	}
 
 	server_info = malloc(sizeof(*server_info));
