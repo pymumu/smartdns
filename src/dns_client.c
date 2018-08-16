@@ -492,7 +492,7 @@ static struct dns_query_struct *_dns_client_get_request(unsigned short sid, char
 	struct dns_query_struct *query = NULL;
 	struct dns_query_struct *query_result = NULL;
 	struct hlist_node *tmp = NULL;
-	unsigned int key;
+	uint32_t key;
 
 	/* get query by hash key : id + domain */
 	key = hash_string(domain);
@@ -518,7 +518,7 @@ static struct dns_query_struct *_dns_client_get_request(unsigned short sid, char
 
 int _dns_replied_check_add(struct dns_query_struct *dns_query, struct sockaddr *addr, socklen_t addr_len)
 {
-	int key = 0;
+	uint32_t key = 0;
 	struct dns_query_replied *replied_map = NULL;
 
 	if (addr_len > sizeof(struct sockaddr_in6)) {
@@ -1068,7 +1068,7 @@ int dns_client_query(char *domain, int qtype, dns_client_callback callback, void
 {
 	struct dns_query_struct *query = NULL;
 	int ret = 0;
-	unsigned int key = 0;
+	uint32_t key = 0;
 
 	query = malloc(sizeof(*query));
 	if (query == NULL) {

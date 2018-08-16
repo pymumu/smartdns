@@ -52,7 +52,7 @@ void dns_cache_release(struct dns_cache *dns_cache)
 
 int dns_cache_insert(char *domain, char *cname, int cname_ttl, int ttl, dns_type_t qtype, unsigned char *addr, int addr_len)
 {
-	unsigned int key = 0;
+	uint32_t key = 0;
 	struct dns_cache *dns_cache = NULL;
 
 	if (dns_cache_head.size <= 0) {
@@ -120,7 +120,7 @@ errout:
 
 struct dns_cache *dns_cache_get(char *domain, dns_type_t qtype)
 {
-	unsigned int key = 0;
+	uint32_t key = 0;
 	struct dns_cache *dns_cache = NULL;
 	struct dns_cache *dns_cache_ret = NULL;
 	time_t now;

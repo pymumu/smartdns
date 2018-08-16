@@ -441,7 +441,7 @@ int _dns_server_ping(struct dns_request *request, char *ip)
 
 int _dns_ip_address_check_add(struct dns_request *request, unsigned char *addr, dns_type_t addr_type)
 {
-	int key = 0;
+	uint32_t key = 0;
 	struct dns_ip_address *addr_map = NULL;
 	int addr_len = 0;
 
@@ -499,6 +499,22 @@ static int _dns_server_get_conf_ttl(int ttl)
 	return ttl;
 }
 
+static int _dns_server_bogus_nxdomain_exists(struct dns_request *request, unsigned char *ip, dns_type_t addr_type)
+{
+	int ret = 0;
+
+	ret = dns_bogus_nxdomain_exists(ip, addr_type);
+	if (ret != 0 ) {
+		return -1;
+	}
+
+	if (request->rcode == DNS_RC_SERVFAIL) {
+		request->rcode = DNS_RC_NXDOMAIN;
+	}
+
+	return 0;
+}
+
 static int _dns_server_process_answer(struct dns_request *request, char *domain, struct dns_packet *packet)
 {
 	int ttl;
@@ -517,8 +533,6 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 		return -1;
 	}
 
-	request->rcode = packet->head.rcode;
-
 	for (j = 1; j < DNS_RRS_END; j++) {
 		rrs = dns_get_rrs_start(packet, j, &rr_count);
 		for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
@@ -533,6 +547,13 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 				dns_get_A(rrs, name, DNS_MAX_CNAME_LEN, &ttl, addr);
 
 				tlog(TLOG_DEBUG, "domain: %s TTL:%d IP: %d.%d.%d.%d", name, ttl, addr[0], addr[1], addr[2], addr[3]);
+
+				/* bogus ip address, skip */
+				if (_dns_server_bogus_nxdomain_exists(request, addr, DNS_T_A) == 0) {
+					_dns_server_request_release(request);
+					tlog(TLOG_DEBUG, "bogus-nxdomain: %s TTL:%d IP: %d.%d.%d.%d", name, ttl, addr[0], addr[1], addr[2], addr[3]);
+					break;
+				}
 
 				if (strncmp(name, domain, DNS_MAX_CNAME_LEN) != 0 && strncmp(request->cname, name, DNS_MAX_CNAME_LEN) != 0) {
 					_dns_server_request_release(request);
@@ -560,6 +581,8 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 					_dns_server_request_release(request);
 					break;
 				}
+				
+				request->rcode = packet->head.rcode;
 				sprintf(ip, "%d.%d.%d.%d", addr[0], addr[1], addr[2], addr[3]);
 
 				if (_dns_server_ping(request, ip) != 0) {
@@ -577,6 +600,16 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 
 				tlog(TLOG_DEBUG, "domain: %s TTL: %d IP: %.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", name, ttl, addr[0], addr[1],
 					 addr[2], addr[3], addr[4], addr[5], addr[6], addr[7], addr[8], addr[9], addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
+
+				/* bogus ip address, skip */
+				if (_dns_server_bogus_nxdomain_exists(request, addr, DNS_T_AAAA) == 0) {
+					_dns_server_request_release(request);
+					tlog(TLOG_DEBUG, "bogus-nxdomain: %s TTL: %d IP: %.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", name, ttl, addr[0], addr[1],
+					 	addr[2], addr[3], addr[4], addr[5], addr[6], addr[7], addr[8], addr[9], addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
+					break;
+				}
+
+
 				if (strncmp(name, domain, DNS_MAX_CNAME_LEN) != 0 && strncmp(request->cname, name, DNS_MAX_CNAME_LEN) != 0) {
 					_dns_server_request_release(request);
 					break;
@@ -596,6 +629,8 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 					_dns_server_request_release(request);
 					break;
 				}
+
+				request->rcode = packet->head.rcode;
 
 				sprintf(ip, "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", addr[0], addr[1], addr[2], addr[3], addr[4], addr[5],
 						addr[6], addr[7], addr[8], addr[9], addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);

@@ -1,7 +1,7 @@
 #include "conf.h"
-#include "tlog.h"
 #include "list.h"
 #include "rbtree.h"
+#include "tlog.h"
 #include "util.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,6 +16,7 @@
 char dns_conf_server_ip[DNS_MAX_IPLEN];
 int dns_conf_cachesize = DEFAULT_DNS_CACHE_SIZE;
 struct dns_servers dns_conf_servers[DNS_MAX_SERVERS];
+struct dns_bogus_nxdomain dns_conf_bogus_nxdomain;
 char dns_conf_server_name[DNS_MAX_CONF_CNAME_LEN];
 int dns_conf_server_num;
 int dns_conf_log_level = TLOG_ERROR;
@@ -119,7 +120,7 @@ int config_address(char *value)
 	memset(address, 0, sizeof(*address));
 	len = end - begin;
 	memcpy(domain + 1, begin, len);
-	
+
 	/* add dot for subdomain */
 	domain[0] = '.';
 	len++;
@@ -306,9 +307,113 @@ int config_rr_ttl_max(char *value)
 	return 0;
 }
 
+int dns_bogus_nxdomain_exists(unsigned char *ip, dns_type_t addr_type)
+{
+	uint32_t key = 0;
+	struct dns_bogus_ip_address *ip_addr = NULL;
+	int addr_len = 0;
+
+	if (addr_type == DNS_T_A) {
+		addr_len = 4;
+	} else if (addr_type == DNS_T_AAAA) {
+		addr_len = 16;
+	} else {
+		return -1;
+	}
+
+	key = jhash(ip, addr_len, 0);
+	hash_for_each_possible(dns_conf_bogus_nxdomain.ip_hash, ip_addr, node, key)
+	{
+		if (addr_type == DNS_T_A) {
+			if (memcmp(ip_addr->ipv4_addr, ip, addr_len) == 0) {
+				return 0;
+			}
+		} else if (addr_type == DNS_T_AAAA) {
+			if (memcmp(ip_addr->ipv6_addr, ip, addr_len) == 0) {
+				return 0;
+			}
+		}
+	}
+
+	return -1;
+}
+
+void conf_bogus_nxdomain_destroy(void)
+{
+	struct dns_bogus_ip_address *ip_addr = NULL;
+	struct hlist_node *tmp = NULL;
+	int i;
+
+	hash_for_each_safe(dns_conf_bogus_nxdomain.ip_hash, i, tmp, ip_addr, node)
+	{
+		hlist_del_init(&ip_addr->node);
+		free(ip_addr);
+	}
+}
+
 int conf_bogus_nxdomain(char *value)
 {
+	struct dns_bogus_ip_address *ip_addr = NULL;
+	char ip[MAX_IP_LEN];
+	int port;
+	int ret = -1;
+	struct sockaddr_storage addr;
+	socklen_t addr_len = sizeof(addr);
+	uint32_t key;
+
+	ip_addr = malloc(sizeof(*ip_addr));
+	if (ip_addr == NULL) {
+		goto errout;
+	}
+	memset(ip_addr, 0, sizeof(*ip_addr));
+
+	if (parse_ip(value, ip, &port) != 0) {
+		goto errout;
+	}
+
+	if (getaddr_by_host(ip, (struct sockaddr *)&addr, &addr_len) != 0) {
+		goto errout;
+	}
+
+	switch (addr.ss_family) {
+	case AF_INET: {
+		struct sockaddr_in *addr_in;
+		addr_in = (struct sockaddr_in *)&addr;
+		memcpy(ip_addr->ipv4_addr, &addr_in->sin_addr.s_addr, 4);
+		ip_addr->addr_type = DNS_T_A;
+		addr_len = 4;
+	} break;
+	case AF_INET6: {
+		struct sockaddr_in6 *addr_in6;
+		addr_in6 = (struct sockaddr_in6 *)&addr;
+		if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
+			memcpy(ip_addr->ipv4_addr, addr_in6->sin6_addr.s6_addr + 12, 4);
+			ip_addr->addr_type = DNS_T_A;
+			addr_len = 4;
+		} else {
+			memcpy(ip_addr->ipv6_addr, addr_in6->sin6_addr.s6_addr, 16);
+			addr_len = 16;
+		}
+	} break;
+	default:
+		goto errout;
+	}
+
+	if (dns_bogus_nxdomain_exists(ip_addr->addr, ip_addr->addr_type) == 0) {
+		ret = 0;
+		goto errout;
+	}
+
+	key = jhash(ip_addr->addr, addr_len, 0);
+	hash_add(dns_conf_bogus_nxdomain.ip_hash, &ip_addr->node, key);
+
 	return 0;
+errout:
+	if (ip_addr) {
+		free(ip_addr);
+	}
+
+	return ret;
 }
 
 int config_addtional_file(char *value)
@@ -322,7 +427,6 @@ int config_addtional_file(char *value)
 
 	return load_conf_file(file_path);
 }
-
 
 struct config_item {
 	const char *item;
@@ -344,7 +448,7 @@ struct config_item config_item[] = {
 	{"rr-ttl", config_rr_ttl},
 	{"rr-ttl-min", config_rr_ttl_min},
 	{"rr-ttl-max", config_rr_ttl_max},
-	{"bogus-nxdomain", conf_bogus_nxdomain}, 
+	{"bogus-nxdomain", conf_bogus_nxdomain},
 	{"conf-file", config_addtional_file},
 };
 int config_item_num = sizeof(config_item) / sizeof(struct config_item);
@@ -352,12 +456,13 @@ int config_item_num = sizeof(config_item) / sizeof(struct config_item);
 int load_conf_init(void)
 {
 	art_tree_init(&dns_conf_address);
-
+	hash_init(dns_conf_bogus_nxdomain.ip_hash);
 	return 0;
 }
 
 void load_exit(void)
 {
+	conf_bogus_nxdomain_destroy();
 	config_address_destroy();
 }
 
