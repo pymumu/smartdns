@@ -116,6 +116,11 @@ int config_address(char *value)
 	if (address == NULL) {
 		goto errout;
 	}
+	
+	/* remove prefix . */
+	while (*begin == '.') {
+		begin++;
+	}
 
 	memset(address, 0, sizeof(*address));
 	len = end - begin;
