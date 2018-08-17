@@ -654,6 +654,7 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 			} break;
 			case DNS_T_SOA: {
 				request->has_soa = 1;
+				request->rcode = packet->head.rcode;
 				dns_get_SOA(rrs, name, 128, &ttl, &request->soa);
 				tlog(TLOG_INFO, "SOA: mname: %s, rname: %s, serial: %d, refresh: %d, retry: %d, expire: %d, minimum: %d", request->soa.mname,
 					 request->soa.rname, request->soa.serial, request->soa.refresh, request->soa.retry, request->soa.expire, request->soa.minimum);
