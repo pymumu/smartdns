@@ -124,6 +124,8 @@ struct dns_request {
 	/* send original raw packet to server/client like proxy */
 	int passthrough;
 
+	int prefetch;
+
 	pthread_mutex_t ip_map_lock;
 	int ip_map_num;
 	DECLARE_HASHTABLE(ip_map, 4);
@@ -293,11 +295,16 @@ int _dns_server_request_complete(struct dns_request *request)
 			if (request->has_ping_result == 0 && request->ttl_v4 > DNS_SERVER_TMOUT_TTL) {
 				request->ttl_v4 = DNS_SERVER_TMOUT_TTL;
 			}
+
+			if (request->prefetch) {
+				dns_cache_replace(request->domain, cname, cname_ttl, request->ttl_v4, DNS_T_A, request->ipv4_addr, DNS_RR_A_LEN);
+			} else {
+				dns_cache_insert(request->domain, cname, cname_ttl, request->ttl_v4, DNS_T_A, request->ipv4_addr, DNS_RR_A_LEN);
+			}
 		}
 
-		dns_cache_insert(request->domain, cname, cname_ttl, request->ttl_v4, DNS_T_A, request->ipv4_addr, DNS_RR_A_LEN);
 	} else if (request->qtype == DNS_T_AAAA) {
-		tlog(TLOG_INFO, "result :%s, rcode: %d,  %.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", request->domain, request->rcode,
+		tlog(TLOG_INFO, "result: %s, rcode: %d,  %.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", request->domain, request->rcode,
 			 request->ipv6_addr[0], request->ipv6_addr[1], request->ipv6_addr[2], request->ipv6_addr[3], request->ipv6_addr[4], request->ipv6_addr[5],
 			 request->ipv6_addr[6], request->ipv6_addr[7], request->ipv6_addr[8], request->ipv6_addr[9], request->ipv6_addr[10], request->ipv6_addr[11],
 			 request->ipv6_addr[12], request->ipv6_addr[13], request->ipv6_addr[14], request->ipv6_addr[15]);
@@ -306,8 +313,17 @@ int _dns_server_request_complete(struct dns_request *request)
 			if (request->has_ping_result == 0 && request->ttl_v6 > DNS_SERVER_TMOUT_TTL) {
 				request->ttl_v6 = DNS_SERVER_TMOUT_TTL;
 			}
-			dns_cache_insert(request->domain, cname, cname_ttl, request->ttl_v6, DNS_T_AAAA, request->ipv6_addr, DNS_RR_AAAA_LEN);
+
+			if (request->prefetch) {
+				dns_cache_replace(request->domain, cname, cname_ttl, request->ttl_v6, DNS_T_AAAA, request->ipv6_addr, DNS_RR_AAAA_LEN);
+			} else {
+				dns_cache_insert(request->domain, cname, cname_ttl, request->ttl_v6, DNS_T_AAAA, request->ipv6_addr, DNS_RR_AAAA_LEN);
+			}
 		}
+	}
+
+	if (request->prefetch) {
+		return 0;
 	}
 
 	_dns_reply(request);
@@ -504,7 +520,7 @@ static int _dns_server_bogus_nxdomain_exists(struct dns_request *request, unsign
 	int ret = 0;
 
 	ret = dns_bogus_nxdomain_exists(ip, addr_type);
-	if (ret != 0 ) {
+	if (ret != 0) {
 		return -1;
 	}
 
@@ -581,7 +597,7 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 					_dns_server_request_release(request);
 					break;
 				}
-				
+
 				request->rcode = packet->head.rcode;
 				sprintf(ip, "%d.%d.%d.%d", addr[0], addr[1], addr[2], addr[3]);
 
@@ -604,11 +620,11 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 				/* bogus ip address, skip */
 				if (_dns_server_bogus_nxdomain_exists(request, addr, DNS_T_AAAA) == 0) {
 					_dns_server_request_release(request);
-					tlog(TLOG_DEBUG, "bogus-nxdomain: %s TTL: %d IP: %.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", name, ttl, addr[0], addr[1],
-					 	addr[2], addr[3], addr[4], addr[5], addr[6], addr[7], addr[8], addr[9], addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
+					tlog(TLOG_DEBUG, "bogus-nxdomain: %s TTL: %d IP: %.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", name, ttl,
+						 addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr[6], addr[7], addr[8], addr[9], addr[10], addr[11], addr[12], addr[13],
+						 addr[14], addr[15]);
 					break;
 				}
-
 
 				if (strncmp(name, domain, DNS_MAX_CNAME_LEN) != 0 && strncmp(request->cname, name, DNS_MAX_CNAME_LEN) != 0) {
 					_dns_server_request_release(request);
@@ -693,7 +709,7 @@ static int dns_server_resolve_callback(char *domain, dns_result_type rtype, stru
 		pthread_mutex_lock(&request->ip_map_lock);
 		ip_num = request->ip_map_num;
 		pthread_mutex_unlock(&request->ip_map_lock);
-		
+
 		/* Not need to wait check result if only has one ip address */
 		if (ip_num == 1) {
 			_dns_server_request_complete(request);
@@ -815,8 +831,8 @@ static struct dns_address *_dns_server_get_address_by_domain(char *domain, int q
 
 	if (likely(dns_conf_log_level > TLOG_INFO)) {
 		return art_substring(&dns_conf_address, (unsigned char *)domain_key, domain_len, NULL, NULL);
-	} 
-		
+	}
+
 	address = art_substring(&dns_conf_address, (unsigned char *)domain_key, domain_len, matched_key, &matched_key_len);
 	if (address == NULL) {
 		return NULL;
@@ -868,7 +884,7 @@ static int _dns_server_process_cache(struct dns_request *request, struct dns_pac
 {
 	struct dns_cache *dns_cache = NULL;
 
-	dns_cache = dns_cache_get(request->domain, request->qtype);
+	dns_cache = dns_cache_lookup(request->domain, request->qtype);
 	if (dns_cache == NULL) {
 		goto errout;
 	}
@@ -934,16 +950,17 @@ static int _dns_server_recv(unsigned char *inpacket, int inpacket_len, struct so
 	}
 
 	request = malloc(sizeof(*request));
+	if (request == NULL) {
+		tlog(TLOG_ERROR, "malloc failed.\n");
+		goto errout;
+	}
 	memset(request, 0, sizeof(*request));
 	pthread_mutex_init(&request->ip_map_lock, 0);
 	atomic_set(&request->adblock, 0);
 	request->ping_ttl_v4 = -1;
 	request->ping_ttl_v6 = -1;
+	request->prefetch = 0;
 	request->rcode = DNS_RC_SERVFAIL;
-	if (request == NULL) {
-		tlog(TLOG_ERROR, "malloc failed.\n");
-		goto errout;
-	}
 
 	if (_dns_recv_addr(request, from, from_len) != 0) {
 		goto errout;
@@ -1017,6 +1034,45 @@ errout:
 	return ret;
 }
 
+static int _dns_server_prefetch_request(char *domain, dns_type_t qtype)
+{
+	int ret = -1;
+	struct dns_request *request = NULL;
+
+	request = malloc(sizeof(*request));
+	if (request == NULL) {
+		tlog(TLOG_ERROR, "malloc failed.\n");
+		goto errout;
+	}
+	memset(request, 0, sizeof(*request));
+	pthread_mutex_init(&request->ip_map_lock, 0);
+	atomic_set(&request->adblock, 0);
+	request->ping_ttl_v4 = -1;
+	request->ping_ttl_v6 = -1;
+	request->prefetch = 1;
+	request->qtype = qtype;
+	request->rcode = DNS_RC_SERVFAIL;
+
+	request->id = 0;
+	hash_init(request->ip_map);
+	strncpy(request->domain, domain, DNS_MAX_CNAME_LEN);
+
+	tlog(TLOG_INFO, "prefetch domain %s, qtype = %d\n", request->domain, qtype);
+
+	_dns_server_request_get(request);
+	pthread_mutex_lock(&server.request_list_lock);
+	list_add_tail(&request->list, &server.request_list);
+	pthread_mutex_unlock(&server.request_list_lock);
+
+	_dns_server_request_get(request);
+	request->send_tick = get_tick_count();
+	dns_client_query(request->domain, qtype, dns_server_resolve_callback, request);
+
+	return 0;
+errout:
+	return ret;
+}
+
 static int _dns_server_process(unsigned long now)
 {
 	int len;
@@ -1079,13 +1135,25 @@ void _dns_server_tcp_ping_check(struct dns_request *request)
 	request->has_ping_tcp = 1;
 }
 
+void _dns_server_prefetch_domain(struct dns_cache *dns_cache)
+{
+	tlog(TLOG_DEBUG, "prefetch by cache %s, qtype %d, ttl %d", dns_cache->domain, dns_cache->qtype, dns_cache->ttl);
+	if (_dns_server_prefetch_request(dns_cache->domain, dns_cache->qtype) != 0) {
+		tlog(TLOG_ERROR, "prefetch domain %s, qtype %d, failed.", dns_cache->domain, dns_cache->qtype);
+	}
+}
+
 void _dns_server_period_run_second(void)
 {
 	static unsigned int sec = 0;
 	sec++;
 
 	if (sec % 2 == 0) {
-		dns_cache_invalidate();
+		if (dns_conf_prefetch) {
+			dns_cache_invalidate(_dns_server_prefetch_domain, 3);
+		} else {
+			dns_cache_invalidate(NULL, 0);
+		}
 	}
 }
 

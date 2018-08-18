@@ -198,8 +198,8 @@ int smartdns_init(void)
 		goto errout;
 	}
 
-	/* tlog_setlogscreen(1); */
-	tlog_setlevel(dns_conf_log_level);
+	 tlog_setlogscreen(1); 
+	tlog_setlevel(TLOG_INFO);
 
 	if (dns_conf_server_num <= 0) {
 		if (smartdns_load_from_resolv() != 0) {

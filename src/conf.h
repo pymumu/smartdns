@@ -46,6 +46,7 @@ struct dns_bogus_nxdomain {
 
 extern char dns_conf_server_ip[DNS_MAX_IPLEN];
 extern int dns_conf_cachesize;
+extern int dns_conf_prefetch;
 extern struct dns_servers dns_conf_servers[DNS_MAX_SERVERS];
 extern int dns_conf_server_num;
 

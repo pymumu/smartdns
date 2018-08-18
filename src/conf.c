@@ -15,6 +15,7 @@
 
 char dns_conf_server_ip[DNS_MAX_IPLEN];
 int dns_conf_cachesize = DEFAULT_DNS_CACHE_SIZE;
+int dns_conf_prefetch = 0;
 struct dns_servers dns_conf_servers[DNS_MAX_SERVERS];
 struct dns_bogus_nxdomain dns_conf_bogus_nxdomain;
 char dns_conf_server_name[DNS_MAX_CONF_CNAME_LEN];
@@ -207,6 +208,18 @@ int config_cache_size(char *value)
 	}
 
 	dns_conf_cachesize = cache_size;
+
+	return 0;
+}
+
+int config_cache_prefetch_domain(char *value)
+{
+	/* read dns cache size */
+	if (strncmp("yes", value, sizeof("yes")) == 0 || strncmp("YES", value, sizeof("YES")) == 0) {
+		dns_conf_prefetch = 1;
+	} else if (strncmp("no", value, sizeof("no")) == 0 || strncmp("NO", value, sizeof("NO")) == 0) {
+		dns_conf_prefetch = 0;
+	}
 
 	return 0;
 }
@@ -446,6 +459,7 @@ struct config_item config_item[] = {
 	{"server-tcp", config_server_tcp},
 	{"server-http", config_server_http},
 	{"cache-size", config_cache_size},
+	{"prefetch-domain", config_cache_prefetch_domain},
 	{"log-level", config_log_level},
 	{"log-file", config_log_file},
 	{"log-size", config_log_size},

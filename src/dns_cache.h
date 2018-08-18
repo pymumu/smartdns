@@ -11,6 +11,7 @@
 struct dns_cache {
 	struct hlist_node node;
 	struct list_head list;
+	struct list_head check_list;
 	atomic_t ref;
 	char domain[DNS_MAX_CNAME_LEN];
 	char cname[DNS_MAX_CNAME_LEN];
@@ -27,17 +28,23 @@ struct dns_cache {
 
 int dns_cache_init(int size);
 
+int dns_cache_replace(char *domain, char *cname, int cname_ttl, int ttl, dns_type_t qtype, unsigned char *addr, int addr_len);
+
 int dns_cache_insert(char *domain, char *cname, int cname_ttl, int ttl, dns_type_t qtype, unsigned char *addr, int addr_len);
 
-struct dns_cache *dns_cache_get(char *domain, dns_type_t qtype);
+struct dns_cache *dns_cache_lookup(char *domain, dns_type_t qtype);
 
 void dns_cache_delete(struct dns_cache *dns_cache);
+
+void dns_cache_get(struct dns_cache *dns_cache);
 
 void dns_cache_release(struct dns_cache *dns_cache);
 
 void dns_cache_update(struct dns_cache *dns_cache);
 
-void dns_cache_invalidate(void);
+typedef void dns_cache_preinvalid_callback(struct dns_cache *dns_cache);
+
+void dns_cache_invalidate(dns_cache_preinvalid_callback callback, int ttl_pre);
 
 int dns_cache_get_ttl(struct dns_cache *dns_cache);
 

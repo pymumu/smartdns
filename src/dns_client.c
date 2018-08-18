@@ -1104,7 +1104,7 @@ int dns_client_query(char *domain, int qtype, dns_client_callback callback, void
 		goto errout_del_list;
 	}
 
-	tlog(TLOG_INFO, "send request %s, id %d\n", domain, query->sid);
+	tlog(TLOG_INFO, "send request %s, qtype %d, id %d\n", domain, qtype, query->sid);
 	_dns_client_query_release(query);
 
 	return 0;
