@@ -36,6 +36,14 @@ o.default     = 5353
 o.datatype    = "port"
 o.rempty      = false
 
+---- Support IPV6
+o = s:taboption("settings", Flag, "ipv6_server", translate("IPV6 Server"), translate("Enable IPV6 DNS Server"))
+o.rmempty     = false
+o.default     = o.enabled
+o.cfgvalue    = function(...)
+    return Flag.cfgvalue(...) or "1"
+end
+
 o = s:taboption("settings", Flag, "redirect", translate("Redirect"), translate("Redirect standard dns query from 53 to smartdns, as default DNS server"))
 o.rmempty     = false
 o.default     = o.enabled

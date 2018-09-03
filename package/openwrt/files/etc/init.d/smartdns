@@ -13,11 +13,16 @@ SMARTDNS_CONF_TMP="${SMARTDNS_CONF}.tmp"
 
 set_iptable()
 {
-	IPS="`ifconfig | grep "inet addr" | grep -v ":127" | grep "Bcast" | awk '{print $2}' | awk -F: '{print $2}'`"
+	local ipv6_server=$1
+	IPS="`ifconfig | grep "inet addr" | grep -v ":127" | grep "Bcast" | awk '{print $2}' | awk -F : '{print $2}'`"
 	for IP in $IPS
 	do
 		iptables -t nat -A PREROUTING -p udp -d $IP --dport 53 -j REDIRECT --to-ports $SMARTDNS_PORT >/dev/null 2>&1
 	done
+
+	if [ "$ipv6_server" == 0 ]; then
+		return
+	fi
 
 	IPS="`ifconfig | grep "inet6 addr" | grep -v " fe80::" | grep -v " ::1" | grep "Global" | awk '{print $3}'`"
 	for IP in $IPS
@@ -29,11 +34,16 @@ set_iptable()
 
 clear_iptable()
 {
-	IPS="`ifconfig | grep "inet addr" | grep -v ":127" | grep "Bcast" | awk '{print $2}' | awk -F: '{print $2}'`"
+	local ipv6_server=$1
+	IPS="`ifconfig | grep "inet addr" | grep -v ":127" | grep "Bcast" | awk '{print $2}' | awk -F : '{print $2}'`"
 	for IP in $IPS
 	do
 		iptables -t nat -D PREROUTING -p udp -d $IP --dport 53 -j REDIRECT --to-ports $SMARTDNS_PORT >/dev/null 2>&1
 	done
+
+	if [ "$ipv6_server" == 0 ]; then
+		return
+	fi
 
 	IPS="`ifconfig | grep "inet6 addr" | grep -v " fe80::" | grep -v " ::1" | grep "Global" | awk '{print $3}'`"
 	for IP in $IPS
@@ -89,7 +99,12 @@ start_service() {
 	fi
 
 	config_get "port" "$section" "port" "5353"
-	conf_append "bind" "[::]:$port"
+	config_get "ipv6_server" "$section" "ipv6_server" "1"
+	if [ "$ipv6_server" = "1" ]; then
+		conf_append "bind" "[::]:$port"
+	else
+		conf_append "bind" ":$port"
+	fi
 	SMARTDNS_PORT="$port"
 
 	mkdir -p $(dirname $SMARTDNS_CONF)
@@ -137,7 +152,7 @@ start_service() {
 	clear_iptable
 	config_get_bool "redirect" "$section" "redirect" '0'
 	if [ "$redirect" -eq 1 ]; then
-		set_iptable
+		set_iptable $ipv6_server
 	fi
 
 	config_foreach load_server "server"

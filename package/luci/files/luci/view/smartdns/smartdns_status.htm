@@ -10,9 +10,11 @@ XHR.poll(3, '<%=luci.dispatcher.build_url("admin", "services", "smartdns", "stat
 					if (data.ipv4_works == 0) {
 						links += "<br></br><b><font color=red><%:IPV4 53 Port Redirect Failure%></font></b>"
 					}
-
-					if (data.ipv6_works == 0) {
-						links += "<br></br><b><font color=red><%:IPV6 53 Port Redirect Failure%></font></b>"
+					
+					if (data.ipv6_works != 2) {
+						if (data.ipv6_works == 0) {
+							links += "<br></br><b><font color=red><%:IPV6 53 Port Redirect Failure%></font></b>"
+						}
 					}
 				}
 			} else {

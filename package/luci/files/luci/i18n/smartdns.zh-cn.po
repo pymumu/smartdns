@@ -40,6 +40,12 @@ msgstr "IPV4 53端口重定向失败"
 msgid "IPV6 53 Port Redirect Failure"
 msgstr "IPV6 53端口重定向失败"
 
+msgid "IPV6 Server"
+msgstr "IPV6服务器"
+
+msgid "Enable IPV6 DNS Server"
+msgstr "启用IPV6服务器"
+
 msgid "Redirect"
 msgstr "重定向"
 

@@ -109,6 +109,7 @@ struct fast_ping_struct {
 
 static struct fast_ping_struct ping;
 static atomic_t ping_sid = ATOMIC_INIT(0);
+static int bool_print_log = 1;
 
 uint16_t _fast_ping_checksum(uint16_t *header, size_t len)
 {
@@ -325,6 +326,14 @@ static int _fast_ping_sendping_v6(struct ping_host_struct *ping_host)
 		if (errno == ENETUNREACH) {
 			goto errout;
 		}
+
+		if (errno == EACCES) {
+			if (bool_print_log == 0) {
+				goto errout;
+			}
+			bool_print_log = 0;
+		}
+
 		char ping_host_name[PING_MAX_HOSTLEN];
 		tlog(TLOG_ERROR, "sendto %s, id %d, %s", gethost_by_addr(ping_host_name, (struct sockaddr *)&ping_host->addr, ping_host->addr_len), ping_host->sid,
 			 strerror(err));
@@ -398,6 +407,14 @@ static int _fast_ping_sendping_tcp(struct ping_host_struct *ping_host)
 			if (errno == ENETUNREACH) {
 				goto errout;
 			}
+
+			if (errno == EACCES) {
+				if (bool_print_log == 0) {
+					goto errout;
+				}
+				bool_print_log = 0;
+			}
+
 			tlog(TLOG_ERROR, "connect %s, id %d, %s", gethost_by_addr(ping_host_name, (struct sockaddr *)&ping_host->addr, ping_host->addr_len), ping_host->sid,
 				 strerror(errno));
 			goto errout;
@@ -1048,6 +1065,7 @@ int fast_ping_init(void)
 	pthread_attr_t attr;
 	int epollfd = -1;
 	int ret;
+	bool_print_log = 1;
 
 	if (ping.epoll_fd > 0) {
 		return -1;
