@@ -382,6 +382,7 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 |server-tcp|上游TCP DNS|无|[IP][:port]，可重复| server-tcp 8.8.8.8:53
 |address|指定域名IP地址|无|address /domain/ip| address /www.example.com/1.2.3.4
 |bogus-nxdomain|假冒IP地址过滤|无|[ip]，可重复| bogus-nxdomain 1.2.3.4
+|force-AAAA-SOA|强制AAAA地址返回SOA|no|[yes\|no]|force-AAAA-SOA yes
 
 ## [Donate](#Donate)  
 
@@ -410,4 +411,3 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 ## 说明
 
 目前代码未开源，后续根据情况开源。
-
