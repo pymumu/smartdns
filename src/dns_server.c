@@ -541,10 +541,11 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 	int j = 0;
 	struct dns_rrs *rrs = NULL;
 
-	if (packet->head.rcode != DNS_RC_NOERROR) {
+	if (packet->head.rcode != DNS_RC_NOERROR && packet->head.rcode != DNS_RC_NXDOMAIN) {
 		if (request->rcode == DNS_RC_SERVFAIL) {
 			request->rcode = packet->head.rcode;
 		}
+
 		tlog(TLOG_DEBUG, "inquery failed, %s, rcode = %d, id = %d\n", domain, packet->head.rcode, packet->head.id);
 		return -1;
 	}
@@ -793,6 +794,27 @@ errout:
 	return -1;
 }
 
+static int _dns_server_reply_SOA(int rcode, struct dns_request *request, struct dns_packet *packet)
+{
+	struct dns_soa *soa;
+	
+	request->rcode = rcode;
+	request->has_soa = 1;
+	
+	soa = &request->soa;
+
+	strcpy(soa->mname, "a.gtld-servers.net");
+	strcpy(soa->rname, "nstld.verisign-grs.com");
+	soa->serial = 1800;
+	soa->refresh = 1800;
+	soa->retry = 900;
+	soa->expire = 604800;
+	soa->minimum = 86400;
+	_dns_reply(request);
+
+	return 0;
+}
+
 static void _dns_server_log_rule(char *domain, unsigned char *rule_key, int rule_key_len)
 {
 	char rule_name[DNS_MAX_CNAME_LEN];
@@ -997,6 +1019,11 @@ static int _dns_server_recv(unsigned char *inpacket, int inpacket_len, struct so
 	case DNS_T_A:
 		break;
 	case DNS_T_AAAA:
+		if (dns_conf_force_AAAA_SOA == 1) {
+			_dns_server_reply_SOA(DNS_RC_NOERROR, request, packet);
+			free(request);
+			return 0;
+		}
 		break;
 	default:
 		tlog(TLOG_DEBUG, "unsupport qtype: %d, domain: %s", qtype, request->domain);

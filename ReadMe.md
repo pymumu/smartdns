@@ -382,6 +382,7 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 |server-tcp|Upstream TCP DNS server|None|[IP][:port], Repeatable| server-tcp 8.8.8.8:53
 |address|Domain IP address|None|address /domain/ip| address /www.example.com/1.2.3.4
 |bogus-nxdomain|bogus IP address|None|[IP]，Repeatable| bogus-nxdomain 1.2.3.4
+|force-AAAA-SOA|force AAAA query return SOA|no|[yes\|no]|force-AAAA-SOA yes
 
 ## [Donate](#Donate)  
 

@@ -29,6 +29,7 @@ art_tree dns_conf_address;
 int dns_conf_rr_ttl;
 int dns_conf_rr_ttl_min;
 int dns_conf_rr_ttl_max;
+int dns_conf_force_AAAA_SOA;
 
 int load_conf_file(const char *file);
 
@@ -219,6 +220,18 @@ int config_cache_prefetch_domain(char *value)
 		dns_conf_prefetch = 1;
 	} else if (strncmp("no", value, sizeof("no")) == 0 || strncmp("NO", value, sizeof("NO")) == 0) {
 		dns_conf_prefetch = 0;
+	}
+
+	return 0;
+}
+
+int config_force_AAAA_SOA(char *value)
+{
+	/* read dns cache size */
+	if (strncmp("yes", value, sizeof("yes")) == 0 || strncmp("YES", value, sizeof("YES")) == 0) {
+		dns_conf_force_AAAA_SOA = 1;
+	} else if (strncmp("no", value, sizeof("no")) == 0 || strncmp("NO", value, sizeof("NO")) == 0) {
+		dns_conf_force_AAAA_SOA = 0;
 	}
 
 	return 0;
@@ -467,6 +480,7 @@ struct config_item config_item[] = {
 	{"rr-ttl", config_rr_ttl},
 	{"rr-ttl-min", config_rr_ttl_min},
 	{"rr-ttl-max", config_rr_ttl_max},
+	{"force-AAAA-SOA", config_force_AAAA_SOA},
 	{"bogus-nxdomain", conf_bogus_nxdomain},
 	{"conf-file", config_addtional_file},
 };

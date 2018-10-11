@@ -63,6 +63,7 @@ extern art_tree dns_conf_address;
 extern int dns_conf_rr_ttl;
 extern int dns_conf_rr_ttl_min;
 extern int dns_conf_rr_ttl_max;
+extern int dns_conf_force_AAAA_SOA;
 
 int dns_bogus_nxdomain_exists(unsigned char *ip, dns_type_t addr_type);
 
