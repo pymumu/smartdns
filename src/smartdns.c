@@ -37,6 +37,8 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 
 #define RESOLVE_FILE "/etc/resolv.conf"
 #define MAX_LINE_LEN 1024
@@ -175,6 +177,23 @@ errout:
 	return -1;
 }
 
+int smartdns_init_ssl(void)
+{
+	SSL_load_error_strings();
+	SSL_library_init();
+	OpenSSL_add_all_algorithms();
+
+	return 0;
+}
+
+int smartdns_destroy_ssl(void)
+{
+	ERR_free_strings();
+	EVP_cleanup();
+
+	return 0;
+}
+
 int smartdns_init(void)
 {
 	int ret;
@@ -198,8 +217,13 @@ int smartdns_init(void)
 		goto errout;
 	}
 
-	/* tlog_setlogscreen(1); */ 
+	//tlog_setlogscreen(1); 
 	tlog_setlevel(dns_conf_log_level);
+
+	if (smartdns_init_ssl() != 0) {
+		tlog(TLOG_ERROR, "init ssl failed.");
+		goto errout;
+	}
 
 	if (dns_conf_server_num <= 0) {
 		if (smartdns_load_from_resolv() != 0) {
@@ -247,6 +271,7 @@ void smartdns_exit(void)
 	dns_server_exit();
 	dns_client_exit();
 	fast_ping_exit();
+	smartdns_destroy_ssl();
 	tlog_exit();
 	load_exit();
 }

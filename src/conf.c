@@ -47,7 +47,7 @@ int config_server_name(char *value)
 	return 0;
 }
 
-int config_server(char *value, dns_server_type_t type)
+int config_server(char *value, dns_server_type_t type, int default_port)
 {
 	int index = dns_conf_server_num;
 	struct dns_servers *server;
@@ -66,7 +66,7 @@ int config_server(char *value, dns_server_type_t type)
 
 	/* if port is not defined, set port to default 53 */
 	if (port == PORT_NOT_DEFINED) {
-		port = DEFAULT_DNS_PORT;
+		port = default_port;
 	}
 
 	server->type = type;
@@ -187,17 +187,17 @@ errout:
 
 int config_server_udp(char *value)
 {
-	return config_server(value, DNS_SERVER_UDP);
+	return config_server(value, DNS_SERVER_UDP, DEFAULT_DNS_PORT);
 }
 
 int config_server_tcp(char *value)
 {
-	return config_server(value, DNS_SERVER_TCP);
+	return config_server(value, DNS_SERVER_TCP, DEFAULT_DNS_PORT);
 }
 
-int config_server_http(char *value)
+int config_server_tls(char *value)
 {
-	return config_server(value, DNS_SERVER_HTTP);
+	return config_server(value, DNS_SERVER_TLS, DEFAULT_DNS_TLS_PORT);
 }
 
 int config_cache_size(char *value)
@@ -470,7 +470,7 @@ struct config_item config_item[] = {
 	{"server", config_server_udp},
 	{"address", config_address},
 	{"server-tcp", config_server_tcp},
-	{"server-http", config_server_http},
+	{"server-tls", config_server_tls},
 	{"cache-size", config_cache_size},
 	{"prefetch-domain", config_cache_prefetch_domain},
 	{"log-level", config_log_level},

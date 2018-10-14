@@ -12,6 +12,7 @@
 #define DNS_MAX_IPLEN 64
 #define DNS_MAX_PATH 1024
 #define DEFAULT_DNS_PORT 53
+#define DEFAULT_DNS_TLS_PORT 853
 #define DNS_MAX_CONF_CNAME_LEN 128
 
 struct dns_servers {

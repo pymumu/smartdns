@@ -6,7 +6,7 @@
 typedef enum {
 	DNS_SERVER_UDP,
 	DNS_SERVER_TCP,
-	DNS_SERVER_HTTP,
+	DNS_SERVER_TLS,
 	DNS_SERVER_TYPE_END,
 } dns_server_type_t;
 

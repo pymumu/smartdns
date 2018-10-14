@@ -1332,7 +1332,8 @@ int dns_server_socket(void)
 
 	fd = socket(gai->ai_family, gai->ai_socktype, gai->ai_protocol);
 	if (fd < 0) {
-		tlog(TLOG_ERROR, "create socket failed.\n");
+		tlog(TLOG_ERROR, "create socket failed, family = %d, type = %d, proto = %d, %s\n", 
+			gai->ai_family, gai->ai_socktype, gai->ai_protocol, strerror(errno));
 		goto errout;
 	}
 

@@ -1,9 +1,11 @@
 /*
  * tinylog 
- * Copyright (C) 2018 Ruilin Peng (Nick) <pymumu@gmail.com> 
+ * Copyright (C) 2018 Nick Peng <pymumu@gmail.com> 
  * https://github.com/pymumu/tinylog
  */
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE 
+#endif
 #include "tlog.h"
 #include <dirent.h>
 #include <errno.h>
