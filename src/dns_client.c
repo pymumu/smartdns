@@ -1087,6 +1087,56 @@ static int _dns_client_socket_recv(SSL *ssl, void *buf, int num)
 	return ret;
 }
 
+static inline int _dns_client_to_hex(int c)
+{
+	if (c > 0x9) {
+		return 'A' + c - 0xA;
+	} else {
+		return '0' + c;
+	}
+}
+
+static int _dns_client_tls_verify(struct dns_server_info *server_info)
+{
+	X509 *cert = NULL;
+	char peer_CN[256];
+	const EVP_MD        * digest;
+	unsigned char         md[EVP_MAX_MD_SIZE];
+	unsigned int          n;
+	char cert_fingerprint[256];
+	int i = 0;
+
+	cert = SSL_get_peer_certificate(server_info->ssl);
+	if (cert == NULL) {
+		tlog(TLOG_ERROR, "get peer certificate failed.");
+		return -1;
+	}
+
+	X509_NAME_get_text_by_NID(X509_get_subject_name(cert), NID_commonName, peer_CN, 256);
+
+	tlog(TLOG_DEBUG, "peer CN: %s", peer_CN);
+
+	digest = EVP_get_digestbyname("sha256");
+	X509_digest(cert, digest, md, &n);
+
+	char *ptr = cert_fingerprint;
+	for (i = 0; i < 32; i++) {
+		*ptr = _dns_client_to_hex(md[i] >> 4 & 0xF);
+		ptr++;
+		*ptr = _dns_client_to_hex(md[i] & 0xF);
+		ptr++;
+		*ptr = ':';
+		ptr++;
+	}
+	ptr--;
+	*ptr = 0;
+	tlog(TLOG_DEBUG, "cert fingerprint(%s): %s", "sha256", cert_fingerprint);
+
+	X509_free(cert);
+
+	return 0;
+}
+
 static int _dns_client_process_tls(struct dns_server_info *server_info, struct epoll_event *event, unsigned long now)
 {
 	int len;
@@ -1121,6 +1171,12 @@ static int _dns_client_process_tls(struct dns_server_info *server_info, struct e
 		}
 
 		tlog(TLOG_DEBUG, "TLS server connected.\n");
+
+		if (_dns_client_tls_verify(server_info) != 0) {
+			tlog(TLOG_WARN, "peer verify failed.");
+			goto errout;
+		}
+
 		server_info->status = DNS_SERVER_STATUS_CONNECTED;
 		memset(&fd_event, 0, sizeof(fd_event));
 		fd_event.events = EPOLLIN | EPOLLOUT;
