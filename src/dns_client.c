@@ -854,6 +854,83 @@ static int _dns_client_process_tcp(struct dns_server_info *server_info, struct e
 	unsigned char *inpacket_data = server_info->recv_buff.data;
 	char from_host[DNS_MAX_CNAME_LEN];
 
+	if (event->events & EPOLLIN) {
+		/* receive from tcp */
+		len = recv(server_info->fd, server_info->recv_buff.data + server_info->recv_buff.len, DNS_TCP_BUFFER - server_info->recv_buff.len, 0);
+		if (len < 0) {
+			/* no data to recv, try again */
+			if (errno == EAGAIN) {
+				return 0;
+			}
+			
+			/* FOR GFW */
+			if (errno == ECONNRESET) {
+				goto errout;
+			}
+
+			tlog(TLOG_ERROR, "recv failed, %s, %d\n", strerror(errno), errno);
+			goto errout;
+		}
+
+		/* peer server close */
+		if (len == 0) {
+			pthread_mutex_lock(&client.server_list_lock);
+			_dns_client_close_socket(server_info);
+			server_info->recv_buff.len = 0;
+			if (server_info->send_buff.len > 0) {
+				/* still remain request data, reconnect and send*/
+				ret = _dns_client_create_socket(server_info);
+			} else {
+				ret = 0;
+			}
+			pthread_mutex_unlock(&client.server_list_lock);
+			tlog(TLOG_DEBUG, "peer close, left = %d", server_info->send_buff.len);
+			return ret;
+		}
+
+		time(&server_info->last_recv);
+
+		server_info->recv_buff.len += len;
+		if (server_info->recv_buff.len < 2) {
+			/* wait and recv */
+			return 0;
+		}
+
+		while (1) {
+			/* tcp result format 
+			* | len (short) | dns query result | 
+			*/
+			inpacket_data = server_info->recv_buff.data;
+			len = ntohs(*((unsigned short *)(inpacket_data)));
+			if (len <= 0 || len >= DNS_IN_PACKSIZE) {
+				/* data len is invalid */
+				goto errout;
+			}
+
+			if (len > server_info->recv_buff.len - 2) {
+				/* len is not expceded, wait and recv */
+				break;
+			}
+
+			inpacket_data = server_info->recv_buff.data + 2;
+			tlog(TLOG_DEBUG, "recv tcp from %s, len = %d", gethost_by_addr(from_host, (struct sockaddr *)&server_info->addr, server_info->ai_addrlen), len);
+
+			/* process result */
+			if (_dns_client_recv(inpacket_data, len, &server_info->addr, server_info->ai_addrlen) != 0) {
+				goto errout;
+			}
+			len += 2;
+			server_info->recv_buff.len -= len;
+
+			/* move to next result */
+			if (server_info->recv_buff.len > 0) {
+				memmove(server_info->recv_buff.data, server_info->recv_buff.data + len, server_info->recv_buff.len);
+			} else {
+				break;
+			}
+		}
+	}
+
 	/* when connected */
 	if (event->events & EPOLLOUT) {
 		struct epoll_event event;
@@ -892,81 +969,6 @@ static int _dns_client_process_tcp(struct dns_server_info *server_info, struct e
 		}
 
 		return 0;
-	}
-
-	/* receive from tcp */
-	len = recv(server_info->fd, server_info->recv_buff.data + server_info->recv_buff.len, DNS_TCP_BUFFER - server_info->recv_buff.len, 0);
-	if (len < 0) {
-		/* no data to recv, try again */
-		if (errno == EAGAIN) {
-			return 0;
-		}
-		
-		/* FOR GFW */
-		if (errno == ECONNRESET) {
-			goto errout;
-		}
-
-		tlog(TLOG_ERROR, "recv failed, %s, %d\n", strerror(errno), errno);
-		goto errout;
-	}
-
-	/* peer server close */
-	if (len == 0) {
-		pthread_mutex_lock(&client.server_list_lock);
-		_dns_client_close_socket(server_info);
-		server_info->recv_buff.len = 0;
-		if (server_info->send_buff.len > 0) {
-			/* still remain request data, reconnect and send*/
-			ret = _dns_client_create_socket(server_info);
-		} else {
-			ret = 0;
-		}
-		pthread_mutex_unlock(&client.server_list_lock);
-		tlog(TLOG_DEBUG, "peer close, left = %d", server_info->send_buff.len);
-		return ret;
-	}
-
-	time(&server_info->last_recv);
-
-	server_info->recv_buff.len += len;
-	if (server_info->recv_buff.len < 2) {
-		/* wait and recv */
-		return 0;
-	}
-
-	while (1) {
-		/* tcp result format 
-	 	 * | len (short) | dns query result | 
-	 	 */
-		inpacket_data = server_info->recv_buff.data;
-		len = ntohs(*((unsigned short *)(inpacket_data)));
-		if (len <= 0 || len >= DNS_IN_PACKSIZE) {
-			/* data len is invalid */
-			goto errout;
-		}
-
-		if (len > server_info->recv_buff.len - 2) {
-			/* len is not expceded, wait and recv */
-			break;
-		}
-
-		inpacket_data = server_info->recv_buff.data + 2;
-		tlog(TLOG_DEBUG, "recv tcp from %s, len = %d", gethost_by_addr(from_host, (struct sockaddr *)&server_info->addr, server_info->ai_addrlen), len);
-
-		/* process result */
-		if (_dns_client_recv(inpacket_data, len, &server_info->addr, server_info->ai_addrlen) != 0) {
-			goto errout;
-		}
-		len += 2;
-		server_info->recv_buff.len -= len;
-
-		/* move to next result */
-		if (server_info->recv_buff.len > 0) {
-			memmove(server_info->recv_buff.data, server_info->recv_buff.data + len, server_info->recv_buff.len);
-		} else {
-			break;
-		}
 	}
 
 	return 0;
@@ -1076,7 +1078,8 @@ static int _dns_client_socket_recv(SSL *ssl, void *buf, int num)
 		ret = -1;
 		break;
 	case SSL_ERROR_SYSCALL:
-		tlog(TLOG_ERROR, "SSL syscall failed, %s", strerror(errno));
+		tlog(TLOG_DEBUG, "SSL syscall failed, %s, ", strerror(errno));
+		ret = -1;
 		return ret;
 	default:
 		errno = EFAULT;
@@ -1188,6 +1191,83 @@ static int _dns_client_process_tls(struct dns_server_info *server_info, struct e
 
 	}
 
+	if (event->events & EPOLLIN) {
+		/* receive from tcp */
+		len = _dns_client_socket_recv(server_info->ssl, server_info->recv_buff.data + server_info->recv_buff.len, DNS_TCP_BUFFER - server_info->recv_buff.len);
+		if (len < 0) {
+			/* no data to recv, try again */
+			if (errno == EAGAIN) {
+				return 0;
+			}
+			
+			/* FOR GFW */
+			if (errno == ECONNRESET) {
+				goto errout;
+			}
+
+			tlog(TLOG_ERROR, "recv failed, %s, %d\n", strerror(errno), errno);
+			goto errout;
+		}
+
+		/* peer server close */
+		if (len == 0) {
+			pthread_mutex_lock(&client.server_list_lock);
+			_dns_client_close_socket(server_info);
+			server_info->recv_buff.len = 0;
+			if (server_info->send_buff.len > 0) {
+				/* still remain request data, reconnect and send*/
+				ret = _dns_client_create_socket(server_info);
+			} else {
+				ret = 0;
+			}
+			pthread_mutex_unlock(&client.server_list_lock);
+			tlog(TLOG_DEBUG, "peer close, left = %d", server_info->send_buff.len);
+			return ret;
+		}
+
+		time(&server_info->last_recv);
+
+		server_info->recv_buff.len += len;
+		if (server_info->recv_buff.len < 2) {
+			/* wait and recv */
+			return 0;
+		}
+
+		while (1) {
+			/* tcp result format 
+			* | len (short) | dns query result | 
+			*/
+			inpacket_data = server_info->recv_buff.data;
+			len = ntohs(*((unsigned short *)(inpacket_data)));
+			if (len <= 0 || len >= DNS_IN_PACKSIZE) {
+				/* data len is invalid */
+				goto errout;
+			}
+
+			if (len > server_info->recv_buff.len - 2) {
+				/* len is not expceded, wait and recv */
+				break;
+			}
+
+			inpacket_data = server_info->recv_buff.data + 2;
+			tlog(TLOG_DEBUG, "recv tcp from %s, len = %d", gethost_by_addr(from_host, (struct sockaddr *)&server_info->addr, server_info->ai_addrlen), len);
+
+			/* process result */
+			if (_dns_client_recv(inpacket_data, len, &server_info->addr, server_info->ai_addrlen) != 0) {
+				goto errout;
+			}
+			len += 2;
+			server_info->recv_buff.len -= len;
+
+			/* move to next result */
+			if (server_info->recv_buff.len > 0) {
+				memmove(server_info->recv_buff.data, server_info->recv_buff.data + len, server_info->recv_buff.len);
+			} else {
+				break;
+			}
+		}
+	}
+
 	/* when connected */
 	if (event->events & EPOLLOUT) {
 		pthread_mutex_lock(&client.server_list_lock);
@@ -1221,81 +1301,6 @@ static int _dns_client_process_tls(struct dns_server_info *server_info, struct e
 		}
 
 		return 0;
-	}
-
-	/* receive from tcp */
-	len = _dns_client_socket_recv(server_info->ssl, server_info->recv_buff.data + server_info->recv_buff.len, DNS_TCP_BUFFER - server_info->recv_buff.len);
-	if (len < 0) {
-		/* no data to recv, try again */
-		if (errno == EAGAIN) {
-			return 0;
-		}
-		
-		/* FOR GFW */
-		if (errno == ECONNRESET) {
-			goto errout;
-		}
-
-		tlog(TLOG_ERROR, "recv failed, %s, %d\n", strerror(errno), errno);
-		goto errout;
-	}
-
-	/* peer server close */
-	if (len == 0) {
-		pthread_mutex_lock(&client.server_list_lock);
-		_dns_client_close_socket(server_info);
-		server_info->recv_buff.len = 0;
-		if (server_info->send_buff.len > 0) {
-			/* still remain request data, reconnect and send*/
-			ret = _dns_client_create_socket(server_info);
-		} else {
-			ret = 0;
-		}
-		pthread_mutex_unlock(&client.server_list_lock);
-		tlog(TLOG_DEBUG, "peer close, left = %d", server_info->send_buff.len);
-		return ret;
-	}
-
-	time(&server_info->last_recv);
-
-	server_info->recv_buff.len += len;
-	if (server_info->recv_buff.len < 2) {
-		/* wait and recv */
-		return 0;
-	}
-
-	while (1) {
-		/* tcp result format 
-	 	 * | len (short) | dns query result | 
-	 	 */
-		inpacket_data = server_info->recv_buff.data;
-		len = ntohs(*((unsigned short *)(inpacket_data)));
-		if (len <= 0 || len >= DNS_IN_PACKSIZE) {
-			/* data len is invalid */
-			goto errout;
-		}
-
-		if (len > server_info->recv_buff.len - 2) {
-			/* len is not expceded, wait and recv */
-			break;
-		}
-
-		inpacket_data = server_info->recv_buff.data + 2;
-		tlog(TLOG_DEBUG, "recv tcp from %s, len = %d", gethost_by_addr(from_host, (struct sockaddr *)&server_info->addr, server_info->ai_addrlen), len);
-
-		/* process result */
-		if (_dns_client_recv(inpacket_data, len, &server_info->addr, server_info->ai_addrlen) != 0) {
-			goto errout;
-		}
-		len += 2;
-		server_info->recv_buff.len -= len;
-
-		/* move to next result */
-		if (server_info->recv_buff.len > 0) {
-			memmove(server_info->recv_buff.data, server_info->recv_buff.data + len, server_info->recv_buff.len);
-		} else {
-			break;
-		}
 	}
 
 	return 0;
