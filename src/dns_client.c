@@ -1078,7 +1078,7 @@ static int _dns_client_socket_recv(SSL *ssl, void *buf, int num)
 		ret = -1;
 		break;
 	case SSL_ERROR_SYSCALL:
-		tlog(TLOG_DEBUG, "SSL syscall failed, %s, ", strerror(errno));
+		tlog(TLOG_ERROR, "SSL syscall failed, %s, ", strerror(errno));
 		ret = -1;
 		return ret;
 	default:
@@ -1450,6 +1450,10 @@ static int _dns_client_send_tls(struct dns_server_info *server_info, void *packe
 	*((unsigned short *)(inpacket)) = htons(len);
 	memcpy(inpacket + 2, packet, len);
 	len += 2;
+
+	if (server_info->status != DNS_SERVER_STATUS_CONNECTED) {
+		return _dns_client_send_data_to_buffer(server_info, inpacket, len);
+	}
 
 	send_len = _dns_client_socket_send(server_info->ssl, inpacket, len);
 	if (send_len < 0) {
