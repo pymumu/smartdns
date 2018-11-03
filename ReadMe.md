@@ -76,8 +76,8 @@ From the comparison, smartdns found the fastest IP address to visit www.baidu.co
 2. **Return the fastest IP address**  
    Supports finding the fastest access IP address from the IP address list of the domain name and returning it to the client to avoid DNS pollution and improve network access speed.
 
-3. **Support non-standard ports**  
-   Support non-53 port query, support TCP query, effectively avoid DNS pollution.
+3. **Support for multiple query protocols**
+   Support UDP, TCP, TLS queries, and non-53 port queries, effectively avoiding DNS pollution.
 
 4. **Domain IP address specification**  
    Support configuring IP address of specific domain to achieve the effect of advertising filtering, and avoid malicious websites.
@@ -114,18 +114,20 @@ Download the matching version of the SmartDNS installation package. The correspo
 |system |package|Description
 |-----|-----|-----
 |Standard Linux system (Raspberry Pi)| smartdns.xxxxxxxx.armhf.deb|Support Raspberry Pi Raspbian stretch, Debian 9 system.
-|Standard Linux system (x86_64)| smartdns.xxxxxxxx.x86_64..tar.gz|Support for x86_64 systems.
+|Standard Linux system (x86_64)| smartdns.xxxxxxxx.x86_64.tar.gz|Support for x86_64 systems.
+|Standard Linux system (x86)| smartdns.xxxxxxxx.x86.tar.gz|Support for x86_64 systems.
 |ASUS native firmware (optware)|smartdns.xxxxxxx.mipsbig.ipk|Systems that support the MIPS big-end architecture, such as RT-AC55U, RT-AC66U.
 |ASUS native firmware (optware)|smartdns.xxxxxxx.mipsel.ipk|System that supports the MIPS little endian architecture, such as the RT-AC68U.
 |ASUS native firmware (optware)|smartdns.xxxxxxx.arm.ipk|System that supports the ARM small endian architecture, such as the RT-AC88U.
 |openwrt 15.01|smartdns.xxxxxxxx.ar71xx.ipk|Support AR71XX MIPS system.
 |openwrt 15.01|smartdns.xxxxxxxx.ramips_24kec.ipk|Support small-end routers such as MT762X
 |openwrt 15.01(Pandora)|smartdns.xxxxxxxx.mipsel_24kec_dsp.ipk|Support for Pandora firmware of MT7620 series
-|openwrt LEDE|smartdns.xxxxxxxx.mips_24kc.ipk|Support AR71XX MIPS system.
-|openwrt LEDE|smartdns.xxxxxxxx.mipsel_24kc.ipk|Support small-end routers such as MT726X
-|openwrt LEDE|smartdns.xxxxxxxx.x86_64.ipk|Support x86_64 router
-|openwrt LEDE|smartdns.xxxxxxxxxxx.arm_cortex-a9.ipk|Router supporting arm A9 core CPU
-|openwrt LEDE|smartdns.xxxxxxxxx.arm_cortex-a7_neon-vfpv4.ipk|Router supporting arm A7 core CPU
+|openwrt 18.06|smartdns.xxxxxxxx.mips_24kc.ipk|Support AR71XX MIPS system.
+|openwrt 18.06|smartdns.xxxxxxxx.mipsel_24kc.ipk|Support small-end routers such as MT726X
+|openwrt 18.06|smartdns.xxxxxxxx.x86_64.ipk|Support x86_64 router
+|openwrt 18.06|smartdns.xxxxxxxx.i386_pentium4.ipk|Support x86_64 router
+|openwrt 18.06|smartdns.xxxxxxxxxxx.arm_cortex-a9.ipk|Router supporting arm A9 core CPU
+|openwrt 18.06|smartdns.xxxxxxxxx.arm_cortex-a7_neon-vfpv4.ipk|Router supporting arm A7 core CPU
 |openwrt LUCI|luci-app-smartdns.xxxxxxxxx.xxxx.all.ipk|Openwrt management interface
 
 * The openwrt system supports a lot of CPU architecture. The above table does not list all the supported systems. Please check the CPU architecture and download it.

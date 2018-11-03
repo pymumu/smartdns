@@ -76,8 +76,8 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 2. **返回最快IP地址**  
    支持从域名所属IP地址列表中查找到访问速度最快的IP地址，并返回给客户端，避免DNS污染，提高网络访问速度。
 
-3. **支持非标准端口**  
-   支持非53端口查询，支持TCP查询，有效避免DNS污染。
+3. **支持多种查询协议**  
+   支持UDP，TCP，TLS查询，以及非53端口查询，有效避免DNS污染。
 
 4. **特定域名IP地址指定**  
    支持指定域名的IP地址，达到广告过滤效果，避免恶意网站的效果。
@@ -114,18 +114,20 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 |系统 |安装包|说明
 |-----|-----|-----
 |标准Linux系统(树莓派)| smartdns.xxxxxxxx.armhf.deb|支持树莓派Raspbian stretch，Debian 9系统。
-|标准Linux系统(x86_64)| smartdns.xxxxxxxx.x86_64..tar.gz|支持x86_64系统。
+|标准Linux系统(x86_64)| smartdns.xxxxxxxx.x86_64.tar.gz|支持x86_64系统。
+|标准Linux系统(x86)| smartdns.xxxxxxxx.x86.tar.gz|支持x86系统。
 |华硕原生固件(optware)|smartdns.xxxxxxx.mipsbig.ipk|支持MIPS大端架构的系统，如RT-AC55U, RT-AC66U.
 |华硕原生固件(optware)|smartdns.xxxxxxx.mipsel.ipk|支持MIPS小端架构的系统，如RT-AC68U。
 |华硕原生固件(optware)|smartdns.xxxxxxx.arm.ipk|支持arm小端架构的系统，如RT-AC88U。
 |openwrt 15.01|smartdns.xxxxxxxx.ar71xx.ipk|支持AR71XX MIPS系统。
 |openwrt 15.01|smartdns.xxxxxxxx.ramips_24kec.ipk|支持MT762X等小端路由器
 |openwrt 15.01(潘多拉)|smartdns.xxxxxxxx.mipsel_24kec_dsp.ipk|支持MT7620系列的潘多拉固件
-|openwrt LEDE|smartdns.xxxxxxxx.mips_24kc.ipk|支持AR71XX MIPS系统。
-|openwrt LEDE|smartdns.xxxxxxxx.mipsel_24kc.ipk|支持MT726X等小端路由器
-|openwrt LEDE|smartdns.xxxxxxxx.x86_64.ipk|支持x86_64路由器
-|openwrt LEDE|smartdns.xxxxxxxxxxx.arm_cortex-a9.ipk|支持arm A9核心CPU的路由器
-|openwrt LEDE|smartdns.xxxxxxxxx.arm_cortex-a7_neon-vfpv4.ipk|支持arm A7核心CPU的路由器
+|openwrt 18.06|smartdns.xxxxxxxx.mips_24kc.ipk|支持AR71XX MIPS系统。
+|openwrt 18.06|smartdns.xxxxxxxx.mipsel_24kc.ipk|支持MT726X等小端路由器
+|openwrt 18.06|smartdns.xxxxxxxx.x86_64.ipk|支持x86_64路由器
+|openwrt 18.06|smartdns.xxxxxxxx.i386_pentium4.ipk|支持x86路由器
+|openwrt 18.06|smartdns.xxxxxxxxxxx.arm_cortex-a9.ipk|支持arm A9核心CPU的路由器
+|openwrt 18.06|smartdns.xxxxxxxxx.arm_cortex-a7_neon-vfpv4.ipk|支持arm A7核心CPU的路由器
 |openwrt LUCI|luci-app-smartdns.xxxxxxxxx.xxxx.all.ipk|openwrt管理统一界面
 
 * openwrt系统CPU架构比较多，上述表格未列出所有支持系统，请查看CPU架构后下载。
