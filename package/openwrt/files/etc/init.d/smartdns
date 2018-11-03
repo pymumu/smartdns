@@ -77,6 +77,8 @@ load_server()
 	SERVER="server"
 	if [ "$type" = "tcp" ]; then
 		SERVER="server-tcp"
+	elif [ "$type" = "tls" ]; then
+		SERVER="server-tls"
 	fi
 
 	if [ ! -z "`echo $ip | grep ":"`" ]; then

@@ -111,6 +111,7 @@ o = s:option(ListValue, "type", translate("type"), translate("DNS Server type"))
 o.placeholder = "udp"
 o:value("udp", translate("udp"))
 o:value("tcp", translate("tcp"))
+o:value("tls", translate("tls"))
 o.default     = "udp"
 o.rempty      = false
 
