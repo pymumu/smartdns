@@ -31,13 +31,13 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <assert.h>
 #include "art.h"
 
-#ifdef __i386__
-    #include <emmintrin.h>
-#else
+// #ifdef __i386__
+//     #include <emmintrin.h>
+// #else
 #ifdef __amd64__
     #include <emmintrin.h>
 #endif
-#endif
+// #endif
 
 /**
  * Macros to manipulate pointer tags
@@ -440,16 +440,16 @@ static void add_child16(art_node16 *n, art_node **ref, unsigned char c, void *ch
         unsigned mask = (1 << n->n.num_children) - 1;
         
         // support non-x86 architectures
-        #ifdef __i386__
-            __m128i cmp;
+        // #ifdef __i386__
+        //     __m128i cmp;
 
-            // Compare the key to all 16 stored keys
-            cmp = _mm_cmplt_epi8(_mm_set1_epi8(c),
-                    _mm_loadu_si128((__m128i*)n->keys));
+        //     // Compare the key to all 16 stored keys
+        //     cmp = _mm_cmplt_epi8(_mm_set1_epi8(c),
+        //             _mm_loadu_si128((__m128i*)n->keys));
 
-            // Use a mask to ignore children that don't exist
-            unsigned bitfield = _mm_movemask_epi8(cmp) & mask;
-        #else
+        //     // Use a mask to ignore children that don't exist
+        //     unsigned bitfield = _mm_movemask_epi8(cmp) & mask;
+        // #else
         #ifdef __amd64__
             __m128i cmp;
 
@@ -471,7 +471,7 @@ static void add_child16(art_node16 *n, art_node **ref, unsigned char c, void *ch
             // Use a mask to ignore children that don't exist
             bitfield &= mask;    
         #endif
-        #endif
+        // #endif
 
         // Check if less than any
         unsigned idx;
