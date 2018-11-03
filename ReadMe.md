@@ -125,7 +125,7 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 |openwrt 18.06|smartdns.xxxxxxxx.mips_24kc.ipk|支持AR71XX MIPS系统。
 |openwrt 18.06|smartdns.xxxxxxxx.mipsel_24kc.ipk|支持MT726X等小端路由器
 |openwrt 18.06|smartdns.xxxxxxxx.x86_64.ipk|支持x86_64路由器
-|openwrt 18.06|smartdns.xxxxxxxx.x86.ipk|支持x86路由器
+|openwrt 18.06|smartdns.xxxxxxxx.i386_pentium4.ipk|支持x86路由器
 |openwrt 18.06|smartdns.xxxxxxxxxxx.arm_cortex-a9.ipk|支持arm A9核心CPU的路由器
 |openwrt 18.06|smartdns.xxxxxxxxx.arm_cortex-a7_neon-vfpv4.ipk|支持arm A7核心CPU的路由器
 |openwrt LUCI|luci-app-smartdns.xxxxxxxxx.xxxx.all.ipk|openwrt管理统一界面
