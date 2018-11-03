@@ -1078,7 +1078,9 @@ static int _dns_client_socket_recv(SSL *ssl, void *buf, int num)
 		ret = -1;
 		break;
 	case SSL_ERROR_SYSCALL:
-		tlog(TLOG_ERROR, "SSL syscall failed, %s, ", strerror(errno));
+		if (errno != ECONNRESET) {
+			tlog(TLOG_ERROR, "SSL syscall failed, %s ", strerror(errno));
+		}
 		ret = -1;
 		return ret;
 	default:
