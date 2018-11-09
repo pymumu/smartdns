@@ -43,9 +43,6 @@
 #define RESOLVE_FILE "/etc/resolv.conf"
 #define MAX_LINE_LEN 1024
 #define MAX_KEY_LEN 64
-#define SMARTDNS_CONF_FILE "/etc/smartdns/smartdns.conf"
-#define SMARTDNS_LOG_PATH "/var/log"
-#define SMARTDNS_LOG_FILE "smartdns.log"
 #define SMARTDNS_PID_FILE "/var/run/smartdns.pid"
 #define TMP_BUFF_LEN_32 32
 
@@ -197,21 +194,13 @@ int smartdns_destroy_ssl(void)
 int smartdns_init(void)
 {
 	int ret;
-	char logdir[DNS_MAX_PATH];
-	char logname[DNS_MAX_PATH];
+	char *logfile = SMARTDNS_LOG_FILE;
 
 	if (dns_conf_log_file[0] != 0) {
-		char dns_log_file[DNS_MAX_PATH];
-		strncpy(dns_log_file, dns_conf_log_file, DNS_MAX_PATH);
-		strncpy(logdir, dirname(dns_log_file), DNS_MAX_PATH);
-		strncpy(dns_log_file, dns_conf_log_file, DNS_MAX_PATH);
-		strncpy(logname, basename(dns_log_file), DNS_MAX_PATH);
-	} else {
-		strncpy(logdir, SMARTDNS_LOG_PATH, DNS_MAX_PATH);
-		strncpy(logname, SMARTDNS_LOG_FILE, DNS_MAX_PATH);
+		logfile = dns_conf_log_file;
 	}
 
-	ret = tlog_init(logdir, logname, dns_conf_log_size, dns_conf_log_num, 1, 0, 0);
+	ret = tlog_init(logfile, dns_conf_log_size, dns_conf_log_num, 1, 0, 0);
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "start tlog failed.\n");
 		goto errout;

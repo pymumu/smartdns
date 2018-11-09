@@ -1079,7 +1079,7 @@ static int _dns_client_socket_recv(SSL *ssl, void *buf, int num)
 		break;
 	case SSL_ERROR_SYSCALL:
 		if (errno != ECONNRESET) {
-			tlog(TLOG_ERROR, "SSL syscall failed, %s ", strerror(errno));
+			tlog(TLOG_INFO, "SSL syscall failed, %s ", strerror(errno));
 		}
 		ret = -1;
 		return ret;

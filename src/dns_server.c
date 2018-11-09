@@ -133,10 +133,42 @@ struct dns_request {
 
 static struct dns_server server;
 
+static tlog_log *dns_audit;
+
 static int _dns_server_forward_request(unsigned char *inpacket, int inpacket_len)
 {
 	tlog(TLOG_ERROR, "forward request.\n");
 	return -1;
+}
+
+static void _dns_server_audit_log(struct dns_request *request)
+{
+	char req_host[MAX_IP_LEN];
+	char req_result[MAX_IP_LEN];
+	char req_time[MAX_IP_LEN];
+	struct tlog_time tm;
+
+	if (dns_audit == NULL || !dns_conf_audit_enable) {
+		return;
+	}
+
+	if (request->qtype == DNS_T_AAAA) {
+		snprintf(req_result, sizeof(req_result), "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x",
+			 request->ipv6_addr[0], request->ipv6_addr[1], request->ipv6_addr[2], request->ipv6_addr[3], request->ipv6_addr[4], request->ipv6_addr[5],
+			 request->ipv6_addr[6], request->ipv6_addr[7], request->ipv6_addr[8], request->ipv6_addr[9], request->ipv6_addr[10], request->ipv6_addr[11],
+			 request->ipv6_addr[12], request->ipv6_addr[13], request->ipv6_addr[14], request->ipv6_addr[15]);
+	} else if (request->qtype == DNS_T_A) {
+		snprintf(req_result, sizeof(req_result), "%d.%d.%d.%d", request->ipv4_addr[0], request->ipv4_addr[1], request->ipv4_addr[2],
+			 request->ipv4_addr[3]);
+	} else {
+		return;
+	}
+	gethost_by_addr(req_host, &request->addr, request->addr_len);
+	tlog_localtime(&tm);
+
+	snprintf(req_time, sizeof(req_time), "[%.4d-%.2d-%.2d %.2d:%.2d:%.2d,%.3d]", tm.year, tm.mon, tm.mday, tm.hour, tm.min, tm.sec, tm.usec / 1000);
+
+	tlog_printf(dns_audit, "%s %s query %s, type %d, result %s\n", req_time, req_host, request->domain, request->qtype, req_result);
 }
 
 static int _dns_recv_addr(struct dns_request *request, struct sockaddr_storage *from, socklen_t from_len)
@@ -234,6 +266,8 @@ static int _dns_reply(struct dns_request *request)
 	struct dns_head head;
 	int ret = 0;
 	int encode_len = 0;
+
+	_dns_server_audit_log(request);
 
 	memset(&head, 0, sizeof(head));
 	head.id = request->id;
@@ -797,10 +831,10 @@ errout:
 static int _dns_server_reply_SOA(int rcode, struct dns_request *request, struct dns_packet *packet)
 {
 	struct dns_soa *soa;
-	
+
 	request->rcode = rcode;
 	request->has_soa = 1;
-	
+
 	soa = &request->soa;
 
 	strcpy(soa->mname, "a.gtld-servers.net");
@@ -1332,8 +1366,7 @@ int dns_server_socket(void)
 
 	fd = socket(gai->ai_family, gai->ai_socktype, gai->ai_protocol);
 	if (fd < 0) {
-		tlog(TLOG_ERROR, "create socket failed, family = %d, type = %d, proto = %d, %s\n", 
-			gai->ai_family, gai->ai_socktype, gai->ai_protocol, strerror(errno));
+		tlog(TLOG_ERROR, "create socket failed, family = %d, type = %d, proto = %d, %s\n", gai->ai_family, gai->ai_socktype, gai->ai_protocol, strerror(errno));
 		goto errout;
 	}
 
@@ -1362,6 +1395,25 @@ errout:
 	return -1;
 }
 
+int _dns_server_audit_init(void)
+{
+	char *audit_file = SMARTDNS_AUDIT_FILE;
+	if (dns_conf_audit_enable == 0) {
+		return 0;
+	}
+
+	if (dns_conf_audit_file[0] != 0) {
+		audit_file = dns_conf_audit_file;
+	}
+
+	dns_audit = tlog_open(audit_file, dns_conf_audit_size, dns_conf_audit_num, 1, 0, 0);
+	if (dns_audit == NULL) {
+		return -1;
+	}
+
+	return 0;
+}
+
 int dns_server_init(void)
 {
 	pthread_attr_t attr;
@@ -1375,6 +1427,11 @@ int dns_server_init(void)
 	if (dns_cache_init(dns_conf_cachesize) != 0) {
 		tlog(TLOG_ERROR, "init cache failed.");
 		return -1;
+	}
+
+	if (_dns_server_audit_init() != 0) {
+		tlog(TLOG_ERROR, "init audit failed.");
+		goto errout;
 	}
 
 	memset(&server, 0, sizeof(server));

@@ -14,6 +14,9 @@
 #define DEFAULT_DNS_PORT 53
 #define DEFAULT_DNS_TLS_PORT 853
 #define DNS_MAX_CONF_CNAME_LEN 128
+#define SMARTDNS_CONF_FILE "/etc/smartdns/smartdns.conf"
+#define SMARTDNS_LOG_FILE "/var/log/smartdns.log"
+#define SMARTDNS_AUDIT_FILE "/var/log/smartdns-audit.log"
 
 struct dns_servers {
 	char server[DNS_MAX_IPLEN];
@@ -57,6 +60,11 @@ extern int dns_conf_log_level;
 extern char dns_conf_log_file[DNS_MAX_PATH];
 extern int dns_conf_log_size;
 extern int dns_conf_log_num;
+
+extern int dns_conf_audit_enable;
+extern char dns_conf_audit_file[DNS_MAX_PATH];
+extern int dns_conf_audit_size;
+extern int dns_conf_audit_num;
 
 extern char dns_conf_server_name[DNS_MAX_CONF_CNAME_LEN];
 extern art_tree dns_conf_address;

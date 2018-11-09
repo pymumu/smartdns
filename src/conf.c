@@ -24,6 +24,10 @@ int dns_conf_log_level = TLOG_ERROR;
 char dns_conf_log_file[DNS_MAX_PATH];
 int dns_conf_log_size = 1024 * 1024;
 int dns_conf_log_num = 8;
+int dns_conf_audit_enable;
+char dns_conf_audit_file[DNS_MAX_PATH];
+int dns_conf_audit_size = 1024 * 1024;
+int dns_conf_audit_num = 2;
 
 art_tree dns_conf_address;
 int dns_conf_rr_ttl;
@@ -299,6 +303,62 @@ int config_log_num(char *value)
 	return 0;
 }
 
+int config_audit_enable(char *value)
+{
+	/* read dns cache size */
+	if (strncmp("yes", value, sizeof("yes")) == 0 || strncmp("YES", value, sizeof("YES")) == 0) {
+		dns_conf_audit_enable = 1;
+	} else if (strncmp("no", value, sizeof("no")) == 0 || strncmp("NO", value, sizeof("NO")) == 0) {
+		dns_conf_audit_enable = 0;
+	}
+
+	return 0;
+}
+
+int config_audit_file(char *value)
+{
+	/* read dns cache size */
+	strncpy(dns_conf_audit_file, value, DNS_MAX_PATH);
+
+	return 0;
+}
+
+int config_audit_size(char *value)
+{
+	/* read dns cache size */
+	int base = 1;
+
+	if (strstr(value, "k") || strstr(value, "K")) {
+		base = 1024;
+	} else if (strstr(value, "m") || strstr(value, "M")) {
+		base = 1024 * 1024;
+	} else if (strstr(value, "g") || strstr(value, "G")) {
+		base = 1024 * 1024 * 1024;
+	}
+
+	int size = atoi(value);
+	if (size < 0) {
+		return -1;
+	}
+
+	dns_conf_audit_size = size * base;
+
+	return 0;
+}
+
+int config_audit_num(char *value)
+{
+	/* read dns cache size */
+	int num = atoi(value);
+	if (num < 0) {
+		return -1;
+	}
+
+	dns_conf_audit_num = num;
+
+	return 0;
+}
+
 int config_rr_ttl(char *value)
 {
 	/* read dns cache size */
@@ -477,6 +537,10 @@ struct config_item config_item[] = {
 	{"log-file", config_log_file},
 	{"log-size", config_log_size},
 	{"log-num", config_log_num},
+	{"audit-enable", config_audit_enable},
+	{"audit-file", config_audit_file},
+	{"audit-size", config_audit_size},
+	{"audit-num", config_audit_num},
 	{"rr-ttl", config_rr_ttl},
 	{"rr-ttl-min", config_rr_ttl_min},
 	{"rr-ttl-max", config_rr_ttl_max},
