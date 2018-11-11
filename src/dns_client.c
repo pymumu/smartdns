@@ -448,6 +448,10 @@ void _dns_client_query_remove(struct dns_query_struct *query)
 {
 	/* remove query from period check list, and release reference*/
 	pthread_mutex_lock(&client.domain_map_lock);
+	if (list_empty(&query->dns_request_list)) {
+		pthread_mutex_unlock(&client.domain_map_lock);
+		return;
+	}
 	list_del_init(&query->dns_request_list);
 	hash_del(&query->domain_node);
 	pthread_mutex_unlock(&client.domain_map_lock);

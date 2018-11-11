@@ -362,7 +362,7 @@ int _dns_server_request_complete(struct dns_request *request)
 
 	_dns_reply(request);
 
-	return ret;
+	return 0;
 }
 
 void _dns_server_request_release(struct dns_request *request);
@@ -387,7 +387,7 @@ void _dns_server_request_release(struct dns_request *request)
 	int refcnt = atomic_dec_return(&request->refcnt);
 	if (refcnt) {
 		if (refcnt < 0) {
-			tlog(TLOG_ERROR, "BUG: refcnt is %d", refcnt);
+			tlog(TLOG_ERROR, "BUG: refcnt is %d, domain %s", refcnt, request->domain);
 			abort();
 		}
 		return;
