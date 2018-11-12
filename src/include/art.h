@@ -106,7 +106,7 @@ typedef struct {
 typedef struct {
     void *value;
     uint32_t key_len;
-    unsigned char key[];
+    unsigned char key[0];
 } art_leaf;
 
 /**

@@ -304,7 +304,6 @@ static int _dns_reply(struct dns_request *request)
 
 int _dns_server_request_complete(struct dns_request *request)
 {
-	int ret = -1;
 	char *cname = NULL;
 	int cname_ttl = 0;
 
