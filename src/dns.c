@@ -1290,8 +1290,6 @@ static int _dns_decode_opt(struct dns_context *context, dns_rr_type type, unsign
 		return -1;
 	}
 	
-
-	tlog(TLOG_DEBUG, "decode opt.");
 	while (context->ptr - start < rr_len) {
 		opt_code = dns_read_short(&context->ptr);
 		opt_len = dns_read_short(&context->ptr);

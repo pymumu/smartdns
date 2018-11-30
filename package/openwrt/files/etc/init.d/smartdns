@@ -100,12 +100,21 @@ start_service() {
 		conf_append "server-name" "$server_name"	
 	fi
 
-	config_get "port" "$section" "port" "5353"
+	config_get "port" "$section" "port" "5053"
 	config_get "ipv6_server" "$section" "ipv6_server" "1"
+	config_get "tcp_server" "$section" "tcp_server" "1"
 	if [ "$ipv6_server" = "1" ]; then
 		conf_append "bind" "[::]:$port"
 	else
 		conf_append "bind" ":$port"
+	fi
+
+	if [ "$tcp_server" = "1" ]; then
+		if [ "$ipv6_server" = "1" ]; then
+			conf_append "bind-tcp" "[::]:$port"
+		else
+			conf_append "bind-tcp" ":$port"
+		fi
 	fi
 	SMARTDNS_PORT="$port"
 

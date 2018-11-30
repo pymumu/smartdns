@@ -474,7 +474,7 @@ static int _fast_ping_create_icmp_sock(FAST_PING_TYPE type)
 	case FAST_PING_ICMP:
 		fd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
 		if (fd < 0) {
-			tlog(TLOG_ERROR, "create icmp socket failed.\n");
+			tlog(TLOG_ERROR, "create icmp socket failed, %s\n", strerror(errno));
 			goto errout;
 		}
 		_fast_ping_install_filter_v4(fd);
@@ -483,7 +483,7 @@ static int _fast_ping_create_icmp_sock(FAST_PING_TYPE type)
 	case FAST_PING_ICMP6:
 		fd = socket(AF_INET6, SOCK_RAW, IPPROTO_ICMPV6);
 		if (fd < 0) {
-			tlog(TLOG_ERROR, "create icmp socket failed.\n");
+			tlog(TLOG_ERROR, "create icmp socket failed, %s\n", strerror(errno));
 			goto errout;
 		}
 		_fast_ping_install_filter_v6(fd);
@@ -1032,6 +1032,7 @@ static void *_fast_ping_work(void *arg)
 			sleep_time = sleep - (now - expect_time);
 			if (sleep_time < 0) {
 				sleep_time = 0;
+				expect_time = now;
 			}
 			expect_time += sleep;
 		}

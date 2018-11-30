@@ -14,6 +14,8 @@
 #define DEFAULT_DNS_CACHE_SIZE 512
 
 char dns_conf_server_ip[DNS_MAX_IPLEN];
+char dns_conf_server_tcp_ip[DNS_MAX_IPLEN];
+int dns_conf_tcp_idle_time = 120;
 int dns_conf_cachesize = DEFAULT_DNS_CACHE_SIZE;
 int dns_conf_prefetch = 0;
 struct dns_servers dns_conf_servers[DNS_MAX_SERVERS];
@@ -41,6 +43,14 @@ int config_bind(char *value)
 {
 	/* server bind address */
 	strncpy(dns_conf_server_ip, value, DNS_MAX_IPLEN);
+
+	return 0;
+}
+
+int config_bind_tcp(char *value)
+{
+	/* server bind address */
+	strncpy(dns_conf_server_tcp_ip, value, DNS_MAX_IPLEN);
 
 	return 0;
 }
@@ -197,6 +207,19 @@ int config_server_udp(char *value)
 int config_server_tcp(char *value)
 {
 	return config_server(value, DNS_SERVER_TCP, DEFAULT_DNS_PORT);
+}
+
+int config_tcp_idle_time(char *value)
+{
+	/* read dns cache size */
+	int idle_time = atoi(value);
+	if (idle_time < 0) {
+		return -1;
+	}
+
+	dns_conf_tcp_idle_time = idle_time;
+
+	return 0;
 }
 
 int config_server_tls(char *value)
@@ -527,9 +550,11 @@ struct config_item {
 struct config_item config_item[] = {
 	{"server-name", config_server_name},
 	{"bind", config_bind},
+	{"bind-tcp", config_bind_tcp},
 	{"server", config_server_udp},
 	{"address", config_address},
 	{"server-tcp", config_server_tcp},
+	{"tcp-idle-time", config_tcp_idle_time},
 	{"server-tls", config_server_tls},
 	{"cache-size", config_cache_size},
 	{"prefetch-domain", config_cache_prefetch_domain},

@@ -31,10 +31,18 @@ o.rempty      = false
 
 ---- Port
 o = s:taboption("settings", Value, "port", translate("Local Port"), translate("Smartdns local server port"))
-o.placeholder = 5353
-o.default     = 5353
+o.placeholder = 5053
+o.default     = 5053
 o.datatype    = "port"
 o.rempty      = false
+
+---- Enable TCP server
+o = s:taboption("settings", Flag, "tcp_server", translate("TCP Server"), translate("Enable TCP DNS Server"))
+o.rmempty     = false
+o.default     = o.enabled
+o.cfgvalue    = function(...)
+    return Flag.cfgvalue(...) or "1"
+end
 
 ---- Support IPV6
 o = s:taboption("settings", Flag, "ipv6_server", translate("IPV6 Server"), translate("Enable IPV6 DNS Server"))

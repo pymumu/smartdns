@@ -260,10 +260,10 @@ Download the matching version of the SmartDNS installation package. The correspo
         Log in to the router, click `Network`->`DHCP and DNS`, and modify `DNS forwardings` to:
 
         ```shell
-        /#/127.0.0.1#5353
+        /#/127.0.0.1#5053
         ```
 
-        Where `#5353` is the service port number of smartdns. If it is not modified, the default is 5353.
+        Where `#5053` is the service port number of smartdns. If it is not modified, the default is 5053.
 
     * **Check if the service is configured successfully**
 
@@ -371,7 +371,9 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 |--|--|--|--|--|
 |server-name|DNS name|host name/smartdns|any string like hosname|server-name smartdns
 |bind|DNS bind port|[::]:53|IP:PORT|bind 192.168.1.1:53
+|bind-tcp|TCP mode DNS bind port|[::]:53|IP:PORT|bind-tcp 192.168.1.1:53
 |cache-size|Domain name result cache number|512|integer|cache-size 512
+|tcp-idle-time|TCP connection idle timeout|120|integer|tcp-idle-time 120
 |rr-ttl|Domain name TTL|Remote query result|number greater than 0|rr-ttl 600
 |rr-ttl-min|Domain name Minimum TTL|Remote query result|number greater than 0|rr-ttl-min 60
 |rr-ttl-max|Domain name Maximum TTL|Remote query result|number greater than 0|rr-ttl-max 600
@@ -382,6 +384,7 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 |conf-file|additional conf file|None|File path|conf-file /etc/smartdns/smartdns.more.conf
 |server|Upstream UDP DNS server|None|[ip][:port], Repeatable| server 8.8.8.8:53
 |server-tcp|Upstream TCP DNS server|None|[IP][:port], Repeatable| server-tcp 8.8.8.8:53
+|server-tls|Upstream TLS DNS server|None|[IP][:port], Repeatable| server-tls 8.8.8.8:853
 |address|Domain IP address|None|address /domain/ip| address /www.example.com/1.2.3.4
 |bogus-nxdomain|bogus IP address|None|[IP]，Repeatable| bogus-nxdomain 1.2.3.4
 |force-AAAA-SOA|force AAAA query return SOA|no|[yes\|no]|force-AAAA-SOA yes

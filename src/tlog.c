@@ -835,6 +835,11 @@ static int _tlog_write_log(struct tlog_log *log, char *buff, int bufflen)
         return 0;
     }
 
+     /* output log to screen */
+    if (log->logscreen) {
+        write(STDOUT_FILENO, buff, bufflen);
+    }
+
     /* if log file size exceeds threshold, start to compress */
     if (log->multi_log) {
         log->filesize = lseek(log->fd, 0, SEEK_END);
@@ -854,8 +859,18 @@ static int _tlog_write_log(struct tlog_log *log, char *buff, int bufflen)
 
     if (log->fd <= 0) {
         /* open a new log file to write */
-        char logfile[PATH_MAX * 2];
-        if (_tlog_mkdir(log->logdir) != 0) {
+		static time_t last_try = 0;
+		static int print_errmsg = 1;
+		time_t now;
+
+		time(&now);
+        if (now == last_try) {
+			return -1;
+		}
+		last_try = now;
+
+		char logfile[PATH_MAX * 2];
+		if (_tlog_mkdir(log->logdir) != 0) {
             fprintf(stderr, "create log dir %s failed.\n", log->logdir);
             return -1;
         }
@@ -863,17 +878,18 @@ static int _tlog_write_log(struct tlog_log *log, char *buff, int bufflen)
         log->filesize = 0;
         log->fd = open(logfile, O_APPEND | O_CREAT | O_WRONLY | O_CLOEXEC, 0640);
         if (log->fd < 0) {
-            fprintf(stderr, "open log file %s failed, %s\n", logfile, strerror(errno));
-            return -1;
-        }
+            if (print_errmsg == 0) {
+				return -1;
+			}
 
-        /* get log file size */
-        log->filesize = lseek(log->fd, 0, SEEK_END);
-    }
+			fprintf(stderr, "open log file %s failed, %s\n", logfile, strerror(errno));
+			print_errmsg = 0;
+			return -1;
+		}
 
-    /* output log to screen */
-    if (log->logscreen) {
-        write(STDOUT_FILENO, buff, bufflen);
+		print_errmsg = 1;
+		/* get log file size */
+		log->filesize = lseek(log->fd, 0, SEEK_END);
     }
 
     /* write log to file */

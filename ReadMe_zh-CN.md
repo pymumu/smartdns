@@ -260,10 +260,10 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
         登录路由器，点击`Network`->`DHCP and DNS`，修改`DNS forwardings(DNS转发)`为：
 
         ```shell
-        /#/127.0.0.1#5353
+        /#/127.0.0.1#5053
         ```
 
-        其中`#5353`为smartdns的服务端口号，未修改的情况下，默认为5353。
+        其中`#5053`为smartdns的服务端口号，未修改的情况下，默认为5053。
 
     * **检测上游服务是否配置成功**
 
@@ -371,7 +371,9 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 |--|--|--|--|--|
 |server-name|DNS服务器名称|操作系统主机名/smartdns|符合主机名规格的字符串|server-name smartdns
 |bind|DNS监听端口号|[::]:53|IP:PORT|bind 192.168.1.1:53
+|bind-tcp|TCP模式DNS监听端口号|[::]:53|IP:PORT|bind-tcp 192.168.1.1:53
 |cache-size|域名结果缓存个数|512|数字|cache-size 512
+|tcp-idle-time|TCP链接空闲超时时间|120|数字|tcp-idle-time 120
 |rr-ttl|域名结果TTL|远程查询结果|大于0的数字|rr-ttl 600
 |rr-ttl-min|允许的最小TTL值|远程查询结果|大于0的数字|rr-ttl-min 60
 |rr-ttl-max|允许的最大TTL值|远程查询结果|大于0的数字|rr-ttl-max 600
@@ -382,6 +384,7 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 |conf-file|附加配置文件|无|文件路径|conf-file /etc/smartdns/smartdns.more.conf
 |server|上游UDP DNS|无|[ip][:port]，可重复| server 8.8.8.8:53
 |server-tcp|上游TCP DNS|无|[IP][:port]，可重复| server-tcp 8.8.8.8:53
+|server-tls|上游TLS DNS|无|[IP][:port]，可重复| server-tls 8.8.8.8:853
 |address|指定域名IP地址|无|address /domain/ip| address /www.example.com/1.2.3.4
 |bogus-nxdomain|假冒IP地址过滤|无|[ip]，可重复| bogus-nxdomain 1.2.3.4
 |force-AAAA-SOA|强制AAAA地址返回SOA|no|[yes\|no]|force-AAAA-SOA yes
