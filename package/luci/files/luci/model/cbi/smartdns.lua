@@ -31,8 +31,8 @@ o.rempty      = false
 
 ---- Port
 o = s:taboption("settings", Value, "port", translate("Local Port"), translate("Smartdns local server port"))
-o.placeholder = 5053
-o.default     = 5053
+o.placeholder = 6053
+o.default     = 6053
 o.datatype    = "port"
 o.rempty      = false
 
@@ -52,12 +52,14 @@ o.cfgvalue    = function(...)
     return Flag.cfgvalue(...) or "1"
 end
 
-o = s:taboption("settings", Flag, "redirect", translate("Redirect"), translate("Redirect standard dns query from 53 to smartdns, as default DNS server"))
-o.rmempty     = false
-o.default     = o.enabled
-o.cfgvalue    = function(...)
-    return Flag.cfgvalue(...) or "1"
-end
+---- Redirect
+o = s:taboption("settings", ListValue, "redirect", translate("Redirect"), translate("SmartDNS redirect mode"))
+o.placeholder = "none"
+o:value("none", translate("none"))
+o:value("dnsmasq-upstream", translate("Run as dnsmasq upstream server"))
+o:value("redirect", translate("Redirect 53 port to SmartDNS"))
+o.default     = "none"
+o.rempty      = false
 
 ---- cache-size
 o = s:taboption("settings", Value, "cache_size", translate("Cache Size"), translate("DNS domain result cache size"))
@@ -92,7 +94,6 @@ function custom.write(self, section, value)
 	value = value:gsub("\r\n?", "\n")
 	nixio.fs.writefile("/etc/smartdns/custom.conf", value)
 end
-
 
 -- Upstream servers
 s = m:section(TypedSection, "server", translate("Upstream Servers"), translate("Upstream Servers, support UDP, TCP protocol. " ..

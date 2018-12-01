@@ -2,14 +2,38 @@
 # Copyright (C) 2018 Nick Peng (pymumu@gmail.com)
 
 START=99
+NAME=smartdns
 SERVICE_USE_PID=1
 SERVICE_WRITE_PID=1
 SERVICE_DAEMONIZE=1
+SERVICE_PID_FILE="/var/run/smartdns.pid"
 BASECONFIGFILE="/etc/smartdns/smartdns.conf"
 SMARTDNS_CONF="/var/etc/smartdns.conf"
 ADDRESS_CONF="/etc/smartdns/address.conf"
 CUSTOM_CONF="/etc/smartdns/custom.conf"
 SMARTDNS_CONF_TMP="${SMARTDNS_CONF}.tmp"
+
+set_forward_dnsmasq()
+{
+	SMARTDNS_PORT="$1"
+	addr="127.0.0.1#$SMARTDNS_PORT"
+	uci add_list dhcp.@dnsmasq[0].server=$addr
+	uci delete dhcp.@dnsmasq[0].resolvfile
+	uci set dhcp.@dnsmasq[0].noresolv=1
+	uci commit dhcp 
+	/etc/init.d/dnsmasq restart
+}
+
+stop_forward_dnsmasq()
+{
+	SMARTDNS_PORT="$1"
+	addr="127.0.0.1#$SMARTDNS_PORT"
+	uci del_list dhcp.@dnsmasq[0].server=$addr 2>/dev/null
+	uci set dhcp.@dnsmasq[0].resolvfile=/tmp/resolv.conf.auto 2>/dev/null
+	uci delete dhcp.@dnsmasq[0].noresolv 2>/dev/null
+	uci commit dhcp
+	/etc/init.d/dnsmasq restart
+}
 
 set_iptable()
 {
@@ -100,7 +124,7 @@ start_service() {
 		conf_append "server-name" "$server_name"	
 	fi
 
-	config_get "port" "$section" "port" "5053"
+	config_get "port" "$section" "port" "6053"
 	config_get "ipv6_server" "$section" "ipv6_server" "1"
 	config_get "tcp_server" "$section" "tcp_server" "1"
 	if [ "$ipv6_server" = "1" ]; then
@@ -160,10 +184,14 @@ start_service() {
 		conf_append "log-file" "$log_file"
 	fi
 
+	config_get "redirect" "$section" "redirect" "none"
+
 	clear_iptable
-	config_get_bool "redirect" "$section" "redirect" '0'
-	if [ "$redirect" -eq 1 ]; then
+	stop_forward_dnsmasq "$SMARTDNS_PORT"
+	if [ "$redirect" = "redirect" ]; then
 		set_iptable $ipv6_server
+	elif [ "$redirect" = "dnsmasq-upstream" ]; then
+		set_forward_dnsmasq "$SMARTDNS_PORT"
 	fi
 
 	config_foreach load_server "server"

@@ -929,6 +929,10 @@ static int _dns_server_process_ptr(struct dns_request *request, struct dns_packe
 		}
 	}
 
+	if (strstr(request->domain, "0.0.0.0") != NULL) {
+		found = 1;
+	}
+
 	if (found == 0) {
 		goto errout;
 	}

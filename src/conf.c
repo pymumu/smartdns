@@ -26,7 +26,7 @@ int dns_conf_log_level = TLOG_ERROR;
 char dns_conf_log_file[DNS_MAX_PATH];
 int dns_conf_log_size = 1024 * 1024;
 int dns_conf_log_num = 8;
-int dns_conf_audit_enable;
+int dns_conf_audit_enable = 0;
 char dns_conf_audit_file[DNS_MAX_PATH];
 int dns_conf_audit_size = 1024 * 1024;
 int dns_conf_audit_num = 2;

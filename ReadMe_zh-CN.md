@@ -181,16 +181,16 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 
 1. 检测服务是否配置成功。
 
-    使用`nslookup -querytype=ptr 127.0.0.1`查询域名  
+    使用`nslookup -querytype=ptr 0.0.0.0`查询域名  
     看命令结果中的`name`项目是否显示为`smartdns`或`主机名`，如`smartdns`则表示生效  
 
     ```shell
-    pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 127.0.0.1
+    pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 0.0.0.0
     Server:         192.168.1.1
     Address:        192.168.1.1#53
 
     Non-authoritative answer:
-    1.0.0.127.in-addr.arpa  name = smartdns.
+    0.0.0.0.in-addr.arpa  name = smartdns.
     ```
 
 ### openwrt/LEDE
@@ -221,20 +221,20 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 
     * **启用smartdns的53端口重定向**
 
-        登录路由器，点击`Services`->`SmartDNS`，勾选`Redirect`选项，启用53端口转发。
+        登录路由器，点击`Services`->`SmartDNS`->`redirect`，选择`重定向53端口到SmartDNS`启用53端口转发。
 
     * **检测转发服务是否配置成功**
 
-        使用`nslookup -querytype=ptr 127.0.0.1`查询域名  
+        使用`nslookup -querytype=ptr 0.0.0.0`查询域名  
         看命令结果中的`name`项目是否显示为`smartdns`或`主机名`，如`smartdns`则表示生效  
 
         ```shell
-        pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 127.0.0.1
+        pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 0.0.0.0
         Server:         192.168.1.1
         Address:        192.168.1.1#53
 
         Non-authoritative answer:
-        1.0.0.127.in-addr.arpa  name = smartdns.
+        0.0.0.0.in-addr.arpa  name = smartdns.
         ```
 
     * **界面提示重定向失败**
@@ -251,23 +251,25 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 
 1. 方法二：作为DNSMASQ的上游
 
-    * **停用smartdns的53端口重定向**
-
-        登录路由器，点击`Services`->`SmartDNS`，去勾选`Redirect`选项，停用53端口转发。
-
     * **将dnsmasq的请求发送到smartdns**
 
-        登录路由器，点击`Network`->`DHCP and DNS`，修改`DNS forwardings(DNS转发)`为：
-
-        ```shell
-        /#/127.0.0.1#5053
-        ```
-
-        其中`#5053`为smartdns的服务端口号，未修改的情况下，默认为5053。
+        登录路由器，点击`Services`->`SmartDNS`->`redirect`，选择`作为dnsmasq的上游服务器`设置dnsmasq的上游服务器为smartdns。
 
     * **检测上游服务是否配置成功**
 
-        使用`nslookup`查询`www.baidu.com`域名，查看结果中百度的IP地址是否`只有一个`，如有多个IP地址返回，则表示未生效，请多尝试几个域名检查。
+        * 方法一：使用`nslookup -querytype=ptr 0.0.0.0`查询域名  
+        看命令结果中的`name`项目是否显示为`smartdns`或`主机名`，如`smartdns`则表示生效  
+
+        ```shell
+        pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 0.0.0.0
+        Server:         192.168.1.1
+        Address:        192.168.1.1#53
+
+        Non-authoritative answer:
+        0.0.0.0.in-addr.arpa  name = smartdns.
+        ```
+
+        * 方法二：使用`nslookup`查询`www.baidu.com`域名，查看结果中百度的IP地址是否`只有一个`，如有多个IP地址返回，则表示未生效，请多尝试几个域名检查。
 
         ```shell
         pi@raspberrypi:~ $ nslookup www.baidu.com 192.168.1.1
@@ -319,16 +321,16 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 
 1. 重启路由器生效服务
 
-    待路由器启动后，使用`nslookup -querytype=ptr 127.0.0.1`查询域名  
+    待路由器启动后，使用`nslookup -querytype=ptr 0.0.0.0`查询域名  
     看命令结果中的`name`项目是否显示为`smartdns`或`主机名`，如`smartdns`则表示生效  
 
     ```shell
-    pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 127.0.0.1
+    pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 0.0.0.0
     Server:         192.168.1.1
     Address:        192.168.1.1#53
 
     Non-authoritative answer:
-    1.0.0.127.in-addr.arpa  name = smartdns.
+    0.0.0.0.in-addr.arpa  name = smartdns.
     ```
 
 1. 额外说明
@@ -381,6 +383,10 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 |log-file|日志文件路径|/var/log/smartdns.log|路径|log-file /var/log/smartdns.log
 |log-size|日志大小|128K|数字+K,M,G|log-size 128K
 |log-num|日志归档个数|2|数字|log-num 2
+|audit-enable|设置审计启用|no|[yes\|no]|audit-enable yes
+|audit-file|审计文件路径|/var/log/smartdns-audit.log|路径|audit-file /var/log/smartdns-audit.log
+|audit-size|审计大小|128K|数字+K,M,G|audit-size 128K
+|audit-num|审计归档个数|2|数字|audit-num 2
 |conf-file|附加配置文件|无|文件路径|conf-file /etc/smartdns/smartdns.more.conf
 |server|上游UDP DNS|无|[ip][:port]，可重复| server 8.8.8.8:53
 |server-tcp|上游TCP DNS|无|[IP][:port]，可重复| server-tcp 8.8.8.8:53

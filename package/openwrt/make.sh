@@ -42,7 +42,7 @@ build()
 
     sed -i "s/^Architecture.*/Architecture: $ARCH/g" $ROOT/control/control
     sed -i "s/Version:.*/Version: $VER/" $ROOT/control/control
-    sed -i "s/^\(bind .*\):53/\1:5053/g" $ROOT/root/etc/smartdns/smartdns.conf
+    sed -i "s/^\(bind .*\):53/\1:6053/g" $ROOT/root/etc/smartdns/smartdns.conf
     if [ ! -z "$INST_SIZE" ]; then
         echo "Installed-Size: $INST_SIZE" >> $ROOT/control/control
     fi

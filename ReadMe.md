@@ -181,16 +181,16 @@ Download the matching version of the SmartDNS installation package. The correspo
 
 1. Check if the service is configured successfully
 
-    Query domain name with `nslookup -querytype=ptr 127.0.0.1`  
+    Query domain name with `nslookup -querytype=ptr 0.0.0.0`  
     Check if the `name` item in the command result is displayed as `smartdns` or `hostname`, such as `smartdns`
 
     ```shell
-    pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 127.0.0.1
+    pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 0.0.0.0
     Server:         192.168.1.1
     Address:        192.168.1.1#53
 
     Non-authoritative answer:
-    1.0.0.127.in-addr.arpa  name = smartdns.
+    0.0.0.0.in-addr.arpa  name = smartdns.
     ```
 
 ### openwrt/LEDE
@@ -221,20 +221,20 @@ Download the matching version of the SmartDNS installation package. The correspo
 
     * **Enable SmartDNS port 53 port redirection**
 
-        Log in to the router, click on `Services`->`SmartDNS`, check the `Redirect` option to enable port 53 forwarding.
+        Log in to the router, click on `Services`->`SmartDNS`->`redirect`, select `Redirect 53 port to SmartDNS` option to enable port 53 forwarding.
 
     * **Check if the service is configured successfully**
 
-        Query domain name with `nslookup -querytype=ptr 127.0.0.1`
+        Query domain name with `nslookup -querytype=ptr 0.0.0.0`
         See if the `name` item in the command result is displayed as `smartdns` or `hostname`, such as `smartdns`
 
         ```shell
-        pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 127.0.0.1
+        pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 0.0.0.0
         Server:         192.168.1.1
         Address:        192.168.1.1#53
 
         Non-authoritative answer:
-        1.0.0.127.in-addr.arpa  name = smartdns.
+        0.0.0.0.in-addr.arpa  name = smartdns.
         ```
 
     * **The interface prompts that the redirect failed**
@@ -251,23 +251,25 @@ Download the matching version of the SmartDNS installation package. The correspo
 
 1. Method 2: SmartDNS as upstream DNS Server of DNSMASQ
 
-    * **Disable SmartDNS port 53 port redirection**
-
-        Log in to the router, click on `Services`->`SmartDNS`, uncheck the `Redirect` option to disable port 53 forwarding.
-
     * **Forward dnsmasq's request to SmartDNS**
 
-        Log in to the router, click `Network`->`DHCP and DNS`, and modify `DNS forwardings` to:
-
-        ```shell
-        /#/127.0.0.1#5053
-        ```
-
-        Where `#5053` is the service port number of smartdns. If it is not modified, the default is 5053.
+        Log in to the router, click on `Services`->`SmartDNS`->`redirect`, select `Run as dnsmasq upstream server` option to forwarding dnsmasq request to Smartdns.
 
     * **Check if the service is configured successfully**
 
-        Use `nslookup` to query the `www.baidu.com` domain name to see if the IP address of Baidu in the result is `only one. If there are multiple IP addresses returned, it means that it is not valid. Please try to check several domain names.
+        * Method 1: Query domain name with `nslookup -querytype=ptr 0.0.0.1`
+        See if the `name` item in the command result is displayed as `smartdns` or `hostname`, such as `smartdns`
+
+        ```shell
+        pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 0.0.0.0
+        Server:         192.168.1.1
+        Address:        192.168.1.1#53
+
+        Non-authoritative answer:
+        0.0.0.0.in-addr.arpa  name = smartdns.
+        ```
+
+        * Method 2: Use `nslookup` to query the `www.baidu.com` domain name to see if the IP address of Baidu in the result is `only one. If there are multiple IP addresses returned, it means that it is not valid. Please try to check several domain names.
 
         ```shell
         pi@raspberrypi:~ $ nslookup www.baidu.com 192.168.1.1
@@ -319,16 +321,16 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 
 1. Restart router
 
-    After the router is started, use `nslookup -querytype=ptr 127.0.0.1` to query the domain name.  
+    After the router is started, use `nslookup -querytype=ptr 0.0.0.0` to query the domain name.  
     See if the `name` item in the command result is displayed as `smartdns` or `hostname`, such as `smartdns`
 
     ```shell
-    pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 127.0.0.1
+    pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 0.0.0.0
     Server:         192.168.1.1
     Address:        192.168.1.1#53
 
     Non-authoritative answer:
-    1.0.0.127.in-addr.arpa  name = smartdns.
+    0.0.0.0.in-addr.arpa  name = smartdns.
     ```
 
 1. Note
@@ -381,6 +383,10 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 |log-file|log path|/var/log/smartdns.log|File Pah|log-file /var/log/smartdns.log
 |log-size|log size|128K|number+K,M,G|log-size 128K
 |log-num|archived log number|2|Integer|log-num 2
+|audit-enable|audit log enable|no|[yes\|no]|audit-enable yes
+|audit-file|audit log file|/var/log/smartdns-audit.log|File Path|audit-file /var/log/smartdns-audit.log
+|audit-size|audit log size|128K|number+K,M,G|audit-size 128K
+|audit-num|archived audit log number|2|Integer|audit-num 2
 |conf-file|additional conf file|None|File path|conf-file /etc/smartdns/smartdns.more.conf
 |server|Upstream UDP DNS server|None|[ip][:port], Repeatable| server 8.8.8.8:53
 |server-tcp|Upstream TCP DNS server|None|[IP][:port], Repeatable| server-tcp 8.8.8.8:53

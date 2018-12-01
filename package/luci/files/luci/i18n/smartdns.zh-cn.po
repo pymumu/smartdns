@@ -40,6 +40,9 @@ msgstr "IPV4 53端口重定向失败"
 msgid "IPV6 53 Port Redirect Failure"
 msgstr "IPV6 53端口重定向失败"
 
+msgid "Dnsmasq Forwared To Smartdns Failure"
+msgstr "重定向dnsmasq到smartdns失败"
+
 msgid "TCP Server"
 msgstr "TCP服务器"
 
@@ -55,8 +58,14 @@ msgstr "启用IPV6服务器"
 msgid "Redirect"
 msgstr "重定向"
 
-msgid "Redirect standard dns query from 53 to smartdns, as default DNS server"
-msgstr "将53端口的DNS请求重定向到SmartDNS, 替换默认DNS服务"
+msgid "SmartDNS redirect mode"
+msgstr "SmartDNS 重定向模式"
+
+msgid "Run as dnsmasq upstream server"
+msgstr "作为dnsmasq的上游服务器"
+
+msgid "Redirect 53 port to SmartDNS"
+msgstr "重定向53端口到SmartDNS"
 
 msgid "Cache Size"
 msgstr "缓存大小"
