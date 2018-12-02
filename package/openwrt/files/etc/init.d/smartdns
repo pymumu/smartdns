@@ -15,10 +15,15 @@ SMARTDNS_CONF_TMP="${SMARTDNS_CONF}.tmp"
 
 set_forward_dnsmasq()
 {
-	SMARTDNS_PORT="$1"
-	addr="127.0.0.1#$SMARTDNS_PORT"
+	local OLD_PORT="$1"
+	addr="127.0.0.1#$OLD_PORT"
+	OLD_SERVER="`uci get dhcp.@dnsmasq[0].server 2>/dev/null`"
+	uci delete dhcp.@dnsmasq[0].server 2>/dev/null
 	uci add_list dhcp.@dnsmasq[0].server=$addr
-	uci delete dhcp.@dnsmasq[0].resolvfile
+	for server in $OLD_SERVER; do
+		uci add_list dhcp.@dnsmasq[0].server=$server
+	done
+	uci delete dhcp.@dnsmasq[0].resolvfile 2>/dev/null
 	uci set dhcp.@dnsmasq[0].noresolv=1
 	uci commit dhcp 
 	/etc/init.d/dnsmasq restart
@@ -26,11 +31,14 @@ set_forward_dnsmasq()
 
 stop_forward_dnsmasq()
 {
-	SMARTDNS_PORT="$1"
-	addr="127.0.0.1#$SMARTDNS_PORT"
+	local OLD_PORT="$1"
+	addr="127.0.0.1#$OLD_PORT"
 	uci del_list dhcp.@dnsmasq[0].server=$addr 2>/dev/null
-	uci set dhcp.@dnsmasq[0].resolvfile=/tmp/resolv.conf.auto 2>/dev/null
-	uci delete dhcp.@dnsmasq[0].noresolv 2>/dev/null
+	addrlist="`uci get dhcp.@dnsmasq[0].server 2>/dev/null`"
+	if [ -z "$addrlist" ] ; then
+		uci set dhcp.@dnsmasq[0].resolvfile=/tmp/resolv.conf.auto 2>/dev/null
+		uci delete dhcp.@dnsmasq[0].noresolv 2>/dev/null
+	fi
 	uci commit dhcp
 	/etc/init.d/dnsmasq restart
 }
@@ -58,11 +66,12 @@ set_iptable()
 
 clear_iptable()
 {
-	local ipv6_server=$1
+	local OLD_PORT="$1"
+	local ipv6_server=$2
 	IPS="`ifconfig | grep "inet addr" | grep -v ":127" | grep "Bcast" | awk '{print $2}' | awk -F : '{print $2}'`"
 	for IP in $IPS
 	do
-		iptables -t nat -D PREROUTING -p udp -d $IP --dport 53 -j REDIRECT --to-ports $SMARTDNS_PORT >/dev/null 2>&1
+		iptables -t nat -D PREROUTING -p udp -d $IP --dport 53 -j REDIRECT --to-ports $OLD_PORT >/dev/null 2>&1
 	done
 
 	if [ "$ipv6_server" == 0 ]; then
@@ -72,7 +81,7 @@ clear_iptable()
 	IPS="`ifconfig | grep "inet6 addr" | grep -v " fe80::" | grep -v " ::1" | grep "Global" | awk '{print $3}'`"
 	for IP in $IPS
 	do
-		ip6tables -t nat -D PREROUTING -p udp -d $IP --dport 53 -j REDIRECT --to-ports $SMARTDNS_PORT >/dev/null 2>&1
+		ip6tables -t nat -D PREROUTING -p udp -d $IP --dport 53 -j REDIRECT --to-ports $OLD_PORT >/dev/null 2>&1
 	done
 	
 }
@@ -185,14 +194,24 @@ start_service() {
 	fi
 
 	config_get "redirect" "$section" "redirect" "none"
+	config_get "old_redirect" "$section" "old_redirect" "none"
+	config_get "old_port" "$section" "old_port" "0"
 
-	clear_iptable
-	stop_forward_dnsmasq "$SMARTDNS_PORT"
+	if [ "$old_redirect" != "none" ] && [ "$old_port" != "0" ]; then
+		clear_iptable "$old_port" "$ipv6_server"
+		stop_forward_dnsmasq "$old_port"
+	fi
+
 	if [ "$redirect" = "redirect" ]; then
 		set_iptable $ipv6_server
 	elif [ "$redirect" = "dnsmasq-upstream" ]; then
 		set_forward_dnsmasq "$SMARTDNS_PORT"
 	fi
+
+	uci delete smartdns.@smartdns[0].old_redirect 2>/dev/null
+	uci delete smartdns.@smartdns[0].old_port 2>/dev/null
+	uci add_list smartdns.@smartdns[0].old_redirect="$redirect" 2>/dev/null
+	uci add_list smartdns.@smartdns[0].old_port="$SMARTDNS_PORT" 2>/dev/null
 
 	config_foreach load_server "server"
 
