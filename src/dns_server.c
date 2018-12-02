@@ -1385,13 +1385,14 @@ int _dns_server_tcp_process_one_request(struct dns_server_conn *dnsserver)
 		}
 
 		request_len = ntohs(*((unsigned short *)(dnsserver->recvbuff.buf + proceed_len)));
-		if (request_len > (total_len - proceed_len)) {
-			return 1;
-		}
-
-		if (request_len > 4096) {
+		
+		if (request_len >= sizeof(dnsserver->recvbuff.buf)) {
 			tlog(TLOG_ERROR, "request length is invalid.");
 			return -1;
+		}
+
+		if (request_len > (total_len - proceed_len)) {
+			return 1;
 		}
 
 		request_data = (unsigned char *)(dnsserver->recvbuff.buf + proceed_len + sizeof(unsigned short));
