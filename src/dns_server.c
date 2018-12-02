@@ -838,6 +838,20 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 	return 0;
 }
 
+static int dns_server_update_reply_packet_id(struct dns_request *request, unsigned char *inpacket, int inpacket_len)
+{
+	struct dns_head *dns_head = (struct dns_head *)inpacket;
+	unsigned short id = request->id;
+
+	if (inpacket_len < sizeof(*dns_head)) {
+		return -1;
+	}
+
+	dns_head->id = htons(id);
+
+	return 0;
+}
+
 static int dns_server_resolve_callback(char *domain, dns_result_type rtype, struct dns_packet *packet, unsigned char *inpacket, int inpacket_len,
 									   void *user_ptr)
 {
@@ -850,6 +864,7 @@ static int dns_server_resolve_callback(char *domain, dns_result_type rtype, stru
 
 	if (rtype == DNS_QUERY_RESULT) {
 		if (request->passthrough) {
+			dns_server_update_reply_packet_id(request, inpacket, inpacket_len);
 			_dns_reply_inpacket(request, inpacket, inpacket_len);
 			return -1;
 		}
@@ -1125,6 +1140,10 @@ static int _dns_server_recv(struct dns_server_conn *client, unsigned char *inpac
 		goto errout;
 	}
 
+	tlog(TLOG_DEBUG, "request qdcount = %d, ancount = %d, nscount = %d, nrcount = %d, len = %d, id = %d, tc = %d, rd = %d, ra = %d, rcode = %d\n", packet->head.qdcount,
+		 packet->head.ancount, packet->head.nscount, packet->head.nrcount, inpacket_len, packet->head.id, packet->head.tc, packet->head.rd, packet->head.ra,
+		 packet->head.rcode);
+
 	if (packet->head.qr != DNS_QR_QUERY) {
 		goto errout;
 	}
@@ -1142,6 +1161,7 @@ static int _dns_server_recv(struct dns_server_conn *client, unsigned char *inpac
 	request->prefetch = 0;
 	request->rcode = DNS_RC_SERVFAIL;
 	request->client = client;
+	INIT_LIST_HEAD(&request->list);
 
 	if (_dns_recv_addr(request, from, from_len) != 0) {
 		goto errout;
