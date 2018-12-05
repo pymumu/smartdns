@@ -683,6 +683,30 @@ static int _dns_server_bogus_nxdomain_exists(struct dns_request *request, unsign
 	return 0;
 }
 
+static int _dns_server_ip_rule_check(struct dns_request *request, unsigned char *addr, int addr_len, dns_type_t addr_type)
+{
+	prefix_t prefix;
+	radix_node_t *node = NULL;
+	struct dns_ip_address_rule *rule = NULL;
+
+	if (prefix_from_blob(addr, addr_len, addr_len * 8, &prefix) == NULL) {
+		return -1;
+	}
+
+	node = radix_search_best(dns_conf_address_rule, &prefix);
+	if (node == NULL) {
+		return - 1;
+	}
+
+	if (node->data == NULL) {
+		return -1;
+	}
+
+	rule = node->data;
+
+	return 0;
+}
+
 static int _dns_server_process_answer(struct dns_request *request, char *domain, struct dns_packet *packet)
 {
 	int ttl;
@@ -716,6 +740,11 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 				dns_get_A(rrs, name, DNS_MAX_CNAME_LEN, &ttl, addr);
 
 				tlog(TLOG_DEBUG, "domain: %s TTL:%d IP: %d.%d.%d.%d", name, ttl, addr[0], addr[1], addr[2], addr[3]);
+
+				if (_dns_server_ip_rule_check(request, addr, 4, DNS_T_A) == 0) {
+					_dns_server_request_release(request);
+					break;
+				}
 
 				/* bogus ip address, skip */
 				if (_dns_server_bogus_nxdomain_exists(request, addr, DNS_T_A) == 0) {
@@ -769,6 +798,11 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 
 				tlog(TLOG_DEBUG, "domain: %s TTL: %d IP: %.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", name, ttl, addr[0], addr[1],
 					 addr[2], addr[3], addr[4], addr[5], addr[6], addr[7], addr[8], addr[9], addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
+
+				if (_dns_server_ip_rule_check(request, addr, 16, DNS_T_A) == 0) {
+					_dns_server_request_release(request);
+					break;
+				}
 
 				/* bogus ip address, skip */
 				if (_dns_server_bogus_nxdomain_exists(request, addr, DNS_T_AAAA) == 0) {
@@ -1023,10 +1057,10 @@ static struct dns_address *_dns_server_get_address_by_domain(char *domain, int q
 	domain_key[domain_len] = 0;
 
 	if (likely(dns_conf_log_level > TLOG_INFO)) {
-		return art_substring(&dns_conf_address, (unsigned char *)domain_key, domain_len, NULL, NULL);
+		return art_substring(&dns_conf_domain_rule, (unsigned char *)domain_key, domain_len, NULL, NULL);
 	}
 
-	address = art_substring(&dns_conf_address, (unsigned char *)domain_key, domain_len, matched_key, &matched_key_len);
+	address = art_substring(&dns_conf_domain_rule, (unsigned char *)domain_key, domain_len, matched_key, &matched_key_len);
 	if (address == NULL) {
 		return NULL;
 	}

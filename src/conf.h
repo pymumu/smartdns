@@ -3,6 +3,7 @@
 
 #include "list.h"
 #include "art.h"
+#include "radix.h"
 #include "dns.h"
 #include "dns_client.h"
 #include "hash.h"
@@ -44,6 +45,17 @@ struct dns_bogus_ip_address {
 	};
 };
 
+enum address_action {
+	ACTION_BLACKLIST = 1,
+	ACTION_BOGUS = 2,
+};
+
+struct dns_ip_address_rule 
+{
+	unsigned int blacklist : 1;
+	unsigned int bogus : 1;
+};
+
 struct dns_bogus_nxdomain {
 	DECLARE_HASHTABLE(ip_hash, 12);
 };
@@ -69,7 +81,8 @@ extern int dns_conf_audit_size;
 extern int dns_conf_audit_num;
 
 extern char dns_conf_server_name[DNS_MAX_CONF_CNAME_LEN];
-extern art_tree dns_conf_address;
+extern art_tree dns_conf_domain_rule;
+extern radix_tree_t *dns_conf_address_rule;
 
 extern int dns_conf_rr_ttl;
 extern int dns_conf_rr_ttl_min;

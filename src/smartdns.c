@@ -138,19 +138,19 @@ int create_pid_file(const char *pid_file)
 	/*  create pid file, and lock this file */
 	fd = open(pid_file, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
 	if (fd == -1) {
-		fprintf(stderr, "create pid file failed, %s", strerror(errno));
+		fprintf(stderr, "create pid file failed, %s\n", strerror(errno));
 		return -1;
 	}
 
 	flags = fcntl(fd, F_GETFD);
 	if (flags < 0) {
-		fprintf(stderr, "Could not get flags for PID file %s", pid_file);
+		fprintf(stderr, "Could not get flags for PID file %s\n", pid_file);
 		goto errout;
 	}
 
 	flags |= FD_CLOEXEC;
 	if (fcntl(fd, F_SETFD, flags) == -1) {
-		fprintf(stderr, "Could not set flags for PID file %s", pid_file);
+		fprintf(stderr, "Could not set flags for PID file %s\n", pid_file);
 		goto errout;
 	}
 
@@ -326,7 +326,6 @@ int main(int argc, char *argv[])
 	}
 
 	if (create_pid_file(pid_file) != 0) {
-		fprintf(stderr, "create pid file failed, %s\n", strerror(errno));
 		goto errout;
 	}
 

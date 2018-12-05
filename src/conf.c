@@ -31,7 +31,9 @@ char dns_conf_audit_file[DNS_MAX_PATH];
 int dns_conf_audit_size = 1024 * 1024;
 int dns_conf_audit_num = 2;
 
-art_tree dns_conf_address;
+art_tree dns_conf_domain_rule;
+radix_tree_t *dns_conf_address_rule;
+
 int dns_conf_rr_ttl;
 int dns_conf_rr_ttl_min;
 int dns_conf_rr_ttl_max;
@@ -90,16 +92,30 @@ int config_server(char *value, dns_server_type_t type, int default_port)
 	return 0;
 }
 
-int config_address_iter_cb(void *data, const unsigned char *key, uint32_t key_len, void *value)
+int config_domain_iter_cb(void *data, const unsigned char *key, uint32_t key_len, void *value)
 {
 	free(value);
 	return 0;
 }
 
-void config_address_destroy(void)
+void config_domain_destroy(void)
 {
-	art_iter(&dns_conf_address, config_address_iter_cb, 0);
-	art_tree_destroy(&dns_conf_address);
+	art_iter(&dns_conf_domain_rule, config_domain_iter_cb, 0);
+	art_tree_destroy(&dns_conf_domain_rule);
+}
+
+void config_address_destroy(radix_node_t *node, void *cbctx)
+{
+	if (node == NULL) {
+		return;
+	}
+
+	if (node->data == NULL) {
+		return;
+	}
+
+	free(node->data);
+	node->data = NULL;
 }
 
 int config_address(char *value)
@@ -184,7 +200,7 @@ int config_address(char *value)
 
 	domain_key[0] = type;
 	len++;
-	oldaddress = art_insert(&dns_conf_address, (unsigned char *)domain_key, len, address);
+	oldaddress = art_insert(&dns_conf_domain_rule, (unsigned char *)domain_key, len, address);
 	if (oldaddress) {
 		free(oldaddress);
 	}
@@ -465,8 +481,68 @@ void conf_bogus_nxdomain_destroy(void)
 	}
 }
 
+radix_node_t *create_addr_node(radix_tree_t *tree, char *addr)
+{
+	radix_node_t *node;
+	void         *p;
+	prefix_t     prefix;
+	const char *errmsg = NULL;
+
+	p = prefix_pton(addr, -1, &prefix, &errmsg);
+	if (p == NULL) {
+		return NULL;
+	}
+
+	node = radix_lookup(tree, &prefix);
+	return node;
+}
+
+
+int config_iplist_action(char *subnet, enum address_action act)
+{
+	radix_node_t *node = NULL;
+	struct dns_ip_address_rule *ip_rule = NULL;
+
+	node = create_addr_node(dns_conf_address_rule, subnet);
+	if (node == NULL) {
+		return -1;
+	}
+
+	if (node->data == NULL) {
+		ip_rule = malloc(sizeof(*ip_rule));
+		if (ip_rule == NULL) {
+			return -1;
+		}
+
+		node->data = ip_rule;
+		memset(ip_rule, 0, sizeof(*ip_rule));
+	}
+
+	ip_rule = node->data;
+
+	switch (act) {
+	case ACTION_BLACKLIST:
+		ip_rule->blacklist = 1;
+		break;
+	case ACTION_BOGUS:
+		ip_rule->bogus = 1;
+		break;
+	}
+
+	return 0;
+}
+
+int config_blacklist_ip(char *value)
+{
+	return config_iplist_action(value, ACTION_BLACKLIST);
+}
+
 int conf_bogus_nxdomain(char *value)
 {
+	//////////////////////////////////////
+	config_iplist_action(value, ACTION_BOGUS);
+	//////////////////////////////////////
+
 	struct dns_bogus_ip_address *ip_addr = NULL;
 	char ip[MAX_IP_LEN];
 	int port;
@@ -570,6 +646,7 @@ struct config_item config_item[] = {
 	{"rr-ttl-min", config_rr_ttl_min},
 	{"rr-ttl-max", config_rr_ttl_max},
 	{"force-AAAA-SOA", config_force_AAAA_SOA},
+	{"blacklist-ip", config_blacklist_ip},
 	{"bogus-nxdomain", conf_bogus_nxdomain},
 	{"conf-file", config_addtional_file},
 };
@@ -577,7 +654,12 @@ int config_item_num = sizeof(config_item) / sizeof(struct config_item);
 
 int load_conf_init(void)
 {
-	art_tree_init(&dns_conf_address);
+	dns_conf_address_rule = New_Radix();
+	art_tree_init(&dns_conf_domain_rule);
+	if (dns_conf_address_rule == NULL) {
+		return -1;
+	}
+
 	hash_init(dns_conf_bogus_nxdomain.ip_hash);
 	return 0;
 }
@@ -585,7 +667,8 @@ int load_conf_init(void)
 void load_exit(void)
 {
 	conf_bogus_nxdomain_destroy();
-	config_address_destroy();
+	config_domain_destroy();
+	Destroy_Radix(dns_conf_address_rule, config_address_destroy, NULL);
 }
 
 int load_conf_file(const char *file)
