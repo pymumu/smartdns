@@ -222,6 +222,7 @@ start_service() {
 	uci delete smartdns.@smartdns[0].old_port 2>/dev/null
 	uci add_list smartdns.@smartdns[0].old_redirect="$redirect" 2>/dev/null
 	uci add_list smartdns.@smartdns[0].old_port="$SMARTDNS_PORT" 2>/dev/null
+	uci commit smartdns
 
 	config_foreach load_server "server"
 
