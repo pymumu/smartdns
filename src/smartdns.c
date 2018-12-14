@@ -46,6 +46,8 @@
 #define SMARTDNS_PID_FILE "/var/run/smartdns.pid"
 #define TMP_BUFF_LEN_32 32
 
+static int verbose_screen;
+
 void help(void)
 {
 	/* clang-format off */
@@ -56,10 +58,12 @@ void help(void)
 		"  -c [conf]     config file.\n"
 		"  -p [pid]      pid file path\n"
 		"  -S            ignore segment fault signal.\n"
+		"  -v            verbose screent.\n"
 		"  -h            show this help message.\n"
 
-		"Online help: http://pymumu.github.io/smartdns"
-		"\n";
+		"Online help: http://pymumu.github.io/smartdns\n"
+		"Copyright (C) Nick Peng <pymumu@gmail.com>\n"
+		;
 	/* clang-format on */
 	printf("%s", help);
 }
@@ -207,8 +211,10 @@ int smartdns_init(void)
 		goto errout;
 	}
 
-	//tlog_setlogscreen(1);
+	tlog_setlogscreen(verbose_screen);
 	tlog_setlevel(dns_conf_log_level);
+
+	tlog(TLOG_NOTICE, "smartdns starting...(Copyright (C) Nick Peng <pymumu@gmail.com>, build:%s %s)", __DATE__, __TIME__);
 
 	if (smartdns_init_ssl() != 0) {
 		tlog(TLOG_ERROR, "init ssl failed.");
@@ -293,7 +299,7 @@ int main(int argc, char *argv[])
 	strncpy(config_file, SMARTDNS_CONF_FILE, MAX_LINE_LEN);
 	strncpy(pid_file, SMARTDNS_PID_FILE, MAX_LINE_LEN);
 
-	while ((opt = getopt(argc, argv, "fhc:p:S")) != -1) {
+	while ((opt = getopt(argc, argv, "fhc:p:Sv")) != -1) {
 		switch (opt) {
 		case 'f':
 			is_forground = 1;
@@ -306,6 +312,9 @@ int main(int argc, char *argv[])
 			break;
 		case 'S':
 			signal_ignore = 1;
+			break;
+		case 'v':
+			verbose_screen = 1;
 			break;
 		case 'h':
 			help();
