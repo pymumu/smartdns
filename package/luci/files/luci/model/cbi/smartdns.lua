@@ -124,6 +124,14 @@ o:value("tls", translate("tls"))
 o.default     = "udp"
 o.rempty      = false
 
+---- blacklist_ip
+o = s:option(Flag, "blacklist_ip", translate("IP Blacklist Filtering"), translate("Filtering IP with blacklist"))
+o.rmempty     = false
+o.default     = o.disabled
+o.cfgvalue    = function(...)
+    return Flag.cfgvalue(...) or "0"
+end
+
 -- Doman addresss
 s = m:section(TypedSection, "smartdns", translate("Domain Address"), 
 	translate("Set Specific domain ip address."))
@@ -138,12 +146,34 @@ addr.template = "cbi/tvalue"
 addr.rows = 20
 
 function addr.cfgvalue(self, section)
-	return nixio.fs.readfile("/etc/smartdns/address.conf")
+	return nixio.fs.readfile("/var/etc/smartdns/address.conf")
 end
 
 function addr.write(self, section, value)
 	value = value:gsub("\r\n?", "\n")
-	nixio.fs.writefile("/etc/smartdns/address.conf", value)
+	nixio.fs.writefile("/var/etc/smartdns/address.conf", value)
+end
+
+-- IP Blacklist
+s = m:section(TypedSection, "smartdns", translate("IP Blacklist"), 
+	translate("Set Specific ip blacklist."))
+s.anonymous = true
+
+---- blacklist
+addr = s:option(Value, "blacklist_ip",
+	translate(""), 
+	translate("Configure IP blacklists that will be filtered from the results of specific DNS server."))
+
+addr.template = "cbi/tvalue"
+addr.rows = 20
+
+function addr.cfgvalue(self, section)
+	return nixio.fs.readfile("/var/etc/smartdns/blacklist-ip.conf")
+end
+
+function addr.write(self, section, value)
+	value = value:gsub("\r\n?", "\n")
+	nixio.fs.writefile("/var/etc/smartdns/blacklist-ip.conf", value)
 end
 
 -- Doman addresss

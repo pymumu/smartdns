@@ -19,7 +19,7 @@
 #define _GNU_SOURCE
 #include "art.h"
 #include "atomic.h"
-#include "conf.h"
+#include "dns_conf.h"
 #include "dns_client.h"
 #include "dns_server.h"
 #include "fast_ping.h"
@@ -31,14 +31,14 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <libgen.h>
+#include <openssl/err.h>
+#include <openssl/ssl.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <openssl/ssl.h>
-#include <openssl/err.h>
 
 #define RESOLVE_FILE "/etc/resolv.conf"
 #define MAX_LINE_LEN 1024
@@ -55,6 +55,7 @@ void help(void)
 		"  -f            run forground.\n"
 		"  -c [conf]     config file.\n"
 		"  -p [pid]      pid file path\n"
+		"  -S            ignore segment fault signal.\n"
 		"  -h            show this help message.\n"
 
 		"Online help: http://pymumu.github.io/smartdns"
@@ -119,7 +120,7 @@ int smartdns_add_servers(void)
 	int i = 0;
 	int ret = 0;
 	for (i = 0; i < dns_conf_server_num; i++) {
-		ret = dns_add_server(dns_conf_servers[i].server, dns_conf_servers[i].port, dns_conf_servers[i].type);
+		ret = dns_add_server(dns_conf_servers[i].server, dns_conf_servers[i].port, dns_conf_servers[i].type, dns_conf_servers[i].result_flag);
 		if (ret != 0) {
 			tlog(TLOG_ERROR, "add server failed, %s:%d", dns_conf_servers[i].server, dns_conf_servers[i].port);
 			return -1;
@@ -206,7 +207,7 @@ int smartdns_init(void)
 		goto errout;
 	}
 
-	//tlog_setlogscreen(1); 
+	//tlog_setlogscreen(1);
 	tlog_setlevel(dns_conf_log_level);
 
 	if (smartdns_init_ssl() != 0) {
@@ -262,7 +263,7 @@ void smartdns_exit(void)
 	fast_ping_exit();
 	smartdns_destroy_ssl();
 	tlog_exit();
-	load_exit();
+	dns_server_load_exit();
 }
 
 void sig_handle(int sig)
@@ -287,11 +288,12 @@ int main(int argc, char *argv[])
 	int opt;
 	char config_file[MAX_LINE_LEN];
 	char pid_file[MAX_LINE_LEN];
+	int signal_ignore = 0;
 
 	strncpy(config_file, SMARTDNS_CONF_FILE, MAX_LINE_LEN);
 	strncpy(pid_file, SMARTDNS_PID_FILE, MAX_LINE_LEN);
 
-	while ((opt = getopt(argc, argv, "fhc:p:")) != -1) {
+	while ((opt = getopt(argc, argv, "fhc:p:S")) != -1) {
 		switch (opt) {
 		case 'f':
 			is_forground = 1;
@@ -301,6 +303,9 @@ int main(int argc, char *argv[])
 			break;
 		case 'p':
 			snprintf(pid_file, sizeof(pid_file), "%s", optarg);
+			break;
+		case 'S':
+			signal_ignore = 1;
 			break;
 		case 'h':
 			help();
@@ -315,14 +320,16 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	signal(SIGABRT, sig_handle);
-	signal(SIGPIPE, SIG_IGN);
-	signal(SIGBUS, sig_handle);
-	signal(SIGSEGV, sig_handle);
-	signal(SIGILL, sig_handle);
-	signal(SIGFPE, sig_handle);
+	if (signal_ignore == 0) {
+		signal(SIGABRT, sig_handle);
+		signal(SIGPIPE, SIG_IGN);
+		signal(SIGBUS, sig_handle);
+		signal(SIGSEGV, sig_handle);
+		signal(SIGILL, sig_handle);
+		signal(SIGFPE, sig_handle);
+	}
 
-	if (load_conf(config_file) != 0) {
+	if (dns_server_load_conf(config_file) != 0) {
 	}
 
 	if (create_pid_file(pid_file) != 0) {

@@ -20,4 +20,6 @@ int set_fd_nonblock(int fd, int nonblock);
 
 char *reverse_string(char *output, char *input, int len);
 
+void print_stack(void);
+
 #endif

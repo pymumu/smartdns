@@ -1,3 +1,6 @@
 #!/bin/sh
 . ${IPKG_INSTROOT}/lib/functions.sh
 default_prerm $0 $@
+rm /var/etc/smartdns.conf -f
+rm /var/etc/smartdns/smartdns.conf -f
+exit 0

@@ -8,10 +8,13 @@ SERVICE_WRITE_PID=1
 SERVICE_DAEMONIZE=1
 SERVICE_PID_FILE="/var/run/smartdns.pid"
 BASECONFIGFILE="/etc/smartdns/smartdns.conf"
-SMARTDNS_CONF="/var/etc/smartdns.conf"
-ADDRESS_CONF="/etc/smartdns/address.conf"
-CUSTOM_CONF="/etc/smartdns/custom.conf"
+SMARTDNS_CONF_DIR="/var/etc/smartdns"
+SMARTDNS_CONF="$SMARTDNS_CONF_DIR/smartdns.conf"
+ADDRESS_CONF="$SMARTDNS_CONF_DIR/address.conf"
+BLACKLIST_IP_CONF="$SMARTDNS_CONF_DIR/blacklist-ip.conf"
+CUSTOM_CONF="$SMARTDNS_CONF_DIR/custom.conf"
 SMARTDNS_CONF_TMP="${SMARTDNS_CONF}.tmp"
+COREDUMP="0"
 
 set_forward_dnsmasq()
 {
@@ -109,9 +112,11 @@ conf_append()
 load_server()
 {
 	local section="$1"
+	local ADDITIONAL_ARGS=""
 	config_get "port" "$section" "port" "53"
 	config_get "type" "$section" "type" "udp"
 	config_get "ip" "$section" "ip" ""
+	config_get "blacklist_ip" "$section" "blacklist_ip" "0"
 
 	if [ -z "$port" ] || [ -z "$ip" ] || [ -z "$type" ]; then
 		return
@@ -130,8 +135,11 @@ load_server()
 		fi
 	fi
 
-	conf_append "$SERVER" "$ip:$port"
+	if [ "$blacklist_ip" != "0" ]; then
+		ADDITIONAL_ARGS="$ADDITIONAL_ARGS -blacklist-ip"
+	fi
 
+	conf_append "$SERVER" "$ip:$port $ADDITIONAL_ARGS"
 }
 
 start_service() {
@@ -161,7 +169,7 @@ start_service() {
 	fi
 	SMARTDNS_PORT="$port"
 
-	mkdir -p $(dirname $SMARTDNS_CONF)
+	mkdir -p $SMARTDNS_CONF_DIR
 
 	config_get "cache_size" "$section" "cache_size" ""
 	if [ ! -z "$cache_size" ]; then
@@ -227,11 +235,16 @@ start_service() {
 	config_foreach load_server "server"
 
 	echo "conf-file $ADDRESS_CONF" >> $SMARTDNS_CONF_TMP
+	echo "conf-file $BLACKLIST_IP_CONF" >> $SMARTDNS_CONF_TMP
 	echo "conf-file $CUSTOM_CONF" >> $SMARTDNS_CONF_TMP
 
 	config_get_bool "enabled" "$section" "enabled" '0'
 	mv $SMARTDNS_CONF_TMP $SMARTDNS_CONF
 	[ "$enabled" -gt 0 ] || return 1
+	if [ "$COREDUMP" = "1" ]; then
+		args="$args -S"
+		ulimit -c unlimited
+	fi
 	service_start /usr/sbin/smartdns $args -c $SMARTDNS_CONF
 }
 

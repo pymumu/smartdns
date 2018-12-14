@@ -388,11 +388,12 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 |audit-size|audit log size|128K|number+K,M,G|audit-size 128K
 |audit-num|archived audit log number|2|Integer|audit-num 2
 |conf-file|additional conf file|None|File path|conf-file /etc/smartdns/smartdns.more.conf
-|server|Upstream UDP DNS server|None|[ip][:port], Repeatable| server 8.8.8.8:53
-|server-tcp|Upstream TCP DNS server|None|[IP][:port], Repeatable| server-tcp 8.8.8.8:53
-|server-tls|Upstream TLS DNS server|None|[IP][:port], Repeatable| server-tls 8.8.8.8:853
+|server|Upstream UDP DNS server|None|[ip][:port] [-blacklist-ip], Repeatable, blacklist-ip parameter represents filtering the result of IPs with blacklist-ip configuration.| server 8.8.8.8:53
+|server-tcp|Upstream TCP DNS server|None|[IP][:port] [-blacklist-ip], Repeatable, blacklist-ip parameter represents filtering the result of IPs with blacklist-ip configuration.| server-tcp 8.8.8.8:53
+|server-tls|Upstream TLS DNS server|None|[IP][:port] [-blacklist-ip], Repeatable, blacklist-ip parameter represents filtering the result of IPs with blacklist-ip configuration.| server-tls 8.8.8.8:853
 |address|Domain IP address|None|address /domain/ip| address /www.example.com/1.2.3.4
-|bogus-nxdomain|bogus IP address|None|[IP]，Repeatable| bogus-nxdomain 1.2.3.4
+|bogus-nxdomain|bogus IP address|None|[IP/subnet], Repeatable| bogus-nxdomain 1.2.3.4/16
+|blacklist-ip|ip blacklist|None|[ip/subnet], Repeatable，When the filtering server responds IPs in the IP blacklist, The result will be discarded directly| blacklist-ip 1.2.3.4/16
 |force-AAAA-SOA|force AAAA query return SOA|no|[yes\|no]|force-AAAA-SOA yes
 
 ## [Donate](#Donate)  

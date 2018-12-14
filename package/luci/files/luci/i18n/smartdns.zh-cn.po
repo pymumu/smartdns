@@ -121,11 +121,26 @@ msgstr "协议类型"
 msgid "Domain Address"
 msgstr "域名地址"
 
+msgid "IP Blacklist Filtering"
+msgstr "IP黑名单过滤"
+
+msgid "Filtering IP with blacklist"
+msgstr "使用IP黑名单过滤"
+
 msgid "Set Specific domain ip address."
 msgstr "指定特定域名的IP地址"
 
 msgid "Specify an IP address to return for any host in the given domains, Queries in the domains are never forwarded and always replied to with the specified IP address which may be IPv4 or IPv6."
 msgstr "配置特定域名返回特定的IP地址，域名查询将不到上游服务器请求，直接返回配置的IP地址，可用于广告屏蔽。"
+
+msgid "IP Blacklist"
+msgstr "IP黑名单"
+
+msgid "Set Specific ip blacklist."
+msgstr "设置IP黑名单列表"
+
+msgid "Configure IP blacklists that will be filtered from the results of specific DNS server."
+msgstr "配置需要从指定域名服务器结果过滤的IP黑名单。"
 
 msgid "Technical Support"
 msgstr "技术支持"

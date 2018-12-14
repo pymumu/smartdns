@@ -1,3 +1,4 @@
 /etc/config/smartdns
 /etc/smartdns/address.conf
+/etc/smartdns/blacklist-ip.conf
 /etc/smartdns/custom.conf

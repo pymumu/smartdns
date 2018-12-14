@@ -33,6 +33,8 @@
 #include <netinet/ip.h>
 #include <netinet/ip6.h>
 #include <netinet/ip_icmp.h>
+#include <openssl/err.h>
+#include <openssl/ssl.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,8 +44,6 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include <openssl/ssl.h> 
-#include <openssl/err.h> 
 
 #define DNS_MAX_HOSTNAME 256
 #define DNS_MAX_EVENTS 64
@@ -97,6 +97,7 @@ struct dns_server_info {
 	SSL *ssl;
 	SSL_CTX *ssl_ctx;
 	dns_server_status status;
+	unsigned int result_flag;
 
 	struct dns_server_buff send_buff;
 	struct dns_server_buff recv_buff;
@@ -155,7 +156,6 @@ struct dns_query_struct {
 static struct dns_client client;
 static atomic_t dns_client_sid = ATOMIC_INIT(0);
 
-
 /* get addr info */
 static struct addrinfo *_dns_client_getaddr(const char *host, char *port, int type, int protocol)
 {
@@ -211,7 +211,7 @@ int _dns_client_server_exist(struct addrinfo *gai, dns_server_type_t server_type
 }
 
 /* add dns server information */
-int _dns_client_server_add(char *server_ip, struct addrinfo *gai, dns_server_type_t server_type)
+int _dns_client_server_add(char *server_ip, struct addrinfo *gai, dns_server_type_t server_type, int result_flag)
 {
 	struct dns_server_info *server_info = NULL;
 
@@ -229,6 +229,7 @@ int _dns_client_server_add(char *server_ip, struct addrinfo *gai, dns_server_typ
 	server_info->type = server_type;
 	server_info->fd = 0;
 	server_info->status = DNS_SERVER_STATUS_INIT;
+	server_info->result_flag = result_flag;
 
 	if (gai->ai_addrlen > sizeof(server_info->in6)) {
 		tlog(TLOG_ERROR, "addr len invalid, %d, %zd, %d", gai->ai_addrlen, sizeof(server_info->addr), server_info->ai_family);
@@ -336,7 +337,7 @@ int _dns_client_server_remove(char *server_ip, struct addrinfo *gai, dns_server_
 	return -1;
 }
 
-int _dns_client_server_operate(char *server_ip, int port, dns_server_type_t server_type, int operate)
+int _dns_client_server_operate(char *server_ip, int port, dns_server_type_t server_type, int result_flag, int operate)
 {
 	char port_s[8];
 	int sock_type;
@@ -370,7 +371,7 @@ int _dns_client_server_operate(char *server_ip, int port, dns_server_type_t serv
 	}
 
 	if (operate == 0) {
-		ret = _dns_client_server_add(server_ip, gai, server_type);
+		ret = _dns_client_server_add(server_ip, gai, server_type, result_flag);
 		if (ret != 0) {
 			goto errout;
 		}
@@ -389,14 +390,14 @@ errout:
 	return -1;
 }
 
-int dns_add_server(char *server_ip, int port, dns_server_type_t server_type)
+int dns_add_server(char *server_ip, int port, dns_server_type_t server_type, int result_flag)
 {
-	return _dns_client_server_operate(server_ip, port, server_type, 0);
+	return _dns_client_server_operate(server_ip, port, server_type, result_flag, 0);
 }
 
 int dns_remove_server(char *server_ip, int port, dns_server_type_t server_type)
 {
-	return _dns_client_server_operate(server_ip, port, server_type, 1);
+	return _dns_client_server_operate(server_ip, port, server_type, 0, 1);
 }
 
 int dns_server_num(void)
@@ -426,7 +427,7 @@ void _dns_client_query_release(struct dns_query_struct *query)
 
 	/* notify caller query end */
 	if (query->callback) {
-		query->callback(query->domain, DNS_QUERY_END, NULL, NULL, 0, query->user_ptr);
+		query->callback(query->domain, DNS_QUERY_END, 0, NULL, NULL, 0, query->user_ptr);
 	}
 
 	/* free resource */
@@ -587,7 +588,7 @@ int _dns_replied_check_add(struct dns_query_struct *dns_query, struct sockaddr *
 	return 0;
 }
 
-static int _dns_client_recv(unsigned char *inpacket, int inpacket_len, struct sockaddr *from, socklen_t from_len)
+static int _dns_client_recv(struct dns_server_info *server_info, unsigned char *inpacket, int inpacket_len, struct sockaddr *from, socklen_t from_len)
 {
 	int len;
 	int i;
@@ -609,7 +610,7 @@ static int _dns_client_recv(unsigned char *inpacket, int inpacket_len, struct so
 	if (len != 0) {
 		char host_name[DNS_MAX_CNAME_LEN];
 		tlog(TLOG_ERROR, "decode failed, packet len = %d, tc = %d, id = %d, from = %s\n", inpacket_len, packet->head.tc, packet->head.id,
-			gethost_by_addr(host_name, from, from_len));
+			 gethost_by_addr(host_name, from, from_len));
 		return -1;
 	}
 
@@ -649,12 +650,11 @@ static int _dns_client_recv(unsigned char *inpacket, int inpacket_len, struct so
 
 	/* notify caller dns query result */
 	if (query->callback) {
-		ret = query->callback(query->domain, DNS_QUERY_RESULT, packet, inpacket, inpacket_len, query->user_ptr);
-	}
-
-	if (request_num == 0 || ret) {
-		/* if all server replied, or done, stop query, release resource */
-		_dns_client_query_remove(query);
+		ret = query->callback(query->domain, DNS_QUERY_RESULT, server_info->result_flag, packet, inpacket, inpacket_len, query->user_ptr);
+		if (request_num == 0 || ret) {
+			/* if all server replied, or done, stop query, release resource */
+			_dns_client_query_remove(query);
+		}
 	}
 
 	return ret;
@@ -771,7 +771,7 @@ static int _DNS_client_create_socket_tls(struct dns_server_info *server_info)
 		}
 	}
 
-	if(SSL_set_fd(ssl, fd) == 0) {
+	if (SSL_set_fd(ssl, fd) == 0) {
 		tlog(TLOG_ERROR, "ssl set fd failed.");
 		goto errout;
 	}
@@ -844,7 +844,7 @@ static int _dns_client_process_udp(struct dns_server_info *server_info, struct e
 	tlog(TLOG_DEBUG, "recv udp, from %s", gethost_by_addr(from_host, (struct sockaddr *)&from, from_len));
 
 	time(&server_info->last_recv);
-	if (_dns_client_recv(inpacket, len, (struct sockaddr *)&from, from_len) != 0) {
+	if (_dns_client_recv(server_info, inpacket, len, (struct sockaddr *)&from, from_len) != 0) {
 		return -1;
 	}
 
@@ -866,7 +866,7 @@ static int _dns_client_process_tcp(struct dns_server_info *server_info, struct e
 			if (errno == EAGAIN) {
 				return 0;
 			}
-			
+
 			/* FOR GFW */
 			if (errno == ECONNRESET) {
 				goto errout;
@@ -901,9 +901,9 @@ static int _dns_client_process_tcp(struct dns_server_info *server_info, struct e
 		}
 
 		while (1) {
-			/* tcp result format 
-			* | len (short) | dns query result | 
-			*/
+			/* tcp result format
+			 * | len (short) | dns query result |
+			 */
 			inpacket_data = server_info->recv_buff.data;
 			len = ntohs(*((unsigned short *)(inpacket_data)));
 			if (len <= 0 || len >= DNS_IN_PACKSIZE) {
@@ -920,7 +920,7 @@ static int _dns_client_process_tcp(struct dns_server_info *server_info, struct e
 			tlog(TLOG_DEBUG, "recv tcp from %s, len = %d", gethost_by_addr(from_host, (struct sockaddr *)&server_info->addr, server_info->ai_addrlen), len);
 
 			/* process result */
-			if (_dns_client_recv(inpacket_data, len, &server_info->addr, server_info->ai_addrlen) != 0) {
+			if (_dns_client_recv(server_info, inpacket_data, len, &server_info->addr, server_info->ai_addrlen) != 0) {
 				goto errout;
 			}
 			len += 2;
@@ -1109,9 +1109,9 @@ static int _dns_client_tls_verify(struct dns_server_info *server_info)
 {
 	X509 *cert = NULL;
 	char peer_CN[256];
-	const EVP_MD        * digest;
-	unsigned char         md[EVP_MAX_MD_SIZE];
-	unsigned int          n;
+	const EVP_MD *digest;
+	unsigned char md[EVP_MAX_MD_SIZE];
+	unsigned int n;
 	char cert_fingerprint[256];
 	int i = 0;
 
@@ -1194,7 +1194,6 @@ static int _dns_client_process_tls(struct dns_server_info *server_info, struct e
 			tlog(TLOG_ERROR, "epoll ctl failed.");
 			goto errout;
 		}
-
 	}
 
 	if (event->events & EPOLLIN) {
@@ -1205,7 +1204,7 @@ static int _dns_client_process_tls(struct dns_server_info *server_info, struct e
 			if (errno == EAGAIN) {
 				return 0;
 			}
-			
+
 			/* FOR GFW */
 			if (errno == ECONNRESET) {
 				goto errout;
@@ -1240,9 +1239,9 @@ static int _dns_client_process_tls(struct dns_server_info *server_info, struct e
 		}
 
 		while (1) {
-			/* tcp result format 
-			* | len (short) | dns query result | 
-			*/
+			/* tcp result format
+			 * | len (short) | dns query result |
+			 */
 			inpacket_data = server_info->recv_buff.data;
 			len = ntohs(*((unsigned short *)(inpacket_data)));
 			if (len <= 0 || len >= DNS_IN_PACKSIZE) {
@@ -1259,7 +1258,7 @@ static int _dns_client_process_tls(struct dns_server_info *server_info, struct e
 			tlog(TLOG_DEBUG, "recv tcp from %s, len = %d", gethost_by_addr(from_host, (struct sockaddr *)&server_info->addr, server_info->ai_addrlen), len);
 
 			/* process result */
-			if (_dns_client_recv(inpacket_data, len, &server_info->addr, server_info->ai_addrlen) != 0) {
+			if (_dns_client_recv(server_info, inpacket_data, len, &server_info->addr, server_info->ai_addrlen) != 0) {
 				goto errout;
 			}
 			len += 2;
@@ -1423,7 +1422,7 @@ static int _dns_client_send_tcp(struct dns_server_info *server_info, void *packe
 	unsigned char *inpacket = inpacket_data;
 
 	/* TCP query format
-	 * | len (short) | dns query data | 
+	 * | len (short) | dns query data |
 	 */
 	*((unsigned short *)(inpacket)) = htons(len);
 	memcpy(inpacket + 2, packet, len);
@@ -1451,7 +1450,7 @@ static int _dns_client_send_tls(struct dns_server_info *server_info, void *packe
 	unsigned char *inpacket = inpacket_data;
 
 	/* TCP query format
-	 * | len (short) | dns query data | 
+	 * | len (short) | dns query data |
 	 */
 	*((unsigned short *)(inpacket)) = htons(len);
 	memcpy(inpacket + 2, packet, len);
