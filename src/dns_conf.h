@@ -11,6 +11,7 @@
 #include "radix.h"
 
 #define DNS_MAX_SERVERS 32
+#define DNS_MAX_IPSET_NAMELEN 32
 #define DNS_MAX_IPLEN 64
 #define DNS_MAX_PATH 1024
 #define DEFAULT_DNS_PORT 53
@@ -23,6 +24,7 @@
 enum domain_rule {
 	DOMAIN_RULE_ADDRESS_IPV4 = 1,
 	DOMAIN_RULE_ADDRESS_IPV6 = 2,
+	DOMAIN_RULE_IPSET = 3,
 	DOMAIN_RULE_MAX,
 };
 
@@ -32,6 +34,15 @@ struct dns_address_IPV4 {
 
 struct dns_address_IPV6 {
 	unsigned char ipv6_addr[DNS_RR_AAAA_LEN];
+};
+
+struct dns_ipset_name {
+	struct hlist_node node;
+	char ipsetname[DNS_MAX_IPSET_NAMELEN];
+};
+
+struct dns_ipset_rule {
+	const char *ipsetname;
 };
 
 struct dns_domain_rule {
@@ -64,10 +75,6 @@ enum address_rule {
 struct dns_ip_address_rule {
 	unsigned int blacklist : 1;
 	unsigned int bogus : 1;
-};
-
-struct dns_bogus_nxdomain {
-	DECLARE_HASHTABLE(ip_hash, 12);
 };
 
 extern char dns_conf_server_ip[DNS_MAX_IPLEN];

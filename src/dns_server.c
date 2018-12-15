@@ -419,6 +419,36 @@ static int _dns_reply(struct dns_request *request)
 	return _dns_reply_inpacket(request, inpacket, encode_len);
 }
 
+static int _dns_setup_ipset(struct dns_request *request)
+{
+	struct dns_ipset_rule *ipset_rule = NULL;
+	int ret = 0;
+
+	if (request->domain_rule == NULL) {
+		return 0;
+	}
+
+	ipset_rule = request->domain_rule->rules[DOMAIN_RULE_IPSET];
+	if (ipset_rule == NULL) {
+		return 0;
+	}
+
+	if (request->has_ipv4 && request->qtype == DNS_T_A) {
+		ret |= ipset_add(ipset_rule->ipsetname, request->ipv4_addr, DNS_RR_A_LEN);
+	}
+
+	if (request->has_ipv6 && request->qtype == DNS_T_AAAA) {
+		if (request->has_ipv4) {
+			ret |= ipset_add(ipset_rule->ipsetname, request->ipv4_addr, DNS_RR_A_LEN);
+		}
+		ret |= ipset_add(ipset_rule->ipsetname, request->ipv6_addr, DNS_RR_AAAA_LEN);
+	}
+
+	tlog(TLOG_DEBUG, "IPSET-MATCH: domain:%s, ipset:%s, result: %d", request->domain, ipset_rule->ipsetname, ret);
+
+	return ret;
+}
+
 int _dns_server_request_complete(struct dns_request *request)
 {
 	char *cname = NULL;
@@ -476,6 +506,7 @@ int _dns_server_request_complete(struct dns_request *request)
 		return 0;
 	}
 
+	_dns_setup_ipset(request);
 	_dns_reply(request);
 
 	return 0;

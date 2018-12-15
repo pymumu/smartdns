@@ -392,6 +392,7 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 |server-tcp|上游TCP DNS|无|[IP][:port] [-blacklist-ip]，可重复，blacklist-ip参数指定使用blacklist-ip配置IP过滤结果| server-tcp 8.8.8.8:53
 |server-tls|上游TLS DNS|无|[IP][:port] [-blacklist-ip]，可重复，blacklist-ip参数指定使用blacklist-ip配置IP过滤结果| server-tls 8.8.8.8:853
 |address|指定域名IP地址|无|address /domain/ip| address /www.example.com/1.2.3.4
+|ipset|域名IPSET|None|ipset /domain/ipset|ipset /www.example.com/pass
 |bogus-nxdomain|假冒IP地址过滤|无|[ip/subnet]，可重复| bogus-nxdomain 1.2.3.4/16
 |blacklist-ip|黑名单IP地址|无|[ip/subnet]，可重复| blacklist-ip 1.2.3.4/16
 |force-AAAA-SOA|强制AAAA地址返回SOA|no|[yes\|no]|force-AAAA-SOA yes

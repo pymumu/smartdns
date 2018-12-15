@@ -11,6 +11,11 @@
 
 #define DEFAULT_DNS_CACHE_SIZE 512
 
+struct dns_ipset_table {
+	DECLARE_HASHTABLE(ipset, 8);
+};
+struct dns_ipset_table dns_ipset_table;
+
 char dns_conf_server_ip[DNS_MAX_IPLEN];
 char dns_conf_server_tcp_ip[DNS_MAX_IPLEN];
 int dns_conf_tcp_idle_time = 120;
@@ -64,10 +69,10 @@ int config_server(int argc, char *argv[], dns_server_type_t type, int default_po
 		}
 
 		switch (opt) {
-			case 'b': {
-				result_flag |= DNSSERVER_FLAG_BLACKLIST_IP;
-				break;
-			}
+		case 'b': {
+			result_flag |= DNSSERVER_FLAG_BLACKLIST_IP;
+			break;
+		}
 		}
 	}
 
@@ -186,6 +191,117 @@ errout:
 	return 0;
 }
 
+void config_ipset_table_destroy(void)
+{
+	struct dns_ipset_name *ipset_name = NULL;
+	struct hlist_node *tmp = NULL;
+	int i;
+
+	hash_for_each_safe(dns_ipset_table.ipset, i, tmp, ipset_name, node)
+	{
+		hlist_del_init(&ipset_name->node);
+		free(ipset_name);
+	}
+}
+
+const char *dns_conf_get_ipset(const char *ipsetname)
+{
+	uint32_t key = 0;
+	struct dns_ipset_name *ipset_name = NULL;
+
+	key = hash_string(ipsetname);
+	hash_for_each_possible(dns_ipset_table.ipset, ipset_name, node, key)
+	{
+		if (strncmp(ipset_name->ipsetname, ipsetname, DNS_MAX_IPSET_NAMELEN) == 0) {
+			return ipset_name->ipsetname;
+		}
+	}
+
+	ipset_name = malloc(sizeof(*ipset_name));
+	if (ipset_name == NULL) {
+		goto errout;
+	}
+
+	key = hash_string(ipsetname);
+	strncpy(ipset_name->ipsetname, ipsetname, DNS_MAX_IPSET_NAMELEN);
+	hash_add(dns_ipset_table.ipset, &ipset_name->node, key);
+
+	return ipset_name->ipsetname;
+errout:
+	if (ipset_name) {
+		free(ipset_name);
+	}
+
+	return NULL;
+}
+
+int config_ipset(void *data, int argc, char *argv[])
+{
+	struct dns_ipset_rule *ipset_rule = NULL;
+	char domain[DNS_MAX_CONF_CNAME_LEN];
+	char ipsetname[DNS_MAX_CONF_CNAME_LEN];
+	const char *ipset = NULL;
+	char *begin = NULL;
+	char *end = NULL;
+	int len = 0;
+	char *value = argv[1];
+
+	if (argc <= 1) {
+		goto errout;
+	}
+
+	begin = strstr(value, "/");
+	if (begin == NULL) {
+		goto errout;
+	}
+
+	begin++;
+	end = strstr(begin, "/");
+	if (end == NULL) {
+		goto errout;
+	}
+
+	/* remove prefix . */
+	while (*begin == '.') {
+		begin++;
+	}
+
+	len = end - begin;
+	memcpy(domain, begin, len);
+	domain[len] = '\0';
+
+	len = strlen(end + 1);
+	if (len <= 0) {
+		goto errout;
+	}
+
+	strncpy(ipsetname, end + 1, DNS_MAX_IPSET_NAMELEN);
+	ipset = dns_conf_get_ipset(ipsetname);
+	if (ipset == NULL) {
+		goto errout;
+	}
+
+	ipset_rule = malloc(sizeof(*ipset_rule));
+	if (ipset_rule == NULL) {
+		goto errout;
+	}
+
+	ipset_rule->ipsetname = ipset;
+
+	if (config_domain_rule_add(domain, DOMAIN_RULE_IPSET, ipset_rule) != 0) {
+		goto errout;
+	}
+
+	return 0;
+errout:
+	if (ipset_rule) {
+		free(ipset_rule);
+	}
+
+	tlog(TLOG_ERROR, "add ipset %s failed", value);
+	return 0;
+}
+
 int config_address(void *data, int argc, char *argv[])
 {
 	struct dns_address_IPV4 *address_ipv4 = NULL;
@@ -201,6 +317,10 @@ int config_address(void *data, int argc, char *argv[])
 	struct sockaddr_storage addr;
 	socklen_t addr_len = sizeof(addr);
 	enum domain_rule type = 0;
+
+	if (argc <= 1) {
+		goto errout;
+	}
 
 	begin = strstr(value, "/");
 	if (begin == NULL) {
@@ -385,6 +505,7 @@ struct config_item config_item[] = {
 	CONF_CUSTOM("server-tcp", config_server_tcp, NULL),
 	CONF_CUSTOM("server-tls", config_server_tls, NULL),
 	CONF_CUSTOM("address", config_address, NULL),
+	CONF_CUSTOM("ipset", config_ipset, NULL),
 	CONF_INT("tcp-idle-time", &dns_conf_tcp_idle_time, 0, 3600),
 	CONF_INT("cache-size", &dns_conf_cachesize, 0, CONF_INT_MAX),
 	CONF_YESNO("prefetch-domain", &dns_conf_prefetch),
@@ -426,6 +547,8 @@ int _dns_server_load_conf_init(void)
 		return -1;
 	}
 
+	hash_init(dns_ipset_table.ipset);
+
 	return 0;
 }
 
@@ -433,6 +556,7 @@ void dns_server_load_exit(void)
 {
 	config_domain_destroy();
 	Destroy_Radix(dns_conf_address_rule, config_address_destroy, NULL);
+	config_ipset_table_destroy();
 }
 
 int dns_server_load_conf(const char *file)

@@ -22,4 +22,8 @@ char *reverse_string(char *output, char *input, int len);
 
 void print_stack(void);
 
+int ipset_add(const char *ipsetname, const unsigned char addr[], int addr_len);
+
+int ipset_del(const char *ipsetname, const unsigned char addr[], int addr_len);
+
 #endif
