@@ -272,19 +272,34 @@ void smartdns_exit(void)
 	dns_server_load_exit();
 }
 
-void sig_handle(int sig)
+void sig_exit(int signo)
 {
-	switch (sig) {
-	case SIGINT:
-		dns_server_stop();
-		return;
-		break;
-	default:
-		break;
-	}
-	tlog(TLOG_ERROR, "process exit with signal %d\n", sig);
+	dns_server_stop();
+}
+
+void sig_error_exit(int signo, siginfo_t *siginfo, void *context)
+{
+	tlog(TLOG_ERROR, "process exit with signal %d, code = %d, errno = %d, pid = %d, self = %d, addr = %p\n", signo, 
+		siginfo->si_code, siginfo->si_errno, siginfo->si_pid, getpid(), siginfo->si_addr);
 	sleep(1);
 	_exit(0);
+}
+
+int sig_list[] = {SIGSEGV, SIGABRT, SIGPIPE, SIGBUS, SIGILL, SIGFPE};
+
+int sig_num = sizeof(sig_list) / sizeof(int);
+
+void reg_signal(void)
+{
+	struct sigaction act, old;
+	int i = 0;
+	act.sa_sigaction = sig_error_exit;
+	sigemptyset(&act.sa_mask);
+	act.sa_flags = SA_RESTART | SA_SIGINFO;
+
+	for (i = 0; i < sig_num; i++) {
+		sigaction(sig_list[i], &act, &old);
+	}
 }
 
 int main(int argc, char *argv[])
@@ -330,12 +345,7 @@ int main(int argc, char *argv[])
 	}
 
 	if (signal_ignore == 0) {
-		signal(SIGABRT, sig_handle);
-		signal(SIGPIPE, SIG_IGN);
-		signal(SIGBUS, sig_handle);
-		signal(SIGSEGV, sig_handle);
-		signal(SIGILL, sig_handle);
-		signal(SIGFPE, sig_handle);
+		reg_signal();
 	}
 
 	if (dns_server_load_conf(config_file) != 0) {
@@ -351,7 +361,7 @@ int main(int argc, char *argv[])
 		goto errout;
 	}
 
-	signal(SIGINT, sig_handle);
+	signal(SIGINT, sig_exit);
 	atexit(smartdns_exit);
 
 	return smartdns_run();

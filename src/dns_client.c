@@ -48,7 +48,7 @@
 #define DNS_MAX_HOSTNAME 256
 #define DNS_MAX_EVENTS 64
 #define DNS_HOSTNAME_LEN 128
-#define DNS_TCP_BUFFER (8 * 1024)
+#define DNS_TCP_BUFFER (16 * 1024)
 
 /* dns client */
 struct dns_client {
@@ -602,6 +602,7 @@ static int _dns_client_recv(struct dns_server_info *server_info, unsigned char *
 	int ret = 0;
 	struct dns_query_struct *query;
 	int request_num = 0;
+	int has_opt = 0;
 
 	packet->head.tc = 0;
 
@@ -620,9 +621,9 @@ static int _dns_client_recv(struct dns_server_info *server_info, unsigned char *
 		return -1;
 	}
 
-	tlog(TLOG_DEBUG, "qdcount = %d, ancount = %d, nscount = %d, nrcount = %d, len = %d, id = %d, tc = %d, rd = %d, ra = %d, rcode = %d\n", packet->head.qdcount,
+	tlog(TLOG_DEBUG, "qdcount = %d, ancount = %d, nscount = %d, nrcount = %d, len = %d, id = %d, tc = %d, rd = %d, ra = %d, rcode = %d, payloadsize = %d\n", packet->head.qdcount,
 		 packet->head.ancount, packet->head.nscount, packet->head.nrcount, inpacket_len, packet->head.id, packet->head.tc, packet->head.rd, packet->head.ra,
-		 packet->head.rcode);
+		 packet->head.rcode, dns_get_OPT_payload_size(packet));
 
 	/* get question */
 	rrs = dns_get_rrs_start(packet, DNS_RRS_QD, &rr_count);
@@ -631,9 +632,13 @@ static int _dns_client_recv(struct dns_server_info *server_info, unsigned char *
 		tlog(TLOG_DEBUG, "domain: %s qtype: %d  qclass: %d\n", domain, qtype, qclass);
 	}
 
+	if (dns_get_OPT_payload_size(packet) > 0) {
+		has_opt = 1;
+	}
+
 	/* get query reference */
 	query = _dns_client_get_request(packet->head.id, domain);
-	if (query == NULL) {
+	if (query == NULL || (query && has_opt == 0 && server_info->result_flag & DNSSERVER_FLAG_CHECK_EDNS)) {
 		return 0;
 	}
 
@@ -812,6 +817,10 @@ static int _dns_client_create_socket(struct dns_server_info *server_info)
 {
 	time(&server_info->last_send);
 	time(&server_info->last_recv);
+
+	if (server_info->fd > 0) {
+		return -1;
+	}
 
 	if (server_info->type == DNS_SERVER_UDP) {
 		return _dns_client_create_socket_udp(server_info);
@@ -1372,6 +1381,11 @@ static void *_dns_client_work(void *arg)
 		for (i = 0; i < num; i++) {
 			struct epoll_event *event = &events[i];
 			struct dns_server_info *server_info = (struct dns_server_info *)event->data.ptr;
+			if (server_info == NULL) {
+				tlog(TLOG_WARN, "server info is invalid.");
+				continue;
+			}
+
 			_dns_client_process(server_info, event, now);
 		}
 	}
@@ -1398,6 +1412,7 @@ static int _dns_client_send_data_to_buffer(struct dns_server_info *server_info, 
 	struct epoll_event event;
 
 	if (DNS_TCP_BUFFER - server_info->send_buff.len < len) {
+		errno = ENOMEM;
 		return -1;
 	}
 
@@ -1433,6 +1448,10 @@ static int _dns_client_send_tcp(struct dns_server_info *server_info, void *packe
 		if (errno == EAGAIN) {
 			/* save data to buffer, and retry when EPOLLOUT is available */
 			return _dns_client_send_data_to_buffer(server_info, inpacket, len);
+		}
+
+		if (errno == EPIPE) {
+			shutdown(server_info->fd, SHUT_RDWR);
 		}
 		return -1;
 	} else if (send_len < len) {
@@ -1552,6 +1571,7 @@ static int _dns_client_send_query(struct dns_query_struct *query, char *doamin)
 	/* add question */
 	dns_add_domain(packet, doamin, query->qtype, DNS_C_IN);
 
+	dns_set_OPT_payload_size(packet, 1024);
 	/* encode packet */
 	encode_len = dns_encode(inpacket, DNS_IN_PACKSIZE, packet);
 	if (encode_len <= 0) {

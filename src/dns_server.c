@@ -551,6 +551,7 @@ void _dns_server_request_release(struct dns_request *request)
 		free(addr_map);
 	}
 	pthread_mutex_destroy(&request->ip_map_lock);
+	_dns_server_client_release(request->client);
 	memset(request, 0, sizeof(*request));
 	free(request);
 }
@@ -903,7 +904,6 @@ static int dns_server_resolve_callback(char *domain, dns_result_type rtype, unsi
 									   void *user_ptr)
 {
 	struct dns_request *request = user_ptr;
-	struct dns_server_conn *client = request->client;
 	int ip_num = 0;
 
 	if (request == NULL) {
@@ -936,7 +936,6 @@ static int dns_server_resolve_callback(char *domain, dns_result_type rtype, unsi
 			_dns_server_request_remove(request);
 		}
 		_dns_server_request_release(request);
-		_dns_server_client_release(client);
 	}
 
 	return 0;
@@ -1944,6 +1943,13 @@ errout:
 
 void _dns_server_close_socket(void)
 {
+	struct dns_server_conn *client, *tmp;
+
+	list_for_each_entry_safe(client, tmp, &server.client_list, list)
+	{
+		_dns_server_client_close(client);
+	}
+
 	if (server.udp_server.fd > 0) {
 		close(server.udp_server.fd);
 		server.udp_server.fd = 0;

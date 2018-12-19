@@ -12,6 +12,7 @@
 #define DNS_MAX_OPT_LEN 256
 #define DNS_IN_PACKSIZE (512 * 4)
 #define DNS_PACKSIZE (512 * 8)
+#define DNS_DEFAULT_PACKET_SIZE 512
 
 typedef enum dns_qr {
 	DNS_QR_QUERY = 0,
@@ -23,7 +24,8 @@ typedef enum dns_rr_type {
 	DNS_RRS_AN = 1,
 	DNS_RRS_NS = 2,
 	DNS_RRS_NR = 3,
-	DNS_RRS_END = 4,
+	DNS_RRS_OPT = 4,
+	DNS_RRS_END,
 } dns_rr_type;
 
 typedef enum dns_class { DNS_C_IN = 1, DNS_C_ANY = 255 } dns_class_t;
@@ -104,6 +106,9 @@ struct dns_packet {
 	unsigned short answers;
 	unsigned short nameservers;
 	unsigned short additional;
+	unsigned short optcount;
+	unsigned short optional;
+	unsigned short payloadsize;
 	int size;
 	int len;
 	unsigned char data[0];
@@ -180,8 +185,8 @@ int dns_get_AAAA(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, unsig
 int dns_add_SOA(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, struct dns_soa *soa);
 int dns_get_SOA(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, struct dns_soa *soa);
 
-int dns_add_OPT(struct dns_packet *packet, dns_rr_type type, unsigned short opt_code, unsigned short opt_len, struct dns_opt *opt);
-int dns_get_OPT(struct dns_rrs *rrs, unsigned short *opt_code, unsigned short *opt_len, struct dns_opt *opt, int *opt_maxlen);
+int dns_set_OPT_payload_size(struct dns_packet *packet, int payload_size);
+int dns_get_OPT_payload_size(struct dns_packet *packet);
 
 int dns_add_OPT_ECS(struct dns_packet *packet, dns_rr_type type, struct dns_opt_ecs *ecs);
 int dns_get_OPT_ECS(struct dns_rrs *rrs, unsigned short *opt_code, unsigned short *opt_len, struct dns_opt_ecs *ecs);

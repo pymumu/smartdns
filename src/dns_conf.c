@@ -52,6 +52,7 @@ int config_server(int argc, char *argv[], dns_server_type_t type, int default_po
 	/* clang-format off */
 	static struct option long_options[] = {
 		{"blacklist-ip", 0, 0, 'b'},
+		{"check-edns", 0, 0, 'e'},
 		{0, 0, 0, 0}
 	};
 	/* clang-format on */
@@ -71,6 +72,10 @@ int config_server(int argc, char *argv[], dns_server_type_t type, int default_po
 		switch (opt) {
 		case 'b': {
 			result_flag |= DNSSERVER_FLAG_BLACKLIST_IP;
+			break;
+		}
+		case 'e': {
+			result_flag |= DNSSERVER_FLAG_CHECK_EDNS;
 			break;
 		}
 		}
