@@ -285,7 +285,7 @@ void sig_error_exit(int signo, siginfo_t *siginfo, void *context)
 	_exit(0);
 }
 
-int sig_list[] = {SIGSEGV, SIGABRT, SIGPIPE, SIGBUS, SIGILL, SIGFPE};
+int sig_list[] = {SIGSEGV, SIGABRT, SIGBUS, SIGILL, SIGFPE};
 
 int sig_num = sizeof(sig_list) / sizeof(int);
 
@@ -362,10 +362,11 @@ int main(int argc, char *argv[])
 	}
 
 	signal(SIGINT, sig_exit);
+	signal(SIGPIPE, SIG_IGN);
 	atexit(smartdns_exit);
 
 	return smartdns_run();
-
+	
 errout:
 
 	return 1;

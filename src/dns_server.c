@@ -148,7 +148,7 @@ struct dns_request {
 
 	/* send original raw packet to server/client like proxy */
 	int passthrough;
-
+	int request_wait;
 	int prefetch;
 
 	pthread_mutex_t ip_map_lock;
@@ -419,6 +419,30 @@ static int _dns_reply(struct dns_request *request)
 	return _dns_reply_inpacket(request, inpacket, encode_len);
 }
 
+static int _dns_server_reply_SOA(int rcode, struct dns_request *request, struct dns_packet *packet)
+{
+	struct dns_soa *soa;
+
+	request->rcode = rcode;
+	request->has_soa = 1;
+	request->has_ipv4 = 0;
+	request->has_ipv6 = 0;
+	request->has_ptr = 0;
+
+	soa = &request->soa;
+
+	strcpy(soa->mname, "a.gtld-servers.net");
+	strcpy(soa->rname, "nstld.verisign-grs.com");
+	soa->serial = 1800;
+	soa->refresh = 1800;
+	soa->retry = 900;
+	soa->expire = 604800;
+	soa->minimum = 86400;
+	_dns_reply(request);
+
+	return 0;
+}
+
 static int _dns_setup_ipset(struct dns_request *request)
 {
 	struct dns_ipset_rule *ipset_rule = NULL;
@@ -488,6 +512,15 @@ int _dns_server_request_complete(struct dns_request *request)
 			 request->ipv6_addr[0], request->ipv6_addr[1], request->ipv6_addr[2], request->ipv6_addr[3], request->ipv6_addr[4], request->ipv6_addr[5],
 			 request->ipv6_addr[6], request->ipv6_addr[7], request->ipv6_addr[8], request->ipv6_addr[9], request->ipv6_addr[10], request->ipv6_addr[11],
 			 request->ipv6_addr[12], request->ipv6_addr[13], request->ipv6_addr[14], request->ipv6_addr[15]);
+
+		if (request->has_ipv4) {
+			dns_cache_insert(request->domain, cname, cname_ttl, request->ttl_v4, DNS_T_AAAA, request->ipv4_addr, DNS_RR_A_LEN);
+
+			if ((request->ping_ttl_v4 - dns_conf_dualstack_threshold < request->ping_ttl_v6 ) && (request->ping_ttl_v4 > 0)) {
+				tlog(TLOG_DEBUG, "Force IPV4 perfered.");
+				return _dns_server_reply_SOA(DNS_RC_NOERROR, request, NULL);
+			}
+		}
 
 		if (request->has_ipv6) {
 			if (request->has_ping_result == 0 && request->ttl_v6 > DNS_SERVER_TMOUT_TTL) {
@@ -566,6 +599,7 @@ void _dns_server_ping_result(struct ping_host_struct *ping_host, const char *hos
 {
 	struct dns_request *request = userptr;
 	int may_complete = 0;
+	int threshold = 100;
 
 	if (request == NULL) {
 		return;
@@ -579,6 +613,7 @@ void _dns_server_ping_result(struct ping_host_struct *ping_host, const char *hos
 
 	unsigned int rtt = tv->tv_sec * 10000 + tv->tv_usec / 100;
 
+
 	switch (addr->sa_family) {
 	case AF_INET: {
 		struct sockaddr_in *addr_in;
@@ -587,6 +622,10 @@ void _dns_server_ping_result(struct ping_host_struct *ping_host, const char *hos
 			request->ping_ttl_v4 = rtt;
 			request->has_ipv4 = 1;
 			memcpy(request->ipv4_addr, &addr_in->sin_addr.s_addr, 4);
+		}
+
+		if (dns_conf_dualstack_preference == 1 && request->qtype == DNS_T_AAAA) {
+			threshold = dns_conf_dualstack_threshold;
 		}
 	} break;
 	case AF_INET6: {
@@ -616,7 +655,7 @@ void _dns_server_ping_result(struct ping_host_struct *ping_host, const char *hos
 		tlog(TLOG_DEBUG, "from %15s: seq=%d timeout\n", host, seqno);
 	}
 
-	if (rtt < 100) {
+	if (rtt < threshold) {
 		may_complete = 1;
 	} else if (rtt < (get_tick_count() - request->send_tick) * 10) {
 		may_complete = 1;
@@ -763,7 +802,9 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 				unsigned char addr[4];
 				if (request->qtype != DNS_T_A) {
 					/* ignore non-matched query type */
-					break;
+					if (dns_conf_dualstack_preference == 0) {
+						break;
+					}
 				}
 				_dns_server_request_get(request);
 				dns_get_A(rrs, name, DNS_MAX_CNAME_LEN, &ttl, addr);
@@ -905,6 +946,7 @@ static int dns_server_resolve_callback(char *domain, dns_result_type rtype, unsi
 {
 	struct dns_request *request = user_ptr;
 	int ip_num = 0;
+	int request_wait = 0;
 
 	if (request == NULL) {
 		return -1;
@@ -925,10 +967,12 @@ static int dns_server_resolve_callback(char *domain, dns_result_type rtype, unsi
 	} else {
 		pthread_mutex_lock(&request->ip_map_lock);
 		ip_num = request->ip_map_num;
+		request_wait = request->request_wait;
+		request->request_wait--;
 		pthread_mutex_unlock(&request->ip_map_lock);
 
 		/* Not need to wait check result if only has one ip address */
-		if (ip_num == 1) {
+		if (ip_num == 1 && request_wait == 1) {
 			_dns_server_request_complete(request);
 		}
 
@@ -1012,27 +1056,6 @@ errout:
 		freeifaddrs(ifaddr);
 	}
 	return -1;
-}
-
-static int _dns_server_reply_SOA(int rcode, struct dns_request *request, struct dns_packet *packet)
-{
-	struct dns_soa *soa;
-
-	request->rcode = rcode;
-	request->has_soa = 1;
-
-	soa = &request->soa;
-
-	strcpy(soa->mname, "a.gtld-servers.net");
-	strcpy(soa->rname, "nstld.verisign-grs.com");
-	soa->serial = 1800;
-	soa->refresh = 1800;
-	soa->retry = 900;
-	soa->expire = 604800;
-	soa->minimum = 86400;
-	_dns_reply(request);
-
-	return 0;
 }
 
 static void _dns_server_log_rule(char *domain, unsigned char *rule_key, int rule_key_len)
@@ -1278,7 +1301,14 @@ static int _dns_server_recv(struct dns_server_conn *client, unsigned char *inpac
 
 	_dns_server_request_get(request);
 	request->send_tick = get_tick_count();
+
 	dns_client_query(request->domain, qtype, dns_server_resolve_callback, request);
+	request->request_wait++;
+	if (qtype == DNS_T_AAAA && dns_conf_dualstack_preference) {
+		_dns_server_request_get(request);
+		dns_client_query(request->domain, DNS_T_A, dns_server_resolve_callback, request);
+		request->request_wait++;
+	}
 
 	return 0;
 clean_exit:
