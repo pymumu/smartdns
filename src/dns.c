@@ -913,6 +913,7 @@ static int _dns_decode_domain(struct dns_context *context, char *output, int siz
 static int _dns_encode_domain(struct dns_context *context, char *domain)
 {
 	int num = 0;
+	int total_len = 0;
 	unsigned char *ptr_num = context->ptr++;
 
 	/*[len]string[len]string...[0]0 */
@@ -929,12 +930,15 @@ static int _dns_encode_domain(struct dns_context *context, char *domain)
 		num++;
 		context->ptr++;
 		domain++;
+		total_len++;
 	}
 
 	*ptr_num = num;
-	/* if domain is '\0', [domain] is '\0' */
-	*(context->ptr) = 0;
-	context->ptr++;
+	if (total_len > 0) {
+		/* if domain is '\0', [domain] is '\0' */
+		*(context->ptr) = 0;
+		context->ptr++;
+	}
 	return 0;
 }
 
