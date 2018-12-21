@@ -77,6 +77,12 @@ struct dns_ip_address_rule {
 	unsigned int bogus : 1;
 };
 
+struct dns_edns_client_subnet {
+	int enable;
+	char ip[DNS_MAX_IPLEN];
+	int subnet;
+};
+
 extern char dns_conf_server_ip[DNS_MAX_IPLEN];
 extern char dns_conf_server_tcp_ip[DNS_MAX_IPLEN];
 extern int dns_conf_tcp_idle_time;
@@ -106,6 +112,9 @@ extern int dns_conf_rr_ttl;
 extern int dns_conf_rr_ttl_min;
 extern int dns_conf_rr_ttl_max;
 extern int dns_conf_force_AAAA_SOA;
+
+extern struct dns_edns_client_subnet dns_conf_ipv4_ecs;
+extern struct dns_edns_client_subnet dns_conf_ipv6_ecs;
 
 void dns_server_load_exit(void);
 

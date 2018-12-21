@@ -21,6 +21,8 @@ typedef enum dns_result_type {
 
 int dns_client_init(void);
 
+int dns_client_set_ecs(char *ip, int subnet);
+
 /* query result notify function */
 typedef int (*dns_client_callback)(char *domain, dns_result_type rtype, unsigned int result_flag, struct dns_packet *packet, unsigned char *inpacket, int inpacket_len, void *user_ptr);
 

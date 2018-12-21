@@ -567,7 +567,8 @@ void _dns_server_request_release(struct dns_request *request)
 	int refcnt = atomic_dec_return(&request->refcnt);
 	if (refcnt) {
 		if (refcnt < 0) {
-			tlog(TLOG_ERROR, "BUG: refcnt is %d, domain %s", refcnt, request->domain);
+			tlog(TLOG_ERROR, "BUG: refcnt is %d, domain %s, qtype =%d", refcnt, request->domain,
+				request->qtype);
 			abort();
 		}
 		return;
@@ -707,10 +708,10 @@ int _dns_ip_address_check_add(struct dns_request *request, unsigned char *addr, 
 		}
 	}
 	request->ip_map_num++;
-	pthread_mutex_unlock(&request->ip_map_lock);
 
 	addr_map = malloc(sizeof(*addr_map));
 	if (addr_map == NULL) {
+		pthread_mutex_unlock(&request->ip_map_lock);
 		tlog(TLOG_ERROR, "malloc failed");
 		return -1;
 	}
@@ -718,6 +719,7 @@ int _dns_ip_address_check_add(struct dns_request *request, unsigned char *addr, 
 	addr_map->addr_type = addr_type;
 	memcpy(addr_map->addr, addr, addr_len);
 	hash_add(request->ip_map, &addr_map->node, key);
+	pthread_mutex_unlock(&request->ip_map_lock);
 
 	return 0;
 }
@@ -1302,12 +1304,12 @@ static int _dns_server_recv(struct dns_server_conn *client, unsigned char *inpac
 	_dns_server_request_get(request);
 	request->send_tick = get_tick_count();
 
-	dns_client_query(request->domain, qtype, dns_server_resolve_callback, request);
 	request->request_wait++;
+	dns_client_query(request->domain, qtype, dns_server_resolve_callback, request);
 	if (qtype == DNS_T_AAAA && dns_conf_dualstack_preference) {
 		_dns_server_request_get(request);
-		dns_client_query(request->domain, DNS_T_A, dns_server_resolve_callback, request);
 		request->request_wait++;
+		dns_client_query(request->domain, DNS_T_A, dns_server_resolve_callback, request);
 	}
 
 	return 0;
@@ -1361,6 +1363,7 @@ static int _dns_server_prefetch_request(char *domain, dns_type_t qtype)
 
 	_dns_server_request_get(request);
 	request->send_tick = get_tick_count();
+	request->request_wait++;
 	dns_client_query(request->domain, qtype, dns_server_resolve_callback, request);
 
 	return 0;

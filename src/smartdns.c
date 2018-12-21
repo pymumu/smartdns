@@ -134,6 +134,20 @@ int smartdns_add_servers(void)
 	return 0;
 }
 
+int smartdns_set_ecs_ip(void)
+{
+	int ret = 0;
+	if (dns_conf_ipv4_ecs.enable) {
+		ret |= dns_client_set_ecs(dns_conf_ipv4_ecs.ip, dns_conf_ipv4_ecs.subnet);
+	}
+
+	if (dns_conf_ipv6_ecs.enable) {
+		ret |= dns_client_set_ecs(dns_conf_ipv6_ecs.ip, dns_conf_ipv6_ecs.subnet);
+	}
+
+	return ret;
+}
+
 int create_pid_file(const char *pid_file)
 {
 	int fd;
@@ -249,6 +263,11 @@ int smartdns_init(void)
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "add servers failed.");
 		goto errout;
+	}
+
+	ret = smartdns_set_ecs_ip();
+	if (ret != 0 ) {
+		tlog(TLOG_WARN, "set ecs ip address failed.");
 	}
 
 	return 0;

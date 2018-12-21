@@ -50,6 +50,17 @@
 #define DNS_HOSTNAME_LEN 128
 #define DNS_TCP_BUFFER (16 * 1024)
 
+struct dns_client_ecs {
+	int enable;
+	unsigned int family;
+	unsigned int bitlen;
+	union {
+		unsigned char ipv4_addr[DNS_RR_A_LEN];
+		unsigned char ipv6_addr[DNS_RR_AAAA_LEN];
+		unsigned char addr[0];
+	};
+};
+
 /* dns client */
 struct dns_client {
 	pthread_t tid;
@@ -64,6 +75,10 @@ struct dns_client {
 	pthread_mutex_t dns_request_lock;
 	struct list_head dns_request_list;
 	atomic_t dns_server_num;
+
+	/* ECS */
+	struct dns_client_ecs ecs_ipv4;
+	struct dns_client_ecs ecs_ipv6;
 
 	/* query doman hash table, key: sid + domain */
 	pthread_mutex_t domain_map_lock;
@@ -1548,6 +1563,26 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 	return 0;
 }
 
+static int _dns_client_dns_add_ecs(struct dns_packet *packet, int qtype)
+{
+	if (qtype == DNS_T_A && client.ecs_ipv4.enable) {
+		struct dns_opt_ecs ecs;
+		ecs.family = DNS_ADDR_FAMILY_IP;
+		ecs.source_prefix = client.ecs_ipv4.bitlen;
+		ecs.scope_prefix = 0;
+		memcpy(ecs.addr, client.ecs_ipv4.ipv4_addr, DNS_RR_A_LEN);
+		return dns_add_OPT_ECS(packet, &ecs);
+	} else if (qtype == DNS_T_AAAA && client.ecs_ipv6.enable) {
+		struct dns_opt_ecs ecs;
+		ecs.family = DNS_ADDR_FAMILY_IPV6;
+		ecs.source_prefix = client.ecs_ipv6.bitlen;
+		ecs.scope_prefix = 0;
+		memcpy(ecs.addr, client.ecs_ipv6.ipv6_addr, DNS_RR_AAAA_LEN);
+		return dns_add_OPT_ECS(packet, &ecs);
+	}
+	return 0;
+}
+
 static int _dns_client_send_query(struct dns_query_struct *query, char *doamin)
 {
 	unsigned char packet_buff[DNS_PACKSIZE];
@@ -1571,7 +1606,13 @@ static int _dns_client_send_query(struct dns_query_struct *query, char *doamin)
 	/* add question */
 	dns_add_domain(packet, doamin, query->qtype, DNS_C_IN);
 
-	dns_set_OPT_payload_size(packet, 1024);
+	dns_set_OPT_payload_size(packet, DNS_IN_PACKSIZE);
+
+	if (_dns_client_dns_add_ecs(packet, query->qtype) != 0) {
+		tlog(TLOG_ERROR, "add ecs failed.");
+		return -1;
+	}
+
 	/* encode packet */
 	encode_len = dns_encode(inpacket, DNS_IN_PACKSIZE, packet);
 	if (encode_len <= 0) {
@@ -1640,6 +1681,12 @@ errout:
 		free(query);
 	}
 	return -1;
+}
+
+int dns_client_set_ecs(char *ip, int subnet)
+{
+
+	return 0;
 }
 
 int dns_client_init()

@@ -44,6 +44,9 @@ int dns_conf_rr_ttl_min;
 int dns_conf_rr_ttl_max;
 int dns_conf_force_AAAA_SOA;
 
+struct dns_edns_client_subnet dns_conf_ipv4_ecs;
+struct dns_edns_client_subnet dns_conf_ipv6_ecs;
+
 int config_server(int argc, char *argv[], dns_server_type_t type, int default_port)
 {
 	int index = dns_conf_server_num;
@@ -477,12 +480,59 @@ int config_iplist_rule(char *subnet, enum address_rule rule)
 
 int config_blacklist_ip(void *data, int argc, char *argv[])
 {
+	if (argc <= 1) {
+		return -1;
+	}
+
 	return config_iplist_rule(argv[1], ADDRESS_RULE_BLACKLIST);
 }
 
 int conf_bogus_nxdomain(void *data, int argc, char *argv[])
 {
+	if (argc <= 1) {
+		return -1;
+	}
+
 	return config_iplist_rule(argv[1], ADDRESS_RULE_BOGUS);
+}
+
+int conf_edns_client_subnet(void *data, int argc, char *argv[])
+{
+	char *slash = NULL;
+	char *value = NULL;
+	int subnet = 0;
+	struct dns_edns_client_subnet *ecs = data;
+	struct sockaddr_storage addr;
+	socklen_t addr_len = sizeof(addr);
+
+	if (argc <= 1 || data == NULL) {
+		return -1;
+	}
+
+	value = argv[1];
+
+	slash = strstr(value, "/");
+	if (slash) {
+		*slash = 0;
+		slash++;
+		subnet = atoi(slash);
+		if (subnet < 0 || subnet > 128) {
+			return -1;
+		}
+	}
+
+	if (getaddr_by_host(value, (struct sockaddr *)&addr, &addr_len) != 0) {
+		goto errout;
+	}
+
+	strncpy(ecs->ip, value, DNS_MAX_IPLEN);
+	ecs->subnet = subnet;
+	ecs->enable = 1;
+
+	return 0;
+
+errout:
+	return -1;
 }
 
 int config_log_level(void *data, int argc, char *argv[])
@@ -533,6 +583,8 @@ struct config_item config_item[] = {
 	CONF_YESNO("force-AAAA-SOA", &dns_conf_force_AAAA_SOA),
 	CONF_CUSTOM("blacklist-ip", config_blacklist_ip, NULL),
 	CONF_CUSTOM("bogus-nxdomain", conf_bogus_nxdomain, NULL),
+	CONF_CUSTOM("edns-client-subnet-ipv4", conf_edns_client_subnet, &dns_conf_ipv6_ecs),
+	CONF_CUSTOM("edns-client-subnet-ipv6", conf_edns_client_subnet, &dns_conf_ipv6_ecs),
 	CONF_CUSTOM("conf-file", config_addtional_file, NULL),
 	CONF_END(),
 };

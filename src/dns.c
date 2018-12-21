@@ -656,7 +656,7 @@ int dns_get_OPT_payload_size(struct dns_packet *packet)
 	return packet->payloadsize;
 }
 
-int dns_add_OPT_ECS(struct dns_packet *packet, dns_rr_type type, struct dns_opt_ecs *ecs)
+int dns_add_OPT_ECS(struct dns_packet *packet, struct dns_opt_ecs *ecs)
 {
 	unsigned char opt_data[DNS_MAX_OPT_LEN];
 	struct dns_opt *opt = (struct dns_opt *)opt_data;
@@ -1425,7 +1425,7 @@ static int _dns_decode_opt(struct dns_context *context, dns_rr_type type, unsign
 				return -1;
 			}
 
-			ret = dns_add_OPT_ECS(packet, type, &ecs);
+			ret = dns_add_OPT_ECS(packet, &ecs);
 		} break;
 		default:
 			context->ptr += opt_len;

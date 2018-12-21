@@ -10,9 +10,12 @@
 #define DNS_RR_AAAA_LEN 16
 #define DNS_MAX_CNAME_LEN 256
 #define DNS_MAX_OPT_LEN 256
-#define DNS_IN_PACKSIZE (512 * 4)
+#define DNS_IN_PACKSIZE (512 * 2)
 #define DNS_PACKSIZE (512 * 8)
 #define DNS_DEFAULT_PACKET_SIZE 512
+
+#define DNS_ADDR_FAMILY_IP 1
+#define DNS_ADDR_FAMILY_IPV6 2
 
 typedef enum dns_qr {
 	DNS_QR_QUERY = 0,
@@ -188,7 +191,7 @@ int dns_get_SOA(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, struct
 int dns_set_OPT_payload_size(struct dns_packet *packet, int payload_size);
 int dns_get_OPT_payload_size(struct dns_packet *packet);
 
-int dns_add_OPT_ECS(struct dns_packet *packet, dns_rr_type type, struct dns_opt_ecs *ecs);
+int dns_add_OPT_ECS(struct dns_packet *packet, struct dns_opt_ecs *ecs);
 int dns_get_OPT_ECS(struct dns_rrs *rrs, unsigned short *opt_code, unsigned short *opt_len, struct dns_opt_ecs *ecs);
 /*
  * Packet operation
