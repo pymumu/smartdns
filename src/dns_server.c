@@ -49,7 +49,7 @@
 #include <unistd.h>
 
 #define DNS_MAX_EVENTS 256
-#define DNS_SERVER_TMOUT_TTL (3 * 60)
+#define DNS_SERVER_TMOUT_TTL (5 * 60)
 #define DNS_CONN_BUFF_SIZE 4096
 #define DNS_REQUEST_MAX_TIMEOUT 1000
 #define DNS_PING_TIMEOUT (DNS_REQUEST_MAX_TIMEOUT - 50)
@@ -92,6 +92,7 @@ struct dns_server {
 /* ip address lists of domain */
 struct dns_ip_address {
 	struct hlist_node node;
+	int hitnum;
 	dns_type_t addr_type;
 	union {
 		unsigned char ipv4_addr[DNS_RR_A_LEN];
@@ -562,6 +563,52 @@ void _dns_server_request_remove(struct dns_request *request)
 	_dns_server_request_release(request);
 }
 
+void _dns_server_select_maxhit_ipaddress(struct dns_request *request)
+{
+	int maxhit = 0;
+	int bucket = 0;
+	struct dns_ip_address *addr_map;
+	struct dns_ip_address *maxhit_addr_map = NULL;
+	struct hlist_node *tmp;
+
+	if (atomic_read(&request->notified) > 0) {
+		return;
+	}
+
+	hash_for_each_safe(request->ip_map, bucket, tmp, addr_map, node)
+	{
+		if (addr_map->addr_type != request->qtype) {
+			continue;
+		}
+
+		if (addr_map->hitnum <= maxhit) {
+			continue;
+		}
+
+		maxhit = addr_map->hitnum;
+		maxhit_addr_map = addr_map;
+	}
+
+	if (maxhit_addr_map == NULL || maxhit == 1) {
+		return;
+	}
+
+	tlog(TLOG_DEBUG, "select best ip address, %s", request->domain);
+	switch (request->qtype) {
+		case DNS_T_A: {
+			memcpy(request->ipv4_addr, maxhit_addr_map->ipv4_addr, DNS_RR_A_LEN);
+			request->ttl_v4 = DNS_SERVER_TMOUT_TTL;
+		} break;
+		case DNS_T_AAAA: {
+			memcpy(request->ipv6_addr, maxhit_addr_map->ipv6_addr, DNS_RR_AAAA_LEN);
+			request->ttl_v6 = DNS_SERVER_TMOUT_TTL;
+		}
+		break;
+		default:
+		break;
+	}
+}
+
 void _dns_server_request_release(struct dns_request *request)
 {
 	struct dns_ip_address *addr_map;
@@ -581,6 +628,9 @@ void _dns_server_request_release(struct dns_request *request)
 	pthread_mutex_lock(&server.request_list_lock);
 	list_del_init(&request->list);
 	pthread_mutex_unlock(&server.request_list_lock);
+
+	/* Select max hit ip address, and return to client */
+	_dns_server_select_maxhit_ipaddress(request);
 
 	_dns_server_request_complete(request);
 	hash_for_each_safe(request->ip_map, bucket, tmp, addr_map, node)
@@ -701,11 +751,13 @@ int _dns_ip_address_check_add(struct dns_request *request, unsigned char *addr, 
 	{
 		if (addr_type == DNS_T_A) {
 			if (memcmp(addr_map->ipv4_addr, addr, addr_len) == 0) {
+				addr_map->hitnum++;
 				pthread_mutex_unlock(&request->ip_map_lock);
 				return -1;
 			}
 		} else if (addr_type == DNS_T_AAAA) {
 			if (memcmp(addr_map->ipv6_addr, addr, addr_len) == 0) {
+				addr_map->hitnum++;
 				pthread_mutex_unlock(&request->ip_map_lock);
 				return -1;
 			}
@@ -721,6 +773,7 @@ int _dns_ip_address_check_add(struct dns_request *request, unsigned char *addr, 
 	}
 
 	addr_map->addr_type = addr_type;
+	addr_map->hitnum = 1;
 	memcpy(addr_map->addr, addr, addr_len);
 	hash_add(request->ip_map, &addr_map->node, key);
 	pthread_mutex_unlock(&request->ip_map_lock);
