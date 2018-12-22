@@ -51,6 +51,10 @@
 #define DNS_MAX_EVENTS 256
 #define DNS_SERVER_TMOUT_TTL (3 * 60)
 #define DNS_CONN_BUFF_SIZE 4096
+#define DNS_REQUEST_MAX_TIMEOUT 1000
+#define DNS_PING_TIMEOUT (DNS_REQUEST_MAX_TIMEOUT - 50)
+#define DNS_TCPPING_START (300)
+#define DNS_PING_TCP_TIMEOUT (DNS_REQUEST_MAX_TIMEOUT - DNS_TCPPING_START - 50)
 
 struct dns_conn_buf {
 	char buf[DNS_CONN_BUFF_SIZE];
@@ -662,15 +666,15 @@ void _dns_server_ping_result(struct ping_host_struct *ping_host, const char *hos
 		may_complete = 1;
 	}
 
-	if (may_complete) {
+	if (may_complete && request->has_ping_result == 1) {
 		_dns_server_request_complete(request);
 		_dns_server_request_remove(request);
 	}
 }
 
-int _dns_server_ping(struct dns_request *request, char *ip)
+int _dns_server_ping(struct dns_request *request, char *ip, int timeout)
 {
-	if (fast_ping_start(ip, 1, 0, 1000, _dns_server_ping_result, request) == NULL) {
+	if (fast_ping_start(ip, 1, 0, timeout, _dns_server_ping_result, request) == NULL) {
 		return -1;
 	}
 
@@ -849,7 +853,7 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 				request->rcode = packet->head.rcode;
 				sprintf(ip, "%d.%d.%d.%d", addr[0], addr[1], addr[2], addr[3]);
 
-				if (_dns_server_ping(request, ip) != 0) {
+				if (_dns_server_ping(request, ip, DNS_PING_TIMEOUT) != 0) {
 					_dns_server_request_release(request);
 				}
 			} break;
@@ -895,7 +899,7 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 				sprintf(ip, "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", addr[0], addr[1], addr[2], addr[3], addr[4], addr[5],
 						addr[6], addr[7], addr[8], addr[9], addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
 
-				if (_dns_server_ping(request, ip) != 0) {
+				if (_dns_server_ping(request, ip, DNS_PING_TIMEOUT) != 0) {
 					_dns_server_request_release(request);
 				}
 			} break;
@@ -1642,7 +1646,7 @@ void _dns_server_tcp_ping_check(struct dns_request *request)
 		case DNS_T_A: {
 			_dns_server_request_get(request);
 			sprintf(ip, "%d.%d.%d.%d:80", addr_map->ipv4_addr[0], addr_map->ipv4_addr[1], addr_map->ipv4_addr[2], addr_map->ipv4_addr[3]);
-			if (_dns_server_ping(request, ip) != 0) {
+			if (_dns_server_ping(request, ip, DNS_PING_TCP_TIMEOUT) != 0) {
 				_dns_server_request_release(request);
 			}
 		} break;
@@ -1653,7 +1657,7 @@ void _dns_server_tcp_ping_check(struct dns_request *request)
 					addr_map->ipv6_addr[7], addr_map->ipv6_addr[8], addr_map->ipv6_addr[9], addr_map->ipv6_addr[10], addr_map->ipv6_addr[11],
 					addr_map->ipv6_addr[12], addr_map->ipv6_addr[13], addr_map->ipv6_addr[14], addr_map->ipv6_addr[15]);
 
-			if (_dns_server_ping(request, ip) != 0) {
+			if (_dns_server_ping(request, ip, DNS_PING_TCP_TIMEOUT) != 0) {
 				_dns_server_request_release(request);
 			}
 		} break;
@@ -1726,7 +1730,7 @@ void _dns_server_period_run(void)
 	pthread_mutex_lock(&server.request_list_lock);
 	list_for_each_entry_safe(request, tmp, &server.request_list, list)
 	{
-		if (request->send_tick < now - 500 && request->has_ping_tcp == 0) {
+		if (request->send_tick < now - DNS_TCPPING_START && request->has_ping_tcp == 0) {
 			_dns_server_request_get(request);
 			list_add_tail(&request->check_list, &check_list);
 		}

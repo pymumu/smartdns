@@ -88,8 +88,8 @@ int config_server(int argc, char *argv[], dns_server_type_t type, int default_po
 	}
 
 	if (index >= DNS_MAX_SERVERS) {
-		tlog(TLOG_ERROR, "exceeds max server number");
-		return -1;
+		tlog(TLOG_WARN, "exceeds max server number, %s", ip);
+		return 0;
 	}
 
 	server = &dns_conf_servers[index];

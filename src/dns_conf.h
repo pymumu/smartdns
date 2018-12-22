@@ -10,7 +10,7 @@
 #include "list.h"
 #include "radix.h"
 
-#define DNS_MAX_SERVERS 32
+#define DNS_MAX_SERVERS 64
 #define DNS_MAX_IPSET_NAMELEN 32
 #define DNS_MAX_IPLEN 64
 #define DNS_MAX_PATH 1024

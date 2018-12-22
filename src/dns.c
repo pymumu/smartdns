@@ -1346,7 +1346,7 @@ int _dns_encode_opts(struct dns_packet *packet, struct dns_context *context, str
 		payloadsize = DNS_DEFAULT_PACKET_SIZE;
 	}
 
-	ret = _dns_encode_rr_head(context, "0", DNS_T_OPT, payloadsize, rcode, rr_len);
+	ret = _dns_encode_rr_head(context, "", DNS_T_OPT, payloadsize, rcode, rr_len);
 	if (ret < 0) {
 		return -1;
 	}
