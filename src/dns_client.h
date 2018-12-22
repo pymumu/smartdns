@@ -18,6 +18,7 @@ typedef enum dns_result_type {
 
 #define DNSSERVER_FLAG_BLACKLIST_IP (0x1 << 0)
 #define DNSSERVER_FLAG_CHECK_EDNS (0x1 << 1)
+#define DNSSERVER_FLAG_CHECK_TTL (0x1 << 2)
 
 int dns_client_init(void);
 
@@ -32,7 +33,7 @@ int dns_client_query(char *domain, int qtype, dns_client_callback callback, void
 void dns_client_exit(void);
 
 /* add remote dns server */
-int dns_add_server(char *server_ip, int port, dns_server_type_t server_type, int result_flag);
+int dns_add_server(char *server_ip, int port, dns_server_type_t server_type, int result_flag, int ttl);
 
 /* remove remote dns server */
 int dns_remove_server(char *server_ip, int port, dns_server_type_t server_type);

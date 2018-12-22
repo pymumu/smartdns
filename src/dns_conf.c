@@ -55,10 +55,12 @@ int config_server(int argc, char *argv[], dns_server_type_t type, int default_po
 	char *ip = NULL;
 	int opt = 0;
 	int result_flag = 0;
+	int ttl = 0;
 	/* clang-format off */
 	static struct option long_options[] = {
 		{"blacklist-ip", 0, 0, 'b'},
 		{"check-edns", 0, 0, 'e'},
+		{"check-ttl", required_argument, 0, 't'},
 		{0, 0, 0, 0}
 	};
 	/* clang-format on */
@@ -84,6 +86,18 @@ int config_server(int argc, char *argv[], dns_server_type_t type, int default_po
 			result_flag |= DNSSERVER_FLAG_CHECK_EDNS;
 			break;
 		}
+		case 't': {
+			if (DNS_SERVER_UDP != type) {
+				break;
+			}
+
+			ttl = atoi(optarg);
+			if (ttl < 0 || ttl > 255) {
+				tlog(TLOG_ERROR, "ttl value is invalid.");
+				return -1;
+			}
+			result_flag |= DNSSERVER_FLAG_CHECK_TTL;
+		}
 		}
 	}
 
@@ -106,8 +120,9 @@ int config_server(int argc, char *argv[], dns_server_type_t type, int default_po
 	server->type = type;
 	server->port = port;
 	server->result_flag = result_flag;
+	server->ttl = ttl;
 	dns_conf_server_num++;
-	tlog(TLOG_DEBUG, "add server %s, flag: %X", ip, result_flag);
+	tlog(TLOG_DEBUG, "add server %s, flag: %X, ttl: %d", ip, result_flag, ttl);
 
 	return 0;
 }

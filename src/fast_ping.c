@@ -56,6 +56,7 @@ struct fast_ping_packet {
 		struct icmp icmp;
 		struct icmp6_hdr icmp6;
 	};
+	unsigned int ttl;
 	struct fast_ping_packet_msg msg;
 };
 
@@ -72,6 +73,7 @@ struct ping_host_struct {
 
 	int fd;
 	unsigned int seq;
+	int ttl;
 	struct timeval last;
 	int interval;
 	int timeout;
@@ -267,7 +269,7 @@ static void _fast_ping_host_put(struct ping_host_struct *ping_host)
 		tv.tv_sec = 0;
 		tv.tv_usec = 0;
 
-		ping_host->ping_callback(ping_host, ping_host->host, PING_RESULT_END, &ping_host->addr, ping_host->addr_len, ping_host->seq, &tv, ping_host->userptr);
+		ping_host->ping_callback(ping_host, ping_host->host, PING_RESULT_END, &ping_host->addr, ping_host->addr_len, ping_host->seq, ping_host->ttl, &tv, ping_host->userptr);
 	}
 
 	tlog(TLOG_DEBUG, "ping %p end", ping_host);
@@ -294,7 +296,7 @@ static void _fast_ping_host_remove(struct ping_host_struct *ping_host)
 		tv.tv_sec = 0;
 		tv.tv_usec = 0;
 
-		ping_host->ping_callback(ping_host, ping_host->host, PING_RESULT_END, &ping_host->addr, ping_host->addr_len, ping_host->seq, &tv, ping_host->userptr);
+		ping_host->ping_callback(ping_host, ping_host->host, PING_RESULT_END, &ping_host->addr, ping_host->addr_len, ping_host->seq, ping_host->ttl, &tv, ping_host->userptr);
 	}
 
 	_fast_ping_host_put(ping_host);
@@ -469,6 +471,8 @@ static int _fast_ping_create_icmp_sock(FAST_PING_TYPE type)
 	struct epoll_event event;
 	int buffsize = 64 * 1024;
 	socklen_t optlen = sizeof(buffsize);
+	const int val=255;
+	const int on = 1;
 
 	switch (type) {
 	case FAST_PING_ICMP:
@@ -487,6 +491,9 @@ static int _fast_ping_create_icmp_sock(FAST_PING_TYPE type)
 			goto errout;
 		}
 		_fast_ping_install_filter_v6(fd);
+		setsockopt(fd, IPPROTO_IPV6, IPV6_RECVHOPLIMIT, &on, sizeof(on));
+		setsockopt(fd, IPPROTO_IPV6, IPV6_2292HOPLIMIT, &on, sizeof(on));
+		setsockopt(fd, IPPROTO_IPV6, IPV6_HOPLIMIT, &on, sizeof(on));
 		icmp_host = &ping.icmp6_host;
 		break;
 	default:
@@ -495,6 +502,7 @@ static int _fast_ping_create_icmp_sock(FAST_PING_TYPE type)
 
 	setsockopt(fd, SOL_SOCKET, SO_SNDBUF, (const char *)&buffsize, optlen);
 	setsockopt(fd, SOL_SOCKET, SO_RCVBUF, (const char *)&buffsize, optlen);
+	setsockopt(fd, SOL_IP, IP_TTL, &val, sizeof(val));
 
 	memset(&event, 0, sizeof(event));
 	event.events = EPOLLIN;
@@ -552,11 +560,11 @@ errout:
 }
 
 void fast_ping_print_result(struct ping_host_struct *ping_host, const char *host, FAST_PING_RESULT result, struct sockaddr *addr, socklen_t addr_len, int seqno,
-							struct timeval *tv, void *userptr)
+							int ttl, struct timeval *tv, void *userptr)
 {
 	if (result == PING_RESULT_RESPONSE) {
 		double rtt = tv->tv_sec * 1000.0 + tv->tv_usec / 1000.0;
-		tlog(TLOG_INFO, "from %15s: seq=%d time=%.3f\n", host, seqno, rtt);
+		tlog(TLOG_INFO, "from %15s: seq=%d ttl=%d time=%.3f\n", host, seqno, ttl, rtt);
 	} else if (result == PING_RESULT_TIMEOUT) {
 		tlog(TLOG_INFO, "from %15s: seq=%d timeout\n", host, seqno);
 	} else if (result == PING_RESULT_END) {
@@ -694,6 +702,10 @@ errout_remove:
 
 int fast_ping_stop(struct ping_host_struct *ping_host)
 {
+	if (ping_host == NULL) {
+		return 0;
+	}
+	
 	atomic_inc_return(&ping_host->notified);
 	_fast_ping_host_remove(ping_host);
 	_fast_ping_host_put(ping_host);
@@ -709,12 +721,29 @@ static void tv_sub(struct timeval *out, struct timeval *in)
 	out->tv_sec -= in->tv_sec;
 }
 
-static struct fast_ping_packet *_fast_ping_icmp6_packet(struct ping_host_struct *ping_host, u_char *packet_data, int data_len)
+static struct fast_ping_packet *_fast_ping_icmp6_packet(struct ping_host_struct *ping_host, struct msghdr *msg, u_char *packet_data, int data_len)
 {
 	int icmp_len;
 	struct fast_ping_packet *packet = (struct fast_ping_packet *)packet_data;
 	struct icmp6_hdr *icmp6 = &packet->icmp6;
+	struct cmsghdr *c;
+	int hops = 0;
 
+	for (c = CMSG_FIRSTHDR(msg); c; c = CMSG_NXTHDR(msg, c)) {
+		if (c->cmsg_level != IPPROTO_IPV6)
+			continue;
+		switch(c->cmsg_type) {
+		case IPV6_HOPLIMIT:
+#ifdef IPV6_2292HOPLIMIT
+		case IPV6_2292HOPLIMIT:
+#endif
+			if (c->cmsg_len < CMSG_LEN(sizeof(int)))
+				continue;
+			memcpy(&hops, CMSG_DATA(c), sizeof(hops));
+		}
+	}
+
+	packet->ttl = hops;
 	if (icmp6->icmp6_type != ICMP6_ECHO_REPLY) {
 		tlog(TLOG_DEBUG, "icmp6 type faild, %d:%d", icmp6->icmp6_type, ICMP6_ECHO_REPLY);
 		return NULL;
@@ -734,7 +763,7 @@ static struct fast_ping_packet *_fast_ping_icmp6_packet(struct ping_host_struct 
 	return packet;
 }
 
-static struct fast_ping_packet *_fast_ping_icmp_packet(struct ping_host_struct *ping_host, u_char *packet_data, int data_len)
+static struct fast_ping_packet *_fast_ping_icmp_packet(struct ping_host_struct *ping_host, struct msghdr *msg, u_char *packet_data, int data_len)
 {
 	struct ip *ip = (struct ip *)packet_data;
 	struct fast_ping_packet *packet;
@@ -751,6 +780,7 @@ static struct fast_ping_packet *_fast_ping_icmp_packet(struct ping_host_struct *
 	packet = (struct fast_ping_packet *)(packet_data + hlen);
 	icmp = &packet->icmp;
 	icmp_len = data_len - hlen;
+	packet->ttl = ip->ip_ttl;
 
 	if (icmp_len < 16) {
 		tlog(TLOG_ERROR, "length is invalid, %d", icmp_len);
@@ -770,17 +800,17 @@ static struct fast_ping_packet *_fast_ping_icmp_packet(struct ping_host_struct *
 	return packet;
 }
 
-struct fast_ping_packet *_fast_ping_recv_packet(struct ping_host_struct *ping_host, u_char *inpacket, int len, struct timeval *tvrecv)
+struct fast_ping_packet *_fast_ping_recv_packet(struct ping_host_struct *ping_host, struct msghdr *msg, u_char *inpacket, int len, struct timeval *tvrecv)
 {
 	struct fast_ping_packet *packet = NULL;
 
 	if (ping_host->type == FAST_PING_ICMP6) {
-		packet = _fast_ping_icmp6_packet(ping_host, inpacket, len);
+		packet = _fast_ping_icmp6_packet(ping_host, msg, inpacket, len);
 		if (packet == NULL) {
 			goto errout;
 		}
 	} else if (ping_host->type == FAST_PING_ICMP) {
-		packet = _fast_ping_icmp_packet(ping_host, inpacket, len);
+		packet = _fast_ping_icmp_packet(ping_host, msg, inpacket, len);
 		if (packet == NULL) {
 			goto errout;
 		}
@@ -808,14 +838,28 @@ static int _fast_ping_process_icmp(struct ping_host_struct *ping_host, struct ti
 	unsigned int sid;
 	unsigned int seq;
 	unsigned int cookie;
+	struct msghdr msg;
+	struct iovec iov;
+	char ans_data[4096];
 
-	len = recvfrom(ping_host->fd, inpacket, sizeof(inpacket), 0, (struct sockaddr *)&from, (socklen_t *)&from_len);
+	memset(&msg, 0, sizeof(msg));
+	iov.iov_base = (char *)inpacket;
+	iov.iov_len = sizeof(inpacket);
+	msg.msg_name = &from;
+	msg.msg_namelen = sizeof(from);
+	msg.msg_iov = &iov;
+	msg.msg_iovlen = 1;
+	msg.msg_control = ans_data;
+	msg.msg_controllen = sizeof(ans_data);
+
+	len = recvmsg(ping_host->fd, &msg, MSG_DONTWAIT);
 	if (len < 0) {
 		tlog(TLOG_ERROR, "recvfrom failed, %s\n", strerror(errno));
 		goto errout;
 	}
 
-	packet = _fast_ping_recv_packet(ping_host, inpacket, len, now);
+	from_len = msg.msg_namelen;
+	packet = _fast_ping_recv_packet(ping_host, &msg, inpacket, len, now);
 	if (packet == NULL) {
 		char name[PING_MAX_HOSTLEN];
 		tlog(TLOG_DEBUG, "recv ping packet from %s failed.", gethost_by_addr(name, (struct sockaddr *)&from, from_len));
@@ -848,10 +892,11 @@ static int _fast_ping_process_icmp(struct ping_host_struct *ping_host, struct ti
 		return -1;
 	}
 
+	recv_ping_host->ttl = packet->ttl;
 	tv_sub(&tvresult, tvsend);
 	if (recv_ping_host->ping_callback) {
 		recv_ping_host->ping_callback(recv_ping_host, recv_ping_host->host, PING_RESULT_RESPONSE, &recv_ping_host->addr, recv_ping_host->addr_len,
-									  recv_ping_host->seq, &tvresult, recv_ping_host->userptr);
+									  recv_ping_host->seq, recv_ping_host->ttl, &tvresult, recv_ping_host->userptr);
 	}
 
 	recv_ping_host->send = 0;
@@ -882,8 +927,8 @@ static int _fast_ping_process_tcp(struct ping_host_struct *ping_host, struct epo
 	}
 	tv_sub(&tvresult, tvsend);
 	if (ping_host->ping_callback) {
-		ping_host->ping_callback(ping_host, ping_host->host, PING_RESULT_RESPONSE, &ping_host->addr, ping_host->addr_len, ping_host->seq, &tvresult,
-								 ping_host->userptr);
+		ping_host->ping_callback(ping_host, ping_host->host, PING_RESULT_RESPONSE, &ping_host->addr, ping_host->addr_len, ping_host->seq, 
+			ping_host->ttl, &tvresult, ping_host->userptr);
 	}
 
 	ping_host->send = 0;
@@ -984,8 +1029,8 @@ static void _fast_ping_period_run(void)
 		tv_sub(&interval, &ping_host->last);
 		millisecond = interval.tv_sec * 1000 + interval.tv_usec / 1000;
 		if (millisecond >= ping_host->timeout && ping_host->send == 1) {
-			ping_host->ping_callback(ping_host, ping_host->host, PING_RESULT_TIMEOUT, &ping_host->addr, ping_host->addr_len, ping_host->seq, &interval,
-									 ping_host->userptr);
+			ping_host->ping_callback(ping_host, ping_host->host, PING_RESULT_TIMEOUT, &ping_host->addr, ping_host->addr_len, ping_host->seq, 
+					ping_host->ttl, &interval, ping_host->userptr);
 			ping_host->send = 0;
 		}
 

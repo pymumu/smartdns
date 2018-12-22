@@ -53,6 +53,7 @@ struct dns_servers {
 	char server[DNS_MAX_IPLEN];
 	unsigned short port;
 	unsigned int result_flag;
+	int ttl;
 	dns_server_type_t type;
 };
 

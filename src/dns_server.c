@@ -650,7 +650,7 @@ void _dns_server_request_get(struct dns_request *request)
 }
 
 void _dns_server_ping_result(struct ping_host_struct *ping_host, const char *host, FAST_PING_RESULT result, struct sockaddr *addr, socklen_t addr_len,
-							 int seqno, struct timeval *tv, void *userptr)
+							 int seqno, int ttl, struct timeval *tv, void *userptr)
 {
 	struct dns_request *request = userptr;
 	int may_complete = 0;

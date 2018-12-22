@@ -109,6 +109,7 @@ struct dns_server_info {
 
 	/* client socket */
 	int fd;
+	int ttl;
 	SSL *ssl;
 	SSL_CTX *ssl_ctx;
 	dns_server_status status;
@@ -225,8 +226,21 @@ int _dns_client_server_exist(struct addrinfo *gai, dns_server_type_t server_type
 	return -1;
 }
 
+void _dns_client_server_update_ttl(struct ping_host_struct *ping_host, const char *host, FAST_PING_RESULT result, struct sockaddr *addr, socklen_t addr_len, int seqno,
+							int ttl, struct timeval *tv, void *userptr)
+{
+	struct dns_server_info *server_info = userptr;
+	if (result != PING_RESULT_RESPONSE || server_info == NULL) {
+		return;
+	}
+
+	double rtt = tv->tv_sec * 1000.0 + tv->tv_usec / 1000.0;
+	tlog(TLOG_INFO, "from %15s: seq=%d ttl=%d time=%.3f\n", host, seqno, ttl, rtt);
+	server_info->ttl = ttl;
+}
+
 /* add dns server information */
-int _dns_client_server_add(char *server_ip, struct addrinfo *gai, dns_server_type_t server_type, int result_flag)
+int _dns_client_server_add(char *server_ip, struct addrinfo *gai, dns_server_type_t server_type, unsigned int result_flag, int ttl)
 {
 	struct dns_server_info *server_info = NULL;
 
@@ -238,6 +252,11 @@ int _dns_client_server_add(char *server_ip, struct addrinfo *gai, dns_server_typ
 	if (server_info == NULL) {
 		goto errout;
 	}
+
+	if (server_type != DNS_SERVER_UDP) {
+		result_flag &= (~DNSSERVER_FLAG_CHECK_TTL);
+	}
+
 	memset(server_info, 0, sizeof(*server_info));
 	server_info->ai_family = gai->ai_family;
 	server_info->ai_addrlen = gai->ai_addrlen;
@@ -245,6 +264,7 @@ int _dns_client_server_add(char *server_ip, struct addrinfo *gai, dns_server_typ
 	server_info->fd = 0;
 	server_info->status = DNS_SERVER_STATUS_INIT;
 	server_info->result_flag = result_flag;
+	server_info->ttl = ttl;
 
 	if (gai->ai_addrlen > sizeof(server_info->in6)) {
 		tlog(TLOG_ERROR, "addr len invalid, %d, %zd, %d", gai->ai_addrlen, sizeof(server_info->addr), server_info->ai_family);
@@ -253,13 +273,13 @@ int _dns_client_server_add(char *server_ip, struct addrinfo *gai, dns_server_typ
 	memcpy(&server_info->addr, gai->ai_addr, gai->ai_addrlen);
 
 	/* start ping task */
-#if 0
-	server_info->ping_host = fast_ping_start(server_ip, 0, 60000, 1000, NULL, server_info);
-	if (server_info->ping_host == NULL) {
-		tlog(TLOG_ERROR, "start ping failed.");
-		goto errout;
+	if (ttl == 0 && (result_flag & DNSSERVER_FLAG_CHECK_TTL)) {
+		server_info->ping_host = fast_ping_start(server_ip, 0, 60000, 1000, _dns_client_server_update_ttl, server_info);
+		if (server_info->ping_host == NULL) {
+			tlog(TLOG_ERROR, "start ping failed.");
+			goto errout;
+		}
 	}
-#endif
 
 	/* add to list */
 	pthread_mutex_lock(&client.server_list_lock);
@@ -352,7 +372,7 @@ int _dns_client_server_remove(char *server_ip, struct addrinfo *gai, dns_server_
 	return -1;
 }
 
-int _dns_client_server_operate(char *server_ip, int port, dns_server_type_t server_type, int result_flag, int operate)
+int _dns_client_server_operate(char *server_ip, int port, dns_server_type_t server_type, int result_flag, int ttl, int operate)
 {
 	char port_s[8];
 	int sock_type;
@@ -386,7 +406,7 @@ int _dns_client_server_operate(char *server_ip, int port, dns_server_type_t serv
 	}
 
 	if (operate == 0) {
-		ret = _dns_client_server_add(server_ip, gai, server_type, result_flag);
+		ret = _dns_client_server_add(server_ip, gai, server_type, result_flag, ttl);
 		if (ret != 0) {
 			goto errout;
 		}
@@ -405,14 +425,14 @@ errout:
 	return -1;
 }
 
-int dns_add_server(char *server_ip, int port, dns_server_type_t server_type, int result_flag)
+int dns_add_server(char *server_ip, int port, dns_server_type_t server_type, int result_flag, int ttl)
 {
-	return _dns_client_server_operate(server_ip, port, server_type, result_flag, 0);
+	return _dns_client_server_operate(server_ip, port, server_type, result_flag, ttl, 0);
 }
 
 int dns_remove_server(char *server_ip, int port, dns_server_type_t server_type)
 {
-	return _dns_client_server_operate(server_ip, port, server_type, 0, 1);
+	return _dns_client_server_operate(server_ip, port, server_type, 0, 0, 1);
 }
 
 int dns_server_num(void)
@@ -684,6 +704,8 @@ static int _dns_client_create_socket_udp(struct dns_server_info *server_info)
 {
 	int fd = 0;
 	struct epoll_event event;
+	const int on = 1;
+	const int val=255;
 
 	fd = socket(server_info->ai_family, SOCK_DGRAM, 0);
 	if (fd < 0) {
@@ -701,6 +723,8 @@ static int _dns_client_create_socket_udp(struct dns_server_info *server_info)
 
 	server_info->fd = fd;
 	server_info->status = DNS_SERVER_STATUS_CONNECTIONLESS;
+	setsockopt(server_info->fd, IPPROTO_IP, IP_RECVTTL, &on, sizeof(on));
+	setsockopt(server_info->fd, SOL_IP, IP_TTL, &val, sizeof(val));
 
 	return 0;
 errout:
@@ -857,15 +881,45 @@ static int _dns_client_process_udp(struct dns_server_info *server_info, struct e
 	struct sockaddr_storage from;
 	socklen_t from_len = sizeof(from);
 	char from_host[DNS_MAX_CNAME_LEN];
+	struct msghdr msg;
+	struct iovec iov;
+	char ans_data[4096];
+	int ttl = 0;
+	struct cmsghdr *cmsg;
 
-	/* receive from udp */
-	len = recvfrom(server_info->fd, inpacket, sizeof(inpacket), 0, (struct sockaddr *)&from, (socklen_t *)&from_len);
+	memset(&msg, 0, sizeof(msg));
+	iov.iov_base = (char *)inpacket;
+	iov.iov_len = sizeof(inpacket);
+	msg.msg_name = &from;
+	msg.msg_namelen = sizeof(from);
+	msg.msg_iov = &iov;
+	msg.msg_iovlen = 1;
+	msg.msg_control = ans_data;
+	msg.msg_controllen = sizeof(ans_data);
+
+	len = recvmsg(server_info->fd, &msg, MSG_DONTWAIT);
 	if (len < 0) {
 		tlog(TLOG_ERROR, "recvfrom failed, %s\n", strerror(errno));
 		return -1;
 	}
+	from_len = msg.msg_namelen;
 
-	tlog(TLOG_DEBUG, "recv udp, from %s", gethost_by_addr(from_host, (struct sockaddr *)&from, from_len));
+	for (cmsg = CMSG_FIRSTHDR(&msg); cmsg; cmsg = CMSG_NXTHDR(&msg, cmsg)) {
+		if (cmsg->cmsg_level == SOL_IP
+			&& cmsg->cmsg_type == IP_TTL
+		) {
+			uint8_t * ttlPtr = (uint8_t *)CMSG_DATA(cmsg);
+			ttl = *ttlPtr;
+			break;
+		}
+	}
+
+	tlog(TLOG_DEBUG, "recv udp, from %s, ttl: %d", gethost_by_addr(from_host, (struct sockaddr *)&from, from_len), ttl);
+
+	if ((ttl != server_info->ttl) && (server_info->result_flag & DNSSERVER_FLAG_CHECK_TTL)) {
+		tlog(TLOG_DEBUG, "TTL mismatch, from:%d, local %d, discard result", ttl, server_info->ttl);
+		return 0;
+	}
 
 	time(&server_info->last_recv);
 	if (_dns_client_recv(server_info, inpacket, len, (struct sockaddr *)&from, from_len) != 0) {
