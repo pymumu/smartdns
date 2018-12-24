@@ -51,7 +51,7 @@ case "$1" in
 	fi
 	;;
 	status)
-	pid="`cat $SMARTDNS_PID 2>/dev/null`"
+	pid="`cat $SMARTDNS_PID |head -n 1 2>/dev/null`"
 	if [ -z "$pid" ]; then
 		echo "smartdns not running."
 		return 0
@@ -66,7 +66,16 @@ case "$1" in
 	;;
 	stop)
 	clear_iptable
-	pid="`cat $SMARTDNS_PID 2>/dev/null`"
+	pid="`cat $SMARTDNS_PID | head -n 1 2>/dev/null`"
+	if [ -z "$pid" ]; then
+		echo "smartdns not running."
+		return 0
+	fi
+
+	if [ ! -d "/proc/$pid" ]; then
+		return 0;
+	fi
+
 	kill -9 $pid 2>/dev/null
 	;;
 	force-reload|restart)

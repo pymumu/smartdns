@@ -52,6 +52,14 @@ o.cfgvalue    = function(...)
     return Flag.cfgvalue(...) or "1"
 end
 
+---- Support DualStack ip selection
+o = s:taboption("settings", Flag, "dualstack_ip_selection", translate("Dual-stack IP Selection"), translate("Enable IP selection between IPV4 and IPV6"))
+o.rmempty     = false
+o.default     = o.disabled
+o.cfgvalue    = function(...)
+    return Flag.cfgvalue(...) or "0"
+end
+
 ---- Redirect
 o = s:taboption("settings", ListValue, "redirect", translate("Redirect"), translate("SmartDNS redirect mode"))
 o.placeholder = "none"
@@ -102,6 +110,15 @@ s = m:section(TypedSection, "server", translate("Upstream Servers"), translate("
 s.anonymous = true
 s.addremove = true
 s.template = "cbi/tblsection"
+s.extedit  = luci.dispatcher.build_url("admin/services/smartdns/upstream/%s")
+
+---- enable flag
+o = s:option(Flag, "enabled", translate("Enable"), translate("Enable"))
+o.rmempty     = false
+o.default     = o.enabled
+o.cfgvalue    = function(...)
+    return Flag.cfgvalue(...) or "1"
+end
 
 ---- name
 s:option(Value, "name", translate("Name"), translate("DNS Server name"))
@@ -123,14 +140,6 @@ o:value("tcp", translate("tcp"))
 o:value("tls", translate("tls"))
 o.default     = "udp"
 o.rempty      = false
-
----- blacklist_ip
-o = s:option(Flag, "blacklist_ip", translate("IP Blacklist Filtering"), translate("Filtering IP with blacklist"))
-o.rmempty     = false
-o.default     = o.disabled
-o.cfgvalue    = function(...)
-    return Flag.cfgvalue(...) or "0"
-end
 
 -- Doman addresss
 s = m:section(TypedSection, "smartdns", translate("Domain Address"), 

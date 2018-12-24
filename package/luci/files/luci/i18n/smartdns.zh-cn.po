@@ -55,6 +55,12 @@ msgstr "IPV6服务器"
 msgid "Enable IPV6 DNS Server"
 msgstr "启用IPV6服务器"
 
+msgid "Dual-stack IP Selection"
+msgstr "双栈IP优选"
+
+msgid "Enable IP selection between IPV4 and IPV6"
+msgstr "启用或禁用IPV4，IPV6间的IP优选策略。"
+
 msgid "Redirect"
 msgstr "重定向"
 
@@ -126,6 +132,9 @@ msgstr "IP黑名单过滤"
 
 msgid "Filtering IP with blacklist"
 msgstr "使用IP黑名单过滤"
+
+msgid "Upstream DNS Server Configuration"
+msgstr "上游DNS服务器配置"
 
 msgid "Set Specific domain ip address."
 msgstr "指定特定域名的IP地址"

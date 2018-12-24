@@ -36,8 +36,8 @@ int dns_conf_audit_num = 2;
 art_tree dns_conf_domain_rule;
 radix_tree_t *dns_conf_address_rule;
 
-int dns_conf_dualstack_preference;
-int dns_conf_dualstack_threshold = 1000; // cent usecond
+int dns_conf_dualstack_ip_selection;
+int dns_conf_dualstack_ip_selection_threshold = 100;
 
 int dns_conf_rr_ttl;
 int dns_conf_rr_ttl_min;
@@ -582,8 +582,8 @@ struct config_item config_item[] = {
 	CONF_INT("tcp-idle-time", &dns_conf_tcp_idle_time, 0, 3600),
 	CONF_INT("cache-size", &dns_conf_cachesize, 0, CONF_INT_MAX),
 	CONF_YESNO("prefetch-domain", &dns_conf_prefetch),
-	CONF_YESNO("dualstack-preference", &dns_conf_dualstack_preference),
-	CONF_INT("dualstack-preference-threshold", &dns_conf_dualstack_threshold, 100, 10000),
+	CONF_YESNO("dualstack-ip-selection", &dns_conf_dualstack_ip_selection),
+	CONF_INT("dualstack-ip-selection-threshold", &dns_conf_dualstack_ip_selection_threshold, 1, 1000),
 	CONF_CUSTOM("log-level", config_log_level, NULL),
 	CONF_STRING("log-file", (char *)dns_conf_log_file, DNS_MAX_PATH),
 	CONF_SIZE("log-size", &dns_conf_log_size, 0, 1024 * 1024 * 1024),

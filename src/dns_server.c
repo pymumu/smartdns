@@ -521,7 +521,7 @@ int _dns_server_request_complete(struct dns_request *request)
 		if (request->has_ipv4) {
 			dns_cache_insert(request->domain, cname, cname_ttl, request->ttl_v4, DNS_T_AAAA, request->ipv4_addr, DNS_RR_A_LEN);
 
-			if ((request->ping_ttl_v4 - dns_conf_dualstack_threshold < request->ping_ttl_v6 ) && (request->ping_ttl_v4 > 0)) {
+			if (((request->ping_ttl_v4 + (dns_conf_dualstack_ip_selection_threshold * 10) < request->ping_ttl_v6 ) && (request->ping_ttl_v4 > 0)) || (request->ping_ttl_v6 == -1) ) {
 				tlog(TLOG_DEBUG, "Force IPV4 perfered.");
 				return _dns_server_reply_SOA(DNS_RC_NOERROR, request, NULL);
 			}
@@ -679,8 +679,8 @@ void _dns_server_ping_result(struct ping_host_struct *ping_host, const char *hos
 			memcpy(request->ipv4_addr, &addr_in->sin_addr.s_addr, 4);
 		}
 
-		if (dns_conf_dualstack_preference == 1 && request->qtype == DNS_T_AAAA) {
-			threshold = dns_conf_dualstack_threshold;
+		if (dns_conf_dualstack_ip_selection == 1 && request->qtype == DNS_T_AAAA) {
+			threshold = dns_conf_dualstack_ip_selection_threshold * 10;
 		}
 	} break;
 	case AF_INET6: {
@@ -861,7 +861,7 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 				unsigned char addr[4];
 				if (request->qtype != DNS_T_A) {
 					/* ignore non-matched query type */
-					if (dns_conf_dualstack_preference == 0) {
+					if (dns_conf_dualstack_ip_selection == 0) {
 						break;
 					}
 				}
@@ -1033,6 +1033,7 @@ static int dns_server_resolve_callback(char *domain, dns_result_type rtype, unsi
 		/* Not need to wait check result if only has one ip address */
 		if (ip_num == 1 && request_wait == 1) {
 			_dns_server_request_complete(request);
+			_dns_server_request_remove(request);
 		}
 
 		if (request->has_ipv4 == 0 && request->has_ipv6 == 0) {
@@ -1363,7 +1364,7 @@ static int _dns_server_recv(struct dns_server_conn *client, unsigned char *inpac
 
 	request->request_wait++;
 	dns_client_query(request->domain, qtype, dns_server_resolve_callback, request);
-	if (qtype == DNS_T_AAAA && dns_conf_dualstack_preference) {
+	if (qtype == DNS_T_AAAA && dns_conf_dualstack_ip_selection) {
 		_dns_server_request_get(request);
 		request->request_wait++;
 		dns_client_query(request->domain, DNS_T_A, dns_server_resolve_callback, request);
@@ -1545,10 +1546,12 @@ int _dns_server_tcp_process_one_request(struct dns_server_conn *dnsserver)
 	int total_len = dnsserver->recvbuff.size;
 	int proceed_len = 0;
 	unsigned char *request_data = NULL;
+	int ret = 0;
 
 	for (;;) {
 		if ((total_len - proceed_len) <= sizeof(unsigned short)) {
-			return 1;
+			ret = 1;
+			break;
 		}
 
 		request_len = ntohs(*((unsigned short *)(dnsserver->recvbuff.buf + proceed_len)));
@@ -1559,7 +1562,8 @@ int _dns_server_tcp_process_one_request(struct dns_server_conn *dnsserver)
 		}
 
 		if (request_len > (total_len - proceed_len)) {
-			return 1;
+			ret = 1;
+			break;
 		}
 
 		request_data = (unsigned char *)(dnsserver->recvbuff.buf + proceed_len + sizeof(unsigned short));
@@ -1578,7 +1582,7 @@ int _dns_server_tcp_process_one_request(struct dns_server_conn *dnsserver)
 
 	dnsserver->recvbuff.size -= proceed_len;
 
-	return 0;
+	return ret;
 }
 
 int _dns_server_tcp_process_requests(struct dns_server_conn *client)

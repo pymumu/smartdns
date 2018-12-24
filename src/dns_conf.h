@@ -106,8 +106,8 @@ extern char dns_conf_server_name[DNS_MAX_CONF_CNAME_LEN];
 extern art_tree dns_conf_domain_rule;
 extern radix_tree_t *dns_conf_address_rule;
 
-extern int dns_conf_dualstack_preference;
-extern int dns_conf_dualstack_threshold;
+extern int dns_conf_dualstack_ip_selection;
+extern int dns_conf_dualstack_ip_selection_threshold;
 
 extern int dns_conf_rr_ttl;
 extern int dns_conf_rr_ttl_min;
