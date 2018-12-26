@@ -276,6 +276,10 @@ static int _dns_add_rrs(struct dns_packet *packet, struct dns_request *request)
 
 static void _dns_server_client_release(struct dns_server_conn *client)
 {
+	if (client == NULL) {
+		return;
+	}
+
 	int refcnt = atomic_dec_return(&client->refcnt);
 
 	if (refcnt) {
@@ -297,6 +301,9 @@ static void _dns_server_client_release(struct dns_server_conn *client)
 
 static void _dns_server_client_get(struct dns_server_conn *client)
 {
+	if (client == NULL) {
+		return;
+	}
 	atomic_inc(&client->refcnt);
 }
 
@@ -1263,7 +1270,7 @@ static int _dns_server_recv(struct dns_server_conn *client, unsigned char *inpac
 	int rr_count = 0;
 	int i = 0;
 	int qclass;
-	int qtype;
+	int qtype = DNS_T_ALL;
 
 	_dns_server_client_get(client);
 
