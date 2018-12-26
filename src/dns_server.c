@@ -729,9 +729,9 @@ void _dns_server_ping_result(struct ping_host_struct *ping_host, const char *hos
 	}
 }
 
-int _dns_server_ping(struct dns_request *request, char *ip, int timeout)
+int _dns_server_ping(struct dns_request *request, PING_TYPE type, char *ip, int timeout)
 {
-	if (fast_ping_start(ip, 1, 0, timeout, _dns_server_ping_result, request) == NULL) {
+	if (fast_ping_start(type, ip, 1, 0, timeout, _dns_server_ping_result, request) == NULL) {
 		return -1;
 	}
 
@@ -913,7 +913,7 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 				request->rcode = packet->head.rcode;
 				sprintf(ip, "%d.%d.%d.%d", addr[0], addr[1], addr[2], addr[3]);
 
-				if (_dns_server_ping(request, ip, DNS_PING_TIMEOUT) != 0) {
+				if (_dns_server_ping(request, PING_TYPE_ICMP, ip, DNS_PING_TIMEOUT) != 0) {
 					_dns_server_request_release(request);
 				}
 			} break;
@@ -959,7 +959,7 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 				sprintf(ip, "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", addr[0], addr[1], addr[2], addr[3], addr[4], addr[5],
 						addr[6], addr[7], addr[8], addr[9], addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
 
-				if (_dns_server_ping(request, ip, DNS_PING_TIMEOUT) != 0) {
+				if (_dns_server_ping(request, PING_TYPE_ICMP, ip, DNS_PING_TIMEOUT) != 0) {
 					_dns_server_request_release(request);
 				}
 			} break;
@@ -1710,7 +1710,7 @@ void _dns_server_tcp_ping_check(struct dns_request *request)
 		case DNS_T_A: {
 			_dns_server_request_get(request);
 			sprintf(ip, "%d.%d.%d.%d:80", addr_map->ipv4_addr[0], addr_map->ipv4_addr[1], addr_map->ipv4_addr[2], addr_map->ipv4_addr[3]);
-			if (_dns_server_ping(request, ip, DNS_PING_TCP_TIMEOUT) != 0) {
+			if (_dns_server_ping(request, PING_TYPE_TCP, ip, DNS_PING_TCP_TIMEOUT) != 0) {
 				_dns_server_request_release(request);
 			}
 		} break;
@@ -1721,7 +1721,7 @@ void _dns_server_tcp_ping_check(struct dns_request *request)
 					addr_map->ipv6_addr[7], addr_map->ipv6_addr[8], addr_map->ipv6_addr[9], addr_map->ipv6_addr[10], addr_map->ipv6_addr[11],
 					addr_map->ipv6_addr[12], addr_map->ipv6_addr[13], addr_map->ipv6_addr[14], addr_map->ipv6_addr[15]);
 
-			if (_dns_server_ping(request, ip, DNS_PING_TCP_TIMEOUT) != 0) {
+			if (_dns_server_ping(request, PING_TYPE_TCP, ip, DNS_PING_TCP_TIMEOUT) != 0) {
 				_dns_server_request_release(request);
 			}
 		} break;

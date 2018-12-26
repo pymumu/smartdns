@@ -44,6 +44,24 @@
 #define ICMP_PACKET_SIZE (1024 * 64)
 #define ICMP_INPACKET_SIZE 1024
 
+struct ping_dns_head {
+	unsigned short id;
+	unsigned short flag;
+	unsigned short qdcount;
+	unsigned short ancount;
+	unsigned short aucount;
+	unsigned short adcount;
+} __attribute__((packed));
+
+typedef enum FAST_PING_TYPE { 
+	FAST_PING_ICMP = 1, 
+	FAST_PING_ICMP6 = 2, 
+	FAST_PING_TCP, 
+	FAST_PING_UDP, 
+	FAST_PING_UDP6,
+	FAST_PING_END,
+}  FAST_PING_TYPE;
+
 struct fast_ping_packet_msg {
 	struct timeval tv;
 	unsigned int sid;
@@ -104,6 +122,10 @@ struct fast_ping_struct {
 	struct ping_host_struct icmp_host;
 	int fd_icmp6;
 	struct ping_host_struct icmp6_host;
+	int fd_udp;
+	struct ping_host_struct udp_host;
+	int fd_udp6;
+	struct ping_host_struct udp6_host;
 
 	pthread_mutex_t map_lock;
 	DECLARE_HASHTABLE(addrmap, 6);
@@ -269,7 +291,8 @@ static void _fast_ping_host_put(struct ping_host_struct *ping_host)
 		tv.tv_sec = 0;
 		tv.tv_usec = 0;
 
-		ping_host->ping_callback(ping_host, ping_host->host, PING_RESULT_END, &ping_host->addr, ping_host->addr_len, ping_host->seq, ping_host->ttl, &tv, ping_host->userptr);
+		ping_host->ping_callback(ping_host, ping_host->host, PING_RESULT_END, &ping_host->addr, ping_host->addr_len, ping_host->seq, ping_host->ttl, &tv,
+								 ping_host->userptr);
 	}
 
 	tlog(TLOG_DEBUG, "ping %p end", ping_host);
@@ -296,7 +319,8 @@ static void _fast_ping_host_remove(struct ping_host_struct *ping_host)
 		tv.tv_sec = 0;
 		tv.tv_usec = 0;
 
-		ping_host->ping_callback(ping_host, ping_host->host, PING_RESULT_END, &ping_host->addr, ping_host->addr_len, ping_host->seq, ping_host->ttl, &tv, ping_host->userptr);
+		ping_host->ping_callback(ping_host, ping_host->host, PING_RESULT_END, &ping_host->addr, ping_host->addr_len, ping_host->seq, ping_host->ttl, &tv,
+								 ping_host->userptr);
 	}
 
 	_fast_ping_host_put(ping_host);
@@ -386,6 +410,42 @@ errout:
 	return -1;
 }
 
+static int _fast_ping_sendping_udp(struct ping_host_struct *ping_host)
+{
+	struct ping_dns_head dns_head;
+	int len;
+	int flag = 0;
+
+	flag |= (0 << 15) & 0x8000;
+	flag |= (2 << 11) & 0x7800;
+	flag |= (0 << 10) & 0x0400;
+	flag |= (0 << 9) & 0x0200;
+	flag |= (0 << 8) & 0x0100;
+	flag |= (0 << 7) & 0x0080;
+	flag |= (0 << 0) & 0x000F;
+
+	ping_host->seq++;
+	memset(&dns_head, 0, sizeof(dns_head));
+	dns_head.id = htons(ping_host->sid);
+	dns_head.flag = flag;
+	len = sendto(ping.fd_udp, &dns_head, sizeof(dns_head), 0, (struct sockaddr *)&ping_host->addr, ping_host->addr_len);
+	if (len < 0 || len != sizeof(dns_head)) {
+		int err = errno;
+		if (errno == ENETUNREACH || errno == EINVAL) {
+			goto errout;
+		}
+		char ping_host_name[PING_MAX_HOSTLEN];
+		tlog(TLOG_ERROR, "sendto %s, id %d, %s", gethost_by_addr(ping_host_name, (struct sockaddr *)&ping_host->addr, ping_host->addr_len), ping_host->sid,
+			 strerror(err));
+		goto errout;
+	}
+
+	return 0;
+
+errout:
+	return -1;
+}
+
 static int _fast_ping_sendping_tcp(struct ping_host_struct *ping_host)
 {
 	struct epoll_event event;
@@ -452,6 +512,8 @@ static int _fast_ping_sendping(struct ping_host_struct *ping_host)
 		ret = _fast_ping_sendping_v6(ping_host);
 	} else if (ping_host->type == FAST_PING_TCP) {
 		ret = _fast_ping_sendping_tcp(ping_host);
+	} else if (ping_host->type == FAST_PING_UDP) {
+		ret = _fast_ping_sendping_udp(ping_host);
 	}
 
 	ping_host->send = 1;
@@ -471,7 +533,7 @@ static int _fast_ping_create_icmp_sock(FAST_PING_TYPE type)
 	struct epoll_event event;
 	int buffsize = 64 * 1024;
 	socklen_t optlen = sizeof(buffsize);
-	const int val=255;
+	const int val = 255;
 	const int on = 1;
 
 	switch (type) {
@@ -559,6 +621,95 @@ errout:
 	return -1;
 }
 
+static int _fast_ping_create_udp_sock(FAST_PING_TYPE type)
+{
+	int fd = -1;
+	struct ping_host_struct *udp_host = NULL;
+	struct epoll_event event;
+	const int val = 255;
+	const int on = 1;
+
+	switch (type) {
+	case FAST_PING_UDP:
+		fd = socket(AF_INET, SOCK_DGRAM, 0);
+		if (fd < 0) {
+			tlog(TLOG_ERROR, "create udp socket failed, %s\n", strerror(errno));
+			goto errout;
+		}
+		
+		udp_host = &ping.udp_host;
+		break;
+	case FAST_PING_UDP6:
+		fd = socket(AF_INET6, SOCK_DGRAM, 0);
+		if (fd < 0) {
+			tlog(TLOG_ERROR, "create udp socket failed, %s\n", strerror(errno));
+			goto errout;
+		}
+		
+		udp_host = &ping.udp6_host;
+		break;
+	default:
+		return -1;
+	}
+
+	setsockopt(fd, SOL_IP, IP_TTL, &val, sizeof(val));
+	setsockopt(fd, IPPROTO_IP, IP_RECVTTL, &on, sizeof(on));
+
+	memset(&event, 0, sizeof(event));
+	event.events = EPOLLIN;
+	event.data.ptr = udp_host;
+	if (epoll_ctl(ping.epoll_fd, EPOLL_CTL_ADD, fd, &event) != 0) {
+		goto errout;
+	}
+
+	udp_host->fd = fd;
+	udp_host->type = FAST_PING_UDP;
+	return fd;
+
+errout:
+	close(fd);
+	return -1;
+}
+
+static int _fast_ping_create_udp(FAST_PING_TYPE type) 
+{
+	int fd = 0;
+	int *set_fd = NULL;
+
+	pthread_mutex_lock(&ping.lock);
+	switch (type) {
+	case FAST_PING_UDP:
+		set_fd = &ping.fd_udp;
+		break;
+	case FAST_PING_UDP6:
+		set_fd = &ping.fd_udp6;
+		break;
+	default:
+		goto errout;
+		break;
+	}
+
+	if (*set_fd > 0) {
+		goto out;
+	}
+
+	fd = _fast_ping_create_udp_sock(type);
+	if (fd < 0) {
+		goto errout;
+	}
+
+	*set_fd = fd;
+out:
+	pthread_mutex_unlock(&ping.lock);
+	return *set_fd;
+errout:
+	if (fd > 0) {
+		close(fd);
+	}
+	pthread_mutex_unlock(&ping.lock);
+	return -1;
+}
+
 void fast_ping_print_result(struct ping_host_struct *ping_host, const char *host, FAST_PING_RESULT result, struct sockaddr *addr, socklen_t addr_len, int seqno,
 							int ttl, struct timeval *tv, void *userptr)
 {
@@ -572,7 +723,7 @@ void fast_ping_print_result(struct ping_host_struct *ping_host, const char *host
 	}
 }
 
-struct ping_host_struct *fast_ping_start(const char *host, int count, int interval, int timeout, fast_ping_result ping_callback, void *userptr)
+struct ping_host_struct *fast_ping_start(PING_TYPE type, const char *host, int count, int interval, int timeout, fast_ping_result ping_callback, void *userptr)
 {
 	struct ping_host_struct *ping_host = NULL;
 	struct addrinfo *gai = NULL;
@@ -583,7 +734,7 @@ struct ping_host_struct *fast_ping_start(const char *host, int count, int interv
 	char port_str[MAX_IP_LEN];
 	char *service = NULL;
 	int port = -1;
-	FAST_PING_TYPE type;
+	FAST_PING_TYPE ping_type;
 	int socktype = 0;
 	unsigned int seed;
 
@@ -591,18 +742,8 @@ struct ping_host_struct *fast_ping_start(const char *host, int count, int interv
 		goto errout;
 	}
 
-	if (port > 0) {
-		icmp_proto = 0;
-		socktype = SOCK_STREAM;
-		snprintf(port_str, MAX_IP_LEN, "%d", port);
-		service = port_str;
-		type = FAST_PING_TCP;
-
-		gai = _fast_ping_getaddr(ip_str, service, socktype, icmp_proto);
-		if (gai == NULL) {
-			goto errout;
-		}
-	} else {
+	switch (type) {
+	case PING_TYPE_ICMP: {
 		socktype = SOCK_RAW;
 		domain = _fast_ping_getdomain(ip_str);
 		if (domain < 0) {
@@ -612,18 +753,18 @@ struct ping_host_struct *fast_ping_start(const char *host, int count, int interv
 		switch (domain) {
 		case AF_INET:
 			icmp_proto = IPPROTO_ICMP;
-			type = FAST_PING_ICMP;
+			ping_type = FAST_PING_ICMP;
 			break;
 		case AF_INET6:
 			icmp_proto = IPPROTO_ICMPV6;
-			type = FAST_PING_ICMP6;
+			ping_type = FAST_PING_ICMP6;
 			break;
 		default:
 			return NULL;
 			break;
 		}
 
-		if (_fast_ping_create_icmp(type) < 0) {
+		if (_fast_ping_create_icmp(ping_type) < 0) {
 			goto errout;
 		}
 
@@ -631,6 +772,63 @@ struct ping_host_struct *fast_ping_start(const char *host, int count, int interv
 		if (gai == NULL) {
 			goto errout;
 		}
+	} break;
+	case PING_TYPE_TCP: {
+		if (port <= 0) {
+			port = 80;
+		}
+
+		icmp_proto = 0;
+		socktype = SOCK_STREAM;
+		snprintf(port_str, MAX_IP_LEN, "%d", port);
+		service = port_str;
+		ping_type = FAST_PING_TCP;
+
+		gai = _fast_ping_getaddr(ip_str, service, socktype, icmp_proto);
+		if (gai == NULL) {
+			goto errout;
+		}
+	} break;
+	case PING_TYPE_DNS: {
+		if (port <= 0) {
+			port = 53;
+		}
+
+		domain = _fast_ping_getdomain(ip_str);
+		if (domain < 0) {
+			return NULL;
+		}
+
+		switch (domain) {
+		case AF_INET:
+			ping_type = FAST_PING_UDP;
+			break;
+		case AF_INET6:
+			ping_type = FAST_PING_UDP6;
+			break;
+		default:
+			return NULL;
+			break;
+		}
+
+		icmp_proto = 0;
+		socktype = SOCK_DGRAM;
+		snprintf(port_str, MAX_IP_LEN, "%d", port);
+		service = port_str;
+		ping_type = FAST_PING_UDP;
+
+		if (_fast_ping_create_udp(ping_type) < 0) {
+			goto errout;
+		}
+
+		gai = _fast_ping_getaddr(ip_str, service, socktype, icmp_proto);
+		if (gai == NULL) {
+			goto errout;
+		}
+	} break;
+	default:
+		goto errout;
+		break;
 	}
 
 	ping_host = malloc(sizeof(*ping_host));
@@ -643,7 +841,7 @@ struct ping_host_struct *fast_ping_start(const char *host, int count, int interv
 	ping_host->fd = -1;
 	ping_host->timeout = timeout;
 	ping_host->count = count;
-	ping_host->type = type;
+	ping_host->type = ping_type;
 	ping_host->userptr = userptr;
 	atomic_set(&ping_host->ref, 0);
 	atomic_set(&ping_host->notified, 0);
@@ -705,7 +903,7 @@ int fast_ping_stop(struct ping_host_struct *ping_host)
 	if (ping_host == NULL) {
 		return 0;
 	}
-	
+
 	atomic_inc_return(&ping_host->notified);
 	_fast_ping_host_remove(ping_host);
 	_fast_ping_host_put(ping_host);
@@ -732,7 +930,7 @@ static struct fast_ping_packet *_fast_ping_icmp6_packet(struct ping_host_struct 
 	for (c = CMSG_FIRSTHDR(msg); c; c = CMSG_NXTHDR(msg, c)) {
 		if (c->cmsg_level != IPPROTO_IPV6)
 			continue;
-		switch(c->cmsg_type) {
+		switch (c->cmsg_type) {
 		case IPV6_HOPLIMIT:
 #ifdef IPV6_2292HOPLIMIT
 		case IPV6_2292HOPLIMIT:
@@ -927,8 +1125,8 @@ static int _fast_ping_process_tcp(struct ping_host_struct *ping_host, struct epo
 	}
 	tv_sub(&tvresult, tvsend);
 	if (ping_host->ping_callback) {
-		ping_host->ping_callback(ping_host, ping_host->host, PING_RESULT_RESPONSE, &ping_host->addr, ping_host->addr_len, ping_host->seq, 
-			ping_host->ttl, &tvresult, ping_host->userptr);
+		ping_host->ping_callback(ping_host, ping_host->host, PING_RESULT_RESPONSE, &ping_host->addr, ping_host->addr_len, ping_host->seq, ping_host->ttl,
+								 &tvresult, ping_host->userptr);
 	}
 
 	ping_host->send = 0;
@@ -943,6 +1141,91 @@ errout:
 	return -1;
 }
 
+static int _fast_ping_process_udp(struct ping_host_struct *ping_host, struct timeval *now)
+{
+	int len;
+	u_char inpacket[ICMP_INPACKET_SIZE];
+	struct sockaddr_storage from;
+	struct ping_host_struct *recv_ping_host;
+	struct ping_dns_head *dns_head = NULL;
+	socklen_t from_len = sizeof(from);
+	uint32_t addrkey;
+	struct timeval tvresult = *now;
+	struct timeval *tvsend = NULL;
+	unsigned int sid;
+	struct msghdr msg;
+	struct iovec iov;
+	char ans_data[4096];
+	struct cmsghdr *cmsg;
+	int ttl = 0;
+
+	memset(&msg, 0, sizeof(msg));
+	iov.iov_base = (char *)inpacket;
+	iov.iov_len = sizeof(inpacket);
+	msg.msg_name = &from;
+	msg.msg_namelen = sizeof(from);
+	msg.msg_iov = &iov;
+	msg.msg_iovlen = 1;
+	msg.msg_control = ans_data;
+	msg.msg_controllen = sizeof(ans_data);
+
+	len = recvmsg(ping_host->fd, &msg, MSG_DONTWAIT);
+	if (len < 0) {
+		tlog(TLOG_ERROR, "recvfrom failed, %s\n", strerror(errno));
+		goto errout;
+	}
+
+	for (cmsg = CMSG_FIRSTHDR(&msg); cmsg; cmsg = CMSG_NXTHDR(&msg, cmsg)) {
+		if (cmsg->cmsg_level == SOL_IP
+			&& cmsg->cmsg_type == IP_TTL
+		) {
+			uint8_t * ttlPtr = (uint8_t *)CMSG_DATA(cmsg);
+			ttl = *ttlPtr;
+			break;
+		}
+	}
+
+	from_len = msg.msg_namelen;
+	dns_head = (struct ping_dns_head *)inpacket;
+	if (len < sizeof(*dns_head)) {
+		goto errout;
+	}
+	addrkey = jhash(&from, from_len, 0);
+	sid = ntohs(dns_head->id);
+	addrkey = jhash(&sid, sizeof(sid), addrkey);
+	pthread_mutex_lock(&ping.map_lock);
+	hash_for_each_possible(ping.addrmap, recv_ping_host, addr_node, addrkey)
+	{
+		if (recv_ping_host->addr_len == from_len && memcmp(&recv_ping_host->addr, &from, from_len) == 0 && recv_ping_host->sid == sid) {
+			break;
+		}
+	}
+
+	pthread_mutex_unlock(&ping.map_lock);
+
+	if (recv_ping_host == NULL) {
+		return -1;
+	}
+
+	recv_ping_host->ttl = ttl;
+	tvsend = &recv_ping_host->last;
+	tv_sub(&tvresult, tvsend);
+	if (recv_ping_host->ping_callback) {
+		recv_ping_host->ping_callback(recv_ping_host, recv_ping_host->host, PING_RESULT_RESPONSE, &recv_ping_host->addr, recv_ping_host->addr_len,
+									  recv_ping_host->seq, recv_ping_host->ttl, &tvresult, recv_ping_host->userptr);
+	}
+
+	recv_ping_host->send = 0;
+
+	if (recv_ping_host->count == 1) {
+		_fast_ping_host_remove(recv_ping_host);
+	}
+
+	return 0;
+errout:
+	return -1;
+}
+
 static int _fast_ping_process(struct ping_host_struct *ping_host, struct epoll_event *event, struct timeval *now)
 {
 	int ret = -1;
@@ -954,6 +1237,9 @@ static int _fast_ping_process(struct ping_host_struct *ping_host, struct epoll_e
 		break;
 	case FAST_PING_TCP:
 		ret = _fast_ping_process_tcp(ping_host, event, now);
+		break;
+	case FAST_PING_UDP:
+		ret = _fast_ping_process_udp(ping_host, now);
 		break;
 	default:
 		tlog(TLOG_ERROR, "BUG: type error : %p, %d, %s, %d", ping_host, ping_host->sid, ping_host->host, ping_host->fd);
@@ -1029,8 +1315,8 @@ static void _fast_ping_period_run(void)
 		tv_sub(&interval, &ping_host->last);
 		millisecond = interval.tv_sec * 1000 + interval.tv_usec / 1000;
 		if (millisecond >= ping_host->timeout && ping_host->send == 1) {
-			ping_host->ping_callback(ping_host, ping_host->host, PING_RESULT_TIMEOUT, &ping_host->addr, ping_host->addr_len, ping_host->seq, 
-					ping_host->ttl, &interval, ping_host->userptr);
+			ping_host->ping_callback(ping_host, ping_host->host, PING_RESULT_TIMEOUT, &ping_host->addr, ping_host->addr_len, ping_host->seq, ping_host->ttl,
+									 &interval, ping_host->userptr);
 			ping_host->send = 0;
 		}
 
