@@ -33,6 +33,7 @@
 #include <netinet/ip.h>
 #include <netinet/ip6.h>
 #include <netinet/ip_icmp.h>
+#include <netinet/tcp.h>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 #include <pthread.h>
@@ -49,6 +50,10 @@
 #define DNS_MAX_EVENTS 64
 #define DNS_HOSTNAME_LEN 128
 #define DNS_TCP_BUFFER (16 * 1024)
+
+#ifndef TCP_FASTOPEN_CONNECT
+#define TCP_FASTOPEN_CONNECT 30 
+#endif
 
 struct dns_client_ecs {
 	int enable;
@@ -739,6 +744,7 @@ static int _DNS_client_create_socket_tcp(struct dns_server_info *server_info)
 {
 	int fd = 0;
 	struct epoll_event event;
+	int yes = 1;
 
 	fd = socket(server_info->ai_family, SOCK_STREAM, 0);
 	if (fd < 0) {
@@ -749,6 +755,10 @@ static int _DNS_client_create_socket_tcp(struct dns_server_info *server_info)
 	if (set_fd_nonblock(fd, 1) != 0) {
 		tlog(TLOG_ERROR, "set socket non block failed, %s", strerror(errno));
 		goto errout;
+	}
+
+	if (setsockopt(fd, IPPROTO_TCP, TCP_FASTOPEN_CONNECT, &yes, sizeof(yes)) != 0 ) {
+		tlog(TLOG_DEBUG, "enable TCP fast open failed.");
 	}
 
 	if (connect(fd, (struct sockaddr *)&server_info->addr, server_info->ai_addrlen) != 0) {
@@ -784,6 +794,7 @@ static int _DNS_client_create_socket_tls(struct dns_server_info *server_info)
 	struct epoll_event event;
 	SSL_CTX *ctx = NULL;
 	SSL *ssl = NULL;
+	int yes = 1;
 
 	ctx = SSL_CTX_new(SSLv23_client_method());
 	if (ctx == NULL) {
@@ -806,6 +817,10 @@ static int _DNS_client_create_socket_tls(struct dns_server_info *server_info)
 	if (set_fd_nonblock(fd, 1) != 0) {
 		tlog(TLOG_ERROR, "set socket non block failed, %s", strerror(errno));
 		goto errout;
+	}
+
+	if (setsockopt(fd, IPPROTO_TCP, TCP_FASTOPEN_CONNECT, &yes, sizeof(yes)) != 0 ) {
+		tlog(TLOG_DEBUG, "enable TCP fast open failed.");
 	}
 
 	if (connect(fd, (struct sockaddr *)&server_info->addr, server_info->ai_addrlen) != 0) {
