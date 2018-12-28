@@ -21,4 +21,12 @@ o.cfgvalue    = function(...)
     return Flag.cfgvalue(...) or "0"
 end
 
+---- anti-Answer-Forgery
+o = s:option(Flag, "check_edns", translate("Anti Answer Forgery"), translate("anti answer forgery, if DNS does not work properly after enabling, please turn off this feature"))
+o.rmempty     = false
+o.default     = o.disabled
+o.cfgvalue    = function(...)
+    return Flag.cfgvalue(...) or "0"
+end
+
 return m

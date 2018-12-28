@@ -89,7 +89,7 @@ From the comparison, smartdns found the fastest IP address to visit www.baidu.co
    Support standard Linux system (Raspberry Pi), openwrt system various firmware, ASUS router native firmware.
 
 7. **Support IPV4, IPV6 dual stack**  
-   Support IPV4, IPV6 network, support query A, AAAA record.
+   Support IPV4, IPV6 network, support query A, AAAA record, dual-stack IP selection.
 
 8. **High performance, low resource consumption**  
    Multi-threaded asynchronous IO mode, cache cache query results.
@@ -388,9 +388,9 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 |audit-size|audit log size|128K|number+K,M,G|audit-size 128K
 |audit-num|archived audit log number|2|Integer|audit-num 2
 |conf-file|additional conf file|None|File path|conf-file /etc/smartdns/smartdns.more.conf
-|server|Upstream UDP DNS server|None|[ip][:port] [-blacklist-ip], Repeatable, blacklist-ip parameter represents filtering the result of IPs with blacklist-ip configuration.| server 8.8.8.8:53
-|server-tcp|Upstream TCP DNS server|None|[IP][:port] [-blacklist-ip], Repeatable, blacklist-ip parameter represents filtering the result of IPs with blacklist-ip configuration.| server-tcp 8.8.8.8:53
-|server-tls|Upstream TLS DNS server|None|[IP][:port] [-blacklist-ip], Repeatable, blacklist-ip parameter represents filtering the result of IPs with blacklist-ip configuration.| server-tls 8.8.8.8:853
+|server|Upstream UDP DNS server|None|[ip][:port] [-blacklist-ip][-check-edns], Repeatable, blacklist-ip parameter represents filtering the result of IPs with blacklist-ip configuration.| server 8.8.8.8:53 -blacklist-ip -check-edns
+|server-tcp|Upstream TCP DNS server|None|[IP][:port] [-blacklist-ip][-check-edns], Repeatable, blacklist-ip parameter represents filtering the result of IPs with blacklist-ip configuration.| server-tcp 8.8.8.8:53
+|server-tls|Upstream TLS DNS server|None|[IP][:port] [-blacklist-ip][-check-edns], Repeatable, blacklist-ip parameter represents filtering the result of IPs with blacklist-ip configuration.| server-tls 8.8.8.8:853
 |address|Domain IP address|None|address /domain/ip| address /www.example.com/1.2.3.4
 |ipset|Domain IPSet|None|ipset /domain/ipset|ipset /www.example.com/pass
 |bogus-nxdomain|bogus IP address|None|[IP/subnet], Repeatable| bogus-nxdomain 1.2.3.4/16

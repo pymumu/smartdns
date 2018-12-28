@@ -121,7 +121,7 @@ o.cfgvalue    = function(...)
 end
 
 ---- name
-s:option(Value, "name", translate("Name"), translate("DNS Server name"))
+s:option(Value, "name", translate("DNS Server Name"), translate("DNS Server Name"))
 ---- IP address
 o = s:option(Value, "ip", translate("ip"), translate("DNS Server ip"))
 o.datatype = "ipaddr"
@@ -187,7 +187,7 @@ end
 
 -- Doman addresss
 s = m:section(TypedSection, "smartdns", translate("Technical Support"), 
-	translate("Technical Support"))
+	translate("If you like this software, please buy me a cup of coffee."))
 s.anonymous = true
 
 o = s:option(Button, "web")

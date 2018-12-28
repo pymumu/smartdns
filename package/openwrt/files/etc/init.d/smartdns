@@ -118,6 +118,7 @@ load_server()
 	config_get "type" "$section" "type" "udp"
 	config_get "ip" "$section" "ip" ""
 	config_get "blacklist_ip" "$section" "blacklist_ip" "0"
+	config_get "check_edns" "$section" "check_edns" "0"
 
 	if [ "$enabled" = "0" ]; then
 		return
@@ -142,6 +143,10 @@ load_server()
 
 	if [ "$blacklist_ip" != "0" ]; then
 		ADDITIONAL_ARGS="$ADDITIONAL_ARGS -blacklist-ip"
+	fi
+
+	if [ "$check_edns" != "0" ]; then
+		ADDITIONAL_ARGS="$ADDITIONAL_ARGS -check-edns"
 	fi
 
 	conf_append "$SERVER" "$ip:$port $ADDITIONAL_ARGS"

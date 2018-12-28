@@ -106,7 +106,7 @@ msgstr "上游服务器"
 msgid "Upstream Servers, support UDP, TCP protocol. Please configure multiple DNS servers, including multiple foreign DNS servers."
 msgstr "上游DNS服务器列表，支持UDP，TCP协议，请配置多个上游DNS服务器，包括多个国内外服务器"
 
-msgid "DNS Server name"
+msgid "DNS Server Name"
 msgstr "DNS服务器名称"
 
 msgid "port"
@@ -129,6 +129,12 @@ msgstr "域名地址"
 
 msgid "IP Blacklist Filtering"
 msgstr "IP黑名单过滤"
+
+msgid "Anti Answer Forgery"
+msgstr "反回答伪造"
+
+msgid "anti answer forgery, if DNS does not work properly after enabling, please turn off this feature"
+msgstr "反回答伪造，如果启用后DNS工作不正常，请关闭此功能。"
 
 msgid "Filtering IP with blacklist"
 msgstr "使用IP黑名单过滤"
@@ -153,6 +159,9 @@ msgstr "配置需要从指定域名服务器结果过滤的IP黑名单。"
 
 msgid "Technical Support"
 msgstr "技术支持"
+
+msgid "If you like this software, please buy me a cup of coffee."
+msgstr "如果本软件对你有帮助，请给作者加个蛋。"
 
 msgid "SmartDNS official website"
 msgstr "SmartDNS官方网站"
