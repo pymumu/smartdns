@@ -19,8 +19,8 @@
 #define _GNU_SOURCE
 #include "art.h"
 #include "atomic.h"
-#include "dns_conf.h"
 #include "dns_client.h"
+#include "dns_conf.h"
 #include "dns_server.h"
 #include "fast_ping.h"
 #include "hashtable.h"
@@ -124,8 +124,8 @@ int smartdns_add_servers(void)
 	int i = 0;
 	int ret = 0;
 	for (i = 0; i < dns_conf_server_num; i++) {
-		ret = dns_add_server(dns_conf_servers[i].server, dns_conf_servers[i].port, dns_conf_servers[i].type, dns_conf_servers[i].result_flag, 
-			dns_conf_servers[i].ttl);
+		ret = dns_add_server(dns_conf_servers[i].server, dns_conf_servers[i].port, dns_conf_servers[i].type, dns_conf_servers[i].result_flag,
+							 dns_conf_servers[i].ttl);
 		if (ret != 0) {
 			tlog(TLOG_ERROR, "add server failed, %s:%d", dns_conf_servers[i].server, dns_conf_servers[i].port);
 			return -1;
@@ -267,7 +267,7 @@ int smartdns_init(void)
 	}
 
 	ret = smartdns_set_ecs_ip();
-	if (ret != 0 ) {
+	if (ret != 0) {
 		tlog(TLOG_WARN, "set ecs ip address failed.");
 	}
 
@@ -299,8 +299,8 @@ void sig_exit(int signo)
 
 void sig_error_exit(int signo, siginfo_t *siginfo, void *context)
 {
-	tlog(TLOG_ERROR, "process exit with signal %d, code = %d, errno = %d, pid = %d, self = %d, addr = %p\n", signo, 
-		siginfo->si_code, siginfo->si_errno, siginfo->si_pid, getpid(), siginfo->si_addr);
+	tlog(TLOG_ERROR, "process exit with signal %d, code = %d, errno = %d, pid = %d, self = %d, addr = %p\n", signo, siginfo->si_code, siginfo->si_errno,
+		 siginfo->si_pid, getpid(), siginfo->si_addr);
 	sleep(1);
 	_exit(0);
 }
@@ -386,7 +386,7 @@ int main(int argc, char *argv[])
 	atexit(smartdns_exit);
 
 	return smartdns_run();
-	
+
 errout:
 
 	return 1;

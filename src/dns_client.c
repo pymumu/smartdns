@@ -52,7 +52,7 @@
 #define DNS_TCP_BUFFER (16 * 1024)
 
 #ifndef TCP_FASTOPEN_CONNECT
-#define TCP_FASTOPEN_CONNECT 30 
+#define TCP_FASTOPEN_CONNECT 30
 #endif
 
 struct dns_client_ecs {
@@ -231,8 +231,8 @@ int _dns_client_server_exist(struct addrinfo *gai, dns_server_type_t server_type
 	return -1;
 }
 
-void _dns_client_server_update_ttl(struct ping_host_struct *ping_host, const char *host, FAST_PING_RESULT result, struct sockaddr *addr, socklen_t addr_len, int seqno,
-							int ttl, struct timeval *tv, void *userptr)
+void _dns_client_server_update_ttl(struct ping_host_struct *ping_host, const char *host, FAST_PING_RESULT result, struct sockaddr *addr, socklen_t addr_len,
+								   int seqno, int ttl, struct timeval *tv, void *userptr)
 {
 	struct dns_server_info *server_info = userptr;
 	if (result != PING_RESULT_RESPONSE || server_info == NULL) {
@@ -661,9 +661,9 @@ static int _dns_client_recv(struct dns_server_info *server_info, unsigned char *
 		return -1;
 	}
 
-	tlog(TLOG_DEBUG, "qdcount = %d, ancount = %d, nscount = %d, nrcount = %d, len = %d, id = %d, tc = %d, rd = %d, ra = %d, rcode = %d, payloadsize = %d\n", packet->head.qdcount,
-		 packet->head.ancount, packet->head.nscount, packet->head.nrcount, inpacket_len, packet->head.id, packet->head.tc, packet->head.rd, packet->head.ra,
-		 packet->head.rcode, dns_get_OPT_payload_size(packet));
+	tlog(TLOG_DEBUG, "qdcount = %d, ancount = %d, nscount = %d, nrcount = %d, len = %d, id = %d, tc = %d, rd = %d, ra = %d, rcode = %d, payloadsize = %d\n",
+		 packet->head.qdcount, packet->head.ancount, packet->head.nscount, packet->head.nrcount, inpacket_len, packet->head.id, packet->head.tc,
+		 packet->head.rd, packet->head.ra, packet->head.rcode, dns_get_OPT_payload_size(packet));
 
 	/* get question */
 	rrs = dns_get_rrs_start(packet, DNS_RRS_QD, &rr_count);
@@ -710,7 +710,7 @@ static int _dns_client_create_socket_udp(struct dns_server_info *server_info)
 	int fd = 0;
 	struct epoll_event event;
 	const int on = 1;
-	const int val=255;
+	const int val = 255;
 
 	fd = socket(server_info->ai_family, SOCK_DGRAM, 0);
 	if (fd < 0) {
@@ -757,7 +757,7 @@ static int _DNS_client_create_socket_tcp(struct dns_server_info *server_info)
 		goto errout;
 	}
 
-	if (setsockopt(fd, IPPROTO_TCP, TCP_FASTOPEN_CONNECT, &yes, sizeof(yes)) != 0 ) {
+	if (setsockopt(fd, IPPROTO_TCP, TCP_FASTOPEN_CONNECT, &yes, sizeof(yes)) != 0) {
 		tlog(TLOG_DEBUG, "enable TCP fast open failed.");
 	}
 
@@ -819,7 +819,7 @@ static int _DNS_client_create_socket_tls(struct dns_server_info *server_info)
 		goto errout;
 	}
 
-	if (setsockopt(fd, IPPROTO_TCP, TCP_FASTOPEN_CONNECT, &yes, sizeof(yes)) != 0 ) {
+	if (setsockopt(fd, IPPROTO_TCP, TCP_FASTOPEN_CONNECT, &yes, sizeof(yes)) != 0) {
 		tlog(TLOG_DEBUG, "enable TCP fast open failed.");
 	}
 
@@ -920,10 +920,8 @@ static int _dns_client_process_udp(struct dns_server_info *server_info, struct e
 	from_len = msg.msg_namelen;
 
 	for (cmsg = CMSG_FIRSTHDR(&msg); cmsg; cmsg = CMSG_NXTHDR(&msg, cmsg)) {
-		if (cmsg->cmsg_level == SOL_IP
-			&& cmsg->cmsg_type == IP_TTL
-		) {
-			uint8_t * ttlPtr = (uint8_t *)CMSG_DATA(cmsg);
+		if (cmsg->cmsg_level == SOL_IP && cmsg->cmsg_type == IP_TTL) {
+			uint8_t *ttlPtr = (uint8_t *)CMSG_DATA(cmsg);
 			ttl = *ttlPtr;
 			break;
 		}

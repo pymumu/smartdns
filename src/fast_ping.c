@@ -53,14 +53,14 @@ struct ping_dns_head {
 	unsigned short adcount;
 } __attribute__((packed));
 
-typedef enum FAST_PING_TYPE { 
-	FAST_PING_ICMP = 1, 
-	FAST_PING_ICMP6 = 2, 
-	FAST_PING_TCP, 
-	FAST_PING_UDP, 
+typedef enum FAST_PING_TYPE {
+	FAST_PING_ICMP = 1,
+	FAST_PING_ICMP6 = 2,
+	FAST_PING_TCP,
+	FAST_PING_UDP,
 	FAST_PING_UDP6,
 	FAST_PING_END,
-}  FAST_PING_TYPE;
+} FAST_PING_TYPE;
 
 struct fast_ping_packet_msg {
 	struct timeval tv;
@@ -636,7 +636,7 @@ static int _fast_ping_create_udp_sock(FAST_PING_TYPE type)
 			tlog(TLOG_ERROR, "create udp socket failed, %s\n", strerror(errno));
 			goto errout;
 		}
-		
+
 		udp_host = &ping.udp_host;
 		break;
 	case FAST_PING_UDP6:
@@ -645,7 +645,7 @@ static int _fast_ping_create_udp_sock(FAST_PING_TYPE type)
 			tlog(TLOG_ERROR, "create udp socket failed, %s\n", strerror(errno));
 			goto errout;
 		}
-		
+
 		udp_host = &ping.udp6_host;
 		break;
 	default:
@@ -671,7 +671,7 @@ errout:
 	return -1;
 }
 
-static int _fast_ping_create_udp(FAST_PING_TYPE type) 
+static int _fast_ping_create_udp(FAST_PING_TYPE type)
 {
 	int fd = 0;
 	int *set_fd = NULL;
@@ -1176,10 +1176,8 @@ static int _fast_ping_process_udp(struct ping_host_struct *ping_host, struct tim
 	}
 
 	for (cmsg = CMSG_FIRSTHDR(&msg); cmsg; cmsg = CMSG_NXTHDR(&msg, cmsg)) {
-		if (cmsg->cmsg_level == SOL_IP
-			&& cmsg->cmsg_type == IP_TTL
-		) {
-			uint8_t * ttlPtr = (uint8_t *)CMSG_DATA(cmsg);
+		if (cmsg->cmsg_level == SOL_IP && cmsg->cmsg_type == IP_TTL) {
+			uint8_t *ttlPtr = (uint8_t *)CMSG_DATA(cmsg);
 			ttl = *ttlPtr;
 			break;
 		}

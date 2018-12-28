@@ -1,11 +1,11 @@
 #ifndef _SMARTDNS_CACHE_H
 #define _SMARTDNS_CACHE_H
 
-#include "dns.h"
-#include "hashtable.h"
-#include "hash.h"
-#include "list.h"
 #include "atomic.h"
+#include "dns.h"
+#include "hash.h"
+#include "hashtable.h"
+#include "list.h"
 #include <time.h>
 
 struct dns_cache {

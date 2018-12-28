@@ -18,10 +18,10 @@
 #define _GNU_SOURCE
 #include "dns_server.h"
 #include "atomic.h"
-#include "dns_conf.h"
 #include "dns.h"
 #include "dns_cache.h"
 #include "dns_client.h"
+#include "dns_conf.h"
 #include "fast_ping.h"
 #include "hashtable.h"
 #include "list.h"
@@ -528,7 +528,8 @@ int _dns_server_request_complete(struct dns_request *request)
 		if (request->has_ipv4) {
 			dns_cache_insert(request->domain, cname, cname_ttl, request->ttl_v4, DNS_T_AAAA, request->ipv4_addr, DNS_RR_A_LEN);
 
-			if (((request->ping_ttl_v4 + (dns_conf_dualstack_ip_selection_threshold * 10) < request->ping_ttl_v6 ) && (request->ping_ttl_v4 > 0)) || (request->ping_ttl_v6 == -1) ) {
+			if (((request->ping_ttl_v4 + (dns_conf_dualstack_ip_selection_threshold * 10) < request->ping_ttl_v6) && (request->ping_ttl_v4 > 0)) ||
+				(request->ping_ttl_v6 == -1)) {
 				tlog(TLOG_DEBUG, "Force IPV4 perfered.");
 				return _dns_server_reply_SOA(DNS_RC_NOERROR, request, NULL);
 			}
@@ -602,16 +603,15 @@ void _dns_server_select_maxhit_ipaddress(struct dns_request *request)
 
 	tlog(TLOG_DEBUG, "select best ip address, %s", request->domain);
 	switch (request->qtype) {
-		case DNS_T_A: {
-			memcpy(request->ipv4_addr, maxhit_addr_map->ipv4_addr, DNS_RR_A_LEN);
-			request->ttl_v4 = DNS_SERVER_TMOUT_TTL;
-		} break;
-		case DNS_T_AAAA: {
-			memcpy(request->ipv6_addr, maxhit_addr_map->ipv6_addr, DNS_RR_AAAA_LEN);
-			request->ttl_v6 = DNS_SERVER_TMOUT_TTL;
-		}
-		break;
-		default:
+	case DNS_T_A: {
+		memcpy(request->ipv4_addr, maxhit_addr_map->ipv4_addr, DNS_RR_A_LEN);
+		request->ttl_v4 = DNS_SERVER_TMOUT_TTL;
+	} break;
+	case DNS_T_AAAA: {
+		memcpy(request->ipv6_addr, maxhit_addr_map->ipv6_addr, DNS_RR_AAAA_LEN);
+		request->ttl_v6 = DNS_SERVER_TMOUT_TTL;
+	} break;
+	default:
 		break;
 	}
 }
@@ -625,8 +625,7 @@ void _dns_server_request_release(struct dns_request *request)
 	int refcnt = atomic_dec_return(&request->refcnt);
 	if (refcnt) {
 		if (refcnt < 0) {
-			tlog(TLOG_ERROR, "BUG: refcnt is %d, domain %s, qtype =%d", refcnt, request->domain,
-				request->qtype);
+			tlog(TLOG_ERROR, "BUG: refcnt is %d, domain %s, qtype =%d", refcnt, request->domain, request->qtype);
 			abort();
 		}
 		return;
@@ -674,7 +673,6 @@ void _dns_server_ping_result(struct ping_host_struct *ping_host, const char *hos
 	}
 
 	unsigned int rtt = tv->tv_sec * 10000 + tv->tv_usec / 100;
-
 
 	switch (addr->sa_family) {
 	case AF_INET: {
@@ -1007,8 +1005,8 @@ static int dns_server_update_reply_packet_id(struct dns_request *request, unsign
 	return 0;
 }
 
-static int dns_server_resolve_callback(char *domain, dns_result_type rtype, unsigned int result_flag, struct dns_packet *packet, unsigned char *inpacket, int inpacket_len,
-									   void *user_ptr)
+static int dns_server_resolve_callback(char *domain, dns_result_type rtype, unsigned int result_flag, struct dns_packet *packet, unsigned char *inpacket,
+									   int inpacket_len, void *user_ptr)
 {
 	struct dns_request *request = user_ptr;
 	int ip_num = 0;

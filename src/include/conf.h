@@ -97,7 +97,7 @@ extern int conf_size(const char *item, void *data, int argc, char *argv[]);
 /*
  * Example:
  *  int num = 0;
- * 
+ *
  *  struct config_item itmes [] = {
  *       CONF_INT("CONF_NUM", &num, -1, 10),
  *       CONF_END();
