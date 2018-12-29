@@ -76,7 +76,7 @@ From the comparison, smartdns found the fastest IP address to visit www.baidu.co
 2. **Return the fastest IP address**  
    Supports finding the fastest access IP address from the IP address list of the domain name and returning it to the client to avoid DNS pollution and improve network access speed.
 
-3. **Support for multiple query protocols**
+3. **Support for multiple query protocols**  
    Support UDP, TCP, TLS queries, and non-53 port queries, effectively avoiding DNS pollution.
 
 4. **Domain IP address specification**  

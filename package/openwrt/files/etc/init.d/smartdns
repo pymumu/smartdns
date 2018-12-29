@@ -9,7 +9,8 @@ SERVICE_DAEMONIZE=1
 SERVICE_PID_FILE="/var/run/smartdns.pid"
 BASECONFIGFILE="/etc/smartdns/smartdns.conf"
 SMARTDNS_CONF_DIR="/etc/smartdns"
-SMARTDNS_CONF="/var/$SMARTDNS_CONF_DIR/smartdns.conf"
+SMARTDNS_VAR_CONF_DIR="/var/etc/smartdns"
+SMARTDNS_CONF="$SMARTDNS_VAR_CONF_DIR/smartdns.conf"
 ADDRESS_CONF="$SMARTDNS_CONF_DIR/address.conf"
 BLACKLIST_IP_CONF="$SMARTDNS_CONF_DIR/blacklist-ip.conf"
 CUSTOM_CONF="$SMARTDNS_CONF_DIR/custom.conf"
@@ -163,6 +164,11 @@ start_service() {
 	local section="$1"
 	args=""
 
+	mkdir -p $SMARTDNS_VAR_CONF_DIR
+
+	config_get_bool "enabled" "$section" "enabled" '0'
+	[ "$enabled" -gt 0 ] || return 1
+
 	config_get "server_name" "$section" "server_name" ""
 	if [ ! -z "$server_name" ]; then
 		conf_append "server-name" "$server_name"	
@@ -191,8 +197,6 @@ start_service() {
 
 	SMARTDNS_PORT="$port"
 
-	mkdir -p $SMARTDNS_CONF_DIR
-
 	config_get "cache_size" "$section" "cache_size" ""
 	if [ ! -z "$cache_size" ]; then
 		conf_append "cache-size" "$cache_size"
@@ -213,12 +217,12 @@ start_service() {
 		conf_append "rr-ttl-max" "$rr_ttl_max"
 	fi
 
-	config_get "log_size" "$section" "log_size" "128K"
+	config_get "log_size" "$section" "log_size" "64K"
 	if [ ! -z "$log_size" ]; then
 		conf_append "log-size" "$log_size"
 	fi
 
-	config_get "log_num" "$section" "log_num" "3"
+	config_get "log_num" "$section" "log_num" "1"
 	if [ ! -z "$log_num" ]; then
 		conf_append "log-num" "$log_num"
 	fi
@@ -265,10 +269,8 @@ start_service() {
 	echo "conf-file $ADDRESS_CONF" >> $SMARTDNS_CONF_TMP
 	echo "conf-file $BLACKLIST_IP_CONF" >> $SMARTDNS_CONF_TMP
 	echo "conf-file $CUSTOM_CONF" >> $SMARTDNS_CONF_TMP
-
-	config_get_bool "enabled" "$section" "enabled" '0'
 	mv $SMARTDNS_CONF_TMP $SMARTDNS_CONF
-	[ "$enabled" -gt 0 ] || return 1
+	
 	if [ "$COREDUMP" = "1" ]; then
 		args="$args -S"
 		ulimit -c unlimited
