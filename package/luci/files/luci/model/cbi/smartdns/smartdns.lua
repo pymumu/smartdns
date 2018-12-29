@@ -155,12 +155,12 @@ addr.template = "cbi/tvalue"
 addr.rows = 20
 
 function addr.cfgvalue(self, section)
-	return nixio.fs.readfile("/var/etc/smartdns/address.conf")
+	return nixio.fs.readfile("/etc/smartdns/address.conf")
 end
 
 function addr.write(self, section, value)
 	value = value:gsub("\r\n?", "\n")
-	nixio.fs.writefile("/var/etc/smartdns/address.conf", value)
+	nixio.fs.writefile("/etc/smartdns/address.conf", value)
 end
 
 -- IP Blacklist
@@ -177,12 +177,12 @@ addr.template = "cbi/tvalue"
 addr.rows = 20
 
 function addr.cfgvalue(self, section)
-	return nixio.fs.readfile("/var/etc/smartdns/blacklist-ip.conf")
+	return nixio.fs.readfile("/etc/smartdns/blacklist-ip.conf")
 end
 
 function addr.write(self, section, value)
 	value = value:gsub("\r\n?", "\n")
-	nixio.fs.writefile("/var/etc/smartdns/blacklist-ip.conf", value)
+	nixio.fs.writefile("/etc/smartdns/blacklist-ip.conf", value)
 end
 
 -- Doman addresss

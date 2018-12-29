@@ -8,8 +8,8 @@ SERVICE_WRITE_PID=1
 SERVICE_DAEMONIZE=1
 SERVICE_PID_FILE="/var/run/smartdns.pid"
 BASECONFIGFILE="/etc/smartdns/smartdns.conf"
-SMARTDNS_CONF_DIR="/var/etc/smartdns"
-SMARTDNS_CONF="$SMARTDNS_CONF_DIR/smartdns.conf"
+SMARTDNS_CONF_DIR="/etc/smartdns"
+SMARTDNS_CONF="/var/$SMARTDNS_CONF_DIR/smartdns.conf"
 ADDRESS_CONF="$SMARTDNS_CONF_DIR/address.conf"
 BLACKLIST_IP_CONF="$SMARTDNS_CONF_DIR/blacklist-ip.conf"
 CUSTOM_CONF="$SMARTDNS_CONF_DIR/custom.conf"
@@ -18,12 +18,19 @@ COREDUMP="0"
 
 set_forward_dnsmasq()
 {
-	local OLD_PORT="$1"
-	addr="127.0.0.1#$OLD_PORT"
+	local PORT="$1"
+	addr="127.0.0.1#$PORT"
 	OLD_SERVER="`uci get dhcp.@dnsmasq[0].server 2>/dev/null`"
+	echo $OLD_SERVER | grep "^$addr" >/dev/null 2>&1
+	if [ $? -eq 0 ]; then
+		return
+	fi
 	uci delete dhcp.@dnsmasq[0].server 2>/dev/null
 	uci add_list dhcp.@dnsmasq[0].server=$addr
 	for server in $OLD_SERVER; do
+		if [ "$server" = "$addr" ]; then
+			continue
+		fi
 		uci add_list dhcp.@dnsmasq[0].server=$server
 	done
 	uci delete dhcp.@dnsmasq[0].resolvfile 2>/dev/null
@@ -230,26 +237,21 @@ start_service() {
 	config_get "old_redirect" "$section" "old_redirect" "none"
 	config_get "old_port" "$section" "old_port" "0"
 
-	if [ "$old_port" != "$SMARTDNS_PORT" ]; then
-		clear_iptable "$old_port" "$ipv6_server"
-		if [ "$redirect" = "redirect" ]; then
-			set_iptable $ipv6_server $tcp_server
-		fi	
-	fi
-
-	if [ "$old_redirect" != "$redirect" ]; then
+	if [ "$old_redirect" != "$redirect" ] || [ "$old_port" != "$SMARTDNS_PORT" ]; then
 		if [ "$old_redirect" != "none" ]; then
 			if [ "$old_port" != "0" ]; then
 				clear_iptable "$old_port" "$ipv6_server"
 			fi
-			stop_forward_dnsmasq "$old_port"
+			if [ "$old_redirect" == "dnsmasq-upstream" ]; then
+				stop_forward_dnsmasq "$old_port"
+			fi
 		fi
+	fi
 
-		if [ "$redirect" = "redirect" ]; then
-			set_iptable $ipv6_server $tcp_server
-		elif [ "$redirect" = "dnsmasq-upstream" ]; then
-			set_forward_dnsmasq "$SMARTDNS_PORT"
-		fi
+	if [ "$redirect" = "redirect" ]; then
+		set_iptable $ipv6_server $tcp_server
+	elif [ "$redirect" = "dnsmasq-upstream" ]; then
+		set_forward_dnsmasq "$SMARTDNS_PORT"
 	fi
 
 	uci delete smartdns.@smartdns[0].old_redirect 2>/dev/null
