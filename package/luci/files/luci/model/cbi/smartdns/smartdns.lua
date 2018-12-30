@@ -103,6 +103,13 @@ function custom.write(self, section, value)
 	nixio.fs.writefile("/etc/smartdns/custom.conf", value)
 end
 
+o = s:taboption("custom", Flag, "coredump", translate("Generate Coredump"), translate("Generate Coredump file when smartdns crash, coredump file is located at /tmp/smartdns.xxx.core."))
+o.rmempty     = false
+o.default     = o.disabled
+o.cfgvalue    = function(...)
+    return Flag.cfgvalue(...) or "0"
+end
+
 -- Upstream servers
 s = m:section(TypedSection, "server", translate("Upstream Servers"), translate("Upstream Servers, support UDP, TCP protocol. " ..
 	"Please configure multiple DNS servers, including multiple foreign DNS servers."))

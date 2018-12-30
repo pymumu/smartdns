@@ -39,6 +39,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <ucontext.h>
 
 #define RESOLVE_FILE "/etc/resolv.conf"
 #define MAX_LINE_LEN 1024
@@ -297,10 +298,24 @@ void sig_exit(int signo)
 	dns_server_stop();
 }
 
-void sig_error_exit(int signo, siginfo_t *siginfo, void *context)
+void sig_error_exit(int signo, siginfo_t *siginfo, void *ct)
 {
-	tlog(TLOG_ERROR, "process exit with signal %d, code = %d, errno = %d, pid = %d, self = %d, addr = %p\n", signo, siginfo->si_code, siginfo->si_errno,
-		 siginfo->si_pid, getpid(), siginfo->si_addr);
+	unsigned long PC = 0;
+	ucontext_t *context = ct;
+#if defined(__i386__)
+		int *pgregs = (int*)(&(context->uc_mcontext.gregs));
+		PC = pgregs[REG_EIP];
+#elif defined(__x86_64__) 
+		int *pgregs = (int*)(&(context->uc_mcontext.gregs));
+		PC = pgregs[REG_RIP];
+#elif defined(__aarch64__) || defined(__arm__)
+		PC = context->uc_mcontext.arm_pc;
+#elif defined(__mips__)
+		PC = context->uc_mcontext.pc;
+#endif
+	tlog(TLOG_ERROR, "process exit with signal %d, code = %d, errno = %d, pid = %d, self = %d, pc = %#lx, addr = %#lx\n", signo, siginfo->si_code, siginfo->si_errno,
+		 siginfo->si_pid, getpid(), PC, (unsigned long)siginfo->si_addr);
+
 	sleep(1);
 	_exit(0);
 }

@@ -927,7 +927,7 @@ static int _dns_client_process_udp(struct dns_server_info *server_info, struct e
 		}
 	}
 
-	tlog(TLOG_DEBUG, "recv udp, from %s, ttl: %d", gethost_by_addr(from_host, (struct sockaddr *)&from, from_len), ttl);
+	tlog(TLOG_DEBUG, "recv udp, from %s, len: %d, ttl: %d", gethost_by_addr(from_host, (struct sockaddr *)&from, from_len), len, ttl);
 
 	if ((ttl != server_info->ttl) && (server_info->ttl > 0) && (server_info->result_flag & DNSSERVER_FLAG_CHECK_TTL)) {
 		/* tlog(TLOG_DEBUG, "TTL mismatch, from:%d, local %d, discard result", ttl, server_info->ttl); */

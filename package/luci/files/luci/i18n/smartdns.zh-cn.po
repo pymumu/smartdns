@@ -16,6 +16,12 @@ msgstr "SmartDNS是一个本地高性能DNS服务器，支持避免域名污染�
 msgid "Custom Settings"
 msgstr "自定义设置"
 
+msgid "Generate Coredump"
+msgstr "生成coredump"
+
+msgid "Generate Coredump file when smartdns crash, coredump file is located at /tmp/smartdns.xxx.core."
+msgstr "当smartdns异常时生成coredump文件，coredump文件在/tmp/smartdns.xxx.core."
+
 msgid "Server Name"
 msgstr "服务器名称"
 

@@ -174,6 +174,11 @@ start_service() {
 		conf_append "server-name" "$server_name"	
 	fi
 
+	config_get "coredump" "$section" "coredump" "0"
+	if [ "$coredump" = "1" ]; then
+		COREDUMP="1"
+	fi
+
 	config_get "port" "$section" "port" "6053"
 	config_get "ipv6_server" "$section" "ipv6_server" "1"
 	config_get "tcp_server" "$section" "tcp_server" "1"
@@ -270,7 +275,7 @@ start_service() {
 	echo "conf-file $BLACKLIST_IP_CONF" >> $SMARTDNS_CONF_TMP
 	echo "conf-file $CUSTOM_CONF" >> $SMARTDNS_CONF_TMP
 	mv $SMARTDNS_CONF_TMP $SMARTDNS_CONF
-	
+
 	if [ "$COREDUMP" = "1" ]; then
 		args="$args -S"
 		ulimit -c unlimited
