@@ -313,8 +313,8 @@ void sig_error_exit(int signo, siginfo_t *siginfo, void *ct)
 #elif defined(__mips__)
 		PC = context->uc_mcontext.pc;
 #endif
-	tlog(TLOG_ERROR, "process exit with signal %d, code = %d, errno = %d, pid = %d, self = %d, pc = %#lx, addr = %#lx\n", signo, siginfo->si_code, siginfo->si_errno,
-		 siginfo->si_pid, getpid(), PC, (unsigned long)siginfo->si_addr);
+	tlog(TLOG_ERROR, "process exit with signal %d, code = %d, errno = %d, pid = %d, self = %d, pc = %#lx, addr = %#lx, build(%s %s)\n", signo, siginfo->si_code, siginfo->si_errno,
+		 siginfo->si_pid, getpid(), PC, (unsigned long)siginfo->si_addr, __DATE__, __TIME__);
 
 	sleep(1);
 	_exit(0);

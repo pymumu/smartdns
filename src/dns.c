@@ -847,6 +847,7 @@ static int _dns_decode_domain(struct dns_context *context, char *output, int siz
 		if (ptr > context->data + context->maxsize || ptr < context->data) {
 			return -1;
 		}
+		
 		len = *ptr;
 		if (len == 0) {
 			*output = 0;
@@ -856,6 +857,9 @@ static int _dns_decode_domain(struct dns_context *context, char *output, int siz
 
 		/* compressed domain */
 		if (len >= 0xC0) {
+			if ((ptr + 2) > (context->data + context->maxsize)) {
+				return -1;
+			}
 			/*
 			0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F
 			+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
@@ -868,8 +872,8 @@ static int _dns_decode_domain(struct dns_context *context, char *output, int siz
 				context->ptr = ptr;
 			}
 			ptr = context->data + len;
-			if (context->maxsize < (ptr - context->data)) {
-				tlog(TLOG_ERROR, "length is not enouth %u:%ld, %p, %p", context->maxsize, (long)(ptr - context->data), context->ptr, context->data);
+			if (ptr > context->data + context->maxsize) {
+				tlog(TLOG_DEBUG, "length is not enouth %u:%ld, %p, %p", context->maxsize, (long)(ptr - context->data), context->ptr, context->data);
 				return -1;
 			}
 			is_compressed = 1;
@@ -882,8 +886,8 @@ static int _dns_decode_domain(struct dns_context *context, char *output, int siz
 			output++;
 		}
 
-		if (context->maxsize < (ptr - context->data)) {
-			tlog(TLOG_ERROR, "length is not enouth %u:%ld, %p, %p", context->maxsize, (long)(ptr - context->data), context->ptr, context->data);
+		if (ptr > context->data + context->maxsize) {
+			tlog(TLOG_DEBUG, "length is not enouth %u:%ld, %p, %p", context->maxsize, (long)(ptr - context->data), context->ptr, context->data);
 			return -1;
 		}
 
@@ -891,8 +895,8 @@ static int _dns_decode_domain(struct dns_context *context, char *output, int siz
 		if (output_len < size - 1) {
 			/* copy sub string */
 			copy_len = (len < size - output_len) ? len : size - 1 - output_len;
-			if (context->maxsize < (ptr - context->data)) {
-				tlog(TLOG_ERROR, "length is not enouth %u:%ld, %p, %p", context->maxsize, (long)(ptr - context->data), context->ptr, context->data);
+			if ((ptr + copy_len) > (context->data + context->maxsize)) {
+				tlog(TLOG_DEBUG, "length is not enouth %u:%ld, %p, %p", context->maxsize, (long)(ptr - context->data), context->ptr, context->data);
 				return -1;
 			}
 			memcpy(output, ptr, copy_len);
@@ -960,12 +964,12 @@ static int _dns_decode_qr_head(struct dns_context *context, char *domain, int do
 	*/
 	ret = _dns_decode_domain(context, domain, domain_size);
 	if (ret < 0) {
-		tlog(TLOG_WARN, "decode domain failed.");
+		tlog(TLOG_DEBUG, "decode domain failed.");
 		return -1;
 	}
 
 	if (_dns_left_len(context) < 4) {
-		tlog(TLOG_WARN, "left length is not enough, %s.", domain);
+		tlog(TLOG_DEBUG, "left length is not enough, %s.", domain);
 		return -1;
 	}
 
@@ -999,12 +1003,12 @@ static int _dns_decode_rr_head(struct dns_context *context, char *domain, int do
 
 	len = _dns_decode_qr_head(context, domain, domain_size, qtype, qclass);
 	if (len < 0) {
-		tlog(TLOG_ERROR, "decode qr head failed.");
+		tlog(TLOG_DEBUG, "decode qr head failed.");
 		return -1;
 	}
 
 	if (_dns_left_len(context) < 6) {
-		tlog(TLOG_ERROR, "left length is not enough.");
+		tlog(TLOG_DEBUG, "left length is not enough.");
 		return -1;
 	}
 
@@ -1413,6 +1417,9 @@ static int _dns_decode_opt(struct dns_context *context, dns_rr_type type, unsign
 	}
 	
 	while (context->ptr - start < rr_len) {
+		if (_dns_left_len(context) < 4) {
+			return -1;
+		}
 		opt_code = dns_read_short(&context->ptr);
 		opt_len = dns_read_short(&context->ptr);
 		tlog(TLOG_DEBUG, "opt type %d", opt_code);
@@ -1472,7 +1479,7 @@ static int _dns_decode_an(struct dns_context *context, dns_rr_type type)
 	/* decode rr head */
 	ret = _dns_decode_rr_head(context, domain, DNS_MAX_CNAME_LEN, &qtype, &qclass, &ttl, &rr_len);
 	if (ret < 0) {
-		tlog(TLOG_ERROR, "decode head failed.");
+		tlog(TLOG_DEBUG, "decode head failed.");
 		return -1;
 	}
 	start = context->ptr;
@@ -1658,7 +1665,7 @@ static int _dns_decode_body(struct dns_context *context)
 	for (i = 0; i < head->qdcount; i++) {
 		ret = _dns_decode_qd(context);
 		if (ret < 0) {
-			tlog(TLOG_WARN, "decode qd failed.");
+			tlog(TLOG_DEBUG, "decode qd failed.");
 			return -1;
 		}
 		head->qdcount--;
@@ -1667,7 +1674,7 @@ static int _dns_decode_body(struct dns_context *context)
 	for (i = 0; i < head->ancount; i++) {
 		ret = _dns_decode_an(context, DNS_RRS_AN);
 		if (ret < 0) {
-			tlog(TLOG_WARN, "decode an failed.");
+			tlog(TLOG_DEBUG, "decode an failed.");
 			return -1;
 		}
 		head->ancount--;
@@ -1676,7 +1683,7 @@ static int _dns_decode_body(struct dns_context *context)
 	for (i = 0; i < head->nscount; i++) {
 		ret = _dns_decode_an(context, DNS_RRS_NS);
 		if (ret < 0) {
-			tlog(TLOG_WARN, "decode ns failed.");
+			tlog(TLOG_DEBUG, "decode ns failed.");
 			return -1;
 		}
 		head->nscount--;
@@ -1685,7 +1692,7 @@ static int _dns_decode_body(struct dns_context *context)
 	for (i = 0; i < head->nrcount; i++) {
 		ret = _dns_decode_an(context, DNS_RRS_NR);
 		if (ret < 0) {
-			tlog(TLOG_WARN, "decode nr failed.");
+			tlog(TLOG_DEBUG, "decode nr failed.");
 			return -1;
 		}
 		head->nrcount--;
@@ -1797,7 +1804,7 @@ int dns_decode(struct dns_packet *packet, int maxsize, unsigned char *data, int 
 
 	ret = _dns_decode_body(&context);
 	if (ret < 0) {
-		tlog(TLOG_WARN, "decode body failed.\n");
+		tlog(TLOG_DEBUG, "decode body failed.\n");
 		return -1;
 	}
 

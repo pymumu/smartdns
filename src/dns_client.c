@@ -650,14 +650,14 @@ static int _dns_client_recv(struct dns_server_info *server_info, unsigned char *
 	len = dns_decode(packet, DNS_PACKSIZE, inpacket, inpacket_len);
 	if (len != 0) {
 		char host_name[DNS_MAX_CNAME_LEN];
-		tlog(TLOG_ERROR, "decode failed, packet len = %d, tc = %d, id = %d, from = %s\n", inpacket_len, packet->head.tc, packet->head.id,
+		tlog(TLOG_WARN, "decode failed, packet len = %d, tc = %d, id = %d, from = %s\n", inpacket_len, packet->head.tc, packet->head.id,
 			 gethost_by_addr(host_name, from, from_len));
 		return -1;
 	}
 
 	/* not answer, return error */
 	if (packet->head.qr != DNS_OP_IQUERY) {
-		tlog(TLOG_ERROR, "message type error.\n");
+		tlog(TLOG_DEBUG, "message type error.\n");
 		return -1;
 	}
 
