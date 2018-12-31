@@ -1075,6 +1075,7 @@ static int _fast_ping_process_icmp(struct ping_host_struct *ping_host, struct ti
 	{
 		if (recv_ping_host->addr_len == from_len && memcmp(&recv_ping_host->addr, &from, from_len) == 0 && recv_ping_host->sid == sid &&
 			recv_ping_host->cookie == cookie) {
+			_fast_ping_host_get(recv_ping_host);
 			break;
 		}
 	}
@@ -1086,6 +1087,7 @@ static int _fast_ping_process_icmp(struct ping_host_struct *ping_host, struct ti
 	}
 
 	if (recv_ping_host->seq != seq) {
+		_fast_ping_host_put(recv_ping_host);
 		tlog(TLOG_ERROR, "seq num mismatch, expect %u, real %u", recv_ping_host->seq, seq);
 		return -1;
 	}
@@ -1103,6 +1105,7 @@ static int _fast_ping_process_icmp(struct ping_host_struct *ping_host, struct ti
 		_fast_ping_host_remove(recv_ping_host);
 	}
 
+	_fast_ping_host_put(recv_ping_host);
 	return 0;
 errout:
 	return -1;
@@ -1195,6 +1198,7 @@ static int _fast_ping_process_udp(struct ping_host_struct *ping_host, struct tim
 	hash_for_each_possible(ping.addrmap, recv_ping_host, addr_node, addrkey)
 	{
 		if (recv_ping_host->addr_len == from_len && memcmp(&recv_ping_host->addr, &from, from_len) == 0 && recv_ping_host->sid == sid) {
+			_fast_ping_host_get(recv_ping_host);
 			break;
 		}
 	}
@@ -1218,6 +1222,8 @@ static int _fast_ping_process_udp(struct ping_host_struct *ping_host, struct tim
 	if (recv_ping_host->count == 1) {
 		_fast_ping_host_remove(recv_ping_host);
 	}
+
+	_fast_ping_host_put(recv_ping_host);
 
 	return 0;
 errout:

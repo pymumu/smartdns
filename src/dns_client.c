@@ -589,6 +589,7 @@ static struct dns_query_struct *_dns_client_get_request(unsigned short sid, char
 		}
 
 		query_result = query;
+		_dns_client_query_get(query_result);
 		break;
 	}
 	pthread_mutex_unlock(&client.domain_map_lock);
@@ -679,16 +680,21 @@ static int _dns_client_recv(struct dns_server_info *server_info, unsigned char *
 	/* get query reference */
 	query = _dns_client_get_request(packet->head.id, domain);
 	if (query == NULL || (query && has_opt == 0 && server_info->result_flag & DNSSERVER_FLAG_CHECK_EDNS)) {
+		if (query) {
+			_dns_client_query_release(query);
+		}
 		return 0;
 	}
 
 	/* avoid multiple replies */
 	if (_dns_replied_check_add(query, (struct sockaddr *)from, from_len) != 0) {
+		_dns_client_query_release(query);
 		return 0;
 	}
 
 	request_num = atomic_dec_return(&query->dns_request_sent);
 	if (request_num < 0) {
+		_dns_client_query_release(query);
 		tlog(TLOG_ERROR, "send count is invalid, %d", request_num);
 		return -1;
 	}
@@ -702,6 +708,7 @@ static int _dns_client_recv(struct dns_server_info *server_info, unsigned char *
 		}
 	}
 
+	_dns_client_query_release(query);
 	return ret;
 }
 
