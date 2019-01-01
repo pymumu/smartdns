@@ -108,7 +108,7 @@ clear_iptable()
 }
 
 service_triggers() {
-    procd_add_reload_trigger firewall
+	procd_add_reload_trigger firewall
 }
 
 
@@ -292,3 +292,7 @@ stop() {
 	service_stop /usr/sbin/smartdns
 }
 
+reload(){
+	stop
+	start
+}
