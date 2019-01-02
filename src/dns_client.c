@@ -447,7 +447,10 @@ int dns_server_num(void)
 
 void _dns_client_query_get(struct dns_query_struct *query)
 {
-	atomic_inc(&query->refcnt);
+	if (atomic_inc_return(&query->refcnt) <= 0) {
+		tlog(TLOG_ERROR, "BUG:query ref is invalid, domain: %s", query->domain);
+		abort();
+	}
 }
 
 void _dns_client_query_release(struct dns_query_struct *query)

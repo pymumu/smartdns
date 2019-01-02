@@ -170,7 +170,7 @@ static tlog_log *dns_audit;
 
 static int _dns_server_forward_request(unsigned char *inpacket, int inpacket_len)
 {
-	tlog(TLOG_ERROR, "forward request.\n");
+	tlog(TLOG_DEBUG, "forward request.\n");
 	return -1;
 }
 
@@ -284,7 +284,7 @@ static void _dns_server_client_release(struct dns_server_conn *client)
 
 	if (refcnt) {
 		if (refcnt < 0) {
-			tlog(TLOG_ERROR, "BUG: refcnt is %d", refcnt);
+			tlog(TLOG_ERROR, "BUG: refcnt is %d, type = %d", refcnt, client->type);
 			abort();
 		}
 		return;
@@ -304,7 +304,11 @@ static void _dns_server_client_get(struct dns_server_conn *client)
 	if (client == NULL) {
 		return;
 	}
-	atomic_inc(&client->refcnt);
+	
+	if (atomic_inc_return(&client->refcnt) <= 0) {
+		tlog(TLOG_ERROR, "BUG: client ref is invalid.");
+		abort();
+	}
 }
 
 static int _dns_server_reply_tcp_to_buffer(struct dns_server_conn *client, void *packet, int len)
@@ -652,7 +656,10 @@ void _dns_server_request_release(struct dns_request *request)
 
 void _dns_server_request_get(struct dns_request *request)
 {
-	atomic_inc(&request->refcnt);
+	if (atomic_inc_return(&request->refcnt) <= 0) {
+		tlog(TLOG_ERROR, "BUG: request ref is invalid, %s", request->domain);
+		abort();
+	}
 }
 
 void _dns_server_ping_result(struct ping_host_struct *ping_host, const char *host, FAST_PING_RESULT result, struct sockaddr *addr, socklen_t addr_len,
@@ -964,12 +971,12 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 			case DNS_T_NS: {
 				char cname[128];
 				dns_get_CNAME(rrs, name, 128, &ttl, cname, 128);
-				tlog(TLOG_DEBUG, "NS: %s %d : %s\n", name, ttl, cname);
+				tlog(TLOG_DEBUG, "NS: %s ttl:%d cname: %s\n", name, ttl, cname);
 			} break;
 			case DNS_T_CNAME: {
 				char cname[128];
 				dns_get_CNAME(rrs, name, 128, &ttl, cname, 128);
-				tlog(TLOG_DEBUG, "%s %d : %s\n", name, ttl, cname);
+				tlog(TLOG_DEBUG, "name:%s ttl: %d cname: %s\n", name, ttl, cname);
 				strncpy(request->cname, cname, DNS_MAX_CNAME_LEN);
 				request->ttl_cname = ttl;
 				request->has_cname = 1;
@@ -1295,6 +1302,7 @@ static int _dns_server_recv(struct dns_server_conn *client, unsigned char *inpac
 	memset(request, 0, sizeof(*request));
 	pthread_mutex_init(&request->ip_map_lock, 0);
 	atomic_set(&request->adblock, 0);
+	atomic_set(&request->refcnt, 0);
 	request->ping_ttl_v4 = -1;
 	request->ping_ttl_v6 = -1;
 	request->prefetch = 0;
@@ -1367,12 +1375,20 @@ static int _dns_server_recv(struct dns_server_conn *client, unsigned char *inpac
 	_dns_server_request_get(request);
 	request->send_tick = get_tick_count();
 
-	request->request_wait++;
-	dns_client_query(request->domain, qtype, dns_server_resolve_callback, request);
 	if (qtype == DNS_T_AAAA && dns_conf_dualstack_ip_selection) {
 		_dns_server_request_get(request);
 		request->request_wait++;
-		dns_client_query(request->domain, DNS_T_A, dns_server_resolve_callback, request);
+		if (dns_client_query(request->domain, DNS_T_A, dns_server_resolve_callback, request) != 0) {
+			_dns_server_request_release(request);
+			request->request_wait--;
+		}
+	}
+
+	request->request_wait++;
+	if (dns_client_query(request->domain, qtype, dns_server_resolve_callback, request) != 0) {
+		_dns_server_request_release(request);
+		_dns_server_request_remove(request);
+		goto errout;
 	}
 
 	return 0;
@@ -1559,7 +1575,8 @@ int _dns_server_tcp_process_one_request(struct dns_server_conn *dnsserver)
 			break;
 		}
 
-		request_len = ntohs(*((unsigned short *)(dnsserver->recvbuff.buf + proceed_len)));
+		request_data = (unsigned char *)(dnsserver->recvbuff.buf + proceed_len);
+		request_len = ntohs(*((unsigned short *)(request_data)));
 
 		if (request_len >= sizeof(dnsserver->recvbuff.buf)) {
 			tlog(TLOG_ERROR, "request length is invalid.");

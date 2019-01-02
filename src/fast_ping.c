@@ -44,6 +44,13 @@
 #define ICMP_PACKET_SIZE (1024 * 64)
 #define ICMP_INPACKET_SIZE 1024
 
+#ifndef ICMP_FILTER
+#define ICMP_FILTER	1
+struct icmp_filter {
+	uint32_t	data;
+};
+#endif
+
 struct ping_dns_head {
 	unsigned short id;
 	unsigned short flag;
@@ -172,7 +179,7 @@ void _fast_ping_install_filter_v6(int sock)
 	once = 1;
 
 	/* Patch bpflet for current identifier. */
-	insns[1] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, htons(getpid()), 0, 1);
+	insns[1] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, htons(ping.ident), 0, 1);
 
 	if (setsockopt(sock, SOL_SOCKET, SO_ATTACH_FILTER, &filter, sizeof(filter))) {
 		perror("WARNING: failed to install socket filter\n");
@@ -201,7 +208,7 @@ void _fast_ping_install_filter_v4(int sock)
 	once = 1;
 
 	/* Patch bpflet for current identifier. */
-	insns[2] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, htons(getpid()), 0, 1);
+	insns[2] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, htons(ping.ident), 0, 1);
 
 	if (setsockopt(sock, SOL_SOCKET, SO_ATTACH_FILTER, &filter, sizeof(filter))) {
 		perror("WARNING: failed to install socket filter\n");
@@ -259,7 +266,10 @@ errout:
 
 static void _fast_ping_host_get(struct ping_host_struct *ping_host)
 {
-	atomic_inc(&ping_host->ref);
+	if (atomic_inc_return(&ping_host->ref) <= 0) {
+		tlog(TLOG_ERROR, "BUG: ping host ref is invalid, host: %s", ping_host->host);
+		abort();
+	}
 }
 
 static void _fast_ping_close_host_sock(struct ping_host_struct *ping_host)
@@ -295,7 +305,7 @@ static void _fast_ping_host_put(struct ping_host_struct *ping_host)
 								 ping_host->userptr);
 	}
 
-	tlog(TLOG_DEBUG, "ping %p end", ping_host);
+	tlog(TLOG_DEBUG, "ping end, id %d", ping_host->sid);
 	// memset(ping_host, 0, sizeof(*ping_host));
 	ping_host->type = FAST_PING_END;
 	free(ping_host);
@@ -337,7 +347,7 @@ static int _fast_ping_sendping_v6(struct ping_host_struct *ping_host)
 	icmp6->icmp6_type = ICMP6_ECHO_REQUEST;
 	icmp6->icmp6_code = 0;
 	icmp6->icmp6_cksum = 0;
-	icmp6->icmp6_id = getpid();
+	icmp6->icmp6_id = ping.ident;
 	icmp6->icmp6_seq = htons(ping_host->seq);
 
 	gettimeofday(&packet->msg.tv, 0);
@@ -562,6 +572,10 @@ static int _fast_ping_create_icmp_sock(FAST_PING_TYPE type)
 		return -1;
 	}
 
+	struct icmp_filter filt;
+	filt.data = ~((1 << ICMP_SOURCE_QUENCH) | (1 << ICMP_DEST_UNREACH) | (1 << ICMP_TIME_EXCEEDED) | (1 << ICMP_PARAMETERPROB) | (1 << ICMP_REDIRECT) |
+				  (1 << ICMP_ECHOREPLY));
+	setsockopt(fd, SOL_RAW, ICMP_FILTER, &filt, sizeof filt);
 	setsockopt(fd, SOL_SOCKET, SO_SNDBUF, (const char *)&buffsize, optlen);
 	setsockopt(fd, SOL_SOCKET, SO_RCVBUF, (const char *)&buffsize, optlen);
 	setsockopt(fd, SOL_IP, IP_TTL, &val, sizeof(val));
@@ -1420,7 +1434,7 @@ int fast_ping_init(void)
 	pthread_mutex_init(&ping.lock, 0);
 	hash_init(ping.addrmap);
 	ping.epoll_fd = epollfd;
-	ping.ident = getpid();
+	ping.ident = (getpid() & 0XFFFF);
 	ping.run = 1;
 	ret = pthread_create(&ping.tid, &attr, _fast_ping_work, NULL);
 	if (ret != 0) {
