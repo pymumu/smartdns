@@ -17,6 +17,7 @@ BLACKLIST_IP_CONF="$SMARTDNS_CONF_DIR/blacklist-ip.conf"
 CUSTOM_CONF="$SMARTDNS_CONF_DIR/custom.conf"
 SMARTDNS_CONF_TMP="${SMARTDNS_CONF}.tmp"
 COREDUMP="0"
+RESPAWN="0"
 
 set_forward_dnsmasq()
 {
@@ -110,6 +111,7 @@ clear_iptable()
 
 service_triggers() {
 	procd_add_reload_trigger firewall
+	procd_add_reload_trigger smartdns
 }
 
 
@@ -284,7 +286,9 @@ load_service() {
 	fi
 	
 	procd_set_param command /usr/sbin/smartdns -f -c $SMARTDNS_CONF $args
-	procd_set_param respawn ${respawn_threshold:-3600} ${respawn_timeout:-5} ${respawn_retry:-5}
+	if [ "$RESPAWN" = "1" ]; then
+		procd_set_param respawn ${respawn_threshold:-3600} ${respawn_timeout:-5} ${respawn_retry:-5}
+	fi
 	procd_set_param file "$SMARTDNS_CONF"
 	procd_close_instance
 }

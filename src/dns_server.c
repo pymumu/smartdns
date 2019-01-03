@@ -1388,6 +1388,7 @@ static int _dns_server_recv(struct dns_server_conn *client, unsigned char *inpac
 	if (dns_client_query(request->domain, qtype, dns_server_resolve_callback, request) != 0) {
 		_dns_server_request_release(request);
 		_dns_server_request_remove(request);
+		request = NULL;
 		goto errout;
 	}
 
