@@ -46,6 +46,12 @@ stop_forward_dnsmasq()
 {
 	local OLD_PORT="$1"
 	addr="127.0.0.1#$OLD_PORT"
+	OLD_SERVER="`uci get dhcp.@dnsmasq[0].server 2>/dev/null`"
+	echo $OLD_SERVER | grep "^$addr" >/dev/null 2>&1
+	if [ $? -ne 0 ]; then
+		return
+	fi
+
 	uci del_list dhcp.@dnsmasq[0].server=$addr 2>/dev/null
 	addrlist="`uci get dhcp.@dnsmasq[0].server 2>/dev/null`"
 	if [ -z "$addrlist" ] ; then
@@ -168,9 +174,9 @@ load_service() {
 	args=""
 
 	mkdir -p $SMARTDNS_VAR_CONF_DIR
+	rm -f $SMARTDNS_CONF_TMP
 
 	config_get_bool "enabled" "$section" "enabled" '0'
-	[ "$enabled" -gt 0 ] || return 1
 
 	config_get "server_name" "$section" "server_name" ""
 	if [ ! -z "$server_name" ]; then
@@ -248,8 +254,9 @@ load_service() {
 	config_get "redirect" "$section" "redirect" "none"
 	config_get "old_redirect" "$section" "old_redirect" "none"
 	config_get "old_port" "$section" "old_port" "0"
+	config_get "old_enabled" "$section" "old_enabled" "0"
 
-	if [ "$old_redirect" != "$redirect" ] || [ "$old_port" != "$SMARTDNS_PORT" ]; then
+	if [ "$old_redirect" != "$redirect" ] || [ "$old_port" != "$SMARTDNS_PORT" ] || [ "$old_enabled" = "1" ]; then
 		if [ "$old_redirect" != "none" ]; then
 			if [ "$old_port" != "0" ]; then
 				clear_iptable "$old_port" "$ipv6_server"
@@ -259,18 +266,22 @@ load_service() {
 			fi
 		fi
 	fi
+	
+	uci delete smartdns.@smartdns[0].old_redirect 2>/dev/null
+	uci delete smartdns.@smartdns[0].old_port 2>/dev/null
+	uci delete smartdns.@smartdns[0].old_enabled 2>/dev/null
+	uci add_list smartdns.@smartdns[0].old_redirect="$redirect" 2>/dev/null
+	uci add_list smartdns.@smartdns[0].old_port="$SMARTDNS_PORT" 2>/dev/null
+	uci add_list smartdns.@smartdns[0].old_enabled="$enabled" 2>/dev/null
+	uci commit smartdns
+
+	[ "$enabled" -gt 0 ] || return 1
 
 	if [ "$redirect" = "redirect" ]; then
 		set_iptable $ipv6_server $tcp_server
 	elif [ "$redirect" = "dnsmasq-upstream" ]; then
 		set_forward_dnsmasq "$SMARTDNS_PORT"
 	fi
-
-	uci delete smartdns.@smartdns[0].old_redirect 2>/dev/null
-	uci delete smartdns.@smartdns[0].old_port 2>/dev/null
-	uci add_list smartdns.@smartdns[0].old_redirect="$redirect" 2>/dev/null
-	uci add_list smartdns.@smartdns[0].old_port="$SMARTDNS_PORT" 2>/dev/null
-	uci commit smartdns
 
 	config_foreach load_server "server"
 

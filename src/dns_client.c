@@ -240,7 +240,7 @@ void _dns_client_server_update_ttl(struct ping_host_struct *ping_host, const cha
 	}
 
 	double rtt = tv->tv_sec * 1000.0 + tv->tv_usec / 1000.0;
-	tlog(TLOG_INFO, "from %15s: seq=%d ttl=%d time=%.3f\n", host, seqno, ttl, rtt);
+	tlog(TLOG_DEBUG, "from %15s: seq=%d ttl=%d time=%.3f\n", host, seqno, ttl, rtt);
 	server_info->ttl = ttl;
 }
 
