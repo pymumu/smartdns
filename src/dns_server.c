@@ -51,10 +51,10 @@
 #define DNS_MAX_EVENTS 256
 #define DNS_SERVER_TMOUT_TTL (5 * 60)
 #define DNS_CONN_BUFF_SIZE 4096
-#define DNS_REQUEST_MAX_TIMEOUT 1000
-#define DNS_PING_TIMEOUT (DNS_REQUEST_MAX_TIMEOUT - 50)
+#define DNS_REQUEST_MAX_TIMEOUT 850
+#define DNS_PING_TIMEOUT (DNS_REQUEST_MAX_TIMEOUT)
 #define DNS_TCPPING_START (300)
-#define DNS_PING_TCP_TIMEOUT (DNS_REQUEST_MAX_TIMEOUT - DNS_TCPPING_START - 50)
+#define DNS_PING_TCP_TIMEOUT (DNS_REQUEST_MAX_TIMEOUT - DNS_TCPPING_START)
 
 struct dns_conn_buf {
 	char buf[DNS_CONN_BUFF_SIZE];
@@ -855,6 +855,8 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 	int i = 0;
 	int j = 0;
 	struct dns_rrs *rrs = NULL;
+	int ping_timeout = DNS_PING_TIMEOUT;
+	unsigned long now = get_tick_count();
 
 	if (packet->head.rcode != DNS_RC_NOERROR && packet->head.rcode != DNS_RC_NXDOMAIN) {
 		if (request->rcode == DNS_RC_SERVFAIL) {
@@ -863,6 +865,14 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 
 		tlog(TLOG_DEBUG, "inquery failed, %s, rcode = %d, id = %d\n", domain, packet->head.rcode, packet->head.id);
 		return -1;
+	}
+
+
+	ping_timeout = ping_timeout - (now - request->send_tick);
+	if (ping_timeout > DNS_PING_TIMEOUT) {
+		ping_timeout = DNS_PING_TIMEOUT;
+	} else if (ping_timeout < 10) {
+		ping_timeout = 10;
 	}
 
 	for (j = 1; j < DNS_RRS_END; j++) {
@@ -918,7 +928,7 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 				request->rcode = packet->head.rcode;
 				sprintf(ip, "%d.%d.%d.%d", addr[0], addr[1], addr[2], addr[3]);
 
-				if (_dns_server_ping(request, PING_TYPE_ICMP, ip, DNS_PING_TIMEOUT) != 0) {
+				if (_dns_server_ping(request, PING_TYPE_ICMP, ip, ping_timeout) != 0) {
 					_dns_server_request_release(request);
 				}
 			} break;
@@ -964,7 +974,7 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 				sprintf(ip, "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", addr[0], addr[1], addr[2], addr[3], addr[4], addr[5],
 						addr[6], addr[7], addr[8], addr[9], addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
 
-				if (_dns_server_ping(request, PING_TYPE_ICMP, ip, DNS_PING_TIMEOUT) != 0) {
+				if (_dns_server_ping(request, PING_TYPE_ICMP, ip, ping_timeout) != 0) {
 					_dns_server_request_release(request);
 				}
 			} break;

@@ -536,7 +536,7 @@ void _dns_client_period_run(void)
 	pthread_mutex_lock(&client.domain_map_lock);
 	list_for_each_entry_safe(query, tmp, &client.dns_request_list, dns_request_list)
 	{
-		if (now - query->send_tick >= 1000) {
+		if (now - query->send_tick >= 400 && query->send_tick > 0) {
 			list_add(&query->period_list, &check_list);
 			_dns_client_query_get(query);
 		}
