@@ -448,7 +448,7 @@ int dns_server_num(void)
 void _dns_client_query_get(struct dns_query_struct *query)
 {
 	if (atomic_inc_return(&query->refcnt) <= 0) {
-		tlog(TLOG_ERROR, "BUG:query ref is invalid, domain: %s", query->domain);
+		tlog(TLOG_ERROR, "BUG: query ref is invalid, domain: %s", query->domain);
 		abort();
 	}
 }
@@ -1730,7 +1730,6 @@ int dns_client_query(char *domain, int qtype, dns_client_callback callback, void
 	key = hash_string(domain);
 	key = jhash(&query->sid, sizeof(query->sid), key);
 	pthread_mutex_lock(&client.domain_map_lock);
-	list_add_tail(&query->dns_request_list, &client.dns_request_list);
 	hash_add(client.domain_map, &query->domain_node, key);
 	pthread_mutex_unlock(&client.domain_map_lock);
 
@@ -1738,20 +1737,22 @@ int dns_client_query(char *domain, int qtype, dns_client_callback callback, void
 	_dns_client_query_get(query);
 	ret = _dns_client_send_query(query, domain);
 	if (ret != 0) {
+		_dns_client_query_release(query);
 		goto errout_del_list;
 	}
+
+	pthread_mutex_lock(&client.domain_map_lock);
+	list_add_tail(&query->dns_request_list, &client.dns_request_list);
+	pthread_mutex_unlock(&client.domain_map_lock);
 
 	tlog(TLOG_INFO, "send request %s, qtype %d, id %d\n", domain, qtype, query->sid);
 	_dns_client_query_release(query);
 
 	return 0;
 errout_del_list:
-	atomic_dec(&query->refcnt);
-	pthread_mutex_lock(&client.domain_map_lock);
-	list_del_init(&query->dns_request_list);
-	hash_del(&query->domain_node);
-	pthread_mutex_unlock(&client.domain_map_lock);
-	_dns_client_query_release(query);
+	query->callback = NULL;
+	_dns_client_query_remove(query);
+	query = NULL;
 errout:
 	if (query) {
 		tlog(TLOG_ERROR, "release %p", query);
