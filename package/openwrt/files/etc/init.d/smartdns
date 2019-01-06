@@ -130,8 +130,10 @@ load_server()
 {
 	local section="$1"
 	local ADDITIONAL_ARGS=""
+	local DNS_ADDRESS=""
+
 	config_get_bool "enabled" "$section" "enabled" "1"
-	config_get "port" "$section" "port" "53"
+	config_get "port" "$section" "port" ""
 	config_get "type" "$section" "type" "udp"
 	config_get "ip" "$section" "ip" ""
 	config_get "blacklist_ip" "$section" "blacklist_ip" "0"
@@ -141,7 +143,7 @@ load_server()
 		return
 	fi
 
-	if [ -z "$port" ] || [ -z "$ip" ] || [ -z "$type" ]; then
+	if [ -z "$ip" ] || [ -z "$type" ]; then
 		return
 	fi
 
@@ -166,7 +168,13 @@ load_server()
 		ADDITIONAL_ARGS="$ADDITIONAL_ARGS -check-edns"
 	fi
 
-	conf_append "$SERVER" "$ip:$port $ADDITIONAL_ARGS"
+	if [ ! -z "$port" ]; then
+		DNS_ADDRESS="$ip:$port"
+	else
+		DNS_ADDRESS="$ip"
+	fi
+
+	conf_append "$SERVER" "$DNS_ADDRESS $ADDITIONAL_ARGS"
 }
 
 load_service() {
@@ -256,7 +264,7 @@ load_service() {
 	config_get "old_port" "$section" "old_port" "0"
 	config_get "old_enabled" "$section" "old_enabled" "0"
 
-	if [ "$old_redirect" != "$redirect" ] || [ "$old_port" != "$SMARTDNS_PORT" ] || [ "$old_enabled" = "1" ]; then
+	if [ "$old_redirect" != "$redirect" ] || [ "$old_port" != "$SMARTDNS_PORT" ] || [ "$old_enabled" = "1" -a "$enabled" = "0" ]; then
 		if [ "$old_redirect" != "none" ]; then
 			if [ "$old_port" != "0" ]; then
 				clear_iptable "$old_port" "$ipv6_server"

@@ -80,11 +80,13 @@ o.rempty      = true
 ---- rr-ttl-min
 o = s:taboption("settings", Value, "rr_ttl_min", translate("Domain TTL Min"), translate("Minimum TTL for all domain result."))
 o.rempty      = true
+o.placeholder = "300"
+o.default     = 300
+o.optional    = true
 
 ---- rr-ttl-max
 o = s:taboption("settings", Value, "rr_ttl_max", translate("Domain TTL Max"), translate("Maximum TTL for all domain result."))
 o.rempty      = true
-
 
 ----- custom settings
 custom = s:taboption("custom", Value, "Custom Settings",
@@ -129,16 +131,17 @@ end
 
 ---- name
 s:option(Value, "name", translate("DNS Server Name"), translate("DNS Server Name"))
+
 ---- IP address
 o = s:option(Value, "ip", translate("ip"), translate("DNS Server ip"))
 o.datatype = "ipaddr"
 o.rmempty = false 
 ---- port
 o = s:option(Value, "port", translate("port"), translate("DNS Server port"))
-o.placeholder = 53
-o.default     = 53
+o.placeholder = "default"
 o.datatype    = "port"
-o.rempty      = false
+o.rempty      = true
+
 ---- type
 o = s:option(ListValue, "type", translate("type"), translate("DNS Server type"))
 o.placeholder = "udp"
