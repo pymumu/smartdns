@@ -396,6 +396,8 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 |bogus-nxdomain|假冒IP地址过滤|无|[ip/subnet]，可重复| bogus-nxdomain 1.2.3.4/16
 |blacklist-ip|黑名单IP地址|无|[ip/subnet]，可重复| blacklist-ip 1.2.3.4/16
 |force-AAAA-SOA|强制AAAA地址返回SOA|no|[yes\|no]|force-AAAA-SOA yes
+|dualstack-ip-selection|双栈IP优选|no|[yes\|no]|dualstack-ip-selection yes
+|dualstack-ip-selection-threshold|双栈IP优选阈值|100ms|毫秒|dualstack-ip-selection-threshold [1-1000]
 
 ## [Donate](#Donate)  
 
