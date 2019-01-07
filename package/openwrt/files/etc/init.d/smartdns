@@ -17,7 +17,7 @@ BLACKLIST_IP_CONF="$SMARTDNS_CONF_DIR/blacklist-ip.conf"
 CUSTOM_CONF="$SMARTDNS_CONF_DIR/custom.conf"
 SMARTDNS_CONF_TMP="${SMARTDNS_CONF}.tmp"
 COREDUMP="0"
-RESPAWN="0"
+RESPAWN="1"
 
 set_forward_dnsmasq()
 {
