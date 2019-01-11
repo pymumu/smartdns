@@ -185,13 +185,15 @@ static void _dns_server_audit_log(struct dns_request *request)
 		return;
 	}
 
-	if (request->qtype == DNS_T_AAAA) {
+	if (request->qtype == DNS_T_AAAA && request->has_ipv6) {
 		snprintf(req_result, sizeof(req_result), "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", request->ipv6_addr[0],
 				 request->ipv6_addr[1], request->ipv6_addr[2], request->ipv6_addr[3], request->ipv6_addr[4], request->ipv6_addr[5], request->ipv6_addr[6],
 				 request->ipv6_addr[7], request->ipv6_addr[8], request->ipv6_addr[9], request->ipv6_addr[10], request->ipv6_addr[11], request->ipv6_addr[12],
 				 request->ipv6_addr[13], request->ipv6_addr[14], request->ipv6_addr[15]);
-	} else if (request->qtype == DNS_T_A) {
+	} else if (request->qtype == DNS_T_A && request->has_ipv4) {
 		snprintf(req_result, sizeof(req_result), "%d.%d.%d.%d", request->ipv4_addr[0], request->ipv4_addr[1], request->ipv4_addr[2], request->ipv4_addr[3]);
+	} else if (request->has_soa) {
+		return;
 	} else {
 		return;
 	}
@@ -508,10 +510,10 @@ int _dns_server_request_complete(struct dns_request *request)
 	}
 
 	if (request->qtype == DNS_T_A) {
-		tlog(TLOG_INFO, "result: %s, rcode: %d,  %d.%d.%d.%d\n", request->domain, request->rcode, request->ipv4_addr[0], request->ipv4_addr[1],
-			 request->ipv4_addr[2], request->ipv4_addr[3]);
-
 		if (request->has_ipv4) {
+			tlog(TLOG_INFO, "result: %s, rcode: %d,  %d.%d.%d.%d\n", request->domain, request->rcode, request->ipv4_addr[0], request->ipv4_addr[1],
+				request->ipv4_addr[2], request->ipv4_addr[3]);
+
 			if (request->has_ping_result == 0 && request->ttl_v4 > DNS_SERVER_TMOUT_TTL) {
 				request->ttl_v4 = DNS_SERVER_TMOUT_TTL;
 			}
@@ -524,12 +526,10 @@ int _dns_server_request_complete(struct dns_request *request)
 		}
 
 	} else if (request->qtype == DNS_T_AAAA) {
-		tlog(TLOG_INFO, "result: %s, rcode: %d,  %.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", request->domain, request->rcode,
-			 request->ipv6_addr[0], request->ipv6_addr[1], request->ipv6_addr[2], request->ipv6_addr[3], request->ipv6_addr[4], request->ipv6_addr[5],
-			 request->ipv6_addr[6], request->ipv6_addr[7], request->ipv6_addr[8], request->ipv6_addr[9], request->ipv6_addr[10], request->ipv6_addr[11],
-			 request->ipv6_addr[12], request->ipv6_addr[13], request->ipv6_addr[14], request->ipv6_addr[15]);
-
 		if (request->has_ipv4) {
+			tlog(TLOG_INFO, "result: %s, rcode: %d,  %d.%d.%d.%d\n", request->domain, request->rcode, request->ipv4_addr[0], request->ipv4_addr[1],
+				request->ipv4_addr[2], request->ipv4_addr[3]);
+
 			dns_cache_insert(request->domain, cname, cname_ttl, request->ttl_v4, DNS_T_AAAA, request->ipv4_addr, DNS_RR_A_LEN);
 
 			if (((request->ping_ttl_v4 + (dns_conf_dualstack_ip_selection_threshold * 10) < request->ping_ttl_v6) && (request->ping_ttl_v4 > 0)) ||
@@ -540,6 +540,11 @@ int _dns_server_request_complete(struct dns_request *request)
 		}
 
 		if (request->has_ipv6) {
+			tlog(TLOG_INFO, "result: %s, rcode: %d,  %.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", request->domain, request->rcode,
+			 request->ipv6_addr[0], request->ipv6_addr[1], request->ipv6_addr[2], request->ipv6_addr[3], request->ipv6_addr[4], request->ipv6_addr[5],
+			 request->ipv6_addr[6], request->ipv6_addr[7], request->ipv6_addr[8], request->ipv6_addr[9], request->ipv6_addr[10], request->ipv6_addr[11],
+			 request->ipv6_addr[12], request->ipv6_addr[13], request->ipv6_addr[14], request->ipv6_addr[15]);
+
 			if (request->has_ping_result == 0 && request->ttl_v6 > DNS_SERVER_TMOUT_TTL) {
 				request->ttl_v6 = DNS_SERVER_TMOUT_TTL;
 			}
@@ -554,6 +559,10 @@ int _dns_server_request_complete(struct dns_request *request)
 
 	if (request->prefetch) {
 		return 0;
+	}
+
+	if (request->has_soa) {
+		tlog(TLOG_INFO, "result: %s, qtype: %d, SOA", request->domain, request->qtype);
 	}
 
 	_dns_setup_ipset(request);

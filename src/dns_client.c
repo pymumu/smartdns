@@ -115,6 +115,7 @@ struct dns_server_info {
 	/* client socket */
 	int fd;
 	int ttl;
+	int ttl_range;
 	SSL *ssl;
 	SSL_CTX *ssl_ctx;
 	dns_server_status status;
@@ -270,6 +271,7 @@ int _dns_client_server_add(char *server_ip, struct addrinfo *gai, dns_server_typ
 	server_info->status = DNS_SERVER_STATUS_INIT;
 	server_info->result_flag = result_flag;
 	server_info->ttl = ttl;
+	server_info->ttl_range = 0;
 
 	if (gai->ai_addrlen > sizeof(server_info->in6)) {
 		tlog(TLOG_ERROR, "addr len invalid, %d, %zd, %d", gai->ai_addrlen, sizeof(server_info->addr), server_info->ai_family);
@@ -278,11 +280,15 @@ int _dns_client_server_add(char *server_ip, struct addrinfo *gai, dns_server_typ
 	memcpy(&server_info->addr, gai->ai_addr, gai->ai_addrlen);
 
 	/* start ping task */
-	if (ttl == 0 && (result_flag & DNSSERVER_FLAG_CHECK_TTL)) {
+	if (ttl <= 0 && (result_flag & DNSSERVER_FLAG_CHECK_TTL)) {
 		server_info->ping_host = fast_ping_start(PING_TYPE_DNS, server_ip, 0, 60000, 1000, _dns_client_server_update_ttl, server_info);
 		if (server_info->ping_host == NULL) {
 			tlog(TLOG_ERROR, "start ping failed.");
 			goto errout;
+		}
+
+		if (ttl < 0) {
+			server_info->ttl_range = -ttl;
 		}
 	}
 
@@ -940,8 +946,10 @@ static int _dns_client_process_udp(struct dns_server_info *server_info, struct e
 	tlog(TLOG_DEBUG, "recv udp, from %s, len: %d, ttl: %d", gethost_by_addr(from_host, (struct sockaddr *)&from, from_len), len, ttl);
 
 	if ((ttl != server_info->ttl) && (server_info->ttl > 0) && (server_info->result_flag & DNSSERVER_FLAG_CHECK_TTL)) {
-		/* tlog(TLOG_DEBUG, "TTL mismatch, from:%d, local %d, discard result", ttl, server_info->ttl); */
-		return 0;
+		if ((ttl < server_info->ttl - server_info->ttl_range) || (ttl > server_info->ttl + server_info->ttl_range)) {
+			/* tlog(TLOG_DEBUG, "TTL mismatch, from:%d, local %d, discard result", ttl, server_info->ttl); */
+			return 0;
+		}
 	}
 
 	time(&server_info->last_recv);

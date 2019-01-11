@@ -92,7 +92,7 @@ int config_server(int argc, char *argv[], dns_server_type_t type, int default_po
 			}
 
 			ttl = atoi(optarg);
-			if (ttl < 0 || ttl > 255) {
+			if (ttl < -255 || ttl > 255) {
 				tlog(TLOG_ERROR, "ttl value is invalid.");
 				return -1;
 			}
