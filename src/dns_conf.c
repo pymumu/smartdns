@@ -246,9 +246,10 @@ int config_domain_rule_flag_set(char *domain, unsigned int flag)
 	if (domain_rule->rules[DOMAIN_RULE_FLAGS] == NULL) {
 		rule_flags = malloc(sizeof(*rule_flags));
 		rule_flags->flags = 0;
+		domain_rule->rules[DOMAIN_RULE_FLAGS] = rule_flags;
 	}
 
-	domain_rule->rules[DOMAIN_RULE_FLAGS] = rule_flags;
+	rule_flags = domain_rule->rules[DOMAIN_RULE_FLAGS];
 	rule_flags->flags |= flag;
 
 	if (add_domain_rule) {
