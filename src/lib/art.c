@@ -1027,7 +1027,6 @@ void *art_substring(const art_tree *t, const unsigned char *str, int str_len, un
             // Check if the expanded path matches
             if (!str_prefix_matches((art_leaf*)n, str, str_len)) {
                 found = (art_leaf*)n;
-				art_copy_key(found, key, key_len);
 			}
             break;
         }
@@ -1040,7 +1039,6 @@ void *art_substring(const art_tree *t, const unsigned char *str, int str_len, un
             // Check if the expanded path matches
             if (!str_prefix_matches((art_leaf*)m, str, str_len)) {
                 found = (art_leaf*)m;
-                art_copy_key(found, key, key_len);
             }
     	}
 
@@ -1061,6 +1059,8 @@ void *art_substring(const art_tree *t, const unsigned char *str, int str_len, un
     if (found == NULL) {
         return NULL;
     }
+
+    art_copy_key(found, key, key_len);
 
     return found->value;
 }

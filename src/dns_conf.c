@@ -213,7 +213,58 @@ errout:
 		free(add_domain_rule);
 	}
 
-	tlog(TLOG_ERROR, "add doamin %s failed", domain);
+	tlog(TLOG_ERROR, "add doamin %s rule failed", domain);
+	return 0;
+}
+
+int config_domain_rule_flag_set(char *domain, unsigned int flag)
+{
+	struct dns_domain_rule *domain_rule = NULL;
+	struct dns_domain_rule *old_domain_rule = NULL;
+	struct dns_domain_rule *add_domain_rule = NULL;
+	struct dns_rule_flags *rule_flags = NULL;
+
+	char domain_key[DNS_MAX_CONF_CNAME_LEN];
+	int len = 0;
+
+	len = strlen(domain);
+	reverse_string(domain_key, domain, len);
+	domain_key[len] = '.';
+	len++;
+	domain_key[len] = 0;
+
+	domain_rule = art_search(&dns_conf_domain_rule, (unsigned char *)domain_key, len);
+	if (domain_rule == NULL) {
+		add_domain_rule = malloc(sizeof(*add_domain_rule));
+		if (add_domain_rule == NULL) {
+			goto errout;
+		}
+		memset(add_domain_rule, 0, sizeof(*add_domain_rule));
+		domain_rule = add_domain_rule;
+	}
+
+	if (domain_rule->rules[DOMAIN_RULE_FLAGS] == NULL) {
+		rule_flags = malloc(sizeof(*rule_flags));
+		rule_flags->flags = 0;
+	}
+
+	domain_rule->rules[DOMAIN_RULE_FLAGS] = rule_flags;
+	rule_flags->flags |= flag;
+
+	if (add_domain_rule) {
+		old_domain_rule = art_insert(&dns_conf_domain_rule, (unsigned char *)domain_key, len, add_domain_rule);
+		if (old_domain_rule) {
+			free(old_domain_rule);
+		}
+	}
+
+	return 0;
+errout:
+	if (add_domain_rule) {
+		free(add_domain_rule);
+	}
+
+	tlog(TLOG_ERROR, "add doamin %s rule failed", domain);
 	return 0;
 }
 
@@ -301,18 +352,26 @@ int config_ipset(void *data, int argc, char *argv[])
 		goto errout;
 	}
 
-	strncpy(ipsetname, end + 1, DNS_MAX_IPSET_NAMELEN);
-	ipset = dns_conf_get_ipset(ipsetname);
-	if (ipset == NULL) {
-		goto errout;
-	}
+	if (strncmp(end + 1, "-", sizeof("-")) != 0) {
+		strncpy(ipsetname, end + 1, DNS_MAX_IPSET_NAMELEN);
+		ipset = dns_conf_get_ipset(ipsetname);
+		if (ipset == NULL) {
+			goto errout;
+		}
 
-	ipset_rule = malloc(sizeof(*ipset_rule));
-	if (ipset_rule == NULL) {
-		goto errout;
-	}
+		ipset_rule = malloc(sizeof(*ipset_rule));
+		if (ipset_rule == NULL) {
+			goto errout;
+		}
 
-	ipset_rule->ipsetname = ipset;
+		ipset_rule->ipsetname = ipset;
+	} else {
+		if (config_domain_rule_flag_set(domain, DOMAIN_FLAG_IPSET_IGNORE) != 0 ) {
+			goto errout;
+		}
+
+		return 0;
+	}
 
 	if (config_domain_rule_add(domain, DOMAIN_RULE_IPSET, ipset_rule) != 0) {
 		goto errout;
@@ -343,6 +402,7 @@ int config_address(void *data, int argc, char *argv[])
 	struct sockaddr_storage addr;
 	socklen_t addr_len = sizeof(addr);
 	enum domain_rule type = 0;
+	unsigned int flag = 0;
 
 	if (argc <= 1) {
 		goto errout;
@@ -368,51 +428,81 @@ int config_address(void *data, int argc, char *argv[])
 	memcpy(domain, begin, len);
 	domain[len] = 0;
 
-	if (parse_ip(end + 1, ip, &port) != 0) {
-		goto errout;
-	}
+	if (strncmp(end + 1, "#", sizeof("#")) == 0) {
+		if (strncmp(end + 1, "#4", sizeof("#4")) == 0) {
+			flag = DOMAIN_FLAG_ADDR_IPV4_SOA;
+		} else if (strncmp(end + 1, "#6", sizeof("#6")) == 0) {
+			flag = DOMAIN_FLAG_ADDR_IPV6_SOA;
+		} else {
+			flag = DOMAIN_FLAG_ADDR_SOA;
+		}
 
-	if (getaddr_by_host(ip, (struct sockaddr *)&addr, &addr_len) != 0) {
-		goto errout;
-	}
-
-	switch (addr.ss_family) {
-	case AF_INET: {
-		struct sockaddr_in *addr_in;
-		address_ipv4 = malloc(sizeof(*address_ipv4));
-		if (address_ipv4 == NULL) {
+		if (config_domain_rule_flag_set(domain, flag) != 0 ) {
 			goto errout;
 		}
 
-		addr_in = (struct sockaddr_in *)&addr;
-		memcpy(address_ipv4->ipv4_addr, &addr_in->sin_addr.s_addr, 4);
-		type = DOMAIN_RULE_ADDRESS_IPV4;
-		address = address_ipv4;
-	} break;
-	case AF_INET6: {
-		struct sockaddr_in6 *addr_in6;
-		addr_in6 = (struct sockaddr_in6 *)&addr;
-		if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
+		return 0;
+	} else if (strncmp(end + 1, "-", sizeof("-")) == 0) {
+		if (strncmp(end + 1, "-4", sizeof("-4")) == 0) {
+			flag = DOMAIN_FLAG_ADDR_IPV4_IGN;
+		} else if (strncmp(end + 1, "-6", sizeof("-6")) == 0) {
+			flag = DOMAIN_FLAG_ADDR_IPV6_IGN;
+		} else {
+			flag = DOMAIN_FLAG_ADDR_IGN;
+		}
+
+		if (config_domain_rule_flag_set(domain, flag) != 0 ) {
+			goto errout;
+		}
+
+		return 0;
+	} else {
+		if (parse_ip(end + 1, ip, &port) != 0) {
+			goto errout;
+		}
+
+		if (getaddr_by_host(ip, (struct sockaddr *)&addr, &addr_len) != 0) {
+			goto errout;
+		}
+
+		switch (addr.ss_family) {
+		case AF_INET: {
+			struct sockaddr_in *addr_in;
 			address_ipv4 = malloc(sizeof(*address_ipv4));
 			if (address_ipv4 == NULL) {
 				goto errout;
 			}
-			memcpy(address_ipv4->ipv4_addr, addr_in6->sin6_addr.s6_addr + 12, 4);
+
+			addr_in = (struct sockaddr_in *)&addr;
+			memcpy(address_ipv4->ipv4_addr, &addr_in->sin_addr.s_addr, 4);
 			type = DOMAIN_RULE_ADDRESS_IPV4;
 			address = address_ipv4;
-		} else {
-			address_ipv6 = malloc(sizeof(*address_ipv6));
-			if (address_ipv6 == NULL) {
-				goto errout;
+		} break;
+		case AF_INET6: {
+			struct sockaddr_in6 *addr_in6;
+			addr_in6 = (struct sockaddr_in6 *)&addr;
+			if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
+				address_ipv4 = malloc(sizeof(*address_ipv4));
+				if (address_ipv4 == NULL) {
+					goto errout;
+				}
+				memcpy(address_ipv4->ipv4_addr, addr_in6->sin6_addr.s6_addr + 12, 4);
+				type = DOMAIN_RULE_ADDRESS_IPV4;
+				address = address_ipv4;
+			} else {
+				address_ipv6 = malloc(sizeof(*address_ipv6));
+				if (address_ipv6 == NULL) {
+					goto errout;
+				}
+				memcpy(address_ipv6->ipv6_addr, addr_in6->sin6_addr.s6_addr, 16);
+				type = DOMAIN_RULE_ADDRESS_IPV6;
+				address = address_ipv6;
 			}
-			memcpy(address_ipv6->ipv6_addr, addr_in6->sin6_addr.s6_addr, 16);
-			type = DOMAIN_RULE_ADDRESS_IPV6;
-			address = address_ipv6;
+		} break;
+		default:
+			goto errout;
 		}
-	} break;
-	default:
-		goto errout;
-	}
+	} 
 
 	if (config_domain_rule_add(domain, type, address) != 0) {
 		goto errout;

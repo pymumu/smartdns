@@ -22,10 +22,23 @@
 #define SMARTDNS_AUDIT_FILE "/var/log/smartdns-audit.log"
 
 enum domain_rule {
-	DOMAIN_RULE_ADDRESS_IPV4 = 1,
-	DOMAIN_RULE_ADDRESS_IPV6 = 2,
-	DOMAIN_RULE_IPSET = 3,
+	DOMAIN_RULE_FLAGS = 0,
+	DOMAIN_RULE_ADDRESS_IPV4,
+	DOMAIN_RULE_ADDRESS_IPV6,
+	DOMAIN_RULE_IPSET,
 	DOMAIN_RULE_MAX,
+};
+
+#define DOMAIN_FLAG_ADDR_SOA      (1 << 0)
+#define DOMAIN_FLAG_ADDR_IPV4_SOA (1 << 1)
+#define DOMAIN_FLAG_ADDR_IPV6_SOA (1 << 2)
+#define DOMAIN_FLAG_ADDR_IGN      (1 << 3)
+#define DOMAIN_FLAG_ADDR_IPV4_IGN (1 << 4)
+#define DOMAIN_FLAG_ADDR_IPV6_IGN (1 << 5)
+#define DOMAIN_FLAG_IPSET_IGNORE  (1 << 6)
+
+struct dns_rule_flags {
+	unsigned int flags;
 };
 
 struct dns_address_IPV4 {

@@ -464,10 +464,18 @@ static int _dns_server_reply_SOA(int rcode, struct dns_request *request, struct 
 static int _dns_setup_ipset(struct dns_request *request)
 {
 	struct dns_ipset_rule *ipset_rule = NULL;
+	struct dns_rule_flags *rule_flags = NULL;
 	int ret = 0;
 
 	if (request->domain_rule == NULL) {
 		return 0;
+	}
+
+	rule_flags = request->domain_rule->rules[DOMAIN_RULE_FLAGS];
+	if (rule_flags) {
+		if (rule_flags->flags & DOMAIN_FLAG_IPSET_IGNORE) {
+			return 0;
+		}
 	}
 
 	ipset_rule = request->domain_rule->rules[DOMAIN_RULE_IPSET];
@@ -1196,6 +1204,59 @@ static struct dns_domain_rule *_dns_server_get_domain_rule(char *domain)
 	return domain_rule;
 }
 
+static int _dns_server_pre_process_rule_flags(struct dns_request *request, struct dns_packet *packet)
+{
+	struct dns_rule_flags *rule_flag = NULL;
+	unsigned int flags = 0;
+	if (request->domain_rule == NULL) {
+		goto errout;
+	}
+
+	rule_flag = request->domain_rule->rules[DOMAIN_RULE_FLAGS];
+	if (rule_flag == NULL) {
+		goto errout;
+	}
+
+	flags = rule_flag->flags;
+	if (flags & DOMAIN_FLAG_ADDR_IGN) {
+		goto errout;
+	}
+
+	if (flags & DOMAIN_FLAG_ADDR_SOA) {
+		_dns_server_reply_SOA(DNS_RC_NOERROR, request, packet);
+		return 0;
+	}
+
+	switch (request->qtype) {
+	case DNS_T_A:
+		if (flags & DOMAIN_FLAG_ADDR_IPV4_IGN) {
+			goto errout;
+		}
+
+		if (flags & DOMAIN_FLAG_ADDR_IPV4_SOA) {
+			_dns_server_reply_SOA(DNS_RC_NOERROR, request, packet);
+			return 0;
+		}
+		break;
+	case DNS_T_AAAA:
+		if (flags & DOMAIN_FLAG_ADDR_IPV6_IGN) {
+			goto errout;
+		}
+
+		if (flags & DOMAIN_FLAG_ADDR_IPV6_SOA) {
+			_dns_server_reply_SOA(DNS_RC_NOERROR, request, packet);
+			return 0;
+		}
+		break;
+	default:
+		goto errout;
+		break;
+	}
+
+errout:
+	return -1;
+}
+
 static int _dns_server_process_address(struct dns_request *request, struct dns_packet *packet)
 {
 	struct dns_address_IPV4 *address_ipv4 = NULL;
@@ -1369,11 +1430,16 @@ static int _dns_server_recv(struct dns_server_conn *client, unsigned char *inpac
 			_dns_server_reply_SOA(DNS_RC_NOERROR, request, packet);
 			goto clean_exit;
 		}
+		
 		break;
 	default:
 		tlog(TLOG_DEBUG, "unsupport qtype: %d, domain: %s", qtype, request->domain);
 		request->passthrough = 1;
 		break;
+	}
+
+	if (_dns_server_pre_process_rule_flags(request, packet) == 0) {
+		goto clean_exit;
 	}
 
 	if (_dns_server_process_address(request, packet) == 0) {

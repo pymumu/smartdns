@@ -391,8 +391,8 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 |server|Upstream UDP DNS server|None|[ip][:port] [-blacklist-ip][-check-edns], Repeatable, blacklist-ip parameter represents filtering the result of IPs with blacklist-ip configuration.| server 8.8.8.8:53 -blacklist-ip -check-edns
 |server-tcp|Upstream TCP DNS server|None|[IP][:port] [-blacklist-ip][-check-edns], Repeatable, blacklist-ip parameter represents filtering the result of IPs with blacklist-ip configuration.| server-tcp 8.8.8.8:53
 |server-tls|Upstream TLS DNS server|None|[IP][:port] [-blacklist-ip][-check-edns], Repeatable, blacklist-ip parameter represents filtering the result of IPs with blacklist-ip configuration.| server-tls 8.8.8.8:853
-|address|Domain IP address|None|address /domain/ip| address /www.example.com/1.2.3.4
-|ipset|Domain IPSet|None|ipset /domain/ipset|ipset /www.example.com/pass
+|address|Domain IP address|None|address /domain/[ip\|-\|-4\|-6\|#\|#4\|#6], `-` for ignore, `#` for return SOA, `4` for IPV4, `6` for IPV6| address /www.example.com/1.2.3.4
+|ipset|Domain IPSet|None|ipset /domain/[ipset\|-], `-` for ignore|ipset /www.example.com/pass
 |bogus-nxdomain|bogus IP address|None|[IP/subnet], Repeatable| bogus-nxdomain 1.2.3.4/16
 |blacklist-ip|ip blacklist|None|[ip/subnet], Repeatable，When the filtering server responds IPs in the IP blacklist, The result will be discarded directly| blacklist-ip 1.2.3.4/16
 |force-AAAA-SOA|force AAAA query return SOA|no|[yes\|no]|force-AAAA-SOA yes
