@@ -531,6 +531,8 @@ int _dns_server_request_complete(struct dns_request *request)
 			} else {
 				dns_cache_insert(request->domain, cname, cname_ttl, request->ttl_v4, DNS_T_A, request->ipv4_addr, DNS_RR_A_LEN);
 			}
+
+			request->has_soa = 0;
 		}
 
 	} else if (request->qtype == DNS_T_AAAA) {
@@ -562,6 +564,8 @@ int _dns_server_request_complete(struct dns_request *request)
 			} else {
 				dns_cache_insert(request->domain, cname, cname_ttl, request->ttl_v6, DNS_T_AAAA, request->ipv6_addr, DNS_RR_AAAA_LEN);
 			}
+
+			request->has_soa = 0;
 		}
 	}
 
@@ -1012,8 +1016,8 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 				request->has_soa = 1;
 				request->rcode = packet->head.rcode;
 				dns_get_SOA(rrs, name, 128, &ttl, &request->soa);
-				tlog(TLOG_INFO, "SOA: mname: %s, rname: %s, serial: %d, refresh: %d, retry: %d, expire: %d, minimum: %d", request->soa.mname,
-					 request->soa.rname, request->soa.serial, request->soa.refresh, request->soa.retry, request->soa.expire, request->soa.minimum);
+				tlog(TLOG_INFO, "domain: %s, qtype: %d, SOA: mname: %s, rname: %s, serial: %d, refresh: %d, retry: %d, expire: %d, minimum: %d", domain, request->qtype,
+				request->soa.mname, request->soa.rname, request->soa.serial, request->soa.refresh, request->soa.retry, request->soa.expire, request->soa.minimum);
 			} break;
 			default:
 				tlog(TLOG_INFO, "%s, qtype: %d", name, rrs->type);
