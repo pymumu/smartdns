@@ -93,6 +93,7 @@ struct dns_server {
 struct dns_ip_address {
 	struct hlist_node node;
 	int hitnum;
+	unsigned long recv_tick;
 	dns_type_t addr_type;
 	union {
 		unsigned char ipv4_addr[DNS_RR_A_LEN];
@@ -540,13 +541,14 @@ int _dns_server_request_complete(struct dns_request *request)
 			tlog(TLOG_INFO, "result: %s, rcode: %d,  %d.%d.%d.%d\n", request->domain, request->rcode, request->ipv4_addr[0], request->ipv4_addr[1],
 				request->ipv4_addr[2], request->ipv4_addr[3]);
 
-			dns_cache_insert(request->domain, cname, cname_ttl, request->ttl_v4, DNS_T_AAAA, request->ipv4_addr, DNS_RR_A_LEN);
-
 			if (((request->ping_ttl_v4 + (dns_conf_dualstack_ip_selection_threshold * 10) < request->ping_ttl_v6) && (request->ping_ttl_v4 > 0)) ||
-				(request->ping_ttl_v6 == -1)) {
+				((request->ping_ttl_v6 == -1) && (request->ping_ttl_v4 > 0))) {
 				tlog(TLOG_DEBUG, "Force IPV4 perfered.");
+				dns_cache_insert(request->domain, cname, cname_ttl, request->ttl_v4, DNS_T_A, request->ipv4_addr, DNS_RR_A_LEN);
 				return _dns_server_reply_SOA(DNS_RC_NOERROR, request, NULL);
 			}
+
+			request->has_ipv4 = 0;
 		}
 
 		if (request->has_ipv6) {
@@ -596,12 +598,15 @@ void _dns_server_request_remove(struct dns_request *request)
 	_dns_server_request_release(request);
 }
 
-void _dns_server_select_maxhit_ipaddress(struct dns_request *request)
+void _dns_server_select_possible_ipaddress(struct dns_request *request)
 {
 	int maxhit = 0;
 	int bucket = 0;
+	unsigned long max_recv_tick = 0;
 	struct dns_ip_address *addr_map;
 	struct dns_ip_address *maxhit_addr_map = NULL;
+	struct dns_ip_address *last_recv_addr_map = NULL;
+	struct dns_ip_address *selected_addr_map = NULL;
 	struct hlist_node *tmp;
 
 	if (atomic_read(&request->notified) > 0) {
@@ -614,27 +619,42 @@ void _dns_server_select_maxhit_ipaddress(struct dns_request *request)
 			continue;
 		}
 
-		if (addr_map->hitnum <= maxhit) {
-			continue;
+		if (addr_map->recv_tick - request->send_tick > max_recv_tick) {
+			max_recv_tick = addr_map->recv_tick - request->send_tick;
+			last_recv_addr_map = addr_map;
 		}
 
-		maxhit = addr_map->hitnum;
-		maxhit_addr_map = addr_map;
+		if (addr_map->hitnum > maxhit) {
+			maxhit = addr_map->hitnum;
+			maxhit_addr_map = addr_map;
+		}
 	}
 
-	if (maxhit_addr_map == NULL || maxhit == 1) {
+	if (maxhit_addr_map && maxhit > 1) {
+		selected_addr_map = maxhit_addr_map;
+	} else if (last_recv_addr_map) {
+		selected_addr_map = last_recv_addr_map;
+	}
+
+	if (selected_addr_map == NULL) {
 		return;
 	}
 
 	tlog(TLOG_DEBUG, "select best ip address, %s", request->domain);
 	switch (request->qtype) {
 	case DNS_T_A: {
-		memcpy(request->ipv4_addr, maxhit_addr_map->ipv4_addr, DNS_RR_A_LEN);
+		memcpy(request->ipv4_addr, selected_addr_map->ipv4_addr, DNS_RR_A_LEN);
 		request->ttl_v4 = DNS_SERVER_TMOUT_TTL;
+		tlog(TLOG_DEBUG, "possible result: %s, rcode: %d,  %d.%d.%d.%d\n", request->domain, request->rcode, request->ipv4_addr[0], request->ipv4_addr[1],
+				request->ipv4_addr[2], request->ipv4_addr[3]);
 	} break;
 	case DNS_T_AAAA: {
-		memcpy(request->ipv6_addr, maxhit_addr_map->ipv6_addr, DNS_RR_AAAA_LEN);
+		memcpy(request->ipv6_addr, selected_addr_map->ipv6_addr, DNS_RR_AAAA_LEN);
 		request->ttl_v6 = DNS_SERVER_TMOUT_TTL;
+		tlog(TLOG_DEBUG, "possible result: %s, rcode: %d,  %.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", request->domain, request->rcode,
+			 request->ipv6_addr[0], request->ipv6_addr[1], request->ipv6_addr[2], request->ipv6_addr[3], request->ipv6_addr[4], request->ipv6_addr[5],
+			 request->ipv6_addr[6], request->ipv6_addr[7], request->ipv6_addr[8], request->ipv6_addr[9], request->ipv6_addr[10], request->ipv6_addr[11],
+			 request->ipv6_addr[12], request->ipv6_addr[13], request->ipv6_addr[14], request->ipv6_addr[15]);
 	} break;
 	default:
 		break;
@@ -661,7 +681,7 @@ void _dns_server_request_release(struct dns_request *request)
 	pthread_mutex_unlock(&server.request_list_lock);
 
 	/* Select max hit ip address, and return to client */
-	_dns_server_select_maxhit_ipaddress(request);
+	_dns_server_select_possible_ipaddress(request);
 
 	_dns_server_request_complete(request);
 	hash_for_each_safe(request->ip_map, bucket, tmp, addr_map, node)
@@ -697,6 +717,8 @@ void _dns_server_ping_result(struct ping_host_struct *ping_host, const char *hos
 	if (result == PING_RESULT_END) {
 		_dns_server_request_release(request);
 		fast_ping_stop(ping_host);
+		return;
+	} else if (result == PING_RESULT_TIMEOUT) {
 		return;
 	}
 
@@ -785,12 +807,14 @@ int _dns_ip_address_check_add(struct dns_request *request, unsigned char *addr, 
 		if (addr_type == DNS_T_A) {
 			if (memcmp(addr_map->ipv4_addr, addr, addr_len) == 0) {
 				addr_map->hitnum++;
+				addr_map->recv_tick = get_tick_count();
 				pthread_mutex_unlock(&request->ip_map_lock);
 				return -1;
 			}
 		} else if (addr_type == DNS_T_AAAA) {
 			if (memcmp(addr_map->ipv6_addr, addr, addr_len) == 0) {
 				addr_map->hitnum++;
+				addr_map->recv_tick = get_tick_count();
 				pthread_mutex_unlock(&request->ip_map_lock);
 				return -1;
 			}
@@ -807,6 +831,7 @@ int _dns_ip_address_check_add(struct dns_request *request, unsigned char *addr, 
 
 	addr_map->addr_type = addr_type;
 	addr_map->hitnum = 1;
+	addr_map->recv_tick = get_tick_count();
 	memcpy(addr_map->addr, addr, addr_len);
 	hash_add(request->ip_map, &addr_map->node, key);
 	pthread_mutex_unlock(&request->ip_map_lock);
@@ -1797,7 +1822,6 @@ void _dns_server_tcp_ping_check(struct dns_request *request)
 {
 	struct dns_ip_address *addr_map;
 	int bucket = 0;
-	char name[DNS_MAX_CNAME_LEN] = {0};
 	char ip[DNS_MAX_CNAME_LEN] = {0};
 
 	if (request->has_ping_result) {
@@ -1821,7 +1845,7 @@ void _dns_server_tcp_ping_check(struct dns_request *request)
 		} break;
 		case DNS_T_AAAA: {
 			_dns_server_request_get(request);
-			sprintf(name, "[%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x]:80", addr_map->ipv6_addr[0], addr_map->ipv6_addr[1],
+			sprintf(ip, "[%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x]:80", addr_map->ipv6_addr[0], addr_map->ipv6_addr[1],
 					addr_map->ipv6_addr[2], addr_map->ipv6_addr[3], addr_map->ipv6_addr[4], addr_map->ipv6_addr[5], addr_map->ipv6_addr[6],
 					addr_map->ipv6_addr[7], addr_map->ipv6_addr[8], addr_map->ipv6_addr[9], addr_map->ipv6_addr[10], addr_map->ipv6_addr[11],
 					addr_map->ipv6_addr[12], addr_map->ipv6_addr[13], addr_map->ipv6_addr[14], addr_map->ipv6_addr[15]);
