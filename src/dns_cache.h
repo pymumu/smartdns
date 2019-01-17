@@ -8,6 +8,8 @@
 #include "list.h"
 #include <time.h>
 
+#define DNS_CACHE_TTL_MIN 30
+
 struct dns_cache {
 	struct hlist_node node;
 	struct list_head list;
@@ -17,6 +19,7 @@ struct dns_cache {
 	char cname[DNS_MAX_CNAME_LEN];
 	unsigned int cname_ttl;
 	unsigned int ttl;
+	int hitnum;
 	time_t insert_time;
 	dns_type_t qtype;
 	union {

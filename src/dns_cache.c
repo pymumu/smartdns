@@ -72,6 +72,10 @@ int dns_cache_replace(char *domain, char *cname, int cname_ttl, int ttl, dns_typ
 		return 0;
 	}
 
+	if (ttl < DNS_CACHE_TTL_MIN) {
+		ttl = DNS_CACHE_TTL_MIN;
+	}
+
 	dns_cache->ttl = ttl;
 	dns_cache->qtype = qtype;
 	dns_cache->ttl = ttl;
@@ -125,12 +129,17 @@ int dns_cache_insert(char *domain, char *cname, int cname_ttl, int ttl, dns_type
 		goto errout;
 	}
 
+	if (ttl < DNS_CACHE_TTL_MIN) {
+		ttl = DNS_CACHE_TTL_MIN;
+	}
+
 	key = hash_string(domain);
 	key = jhash(&qtype, sizeof(qtype), key);
 	strncpy(dns_cache->domain, domain, DNS_MAX_CNAME_LEN);
 	dns_cache->cname[0] = 0;
 	dns_cache->qtype = qtype;
 	dns_cache->ttl = ttl;
+	dns_cache->hitnum = 6;
 	atomic_set(&dns_cache->ref, 1);
 	time(&dns_cache->insert_time);
 	if (qtype == DNS_T_A) {
@@ -247,6 +256,7 @@ void dns_cache_update(struct dns_cache *dns_cache)
 	if (!list_empty(&dns_cache->list)) {
 		list_del_init(&dns_cache->list);
 		list_add_tail(&dns_cache->list, &dns_cache_head.cache_list);
+		dns_cache->hitnum++;
 	}
 	pthread_mutex_unlock(&dns_cache_head.lock);
 }

@@ -1865,7 +1865,13 @@ void _dns_server_tcp_ping_check(struct dns_request *request)
 
 void _dns_server_prefetch_domain(struct dns_cache *dns_cache)
 {
-	tlog(TLOG_DEBUG, "prefetch by cache %s, qtype %d, ttl %d", dns_cache->domain, dns_cache->qtype, dns_cache->ttl);
+	if (dns_cache->hitnum <= 0) {
+		return;
+	}
+
+	dns_cache->hitnum--;
+
+	tlog(TLOG_DEBUG, "prefetch by cache %s, qtype %d, ttl %d, hitnum %d", dns_cache->domain, dns_cache->qtype, dns_cache->ttl, dns_cache->hitnum);
 	if (_dns_server_prefetch_request(dns_cache->domain, dns_cache->qtype) != 0) {
 		tlog(TLOG_ERROR, "prefetch domain %s, qtype %d, failed.", dns_cache->domain, dns_cache->qtype);
 	}
