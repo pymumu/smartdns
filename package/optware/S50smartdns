@@ -78,7 +78,7 @@ case "$1" in
 
 	kill -9 $pid 2>/dev/null
 	;;
-	force-reload|restart)
+	restart)
 	$0 stop
 	$0 start
 	;;
@@ -89,7 +89,7 @@ case "$1" in
 	nvram set apps_state_action=install
 	nvram set apps_u2ec_ex=2
 	;;
-	firewall-start)
+	firewall-start|reload|force-reload)
 	$0 restart
 	;;
 	*)

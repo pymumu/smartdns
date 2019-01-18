@@ -119,9 +119,11 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 |华硕原生固件(optware)|smartdns.xxxxxxx.mipsbig.ipk|支持MIPS大端架构的系统，如RT-AC55U, RT-AC66U.
 |华硕原生固件(optware)|smartdns.xxxxxxx.mipsel.ipk|支持MIPS小端架构的系统，如RT-AC68U。
 |华硕原生固件(optware)|smartdns.xxxxxxx.arm.ipk|支持arm小端架构的系统，如RT-AC88U。
+|Padavan|smartdns.xxxxxxx.mipselsf.ipk|padavan固件。
 |openwrt 15.01|smartdns.xxxxxxxx.ar71xx.ipk|支持AR71XX MIPS系统。
 |openwrt 15.01|smartdns.xxxxxxxx.ramips_24kec.ipk|支持MT762X等小端路由器
 |openwrt 15.01(潘多拉)|smartdns.xxxxxxxx.mipsel_24kec_dsp.ipk|支持MT7620系列的潘多拉固件
+|openwrt 15.01(潘多拉)|smartdns.xxxxxxxx.mips_74kc_dsp2.ipk|支持AR71xx系列的潘多拉固件
 |openwrt 18.06|smartdns.xxxxxxxx.mips_24kc.ipk|支持AR71XX MIPS系统。
 |openwrt 18.06|smartdns.xxxxxxxx.mipsel_24kc.ipk|支持MT726X等小端路由器
 |openwrt 18.06|smartdns.xxxxxxxx.x86_64.ipk|支持x86_64路由器
