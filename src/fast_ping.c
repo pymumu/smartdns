@@ -425,6 +425,7 @@ static int _fast_ping_sendping_udp(struct ping_host_struct *ping_host)
 	struct ping_dns_head dns_head;
 	int len;
 	int flag = 0;
+	int fd = 0;
 
 	flag |= (0 << 15) & 0x8000;
 	flag |= (2 << 11) & 0x7800;
@@ -434,11 +435,19 @@ static int _fast_ping_sendping_udp(struct ping_host_struct *ping_host)
 	flag |= (0 << 7) & 0x0080;
 	flag |= (0 << 0) & 0x000F;
 
+	if (ping_host->type == FAST_PING_UDP) {
+		fd = ping.fd_udp;
+	} else if (ping_host->type == FAST_PING_UDP6) {
+		fd = ping.fd_udp6;
+	} else {
+		return -1;
+	}
+
 	ping_host->seq++;
 	memset(&dns_head, 0, sizeof(dns_head));
 	dns_head.id = htons(ping_host->sid);
 	dns_head.flag = flag;
-	len = sendto(ping.fd_udp, &dns_head, sizeof(dns_head), 0, (struct sockaddr *)&ping_host->addr, ping_host->addr_len);
+	len = sendto(fd, &dns_head, sizeof(dns_head), 0, (struct sockaddr *)&ping_host->addr, ping_host->addr_len);
 	if (len < 0 || len != sizeof(dns_head)) {
 		int err = errno;
 		if (errno == ENETUNREACH || errno == EINVAL) {
@@ -522,7 +531,7 @@ static int _fast_ping_sendping(struct ping_host_struct *ping_host)
 		ret = _fast_ping_sendping_v6(ping_host);
 	} else if (ping_host->type == FAST_PING_TCP) {
 		ret = _fast_ping_sendping_tcp(ping_host);
-	} else if (ping_host->type == FAST_PING_UDP) {
+	} else if (ping_host->type == FAST_PING_UDP || ping_host->type == FAST_PING_UDP6) {
 		ret = _fast_ping_sendping_udp(ping_host);
 	}
 
@@ -652,6 +661,7 @@ static int _fast_ping_create_udp_sock(FAST_PING_TYPE type)
 		}
 
 		udp_host = &ping.udp_host;
+		udp_host->type = FAST_PING_UDP;
 		break;
 	case FAST_PING_UDP6:
 		fd = socket(AF_INET6, SOCK_DGRAM, 0);
@@ -661,6 +671,10 @@ static int _fast_ping_create_udp_sock(FAST_PING_TYPE type)
 		}
 
 		udp_host = &ping.udp6_host;
+		udp_host->type = FAST_PING_UDP6;
+		setsockopt(fd, IPPROTO_IPV6, IPV6_RECVHOPLIMIT, &on, sizeof(on));
+		setsockopt(fd, IPPROTO_IPV6, IPV6_2292HOPLIMIT, &on, sizeof(on));
+		setsockopt(fd, IPPROTO_IPV6, IPV6_HOPLIMIT, &on, sizeof(on));
 		break;
 	default:
 		return -1;
@@ -677,7 +691,6 @@ static int _fast_ping_create_udp_sock(FAST_PING_TYPE type)
 	}
 
 	udp_host->fd = fd;
-	udp_host->type = FAST_PING_UDP;
 	return fd;
 
 errout:
@@ -829,7 +842,6 @@ struct ping_host_struct *fast_ping_start(PING_TYPE type, const char *host, int c
 		socktype = SOCK_DGRAM;
 		snprintf(port_str, MAX_IP_LEN, "%d", port);
 		service = port_str;
-		ping_type = FAST_PING_UDP;
 
 		if (_fast_ping_create_udp(ping_type) < 0) {
 			goto errout;
@@ -1194,9 +1206,15 @@ static int _fast_ping_process_udp(struct ping_host_struct *ping_host, struct tim
 
 	for (cmsg = CMSG_FIRSTHDR(&msg); cmsg; cmsg = CMSG_NXTHDR(&msg, cmsg)) {
 		if (cmsg->cmsg_level == SOL_IP && cmsg->cmsg_type == IP_TTL) {
-			uint8_t *ttlPtr = (uint8_t *)CMSG_DATA(cmsg);
-			ttl = *ttlPtr;
-			break;
+			if (cmsg->cmsg_len >= sizeof(int)) {
+				int *ttlPtr = (int *)CMSG_DATA(cmsg);
+				ttl = *ttlPtr;
+			}
+		} else if (cmsg->cmsg_level == IPPROTO_IPV6 && cmsg->cmsg_type == IPV6_HOPLIMIT) {
+			if (cmsg->cmsg_len >= sizeof(int)) {
+				int *ttlPtr = (int *)CMSG_DATA(cmsg);
+				ttl = *ttlPtr;
+			}
 		}
 	}
 
@@ -1256,6 +1274,7 @@ static int _fast_ping_process(struct ping_host_struct *ping_host, struct epoll_e
 	case FAST_PING_TCP:
 		ret = _fast_ping_process_tcp(ping_host, event, now);
 		break;
+	case FAST_PING_UDP6:
 	case FAST_PING_UDP:
 		ret = _fast_ping_process_udp(ping_host, now);
 		break;

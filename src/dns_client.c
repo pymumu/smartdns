@@ -746,6 +746,11 @@ static int _dns_client_create_socket_udp(struct dns_server_info *server_info)
 	server_info->status = DNS_SERVER_STATUS_CONNECTIONLESS;
 	setsockopt(server_info->fd, IPPROTO_IP, IP_RECVTTL, &on, sizeof(on));
 	setsockopt(server_info->fd, SOL_IP, IP_TTL, &val, sizeof(val));
+	if (server_info->ai_family == AF_INET6) {
+		setsockopt(server_info->fd, IPPROTO_IPV6, IPV6_RECVHOPLIMIT, &on, sizeof(on));
+		setsockopt(server_info->fd, IPPROTO_IPV6, IPV6_2292HOPLIMIT, &on, sizeof(on));
+		setsockopt(server_info->fd, IPPROTO_IPV6, IPV6_HOPLIMIT, &on, sizeof(on));
+	}
 
 	return 0;
 errout:
@@ -941,9 +946,15 @@ static int _dns_client_process_udp(struct dns_server_info *server_info, struct e
 
 	for (cmsg = CMSG_FIRSTHDR(&msg); cmsg; cmsg = CMSG_NXTHDR(&msg, cmsg)) {
 		if (cmsg->cmsg_level == SOL_IP && cmsg->cmsg_type == IP_TTL) {
-			uint8_t *ttlPtr = (uint8_t *)CMSG_DATA(cmsg);
-			ttl = *ttlPtr;
-			break;
+			if (cmsg->cmsg_len >= sizeof(int)) {
+				int *ttlPtr = (int *)CMSG_DATA(cmsg);
+				ttl = *ttlPtr;
+			}
+		} else if (cmsg->cmsg_level == IPPROTO_IPV6 && cmsg->cmsg_type == IPV6_HOPLIMIT) {
+			if (cmsg->cmsg_len >= sizeof(int)) {
+				int *ttlPtr = (int *)CMSG_DATA(cmsg);
+				ttl = *ttlPtr;
+			}
 		}
 	}
 
