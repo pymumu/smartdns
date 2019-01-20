@@ -399,7 +399,7 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 |blacklist-ip|ip blacklist|None|[ip/subnet], Repeatable，When the filtering server responds IPs in the IP blacklist, The result will be discarded directly| blacklist-ip 1.2.3.4/16
 |force-AAAA-SOA|force AAAA query return SOA|no|[yes\|no]|force-AAAA-SOA yes
 |dualstack-ip-selection|Dualstack ip selection|no|[yes\|no]|dualstack-ip-selection yes
-|dualstack-ip-selection-threshold|Dualstack ip select threadhold|100ms|millisecond|dualstack-ip-selection-threshold [1-1000]
+|dualstack-ip-selection-threshold|Dualstack ip select threadhold|30ms|millisecond|dualstack-ip-selection-threshold [0-1000]
 
 ## [Donate](#Donate)  
 

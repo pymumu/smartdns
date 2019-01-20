@@ -537,18 +537,16 @@ int _dns_server_request_complete(struct dns_request *request)
 		}
 
 	} else if (request->qtype == DNS_T_AAAA) {
-		if (request->has_ipv4) {
+		if (request->has_ipv4 && request->ping_ttl_v4 > 0) {
 			tlog(TLOG_INFO, "result: %s, rcode: %d,  %d.%d.%d.%d\n", request->domain, request->rcode, request->ipv4_addr[0], request->ipv4_addr[1],
 				request->ipv4_addr[2], request->ipv4_addr[3]);
 
-			if (((request->ping_ttl_v4 + (dns_conf_dualstack_ip_selection_threshold * 10) < request->ping_ttl_v6) && (request->ping_ttl_v4 > 0)) ||
-				((request->ping_ttl_v6 == -1) && (request->ping_ttl_v4 > 0))) {
+			if ((request->ping_ttl_v4 + (dns_conf_dualstack_ip_selection_threshold * 10)) < request->ping_ttl_v6 || request->ping_ttl_v6 < 0) {
 				tlog(TLOG_DEBUG, "Force IPV4 perfered.");
 				dns_cache_insert(request->domain, cname, cname_ttl, request->ttl_v4, DNS_T_A, request->ipv4_addr, DNS_RR_A_LEN);
 				return _dns_server_reply_SOA(DNS_RC_NOERROR, request, NULL);
 			}
 
-			request->has_ipv4 = 0;
 		}
 
 		if (request->has_ipv6) {
@@ -567,6 +565,7 @@ int _dns_server_request_complete(struct dns_request *request)
 				dns_cache_insert(request->domain, cname, cname_ttl, request->ttl_v6, DNS_T_AAAA, request->ipv6_addr, DNS_RR_AAAA_LEN);
 			}
 
+			request->has_ipv4 = 0;
 			request->has_soa = 0;
 		}
 	}
@@ -734,8 +733,10 @@ void _dns_server_ping_result(struct ping_host_struct *ping_host, const char *hos
 			memcpy(request->ipv4_addr, &addr_in->sin_addr.s_addr, 4);
 		}
 
-		if (dns_conf_dualstack_ip_selection == 1 && request->qtype == DNS_T_AAAA) {
-			threshold = dns_conf_dualstack_ip_selection_threshold * 10;
+		if (request->qtype == DNS_T_AAAA && dns_conf_dualstack_ip_selection == 1) {
+			if (request->ping_ttl_v6 < 0 && request->has_soa == 0) {
+				return;
+			}
 		}
 	} break;
 	case AF_INET6: {
@@ -770,7 +771,7 @@ void _dns_server_ping_result(struct ping_host_struct *ping_host, const char *hos
 	} else if (rtt < (get_tick_count() - request->send_tick) * 10) {
 		may_complete = 1;
 	}
-
+	
 	if (may_complete && request->has_ping_result == 1) {
 		_dns_server_request_complete(request);
 		_dns_server_request_remove(request);

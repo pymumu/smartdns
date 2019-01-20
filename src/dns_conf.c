@@ -37,7 +37,7 @@ art_tree dns_conf_domain_rule;
 radix_tree_t *dns_conf_address_rule;
 
 int dns_conf_dualstack_ip_selection;
-int dns_conf_dualstack_ip_selection_threshold = 100;
+int dns_conf_dualstack_ip_selection_threshold = 30;
 
 int dns_conf_rr_ttl;
 int dns_conf_rr_ttl_min;
@@ -674,7 +674,7 @@ struct config_item config_item[] = {
 	CONF_INT("cache-size", &dns_conf_cachesize, 0, CONF_INT_MAX),
 	CONF_YESNO("prefetch-domain", &dns_conf_prefetch),
 	CONF_YESNO("dualstack-ip-selection", &dns_conf_dualstack_ip_selection),
-	CONF_INT("dualstack-ip-selection-threshold", &dns_conf_dualstack_ip_selection_threshold, 1, 1000),
+	CONF_INT("dualstack-ip-selection-threshold", &dns_conf_dualstack_ip_selection_threshold, 0, 1000),
 	CONF_CUSTOM("log-level", config_log_level, NULL),
 	CONF_STRING("log-file", (char *)dns_conf_log_file, DNS_MAX_PATH),
 	CONF_SIZE("log-size", &dns_conf_log_size, 0, 1024 * 1024 * 1024),
