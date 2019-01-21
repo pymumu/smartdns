@@ -5,6 +5,7 @@ VER="`date +"1.%Y.%m.%d-%H%M"`"
 SMARTDNS_DIR=$CURR_DIR/../../
 SMARTDNS_BIN=$SMARTDNS_DIR/src/smartdns
 SMARTDNS_CONF=$SMARTDNS_DIR/etc/smartdns/smartdns.conf
+SMARTDNS_OPT=$CURR_DIR/smartdns-opt.conf
 
 showhelp()
 {
@@ -29,10 +30,10 @@ build()
     mkdir $ROOT/opt/etc/smartdns/ -p
 
     cp $SMARTDNS_CONF  $ROOT/opt/etc/smartdns/
+    cp $SMARTDNS_OPT $ROOT/opt/etc/smartdns/
     cp $CURR_DIR/S50smartdns $ROOT/opt/etc/init.d/
     cp $SMARTDNS_BIN $ROOT/opt/usr/sbin
 
-    sed -i "s/^\(bind .*\):53/\1:535/g" $ROOT/opt/etc/smartdns/smartdns.conf
     sed -i "s/# *server-name smartdns/server-name smartdns/g" $ROOT/opt/etc/smartdns/smartdns.conf
     sed -i "s/^Architecture.*/Architecture: $ARCH/g" $ROOT/control/control
     sed -i "s/Version:.*/Version: $VER/" $ROOT/control/control

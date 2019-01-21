@@ -2,8 +2,20 @@
 
 SMARTDNS_BIN=/opt/usr/sbin/smartdns
 SMARTDNS_CONF=/opt/etc/smartdns/smartdns.conf
+DNSMASQ_CONF=/etc/dnsmasq.conf
 SMARTDNS_PID="/var/run/smartdns.pid"
 SMARTDNS_PORT=535
+SMARTDNS_OPT=/opt/etc/smartdns/smartdns-opt.conf
+# workmode 
+# 0: run as port only
+# 1: redirect port
+# 2: replace 
+SMARTDNS_WORKMODE="1"
+
+if [ -f "$SMARTDNS_OPT" ]; then
+. $SMARTDNS_OPT
+fi
+
 
 set_iptable()
 {
@@ -38,16 +50,109 @@ clear_iptable()
 	
 }
 
+restart_dnsmasq()
+{
+	CMD="`ps | grep dnsmasq | grep -v grep`"
+	if [ -z "$CMD" ]; then
+		CMD="`ps ax | grep dnsmasq | grep -v grep`"
+	fi
+
+	if [ -z "$CMD" ]; then
+		echo "cannot find dnsmasq"
+		return 1
+	fi
+
+	PID=`echo "$CMD" | awk '{print $1}'`
+	if [ ! -d "/proc/$PID" ]; then
+		echo "dnsmasq is not running"
+		return 1
+	fi
+
+	kill -9 $PID
+
+	DNSMASQ_CMD="`echo $CMD | awk '{for(i=5; i<=NF;i++)printf \$i " "}'`"
+
+	$DNSMASQ_CMD
+}
+
+set_dnsmasq()
+{
+	grep "^port *=$SMARTDNS_PORT" $DNSMASQ_CONF > /dev/null 2>&1
+	if [ $? -ne 0 ]; then
+		sed -i "/^port *=/d" $DNSMASQ_CONF
+		echo "port=$SMARTDNS_PORT" >> $DNSMASQ_CONF
+		restart_dnsmasq
+	fi
+
+}
+
+clear_dnsmasq()
+{
+	grep "^port *=" $DNSMASQ_CONF > /dev/null 2>&1
+	if [ $? -eq 0 ]; then
+		sed -i "/^port *=/d" $DNSMASQ_CONF
+		restart_dnsmasq
+	fi
+}
+
+set_smartdns_port()
+{
+	if [ "$SMARTDNS_WORKMODE" = "0" ]; then
+		return 0
+	elif [ "$SMARTDNS_WORKMODE" = "1" ]; then
+		sed -i "s/^\(bind .*\):53 *\(.*\)\$/\1:$SMARTDNS_PORT \2/g" $SMARTDNS_CONF
+    	sed -i "s/^\(bind-tcp .*\):53 *\(.*\)\$/\1:$SMARTDNS_PORT \2/g" $SMARTDNS_CONF
+	elif [ "$SMARTDNS_WORKMODE" = "2" ]; then
+		sed -i "s/^\(bind .*\):$SMARTDNS_PORT *\(.*\)\$/\1:53 \2/g" $SMARTDNS_CONF
+    	sed -i "s/^\(bind-tcp .*\):$SMARTDNS_PORT *\(.*\)\$/\1:53 \2/g" $SMARTDNS_CONF
+	else
+		return 1
+	fi	
+
+	return 0
+}
+
+set_rule()
+{
+	if [ "$SMARTDNS_WORKMODE" = "0" ]; then
+		return 0
+	elif [ "$SMARTDNS_WORKMODE" = "1" ]; then
+		set_iptable
+		return $?
+	elif [ "$SMARTDNS_WORKMODE" = "2" ]; then
+		set_dnsmasq
+		return $?
+	else
+		return 1
+	fi
+}
+
+clear_rule()
+{
+	if [ "$SMARTDNS_WORKMODE" = "0" ]; then
+		return 0
+	elif [ "$SMARTDNS_WORKMODE" = "1" ]; then
+		clear_iptable
+		return $?
+	elif [ "$SMARTDNS_WORKMODE" = "2" ]; then
+		clear_dnsmasq
+		return $?
+	else
+		return 1
+	fi
+}
+
 case "$1" in
 	start)
-	set_iptable
+	set_rule
 	if [ $? -ne 0 ]; then
 		exit 1
 	fi
 
+	set_smartdns_port
 	$SMARTDNS_BIN -c $SMARTDNS_CONF -p $SMARTDNS_PID
 	if [ $? -ne 0 ]; then
-		clear_iptable
+		clear_rule
 	fi
 	;;
 	status)
@@ -65,7 +170,7 @@ case "$1" in
 	return 0;
 	;;
 	stop)
-	clear_iptable
+	clear_rule
 	pid="`cat $SMARTDNS_PID | head -n 1 2>/dev/null`"
 	if [ -z "$pid" ]; then
 		echo "smartdns not running."
@@ -95,4 +200,3 @@ case "$1" in
 	*)
 	;;
 esac
-
