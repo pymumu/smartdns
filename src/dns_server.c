@@ -884,8 +884,13 @@ static int _dns_server_ip_rule_check(struct dns_request *request, unsigned char 
 		}
 	}
 
-	return -1;
+	if (rule->ip_ignore) {
+		goto skip;
+	}
 
+	return -1;
+skip:
+	return -2;
 match:
 	if (request->rcode == DNS_RC_SERVFAIL) {
 		request->rcode = DNS_RC_NXDOMAIN;
@@ -904,6 +909,7 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 	struct dns_rrs *rrs = NULL;
 	int ping_timeout = DNS_PING_TIMEOUT;
 	unsigned long now = get_tick_count();
+	int ip_check_result = 0;
 
 	if (packet->head.rcode != DNS_RC_NOERROR && packet->head.rcode != DNS_RC_NXDOMAIN) {
 		if (request->rcode == DNS_RC_SERVFAIL) {
@@ -940,9 +946,13 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 				tlog(TLOG_DEBUG, "domain: %s TTL:%d IP: %d.%d.%d.%d", name, ttl, addr[0], addr[1], addr[2], addr[3]);
 
 				/* ip rule check */
-				if (_dns_server_ip_rule_check(request, addr, 4, DNS_T_A, result_flag) == 0) {
+				ip_check_result = _dns_server_ip_rule_check(request, addr, 4, DNS_T_A, result_flag);
+				if (ip_check_result == 0) {
 					_dns_server_request_release(request);
 					break;
+				} else if (ip_check_result == -2) {
+					_dns_server_request_release(request);
+					continue;
 				}
 
 				if (strncmp(name, domain, DNS_MAX_CNAME_LEN) != 0 && strncmp(request->cname, name, DNS_MAX_CNAME_LEN) != 0) {
@@ -991,9 +1001,13 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 				tlog(TLOG_DEBUG, "domain: %s TTL: %d IP: %.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", name, ttl, addr[0], addr[1],
 					 addr[2], addr[3], addr[4], addr[5], addr[6], addr[7], addr[8], addr[9], addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
 
-				if (_dns_server_ip_rule_check(request, addr, 16, DNS_T_AAAA, result_flag) == 0) {
+				ip_check_result = _dns_server_ip_rule_check(request, addr, 16, DNS_T_AAAA, result_flag);
+				if (ip_check_result == 0) {
 					_dns_server_request_release(request);
 					break;
+				} else if (ip_check_result == -2) {
+					_dns_server_request_release(request);
+					continue;
 				}
 
 				if (strncmp(name, domain, DNS_MAX_CNAME_LEN) != 0 && strncmp(request->cname, name, DNS_MAX_CNAME_LEN) != 0) {

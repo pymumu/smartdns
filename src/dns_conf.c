@@ -579,6 +579,8 @@ int config_iplist_rule(char *subnet, enum address_rule rule)
 	case ADDRESS_RULE_BOGUS:
 		ip_rule->bogus = 1;
 		break;
+	case ADDRESS_RULE_IP_IGNORE:
+		ip_rule->ip_ignore = 1;
 	}
 
 	return 0;
@@ -600,6 +602,15 @@ int conf_bogus_nxdomain(void *data, int argc, char *argv[])
 	}
 
 	return config_iplist_rule(argv[1], ADDRESS_RULE_BOGUS);
+}
+
+int conf_ip_ignore(void *data, int argc, char *argv[])
+{
+	if (argc <= 1) {
+		return -1;
+	}
+
+	return config_iplist_rule(argv[1], ADDRESS_RULE_IP_IGNORE);
 }
 
 int conf_edns_client_subnet(void *data, int argc, char *argv[])
@@ -689,6 +700,7 @@ struct config_item config_item[] = {
 	CONF_YESNO("force-AAAA-SOA", &dns_conf_force_AAAA_SOA),
 	CONF_CUSTOM("blacklist-ip", config_blacklist_ip, NULL),
 	CONF_CUSTOM("bogus-nxdomain", conf_bogus_nxdomain, NULL),
+	CONF_CUSTOM("ignore-ip", conf_ip_ignore, NULL),
 	CONF_CUSTOM("edns-client-subnet-ipv4", conf_edns_client_subnet, &dns_conf_ipv6_ecs),
 	CONF_CUSTOM("edns-client-subnet-ipv6", conf_edns_client_subnet, &dns_conf_ipv6_ecs),
 	CONF_CUSTOM("conf-file", config_addtional_file, NULL),
