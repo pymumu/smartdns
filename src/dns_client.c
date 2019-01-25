@@ -986,7 +986,7 @@ static int _dns_client_socket_ssl_send(SSL *ssl, const void *buf, int num)
 	}
 
 	ret = SSL_write(ssl, buf, num);
-	if (ret > 0) {
+	if (ret >= 0) {
 		return ret;
 	}
 
@@ -1131,7 +1131,7 @@ static int _dns_client_process_tcp(struct dns_server_info *server_info, struct e
 				goto errout;
 			}
 
-			tlog(TLOG_ERROR, "recv failed, %s, %d\n", strerror(errno), errno);
+			tlog(TLOG_ERROR, "recv failed, %s\n", strerror(errno));
 			goto errout;
 		}
 
@@ -1211,8 +1211,12 @@ static int _dns_client_process_tcp(struct dns_server_info *server_info, struct e
 			/* send data in send_buffer */
 			len = _dns_client_socket_send(server_info);
 			if (len < 0) {
+				if (errno == EAGAIN) {
+					pthread_mutex_unlock(&client.server_list_lock);
+					return 0;
+				}
 				pthread_mutex_unlock(&client.server_list_lock);
-				return -1;
+				goto errout;
 			}
 
 			server_info->send_buff.len -= len;
@@ -1233,7 +1237,7 @@ static int _dns_client_process_tcp(struct dns_server_info *server_info, struct e
 		event.data.ptr = server_info;
 		if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &event) != 0) {
 			tlog(TLOG_ERROR, "epoll ctl failed.");
-			return -1;
+			goto errout;
 		}
 
 		return 0;

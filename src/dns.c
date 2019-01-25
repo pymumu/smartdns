@@ -1586,6 +1586,10 @@ static int _dns_decode_an(struct dns_context *context, dns_rr_type type)
 		dns_set_OPT_payload_size(packet, qclass);
 	} break;
 	default:
+		if (_dns_left_len(context) < rr_len) {
+			tlog(TLOG_DEBUG, "length mitchmatch\n");
+			return -1;
+		}
 		context->ptr += rr_len;
 		tlog(TLOG_DEBUG, "DNS type = %d not supported", qtype);
 		break;
@@ -1661,41 +1665,46 @@ static int _dns_decode_body(struct dns_context *context)
 	struct dns_head *head = &packet->head;
 	int i = 0;
 	int ret = 0;
+	int count = 0;
 
-	for (i = 0; i < head->qdcount; i++) {
+	count = head->qdcount;
+	head->qdcount = 0;
+	for (i = 0; i < count; i++) {
 		ret = _dns_decode_qd(context);
 		if (ret < 0) {
 			tlog(TLOG_DEBUG, "decode qd failed.");
 			return -1;
 		}
-		head->qdcount--;
 	}
 
-	for (i = 0; i < head->ancount; i++) {
+	count = head->ancount;
+	head->ancount = 0;
+	for (i = 0; i < count; i++) {
 		ret = _dns_decode_an(context, DNS_RRS_AN);
 		if (ret < 0) {
 			tlog(TLOG_DEBUG, "decode an failed.");
 			return -1;
 		}
-		head->ancount--;
 	}
 
-	for (i = 0; i < head->nscount; i++) {
+	count = head->nscount;
+	head->nscount = 0;
+	for (i = 0; i < count; i++) {
 		ret = _dns_decode_an(context, DNS_RRS_NS);
 		if (ret < 0) {
 			tlog(TLOG_DEBUG, "decode ns failed.");
 			return -1;
 		}
-		head->nscount--;
 	}
 
-	for (i = 0; i < head->nrcount; i++) {
+	count = head->nrcount;
+	head->nrcount = 0;
+	for (i = 0; i < count; i++) {
 		ret = _dns_decode_an(context, DNS_RRS_NR);
 		if (ret < 0) {
 			tlog(TLOG_DEBUG, "decode nr failed.");
 			return -1;
 		}
-		head->nrcount--;
 	}
 
 	return 0;
