@@ -384,6 +384,8 @@ int main(int argc, char *argv[])
 	}
 
 	if (dns_server_load_conf(config_file) != 0) {
+		fprintf(stderr, "load config failed.\n");
+		goto errout;
 	}
 
 	if (create_pid_file(pid_file) != 0) {

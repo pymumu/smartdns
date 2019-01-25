@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+ #include <syslog.h>
 
 #define DEFAULT_DNS_CACHE_SIZE 512
 
@@ -707,6 +708,21 @@ struct config_item config_item[] = {
 	CONF_END(),
 };
 
+int conf_printf(const char *file, int lineno, int ret)
+{
+	if (ret == CONF_RET_ERR) {
+		tlog(TLOG_ERROR, "process config file '%s' failed at line %d.", file, lineno);
+		syslog(LOG_NOTICE, "process config file '%s' failed at line %d.", file, lineno);
+		return -1;
+	} else if (ret == CONF_RET_WARN) {
+		tlog(TLOG_WARN, "process config file '%s' failed at line %d.", file, lineno);
+		syslog(LOG_NOTICE, "process config file '%s' failed at line %d.", file, lineno);
+		return -1;
+	}
+
+	return 0;
+}
+
 int config_addtional_file(void *data, int argc, char *argv[])
 {
 	char *file_path = argv[1];
@@ -716,7 +732,7 @@ int config_addtional_file(void *data, int argc, char *argv[])
 		return 0;
 	}
 
-	return load_conf(file_path, config_item);
+	return load_conf(file_path, config_item, conf_printf);
 }
 
 int _dns_server_load_conf_init(void)
@@ -741,7 +757,10 @@ void dns_server_load_exit(void)
 
 int dns_server_load_conf(const char *file)
 {
+	int ret = 0;
 	_dns_server_load_conf_init();
-
-	return load_conf(file, config_item);
+	openlog ("smartdns", LOG_CONS | LOG_NDELAY, LOG_LOCAL1);
+	ret = load_conf(file, config_item, conf_printf);
+	closelog();
+	return ret;
 }

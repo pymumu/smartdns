@@ -8,6 +8,11 @@
 #define CONF_INT_MAX (~(1 << 31))
 #define CONF_INT_MIN (1 << 31)
 
+#define CONF_RET_OK     0
+#define CONF_RET_ERR   -1
+#define CONF_RET_WARN  -2
+#define CONF_RET_NOENT -3
+
 struct config_item {
 	const char *item;
 	int (*item_func)(const char *item, void *data, int argc, char *argv[]);
@@ -107,9 +112,9 @@ extern int conf_size(const char *item, void *data, int argc, char *argv[]);
  *
  */
 
-int load_conf(const char *file, struct config_item items[]);
+typedef int(conf_error_handler)(const char *file, int lineno, int ret);
 
-int load_conf_get_line_count(void);
+int load_conf(const char *file, struct config_item items[], conf_error_handler handler);
 
 void load_exit(void);
 

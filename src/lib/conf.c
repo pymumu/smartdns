@@ -5,8 +5,6 @@
 #include <string.h>
 #include <unistd.h>
 
-__thread int line_no;
-
 int conf_custom(const char *item, void *data, int argc, char *argv[])
 {
 	struct config_item_custom *item_custom = data;
@@ -182,12 +180,21 @@ void load_exit(void)
 	return;
 }
 
-int load_conf_get_line_count(void)
+int load_conf_printf(const char *file, int lineno, int ret)
 {
-	return line_no;
+	if (ret != CONF_RET_OK) {
+		printf("process config file '%s' failed at line %d.", file, lineno);
+		if (ret == CONF_RET_ERR || ret == CONF_RET_NOENT) {
+			return -1;
+		}
+
+		return 0;
+	}
+
+	return 0;
 }
 
-int load_conf_file(const char *file, struct config_item *items)
+int load_conf_file(const char *file, struct config_item *items, conf_error_handler handler)
 {
 	FILE *fp = NULL;
 	char line[MAX_LINE_LEN];
@@ -197,6 +204,13 @@ int load_conf_file(const char *file, struct config_item *items)
 	int i;
 	int argc;
 	char *argv[1024];
+	int ret = 0;
+	int call_ret = 0;
+	int line_no = 0;
+
+	if (handler == NULL) {
+		handler = load_conf_printf;
+	}
 
 	fp = fopen(file, "r");
 	if (fp == NULL) {
@@ -223,6 +237,7 @@ int load_conf_file(const char *file, struct config_item *items)
 
 		for (i = 0;; i++) {
 			if (items[i].item == NULL) {
+				handler(file, line_no, CONF_RET_NOENT);
 				break;
 			}
 
@@ -236,7 +251,9 @@ int load_conf_file(const char *file, struct config_item *items)
 
 			conf_getopt_reset();
 			/* call item function */
-			if (items[i].item_func(items[i].item, items[i].data, argc, argv) != 0) {
+			call_ret = items[i].item_func(items[i].item, items[i].data, argc, argv);
+			ret = handler(file, line_no, call_ret);
+			if (ret != 0) {
 				conf_getopt_reset();
 				goto errout;
 			}
@@ -257,7 +274,7 @@ errout:
 	return -1;
 }
 
-int load_conf(const char *file, struct config_item items[])
+int load_conf(const char *file, struct config_item items[], conf_error_handler handler)
 {
-	return load_conf_file(file, items);
+	return load_conf_file(file, items, handler);
 }
