@@ -52,7 +52,7 @@ clear_iptable()
 
 restart_dnsmasq()
 {
-	CMD="`ps | grep dnsmasq | grep -v grep`"
+	CMD="`ps | grep "  dnsmasq" | grep -v grep`"
 	if [ -z "$CMD" ]; then
 		CMD="`ps ax | grep dnsmasq | grep -v grep`"
 	fi
@@ -81,17 +81,18 @@ get_server_ip()
 	LOCAL_SERVER_IP=""
 	for IP in $IPS
 	do
-			N=3
-			while [ $N -gt 0 ]
-			do
-					ADDR=`echo $IP | awk -F. "{for(i=1;i<=$N;i++)printf \\$i\".\"}"`
-					grep "dhcp-range=" $DNSMASQ_CONF | grep lan | grep $ADDR >/dev/null 2>&1
-					if [ $? -eq 0 ]; then
-							LOCAL_SERVER_IP="$IP"
-							return 0
-					fi
-					N="`expr $N - 1`"
-			done
+		N=3
+		while [ $N -gt 0 ]
+		do
+			ADDR=`echo $IP | awk -F. "{for(i=1;i<=$N;i++)printf \\$i\".\"}"`
+			grep "dhcp-range=" $DNSMASQ_CONF | grep $ADDR >/dev/null 2>&1
+			if [ $? -eq 0 ]; then
+					SERVER_TAG="`grep "^dhcp-range *=" $DNSMASQ_CONF | grep $ADDR | awk -F= '{print $2}' | awk -F, '{print $1}'`"
+					LOCAL_SERVER_IP="$IP"
+					return 0
+			fi
+			N="`expr $N - 1`"
+		done
 	done
 
 	return 1
@@ -101,12 +102,13 @@ set_dnsmasq()
 {
 	local RESTART_DNSMASQ=0
 	local LOCAL_SERVER_IP=""
+	local SERVER_TAG=""
 	get_server_ip
-	if [ "$LOCAL_SERVER_IP" ]; then
-		grep "dhcp-option *=" $DNSMASQ_CONF | grep "lan,6,$LOCAL_SERVER_IP" > /dev/null 2>&1
+	if [ "$LOCAL_SERVER_IP" ] && [ "$SERVER_TAG" ]; then
+		grep "dhcp-option *=" $DNSMASQ_CONF | grep "$SERVER_TAG,6,$LOCAL_SERVER_IP" > /dev/null 2>&1
 		if [ $? -ne 0 ]; then
-			sed -i "/^dhcp-option *=lan,6,/d" $DNSMASQ_CONF
-			echo "dhcp-option=lan,6,$LOCAL_SERVER_IP" >> $DNSMASQ_CONF
+			sed -i "/^dhcp-option *=$SERVER_TAG,6,/d" $DNSMASQ_CONF
+			echo "dhcp-option=$SERVER_TAG,6,$LOCAL_SERVER_IP" >> $DNSMASQ_CONF
 			RESTART_DNSMASQ=1
 		fi
 	fi
@@ -128,11 +130,12 @@ clear_dnsmasq()
 {
 	local RESTART_DNSMASQ=0
 	local LOCAL_SERVER_IP=""
+	local SERVER_TAG=""
 	get_server_ip
-	if [ "$LOCAL_SERVER_IP" ]; then
-		grep "dhcp-option *=" $DNSMASQ_CONF | grep "lan,6,$LOCAL_SERVER_IP" > /dev/null 2>&1
+	if [ "$LOCAL_SERVER_IP" ] && [ "$SERVER_TAG" ]; then
+		grep "dhcp-option *=" $DNSMASQ_CONF | grep "$SERVER_TAG,6,$LOCAL_SERVER_IP" > /dev/null 2>&1
 		if [ $? -eq 0 ]; then
-			sed -i "/^dhcp-option *=lan,6,/d" $DNSMASQ_CONF
+			sed -i "/^dhcp-option *=$SERVER_TAG,6,/d" $DNSMASQ_CONF
 			RESTART_DNSMASQ=1
 		fi
 	fi
@@ -253,3 +256,4 @@ case "$1" in
 	*)
 	;;
 esac
+
