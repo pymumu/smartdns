@@ -860,6 +860,8 @@ static int _DNS_client_create_socket_tls(struct dns_server_info *server_info)
 		goto errout;
 	}
 
+	SSL_set_mode(ssl, SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
+
 	memset(&event, 0, sizeof(event));
 	event.events = EPOLLIN | EPOLLOUT;
 	event.data.ptr = server_info;
