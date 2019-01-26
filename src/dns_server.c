@@ -864,7 +864,17 @@ static int _dns_server_ip_rule_check(struct dns_request *request, unsigned char 
 		return -1;
 	}
 
-	node = radix_search_best(dns_conf_address_rule, &prefix);
+	switch (prefix.family) {
+	case AF_INET:
+		node = radix_search_best(dns_conf_address_rule.ipv4, &prefix);
+		break;
+	case AF_INET6:
+		node = radix_search_best(dns_conf_address_rule.ipv6, &prefix);
+		break;
+	default:
+		break;
+	}
+	
 	if (node == NULL) {
 		return -1;
 	}

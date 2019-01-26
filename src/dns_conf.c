@@ -35,7 +35,7 @@ size_t dns_conf_audit_size = 1024 * 1024;
 int dns_conf_audit_num = 2;
 
 art_tree dns_conf_domain_rule;
-radix_tree_t *dns_conf_address_rule;
+struct dns_conf_address_rule dns_conf_address_rule;
 
 int dns_conf_dualstack_ip_selection;
 int dns_conf_dualstack_ip_selection_threshold = 30;
@@ -535,16 +535,26 @@ int config_server_tls(void *data, int argc, char *argv[])
 	return config_server(argc, argv, DNS_SERVER_TLS, DEFAULT_DNS_TLS_PORT);
 }
 
-radix_node_t *create_addr_node(radix_tree_t *tree, char *addr)
+radix_node_t *create_addr_node(char *addr)
 {
 	radix_node_t *node;
 	void *p;
 	prefix_t prefix;
 	const char *errmsg = NULL;
+	radix_tree_t *tree = NULL;
 
 	p = prefix_pton(addr, -1, &prefix, &errmsg);
 	if (p == NULL) {
 		return NULL;
+	}
+
+	switch (prefix.family) {
+	case AF_INET:
+		tree = dns_conf_address_rule.ipv4;
+		break;
+	case AF_INET6:
+		tree = dns_conf_address_rule.ipv6;
+		break;
 	}
 
 	node = radix_lookup(tree, &prefix);
@@ -556,7 +566,7 @@ int config_iplist_rule(char *subnet, enum address_rule rule)
 	radix_node_t *node = NULL;
 	struct dns_ip_address_rule *ip_rule = NULL;
 
-	node = create_addr_node(dns_conf_address_rule, subnet);
+	node = create_addr_node(subnet);
 	if (node == NULL) {
 		return -1;
 	}
@@ -737,11 +747,14 @@ int config_addtional_file(void *data, int argc, char *argv[])
 
 int _dns_server_load_conf_init(void)
 {
-	dns_conf_address_rule = New_Radix();
-	art_tree_init(&dns_conf_domain_rule);
-	if (dns_conf_address_rule == NULL) {
+	dns_conf_address_rule.ipv4 = New_Radix();
+	dns_conf_address_rule.ipv6 = New_Radix();
+	if (dns_conf_address_rule.ipv4 == NULL || dns_conf_address_rule.ipv6 == NULL) {
+		tlog(TLOG_WARN, "init radix tree failed.");
 		return -1;
 	}
+
+	art_tree_init(&dns_conf_domain_rule);
 
 	hash_init(dns_ipset_table.ipset);
 
@@ -751,7 +764,8 @@ int _dns_server_load_conf_init(void)
 void dns_server_load_exit(void)
 {
 	config_domain_destroy();
-	Destroy_Radix(dns_conf_address_rule, config_address_destroy, NULL);
+	Destroy_Radix(dns_conf_address_rule.ipv4, config_address_destroy, NULL);
+	Destroy_Radix(dns_conf_address_rule.ipv6, config_address_destroy, NULL);
 	config_ipset_table_destroy();
 }
 

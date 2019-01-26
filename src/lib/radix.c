@@ -221,6 +221,9 @@ Clear_Radix(radix_tree_t *radix, rdx_cb_t func, void *cbctx)
 void
 Destroy_Radix(radix_tree_t *radix, rdx_cb_t func, void *cbctx)
 {
+	if (radix == NULL) {
+		return;
+	}
 	Clear_Radix(radix, func, cbctx);
 	free(radix);
 }
