@@ -316,8 +316,10 @@ static void _dns_client_close_socket(struct dns_server_info *server_info)
 		return;
 	}
 
+	epoll_ctl(client.epoll_fd, EPOLL_CTL_DEL, server_info->fd, NULL);
+	close(server_info->fd);
+
 	if (server_info->ssl) {
-		SSL_shutdown(server_info->ssl);
 		SSL_free(server_info->ssl);
 		server_info->ssl = NULL;
 	}
@@ -326,9 +328,6 @@ static void _dns_client_close_socket(struct dns_server_info *server_info)
 		SSL_CTX_free(server_info->ssl_ctx);
 		server_info->ssl_ctx = NULL;
 	}
-
-	epoll_ctl(client.epoll_fd, EPOLL_CTL_DEL, server_info->fd, NULL);
-	close(server_info->fd);
 	server_info->fd = -1;
 	server_info->status = DNS_SERVER_STATUS_DISCONNECTED;
 }
