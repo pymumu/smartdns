@@ -316,10 +316,8 @@ static void _dns_client_close_socket(struct dns_server_info *server_info)
 		return;
 	}
 
-	epoll_ctl(client.epoll_fd, EPOLL_CTL_DEL, server_info->fd, NULL);
-	close(server_info->fd);
-
 	if (server_info->ssl) {
+		SSL_shutdown(server_info->ssl);
 		SSL_free(server_info->ssl);
 		server_info->ssl = NULL;
 	}
@@ -328,6 +326,10 @@ static void _dns_client_close_socket(struct dns_server_info *server_info)
 		SSL_CTX_free(server_info->ssl_ctx);
 		server_info->ssl_ctx = NULL;
 	}
+
+	epoll_ctl(client.epoll_fd, EPOLL_CTL_DEL, server_info->fd, NULL);
+	close(server_info->fd);
+
 	server_info->fd = -1;
 	server_info->status = DNS_SERVER_STATUS_DISCONNECTED;
 }
@@ -1489,9 +1491,7 @@ static int _dns_client_send_tcp(struct dns_server_info *server_info, void *packe
 			return _dns_client_send_data_to_buffer(server_info, inpacket, len);
 		}
 
-		if (errno == EPIPE) {
-			shutdown(server_info->fd, SHUT_RDWR);
-		}
+		_dns_client_close_socket(server_info);
 		return -1;
 	} else if (send_len < len) {
 		/* save remain data to buffer, and retry when EPOLLOUT is available */
@@ -1524,6 +1524,8 @@ static int _dns_client_send_tls(struct dns_server_info *server_info, void *packe
 			/* save data to buffer, and retry when EPOLLOUT is available */
 			return _dns_client_send_data_to_buffer(server_info, inpacket, len);
 		}
+
+		_dns_client_close_socket(server_info);
 		return -1;
 	} else if (send_len < len) {
 		/* save remain data to buffer, and retry when EPOLLOUT is available */
@@ -1577,7 +1579,7 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 
 		if (ret != 0) {
 			char server_addr[128];
-			tlog(TLOG_ERROR, "send query to %s failed, %s", gethost_by_addr(server_addr, &server_info->addr, server_info->ai_addrlen), strerror(send_err));
+			tlog(TLOG_ERROR, "send query to %s failed, %s, type: %d", gethost_by_addr(server_addr, &server_info->addr, server_info->ai_addrlen), strerror(send_err), server_info->type);
 			atomic_dec(&query->dns_request_sent);
 			continue;
 		}
