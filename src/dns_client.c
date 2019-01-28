@@ -1039,6 +1039,11 @@ static int _dns_client_socket_ssl_recv(SSL *ssl, void *buf, int num)
 	int ssl_ret = 0;
 	unsigned long ssl_err = 0;
 
+	if (ssl == NULL) {
+		errno = EFAULT;
+		return -1;
+	}
+
 	ret = SSL_read(ssl, buf, num);
 	if (ret >= 0) {
 		return ret;
@@ -1470,8 +1475,13 @@ static int _dns_client_send_data_to_buffer(struct dns_server_info *server_info, 
 static int _dns_client_send_tcp(struct dns_server_info *server_info, void *packet, unsigned short len)
 {
 	int send_len = 0;
-	unsigned char inpacket_data[DNS_IN_PACKSIZE];
+	unsigned char inpacket_data[DNS_IN_PACKSIZE * 2];
 	unsigned char *inpacket = inpacket_data;
+
+	if (len > sizeof(inpacket_data) -2 ) {
+		tlog(TLOG_ERROR, "packet size is invalid.");
+		return -1;
+	}
 
 	/* TCP query format
 	 * | len (short) | dns query data |
@@ -1484,14 +1494,18 @@ static int _dns_client_send_tcp(struct dns_server_info *server_info, void *packe
 		return _dns_client_send_data_to_buffer(server_info, inpacket, len);
 	}
 
+	if (server_info->fd <= 0) {
+		return -1;
+	}
+
 	send_len = send(server_info->fd, inpacket, len, MSG_NOSIGNAL);
 	if (send_len < 0) {
 		if (errno == EAGAIN) {
 			/* save data to buffer, and retry when EPOLLOUT is available */
 			return _dns_client_send_data_to_buffer(server_info, inpacket, len);
+		} else if (errno == EPIPE) {
+			shutdown(server_info->fd, SHUT_RDWR);
 		}
-
-		_dns_client_close_socket(server_info);
 		return -1;
 	} else if (send_len < len) {
 		/* save remain data to buffer, and retry when EPOLLOUT is available */
@@ -1504,8 +1518,13 @@ static int _dns_client_send_tcp(struct dns_server_info *server_info, void *packe
 static int _dns_client_send_tls(struct dns_server_info *server_info, void *packet, unsigned short len)
 {
 	int send_len = 0;
-	unsigned char inpacket_data[DNS_IN_PACKSIZE];
+	unsigned char inpacket_data[DNS_IN_PACKSIZE * 2];
 	unsigned char *inpacket = inpacket_data;
+
+	if (len > sizeof(inpacket_data) -2 ) {
+		tlog(TLOG_ERROR, "packet size is invalid.");
+		return -1;
+	}
 
 	/* TCP query format
 	 * | len (short) | dns query data |
@@ -1518,14 +1537,18 @@ static int _dns_client_send_tls(struct dns_server_info *server_info, void *packe
 		return _dns_client_send_data_to_buffer(server_info, inpacket, len);
 	}
 
+	if (server_info->ssl == NULL) {
+		return -1;
+	}
+
 	send_len = _dns_client_socket_ssl_send(server_info->ssl, inpacket, len);
 	if (send_len < 0) {
 		if (errno == EAGAIN || server_info->ssl == NULL) {
 			/* save data to buffer, and retry when EPOLLOUT is available */
 			return _dns_client_send_data_to_buffer(server_info, inpacket, len);
+		} else if (server_info->ssl) {
+			SSL_shutdown(server_info->ssl);
 		}
-
-		_dns_client_close_socket(server_info);
 		return -1;
 	} else if (send_len < len) {
 		/* save remain data to buffer, and retry when EPOLLOUT is available */
