@@ -49,7 +49,7 @@
 #define DNS_MAX_HOSTNAME 256
 #define DNS_MAX_EVENTS 64
 #define DNS_HOSTNAME_LEN 128
-#define DNS_TCP_BUFFER (16 * 1024)
+#define DNS_TCP_BUFFER (32 * 1024)
 
 #ifndef TCP_FASTOPEN_CONNECT
 #define TCP_FASTOPEN_CONNECT 30
@@ -1475,7 +1475,7 @@ static int _dns_client_send_data_to_buffer(struct dns_server_info *server_info, 
 static int _dns_client_send_tcp(struct dns_server_info *server_info, void *packet, unsigned short len)
 {
 	int send_len = 0;
-	unsigned char inpacket_data[DNS_IN_PACKSIZE * 2];
+	unsigned char inpacket_data[DNS_IN_PACKSIZE];
 	unsigned char *inpacket = inpacket_data;
 
 	if (len > sizeof(inpacket_data) -2 ) {
@@ -1518,7 +1518,7 @@ static int _dns_client_send_tcp(struct dns_server_info *server_info, void *packe
 static int _dns_client_send_tls(struct dns_server_info *server_info, void *packet, unsigned short len)
 {
 	int send_len = 0;
-	unsigned char inpacket_data[DNS_IN_PACKSIZE * 2];
+	unsigned char inpacket_data[DNS_IN_PACKSIZE];
 	unsigned char *inpacket = inpacket_data;
 
 	if (len > sizeof(inpacket_data) -2 ) {
@@ -1546,7 +1546,7 @@ static int _dns_client_send_tls(struct dns_server_info *server_info, void *packe
 		if (errno == EAGAIN || server_info->ssl == NULL) {
 			/* save data to buffer, and retry when EPOLLOUT is available */
 			return _dns_client_send_data_to_buffer(server_info, inpacket, len);
-		} else if (server_info->ssl) {
+		} else if (server_info->ssl && errno != ENOMEM) {
 			SSL_shutdown(server_info->ssl);
 		}
 		return -1;

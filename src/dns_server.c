@@ -1066,11 +1066,11 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 				request->has_soa = 1;
 				request->rcode = packet->head.rcode;
 				dns_get_SOA(rrs, name, 128, &ttl, &request->soa);
-				tlog(TLOG_INFO, "domain: %s, qtype: %d, SOA: mname: %s, rname: %s, serial: %d, refresh: %d, retry: %d, expire: %d, minimum: %d", domain, request->qtype,
+				tlog(TLOG_DEBUG, "domain: %s, qtype: %d, SOA: mname: %s, rname: %s, serial: %d, refresh: %d, retry: %d, expire: %d, minimum: %d", domain, request->qtype,
 				request->soa.mname, request->soa.rname, request->soa.serial, request->soa.refresh, request->soa.retry, request->soa.expire, request->soa.minimum);
 			} break;
 			default:
-				tlog(TLOG_INFO, "%s, qtype: %d", name, rrs->type);
+				tlog(TLOG_DEBUG, "%s, qtype: %d", name, rrs->type);
 				break;
 			}
 		}
@@ -1394,6 +1394,9 @@ static int _dns_server_process_cache(struct dns_request *request, struct dns_pac
 
 	return 0;
 errout:
+	if (dns_cache) {
+		dns_cache_release(dns_cache);
+	}
 	return -1;
 }
 

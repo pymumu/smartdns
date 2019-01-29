@@ -31,7 +31,7 @@ struct dns_cache *_dns_cache_last(void)
 
 struct dns_cache *_dns_cache_first(void)
 {
-	return list_first_entry(&dns_cache_head.cache_list, struct dns_cache, list);
+	return list_first_entry_or_null(&dns_cache_head.cache_list, struct dns_cache, list);
 }
 
 void _dns_cache_delete(struct dns_cache *dns_cache)
@@ -57,6 +57,13 @@ void dns_cache_release(struct dns_cache *dns_cache)
 	}
 
 	_dns_cache_delete(dns_cache);
+}
+
+void _dns_cache_remove(struct dns_cache *dns_cache)
+{
+	hash_del(&dns_cache->node);
+	list_del_init(&dns_cache->list);
+	dns_cache_release(dns_cache);
 }
 
 int dns_cache_replace(char *domain, char *cname, int cname_ttl, int ttl, dns_type_t qtype, unsigned char *addr, int addr_len)
@@ -120,6 +127,7 @@ int dns_cache_insert(char *domain, char *cname, int cname_ttl, int ttl, dns_type
 
 	dns_cache = dns_cache_lookup(domain, qtype);
 	if (dns_cache) {
+		dns_cache_delete(dns_cache);
 		dns_cache_release(dns_cache);
 		dns_cache = NULL;
 	}
@@ -170,7 +178,9 @@ int dns_cache_insert(char *domain, char *cname, int cname_ttl, int ttl, dns_type
 	if (dns_cache_head.num > dns_cache_head.size) {
 		struct dns_cache *del_cache;
 		del_cache = _dns_cache_first();
-		dns_cache_release(del_cache);
+		if (del_cache) {
+			_dns_cache_remove(del_cache);
+		}
 	}
 	pthread_mutex_unlock(&dns_cache_head.lock);
 
@@ -215,10 +225,10 @@ struct dns_cache *dns_cache_lookup(char *domain, dns_type_t qtype)
 
 	if (dns_cache_ret) {
 		if (now - dns_cache_ret->insert_time > dns_cache_ret->ttl) {
-			_dns_cache_delete(dns_cache_ret);
+			_dns_cache_remove(dns_cache_ret);
 			dns_cache_ret = NULL;
 		} else {
-			atomic_inc(&dns_cache_ret->ref);
+			dns_cache_get(dns_cache_ret);
 		}
 	}
 
@@ -244,10 +254,8 @@ int dns_cache_get_ttl(struct dns_cache *dns_cache)
 void dns_cache_delete(struct dns_cache *dns_cache)
 {
 	pthread_mutex_lock(&dns_cache_head.lock);
-	hash_del(&dns_cache->node);
-	list_del_init(&dns_cache->list);
+	_dns_cache_remove(dns_cache);
 	pthread_mutex_unlock(&dns_cache_head.lock);
-	dns_cache_release(dns_cache);
 }
 
 void dns_cache_update(struct dns_cache *dns_cache)
@@ -293,16 +301,14 @@ void dns_cache_invalidate(dns_cache_preinvalid_callback callback, int ttl_pre)
 			break;
 		}
 
-		hash_del(&dns_cache->node);
-		list_del_init(&dns_cache->list);
-		dns_cache_release(dns_cache);
+		_dns_cache_remove(dns_cache);
 	}
 	pthread_mutex_unlock(&dns_cache_head.lock);
 
 	list_for_each_entry_safe(dns_cache, tmp, &checklist, check_list)
 	{
 		callback(dns_cache);
-		list_del_init(&dns_cache->check_list);
+		dns_cache_delete(dns_cache);
 		dns_cache_release(dns_cache);
 	}
 }

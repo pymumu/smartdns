@@ -250,7 +250,7 @@ case "$1" in
 	nvram set apps_state_action=install
 	nvram set apps_u2ec_ex=2
 	;;
-	firewall-start|reload|force-reload)
+	firewall-start|reload|force-reload|reconfigure)
 	$0 restart
 	;;
 	*)
