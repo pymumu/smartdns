@@ -841,10 +841,11 @@ static int _dns_decode_domain(struct dns_context *context, char *output, int siz
 	int len = *(context->ptr);
 	unsigned char *ptr = context->ptr;
 	int is_compressed = 0;
+	int ptr_jump = 0;
 
 	/*[len]string[len]string...[0]0 */
 	while (1) {
-		if (ptr > context->data + context->maxsize || ptr < context->data) {
+		if (ptr > context->data + context->maxsize || ptr < context->data || output_len >= size - 1 || ptr_jump > 4) {
 			return -1;
 		}
 		
@@ -877,13 +878,17 @@ static int _dns_decode_domain(struct dns_context *context, char *output, int siz
 				return -1;
 			}
 			is_compressed = 1;
+			ptr_jump++;
 			continue;
 		}
+
+		ptr_jump = 0;
 
 		/* change [len] to '.' */
 		if (output_len > 0) {
 			*output = '.';
 			output++;
+			output_len += 1;
 		}
 
 		if (ptr > context->data + context->maxsize) {
