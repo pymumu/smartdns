@@ -1650,10 +1650,16 @@ static int _dns_client_send_query(struct dns_query_struct *query, char *doamin)
 	head.ra = 0;
 	head.rcode = 0;
 
-	dns_packet_init(packet, DNS_PACKSIZE, &head);
+	if(dns_packet_init(packet, DNS_PACKSIZE, &head) != 0) {
+		tlog(TLOG_ERROR, "init packet failed.");
+		return -1;
+	}
 
 	/* add question */
-	dns_add_domain(packet, doamin, query->qtype, DNS_C_IN);
+	if (dns_add_domain(packet, doamin, query->qtype, DNS_C_IN) != 0) {
+		tlog(TLOG_ERROR, "add domain to packet failed.");
+		return -1;
+	}
 
 	dns_set_OPT_payload_size(packet, DNS_IN_PACKSIZE);
 
@@ -1666,6 +1672,12 @@ static int _dns_client_send_query(struct dns_query_struct *query, char *doamin)
 	encode_len = dns_encode(inpacket, DNS_IN_PACKSIZE, packet);
 	if (encode_len <= 0) {
 		tlog(TLOG_ERROR, "encode query failed.");
+		return -1;
+	}
+
+	if (encode_len > DNS_IN_PACKSIZE) {
+		tlog(TLOG_ERROR, "size is invalid.");
+		abort();
 		return -1;
 	}
 

@@ -144,8 +144,8 @@ unsigned char *_dns_add_rrs_start(struct dns_packet *packet, int *maxlen)
 	unsigned char *end = packet->data + packet->len;
 
 	rrs = (struct dns_rrs *)end;
-	*maxlen = packet->size - packet->len - sizeof(*packet);
-	if (packet->len >= packet->size - sizeof(*packet)) {
+	*maxlen = packet->size - packet->len - sizeof(*packet) - sizeof(*rrs);
+	if (*maxlen <= 0) {
 		/* if size exceeds max packet size, return NULL */
 		return NULL;
 	}
@@ -163,7 +163,7 @@ int dns_rr_add_end(struct dns_packet *packet, int type, dns_type_t rtype, int le
 	unsigned short *start;
 
 	rrs = (struct dns_rrs *)end;
-	if (packet->len + len > packet->size - sizeof(*packet)) {
+	if (packet->len + len > packet->size - sizeof(*packet) - sizeof(*rrs)) {
 		return -1;
 	}
 
@@ -227,7 +227,7 @@ int _dns_add_qr_head(struct dns_data_context *data_context, char *domain, int qt
 	 * |qtype | qclass |
 	 */
 	while (1) {
-		if (_dns_data_left_len(data_context) < 1) {
+		if (_dns_data_left_len(data_context) < 4) {
 			return -1;
 		}
 		*data_context->ptr = *domain;
@@ -259,8 +259,8 @@ int _dns_get_qr_head(struct dns_data_context *data_context, char *domain, int ma
 	/* |domain         |
 	 * |qtype | qclass |
 	 */
-	for (i = 0; i < maxsize; i++) {
-		if (_dns_data_left_len(data_context) < 1) {
+	for (i = 0; i < maxsize - 1; i++) {
+		if (_dns_data_left_len(data_context) < 4) {
 			return -1;
 		}
 		*domain = *data_context->ptr;
@@ -274,6 +274,8 @@ int _dns_get_qr_head(struct dns_data_context *data_context, char *domain, int ma
 		domain++;
 		data_context->ptr++;
 	}
+
+	*domain = '\0';
 
 	if (_dns_data_left_len(data_context) < 4) {
 		return -1;
@@ -1775,6 +1777,10 @@ static int _dns_encode_body(struct dns_context *context)
 int dns_packet_init(struct dns_packet *packet, int size, struct dns_head *head)
 {
 	struct dns_head *init_head = &packet->head;
+	if (size < sizeof(*packet)) {
+		return -1;
+	}
+
 	memset(packet, 0, size);
 	packet->size = size;
 	init_head->id = head->id;
@@ -1810,7 +1816,11 @@ int dns_decode(struct dns_packet *packet, int maxsize, unsigned char *data, int 
 	context.ptr = data;
 	context.maxsize = size;
 
-	dns_packet_init(packet, maxsize, head);
+	ret = dns_packet_init(packet, maxsize, head);
+	if (ret != 0) {
+		return -1;
+	}
+
 	ret = _dns_decode_head(&context);
 	if (ret < 0) {
 		return -1;
