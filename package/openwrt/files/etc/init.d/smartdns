@@ -217,6 +217,11 @@ load_service() {
 		conf_append "dualstack-ip-selection" "yes"
 	fi
 
+	config_get "prefetch_domain" "$section" "prefetch_domain" "0"
+	if [ "$prefetch_domain" = "1" ]; then
+		conf_append "prefetch-domain" "yes"
+	fi
+
 	SMARTDNS_PORT="$port"
 
 	config_get "cache_size" "$section" "cache_size" ""

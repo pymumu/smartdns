@@ -67,6 +67,12 @@ msgstr "双栈IP优选"
 msgid "Enable IP selection between IPV4 and IPV6"
 msgstr "启用或禁用IPV4，IPV6间的IP优选策略。"
 
+msgid "Domain prefetch"
+msgstr "域名预加载"
+
+msgid "Enable domain prefetch, accelerate domain response speed."
+msgstr "启用域名预加载，加速域名响应速度。"
+
 msgid "Redirect"
 msgstr "重定向"
 

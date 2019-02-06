@@ -351,6 +351,7 @@ static int _fast_ping_sendping_v6(struct ping_host_struct *ping_host)
 	icmp6->icmp6_seq = htons(ping_host->seq);
 
 	gettimeofday(&packet->msg.tv, 0);
+	gettimeofday(&ping_host->last, 0);
 	packet->msg.sid = ping_host->sid;
 	packet->msg.cookie = ping_host->cookie;
 	packet->msg.seq = ping_host->seq;
@@ -397,6 +398,7 @@ static int _fast_ping_sendping_v4(struct ping_host_struct *ping_host)
 	icmp->icmp_seq = htons(ping_host->seq);
 
 	gettimeofday(&packet->msg.tv, 0);
+	gettimeofday(&ping_host->last, 0);
 	packet->msg.sid = ping_host->sid;
 	packet->msg.seq = ping_host->seq;
 	packet->msg.cookie = ping_host->cookie;
@@ -447,6 +449,7 @@ static int _fast_ping_sendping_udp(struct ping_host_struct *ping_host)
 	memset(&dns_head, 0, sizeof(dns_head));
 	dns_head.id = htons(ping_host->sid);
 	dns_head.flag = flag;
+	gettimeofday(&ping_host->last, 0);
 	len = sendto(fd, &dns_head, sizeof(dns_head), 0, (struct sockaddr *)&ping_host->addr, ping_host->addr_len);
 	if (len < 0 || len != sizeof(dns_head)) {
 		int err = errno;
@@ -502,9 +505,10 @@ static int _fast_ping_sendping_tcp(struct ping_host_struct *ping_host)
 		}
 	}
 
+	gettimeofday(&ping_host->last, 0);
 	ping_host->fd = fd;
 	memset(&event, 0, sizeof(event));
-	event.events = EPOLLIN | EPOLLOUT;
+	event.events = EPOLLIN | EPOLLOUT | EPOLLERR;
 	event.data.ptr = ping_host;
 	if (epoll_ctl(ping.epoll_fd, EPOLL_CTL_ADD, fd, &event) != 0) {
 		ping_host->fd = -1;
@@ -524,6 +528,7 @@ errout:
 static int _fast_ping_sendping(struct ping_host_struct *ping_host)
 {
 	int ret = -1;
+	gettimeofday(&ping_host->last, 0);
 
 	if (ping_host->type == FAST_PING_ICMP) {
 		ret = _fast_ping_sendping_v4(ping_host);
@@ -536,7 +541,6 @@ static int _fast_ping_sendping(struct ping_host_struct *ping_host)
 	}
 
 	ping_host->send = 1;
-	gettimeofday(&ping_host->last, 0);
 
 	if (ret != 0) {
 		return ret;
@@ -1148,6 +1152,7 @@ static int _fast_ping_process_tcp(struct ping_host_struct *ping_host, struct epo
 		if (getsockopt(ping_host->fd, SOL_SOCKET, SO_ERROR, (char *)&connect_error, &len) != 0) {
 			goto errout;
 		}
+
 		if (connect_error != 0 && connect_error != ECONNREFUSED) {
 			goto errout;
 		}
@@ -1159,6 +1164,8 @@ static int _fast_ping_process_tcp(struct ping_host_struct *ping_host, struct epo
 	}
 
 	ping_host->send = 0;
+
+	_fast_ping_close_host_sock(ping_host);
 
 	if (ping_host->count == 1) {
 		_fast_ping_host_remove(ping_host);
