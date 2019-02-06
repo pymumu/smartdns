@@ -430,13 +430,15 @@ int config_address(void *data, int argc, char *argv[])
 	memcpy(domain, begin, len);
 	domain[len] = 0;
 
-	if (strncmp(end + 1, "#", sizeof("#")) == 0) {
+	if (*(end + 1) == '#') {
 		if (strncmp(end + 1, "#4", sizeof("#4")) == 0) {
 			flag = DOMAIN_FLAG_ADDR_IPV4_SOA;
 		} else if (strncmp(end + 1, "#6", sizeof("#6")) == 0) {
 			flag = DOMAIN_FLAG_ADDR_IPV6_SOA;
-		} else {
+		} else if (strncmp(end + 1, "#", sizeof("#")) == 0) {
 			flag = DOMAIN_FLAG_ADDR_SOA;
+		} else {
+			goto errout;
 		}
 
 		if (config_domain_rule_flag_set(domain, flag) != 0 ) {
@@ -444,13 +446,15 @@ int config_address(void *data, int argc, char *argv[])
 		}
 
 		return 0;
-	} else if (strncmp(end + 1, "-", sizeof("-")) == 0) {
+	} else if (*(end + 1) == '-') {
 		if (strncmp(end + 1, "-4", sizeof("-4")) == 0) {
 			flag = DOMAIN_FLAG_ADDR_IPV4_IGN;
 		} else if (strncmp(end + 1, "-6", sizeof("-6")) == 0) {
 			flag = DOMAIN_FLAG_ADDR_IPV6_IGN;
-		} else {
+		} else if (strncmp(end + 1, "-", sizeof("-")) == 0) {
 			flag = DOMAIN_FLAG_ADDR_IGN;
+		} else {
+			goto errout;
 		}
 
 		if (config_domain_rule_flag_set(domain, flag) != 0 ) {
@@ -629,7 +633,7 @@ int conf_edns_client_subnet(void *data, int argc, char *argv[])
 	char *slash = NULL;
 	char *value = NULL;
 	int subnet = 0;
-	struct dns_edns_client_subnet *ecs = data;
+	struct dns_edns_client_subnet *ecs = NULL;
 	struct sockaddr_storage addr;
 	socklen_t addr_len = sizeof(addr);
 
@@ -650,6 +654,17 @@ int conf_edns_client_subnet(void *data, int argc, char *argv[])
 	}
 
 	if (getaddr_by_host(value, (struct sockaddr *)&addr, &addr_len) != 0) {
+		goto errout;
+	}
+
+	switch (addr.ss_family) {
+	case AF_INET:
+		ecs = &dns_conf_ipv4_ecs;
+		break;
+	case AF_INET6:
+		ecs = &dns_conf_ipv6_ecs;
+		break;
+	default:
 		goto errout;
 	}
 
@@ -712,8 +727,7 @@ struct config_item config_item[] = {
 	CONF_CUSTOM("blacklist-ip", config_blacklist_ip, NULL),
 	CONF_CUSTOM("bogus-nxdomain", conf_bogus_nxdomain, NULL),
 	CONF_CUSTOM("ignore-ip", conf_ip_ignore, NULL),
-	CONF_CUSTOM("edns-client-subnet-ipv4", conf_edns_client_subnet, &dns_conf_ipv6_ecs),
-	CONF_CUSTOM("edns-client-subnet-ipv6", conf_edns_client_subnet, &dns_conf_ipv6_ecs),
+	CONF_CUSTOM("edns-client-subnet", conf_edns_client_subnet, NULL),
 	CONF_CUSTOM("conf-file", config_addtional_file, NULL),
 	CONF_END(),
 };
