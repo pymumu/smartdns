@@ -63,7 +63,7 @@ build()
     tar zcf $ROOT/data.tar.gz -C root .
     tar zcf $OUTPUTDIR/luci-app-smartdns.$VER.$ARCH.ipk control.tar.gz data.tar.gz debian-binary
 
-    #rm -fr $ROOT/
+    rm -fr $ROOT/
 }
 
 main()
