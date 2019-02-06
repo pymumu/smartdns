@@ -118,6 +118,7 @@ struct dns_server_info {
 	int ttl_range;
 	SSL *ssl;
 	SSL_CTX *ssl_ctx;
+	SSL_SESSION *ssl_session;
 	dns_server_status status;
 	unsigned int result_flag;
 
@@ -273,6 +274,14 @@ int _dns_client_server_add(char *server_ip, struct addrinfo *gai, dns_server_typ
 	server_info->ttl = ttl;
 	server_info->ttl_range = 0;
 
+	if (server_type == DNS_SERVER_TLS) {
+		server_info->ssl_ctx = SSL_CTX_new(SSLv23_client_method());
+		if (server_info->ssl_ctx == NULL) {
+			tlog(TLOG_ERROR, "init ssl failed.");
+			goto errout;
+		}
+	}
+
 	if (gai->ai_addrlen > sizeof(server_info->in6)) {
 		tlog(TLOG_ERROR, "addr len invalid, %d, %zd, %d", gai->ai_addrlen, sizeof(server_info->addr), server_info->ai_family);
 		goto errout;
@@ -301,9 +310,14 @@ int _dns_client_server_add(char *server_ip, struct addrinfo *gai, dns_server_typ
 	return 0;
 errout:
 	if (server_info) {
+		if (server_info->ssl_ctx) {
+			SSL_CTX_free(server_info->ssl_ctx);
+			server_info->ssl_ctx = NULL;
+		}
 		if (server_info->ping_host) {
 			fast_ping_stop(server_info->ping_host);
 		}
+
 		free(server_info);
 	}
 
@@ -322,16 +336,33 @@ static void _dns_client_close_socket(struct dns_server_info *server_info)
 		server_info->ssl = NULL;
 	}
 
-	if (server_info->ssl_ctx) {
-		SSL_CTX_free(server_info->ssl_ctx);
-		server_info->ssl_ctx = NULL;
-	}
-
 	epoll_ctl(client.epoll_fd, EPOLL_CTL_DEL, server_info->fd, NULL);
 	close(server_info->fd);
 
 	server_info->fd = -1;
 	server_info->status = DNS_SERVER_STATUS_DISCONNECTED;
+}
+
+static void _dns_client_server_close(struct dns_server_info *server_info)
+{
+	/* stop ping task */
+	if (server_info->ping_host) {
+		if (fast_ping_stop(server_info->ping_host) != 0) {
+			tlog(TLOG_ERROR, "stop ping failed.\n");
+		}
+	}
+
+	_dns_client_close_socket(server_info);
+
+	if (server_info->ssl_session) {
+		SSL_SESSION_free(server_info->ssl_session);
+		server_info->ssl_session = NULL;
+	}
+
+	if (server_info->ssl_ctx) {
+		SSL_CTX_free(server_info->ssl_ctx);
+		server_info->ssl_ctx = NULL;
+	}	
 }
 
 /* remove all servers information */
@@ -342,14 +373,7 @@ void _dns_client_server_remove_all(void)
 	list_for_each_entry_safe(server_info, tmp, &client.dns_server_list, list)
 	{
 		list_del(&server_info->list);
-		/* stop ping task */
-		if (server_info->ping_host) {
-			if (fast_ping_stop(server_info->ping_host) != 0) {
-				tlog(TLOG_ERROR, "stop ping failed.\n");
-			}
-		}
-
-		_dns_client_close_socket(server_info);
+		_dns_client_server_close(server_info);
 		free(server_info);
 	}
 	pthread_mutex_unlock(&client.server_list_lock);
@@ -371,11 +395,9 @@ int _dns_client_server_remove(char *server_ip, struct addrinfo *gai, dns_server_
 		if (memcmp(&server_info->addr, gai->ai_addr, gai->ai_addrlen) != 0) {
 			continue;
 		}
+
 		list_del(&server_info->list);
-		pthread_mutex_unlock(&client.server_list_lock);
-		if (fast_ping_stop(server_info->ping_host) != 0) {
-			tlog(TLOG_ERROR, "stop ping failed.\n");
-		}
+		_dns_client_server_close(server_info);
 		free(server_info);
 		atomic_dec(&client.dns_server_num);
 		return 0;
@@ -816,17 +838,15 @@ static int _DNS_client_create_socket_tls(struct dns_server_info *server_info)
 {
 	int fd = 0;
 	struct epoll_event event;
-	SSL_CTX *ctx = NULL;
 	SSL *ssl = NULL;
 	int yes = 1;
 
-	ctx = SSL_CTX_new(SSLv23_client_method());
-	if (ctx == NULL) {
+	if (server_info->ssl_ctx == NULL) {
 		tlog(TLOG_ERROR, "create ssl ctx failed.");
 		goto errout;
 	}
 
-	ssl = SSL_new(ctx);
+	ssl = SSL_new(server_info->ssl_ctx);
 	if (ssl == NULL) {
 		tlog(TLOG_ERROR, "new ssl failed.");
 		goto errout;
@@ -861,6 +881,9 @@ static int _DNS_client_create_socket_tls(struct dns_server_info *server_info)
 		goto errout;
 	}
 
+	if (server_info->ssl_session) {
+		SSL_set_session(ssl, server_info->ssl_session);
+	}
 	SSL_set_mode(ssl, SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
 
 	memset(&event, 0, sizeof(event));
@@ -873,7 +896,6 @@ static int _DNS_client_create_socket_tls(struct dns_server_info *server_info)
 
 	server_info->fd = fd;
 	server_info->ssl = ssl;
-	server_info->ssl_ctx = ctx;
 	server_info->status = DNS_SERVER_STATUS_CONNECTING;
 
 	tlog(TLOG_DEBUG, "TLS server connecting.\n");
@@ -886,10 +908,6 @@ errout:
 
 	if (ssl) {
 		SSL_free(ssl);
-	}
-
-	if (ctx) {
-		SSL_CTX_free(ctx);
 	}
 
 	return -1;
@@ -1344,6 +1362,17 @@ static int _dns_client_process_tls(struct dns_server_info *server_info, struct e
 		}
 
 		tlog(TLOG_DEBUG, "TLS server connected.\n");
+		/* Was the stored session reused? */
+        if (SSL_session_reused(server_info->ssl)) {
+            tlog(TLOG_DEBUG, "reused session");
+        } else {
+            tlog(TLOG_DEBUG, "new session");
+			if (server_info->ssl_session) {
+				SSL_SESSION_free(server_info->ssl_session);
+				server_info->ssl_session = NULL;
+			}
+			server_info->ssl_session = SSL_get1_session(server_info->ssl);
+        }
 
 		if (_dns_client_tls_verify(server_info) != 0) {
 			tlog(TLOG_WARN, "peer verify failed.");
