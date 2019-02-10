@@ -1429,6 +1429,12 @@ static int _dns_decode_opt(struct dns_context *context, dns_rr_type type, unsign
 		}
 		opt_code = dns_read_short(&context->ptr);
 		opt_len = dns_read_short(&context->ptr);
+
+		if (_dns_left_len(context) < opt_len) {
+			tlog(TLOG_ERROR, "read opt data failed, opt_code = %d, opt_le = %d", opt_code, opt_len);
+			return -1;
+		}
+
 		tlog(TLOG_DEBUG, "opt type %d", opt_code);
 		switch (opt_code) {
 		case DNS_OPT_T_ECS: {
