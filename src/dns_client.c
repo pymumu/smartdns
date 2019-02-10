@@ -50,6 +50,8 @@
 #define DNS_MAX_EVENTS 64
 #define DNS_HOSTNAME_LEN 128
 #define DNS_TCP_BUFFER (32 * 1024)
+#define DNS_TCP_IDLE_TIMEOUT (60 * 10)
+#define DNS_TCP_CONNECT_TIMEOUT (5)
 
 #ifndef TCP_FASTOPEN_CONNECT
 #define TCP_FASTOPEN_CONNECT 30
@@ -109,6 +111,7 @@ struct dns_server_info {
 	/* server ping handle */
 	struct ping_host_struct *ping_host;
 
+	char ip[DNS_HOSTNAME_LEN];
 	/* server type */
 	dns_server_type_t type;
 
@@ -242,7 +245,7 @@ void _dns_client_server_update_ttl(struct ping_host_struct *ping_host, const cha
 	}
 
 	double rtt = tv->tv_sec * 1000.0 + tv->tv_usec / 1000.0;
-	tlog(TLOG_DEBUG, "from %15s: seq=%d ttl=%d time=%.3f\n", host, seqno, ttl, rtt);
+	tlog(TLOG_DEBUG, "from %s: seq=%d ttl=%d time=%.3f\n", host, seqno, ttl, rtt);
 	server_info->ttl = ttl;
 }
 
@@ -265,6 +268,7 @@ int _dns_client_server_add(char *server_ip, struct addrinfo *gai, dns_server_typ
 	}
 
 	memset(server_info, 0, sizeof(*server_info));
+	strncpy(server_info->ip, server_ip, sizeof(server_info->ip));
 	server_info->ai_family = gai->ai_family;
 	server_info->ai_addrlen = gai->ai_addrlen;
 	server_info->type = server_type;
@@ -341,6 +345,9 @@ static void _dns_client_close_socket(struct dns_server_info *server_info)
 
 	server_info->fd = -1;
 	server_info->status = DNS_SERVER_STATUS_DISCONNECTED;
+	time(&server_info->last_send);
+	time(&server_info->last_recv);
+	tlog(TLOG_DEBUG, "server %s closed.", server_info->ip);
 }
 
 static void _dns_client_server_close(struct dns_server_info *server_info)
@@ -553,10 +560,72 @@ void _dns_client_query_remove_all(void)
 	return;
 }
 
+void _dns_client_check_udp_nat(void)
+{
+	struct dns_server_info *server_info;
+	/* For udp nat case.
+	 * when router reconnect to internet, udp port may always marked as UNREPLIED.
+	 * dns query will timeout, and cannot reconnect again,
+	 * create a new socket to communicate.
+	 */
+	pthread_mutex_lock(&client.server_list_lock);
+	list_for_each_entry(server_info, &client.dns_server_list, list)
+	{
+		if (server_info->type != DNS_SERVER_UDP) {
+			continue;
+		}
+
+		if (server_info->last_send - 5 > server_info->last_recv) {
+			server_info->recv_buff.len = 0;
+			server_info->send_buff.len = 0;
+			tlog(TLOG_DEBUG, "query server %s timeout.", server_info->ip);
+			_dns_client_close_socket(server_info);
+		}
+	}
+	pthread_mutex_unlock(&client.server_list_lock);
+}
+
+void _dns_client_check_tcp(void)
+{
+	struct dns_server_info *server_info;
+	time_t now;
+
+	time(&now);
+
+	pthread_mutex_lock(&client.server_list_lock);
+	list_for_each_entry(server_info, &client.dns_server_list, list)
+	{
+		if (server_info->type == DNS_SERVER_UDP) {
+			continue;
+		}
+
+		if (server_info->status == DNS_SERVER_STATUS_CONNECTING) {
+			if (server_info->last_send + DNS_TCP_CONNECT_TIMEOUT < now) {
+				tlog(TLOG_DEBUG, "server %s connect timeout.", server_info->ip);
+				_dns_client_close_socket(server_info);
+			}
+		} else if (server_info->status == DNS_SERVER_STATUS_CONNECTED) {
+			if (server_info->last_recv + DNS_TCP_IDLE_TIMEOUT < now) {
+				server_info->recv_buff.len = 0;
+				server_info->send_buff.len = 0;
+				_dns_client_close_socket(server_info);
+			}
+		}
+	}
+	pthread_mutex_unlock(&client.server_list_lock);	
+}
+
+void _dns_client_period_run_second(void)
+{
+	_dns_client_check_tcp();
+}
+
 void _dns_client_period_run(void)
 {
 	struct dns_query_struct *query, *tmp;
-	struct dns_server_info *server_info;
+	static unsigned int msec = 0;
+	msec++;
+
 	LIST_HEAD(check_list);
 
 	unsigned long now = get_tick_count();
@@ -579,21 +648,12 @@ void _dns_client_period_run(void)
 		_dns_client_query_remove(query);
 		_dns_client_query_release(query);
 
-		/* For udp nat case.
-		 * when router reconnect to internet, udp port may always marked as UNREPLIED.
-		 * dns query will timeout, and cannot reconnect again,
-		 * create a new socket to communicate.
-		 */
-		pthread_mutex_lock(&client.server_list_lock);
-		list_for_each_entry(server_info, &client.dns_server_list, list)
-		{
-			if (server_info->last_send - 5 > server_info->last_recv) {
-				server_info->recv_buff.len = 0;
-				server_info->send_buff.len = 0;
-				_dns_client_close_socket(server_info);
-			}
-		}
-		pthread_mutex_unlock(&client.server_list_lock);
+		_dns_client_check_udp_nat();
+	}
+
+
+	if (msec % 10 == 0) {
+		_dns_client_period_run_second();
 	}
 
 	return;
@@ -825,6 +885,8 @@ static int _DNS_client_create_socket_tcp(struct dns_server_info *server_info)
 	server_info->fd = fd;
 	server_info->status = DNS_SERVER_STATUS_CONNECTING;
 
+	tlog(TLOG_DEBUG, "tcp server %s connecting.\n", server_info->ip);
+
 	return 0;
 errout:
 	if (fd > 0) {
@@ -898,7 +960,7 @@ static int _DNS_client_create_socket_tls(struct dns_server_info *server_info)
 	server_info->ssl = ssl;
 	server_info->status = DNS_SERVER_STATUS_CONNECTING;
 
-	tlog(TLOG_DEBUG, "TLS server connecting.\n");
+	tlog(TLOG_DEBUG, "tls server %s connecting.\n", server_info->ip);
 
 	return 0;
 errout:
@@ -979,7 +1041,7 @@ static int _dns_client_process_udp(struct dns_server_info *server_info, struct e
 		}
 	}
 
-	tlog(TLOG_DEBUG, "recv udp, from %s, len: %d, ttl: %d", gethost_by_addr(from_host, (struct sockaddr *)&from, from_len), len, ttl);
+	tlog(TLOG_DEBUG, "recv udp packet from %s, len: %d, ttl: %d", gethost_by_addr(from_host, (struct sockaddr *)&from, from_len), len, ttl);
 
 	if ((ttl != server_info->ttl) && (server_info->ttl > 0) && (server_info->result_flag & DNSSERVER_FLAG_CHECK_TTL)) {
 		if ((ttl < server_info->ttl - server_info->ttl_range) || (ttl > server_info->ttl + server_info->ttl_range)) {
@@ -1141,7 +1203,6 @@ static int _dns_client_process_tcp(struct dns_server_info *server_info, struct e
 	int len;
 	int ret = -1;
 	unsigned char *inpacket_data = server_info->recv_buff.data;
-	char from_host[DNS_MAX_CNAME_LEN];
 
 	if (event->events & EPOLLIN) {
 		/* receive from tcp */
@@ -1173,7 +1234,7 @@ static int _dns_client_process_tcp(struct dns_server_info *server_info, struct e
 				ret = 0;
 			}
 			pthread_mutex_unlock(&client.server_list_lock);
-			tlog(TLOG_DEBUG, "peer close, left = %d", server_info->send_buff.len);
+			tlog(TLOG_DEBUG, "peer close, %s", server_info->ip);
 			return ret;
 		}
 
@@ -1202,7 +1263,7 @@ static int _dns_client_process_tcp(struct dns_server_info *server_info, struct e
 			}
 
 			inpacket_data = server_info->recv_buff.data + 2;
-			tlog(TLOG_DEBUG, "recv tcp from %s, len = %d", gethost_by_addr(from_host, (struct sockaddr *)&server_info->addr, server_info->ai_addrlen), len);
+			tlog(TLOG_DEBUG, "recv tcp packet from %s, len = %d", server_info->ip, len);
 
 			/* process result */
 			if (_dns_client_recv(server_info, inpacket_data, len, &server_info->addr, server_info->ai_addrlen) != 0) {
@@ -1226,7 +1287,7 @@ static int _dns_client_process_tcp(struct dns_server_info *server_info, struct e
 
 		if (server_info->status == DNS_SERVER_STATUS_CONNECTING) {
 			server_info->status = DNS_SERVER_STATUS_CONNECTED;
-			tlog(TLOG_DEBUG, "tcp connected");
+			tlog(TLOG_DEBUG, "tcp server %s connected", server_info->ip);
 		}
 
 		if (server_info->status != DNS_SERVER_STATUS_CONNECTED) {
@@ -1361,7 +1422,7 @@ static int _dns_client_process_tls(struct dns_server_info *server_info, struct e
 			return 0;
 		}
 
-		tlog(TLOG_DEBUG, "TLS server connected.\n");
+		tlog(TLOG_DEBUG, "tls server %s connected.\n", server_info->ip);
 		/* Was the stored session reused? */
         if (SSL_session_reused(server_info->ssl)) {
             tlog(TLOG_DEBUG, "reused session");
@@ -1371,13 +1432,14 @@ static int _dns_client_process_tls(struct dns_server_info *server_info, struct e
 				SSL_SESSION_free(server_info->ssl_session);
 				server_info->ssl_session = NULL;
 			}
+
+			if (_dns_client_tls_verify(server_info) != 0) {
+				tlog(TLOG_WARN, "peer verify failed.");
+				goto errout;
+			}
+
 			server_info->ssl_session = SSL_get1_session(server_info->ssl);
         }
-
-		if (_dns_client_tls_verify(server_info) != 0) {
-			tlog(TLOG_WARN, "peer verify failed.");
-			goto errout;
-		}
 
 		server_info->status = DNS_SERVER_STATUS_CONNECTED;
 		memset(&fd_event, 0, sizeof(fd_event));

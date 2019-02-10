@@ -761,9 +761,9 @@ void _dns_server_ping_result(struct ping_host_struct *ping_host, const char *hos
 	}
 	if (result == PING_RESULT_RESPONSE) {
 		request->has_ping_result = 1;
-		tlog(TLOG_DEBUG, "from %15s: seq=%d time=%d\n", host, seqno, rtt);
+		tlog(TLOG_DEBUG, "from %s: seq=%d time=%d\n", host, seqno, rtt);
 	} else {
-		tlog(TLOG_DEBUG, "from %15s: seq=%d timeout\n", host, seqno);
+		tlog(TLOG_DEBUG, "from %s: seq=%d timeout\n", host, seqno);
 	}
 
 	if (rtt < threshold) {
@@ -1416,6 +1416,7 @@ static int _dns_server_recv(struct dns_server_conn *client, unsigned char *inpac
 
 	_dns_server_client_get(client);
 
+	tlog(TLOG_DEBUG, "recv query packet from %s, len = %d", gethost_by_addr(name, (struct sockaddr *)from, from_len), inpacket_len);
 	decode_len = dns_decode(packet, DNS_PACKSIZE, inpacket, inpacket_len);
 	if (decode_len < 0) {
 		tlog(TLOG_ERROR, "decode failed.\n");
@@ -1507,7 +1508,7 @@ static int _dns_server_recv(struct dns_server_conn *client, unsigned char *inpac
 		goto clean_exit;
 	}
 
-	tlog(TLOG_INFO, "query server %s from %s, qtype = %d\n", request->domain, gethost_by_addr(name, (struct sockaddr *)from, from_len), qtype);
+	tlog(TLOG_INFO, "query server %s from %s, qtype = %d\n", request->domain, name, qtype);
 
 	_dns_server_request_get(request);
 	pthread_mutex_lock(&server.request_list_lock);
