@@ -200,12 +200,14 @@ int smartdns_init_ssl(void)
 	SSL_load_error_strings();
 	SSL_library_init();
 	OpenSSL_add_all_algorithms();
+	SSL_CRYPTO_thread_setup();
 
 	return 0;
 }
 
 int smartdns_destroy_ssl(void)
 {
+	SSL_CRYPTO_thread_cleanup();
 	ERR_free_strings();
 	EVP_cleanup();
 

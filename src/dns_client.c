@@ -52,6 +52,7 @@
 #define DNS_TCP_BUFFER (32 * 1024)
 #define DNS_TCP_IDLE_TIMEOUT (60 * 10)
 #define DNS_TCP_CONNECT_TIMEOUT (5)
+#define DNS_QUERY_TIMEOUT (500)
 
 #ifndef TCP_FASTOPEN_CONNECT
 #define TCP_FASTOPEN_CONNECT 30
@@ -634,7 +635,7 @@ void _dns_client_period_run(void)
 	pthread_mutex_lock(&client.domain_map_lock);
 	list_for_each_entry_safe(query, tmp, &client.dns_request_list, dns_request_list)
 	{
-		if (now - query->send_tick >= 400 && query->send_tick > 0) {
+		if (now - query->send_tick >= DNS_QUERY_TIMEOUT && query->send_tick > 0) {
 			list_add(&query->period_list, &check_list);
 			_dns_client_query_get(query);
 		}

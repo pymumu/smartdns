@@ -26,4 +26,8 @@ int ipset_add(const char *ipsetname, const unsigned char addr[], int addr_len);
 
 int ipset_del(const char *ipsetname, const unsigned char addr[], int addr_len);
 
+void SSL_CRYPTO_thread_setup(void);
+
+void SSL_CRYPTO_thread_cleanup(void);
+
 #endif
