@@ -381,6 +381,11 @@ static int _dns_reply_inpacket(struct dns_request *request, unsigned char *inpac
 	struct dns_server_conn *client = request->client;
 	int ret = 0;
 
+	if (client == NULL) {
+		tlog(TLOG_ERROR, "client is invalid, domain: %s", request->domain);
+		return -1;
+	}
+
 	if (client->type == DNS_SERVER_UDP) {
 		ret = _dns_server_reply_udp(request, client, inpacket, inpacket_len);
 	} else if (client->type == DNS_SERVER_TCP) {
@@ -1093,6 +1098,20 @@ static int dns_server_update_reply_packet_id(struct dns_request *request, unsign
 	return 0;
 }
 
+static int _dns_server_reply_passthrouth(struct dns_request *request, struct dns_packet *packet, unsigned char *inpacket, int inpacket_len)
+{
+	int ret = 0;
+
+	if (atomic_inc_return(&request->notified) != 1) {
+		return 0;
+	}
+
+	dns_server_update_reply_packet_id(request, inpacket, inpacket_len);
+	ret = _dns_reply_inpacket(request, inpacket, inpacket_len);
+
+	return ret;
+}
+
 static int dns_server_resolve_callback(char *domain, dns_result_type rtype, unsigned int result_flag, struct dns_packet *packet, unsigned char *inpacket,
 									   int inpacket_len, void *user_ptr)
 {
@@ -1106,9 +1125,7 @@ static int dns_server_resolve_callback(char *domain, dns_result_type rtype, unsi
 
 	if (rtype == DNS_QUERY_RESULT) {
 		if (request->passthrough) {
-			dns_server_update_reply_packet_id(request, inpacket, inpacket_len);
-			_dns_reply_inpacket(request, inpacket, inpacket_len);
-			return 0;
+			return _dns_server_reply_passthrouth(request, packet, inpacket, inpacket_len);
 		}
 
 		_dns_server_process_answer(request, domain, packet, result_flag);
