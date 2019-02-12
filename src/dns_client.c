@@ -635,7 +635,7 @@ void _dns_client_period_run(void)
 	pthread_mutex_lock(&client.domain_map_lock);
 	list_for_each_entry_safe(query, tmp, &client.dns_request_list, dns_request_list)
 	{
-		if (now - query->send_tick >= DNS_QUERY_TIMEOUT && query->send_tick > 0) {
+		if ((now - DNS_QUERY_TIMEOUT >= query->send_tick) && query->send_tick > 0) {
 			list_add(&query->period_list, &check_list);
 			_dns_client_query_get(query);
 		}
@@ -1693,8 +1693,11 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 		}
 
 		if (ret != 0) {
-			char server_addr[128];
-			tlog(TLOG_ERROR, "send query to %s failed, %s, type: %d", gethost_by_addr(server_addr, &server_info->addr, server_info->ai_addrlen), strerror(send_err), server_info->type);
+			if (send_err != ENOMEM) {
+				tlog(TLOG_ERROR, "send query to %s failed, %s, type: %d", server_info->ip, strerror(send_err), server_info->type);
+			} else {
+				tlog(TLOG_DEBUG, "send query to %s failed, %s, type: %d", server_info->ip, strerror(send_err), server_info->type);
+			}
 			atomic_dec(&query->dns_request_sent);
 			continue;
 		}
