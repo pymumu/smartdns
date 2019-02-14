@@ -147,7 +147,7 @@ int dns_cache_insert(char *domain, char *cname, int cname_ttl, int ttl, dns_type
 	dns_cache->cname[0] = 0;
 	dns_cache->qtype = qtype;
 	dns_cache->ttl = ttl;
-	dns_cache->hitnum = 6;
+	dns_cache->hitnum = 2;
 	atomic_set(&dns_cache->ref, 1);
 	time(&dns_cache->insert_time);
 	if (qtype == DNS_T_A) {

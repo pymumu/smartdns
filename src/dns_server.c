@@ -408,6 +408,10 @@ static int _dns_reply(struct dns_request *request)
 	int ret = 0;
 	int encode_len = 0;
 
+	if (request->client == NULL) {
+		return 0;
+	}
+
 	_dns_server_audit_log(request);
 
 	memset(&head, 0, sizeof(head));
@@ -490,14 +494,14 @@ static int _dns_setup_ipset(struct dns_request *request)
 	}
 
 	if (request->has_ipv4 && request->qtype == DNS_T_A) {
-		ret |= ipset_add(ipset_rule->ipsetname, request->ipv4_addr, DNS_RR_A_LEN);
+		ret |= ipset_add(ipset_rule->ipsetname, request->ipv4_addr, DNS_RR_A_LEN, request->ttl_v4 * 2);
 	}
 
 	if (request->has_ipv6 && request->qtype == DNS_T_AAAA) {
 		if (request->has_ipv4) {
-			ret |= ipset_add(ipset_rule->ipsetname, request->ipv4_addr, DNS_RR_A_LEN);
+			ret |= ipset_add(ipset_rule->ipsetname, request->ipv4_addr, DNS_RR_A_LEN, request->ttl_v4 * 2);
 		}
-		ret |= ipset_add(ipset_rule->ipsetname, request->ipv6_addr, DNS_RR_AAAA_LEN);
+		ret |= ipset_add(ipset_rule->ipsetname, request->ipv6_addr, DNS_RR_AAAA_LEN, request->ttl_v6 * 2);
 	}
 
 	tlog(TLOG_DEBUG, "IPSET-MATCH: domain:%s, ipset:%s, result: %d", request->domain, ipset_rule->ipsetname, ret);
@@ -548,7 +552,12 @@ int _dns_server_request_complete(struct dns_request *request)
 
 			if ((request->ping_ttl_v4 + (dns_conf_dualstack_ip_selection_threshold * 10)) < request->ping_ttl_v6 || request->ping_ttl_v6 < 0) {
 				tlog(TLOG_DEBUG, "Force IPV4 perfered.");
-				dns_cache_insert(request->domain, cname, cname_ttl, request->ttl_v4, DNS_T_A, request->ipv4_addr, DNS_RR_A_LEN);
+				if (request->prefetch) {
+					dns_cache_replace(request->domain, cname, cname_ttl, request->ttl_v4, DNS_T_A, request->ipv4_addr, DNS_RR_A_LEN);
+				} else {
+					dns_cache_insert(request->domain, cname, cname_ttl, request->ttl_v4, DNS_T_A, request->ipv4_addr, DNS_RR_A_LEN);
+				}
+
 				return _dns_server_reply_SOA(DNS_RC_NOERROR, request, NULL);
 			}
 
@@ -575,15 +584,16 @@ int _dns_server_request_complete(struct dns_request *request)
 		}
 	}
 
-	if (request->prefetch) {
-		return 0;
-	}
-
 	if (request->has_soa) {
 		tlog(TLOG_INFO, "result: %s, qtype: %d, SOA", request->domain, request->qtype);
 	}
 
 	_dns_setup_ipset(request);
+
+	if (request->prefetch) {
+		return 0;
+	}
+
 	_dns_reply(request);
 
 	return 0;
@@ -1593,6 +1603,8 @@ static int _dns_server_prefetch_request(char *domain, dns_type_t qtype)
 	request->id = 0;
 	hash_init(request->ip_map);
 	strncpy(request->domain, domain, DNS_MAX_CNAME_LEN);
+
+	request->domain_rule = _dns_server_get_domain_rule(request->domain);
 
 	tlog(TLOG_INFO, "prefetch domain %s, qtype = %d\n", request->domain, qtype);
 

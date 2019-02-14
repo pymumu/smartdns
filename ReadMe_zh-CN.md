@@ -395,6 +395,7 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 |server-tls|上游TLS DNS|无|[IP][:port] [-blacklist-ip][-check-edns]，可重复，blacklist-ip参数指定使用blacklist-ip配置IP过滤结果| server-tls 8.8.8.8:853
 |address|指定域名IP地址|无|address /domain/[ip\|-\|-4\|-6\|#\|#4\|#6], `-`表示忽略, `#`表示返回SOA, `4`表示IPV4, `6`表示IPV6| address /www.example.com/1.2.3.4
 |ipset|域名IPSET|None|ipset /domain/[ipset\|-], `-`表示忽略|ipset /www.example.com/pass
+|ipset-timeout|设置IPSET超时功能启用|auto|[yes]|ipset-timeout yes
 |bogus-nxdomain|假冒IP地址过滤|无|[ip/subnet]，可重复| bogus-nxdomain 1.2.3.4/16
 |ignore-ip|忽略IP地址|无|[ip/subnet]，可重复| ignore-ip 1.2.3.4/16
 |blacklist-ip|黑名单IP地址|无|[ip/subnet]，可重复| blacklist-ip 1.2.3.4/16

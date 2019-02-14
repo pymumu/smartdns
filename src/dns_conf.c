@@ -45,6 +45,8 @@ int dns_conf_rr_ttl_min;
 int dns_conf_rr_ttl_max;
 int dns_conf_force_AAAA_SOA;
 
+int dns_conf_ipset_timeout_enable;
+
 struct dns_edns_client_subnet dns_conf_ipv4_ecs;
 struct dns_edns_client_subnet dns_conf_ipv6_ecs;
 
@@ -706,6 +708,7 @@ struct config_item config_item[] = {
 	CONF_CUSTOM("server-tcp", config_server_tcp, NULL),
 	CONF_CUSTOM("server-tls", config_server_tls, NULL),
 	CONF_CUSTOM("address", config_address, NULL),
+	CONF_YESNO("ipset-timeout", &dns_conf_ipset_timeout_enable),
 	CONF_CUSTOM("ipset", config_ipset, NULL),
 	CONF_INT("tcp-idle-time", &dns_conf_tcp_idle_time, 0, 3600),
 	CONF_INT("cache-size", &dns_conf_cachesize, 0, CONF_INT_MAX),

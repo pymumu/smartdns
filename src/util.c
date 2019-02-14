@@ -1,4 +1,5 @@
 #include "util.h"
+#include "dns_conf.h"
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -19,6 +20,7 @@
 #define IPSET_ATTR_IPADDR_IPV6 2
 #define IPSET_ATTR_PROTOCOL 1
 #define IPSET_ATTR_SETNAME 2
+#define IPSET_ATTR_TIMEOUT 6
 #define IPSET_ADD 9
 #define IPSET_DEL 10
 #define IPSET_MAXNAMELEN 32
@@ -246,11 +248,20 @@ static int _ipset_socket_init(void)
 	return 0;
 }
 
-static int _ipset_operate(const char *ipsetname, const unsigned char addr[], int addr_len, int operate)
+static int _ipset_support_timeout(const char *ipsetname) 
+{
+	if (dns_conf_ipset_timeout_enable) {
+		return 0;
+	}
+	
+	return -1;
+}
+
+static int _ipset_operate(const char *ipsetname, const unsigned char addr[], int addr_len, unsigned long timeout, int operate)
 {
 	struct nlmsghdr *netlink_head;
 	struct ipset_netlink_msg *netlink_msg;
-	struct ipset_netlink_attr *nested[2];
+	struct ipset_netlink_attr *nested[3];
 	char buffer[BUFF_SZ];
 	uint8_t proto;
 	ssize_t rc;
@@ -285,7 +296,7 @@ static int _ipset_operate(const char *ipsetname, const unsigned char addr[], int
 	netlink_head = (struct nlmsghdr *)buffer;
 	netlink_head->nlmsg_len = NETLINK_ALIGN(sizeof(struct nlmsghdr));
 	netlink_head->nlmsg_type = operate | (NFNL_SUBSYS_IPSET << 8);
-	netlink_head->nlmsg_flags = NLM_F_REQUEST;
+	netlink_head->nlmsg_flags = NLM_F_REQUEST | NLM_F_REPLACE;
 
 	netlink_msg = (struct ipset_netlink_msg *)(buffer + netlink_head->nlmsg_len);
 	netlink_head->nlmsg_len += NETLINK_ALIGN(sizeof(struct ipset_netlink_msg));
@@ -303,9 +314,15 @@ static int _ipset_operate(const char *ipsetname, const unsigned char addr[], int
 	nested[1] = (struct ipset_netlink_attr *)(buffer + NETLINK_ALIGN(netlink_head->nlmsg_len));
 	netlink_head->nlmsg_len += NETLINK_ALIGN(sizeof(struct ipset_netlink_attr));
 	nested[1]->type = NLA_F_NESTED | IPSET_ATTR_IP;
-	_ipset_add_attr(netlink_head, (af == AF_INET ? IPSET_ATTR_IPADDR_IPV4 : IPSET_ATTR_IPADDR_IPV6) | NLA_F_NET_BYTEORDER, addr_len, addr);
 
+	_ipset_add_attr(netlink_head, (af == AF_INET ? IPSET_ATTR_IPADDR_IPV4 : IPSET_ATTR_IPADDR_IPV6) | NLA_F_NET_BYTEORDER, addr_len, addr);
 	nested[1]->len = (void *)buffer + NETLINK_ALIGN(netlink_head->nlmsg_len) - (void *)nested[1];
+
+	if (timeout > 0 && _ipset_support_timeout(ipsetname) == 0) {
+		timeout = htonl(timeout);
+		_ipset_add_attr(netlink_head, IPSET_ATTR_TIMEOUT | NLA_F_NET_BYTEORDER, sizeof(timeout), &timeout);
+	}
+
 	nested[0]->len = (void *)buffer + NETLINK_ALIGN(netlink_head->nlmsg_len) - (void *)nested[0];
 
 	for (;;) {
@@ -326,16 +343,15 @@ static int _ipset_operate(const char *ipsetname, const unsigned char addr[], int
 	return rc;
 }
 
-int ipset_add(const char *ipsetname, const unsigned char addr[], int addr_len)
+int ipset_add(const char *ipsetname, const unsigned char addr[], int addr_len, unsigned long timeout)
 {
-	return _ipset_operate(ipsetname, addr, addr_len, IPSET_ADD);
+	return _ipset_operate(ipsetname, addr, addr_len, timeout, IPSET_ADD);
 }
 
 int ipset_del(const char *ipsetname, const unsigned char addr[], int addr_len)
 {
-	return _ipset_operate(ipsetname, addr, addr_len, IPSET_DEL);
+	return _ipset_operate(ipsetname, addr, addr_len, 0, IPSET_DEL);
 }
-
 
 #define THREAD_STACK_SIZE (16*1024)
 static pthread_mutex_t *lock_cs;
