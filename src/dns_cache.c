@@ -83,10 +83,13 @@ int dns_cache_replace(char *domain, char *cname, int cname_ttl, int ttl, dns_typ
 		ttl = DNS_CACHE_TTL_MIN;
 	}
 
+	pthread_mutex_lock(&dns_cache_head.lock);
 	dns_cache->ttl = ttl;
 	dns_cache->qtype = qtype;
 	dns_cache->ttl = ttl;
+	dns_cache->del_pending = 0;
 	time(&dns_cache->insert_time);
+	pthread_mutex_unlock(&dns_cache_head.lock);
 	if (qtype == DNS_T_A) {
 		if (addr_len != DNS_RR_A_LEN) {
 			goto errout;
@@ -148,6 +151,7 @@ int dns_cache_insert(char *domain, char *cname, int cname_ttl, int ttl, dns_type
 	dns_cache->qtype = qtype;
 	dns_cache->ttl = ttl;
 	dns_cache->hitnum = 2;
+	dns_cache->del_pending = 0;
 	atomic_set(&dns_cache->ref, 1);
 	time(&dns_cache->insert_time);
 	if (qtype == DNS_T_A) {
@@ -286,29 +290,26 @@ void dns_cache_invalidate(dns_cache_preinvalid_callback callback, int ttl_pre)
 	list_for_each_entry_safe(dns_cache, tmp, &dns_cache_head.cache_list, list)
 	{
 		ttl = dns_cache->insert_time + dns_cache->ttl - now;
-		if (ttl > 0) {
-			if (ttl < ttl_pre) {
-				if (callback) {
-					list_add_tail(&dns_cache->check_list, &checklist);
-					dns_cache_get(dns_cache);
-					continue;
-				}
-			}
-
-			if (callback) {
+		if (ttl > 0 && ttl < ttl_pre) {
+			if (callback && dns_cache->del_pending == 0) {
+				list_add_tail(&dns_cache->check_list, &checklist);
+				dns_cache_get(dns_cache);
+				dns_cache->del_pending = 1;
 				continue;
 			}
-			break;
 		}
 
-		_dns_cache_remove(dns_cache);
+		if (ttl < 0) {
+			_dns_cache_remove(dns_cache);
+		}
 	}
 	pthread_mutex_unlock(&dns_cache_head.lock);
 
 	list_for_each_entry_safe(dns_cache, tmp, &checklist, check_list)
 	{
-		callback(dns_cache);
-		dns_cache_delete(dns_cache);
+		if (callback) {
+			callback(dns_cache);
+		}
 		dns_cache_release(dns_cache);
 	}
 }
