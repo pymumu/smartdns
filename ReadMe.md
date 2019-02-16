@@ -118,8 +118,8 @@ Download the matching version of the SmartDNS installation package. The correspo
 |Windows 10 WSL (Ubuntu)| smartdns.xxxxxxxx.x86_64.tar.gz|Windows 10 WSL ubuntu.
 |Standard Linux system (x86)| smartdns.xxxxxxxx.x86.tar.gz|Support for x86_64 systems.
 |ASUS native firmware (optware)|smartdns.xxxxxxx.mipsbig.ipk|Systems that support the MIPS big-end architecture, such as RT-AC55U, RT-AC66U.
-|ASUS native firmware (optware)|smartdns.xxxxxxx.mipsel.ipk|System that supports the MIPS little endian architecture, such as the RT-AC68U.
-|ASUS native firmware (optware)|smartdns.xxxxxxx.arm.ipk|System that supports the ARM small endian architecture, such as the RT-AC88U.
+|ASUS native firmware (optware)|smartdns.xxxxxxx.mipsel.ipk|System that supports the MIPS little endian architecture.
+|ASUS native firmware (optware)|smartdns.xxxxxxx.arm.ipk|System that supports the ARM small endian architecture, such as the RT-AC88U, RT-AC68U.
 |Padavan|smartdns.xxxxxxx.mipselsf.ipk|padavan Firmware.
 |openwrt 15.01|smartdns.xxxxxxxx.ar71xx.ipk|Support AR71XX MIPS system.
 |openwrt 15.01|smartdns.xxxxxxxx.ramips_24kec.ipk|Support small-end routers such as MT762X
