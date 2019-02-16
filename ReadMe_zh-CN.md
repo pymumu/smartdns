@@ -85,8 +85,8 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 5. **域名高性能后缀匹配**  
    支持域名后缀匹配模式，简化过滤配置，过滤20万条记录时间<1ms
 
-6. **Linux多平台支持**  
-   支持标准Linux系统（树莓派），openwrt系统各种固件，华硕路由器原生固件。
+6. **Linux/Windows多平台支持**  
+   支持标准Linux系统（树莓派），openwrt系统各种固件，华硕路由器原生固件。以及支持Windows 10 WSL (Windows Subsystem for Linux)。
 
 7. **支持IPV4, IPV6双栈**  
    支持IPV4，IPV6网络，支持查询A, AAAA记录，支持双栈IP速度优化。
@@ -114,7 +114,8 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 |系统 |安装包|说明
 |-----|-----|-----
 |标准Linux系统(树莓派)| smartdns.xxxxxxxx.armhf.deb|支持树莓派Raspbian stretch，Debian 9系统。
-|标准Linux系统(x86_64)| smartdns.xxxxxxxx.x86_64.tar.gz|支持x86_64系统。
+|标准Linux系统(x86_64)| smartdns.xxxxxxxx.x86_64.tar.gz|支持x86_64 Linux 系统。
+|Windows 10 WSL (ubuntu)| smartdns.xxxxxxxx.x86_64.tar.gz|支持Windows 10 WSL ubuntu系统。
 |标准Linux系统(x86)| smartdns.xxxxxxxx.x86.tar.gz|支持x86系统。
 |华硕原生固件(optware)|smartdns.xxxxxxx.mipsbig.ipk|支持MIPS大端架构的系统，如RT-AC55U, RT-AC66U.
 |华硕原生固件(optware)|smartdns.xxxxxxx.mipsel.ipk|支持MIPS小端架构的系统，如RT-AC68U。
@@ -368,6 +369,62 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
     ```shell
     \\192.168.1.1\sda1\asusware.mipsbig\etc\init.d
     ```
+
+### Windows 10 WSL安装（WSL ubuntu）
+
+--------------
+
+1. 安装Windows 10 WSL ubuntu系统
+
+    安装Windows 10 WSL运行环境，发行版本选择ubuntu系统。安装步骤请参考[WSL安装说明](https://docs.microsoft.com/en-us/windows/wsl/install-win10)
+
+1. 安装smartdns
+
+    下载安装包`smartdns.xxxxxxxx.x86_64.tar.gz`，并解压到D盘根目录。解压后目录如下：
+
+    ```shell
+    D:\SMARTDNS
+    ├─etc
+    │  ├─default
+    │  ├─init.d
+    │  └─smartdns
+    ├─package
+    │  └─windows
+    ├─src
+    └─systemd
+
+    ```
+
+    双击`D:\smartdns\package\windows`目录下的`install.bat`进行安装。要求输入密码时，请输入`WLS ubuntu`的密码。
+
+1. 修改配置
+
+    记事本打开`D:\smartdns\etc\smartdns`目录中的`smartdns.conf`配置文件配置smartdns。具体配置参数参考`配置参数`说明。  
+    一般情况下，只需要增加`server [IP]:port`, `server-tcp [IP]:port`配置项，
+    尽可能配置多个上游DNS服务器，包括国内外的服务器。配置参数请查看`配置参数`章节。
+
+1. 重新加载配置
+
+    双击`D:\smartdns\package\windows`目录下的`reload.bat`进行安装。要求输入密码时，请输入`WLS ubuntu`的密码。
+
+1. 将DNS请求转发的SmartDNS解析。
+
+    将Windows的默认DNS服务器修改为`127.0.0.1`，具体步骤参考[IP配置](https://support.microsoft.com/zh-cn/help/15089/windows-change-tcp-ip-settings)
+
+1. 检测服务是否配置成功。
+
+    使用`nslookup -querytype=ptr 0.0.0.0`查询域名  
+    看命令结果中的`name`项目是否显示为`smartdns`或`主机名`，如`smartdns`则表示生效  
+
+    ```shell
+    pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 0.0.0.0
+    Server:         192.168.1.1
+    Address:        192.168.1.1#53
+
+    Non-authoritative answer:
+    0.0.0.0.in-addr.arpa  name = smartdns.
+    ```
+
 
 ## 配置参数
 

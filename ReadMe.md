@@ -85,8 +85,8 @@ From the comparison, smartdns found the fastest IP address to visit www.baidu.co
 5. **Domain name high performance rule filtering**  
    Support domain name suffix matching mode, simplify filtering configuration, filter 200,000 recording and take time <1ms.
 
-6. **Linux multi-platform support**  
-   Support standard Linux system (Raspberry Pi), openwrt system various firmware, ASUS router native firmware.
+6. **Linux/Windows multi-platform support**  
+   Support standard Linux system (Raspberry Pi), openwrt system various firmware, ASUS router native firmware. Support Windows 10 WSL (Windows Subsystem for Linux).
 
 7. **Support IPV4, IPV6 dual stack**  
    Support IPV4, IPV6 network, support query A, AAAA record, dual-stack IP selection.
@@ -114,7 +114,8 @@ Download the matching version of the SmartDNS installation package. The correspo
 |system |package|Description
 |-----|-----|-----
 |Standard Linux system (Raspberry Pi)| smartdns.xxxxxxxx.armhf.deb|Support Raspberry Pi Raspbian stretch, Debian 9 system.
-|Standard Linux system (x86_64)| smartdns.xxxxxxxx.x86_64.tar.gz|Support for x86_64 systems.
+|Standard Linux system (x86_64)| smartdns.xxxxxxxx.x86_64.tar.gz|Support for x86_64 Linux systems.
+|Windows 10 WSL (Ubuntu)| smartdns.xxxxxxxx.x86_64.tar.gz|Windows 10 WSL ubuntu.
 |Standard Linux system (x86)| smartdns.xxxxxxxx.x86.tar.gz|Support for x86_64 systems.
 |ASUS native firmware (optware)|smartdns.xxxxxxx.mipsbig.ipk|Systems that support the MIPS big-end architecture, such as RT-AC55U, RT-AC66U.
 |ASUS native firmware (optware)|smartdns.xxxxxxx.mipsel.ipk|System that supports the MIPS little endian architecture, such as the RT-AC68U.
@@ -367,6 +368,61 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 
     ```shell
     \\192.168.1.1\sda1\asusware.mipsbig\etc\init.d
+    ```
+
+### Windows 10 WSL Installation（WSL ubuntu）
+
+--------------
+
+1. Install Windows 10 WSL ubuntu
+
+   Install the Windows 10 WSL environment and select Ubuntu as default distribution. Please refer to [WSL installation instructions](https://docs.microsoft.com/en-us/windows/wsl/install-win10) for installation steps
+
+1. Install smartdns
+
+    download install package `smartdns.xxxxxxxx.x86_64.tar.gz`，and unzip to the `D:\` directory, after decompression, the directory is as follows: 
+
+    ```shell
+    D:\SMARTDNS
+    ├─etc
+    │  ├─default
+    │  ├─init.d
+    │  └─smartdns
+    ├─package
+    │  └─windows
+    ├─src
+    └─systemd
+
+    ```
+
+    Double-click `install.bat` in the `D:\smartdns\package\windows` directory for installation. Please enter the password for `WLS ubuntu` when input password.
+
+1. Configuration
+
+    Edit `smartdns.conf` configuration file in `D:\smartdns\etc\smartdns` directory, you can configure the upstream server to  smartdns. Refer to the `Configuration Parameters` for specific configuration parameters.  
+    In general, you only need to add `server [IP]:port`, `server-tcp [IP]:port` configuration items.  
+    Configure as many upstream DNS servers as possible, including servers at home and abroad. Please refer to the `Configuration Parameters` section for configuration parameters.  
+
+1. Start Service
+
+    Double-click `reload.bat` in the `D:\smartdns\package\windows` directory for reload. 
+
+1. Forwarding DNS request to SmartDNS
+
+    Modify the default DNS server for Windows to `127.0.0.1`, with these steps referred to [IP configuration](https://support.microsoft.com/en-us/help/15089/windows-change-tcp-ip-settings)
+
+1. Check if the service is configured successfully
+
+    Query domain name with `nslookup -querytype=ptr 0.0.0.0`  
+    Check if the `name` item in the command result is displayed as `smartdns` or `hostname`, such as `smartdns`
+
+    ```shell
+    pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 0.0.0.0
+    Server:         192.168.1.1
+    Address:        192.168.1.1#53
+
+    Non-authoritative answer:
+    0.0.0.0.in-addr.arpa  name = smartdns.
     ```
 
 ## Configuration parameter

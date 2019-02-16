@@ -4,6 +4,7 @@
 #
 
 INST_DIR=$(cd $(dirname $0);pwd)
+ISWSL=1 # 1 means not WSL, 0 means wsl 
 
 showhelp()
 {
@@ -18,7 +19,7 @@ showhelp()
 start_service()
 {
 	if [ $ISSYSTEMD -ne 0 ]; then
-		chkconfig smartdns on
+		chkconfig smartdns on >/dev/null 2>&1
 		service smartdns start
 		return $?
 	fi
@@ -32,7 +33,7 @@ stop_service()
 {
 	if [ $ISSYSTEMD -ne 0 ]; then
 		service smartdns stop
-		chkconfig smartdns off
+		chkconfig smartdns off >/dev/null 2>&1
 		return 0
 	fi
 
@@ -101,12 +102,16 @@ install_files()
 uninstall_smartdns()
 {
 	if [ -z "$PREFIX" ]; then
-		stop_service
+		stop_service 2>/dev/null
 	fi	
 	rm -f $PREFIX$SMARTDNS_CONF_DIR/smartdns.conf
-	rmdir $PREFIX$SMARTDNS_CONF_DIR
+	rmdir $PREFIX$SMARTDNS_CONF_DIR 2>/dev/null
 	rm -f $PREFIX/usr/sbin/smartdns
 	rm -f $PREFIX/etc/default/smartdns
+
+	if [ $ISWSL -eq 0 ]; then
+		sed -i '\#%sudo ALL=NOPASSWD: /etc/init.d/smartdns#d' /etc/sudoers 2>/dev/null
+	fi
 
 	if [ $ISSYSTEMD -eq 0 ]; then
 		SYSTEM_UNIT_PATH="`get_systemd_path`"
@@ -125,6 +130,12 @@ install_smartdns()
 {
 	local ret
 
+	which smartdns >/dev/null 2>&1
+	if [ $? -eq 0 ]; then
+		echo "Already installed."
+		return 1
+	fi
+
 	install_files
 	ret=$?
 	if [ $ret -ne 0 ]; then
@@ -136,17 +147,34 @@ install_smartdns()
 		start_service
 	fi
 
+	if [ $ISWSL -eq 0 ]; then
+		grep "%sudo ALL=NOPASSWD: /etc/init.d/smartdns" /etc/sudoers >/dev/null 2>&1
+		if [ $? -ne 0 ]; then
+			echo "%sudo ALL=NOPASSWD: /etc/init.d/smartdns" >> /etc/sudoers
+		fi
+	fi
+
 	return 0
 }
 
-
-
 init_dir()
 {
+	local ID=`id -u`
+	if [ $ID -ne 0 ]; then
+		echo "Please run as root."
+		return 1
+	fi
+
 	SMARTDNS_CONF_DIR=$PREFIX/etc/smartdns
 	SMARTDNS_INIT_DIR=$PREFIX/etc/init.d
 	which systemctl >/dev/null 2>&1
 	ISSYSTEMD="$?"
+	# Running under WSL (Windows Subsystem for Linux)?
+	cat /proc/version | grep Microsoft >/dev/null 2>&1; 
+	if [ $? -eq 0 ]; then
+		ISSYSTEMD=1
+		ISWSL=0
+	fi
 
 	cd $INST_DIR
 }
