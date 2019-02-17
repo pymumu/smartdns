@@ -372,7 +372,7 @@ static int _fast_ping_sendping_v6(struct ping_host_struct *ping_host)
 		}
 
 		char ping_host_name[PING_MAX_HOSTLEN];
-		tlog(TLOG_ERROR, "sendto %s, id %d, %s", gethost_by_addr(ping_host_name, (struct sockaddr *)&ping_host->addr, ping_host->addr_len), ping_host->sid,
+		tlog(TLOG_ERROR, "sendto %s, id %d, %s", gethost_by_addr(ping_host_name, sizeof(ping_host_name), (struct sockaddr *)&ping_host->addr), ping_host->sid,
 			 strerror(err));
 		goto errout;
 	}
@@ -411,7 +411,7 @@ static int _fast_ping_sendping_v4(struct ping_host_struct *ping_host)
 			goto errout;
 		}
 		char ping_host_name[PING_MAX_HOSTLEN];
-		tlog(TLOG_ERROR, "sendto %s, id %d, %s", gethost_by_addr(ping_host_name, (struct sockaddr *)&ping_host->addr, ping_host->addr_len), ping_host->sid,
+		tlog(TLOG_ERROR, "sendto %s, id %d, %s", gethost_by_addr(ping_host_name, sizeof(ping_host_name), (struct sockaddr *)&ping_host->addr), ping_host->sid,
 			 strerror(err));
 		goto errout;
 	}
@@ -457,7 +457,7 @@ static int _fast_ping_sendping_udp(struct ping_host_struct *ping_host)
 			goto errout;
 		}
 		char ping_host_name[PING_MAX_HOSTLEN];
-		tlog(TLOG_ERROR, "sendto %s, id %d, %s", gethost_by_addr(ping_host_name, (struct sockaddr *)&ping_host->addr, ping_host->addr_len), ping_host->sid,
+		tlog(TLOG_ERROR, "sendto %s, id %d, %s", gethost_by_addr(ping_host_name, sizeof(ping_host_name), (struct sockaddr *)&ping_host->addr), ping_host->sid,
 			 strerror(err));
 		goto errout;
 	}
@@ -499,7 +499,7 @@ static int _fast_ping_sendping_tcp(struct ping_host_struct *ping_host)
 				bool_print_log = 0;
 			}
 
-			tlog(TLOG_ERROR, "connect %s, id %d, %s", gethost_by_addr(ping_host_name, (struct sockaddr *)&ping_host->addr, ping_host->addr_len), ping_host->sid,
+			tlog(TLOG_ERROR, "connect %s, id %d, %s", gethost_by_addr(ping_host_name, sizeof(ping_host_name), (struct sockaddr *)&ping_host->addr), ping_host->sid,
 				 strerror(errno));
 			goto errout;
 		}
@@ -1090,7 +1090,7 @@ static int _fast_ping_process_icmp(struct ping_host_struct *ping_host, struct ti
 	packet = _fast_ping_recv_packet(ping_host, &msg, inpacket, len, now);
 	if (packet == NULL) {
 		char name[PING_MAX_HOSTLEN];
-		tlog(TLOG_DEBUG, "recv ping packet from %s failed.", gethost_by_addr(name, (struct sockaddr *)&from, from_len));
+		tlog(TLOG_DEBUG, "recv ping packet from %s failed.", gethost_by_addr(name, sizeof(name), (struct sockaddr *)&from));
 		goto errout;
 	}
 

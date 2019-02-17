@@ -10,7 +10,7 @@
 
 unsigned long get_tick_count(void);
 
-char *gethost_by_addr(char *host, struct sockaddr *addr, socklen_t addr_len);
+char *gethost_by_addr(char *host, int maxsize, struct sockaddr *addr);
 
 int getaddr_by_host(char *host, struct sockaddr *addr, socklen_t *addr_len);
 

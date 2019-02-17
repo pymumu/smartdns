@@ -198,7 +198,7 @@ static void _dns_server_audit_log(struct dns_request *request)
 	} else {
 		return;
 	}
-	gethost_by_addr(req_host, &request->addr, request->addr_len);
+	gethost_by_addr(req_host, sizeof(req_host), &request->addr);
 	tlog_localtime(&tm);
 
 	snprintf(req_time, sizeof(req_time), "[%.4d-%.2d-%.2d %.2d:%.2d:%.2d,%.3d]", tm.year, tm.mon, tm.mday, tm.hour, tm.min, tm.sec, tm.usec / 1000);
@@ -1443,7 +1443,7 @@ static int _dns_server_recv(struct dns_server_conn *client, unsigned char *inpac
 
 	_dns_server_client_get(client);
 
-	tlog(TLOG_DEBUG, "recv query packet from %s, len = %d", gethost_by_addr(name, (struct sockaddr *)from, from_len), inpacket_len);
+	tlog(TLOG_DEBUG, "recv query packet from %s, len = %d", gethost_by_addr(name, sizeof(name), (struct sockaddr *)from), inpacket_len);
 	decode_len = dns_decode(packet, DNS_PACKSIZE, inpacket, inpacket_len);
 	if (decode_len < 0) {
 		tlog(TLOG_ERROR, "decode failed.\n");

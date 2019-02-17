@@ -745,7 +745,7 @@ static int _dns_client_recv(struct dns_server_info *server_info, unsigned char *
 	if (len != 0) {
 		char host_name[DNS_MAX_CNAME_LEN];
 		tlog(TLOG_WARN, "decode failed, packet len = %d, tc = %d, id = %d, from = %s\n", inpacket_len, packet->head.tc, packet->head.id,
-			 gethost_by_addr(host_name, from, from_len));
+			 gethost_by_addr(host_name, sizeof(host_name), from));
 		return -1;
 	}
 
@@ -1043,7 +1043,7 @@ static int _dns_client_process_udp(struct dns_server_info *server_info, struct e
 		}
 	}
 
-	tlog(TLOG_DEBUG, "recv udp packet from %s, len: %d, ttl: %d", gethost_by_addr(from_host, (struct sockaddr *)&from, from_len), len, ttl);
+	tlog(TLOG_DEBUG, "recv udp packet from %s, len: %d, ttl: %d", gethost_by_addr(from_host, sizeof(from_host), (struct sockaddr *)&from), len, ttl);
 
 	if ((ttl != server_info->ttl) && (server_info->ttl > 0) && (server_info->result_flag & DNSSERVER_FLAG_CHECK_TTL)) {
 		if ((ttl < server_info->ttl - server_info->ttl_range) || (ttl > server_info->ttl + server_info->ttl_range)) {
