@@ -55,6 +55,10 @@ int conf_yesno(const char *item, void *data, int argc, char *argv[])
 	}
 
 	char *value = argv[1];
+	if (strncmp("auto", value, sizeof("auto")) == 0 || strncmp("AUTO", value, sizeof("AUTO")) == 0) {
+		return 0;
+	}
+
 	if (strncmp("yes", value, sizeof("yes")) == 0 || strncmp("YES", value, sizeof("YES")) == 0) {
 		yes = 1;
 	} else if (strncmp("no", value, sizeof("no")) == 0 || strncmp("NO", value, sizeof("NO")) == 0) {
