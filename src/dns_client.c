@@ -24,6 +24,7 @@
 #include "list.h"
 #include "tlog.h"
 #include "util.h"
+#include "dns_conf.h"
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -67,30 +68,6 @@ struct dns_client_ecs {
 		unsigned char ipv6_addr[DNS_RR_AAAA_LEN];
 		unsigned char addr[0];
 	};
-};
-
-/* dns client */
-struct dns_client {
-	pthread_t tid;
-	int run;
-	int epoll_fd;
-
-	/* dns server list */
-	pthread_mutex_t server_list_lock;
-	struct list_head dns_server_list;
-
-	/* query list */
-	pthread_mutex_t dns_request_lock;
-	struct list_head dns_request_list;
-	atomic_t dns_server_num;
-
-	/* ECS */
-	struct dns_client_ecs ecs_ipv4;
-	struct dns_client_ecs ecs_ipv6;
-
-	/* query doman hash table, key: sid + domain */
-	pthread_mutex_t domain_map_lock;
-	DECLARE_HASHTABLE(domain_map, 6);
 };
 
 struct dns_server_buff {
@@ -143,6 +120,43 @@ struct dns_server_info {
 	};
 };
 
+struct dns_server_group_member {
+	struct list_head list;
+	struct dns_server_info *server;
+};
+
+struct dns_server_group {
+	char group_name[DNS_GROUP_NAME_LEN];
+	struct hlist_node node;
+	struct list_head head;
+};
+
+/* dns client */
+struct dns_client {
+	pthread_t tid;
+	int run;
+	int epoll_fd;
+
+	/* dns server list */
+	pthread_mutex_t server_list_lock;
+	struct list_head dns_server_list;
+	struct dns_server_group *default_group;
+
+	/* query list */
+	pthread_mutex_t dns_request_lock;
+	struct list_head dns_request_list;
+	atomic_t dns_server_num;
+
+	/* ECS */
+	struct dns_client_ecs ecs_ipv4;
+	struct dns_client_ecs ecs_ipv6;
+
+	/* query doman hash table, key: sid + domain */
+	pthread_mutex_t domain_map_lock;
+	DECLARE_HASHTABLE(domain_map, 6);
+	DECLARE_HASHTABLE(group, 4);
+};
+
 /* dns replied server info */
 struct dns_query_replied {
 	struct hlist_node node;
@@ -156,13 +170,15 @@ struct dns_query_replied {
 
 /* query struct */
 struct dns_query_struct {
+	struct list_head dns_request_list;
 	atomic_t refcnt;
+	struct dns_server_group *server_group;
+
 	/* query id, hash key sid + domain*/
 	char domain[DNS_MAX_CNAME_LEN];
 	unsigned short sid;
 	struct hlist_node domain_node;
 
-	struct list_head dns_request_list;
 	struct list_head period_list;
 
 	/* dns query type */
@@ -250,8 +266,276 @@ void _dns_client_server_update_ttl(struct ping_host_struct *ping_host, const cha
 	server_info->ttl = ttl;
 }
 
+/* get server control block by ip and port, type */
+struct dns_server_info *_dns_client_get_server(char *server_ip, int port, dns_server_type_t server_type)
+{
+	struct dns_server_info *server_info, *tmp;
+	struct dns_server_info *server_info_return = NULL;
+	char port_s[8];
+	int sock_type;
+	struct addrinfo *gai = NULL;
+
+	if (server_type >= DNS_SERVER_TYPE_END) {
+		tlog(TLOG_ERROR, "server type is invalid.");
+		return NULL;
+	}
+
+	switch (server_type) {
+	case DNS_SERVER_UDP:
+		sock_type = SOCK_DGRAM;
+		break;
+	case DNS_SERVER_TLS:
+	case DNS_SERVER_TCP:
+		sock_type = SOCK_STREAM;
+		break;
+	default:
+		return NULL;
+		break;
+	}
+
+	/* get addr info */
+	snprintf(port_s, 8, "%d", port);
+	gai = _dns_client_getaddr(server_ip, port_s, sock_type, 0);
+	if (gai == NULL) {
+		tlog(TLOG_ERROR, "get address failed, %s:%d", server_ip, port);
+		goto errout;
+	}
+
+	pthread_mutex_lock(&client.server_list_lock);
+	list_for_each_entry_safe(server_info, tmp, &client.dns_server_list, list)
+	{
+		if (server_info->ai_addrlen != gai->ai_addrlen || server_info->ai_family != gai->ai_family) {
+			continue;
+		}
+
+		if (server_info->type != server_type) {
+			continue;
+		}
+
+		if (memcmp(&server_info->addr, gai->ai_addr, gai->ai_addrlen) != 0) {
+			continue;
+		}
+
+		pthread_mutex_unlock(&client.server_list_lock);
+		server_info_return = server_info;
+		break;
+	}
+
+	pthread_mutex_unlock(&client.server_list_lock);
+
+	freeaddrinfo(gai);
+	return server_info_return;
+errout:
+	if (gai) {
+		freeaddrinfo(gai);
+	}
+	return NULL;
+}
+
+struct dns_server_group *_dns_client_get_group(const char *group_name)
+{
+	unsigned long key;
+	struct dns_server_group *group = NULL;
+	struct hlist_node *tmp = NULL;
+
+	if (group_name == NULL) {
+		return NULL;
+	}
+
+	key = hash_string(group_name);
+	hash_for_each_possible_safe(client.group, group, tmp, node, key)
+	{
+		if (strncmp(group->group_name, group_name, DNS_GROUP_NAME_LEN) != 0) {
+			continue;
+		}
+
+		return group;
+	}
+
+	return NULL;
+}
+
+int _dns_client_add_to_group(char *group_name, struct dns_server_info *server_info)
+{
+	struct dns_server_group *group = NULL;
+	struct dns_server_group_member *group_member = NULL;
+
+	group = _dns_client_get_group(group_name);
+	if (group == NULL) {
+		tlog(TLOG_ERROR, "group %s not exist.", group_name);
+		return -1;
+	}
+
+	group_member = malloc(sizeof(*group_member));
+	if (group_member == NULL) {
+		tlog(TLOG_ERROR, "malloc memory failed.");
+		goto errout;
+	}
+
+	memset(group_member, 0, sizeof(*group_member));
+	group_member->server = server_info;
+	list_add(&group_member->list, &group->head);
+
+	return 0;
+errout:
+	if (group_member) {
+		free(group_member);
+	}
+
+	return -1;
+}
+
+int dns_client_add_to_group(char *group_name, char *server_ip, int port, dns_server_type_t server_type)
+{
+	struct dns_server_info *server_info = NULL;
+
+	server_info = _dns_client_get_server(server_ip, port, server_type);
+	if (server_info == NULL) {
+		return -1;
+	}
+
+	return _dns_client_add_to_group(group_name, server_info);
+}
+
+int _dns_client_remove_member(struct dns_server_group_member *group_member)
+{
+	list_del_init(&group_member->list);
+	free(group_member);
+
+	return 0;
+}
+
+int _dns_client_remove_from_group(struct dns_server_group *group, struct dns_server_info *server_info)
+{
+	struct dns_server_group_member *group_member;
+	struct dns_server_group_member *tmp;
+
+	list_for_each_entry_safe(group_member, tmp, &group->head, list)
+	{
+		if (group_member->server != server_info) {
+			continue;
+		}
+
+		_dns_client_remove_member(group_member);
+	}
+
+	return 0;
+}
+
+int _dns_client_remove_server_from_groups(struct dns_server_info *server_info)
+{
+	struct dns_server_group *group;
+	struct hlist_node *tmp = NULL;
+	int i = 0;
+
+	hash_for_each_safe(client.group, i, tmp, group, node)
+	{
+		_dns_client_remove_from_group(group, server_info);
+	}
+
+	return 0;
+}
+
+int dns_client_remove_from_group(char *group_name, char *server_ip, int port, dns_server_type_t server_type)
+{
+	struct dns_server_info *server_info = NULL;
+	struct dns_server_group *group = NULL;
+
+	server_info = _dns_client_get_server(server_ip, port, server_type);
+	if (server_info == NULL) {
+		return -1;
+	}
+
+	group = _dns_client_get_group(group_name);
+	if (group == NULL) {
+		return -1;
+	}
+
+	return _dns_client_remove_from_group(group, server_info);
+}
+
+int dns_client_add_group(char *group_name)
+{
+	unsigned long key;
+	struct dns_server_group *group = NULL;
+
+	if (_dns_client_get_group(group_name) != NULL) {
+		tlog(TLOG_ERROR, "add group %s failed, group already exists", group_name);
+		return -1;
+	}
+
+	group = malloc(sizeof(*group));
+	if (group == NULL) {
+		goto errout;
+	}
+
+	memset(group, 0, sizeof(*group));
+	INIT_LIST_HEAD(&group->head);
+	strncpy(group->group_name, group_name, DNS_GROUP_NAME_LEN);
+	key = hash_string(group_name);
+	hash_add(client.group, &group->node, key);
+
+	return 0;
+errout:
+	if (group) {
+		free(group);
+		group = NULL;
+	}
+
+	return -1;
+}
+
+int _dns_client_remove_group(struct dns_server_group *group)
+{
+	struct dns_server_group_member *group_member;
+	struct dns_server_group_member *tmp;
+
+	list_for_each_entry_safe(group_member, tmp, &group->head, list)
+	{
+		_dns_client_remove_member(group_member);
+	}
+
+	hash_del(&group->node);
+	free(group);
+
+	return 0;
+}
+
+int dns_remove_group(char *group_name)
+{
+	unsigned long key;
+	struct dns_server_group *group = NULL;
+	struct hlist_node *tmp = NULL;
+
+	key = hash_string(group_name);
+	hash_for_each_possible_safe(client.group, group, tmp, node, key)
+	{
+		if (strncmp(group->group_name, group_name, DNS_GROUP_NAME_LEN) != 0) {
+			continue;
+		}
+
+		_dns_client_remove_group(group);
+
+		return 0;
+	}
+
+	return 0;
+}
+
+void _dns_client_group_remove_all(void)
+{
+	struct dns_server_group *group;
+	struct hlist_node *tmp = NULL;
+	int i = 0;
+
+	hash_for_each_safe(client.group, i, tmp, group, node)
+	{
+		_dns_client_remove_group(group);
+	}
+}
+
 /* add dns server information */
-int _dns_client_server_add(char *server_ip, struct addrinfo *gai, dns_server_type_t server_type, unsigned int result_flag, int ttl)
+int _dns_client_server_add(char *server_ip, struct addrinfo *gai, dns_server_type_t server_type, unsigned int server_flag, unsigned int result_flag, int ttl)
 {
 	struct dns_server_info *server_info = NULL;
 
@@ -278,6 +562,13 @@ int _dns_client_server_add(char *server_ip, struct addrinfo *gai, dns_server_typ
 	server_info->result_flag = result_flag;
 	server_info->ttl = ttl;
 	server_info->ttl_range = 0;
+
+	if ((server_flag & SERVER_FLAG_EXCLUDE_DEFAULT) == 0) {
+		if (_dns_client_add_to_group(DNS_SERVER_GROUP_DEFAULT, server_info) != 0) {
+			tlog(TLOG_ERROR, "add server to default group failed.");
+			goto errout;
+		}
+	}
 
 	if (server_type == DNS_SERVER_TLS) {
 		server_info->ssl_ctx = SSL_CTX_new(SSLv23_client_method());
@@ -406,6 +697,8 @@ int _dns_client_server_remove(char *server_ip, struct addrinfo *gai, dns_server_
 
 		list_del(&server_info->list);
 		_dns_client_server_close(server_info);
+		pthread_mutex_unlock(&client.server_list_lock);
+		_dns_client_remove_server_from_groups(server_info);
 		free(server_info);
 		atomic_dec(&client.dns_server_num);
 		return 0;
@@ -414,7 +707,7 @@ int _dns_client_server_remove(char *server_ip, struct addrinfo *gai, dns_server_
 	return -1;
 }
 
-int _dns_client_server_operate(char *server_ip, int port, dns_server_type_t server_type, int result_flag, int ttl, int operate)
+int _dns_client_server_operate(char *server_ip, int port, dns_server_type_t server_type, unsigned int server_flag, unsigned int result_flag, int ttl, int operate)
 {
 	char port_s[8];
 	int sock_type;
@@ -448,7 +741,7 @@ int _dns_client_server_operate(char *server_ip, int port, dns_server_type_t serv
 	}
 
 	if (operate == 0) {
-		ret = _dns_client_server_add(server_ip, gai, server_type, result_flag, ttl);
+		ret = _dns_client_server_add(server_ip, gai, server_type, server_flag, result_flag, ttl);
 		if (ret != 0) {
 			goto errout;
 		}
@@ -467,14 +760,14 @@ errout:
 	return -1;
 }
 
-int dns_add_server(char *server_ip, int port, dns_server_type_t server_type, int result_flag, int ttl)
+int dns_client_add_server(char *server_ip, int port, dns_server_type_t server_type, unsigned server_flag, unsigned int result_flag, int ttl)
 {
-	return _dns_client_server_operate(server_ip, port, server_type, result_flag, ttl, 0);
+	return _dns_client_server_operate(server_ip, port, server_type, server_flag, result_flag, ttl, 0);
 }
 
-int dns_remove_server(char *server_ip, int port, dns_server_type_t server_type)
+int dns_client_remove_server(char *server_ip, int port, dns_server_type_t server_type)
 {
-	return _dns_client_server_operate(server_ip, port, server_type, 0, 0, 1);
+	return _dns_client_server_operate(server_ip, port, server_type, 0, 0, 0, 1);
 }
 
 int dns_server_num(void)
@@ -561,17 +854,20 @@ void _dns_client_query_remove_all(void)
 	return;
 }
 
-void _dns_client_check_udp_nat(void)
+void _dns_client_check_udp_nat(struct dns_query_struct *query)
 {
-	struct dns_server_info *server_info;
+	struct dns_server_info *server_info = NULL;
+	struct dns_server_group_member *group_member = NULL;
+
 	/* For udp nat case.
 	 * when router reconnect to internet, udp port may always marked as UNREPLIED.
 	 * dns query will timeout, and cannot reconnect again,
 	 * create a new socket to communicate.
 	 */
 	pthread_mutex_lock(&client.server_list_lock);
-	list_for_each_entry(server_info, &client.dns_server_list, list)
+	list_for_each_entry(group_member, &query->server_group->head, list)
 	{
+		server_info = group_member->server;
 		if (server_info->type != DNS_SERVER_UDP) {
 			continue;
 		}
@@ -646,10 +942,10 @@ void _dns_client_period_run(void)
 	{
 		/* free timed out query, and notify caller */
 		list_del_init(&query->period_list);
+		_dns_client_check_udp_nat(query);
 		_dns_client_query_remove(query);
 		_dns_client_query_release(query);
 
-		_dns_client_check_udp_nat();
 	}
 
 
@@ -814,7 +1110,7 @@ static int _dns_client_create_socket_udp(struct dns_server_info *server_info)
 
 	fd = socket(server_info->ai_family, SOCK_DGRAM, 0);
 	if (fd < 0) {
-		tlog(TLOG_ERROR, "create socket failed.");
+		tlog(TLOG_ERROR, "create socket failed, %s", strerror(errno));
 		goto errout;
 	}
 
@@ -1534,6 +1830,10 @@ static void *_dns_client_work(void *arg)
 static int _dns_client_send_udp(struct dns_server_info *server_info, void *packet, int len)
 {
 	int send_len = 0;
+	if (server_info->fd <= 0) {
+		return -1;
+	}
+
 	send_len = sendto(server_info->fd, packet, len, 0, (struct sockaddr *)&server_info->addr, server_info->ai_addrlen);
 	if (send_len != len) {
 		return -1;
@@ -1653,7 +1953,9 @@ static int _dns_client_send_tls(struct dns_server_info *server_info, void *packe
 
 static int _dns_client_send_packet(struct dns_query_struct *query, void *packet, int len)
 {
-	struct dns_server_info *server_info, *tmp;
+	struct dns_server_info *server_info = NULL;
+	struct dns_server_group_member *group_member = NULL;
+	struct dns_server_group_member *tmp = NULL;
 	int ret = 0;
 	int send_err = 0;
 
@@ -1661,8 +1963,9 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 
 	/* send query to all dns servers */
 	pthread_mutex_lock(&client.server_list_lock);
-	list_for_each_entry_safe(server_info, tmp, &client.dns_server_list, list)
+	list_for_each_entry_safe(group_member, tmp, &query->server_group->head, list)
 	{
+		server_info = group_member->server;
 		if (server_info->fd <= 0) {
 			ret = _dns_client_create_socket(server_info);
 			if (ret != 0) {
@@ -1781,7 +2084,7 @@ static int _dns_client_send_query(struct dns_query_struct *query, char *doamin)
 	return _dns_client_send_packet(query, inpacket, encode_len);
 }
 
-int dns_client_query(char *domain, int qtype, dns_client_callback callback, void *user_ptr)
+int dns_client_query(char *domain, int qtype, dns_client_callback callback, void *user_ptr, const char *group_name)
 {
 	struct dns_query_struct *query = NULL;
 	int ret = 0;
@@ -1804,6 +2107,13 @@ int dns_client_query(char *domain, int qtype, dns_client_callback callback, void
 	query->qtype = qtype;
 	query->send_tick = 0;
 	query->sid = atomic_inc_return(&dns_client_sid);
+	query->server_group = _dns_client_get_group(group_name);
+	if (query->server_group == NULL) {
+		query->server_group = client.default_group;
+		tlog(TLOG_DEBUG, "send query to group %s", DNS_SERVER_GROUP_DEFAULT);
+	} else {
+		tlog(TLOG_DEBUG, "send query to group %s", group_name);
+	}
 
 	_dns_client_query_get(query);
 	/* add query to hashtable */
@@ -1843,7 +2153,6 @@ errout:
 
 int dns_client_set_ecs(char *ip, int subnet)
 {
-
 	return 0;
 }
 
@@ -1872,8 +2181,15 @@ int dns_client_init()
 
 	pthread_mutex_init(&client.domain_map_lock, 0);
 	hash_init(client.domain_map);
+	hash_init(client.group);
 	INIT_LIST_HEAD(&client.dns_request_list);
 
+	if (dns_client_add_group(DNS_SERVER_GROUP_DEFAULT) != 0) {
+		tlog(TLOG_ERROR, "add default server group failed.");
+		goto errout;
+	}
+
+	client.default_group = _dns_client_get_group(DNS_SERVER_GROUP_DEFAULT);
 	client.epoll_fd = epollfd;
 	client.run = 1;
 
@@ -1913,6 +2229,7 @@ void dns_client_exit()
 	/* free all resouces */
 	_dns_client_server_remove_all();
 	_dns_client_query_remove_all();
+	_dns_client_group_remove_all();
 
 	pthread_mutex_destroy(&client.server_list_lock);
 	pthread_mutex_destroy(&client.domain_map_lock);

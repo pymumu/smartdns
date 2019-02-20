@@ -12,6 +12,8 @@
 
 #define DNS_MAX_SERVERS 64
 #define DNS_MAX_IPSET_NAMELEN 32
+#define DNS_GROUP_NAME_LEN 32
+#define DNS_NAX_GROUP_NUMBER 16
 #define DNS_MAX_IPLEN 64
 #define DNS_MAX_PATH 1024
 #define DEFAULT_DNS_PORT 53
@@ -26,6 +28,7 @@ enum domain_rule {
 	DOMAIN_RULE_ADDRESS_IPV4,
 	DOMAIN_RULE_ADDRESS_IPV6,
 	DOMAIN_RULE_IPSET,
+	DOMAIN_RULE_NAMESERVER,
 	DOMAIN_RULE_MAX,
 };
 
@@ -36,6 +39,9 @@ enum domain_rule {
 #define DOMAIN_FLAG_ADDR_IPV4_IGN (1 << 4)
 #define DOMAIN_FLAG_ADDR_IPV6_IGN (1 << 5)
 #define DOMAIN_FLAG_IPSET_IGNORE  (1 << 6)
+#define DOMAIN_FLAG_NAMESERVER_IGNORE (1 << 7)
+
+#define SERVER_FLAG_EXCLUDE_DEFAULT (1 << 0)
 
 struct dns_rule_flags {
 	unsigned int flags;
@@ -62,10 +68,27 @@ struct dns_domain_rule {
 	void *rules[DOMAIN_RULE_MAX];
 };
 
+struct dns_nameserver_rule {
+	const char *group_name;
+};
+
+struct dns_server_groups {
+	struct hlist_node node;
+	char group_name[DNS_GROUP_NAME_LEN];
+	int server_num;
+	struct dns_servers *servers[DNS_MAX_SERVERS];
+};
+
+struct dns_group_table {
+	DECLARE_HASHTABLE(group, 8);
+};
+extern struct dns_group_table dns_group_table;
+
 struct dns_servers {
 	char server[DNS_MAX_IPLEN];
 	unsigned short port;
 	unsigned int result_flag;
+	unsigned int server_flag;
 	int ttl;
 	dns_server_type_t type;
 };
@@ -116,6 +139,9 @@ extern int dns_conf_log_level;
 extern char dns_conf_log_file[DNS_MAX_PATH];
 extern size_t dns_conf_log_size;
 extern int dns_conf_log_num;
+
+extern struct dns_server_groups dns_conf_server_groups[DNS_NAX_GROUP_NUMBER];
+extern int dns_conf_server_group_num;
 
 extern int dns_conf_audit_enable;
 extern char dns_conf_audit_file[DNS_MAX_PATH];

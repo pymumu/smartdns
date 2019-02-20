@@ -16,6 +16,7 @@ struct dns_ipset_table {
 	DECLARE_HASHTABLE(ipset, 8);
 };
 struct dns_ipset_table dns_ipset_table;
+struct dns_group_table dns_group_table;
 
 char dns_conf_server_ip[DNS_MAX_IPLEN];
 char dns_conf_server_tcp_ip[DNS_MAX_IPLEN];
@@ -50,6 +51,88 @@ int dns_conf_ipset_timeout_enable;
 struct dns_edns_client_subnet dns_conf_ipv4_ecs;
 struct dns_edns_client_subnet dns_conf_ipv6_ecs;
 
+struct dns_server_groups *dns_conf_get_group(const char *group_name)
+{
+	uint32_t key = 0;
+	struct dns_server_groups *group = NULL;
+
+	key = hash_string(group_name);
+	hash_for_each_possible(dns_group_table.group, group, node, key)
+	{
+		if (strncmp(group->group_name, group_name, DNS_MAX_IPLEN) == 0) {
+			return group;
+		}
+	}
+
+	group = malloc(sizeof(*group));
+	if (group == NULL) {
+		goto errout;
+	}
+
+	memset(group, 0, sizeof(*group));
+	strncpy(group->group_name, group_name, DNS_GROUP_NAME_LEN);
+	hash_add(dns_group_table.group, &group->node, key);
+
+	return group;
+errout:
+	if (group) {
+		free(group);
+	}
+
+	return NULL;
+}
+
+int dns_conf_get_group_set(const char *group_name, struct dns_servers *server)
+{
+	struct dns_server_groups *group = NULL;
+	int i = 0;
+
+	group = dns_conf_get_group(group_name);
+	if (group == NULL) {
+		return -1;
+	}
+
+	for (i = 0; i < group->server_num; i++) {
+		if (group->servers[i] == server) {
+			return 0;
+		}
+	}
+
+	if (group->server_num >= DNS_MAX_SERVERS) {
+		return -1;
+	}
+
+	group->servers[group->server_num] = server;
+	group->server_num++;
+
+	return 0;
+}
+
+const char *dns_conf_get_group_name(const char *group_name)
+{
+	struct dns_server_groups *group = NULL;
+
+	group = dns_conf_get_group(group_name);
+	if (group == NULL) {
+		return NULL;
+	}
+
+	return group->group_name;
+}
+
+void config_group_table_destroy(void)
+{
+	struct dns_server_groups *group = NULL;
+	struct hlist_node *tmp = NULL;
+	int i;
+
+	hash_for_each_safe(dns_group_table.group, i, tmp, group, node)
+	{
+		hlist_del_init(&group->node);
+		free(group);
+	}
+}
+
 int config_server(int argc, char *argv[], dns_server_type_t type, int default_port)
 {
 	int index = dns_conf_server_num;
@@ -57,13 +140,16 @@ int config_server(int argc, char *argv[], dns_server_type_t type, int default_po
 	int port = -1;
 	char *ip = NULL;
 	int opt = 0;
-	int result_flag = 0;
+	unsigned int result_flag = 0;
+	unsigned int server_flag = 0;
 	int ttl = 0;
 	/* clang-format off */
 	static struct option long_options[] = {
 		{"blacklist-ip", 0, 0, 'b'},
 		{"check-edns", 0, 0, 'e'},
 		{"check-ttl", required_argument, 0, 't'},
+		{"group", required_argument, 0, 'g'},
+		{"exclude-default-group", 0, 0, 'E'},
 		{0, 0, 0, 0}
 	};
 	/* clang-format on */
@@ -72,7 +158,24 @@ int config_server(int argc, char *argv[], dns_server_type_t type, int default_po
 		return -1;
 	}
 
+	if (index >= DNS_MAX_SERVERS) {
+		tlog(TLOG_WARN, "exceeds max server number, %s", ip);
+		return 0;
+	}
+
+	server = &dns_conf_servers[index];
 	ip = argv[1];
+
+	/* parse ip, port from ip */
+	if (parse_ip(ip, server->server, &port) != 0) {
+		return -1;
+	}
+
+	/* if port is not defined, set port to default 53 */
+	if (port == PORT_NOT_DEFINED) {
+		port = default_port;
+	}
+
 	optind = 1;
 	while (1) {
 		opt = getopt_long_only(argc, argv, "", long_options, NULL);
@@ -100,29 +203,28 @@ int config_server(int argc, char *argv[], dns_server_type_t type, int default_po
 				return -1;
 			}
 			result_flag |= DNSSERVER_FLAG_CHECK_TTL;
+			break;
 		}
+		case 'E': {
+			server_flag |= SERVER_FLAG_EXCLUDE_DEFAULT;
+			break;
 		}
-	}
-
-	if (index >= DNS_MAX_SERVERS) {
-		tlog(TLOG_WARN, "exceeds max server number, %s", ip);
-		return 0;
-	}
-
-	server = &dns_conf_servers[index];
-	/* parse ip, port from ip */
-	if (parse_ip(ip, server->server, &port) != 0) {
-		return -1;
-	}
-
-	/* if port is not defined, set port to default 53 */
-	if (port == PORT_NOT_DEFINED) {
-		port = default_port;
+		case 'g': {
+			if (dns_conf_get_group_set(optarg, server) != 0) {
+				tlog(TLOG_ERROR, "add group failed.");
+				return -1;
+			}
+			break;
+		}
+		default:
+			break;
+		}
 	}
 
 	server->type = type;
 	server->port = port;
 	server->result_flag = result_flag;
+	server->server_flag = server_flag;
 	server->ttl = ttl;
 	dns_conf_server_num++;
 	tlog(TLOG_DEBUG, "add server %s, flag: %X, ttl: %d", ip, result_flag, ttl);
@@ -140,6 +242,10 @@ int config_domain_iter_cb(void *data, const unsigned char *key, uint32_t key_len
 	}
 
 	for (i = 0; i < DOMAIN_RULE_MAX; i++) {
+		if (domain_rule->rules[i] == NULL) {
+			continue;
+		}
+
 		free(domain_rule->rules[i]);
 	}
 
@@ -541,6 +647,81 @@ int config_server_tls(void *data, int argc, char *argv[])
 	return config_server(argc, argv, DNS_SERVER_TLS, DEFAULT_DNS_TLS_PORT);
 }
 
+int config_nameserver(void *data, int argc, char *argv[])
+{
+	struct dns_nameserver_rule *nameserver_rule = NULL;
+	char domain[DNS_MAX_CONF_CNAME_LEN];
+	char group_name[DNS_GROUP_NAME_LEN];
+	const char *group = NULL;
+	char *begin = NULL;
+	char *end = NULL;
+	int len = 0;
+	char *value = argv[1];
+
+	if (argc <= 1) {
+		goto errout;
+	}
+
+	begin = strstr(value, "/");
+	if (begin == NULL) {
+		goto errout;
+	}
+
+	begin++;
+	end = strstr(begin, "/");
+	if (end == NULL) {
+		goto errout;
+	}
+
+	/* remove prefix . */
+	while (*begin == '.') {
+		begin++;
+	}
+
+	len = end - begin;
+	memcpy(domain, begin, len);
+	domain[len] = '\0';
+
+	len = strlen(end + 1);
+	if (len <= 0) {
+		goto errout;
+	}
+
+	if (strncmp(end + 1, "-", sizeof("-")) != 0) {
+		strncpy(group_name, end + 1, DNS_GROUP_NAME_LEN);
+		group = dns_conf_get_group_name(group_name);
+		if (group == NULL) {
+			goto errout;
+		}
+
+		nameserver_rule = malloc(sizeof(*nameserver_rule));
+		if (nameserver_rule == NULL) {
+			goto errout;
+		}
+
+		nameserver_rule->group_name = group;
+	} else {
+		if (config_domain_rule_flag_set(domain, DOMAIN_FLAG_NAMESERVER_IGNORE) != 0 ) {
+			goto errout;
+		}
+
+		return 0;
+	}
+
+	if (config_domain_rule_add(domain, DOMAIN_RULE_NAMESERVER, nameserver_rule) != 0) {
+		goto errout;
+	}
+
+	return 0;
+errout:
+	if (nameserver_rule) {
+		free(nameserver_rule);
+	}
+
+	tlog(TLOG_ERROR, "add nameserver %s failed", value);
+	return 0;
+}
+
 radix_node_t *create_addr_node(char *addr)
 {
 	radix_node_t *node;
@@ -707,6 +888,7 @@ struct config_item config_item[] = {
 	CONF_CUSTOM("server", config_server_udp, NULL),
 	CONF_CUSTOM("server-tcp", config_server_tcp, NULL),
 	CONF_CUSTOM("server-tls", config_server_tls, NULL),
+	CONF_CUSTOM("nameserver", config_nameserver, NULL),
 	CONF_CUSTOM("address", config_address, NULL),
 	CONF_YESNO("ipset-timeout", &dns_conf_ipset_timeout_enable),
 	CONF_CUSTOM("ipset", config_ipset, NULL),
@@ -774,6 +956,7 @@ int _dns_server_load_conf_init(void)
 	art_tree_init(&dns_conf_domain_rule);
 
 	hash_init(dns_ipset_table.ipset);
+	hash_init(dns_group_table.group);
 
 	return 0;
 }
@@ -784,6 +967,7 @@ void dns_server_load_exit(void)
 	Destroy_Radix(dns_conf_address_rule.ipv4, config_address_destroy, NULL);
 	Destroy_Radix(dns_conf_address_rule.ipv6, config_address_destroy, NULL);
 	config_ipset_table_destroy();
+	config_group_table_destroy();
 }
 
 int dns_server_load_conf(const char *file)

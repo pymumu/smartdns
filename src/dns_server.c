@@ -1436,6 +1436,7 @@ static int _dns_server_recv(struct dns_server_conn *client, unsigned char *inpac
 	struct dns_packet *packet = (struct dns_packet *)packet_buff;
 	struct dns_request *request = NULL;
 	struct dns_rrs *rrs;
+	const char *group_name = NULL;
 	int rr_count = 0;
 	int i = 0;
 	int qclass;
@@ -1535,6 +1536,13 @@ static int _dns_server_recv(struct dns_server_conn *client, unsigned char *inpac
 		goto clean_exit;
 	}
 
+	if (request->domain_rule) {
+		if (request->domain_rule->rules[DOMAIN_RULE_NAMESERVER]) {
+			struct dns_nameserver_rule *nameserver_rule = request->domain_rule->rules[DOMAIN_RULE_NAMESERVER];
+			group_name = nameserver_rule->group_name;
+		}
+	}
+
 	tlog(TLOG_INFO, "query server %s from %s, qtype = %d\n", request->domain, name, qtype);
 
 	_dns_server_request_get(request);
@@ -1548,14 +1556,14 @@ static int _dns_server_recv(struct dns_server_conn *client, unsigned char *inpac
 	if (qtype == DNS_T_AAAA && dns_conf_dualstack_ip_selection) {
 		_dns_server_request_get(request);
 		request->request_wait++;
-		if (dns_client_query(request->domain, DNS_T_A, dns_server_resolve_callback, request) != 0) {
+		if (dns_client_query(request->domain, DNS_T_A, dns_server_resolve_callback, request, group_name) != 0) {
 			_dns_server_request_release(request);
 			request->request_wait--;
 		}
 	}
 
 	request->request_wait++;
-	if (dns_client_query(request->domain, qtype, dns_server_resolve_callback, request) != 0) {
+	if (dns_client_query(request->domain, qtype, dns_server_resolve_callback, request, group_name) != 0) {
 		_dns_server_request_release(request);
 		_dns_server_request_remove(request);
 		request = NULL;
@@ -1585,6 +1593,7 @@ static int _dns_server_prefetch_request(char *domain, dns_type_t qtype)
 {
 	int ret = -1;
 	struct dns_request *request = NULL;
+	const char *group_name = NULL;
 
 	request = malloc(sizeof(*request));
 	if (request == NULL) {
@@ -1616,7 +1625,14 @@ static int _dns_server_prefetch_request(char *domain, dns_type_t qtype)
 	_dns_server_request_get(request);
 	request->send_tick = get_tick_count();
 	request->request_wait++;
-	dns_client_query(request->domain, qtype, dns_server_resolve_callback, request);
+
+	if (request->domain_rule) {
+		if (request->domain_rule->rules[DOMAIN_RULE_NAMESERVER]) {
+			struct dns_nameserver_rule *nameserver_rule = request->domain_rule->rules[DOMAIN_RULE_NAMESERVER];
+			group_name = nameserver_rule->group_name;
+		}
+	}
+	dns_client_query(request->domain, qtype, dns_server_resolve_callback, request, group_name);
 
 	return 0;
 errout:

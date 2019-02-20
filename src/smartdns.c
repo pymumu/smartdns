@@ -123,15 +123,41 @@ int smartdns_load_from_resolv(void)
 int smartdns_add_servers(void)
 {
 	int i = 0;
+	int j = 0;
 	int ret = 0;
+	struct dns_server_groups *group = NULL;
+	struct dns_servers *server = NULL;
+
 	for (i = 0; i < dns_conf_server_num; i++) {
-		ret = dns_add_server(dns_conf_servers[i].server, dns_conf_servers[i].port, dns_conf_servers[i].type, dns_conf_servers[i].result_flag,
+		ret = dns_client_add_server(dns_conf_servers[i].server, dns_conf_servers[i].port, dns_conf_servers[i].type, dns_conf_servers[i].server_flag, dns_conf_servers[i].result_flag,
 							 dns_conf_servers[i].ttl);
 		if (ret != 0) {
 			tlog(TLOG_ERROR, "add server failed, %s:%d", dns_conf_servers[i].server, dns_conf_servers[i].port);
 			return -1;
 		}
 	}
+
+	hash_for_each(dns_group_table.group, i, group, node)
+	{
+		ret = dns_client_add_group(group->group_name);
+		if (ret != 0) {
+			tlog(TLOG_ERROR, "add group failed, %s", group->group_name);
+			return -1;
+		}
+
+		for (j = 0; j < group->server_num; j++) {
+			server = group->servers[j];
+			if (server == NULL) {
+				continue;
+			}
+			ret = dns_client_add_to_group(group->group_name, server->server, server->port, server->type);
+			if (ret != 0) {
+				tlog(TLOG_ERROR, "add server %s to group %s failed", server->server, group->group_name);
+				return -1;
+			}
+		}
+	}
+
 
 	return 0;
 }

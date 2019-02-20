@@ -2,6 +2,7 @@
 #define _SMART_DNS_CLIENT_H
 
 #include "dns.h"
+#define DNS_SERVER_GROUP_DEFAULT "default"
 
 typedef enum {
 	DNS_SERVER_UDP,
@@ -30,15 +31,23 @@ typedef int (*dns_client_callback)(char *domain, dns_result_type rtype, unsigned
 								   int inpacket_len, void *user_ptr);
 
 /* query domain */
-int dns_client_query(char *domain, int qtype, dns_client_callback callback, void *user_ptr);
+int dns_client_query(char *domain, int qtype, dns_client_callback callback, void *user_ptr, const char *group_name);
 
 void dns_client_exit(void);
 
 /* add remote dns server */
-int dns_add_server(char *server_ip, int port, dns_server_type_t server_type, int result_flag, int ttl);
+int dns_client_add_server(char *server_ip, int port, dns_server_type_t server_type, unsigned int server_flag, unsigned int result_flag, int ttl);
 
 /* remove remote dns server */
-int dns_remove_server(char *server_ip, int port, dns_server_type_t server_type);
+int dns_client_remove_server(char *server_ip, int port, dns_server_type_t server_type);
+
+int dns_client_add_group(char *group_name);
+
+int dns_client_add_to_group(char *group_name, char *server_ip, int port, dns_server_type_t server_type);
+
+int dns_client_remove_from_group(char *group_name, char *server_ip, int port, dns_server_type_t server_type);
+
+int dns_client_remove_group(char *group_name);
 
 int dns_server_num(void);
 
