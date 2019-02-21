@@ -130,7 +130,7 @@ int smartdns_add_servers(void)
 
 	for (i = 0; i < dns_conf_server_num; i++) {
 		ret = dns_client_add_server(dns_conf_servers[i].server, dns_conf_servers[i].port, dns_conf_servers[i].type, dns_conf_servers[i].server_flag, dns_conf_servers[i].result_flag,
-							 dns_conf_servers[i].ttl);
+							 dns_conf_servers[i].ttl, dns_conf_servers[i].spki);
 		if (ret != 0) {
 			tlog(TLOG_ERROR, "add server failed, %s:%d", dns_conf_servers[i].server, dns_conf_servers[i].port);
 			return -1;

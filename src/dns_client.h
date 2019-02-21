@@ -36,7 +36,7 @@ int dns_client_query(char *domain, int qtype, dns_client_callback callback, void
 void dns_client_exit(void);
 
 /* add remote dns server */
-int dns_client_add_server(char *server_ip, int port, dns_server_type_t server_type, unsigned int server_flag, unsigned int result_flag, int ttl);
+int dns_client_add_server(char *server_ip, int port, dns_server_type_t server_type, unsigned int server_flag, unsigned int result_flag, int ttl, char *spki);
 
 /* remove remote dns server */
 int dns_client_remove_server(char *server_ip, int port, dns_server_type_t server_type);

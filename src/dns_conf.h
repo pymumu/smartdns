@@ -15,6 +15,7 @@
 #define DNS_GROUP_NAME_LEN 32
 #define DNS_NAX_GROUP_NUMBER 16
 #define DNS_MAX_IPLEN 64
+#define DNS_MAX_SPKI_LEN 64
 #define DNS_MAX_PATH 1024
 #define DEFAULT_DNS_PORT 53
 #define DEFAULT_DNS_TLS_PORT 853
@@ -91,6 +92,7 @@ struct dns_servers {
 	unsigned int server_flag;
 	int ttl;
 	dns_server_type_t type;
+	char spki[DNS_MAX_SPKI_LEN];
 };
 
 /* ip address lists of domain */

@@ -353,6 +353,44 @@ int ipset_del(const char *ipsetname, const unsigned char addr[], int addr_len)
 	return _ipset_operate(ipsetname, addr, addr_len, 0, IPSET_DEL);
 }
 
+unsigned char *SSL_SHA256(const unsigned char *d, size_t n, unsigned char *md)
+{
+	SHA256_CTX c;
+	static unsigned char m[SHA256_DIGEST_LENGTH];
+
+	if (md == NULL)
+		md = m;
+	SHA256_Init(&c);
+	SHA256_Update(&c, d, n);
+	SHA256_Final(md, &c);
+	OPENSSL_cleanse(&c, sizeof(c));
+	return (md);
+}
+
+int SSL_base64_decode(const char *in, unsigned char *out)
+{
+    size_t inlen = strlen(in);
+    int outlen;
+
+    if (inlen == 0) {
+        return 0;
+    }
+
+    outlen = EVP_DecodeBlock(out, (unsigned char *)in, inlen);
+    if (outlen < 0) {
+        goto errout;
+    }
+
+    /* Subtract padding bytes from |outlen| */
+    while (in[--inlen] == '=') {
+        --outlen;
+    }
+
+    return outlen;
+errout:
+	return -1;	
+}
+
 #define THREAD_STACK_SIZE (16*1024)
 static pthread_mutex_t *lock_cs;
 static long *lock_count;

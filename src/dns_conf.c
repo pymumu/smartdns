@@ -142,11 +142,14 @@ int config_server(int argc, char *argv[], dns_server_type_t type, int default_po
 	int opt = 0;
 	unsigned int result_flag = 0;
 	unsigned int server_flag = 0;
+	unsigned char *spki = NULL;
+
 	int ttl = 0;
 	/* clang-format off */
 	static struct option long_options[] = {
 		{"blacklist-ip", 0, 0, 'b'},
 		{"check-edns", 0, 0, 'e'},
+		{"spki-pin", required_argument, 0, 'p'},
 		{"check-ttl", required_argument, 0, 't'},
 		{"group", required_argument, 0, 'g'},
 		{"exclude-default-group", 0, 0, 'E'},
@@ -164,6 +167,7 @@ int config_server(int argc, char *argv[], dns_server_type_t type, int default_po
 	}
 
 	server = &dns_conf_servers[index];
+	server->spki[0] = '\0';
 	ip = argv[1];
 
 	/* parse ip, port from ip */
@@ -200,7 +204,7 @@ int config_server(int argc, char *argv[], dns_server_type_t type, int default_po
 			ttl = atoi(optarg);
 			if (ttl < -255 || ttl > 255) {
 				tlog(TLOG_ERROR, "ttl value is invalid.");
-				return -1;
+				goto errout;
 			}
 			result_flag |= DNSSERVER_FLAG_CHECK_TTL;
 			break;
@@ -212,8 +216,12 @@ int config_server(int argc, char *argv[], dns_server_type_t type, int default_po
 		case 'g': {
 			if (dns_conf_get_group_set(optarg, server) != 0) {
 				tlog(TLOG_ERROR, "add group failed.");
-				return -1;
+				goto errout;
 			}
+			break;
+		}
+		case 'p': {
+			strncpy(server->spki, optarg, DNS_MAX_SPKI_LEN);
 			break;
 		}
 		default:
@@ -230,6 +238,13 @@ int config_server(int argc, char *argv[], dns_server_type_t type, int default_po
 	tlog(TLOG_DEBUG, "add server %s, flag: %X, ttl: %d", ip, result_flag, ttl);
 
 	return 0;
+
+errout:
+	if (spki) {
+		free(spki);
+	}
+
+	return -1;
 }
 
 int config_domain_iter_cb(void *data, const unsigned char *key, uint32_t key_len, void *value)

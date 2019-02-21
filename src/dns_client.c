@@ -93,6 +93,9 @@ struct dns_server_info {
 	/* server type */
 	dns_server_type_t type;
 
+	unsigned char *spki;
+	int spki_len;
+
 	/* client socket */
 	int fd;
 	int ttl;
@@ -535,9 +538,25 @@ void _dns_client_group_remove_all(void)
 }
 
 /* add dns server information */
-int _dns_client_server_add(char *server_ip, struct addrinfo *gai, dns_server_type_t server_type, unsigned int server_flag, unsigned int result_flag, int ttl)
+int _dns_client_server_add(char *server_ip, struct addrinfo *gai, dns_server_type_t server_type, unsigned int server_flag, unsigned int result_flag, int ttl, char *spki)
 {
 	struct dns_server_info *server_info = NULL;
+	unsigned char *spki_data = NULL;
+	int spki_data_len = 0;
+
+	/* read SPKI */
+	if (spki && (strlen(spki) < DNS_MAX_SPKI_LEN)) {
+		spki_data = malloc(DNS_MAX_SPKI_LEN);
+		if (spki_data) {
+			memset(spki_data, 0, DNS_MAX_SPKI_LEN);
+			spki_data_len = SSL_base64_decode(spki, spki_data);
+			if (spki_data_len != SHA256_DIGEST_LENGTH) {
+				free(spki_data);
+				spki_data = NULL;
+				spki_data_len = 0;
+			}
+		}
+	}
 
 	if (_dns_client_server_exist(gai, server_type) == 0) {
 		return 0;
@@ -562,6 +581,8 @@ int _dns_client_server_add(char *server_ip, struct addrinfo *gai, dns_server_typ
 	server_info->result_flag = result_flag;
 	server_info->ttl = ttl;
 	server_info->ttl_range = 0;
+	server_info->spki = spki_data;
+	server_info->spki_len = spki_data_len;
 
 	if ((server_flag & SERVER_FLAG_EXCLUDE_DEFAULT) == 0) {
 		if (_dns_client_add_to_group(DNS_SERVER_GROUP_DEFAULT, server_info) != 0) {
@@ -605,6 +626,10 @@ int _dns_client_server_add(char *server_ip, struct addrinfo *gai, dns_server_typ
 	atomic_inc(&client.dns_server_num);
 	return 0;
 errout:
+	if (spki_data) {
+		free(spki_data);
+	}
+
 	if (server_info) {
 		if (server_info->ssl_ctx) {
 			SSL_CTX_free(server_info->ssl_ctx);
@@ -673,6 +698,10 @@ void _dns_client_server_remove_all(void)
 	{
 		list_del(&server_info->list);
 		_dns_client_server_close(server_info);
+		if (server_info->spki) {
+			free(server_info->spki);
+			server_info->spki = NULL;
+		}
 		free(server_info);
 	}
 	pthread_mutex_unlock(&client.server_list_lock);
@@ -707,7 +736,7 @@ int _dns_client_server_remove(char *server_ip, struct addrinfo *gai, dns_server_
 	return -1;
 }
 
-int _dns_client_server_operate(char *server_ip, int port, dns_server_type_t server_type, unsigned int server_flag, unsigned int result_flag, int ttl, int operate)
+int _dns_client_server_operate(char *server_ip, int port, dns_server_type_t server_type, unsigned int server_flag, unsigned int result_flag, int ttl, char *spki, int operate)
 {
 	char port_s[8];
 	int sock_type;
@@ -741,7 +770,7 @@ int _dns_client_server_operate(char *server_ip, int port, dns_server_type_t serv
 	}
 
 	if (operate == 0) {
-		ret = _dns_client_server_add(server_ip, gai, server_type, server_flag, result_flag, ttl);
+		ret = _dns_client_server_add(server_ip, gai, server_type, server_flag, result_flag, ttl, spki);
 		if (ret != 0) {
 			goto errout;
 		}
@@ -760,14 +789,14 @@ errout:
 	return -1;
 }
 
-int dns_client_add_server(char *server_ip, int port, dns_server_type_t server_type, unsigned server_flag, unsigned int result_flag, int ttl)
+int dns_client_add_server(char *server_ip, int port, dns_server_type_t server_type, unsigned server_flag, unsigned int result_flag, int ttl, char *spki)
 {
-	return _dns_client_server_operate(server_ip, port, server_type, server_flag, result_flag, ttl, 0);
+	return _dns_client_server_operate(server_ip, port, server_type, server_flag, result_flag, ttl, spki, 0);
 }
 
 int dns_client_remove_server(char *server_ip, int port, dns_server_type_t server_type)
 {
-	return _dns_client_server_operate(server_ip, port, server_type, 0, 0, 0, 1);
+	return _dns_client_server_operate(server_ip, port, server_type, 0, 0, 0, NULL, 1);
 }
 
 int dns_server_num(void)
@@ -1653,11 +1682,12 @@ static int _dns_client_tls_verify(struct dns_server_info *server_info)
 {
 	X509 *cert = NULL;
 	char peer_CN[256];
-	const EVP_MD *digest;
-	unsigned char md[EVP_MAX_MD_SIZE];
-	unsigned int n;
 	char cert_fingerprint[256];
 	int i = 0;
+	int key_len = 0;
+	unsigned char *key_data = NULL;
+	unsigned char *key_data_tmp = NULL;
+	unsigned char *key_sha256 = NULL;
 
 	cert = SSL_get_peer_certificate(server_info->ssl);
 	if (cert == NULL) {
@@ -1666,28 +1696,66 @@ static int _dns_client_tls_verify(struct dns_server_info *server_info)
 	}
 
 	X509_NAME_get_text_by_NID(X509_get_subject_name(cert), NID_commonName, peer_CN, 256);
-
 	tlog(TLOG_DEBUG, "peer CN: %s", peer_CN);
 
-	digest = EVP_get_digestbyname("sha256");
-	X509_digest(cert, digest, md, &n);
+	/* get spki pin */
+	key_len = i2d_X509_PUBKEY(X509_get_X509_PUBKEY(cert), NULL);
+	if (key_len <= 0 ) {
+		tlog(TLOG_ERROR, "get x509 public key failed.");
+		goto errout;
+	}
+
+	key_data = OPENSSL_malloc(key_len);
+	key_data_tmp = key_data;
+	if (key_data == NULL) {
+		tlog(TLOG_ERROR, "malloc memory failed.");
+		goto errout;
+	}
+
+	i2d_X509_PUBKEY(X509_get_X509_PUBKEY(cert), &key_data_tmp);
+
+	key_sha256 = SSL_SHA256(key_data, key_len, 0);
+	if (key_sha256 == NULL) {
+		tlog(TLOG_ERROR, "get sha256 failed.");
+		goto errout;
+	}
 
 	char *ptr = cert_fingerprint;
-	for (i = 0; i < 32; i++) {
-		*ptr = _dns_client_to_hex(md[i] >> 4 & 0xF);
+	for (i = 0; i < SHA256_DIGEST_LENGTH; i++) {
+		*ptr = _dns_client_to_hex(key_sha256[i] >> 4 & 0xF);
 		ptr++;
-		*ptr = _dns_client_to_hex(md[i] & 0xF);
+		*ptr = _dns_client_to_hex(key_sha256[i] & 0xF);
 		ptr++;
 		*ptr = ':';
 		ptr++;
 	}
 	ptr--;
 	*ptr = 0;
-	tlog(TLOG_DEBUG, "cert fingerprint(%s): %s", "sha256", cert_fingerprint);
+	tlog(TLOG_DEBUG, "cert SPKI pin(%s): %s", "sha256", cert_fingerprint);
 
+	if (server_info->spki) {
+		if (memcmp(server_info->spki, key_sha256, server_info->spki_len) != 0) {
+			tlog(TLOG_INFO, "server %s cert spki is invalid", server_info->ip);
+			goto errout;
+		} else {
+			tlog(TLOG_DEBUG, "server %s cert spki verify succeed", server_info->ip);
+		}
+	}
+
+	OPENSSL_free(key_data);
 	X509_free(cert);
-
 	return 0;
+
+errout:
+	if (key_data) {
+		OPENSSL_free(key_data);
+	}
+
+	if (cert) {
+		X509_free(cert);
+	}
+
+	return -1;
 }
 
 static int _dns_client_process_tls(struct dns_server_info *server_info, struct epoll_event *event, unsigned long now)
