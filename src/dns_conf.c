@@ -338,7 +338,7 @@ errout:
 	}
 
 	tlog(TLOG_ERROR, "add doamin %s rule failed", domain);
-	return 0;
+	return -1;
 }
 
 int config_domain_rule_flag_set(char *domain, unsigned int flag)

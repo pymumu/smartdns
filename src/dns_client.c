@@ -1529,7 +1529,7 @@ static int _dns_client_process_tcp(struct dns_server_info *server_info, struct e
 {
 	int len;
 	int ret = -1;
-	unsigned char *inpacket_data = server_info->recv_buff.data;
+	unsigned char *inpacket_data = NULL;
 
 	if (event->events & EPOLLIN) {
 		/* receive from tcp */

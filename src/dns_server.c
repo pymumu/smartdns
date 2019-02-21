@@ -459,8 +459,8 @@ static int _dns_server_reply_SOA(int rcode, struct dns_request *request, struct 
 
 	soa = &request->soa;
 
-	strcpy(soa->mname, "a.gtld-servers.net");
-	strcpy(soa->rname, "nstld.verisign-grs.com");
+	strncpy(soa->mname, "a.gtld-servers.net", DNS_MAX_CNAME_LEN);
+	strncpy(soa->rname, "nstld.verisign-grs.com", DNS_MAX_CNAME_LEN);
 	soa->serial = 1800;
 	soa->refresh = 1800;
 	soa->retry = 900;
@@ -1866,12 +1866,14 @@ static int _dns_server_process_tcp(struct dns_server_conn *dnsserver, struct epo
 	if (event->events & EPOLLIN) {
 		if (_dns_server_tcp_process_requests(dnsserver) != 0) {
 			_dns_server_client_close(dnsserver);
+			return -1;
 		}
 	}
 
 	if (event->events & EPOLLOUT) {
 		if (_dns_server_tcp_send(dnsserver) != 0) {
 			_dns_server_client_close(dnsserver);
+			return -1;
 		}
 	}
 

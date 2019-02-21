@@ -187,6 +187,7 @@ int dns_rr_add_end(struct dns_packet *packet, int type, dns_type_t rtype, int le
 	case DNS_RRS_OPT:
 		count = &packet->optcount;
 		start = &packet->optional;
+		break;
 	default:
 		return -1;
 		break;
@@ -840,7 +841,7 @@ static int _dns_decode_domain(struct dns_context *context, char *output, int siz
 {
 	int output_len = 0;
 	int copy_len = 0;
-	int len = *(context->ptr);
+	int len = 0;
 	unsigned char *ptr = context->ptr;
 	int is_compressed = 0;
 	int ptr_jump = 0;
@@ -1446,6 +1447,10 @@ static int _dns_decode_opt(struct dns_context *context, dns_rr_type type, unsign
 			}
 
 			ret = dns_add_OPT_ECS(packet, &ecs);
+			if (ret != 0 ) {
+				tlog(TLOG_ERROR, "add ecs failed.");
+				return -1;
+			}
 		} break;
 		default:
 			context->ptr += opt_len;

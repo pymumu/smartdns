@@ -1042,7 +1042,7 @@ static void *_tlog_work(void *arg)
 
         if ((log == loop_log || log == NULL) && tlog.run) {
             /* if buffer is empty, wait */
-            if ((log == NULL) || (log && log->end == log->start && log->ext_end <= 0)) {
+            if ((log == NULL) || (log && (log->end == log->start) && (log->ext_end <= 0))) {
                 clock_gettime(CLOCK_REALTIME, &tm);
                 tm.tv_sec += 2;
                 tlog.is_wait = 1;
@@ -1064,7 +1064,7 @@ static void *_tlog_work(void *arg)
             }
         }
 
-        if (log && log->end == log->start && log->ext_end <= 0) {
+        if (log && (log->end == log->start) && (log->ext_end <= 0)) {
             if (log->is_exit) {
                 if (_tlog_close(log, 0) == 0) {
                     log = NULL;
