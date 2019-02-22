@@ -1,16 +1,23 @@
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
 #include "util.h"
 #include "dns_conf.h"
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/netlink.h>
+#include <openssl/crypto.h>
+#include <openssl/ssl.h>
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
-#include <openssl/crypto.h>
-#include <openssl/ssl.h>
-#include <pthread.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+
+#define TMP_BUFF_LEN_32 32
 
 #define NFNL_SUBSYS_IPSET 6
 
@@ -248,12 +255,12 @@ static int _ipset_socket_init(void)
 	return 0;
 }
 
-static int _ipset_support_timeout(const char *ipsetname) 
+static int _ipset_support_timeout(const char *ipsetname)
 {
 	if (dns_conf_ipset_timeout_enable) {
 		return 0;
 	}
-	
+
 	return -1;
 }
 
@@ -369,82 +376,126 @@ unsigned char *SSL_SHA256(const unsigned char *d, size_t n, unsigned char *md)
 
 int SSL_base64_decode(const char *in, unsigned char *out)
 {
-    size_t inlen = strlen(in);
-    int outlen;
+	size_t inlen = strlen(in);
+	int outlen;
 
-    if (inlen == 0) {
-        return 0;
-    }
+	if (inlen == 0) {
+		return 0;
+	}
 
-    outlen = EVP_DecodeBlock(out, (unsigned char *)in, inlen);
-    if (outlen < 0) {
-        goto errout;
-    }
+	outlen = EVP_DecodeBlock(out, (unsigned char *)in, inlen);
+	if (outlen < 0) {
+		goto errout;
+	}
 
-    /* Subtract padding bytes from |outlen| */
-    while (in[--inlen] == '=') {
-        --outlen;
-    }
+	/* Subtract padding bytes from |outlen| */
+	while (in[--inlen] == '=') {
+		--outlen;
+	}
 
-    return outlen;
+	return outlen;
 errout:
-	return -1;	
+	return -1;
 }
 
-#define THREAD_STACK_SIZE (16*1024)
+int create_pid_file(const char *pid_file)
+{
+	int fd;
+	int flags;
+	char buff[TMP_BUFF_LEN_32];
+
+	/*  create pid file, and lock this file */
+	fd = open(pid_file, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+	if (fd == -1) {
+		fprintf(stderr, "create pid file failed, %s\n", strerror(errno));
+		return -1;
+	}
+
+	flags = fcntl(fd, F_GETFD);
+	if (flags < 0) {
+		fprintf(stderr, "Could not get flags for PID file %s\n", pid_file);
+		goto errout;
+	}
+
+	flags |= FD_CLOEXEC;
+	if (fcntl(fd, F_SETFD, flags) == -1) {
+		fprintf(stderr, "Could not set flags for PID file %s\n", pid_file);
+		goto errout;
+	}
+
+	if (lockf(fd, F_TLOCK, 0) < 0) {
+		fprintf(stderr, "Server is already running.\n");
+		goto errout;
+	}
+
+	snprintf(buff, TMP_BUFF_LEN_32, "%d\n", getpid());
+
+	if (write(fd, buff, strnlen(buff, TMP_BUFF_LEN_32)) < 0) {
+		fprintf(stderr, "write pid to file failed, %s.\n", strerror(errno));
+		goto errout;
+	}
+
+	return 0;
+errout:
+	if (fd > 0) {
+		close(fd);
+	}
+	return -1;
+}
+
+#define THREAD_STACK_SIZE (16 * 1024)
 static pthread_mutex_t *lock_cs;
 static long *lock_count;
 
-void pthreads_locking_callback(int mode, int type, const char *file, int line)
+static __attribute__((unused)) void _pthreads_locking_callback(int mode, int type, const char *file, int line)
 {
-    if (mode & CRYPTO_LOCK) {
-        pthread_mutex_lock(&(lock_cs[type]));
-        lock_count[type]++;
-    } else {
-        pthread_mutex_unlock(&(lock_cs[type]));
-    }
+	if (mode & CRYPTO_LOCK) {
+		pthread_mutex_lock(&(lock_cs[type]));
+		lock_count[type]++;
+	} else {
+		pthread_mutex_unlock(&(lock_cs[type]));
+	}
 }
 
-unsigned long pthreads_thread_id(void)
+static __attribute__((unused))  unsigned long _pthreads_thread_id(void)
 {
-    unsigned long ret;
+	unsigned long ret;
 
-    ret = (unsigned long)pthread_self();
-    return (ret);
+	ret = (unsigned long)pthread_self();
+	return (ret);
 }
 
 void SSL_CRYPTO_thread_setup(void)
 {
-    int i;
+	int i;
 
-    lock_cs = OPENSSL_malloc(CRYPTO_num_locks() * sizeof(pthread_mutex_t));
-    lock_count = OPENSSL_malloc(CRYPTO_num_locks() * sizeof(long));
-    if (!lock_cs || !lock_count) {
-        /* Nothing we can do about this...void function! */
-        if (lock_cs)
-            OPENSSL_free(lock_cs);
-        if (lock_count)
-            OPENSSL_free(lock_count);
-        return;
-    }
-    for (i = 0; i < CRYPTO_num_locks(); i++) {
-        lock_count[i] = 0;
-        pthread_mutex_init(&(lock_cs[i]), NULL);
-    }
+	lock_cs = OPENSSL_malloc(CRYPTO_num_locks() * sizeof(pthread_mutex_t));
+	lock_count = OPENSSL_malloc(CRYPTO_num_locks() * sizeof(long));
+	if (!lock_cs || !lock_count) {
+		/* Nothing we can do about this...void function! */
+		if (lock_cs)
+			OPENSSL_free(lock_cs);
+		if (lock_count)
+			OPENSSL_free(lock_count);
+		return;
+	}
+	for (i = 0; i < CRYPTO_num_locks(); i++) {
+		lock_count[i] = 0;
+		pthread_mutex_init(&(lock_cs[i]), NULL);
+	}
 
-    CRYPTO_set_id_callback(pthreads_thread_id);
-    CRYPTO_set_locking_callback(pthreads_locking_callback);
+	CRYPTO_set_id_callback(_pthreads_thread_id);
+	CRYPTO_set_locking_callback(_pthreads_locking_callback);
 }
 
 void SSL_CRYPTO_thread_cleanup(void)
 {
-    int i;
+	int i;
 
-    CRYPTO_set_locking_callback(NULL);
-    for (i = 0; i < CRYPTO_num_locks(); i++) {
-        pthread_mutex_destroy(&(lock_cs[i]));
-    }
-    OPENSSL_free(lock_cs);
-    OPENSSL_free(lock_count);
+	CRYPTO_set_locking_callback(NULL);
+	for (i = 0; i < CRYPTO_num_locks(); i++) {
+		pthread_mutex_destroy(&(lock_cs[i]));
+	}
+	OPENSSL_free(lock_cs);
+	OPENSSL_free(lock_count);
 }
-

@@ -97,10 +97,10 @@ struct tlog_info_inter {
 typedef int (*list_callback)(const char *name, struct dirent *entry, void *user);
 typedef int (*vprint_callback)(char *buff, int maxlen, void *userptr, const char *format, va_list ap);
 
-struct tlog tlog;
+static struct tlog tlog;
 static int tlog_disable_early_print = 0;
 static tlog_level tlog_set_level = TLOG_INFO;
-tlog_format_func tlog_format;
+static tlog_format_func tlog_format;
 static unsigned int tlog_localtime_lock = 0;
 
 static const char *tlog_level_str[] = {
@@ -332,7 +332,7 @@ static int _tlog_print_buffer(char *buff, int maxlen, void *userptr, const char 
     return total_len;
 }
 
-int _tlog_vprintf(struct tlog_log *log, vprint_callback print_callback, void *userptr, const char *format, va_list ap)
+static int _tlog_vprintf(struct tlog_log *log, vprint_callback print_callback, void *userptr, const char *format, va_list ap)
 {
     int len;
     int maxlen = 0;
@@ -406,7 +406,7 @@ int _tlog_vprintf(struct tlog_log *log, vprint_callback print_callback, void *us
 
 int tlog_vprintf(struct tlog_log *log, const char *format, va_list ap)
 {
-    return _tlog_vprintf(log, _tlog_print_buffer, 0, format, ap);
+    return _tlog_vprintf(log, _tlog_print_buffer, NULL, format, ap);
 }
 
 int tlog_printf(struct tlog_log *log, const char *format, ...)
@@ -421,7 +421,7 @@ int tlog_printf(struct tlog_log *log, const char *format, ...)
     return len;
 }
 
-int _tlog_early_print(const char *format, va_list ap) 
+static int _tlog_early_print(const char *format, va_list ap) 
 {
     char log_buf[TLOG_MAX_LINE_LEN];
     int len = 0;
@@ -901,7 +901,7 @@ static int _tlog_write_log(struct tlog_log *log, char *buff, int bufflen)
     return len;
 }
 
-int _tlog_has_data(void)
+static int _tlog_has_data(void)
 {
     struct tlog_log *next = NULL;
 
@@ -919,7 +919,7 @@ int _tlog_has_data(void)
     return 0;
 }
 
-int _tlog_wait_pids(void)
+static int _tlog_wait_pids(void)
 {
     static time_t last = -1;
     time_t now = 0;
@@ -931,7 +931,7 @@ int _tlog_wait_pids(void)
     while (next) {
         if (next->zip_pid > 0) {
             if (now == 0) {
-                now = time(0);
+                now = time(NULL);
             }
 
             if (now != last) {
@@ -953,7 +953,7 @@ int _tlog_wait_pids(void)
     return 0;
 }
 
-int _tlog_close(struct tlog_log *log, int wait_hang)
+static int _tlog_close(struct tlog_log *log, int wait_hang)
 {
     struct tlog_log *next = tlog.log;
 
@@ -1126,7 +1126,7 @@ void tlog_set_early_printf(int enable)
     tlog_disable_early_print = (enable == 0) ? 1 : 0;    
 }
 
-void _tlog_log_setlogscreen(struct tlog_log *log, int enable)
+static void _tlog_log_setlogscreen(struct tlog_log *log, int enable)
 {
     if (log == NULL) {
         return;
@@ -1260,9 +1260,9 @@ int tlog_init(const char *logfile, int maxlogsize, int maxlogcount, int block, i
     tlog.is_wait = 0;
 
     pthread_attr_init(&attr);
-    pthread_mutex_init(&tlog.lock, 0);
-    pthread_cond_init(&tlog.cond, 0);
-    pthread_cond_init(&tlog.client_cond, 0);
+    pthread_mutex_init(&tlog.lock, NULL);
+    pthread_cond_init(&tlog.cond, NULL);
+    pthread_cond_init(&tlog.client_cond, NULL);
     tlog.run = 1;
 
     log = tlog_open(logfile, maxlogsize, maxlogcount, block, buffsize, multiwrite);

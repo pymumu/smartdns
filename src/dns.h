@@ -1,11 +1,6 @@
 #ifndef _DNS_HEAD_H
 #define _DNS_HEAD_H
 
-#include <arpa/inet.h>
-#include <linux/filter.h>
-#include <netdb.h>
-#include <stdint.h>
-
 #define DNS_RR_A_LEN 4
 #define DNS_RR_AAAA_LEN 16
 #define DNS_MAX_CNAME_LEN 256
@@ -50,9 +45,9 @@ typedef enum dns_type {
 	DNS_T_ALL = 255
 } dns_type_t;
 
-typedef enum dns_opt_code {
-	DNS_OPT_T_ECS = 8,
-	DNS_OPT_T_ALL = 255
+typedef enum dns_opt_code { 
+	DNS_OPT_T_ECS = 8, 
+	DNS_OPT_T_ALL = 255 
 } dns_opt_code_t;
 
 typedef enum dns_opcode {
@@ -187,6 +182,9 @@ int dns_get_AAAA(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, unsig
 
 int dns_add_SOA(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, struct dns_soa *soa);
 int dns_get_SOA(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, struct dns_soa *soa);
+
+int dns_add_NS(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, char *cname);
+int dns_get_NS(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, char *cname, int cname_size);
 
 int dns_set_OPT_payload_size(struct dns_packet *packet, int payload_size);
 int dns_get_OPT_payload_size(struct dns_packet *packet);

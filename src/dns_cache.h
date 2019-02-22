@@ -6,6 +6,7 @@
 #include "hash.h"
 #include "hashtable.h"
 #include "list.h"
+#include <stdlib.h>
 #include <time.h>
 
 #define DNS_CACHE_TTL_MIN 30

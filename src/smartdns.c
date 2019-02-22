@@ -49,7 +49,7 @@
 
 static int verbose_screen;
 
-void help(void)
+static void _help(void)
 {
 	/* clang-format off */
 	char *help = ""
@@ -69,7 +69,7 @@ void help(void)
 	printf("%s", help);
 }
 
-int smartdns_load_from_resolv(void)
+static int _smartdns_load_from_resolv(void)
 {
 	FILE *fp = NULL;
 	char line[MAX_LINE_LEN];
@@ -120,7 +120,7 @@ int smartdns_load_from_resolv(void)
 	return ret;
 }
 
-int smartdns_add_servers(void)
+static int _smartdns_add_servers(void)
 {
 	int i = 0;
 	int j = 0;
@@ -129,8 +129,8 @@ int smartdns_add_servers(void)
 	struct dns_servers *server = NULL;
 
 	for (i = 0; i < dns_conf_server_num; i++) {
-		ret = dns_client_add_server(dns_conf_servers[i].server, dns_conf_servers[i].port, dns_conf_servers[i].type, dns_conf_servers[i].server_flag, dns_conf_servers[i].result_flag,
-							 dns_conf_servers[i].ttl, dns_conf_servers[i].spki);
+		ret = dns_client_add_server(dns_conf_servers[i].server, dns_conf_servers[i].port, dns_conf_servers[i].type, dns_conf_servers[i].server_flag,
+									dns_conf_servers[i].result_flag, dns_conf_servers[i].ttl, dns_conf_servers[i].spki);
 		if (ret != 0) {
 			tlog(TLOG_ERROR, "add server failed, %s:%d", dns_conf_servers[i].server, dns_conf_servers[i].port);
 			return -1;
@@ -158,11 +158,10 @@ int smartdns_add_servers(void)
 		}
 	}
 
-
 	return 0;
 }
 
-int smartdns_set_ecs_ip(void)
+static int _smartdns_set_ecs_ip(void)
 {
 	int ret = 0;
 	if (dns_conf_ipv4_ecs.enable) {
@@ -176,52 +175,7 @@ int smartdns_set_ecs_ip(void)
 	return ret;
 }
 
-int create_pid_file(const char *pid_file)
-{
-	int fd;
-	int flags;
-	char buff[TMP_BUFF_LEN_32];
-
-	/*  create pid file, and lock this file */
-	fd = open(pid_file, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
-	if (fd == -1) {
-		fprintf(stderr, "create pid file failed, %s\n", strerror(errno));
-		return -1;
-	}
-
-	flags = fcntl(fd, F_GETFD);
-	if (flags < 0) {
-		fprintf(stderr, "Could not get flags for PID file %s\n", pid_file);
-		goto errout;
-	}
-
-	flags |= FD_CLOEXEC;
-	if (fcntl(fd, F_SETFD, flags) == -1) {
-		fprintf(stderr, "Could not set flags for PID file %s\n", pid_file);
-		goto errout;
-	}
-
-	if (lockf(fd, F_TLOCK, 0) < 0) {
-		fprintf(stderr, "Server is already running.\n");
-		goto errout;
-	}
-
-	snprintf(buff, TMP_BUFF_LEN_32, "%d\n", getpid());
-
-	if (write(fd, buff, strnlen(buff, TMP_BUFF_LEN_32)) < 0) {
-		fprintf(stderr, "write pid to file failed, %s.\n", strerror(errno));
-		goto errout;
-	}
-
-	return 0;
-errout:
-	if (fd > 0) {
-		close(fd);
-	}
-	return -1;
-}
-
-int smartdns_init_ssl(void)
+static int _smartdns_init_ssl(void)
 {
 	SSL_load_error_strings();
 	SSL_library_init();
@@ -231,7 +185,7 @@ int smartdns_init_ssl(void)
 	return 0;
 }
 
-int smartdns_destroy_ssl(void)
+static int _smartdns_destroy_ssl(void)
 {
 	SSL_CRYPTO_thread_cleanup();
 	ERR_free_strings();
@@ -240,7 +194,7 @@ int smartdns_destroy_ssl(void)
 	return 0;
 }
 
-int smartdns_init(void)
+static int _smartdns_init(void)
 {
 	int ret;
 	char *logfile = SMARTDNS_LOG_FILE;
@@ -260,13 +214,13 @@ int smartdns_init(void)
 
 	tlog(TLOG_NOTICE, "smartdns starting...(Copyright (C) Nick Peng <pymumu@gmail.com>, build:%s %s)", __DATE__, __TIME__);
 
-	if (smartdns_init_ssl() != 0) {
+	if (_smartdns_init_ssl() != 0) {
 		tlog(TLOG_ERROR, "init ssl failed.");
 		goto errout;
 	}
 
 	if (dns_conf_server_num <= 0) {
-		if (smartdns_load_from_resolv() != 0) {
+		if (_smartdns_load_from_resolv() != 0) {
 			tlog(TLOG_ERROR, "load dns from resolv failed.");
 			goto errout;
 		}
@@ -289,13 +243,13 @@ int smartdns_init(void)
 		tlog(TLOG_ERROR, "start dns client failed.\n");
 		goto errout;
 	}
-	ret = smartdns_add_servers();
+	ret = _smartdns_add_servers();
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "add servers failed.");
 		goto errout;
 	}
 
-	ret = smartdns_set_ecs_ip();
+	ret = _smartdns_set_ecs_ip();
 	if (ret != 0) {
 		tlog(TLOG_WARN, "set ecs ip address failed.");
 	}
@@ -306,57 +260,57 @@ errout:
 	return -1;
 }
 
-int smartdns_run(void)
+static int _smartdns_run(void)
 {
 	return dns_server_run();
 }
 
-void smartdns_exit(void)
+static void _smartdns_exit(void)
 {
 	dns_server_exit();
 	dns_client_exit();
 	fast_ping_exit();
-	smartdns_destroy_ssl();
+	_smartdns_destroy_ssl();
 	tlog_exit();
 	dns_server_load_exit();
 }
 
-void sig_exit(int signo)
+static void _sig_exit(int signo)
 {
 	dns_server_stop();
 }
 
-void sig_error_exit(int signo, siginfo_t *siginfo, void *ct)
+static void _sig_error_exit(int signo, siginfo_t *siginfo, void *ct)
 {
 	unsigned long PC = 0;
 	ucontext_t *context = ct;
 #if defined(__i386__)
-		int *pgregs = (int*)(&(context->uc_mcontext.gregs));
-		PC = pgregs[REG_EIP];
-#elif defined(__x86_64__) 
-		int *pgregs = (int*)(&(context->uc_mcontext.gregs));
-		PC = pgregs[REG_RIP];
+	int *pgregs = (int *)(&(context->uc_mcontext.gregs));
+	PC = pgregs[REG_EIP];
+#elif defined(__x86_64__)
+	int *pgregs = (int *)(&(context->uc_mcontext.gregs));
+	PC = pgregs[REG_RIP];
 #elif defined(__aarch64__) || defined(__arm__)
-		PC = context->uc_mcontext.arm_pc;
+	PC = context->uc_mcontext.arm_pc;
 #elif defined(__mips__)
-		PC = context->uc_mcontext.pc;
+	PC = context->uc_mcontext.pc;
 #endif
-	tlog(TLOG_ERROR, "process exit with signal %d, code = %d, errno = %d, pid = %d, self = %d, pc = %#lx, addr = %#lx, build(%s %s)\n", signo, siginfo->si_code, siginfo->si_errno,
-		 siginfo->si_pid, getpid(), PC, (unsigned long)siginfo->si_addr, __DATE__, __TIME__);
+	tlog(TLOG_ERROR, "process exit with signal %d, code = %d, errno = %d, pid = %d, self = %d, pc = %#lx, addr = %#lx, build(%s %s)\n", signo, siginfo->si_code,
+		 siginfo->si_errno, siginfo->si_pid, getpid(), PC, (unsigned long)siginfo->si_addr, __DATE__, __TIME__);
 
 	sleep(1);
 	_exit(0);
 }
 
-int sig_list[] = {SIGSEGV, SIGABRT, SIGBUS, SIGILL, SIGFPE};
+static int sig_list[] = {SIGSEGV, SIGABRT, SIGBUS, SIGILL, SIGFPE};
 
-int sig_num = sizeof(sig_list) / sizeof(int);
+static int sig_num = sizeof(sig_list) / sizeof(int);
 
-void reg_signal(void)
+static void _reg_signal(void)
 {
 	struct sigaction act, old;
 	int i = 0;
-	act.sa_sigaction = sig_error_exit;
+	act.sa_sigaction = _sig_error_exit;
 	sigemptyset(&act.sa_mask);
 	act.sa_flags = SA_RESTART | SA_SIGINFO;
 
@@ -395,7 +349,7 @@ int main(int argc, char *argv[])
 			verbose_screen = 1;
 			break;
 		case 'h':
-			help();
+			_help();
 			return 1;
 		}
 	}
@@ -408,7 +362,7 @@ int main(int argc, char *argv[])
 	}
 
 	if (signal_ignore == 0) {
-		reg_signal();
+		_reg_signal();
 	}
 
 	if (dns_server_load_conf(config_file) != 0) {
@@ -420,17 +374,17 @@ int main(int argc, char *argv[])
 		goto errout;
 	}
 
-	ret = smartdns_init();
+	ret = _smartdns_init();
 	if (ret != 0) {
 		usleep(100000);
 		goto errout;
 	}
 
-	signal(SIGINT, sig_exit);
+	signal(SIGINT, _sig_exit);
 	signal(SIGPIPE, SIG_IGN);
-	atexit(smartdns_exit);
+	atexit(_smartdns_exit);
 
-	return smartdns_run();
+	return _smartdns_run();
 
 errout:
 

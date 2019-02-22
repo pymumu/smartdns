@@ -7,40 +7,55 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <syslog.h>
 #include <unistd.h>
- #include <syslog.h>
 
 #define DEFAULT_DNS_CACHE_SIZE 512
 
+/* ipset */
 struct dns_ipset_table {
 	DECLARE_HASHTABLE(ipset, 8);
 };
-struct dns_ipset_table dns_ipset_table;
+static struct dns_ipset_table dns_ipset_table;
+
+/* dns groups */
 struct dns_group_table dns_group_table;
 
+/* server ip/port  */
 char dns_conf_server_ip[DNS_MAX_IPLEN];
 char dns_conf_server_tcp_ip[DNS_MAX_IPLEN];
 int dns_conf_tcp_idle_time = 120;
+
+/* cache */
 int dns_conf_cachesize = DEFAULT_DNS_CACHE_SIZE;
 int dns_conf_prefetch = 0;
+
+/* upstream servers */
 struct dns_servers dns_conf_servers[DNS_MAX_SERVERS];
 char dns_conf_server_name[DNS_MAX_CONF_CNAME_LEN];
 int dns_conf_server_num;
+
+/* logging */
 int dns_conf_log_level = TLOG_ERROR;
 char dns_conf_log_file[DNS_MAX_PATH];
 size_t dns_conf_log_size = 1024 * 1024;
 int dns_conf_log_num = 8;
+
+/* auditing */
 int dns_conf_audit_enable = 0;
 char dns_conf_audit_file[DNS_MAX_PATH];
 size_t dns_conf_audit_size = 1024 * 1024;
 int dns_conf_audit_num = 2;
 
+/* address rules */
 art_tree dns_conf_domain_rule;
 struct dns_conf_address_rule dns_conf_address_rule;
 
+/* dual-stack selection */
 int dns_conf_dualstack_ip_selection;
 int dns_conf_dualstack_ip_selection_threshold = 30;
 
+/* TTL */
 int dns_conf_rr_ttl;
 int dns_conf_rr_ttl_min;
 int dns_conf_rr_ttl_max;
@@ -48,10 +63,12 @@ int dns_conf_force_AAAA_SOA;
 
 int dns_conf_ipset_timeout_enable;
 
+/* ECS */
 struct dns_edns_client_subnet dns_conf_ipv4_ecs;
 struct dns_edns_client_subnet dns_conf_ipv6_ecs;
 
-struct dns_server_groups *dns_conf_get_group(const char *group_name)
+/* create and get dns server group */
+static struct dns_server_groups *_dns_conf_get_group(const char *group_name)
 {
 	uint32_t key = 0;
 	struct dns_server_groups *group = NULL;
@@ -82,12 +99,12 @@ errout:
 	return NULL;
 }
 
-int dns_conf_get_group_set(const char *group_name, struct dns_servers *server)
+static int _dns_conf_get_group_set(const char *group_name, struct dns_servers *server)
 {
 	struct dns_server_groups *group = NULL;
 	int i = 0;
 
-	group = dns_conf_get_group(group_name);
+	group = _dns_conf_get_group(group_name);
 	if (group == NULL) {
 		return -1;
 	}
@@ -108,11 +125,11 @@ int dns_conf_get_group_set(const char *group_name, struct dns_servers *server)
 	return 0;
 }
 
-const char *dns_conf_get_group_name(const char *group_name)
+static const char *_dns_conf_get_group_name(const char *group_name)
 {
 	struct dns_server_groups *group = NULL;
 
-	group = dns_conf_get_group(group_name);
+	group = _dns_conf_get_group(group_name);
 	if (group == NULL) {
 		return NULL;
 	}
@@ -120,7 +137,7 @@ const char *dns_conf_get_group_name(const char *group_name)
 	return group->group_name;
 }
 
-void config_group_table_destroy(void)
+static void _config_group_table_destroy(void)
 {
 	struct dns_server_groups *group = NULL;
 	struct hlist_node *tmp = NULL;
@@ -133,7 +150,7 @@ void config_group_table_destroy(void)
 	}
 }
 
-int config_server(int argc, char *argv[], dns_server_type_t type, int default_port)
+static int _config_server(int argc, char *argv[], dns_server_type_t type, int default_port)
 {
 	int index = dns_conf_server_num;
 	struct dns_servers *server;
@@ -147,13 +164,13 @@ int config_server(int argc, char *argv[], dns_server_type_t type, int default_po
 	int ttl = 0;
 	/* clang-format off */
 	static struct option long_options[] = {
-		{"blacklist-ip", 0, 0, 'b'},
-		{"check-edns", 0, 0, 'e'},
-		{"spki-pin", required_argument, 0, 'p'},
-		{"check-ttl", required_argument, 0, 't'},
-		{"group", required_argument, 0, 'g'},
-		{"exclude-default-group", 0, 0, 'E'},
-		{0, 0, 0, 0}
+		{"blacklist-ip", no_argument, NULL, 'b'}, /* filtering with blacklist-ip */
+		{"check-edns", no_argument, NULL, 'e'},   /* check edns */
+		{"spki-pin", required_argument, NULL, 'p'}, /* check SPKI pin */
+		{"check-ttl", required_argument, NULL, 't'}, /* check ttl */
+		{"group", required_argument, NULL, 'g'}, /* add to group */
+		{"exclude-default-group", no_argument, NULL, 'E'}, /* ecluse this from default group */
+		{NULL, no_argument, NULL, 0}
 	};
 	/* clang-format on */
 	if (argc <= 1) {
@@ -180,6 +197,7 @@ int config_server(int argc, char *argv[], dns_server_type_t type, int default_po
 		port = default_port;
 	}
 
+	/* process extra options */
 	optind = 1;
 	while (1) {
 		opt = getopt_long_only(argc, argv, "", long_options, NULL);
@@ -202,6 +220,10 @@ int config_server(int argc, char *argv[], dns_server_type_t type, int default_po
 			}
 
 			ttl = atoi(optarg);
+			/* Greater than 0, exact match
+			Equal to 0, match after check
+			Less than 0, match in the -N range after inspection
+			*/
 			if (ttl < -255 || ttl > 255) {
 				tlog(TLOG_ERROR, "ttl value is invalid.");
 				goto errout;
@@ -214,7 +236,7 @@ int config_server(int argc, char *argv[], dns_server_type_t type, int default_po
 			break;
 		}
 		case 'g': {
-			if (dns_conf_get_group_set(optarg, server) != 0) {
+			if (_dns_conf_get_group_set(optarg, server) != 0) {
 				tlog(TLOG_ERROR, "add group failed.");
 				goto errout;
 			}
@@ -229,6 +251,7 @@ int config_server(int argc, char *argv[], dns_server_type_t type, int default_po
 		}
 	}
 
+	/* add new server */
 	server->type = type;
 	server->port = port;
 	server->result_flag = result_flag;
@@ -247,7 +270,7 @@ errout:
 	return -1;
 }
 
-int config_domain_iter_cb(void *data, const unsigned char *key, uint32_t key_len, void *value)
+static int _config_domain_iter_free(void *data, const unsigned char *key, uint32_t key_len, void *value)
 {
 	struct dns_domain_rule *domain_rule = value;
 	int i = 0;
@@ -268,13 +291,13 @@ int config_domain_iter_cb(void *data, const unsigned char *key, uint32_t key_len
 	return 0;
 }
 
-void config_domain_destroy(void)
+static void _config_domain_destroy(void)
 {
-	art_iter(&dns_conf_domain_rule, config_domain_iter_cb, 0);
+	art_iter(&dns_conf_domain_rule, _config_domain_iter_free, NULL);
 	art_tree_destroy(&dns_conf_domain_rule);
 }
 
-void config_address_destroy(radix_node_t *node, void *cbctx)
+static void _config_address_destroy(radix_node_t *node, void *cbctx)
 {
 	if (node == NULL) {
 		return;
@@ -288,7 +311,7 @@ void config_address_destroy(radix_node_t *node, void *cbctx)
 	node->data = NULL;
 }
 
-int config_domain_rule_add(char *domain, enum domain_rule type, void *rule)
+static int _config_domain_rule_add(char *domain, enum domain_rule type, void *rule)
 {
 	struct dns_domain_rule *domain_rule = NULL;
 	struct dns_domain_rule *old_domain_rule = NULL;
@@ -297,6 +320,7 @@ int config_domain_rule_add(char *domain, enum domain_rule type, void *rule)
 	char domain_key[DNS_MAX_CONF_CNAME_LEN];
 	int len = 0;
 
+	/* Reverse string, for suffix match */
 	len = strlen(domain);
 	reverse_string(domain_key, domain, len);
 	domain_key[len] = '.';
@@ -307,6 +331,7 @@ int config_domain_rule_add(char *domain, enum domain_rule type, void *rule)
 		goto errout;
 	}
 
+	/* Get existing or create domain rule */
 	domain_rule = art_search(&dns_conf_domain_rule, (unsigned char *)domain_key, len);
 	if (domain_rule == NULL) {
 		add_domain_rule = malloc(sizeof(*add_domain_rule));
@@ -317,6 +342,7 @@ int config_domain_rule_add(char *domain, enum domain_rule type, void *rule)
 		domain_rule = add_domain_rule;
 	}
 
+	/* add new rule to domain */
 	if (domain_rule->rules[type]) {
 		free(domain_rule->rules[type]);
 		domain_rule->rules[type] = NULL;
@@ -324,6 +350,7 @@ int config_domain_rule_add(char *domain, enum domain_rule type, void *rule)
 
 	domain_rule->rules[type] = rule;
 
+	/* update domain rule */
 	if (add_domain_rule) {
 		old_domain_rule = art_insert(&dns_conf_domain_rule, (unsigned char *)domain_key, len, add_domain_rule);
 		if (old_domain_rule) {
@@ -341,7 +368,7 @@ errout:
 	return -1;
 }
 
-int config_domain_rule_flag_set(char *domain, unsigned int flag)
+static int _config_domain_rule_flag_set(char *domain, unsigned int flag)
 {
 	struct dns_domain_rule *domain_rule = NULL;
 	struct dns_domain_rule *old_domain_rule = NULL;
@@ -357,6 +384,7 @@ int config_domain_rule_flag_set(char *domain, unsigned int flag)
 	len++;
 	domain_key[len] = 0;
 
+	/* Get existing or create domain rule */
 	domain_rule = art_search(&dns_conf_domain_rule, (unsigned char *)domain_key, len);
 	if (domain_rule == NULL) {
 		add_domain_rule = malloc(sizeof(*add_domain_rule));
@@ -367,6 +395,7 @@ int config_domain_rule_flag_set(char *domain, unsigned int flag)
 		domain_rule = add_domain_rule;
 	}
 
+	/* add new rule to domain */
 	if (domain_rule->rules[DOMAIN_RULE_FLAGS] == NULL) {
 		rule_flags = malloc(sizeof(*rule_flags));
 		rule_flags->flags = 0;
@@ -376,6 +405,7 @@ int config_domain_rule_flag_set(char *domain, unsigned int flag)
 	rule_flags = domain_rule->rules[DOMAIN_RULE_FLAGS];
 	rule_flags->flags |= flag;
 
+	/* update domain rule */
 	if (add_domain_rule) {
 		old_domain_rule = art_insert(&dns_conf_domain_rule, (unsigned char *)domain_key, len, add_domain_rule);
 		if (old_domain_rule) {
@@ -393,7 +423,7 @@ errout:
 	return 0;
 }
 
-void config_ipset_table_destroy(void)
+static void _config_ipset_table_destroy(void)
 {
 	struct dns_ipset_name *ipset_name = NULL;
 	struct hlist_node *tmp = NULL;
@@ -406,7 +436,7 @@ void config_ipset_table_destroy(void)
 	}
 }
 
-const char *dns_conf_get_ipset(const char *ipsetname)
+static const char *_dns_conf_get_ipset(const char *ipsetname)
 {
 	uint32_t key = 0;
 	struct dns_ipset_name *ipset_name = NULL;
@@ -437,7 +467,7 @@ errout:
 	return NULL;
 }
 
-int config_ipset(void *data, int argc, char *argv[])
+static int _config_ipset(void *data, int argc, char *argv[])
 {
 	struct dns_ipset_rule *ipset_rule = NULL;
 	char domain[DNS_MAX_CONF_CNAME_LEN];
@@ -452,11 +482,13 @@ int config_ipset(void *data, int argc, char *argv[])
 		goto errout;
 	}
 
+	/* first field */
 	begin = strstr(value, "/");
 	if (begin == NULL) {
 		goto errout;
 	}
 
+	/* second field */
 	begin++;
 	end = strstr(begin, "/");
 	if (end == NULL) {
@@ -468,6 +500,7 @@ int config_ipset(void *data, int argc, char *argv[])
 		begin++;
 	}
 
+	/* Get domain */
 	len = end - begin;
 	memcpy(domain, begin, len);
 	domain[len] = '\0';
@@ -477,9 +510,11 @@ int config_ipset(void *data, int argc, char *argv[])
 		goto errout;
 	}
 
+	/* Process domain option */
 	if (strncmp(end + 1, "-", sizeof("-")) != 0) {
+		/* new ipset domain */
 		strncpy(ipsetname, end + 1, DNS_MAX_IPSET_NAMELEN);
-		ipset = dns_conf_get_ipset(ipsetname);
+		ipset = _dns_conf_get_ipset(ipsetname);
 		if (ipset == NULL) {
 			goto errout;
 		}
@@ -491,14 +526,15 @@ int config_ipset(void *data, int argc, char *argv[])
 
 		ipset_rule->ipsetname = ipset;
 	} else {
-		if (config_domain_rule_flag_set(domain, DOMAIN_FLAG_IPSET_IGNORE) != 0 ) {
+		/* ignore this domain */
+		if (_config_domain_rule_flag_set(domain, DOMAIN_FLAG_IPSET_IGNORE) != 0) {
 			goto errout;
 		}
 
 		return 0;
 	}
 
-	if (config_domain_rule_add(domain, DOMAIN_RULE_IPSET, ipset_rule) != 0) {
+	if (_config_domain_rule_add(domain, DOMAIN_RULE_IPSET, ipset_rule) != 0) {
 		goto errout;
 	}
 
@@ -512,7 +548,7 @@ errout:
 	return 0;
 }
 
-int config_address(void *data, int argc, char *argv[])
+static int _config_address(void *data, int argc, char *argv[])
 {
 	struct dns_address_IPV4 *address_ipv4 = NULL;
 	struct dns_address_IPV6 *address_ipv6 = NULL;
@@ -533,11 +569,13 @@ int config_address(void *data, int argc, char *argv[])
 		goto errout;
 	}
 
+	/* first field */
 	begin = strstr(value, "/");
 	if (begin == NULL) {
 		goto errout;
 	}
 
+	/* second field */
 	begin++;
 	end = strstr(begin, "/");
 	if (end == NULL) {
@@ -549,6 +587,7 @@ int config_address(void *data, int argc, char *argv[])
 		begin++;
 	}
 
+	/* get domain */
 	len = end - begin;
 	memcpy(domain, begin, len);
 	domain[len] = 0;
@@ -564,7 +603,8 @@ int config_address(void *data, int argc, char *argv[])
 			goto errout;
 		}
 
-		if (config_domain_rule_flag_set(domain, flag) != 0 ) {
+		/* add SOA rule */
+		if (_config_domain_rule_flag_set(domain, flag) != 0) {
 			goto errout;
 		}
 
@@ -580,12 +620,14 @@ int config_address(void *data, int argc, char *argv[])
 			goto errout;
 		}
 
-		if (config_domain_rule_flag_set(domain, flag) != 0 ) {
+		/* ignore rule */
+		if (_config_domain_rule_flag_set(domain, flag) != 0) {
 			goto errout;
 		}
 
 		return 0;
 	} else {
+		/* set address to domain */
 		if (parse_ip(end + 1, ip, &port) != 0) {
 			goto errout;
 		}
@@ -631,9 +673,10 @@ int config_address(void *data, int argc, char *argv[])
 		default:
 			goto errout;
 		}
-	} 
+	}
 
-	if (config_domain_rule_add(domain, type, address) != 0) {
+	/* add domain to ART-tree */
+	if (_config_domain_rule_add(domain, type, address) != 0) {
 		goto errout;
 	}
 
@@ -647,22 +690,22 @@ errout:
 	return 0;
 }
 
-int config_server_udp(void *data, int argc, char *argv[])
+static int _config_server_udp(void *data, int argc, char *argv[])
 {
-	return config_server(argc, argv, DNS_SERVER_UDP, DEFAULT_DNS_PORT);
+	return _config_server(argc, argv, DNS_SERVER_UDP, DEFAULT_DNS_PORT);
 }
 
-int config_server_tcp(void *data, int argc, char *argv[])
+static int _config_server_tcp(void *data, int argc, char *argv[])
 {
-	return config_server(argc, argv, DNS_SERVER_TCP, DEFAULT_DNS_PORT);
+	return _config_server(argc, argv, DNS_SERVER_TCP, DEFAULT_DNS_PORT);
 }
 
-int config_server_tls(void *data, int argc, char *argv[])
+static int _config_server_tls(void *data, int argc, char *argv[])
 {
-	return config_server(argc, argv, DNS_SERVER_TLS, DEFAULT_DNS_TLS_PORT);
+	return _config_server(argc, argv, DNS_SERVER_TLS, DEFAULT_DNS_TLS_PORT);
 }
 
-int config_nameserver(void *data, int argc, char *argv[])
+static int _config_nameserver(void *data, int argc, char *argv[])
 {
 	struct dns_nameserver_rule *nameserver_rule = NULL;
 	char domain[DNS_MAX_CONF_CNAME_LEN];
@@ -677,11 +720,13 @@ int config_nameserver(void *data, int argc, char *argv[])
 		goto errout;
 	}
 
+	/* first field */
 	begin = strstr(value, "/");
 	if (begin == NULL) {
 		goto errout;
 	}
 
+	/* second field */
 	begin++;
 	end = strstr(begin, "/");
 	if (end == NULL) {
@@ -704,7 +749,7 @@ int config_nameserver(void *data, int argc, char *argv[])
 
 	if (strncmp(end + 1, "-", sizeof("-")) != 0) {
 		strncpy(group_name, end + 1, DNS_GROUP_NAME_LEN);
-		group = dns_conf_get_group_name(group_name);
+		group = _dns_conf_get_group_name(group_name);
 		if (group == NULL) {
 			goto errout;
 		}
@@ -716,14 +761,15 @@ int config_nameserver(void *data, int argc, char *argv[])
 
 		nameserver_rule->group_name = group;
 	} else {
-		if (config_domain_rule_flag_set(domain, DOMAIN_FLAG_NAMESERVER_IGNORE) != 0 ) {
+		/* ignore this domain */
+		if (_config_domain_rule_flag_set(domain, DOMAIN_FLAG_NAMESERVER_IGNORE) != 0) {
 			goto errout;
 		}
 
 		return 0;
 	}
 
-	if (config_domain_rule_add(domain, DOMAIN_RULE_NAMESERVER, nameserver_rule) != 0) {
+	if (_config_domain_rule_add(domain, DOMAIN_RULE_NAMESERVER, nameserver_rule) != 0) {
 		goto errout;
 	}
 
@@ -737,7 +783,7 @@ errout:
 	return 0;
 }
 
-radix_node_t *create_addr_node(char *addr)
+static radix_node_t *_create_addr_node(char *addr)
 {
 	radix_node_t *node;
 	void *p;
@@ -763,12 +809,12 @@ radix_node_t *create_addr_node(char *addr)
 	return node;
 }
 
-int config_iplist_rule(char *subnet, enum address_rule rule)
+static int _config_iplist_rule(char *subnet, enum address_rule rule)
 {
 	radix_node_t *node = NULL;
 	struct dns_ip_address_rule *ip_rule = NULL;
 
-	node = create_addr_node(subnet);
+	node = _create_addr_node(subnet);
 	if (node == NULL) {
 		return -1;
 	}
@@ -799,34 +845,34 @@ int config_iplist_rule(char *subnet, enum address_rule rule)
 	return 0;
 }
 
-int config_blacklist_ip(void *data, int argc, char *argv[])
+static int _config_blacklist_ip(void *data, int argc, char *argv[])
 {
 	if (argc <= 1) {
 		return -1;
 	}
 
-	return config_iplist_rule(argv[1], ADDRESS_RULE_BLACKLIST);
+	return _config_iplist_rule(argv[1], ADDRESS_RULE_BLACKLIST);
 }
 
-int conf_bogus_nxdomain(void *data, int argc, char *argv[])
+static int _conf_bogus_nxdomain(void *data, int argc, char *argv[])
 {
 	if (argc <= 1) {
 		return -1;
 	}
 
-	return config_iplist_rule(argv[1], ADDRESS_RULE_BOGUS);
+	return _config_iplist_rule(argv[1], ADDRESS_RULE_BOGUS);
 }
 
-int conf_ip_ignore(void *data, int argc, char *argv[])
+static int _conf_ip_ignore(void *data, int argc, char *argv[])
 {
 	if (argc <= 1) {
 		return -1;
 	}
 
-	return config_iplist_rule(argv[1], ADDRESS_RULE_IP_IGNORE);
+	return _config_iplist_rule(argv[1], ADDRESS_RULE_IP_IGNORE);
 }
 
-int conf_edns_client_subnet(void *data, int argc, char *argv[])
+static int _conf_edns_client_subnet(void *data, int argc, char *argv[])
 {
 	char *slash = NULL;
 	char *value = NULL;
@@ -876,7 +922,7 @@ errout:
 	return -1;
 }
 
-int config_log_level(void *data, int argc, char *argv[])
+static int _config_log_level(void *data, int argc, char *argv[])
 {
 	/* read log level and set */
 	char *value = argv[1];
@@ -896,23 +942,23 @@ int config_log_level(void *data, int argc, char *argv[])
 	return 0;
 }
 
-struct config_item config_item[] = {
+static struct config_item _config_item[] = {
 	CONF_STRING("server-name", (char *)dns_conf_server_name, DNS_MAX_CONF_CNAME_LEN),
 	CONF_STRING("bind", dns_conf_server_ip, DNS_MAX_IPLEN),
 	CONF_STRING("bind-tcp", dns_conf_server_tcp_ip, DNS_MAX_IPLEN),
-	CONF_CUSTOM("server", config_server_udp, NULL),
-	CONF_CUSTOM("server-tcp", config_server_tcp, NULL),
-	CONF_CUSTOM("server-tls", config_server_tls, NULL),
-	CONF_CUSTOM("nameserver", config_nameserver, NULL),
-	CONF_CUSTOM("address", config_address, NULL),
+	CONF_CUSTOM("server", _config_server_udp, NULL),
+	CONF_CUSTOM("server-tcp", _config_server_tcp, NULL),
+	CONF_CUSTOM("server-tls", _config_server_tls, NULL),
+	CONF_CUSTOM("nameserver", _config_nameserver, NULL),
+	CONF_CUSTOM("address", _config_address, NULL),
 	CONF_YESNO("ipset-timeout", &dns_conf_ipset_timeout_enable),
-	CONF_CUSTOM("ipset", config_ipset, NULL),
+	CONF_CUSTOM("ipset", _config_ipset, NULL),
 	CONF_INT("tcp-idle-time", &dns_conf_tcp_idle_time, 0, 3600),
 	CONF_INT("cache-size", &dns_conf_cachesize, 0, CONF_INT_MAX),
 	CONF_YESNO("prefetch-domain", &dns_conf_prefetch),
 	CONF_YESNO("dualstack-ip-selection", &dns_conf_dualstack_ip_selection),
 	CONF_INT("dualstack-ip-selection-threshold", &dns_conf_dualstack_ip_selection_threshold, 0, 1000),
-	CONF_CUSTOM("log-level", config_log_level, NULL),
+	CONF_CUSTOM("log-level", _config_log_level, NULL),
 	CONF_STRING("log-file", (char *)dns_conf_log_file, DNS_MAX_PATH),
 	CONF_SIZE("log-size", &dns_conf_log_size, 0, 1024 * 1024 * 1024),
 	CONF_INT("log-num", &dns_conf_log_num, 0, 1024),
@@ -924,15 +970,15 @@ struct config_item config_item[] = {
 	CONF_INT("rr-ttl-min", &dns_conf_rr_ttl_min, 0, CONF_INT_MAX),
 	CONF_INT("rr-ttl-max", &dns_conf_rr_ttl_max, 0, CONF_INT_MAX),
 	CONF_YESNO("force-AAAA-SOA", &dns_conf_force_AAAA_SOA),
-	CONF_CUSTOM("blacklist-ip", config_blacklist_ip, NULL),
-	CONF_CUSTOM("bogus-nxdomain", conf_bogus_nxdomain, NULL),
-	CONF_CUSTOM("ignore-ip", conf_ip_ignore, NULL),
-	CONF_CUSTOM("edns-client-subnet", conf_edns_client_subnet, NULL),
+	CONF_CUSTOM("blacklist-ip", _config_blacklist_ip, NULL),
+	CONF_CUSTOM("bogus-nxdomain", _conf_bogus_nxdomain, NULL),
+	CONF_CUSTOM("ignore-ip", _conf_ip_ignore, NULL),
+	CONF_CUSTOM("edns-client-subnet", _conf_edns_client_subnet, NULL),
 	CONF_CUSTOM("conf-file", config_addtional_file, NULL),
 	CONF_END(),
 };
 
-int conf_printf(const char *file, int lineno, int ret)
+static int _conf_printf(const char *file, int lineno, int ret)
 {
 	if (ret == CONF_RET_ERR) {
 		tlog(TLOG_ERROR, "process config file '%s' failed at line %d.", file, lineno);
@@ -956,10 +1002,10 @@ int config_addtional_file(void *data, int argc, char *argv[])
 		return 0;
 	}
 
-	return load_conf(file_path, config_item, conf_printf);
+	return load_conf(file_path, _config_item, _conf_printf);
 }
 
-int _dns_server_load_conf_init(void)
+static int _dns_server_load_conf_init(void)
 {
 	dns_conf_address_rule.ipv4 = New_Radix();
 	dns_conf_address_rule.ipv6 = New_Radix();
@@ -978,19 +1024,19 @@ int _dns_server_load_conf_init(void)
 
 void dns_server_load_exit(void)
 {
-	config_domain_destroy();
-	Destroy_Radix(dns_conf_address_rule.ipv4, config_address_destroy, NULL);
-	Destroy_Radix(dns_conf_address_rule.ipv6, config_address_destroy, NULL);
-	config_ipset_table_destroy();
-	config_group_table_destroy();
+	_config_domain_destroy();
+	Destroy_Radix(dns_conf_address_rule.ipv4, _config_address_destroy, NULL);
+	Destroy_Radix(dns_conf_address_rule.ipv6, _config_address_destroy, NULL);
+	_config_ipset_table_destroy();
+	_config_group_table_destroy();
 }
 
 int dns_server_load_conf(const char *file)
 {
 	int ret = 0;
 	_dns_server_load_conf_init();
-	openlog ("smartdns", LOG_CONS | LOG_NDELAY, LOG_LOCAL1);
-	ret = load_conf(file, config_item, conf_printf);
+	openlog("smartdns", LOG_CONS | LOG_NDELAY, LOG_LOCAL1);
+	ret = load_conf(file, _config_item, _conf_printf);
 	closelog();
 	return ret;
 }

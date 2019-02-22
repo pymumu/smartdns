@@ -45,9 +45,9 @@
 #define ICMP_INPACKET_SIZE 1024
 
 #ifndef ICMP_FILTER
-#define ICMP_FILTER	1
+#define ICMP_FILTER 1
 struct icmp_filter {
-	uint32_t	data;
+	uint32_t data;
 };
 #endif
 
@@ -142,7 +142,7 @@ static struct fast_ping_struct ping;
 static atomic_t ping_sid = ATOMIC_INIT(0);
 static int bool_print_log = 1;
 
-uint16_t _fast_ping_checksum(uint16_t *header, size_t len)
+static uint16_t _fast_ping_checksum(uint16_t *header, size_t len)
 {
 	uint32_t sum = 0;
 	int i;
@@ -154,7 +154,7 @@ uint16_t _fast_ping_checksum(uint16_t *header, size_t len)
 	return htons(~((sum >> 16) + (sum & 0xffff)));
 }
 
-void _fast_ping_install_filter_v6(int sock)
+static void _fast_ping_install_filter_v6(int sock)
 {
 	struct icmp6_filter icmp6_filter;
 	ICMP6_FILTER_SETBLOCKALL(&icmp6_filter);
@@ -186,7 +186,7 @@ void _fast_ping_install_filter_v6(int sock)
 	}
 }
 
-void _fast_ping_install_filter_v4(int sock)
+static void _fast_ping_install_filter_v4(int sock)
 {
 	static int once;
 	static struct sock_filter insns[] = {
@@ -350,8 +350,8 @@ static int _fast_ping_sendping_v6(struct ping_host_struct *ping_host)
 	icmp6->icmp6_id = ping.ident;
 	icmp6->icmp6_seq = htons(ping_host->seq);
 
-	gettimeofday(&packet->msg.tv, 0);
-	gettimeofday(&ping_host->last, 0);
+	gettimeofday(&packet->msg.tv, NULL);
+	gettimeofday(&ping_host->last, NULL);
 	packet->msg.sid = ping_host->sid;
 	packet->msg.cookie = ping_host->cookie;
 	packet->msg.seq = ping_host->seq;
@@ -397,8 +397,8 @@ static int _fast_ping_sendping_v4(struct ping_host_struct *ping_host)
 	icmp->icmp_id = ping.ident;
 	icmp->icmp_seq = htons(ping_host->seq);
 
-	gettimeofday(&packet->msg.tv, 0);
-	gettimeofday(&ping_host->last, 0);
+	gettimeofday(&packet->msg.tv, NULL);
+	gettimeofday(&ping_host->last, NULL);
 	packet->msg.sid = ping_host->sid;
 	packet->msg.seq = ping_host->seq;
 	packet->msg.cookie = ping_host->cookie;
@@ -449,7 +449,7 @@ static int _fast_ping_sendping_udp(struct ping_host_struct *ping_host)
 	memset(&dns_head, 0, sizeof(dns_head));
 	dns_head.id = htons(ping_host->sid);
 	dns_head.flag = flag;
-	gettimeofday(&ping_host->last, 0);
+	gettimeofday(&ping_host->last, NULL);
 	len = sendto(fd, &dns_head, sizeof(dns_head), 0, (struct sockaddr *)&ping_host->addr, ping_host->addr_len);
 	if (len < 0 || len != sizeof(dns_head)) {
 		int err = errno;
@@ -499,13 +499,13 @@ static int _fast_ping_sendping_tcp(struct ping_host_struct *ping_host)
 				bool_print_log = 0;
 			}
 
-			tlog(TLOG_ERROR, "connect %s, id %d, %s", gethost_by_addr(ping_host_name, sizeof(ping_host_name), (struct sockaddr *)&ping_host->addr), ping_host->sid,
-				 strerror(errno));
+			tlog(TLOG_ERROR, "connect %s, id %d, %s", gethost_by_addr(ping_host_name, sizeof(ping_host_name), (struct sockaddr *)&ping_host->addr),
+				 ping_host->sid, strerror(errno));
 			goto errout;
 		}
 	}
 
-	gettimeofday(&ping_host->last, 0);
+	gettimeofday(&ping_host->last, NULL);
 	ping_host->fd = fd;
 	memset(&event, 0, sizeof(event));
 	event.events = EPOLLIN | EPOLLOUT | EPOLLERR;
@@ -528,7 +528,7 @@ errout:
 static int _fast_ping_sendping(struct ping_host_struct *ping_host)
 {
 	int ret = -1;
-	gettimeofday(&ping_host->last, 0);
+	gettimeofday(&ping_host->last, NULL);
 
 	if (ping_host->type == FAST_PING_ICMP) {
 		ret = _fast_ping_sendping_v4(ping_host);
@@ -741,7 +741,7 @@ errout:
 	return -1;
 }
 
-void fast_ping_print_result(struct ping_host_struct *ping_host, const char *host, FAST_PING_RESULT result, struct sockaddr *addr, socklen_t addr_len, int seqno,
+static void _fast_ping_print_result(struct ping_host_struct *ping_host, const char *host, FAST_PING_RESULT result, struct sockaddr *addr, socklen_t addr_len, int seqno,
 							int ttl, struct timeval *tv, void *userptr)
 {
 	if (result == PING_RESULT_RESPONSE) {
@@ -882,7 +882,7 @@ struct ping_host_struct *fast_ping_start(PING_TYPE type, const char *host, int c
 	if (ping_callback) {
 		ping_host->ping_callback = ping_callback;
 	} else {
-		ping_host->ping_callback = fast_ping_print_result;
+		ping_host->ping_callback = _fast_ping_print_result;
 	}
 	ping_host->interval = (timeout > interval) ? timeout : interval;
 	ping_host->addr_len = gai->ai_addrlen;
@@ -1028,7 +1028,7 @@ static struct fast_ping_packet *_fast_ping_icmp_packet(struct ping_host_struct *
 	return packet;
 }
 
-struct fast_ping_packet *_fast_ping_recv_packet(struct ping_host_struct *ping_host, struct msghdr *msg, u_char *inpacket, int len, struct timeval *tvrecv)
+static struct fast_ping_packet *_fast_ping_recv_packet(struct ping_host_struct *ping_host, struct msghdr *msg, u_char *inpacket, int len, struct timeval *tvrecv)
 {
 	struct fast_ping_packet *packet = NULL;
 
@@ -1325,7 +1325,7 @@ static void _fast_ping_period_run(void)
 	struct timeval now;
 	struct timeval interval;
 	int64_t millisecond;
-	gettimeofday(&now, 0);
+	gettimeofday(&now, NULL);
 	LIST_HEAD(action);
 
 	pthread_mutex_lock(&ping.map_lock);
@@ -1422,7 +1422,7 @@ static void *_fast_ping_work(void *arg)
 			continue;
 		}
 
-		gettimeofday(&tvnow, 0);
+		gettimeofday(&tvnow, NULL);
 		for (i = 0; i < num; i++) {
 			struct epoll_event *event = &events[i];
 			struct ping_host_struct *ping_host = (struct ping_host_struct *)event->data.ptr;
@@ -1456,8 +1456,8 @@ int fast_ping_init(void)
 		goto errout;
 	}
 
-	pthread_mutex_init(&ping.map_lock, 0);
-	pthread_mutex_init(&ping.lock, 0);
+	pthread_mutex_init(&ping.map_lock, NULL);
+	pthread_mutex_init(&ping.lock, NULL);
 	hash_init(ping.addrmap);
 	ping.epoll_fd = epollfd;
 	ping.ident = (getpid() & 0XFFFF);

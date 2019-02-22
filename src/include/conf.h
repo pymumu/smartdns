@@ -86,7 +86,7 @@ struct config_item_size {
 
 #define CONF_END()                                                                                                                                             \
 	{                                                                                                                                                          \
-		0, 0, 0                                                                                                                                                \
+		NULL, NULL, NULL                                                                                                                                                \
 	}
 
 extern int conf_custom(const char *item, void *data, int argc, char *argv[]);

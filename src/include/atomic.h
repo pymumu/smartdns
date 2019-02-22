@@ -11,7 +11,7 @@
  * Atomic type.
  */
 typedef struct {
-	volatile int counter;
+	int counter;
 } atomic_t;
 
 #define ATOMIC_INIT(i)  { (i) }
@@ -154,3 +154,4 @@ static inline int atomic_add_negative( int i, atomic_t *v )
 }
 
 #endif
+

@@ -10,7 +10,7 @@ struct dns_cache_head {
 	pthread_mutex_t lock;
 };
 
-struct dns_cache_head dns_cache_head;
+static struct dns_cache_head dns_cache_head;
 
 int dns_cache_init(int size)
 {
@@ -19,22 +19,22 @@ int dns_cache_init(int size)
 	dns_cache_head.num = 0;
 	dns_cache_head.size = size;
 
-	pthread_mutex_init(&dns_cache_head.lock, 0);
+	pthread_mutex_init(&dns_cache_head.lock, NULL);
 
 	return 0;
 }
 
-struct dns_cache *_dns_cache_last(void)
+static __attribute__((unused)) struct dns_cache *_dns_cache_last(void) 
 {
 	return list_last_entry(&dns_cache_head.cache_list, struct dns_cache, list);
 }
 
-struct dns_cache *_dns_cache_first(void)
+static struct dns_cache *_dns_cache_first(void)
 {
 	return list_first_entry_or_null(&dns_cache_head.cache_list, struct dns_cache, list);
 }
 
-void _dns_cache_delete(struct dns_cache *dns_cache)
+static void _dns_cache_delete(struct dns_cache *dns_cache)
 {
 	hash_del(&dns_cache->node);
 	list_del_init(&dns_cache->list);
@@ -59,7 +59,7 @@ void dns_cache_release(struct dns_cache *dns_cache)
 	_dns_cache_delete(dns_cache);
 }
 
-void _dns_cache_remove(struct dns_cache *dns_cache)
+static void _dns_cache_remove(struct dns_cache *dns_cache)
 {
 	hash_del(&dns_cache->node);
 	list_del_init(&dns_cache->list);
@@ -74,6 +74,7 @@ int dns_cache_replace(char *domain, char *cname, int cname_ttl, int ttl, dns_typ
 		return 0;
 	}
 
+	/* lookup existing cache */
 	dns_cache = dns_cache_lookup(domain, qtype);
 	if (dns_cache == NULL) {
 		return 0;
@@ -83,6 +84,7 @@ int dns_cache_replace(char *domain, char *cname, int cname_ttl, int ttl, dns_typ
 		ttl = DNS_CACHE_TTL_MIN;
 	}
 
+	/* update cache data */
 	pthread_mutex_lock(&dns_cache_head.lock);
 	dns_cache->ttl = ttl;
 	dns_cache->qtype = qtype;
@@ -128,6 +130,7 @@ int dns_cache_insert(char *domain, char *cname, int cname_ttl, int ttl, dns_type
 		return 0;
 	}
 
+	/* if cache already exists, free */
 	dns_cache = dns_cache_lookup(domain, qtype);
 	if (dns_cache) {
 		dns_cache_delete(dns_cache);
@@ -179,6 +182,7 @@ int dns_cache_insert(char *domain, char *cname, int cname_ttl, int ttl, dns_type
 	INIT_LIST_HEAD(&dns_cache->check_list);
 
 	dns_cache_head.num++;
+	/* Release extra cache, remove oldest cache record */
 	if (dns_cache_head.num > dns_cache_head.size) {
 		struct dns_cache *del_cache;
 		del_cache = _dns_cache_first();
@@ -212,6 +216,7 @@ struct dns_cache *dns_cache_lookup(char *domain, dns_type_t qtype)
 	key = jhash(&qtype, sizeof(qtype), key);
 
 	time(&now);
+	/* find cache */
 	pthread_mutex_lock(&dns_cache_head.lock);
 	hash_for_each_possible(dns_cache_head.cache_hash, dns_cache, node, key)
 	{
@@ -228,6 +233,7 @@ struct dns_cache *dns_cache_lookup(char *domain, dns_type_t qtype)
 	}
 
 	if (dns_cache_ret) {
+		/* Return NULL if the cache times out */
 		if (now - dns_cache_ret->insert_time > dns_cache_ret->ttl) {
 			_dns_cache_remove(dns_cache_ret);
 			dns_cache_ret = NULL;
@@ -291,6 +297,7 @@ void dns_cache_invalidate(dns_cache_preinvalid_callback callback, int ttl_pre)
 	{
 		ttl = dns_cache->insert_time + dns_cache->ttl - now;
 		if (ttl > 0 && ttl < ttl_pre) {
+			/* If the TTL time is in the pre-timeout range, call callback function */
 			if (callback && dns_cache->del_pending == 0) {
 				list_add_tail(&dns_cache->check_list, &checklist);
 				dns_cache_get(dns_cache);
@@ -307,6 +314,7 @@ void dns_cache_invalidate(dns_cache_preinvalid_callback callback, int ttl_pre)
 
 	list_for_each_entry_safe(dns_cache, tmp, &checklist, check_list)
 	{
+		/* run callback */
 		if (callback) {
 			callback(dns_cache);
 		}

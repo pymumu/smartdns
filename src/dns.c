@@ -25,6 +25,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <arpa/inet.h>
 
 #define QR_MASK 0x8000
 #define OPCODE_MASK 0x7800
@@ -35,10 +36,13 @@
 #define RCODE_MASK 0x000F
 #define DNS_RR_END (0XFFFF)
 
-#define UNUSED(expr) do { (void)(expr); } while (0)
+#define UNUSED(expr)                                                                                                                                           \
+	do {                                                                                                                                                       \
+		(void)(expr);                                                                                                                                          \
+	} while (0)
 
 /* read short and move pointer */
-short dns_read_short(unsigned char **buffer)
+static short _dns_read_short(unsigned char **buffer)
 {
 	unsigned short value;
 
@@ -48,14 +52,14 @@ short dns_read_short(unsigned char **buffer)
 }
 
 /* write char and move pointer */
-void dns_write_char(unsigned char **buffer, unsigned char value)
+static __attribute__((unused)) void _dns_write_char(unsigned char **buffer, unsigned char value)
 {
 	**buffer = value;
 	*buffer += 1;
 }
 
 /* read char and move pointer */
-unsigned char dns_read_char(unsigned char **buffer)
+static unsigned char _dns_read_char(unsigned char **buffer)
 {
 	unsigned char value = **buffer;
 	*buffer += 1;
@@ -63,7 +67,7 @@ unsigned char dns_read_char(unsigned char **buffer)
 }
 
 /* write short and move pointer */
-void dns_write_short(unsigned char **buffer, unsigned short value)
+static void _dns_write_short(unsigned char **buffer, unsigned short value)
 {
 	value = htons(value);
 	*((unsigned short *)(*buffer)) = value;
@@ -71,7 +75,7 @@ void dns_write_short(unsigned char **buffer, unsigned short value)
 }
 
 /* write int and move pointer */
-void dns_write_int(unsigned char **buffer, unsigned int value)
+static void _dns_write_int(unsigned char **buffer, unsigned int value)
 {
 	value = htonl(value);
 	*((unsigned int *)(*buffer)) = value;
@@ -79,7 +83,7 @@ void dns_write_int(unsigned char **buffer, unsigned int value)
 }
 
 /* read int and move pointer */
-unsigned int dns_read_int(unsigned char **buffer)
+static unsigned int _dns_read_int(unsigned char **buffer)
 {
 	unsigned int value;
 
@@ -138,7 +142,7 @@ struct dns_rrs *dns_get_rrs_next(struct dns_packet *packet, struct dns_rrs *rrs)
 }
 
 /* iterator add rrs begin */
-unsigned char *_dns_add_rrs_start(struct dns_packet *packet, int *maxlen)
+static unsigned char *_dns_add_rrs_start(struct dns_packet *packet, int *maxlen)
 {
 	struct dns_rrs *rrs;
 	unsigned char *end = packet->data + packet->len;
@@ -153,7 +157,7 @@ unsigned char *_dns_add_rrs_start(struct dns_packet *packet, int *maxlen)
 }
 
 /* iterator add rrs end */
-int dns_rr_add_end(struct dns_packet *packet, int type, dns_type_t rtype, int len)
+static int _dns_rr_add_end(struct dns_packet *packet, int type, dns_type_t rtype, int len)
 {
 	struct dns_rrs *rrs;
 	struct dns_rrs *rrs_next;
@@ -221,7 +225,7 @@ static inline int _dns_data_left_len(struct dns_data_context *data_context)
 	return data_context->maxsize - (data_context->ptr - data_context->data);
 }
 
-int _dns_add_qr_head(struct dns_data_context *data_context, char *domain, int qtype, int qclass)
+static int _dns_add_qr_head(struct dns_data_context *data_context, char *domain, int qtype, int qclass)
 {
 	/* question head */
 	/* |domain         |
@@ -253,7 +257,7 @@ int _dns_add_qr_head(struct dns_data_context *data_context, char *domain, int qt
 	return 0;
 }
 
-int _dns_get_qr_head(struct dns_data_context *data_context, char *domain, int maxsize, int *qtype, int *qclass)
+static int _dns_get_qr_head(struct dns_data_context *data_context, char *domain, int maxsize, int *qtype, int *qclass)
 {
 	int i;
 	/* question head */
@@ -291,7 +295,7 @@ int _dns_get_qr_head(struct dns_data_context *data_context, char *domain, int ma
 	return 0;
 }
 
-int _dns_add_rr_head(struct dns_data_context *data_context, char *domain, int qtype, int qclass, int ttl, int rr_len)
+static int _dns_add_rr_head(struct dns_data_context *data_context, char *domain, int qtype, int qclass, int ttl, int rr_len)
 {
 	int len = 0;
 
@@ -319,7 +323,7 @@ int _dns_add_rr_head(struct dns_data_context *data_context, char *domain, int qt
 	return 0;
 }
 
-int _dns_get_rr_head(struct dns_data_context *data_context, char *domain, int maxsize, int *qtype, int *qclass, int *ttl, int *rr_len)
+static int _dns_get_rr_head(struct dns_data_context *data_context, char *domain, int maxsize, int *qtype, int *qclass, int *ttl, int *rr_len)
 {
 	int len = 0;
 
@@ -344,7 +348,7 @@ int _dns_get_rr_head(struct dns_data_context *data_context, char *domain, int ma
 	return len;
 }
 
-int dns_add_RAW(struct dns_packet *packet, dns_rr_type rrtype, dns_type_t rtype, char *domain, int ttl, void *raw, int raw_len)
+static int _dns_add_RAW(struct dns_packet *packet, dns_rr_type rrtype, dns_type_t rtype, char *domain, int ttl, void *raw, int raw_len)
 {
 	int maxlen = 0;
 	int len = 0;
@@ -380,10 +384,10 @@ int dns_add_RAW(struct dns_packet *packet, dns_rr_type rrtype, dns_type_t rtype,
 	data_context.ptr += raw_len;
 	len = data_context.ptr - data_context.data;
 
-	return dns_rr_add_end(packet, rrtype, rtype, len);
+	return _dns_rr_add_end(packet, rrtype, rtype, len);
 }
 
-int dns_get_RAW(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, void *raw, int *raw_len)
+static int _dns_get_RAW(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, void *raw, int *raw_len)
 {
 	int qtype = 0;
 	int qclass = 0;
@@ -421,10 +425,10 @@ int dns_get_RAW(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, void *
 	return 0;
 }
 
-int dns_add_OPT(struct dns_packet *packet, dns_rr_type type, unsigned short opt_code, unsigned short opt_len, struct dns_opt *opt)
+static int __attribute__((unused))  _dns_add_OPT(struct dns_packet *packet, dns_rr_type type, unsigned short opt_code, unsigned short opt_len, struct dns_opt *opt)
 {
 	// TODO
-	
+
 	int maxlen = 0;
 	int len = 0;
 	struct dns_data_context data_context;
@@ -432,15 +436,15 @@ int dns_add_OPT(struct dns_packet *packet, dns_rr_type type, unsigned short opt_
 	int ttl = 0;
 
 	/*
-    +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+	+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
   0: |                          OPTION-CODE                          |
-     +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+	 +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
   2: |                         OPTION-LENGTH                         |
-     +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+	 +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
   4: |                                                               |
-     /                          OPTION-DATA                          /
-     /                                                               /
-     +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+	 /                          OPTION-DATA                          /
+	 /                                                               /
+	 +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
 	*/
 	unsigned char *data = _dns_add_rrs_start(packet, &maxlen);
 	if (data == NULL) {
@@ -468,10 +472,10 @@ int dns_add_OPT(struct dns_packet *packet, dns_rr_type type, unsigned short opt_
 	data_context.ptr += total_len;
 	len = data_context.ptr - data_context.data;
 
-	return dns_rr_add_end(packet, type, DNS_T_OPT, len);
+	return _dns_rr_add_end(packet, type, DNS_T_OPT, len);
 }
 
-int dns_get_OPT(struct dns_rrs *rrs, unsigned short *opt_code, unsigned short *opt_len, struct dns_opt *opt, int *opt_maxlen)
+static int __attribute__((unused)) _dns_get_OPT(struct dns_rrs *rrs, unsigned short *opt_code, unsigned short *opt_len, struct dns_opt *opt, int *opt_maxlen)
 {
 	// TODO
 
@@ -509,63 +513,62 @@ int dns_get_OPT(struct dns_rrs *rrs, unsigned short *opt_code, unsigned short *o
 	return 0;
 }
 
-
 int dns_add_CNAME(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, char *cname)
 {
 	int rr_len = strnlen(cname, DNS_MAX_CNAME_LEN) + 1;
-	return dns_add_RAW(packet, type, DNS_T_CNAME, domain, ttl, cname, rr_len);
+	return _dns_add_RAW(packet, type, DNS_T_CNAME, domain, ttl, cname, rr_len);
 }
 
 int dns_get_CNAME(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, char *cname, int cname_size)
 {
 	int len = cname_size;
-	return dns_get_RAW(rrs, domain, maxsize, ttl, cname, &len);
+	return _dns_get_RAW(rrs, domain, maxsize, ttl, cname, &len);
 }
 
 int dns_add_A(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, unsigned char addr[DNS_RR_A_LEN])
 {
-	return dns_add_RAW(packet, type, DNS_T_A, domain, ttl, addr, DNS_RR_A_LEN);
+	return _dns_add_RAW(packet, type, DNS_T_A, domain, ttl, addr, DNS_RR_A_LEN);
 }
 
 int dns_get_A(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, unsigned char addr[DNS_RR_A_LEN])
 {
 	int len = DNS_RR_A_LEN;
-	return dns_get_RAW(rrs, domain, maxsize, ttl, addr, &len);
+	return _dns_get_RAW(rrs, domain, maxsize, ttl, addr, &len);
 }
 
 int dns_add_PTR(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, char *cname)
 {
 	int rr_len = strnlen(cname, DNS_MAX_CNAME_LEN) + 1;
-	return dns_add_RAW(packet, type, DNS_T_PTR, domain, ttl, cname, rr_len);
+	return _dns_add_RAW(packet, type, DNS_T_PTR, domain, ttl, cname, rr_len);
 }
 
 int dns_get_PTR(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, char *cname, int cname_size)
 {
 	int len = cname_size;
-	return dns_get_RAW(rrs, domain, maxsize, ttl, cname, &len);
+	return _dns_get_RAW(rrs, domain, maxsize, ttl, cname, &len);
 }
 
 int dns_add_NS(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, char *cname)
 {
 	int rr_len = strnlen(cname, DNS_MAX_CNAME_LEN) + 1;
-	return dns_add_RAW(packet, type, DNS_T_NS, domain, ttl, cname, rr_len);
+	return _dns_add_RAW(packet, type, DNS_T_NS, domain, ttl, cname, rr_len);
 }
 
 int dns_get_NS(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, char *cname, int cname_size)
 {
 	int len = cname_size;
-	return dns_get_RAW(rrs, domain, maxsize, ttl, cname, &len);
+	return _dns_get_RAW(rrs, domain, maxsize, ttl, cname, &len);
 }
 
 int dns_add_AAAA(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, unsigned char addr[DNS_RR_AAAA_LEN])
 {
-	return dns_add_RAW(packet, type, DNS_T_AAAA, domain, ttl, addr, DNS_RR_AAAA_LEN);
+	return _dns_add_RAW(packet, type, DNS_T_AAAA, domain, ttl, addr, DNS_RR_AAAA_LEN);
 }
 
 int dns_get_AAAA(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, unsigned char addr[DNS_RR_AAAA_LEN])
 {
 	int len = DNS_RR_AAAA_LEN;
-	return dns_get_RAW(rrs, domain, maxsize, ttl, addr, &len);
+	return _dns_get_RAW(rrs, domain, maxsize, ttl, addr, &len);
 }
 
 int dns_add_SOA(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, struct dns_soa *soa)
@@ -598,7 +601,7 @@ int dns_add_SOA(struct dns_packet *packet, dns_rr_type type, char *domain, int t
 	ptr += 4;
 	len = ptr - data;
 
-	return dns_add_RAW(packet, type, DNS_T_SOA, domain, ttl, data, len);
+	return _dns_add_RAW(packet, type, DNS_T_SOA, domain, ttl, data, len);
 }
 
 int dns_get_SOA(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, struct dns_soa *soa)
@@ -616,7 +619,7 @@ int dns_get_SOA(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, struct
 	 *| expire       |
 	 *| minimum      |
 	 */
-	if (dns_get_RAW(rrs, domain, maxsize, ttl, data, &len) != 0) {
+	if (_dns_get_RAW(rrs, domain, maxsize, ttl, data, &len) != 0) {
 		return -1;
 	}
 
@@ -674,7 +677,7 @@ int dns_add_OPT_ECS(struct dns_packet *packet, struct dns_opt_ecs *ecs)
 	len += (ecs->source_prefix / 8);
 	len += (ecs->source_prefix % 8 > 0) ? 1 : 0;
 
-	return dns_add_RAW(packet, DNS_RRS_OPT, DNS_OPT_T_ECS, "", 0, opt_data, len);
+	return _dns_add_RAW(packet, DNS_RRS_OPT, DNS_OPT_T_ECS, "", 0, opt_data, len);
 }
 
 int dns_get_OPT_ECS(struct dns_rrs *rrs, unsigned short *opt_code, unsigned short *opt_len, struct dns_opt_ecs *ecs)
@@ -684,7 +687,7 @@ int dns_get_OPT_ECS(struct dns_rrs *rrs, unsigned short *opt_code, unsigned shor
 	int len = DNS_MAX_OPT_LEN;
 	int ttl = 0;
 
-	if (dns_get_RAW(rrs, 0, 0, &ttl, opt_data, &len) != 0) {
+	if (_dns_get_RAW(rrs, NULL, 0, &ttl, opt_data, &len) != 0) {
 		return -1;
 	}
 
@@ -727,7 +730,7 @@ int dns_add_domain(struct dns_packet *packet, char *domain, int qtype, int qclas
 
 	len = data_context.ptr - data_context.data;
 
-	return dns_rr_add_end(packet, DNS_RRS_QD, DNS_T_CNAME, len);
+	return _dns_rr_add_end(packet, DNS_RRS_QD, DNS_T_CNAME, len);
 }
 
 int dns_get_domain(struct dns_rrs *rrs, char *domain, int maxsize, int *qtype, int *qclass)
@@ -778,8 +781,8 @@ static int _dns_decode_head(struct dns_context *context)
 	+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
 	*/
 
-	head->id = dns_read_short(&context->ptr);
-	fields = dns_read_short(&context->ptr);
+	head->id = _dns_read_short(&context->ptr);
+	fields = _dns_read_short(&context->ptr);
 	head->qr = (fields & QR_MASK) >> 15;
 	head->opcode = (fields & OPCODE_MASK) >> 11;
 	head->aa = (fields & AA_MASK) >> 10;
@@ -787,10 +790,10 @@ static int _dns_decode_head(struct dns_context *context)
 	head->rd = (fields & RD_MASK) >> 8;
 	head->ra = (fields & RA_MASK) >> 7;
 	head->rcode = (fields & RCODE_MASK) >> 0;
-	head->qdcount = dns_read_short(&context->ptr);
-	head->ancount = dns_read_short(&context->ptr);
-	head->nscount = dns_read_short(&context->ptr);
-	head->nrcount = dns_read_short(&context->ptr);
+	head->qdcount = _dns_read_short(&context->ptr);
+	head->ancount = _dns_read_short(&context->ptr);
+	head->nscount = _dns_read_short(&context->ptr);
+	head->nrcount = _dns_read_short(&context->ptr);
 
 	return 0;
 }
@@ -804,7 +807,7 @@ static int _dns_encode_head(struct dns_context *context)
 		return -1;
 	}
 
-	dns_write_short(&context->ptr, head->id);
+	_dns_write_short(&context->ptr, head->id);
 
 	int fields = 0;
 	fields |= (head->qr << 15) & QR_MASK;
@@ -814,12 +817,12 @@ static int _dns_encode_head(struct dns_context *context)
 	fields |= (head->rd << 8) & RD_MASK;
 	fields |= (head->ra << 7) & RA_MASK;
 	fields |= (head->rcode << 0) & RCODE_MASK;
-	dns_write_short(&context->ptr, fields);
+	_dns_write_short(&context->ptr, fields);
 
-	dns_write_short(&context->ptr, head->qdcount);
-	dns_write_short(&context->ptr, head->ancount);
-	dns_write_short(&context->ptr, head->nscount);
-	dns_write_short(&context->ptr, head->nrcount);
+	_dns_write_short(&context->ptr, head->qdcount);
+	_dns_write_short(&context->ptr, head->ancount);
+	_dns_write_short(&context->ptr, head->nscount);
+	_dns_write_short(&context->ptr, head->nrcount);
 	return len;
 }
 
@@ -830,10 +833,10 @@ static int _dns_encode_head_count(struct dns_context *context)
 	unsigned char *ptr = context->data;
 
 	ptr += 4;
-	dns_write_short(&ptr, head->qdcount);
-	dns_write_short(&ptr, head->ancount);
-	dns_write_short(&ptr, head->nscount);
-	dns_write_short(&ptr, head->nrcount);
+	_dns_write_short(&ptr, head->qdcount);
+	_dns_write_short(&ptr, head->ancount);
+	_dns_write_short(&ptr, head->nscount);
+	_dns_write_short(&ptr, head->nrcount);
 	return len;
 }
 
@@ -851,7 +854,7 @@ static int _dns_decode_domain(struct dns_context *context, char *output, int siz
 		if (ptr > context->data + context->maxsize || ptr < context->data || output_len >= size - 1 || ptr_jump > 4) {
 			return -1;
 		}
-		
+
 		len = *ptr;
 		if (len == 0) {
 			*output = 0;
@@ -871,7 +874,7 @@ static int _dns_decode_domain(struct dns_context *context, char *output, int siz
 			+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
 			*/
 			/* read offset */
-			len = dns_read_short(&ptr) & 0x3FFF;
+			len = _dns_read_short(&ptr) & 0x3FFF;
 			if (is_compressed == 0) {
 				context->ptr = ptr;
 			}
@@ -958,7 +961,7 @@ static int _dns_decode_qr_head(struct dns_context *context, char *domain, int do
 {
 	int ret = 0;
 	/*
-	0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F 
+	0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F
 	+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
 	|                                               |
 	/                                               /
@@ -981,8 +984,8 @@ static int _dns_decode_qr_head(struct dns_context *context, char *domain, int do
 		return -1;
 	}
 
-	*qtype = dns_read_short(&context->ptr);
-	*qclass = dns_read_short(&context->ptr);
+	*qtype = _dns_read_short(&context->ptr);
+	*qclass = _dns_read_short(&context->ptr);
 
 	return 0;
 }
@@ -999,8 +1002,8 @@ static int _dns_encode_qr_head(struct dns_context *context, char *domain, int qt
 		return -1;
 	}
 
-	dns_write_short(&context->ptr, qtype);
-	dns_write_short(&context->ptr, qclass);
+	_dns_write_short(&context->ptr, qtype);
+	_dns_write_short(&context->ptr, qclass);
 
 	return 0;
 }
@@ -1020,8 +1023,8 @@ static int _dns_decode_rr_head(struct dns_context *context, char *domain, int do
 		return -1;
 	}
 
-	*ttl = dns_read_int(&context->ptr);
-	*rr_len = dns_read_short(&context->ptr);
+	*ttl = _dns_read_int(&context->ptr);
+	*rr_len = _dns_read_short(&context->ptr);
 
 	return 0;
 }
@@ -1038,8 +1041,8 @@ static int _dns_encode_rr_head(struct dns_context *context, char *domain, int qt
 		return -1;
 	}
 
-	dns_write_int(&context->ptr, ttl);
-	dns_write_short(&context->ptr, rr_len);
+	_dns_write_int(&context->ptr, ttl);
+	_dns_write_short(&context->ptr, rr_len);
 
 	return 0;
 }
@@ -1054,7 +1057,7 @@ static int _dns_encode_raw(struct dns_context *context, struct dns_rrs *rrs)
 	int rr_len;
 	struct dns_data_context data_context;
 	/*
-	0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F 
+	0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F
 	+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
 	|                                               |
 	/                                               /
@@ -1111,7 +1114,7 @@ static int _dns_decode_raw(struct dns_context *context, unsigned char *raw, int 
 	return 0;
 }
 
-int _dns_decode_CNAME(struct dns_context *context, char *cname, int cname_size)
+static int _dns_decode_CNAME(struct dns_context *context, char *cname, int cname_size)
 {
 	int ret = 0;
 	ret = _dns_decode_domain(context, cname, cname_size);
@@ -1122,7 +1125,7 @@ int _dns_decode_CNAME(struct dns_context *context, char *cname, int cname_size)
 	return 0;
 }
 
-int _dns_encode_CNAME(struct dns_context *context, struct dns_rrs *rrs)
+static int _dns_encode_CNAME(struct dns_context *context, struct dns_rrs *rrs)
 {
 	int ret;
 	int qtype = 0;
@@ -1162,7 +1165,7 @@ int _dns_encode_CNAME(struct dns_context *context, struct dns_rrs *rrs)
 	return 0;
 }
 
-int _dns_decode_SOA(struct dns_context *context, struct dns_soa *soa)
+static int _dns_decode_SOA(struct dns_context *context, struct dns_soa *soa)
 {
 	int ret = 0;
 	ret = _dns_decode_domain(context, soa->mname, DNS_MAX_CNAME_LEN - 1);
@@ -1179,16 +1182,16 @@ int _dns_decode_SOA(struct dns_context *context, struct dns_soa *soa)
 		return -1;
 	}
 
-	soa->serial = dns_read_int(&context->ptr);
-	soa->refresh = dns_read_int(&context->ptr);
-	soa->retry = dns_read_int(&context->ptr);
-	soa->expire = dns_read_int(&context->ptr);
-	soa->minimum = dns_read_int(&context->ptr);
+	soa->serial = _dns_read_int(&context->ptr);
+	soa->refresh = _dns_read_int(&context->ptr);
+	soa->retry = _dns_read_int(&context->ptr);
+	soa->expire = _dns_read_int(&context->ptr);
+	soa->minimum = _dns_read_int(&context->ptr);
 
 	return 0;
 }
 
-int _dns_encode_SOA(struct dns_context *context, struct dns_rrs *rrs)
+static int _dns_encode_SOA(struct dns_context *context, struct dns_rrs *rrs)
 {
 	int ret;
 	int qtype = 0;
@@ -1238,33 +1241,32 @@ int _dns_encode_SOA(struct dns_context *context, struct dns_rrs *rrs)
 		return -1;
 	}
 
-	dns_write_int(&context->ptr, *(unsigned int *)data_context.ptr);
+	_dns_write_int(&context->ptr, *(unsigned int *)data_context.ptr);
 	data_context.ptr += 4;
-	dns_write_int(&context->ptr, *(unsigned int *)data_context.ptr);
+	_dns_write_int(&context->ptr, *(unsigned int *)data_context.ptr);
 	data_context.ptr += 4;
-	dns_write_int(&context->ptr, *(unsigned int *)data_context.ptr);
+	_dns_write_int(&context->ptr, *(unsigned int *)data_context.ptr);
 	data_context.ptr += 4;
-	dns_write_int(&context->ptr, *(unsigned int *)data_context.ptr);
+	_dns_write_int(&context->ptr, *(unsigned int *)data_context.ptr);
 	data_context.ptr += 4;
-	dns_write_int(&context->ptr, *(unsigned int *)data_context.ptr);
+	_dns_write_int(&context->ptr, *(unsigned int *)data_context.ptr);
 	data_context.ptr += 4;
 
 	return 0;
 }
 
-
 static int _dns_decode_opt_ecs(struct dns_context *context, struct dns_opt_ecs *ecs)
 {
 	// TODO
-	
+
 	int len = 0;
 	if (_dns_left_len(context) < 4) {
 		return -1;
 	}
 
-	ecs->family = dns_read_short(&context->ptr);
-	ecs->source_prefix = dns_read_char(&context->ptr);
-	ecs->scope_prefix = dns_read_char(&context->ptr);
+	ecs->family = _dns_read_short(&context->ptr);
+	ecs->source_prefix = _dns_read_char(&context->ptr);
+	ecs->scope_prefix = _dns_read_char(&context->ptr);
 	len = (ecs->source_prefix / 8);
 	len += (ecs->source_prefix % 8 > 0) ? 1 : 0;
 
@@ -1281,7 +1283,7 @@ static int _dns_decode_opt_ecs(struct dns_context *context, struct dns_opt_ecs *
 	return 0;
 }
 
-int _dns_encode_OPT(struct dns_context *context, struct dns_rrs *rrs)
+static int _dns_encode_OPT(struct dns_context *context, struct dns_rrs *rrs)
 {
 	int ret;
 	int opt_code = 0;
@@ -1304,15 +1306,15 @@ int _dns_encode_OPT(struct dns_context *context, struct dns_rrs *rrs)
 		return -1;
 	}
 
-	dns_write_short(&context->ptr, opt_code);
-	dns_write_short(&context->ptr, rr_len);
+	_dns_write_short(&context->ptr, opt_code);
+	_dns_write_short(&context->ptr, rr_len);
 	memcpy(context->ptr, data_context.ptr, rr_len);
 	context->ptr += rr_len;
 
 	return 0;
 }
 
-int _dns_get_opts_data_len(struct dns_packet *packet, struct dns_rrs *rrs, int count)
+static int _dns_get_opts_data_len(struct dns_packet *packet, struct dns_rrs *rrs, int count)
 {
 	int i = 0;
 	int len = 0;
@@ -1340,7 +1342,7 @@ int _dns_get_opts_data_len(struct dns_packet *packet, struct dns_rrs *rrs, int c
 	return len;
 }
 
-int _dns_encode_opts(struct dns_packet *packet, struct dns_context *context, struct dns_rrs *rrs, int count)
+static int _dns_encode_opts(struct dns_packet *packet, struct dns_context *context, struct dns_rrs *rrs, int count)
 {
 	int i = 0;
 	int len = 0;
@@ -1382,7 +1384,7 @@ static int _dns_decode_opt(struct dns_context *context, dns_rr_type type, unsign
 	unsigned short opt_code;
 	unsigned short opt_len;
 	unsigned short ercode = (ttl >> 16) & 0xFFFF;
-	unsigned short ever = (ttl) & 0xFFFF;
+	unsigned short ever = (ttl)&0xFFFF;
 	unsigned char *start = context->ptr;
 	struct dns_packet *packet = context->packet;
 	int ret = 0;
@@ -1390,46 +1392,46 @@ static int _dns_decode_opt(struct dns_context *context, dns_rr_type type, unsign
 	UNUSED(ever);
 
 	/*
-	     Field Name   Field Type     Description
-     ------------------------------------------------------
-     NAME         domain name    empty (root domain)
-     TYPE         u_int16_t      OPT
-     CLASS        u_int16_t      sender's UDP payload size
-     TTL          u_int32_t      extended RCODE and flags
-     RDLEN        u_int16_t      describes RDATA
-     RDATA        octet stream   {attribute,value} pairs
+		 Field Name   Field Type     Description
+	 ------------------------------------------------------
+	 NAME         domain name    empty (root domain)
+	 TYPE         u_int16_t      OPT
+	 CLASS        u_int16_t      sender's UDP payload size
+	 TTL          u_int32_t      extended RCODE and flags
+	 RDLEN        u_int16_t      describes RDATA
+	 RDATA        octet stream   {attribute,value} pairs
 
-	                 +0 (MSB)                            +1 (LSB)
-     +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+					 +0 (MSB)                            +1 (LSB)
+	 +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
   0: |                          OPTION-CODE                          |
-     +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+	 +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
   2: |                         OPTION-LENGTH                         |
-     +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+	 +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
   4: |                                                               |
-     /                          OPTION-DATA                          /
-     /                                                               /
-     +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+	 /                          OPTION-DATA                          /
+	 /                                                               /
+	 +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
 
 	TTL
-                 +0 (MSB)                            +1 (LSB)
-      +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+				 +0 (MSB)                            +1 (LSB)
+	  +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
    0: |         EXTENDED-RCODE        |            VERSION            |
-      +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+	  +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
    2: |                               Z                               |
-      +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+	  +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
 	*/
 
 	if (ercode != 0) {
 		tlog(TLOG_ERROR, "extend rcode invalid.");
 		return -1;
 	}
-	
+
 	while (context->ptr - start < rr_len) {
 		if (_dns_left_len(context) < 4) {
 			return -1;
 		}
-		opt_code = dns_read_short(&context->ptr);
-		opt_len = dns_read_short(&context->ptr);
+		opt_code = _dns_read_short(&context->ptr);
+		opt_len = _dns_read_short(&context->ptr);
 
 		if (_dns_left_len(context) < opt_len) {
 			tlog(TLOG_ERROR, "read opt data failed, opt_code = %d, opt_le = %d", opt_code, opt_len);
@@ -1441,13 +1443,13 @@ static int _dns_decode_opt(struct dns_context *context, dns_rr_type type, unsign
 		case DNS_OPT_T_ECS: {
 			struct dns_opt_ecs ecs;
 			ret = _dns_decode_opt_ecs(context, &ecs);
-			if (ret != 0 ) {
+			if (ret != 0) {
 				tlog(TLOG_ERROR, "decode ecs failed.");
 				return -1;
 			}
 
 			ret = dns_add_OPT_ECS(packet, &ecs);
-			if (ret != 0 ) {
+			if (ret != 0) {
 				tlog(TLOG_ERROR, "add ecs failed.");
 				return -1;
 			}
@@ -1456,7 +1458,7 @@ static int _dns_decode_opt(struct dns_context *context, dns_rr_type type, unsign
 			context->ptr += opt_len;
 			tlog(TLOG_DEBUG, "DNS opt type = %d not supported", opt_code);
 			break;
-		}				
+		}
 	}
 
 	return 0;
@@ -1589,7 +1591,7 @@ static int _dns_decode_an(struct dns_context *context, dns_rr_type type)
 		}
 	} break;
 	case DNS_T_OPT: {
-		unsigned char  *opt_start = context->ptr;
+		unsigned char *opt_start = context->ptr;
 		ret = _dns_decode_opt(context, type, ttl, rr_len);
 		if (ret < 0) {
 			tlog(TLOG_ERROR, "decode opt failed, %s", domain);
@@ -1875,7 +1877,8 @@ int dns_encode(unsigned char *data, int size, struct dns_packet *packet)
 	return context.ptr - context.data;
 }
 
-void dns_debug(void)
+#if 0
+static void dns_debug(void)
 {
 	unsigned char data[1024];
 	int len;
@@ -1899,10 +1902,11 @@ void dns_debug(void)
 	memset(data, 0, sizeof(data));
 	len = dns_encode(data, 1024, packet);
 	if (len < 0) {
-		tlog(TLOG_ERROR, "encode failed.\n");
+		tlog(TLOG_ERROR, "encode failed.");
 	}
 
 	fd = open("dns-cmp.bin", O_CREAT | O_TRUNC | O_RDWR);
 	write(fd, data, len);
 	close(fd);
 }
+#endif

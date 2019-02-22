@@ -34,4 +34,6 @@ unsigned char *SSL_SHA256(const unsigned char *d, size_t n, unsigned char *md);
 
 int SSL_base64_decode(const char *in, unsigned char *out);
 
+int create_pid_file(const char *pid_file);
+
 #endif
