@@ -2182,7 +2182,7 @@ static int _dns_client_send_query(struct dns_query_struct *query, char *doamin)
 	}
 
 	dns_set_OPT_payload_size(packet, DNS_IN_PACKSIZE);
-
+	/* dns_add_OPT_TCP_KEEYALIVE(packet, 600); */
 	if (_dns_client_dns_add_ecs(packet, query->qtype) != 0) {
 		tlog(TLOG_ERROR, "add ecs failed.");
 		return -1;

@@ -47,6 +47,7 @@ typedef enum dns_type {
 
 typedef enum dns_opt_code { 
 	DNS_OPT_T_ECS = 8, 
+	DNS_OPT_T_TCP_KEEPALIVE = 11,
 	DNS_OPT_T_ALL = 255 
 } dns_opt_code_t;
 
@@ -191,6 +192,9 @@ int dns_get_OPT_payload_size(struct dns_packet *packet);
 
 int dns_add_OPT_ECS(struct dns_packet *packet, struct dns_opt_ecs *ecs);
 int dns_get_OPT_ECS(struct dns_rrs *rrs, unsigned short *opt_code, unsigned short *opt_len, struct dns_opt_ecs *ecs);
+
+int dns_add_OPT_TCP_KEEYALIVE(struct dns_packet *packet, unsigned short timeout);
+int dns_get_OPT_TCP_KEEYALIVE(struct dns_rrs *rrs, unsigned short *opt_code, unsigned short *opt_len, unsigned short *timeout);
 /*
  * Packet operation
  */

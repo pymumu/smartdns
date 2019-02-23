@@ -117,6 +117,10 @@ struct dns_rrs *dns_get_rrs_start(struct dns_packet *packet, dns_rr_type type, i
 		*count = head->nrcount;
 		start = packet->additional;
 		break;
+	case DNS_RRS_OPT:
+		*count = packet->optcount;
+		start = packet->optional;
+		break;
 	default:
 		return NULL;
 		break;
@@ -425,6 +429,29 @@ static int _dns_get_RAW(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl
 	return 0;
 }
 
+static int _dns_add_opt_RAW(struct dns_packet *packet, dns_opt_code_t opt_rrtype, void *raw, int raw_len)
+{
+	unsigned char opt_data[DNS_MAX_OPT_LEN];
+	struct dns_opt *opt = (struct dns_opt *)opt_data;
+	int len = 0;
+
+	opt->code = DNS_OPT_T_TCP_KEEPALIVE;
+	opt->length = sizeof(unsigned short);
+
+	memcpy(opt->data, raw, raw_len);
+	len += raw_len;
+	len += sizeof(*opt);
+
+	return _dns_add_RAW(packet, DNS_RRS_OPT, DNS_OPT_T_TCP_KEEPALIVE, "", 0, opt_data, len);
+}
+
+static int _dns_get_opt_RAW(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, struct dns_opt *dns_opt, int *dns_optlen)
+{
+	*dns_optlen = DNS_MAX_OPT_LEN;
+
+	return _dns_get_RAW(rrs, domain, maxsize, ttl, dns_opt, dns_optlen);
+}
+
 static int __attribute__((unused))  _dns_add_OPT(struct dns_packet *packet, dns_rr_type type, unsigned short opt_code, unsigned short opt_len, struct dns_opt *opt)
 {
 	// TODO
@@ -700,6 +727,54 @@ int dns_get_OPT_ECS(struct dns_rrs *rrs, unsigned short *opt_code, unsigned shor
 	}
 
 	memcpy(ecs, opt->data, opt->length);
+
+	return 0;
+}
+
+int dns_add_OPT_TCP_KEEYALIVE(struct dns_packet *packet, unsigned short timeout)
+{
+	unsigned short timeout_net = htons(timeout);
+	int data_len = 0;
+
+	if (timeout > 0) {
+		data_len = sizeof(timeout);
+	}
+
+	return _dns_add_opt_RAW(packet, DNS_OPT_T_TCP_KEEPALIVE, &timeout_net, data_len);
+}
+
+int dns_get_OPT_TCP_KEEYALIVE(struct dns_rrs *rrs, unsigned short *opt_code, unsigned short *opt_len, unsigned short *timeout)
+{
+	unsigned char opt_data[DNS_MAX_OPT_LEN];
+	struct dns_opt *opt = (struct dns_opt *)opt_data;
+	int len = DNS_MAX_OPT_LEN;
+	int ttl = 0;
+	unsigned char *data = NULL;
+
+	if (_dns_get_opt_RAW(rrs, NULL, 0, &ttl, opt, &len) != 0) {
+		return -1;
+	}
+
+	if (len < sizeof(*opt)) {
+		return -1;
+	}
+
+	if (opt->code != DNS_OPT_T_TCP_KEEPALIVE) {
+		return -1;
+	}
+
+	if (opt->length == 0) {
+		*timeout = 0;
+		return 0;
+	}
+
+	if (opt->length != sizeof(unsigned short)) {
+		return -1;
+	}
+
+	data = opt->data;
+
+	*timeout = _dns_read_short(&data);
 
 	return 0;
 }
@@ -1292,6 +1367,7 @@ static int _dns_encode_OPT(struct dns_context *context, struct dns_rrs *rrs)
 	struct dns_data_context data_context;
 	int rr_len = 0;
 	int ttl;
+	struct dns_opt *dns_opt = NULL;
 
 	data_context.data = rrs->data;
 	data_context.ptr = rrs->data;
@@ -1302,14 +1378,24 @@ static int _dns_encode_OPT(struct dns_context *context, struct dns_rrs *rrs)
 		return -1;
 	}
 
-	if (_dns_left_len(context) < (4 + rr_len)) {
+	if (rr_len < sizeof(*dns_opt)) {
 		return -1;
 	}
 
-	_dns_write_short(&context->ptr, opt_code);
-	_dns_write_short(&context->ptr, rr_len);
-	memcpy(context->ptr, data_context.ptr, rr_len);
-	context->ptr += rr_len;
+	if (_dns_left_len(context) < (rr_len)) {
+		return -1;
+	}
+
+	dns_opt = (struct dns_opt *)data_context.ptr;
+	_dns_write_short(&context->ptr, dns_opt->code);
+	_dns_write_short(&context->ptr, dns_opt->length);
+
+	if (_dns_left_len(context) < dns_opt->length) {
+		return -1;
+	}
+
+	memcpy(context->ptr, dns_opt->data, dns_opt->length);
+	context->ptr += dns_opt->length;
 
 	return 0;
 }
