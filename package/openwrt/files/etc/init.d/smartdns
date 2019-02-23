@@ -136,8 +136,11 @@ load_server()
 	config_get "port" "$section" "port" ""
 	config_get "type" "$section" "type" "udp"
 	config_get "ip" "$section" "ip" ""
+	config_get "server_group" "$section" "server_group" ""
 	config_get "blacklist_ip" "$section" "blacklist_ip" "0"
 	config_get "check_edns" "$section" "check_edns" "0"
+	config_get "spki_pin" "$section" "spki_pin" ""
+	config_get "addition_arg" "$section" "addition_arg" ""
 
 	if [ "$enabled" = "0" ]; then
 		return
@@ -160,6 +163,10 @@ load_server()
 		fi
 	fi
 
+	if [ ! -z "$server_group" ]; then
+		ADDITIONAL_ARGS="$ADDITIONAL_ARGS -group $server_group"
+	fi
+
 	if [ "$blacklist_ip" != "0" ]; then
 		ADDITIONAL_ARGS="$ADDITIONAL_ARGS -blacklist-ip"
 	fi
@@ -168,13 +175,17 @@ load_server()
 		ADDITIONAL_ARGS="$ADDITIONAL_ARGS -check-edns"
 	fi
 
+	if [ ! -z "$spki_pin" ]; then
+		ADDITIONAL_ARGS="$ADDITIONAL_ARGS -spki-pin $spki_pin"
+	fi
+
 	if [ ! -z "$port" ]; then
 		DNS_ADDRESS="$ip:$port"
 	else
 		DNS_ADDRESS="$ip"
 	fi
 
-	conf_append "$SERVER" "$DNS_ADDRESS $ADDITIONAL_ARGS"
+	conf_append "$SERVER" "$DNS_ADDRESS $ADDITIONAL_ARGS $addition_arg"
 }
 
 load_service() {

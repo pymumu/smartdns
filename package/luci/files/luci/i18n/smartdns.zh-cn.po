@@ -139,17 +139,35 @@ msgstr "协议类型"
 msgid "Domain Address"
 msgstr "域名地址"
 
+msgid "Server Group"
+msgstr "服务器组"
+
+msgid "DNS Server group belongs to, used with nameserver, such as offlce, home."
+msgsr "DNS服务器所属组， 配合nameserver使用，例如：office，home。"
+
 msgid "IP Blacklist Filtering"
 msgstr "IP黑名单过滤"
 
 msgid "Anti Answer Forgery"
 msgstr "反回答伪造"
 
-msgid "anti answer forgery, if DNS does not work properly after enabling, please turn off this feature"
+msgid "Anti answer forgery, if DNS does not work properly after enabling, please turn off this feature"
 msgstr "反回答伪造，如果启用后DNS工作不正常，请关闭此功能。"
 
 msgid "Filtering IP with blacklist"
 msgstr "使用IP黑名单过滤"
+
+msgid "TLS SPKI Pinning"
+msgstr "TLS SPKI 指纹"
+
+msgid "Used to verify the validity of the TLS server, The value is Base64 encoded SPKI fingerprint, leaving blank to indicate that the validity of TLS is not verified."
+msgstr "用于校验TLS服务器的有效性，数值为Base64编码的SPKI指纹, 留空表示不验证TLS的合法性"
+
+msgid "Additional Server Args"
+msgstr "额外的服务器参数"
+
+msgid "Additional Args for upstream dns servers"
+msgstr "额外的上游DNS服务器参数"
 
 msgid "Upstream DNS Server Configuration"
 msgstr "上游DNS服务器配置"

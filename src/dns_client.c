@@ -363,6 +363,26 @@ static struct dns_server_group *_dns_client_get_group(const char *group_name)
 	return NULL;
 }
 
+/* get server group by name */
+static struct dns_server_group *_dns_client_get_dnsserver_group(const char *group_name)
+{
+	struct dns_server_group *group = _dns_client_get_group(group_name);
+
+	if (group == NULL) {
+		group = client.default_group;
+		tlog(TLOG_DEBUG, "send query to group %s", DNS_SERVER_GROUP_DEFAULT);
+	} else {
+		if (list_empty(&group->head)) {
+			group = client.default_group;
+			tlog(TLOG_DEBUG, "send query to group %s", DNS_SERVER_GROUP_DEFAULT);
+		} else {
+			tlog(TLOG_DEBUG, "send query to group %s", group_name);
+		}
+	}
+
+	return group;
+}
+
 /* add server to group */
 static int _dns_client_add_to_group(char *group_name, struct dns_server_info *server_info)
 {
@@ -2208,12 +2228,10 @@ int dns_client_query(char *domain, int qtype, dns_client_callback callback, void
 	query->qtype = qtype;
 	query->send_tick = 0;
 	query->sid = atomic_inc_return(&dns_client_sid);
-	query->server_group = _dns_client_get_group(group_name);
+	query->server_group = _dns_client_get_dnsserver_group(group_name);
 	if (query->server_group == NULL) {
-		query->server_group = client.default_group;
-		tlog(TLOG_DEBUG, "send query to group %s", DNS_SERVER_GROUP_DEFAULT);
-	} else {
-		tlog(TLOG_DEBUG, "send query to group %s", group_name);
+		tlog(TLOG_ERROR, "get dns server group %s failed.", group_name);
+		goto errout;
 	}
 
 	_dns_client_query_get(query);
