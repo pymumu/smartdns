@@ -931,11 +931,15 @@ static int _config_log_level(void *data, int argc, char *argv[])
 		dns_conf_log_level = TLOG_DEBUG;
 	} else if (strncmp("info", value, MAX_LINE_LEN) == 0) {
 		dns_conf_log_level = TLOG_INFO;
+	} else if (strncmp("notice", value, MAX_LINE_LEN) == 0) {
+		dns_conf_log_level = TLOG_NOTICE;
 	} else if (strncmp("warn", value, MAX_LINE_LEN) == 0) {
 		dns_conf_log_level = TLOG_WARN;
 	} else if (strncmp("error", value, MAX_LINE_LEN) == 0) {
 		dns_conf_log_level = TLOG_ERROR;
-	} else {
+	} else if (strncmp("fatal", value, MAX_LINE_LEN) == 0) {
+		dns_conf_log_level = TLOG_FATAL;
+	}else {
 		return -1;
 	}
 

@@ -5,7 +5,7 @@ SmartDNS is a local DNS server. SmartDNS accepts DNS query requests from local c
 Avoiding DNS pollution and improving network access speed, supports high-performance ad filtering.  
 Unlike dnsmasq's all-servers, smartdns returns the fastest access resolution.
 
-Support Raspberry Pi, openwrt, ASUS router and other devices.  
+Support Raspberry Pi, openwrt, ASUS router, Windows and other devices.  
 
 ## Software Show
 
@@ -143,6 +143,7 @@ Download the matching version of the SmartDNS installation package. The correspo
     ```
 
     Please download it from the Release page: [Download here](https://github.com/pymumu/smartdns/releases)
+* For the installation procedure, please refer to the following sections.
 
 ### Standard Linux system installation (Raspberry Pi, X86_64 system)
 
@@ -370,6 +371,50 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
     \\192.168.1.1\sda1\asusware.mipsbig\etc\init.d
     ```
 
+### optware/entware
+
+--------------
+
+1. Prepare
+
+    When using this software, you need to confirm whether the router supports USB disk and prepare a USB disk.
+
+1. Install SmartDNS
+
+    Upload the software to `/tmp` directory of the router using winscp, and run the flollowing command to install.
+
+    ```shell
+    ipkg install smartdns.xxxxxxx.mipsbig.ipk
+    ```
+
+1. Modify the smartdns configuration
+
+    ```shell
+    Vi /opt/etc/smartdns/smartdns.conf
+    ```
+
+    Note: if you need to support IPV6, you can set the worke-mode to `2`, this will disable the DNS service of dnsmasq, and smartdns run as the primary DNS server. Change `SMARTDNS_WORKMODE` in the file `/opt/etc/smartdns/smartdns-opt.conf` to 2.
+
+    ```shell
+    SMARTDNS_WORKMODE="2"
+    ```
+
+1. Restart the router to take effect
+
+    After the router is started, use `nslookup -querytype=ptr 0.0.0.0` to query the domain name.
+    See if the `name` item in the command result is displayed as `smartdns` or `hostname`, such as `smartdns`
+
+    ```shell
+    Pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 0.0.0.0
+    Server: 192.168.1.1
+    Address: 192.168.1.1#53
+
+    Non-authoritative answer:
+    0.0.0.0.in-addr.arpa name = smartdns.
+    ```
+
+    Note: If the service does not start automatically, you need to set optwre/entware to start automatically. For details, see the optware/entware documentation.
+
 ### Windows 10 WSL Installation（WSL ubuntu）
 
 --------------
@@ -437,7 +482,7 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 |rr-ttl|Domain name TTL|Remote query result|number greater than 0|rr-ttl 600
 |rr-ttl-min|Domain name Minimum TTL|Remote query result|number greater than 0|rr-ttl-min 60
 |rr-ttl-max|Domain name Maximum TTL|Remote query result|number greater than 0|rr-ttl-max 600
-|log-level|log level|error|error,warn,info,debug|log-level error
+|log-level|log level|error|fatal,error,warn,notice,info,debug|log-level error
 |log-file|log path|/var/log/smartdns.log|File Pah|log-file /var/log/smartdns.log
 |log-size|log size|128K|number+K,M,G|log-size 128K
 |log-num|archived log number|2|Integer|log-num 2

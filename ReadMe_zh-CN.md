@@ -5,7 +5,7 @@ SmartDNS是一个运行在本地的DNS服务器，SmartDNS接受本地客户端�
 同时支持指定特定域名IP地址，并高性匹配，达到过滤广告的效果。  
 与dnsmasq的all-servers不同，smartdns返回的是访问速度最快的解析结果。  
 
-支持树莓派，openwrt，华硕路由器等设备。  
+支持树莓派，openwrt，华硕路由器，windows等设备。  
 
 ## 软件效果展示
 
@@ -143,6 +143,7 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
     ```
 
     请在Release页面下载：[此处下载](https://github.com/pymumu/smartdns/releases)
+* 各种设备的安装步骤，请参考后面的章节。
 
 ### 标准Linux系统安装（树莓派, X86_64系统）
 
@@ -370,6 +371,50 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
     \\192.168.1.1\sda1\asusware.mipsbig\etc\init.d
     ```
 
+### optware/entware
+
+--------------
+
+1. 准备
+
+    在使用此软件时，需要确认路由器是否支持U盘，并准备好U盘一个。
+
+1. 安装SmartDNS
+
+    将软件使用winscp上传到路由器的`/tmp`目录。
+
+    ```shell
+    ipkg install smartdns.xxxxxxx.mipsbig.ipk
+    ```
+
+1. 修改smartdns配置
+
+    ```shell
+    vi /opt/etc/smartdns/smartdns.conf
+    ```
+
+    另外，如需支持IPV6，可设置工作模式为`2`，将dnsmasq的DNS服务禁用，smartdns为主用DNS服务器。将文件`/opt/etc/smartdns/smartdns-opt.conf`，中的`SMARTDNS_WORKMODE`修改为2.
+
+    ```shell
+    SMARTDNS_WORKMODE="2"
+    ```
+
+1. 重启路由器生效服务
+
+    待路由器启动后，使用`nslookup -querytype=ptr 0.0.0.0`查询域名  
+    看命令结果中的`name`项目是否显示为`smartdns`或`主机名`，如`smartdns`则表示生效  
+
+    ```shell
+    pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 0.0.0.0
+    Server:         192.168.1.1
+    Address:        192.168.1.1#53
+
+    Non-authoritative answer:
+    0.0.0.0.in-addr.arpa  name = smartdns.
+    ```
+
+    注意：若服务没有自动启动，则需要设置optwre/entware自动启动，具体方法参考optware/entware的文档。
+
 ### Windows 10 WSL安装（WSL ubuntu）
 
 --------------
@@ -438,7 +483,7 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 |rr-ttl|域名结果TTL|远程查询结果|大于0的数字|rr-ttl 600
 |rr-ttl-min|允许的最小TTL值|远程查询结果|大于0的数字|rr-ttl-min 60
 |rr-ttl-max|允许的最大TTL值|远程查询结果|大于0的数字|rr-ttl-max 600
-|log-level|设置日志级别|error|error,warn,info,debug|log-level error
+|log-level|设置日志级别|error|fatal,error,warn,notice,info,debug|log-level error
 |log-file|日志文件路径|/var/log/smartdns.log|路径|log-file /var/log/smartdns.log
 |log-size|日志大小|128K|数字+K,M,G|log-size 128K
 |log-num|日志归档个数|2|数字|log-num 2
