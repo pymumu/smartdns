@@ -5,6 +5,13 @@
 #include <string.h>
 #include <unistd.h>
 
+static const char *currrent_conf_file = NULL;
+
+const char *conf_get_conf_file(void)
+{
+	return currrent_conf_file;
+}
+
 int conf_custom(const char *item, void *data, int argc, char *argv[])
 {
 	struct config_item_custom *item_custom = data;
@@ -255,6 +262,7 @@ int load_conf_file(const char *file, struct config_item *items, conf_error_handl
 
 			conf_getopt_reset();
 			/* call item function */
+			currrent_conf_file = file;
 			call_ret = items[i].item_func(items[i].item, items[i].data, argc, argv);
 			ret = handler(file, line_no, call_ret);
 			if (ret != 0) {

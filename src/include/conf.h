@@ -118,4 +118,6 @@ int load_conf(const char *file, struct config_item items[], conf_error_handler h
 
 void load_exit(void);
 
+const char *conf_get_conf_file(void);
+
 #endif // !_GENERIC_CONF_H

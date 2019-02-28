@@ -9,6 +9,7 @@
 #include <string.h>
 #include <syslog.h>
 #include <unistd.h>
+ #include <libgen.h>
 
 #define DEFAULT_DNS_CACHE_SIZE 512
 
@@ -999,10 +1000,21 @@ static int _conf_printf(const char *file, int lineno, int ret)
 
 int config_addtional_file(void *data, int argc, char *argv[])
 {
-	char *file_path = argv[1];
+	char *conf_file = argv[1];
+	char file_path[DNS_MAX_PATH];
+	char file_path_dir[DNS_MAX_PATH];
+
+	if (conf_file[0] != '/') {
+		strncpy(file_path_dir, conf_get_conf_file(), DNS_MAX_PATH);
+		dirname(file_path_dir);
+		snprintf(file_path, DNS_MAX_PATH, "%s/%s", file_path_dir, conf_file);
+	} else {
+		strncpy(file_path, conf_file, DNS_MAX_PATH);
+	}
 
 	if (access(file_path, R_OK) != 0) {
 		tlog(TLOG_WARN, "conf file %s is not readable.", file_path);
+		syslog(LOG_NOTICE, "conf file %s is not readable.", file_path);
 		return 0;
 	}
 
