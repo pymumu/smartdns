@@ -7,6 +7,23 @@ Unlike dnsmasq's all-servers, smartdns returns the fastest access resolution.
 
 Support Raspberry Pi, openwrt, ASUS router, Windows and other devices.  
 
+## Table Of Content
+
+1. [Software Show](#Software&#32;Show)
+1. [Features](#Features)
+1. [Architecture](#Architecture)
+1. [Usage](#Usage)  
+    1. [Download the package](#Download&#32;the&#32;package)
+    1. [Standard Linux system installation/Raspberry Pi, X86_64 system](#Standard&#32;Linux&#32;system&#32;installation/Raspberry&#32;Pi,&#32;X86_64&#32;system)
+    1. [openwrt/LEDE](#openwrt/LEDE)
+    1. [ASUS router native firmware / Merlin firmware](#ASUS&#32;router&#32;native&#32;firmware&#32;/&#32;Merlin&#32;firmware)
+    1. [optware/entware](#optware/entware)
+    1. [Windows 10 WSL Installation/WSL ubuntu](#Windows&#32;10&#32;WSL&#32;Installation/WSL&#32;ubuntu)
+1. [Configuration parameter](#Configuration&#32;parameter)
+1. [Donate](#Donate)
+1. [Statement](#Statement)
+1. [FAQ](#FAQ)
+
 ## Software Show
 
 **Ali DNS**  
@@ -145,7 +162,7 @@ Download the matching version of the SmartDNS installation package. The correspo
     Please download it from the Release page: [Download here](https://github.com/pymumu/smartdns/releases)
 * For the installation procedure, please refer to the following sections.
 
-### Standard Linux system installation (Raspberry Pi, X86_64 system)
+### Standard Linux system installation/Raspberry Pi, X86_64 system
 
 --------------
 
@@ -251,6 +268,7 @@ Download the matching version of the SmartDNS installation package. The correspo
         ```shell
         iptables -t nat -L PREROUTING | grep REDIRECT
         ```
+
         * If the forwarding function is abnormal, please use Method 2: As the upstream of DNSMASQ.
 
 1. Method 2: SmartDNS as upstream DNS Server of DNSMASQ
@@ -415,7 +433,7 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 
     Note: If the service does not start automatically, you need to set optwre/entware to start automatically. For details, see the optware/entware documentation.
 
-### Windows 10 WSL Installation（WSL ubuntu）
+### Windows 10 WSL Installation/WSL ubuntu
 
 --------------
 
@@ -450,7 +468,7 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 
 1. Start Service
 
-    Double-click `reload.bat` in the `D:\smartdns\package\windows` directory for reload. 
+    Double-click `reload.bat` in the `D:\smartdns\package\windows` directory for reload.
 
 1. Forwarding DNS request to SmartDNS
 
@@ -502,8 +520,98 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 |ignore-ip|ignore ip address|None|[ip/subnet], Repeatable| ignore-ip 1.2.3.4/16
 |blacklist-ip|ip blacklist|None|[ip/subnet], Repeatable，When the filtering server responds IPs in the IP blacklist, The result will be discarded directly| blacklist-ip 1.2.3.4/16
 |force-AAAA-SOA|force AAAA query return SOA|no|[yes\|no]|force-AAAA-SOA yes
+|prefetch-domain|domain prefetch feature|no|[yes\|no]|prefetch-domain yes
 |dualstack-ip-selection|Dualstack ip selection|no|[yes\|no]|dualstack-ip-selection yes
 |dualstack-ip-selection-threshold|Dualstack ip select threadhold|30ms|millisecond|dualstack-ip-selection-threshold [0-1000]
+
+## FAQ
+
+1. What is the difference between SmartDNS and DNSMASQ?  
+    Smartdns is not designed to replace DNSMASQ. The main function of Smartdns is focused on DNS resolution enhancement, the difference are:  
+    * Multiple upstream server concurrent requests, after the results are measured, return the best results;
+    * `address`, `ipset` domain name matching uses efficient algorithms, query matching is faster and more efficient, and router devices are still efficient.
+    * Domain name matching supports ignoring specific domain names, and can be individually matched to IPv4, IPV6, and supports diversified customization.
+    * Enhance the ad blocking feature, return SOA record, this block ads better;
+    * IPV4, IPV6 dual stack IP optimization mechanism, in the case of dual network, choose the fastest network.
+    * Supports the latest TLS protocol and provides secure DNS query capabilities.
+    * DNS anti-poison mechanism, and a variety of mechanisms to avoid DNS pollution.
+    * ECS support, the query results are better and more accurate.
+    * IP blacklist support, ignoring the blacklist IP to make domain name queries better and more accurate.
+    * Domain name pre-fetch, more faster to access popular websites.
+    * Domain name TTL can be specified to make access faster.
+    * Cache mechanism to make access faster.
+    * Asynchronous log, audit log mechanism, does not affect DNS query performance while recording information.
+    * Domain group mechanism, specific domain names use specific upstream server group queries to avoid privacy leakage.
+
+1. What is the best practices for upstream server configuration?  
+    Smartdns has a speed measurement mechanism. When configuring an upstream server, it is recommended to configure multiple upstream DNS servers, including servers in different regions, but the total number is recommended to be around 10. Recommended configuration
+    * Carrier DNS.
+    * Public DNS, such as `8.8.8.8`, `8.8.4.4`, `1.1.1.1`.
+
+    For specific domain names, if there is a pollution, you can enable the anti-pollution mechanism.
+
+1. How to enable the audit log  
+    The audit log records the domain name requested by the client. The record information includes the request time, the request IP address, the request domain name, and the request type. If you want to enable the audit log, configure `audit-enable yes` in the configuration file, `audit-size`, `Audit-file`, `audit-num` configure the audit log file size, the audit log file path, and the number of audit log files. The audit log file will be compressed to save space.
+
+1. How to avoid DNS privacy leaks
+    By default, smartdns will send requests to all configured DNS servers. If the upstream DNS servers record DNS logs, it will result in a DNS privacy leak. To avoid privacy leaks, try the following steps:
+    * Use trusted DNS servers.
+    * Use TLS servers.
+    * Set up an upstream DNS server group.
+
+1. How to block ads
+    Smartdns has a high-performance domain name matching algorithm. It is very efficient to filter advertisements by domain name. To block ads, you only need to configure records like the following configure. For example, if you block `*.ad.com`, configure as follows:
+
+    ```sh
+    Address /ad.com/#
+    ```
+
+    The suffix mode of the domain name, filtering *.ad.com, `#` means returning SOA record. If you want to only block IPV4 or IPV6 separately, add a number after `#`, such as `#4` is for IPV4 blocking. If you want to ignore some specific subdomains, you can configure it as follows. e.g., if you ignore `pass.ad.com`, you can configure it as follows:
+
+    ```sh
+    Address /pass.ad.com/-
+    ```
+
+1. DNS query diversion
+    In some cases, some domain names need to be queried using a specific DNS server to do DNS diversion. such as.
+
+    ```sh
+    .home -> 192.168.1.1
+    .office -> 10.0.0.1
+    ```
+
+    The domain name ending in .home is sent to 192.168.1.1 for resolving
+    The domain name ending in .office is sent to 10.0.0.1 for resolving
+    Other domain names are resolved using the default mode.
+    The diversion configuration for this case is as follows:
+
+    ```sh
+    # Upstream configuration, use -group to specify the group name, and -exclude-default-group to exclude the server from the default group.
+    Server 192.168.1.1 -group home -exclude-default-group
+    Server 10.0.0.1 -group office -exclude-default-group
+    Server 8.8.8.8
+
+    #Configure the resolved domain name with specific group
+    Nameserver /.home/home
+    Nameserver /.office/office
+    ```
+
+1. How to use the dual stack IP optimization feature  
+    At present, IPV6 network is not as fast as IPV4 in some cases. In order to get a better experience in the dual-stack network, SmartDNS provides a dual-stack IP optimization mechanism, the same domain name, and the speed of IPV4. Far faster than IPV6, then SmartDNS will block the resolution of IPV6, let the PC use IPV4, the feature is enabled by `dualstack-ip-selection yes`, `dualstack-ip-selection-threshold [time]` is for threshold.
+
+1. How to improve cache performace  
+    Smartdns provides a domain name caching mechanism to cache the queried domain name, and the caching time is in accordance with the DNS TTL specification. To increase the cache hit rate, the following configuration can be taken:
+    * Increase the number of cache records appropriately  
+    Set the number of cache records by `cache-size`.
+    In the case of a query with a high pressure environment and a machine with a large memory, it can be appropriately adjusted.
+
+    * Set the minimum TTL value as appropriate  
+    Set the minimum DNS TTL time to a appropriate value by `rr-ttl-min` to extend the cache time.
+    It is recommended that the timeout period be set to 10 to 30 minutes to avoid then invalid domain names when domain ip changes.
+
+    * Enable domain pre-acquisition  
+    Enable pre-fetching of domain names with `prefetch-domain yes` to improve query hit rate.
+    by default, Smartdns will send domain query request again before cache expire, and cache the result for the next query. Frequently accessed domain names will continue to be cached. This feature will consume more CPU when idle.
 
 ## [Donate](#Donate)  
 

@@ -7,6 +7,23 @@ SmartDNS是一个运行在本地的DNS服务器，SmartDNS接受本地客户端�
 
 支持树莓派，openwrt，华硕路由器，windows等设备。  
 
+## 目录
+
+1. [软件效果展示](#软件效果展示)
+1. [特性](#特性)
+1. [架构](#架构)
+1. [使用](#使用)  
+    1. [下载配套安装包](#下载配套安装包)
+    1. [标准Linux系统安装](#标准Linux系统安装/树莓派/X86_64系统)
+    1. [openwrt/LEDE](#openwrt/LEDE)
+    1. [华硕路由器原生固件/梅林固件](#华硕路由器原生固件/梅林固件)
+    1. [optware/entware](#optware/entware)
+    1. [Windows 10 WSL安装/WSL ubuntu](#Windows&#32;10&#32;WSL安装/WSL&#32;ubuntu)
+1. [配置参数](#配置参数)
+1. [捐助](#Donate)
+1. [声明](#声明)
+1. [FAQ](#FAQ)
+
 ## 软件效果展示
 
 **阿里DNS**  
@@ -73,25 +90,28 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 1. **多DNS上游服务器**  
    支持配置多个上游DNS服务器，并同时进行查询，即使其中有DNS服务器异常，也不会影响查询。  
 
-2. **返回最快IP地址**  
+1. **返回最快IP地址**  
    支持从域名所属IP地址列表中查找到访问速度最快的IP地址，并返回给客户端，避免DNS污染，提高网络访问速度。
 
-3. **支持多种查询协议**  
+1. **支持多种查询协议**  
    支持UDP，TCP，TLS查询，以及非53端口查询，有效避免DNS污染。
 
-4. **特定域名IP地址指定**  
+1. **特定域名IP地址指定**  
    支持指定域名的IP地址，达到广告过滤效果，避免恶意网站的效果。
 
-5. **域名高性能后缀匹配**  
+1. **域名高性能后缀匹配**  
    支持域名后缀匹配模式，简化过滤配置，过滤20万条记录时间<1ms
 
-6. **Linux/Windows多平台支持**  
+1. **域名分流**  
+   支持域名分流，不同类型的域名到不同的DNS服务器查询。
+
+1. **Linux/Windows多平台支持**  
    支持标准Linux系统（树莓派），openwrt系统各种固件，华硕路由器原生固件。以及支持Windows 10 WSL (Windows Subsystem for Linux)。
 
-7. **支持IPV4, IPV6双栈**  
+1. **支持IPV4, IPV6双栈**  
    支持IPV4，IPV6网络，支持查询A, AAAA记录，支持双栈IP速度优化。
 
-8. **高性能，占用资源少**  
+1. **高性能，占用资源少**  
    多线程异步IO模式，cache缓存查询结果。
 
 ## 架构
@@ -145,7 +165,7 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
     请在Release页面下载：[此处下载](https://github.com/pymumu/smartdns/releases)
 * 各种设备的安装步骤，请参考后面的章节。
 
-### 标准Linux系统安装（树莓派, X86_64系统）
+### 标准Linux系统安装/树莓派/X86_64系统
 
 --------------
 
@@ -251,6 +271,7 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
         ```shell
         iptables -t nat -L PREROUTING | grep REDIRECT
         ```
+
         * 如转发功能不正常，请使用方法二：作为DNSMASQ的上游。
 
 1. 方法二：作为DNSMASQ的上游
@@ -415,7 +436,7 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 
     注意：若服务没有自动启动，则需要设置optwre/entware自动启动，具体方法参考optware/entware的文档。
 
-### Windows 10 WSL安装（WSL ubuntu）
+### Windows 10 WSL安装/WSL ubuntu
 
 --------------
 
@@ -470,7 +491,6 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
     0.0.0.0.in-addr.arpa  name = smartdns.
     ```
 
-
 ## 配置参数
 
 |参数|功能|默认值|配置值|例子|
@@ -503,8 +523,101 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 |ignore-ip|忽略IP地址|无|[ip/subnet]，可重复| ignore-ip 1.2.3.4/16
 |blacklist-ip|黑名单IP地址|无|[ip/subnet]，可重复| blacklist-ip 1.2.3.4/16
 |force-AAAA-SOA|强制AAAA地址返回SOA|no|[yes\|no]|force-AAAA-SOA yes
+|prefetch-domain|域名预先获取功能|no|[yes\|no]|prefetch-domain yes
 |dualstack-ip-selection|双栈IP优选|no|[yes\|no]|dualstack-ip-selection yes
 |dualstack-ip-selection-threshold|双栈IP优选阈值|30ms|毫秒|dualstack-ip-selection-threshold [0-1000]
+
+## FAQ
+
+1. SmartDNS和DNSMASQ有什么区别  
+    SMARTDNS在设计上并不是替换DNSMASQ的，MARTDNS主要功能集中在DNS解析增强上，增强部分有
+    * 多上游服务器并发请求，对结果进行测速后，返回最佳结果；
+    * address，ipset域名匹配采用高效算法，查询匹配更加快速高效，路由器设备依然高效。
+    * 域名匹配支持忽略特定域名，可单独匹配IPv4， IPV6，支持多样化定制。
+    * 针对广告屏蔽功能做增强，返回SOA，屏蔽广告效果更佳；
+    * IPV4，IPV6双栈IP优选机制，在双网情况下，选择最快的网络通讯。
+    * 支持最新的TLS协议，提供安全的DNS查询能力。
+    * DNS防抢答机制，及多种机制避免DNS污染。
+    * ECS支持，是查询结果更佳准确。
+    * IP黑名单，忽略IP机制，使域名查询更佳准确。
+    * 域名预查询，访问常用网站更加快速。
+    * 域名TTL可指定，使访问更快速。
+    * 高速缓存机制，使访问更快速。
+    * 异步日志，审计机制，在记录信息的同时不影响DNS查询性能。
+    * 域名组（group）机制，特定域名使用特定上游服务器组查询，避免隐私泄漏。
+
+1. 如何配置上游服务器最佳。  
+    smartdns有测速机制，在配置上游服务器时，建议配置多个上游DNS服务器，包含多个不同区域的服务器，但总数建议在10个左右。推荐配置  
+    * 运营商DNS。
+    * 国内公共DNS，如`119.29.29.29`, `223.5.5.5`。
+    * 国外公共DNS，如`8.8.8.8`, `8.8.4.4`。
+
+    对于特定的域名，如果有污染情况，可以启用防污染机制。
+
+1. 如何启用审计日志  
+    审计日志记录客户端请求的域名，记录信息包括，请求时间，请求IP，请求域名，请求类型，如果要启用审计日志，在配置界面配置`audit-enable yes`启用，`audit-size`, `audit-file`, `audit-num`分别配置审计日志文件大小，审计日志文件路径，和审计日志文件个数。审计日志文件将会压缩存储以节省空间。
+
+1. 如何避免隐私泄漏  
+    smartdns默认情况下，会将请求发送到所有配置的DNS服务器，若上游DNS服务器使用DNS，或记录日志，将会导致隐私泄漏。为避免隐私泄漏，请尽量：  
+    * 配置使用可信的DNS服务器。
+    * 优先使用TLS查询。
+    * 设置上游DNS服务器组。
+
+1. 如何屏蔽广告  
+    smartdns具备高性能域名匹配算法，通过域名方式过滤广告非常高效，如要屏蔽广告，只需要配置类似如下记录即可，如，屏蔽`*.ad.com`，则配置：
+
+    ```sh
+    address /ad.com/#
+    ```
+
+    域名的使后缀模式，过滤*.ad.com，`#`表示返回SOA，使屏蔽广告更加高效，如果要单独屏蔽IPV4， 或IPV6， 在`#`后面增加数字，如`#4`表示对IPV4生效。若想忽略特定子域名的屏蔽，可配置如下，如忽略`pass.ad.com`，可配置如下：
+
+    ```sh
+    address /pass.ad.com/-
+    ```
+
+1. DNS查询分流  
+    某些情况下，需要将有些域名使用特定的DNS服务器来查询来做到DNS分流。比如。
+
+    ```sh
+    .home -> 192.168.1.1
+    .office -> 10.0.0.1
+    ```
+
+    .home 结尾的域名发送到192.168.1.1解析  
+    .office 结尾的域名发送到10.0.0.1解析
+    其他域名采用默认的模式解析。
+    这种情况的分流配置如下：
+
+    ```sh
+    #配置上游，用-group指定组名，用-exclude-default-group将服务器从默认组中排除。
+    server 192.168.1.1 -group home -exclude-default-group
+    server 10.0.0.1 -group office -exclude-default-group
+    server 8.8.8.8
+
+    #配置解析的域名
+    nameserver /.home/home
+    nameserver /.office/office
+    ```
+
+    通过上述配置即可实现DNS解析分流
+
+1. 双栈IP优选功能如何使用  
+    目前IPV6已经开始普及，但IPV6网络在速度上，某些情况下还不如IPV4，为在双栈网络下获得较好的体验，smartdns提供来双栈IP优选机制，同一个域名，若IPV4的速度远快与IPV6，那么smartdns就会阻止IPV6的解析，让PC使用IPV4访问，具体配置文件通过`dualstack-ip-selection yes`启用此功能，通过`dualstack-ip-selection-threshold [time]`来修改阈值。
+
+1. 如果提高cache效率，加快访问速度
+    smartdns提供了域名缓存机制，对查询的域名，进行缓存，缓存时间符合DNS TTL规范。为提高缓存命中率，可采用如下措施：  
+    * 适当增大cache的记录数  
+    通过`cache-size`来设置缓存记录数。  
+    查询压力大的环境下，并且有内存大的机器的情况下，可适当调大。  
+
+    * 适当设置最小TTL值  
+    通过`rr-ttl-min`将最低DNS TTL时间设置为一个合理值，延长缓存时间。  
+    建议是超时时间设置在10～30分钟，避免服务器域名变化时，查询到失效域名。
+
+    * 开启域名预获取功能  
+    通过`prefetch-domain yes`来启用域名预先获取功能，提高查询命中率。  
+    配合上述ttl超时时间，smartdns将在域名ttl即将超时使，再次发送查询请求，并缓存查询结果供后续使用。频繁访问的域名将会持续缓存。此功能将在空闲时消耗更多的CPU。
 
 ## [Donate](#Donate)  
 
