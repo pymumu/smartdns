@@ -14,15 +14,15 @@ SmartDNS是一个运行在本地的DNS服务器，SmartDNS接受本地客户端�
 1. [架构](#架构)
 1. [使用](#使用)  
     1. [下载配套安装包](#下载配套安装包)
-    1. [标准Linux系统安装](#标准Linux系统安装/树莓派/X86_64系统)
-    1. [openwrt/LEDE](#openwrt/LEDE)
-    1. [华硕路由器原生固件/梅林固件](#华硕路由器原生固件/梅林固件)
-    1. [optware/entware](#optware/entware)
-    1. [Windows 10 WSL安装/WSL ubuntu](#Windows&#32;10&#32;WSL安装/WSL&#32;ubuntu)
+    1. [标准Linux系统安装](#标准linux系统安装树莓派x86_64系统)
+    1. [openwrt/LEDE](#openwrtlede)
+    1. [华硕路由器原生固件/梅林固件](#华硕路由器原生固件梅林固件)
+    1. [optware/entware](#optwareentware)
+    1. [Windows 10 WSL安装/WSL ubuntu](#windows-10-wsl安装wsl-ubuntu)
 1. [配置参数](#配置参数)
-1. [捐助](#Donate)
+1. [捐助](#donate)
 1. [声明](#声明)
-1. [FAQ](#FAQ)
+1. [FAQ](#faq)
 
 ## 软件效果展示
 
@@ -619,7 +619,7 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
     通过`prefetch-domain yes`来启用域名预先获取功能，提高查询命中率。  
     配合上述ttl超时时间，smartdns将在域名ttl即将超时使，再次发送查询请求，并缓存查询结果供后续使用。频繁访问的域名将会持续缓存。此功能将在空闲时消耗更多的CPU。
 
-## [Donate](#Donate)  
+## 捐助<a name="donate">
 
 如果你觉得此项目对你有帮助，请捐助我们，以使项目能持续发展，更加完善。
 
