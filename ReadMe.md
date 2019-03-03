@@ -131,6 +131,7 @@ Download the matching version of the SmartDNS installation package. The correspo
 |system |package|Description
 |-----|-----|-----
 |Standard Linux system (Raspberry Pi)| smartdns.xxxxxxxx.armhf.deb|Support Raspberry Pi Raspbian stretch, Debian 9 system.
+|Standard Linux system (Armbian arm64)| smartdns.xxxxxxxx.arm64.deb|Support Armbian debian stretch, Debian 9 system.
 |Standard Linux system (x86_64)| smartdns.xxxxxxxx.x86_64.tar.gz|Support for x86_64 Linux systems.
 |Windows 10 WSL (Ubuntu)| smartdns.xxxxxxxx.x86_64.tar.gz|Windows 10 WSL ubuntu.
 |Standard Linux system (x86)| smartdns.xxxxxxxx.x86.tar.gz|Support for x86_64 systems.

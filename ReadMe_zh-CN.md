@@ -134,6 +134,7 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 |系统 |安装包|说明
 |-----|-----|-----
 |标准Linux系统(树莓派)| smartdns.xxxxxxxx.armhf.deb|支持树莓派Raspbian stretch，Debian 9系统。
+|标准Linux系统(Armbian arm64)| smartdns.xxxxxxxx.arm64.deb|支持ARM64的Debian stretch，Debian 9系统。
 |标准Linux系统(x86_64)| smartdns.xxxxxxxx.x86_64.tar.gz|支持x86_64 Linux 系统。
 |Windows 10 WSL (ubuntu)| smartdns.xxxxxxxx.x86_64.tar.gz|支持Windows 10 WSL ubuntu系统。
 |标准Linux系统(x86)| smartdns.xxxxxxxx.x86.tar.gz|支持x86系统。

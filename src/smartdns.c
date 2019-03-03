@@ -290,8 +290,10 @@ static void _sig_error_exit(int signo, siginfo_t *siginfo, void *ct)
 #elif defined(__x86_64__)
 	int *pgregs = (int *)(&(context->uc_mcontext.gregs));
 	PC = pgregs[REG_RIP];
-#elif defined(__aarch64__) || defined(__arm__)
+#elif defined(__arm__)
 	PC = context->uc_mcontext.arm_pc;
+#elif defined(__aarch64__)
+	PC = context->uc_mcontext.pc;
 #elif defined(__mips__)
 	PC = context->uc_mcontext.pc;
 #endif
