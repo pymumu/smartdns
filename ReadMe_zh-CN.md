@@ -577,7 +577,7 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
     address /pass.ad.com/-
     ```
 
-1. DNS查询分流  
+1. 如何使用DNS查询分流  
     某些情况下，需要将有些域名使用特定的DNS服务器来查询来做到DNS分流。比如。
 
     ```sh
@@ -606,7 +606,7 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 1. 双栈IP优选功能如何使用  
     目前IPV6已经开始普及，但IPV6网络在速度上，某些情况下还不如IPV4，为在双栈网络下获得较好的体验，smartdns提供来双栈IP优选机制，同一个域名，若IPV4的速度远快与IPV6，那么smartdns就会阻止IPV6的解析，让PC使用IPV4访问，具体配置文件通过`dualstack-ip-selection yes`启用此功能，通过`dualstack-ip-selection-threshold [time]`来修改阈值。
 
-1. 如果提高cache效率，加快访问速度
+1. 如何提高cache效率，加快访问速度  
     smartdns提供了域名缓存机制，对查询的域名，进行缓存，缓存时间符合DNS TTL规范。为提高缓存命中率，可采用如下措施：  
     * 适当增大cache的记录数  
     通过`cache-size`来设置缓存记录数。  
@@ -620,7 +620,7 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
     通过`prefetch-domain yes`来启用域名预先获取功能，提高查询命中率。  
     配合上述ttl超时时间，smartdns将在域名ttl即将超时使，再次发送查询请求，并缓存查询结果供后续使用。频繁访问的域名将会持续缓存。此功能将在空闲时消耗更多的CPU。
 
-## 捐助<a name="donate">
+## Donate
 
 如果你觉得此项目对你有帮助，请捐助我们，以使项目能持续发展，更加完善。
 
