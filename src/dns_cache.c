@@ -66,7 +66,7 @@ static void _dns_cache_remove(struct dns_cache *dns_cache)
 	dns_cache_release(dns_cache);
 }
 
-int dns_cache_replace(char *domain, char *cname, int cname_ttl, int ttl, dns_type_t qtype, unsigned char *addr, int addr_len)
+int dns_cache_replace(char *domain, char *cname, int cname_ttl, int ttl, dns_type_t qtype, unsigned char *addr, int addr_len, unsigned int speed)
 {
 	struct dns_cache *dns_cache = NULL;
 
@@ -90,6 +90,7 @@ int dns_cache_replace(char *domain, char *cname, int cname_ttl, int ttl, dns_typ
 	dns_cache->qtype = qtype;
 	dns_cache->ttl = ttl;
 	dns_cache->del_pending = 0;
+	dns_cache->speed = speed;
 	time(&dns_cache->insert_time);
 	pthread_mutex_unlock(&dns_cache_head.lock);
 	if (qtype == DNS_T_A) {
@@ -121,7 +122,7 @@ errout:
 	return -1;
 }
 
-int dns_cache_insert(char *domain, char *cname, int cname_ttl, int ttl, dns_type_t qtype, unsigned char *addr, int addr_len)
+int dns_cache_insert(char *domain, char *cname, int cname_ttl, int ttl, dns_type_t qtype, unsigned char *addr, int addr_len, unsigned int speed)
 {
 	uint32_t key = 0;
 	struct dns_cache *dns_cache = NULL;
@@ -155,6 +156,7 @@ int dns_cache_insert(char *domain, char *cname, int cname_ttl, int ttl, dns_type
 	dns_cache->ttl = ttl;
 	dns_cache->hitnum = 2;
 	dns_cache->del_pending = 0;
+	dns_cache->speed = speed;
 	atomic_set(&dns_cache->ref, 1);
 	time(&dns_cache->insert_time);
 	if (qtype == DNS_T_A) {

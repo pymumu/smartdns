@@ -550,33 +550,16 @@ static int _dns_server_request_complete(struct dns_request *request)
 
 			/* if doing prefetch, update cache only */
 			if (request->prefetch) {
-				dns_cache_replace(request->domain, cname, cname_ttl, request->ttl_v4, DNS_T_A, request->ipv4_addr, DNS_RR_A_LEN);
+				dns_cache_replace(request->domain, cname, cname_ttl, request->ttl_v4, DNS_T_A, request->ipv4_addr, DNS_RR_A_LEN, request->ping_ttl_v4);
 			} else {
 				/* insert result to cache */
-				dns_cache_insert(request->domain, cname, cname_ttl, request->ttl_v4, DNS_T_A, request->ipv4_addr, DNS_RR_A_LEN);
+				dns_cache_insert(request->domain, cname, cname_ttl, request->ttl_v4, DNS_T_A, request->ipv4_addr, DNS_RR_A_LEN, request->ping_ttl_v4);
 			}
 
 			request->has_soa = 0;
 		}
 
 	} else if (request->qtype == DNS_T_AAAA) {
-		if (request->has_ipv4 && request->ping_ttl_v4 > 0) {
-			tlog(TLOG_INFO, "result: %s, rcode: %d,  %d.%d.%d.%d\n", request->domain, request->rcode, request->ipv4_addr[0], request->ipv4_addr[1],
-				 request->ipv4_addr[2], request->ipv4_addr[3]);
-
-			/* if ipv4 is fasting than ipv6, add ipv4 to cache, and return SOA for AAAA request */
-			if ((request->ping_ttl_v4 + (dns_conf_dualstack_ip_selection_threshold * 10)) < request->ping_ttl_v6 || request->ping_ttl_v6 < 0) {
-				tlog(TLOG_DEBUG, "Force IPV4 perfered.");
-				if (request->prefetch) {
-					dns_cache_replace(request->domain, cname, cname_ttl, request->ttl_v4, DNS_T_A, request->ipv4_addr, DNS_RR_A_LEN);
-				} else {
-					dns_cache_insert(request->domain, cname, cname_ttl, request->ttl_v4, DNS_T_A, request->ipv4_addr, DNS_RR_A_LEN);
-				}
-
-				return _dns_server_reply_SOA(DNS_RC_NOERROR, request, NULL);
-			}
-		}
-
 		if (request->has_ipv6) {
 			tlog(TLOG_INFO, "result: %s, rcode: %d,  %.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", request->domain, request->rcode,
 				 request->ipv6_addr[0], request->ipv6_addr[1], request->ipv6_addr[2], request->ipv6_addr[3], request->ipv6_addr[4], request->ipv6_addr[5],
@@ -589,15 +572,32 @@ static int _dns_server_request_complete(struct dns_request *request)
 
 			/* if doing prefetch, update cache only */
 			if (request->prefetch) {
-				dns_cache_replace(request->domain, cname, cname_ttl, request->ttl_v6, DNS_T_AAAA, request->ipv6_addr, DNS_RR_AAAA_LEN);
+				dns_cache_replace(request->domain, cname, cname_ttl, request->ttl_v6, DNS_T_AAAA, request->ipv6_addr, DNS_RR_AAAA_LEN, request->ping_ttl_v6);
 			} else {
 				/* insert result to cache */
-				dns_cache_insert(request->domain, cname, cname_ttl, request->ttl_v6, DNS_T_AAAA, request->ipv6_addr, DNS_RR_AAAA_LEN);
+				dns_cache_insert(request->domain, cname, cname_ttl, request->ttl_v6, DNS_T_AAAA, request->ipv6_addr, DNS_RR_AAAA_LEN, request->ping_ttl_v6);
 			}
-
-			request->has_ipv4 = 0;
-			request->has_soa = 0;
 		}
+
+		if (request->has_ipv4 && request->ping_ttl_v4 > 0) {
+			tlog(TLOG_INFO, "result: %s, rcode: %d,  %d.%d.%d.%d\n", request->domain, request->rcode, request->ipv4_addr[0], request->ipv4_addr[1],
+				 request->ipv4_addr[2], request->ipv4_addr[3]);
+
+			/* if ipv4 is fasting than ipv6, add ipv4 to cache, and return SOA for AAAA request */
+			if ((request->ping_ttl_v4 + (dns_conf_dualstack_ip_selection_threshold * 10)) < request->ping_ttl_v6 || request->ping_ttl_v6 < 0) {
+				tlog(TLOG_DEBUG, "Force IPV4 perfered.");
+				if (request->prefetch) {
+					dns_cache_replace(request->domain, cname, cname_ttl, request->ttl_v4, DNS_T_A, request->ipv4_addr, DNS_RR_A_LEN, request->ping_ttl_v4);
+				} else {
+					dns_cache_insert(request->domain, cname, cname_ttl, request->ttl_v4, DNS_T_A, request->ipv4_addr, DNS_RR_A_LEN, request->ping_ttl_v4);
+				}
+
+				return _dns_server_reply_SOA(DNS_RC_NOERROR, request, NULL);
+			}
+			request->has_ipv4 = 0;
+		}
+
+		request->has_soa = 0;
 	}
 
 	if (request->has_soa) {
@@ -1443,6 +1443,16 @@ static int _dns_server_process_cache(struct dns_request *request, struct dns_pac
 
 	if (request->qtype != dns_cache->qtype) {
 		goto errout;
+	}
+
+	if (dns_conf_dualstack_ip_selection && request->qtype == DNS_T_AAAA) {
+		struct dns_cache *dns_cache_A = dns_cache_lookup(request->domain, DNS_T_A);
+		if (dns_cache_A) {
+			if ((dns_cache_A->speed + (dns_conf_dualstack_ip_selection_threshold * 10)) < dns_cache->speed || dns_cache->speed < 0) {
+				tlog(TLOG_DEBUG, "Force IPV4 perfered.");
+				return _dns_server_reply_SOA(DNS_RC_NOERROR, request, NULL);
+			}
+		}
 	}
 
 	/* Cache hits, returning results in the cache */
