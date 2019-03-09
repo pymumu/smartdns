@@ -20,7 +20,7 @@ struct dns_cache {
 	char cname[DNS_MAX_CNAME_LEN];
 	unsigned int cname_ttl;
 	unsigned int ttl;;
-	unsigned int speed;
+	int speed;
 	int hitnum;
 	int del_pending;
 	time_t insert_time;
@@ -34,9 +34,9 @@ struct dns_cache {
 
 int dns_cache_init(int size);
 
-int dns_cache_replace(char *domain, char *cname, int cname_ttl, int ttl, dns_type_t qtype, unsigned char *addr, int addr_len, unsigned int speed);
+int dns_cache_replace(char *domain, char *cname, int cname_ttl, int ttl, dns_type_t qtype, unsigned char *addr, int addr_len, int speed);
 
-int dns_cache_insert(char *domain, char *cname, int cname_ttl, int ttl, dns_type_t qtype, unsigned char *addr, int addr_len, unsigned int speed);
+int dns_cache_insert(char *domain, char *cname, int cname_ttl, int ttl, dns_type_t qtype, unsigned char *addr, int addr_len, int speed);
 
 struct dns_cache *dns_cache_lookup(char *domain, dns_type_t qtype);
 

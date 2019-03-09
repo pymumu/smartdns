@@ -583,7 +583,7 @@ static int _dns_server_request_complete(struct dns_request *request)
 			request->has_soa = 0;
 		}
 
-		if (request->has_ipv4 && request->ping_ttl_v4 > 0) {
+		if (request->has_ipv4 && (request->ping_ttl_v4 > 0)) {
 			tlog(TLOG_INFO, "result: %s, rcode: %d,  %d.%d.%d.%d\n", request->domain, request->rcode, request->ipv4_addr[0], request->ipv4_addr[1],
 				 request->ipv4_addr[2], request->ipv4_addr[3]);
 
@@ -1479,7 +1479,7 @@ static int _dns_server_process_cache(struct dns_request *request, struct dns_pac
 
 	if (dns_conf_dualstack_ip_selection && request->qtype == DNS_T_AAAA) {
 		struct dns_cache *dns_cache_A = dns_cache_lookup(request->domain, DNS_T_A);
-		if (dns_cache_A) {
+		if (dns_cache_A && (dns_cache_A->speed > 0)) {
 			if ((dns_cache_A->speed + (dns_conf_dualstack_ip_selection_threshold * 10)) < dns_cache->speed || dns_cache->speed < 0) {
 				tlog(TLOG_DEBUG, "Force IPV4 perfered.");
 				return _dns_server_reply_SOA(DNS_RC_NOERROR, request, NULL);

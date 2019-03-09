@@ -66,7 +66,7 @@ static void _dns_cache_remove(struct dns_cache *dns_cache)
 	dns_cache_release(dns_cache);
 }
 
-int dns_cache_replace(char *domain, char *cname, int cname_ttl, int ttl, dns_type_t qtype, unsigned char *addr, int addr_len, unsigned int speed)
+int dns_cache_replace(char *domain, char *cname, int cname_ttl, int ttl, dns_type_t qtype, unsigned char *addr, int addr_len, int speed)
 {
 	struct dns_cache *dns_cache = NULL;
 
@@ -122,7 +122,7 @@ errout:
 	return -1;
 }
 
-int dns_cache_insert(char *domain, char *cname, int cname_ttl, int ttl, dns_type_t qtype, unsigned char *addr, int addr_len, unsigned int speed)
+int dns_cache_insert(char *domain, char *cname, int cname_ttl, int ttl, dns_type_t qtype, unsigned char *addr, int addr_len, int speed)
 {
 	uint32_t key = 0;
 	struct dns_cache *dns_cache = NULL;
