@@ -54,6 +54,7 @@
 #define DNS_TCP_IDLE_TIMEOUT (60 * 10)
 #define DNS_TCP_CONNECT_TIMEOUT (5)
 #define DNS_QUERY_TIMEOUT (500)
+#define DNS_QUERY_RETRY (3)
 
 #ifndef TCP_FASTOPEN_CONNECT
 #define TCP_FASTOPEN_CONNECT 30
@@ -199,6 +200,12 @@ struct dns_query_struct {
 	dns_client_callback callback;
 	void *user_ptr;
 
+	/* retry count */
+	atomic_t retry_count;
+
+	/* has result */
+	int has_result;
+
 	/* replied hash table */
 	DECLARE_HASHTABLE(replied_map, 4);
 };
@@ -260,8 +267,8 @@ static int _dns_client_server_exist(struct addrinfo *gai, dns_server_type_t serv
 	return -1;
 }
 
-static void _dns_client_server_update_ttl(struct ping_host_struct *ping_host, const char *host, FAST_PING_RESULT result, struct sockaddr *addr, socklen_t addr_len,
-								   int seqno, int ttl, struct timeval *tv, void *userptr)
+static void _dns_client_server_update_ttl(struct ping_host_struct *ping_host, const char *host, FAST_PING_RESULT result, struct sockaddr *addr,
+										  socklen_t addr_len, int seqno, int ttl, struct timeval *tv, void *userptr)
 {
 	struct dns_server_info *server_info = userptr;
 	if (result != PING_RESULT_RESPONSE || server_info == NULL) {
@@ -566,8 +573,8 @@ static void _dns_client_group_remove_all(void)
 }
 
 /* add dns server information */
-static int _dns_client_server_add(char *server_ip, struct addrinfo *gai, dns_server_type_t server_type, unsigned int server_flag, unsigned int result_flag, int ttl,
-						   char *spki)
+static int _dns_client_server_add(char *server_ip, struct addrinfo *gai, dns_server_type_t server_type, unsigned int server_flag, unsigned int result_flag,
+								  int ttl, char *spki)
 {
 	struct dns_server_info *server_info = NULL;
 	unsigned char *spki_data = NULL;
@@ -773,7 +780,7 @@ static int _dns_client_server_remove(char *server_ip, struct addrinfo *gai, dns_
 }
 
 static int _dns_client_server_operate(char *server_ip, int port, dns_server_type_t server_type, unsigned int server_flag, unsigned int result_flag, int ttl,
-							   char *spki, int operate)
+									  char *spki, int operate)
 {
 	char port_s[8];
 	int sock_type;
@@ -982,48 +989,6 @@ static void _dns_client_check_tcp(void)
 	pthread_mutex_unlock(&client.server_list_lock);
 }
 
-static void _dns_client_period_run_second(void)
-{
-	_dns_client_check_tcp();
-}
-
-static void _dns_client_period_run(void)
-{
-	struct dns_query_struct *query, *tmp;
-	static unsigned int msec = 0;
-	msec++;
-
-	LIST_HEAD(check_list);
-
-	unsigned long now = get_tick_count();
-
-	/* get query which timed out to check list */
-	pthread_mutex_lock(&client.domain_map_lock);
-	list_for_each_entry_safe(query, tmp, &client.dns_request_list, dns_request_list)
-	{
-		if ((now - DNS_QUERY_TIMEOUT >= query->send_tick) && query->send_tick > 0) {
-			list_add(&query->period_list, &check_list);
-			_dns_client_query_get(query);
-		}
-	}
-	pthread_mutex_unlock(&client.domain_map_lock);
-
-	list_for_each_entry_safe(query, tmp, &check_list, period_list)
-	{
-		/* free timed out query, and notify caller */
-		list_del_init(&query->period_list);
-		_dns_client_check_udp_nat(query);
-		_dns_client_query_remove(query);
-		_dns_client_query_release(query);
-	}
-
-	if (msec % 10 == 0) {
-		_dns_client_period_run_second();
-	}
-
-	return;
-}
-
 static struct dns_query_struct *_dns_client_get_request(unsigned short sid, char *domain)
 {
 	struct dns_query_struct *query = NULL;
@@ -1162,6 +1127,10 @@ static int _dns_client_recv(struct dns_server_info *server_info, unsigned char *
 		if (request_num == 0 || ret) {
 			/* if all server replied, or done, stop query, release resource */
 			_dns_client_query_remove(query);
+		}
+
+		if (ret == 0) {
+			query->has_result = 1;
 		}
 	}
 
@@ -1593,7 +1562,7 @@ static int _dns_client_process_tcp(struct dns_server_info *server_info, struct e
 				goto errout;
 			}
 
-			tlog(TLOG_ERROR, "recv failed, %s\n", strerror(errno));
+			tlog(TLOG_ERROR, "recv failed, server %s, %s\n", server_info->ip, strerror(errno));
 			goto errout;
 		}
 
@@ -1899,55 +1868,6 @@ static int _dns_client_process(struct dns_server_info *server_info, struct epoll
 	return 0;
 }
 
-static void *_dns_client_work(void *arg)
-{
-	struct epoll_event events[DNS_MAX_EVENTS + 1];
-	int num;
-	int i;
-	unsigned long now = {0};
-	unsigned int sleep = 100;
-	int sleep_time;
-	unsigned long expect_time = 0;
-
-	sleep_time = sleep;
-	now = get_tick_count() - sleep;
-	expect_time = now + sleep;
-	while (client.run) {
-		now = get_tick_count();
-		if (now >= expect_time) {
-			_dns_client_period_run();
-			sleep_time = sleep - (now - expect_time);
-			if (sleep_time < 0) {
-				sleep_time = 0;
-				expect_time = now;
-			}
-			expect_time += sleep;
-		}
-
-		num = epoll_wait(client.epoll_fd, events, DNS_MAX_EVENTS, sleep_time);
-		if (num < 0) {
-			usleep(100000);
-			continue;
-		}
-
-		for (i = 0; i < num; i++) {
-			struct epoll_event *event = &events[i];
-			struct dns_server_info *server_info = (struct dns_server_info *)event->data.ptr;
-			if (server_info == NULL) {
-				tlog(TLOG_WARN, "server info is invalid.");
-				continue;
-			}
-
-			_dns_client_process(server_info, event, now);
-		}
-	}
-
-	close(client.epoll_fd);
-	client.epoll_fd = -1;
-
-	return NULL;
-}
-
 static int _dns_client_send_udp(struct dns_server_info *server_info, void *packet, int len)
 {
 	int send_len = 0;
@@ -2221,12 +2141,14 @@ int dns_client_query(char *domain, int qtype, dns_client_callback callback, void
 	INIT_LIST_HEAD(&query->dns_request_list);
 	atomic_set(&query->refcnt, 0);
 	atomic_set(&query->dns_request_sent, 0);
+	atomic_set(&query->retry_count, DNS_QUERY_RETRY);
 	hash_init(query->replied_map);
 	strncpy(query->domain, domain, DNS_MAX_CNAME_LEN);
 	query->user_ptr = user_ptr;
 	query->callback = callback;
 	query->qtype = qtype;
 	query->send_tick = 0;
+	query->has_result = 0;
 	query->sid = atomic_inc_return(&dns_client_sid);
 	query->server_group = _dns_client_get_dnsserver_group(group_name);
 	if (query->server_group == NULL) {
@@ -2268,6 +2190,130 @@ errout:
 		free(query);
 	}
 	return -1;
+}
+
+static void _dns_client_check_servers(void)
+{
+	struct dns_server_info *server_info, *tmp;
+	static unsigned int second_count = 0;
+
+	second_count++;
+	if (second_count % 60 != 0) {
+		return;
+	}
+
+	pthread_mutex_lock(&client.server_list_lock);
+	list_for_each_entry_safe(server_info, tmp, &client.dns_server_list, list)
+	{
+		if (server_info->type != DNS_SERVER_UDP) {
+			continue;
+		}
+
+		if (server_info->last_send - 600 > server_info->last_recv) {
+			server_info->recv_buff.len = 0;
+			server_info->send_buff.len = 0;
+			tlog(TLOG_DEBUG, "server %s may failure.", server_info->ip);
+			_dns_client_close_socket(server_info);
+		}
+	}
+	pthread_mutex_unlock(&client.server_list_lock);
+}
+
+static void _dns_client_period_run_second(void)
+{
+	_dns_client_check_tcp();
+	_dns_client_check_servers();
+}
+
+static void _dns_client_period_run(void)
+{
+	struct dns_query_struct *query, *tmp;
+	static unsigned int msec = 0;
+	msec++;
+
+	LIST_HEAD(check_list);
+
+	unsigned long now = get_tick_count();
+
+	/* get query which timed out to check list */
+	pthread_mutex_lock(&client.domain_map_lock);
+	list_for_each_entry_safe(query, tmp, &client.dns_request_list, dns_request_list)
+	{
+		if ((now - DNS_QUERY_TIMEOUT >= query->send_tick) && query->send_tick > 0) {
+			list_add(&query->period_list, &check_list);
+			_dns_client_query_get(query);
+		}
+	}
+	pthread_mutex_unlock(&client.domain_map_lock);
+
+	list_for_each_entry_safe(query, tmp, &check_list, period_list)
+	{
+		/* free timed out query, and notify caller */
+		list_del_init(&query->period_list);
+		_dns_client_check_udp_nat(query);
+		if (atomic_dec_and_test(&query->retry_count) || (query->has_result != 0)) {
+			_dns_client_query_remove(query);
+		} else {
+			tlog(TLOG_DEBUG, "retry query %s", query->domain);
+			_dns_client_send_query(query, query->domain);
+		}
+		_dns_client_query_release(query);
+	}
+
+	if (msec % 10 == 0) {
+		_dns_client_period_run_second();
+	}
+
+	return;
+}
+
+static void *_dns_client_work(void *arg)
+{
+	struct epoll_event events[DNS_MAX_EVENTS + 1];
+	int num;
+	int i;
+	unsigned long now = {0};
+	unsigned int sleep = 100;
+	int sleep_time;
+	unsigned long expect_time = 0;
+
+	sleep_time = sleep;
+	now = get_tick_count() - sleep;
+	expect_time = now + sleep;
+	while (client.run) {
+		now = get_tick_count();
+		if (now >= expect_time) {
+			_dns_client_period_run();
+			sleep_time = sleep - (now - expect_time);
+			if (sleep_time < 0) {
+				sleep_time = 0;
+				expect_time = now;
+			}
+			expect_time += sleep;
+		}
+
+		num = epoll_wait(client.epoll_fd, events, DNS_MAX_EVENTS, sleep_time);
+		if (num < 0) {
+			usleep(100000);
+			continue;
+		}
+
+		for (i = 0; i < num; i++) {
+			struct epoll_event *event = &events[i];
+			struct dns_server_info *server_info = (struct dns_server_info *)event->data.ptr;
+			if (server_info == NULL) {
+				tlog(TLOG_WARN, "server info is invalid.");
+				continue;
+			}
+
+			_dns_client_process(server_info, event, now);
+		}
+	}
+
+	close(client.epoll_fd);
+	client.epoll_fd = -1;
+
+	return NULL;
 }
 
 int dns_client_set_ecs(char *ip, int subnet)

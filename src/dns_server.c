@@ -144,6 +144,8 @@ struct dns_request {
 
 	atomic_t adblock;
 
+	atomic_t soa_num;
+
 	/* send original raw packet to server/client like proxy */
 	int passthrough;
 	int request_wait;
@@ -577,6 +579,8 @@ static int _dns_server_request_complete(struct dns_request *request)
 				/* insert result to cache */
 				dns_cache_insert(request->domain, cname, cname_ttl, request->ttl_v6, DNS_T_AAAA, request->ipv6_addr, DNS_RR_AAAA_LEN, request->ping_ttl_v6);
 			}
+
+			request->has_soa = 0;
 		}
 
 		if (request->has_ipv4 && request->ping_ttl_v4 > 0) {
@@ -594,10 +598,9 @@ static int _dns_server_request_complete(struct dns_request *request)
 
 				return _dns_server_reply_SOA(DNS_RC_NOERROR, request, NULL);
 			}
-			request->has_ipv4 = 0;
 		}
 
-		request->has_soa = 0;
+		request->has_ipv4 = 0;
 	}
 
 	if (request->has_soa) {
@@ -949,6 +952,23 @@ match:
 	return 0;
 }
 
+static int _dns_server_is_adblock_ipv6(unsigned char addr[16])
+{
+	int i = 0;
+
+	for (i = 0; i < 15; i++) {
+		if (addr[i]) {
+			return -1;
+		}
+	}
+
+	if (addr[15] == 0 || addr[15] == 1) {
+		return 0;
+	}
+
+	return -1;
+}
+
 static int _dns_server_process_answer(struct dns_request *request, char *domain, struct dns_packet *packet, unsigned int result_flag)
 {
 	int ttl;
@@ -1086,6 +1106,15 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 					}
 				}
 
+				/* Ad blocking result */
+				if (_dns_server_is_adblock_ipv6(addr) == 0) {
+					/* If half of the servers return the same result, then the domain name result is the IP address. */
+					if (atomic_inc_return(&request->adblock) <= dns_server_num() / 2) {
+						_dns_server_request_release(request);
+						break;
+					}
+				}
+
 				/* add this ip to reqeust */
 				if (_dns_ip_address_check_add(request, addr, DNS_T_AAAA) != 0) {
 					_dns_server_request_release(request);
@@ -1122,6 +1151,9 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 				tlog(TLOG_DEBUG, "domain: %s, qtype: %d, SOA: mname: %s, rname: %s, serial: %d, refresh: %d, retry: %d, expire: %d, minimum: %d", domain,
 					 request->qtype, request->soa.mname, request->soa.rname, request->soa.serial, request->soa.refresh, request->soa.retry, request->soa.expire,
 					 request->soa.minimum);
+				if (atomic_inc_return(&request->soa_num) >= (dns_server_num() / 2)) {
+					_dns_server_request_complete(request);
+				}
 			} break;
 			default:
 				tlog(TLOG_DEBUG, "%s, qtype: %d", name, rrs->type);
@@ -1533,6 +1565,7 @@ static int _dns_server_recv(struct dns_server_conn *client, unsigned char *inpac
 	memset(request, 0, sizeof(*request));
 	pthread_mutex_init(&request->ip_map_lock, NULL);
 	atomic_set(&request->adblock, 0);
+	atomic_set(&request->soa_num, 0);
 	atomic_set(&request->refcnt, 0);
 	request->ping_ttl_v4 = -1;
 	request->ping_ttl_v6 = -1;
