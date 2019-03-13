@@ -3,7 +3,7 @@
 ![SmartDNS](doc/smartdns-banner.png)  
 SmartDNS is a local DNS server. SmartDNS accepts DNS query requests from local clients, obtains DNS query results from multiple upstream DNS servers, and returns the fastest access results to clients.  
 Avoiding DNS pollution and improving network access speed, supports high-performance ad filtering.  
-Unlike dnsmasq's all-servers, smartdns returns the fastest access resolution.
+Unlike dnsmasq's all-servers, smartdns returns the fastest access resolution. （[read more](#faq)）
 
 Support Raspberry Pi, openwrt, ASUS router, Windows and other devices.  
 
@@ -106,7 +106,7 @@ From the comparison, smartdns found the fastest IP address to visit www.baidu.co
    Support standard Linux system (Raspberry Pi), openwrt system various firmware, ASUS router native firmware. Support Windows 10 WSL (Windows Subsystem for Linux).
 
 7. **Support IPV4, IPV6 dual stack**  
-   Support IPV4, IPV6 network, support query A, AAAA record, dual-stack IP selection.
+   Support IPV4, IPV6 network, support query A, AAAA record, dual-stack IP selection, and disale IPV6 AAAA record.
 
 8. **High performance, low resource consumption**  
    Multi-threaded asynchronous IO mode, cache cache query results.
@@ -597,8 +597,8 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
     Nameserver /.office/office
     ```
 
-1. How to use the dual stack IP optimization feature  
-    At present, IPV6 network is not as fast as IPV4 in some cases. In order to get a better experience in the dual-stack network, SmartDNS provides a dual-stack IP optimization mechanism, the same domain name, and the speed of IPV4. Far faster than IPV6, then SmartDNS will block the resolution of IPV6, let the PC use IPV4, the feature is enabled by `dualstack-ip-selection yes`, `dualstack-ip-selection-threshold [time]` is for threshold.
+1. How to use the IPV4, IPV6 dual stack IP optimization feature  
+    At present, IPV6 network is not as fast as IPV4 in some cases. In order to get a better experience in the dual-stack network, SmartDNS provides a dual-stack IP optimization mechanism, the same domain name, and the speed of IPV4. Far faster than IPV6, then SmartDNS will block the resolution of IPV6, let the PC use IPV4, the feature is enabled by `dualstack-ip-selection yes`, `dualstack-ip-selection-threshold [time]` is for threshold. if you want to disable IPV6 AAAA record complete, please try `force-AAAA-SOA yes`.
 
 1. How to improve cache performace  
     Smartdns provides a domain name caching mechanism to cache the queried domain name, and the caching time is in accordance with the DNS TTL specification. To increase the cache hit rate, the following configuration can be taken:

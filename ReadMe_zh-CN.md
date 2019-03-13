@@ -3,7 +3,7 @@
 ![SmartDNS](doc/smartdns-banner.png)  
 SmartDNS是一个运行在本地的DNS服务器，SmartDNS接受本地客户端的DNS查询请求，从多个上游DNS服务器获取DNS查询结果，并将访问速度最快的结果返回给客户端，避免DNS污染，提高网络访问速度。
 同时支持指定特定域名IP地址，并高性匹配，达到过滤广告的效果。  
-与dnsmasq的all-servers不同，smartdns返回的是访问速度最快的解析结果。  
+与dnsmasq的all-servers不同，smartdns返回的是访问速度最快的解析结果。 (详细差异请看[FAQ](#faq)) 
 
 支持树莓派，openwrt，华硕路由器，windows等设备。  
 
@@ -109,7 +109,7 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
    支持标准Linux系统（树莓派），openwrt系统各种固件，华硕路由器原生固件。以及支持Windows 10 WSL (Windows Subsystem for Linux)。
 
 1. **支持IPV4, IPV6双栈**  
-   支持IPV4，IPV6网络，支持查询A, AAAA记录，支持双栈IP速度优化。
+   支持IPV4，IPV6网络，支持查询A, AAAA记录，支持双栈IP速度优化，并支持完全禁用IPV6 AAAA解析。
 
 1. **高性能，占用资源少**  
    多线程异步IO模式，cache缓存查询结果。
@@ -531,7 +531,7 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 ## FAQ
 
 1. SmartDNS和DNSMASQ有什么区别  
-    SMARTDNS在设计上并不是替换DNSMASQ的，MARTDNS主要功能集中在DNS解析增强上，增强部分有
+    SMARTDNS在设计上并不是替换DNSMASQ的，SMARTDNS主要功能集中在DNS解析增强上，增强部分有：
     * 多上游服务器并发请求，对结果进行测速后，返回最佳结果；
     * address，ipset域名匹配采用高效算法，查询匹配更加快速高效，路由器设备依然高效。
     * 域名匹配支持忽略特定域名，可单独匹配IPv4， IPV6，支持多样化定制。
@@ -603,8 +603,8 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 
     通过上述配置即可实现DNS解析分流
 
-1. 双栈IP优选功能如何使用  
-    目前IPV6已经开始普及，但IPV6网络在速度上，某些情况下还不如IPV4，为在双栈网络下获得较好的体验，smartdns提供来双栈IP优选机制，同一个域名，若IPV4的速度远快与IPV6，那么smartdns就会阻止IPV6的解析，让PC使用IPV4访问，具体配置文件通过`dualstack-ip-selection yes`启用此功能，通过`dualstack-ip-selection-threshold [time]`来修改阈值。
+1. IPV4, IPV6双栈IP优选功能如何使用  
+    目前IPV6已经开始普及，但IPV6网络在速度上，某些情况下还不如IPV4，为在双栈网络下获得较好的体验，smartdns提供来双栈IP优选机制，同一个域名，若IPV4的速度远快与IPV6，那么smartdns就会阻止IPV6的解析，让PC使用IPV4访问，具体配置文件通过`dualstack-ip-selection yes`启用此功能，通过`dualstack-ip-selection-threshold [time]`来修改阈值。如果要完全禁止IPV6 AAAA记录解析，可设置`force-AAAA-SOA yes`。
 
 1. 如何提高cache效率，加快访问速度  
     smartdns提供了域名缓存机制，对查询的域名，进行缓存，缓存时间符合DNS TTL规范。为提高缓存命中率，可采用如下措施：  
