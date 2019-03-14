@@ -1270,7 +1270,7 @@ static int _DNS_client_create_socket_tls(struct dns_server_info *server_info)
 
 	if (connect(fd, (struct sockaddr *)&server_info->addr, server_info->ai_addrlen) != 0) {
 		if (errno != EINPROGRESS) {
-			tlog(TLOG_ERROR, "connect failed.");
+			tlog(TLOG_ERROR, "connect %s failed, %s", server_info->ip, strerror(errno));
 			goto errout;
 		}
 	}

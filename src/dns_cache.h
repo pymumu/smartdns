@@ -21,7 +21,7 @@ struct dns_cache {
 	unsigned int cname_ttl;
 	unsigned int ttl;;
 	int speed;
-	int hitnum;
+	atomic_t hitnum;
 	int del_pending;
 	time_t insert_time;
 	dns_type_t qtype;

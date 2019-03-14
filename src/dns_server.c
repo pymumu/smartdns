@@ -1467,6 +1467,7 @@ errout:
 static int _dns_server_process_cache(struct dns_request *request, struct dns_packet *packet)
 {
 	struct dns_cache *dns_cache = NULL;
+	struct dns_cache *dns_cache_A = NULL;
 
 	dns_cache = dns_cache_lookup(request->domain, request->qtype);
 	if (dns_cache == NULL) {
@@ -1478,10 +1479,12 @@ static int _dns_server_process_cache(struct dns_request *request, struct dns_pac
 	}
 
 	if (dns_conf_dualstack_ip_selection && request->qtype == DNS_T_AAAA) {
-		struct dns_cache *dns_cache_A = dns_cache_lookup(request->domain, DNS_T_A);
+		dns_cache_A = dns_cache_lookup(request->domain, DNS_T_A);
 		if (dns_cache_A && (dns_cache_A->speed > 0)) {
 			if ((dns_cache_A->speed + (dns_conf_dualstack_ip_selection_threshold * 10)) < dns_cache->speed || dns_cache->speed < 0) {
 				tlog(TLOG_DEBUG, "Force IPV4 perfered.");
+				dns_cache_release(dns_cache_A);
+				dns_cache_release(dns_cache);
 				return _dns_server_reply_SOA(DNS_RC_NOERROR, request, NULL);
 			}
 		}
@@ -1515,10 +1518,19 @@ static int _dns_server_process_cache(struct dns_request *request, struct dns_pac
 	dns_cache_update(dns_cache);
 	dns_cache_release(dns_cache);
 
+	if (dns_cache_A) {
+		dns_cache_release(dns_cache_A);
+		dns_cache_A = NULL;
+	}
+
 	return 0;
 errout:
 	if (dns_cache) {
 		dns_cache_release(dns_cache);
+	}
+	if (dns_cache_A) {
+		dns_cache_release(dns_cache_A);
+		dns_cache_A = NULL;
 	}
 	return -1;
 }
@@ -2064,14 +2076,12 @@ static void _dns_server_tcp_ping_check(struct dns_request *request)
 static void _dns_server_prefetch_domain(struct dns_cache *dns_cache)
 {
 	/* If there are still hits, continue pre-fetching */
-	if (dns_cache->hitnum <= 0) {
+	if (atomic_dec_return(&dns_cache->hitnum) <= 0) {
 		return;
 	}
 
-	dns_cache->hitnum--;
-
 	/* start prefetch domain */
-	tlog(TLOG_DEBUG, "prefetch by cache %s, qtype %d, ttl %d, hitnum %d", dns_cache->domain, dns_cache->qtype, dns_cache->ttl, dns_cache->hitnum);
+	tlog(TLOG_DEBUG, "prefetch by cache %s, qtype %d, ttl %d, hitnum %d", dns_cache->domain, dns_cache->qtype, dns_cache->ttl, atomic_read(&dns_cache->hitnum));
 	if (_dns_server_prefetch_request(dns_cache->domain, dns_cache->qtype) != 0) {
 		tlog(TLOG_ERROR, "prefetch domain %s, qtype %d, failed.", dns_cache->domain, dns_cache->qtype);
 	}
