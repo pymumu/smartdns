@@ -160,7 +160,43 @@ Download the matching version of the SmartDNS installation package. The correspo
     src/gz chaos_calmer_base http://downloads.openwrt.org/chaos_calmer/15.05/ar71xx/generic/packages/base
     ```
 
-    Please download it from the Release page: [Download here](https://github.com/pymumu/smartdns/releases)
+* Or after login to the system, you can query the architecture with the following commands:
+
+  * **Openwrt series commands**
+
+    ```shell
+    opkg print_architecture
+    ```
+
+  * **Optiware series commands**
+
+    ```shell
+    ipkg print_architecture
+    ```
+
+  * **Dedebian Series Order**
+
+    ```shell
+    dpkg -- print-architecture
+    ```
+
+  * **for example**
+
+    The following query result `arch ar71xx 10` represents the ar71xx series architecture, so select the `smartdns.xxxxxxx.ar71xx.ipk` installation package.
+
+    ```shell
+    Root@OpenWrt:# opkg print_architecture
+    Arch all 1
+    Arch noarch 1
+    Arch ar71xx 10
+    ```
+
+* **Please download from the Release page: [Download here](https://github.com/pymu/smartdns/releases)**
+
+```shell
+https://github.com/pymu/smartdns/releases
+```
+
 * For the installation procedure, please refer to the following sections.
 
 ### Standard Linux system installation/Raspberry Pi, X86_64 system

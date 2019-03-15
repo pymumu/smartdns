@@ -163,7 +163,43 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
     src/gz chaos_calmer_base http://downloads.openwrt.org/chaos_calmer/15.05/ar71xx/generic/packages/base
     ```
 
-    请在Release页面下载：[此处下载](https://github.com/pymumu/smartdns/releases)
+* 或ssh登录系统后通过如下命令查询软件架构：
+
+  * **openwrt系列命令**
+
+    ```shell
+    opkg print_architecture
+    ```
+
+  * **optware系列命令**
+
+    ```shell
+    ipkg print_architecture
+    ```
+
+  * **debian系列命令**
+
+    ```shell
+    dpkg --print-architecture
+    ```
+
+  * **例如**
+
+    下面的查询结果`arch ar71xx 10`表示ar71xx系列架构，选择`smartdns.xxxxxxxx.ar71xx.ipk`安装包
+
+    ```shell
+    root@OpenWrt:~# opkg print_architecture
+    arch all 1
+    arch noarch 1
+    arch ar71xx 10
+    ```
+
+* **请在Release页面下载：[点击此处下载](https://github.com/pymumu/smartdns/releases)**
+
+```shell
+https://github.com/pymumu/smartdns/releases
+```
+
 * 各种设备的安装步骤，请参考后面的章节。
 
 ### 标准Linux系统安装/树莓派/X86_64系统
