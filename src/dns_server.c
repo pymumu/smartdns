@@ -2318,13 +2318,15 @@ static int _dns_create_socket(const char *host_ip, int type)
 		goto errout;
 	}
 
-	if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) != 0) {
-		tlog(TLOG_ERROR, "set socket opt failed.");
-		goto errout;
+	if (type == SOCK_STREAM) {
+		if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) != 0) {
+			tlog(TLOG_ERROR, "set socket opt failed.");
+			goto errout;
+		}
 	}
 
 	if (bind(fd, gai->ai_addr, gai->ai_addrlen) != 0) {
-		tlog(TLOG_ERROR, "bind failed.\n");
+		tlog(TLOG_ERROR, "bind service failed, %s\n", strerror(errno));
 		goto errout;
 	}
 
