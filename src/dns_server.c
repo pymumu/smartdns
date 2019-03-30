@@ -2222,7 +2222,21 @@ static void _dns_server_tcp_idle_check(void)
 static void _dns_server_period_run_second(void)
 {
 	static unsigned int sec = 0;
+	static time_t last = 0;
+	time_t now;
 	sec++;
+
+	time(&now);
+	if (last == 0) {
+		last = now;
+	}
+
+	if (now - 180 > last) {
+		dns_cache_invalidate(NULL, 0);
+		tlog(TLOG_WARN, "Service paused for 180s, force invalidate cache.");
+	}
+	
+	last = now;
 
 	if (sec % 2 == 0) {
 		if (dns_conf_prefetch) {
