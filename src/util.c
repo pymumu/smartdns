@@ -12,10 +12,11 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
-#include <sys/types.h>
-#include <sys/stat.h>
+#include <inttypes.h>
 
 #define TMP_BUFF_LEN_32 32
 
@@ -189,6 +190,53 @@ int parse_ip(const char *value, char *ip, int *port)
 		return -1;
 	}
 
+	return 0;
+}
+
+int parse_uri(char *value, char *scheme, char *host, int *port, char *path)
+{
+	char *scheme_end = NULL;
+	int field_len = 0;
+	char *process_ptr = value;
+	char host_name[PATH_MAX];
+
+	char *host_end = NULL;
+
+	scheme_end = strstr(value, "://");
+	if (scheme_end) {
+		field_len = scheme_end - value;
+		if (scheme) {
+			memcpy(scheme, value, field_len);
+			scheme[field_len + 1] = 0;
+		}
+		process_ptr += field_len + 3;
+	} else {
+		if (scheme) {
+			scheme[0] = '\0';
+		}
+	}
+
+	host_end = strstr(process_ptr, "/");
+	if (host_end == NULL) {
+		return parse_ip(process_ptr, host, port);
+	};
+
+	field_len = host_end - process_ptr;
+	if (field_len >= sizeof(host_name)) {
+		return -1;
+	}
+	memcpy(host_name, process_ptr, field_len);
+	host_name[field_len + 1] = 0;
+
+	if (parse_ip(host_name, host, port) != 0) {
+		return -1;
+	}
+
+	process_ptr += field_len;
+
+	if (path) {
+		strcpy(path, process_ptr);
+	} 
 	return 0;
 }
 
@@ -457,7 +505,7 @@ static __attribute__((unused)) void _pthreads_locking_callback(int mode, int typ
 	}
 }
 
-static __attribute__((unused))  unsigned long _pthreads_thread_id(void)
+static __attribute__((unused)) unsigned long _pthreads_thread_id(void)
 {
 	unsigned long ret;
 
@@ -498,4 +546,198 @@ void SSL_CRYPTO_thread_cleanup(void)
 	}
 	OPENSSL_free(lock_cs);
 	OPENSSL_free(lock_count);
+}
+
+#define SERVER_NAME_LEN 256
+#define TLS_HEADER_LEN 5
+#define TLS_HANDSHAKE_CONTENT_TYPE 0x16
+#define TLS_HANDSHAKE_TYPE_CLIENT_HELLO 0x01
+#ifndef MIN
+#define MIN(X, Y) ((X) < (Y) ? (X) : (Y))
+#endif
+typedef struct Protocol {
+    const char *const name;
+    const uint16_t default_port;
+    int (*const parse_packet)(const char*, size_t, char *, const char **);
+    const char *const abort_message;
+    const size_t abort_message_len;
+} protocol_t;
+
+static int parse_extensions(const char *, size_t, char *, const char **);
+static int parse_server_name_extension(const char *, size_t, char *, const char **);
+
+const struct Protocol *const tls_protocol;
+
+static const protocol_t tls_protocol_st = {
+	.default_port = 443,
+	.parse_packet = &parse_tls_header,
+};
+const protocol_t *const tls_protocol = &tls_protocol_st;
+
+/* Parse a TLS packet for the Server Name Indication extension in the client
+ * hello handshake, returning the first servername found (pointer to static
+ * array)
+ *
+ * Returns:
+ *  >=0  - length of the hostname and updates *hostname
+ *         caller is responsible for freeing *hostname
+ *  -1   - Incomplete request
+ *  -2   - No Host header included in this request
+ *  -3   - Invalid hostname pointer
+ *  -4   - malloc failure
+ *  < -4 - Invalid TLS client hello
+ */
+int parse_tls_header(const char *data, size_t data_len, char *hostname, const char **hostname_ptr)
+{
+	char tls_content_type;
+	char tls_version_major;
+	char tls_version_minor;
+	size_t pos = TLS_HEADER_LEN;
+	size_t len;
+
+	if (hostname == NULL)
+		return -3;
+
+	/* Check that our TCP payload is at least large enough for a TLS header */
+	if (data_len < TLS_HEADER_LEN)
+		return -1;
+
+	/* SSL 2.0 compatible Client Hello
+	 *
+	 * High bit of first byte (length) and content type is Client Hello
+	 *
+	 * See RFC5246 Appendix E.2
+	 */
+	if (data[0] & 0x80 && data[2] == 1) {
+		return -2;
+	}
+
+	tls_content_type = data[0];
+	if (tls_content_type != TLS_HANDSHAKE_CONTENT_TYPE) {
+		return -5;
+	}
+
+	tls_version_major = data[1];
+	tls_version_minor = data[2];
+	if (tls_version_major < 3) {
+		return -2;
+	}
+
+	/* TLS record length */
+	len = ((unsigned char)data[3] << 8) + (unsigned char)data[4] + TLS_HEADER_LEN;
+	data_len = MIN(data_len, len);
+
+	/* Check we received entire TLS record length */
+	if (data_len < len)
+		return -1;
+
+	/*
+	 * Handshake
+	 */
+	if (pos + 1 > data_len) {
+		return -5;
+	}
+	if (data[pos] != TLS_HANDSHAKE_TYPE_CLIENT_HELLO) {
+		return -5;
+	}
+
+	/* Skip past fixed length records:
+	 * 1	Handshake Type
+	 * 3	Length
+	 * 2	Version (again)
+	 * 32	Random
+	 * to	Session ID Length
+	 */
+	pos += 38;
+
+	/* Session ID */
+	if (pos + 1 > data_len)
+		return -5;
+	len = (unsigned char)data[pos];
+	pos += 1 + len;
+
+	/* Cipher Suites */
+	if (pos + 2 > data_len)
+		return -5;
+	len = ((unsigned char)data[pos] << 8) + (unsigned char)data[pos + 1];
+	pos += 2 + len;
+
+	/* Compression Methods */
+	if (pos + 1 > data_len)
+		return -5;
+	len = (unsigned char)data[pos];
+	pos += 1 + len;
+
+	if (pos == data_len && tls_version_major == 3 && tls_version_minor == 0) {
+		return -2;
+	}
+
+	/* Extensions */
+	if (pos + 2 > data_len)
+		return -5;
+	len = ((unsigned char)data[pos] << 8) + (unsigned char)data[pos + 1];
+	pos += 2;
+
+	if (pos + len > data_len)
+		return -5;
+	return parse_extensions(data + pos, len, hostname, hostname_ptr);
+}
+
+static int parse_extensions(const char *data, size_t data_len, char *hostname, const char **hostname_ptr)
+{
+	size_t pos = 0;
+	size_t len;
+
+	/* Parse each 4 bytes for the extension header */
+	while (pos + 4 <= data_len) {
+		/* Extension Length */
+		len = ((unsigned char)data[pos + 2] << 8) + (unsigned char)data[pos + 3];
+
+		/* Check if it's a server name extension */
+		if (data[pos] == 0x00 && data[pos + 1] == 0x00) {
+			/* There can be only one extension of each type, so we break
+			 * our state and move p to beinnging of the extension here */
+			if (pos + 4 + len > data_len)
+				return -5;
+			return parse_server_name_extension(data + pos + 4, len, hostname, hostname_ptr);
+		}
+		pos += 4 + len; /* Advance to the next extension header */
+	}
+	/* Check we ended where we expected to */
+	if (pos != data_len)
+		return -5;
+
+	return -2;
+}
+
+static int parse_server_name_extension(const char *data, size_t data_len, char *hostname, const char **hostname_ptr)
+{
+	size_t pos = 2; /* skip server name list length */
+	size_t len;
+
+	while (pos + 3 < data_len) {
+		len = ((unsigned char)data[pos + 1] << 8) + (unsigned char)data[pos + 2];
+
+		if (pos + 3 + len > data_len)
+			return -5;
+
+		switch (data[pos]) { /* name type */
+		case 0x00:           /* host_name */
+			strncpy(hostname, data + pos + 3, len);
+			if (hostname_ptr) {
+				*hostname_ptr = data + pos + 3;
+			}
+			hostname[len] = '\0';
+
+			return len;
+		default:
+			break;
+		}
+		pos += 3 + len;
+	}
+	/* Check we ended where we expected to */
+	if (pos != data_len)
+		return -5;
+
+	return -2;
 }

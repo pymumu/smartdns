@@ -155,9 +155,11 @@ load_server()
 		SERVER="server-tcp"
 	elif [ "$type" = "tls" ]; then
 		SERVER="server-tls"
+	elif [ "$type" = "https" ]; then
+		SERVER="server-https"
 	fi
 
-	if [ ! -z "`echo $ip | grep ":"`" ]; then
+	if [ ! -z "`echo $ip | grep ":" | grep -v "https://"`" ]; then
 		if [ -z "`echo $ip | grep "\["`" ]; then
 			ip="[$ip]"
 		fi
@@ -182,6 +184,10 @@ load_server()
 	if [ ! -z "$port" ]; then
 		DNS_ADDRESS="$ip:$port"
 	else
+		DNS_ADDRESS="$ip"
+	fi
+
+	if [ "$type" = "https" ]; then
 		DNS_ADDRESS="$ip"
 	fi
 

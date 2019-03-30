@@ -119,6 +119,9 @@ struct dns_request {
 		struct sockaddr addr;
 	};
 
+	dns_result_callback result_callback;
+	void *user_ptr;
+
 	int has_ping_result;
 	int has_ping_tcp;
 	int has_ptr;
@@ -522,6 +525,45 @@ static int _dns_setup_ipset(struct dns_request *request)
 	return ret;
 }
 
+static int _dns_result_callback(struct dns_request *request)
+{
+	char ip[DNS_MAX_CNAME_LEN];
+
+	if (request->result_callback == NULL) {
+		return 0;
+	}
+
+	ip[0] = 0;
+	if (request->qtype == DNS_T_A) {
+		if (request->has_ipv4 == 0) {
+			goto out;
+		}
+
+		sprintf(ip, "%d.%d.%d.%d", request->ipv4_addr[0], request->ipv4_addr[1], request->ipv4_addr[2], request->ipv4_addr[3]);
+
+		return request->result_callback(request->domain, request->rcode, request->qtype, ip, request->user_ptr);
+	} else if (request->qtype == DNS_T_AAAA) {
+		if (request->has_ipv6 == 0) {
+			goto out;
+		}
+
+		sprintf(ip, "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", 
+				 request->ipv6_addr[0], request->ipv6_addr[1], request->ipv6_addr[2], request->ipv6_addr[3], request->ipv6_addr[4], request->ipv6_addr[5],
+				 request->ipv6_addr[6], request->ipv6_addr[7], request->ipv6_addr[8], request->ipv6_addr[9], request->ipv6_addr[10], request->ipv6_addr[11],
+				 request->ipv6_addr[12], request->ipv6_addr[13], request->ipv6_addr[14], request->ipv6_addr[15]);
+
+		return request->result_callback(request->domain, request->rcode, request->qtype, ip, request->user_ptr);
+	}
+
+	request->result_callback(request->domain, DNS_RC_NXDOMAIN, request->qtype, ip, request->user_ptr);
+
+	return 0;
+out:
+
+	request->result_callback(request->domain, DNS_RC_NXDOMAIN, request->qtype, ip, request->user_ptr);
+	return 0;
+}
+
 static int _dns_server_request_complete(struct dns_request *request)
 {
 	char *cname = NULL;
@@ -609,6 +651,8 @@ static int _dns_server_request_complete(struct dns_request *request)
 
 	/* update ipset */
 	_dns_setup_ipset(request);
+
+	_dns_result_callback(request);
 
 	if (request->prefetch) {
 		return 0;
@@ -1514,7 +1558,13 @@ static int _dns_server_process_cache(struct dns_request *request, struct dns_pac
 	}
 
 	request->rcode = DNS_RC_NOERROR;
-	_dns_reply(request);
+
+	_dns_result_callback(request);
+
+	if (request->prefetch == 0) {
+		_dns_reply(request);
+	}
+
 	dns_cache_update(dns_cache);
 	dns_cache_release(dns_cache);
 
@@ -1779,6 +1829,68 @@ static int _dns_server_process_udp(struct dns_server_conn *dnsserver, struct epo
 	}
 
 	return _dns_server_recv(dnsserver, inpacket, len, &from, from_len);
+}
+
+int dns_server_query(char *domain, int qtype, dns_result_callback callback, void *user_ptr)
+{
+	int ret = -1;
+	struct dns_request *request = NULL;
+	const char *group_name = NULL;
+
+	request = malloc(sizeof(*request));
+	if (request == NULL) {
+		tlog(TLOG_ERROR, "malloc failed.\n");
+		goto errout;
+	}
+	memset(request, 0, sizeof(*request));
+	pthread_mutex_init(&request->ip_map_lock, NULL);
+	atomic_set(&request->adblock, 0);
+	request->ping_ttl_v4 = -1;
+	request->ping_ttl_v6 = -1;
+	request->prefetch = 1;
+	request->qtype = qtype;
+	request->rcode = DNS_RC_SERVFAIL;
+	request->result_callback = callback;
+	request->user_ptr = user_ptr;
+
+	request->id = 0;
+	hash_init(request->ip_map);
+	strncpy(request->domain, domain, DNS_MAX_CNAME_LEN);
+
+	/* lookup domain rule */
+	request->domain_rule = _dns_server_get_domain_rule(request->domain);
+
+	tlog(TLOG_INFO, "query domain %s, qtype = %d\n", request->domain, qtype);
+
+	/* process cache */
+	if (_dns_server_process_cache(request, NULL) == 0) {
+		ret = 0;
+		goto clean_exit;
+	}
+
+	_dns_server_request_get(request);
+	pthread_mutex_lock(&server.request_list_lock);
+	list_add_tail(&request->list, &server.request_list);
+	pthread_mutex_unlock(&server.request_list_lock);
+
+	_dns_server_request_get(request);
+	request->send_tick = get_tick_count();
+	request->request_wait++;
+
+	if (request->domain_rule) {
+		/* get nameserver rule */
+		if (request->domain_rule->rules[DOMAIN_RULE_NAMESERVER]) {
+			struct dns_nameserver_rule *nameserver_rule = request->domain_rule->rules[DOMAIN_RULE_NAMESERVER];
+			group_name = nameserver_rule->group_name;
+		}
+	}
+
+	/* send request */
+	ret = dns_client_query(request->domain, qtype, dns_server_resolve_callback, request, group_name);
+clean_exit:
+	return ret;
+errout:
+	return ret;	
 }
 
 static void _dns_server_client_touch(struct dns_server_conn *client)

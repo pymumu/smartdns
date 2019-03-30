@@ -94,7 +94,7 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
    支持从域名所属IP地址列表中查找到访问速度最快的IP地址，并返回给客户端，避免DNS污染，提高网络访问速度。
 
 1. **支持多种查询协议**  
-   支持UDP，TCP，TLS查询，以及非53端口查询，有效避免DNS污染。
+   支持UDP，TCP，TLS, HTTPS查询，以及非53端口查询，有效避免DNS污染。
 
 1. **特定域名IP地址指定**  
    支持指定域名的IP地址，达到广告过滤效果，避免恶意网站的效果。
@@ -552,6 +552,7 @@ https://github.com/pymumu/smartdns/releases
 |server|上游UDP DNS|无|可重复<br>`[ip][:port]`：服务器IP，端口可选。<br>`[-blacklist-ip]`：blacklist-ip参数指定使用blacklist-ip配置IP过滤结果。<br>`[-check-edns]`：edns过滤。<br>`[-group [group] ...]`：DNS服务器所属组，比如office, foreign，和nameserver配套使用。<br>`[-exclude-default-group]`：将DNS服务器从默认组中排除| server 8.8.8.8:53 -blacklist-ip -check-edns -group g1
 |server-tcp|上游TCP DNS|无|可重复<br>`[ip][:port]`：服务器IP，端口可选。<br>`[-blacklist-ip]`：blacklist-ip参数指定使用blacklist-ip配置IP过滤结果。<br>`[-group [group] ...]`：DNS服务器所属组，比如office, foreign，和nameserver配套使用。<br>`[-exclude-default-group]`：将DNS服务器从默认组中排除| server-tcp 8.8.8.8:53
 |server-tls|上游TLS DNS|无|可重复<br>`[ip][:port]`：服务器IP，端口可选。<br>`[-spki-pin [sha256-pin]]`: TLS合法性校验SPKI值，base64编码的sha256 SPKI pin值<br>`[-blacklist-ip]`：blacklist-ip参数指定使用blacklist-ip配置IP过滤结果。<br>`[-group [group] ...]`：DNS服务器所属组，比如office, foreign，和nameserver配套使用。<br>`[-exclude-default-group]`：将DNS服务器从默认组中排除| server-tls 8.8.8.8:853
+|server-https|上游HTTPS DNS|无|可重复<br>`https://[host][:port]/path`：服务器IP，端口可选。<br>`[-spki-pin [sha256-pin]]`: TLS合法性校验SPKI值，base64编码的sha256 SPKI pin值<br>`[-blacklist-ip]`：blacklist-ip参数指定使用blacklist-ip配置IP过滤结果。<br>`[-group [group] ...]`：DNS服务器所属组，比如office, foreign，和nameserver配套使用。<br>`[-exclude-default-group]`：将DNS服务器从默认组中排除| server-https https://cloudflare-dns.com/dns-query
 |address|指定域名IP地址|无|address /domain/[ip\|-\|-4\|-6\|#\|#4\|#6] <br>`-`表示忽略 <br>`#`表示返回SOA <br>`4`表示IPV4 <br>`6`表示IPV6| address /www.example.com/1.2.3.4
 |nameserver|指定域名使用server组解析|无|nameserver /domain/[group\|-], `group`为组名，`-`表示忽略此规则，配套server中的`-group`参数使用| nameserver /www.example.com/office
 |ipset|域名IPSET|None|ipset /domain/[ipset\|-], `-`表示忽略|ipset /www.example.com/pass
@@ -573,7 +574,7 @@ https://github.com/pymumu/smartdns/releases
     * 域名匹配支持忽略特定域名，可单独匹配IPv4， IPV6，支持多样化定制。
     * 针对广告屏蔽功能做增强，返回SOA，屏蔽广告效果更佳；
     * IPV4，IPV6双栈IP优选机制，在双网情况下，选择最快的网络通讯。
-    * 支持最新的TLS协议，提供安全的DNS查询能力。
+    * 支持最新的TLS, HTTPS协议，提供安全的DNS查询能力。
     * DNS防抢答机制，及多种机制避免DNS污染。
     * ECS支持，是查询结果更佳准确。
     * IP黑名单，忽略IP机制，使域名查询更佳准确。

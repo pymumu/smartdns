@@ -16,9 +16,11 @@
 #define DNS_NAX_GROUP_NUMBER 16
 #define DNS_MAX_IPLEN 64
 #define DNS_MAX_SPKI_LEN 64
+#define DNS_MAX_URL_LEN 256
 #define DNS_MAX_PATH 1024
 #define DEFAULT_DNS_PORT 53
 #define DEFAULT_DNS_TLS_PORT 853
+#define DEFAULT_DNS_HTTPS_PORT 443
 #define DNS_MAX_CONF_CNAME_LEN 128
 #define SMARTDNS_CONF_FILE "/etc/smartdns/smartdns.conf"
 #define SMARTDNS_LOG_FILE "/var/log/smartdns.log"
@@ -93,6 +95,8 @@ struct dns_servers {
 	int ttl;
 	dns_server_type_t type;
 	char spki[DNS_MAX_SPKI_LEN];
+	char hostname[DNS_MAX_CNAME_LEN];
+	char path[DNS_MAX_URL_LEN];
 };
 
 /* ip address lists of domain */
@@ -131,6 +135,7 @@ struct dns_conf_address_rule {
 
 extern char dns_conf_server_ip[DNS_MAX_IPLEN];
 extern char dns_conf_server_tcp_ip[DNS_MAX_IPLEN];
+
 extern int dns_conf_tcp_idle_time;
 extern int dns_conf_cachesize;
 extern int dns_conf_prefetch;
@@ -165,6 +170,8 @@ extern int dns_conf_ipset_timeout_enable;
 
 extern struct dns_edns_client_subnet dns_conf_ipv4_ecs;
 extern struct dns_edns_client_subnet dns_conf_ipv6_ecs;
+
+extern char dns_conf_sni_proxy_ip[DNS_MAX_IPLEN];
 
 void dns_server_load_exit(void);
 

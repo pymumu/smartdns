@@ -5,6 +5,19 @@ chmod +x /etc/init.d/smartdns
 mkdir -p /var/etc/smartdns/
 
 [ "${IPKG_NO_SCRIPT}" = "1" ] && exit 0
+
+if [ ! -f "/var/etc/smartdns/address.conf" ]; then
+    cp /etc/smartdns/address.conf /var/etc/smartdns/address.conf
+fi
+
+if [ ! -f "/var/etc/smartdns/blacklist-ip.conf" ]; then
+    cp /etc/smartdns/blacklist-ip.conf /var/etc/smartdns/blacklist-ip.conf
+fi
+
+if [ ! -f "/var/etc/smartdns/custom.conf" ]; then
+    cp /etc/smartdns/custom.conf /var/etc/smartdns/custom.conf
+fi
+
 . ${IPKG_INSTROOT}/lib/functions.sh
 default_postinst $0 $@
 ret=$?

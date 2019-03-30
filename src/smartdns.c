@@ -127,10 +127,38 @@ static int _smartdns_add_servers(void)
 	int ret = 0;
 	struct dns_server_groups *group = NULL;
 	struct dns_servers *server = NULL;
+	struct client_dns_server_flags flags;
 
 	for (i = 0; i < dns_conf_server_num; i++) {
-		ret = dns_client_add_server(dns_conf_servers[i].server, dns_conf_servers[i].port, dns_conf_servers[i].type, dns_conf_servers[i].server_flag,
-									dns_conf_servers[i].result_flag, dns_conf_servers[i].ttl, dns_conf_servers[i].spki);
+		memset(&flags, 0, sizeof(flags));
+		switch (dns_conf_servers[i].type) {
+		case DNS_SERVER_UDP: {
+			struct client_dns_server_flag_udp *flag_udp = &flags.udp;
+			flag_udp->ttl = dns_conf_servers[i].ttl;
+		} break;
+		case DNS_SERVER_HTTPS: {
+			struct client_dns_server_flag_https *flag_http = &flags.https;
+			flag_http->spi_len = dns_client_spki_decode(dns_conf_servers[i].spki, (unsigned char *)flag_http->spki);
+			strncpy(flag_http->host, dns_conf_servers[i].hostname, sizeof(flag_http->host));
+			strncpy(flag_http->path, dns_conf_servers[i].path, sizeof(flag_http->path));
+		} break;
+		case DNS_SERVER_TLS: {
+			struct client_dns_server_flag_tls *flag_tls = &flags.tls;
+			flag_tls->spi_len = dns_client_spki_decode(dns_conf_servers[i].spki, (unsigned char *)flag_tls->spki);
+			strncpy(flag_tls->host, dns_conf_servers[i].hostname, sizeof(flag_tls->host));
+		} break;
+			break;
+		case DNS_SERVER_TCP:
+			break;
+		default:
+			return -1;
+			break;
+		}
+
+		flags.type = dns_conf_servers[i].type;
+		flags.server_flag = dns_conf_servers[i].server_flag;
+		flags.result_flag = dns_conf_servers[i].result_flag;
+		ret = dns_client_add_server(dns_conf_servers[i].server, dns_conf_servers[i].port, dns_conf_servers[i].type, &flags);
 		if (ret != 0) {
 			tlog(TLOG_ERROR, "add server failed, %s:%d", dns_conf_servers[i].server, dns_conf_servers[i].port);
 			return -1;
@@ -297,7 +325,7 @@ static void _sig_error_exit(int signo, siginfo_t *siginfo, void *ct)
 #elif defined(__mips__)
 	PC = context->uc_mcontext.pc;
 #endif
-	tlog(TLOG_ERROR, "process exit with signal %d, code = %d, errno = %d, pid = %d, self = %d, pc = %#lx, addr = %#lx, build(%s %s)\n", signo, siginfo->si_code,
+	tlog(TLOG_FATAL, "process exit with signal %d, code = %d, errno = %d, pid = %d, self = %d, pc = %#lx, addr = %#lx, build(%s %s)\n", signo, siginfo->si_code,
 		 siginfo->si_errno, siginfo->si_pid, getpid(), PC, (unsigned long)siginfo->si_addr, __DATE__, __TIME__);
 
 	sleep(1);

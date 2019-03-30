@@ -18,13 +18,16 @@ s:option(Value, "name", translate("DNS Server Name"), translate("DNS Server Name
 
 ---- IP address
 o = s:option(Value, "ip", translate("ip"), translate("DNS Server ip"))
-o.datatype = "ipaddr"
+o.datatype = "or(host, string)"
 o.rmempty = false 
 ---- port
 o = s:option(Value, "port", translate("port"), translate("DNS Server port"))
 o.placeholder = "default"
 o.datatype    = "port"
 o.rempty      = true
+o:depends("type", "udp")
+o:depends("type", "tcp")
+o:depends("type", "tls")
 
 ---- type
 o = s:option(ListValue, "type", translate("type"), translate("DNS Server type"))
@@ -32,6 +35,7 @@ o.placeholder = "udp"
 o:value("udp", translate("udp"))
 o:value("tcp", translate("tcp"))
 o:value("tls", translate("tls"))
+o:value("https", translate("https"))
 o.default     = "udp"
 o.rempty      = false
 
@@ -54,6 +58,7 @@ end
 o = s:option(Flag, "check_edns", translate("Anti Answer Forgery"), translate("Anti answer forgery, if DNS does not work properly after enabling, please turn off this feature"))
 o.rmempty     = false
 o.default     = o.disabled
+o:depends("type", "udp")
 o.cfgvalue    = function(...)
     return Flag.cfgvalue(...) or "0"
 end
@@ -61,8 +66,10 @@ end
 ---- SPKI pin
 o = s:option(Value, "spki_pin", translate("TLS SPKI Pinning"), translate("Used to verify the validity of the TLS server, The value is Base64 encoded SPKI fingerprint, leaving blank to indicate that the validity of TLS is not verified."))
 o.default     = ""
-o.datatype    = "wpakey"
+o.datatype    = "string"
 o.rempty      = true
+o:depends("type", "tls")
+o:depends("type", "https")
 
 ---- other args
 o = s:option(Value, "addition_arg", translate("Additional Server Args"), translate("Additional Args for upstream dns servers"))

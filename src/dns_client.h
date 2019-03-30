@@ -2,6 +2,7 @@
 #define _SMART_DNS_CLIENT_H
 
 #include "dns.h"
+#define DNS_SERVER_SPKI_LEN  64
 #define DNS_SERVER_GROUP_DEFAULT "default"
 
 typedef enum {
@@ -35,8 +36,39 @@ int dns_client_query(char *domain, int qtype, dns_client_callback callback, void
 
 void dns_client_exit(void);
 
+struct client_dns_server_flag_udp {
+	int ttl;
+};
+
+struct client_dns_server_flag_tls {
+	char spki[DNS_SERVER_SPKI_LEN];
+	int spi_len;
+	char host[DNS_MAX_CNAME_LEN];
+};
+
+struct client_dns_server_flag_https {
+	char spki[DNS_SERVER_SPKI_LEN];
+	int spi_len;
+	char host[DNS_MAX_CNAME_LEN];
+	char path[DNS_MAX_CNAME_LEN];
+};
+
+struct client_dns_server_flags {
+	dns_server_type_t type;
+	unsigned int server_flag;
+	unsigned int result_flag;
+
+	union {
+		struct client_dns_server_flag_udp udp;
+		struct client_dns_server_flag_tls tls;
+		struct client_dns_server_flag_https https;
+	};
+};
+
+int dns_client_spki_decode(const char *spki, unsigned char *spki_data_out);
+
 /* add remote dns server */
-int dns_client_add_server(char *server_ip, int port, dns_server_type_t server_type, unsigned int server_flag, unsigned int result_flag, int ttl, char *spki);
+int dns_client_add_server(char *server_ip, int port, dns_server_type_t server_type, struct client_dns_server_flags *flags);
 
 /* remove remote dns server */
 int dns_client_remove_server(char *server_ip, int port, dns_server_type_t server_type);

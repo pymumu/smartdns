@@ -68,6 +68,8 @@ int dns_conf_ipset_timeout_enable;
 struct dns_edns_client_subnet dns_conf_ipv4_ecs;
 struct dns_edns_client_subnet dns_conf_ipv6_ecs;
 
+char dns_conf_sni_proxy_ip[DNS_MAX_IPLEN];
+
 /* create and get dns server group */
 static struct dns_server_groups *_dns_conf_get_group(const char *group_name)
 {
@@ -186,11 +188,24 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 
 	server = &dns_conf_servers[index];
 	server->spki[0] = '\0';
+	server->path[0] = '\0';
+	server->hostname[0] = '\0';
+
 	ip = argv[1];
 
-	/* parse ip, port from ip */
-	if (parse_ip(ip, server->server, &port) != 0) {
-		return -1;
+	if (type == DNS_SERVER_HTTPS) {
+		if (parse_uri(ip, NULL, server->server, &port, server->path) != 0) {
+			return -1;
+		}
+		strncpy(server->hostname, server->server, sizeof(server->hostname));
+		if (server->path[0] == 0) {
+			strcpy(server->path, "/");
+		}
+	} else {
+		/* parse ip, port from ip */
+		if (parse_ip(ip, server->server, &port) != 0) {
+			return -1;
+		}
 	}
 
 	/* if port is not defined, set port to default 53 */
@@ -706,6 +721,14 @@ static int _config_server_tls(void *data, int argc, char *argv[])
 	return _config_server(argc, argv, DNS_SERVER_TLS, DEFAULT_DNS_TLS_PORT);
 }
 
+static int _config_server_https(void *data, int argc, char *argv[])
+{
+	int ret = 0;
+	ret = _config_server(argc, argv, DNS_SERVER_HTTPS, DEFAULT_DNS_HTTPS_PORT);
+
+	return ret;
+}
+
 static int _config_nameserver(void *data, int argc, char *argv[])
 {
 	struct dns_nameserver_rule *nameserver_rule = NULL;
@@ -954,6 +977,7 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("server", _config_server_udp, NULL),
 	CONF_CUSTOM("server-tcp", _config_server_tcp, NULL),
 	CONF_CUSTOM("server-tls", _config_server_tls, NULL),
+	CONF_CUSTOM("server-https", _config_server_https, NULL),
 	CONF_CUSTOM("nameserver", _config_nameserver, NULL),
 	CONF_CUSTOM("address", _config_address, NULL),
 	CONF_YESNO("ipset-timeout", &dns_conf_ipset_timeout_enable),

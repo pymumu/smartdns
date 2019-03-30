@@ -16,6 +16,8 @@ int getaddr_by_host(char *host, struct sockaddr *addr, socklen_t *addr_len);
 
 int parse_ip(const char *value, char *ip, int *port);
 
+int parse_uri(char *value, char *scheme, char *host, int *port, char *path);
+
 int set_fd_nonblock(int fd, int nonblock);
 
 char *reverse_string(char *output, char *input, int len);
@@ -35,5 +37,20 @@ unsigned char *SSL_SHA256(const unsigned char *d, size_t n, unsigned char *md);
 int SSL_base64_decode(const char *in, unsigned char *out);
 
 int create_pid_file(const char *pid_file);
+
+/* Parse a TLS packet for the Server Name Indication extension in the client
+ * hello handshake, returning the first servername found (pointer to static
+ * array)
+ *
+ * Returns:
+ *  >=0  - length of the hostname and updates *hostname
+ *         caller is responsible for freeing *hostname
+ *  -1   - Incomplete request
+ *  -2   - No Host header included in this request
+ *  -3   - Invalid hostname pointer
+ *  -4   - malloc failure
+ *  < -4 - Invalid TLS client hello
+ */
+int parse_tls_header(const char *data, size_t data_len, char *hostname, const char **hostname_ptr);
 
 #endif

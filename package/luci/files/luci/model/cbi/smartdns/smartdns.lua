@@ -142,13 +142,16 @@ s:option(Value, "name", translate("DNS Server Name"), translate("DNS Server Name
 
 ---- IP address
 o = s:option(Value, "ip", translate("ip"), translate("DNS Server ip"))
-o.datatype = "ipaddr"
+o.datatype = "or(ipaddr, string)"
 o.rmempty = false 
 ---- port
 o = s:option(Value, "port", translate("port"), translate("DNS Server port"))
 o.placeholder = "default"
 o.datatype    = "port"
 o.rempty      = true
+o:depends("type", "udp")
+o:depends("type", "tcp")
+o:depends("type", "tls")
 
 ---- type
 o = s:option(ListValue, "type", translate("type"), translate("DNS Server type"))
@@ -156,6 +159,7 @@ o.placeholder = "udp"
 o:value("udp", translate("udp"))
 o:value("tcp", translate("tcp"))
 o:value("tls", translate("tls"))
+o:value("https", translate("https"))
 o.default     = "udp"
 o.rempty      = false
 
