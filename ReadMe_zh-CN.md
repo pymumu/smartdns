@@ -214,6 +214,15 @@ https://github.com/pymumu/smartdns/releases
     dpkg -i smartdns.xxxxxxxx.armhf.deb
     ```
 
+    x86系统下载配套安装包`smartdns.xxxxxxxx.x86-64.tar.gz`, 并上传到Linux系统中。 执行如下命令安装
+
+    ```shell
+    tar zxf smartdns.xxxxxxxx.x86-64.tar.gz
+    cd smartdns
+    chmod +x ./install
+    ./install -i
+    ```
+
 1. 修改配置
 
     安装完成后，可配置smartdns的上游服务器信息。具体配置参数参考`配置参数`说明。  

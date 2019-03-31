@@ -211,6 +211,15 @@ https://github.com/pymu/smartdns/releases
     dpkg -i smartdns.xxxxxxxx.armhf.deb
     ```
 
+    For X86-64 system, download the installation package like `smartdns.xxxxxxxx.x86-64.tar.gz` and upload it to the Linux system. Run the following command to install
+
+    ```shell
+    tar zxf smartdns.xxxxxxxx.x86-64.tar.gz
+    cd smartdns
+    chmod +x ./install
+    ./install -i
+    ```
+
 1. Configuration
 
     After the installation is complete, you can configure the upstream server to  smartdns. Refer to the `Configuration Parameters` for specific configuration parameters.  
