@@ -547,10 +547,10 @@ static int _dns_result_callback(struct dns_request *request)
 			goto out;
 		}
 
-		sprintf(ip, "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", 
-				 request->ipv6_addr[0], request->ipv6_addr[1], request->ipv6_addr[2], request->ipv6_addr[3], request->ipv6_addr[4], request->ipv6_addr[5],
-				 request->ipv6_addr[6], request->ipv6_addr[7], request->ipv6_addr[8], request->ipv6_addr[9], request->ipv6_addr[10], request->ipv6_addr[11],
-				 request->ipv6_addr[12], request->ipv6_addr[13], request->ipv6_addr[14], request->ipv6_addr[15]);
+		sprintf(ip, "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", request->ipv6_addr[0], request->ipv6_addr[1],
+				request->ipv6_addr[2], request->ipv6_addr[3], request->ipv6_addr[4], request->ipv6_addr[5], request->ipv6_addr[6], request->ipv6_addr[7],
+				request->ipv6_addr[8], request->ipv6_addr[9], request->ipv6_addr[10], request->ipv6_addr[11], request->ipv6_addr[12], request->ipv6_addr[13],
+				request->ipv6_addr[14], request->ipv6_addr[15]);
 
 		return request->result_callback(request->domain, request->rcode, request->qtype, ip, request->user_ptr);
 	}
@@ -1638,6 +1638,7 @@ static int _dns_server_recv(struct dns_server_conn *client, unsigned char *inpac
 
 	/* get client request address type */
 	if (_dns_recv_addr(request, from, from_len) != 0) {
+		tlog(TLOG_ERROR, "get client address failed.");
 		goto errout;
 	}
 
@@ -1739,6 +1740,7 @@ static int _dns_server_recv(struct dns_server_conn *client, unsigned char *inpac
 		_dns_server_request_release(request);
 		_dns_server_request_remove(request);
 		request = NULL;
+		tlog(TLOG_ERROR, "send dns request failed.");
 		goto errout;
 	}
 
@@ -1890,7 +1892,7 @@ int dns_server_query(char *domain, int qtype, dns_result_callback callback, void
 clean_exit:
 	return ret;
 errout:
-	return ret;	
+	return ret;
 }
 
 static void _dns_server_client_touch(struct dns_server_conn *client)
@@ -1922,11 +1924,13 @@ static int _dns_server_accept(struct dns_server_conn *dnsserver, struct epoll_ev
 
 	fd = accept4(dnsserver->fd, (struct sockaddr *)&addr, &addr_len, SOCK_NONBLOCK | SOCK_CLOEXEC);
 	if (fd < 0) {
+		tlog(TLOG_ERROR, "accept failed, %s", strerror(errno));
 		return -1;
 	}
 
 	client = malloc(sizeof(*client));
 	if (client == NULL) {
+		tlog(TLOG_ERROR, "malloc for client failed.");
 		goto errout;
 	}
 
@@ -1978,9 +1982,10 @@ static int _dns_server_tcp_recv(struct dns_server_conn *dnsserver)
 				return 1;
 			}
 
+			tlog(TLOG_ERROR, "recv failed, %s\n", strerror(errno));
 			return -1;
 		} else if (len == 0) {
-			return -1;
+			return -2;
 		}
 
 		dnsserver->recvbuff.size += len;
@@ -2047,6 +2052,10 @@ static int _dns_server_tcp_process_requests(struct dns_server_conn *client)
 	for (;;) {
 		recv_ret = _dns_server_tcp_recv(client);
 		if (recv_ret < 0) {
+			if (recv_ret == -2) {
+				return -2;
+			}
+
 			if (client->recvbuff.size > 0) {
 				is_eof = 1;
 			} else {
@@ -2057,6 +2066,7 @@ static int _dns_server_tcp_process_requests(struct dns_server_conn *client)
 		request_ret = _dns_server_tcp_process_one_request(client);
 		if (request_ret < 0) {
 			/* failed */
+			tlog(TLOG_ERROR, "process one request failed.");
 			return -1;
 		}
 
@@ -2104,13 +2114,19 @@ static int _dns_server_tcp_send(struct dns_server_conn *client)
 
 static int _dns_server_process_tcp(struct dns_server_conn *dnsserver, struct epoll_event *event, unsigned long now)
 {
+	int ret = 0;
 	if (dnsserver == &server.tcp_server) {
 		return _dns_server_accept(dnsserver, event, now);
 	}
 
 	if (event->events & EPOLLIN) {
-		if (_dns_server_tcp_process_requests(dnsserver) != 0) {
+		ret = _dns_server_tcp_process_requests(dnsserver);
+		if (ret != 0) {
 			_dns_server_client_close(dnsserver);
+			if (ret == -2) {
+				return 0;
+			}
+			tlog(TLOG_ERROR, "process tcp request failed.");
 			return -1;
 		}
 	}
@@ -2118,6 +2134,7 @@ static int _dns_server_process_tcp(struct dns_server_conn *dnsserver, struct epo
 	if (event->events & EPOLLOUT) {
 		if (_dns_server_tcp_send(dnsserver) != 0) {
 			_dns_server_client_close(dnsserver);
+			tlog(TLOG_ERROR, "send tcp failed.");
 			return -1;
 		}
 	}
@@ -2133,8 +2150,10 @@ static int _dns_server_process(struct dns_server_conn *dnsserver, struct epoll_e
 	} else if (dnsserver->type == DNS_SERVER_TCP) {
 		return _dns_server_process_tcp(dnsserver, event, now);
 	} else if (dnsserver->type == DNS_SERVER_TLS) {
+		tlog(TLOG_ERROR, "unsupport dns server type %d", dnsserver->type);
 		return -1;
 	} else {
+		tlog(TLOG_ERROR, "unsupport dns server type %d", dnsserver->type);
 		return -1;
 	}
 }
@@ -2235,7 +2254,7 @@ static void _dns_server_period_run_second(void)
 		dns_cache_invalidate(NULL, 0);
 		tlog(TLOG_WARN, "Service paused for 180s, force invalidate cache.");
 	}
-	
+
 	last = now;
 
 	if (sec % 2 == 0) {
