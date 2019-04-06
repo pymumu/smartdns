@@ -638,6 +638,9 @@ static int _dns_client_server_add(char *server_ip, struct addrinfo *gai, dns_ser
 	case DNS_SERVER_HTTPS: {
 		struct client_dns_server_flag_https *flag_https = &flags->https;
 		spki_data_len = flag_https->spi_len;
+		if (flag_https->httphost[0] == 0) {
+			strncpy(flag_https->httphost, server_ip, DNS_MAX_CNAME_LEN);
+		}
 	} break;
 	case DNS_SERVER_TLS: {
 		struct client_dns_server_flag_tls *flag_tls = &flags->tls;
@@ -1290,7 +1293,7 @@ errout:
 	return -1;
 }
 
-static int _DNS_client_create_socket_tls(struct dns_server_info *server_info)
+static int _DNS_client_create_socket_tls(struct dns_server_info *server_info, char *hostname)
 {
 	int fd = 0;
 	struct epoll_event event;
@@ -1342,7 +1345,11 @@ static int _DNS_client_create_socket_tls(struct dns_server_info *server_info)
 	if (server_info->ssl_session) {
 		SSL_set_session(ssl, server_info->ssl_session);
 	}
+
 	SSL_set_mode(ssl, SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
+	if (hostname[0] != 0) {
+		SSL_set_tlsext_host_name(ssl, hostname);
+	}
 
 	memset(&event, 0, sizeof(event));
 	event.events = EPOLLIN | EPOLLOUT;
@@ -1384,9 +1391,15 @@ static int _dns_client_create_socket(struct dns_server_info *server_info)
 		return _dns_client_create_socket_udp(server_info);
 	} else if (server_info->type == DNS_SERVER_TCP) {
 		return _DNS_client_create_socket_tcp(server_info);
-	} else if (server_info->type == DNS_SERVER_TLS || server_info->type == DNS_SERVER_HTTPS) {
-		return _DNS_client_create_socket_tls(server_info);
-	} else {
+	} else if (server_info->type == DNS_SERVER_TLS) {
+		struct client_dns_server_flag_tls *flag_tls;
+		flag_tls = &server_info->flags.tls;
+		return _DNS_client_create_socket_tls(server_info, flag_tls->hostname);
+	} else if (server_info->type == DNS_SERVER_HTTPS) {
+		struct client_dns_server_flag_https *flag_https;
+		flag_https = &server_info->flags.https;
+		return _DNS_client_create_socket_tls(server_info, flag_https->hostname);
+	}else {
 		return -1;
 	}
 
@@ -2112,7 +2125,7 @@ static int _dns_client_send_https(struct dns_server_info *server_info, void *pac
 						"content-type: application/dns-message\r\n"
 						"Content-Length: %d\r\n"
 						"\r\n",
-						https_flag->path, https_flag->host, len);
+						https_flag->path, https_flag->httphost, len);
 	memcpy(inpacket + http_len, packet, len);
 	http_len += len;
 

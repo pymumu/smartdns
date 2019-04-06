@@ -139,6 +139,18 @@ msgstr "协议类型"
 msgid "Domain Address"
 msgstr "域名地址"
 
+msgid "TLS SNI name"
+msgstr "TLS SNI名称"
+
+msgid "HTTP Host"
+msgstr "HTTP主机"
+
+msgid "Sets the server name indication"
+msgstr "设置服务器SNI名称"
+
+msgid "Set the HTTP host used for the query. Use this parameter when the host of the URL address is an IP address."
+msgstr "设置查询时使用的HTTP主机，当URL地址的host是IP地址时，使用此参数。"
+
 msgid "Server Group"
 msgstr "服务器组"
 

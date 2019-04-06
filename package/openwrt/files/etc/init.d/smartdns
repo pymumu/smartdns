@@ -136,6 +136,8 @@ load_server()
 	config_get "port" "$section" "port" ""
 	config_get "type" "$section" "type" "udp"
 	config_get "ip" "$section" "ip" ""
+	config_get "host_name" "$section" "host_name" ""
+	config_get "http_host" "$section" "http_host" ""
 	config_get "server_group" "$section" "server_group" ""
 	config_get "blacklist_ip" "$section" "blacklist_ip" "0"
 	config_get "check_edns" "$section" "check_edns" "0"
@@ -163,6 +165,14 @@ load_server()
 		if [ -z "`echo $ip | grep "\["`" ]; then
 			ip="[$ip]"
 		fi
+	fi
+
+	if [ ! -z "$host_name" ]; then
+		ADDITIONAL_ARGS="$ADDITIONAL_ARGS -host-name $host_name"
+	fi
+
+	if [ ! -z "$http_host" ]; then
+		ADDITIONAL_ARGS="$ADDITIONAL_ARGS -http-host $http_host"
 	fi
 
 	if [ ! -z "$server_group" ]; then

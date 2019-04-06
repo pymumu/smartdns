@@ -96,6 +96,7 @@ struct dns_servers {
 	dns_server_type_t type;
 	char spki[DNS_MAX_SPKI_LEN];
 	char hostname[DNS_MAX_CNAME_LEN];
+	char httphost[DNS_MAX_CNAME_LEN];
 	char path[DNS_MAX_URL_LEN];
 };
 

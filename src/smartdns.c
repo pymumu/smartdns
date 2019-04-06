@@ -139,13 +139,14 @@ static int _smartdns_add_servers(void)
 		case DNS_SERVER_HTTPS: {
 			struct client_dns_server_flag_https *flag_http = &flags.https;
 			flag_http->spi_len = dns_client_spki_decode(dns_conf_servers[i].spki, (unsigned char *)flag_http->spki);
-			strncpy(flag_http->host, dns_conf_servers[i].hostname, sizeof(flag_http->host));
+			strncpy(flag_http->hostname, dns_conf_servers[i].hostname, sizeof(flag_http->hostname));
 			strncpy(flag_http->path, dns_conf_servers[i].path, sizeof(flag_http->path));
+			strncpy(flag_http->httphost, dns_conf_servers[i].httphost, sizeof(flag_http->httphost));
 		} break;
 		case DNS_SERVER_TLS: {
 			struct client_dns_server_flag_tls *flag_tls = &flags.tls;
 			flag_tls->spi_len = dns_client_spki_decode(dns_conf_servers[i].spki, (unsigned char *)flag_tls->spki);
-			strncpy(flag_tls->host, dns_conf_servers[i].hostname, sizeof(flag_tls->host));
+			strncpy(flag_tls->hostname, dns_conf_servers[i].hostname, sizeof(flag_tls->hostname));
 		} break;
 			break;
 		case DNS_SERVER_TCP:

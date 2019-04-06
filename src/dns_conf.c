@@ -171,6 +171,8 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 		{"check-edns", no_argument, NULL, 'e'},   /* check edns */
 		{"spki-pin", required_argument, NULL, 'p'}, /* check SPKI pin */
 		{"check-ttl", required_argument, NULL, 't'}, /* check ttl */
+		{"host-name", required_argument, NULL, 'h'}, /* host name */
+		{"http-host", required_argument, NULL, 'H'}, /* http host */
 		{"group", required_argument, NULL, 'g'}, /* add to group */
 		{"exclude-default-group", no_argument, NULL, 'E'}, /* ecluse this from default group */
 		{NULL, no_argument, NULL, 0}
@@ -190,6 +192,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 	server->spki[0] = '\0';
 	server->path[0] = '\0';
 	server->hostname[0] = '\0';
+	server->httphost[0] = '\0';
 
 	ip = argv[1];
 
@@ -198,6 +201,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 			return -1;
 		}
 		strncpy(server->hostname, server->server, sizeof(server->hostname));
+		strncpy(server->httphost, server->httphost, sizeof(server->hostname));
 		if (server->path[0] == 0) {
 			strcpy(server->path, "/");
 		}
@@ -245,6 +249,14 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 				goto errout;
 			}
 			result_flag |= DNSSERVER_FLAG_CHECK_TTL;
+			break;
+		}
+		case 'h': {
+			strncpy(server->hostname, optarg, DNS_MAX_CNAME_LEN);
+			break;
+		}
+		case 'H': {
+			strncpy(server->httphost, optarg, DNS_MAX_CNAME_LEN);
 			break;
 		}
 		case 'E': {

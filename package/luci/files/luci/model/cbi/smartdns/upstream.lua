@@ -39,6 +39,21 @@ o:value("https", translate("https"))
 o.default     = "udp"
 o.rempty      = false
 
+---- SNI host name
+o = s:option(Value, "host_name", translate("TLS SNI name"), translate("Sets the server name indication"))
+o.default     = ""
+o.datatype    = "hostname"
+o.rempty      = true
+o:depends("type", "tls")
+o:depends("type", "https")
+
+---- http host
+o = s:option(Value, "http_host", translate("HTTP Host"), translate("Set the HTTP host used for the query. Use this parameter when the host of the URL address is an IP address."))
+o.default     = ""
+o.datatype    = "hostname"
+o.rempty      = true
+o:depends("type", "https")
+
 ---- server group
 o = s:option(Value, "server_group", translate("Server Group"), translate("DNS Server group belongs to, used with nameserver, such as offlce, home."))
 o.rmempty     = true
@@ -70,6 +85,7 @@ o.datatype    = "string"
 o.rempty      = true
 o:depends("type", "tls")
 o:depends("type", "https")
+
 
 ---- other args
 o = s:option(Value, "addition_arg", translate("Additional Server Args"), translate("Additional Args for upstream dns servers"))

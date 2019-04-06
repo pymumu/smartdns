@@ -1661,6 +1661,8 @@ static int _dns_server_recv(struct dns_server_conn *client, unsigned char *inpac
 		request->qtype = qtype;
 	}
 
+	tlog(TLOG_INFO, "query server %s from %s, qtype = %d\n", request->domain, name, qtype);
+	
 	/* lookup domain rule */
 	request->domain_rule = _dns_server_get_domain_rule(request->domain);
 
@@ -1714,8 +1716,6 @@ static int _dns_server_recv(struct dns_server_conn *client, unsigned char *inpac
 			group_name = nameserver_rule->group_name;
 		}
 	}
-
-	tlog(TLOG_INFO, "query server %s from %s, qtype = %d\n", request->domain, name, qtype);
 
 	_dns_server_request_get(request);
 	pthread_mutex_lock(&server.request_list_lock);
