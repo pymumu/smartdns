@@ -33,7 +33,7 @@ int dns_conf_prefetch = 0;
 
 /* upstream servers */
 struct dns_servers dns_conf_servers[DNS_MAX_SERVERS];
-char dns_conf_server_name[DNS_MAX_CONF_CNAME_LEN];
+char dns_conf_server_name[DNS_MAX_SERVER_NAME_LEN];
 int dns_conf_server_num;
 
 /* logging */
@@ -350,6 +350,10 @@ static int _config_domain_rule_add(char *domain, enum domain_rule type, void *ru
 
 	/* Reverse string, for suffix match */
 	len = strlen(domain);
+	if (len >= sizeof(domain_key)) {
+		tlog(TLOG_ERROR, "domain name %s too long", domain);
+		goto errout;
+	}
 	reverse_string(domain_key, domain, len);
 	domain_key[len] = '.';
 	len++;
@@ -407,6 +411,10 @@ static int _config_domain_rule_flag_set(char *domain, unsigned int flag)
 	int len = 0;
 
 	len = strlen(domain);
+	if (len >= sizeof(domain_key)) {
+		tlog(TLOG_ERROR, "domain %s too long", domain);
+		return -1;
+	}
 	reverse_string(domain_key, domain, len);
 	domain_key[len] = '.';
 	len++;
@@ -530,6 +538,11 @@ static int _config_ipset(void *data, int argc, char *argv[])
 
 	/* Get domain */
 	len = end - begin;
+	if (len >= sizeof(domain)) {
+		tlog(TLOG_ERROR, "domain name %s too long", value);
+		goto errout;
+	}
+
 	memcpy(domain, begin, len);
 	domain[len] = '\0';
 
@@ -617,6 +630,12 @@ static int _config_address(void *data, int argc, char *argv[])
 
 	/* get domain */
 	len = end - begin;
+
+	if (len >= sizeof(domain)) {
+		tlog(TLOG_ERROR, "domain name %s too long", value);
+		goto errout;
+	}
+
 	memcpy(domain, begin, len);
 	domain[len] = 0;
 
@@ -775,6 +794,12 @@ static int _config_nameserver(void *data, int argc, char *argv[])
 	}
 
 	len = end - begin;
+
+	if (len >= sizeof(domain)) {
+		tlog(TLOG_ERROR, "domain name %s too long", value);
+		goto errout;
+	}
+
 	memcpy(domain, begin, len);
 	domain[len] = '\0';
 
@@ -983,7 +1008,7 @@ static int _config_log_level(void *data, int argc, char *argv[])
 }
 
 static struct config_item _config_item[] = {
-	CONF_STRING("server-name", (char *)dns_conf_server_name, DNS_MAX_CONF_CNAME_LEN),
+	CONF_STRING("server-name", (char *)dns_conf_server_name, DNS_MAX_SERVER_NAME_LEN),
 	CONF_STRING("bind", dns_conf_server_ip, DNS_MAX_IPLEN),
 	CONF_STRING("bind-tcp", dns_conf_server_tcp_ip, DNS_MAX_IPLEN),
 	CONF_CUSTOM("server", _config_server_udp, NULL),

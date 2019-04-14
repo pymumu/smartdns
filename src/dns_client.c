@@ -1933,7 +1933,7 @@ static int _dns_client_process_tls(struct dns_server_info *server_info, struct e
 			}
 
 			if (_dns_client_tls_verify(server_info) != 0) {
-				tlog(TLOG_WARN, "peer verify failed.");
+				tlog(TLOG_WARN, "peer %s verify failed.", server_info->ip);
 				goto errout;
 			}
 

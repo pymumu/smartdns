@@ -207,7 +207,7 @@ int parse_uri(char *value, char *scheme, char *host, int *port, char *path)
 		field_len = scheme_end - value;
 		if (scheme) {
 			memcpy(scheme, value, field_len);
-			scheme[field_len + 1] = 0;
+			scheme[field_len] = 0;
 		}
 		process_ptr += field_len + 3;
 	} else {
@@ -226,7 +226,7 @@ int parse_uri(char *value, char *scheme, char *host, int *port, char *path)
 		return -1;
 	}
 	memcpy(host_name, process_ptr, field_len);
-	host_name[field_len + 1] = 0;
+	host_name[field_len] = 0;
 
 	if (parse_ip(host_name, host, port) != 0) {
 		return -1;

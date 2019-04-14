@@ -11,6 +11,7 @@
 #include "radix.h"
 
 #define DNS_MAX_SERVERS 64
+#define DNS_MAX_SERVER_NAME_LEN 128
 #define DNS_MAX_IPSET_NAMELEN 32
 #define DNS_GROUP_NAME_LEN 32
 #define DNS_NAX_GROUP_NUMBER 16
@@ -21,7 +22,7 @@
 #define DEFAULT_DNS_PORT 53
 #define DEFAULT_DNS_TLS_PORT 853
 #define DEFAULT_DNS_HTTPS_PORT 443
-#define DNS_MAX_CONF_CNAME_LEN 128
+#define DNS_MAX_CONF_CNAME_LEN 256
 #define SMARTDNS_CONF_FILE "/etc/smartdns/smartdns.conf"
 #define SMARTDNS_LOG_FILE "/var/log/smartdns.log"
 #define SMARTDNS_AUDIT_FILE "/var/log/smartdns-audit.log"
@@ -156,7 +157,7 @@ extern char dns_conf_audit_file[DNS_MAX_PATH];
 extern size_t dns_conf_audit_size;
 extern int dns_conf_audit_num;
 
-extern char dns_conf_server_name[DNS_MAX_CONF_CNAME_LEN];
+extern char dns_conf_server_name[DNS_MAX_SERVER_NAME_LEN];
 extern art_tree dns_conf_domain_rule;
 extern struct dns_conf_address_rule dns_conf_address_rule;
 
