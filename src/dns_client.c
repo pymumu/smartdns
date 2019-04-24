@@ -226,7 +226,7 @@ static struct addrinfo *_dns_client_getaddr(const char *host, char *port, int ty
 
 	ret = getaddrinfo(host, port, &hints, &result);
 	if (ret != 0) {
-		tlog(TLOG_ERROR, "get addr info failed. %s\n", gai_strerror(errno));
+		tlog(TLOG_ERROR, "get addr info failed. %s\n", gai_strerror(ret));
 		tlog(TLOG_ERROR, "host = %s, port = %s, type = %d, protocol = %d", host, port, type, protocol);
 		goto errout;
 	}
@@ -1452,14 +1452,6 @@ static int _dns_client_process_udp(struct dns_server_info *server_info, struct e
 	}
 
 	tlog(TLOG_DEBUG, "recv udp packet from %s, len: %d, ttl: %d", gethost_by_addr(from_host, sizeof(from_host), (struct sockaddr *)&from), len, ttl);
-
-	if ((ttl != server_info->ttl) && (server_info->ttl > 0) && (server_info->flags.result_flag & DNSSERVER_FLAG_CHECK_TTL)) {
-		/* If TTL check is enabled but the TTL is inconsistent, it is considered to be a fake dns packet */
-		if ((ttl < server_info->ttl - server_info->ttl_range) || (ttl > server_info->ttl + server_info->ttl_range)) {
-			/* tlog(TLOG_DEBUG, "TTL mismatch, from:%d, local %d, discard result", ttl, server_info->ttl); */
-			return 0;
-		}
-	}
 
 	/* update recv time */
 	time(&server_info->last_recv);

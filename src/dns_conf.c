@@ -170,7 +170,6 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 		{"blacklist-ip", no_argument, NULL, 'b'}, /* filtering with blacklist-ip */
 		{"check-edns", no_argument, NULL, 'e'},   /* check edns */
 		{"spki-pin", required_argument, NULL, 'p'}, /* check SPKI pin */
-		{"check-ttl", required_argument, NULL, 't'}, /* check ttl */
 		{"host-name", required_argument, NULL, 'h'}, /* host name */
 		{"http-host", required_argument, NULL, 'H'}, /* http host */
 		{"group", required_argument, NULL, 'g'}, /* add to group */
@@ -232,23 +231,6 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 		}
 		case 'e': {
 			result_flag |= DNSSERVER_FLAG_CHECK_EDNS;
-			break;
-		}
-		case 't': {
-			if (DNS_SERVER_UDP != type) {
-				break;
-			}
-
-			ttl = atoi(optarg);
-			/* Greater than 0, exact match
-			Equal to 0, match after check
-			Less than 0, match in the -N range after inspection
-			*/
-			if (ttl < -255 || ttl > 255) {
-				tlog(TLOG_ERROR, "ttl value is invalid.");
-				goto errout;
-			}
-			result_flag |= DNSSERVER_FLAG_CHECK_TTL;
 			break;
 		}
 		case 'h': {
