@@ -1,33 +1,35 @@
 # SmartDNS
 
+**[English](ReadMe_en.md)**
+
 ![SmartDNS](doc/smartdns-banner.png)  
-SmartDNS is a local DNS server. SmartDNS accepts DNS query requests from local clients, obtains DNS query results from multiple upstream DNS servers, and returns the fastest access results to clients.  
-Avoiding DNS pollution and improving network access speed, supports high-performance ad filtering.  
-Unlike dnsmasq's all-servers, smartdns returns the fastest access resolution. （[read more](#faq)）
+SmartDNS是一个运行在本地的DNS服务器，SmartDNS接受本地客户端的DNS查询请求，从多个上游DNS服务器获取DNS查询结果，并将访问速度最快的结果返回给客户端，避免DNS污染，提高网络访问速度。
+同时支持指定特定域名IP地址，并高性匹配，达到过滤广告的效果。  
+与dnsmasq的all-servers不同，smartdns返回的是访问速度最快的解析结果。 (详细差异请看[FAQ](#faq)) 
 
-Support Raspberry Pi, openwrt, ASUS router, Windows and other devices.  
+支持树莓派，openwrt，华硕路由器，windows等设备。  
 
-## Table Of Content
+## 目录
 
-1. [Software Show](#software-show)
-1. [Features](#features)
-1. [Architecture](#architecture)
-1. [Usage](#usage)  
-    1. [Download the package](#download-the-package)
-    1. [Standard Linux system installation/Raspberry Pi, X86_64 system](#standard-linux-system-installation/raspberry-pi,-x86_64-system)
-    1. [openwrt/LEDE](#openwrt/lede)
-    1. [ASUS router native firmware / Merlin firmware](#asus-router-native-firmware-/-merlin-firmware)
-    1. [optware/entware](#optware/entware)
-    1. [Windows 10 WSL Installation/WSL ubuntu](#windows-10-wsl-installation/wsl-ubuntu)
-1. [Configuration parameter](#configuration-parameter)
-1. [Donate](#Donate)
-1. [Statement](#Statement)
-1. [FAQ](#FAQ)
+1. [软件效果展示](#软件效果展示)
+1. [特性](#特性)
+1. [架构](#架构)
+1. [使用](#使用)  
+    1. [下载配套安装包](#下载配套安装包)
+    1. [标准Linux系统安装](#标准linux系统安装树莓派x86_64系统)
+    1. [openwrt/LEDE](#openwrtlede)
+    1. [华硕路由器原生固件/梅林固件](#华硕路由器原生固件梅林固件)
+    1. [optware/entware](#optwareentware)
+    1. [Windows 10 WSL安装/WSL ubuntu](#windows-10-wsl安装wsl-ubuntu)
+1. [配置参数](#配置参数)
+1. [捐助](#donate)
+1. [声明](#声明)
+1. [FAQ](#faq)
 
-## Software Show
+## 软件效果展示
 
-**Ali DNS**  
-Use Ali DNS to query Baidu's IP and test the results.  
+**阿里DNS**  
+使用阿里DNS查询百度IP，并检测结果。  
 
 ```shell
 pi@raspberrypi:~/code/smartdns_build $ nslookup www.baidu.com 223.5.5.5
@@ -60,7 +62,7 @@ rtt min/avg/max/mdev = 31.014/31.094/31.175/0.193 ms
 ```
 
 **smartdns**  
-Use SmartDNS to query Baidu IP and test the results.
+使用SmartDNS查询百度IP，并检测结果。
 
 ```shell
 pi@raspberrypi:~/code/smartdns_build $ nslookup www.baidu.com
@@ -83,135 +85,138 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 
 ```
 
-From the comparison, smartdns found the fastest IP address to visit www.baidu.com, so accessing Baidu's DNS is 5 times faster than Ali DNS.
+从对比看出，smartdns找到访问www.baidu.com最快的IP地址，这样访问百度比阿里DNS速度快5倍。
 
-## Features
+## 特性
 
-1. **Multiple upstream DNS servers**  
-   Support configuring multiple upstream DNS servers and query at the same time.the query will not be affected, Even if there is a DNS server exception.  
+1. **多DNS上游服务器**  
+   支持配置多个上游DNS服务器，并同时进行查询，即使其中有DNS服务器异常，也不会影响查询。  
 
-2. **Return the fastest IP address**  
-   Supports finding the fastest access IP address from the IP address list of the domain name and returning it to the client to avoid DNS pollution and improve network access speed.
+1. **返回最快IP地址**  
+   支持从域名所属IP地址列表中查找到访问速度最快的IP地址，并返回给客户端，避免DNS污染，提高网络访问速度。
 
-3. **Support for multiple query protocols**  
-   Support UDP, TCP, TLS, HTTPS queries, and non-53 port queries, effectively avoiding DNS pollution.
+1. **支持多种查询协议**  
+   支持UDP，TCP，TLS, HTTPS查询，以及非53端口查询，有效避免DNS污染。
 
-4. **Domain IP address specification**  
-   Support configuring IP address of specific domain to achieve the effect of advertising filtering, and avoid malicious websites.
+1. **特定域名IP地址指定**  
+   支持指定域名的IP地址，达到广告过滤效果，避免恶意网站的效果。
 
-5. **Domain name high performance rule filtering**  
-   Support domain name suffix matching mode, simplify filtering configuration, filter 200,000 recording and take time <1ms.
+1. **域名高性能后缀匹配**  
+   支持域名后缀匹配模式，简化过滤配置，过滤20万条记录时间<1ms
 
-6. **Linux/Windows multi-platform support**  
-   Support standard Linux system (Raspberry Pi), openwrt system various firmware, ASUS router native firmware. Support Windows 10 WSL (Windows Subsystem for Linux).
+1. **域名分流**  
+   支持域名分流，不同类型的域名到不同的DNS服务器查询。
 
-7. **Support IPV4, IPV6 dual stack**  
-   Support IPV4, IPV6 network, support query A, AAAA record, dual-stack IP selection, and disale IPV6 AAAA record.
+1. **Linux/Windows多平台支持**  
+   支持标准Linux系统（树莓派），openwrt系统各种固件，华硕路由器原生固件。以及支持Windows 10 WSL (Windows Subsystem for Linux)。
 
-8. **High performance, low resource consumption**  
-   Multi-threaded asynchronous IO mode, cache cache query results.
+1. **支持IPV4, IPV6双栈**  
+   支持IPV4，IPV6网络，支持查询A, AAAA记录，支持双栈IP速度优化，并支持完全禁用IPV6 AAAA解析。
 
-## Architecture
+1. **高性能，占用资源少**  
+   多线程异步IO模式，cache缓存查询结果。
+
+## 架构
 
 ![Architecture](doc/architecture.png)
 
-1. SmartDNS receives DNS query requests from local network devices, such as PCs and mobile phone query requests.
-2. SmartDNS sends query requests to multiple upstream DNS servers, using standard UDP queries, non-standard port UDP queries, and TCP queries.
-3. The upstream DNS server returns a list of Server IP addresses corresponding to the domain name. SmartDNS detects the fastest Server IP with local network access.
-4. Return the fastest accessed Server IP to the local client.
+1. SmartDNS接收本地网络设备的DNS查询请求，如PC，手机的查询请求。  
+2. SmartDNS将查询请求发送到多个上游DNS服务器，可采用标准UDP查询，非标准端口UDP查询，及TCP查询。  
+3. 上游DNS服务器返回域名对应的Server IP地址列表。SmartDNS检测与本地网络访问速度最快的Server IP。  
+4. 将访问速度最快的Server IP返回给本地客户端。  
 
-## Usage
+## 使用
 
-### Download the package
+### 下载配套安装包  
 
 --------------
 
-Download the matching version of the SmartDNS installation package. The corresponding installation package is as follows.
+下载配套版本的SmartDNS安装包，对应安装包配套关系如下。
 
-|system |package|Description
+|系统 |安装包|说明
 |-----|-----|-----
-|Standard Linux system (Raspberry Pi)| smartdns.xxxxxxxx.armhf.deb|Support Raspberry Pi Raspbian stretch, Debian 9 system.
-|Standard Linux system (Armbian arm64)| smartdns.xxxxxxxx.arm64.deb|Support Armbian debian stretch, Debian 9 system.
-|Standard Linux system (x86_64)| smartdns.xxxxxxxx.x86_64.tar.gz|Support for x86_64 Linux systems.
-|Windows 10 WSL (Ubuntu)| smartdns.xxxxxxxx.x86_64.tar.gz|Windows 10 WSL ubuntu.
-|Standard Linux system (x86)| smartdns.xxxxxxxx.x86.tar.gz|Support for x86_64 systems.
-|ASUS native firmware (optware)|smartdns.xxxxxxx.mipsbig.ipk|Systems that support the MIPS big-end architecture, such as RT-AC55U, RT-AC66U.
-|ASUS native firmware (optware)|smartdns.xxxxxxx.mipsel.ipk|System that supports the MIPS little endian architecture.
-|ASUS native firmware (optware)|smartdns.xxxxxxx.arm.ipk|System that supports the ARM small endian architecture, such as the RT-AC88U, RT-AC68U.
-|Padavan|smartdns.xxxxxxx.mipselsf.ipk|padavan Firmware.
-|openwrt 15.01|smartdns.xxxxxxxx.ar71xx.ipk|Support AR71XX MIPS system.
-|openwrt 15.01|smartdns.xxxxxxxx.ramips_24kec.ipk|Support small-end routers such as MT762X
-|openwrt 15.01(Pandora)|smartdns.xxxxxxxx.mipsel_24kec_dsp.ipk|Support for Pandora firmware of MT7620 series
-|openwrt 15.01(Pandora)|smartdns.xxxxxxxx.mips_74kc_dsp2.ipk|Support for Pandora firmware of AR71xx series
-|openwrt 18.06|smartdns.xxxxxxxx.mips_24kc.ipk|Support AR71XX MIPS system.
-|openwrt 18.06|smartdns.xxxxxxxx.mipsel_24kc.ipk|Support small-end routers such as MT726X
-|openwrt 18.06|smartdns.xxxxxxxx.x86_64.ipk|Support x86_64 router
-|openwrt 18.06|smartdns.xxxxxxxx.i386_pentium4.ipk|Support x86_64 router
-|openwrt 18.06|smartdns.xxxxxxxxxxx.arm_cortex-a9.ipk|Router supporting arm A9 core CPU
-|openwrt 18.06|smartdns.xxxxxxxxx.arm_cortex-a7_neon-vfpv4.ipk|Router supporting arm A7 core CPU
-|openwrt LUCI|luci-app-smartdns.xxxxxxxxx.xxxx.all.ipk|Openwrt management interface
+|标准Linux系统(树莓派)| smartdns.xxxxxxxx.armhf.deb|支持树莓派Raspbian stretch，Debian 9系统。
+|标准Linux系统(Armbian arm64)| smartdns.xxxxxxxx.arm64.deb|支持ARM64的Debian stretch，Debian 9系统。
+|标准Linux系统(x86_64)| smartdns.xxxxxxxx.x86_64.tar.gz|支持x86_64 Linux 系统。
+|Windows 10 WSL (ubuntu)| smartdns.xxxxxxxx.x86_64.tar.gz|支持Windows 10 WSL ubuntu系统。
+|标准Linux系统(x86)| smartdns.xxxxxxxx.x86.tar.gz|支持x86系统。
+|华硕原生固件(optware)|smartdns.xxxxxxx.mipsbig.ipk|支持MIPS大端架构的系统，如RT-AC55U, RT-AC66U.
+|华硕原生固件(optware)|smartdns.xxxxxxx.mipsel.ipk|支持MIPS小端架构的系统。
+|华硕原生固件(optware)|smartdns.xxxxxxx.arm.ipk|支持arm小端架构的系统，如RT-AC68U。
+|Padavan|smartdns.xxxxxxx.mipselsf.ipk|padavan固件。
+|openwrt 15.01|smartdns.xxxxxxxx.ar71xx.ipk|支持AR71XX MIPS系统。
+|openwrt 15.01|smartdns.xxxxxxxx.ramips_24kec.ipk|支持MT762X等小端路由器
+|openwrt 15.01(潘多拉)|smartdns.xxxxxxxx.mipsel_24kec_dsp.ipk|支持MT7620系列的潘多拉固件
+|openwrt 15.01(潘多拉)|smartdns.xxxxxxxx.mips_74kc_dsp2.ipk|支持AR71xx系列的潘多拉固件
+|openwrt 18.06|smartdns.xxxxxxxx.mips_24kc.ipk|支持AR71XX MIPS系统。
+|openwrt 18.06|smartdns.xxxxxxxx.mipsel_24kc.ipk|支持MT726X等小端路由器
+|openwrt 18.06|smartdns.xxxxxxxx.x86_64.ipk|支持x86_64路由器
+|openwrt 18.06|smartdns.xxxxxxxx.i386_pentium4.ipk|支持x86路由器
+|openwrt 18.06|smartdns.xxxxxxxxxxx.arm_cortex-a9.ipk|支持arm A9核心CPU的路由器
+|openwrt 18.06|smartdns.xxxxxxxxx.arm_cortex-a7_neon-vfpv4.ipk|支持arm A7核心CPU的路由器
+|openwrt LUCI|luci-app-smartdns.xxxxxxxxx.xxxx.all.ipk|openwrt管理统一界面
 
-* The openwrt system supports a lot of CPU architecture. The above table does not list all the supported systems. Please check the CPU architecture and download it.
-* The merlin Merlin firmware theory is the same as the ASUS firmware, so install the corresponding ipk package according to the hardware type. (Merlin is not verified yet, and has a problem to submit an issue)
-* The CPU architecture can be found in the router management interface:  
-    Log in to the router, click `System`->`Software`, click the `Configuration` tab page, and find the corresponding software architecture in the opkg installation source. The download path can be found, as follows, the architecture is ar71xx
+* openwrt系统CPU架构比较多，上述表格未列出所有支持系统，请查看CPU架构后下载。
+* merlin梅林固件理论和华硕固件一致，所以根据硬件类型安装相应的ipk包即可。（梅林暂时未验证，有问题提交issue）
+* CPU架构可在路由器管理界面找到，查看方法：
+    登录路由器，点击`System`->`Software`，点击`Configuration` Tab页面，在opkg安装源中可找到对应软件架构，下载路径中可找到，如下，架构为ar71xx
 
     ```shell
     src/gz chaos_calmer_base http://downloads.openwrt.org/chaos_calmer/15.05/ar71xx/generic/packages/base
     ```
 
-* Or after login to the system, you can query the architecture with the following commands:
+* 或ssh登录系统后通过如下命令查询软件架构：
 
-  * **Openwrt series commands**
+  * **openwrt系列命令**
 
     ```shell
     opkg print_architecture
     ```
 
-  * **Optiware series commands**
+  * **optware系列命令**
 
     ```shell
     ipkg print_architecture
     ```
 
-  * **Dedebian Series Order**
+  * **debian系列命令**
 
     ```shell
-    dpkg -- print-architecture
+    dpkg --print-architecture
     ```
 
-  * **for example**
+  * **例如**
 
-    The following query result `arch ar71xx 10` represents the ar71xx series architecture, so select the `smartdns.xxxxxxx.ar71xx.ipk` installation package.
+    下面的查询结果`arch ar71xx 10`表示ar71xx系列架构，选择`smartdns.xxxxxxxx.ar71xx.ipk`安装包
 
     ```shell
-    Root@OpenWrt:# opkg print_architecture
-    Arch all 1
-    Arch noarch 1
-    Arch ar71xx 10
+    root@OpenWrt:~# opkg print_architecture
+    arch all 1
+    arch noarch 1
+    arch ar71xx 10
     ```
 
-* **Please download from the Release page: [Download here](https://github.com/pymu/smartdns/releases)**
+* **请在Release页面下载：[点击此处下载](https://github.com/pymumu/smartdns/releases)**
 
 ```shell
-https://github.com/pymu/smartdns/releases
+https://github.com/pymumu/smartdns/releases
 ```
 
-* For the installation procedure, please refer to the following sections.
+* 各种设备的安装步骤，请参考后面的章节。
 
-### Standard Linux system installation/Raspberry Pi, X86_64 system
+### 标准Linux系统安装/树莓派/X86_64系统
 
 --------------
 
-1. Installation
+1. 安装
 
-    Download the installation package like `smartdns.xxxxxxxx.armhf.deb` and upload it to the Linux system. Run the following command to install
+    下载配套安装包`smartdns.xxxxxxxx.armhf.deb`，并上传到Linux系统中。 执行如下命令安装
 
     ```shell
     dpkg -i smartdns.xxxxxxxx.armhf.deb
     ```
 
-    For X86-64 system, download the installation package like `smartdns.xxxxxxxx.x86-64.tar.gz` and upload it to the Linux system. Run the following command to install
+    x86系统下载配套安装包`smartdns.xxxxxxxx.x86-64.tar.gz`, 并上传到Linux系统中。 执行如下命令安装
 
     ```shell
     tar zxf smartdns.xxxxxxxx.x86-64.tar.gz
@@ -220,36 +225,36 @@ https://github.com/pymu/smartdns/releases
     ./install -i
     ```
 
-1. Configuration
+1. 修改配置
 
-    After the installation is complete, you can configure the upstream server to  smartdns. Refer to the `Configuration Parameters` for specific configuration parameters.  
-    In general, you only need to add `server [IP]:port`, `server-tcp [IP]:port` configuration items.  
-    Configure as many upstream DNS servers as possible, including servers at home and abroad. Please refer to the `Configuration Parameters` section for configuration parameters.  
+    安装完成后，可配置smartdns的上游服务器信息。具体配置参数参考`配置参数`说明。  
+    一般情况下，只需要增加`server [IP]:port`, `server-tcp [IP]:port`配置项，
+    尽可能配置多个上游DNS服务器，包括国内外的服务器。配置参数请查看`配置参数`章节。
 
     ```shell
     vi /etc/smartdns/smartdns.conf
     ```
 
-1. Start Service
+1. 启动服务
 
     ```shell
     systemctl enable smartdns
     systemctl start smartdns
     ```
 
-1. Forwarding DNS request to SmartDNS
+1. 将DNS请求转发的SmartDNS解析。
 
-    Modify the DNS server of the local router and configure the DNS server as SmartDNS.
-    * Log in to the router on the local network and configure the Raspberry Pi to assign a static IP address.
-    * Modify the WAN port or DHCP DNS to the Raspberry Pi IP address.
-    Note:
-    I. Each router configuration method is different. Please search Baidu for related configuration methods.
-    II. some routers may not support configuring custom DNS server. in this case, please modify the PC's, mobile phone's DNS server to the ip of Raspberry Pi.
+    修改本地路由器的DNS服务器，将DNS服务器配置为SmartDNS。
+    * 登录到本地网络的路由器中，配置树莓派分配静态IP地址。
+    * 修改WAN口或者DHCP DNS为树莓派IP地址。  
+    注意：  
+    I. 每款路由器配置方法不尽相同，请百度搜索相关的配置方法。  
+    II.华为等路由器可能不支持配置DNS为本地IP，请修改PC端，手机端DNS服务器为树莓派IP。
 
-1. Check if the service is configured successfully
+1. 检测服务是否配置成功。
 
-    Query domain name with `nslookup -querytype=ptr 0.0.0.0`  
-    Check if the `name` item in the command result is displayed as `smartdns` or `hostname`, such as `smartdns`
+    使用`nslookup -querytype=ptr 0.0.0.0`查询域名  
+    看命令结果中的`name`项目是否显示为`smartdns`或`主机名`，如`smartdns`则表示生效  
 
     ```shell
     pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 0.0.0.0
@@ -264,36 +269,36 @@ https://github.com/pymu/smartdns/releases
 
 --------------
 
-1. Installation
+1. 安装
 
-    Upload the software to the /root directory of the router with winscp or other tool, and execute the following command to install it.
+    将软件使用winscp上传到路由器的/root目录，执行如下命令安装  
 
     ```shell
     opkg install smartdns.xxxxxxxx.xxxx.ipk
     opkg install luci-app-smartdns.xxxxxxxx.xxxx.all.ipk
     ```
 
-1. Configuration
+1. 修改配置
 
-    Log in to the openwrt management page and open `Services`->`SmartDNS` to configure SmartDNS.
-    * Add upstream DNS server configuration to `Upstream Servers`. It is recommended to configure multiple DNS servers at home and abroad.
-    * Specify the IP address of a specific domain name in `Domain Address`, which can be used for ad blocking.
+    登录openwrt管理页面，打开`Services`->`SmartDNS`进行配置。
+    * 在`Upstream Servers`增加上游DNS服务器配置，建议配置多个国内外DNS服务器。
+    * 在`Domain Address`指定特定域名的IP地址，可用于广告屏蔽。
 
-1. Start Service
+1. 启用服务
 
-   There are two ways to use the SmartDNS service, `one is directly as the primary DNS service`, `the other is as the upstream of dnsmasq`.  
-   By default, SmartDNS uses the first method. You can choose according to your needs in the following two ways.
+   SmartDNS服务生效方法有两种，`一种是直接作为主DNS服务`；`另一种是作为dnsmasq的上游`。  
+   默认情况下，SmartDNS采用第一种方式。如下两种方式根据需求选择即可。
 
-1. Method 1: SmartDNS as primary DNS Server (default scheme)
+1. 启用方法一：作为主DNS(默认方案)
 
-    * **Enable SmartDNS port 53 port redirection**
+    * **启用smartdns的53端口重定向**
 
-        Log in to the router, click on `Services`->`SmartDNS`->`redirect`, select `Redirect 53 port to SmartDNS` option to enable port 53 forwarding.
+        登录路由器，点击`Services`->`SmartDNS`->`redirect`，选择`重定向53端口到SmartDNS`启用53端口转发。
 
-    * **Check if the service is configured successfully**
+    * **检测转发服务是否配置成功**
 
-        Query domain name with `nslookup -querytype=ptr 0.0.0.0`
-        See if the `name` item in the command result is displayed as `smartdns` or `hostname`, such as `smartdns`
+        使用`nslookup -querytype=ptr 0.0.0.0`查询域名  
+        看命令结果中的`name`项目是否显示为`smartdns`或`主机名`，如`smartdns`则表示生效  
 
         ```shell
         pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 0.0.0.0
@@ -304,29 +309,29 @@ https://github.com/pymu/smartdns/releases
         0.0.0.0.in-addr.arpa  name = smartdns.
         ```
 
-    * **The interface prompts that the redirect failed**
+    * **界面提示重定向失败**
 
-        * Check if iptable, ip6table command is installed correctly.
-        * The openwrt 15.01 system does not support IPV6 redirection. If the network needs to support IPV6, please change DNSMASQ upstream to smartdns, or change the smartdns port to 53, and disable dnsmasq.
-        * After LEDE system, please install IPV6 nat forwarding driver. Click `system`->`Software`, click `update lists` to update the software list, install `ip6tables-mod-nat`
-        * Use the following command to check whether the routing rule takes effect.
+        * 检查iptable，ip6table命令是否正确安装。
+        * openwrt 15.01系统不支持IPV6重定向，如网络需要支持IPV6，请将DNSMASQ上游改为smartdns，或者将smartdns的端口改为53，并停用dnsmasq。
+        * LEDE之后系统，请安装IPV6的nat转发驱动。点击`system`->`Software`，点击`update lists`更新软件列表后，安装`ip6tables-mod-nat`
+        * 使用如下命令检查路由规则是否生效。  
 
         ```shell
         iptables -t nat -L PREROUTING | grep REDIRECT
         ```
 
-        * If the forwarding function is abnormal, please use Method 2: As the upstream of DNSMASQ.
+        * 如转发功能不正常，请使用方法二：作为DNSMASQ的上游。
 
-1. Method 2: SmartDNS as upstream DNS Server of DNSMASQ
+1. 方法二：作为DNSMASQ的上游
 
-    * **Forward dnsmasq's request to SmartDNS**
+    * **将dnsmasq的请求发送到smartdns**
 
-        Log in to the router, click on `Services`->`SmartDNS`->`redirect`, select `Run as dnsmasq upstream server` option to forwarding dnsmasq request to Smartdns.
+        登录路由器，点击`Services`->`SmartDNS`->`redirect`，选择`作为dnsmasq的上游服务器`设置dnsmasq的上游服务器为smartdns。
 
-    * **Check if the service is configured successfully**
+    * **检测上游服务是否配置成功**
 
-        * Method 1: Query domain name with `nslookup -querytype=ptr 0.0.0.1`
-        See if the `name` item in the command result is displayed as `smartdns` or `hostname`, such as `smartdns`
+        * 方法一：使用`nslookup -querytype=ptr 0.0.0.0`查询域名  
+        看命令结果中的`name`项目是否显示为`smartdns`或`主机名`，如`smartdns`则表示生效  
 
         ```shell
         pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 0.0.0.0
@@ -337,7 +342,7 @@ https://github.com/pymu/smartdns/releases
         0.0.0.0.in-addr.arpa  name = smartdns.
         ```
 
-        * Method 2: Use `nslookup` to query the `www.baidu.com` domain name to see if the IP address of Baidu in the result is `only one. If there are multiple IP addresses returned, it means that it is not valid. Please try to check several domain names.
+        * 方法二：使用`nslookup`查询`www.baidu.com`域名，查看结果中百度的IP地址是否`只有一个`，如有多个IP地址返回，则表示未生效，请多尝试几个域名检查。
 
         ```shell
         pi@raspberrypi:~ $ nslookup www.baidu.com 192.168.1.1
@@ -350,47 +355,47 @@ https://github.com/pymu/smartdns/releases
         Address: 14.215.177.38
         ```
 
-1. Start Service
+1. 启动服务
 
-    Check the `Enable' in the configuration page to start SmartDNS server.
+    勾选配置页面中的`Enable(启用)`来启动SmartDNS
 
-1. Note
+1. 注意：
 
-    * If chinaDNS is already installed, it is recommended to configure the upstream of chinaDNS as SmartDNS.
-    * SmartDNS defaults to forwarding port 53 requests to the local port of SmartDNS, controlled by the `Redirect` configuration option.
+    * 如已经安装chinaDNS，建议将chinaDNS的上游配置为SmartDNS。
+    * SmartDNS默认情况，将53端口的请求转发到SmartDNS的本地端口，由`Redirect`配置选项控制。
 
-### ASUS router native firmware / Merlin firmware
+### 华硕路由器原生固件/梅林固件
 
 --------------
 
-Note: Merlin firmware is derived from ASUS firmware and can theoretically be used directly with the ASUS package. However, it is currently unverified. If you have any questions, please submit an issue.
+说明：梅林固件派生自华硕固件，理论上可以直接使用华硕配套的安装包使用。但目前未经验证，如有问题，请提交issue。
 
-1. Prepare
+1. 准备
 
-    When using this software, you need to confirm whether the router supports U disk and prepare a USB disk.
+    在使用此软件时，需要确认路由器是否支持U盘，并准备好U盘一个。
 
-1. Enable SSH login
+1. 启用SSH登录
 
-    Log in to the management interface, click `System Management`-> Click `System Settings` and configure `Enable SSH` to `Lan Only`.  
-    The SSH login username and password are the same as the management interface.
+    登录管理界面，点击`系统管理`->点击`系统设置`，配置`Enable SSH`为`Lan Only`。  
+    SSH登录用户名密码与管理界面相同。
 
-1. Insstall `Download Master`
+1. 下载`Download Master`
 
-    In the management interface, click `USB related application`-> click `Download Master` to download.  
-    After the download is complete, enable `Download Master`. If you do not need the download function, you can uninstall `Download Master` here, but make sure that Download Master is enabled before uninstalling.  
+    在管理界面点击`USB相关应用`->点击`Download Master`下载。  
+    下载完成后，启用`Download Master`，如果不需要下载功能，此处可以卸载`Download Master`，但要保证卸载前Download Master是启用的。  
 
-1. Install SmartDNS
+1. 安装SmartDNS
 
-    Upload the software to the router's `/tmp/mnt/sda1` directory using winscp. (or copy the network neighborhood to the sda1 shared directory)
+    将软件使用winscp上传到路由器的`/tmp/mnt/sda1`目录。（或网上邻居复制到sda1共享目录）
 
     ```shell
     ipkg install smartdns.xxxxxxx.mipsbig.ipk
     ```
 
-1. Restart router
+1. 重启路由器生效服务
 
-    After the router is started, use `nslookup -querytype=ptr 0.0.0.0` to query the domain name.  
-    See if the `name` item in the command result is displayed as `smartdns` or `hostname`, such as `smartdns`
+    待路由器启动后，使用`nslookup -querytype=ptr 0.0.0.0`查询域名  
+    看命令结果中的`name`项目是否显示为`smartdns`或`主机名`，如`smartdns`则表示生效  
 
     ```shell
     pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 0.0.0.0
@@ -401,13 +406,13 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
     0.0.0.0.in-addr.arpa  name = smartdns.
     ```
 
-1. Note
+1. 额外说明
 
-    In the above process, smartdns will be installed to the root directory of the U disk and run in optware mode.  
-    Its directory structure is as follows: (only smartdns related files are listed here)
+    上述过程，smartdns将安装到U盘根目录，采用optware的模式运行。
+    其目录结构如下： （此处仅列出smartdns相关文件）  
 
     ```shell
-    USB DISK
+    U盘
     └── asusware.mipsbig
             ├── bin
             ├── etc
@@ -423,13 +428,13 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
             ....
     ```
 
-    To modify the configuration, you can use ssh to login to the router and use the vi command to modify it.
+    如要修改配置，可以ssh登录路由器，使用vi命令修改  
 
     ```shell
     vi /opt/etc/smartdns/smartdns.conf
     ```
 
-    It can also be modified from Network Neighborhood. From the neighbor sharing directory `sda1` you can't see the `asusware.mipsbig` directory, but you can directly enter `asusware.mipsbig\etc\init.d` in `File Manager` to modify it.
+    也可以通过网上邻居修改，网上邻居共享目录`sda1`看不到`asusware.mipsbig`目录，但可以直接在`文件管理器`中输入`asusware.mipsbig\etc\init.d`访问
 
     ```shell
     \\192.168.1.1\sda1\asusware.mipsbig\etc\init.d
@@ -439,57 +444,57 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 
 --------------
 
-1. Prepare
+1. 准备
 
-    When using this software, you need to confirm whether the router supports USB disk and prepare a USB disk.
+    在使用此软件时，需要确认路由器是否支持U盘，并准备好U盘一个。
 
-1. Install SmartDNS
+1. 安装SmartDNS
 
-    Upload the software to `/tmp` directory of the router using winscp, and run the flollowing command to install.
+    将软件使用winscp上传到路由器的`/tmp`目录。
 
     ```shell
     ipkg install smartdns.xxxxxxx.mipsbig.ipk
     ```
 
-1. Modify the smartdns configuration
+1. 修改smartdns配置
 
     ```shell
-    Vi /opt/etc/smartdns/smartdns.conf
+    vi /opt/etc/smartdns/smartdns.conf
     ```
 
-    Note: if you need to support IPV6, you can set the worke-mode to `2`, this will disable the DNS service of dnsmasq, and smartdns run as the primary DNS server. Change `SMARTDNS_WORKMODE` in the file `/opt/etc/smartdns/smartdns-opt.conf` to 2.
+    另外，如需支持IPV6，可设置工作模式为`2`，将dnsmasq的DNS服务禁用，smartdns为主用DNS服务器。将文件`/opt/etc/smartdns/smartdns-opt.conf`，中的`SMARTDNS_WORKMODE`修改为2.
 
     ```shell
     SMARTDNS_WORKMODE="2"
     ```
 
-1. Restart the router to take effect
+1. 重启路由器生效服务
 
-    After the router is started, use `nslookup -querytype=ptr 0.0.0.0` to query the domain name.
-    See if the `name` item in the command result is displayed as `smartdns` or `hostname`, such as `smartdns`
+    待路由器启动后，使用`nslookup -querytype=ptr 0.0.0.0`查询域名  
+    看命令结果中的`name`项目是否显示为`smartdns`或`主机名`，如`smartdns`则表示生效  
 
     ```shell
-    Pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 0.0.0.0
-    Server: 192.168.1.1
-    Address: 192.168.1.1#53
+    pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 0.0.0.0
+    Server:         192.168.1.1
+    Address:        192.168.1.1#53
 
     Non-authoritative answer:
-    0.0.0.0.in-addr.arpa name = smartdns.
+    0.0.0.0.in-addr.arpa  name = smartdns.
     ```
 
-    Note: If the service does not start automatically, you need to set optwre/entware to start automatically. For details, see the optware/entware documentation.
+    注意：若服务没有自动启动，则需要设置optwre/entware自动启动，具体方法参考optware/entware的文档。
 
-### Windows 10 WSL Installation/WSL ubuntu
+### Windows 10 WSL安装/WSL ubuntu
 
 --------------
 
-1. Install Windows 10 WSL ubuntu
+1. 安装Windows 10 WSL ubuntu系统
 
-   Install the Windows 10 WSL environment and select Ubuntu as default distribution. Please refer to [WSL installation instructions](https://docs.microsoft.com/en-us/windows/wsl/install-win10) for installation steps
+    安装Windows 10 WSL运行环境，发行版本选择ubuntu系统。安装步骤请参考[WSL安装说明](https://docs.microsoft.com/en-us/windows/wsl/install-win10)
 
-1. Install smartdns
+1. 安装smartdns
 
-    download install package `smartdns.xxxxxxxx.x86_64.tar.gz`，and unzip to the `D:\` directory, after decompression, the directory is as follows: 
+    下载安装包`smartdns.xxxxxxxx.x86_64.tar.gz`，并解压到D盘根目录。解压后目录如下：
 
     ```shell
     D:\SMARTDNS
@@ -504,26 +509,26 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 
     ```
 
-    Double-click `install.bat` in the `D:\smartdns\package\windows` directory for installation. Please enter the password for `WLS ubuntu` when input password.
+    双击`D:\smartdns\package\windows`目录下的`install.bat`进行安装。要求输入密码时，请输入`WLS ubuntu`的密码。
 
-1. Configuration
+1. 修改配置
 
-    Edit `smartdns.conf` configuration file in `D:\smartdns\etc\smartdns` directory, you can configure the upstream server to  smartdns. Refer to the `Configuration Parameters` for specific configuration parameters.  
-    In general, you only need to add `server [IP]:port`, `server-tcp [IP]:port` configuration items.  
-    Configure as many upstream DNS servers as possible, including servers at home and abroad. Please refer to the `Configuration Parameters` section for configuration parameters.  
+    记事本打开`D:\smartdns\etc\smartdns`目录中的`smartdns.conf`配置文件配置smartdns。具体配置参数参考`配置参数`说明。  
+    一般情况下，只需要增加`server [IP]:port`, `server-tcp [IP]:port`配置项，
+    尽可能配置多个上游DNS服务器，包括国内外的服务器。配置参数请查看`配置参数`章节。
 
-1. Start Service
+1. 重新加载配置
 
-    Double-click `reload.bat` in the `D:\smartdns\package\windows` directory for reload.
+    双击`D:\smartdns\package\windows`目录下的`reload.bat`进行安装。要求输入密码时，请输入`WLS ubuntu`的密码。
 
-1. Forwarding DNS request to SmartDNS
+1. 将DNS请求转发的SmartDNS解析。
 
-    Modify the default DNS server for Windows to `127.0.0.1`, with these steps referred to [IP configuration](https://support.microsoft.com/en-us/help/15089/windows-change-tcp-ip-settings)
+    将Windows的默认DNS服务器修改为`127.0.0.1`，具体步骤参考[IP配置](https://support.microsoft.com/zh-cn/help/15089/windows-change-tcp-ip-settings)
 
-1. Check if the service is configured successfully
+1. 检测服务是否配置成功。
 
-    Query domain name with `nslookup -querytype=ptr 0.0.0.0`  
-    Check if the `name` item in the command result is displayed as `smartdns` or `hostname`, such as `smartdns`
+    使用`nslookup -querytype=ptr 0.0.0.0`查询域名  
+    看命令结果中的`name`项目是否显示为`smartdns`或`主机名`，如`smartdns`则表示生效  
 
     ```shell
     pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 0.0.0.0
@@ -534,156 +539,159 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
     0.0.0.0.in-addr.arpa  name = smartdns.
     ```
 
-## Configuration parameter
+## 配置参数
 
-|parameter|Parameter function|Default value|Value type|Example|
+|参数|  功能  |默认值|配置值|例子|
 |--|--|--|--|--|
-|server-name|DNS name|host name/smartdns|any string like hosname|server-name smartdns
-|bind|DNS bind port|[::]:53|IP:PORT|bind 192.168.1.1:53
-|bind-tcp|TCP mode DNS bind port|[::]:53|IP:PORT|bind-tcp 192.168.1.1:53
-|cache-size|Domain name result cache number|512|integer|cache-size 512
-|tcp-idle-time|TCP connection idle timeout|120|integer|tcp-idle-time 120
-|rr-ttl|Domain name TTL|Remote query result|number greater than 0|rr-ttl 600
-|rr-ttl-min|Domain name Minimum TTL|Remote query result|number greater than 0|rr-ttl-min 60
-|rr-ttl-max|Domain name Maximum TTL|Remote query result|number greater than 0|rr-ttl-max 600
-|log-level|log level|error|fatal,error,warn,notice,info,debug|log-level error
-|log-file|log path|/var/log/smartdns.log|File Pah|log-file /var/log/smartdns.log
-|log-size|log size|128K|number+K,M,G|log-size 128K
-|log-num|archived log number|2|Integer|log-num 2
-|audit-enable|audit log enable|no|[yes\|no]|audit-enable yes
-|audit-file|audit log file|/var/log/smartdns-audit.log|File Path|audit-file /var/log/smartdns-audit.log
-|audit-size|audit log size|128K|number+K,M,G|audit-size 128K
-|audit-num|archived audit log number|2|Integer|audit-num 2
-|conf-file|additional conf file|None|File path|conf-file /etc/smartdns/smartdns.more.conf
-|server|Upstream UDP DNS server|None|Repeatable <br>`[ip][:port]`: Server IP, port optional. <br>`[-blacklist-ip]`: The "-blacklist-ip" parameter is to filtering IPs which is configured by "blacklist-ip". <br>`[-check-edns]`: edns filter. <br>`[-group [group] ...]`: The group to which the DNS server belongs, such as office, foreign, use with nameserver. <br>`[-exclude-default-group]`: Exclude DNS servers from the default group| server 8.8.8.8:53 -blacklist-ip -check-edns
-|server-tcp|Upstream TCP DNS server|None|Repeatable <br>`[ip][:port]`: Server IP, port optional. <br>`[-blacklist-ip]`: The "-blacklist-ip" parameter is to filtering IPs which is configured by "blacklist-ip". <br>`[-group [group] ...]`: The group to which the DNS server belongs, such as office, foreign, use with nameserver. <br>`[-exclude-default-group]`: Exclude DNS servers from the default group| server-tcp 8.8.8.8:53
-|server-tls|Upstream TLS DNS server|None|Repeatable <br>`[ip][:port]`: Server IP, port optional. <br>`[-spki-pin [sha256-pin]]`: TLS verify SPKI value, a base64 encoded SHA256 hash<br>`[host-name]`:TLS Server name<br>`[-blacklist-ip]`: The "-blacklist-ip" parameter is to filtering IPs which is configured by "blacklist-ip". <br>`[-group [group] ...]`: The group to which the DNS server belongs, such as office, foreign, use with nameserver. <br>`[-exclude-default-group]`: Exclude DNS servers from the default group| server-tls 8.8.8.8:853
-|server-https|Upstream HTTPS DNS server|None|Repeatable <br>`https://[host][:port]/path`: Server IP, port optional. <br>`[-spki-pin [sha256-pin]]`: TLS verify SPKI value, a base64 encoded SHA256 hash<br>`[host-name]`:TLS Server name<br>`[http-host]`：http header host<br>`[-blacklist-ip]`: The "-blacklist-ip" parameter is to filtering IPs which is configured by "blacklist-ip". <br>`[-group [group] ...]`: The group to which the DNS server belongs, such as office, foreign, use with nameserver. <br>`[-exclude-default-group]`: Exclude DNS servers from the default group| server-https https://cloudflare-dns.com/dns-query
-|address|Domain IP address|None|address /domain/[ip\|-\|-4\|-6\|#\|#4\|#6], `-` for ignore, `#` for return SOA, `4` for IPV4, `6` for IPV6| address /www.example.com/1.2.3.4
-|nameserver|To query domain with specific server group|None|nameserver /domain/[group\|-], `group` is the group name, `-` means ignore this rule, use the `-group` parameter in the related server|nameserver /www.example.com/office
-|ipset|Domain IPSet|None|ipset /domain/[ipset\|-], `-` for ignore|ipset /www.example.com/pass
-|ipset-timeout|ipset timeout enable|auto|[yes]|ipset-timeout yes
-|bogus-nxdomain|bogus IP address|None|[IP/subnet], Repeatable| bogus-nxdomain 1.2.3.4/16
-|ignore-ip|ignore ip address|None|[ip/subnet], Repeatable| ignore-ip 1.2.3.4/16
-|blacklist-ip|ip blacklist|None|[ip/subnet], Repeatable，When the filtering server responds IPs in the IP blacklist, The result will be discarded directly| blacklist-ip 1.2.3.4/16
-|force-AAAA-SOA|force AAAA query return SOA|no|[yes\|no]|force-AAAA-SOA yes
-|prefetch-domain|domain prefetch feature|no|[yes\|no]|prefetch-domain yes
-|dualstack-ip-selection|Dualstack ip selection|no|[yes\|no]|dualstack-ip-selection yes
-|dualstack-ip-selection-threshold|Dualstack ip select threadhold|30ms|millisecond|dualstack-ip-selection-threshold [0-1000]
+|server-name|DNS服务器名称|操作系统主机名/smartdns|符合主机名规格的字符串|server-name smartdns
+|bind|DNS监听端口号|[::]:53|IP:PORT|bind 192.168.1.1:53
+|bind-tcp|TCP模式DNS监听端口号|[::]:53|IP:PORT|bind-tcp 192.168.1.1:53
+|cache-size|域名结果缓存个数|512|数字|cache-size 512
+|tcp-idle-time|TCP链接空闲超时时间|120|数字|tcp-idle-time 120
+|rr-ttl|域名结果TTL|远程查询结果|大于0的数字|rr-ttl 600
+|rr-ttl-min|允许的最小TTL值|远程查询结果|大于0的数字|rr-ttl-min 60
+|rr-ttl-max|允许的最大TTL值|远程查询结果|大于0的数字|rr-ttl-max 600
+|log-level|设置日志级别|error|fatal,error,warn,notice,info,debug|log-level error
+|log-file|日志文件路径|/var/log/smartdns.log|路径|log-file /var/log/smartdns.log
+|log-size|日志大小|128K|数字+K,M,G|log-size 128K
+|log-num|日志归档个数|2|数字|log-num 2
+|audit-enable|设置审计启用|no|[yes\|no]|audit-enable yes
+|audit-file|审计文件路径|/var/log/smartdns-audit.log|路径|audit-file /var/log/smartdns-audit.log
+|audit-size|审计大小|128K|数字+K,M,G|audit-size 128K
+|audit-num|审计归档个数|2|数字|audit-num 2
+|conf-file|附加配置文件|无|文件路径|conf-file /etc/smartdns/smartdns.more.conf
+|server|上游UDP DNS|无|可重复<br>`[ip][:port]`：服务器IP，端口可选。<br>`[-blacklist-ip]`：blacklist-ip参数指定使用blacklist-ip配置IP过滤结果。<br>`[-check-edns]`：edns过滤。<br>`[-group [group] ...]`：DNS服务器所属组，比如office, foreign，和nameserver配套使用。<br>`[-exclude-default-group]`：将DNS服务器从默认组中排除| server 8.8.8.8:53 -blacklist-ip -check-edns -group g1
+|server-tcp|上游TCP DNS|无|可重复<br>`[ip][:port]`：服务器IP，端口可选。<br>`[-blacklist-ip]`：blacklist-ip参数指定使用blacklist-ip配置IP过滤结果。<br>`[-group [group] ...]`：DNS服务器所属组，比如office, foreign，和nameserver配套使用。<br>`[-exclude-default-group]`：将DNS服务器从默认组中排除| server-tcp 8.8.8.8:53
+|server-tls|上游TLS DNS|无|可重复<br>`[ip][:port]`：服务器IP，端口可选。<br>`[-spki-pin [sha256-pin]]`: TLS合法性校验SPKI值，base64编码的sha256 SPKI pin值<br>`[host-name]`：TLS SNI名称<br>`[-blacklist-ip]`：blacklist-ip参数指定使用blacklist-ip配置IP过滤结果。<br>`[-group [group] ...]`：DNS服务器所属组，比如office, foreign，和nameserver配套使用。<br>`[-exclude-default-group]`：将DNS服务器从默认组中排除| server-tls 8.8.8.8:853
+|server-https|上游HTTPS DNS|无|可重复<br>`https://[host][:port]/path`：服务器IP，端口可选。<br>`[-spki-pin [sha256-pin]]`: TLS合法性校验SPKI值，base64编码的sha256 SPKI pin值<br>`[host-name]`：TLS SNI名称<br>`[http-host]`：http协议头主机名<br>`[-blacklist-ip]`：blacklist-ip参数指定使用blacklist-ip配置IP过滤结果。<br>`[-group [group] ...]`：DNS服务器所属组，比如office, foreign，和nameserver配套使用。<br>`[-exclude-default-group]`：将DNS服务器从默认组中排除| server-https https://cloudflare-dns.com/dns-query
+|address|指定域名IP地址|无|address /domain/[ip\|-\|-4\|-6\|#\|#4\|#6] <br>`-`表示忽略 <br>`#`表示返回SOA <br>`4`表示IPV4 <br>`6`表示IPV6| address /www.example.com/1.2.3.4
+|nameserver|指定域名使用server组解析|无|nameserver /domain/[group\|-], `group`为组名，`-`表示忽略此规则，配套server中的`-group`参数使用| nameserver /www.example.com/office
+|ipset|域名IPSET|None|ipset /domain/[ipset\|-], `-`表示忽略|ipset /www.example.com/pass
+|ipset-timeout|设置IPSET超时功能启用|auto|[yes]|ipset-timeout yes
+|bogus-nxdomain|假冒IP地址过滤|无|[ip/subnet]，可重复| bogus-nxdomain 1.2.3.4/16
+|ignore-ip|忽略IP地址|无|[ip/subnet]，可重复| ignore-ip 1.2.3.4/16
+|blacklist-ip|黑名单IP地址|无|[ip/subnet]，可重复| blacklist-ip 1.2.3.4/16
+|force-AAAA-SOA|强制AAAA地址返回SOA|no|[yes\|no]|force-AAAA-SOA yes
+|prefetch-domain|域名预先获取功能|no|[yes\|no]|prefetch-domain yes
+|dualstack-ip-selection|双栈IP优选|no|[yes\|no]|dualstack-ip-selection yes
+|dualstack-ip-selection-threshold|双栈IP优选阈值|30ms|毫秒|dualstack-ip-selection-threshold [0-1000]
 
 ## FAQ
 
-1. What is the difference between SmartDNS and DNSMASQ?  
-    Smartdns is not designed to replace DNSMASQ. The main function of Smartdns is focused on DNS resolution enhancement, the difference are:  
-    * Multiple upstream server concurrent requests, after the results are measured, return the best results;
-    * `address`, `ipset` domain name matching uses efficient algorithms, query matching is faster and more efficient, and router devices are still efficient.
-    * Domain name matching supports ignoring specific domain names, and can be individually matched to IPv4, IPV6, and supports diversified customization.
-    * Enhance the ad blocking feature, return SOA record, this block ads better;
-    * IPV4, IPV6 dual stack IP optimization mechanism, in the case of dual network, choose the fastest network.
-    * Supports the latest TLS, HTTPS protocol and provides secure DNS query capabilities.
-    * DNS anti-poison mechanism, and a variety of mechanisms to avoid DNS pollution.
-    * ECS support, the query results are better and more accurate.
-    * IP blacklist support, ignoring the blacklist IP to make domain name queries better and more accurate.
-    * Domain name pre-fetch, more faster to access popular websites.
-    * Domain name TTL can be specified to make access faster.
-    * Cache mechanism to make access faster.
-    * Asynchronous log, audit log mechanism, does not affect DNS query performance while recording information.
-    * Domain group mechanism, specific domain names use specific upstream server group queries to avoid privacy leakage.
+1. SmartDNS和DNSMASQ有什么区别  
+    SMARTDNS在设计上并不是替换DNSMASQ的，SMARTDNS主要功能集中在DNS解析增强上，增强部分有：
+    * 多上游服务器并发请求，对结果进行测速后，返回最佳结果；
+    * address，ipset域名匹配采用高效算法，查询匹配更加快速高效，路由器设备依然高效。
+    * 域名匹配支持忽略特定域名，可单独匹配IPv4， IPV6，支持多样化定制。
+    * 针对广告屏蔽功能做增强，返回SOA，屏蔽广告效果更佳；
+    * IPV4，IPV6双栈IP优选机制，在双网情况下，选择最快的网络通讯。
+    * 支持最新的TLS, HTTPS协议，提供安全的DNS查询能力。
+    * DNS防抢答机制，及多种机制避免DNS污染。
+    * ECS支持，是查询结果更佳准确。
+    * IP黑名单，忽略IP机制，使域名查询更佳准确。
+    * 域名预查询，访问常用网站更加快速。
+    * 域名TTL可指定，使访问更快速。
+    * 高速缓存机制，使访问更快速。
+    * 异步日志，审计机制，在记录信息的同时不影响DNS查询性能。
+    * 域名组（group）机制，特定域名使用特定上游服务器组查询，避免隐私泄漏。
 
-1. What is the best practices for upstream server configuration?  
-    Smartdns has a speed measurement mechanism. When configuring an upstream server, it is recommended to configure multiple upstream DNS servers, including servers in different regions, but the total number is recommended to be around 10. Recommended configuration
-    * Carrier DNS.
-    * Public DNS, such as `8.8.8.8`, `8.8.4.4`, `1.1.1.1`.
+1. 如何配置上游服务器最佳。  
+    smartdns有测速机制，在配置上游服务器时，建议配置多个上游DNS服务器，包含多个不同区域的服务器，但总数建议在10个左右。推荐配置  
+    * 运营商DNS。
+    * 国内公共DNS，如`119.29.29.29`, `223.5.5.5`。
+    * 国外公共DNS，如`8.8.8.8`, `8.8.4.4`。
 
-    For specific domain names, if there is a pollution, you can enable the anti-pollution mechanism.
+    对于特定的域名，如果有污染情况，可以启用防污染机制。
 
-1. How to enable the audit log  
-    The audit log records the domain name requested by the client. The record information includes the request time, the request IP address, the request domain name, and the request type. If you want to enable the audit log, configure `audit-enable yes` in the configuration file, `audit-size`, `Audit-file`, `audit-num` configure the audit log file size, the audit log file path, and the number of audit log files. The audit log file will be compressed to save space.
+1. 如何启用审计日志  
+    审计日志记录客户端请求的域名，记录信息包括，请求时间，请求IP，请求域名，请求类型，如果要启用审计日志，在配置界面配置`audit-enable yes`启用，`audit-size`, `audit-file`, `audit-num`分别配置审计日志文件大小，审计日志文件路径，和审计日志文件个数。审计日志文件将会压缩存储以节省空间。
 
-1. How to avoid DNS privacy leaks
-    By default, smartdns will send requests to all configured DNS servers. If the upstream DNS servers record DNS logs, it will result in a DNS privacy leak. To avoid privacy leaks, try the following steps:
-    * Use trusted DNS servers.
-    * Use TLS servers.
-    * Set up an upstream DNS server group.
+1. 如何避免隐私泄漏  
+    smartdns默认情况下，会将请求发送到所有配置的DNS服务器，若上游DNS服务器使用DNS，或记录日志，将会导致隐私泄漏。为避免隐私泄漏，请尽量：  
+    * 配置使用可信的DNS服务器。
+    * 优先使用TLS查询。
+    * 设置上游DNS服务器组。
 
-1. How to block ads
-    Smartdns has a high-performance domain name matching algorithm. It is very efficient to filter advertisements by domain name. To block ads, you only need to configure records like the following configure. For example, if you block `*.ad.com`, configure as follows:
-
-    ```sh
-    Address /ad.com/#
-    ```
-
-    The suffix mode of the domain name, filtering *.ad.com, `#` means returning SOA record. If you want to only block IPV4 or IPV6 separately, add a number after `#`, such as `#4` is for IPV4 blocking. If you want to ignore some specific subdomains, you can configure it as follows. e.g., if you ignore `pass.ad.com`, you can configure it as follows:
+1. 如何屏蔽广告  
+    smartdns具备高性能域名匹配算法，通过域名方式过滤广告非常高效，如要屏蔽广告，只需要配置类似如下记录即可，如，屏蔽`*.ad.com`，则配置：
 
     ```sh
-    Address /pass.ad.com/-
+    address /ad.com/#
     ```
 
-1. DNS query diversion
-    In some cases, some domain names need to be queried using a specific DNS server to do DNS diversion. such as.
+    域名的使后缀模式，过滤*.ad.com，`#`表示返回SOA，使屏蔽广告更加高效，如果要单独屏蔽IPV4， 或IPV6， 在`#`后面增加数字，如`#4`表示对IPV4生效。若想忽略特定子域名的屏蔽，可配置如下，如忽略`pass.ad.com`，可配置如下：
+
+    ```sh
+    address /pass.ad.com/-
+    ```
+
+1. 如何使用DNS查询分流  
+    某些情况下，需要将有些域名使用特定的DNS服务器来查询来做到DNS分流。比如。
 
     ```sh
     .home -> 192.168.1.1
     .office -> 10.0.0.1
     ```
 
-    The domain name ending in .home is sent to 192.168.1.1 for resolving
-    The domain name ending in .office is sent to 10.0.0.1 for resolving
-    Other domain names are resolved using the default mode.
-    The diversion configuration for this case is as follows:
+    .home 结尾的域名发送到192.168.1.1解析  
+    .office 结尾的域名发送到10.0.0.1解析
+    其他域名采用默认的模式解析。
+    这种情况的分流配置如下：
 
     ```sh
-    # Upstream configuration, use -group to specify the group name, and -exclude-default-group to exclude the server from the default group.
-    Server 192.168.1.1 -group home -exclude-default-group
-    Server 10.0.0.1 -group office -exclude-default-group
-    Server 8.8.8.8
+    #配置上游，用-group指定组名，用-exclude-default-group将服务器从默认组中排除。
+    server 192.168.1.1 -group home -exclude-default-group
+    server 10.0.0.1 -group office -exclude-default-group
+    server 8.8.8.8
 
-    #Configure the resolved domain name with specific group
-    Nameserver /.home/home
-    Nameserver /.office/office
+    #配置解析的域名
+    nameserver /.home/home
+    nameserver /.office/office
     ```
 
-1. How to use the IPV4, IPV6 dual stack IP optimization feature  
-    At present, IPV6 network is not as fast as IPV4 in some cases. In order to get a better experience in the dual-stack network, SmartDNS provides a dual-stack IP optimization mechanism, the same domain name, and the speed of IPV4. Far faster than IPV6, then SmartDNS will block the resolution of IPV6, let the PC use IPV4, the feature is enabled by `dualstack-ip-selection yes`, `dualstack-ip-selection-threshold [time]` is for threshold. if you want to disable IPV6 AAAA record complete, please try `force-AAAA-SOA yes`.
+    通过上述配置即可实现DNS解析分流
 
-1. How to improve cache performace  
-    Smartdns provides a domain name caching mechanism to cache the queried domain name, and the caching time is in accordance with the DNS TTL specification. To increase the cache hit rate, the following configuration can be taken:
-    * Increase the number of cache records appropriately  
-    Set the number of cache records by `cache-size`.
-    In the case of a query with a high pressure environment and a machine with a large memory, it can be appropriately adjusted.
+1. IPV4, IPV6双栈IP优选功能如何使用  
+    目前IPV6已经开始普及，但IPV6网络在速度上，某些情况下还不如IPV4，为在双栈网络下获得较好的体验，smartdns提供来双栈IP优选机制，同一个域名，若IPV4的速度远快与IPV6，那么smartdns就会阻止IPV6的解析，让PC使用IPV4访问，具体配置文件通过`dualstack-ip-selection yes`启用此功能，通过`dualstack-ip-selection-threshold [time]`来修改阈值。如果要完全禁止IPV6 AAAA记录解析，可设置`force-AAAA-SOA yes`。
 
-    * Set the minimum TTL value as appropriate  
-    Set the minimum DNS TTL time to a appropriate value by `rr-ttl-min` to extend the cache time.
-    It is recommended that the timeout period be set to 10 to 30 minutes to avoid then invalid domain names when domain ip changes.
+1. 如何提高cache效率，加快访问速度  
+    smartdns提供了域名缓存机制，对查询的域名，进行缓存，缓存时间符合DNS TTL规范。为提高缓存命中率，可采用如下措施：  
+    * 适当增大cache的记录数  
+    通过`cache-size`来设置缓存记录数。  
+    查询压力大的环境下，并且有内存大的机器的情况下，可适当调大。  
 
-    * Enable domain pre-acquisition  
-    Enable pre-fetching of domain names with `prefetch-domain yes` to improve query hit rate.
-    by default, Smartdns will send domain query request again before cache expire, and cache the result for the next query. Frequently accessed domain names will continue to be cached. This feature will consume more CPU when idle.
+    * 适当设置最小TTL值  
+    通过`rr-ttl-min`将最低DNS TTL时间设置为一个合理值，延长缓存时间。  
+    建议是超时时间设置在10～30分钟，避免服务器域名变化时，查询到失效域名。
 
-## [Donate](#Donate)  
+    * 开启域名预获取功能  
+    通过`prefetch-domain yes`来启用域名预先获取功能，提高查询命中率。  
+    配合上述ttl超时时间，smartdns将在域名ttl即将超时使，再次发送查询请求，并缓存查询结果供后续使用。频繁访问的域名将会持续缓存。此功能将在空闲时消耗更多的CPU。
 
-If you feel that this project is helpful to you, please donate to us so that the project can continue to develop and be more perfect.
+## Donate
+
+如果你觉得此项目对你有帮助，请捐助我们，以使项目能持续发展，更加完善。
 
 ### PayPal
 
 [![Support via PayPal](https://cdn.rawgit.com/twolfson/paypal-github-button/1.0.0/dist/button.svg)](https://paypal.me/PengNick/)
 
-### Alipay
+### Alipay 支付宝
 
 ![alipay](doc/alipay_donate.jpg)
 
-### Wechat
+### Wechat 微信
   
 ![wechat](doc/wechat_donate.jpg)
 
-## Statement
+## 声明
 
-* `SmartDNS` copyright belongs to Nick Peng (pymumu at gmail.com).
-* `SmartDNS` is free software, users can copy and use `SmartDNS` non-commercially.
-* It is forbidden to use `SmartDNS` for commercial purposes.
-* The use of the software is at the user's own risk and, to the fullest extent permitted by applicable law, damages and risks resulting from the use of this product, including but not limited to direct or indirect personal damage, loss of commercial profit, trade disruption No loss of business information or any other financial loss.
-* This software does not collect any user information without the user's consent.
+* `SmartDNS`著作权归属Nick Peng (pymumu at gmail.com)。
+* `SmartDNS`为免费软件，用户可以非商业性地复制和使用`SmartDNS`。
+* 禁止将 `SmartDNS` 用于商业用途。
+* 使用本软件的风险由用户自行承担，在适用法律允许的最大范围内，对因使用本产品所产生的损害及风险，包括但不限于直接或间接的个人损害、商业赢利的丧失、贸易中断、商业信息的丢失或任何其它经济损失，不承担任何责任。
+* 本软件不会未经用户同意收集任何用户信息。
 
-## Additional information
+## 说明
 
-Currently the code is not open source, and subsequent open source according to the situation.
+目前代码未开源，后续根据情况开源。
