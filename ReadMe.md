@@ -3,7 +3,7 @@
 **[English](ReadMe_en.md)**
 
 ![SmartDNS](doc/smartdns-banner.png)  
-SmartDNS是一个运行在本地的DNS服务器，SmartDNS接受本地客户端的DNS查询请求，从多个上游DNS服务器获取DNS查询结果，并将访问速度最快的结果返回给客户端，避免DNS污染，提高网络访问速度。
+SmartDNS是一个运行在本地的DNS服务器，SmartDNS接受本地客户端的DNS查询请求，从多个上游DNS服务器获取DNS查询结果，并将访问速度最快的结果返回给客户端，提高网络访问速度。
 同时支持指定特定域名IP地址，并高性匹配，达到过滤广告的效果。  
 与dnsmasq的all-servers不同，smartdns返回的是访问速度最快的解析结果。 (详细差异请看[FAQ](#faq)) 
 
@@ -93,10 +93,10 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
    支持配置多个上游DNS服务器，并同时进行查询，即使其中有DNS服务器异常，也不会影响查询。  
 
 1. **返回最快IP地址**  
-   支持从域名所属IP地址列表中查找到访问速度最快的IP地址，并返回给客户端，避免DNS污染，提高网络访问速度。
+   支持从域名所属IP地址列表中查找到访问速度最快的IP地址，并返回给客户端，提高网络访问速度。
 
 1. **支持多种查询协议**  
-   支持UDP，TCP，TLS, HTTPS查询，以及非53端口查询，有效避免DNS污染。
+   支持UDP，TCP，TLS, HTTPS查询，以及非53端口查询。
 
 1. **特定域名IP地址指定**  
    支持指定域名的IP地址，达到广告过滤效果，避免恶意网站的效果。
@@ -560,7 +560,7 @@ https://github.com/pymumu/smartdns/releases
 |audit-size|审计大小|128K|数字+K,M,G|audit-size 128K
 |audit-num|审计归档个数|2|数字|audit-num 2
 |conf-file|附加配置文件|无|文件路径|conf-file /etc/smartdns/smartdns.more.conf
-|server|上游UDP DNS|无|可重复<br>`[ip][:port]`：服务器IP，端口可选。<br>`[-blacklist-ip]`：blacklist-ip参数指定使用blacklist-ip配置IP过滤结果。<br>`[-check-edns]`：edns过滤。<br>`[-group [group] ...]`：DNS服务器所属组，比如office, foreign，和nameserver配套使用。<br>`[-exclude-default-group]`：将DNS服务器从默认组中排除| server 8.8.8.8:53 -blacklist-ip -check-edns -group g1
+|server|上游UDP DNS|无|可重复<br>`[ip][:port]`：服务器IP，端口可选。<br>`[-blacklist-ip]`：blacklist-ip参数指定使用blacklist-ip配置IP过滤结果。<br>`[-group [group] ...]`：DNS服务器所属组，比如office, foreign，和nameserver配套使用。<br>`[-exclude-default-group]`：将DNS服务器从默认组中排除| server 8.8.8.8:53 -blacklist-ip -group g1
 |server-tcp|上游TCP DNS|无|可重复<br>`[ip][:port]`：服务器IP，端口可选。<br>`[-blacklist-ip]`：blacklist-ip参数指定使用blacklist-ip配置IP过滤结果。<br>`[-group [group] ...]`：DNS服务器所属组，比如office, foreign，和nameserver配套使用。<br>`[-exclude-default-group]`：将DNS服务器从默认组中排除| server-tcp 8.8.8.8:53
 |server-tls|上游TLS DNS|无|可重复<br>`[ip][:port]`：服务器IP，端口可选。<br>`[-spki-pin [sha256-pin]]`: TLS合法性校验SPKI值，base64编码的sha256 SPKI pin值<br>`[host-name]`：TLS SNI名称<br>`[-blacklist-ip]`：blacklist-ip参数指定使用blacklist-ip配置IP过滤结果。<br>`[-group [group] ...]`：DNS服务器所属组，比如office, foreign，和nameserver配套使用。<br>`[-exclude-default-group]`：将DNS服务器从默认组中排除| server-tls 8.8.8.8:853
 |server-https|上游HTTPS DNS|无|可重复<br>`https://[host][:port]/path`：服务器IP，端口可选。<br>`[-spki-pin [sha256-pin]]`: TLS合法性校验SPKI值，base64编码的sha256 SPKI pin值<br>`[host-name]`：TLS SNI名称<br>`[http-host]`：http协议头主机名<br>`[-blacklist-ip]`：blacklist-ip参数指定使用blacklist-ip配置IP过滤结果。<br>`[-group [group] ...]`：DNS服务器所属组，比如office, foreign，和nameserver配套使用。<br>`[-exclude-default-group]`：将DNS服务器从默认组中排除| server-https https://cloudflare-dns.com/dns-query
@@ -586,7 +586,6 @@ https://github.com/pymumu/smartdns/releases
     * 针对广告屏蔽功能做增强，返回SOA，屏蔽广告效果更佳；
     * IPV4，IPV6双栈IP优选机制，在双网情况下，选择最快的网络通讯。
     * 支持最新的TLS, HTTPS协议，提供安全的DNS查询能力。
-    * DNS防抢答机制，及多种机制避免DNS污染。
     * ECS支持，是查询结果更佳准确。
     * IP黑名单，忽略IP机制，使域名查询更佳准确。
     * 域名预查询，访问常用网站更加快速。
@@ -600,8 +599,6 @@ https://github.com/pymumu/smartdns/releases
     * 运营商DNS。
     * 国内公共DNS，如`119.29.29.29`, `223.5.5.5`。
     * 国外公共DNS，如`8.8.8.8`, `8.8.4.4`。
-
-    对于特定的域名，如果有污染情况，可以启用防污染机制。
 
 1. 如何启用审计日志  
     审计日志记录客户端请求的域名，记录信息包括，请求时间，请求IP，请求域名，请求类型，如果要启用审计日志，在配置界面配置`audit-enable yes`启用，`audit-size`, `audit-file`, `audit-num`分别配置审计日志文件大小，审计日志文件路径，和审计日志文件个数。审计日志文件将会压缩存储以节省空间。

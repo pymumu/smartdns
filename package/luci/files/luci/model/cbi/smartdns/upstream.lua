@@ -70,13 +70,13 @@ o.cfgvalue    = function(...)
 end
 
 ---- anti-Answer-Forgery
-o = s:option(Flag, "check_edns", translate("Anti Answer Forgery"), translate("Anti answer forgery, if DNS does not work properly after enabling, please turn off this feature"))
-o.rmempty     = false
-o.default     = o.disabled
-o:depends("type", "udp")
-o.cfgvalue    = function(...)
-    return Flag.cfgvalue(...) or "0"
-end
+-- o = s:option(Flag, "check_edns", translate("Anti Answer Forgery"), translate("Anti answer forgery, if DNS does not work properly after enabling, please turn off this feature"))
+-- o.rmempty     = false
+-- o.default     = o.disabled
+-- o:depends("type", "udp")
+-- o.cfgvalue    = function(...)
+--     return Flag.cfgvalue(...) or "0"
+-- end
 
 ---- SPKI pin
 o = s:option(Value, "spki_pin", translate("TLS SPKI Pinning"), translate("Used to verify the validity of the TLS server, The value is Base64 encoded SPKI fingerprint, leaving blank to indicate that the validity of TLS is not verified."))

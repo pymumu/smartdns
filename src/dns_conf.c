@@ -168,7 +168,10 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 	/* clang-format off */
 	static struct option long_options[] = {
 		{"blacklist-ip", no_argument, NULL, 'b'}, /* filtering with blacklist-ip */
+#ifdef FEATURE_CHECK_EDNS
+		/* experimental feature */
 		{"check-edns", no_argument, NULL, 'e'},   /* check edns */
+#endif
 		{"spki-pin", required_argument, NULL, 'p'}, /* check SPKI pin */
 		{"host-name", required_argument, NULL, 'h'}, /* host name */
 		{"http-host", required_argument, NULL, 'H'}, /* http host */
