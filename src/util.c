@@ -193,6 +193,98 @@ int parse_ip(const char *value, char *ip, int *port)
 	return 0;
 }
 
+static int _check_is_ipv4(const char *ip) 
+{
+	const char *ptr = ip;
+	char c = 0;
+	int dot_num = 0;
+	int dig_num = 0;
+
+	while ( (c = *ptr++) != '\0') {
+		if (c == '.') {
+			dot_num++;
+			dig_num = 0;
+			continue;
+		}
+
+		/* check number count of one field */
+		if (dig_num >= 4) {
+			return -1;
+		}
+
+		if (c >= '0' && c <= '9') {
+			dig_num++;
+			continue;
+		}
+
+		return -1;
+	}
+
+	/* check field number */
+	if (dot_num != 3) {
+		return -1;
+	}
+
+	return 0;
+}
+static int _check_is_ipv6(const char *ip)
+{
+	const char *ptr = ip;
+	char c = 0;
+	int colon_num = 0;
+	int dig_num = 0;
+
+	while ( (c = *ptr++) != '\0') {
+		if (c == '[' || c == ']') {
+			continue;
+		}
+
+		if (c == ':') {
+			colon_num++;
+			dig_num = 0;
+			continue;
+		}
+
+		/* check number count of one field */
+		if (dig_num >= 5) {
+			return -1;
+		}
+
+		dig_num++;
+		if (c >= '0' && c <= '9') {
+			continue;
+		}
+
+		if (c >= 'a' && c <= 'f') {
+			continue;
+		}
+
+		if (c >= 'A' && c <= 'F') {
+			continue;
+		}
+
+		return -1;
+	}
+
+	/* check field number */
+	if (colon_num > 7) {
+		return -1;
+	}
+
+	return 0;
+}
+int check_is_ipaddr(const char *ip)
+{
+	if (strstr(ip, ".")) {
+		/* IPV4 */
+		return _check_is_ipv4(ip);
+	} else if (strstr(ip, ":")) {
+		/* IPV6 */
+		return _check_is_ipv6(ip);
+	}
+	return -1;
+}
+
 int parse_uri(char *value, char *scheme, char *host, int *port, char *path)
 {
 	char *scheme_end = NULL;

@@ -17,6 +17,7 @@
  */
 
 #include "dns_client.h"
+#include "dns_server.h"
 #include "atomic.h"
 #include "dns.h"
 #include "dns_conf.h"
@@ -94,6 +95,7 @@ struct dns_server_info {
 	struct ping_host_struct *ping_host;
 
 	char ip[DNS_HOSTNAME_LEN];
+	int port;
 	/* server type */
 	dns_server_type_t type;
 
@@ -121,6 +123,26 @@ struct dns_server_info {
 		struct sockaddr_in6 in6;
 		struct sockaddr addr;
 	};
+
+	struct client_dns_server_flags flags;
+};
+
+struct dns_server_pending {
+	struct list_head list;
+
+	char host[DNS_HOSTNAME_LEN];
+	char ipv4[DNS_HOSTNAME_LEN];
+	char ipv6[DNS_HOSTNAME_LEN];
+	unsigned int ping_time_v6;
+	unsigned int ping_time_v4;
+	unsigned int has_v4;
+	unsigned int has_v6;
+	unsigned int query_v4;
+	unsigned int query_v6;
+	/* server type */
+	dns_server_type_t type;
+
+	int port;
 
 	struct client_dns_server_flags flags;
 };
@@ -211,6 +233,9 @@ struct dns_query_struct {
 
 static struct dns_client client;
 static atomic_t dns_client_sid = ATOMIC_INIT(0);
+static LIST_HEAD(pending_servers);
+pthread_mutex_t pending_server_mutex = PTHREAD_MUTEX_INITIALIZER;
+static int dns_client_has_bootstrap_dns = 0;
 
 /* get addr info */
 static struct addrinfo *_dns_client_getaddr(const char *host, char *port, int type, int protocol)
@@ -240,21 +265,17 @@ errout:
 }
 
 /* check whether server exists */
-static int _dns_client_server_exist(struct addrinfo *gai, dns_server_type_t server_type)
+static int _dns_client_server_exist(const char *server_ip, int port, dns_server_type_t server_type)
 {
 	struct dns_server_info *server_info, *tmp;
 	pthread_mutex_lock(&client.server_list_lock);
 	list_for_each_entry_safe(server_info, tmp, &client.dns_server_list, list)
 	{
-		if (server_info->ai_addrlen != gai->ai_addrlen || server_info->ai_family != gai->ai_family) {
+		if (server_info->port != port || server_info->type != server_type) {
 			continue;
 		}
 
-		if (server_info->type != server_type) {
-			continue;
-		}
-
-		if (memcmp(&server_info->addr, gai->ai_addr, gai->ai_addrlen) != 0) {
+		if (strncmp(server_info->ip, server_ip, DNS_HOSTNAME_LEN)) {
 			continue;
 		}
 
@@ -284,49 +305,15 @@ static struct dns_server_info *_dns_client_get_server(char *server_ip, int port,
 {
 	struct dns_server_info *server_info, *tmp;
 	struct dns_server_info *server_info_return = NULL;
-	char port_s[8];
-	int sock_type;
-	struct addrinfo *gai = NULL;
-
-	if (server_type >= DNS_SERVER_TYPE_END) {
-		tlog(TLOG_ERROR, "server type is invalid.");
-		return NULL;
-	}
-
-	switch (server_type) {
-	case DNS_SERVER_UDP:
-		sock_type = SOCK_DGRAM;
-		break;
-	case DNS_SERVER_TCP:
-	case DNS_SERVER_TLS:
-	case DNS_SERVER_HTTPS:
-		sock_type = SOCK_STREAM;
-		break;
-	default:
-		return NULL;
-		break;
-	}
-
-	/* get addr info */
-	snprintf(port_s, 8, "%d", port);
-	gai = _dns_client_getaddr(server_ip, port_s, sock_type, 0);
-	if (gai == NULL) {
-		tlog(TLOG_ERROR, "get address failed, %s:%d", server_ip, port);
-		goto errout;
-	}
 
 	pthread_mutex_lock(&client.server_list_lock);
 	list_for_each_entry_safe(server_info, tmp, &client.dns_server_list, list)
 	{
-		if (server_info->ai_addrlen != gai->ai_addrlen || server_info->ai_family != gai->ai_family) {
+		if (server_info->port != port || server_info->type != server_type) {
 			continue;
 		}
 
-		if (server_info->type != server_type) {
-			continue;
-		}
-
-		if (memcmp(&server_info->addr, gai->ai_addr, gai->ai_addrlen) != 0) {
+		if (strncmp(server_info->ip, server_ip, DNS_HOSTNAME_LEN)) {
 			continue;
 		}
 
@@ -337,13 +324,7 @@ static struct dns_server_info *_dns_client_get_server(char *server_ip, int port,
 
 	pthread_mutex_unlock(&client.server_list_lock);
 
-	freeaddrinfo(gai);
 	return server_info_return;
-errout:
-	if (gai) {
-		freeaddrinfo(gai);
-	}
-	return NULL;
 }
 
 /* get server group by name */
@@ -618,12 +599,15 @@ static char *_dns_client_server_get_spki(struct dns_server_info *server_info, in
 }
 
 /* add dns server information */
-static int _dns_client_server_add(char *server_ip, struct addrinfo *gai, dns_server_type_t server_type, struct client_dns_server_flags *flags)
+static int _dns_client_server_add(char *server_ip, int port, dns_server_type_t server_type, struct client_dns_server_flags *flags)
 {
 	struct dns_server_info *server_info = NULL;
+	struct addrinfo *gai = NULL;
 	unsigned char *spki_data = NULL;
 	int spki_data_len = 0;
 	int ttl = 0;
+	char port_s[8];
+	int sock_type;
 
 	switch (server_type) {
 	case DNS_SERVER_UDP: {
@@ -634,6 +618,8 @@ static int _dns_client_server_add(char *server_ip, struct addrinfo *gai, dns_ser
 		} else if (ttl < -32) {
 			ttl = -32;
 		}
+
+		sock_type = SOCK_DGRAM;
 	} break;
 	case DNS_SERVER_HTTPS: {
 		struct client_dns_server_flag_https *flag_https = &flags->https;
@@ -641,13 +627,16 @@ static int _dns_client_server_add(char *server_ip, struct addrinfo *gai, dns_ser
 		if (flag_https->httphost[0] == 0) {
 			strncpy(flag_https->httphost, server_ip, DNS_MAX_CNAME_LEN);
 		}
+		sock_type = SOCK_STREAM;
 	} break;
 	case DNS_SERVER_TLS: {
 		struct client_dns_server_flag_tls *flag_tls = &flags->tls;
 		spki_data_len = flag_tls->spi_len;
+		sock_type = SOCK_STREAM;
 	} break;
 		break;
 	case DNS_SERVER_TCP:
+		sock_type = SOCK_STREAM;	
 		break;
 	default:
 		return -1;
@@ -660,8 +649,15 @@ static int _dns_client_server_add(char *server_ip, struct addrinfo *gai, dns_ser
 	}
 
 	/* if server exist, return */
-	if (_dns_client_server_exist(gai, server_type) == 0) {
+	if (_dns_client_server_exist(server_ip, port, server_type) == 0) {
 		return 0;
+	}
+
+	snprintf(port_s, 8, "%d", port);
+	gai = _dns_client_getaddr(server_ip, port_s, sock_type, 0);
+	if (gai == NULL) {
+		tlog(TLOG_DEBUG, "get address failed, %s:%d", server_ip, port);
+		goto errout;
 	}
 
 	server_info = malloc(sizeof(*server_info));
@@ -675,6 +671,7 @@ static int _dns_client_server_add(char *server_ip, struct addrinfo *gai, dns_ser
 
 	memset(server_info, 0, sizeof(*server_info));
 	strncpy(server_info->ip, server_ip, sizeof(server_info->ip));
+	server_info->port = port;
 	server_info->ai_family = gai->ai_family;
 	server_info->ai_addrlen = gai->ai_addrlen;
 	server_info->type = server_type;
@@ -729,6 +726,8 @@ static int _dns_client_server_add(char *server_ip, struct addrinfo *gai, dns_ser
 	pthread_mutex_unlock(&client.server_list_lock);
 
 	atomic_inc(&client.dns_server_num);
+	freeaddrinfo(gai);
+
 	return 0;
 errout:
 	if (spki_data) {
@@ -745,6 +744,10 @@ errout:
 		}
 
 		free(server_info);
+	}
+
+	if (gai) {
+		freeaddrinfo(gai);
 	}
 
 	return -1;
@@ -812,7 +815,7 @@ static void _dns_client_server_remove_all(void)
 }
 
 /* remove single server */
-static int _dns_client_server_remove(char *server_ip, struct addrinfo *gai, dns_server_type_t server_type)
+static int _dns_client_server_remove(char *server_ip, int port, dns_server_type_t server_type)
 {
 	struct dns_server_info *server_info, *tmp;
 
@@ -820,11 +823,11 @@ static int _dns_client_server_remove(char *server_ip, struct addrinfo *gai, dns_
 	pthread_mutex_lock(&client.server_list_lock);
 	list_for_each_entry_safe(server_info, tmp, &client.dns_server_list, list)
 	{
-		if (server_info->ai_addrlen != gai->ai_addrlen || server_info->ai_family != gai->ai_family) {
+		if (server_info->port != port || server_info->type != server_type) {
 			continue;
 		}
 
-		if (memcmp(&server_info->addr, gai->ai_addr, gai->ai_addrlen) != 0) {
+		if (strncmp(server_info->ip, server_ip, DNS_HOSTNAME_LEN)) {
 			continue;
 		}
 
@@ -840,70 +843,78 @@ static int _dns_client_server_remove(char *server_ip, struct addrinfo *gai, dns_
 	return -1;
 }
 
-static int _dns_client_server_operate(char *server_ip, int port, dns_server_type_t server_type, struct client_dns_server_flags *flags, int operate)
+static int _dns_client_server_pending(char *server_ip, int port, dns_server_type_t server_type, struct client_dns_server_flags *flags) 
 {
-	char port_s[8];
-	int sock_type;
-	int ret;
-	struct addrinfo *gai = NULL;
+	struct dns_server_pending *pending = NULL;
 
+	pending = malloc(sizeof(*pending));
+	if (pending == NULL) {
+		tlog(TLOG_ERROR, "malloc failed");
+		goto errout;
+	}
+	memset(pending, 0, sizeof(*pending));
+
+	strncpy(pending->host, server_ip, DNS_HOSTNAME_LEN);
+	pending->port = port;
+	pending->type = server_type;
+	pending->ping_time_v4 = -1;
+	pending->ping_time_v6 = -1;
+	pending->ipv4[0] = 0;
+	pending->ipv6[0] = 0;
+	pending->has_v4 = 0;
+	pending->has_v6 = 0;
+	memcpy(&pending->flags, flags, sizeof(struct client_dns_server_flags));
+
+	pthread_mutex_lock(&pending_server_mutex);
+	list_add_tail(&pending->list, &pending_servers);
+	pthread_mutex_unlock(&pending_server_mutex);
+	return 0;
+errout:
+	if (pending) {
+		free(pending);
+	}
+
+	return -1;
+}
+
+static int _dns_client_add_server_pending(char *server_ip, int port, dns_server_type_t server_type, struct client_dns_server_flags *flags, int ispending)
+{
+	int ret;
+	
 	if (server_type >= DNS_SERVER_TYPE_END) {
 		tlog(TLOG_ERROR, "server type is invalid.");
 		return -1;
 	}
 
-	switch (server_type) {
-	case DNS_SERVER_UDP:
-		sock_type = SOCK_DGRAM;
-		break;
-	case DNS_SERVER_TCP:
-	case DNS_SERVER_TLS:
-	case DNS_SERVER_HTTPS:
-		sock_type = SOCK_STREAM;
-		break;
-	default:
-		return -1;
-		break;
+	if (check_is_ipaddr(server_ip) && ispending) {
+		ret = _dns_client_server_pending(server_ip, port, server_type, flags);
+		if (ret == 0) {
+			tlog(TLOG_INFO, "add pending server %s", server_ip);
+			return 0;
+		}
 	}
 
-	/* get addr info */
-	snprintf(port_s, 8, "%d", port);
-	gai = _dns_client_getaddr(server_ip, port_s, sock_type, 0);
-	if (gai == NULL) {
-		tlog(TLOG_ERROR, "get address failed, %s:%d", server_ip, port);
+	/* add server */
+	ret = _dns_client_server_add(server_ip, port, server_type, flags);
+	if (ret != 0) {
 		goto errout;
 	}
 
-	if (operate == 0) {
-		/* add server */
-		ret = _dns_client_server_add(server_ip, gai, server_type, flags);
-		if (ret != 0) {
-			goto errout;
-		}
-	} else {
-		/* remove server */
-		ret = _dns_client_server_remove(server_ip, gai, server_type);
-		if (ret != 0) {
-			goto errout;
-		}
-	}
-	freeaddrinfo(gai);
+	dns_client_has_bootstrap_dns = 1;
+	
 	return 0;
 errout:
-	if (gai) {
-		freeaddrinfo(gai);
-	}
 	return -1;
 }
 
 int dns_client_add_server(char *server_ip, int port, dns_server_type_t server_type, struct client_dns_server_flags *flags)
 {
-	return _dns_client_server_operate(server_ip, port, server_type, flags, 0);
+	return _dns_client_add_server_pending(server_ip, port, server_type, flags, 1);
 }
 
 int dns_client_remove_server(char *server_ip, int port, dns_server_type_t server_type)
 {
-	return _dns_client_server_operate(server_ip, port, server_type, NULL, 1);
+	return _dns_client_server_remove(server_ip, port, server_type);
 }
 
 int dns_server_num(void)
@@ -2378,10 +2389,87 @@ static void _dns_client_check_servers(void)
 	pthread_mutex_unlock(&client.server_list_lock);
 }
 
+static int _dns_client_pending_server_resolve(char *domain, dns_rtcode_t rtcode, dns_type_t addr_type, char *ip, unsigned int ping_time, void *user_ptr)
+{
+	struct dns_server_pending *pending = user_ptr;
+
+	if (addr_type == DNS_T_A) {
+		pending->has_v4 = 1;
+		pending->ping_time_v4 = -1;
+		if (rtcode == DNS_RC_NOERROR) {
+			pending->ping_time_v4 = ping_time;
+			strncpy(pending->ipv4, ip, DNS_HOSTNAME_LEN);
+		}
+	} else if (addr_type == DNS_T_AAAA) {
+		pending->has_v6 = 1;
+		pending->ping_time_v6 = -1;
+		if (rtcode == DNS_RC_NOERROR) {
+			pending->ping_time_v6 = ping_time;
+			strncpy(pending->ipv6, ip, DNS_HOSTNAME_LEN);
+		}
+	} else {
+		return -1;
+	}
+
+	return 0;
+}
+
+static void _dns_client_add_pending_servers(void)
+{
+	struct dns_server_pending *pending, *tmp;
+
+	pthread_mutex_lock(&pending_server_mutex);
+	list_for_each_entry_safe(pending, tmp, &pending_servers, list)
+	{
+		/* send dns type A, AAAA query to bootstrap DNS server */
+		if (pending->query_v4 == 0) {
+			pending->query_v4 = 1;
+			dns_server_query(pending->host, DNS_T_A, _dns_client_pending_server_resolve, pending);
+		}
+
+		if (pending->query_v6 == 0) {
+			pending->query_v6 = 1;
+			dns_server_query(pending->host, DNS_T_AAAA, _dns_client_pending_server_resolve, pending);
+		}
+
+		/* if both A, AAAA has query result, select fastest IP address */
+		if (pending->has_v4 && pending->has_v6) {
+			char *ip = NULL;
+			if (pending->ping_time_v4 <= pending->ping_time_v6 && pending->ipv4[0]) {
+				ip = pending->ipv4;
+			} else {
+				ip = pending->ipv6;
+			}
+
+			if (ip[0]) {
+				if (_dns_client_add_server_pending(ip, pending->port, pending->type, &pending->flags, 0) != 0) {
+					tlog(TLOG_WARN, "add server %s failed.", pending->host);
+				}
+			}
+			list_del_init(&pending->list);
+			free(pending);
+		}
+
+		/* if has no bootstrap DNS, just call getaddrinfo to get address */
+		if (dns_client_has_bootstrap_dns == 0) {
+			if (_dns_client_add_server_pending(pending->host, pending->port, pending->type, &pending->flags, 0) != 0) {
+				tlog(TLOG_ERROR, "Get DNS server failed");
+				exit(1);
+				pthread_mutex_unlock(&pending_server_mutex);
+				return;
+			}
+			list_del_init(&pending->list);
+			free(pending);
+		}
+	}
+	pthread_mutex_unlock(&pending_server_mutex);
+}
+
 static void _dns_client_period_run_second(void)
 {
 	_dns_client_check_tcp();
 	_dns_client_check_servers();
+	_dns_client_add_pending_servers();
 }
 
 static void _dns_client_period_run(void)

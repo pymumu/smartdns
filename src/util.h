@@ -16,6 +16,8 @@ int getaddr_by_host(char *host, struct sockaddr *addr, socklen_t *addr_len);
 
 int parse_ip(const char *value, char *ip, int *port);
 
+int check_is_ipaddr(const char *ip);
+
 int parse_uri(char *value, char *scheme, char *host, int *port, char *path);
 
 int set_fd_nonblock(int fd, int nonblock);
