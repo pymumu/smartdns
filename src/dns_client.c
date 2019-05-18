@@ -17,10 +17,10 @@
  */
 
 #include "dns_client.h"
-#include "dns_server.h"
 #include "atomic.h"
 #include "dns.h"
 #include "dns_conf.h"
+#include "dns_server.h"
 #include "fast_ping.h"
 #include "hashtable.h"
 #include "http_parse.h"
@@ -127,6 +127,11 @@ struct dns_server_info {
 	struct client_dns_server_flags flags;
 };
 
+struct dns_server_pending_group {
+	struct list_head list;
+	char group_name[DNS_GROUP_NAME_LEN];
+};
+
 struct dns_server_pending {
 	struct list_head list;
 
@@ -145,6 +150,8 @@ struct dns_server_pending {
 	int port;
 
 	struct client_dns_server_flags flags;
+
+	struct list_head group_list;
 };
 
 /* upstream server group member */
@@ -402,17 +409,67 @@ errout:
 	return -1;
 }
 
+static int _dns_client_add_to_pending_group(char *group_name, char *server_ip, int port, dns_server_type_t server_type)
+{
+	struct dns_server_pending *item, *tmp;
+	struct dns_server_pending *pending = NULL;
+	struct dns_server_pending_group *group = NULL;
+
+	pthread_mutex_lock(&pending_server_mutex);
+	list_for_each_entry_safe(item, tmp, &pending_servers, list)
+	{
+		if (strncmp(item->host, server_ip, DNS_HOSTNAME_LEN) == 0 && item->port == port && item->type == server_type) {
+			pending = item;
+			break;
+		}
+	}
+	pthread_mutex_unlock(&pending_server_mutex);
+
+	if (pending == NULL) {
+		tlog(TLOG_ERROR, "cannot found server for group %s: %s, %d, %d", group_name, server_ip, port, server_type);
+		goto errout;
+	}
+
+	group = malloc(sizeof(*group));
+	if (group == NULL) {
+		goto errout;
+	}
+	memset(group, 0, sizeof(*group));
+	strncpy(group->group_name, group_name, DNS_GROUP_NAME_LEN);
+
+	pthread_mutex_lock(&pending_server_mutex);
+	list_add_tail(&group->list, &pending->group_list);
+	pthread_mutex_unlock(&pending_server_mutex);
+
+	return 0;
+
+errout:
+	if (group) {
+		free(group);
+	}
+	return -1;
+}
+
 /* add server to group */
-int dns_client_add_to_group(char *group_name, char *server_ip, int port, dns_server_type_t server_type)
+int _dns_client_add_to_group_pending(char *group_name, char *server_ip, int port, dns_server_type_t server_type, int ispending)
 {
 	struct dns_server_info *server_info = NULL;
 
 	server_info = _dns_client_get_server(server_ip, port, server_type);
 	if (server_info == NULL) {
-		return -1;
+		if (ispending == 0) {
+			tlog(TLOG_ERROR, "add server %s:%d to group %s failed", server_ip, port, group_name);
+			return -1;
+		}
+		return _dns_client_add_to_pending_group(group_name, server_ip, port, server_type);
 	}
 
 	return _dns_client_add_to_group(group_name, server_info);
+}
+
+int dns_client_add_to_group(char *group_name, char *server_ip, int port, dns_server_type_t server_type)
+{
+	return _dns_client_add_to_group_pending(group_name, server_ip, port, server_type, 1);
 }
 
 /* free group member */
@@ -599,7 +656,7 @@ static char *_dns_client_server_get_spki(struct dns_server_info *server_info, in
 }
 
 /* add dns server information */
-static int _dns_client_server_add(char *server_ip, int port, dns_server_type_t server_type, struct client_dns_server_flags *flags)
+static int _dns_client_server_add(char *server_ip, char *server_host, int port, dns_server_type_t server_type, struct client_dns_server_flags *flags)
 {
 	struct dns_server_info *server_info = NULL;
 	struct addrinfo *gai = NULL;
@@ -625,7 +682,11 @@ static int _dns_client_server_add(char *server_ip, int port, dns_server_type_t s
 		struct client_dns_server_flag_https *flag_https = &flags->https;
 		spki_data_len = flag_https->spi_len;
 		if (flag_https->httphost[0] == 0) {
-			strncpy(flag_https->httphost, server_ip, DNS_MAX_CNAME_LEN);
+			if (server_host) {
+				strncpy(flag_https->httphost, server_host, DNS_MAX_CNAME_LEN);
+			} else {
+				strncpy(flag_https->httphost, server_ip, DNS_MAX_CNAME_LEN);
+			}
 		}
 		sock_type = SOCK_STREAM;
 	} break;
@@ -636,7 +697,7 @@ static int _dns_client_server_add(char *server_ip, int port, dns_server_type_t s
 	} break;
 		break;
 	case DNS_SERVER_TCP:
-		sock_type = SOCK_STREAM;	
+		sock_type = SOCK_STREAM;
 		break;
 	default:
 		return -1;
@@ -843,7 +904,7 @@ static int _dns_client_server_remove(char *server_ip, int port, dns_server_type_
 	return -1;
 }
 
-static int _dns_client_server_pending(char *server_ip, int port, dns_server_type_t server_type, struct client_dns_server_flags *flags) 
+static int _dns_client_server_pending(char *server_ip, int port, dns_server_type_t server_type, struct client_dns_server_flags *flags)
 {
 	struct dns_server_pending *pending = NULL;
 
@@ -863,6 +924,7 @@ static int _dns_client_server_pending(char *server_ip, int port, dns_server_type
 	pending->ipv6[0] = 0;
 	pending->has_v4 = 0;
 	pending->has_v6 = 0;
+	INIT_LIST_HEAD(&pending->group_list);
 	memcpy(&pending->flags, flags, sizeof(struct client_dns_server_flags));
 
 	pthread_mutex_lock(&pending_server_mutex);
@@ -877,10 +939,10 @@ errout:
 	return -1;
 }
 
-static int _dns_client_add_server_pending(char *server_ip, int port, dns_server_type_t server_type, struct client_dns_server_flags *flags, int ispending)
+static int _dns_client_add_server_pending(char *server_ip, char *server_host, int port, dns_server_type_t server_type, struct client_dns_server_flags *flags, int ispending)
 {
 	int ret;
-	
+
 	if (server_type >= DNS_SERVER_TYPE_END) {
 		tlog(TLOG_ERROR, "server type is invalid.");
 		return -1;
@@ -895,13 +957,13 @@ static int _dns_client_add_server_pending(char *server_ip, int port, dns_server_
 	}
 
 	/* add server */
-	ret = _dns_client_server_add(server_ip, port, server_type, flags);
+	ret = _dns_client_server_add(server_ip, server_host, port, server_type, flags);
 	if (ret != 0) {
 		goto errout;
 	}
 
 	dns_client_has_bootstrap_dns = 1;
-	
+
 	return 0;
 errout:
 	return -1;
@@ -909,7 +971,7 @@ errout:
 
 int dns_client_add_server(char *server_ip, int port, dns_server_type_t server_type, struct client_dns_server_flags *flags)
 {
-	return _dns_client_add_server_pending(server_ip, port, server_type, flags, 1);
+	return _dns_client_add_server_pending(server_ip, NULL, port, server_type, flags, 1);
 }
 
 int dns_client_remove_server(char *server_ip, int port, dns_server_type_t server_type)
@@ -1410,7 +1472,7 @@ static int _dns_client_create_socket(struct dns_server_info *server_info)
 		struct client_dns_server_flag_https *flag_https;
 		flag_https = &server_info->flags.https;
 		return _DNS_client_create_socket_tls(server_info, flag_https->hostname);
-	}else {
+	} else {
 		return -1;
 	}
 
@@ -2414,9 +2476,36 @@ static int _dns_client_pending_server_resolve(char *domain, dns_rtcode_t rtcode,
 	return 0;
 }
 
+static int _dns_client_add_pendings(struct dns_server_pending *pending, char *ip)
+{
+	struct dns_server_pending_group *group, *tmp;
+
+	if (_dns_client_add_server_pending(ip, pending->host, pending->port, pending->type, &pending->flags, 0) != 0) {
+		return -1;
+	}
+
+	list_for_each_entry_safe(group, tmp, &pending->group_list, list)
+	{
+		if (_dns_client_add_to_group_pending(group->group_name, ip, pending->port, pending->type, 0) != 0) {
+			tlog(TLOG_WARN, "add server to group failed, skip add.");
+		}
+
+		list_del_init(&group->list);
+		free(group);
+	}
+
+	return 0;
+}
+
 static void _dns_client_add_pending_servers(void)
 {
 	struct dns_server_pending *pending, *tmp;
+	static int dely = 0;
+
+	/* add pending server after 3 seconds */
+	if (++dely < 3) {
+		return;
+	}
 
 	pthread_mutex_lock(&pending_server_mutex);
 	list_for_each_entry_safe(pending, tmp, &pending_servers, list)
@@ -2442,8 +2531,8 @@ static void _dns_client_add_pending_servers(void)
 			}
 
 			if (ip[0]) {
-				if (_dns_client_add_server_pending(ip, pending->port, pending->type, &pending->flags, 0) != 0) {
-					tlog(TLOG_WARN, "add server %s failed.", pending->host);
+				if (_dns_client_add_pendings(pending, ip) != 0) {
+					tlog(TLOG_WARN, "add pending DNS server %s failed.", pending->host);
 				}
 			}
 			list_del_init(&pending->list);
@@ -2452,8 +2541,8 @@ static void _dns_client_add_pending_servers(void)
 
 		/* if has no bootstrap DNS, just call getaddrinfo to get address */
 		if (dns_client_has_bootstrap_dns == 0) {
-			if (_dns_client_add_server_pending(pending->host, pending->port, pending->type, &pending->flags, 0) != 0) {
-				tlog(TLOG_ERROR, "Get DNS server failed");
+			if (_dns_client_add_pendings(pending, pending->host) != 0) {
+				tlog(TLOG_ERROR, "add pending DNS server %s failed", pending->host);
 				exit(1);
 				pthread_mutex_unlock(&pending_server_mutex);
 				return;
