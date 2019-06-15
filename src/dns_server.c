@@ -962,11 +962,11 @@ static int _dns_server_ip_rule_check(struct dns_request *request, unsigned char 
 	}
 
 	if (node == NULL) {
-		return -1;
+		goto rule_not_found;
 	}
 
 	if (node->data == NULL) {
-		return -1;
+		goto rule_not_found;
 	}
 
 	/* bogux-nxdomain */
@@ -986,7 +986,17 @@ static int _dns_server_ip_rule_check(struct dns_request *request, unsigned char 
 	if (rule->ip_ignore) {
 		goto skip;
 	}
+	
+rule_not_found:
+	if (result_flag & DNSSERVER_FLAG_ACCEPT_IP) {
+		if (rule == NULL) {
+			goto skip;
+		}
 
+		if (!rule->ip_accept) {
+			goto skip;
+		}
+	}
 	return -1;
 skip:
 	return -2;

@@ -116,12 +116,14 @@ enum address_rule {
 	ADDRESS_RULE_BLACKLIST = 1,
 	ADDRESS_RULE_BOGUS = 2,
 	ADDRESS_RULE_IP_IGNORE = 3,
+	ADDRESS_RULE_IP_ACCEPT = 4,
 };
 
 struct dns_ip_address_rule {
 	unsigned int blacklist : 1;
 	unsigned int bogus : 1;
 	unsigned int ip_ignore : 1;
+	unsigned int ip_accept : 1;
 };
 
 struct dns_edns_client_subnet {
