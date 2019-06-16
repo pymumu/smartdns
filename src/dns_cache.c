@@ -1,5 +1,6 @@
 #include "dns_cache.h"
 #include "tlog.h"
+#include "stringutil.h"
 #include <pthread.h>
 
 struct dns_cache_head {
@@ -110,7 +111,7 @@ int dns_cache_replace(char *domain, char *cname, int cname_ttl, int ttl, dns_typ
 	}
 
 	if (cname) {
-		strncpy(dns_cache->cname, cname, DNS_MAX_CNAME_LEN);
+		safe_strncpy(dns_cache->cname, cname, DNS_MAX_CNAME_LEN);
 		dns_cache->cname_ttl = cname_ttl;
 	}
 	pthread_mutex_unlock(&dns_cache_head.lock);
@@ -154,7 +155,7 @@ int dns_cache_insert(char *domain, char *cname, int cname_ttl, int ttl, dns_type
 
 	key = hash_string(domain);
 	key = jhash(&qtype, sizeof(qtype), key);
-	strncpy(dns_cache->domain, domain, DNS_MAX_CNAME_LEN);
+	safe_strncpy(dns_cache->domain, domain, DNS_MAX_CNAME_LEN);
 	dns_cache->cname[0] = 0;
 	dns_cache->qtype = qtype;
 	dns_cache->ttl = ttl;
@@ -178,7 +179,7 @@ int dns_cache_insert(char *domain, char *cname, int cname_ttl, int ttl, dns_type
 	}
 
 	if (cname) {
-		strncpy(dns_cache->cname, cname, DNS_MAX_CNAME_LEN);
+		safe_strncpy(dns_cache->cname, cname, DNS_MAX_CNAME_LEN);
 		dns_cache->cname_ttl = cname_ttl;
 	}
 

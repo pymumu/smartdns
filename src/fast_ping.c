@@ -867,7 +867,7 @@ struct ping_host_struct *fast_ping_start(PING_TYPE type, const char *host, int c
 	}
 
 	memset(ping_host, 0, sizeof(*ping_host));
-	strncpy(ping_host->host, host, PING_MAX_HOSTLEN);
+	safe_strncpy(ping_host->host, host, PING_MAX_HOSTLEN);
 	ping_host->fd = -1;
 	ping_host->timeout = timeout;
 	ping_host->count = count;

@@ -19,6 +19,7 @@
 #define _GNU_SOURCE
 #include "dns.h"
 #include "tlog.h"
+#include "stringutil.h"
 #include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
@@ -612,9 +613,9 @@ int dns_add_SOA(struct dns_packet *packet, dns_rr_type type, char *domain, int t
 	unsigned char data[sizeof(*soa)];
 	unsigned char *ptr = data;
 	int len = 0;
-	strncpy((char *)ptr, soa->mname, DNS_MAX_CNAME_LEN - 1);
+	safe_strncpy((char *)ptr, soa->mname, DNS_MAX_CNAME_LEN);
 	ptr += strnlen(soa->mname, DNS_MAX_CNAME_LEN - 1) + 1;
-	strncpy((char *)ptr, soa->rname, DNS_MAX_CNAME_LEN - 1);
+	safe_strncpy((char *)ptr, soa->rname, DNS_MAX_CNAME_LEN);
 	ptr += strnlen(soa->rname, DNS_MAX_CNAME_LEN - 1) + 1;
 	*((unsigned int *)ptr) = soa->serial;
 	ptr += 4;
@@ -650,12 +651,12 @@ int dns_get_SOA(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, struct
 		return -1;
 	}
 
-	strncpy(soa->mname, (char *)ptr, DNS_MAX_CNAME_LEN - 1);
+	safe_strncpy(soa->mname, (char *)ptr, DNS_MAX_CNAME_LEN - 1);
 	ptr += strnlen(soa->mname, DNS_MAX_CNAME_LEN - 1) + 1;
 	if (ptr - data >= len) {
 		return -1;
 	}
-	strncpy(soa->rname, (char *)ptr, DNS_MAX_CNAME_LEN - 1);
+	safe_strncpy(soa->rname, (char *)ptr, DNS_MAX_CNAME_LEN - 1);
 	ptr += strnlen(soa->rname, DNS_MAX_CNAME_LEN - 1) + 1;
 	if (ptr - data + 20 > len) {
 		return -1;

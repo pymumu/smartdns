@@ -108,7 +108,7 @@ static int _smartdns_load_from_resolv(void)
 			port = DEFAULT_DNS_PORT;
 		}
 
-		strncpy(dns_conf_servers[dns_conf_server_num].server, ns_ip, DNS_MAX_IPLEN);
+		safe_strncpy(dns_conf_servers[dns_conf_server_num].server, ns_ip, DNS_MAX_IPLEN);
 		dns_conf_servers[dns_conf_server_num].port = port;
 		dns_conf_servers[dns_conf_server_num].type = DNS_SERVER_UDP;
 		dns_conf_server_num++;
@@ -139,14 +139,14 @@ static int _smartdns_add_servers(void)
 		case DNS_SERVER_HTTPS: {
 			struct client_dns_server_flag_https *flag_http = &flags.https;
 			flag_http->spi_len = dns_client_spki_decode(dns_conf_servers[i].spki, (unsigned char *)flag_http->spki);
-			strncpy(flag_http->hostname, dns_conf_servers[i].hostname, sizeof(flag_http->hostname));
-			strncpy(flag_http->path, dns_conf_servers[i].path, sizeof(flag_http->path));
-			strncpy(flag_http->httphost, dns_conf_servers[i].httphost, sizeof(flag_http->httphost));
+			safe_strncpy(flag_http->hostname, dns_conf_servers[i].hostname, sizeof(flag_http->hostname));
+			safe_strncpy(flag_http->path, dns_conf_servers[i].path, sizeof(flag_http->path));
+			safe_strncpy(flag_http->httphost, dns_conf_servers[i].httphost, sizeof(flag_http->httphost));
 		} break;
 		case DNS_SERVER_TLS: {
 			struct client_dns_server_flag_tls *flag_tls = &flags.tls;
 			flag_tls->spi_len = dns_client_spki_decode(dns_conf_servers[i].spki, (unsigned char *)flag_tls->spki);
-			strncpy(flag_tls->hostname, dns_conf_servers[i].hostname, sizeof(flag_tls->hostname));
+			safe_strncpy(flag_tls->hostname, dns_conf_servers[i].hostname, sizeof(flag_tls->hostname));
 		} break;
 			break;
 		case DNS_SERVER_TCP:
@@ -359,8 +359,8 @@ int main(int argc, char *argv[])
 	char pid_file[MAX_LINE_LEN];
 	int signal_ignore = 0;
 
-	strncpy(config_file, SMARTDNS_CONF_FILE, MAX_LINE_LEN);
-	strncpy(pid_file, SMARTDNS_PID_FILE, MAX_LINE_LEN);
+	safe_strncpy(config_file, SMARTDNS_CONF_FILE, MAX_LINE_LEN);
+	safe_strncpy(pid_file, SMARTDNS_PID_FILE, MAX_LINE_LEN);
 
 	while ((opt = getopt(argc, argv, "fhc:p:Sv")) != -1) {
 		switch (opt) {

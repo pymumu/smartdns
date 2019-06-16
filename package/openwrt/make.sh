@@ -55,13 +55,13 @@ build()
     cd $ROOT
 
     tar zcf $ROOT/data.tar.gz -C root --owner=0 --group=0 .
-    tar zcf $OUTPUTDIR/smartdns.$VER.$ARCH.ipk --owner=0 --group=0 control.tar.gz data.tar.gz debian-binary
+    tar zcf $OUTPUTDIR/smartdns.$VER.$FILEARCH.ipk --owner=0 --group=0 control.tar.gz data.tar.gz debian-binary
     rm -fr $ROOT/
 }
 
 main()
 {
-	OPTS=`getopt -o o:h --long arch:,ver: \
+	OPTS=`getopt -o o:h --long arch:,ver:,filearch: \
 		-n  "" -- "$@"`
 
 	if [ $? != 0 ] ; then echo "Terminating..." >&2 ; exit 1 ; fi
@@ -74,6 +74,9 @@ main()
 		--arch)
 			ARCH="$2"
 			shift 2;;
+        --filearch)
+            FILEARCH="$2"
+            shift 2;;
         --ver)
             VER="$2"
             shift 2;;
@@ -92,6 +95,10 @@ main()
     if [ -z "$ARCH" ]; then
         echo "please input arch."
         return 1;
+    fi
+
+    if [ -z "$FILEARCH" ]; then
+        FILEARCH=$ARCH
     fi
 
     if [ -z "$OUTPUTDIR" ]; then

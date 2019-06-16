@@ -141,8 +141,9 @@ static int _tlog_mkdir(const char *path)
     }
 
     strncpy(path_c, path, sizeof(path_c) - 1);
-    len = strnlen(path_c, sizeof(path_c) - 1);
-    path_c[len] = '/';
+	path_c[sizeof(path_c) - 1] = 0;
+	len = strnlen(path_c, sizeof(path_c) - 1);
+	path_c[len] = '/';
     path_c[len + 1] = '\0';
     path_end = path_c;
 
@@ -592,9 +593,10 @@ static int _tlog_get_oldest_callback(const char *path, struct dirent *entry, voi
 
     if (oldestlog->mtime == 0 || oldestlog->mtime > sb.st_mtime) {
         oldestlog->mtime = sb.st_mtime;
-        strncpy(oldestlog->name, entry->d_name, sizeof(oldestlog->name));
-        return 0;
-    }
+        strncpy(oldestlog->name, entry->d_name, sizeof(oldestlog->name) - 1);
+		oldestlog->name[sizeof(oldestlog->name) - 1] = 0;
+		return 0;
+	}
 
     return 0;
 }
@@ -1197,12 +1199,17 @@ tlog_log *tlog_open(const char *logfile, int maxlogsize, int maxlogcount, int bl
     log->is_exit = 0;
     log->multi_log = (multiwrite != 0) ? 1 : 0;
 
-    strncpy(log_file, logfile, PATH_MAX);
-    strncpy(log->logdir, dirname(log_file), sizeof(log->logdir));
-    strncpy(log_file, logfile, PATH_MAX);
-    strncpy(log->logname, basename(log_file), sizeof(log->logname));
+    strncpy(log_file, logfile, PATH_MAX - 1);
+	log_file[PATH_MAX - 1] = 0;
+	strncpy(log->logdir, dirname(log_file), sizeof(log->logdir) - 1);
+	log->logdir[sizeof(log->logdir) - 1] = 0;
 
-    log->buff = malloc(log->buffsize);
+	strncpy(log_file, logfile, PATH_MAX - 1);
+    log_file[PATH_MAX - 1] = 0;
+    strncpy(log->logname, basename(log_file), sizeof(log->logname));
+	log->logname[sizeof(log->logname) - 1] = 0;
+
+	log->buff = malloc(log->buffsize);
     if (log->buff == NULL) {
         fprintf(stderr, "malloc log buffer failed, %s\n", strerror(errno));
         goto errout;

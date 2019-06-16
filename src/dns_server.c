@@ -246,11 +246,11 @@ static int _dns_add_rrs(struct dns_packet *packet, struct dns_request *request)
 
 			/* if hostname is (none), return smartdns */
 			if (strncmp(hostname, "(none)", DNS_MAX_CNAME_LEN) == 0) {
-				strncpy(hostname, "smartdns", DNS_MAX_CNAME_LEN);
+				safe_strncpy(hostname, "smartdns", DNS_MAX_CNAME_LEN);
 			}
 		} else {
 			/* return configured server name */
-			strncpy(hostname, dns_conf_server_name, DNS_MAX_CNAME_LEN);
+			safe_strncpy(hostname, dns_conf_server_name, DNS_MAX_CNAME_LEN);
 		}
 
 		ret = dns_add_PTR(packet, DNS_RRS_AN, request->domain, 30, hostname);
@@ -471,8 +471,8 @@ static int _dns_server_reply_SOA(int rcode, struct dns_request *request, struct 
 
 	soa = &request->soa;
 
-	strncpy(soa->mname, "a.gtld-servers.net", DNS_MAX_CNAME_LEN);
-	strncpy(soa->rname, "nstld.verisign-grs.com", DNS_MAX_CNAME_LEN);
+	safe_strncpy(soa->mname, "a.gtld-servers.net", DNS_MAX_CNAME_LEN);
+	safe_strncpy(soa->rname, "nstld.verisign-grs.com", DNS_MAX_CNAME_LEN);
 	soa->serial = 1800;
 	soa->refresh = 1800;
 	soa->retry = 900;
@@ -1195,7 +1195,7 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 				char cname[128];
 				dns_get_CNAME(rrs, name, 128, &ttl, cname, 128);
 				tlog(TLOG_DEBUG, "name:%s ttl: %d cname: %s\n", name, ttl, cname);
-				strncpy(request->cname, cname, DNS_MAX_CNAME_LEN);
+				safe_strncpy(request->cname, cname, DNS_MAX_CNAME_LEN);
 				request->ttl_cname = ttl;
 				request->has_cname = 1;
 			} break;
@@ -1563,7 +1563,7 @@ static int _dns_server_process_cache(struct dns_request *request, struct dns_pac
 	}
 
 	if (dns_cache->cname[0] != 0) {
-		strncpy(request->cname, dns_cache->cname, DNS_MAX_CNAME_LEN);
+		safe_strncpy(request->cname, dns_cache->cname, DNS_MAX_CNAME_LEN);
 		request->has_cname = 1;
 		request->ttl_cname = dns_cache->cname_ttl;
 	}
@@ -1796,7 +1796,7 @@ static int _dns_server_prefetch_request(char *domain, dns_type_t qtype)
 
 	request->id = 0;
 	hash_init(request->ip_map);
-	strncpy(request->domain, domain, DNS_MAX_CNAME_LEN);
+	safe_strncpy(request->domain, domain, DNS_MAX_CNAME_LEN);
 
 	/* lookup domain rule */
 	request->domain_rule = _dns_server_get_domain_rule(request->domain);
@@ -1868,7 +1868,7 @@ int dns_server_query(char *domain, int qtype, dns_result_callback callback, void
 
 	request->id = 0;
 	hash_init(request->ip_map);
-	strncpy(request->domain, domain, DNS_MAX_CNAME_LEN);
+	safe_strncpy(request->domain, domain, DNS_MAX_CNAME_LEN);
 
 	/* lookup domain rule */
 	request->domain_rule = _dns_server_get_domain_rule(request->domain);

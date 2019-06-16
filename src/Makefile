@@ -7,7 +7,11 @@ CFLAGS +=-Iinclude
 CFLAGS += -DBASE_FILE_NAME=\"$(notdir $<)\"
 CXXFLAGS=-O2 -g -Wall -std=c++11 
 CXXFLAGS +=-Iinclude
-LDFLAGS += -lpthread -lssl -lcrypto
+ifeq ($(STATIC), yes)
+LDFLAGS += -lssl -lcrypto -Wl,--whole-archive -lpthread -Wl,--no-whole-archive -ldl -static
+else
+LDFLAGS += -lssl -lcrypto -lpthread 
+endif
 
 .PHONY: all
 

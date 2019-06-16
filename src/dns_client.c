@@ -435,7 +435,7 @@ static int _dns_client_add_to_pending_group(char *group_name, char *server_ip, i
 		goto errout;
 	}
 	memset(group, 0, sizeof(*group));
-	strncpy(group->group_name, group_name, DNS_GROUP_NAME_LEN);
+	safe_strncpy(group->group_name, group_name, DNS_GROUP_NAME_LEN);
 
 	pthread_mutex_lock(&pending_server_mutex);
 	list_add_tail(&group->list, &pending->group_list);
@@ -547,7 +547,7 @@ int dns_client_add_group(char *group_name)
 
 	memset(group, 0, sizeof(*group));
 	INIT_LIST_HEAD(&group->head);
-	strncpy(group->group_name, group_name, DNS_GROUP_NAME_LEN);
+	safe_strncpy(group->group_name, group_name, DNS_GROUP_NAME_LEN);
 	key = hash_string(group_name);
 	hash_add(client.group, &group->node, key);
 
@@ -683,9 +683,9 @@ static int _dns_client_server_add(char *server_ip, char *server_host, int port, 
 		spki_data_len = flag_https->spi_len;
 		if (flag_https->httphost[0] == 0) {
 			if (server_host) {
-				strncpy(flag_https->httphost, server_host, DNS_MAX_CNAME_LEN);
+				safe_strncpy(flag_https->httphost, server_host, DNS_MAX_CNAME_LEN);
 			} else {
-				strncpy(flag_https->httphost, server_ip, DNS_MAX_CNAME_LEN);
+				safe_strncpy(flag_https->httphost, server_ip, DNS_MAX_CNAME_LEN);
 			}
 		}
 		sock_type = SOCK_STREAM;
@@ -731,7 +731,7 @@ static int _dns_client_server_add(char *server_ip, char *server_host, int port, 
 	}
 
 	memset(server_info, 0, sizeof(*server_info));
-	strncpy(server_info->ip, server_ip, sizeof(server_info->ip));
+	safe_strncpy(server_info->ip, server_ip, sizeof(server_info->ip));
 	server_info->port = port;
 	server_info->ai_family = gai->ai_family;
 	server_info->ai_addrlen = gai->ai_addrlen;
@@ -915,7 +915,7 @@ static int _dns_client_server_pending(char *server_ip, int port, dns_server_type
 	}
 	memset(pending, 0, sizeof(*pending));
 
-	strncpy(pending->host, server_ip, DNS_HOSTNAME_LEN);
+	safe_strncpy(pending->host, server_ip, DNS_HOSTNAME_LEN);
 	pending->port = port;
 	pending->type = server_type;
 	pending->ping_time_v4 = -1;
@@ -2375,7 +2375,7 @@ int dns_client_query(char *domain, int qtype, dns_client_callback callback, void
 	atomic_set(&query->dns_request_sent, 0);
 	atomic_set(&query->retry_count, DNS_QUERY_RETRY);
 	hash_init(query->replied_map);
-	strncpy(query->domain, domain, DNS_MAX_CNAME_LEN);
+	safe_strncpy(query->domain, domain, DNS_MAX_CNAME_LEN);
 	query->user_ptr = user_ptr;
 	query->callback = callback;
 	query->qtype = qtype;
@@ -2460,14 +2460,14 @@ static int _dns_client_pending_server_resolve(char *domain, dns_rtcode_t rtcode,
 		pending->ping_time_v4 = -1;
 		if (rtcode == DNS_RC_NOERROR) {
 			pending->ping_time_v4 = ping_time;
-			strncpy(pending->ipv4, ip, DNS_HOSTNAME_LEN);
+			safe_strncpy(pending->ipv4, ip, DNS_HOSTNAME_LEN);
 		}
 	} else if (addr_type == DNS_T_AAAA) {
 		pending->has_v6 = 1;
 		pending->ping_time_v6 = -1;
 		if (rtcode == DNS_RC_NOERROR) {
 			pending->ping_time_v6 = ping_time;
-			strncpy(pending->ipv6, ip, DNS_HOSTNAME_LEN);
+			safe_strncpy(pending->ipv6, ip, DNS_HOSTNAME_LEN);
 		}
 	} else {
 		return -1;

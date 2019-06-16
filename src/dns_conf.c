@@ -90,7 +90,7 @@ static struct dns_server_groups *_dns_conf_get_group(const char *group_name)
 	}
 
 	memset(group, 0, sizeof(*group));
-	strncpy(group->group_name, group_name, DNS_GROUP_NAME_LEN);
+	safe_strncpy(group->group_name, group_name, DNS_GROUP_NAME_LEN);
 	hash_add(dns_group_table.group, &group->node, key);
 
 	return group;
@@ -202,8 +202,8 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 		if (parse_uri(ip, NULL, server->server, &port, server->path) != 0) {
 			return -1;
 		}
-		strncpy(server->hostname, server->server, sizeof(server->hostname));
-		strncpy(server->httphost, server->httphost, sizeof(server->hostname));
+		safe_strncpy(server->hostname, server->server, sizeof(server->hostname));
+		safe_strncpy(server->httphost, server->server, sizeof(server->httphost));
 		if (server->path[0] == 0) {
 			strcpy(server->path, "/");
 		}
@@ -239,13 +239,13 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 		case 'a': {
 			result_flag |= DNSSERVER_FLAG_ACCEPT_IP;
 			break;
-		}		
+		}
 		case 'h': {
-			strncpy(server->hostname, optarg, DNS_MAX_CNAME_LEN);
+			safe_strncpy(server->hostname, optarg, DNS_MAX_CNAME_LEN);
 			break;
 		}
 		case 'H': {
-			strncpy(server->httphost, optarg, DNS_MAX_CNAME_LEN);
+			safe_strncpy(server->httphost, optarg, DNS_MAX_CNAME_LEN);
 			break;
 		}
 		case 'E': {
@@ -260,7 +260,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 			break;
 		}
 		case 'p': {
-			strncpy(server->spki, optarg, DNS_MAX_SPKI_LEN);
+			safe_strncpy(server->spki, optarg, DNS_MAX_SPKI_LEN);
 			break;
 		}
 		default:
@@ -480,7 +480,7 @@ static const char *_dns_conf_get_ipset(const char *ipsetname)
 	}
 
 	key = hash_string(ipsetname);
-	strncpy(ipset_name->ipsetname, ipsetname, DNS_MAX_IPSET_NAMELEN);
+	safe_strncpy(ipset_name->ipsetname, ipsetname, DNS_MAX_IPSET_NAMELEN);
 	hash_add(dns_ipset_table.ipset, &ipset_name->node, key);
 
 	return ipset_name->ipsetname;
@@ -496,7 +496,7 @@ static int _config_ipset(void *data, int argc, char *argv[])
 {
 	struct dns_ipset_rule *ipset_rule = NULL;
 	char domain[DNS_MAX_CONF_CNAME_LEN];
-	char ipsetname[DNS_MAX_CONF_CNAME_LEN];
+	char ipsetname[DNS_MAX_IPSET_NAMELEN];
 	const char *ipset = NULL;
 	char *begin = NULL;
 	char *end = NULL;
@@ -543,7 +543,7 @@ static int _config_ipset(void *data, int argc, char *argv[])
 	/* Process domain option */
 	if (strncmp(end + 1, "-", sizeof("-")) != 0) {
 		/* new ipset domain */
-		strncpy(ipsetname, end + 1, DNS_MAX_IPSET_NAMELEN);
+		safe_strncpy(ipsetname, end + 1, DNS_MAX_IPSET_NAMELEN);
 		ipset = _dns_conf_get_ipset(ipsetname);
 		if (ipset == NULL) {
 			goto errout;
@@ -798,7 +798,7 @@ static int _config_nameserver(void *data, int argc, char *argv[])
 	}
 
 	if (strncmp(end + 1, "-", sizeof("-")) != 0) {
-		strncpy(group_name, end + 1, DNS_GROUP_NAME_LEN);
+		safe_strncpy(group_name, end + 1, DNS_GROUP_NAME_LEN);
 		group = _dns_conf_get_group_name(group_name);
 		if (group == NULL) {
 			goto errout;
@@ -977,7 +977,7 @@ static int _conf_edns_client_subnet(void *data, int argc, char *argv[])
 		goto errout;
 	}
 
-	strncpy(ecs->ip, value, DNS_MAX_IPLEN);
+	safe_strncpy(ecs->ip, value, DNS_MAX_IPLEN);
 	ecs->subnet = subnet;
 	ecs->enable = 1;
 
@@ -1071,11 +1071,13 @@ int config_addtional_file(void *data, int argc, char *argv[])
 	char file_path_dir[DNS_MAX_PATH];
 
 	if (conf_file[0] != '/') {
-		strncpy(file_path_dir, conf_get_conf_file(), DNS_MAX_PATH);
+		safe_strncpy(file_path_dir, conf_get_conf_file(), DNS_MAX_PATH);
 		dirname(file_path_dir);
-		snprintf(file_path, DNS_MAX_PATH, "%s/%s", file_path_dir, conf_file);
+		if (snprintf(file_path, DNS_MAX_PATH, "%s/%s", file_path_dir, conf_file) < 0) {
+			return -1;
+		}
 	} else {
-		strncpy(file_path, conf_file, DNS_MAX_PATH);
+		safe_strncpy(file_path, conf_file, DNS_MAX_PATH);
 	}
 
 	if (access(file_path, R_OK) != 0) {

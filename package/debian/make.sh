@@ -39,14 +39,14 @@ build()
     cp $SMARTDNS_DIR/src/smartdns $ROOT/usr/sbin
     chmod +x $ROOT/usr/sbin/smartdns
 
-    dpkg -b $ROOT $OUTPUTDIR/smartdns.$VER.$ARCH.deb
+    dpkg -b $ROOT $OUTPUTDIR/smartdns.$VER.$FILEARCH.deb
 
     rm -fr $ROOT/
 }
 
 main()
 {
-	OPTS=`getopt -o o:h --long arch:,ver: \
+	OPTS=`getopt -o o:h --long arch:,ver:,filearch: \
 		-n  "" -- "$@"`
 
 	if [ $? != 0 ] ; then echo "Terminating..." >&2 ; exit 1 ; fi
@@ -59,6 +59,9 @@ main()
 		--arch)
 			ARCH="$2"
 			shift 2;;
+        --filearch)
+            FILEARCH="$2"
+            shift 2;;
         --ver)
             VER="$2"
             shift 2;;
@@ -77,6 +80,10 @@ main()
     if [ -z "$ARCH" ]; then
         echo "please input arch."
         return 1;
+    fi
+
+    if [ -z "$FILEARCH" ]; then
+        FILEARCH=$ARCH
     fi
 
     if [ -z "$OUTPUTDIR" ]; then

@@ -4,6 +4,7 @@
 #define SMART_DNS_UTIL_H
 
 #include <netdb.h>
+#include "stringutil.h"
 
 #define PORT_NOT_DEFINED -1
 #define MAX_IP_LEN 64
