@@ -20,9 +20,9 @@ typedef enum dns_result_type {
 } dns_result_type;
 
 #define DNSSERVER_FLAG_BLACKLIST_IP (0x1 << 0)
-#define DNSSERVER_FLAG_CHECK_EDNS (0x1 << 1)
-#define DNSSERVER_FLAG_CHECK_TTL (0x1 << 2)
-#define DNSSERVER_FLAG_ACCEPT_IP (0x1 << 3)
+#define DNSSERVER_FLAG_WHITELIST_IP (0x1 << 1)
+#define DNSSERVER_FLAG_CHECK_EDNS (0x1 << 2)
+#define DNSSERVER_FLAG_CHECK_TTL (0x1 << 3)
 
 int dns_client_init(void);
 

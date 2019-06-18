@@ -988,12 +988,12 @@ static int _dns_server_ip_rule_check(struct dns_request *request, unsigned char 
 	}
 	
 rule_not_found:
-	if (result_flag & DNSSERVER_FLAG_ACCEPT_IP) {
+	if (result_flag & DNSSERVER_FLAG_WHITELIST_IP) {
 		if (rule == NULL) {
 			goto skip;
 		}
 
-		if (!rule->ip_accept) {
+		if (!rule->whitelist) {
 			goto skip;
 		}
 	}

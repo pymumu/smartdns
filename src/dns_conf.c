@@ -168,7 +168,8 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 	/* clang-format off */
 	static struct option long_options[] = {
 		{"blacklist-ip", no_argument, NULL, 'b'}, /* filtering with blacklist-ip */
-#ifdef FEATURE_CHECK_EDNS		
+		{"whitelist-ip", no_argument, NULL, 'w'}, /* filtering with whitelist-ip */
+#ifdef FEATURE_CHECK_EDNS
 		/* experimental feature */
 		{"check-edns", no_argument, NULL, 'e'},   /* check edns */
 #endif 
@@ -232,12 +233,12 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 			result_flag |= DNSSERVER_FLAG_BLACKLIST_IP;
 			break;
 		}
-		case 'e': {
-			result_flag |= DNSSERVER_FLAG_CHECK_EDNS;
+		case 'w': {
+			result_flag |= DNSSERVER_FLAG_WHITELIST_IP;
 			break;
 		}
-		case 'a': {
-			result_flag |= DNSSERVER_FLAG_ACCEPT_IP;
+		case 'e': {
+			result_flag |= DNSSERVER_FLAG_CHECK_EDNS;
 			break;
 		}
 		case 'h': {
@@ -885,14 +886,14 @@ static int _config_iplist_rule(char *subnet, enum address_rule rule)
 	case ADDRESS_RULE_BLACKLIST:
 		ip_rule->blacklist = 1;
 		break;
+	case ADDRESS_RULE_WHITELIST:
+		ip_rule->whitelist = 1;
+		break;
 	case ADDRESS_RULE_BOGUS:
 		ip_rule->bogus = 1;
 		break;
 	case ADDRESS_RULE_IP_IGNORE:
 		ip_rule->ip_ignore = 1;
-		break;
-	case ADDRESS_RULE_IP_ACCEPT:
-		ip_rule->ip_accept = 1;
 		break;
 	default:
 		return -1;
@@ -928,13 +929,13 @@ static int _conf_ip_ignore(void *data, int argc, char *argv[])
 	return _config_iplist_rule(argv[1], ADDRESS_RULE_IP_IGNORE);
 }
 
-static int _conf_ip_accept(void *data, int argc, char *argv[])
+static int _conf_whitelist_ip(void *data, int argc, char *argv[])
 {
 	if (argc <= 1) {
 		return -1;
 	}
 
-	return _config_iplist_rule(argv[1], ADDRESS_RULE_IP_ACCEPT);
+	return _config_iplist_rule(argv[1], ADDRESS_RULE_WHITELIST);
 }
 
 static int _conf_edns_client_subnet(void *data, int argc, char *argv[])
@@ -1041,9 +1042,9 @@ static struct config_item _config_item[] = {
 	CONF_INT("rr-ttl-max", &dns_conf_rr_ttl_max, 0, CONF_INT_MAX),
 	CONF_YESNO("force-AAAA-SOA", &dns_conf_force_AAAA_SOA),
 	CONF_CUSTOM("blacklist-ip", _config_blacklist_ip, NULL),
+	CONF_CUSTOM("whitelist-ip", _conf_whitelist_ip, NULL),
 	CONF_CUSTOM("bogus-nxdomain", _conf_bogus_nxdomain, NULL),
 	CONF_CUSTOM("ignore-ip", _conf_ip_ignore, NULL),
-	CONF_CUSTOM("accept-ip", _conf_ip_accept, NULL),
 	CONF_CUSTOM("edns-client-subnet", _conf_edns_client_subnet, NULL),
 	CONF_CUSTOM("conf-file", config_addtional_file, NULL),
 	CONF_END(),
