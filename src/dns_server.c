@@ -1375,7 +1375,7 @@ static void _dns_server_log_rule(char *domain, unsigned char *rule_key, int rule
 		return;
 	}
 
-	reverse_string(rule_name, (char *)rule_key, rule_key_len);
+	reverse_string(rule_name, (char *)rule_key, rule_key_len, 1);
 	rule_name[rule_key_len] = 0;
 	tlog(TLOG_INFO, "RULE-MATCH, domain: %s, rule: %s", domain, rule_name);
 }
@@ -1390,7 +1390,7 @@ static struct dns_domain_rule *_dns_server_get_domain_rule(char *domain)
 
 	/* reverse domain string */
 	domain_len = strlen(domain);
-	reverse_string(domain_key, domain, domain_len);
+	reverse_string(domain_key, domain, domain_len, 1);
 	domain_key[domain_len] = '.';
 	domain_len++;
 	domain_key[domain_len] = 0;

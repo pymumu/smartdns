@@ -23,7 +23,7 @@ int parse_uri(char *value, char *scheme, char *host, int *port, char *path);
 
 int set_fd_nonblock(int fd, int nonblock);
 
-char *reverse_string(char *output, char *input, int len);
+char *reverse_string(char *output, char *input, int len, int to_lower_case);
 
 void print_stack(void);
 

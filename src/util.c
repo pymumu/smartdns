@@ -350,7 +350,7 @@ int set_fd_nonblock(int fd, int nonblock)
 	return 0;
 }
 
-char *reverse_string(char *output, char *input, int len)
+char *reverse_string(char *output, char *input, int len, int to_lower_case)
 {
 	char *begin = output;
 	if (len <= 0) {
@@ -361,6 +361,12 @@ char *reverse_string(char *output, char *input, int len)
 	len--;
 	while (len >= 0) {
 		*output = *(input + len);
+		if (to_lower_case) {
+			if (*output >= 'A' && *output <= 'Z') {
+				/* To lower case */
+         		*output = *output + 32;
+      		}
+		}
 		output++;
 		len--;
 	}

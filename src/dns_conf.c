@@ -344,7 +344,7 @@ static int _config_domain_rule_add(char *domain, enum domain_rule type, void *ru
 		tlog(TLOG_ERROR, "domain name %s too long", domain);
 		goto errout;
 	}
-	reverse_string(domain_key, domain, len);
+	reverse_string(domain_key, domain, len, 1);
 	domain_key[len] = '.';
 	len++;
 	domain_key[len] = 0;
@@ -405,7 +405,7 @@ static int _config_domain_rule_flag_set(char *domain, unsigned int flag)
 		tlog(TLOG_ERROR, "domain %s too long", domain);
 		return -1;
 	}
-	reverse_string(domain_key, domain, len);
+	reverse_string(domain_key, domain, len, 1);
 	domain_key[len] = '.';
 	len++;
 	domain_key[len] = 0;
