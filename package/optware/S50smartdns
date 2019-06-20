@@ -52,7 +52,7 @@ clear_iptable()
 
 restart_dnsmasq()
 {
-	CMD="`ps | grep "  dnsmasq" | grep -v grep 2>/dev/null`"
+	CMD="`ps | grep "dnsmasq" | grep -v grep 2>/dev/null`"
 	if [ -z "$CMD" ]; then
 		CMD="`ps ax | grep dnsmasq | grep -v grep 2>/dev/null`"
 	fi
@@ -157,10 +157,10 @@ set_smartdns_port()
 		return 0
 	elif [ "$SMARTDNS_WORKMODE" = "1" ]; then
 		sed -i "s/^\(bind .*\):53 *\(.*\)\$/\1:$SMARTDNS_PORT \2/g" $SMARTDNS_CONF
-    	sed -i "s/^\(bind-tcp .*\):53 *\(.*\)\$/\1:$SMARTDNS_PORT \2/g" $SMARTDNS_CONF
+    		sed -i "s/^\(bind-tcp .*\):53 *\(.*\)\$/\1:$SMARTDNS_PORT \2/g" $SMARTDNS_CONF
 	elif [ "$SMARTDNS_WORKMODE" = "2" ]; then
 		sed -i "s/^\(bind .*\):$SMARTDNS_PORT *\(.*\)\$/\1:53 \2/g" $SMARTDNS_CONF
-    	sed -i "s/^\(bind-tcp .*\):$SMARTDNS_PORT *\(.*\)\$/\1:53 \2/g" $SMARTDNS_CONF
+    		sed -i "s/^\(bind-tcp .*\):$SMARTDNS_PORT *\(.*\)\$/\1:53 \2/g" $SMARTDNS_CONF
 	else
 		return 1
 	fi	
