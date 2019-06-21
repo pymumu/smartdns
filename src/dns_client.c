@@ -752,7 +752,7 @@ static int _dns_client_server_add(char *server_ip, char *server_host, int port, 
 
 	/* if server type is TLS, create ssl context */
 	if (server_type == DNS_SERVER_TLS || server_type == DNS_SERVER_HTTPS) {
-		server_info->ssl_ctx = SSL_CTX_new(SSLv23_client_method());
+		server_info->ssl_ctx = SSL_CTX_new(TLS_client_method());
 		if (server_info->ssl_ctx == NULL) {
 			tlog(TLOG_ERROR, "init ssl failed.");
 			goto errout;
