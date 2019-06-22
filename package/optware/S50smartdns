@@ -2,7 +2,7 @@
 
 SMARTDNS_BIN=/opt/usr/sbin/smartdns
 SMARTDNS_CONF=/opt/etc/smartdns/smartdns.conf
-DNSMASQ_CONF=/etc/dnsmasq.conf
+DNSMASQ_CONF="/etc/dnsmasq.conf /var/etc/dnsmasq.conf /etc/storage/dnsmasq/dnsmasq.conf"
 SMARTDNS_PID="/var/run/smartdns.pid"
 SMARTDNS_PORT=535
 SMARTDNS_OPT=/opt/etc/smartdns/smartdns-opt.conf
@@ -52,9 +52,15 @@ clear_iptable()
 
 restart_dnsmasq()
 {
-	CMD="`ps | grep "dnsmasq" | grep -v grep 2>/dev/null`"
+	CMD="`ps | grep "  dnsmasq" | grep -v grep 2>/dev/null`"
 	if [ -z "$CMD" ]; then
-		CMD="`ps ax | grep dnsmasq | grep -v grep 2>/dev/null`"
+		CMD="`ps | grep "/usr/sbin/dnsmasq" | grep -v grep 2>/dev/null`"
+		if [ -z "$CMD" ]; then
+			CMD="`ps ax | grep "  dnsmasq" | grep -v grep 2>/dev/null`"
+			if [ -z "$CMD" ]; then
+				CMD="`ps ax | grep /usr/sbin/dnsmasq | grep -v grep 2>/dev/null`"
+			fi	
+		fi	
 	fi
 
 	if [ -z "$CMD" ]; then
@@ -77,6 +83,7 @@ restart_dnsmasq()
 
 get_server_ip()
 {
+	CONF_FILE=$1
 	IPS="`ifconfig | grep "inet addr" | grep -v ":127" | grep "Bcast" | awk '{print $2}' | awk -F: '{print $2}'`"
 	LOCAL_SERVER_IP=""
 	for IP in $IPS
@@ -85,9 +92,9 @@ get_server_ip()
 		while [ $N -gt 0 ]
 		do
 			ADDR=`echo $IP | awk -F. "{for(i=1;i<=$N;i++)printf \\$i\".\"}"`
-			grep "dhcp-range=" $DNSMASQ_CONF | grep $ADDR >/dev/null 2>&1
+			grep "dhcp-range=" $CONF_FILE | grep $ADDR >/dev/null 2>&1
 			if [ $? -eq 0 ]; then
-					SERVER_TAG="`grep "^dhcp-range *=" $DNSMASQ_CONF | grep $ADDR | awk -F= '{print $2}' | awk -F, '{print $1}'`"
+					SERVER_TAG="`grep "^dhcp-range *=" $CONF_FILE | grep $ADDR | awk -F= '{print $2}' | awk -F, '{print $1}'`"
 					LOCAL_SERVER_IP="$IP"
 					return 0
 			fi
@@ -98,53 +105,82 @@ get_server_ip()
 	return 1
 }
 
-set_dnsmasq()
+set_dnsmasq_conf()
 {
-	local RESTART_DNSMASQ=0
 	local LOCAL_SERVER_IP=""
 	local SERVER_TAG=""
-	get_server_ip
+	local CONF_FILE=$1
+
+	get_server_ip $CONF_FILE
 	if [ "$LOCAL_SERVER_IP" ] && [ "$SERVER_TAG" ]; then
-		grep "dhcp-option *=" $DNSMASQ_CONF | grep "$SERVER_TAG,6,$LOCAL_SERVER_IP" > /dev/null 2>&1
+		grep "dhcp-option *=" $CONF_FILE | grep "$SERVER_TAG,6,$LOCAL_SERVER_IP" > /dev/null 2>&1
 		if [ $? -ne 0 ]; then
-			sed -i "/^dhcp-option *=$SERVER_TAG,6,/d" $DNSMASQ_CONF
-			echo "dhcp-option=$SERVER_TAG,6,$LOCAL_SERVER_IP" >> $DNSMASQ_CONF
+			sed -i "/^dhcp-option *=$SERVER_TAG,6,/d" $CONF_FILE
+			echo "dhcp-option=$SERVER_TAG,6,$LOCAL_SERVER_IP" >> $CONF_FILE
 			RESTART_DNSMASQ=1
 		fi
 	fi
 
-	grep "^port *=0" $DNSMASQ_CONF > /dev/null 2>&1
+	grep "^port *=0" $CONF_FILE > /dev/null 2>&1
 	if [ $? -ne 0 ]; then
-		sed -i "/^port *=/d" $DNSMASQ_CONF
-		echo "port=0" >> $DNSMASQ_CONF
+		sed -i "/^port *=/d" $CONF_FILE
+		echo "port=0" >> $CONF_FILE
 		RESTART_DNSMASQ=1
 	fi
+}
 
+set_dnsmasq()
+{
+	local RESTART_DNSMASQ=0
+
+	for conf in $DNSMASQ_CONF
+	do
+		if [ ! -e "$conf" ]; then
+			continue
+		fi
+
+		set_dnsmasq_conf $conf
+	done
+	
 	if [ $RESTART_DNSMASQ -ne 0 ]; then
 		restart_dnsmasq	
 	fi
+}
 
+clear_dnsmasq_conf()
+{
+	local LOCAL_SERVER_IP=""
+	local SERVER_TAG=""
+	local CONF_FILE=$1
+	
+	get_server_ip $CONF_FILE
+	if [ "$LOCAL_SERVER_IP" ] && [ "$SERVER_TAG" ]; then
+		grep "dhcp-option *=" $CONF_FILE | grep "$SERVER_TAG,6,$LOCAL_SERVER_IP" > /dev/null 2>&1
+		if [ $? -eq 0 ]; then
+			sed -i "/^dhcp-option *=$SERVER_TAG,6,/d" $CONF_FILE
+			RESTART_DNSMASQ=1
+		fi
+	fi
+
+	grep "^port *=" $CONF_FILE > /dev/null 2>&1
+	if [ $? -eq 0 ]; then
+		sed -i "/^port *=/d" $CONF_FILE
+		RESTART_DNSMASQ=1
+	fi
 }
 
 clear_dnsmasq()
 {
 	local RESTART_DNSMASQ=0
-	local LOCAL_SERVER_IP=""
-	local SERVER_TAG=""
-	get_server_ip
-	if [ "$LOCAL_SERVER_IP" ] && [ "$SERVER_TAG" ]; then
-		grep "dhcp-option *=" $DNSMASQ_CONF | grep "$SERVER_TAG,6,$LOCAL_SERVER_IP" > /dev/null 2>&1
-		if [ $? -eq 0 ]; then
-			sed -i "/^dhcp-option *=$SERVER_TAG,6,/d" $DNSMASQ_CONF
-			RESTART_DNSMASQ=1
-		fi
-	fi
 
-	grep "^port *=" $DNSMASQ_CONF > /dev/null 2>&1
-	if [ $? -eq 0 ]; then
-		sed -i "/^port *=/d" $DNSMASQ_CONF
-		RESTART_DNSMASQ=1
-	fi
+	for conf in $DNSMASQ_CONF
+	do
+		if [ ! -e "$conf" ]; then
+			continue
+		fi
+
+		clear_dnsmasq_conf $conf
+	done
 
 	if [ $RESTART_DNSMASQ -ne 0 ]; then
 		restart_dnsmasq	
@@ -157,10 +193,10 @@ set_smartdns_port()
 		return 0
 	elif [ "$SMARTDNS_WORKMODE" = "1" ]; then
 		sed -i "s/^\(bind .*\):53 *\(.*\)\$/\1:$SMARTDNS_PORT \2/g" $SMARTDNS_CONF
-    		sed -i "s/^\(bind-tcp .*\):53 *\(.*\)\$/\1:$SMARTDNS_PORT \2/g" $SMARTDNS_CONF
+    	sed -i "s/^\(bind-tcp .*\):53 *\(.*\)\$/\1:$SMARTDNS_PORT \2/g" $SMARTDNS_CONF
 	elif [ "$SMARTDNS_WORKMODE" = "2" ]; then
 		sed -i "s/^\(bind .*\):$SMARTDNS_PORT *\(.*\)\$/\1:53 \2/g" $SMARTDNS_CONF
-    		sed -i "s/^\(bind-tcp .*\):$SMARTDNS_PORT *\(.*\)\$/\1:53 \2/g" $SMARTDNS_CONF
+    	sed -i "s/^\(bind-tcp .*\):$SMARTDNS_PORT *\(.*\)\$/\1:53 \2/g" $SMARTDNS_CONF
 	else
 		return 1
 	fi	
