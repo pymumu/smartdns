@@ -3,7 +3,7 @@
 SMARTDNS_BIN=/opt/usr/sbin/smartdns
 SMARTDNS_CONF=/opt/etc/smartdns/smartdns.conf
 DNSMASQ_CONF="/etc/dnsmasq.conf /var/etc/dnsmasq.conf /etc/storage/dnsmasq/dnsmasq.conf"
-SMARTDNS_PID="/var/run/smartdns.pid"
+SMARTDNS_PID=/var/run/smartdns.pid
 SMARTDNS_PORT=535
 SMARTDNS_OPT=/opt/etc/smartdns/smartdns-opt.conf
 # workmode 
