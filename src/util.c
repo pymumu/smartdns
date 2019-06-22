@@ -839,3 +839,22 @@ static int parse_server_name_extension(const char *data, size_t data_len, char *
 
 	return -2;
 }
+
+void get_compiled_time(struct tm *tm) 
+{ 
+    char s_month[5];
+    int month, day, year;
+	int hour, min, sec;
+    static const char *month_names = "JanFebMarAprMayJunJulAugSepOctNovDec";
+
+    sscanf(__DATE__, "%s %d %d", s_month, &day, &year);
+    month = (strstr(month_names, s_month) - month_names) / 3;
+	sscanf(__TIME__, "%d:%d:%d", &hour, &min, &sec);
+    tm->tm_year = year - 1900;
+    tm->tm_mon = month;
+    tm->tm_mday = day;
+    tm->tm_isdst = -1;
+	tm->tm_hour = hour;
+	tm->tm_min = min;
+	tm->tm_sec = sec;
+}

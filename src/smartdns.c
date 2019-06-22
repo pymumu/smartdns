@@ -59,7 +59,8 @@ static void _help(void)
 		"  -c [conf]     config file.\n"
 		"  -p [pid]      pid file path\n"
 		"  -S            ignore segment fault signal.\n"
-		"  -v            verbose screent.\n"
+		"  -x            verbose screen.\n"
+		"  -v            dispaly version.\n"
 		"  -h            show this help message.\n"
 
 		"Online help: http://pymumu.github.io/smartdns\n"
@@ -67,6 +68,21 @@ static void _help(void)
 		;
 	/* clang-format on */
 	printf("%s", help);
+}
+
+static void _show_version(void) 
+{
+	char str_ver[256] = {0};
+#ifdef SMARTDNS_VERION
+	const char *ver = SMARTDNS_VERION;
+	snprintf(str_ver, sizeof(str_ver), "%s", ver);
+#else
+	struct tm tm;
+	get_compiled_time(&tm);
+	snprintf(str_ver, sizeof(str_ver), "1.%.4d%.2d%.2d-%.2d%.2d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour,
+			 tm.tm_min);
+#endif
+	printf("smartdns %s\n", str_ver);
 }
 
 static int _smartdns_load_from_resolv(void)
@@ -362,7 +378,7 @@ int main(int argc, char *argv[])
 	safe_strncpy(config_file, SMARTDNS_CONF_FILE, MAX_LINE_LEN);
 	safe_strncpy(pid_file, SMARTDNS_PID_FILE, MAX_LINE_LEN);
 
-	while ((opt = getopt(argc, argv, "fhc:p:Sv")) != -1) {
+	while ((opt = getopt(argc, argv, "fhc:p:Svx")) != -1) {
 		switch (opt) {
 		case 'f':
 			is_forground = 1;
@@ -376,8 +392,12 @@ int main(int argc, char *argv[])
 		case 'S':
 			signal_ignore = 1;
 			break;
-		case 'v':
+		case 'x':
 			verbose_screen = 1;
+			break;
+		case 'v':
+			_show_version();
+			return 0;
 			break;
 		case 'h':
 			_help();

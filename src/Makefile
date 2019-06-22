@@ -5,6 +5,9 @@ OBJS=smartdns.o fast_ping.o dns_client.o dns_server.o dns.o util.o tlog.o dns_co
 CFLAGS +=-O2 -g -Wall -Wstrict-prototypes -fno-omit-frame-pointer -Wstrict-aliasing 
 CFLAGS +=-Iinclude
 CFLAGS += -DBASE_FILE_NAME=\"$(notdir $<)\"
+ifdef VER
+CFLAGS += -DSMARTDNS_VERION=\"$(VER)\"
+endif
 CXXFLAGS=-O2 -g -Wall -std=c++11 
 CXXFLAGS +=-Iinclude
 ifeq ($(STATIC), yes)

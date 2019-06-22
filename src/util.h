@@ -4,6 +4,7 @@
 #define SMART_DNS_UTIL_H
 
 #include <netdb.h>
+#include <time.h>
 #include "stringutil.h"
 
 #define PORT_NOT_DEFINED -1
@@ -55,5 +56,7 @@ int create_pid_file(const char *pid_file);
  *  < -4 - Invalid TLS client hello
  */
 int parse_tls_header(const char *data, size_t data_len, char *hostname, const char **hostname_ptr);
+
+void get_compiled_time(struct tm *tm);
 
 #endif
