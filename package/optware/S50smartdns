@@ -234,6 +234,28 @@ clear_rule()
 	fi
 }
 
+get_tz()
+{
+	if [ -e "/etc/localtime" ]; then
+		return 
+	fi
+	
+	for tzfile in /etc/TZ /var/etc/TZ
+	do
+		if [ ! -e "$tzfile" ]; then
+			continue
+		fi
+		
+		tz="`cat $tzfile 2>/dev/null`"
+	done
+	
+	if [ -z "$tz" ]; then
+		return	
+	fi
+	
+	export TZ=$tz
+}
+
 case "$1" in
 	start)
 	set_rule
@@ -242,6 +264,7 @@ case "$1" in
 	fi
 
 	set_smartdns_port
+	get_tz
 	$SMARTDNS_BIN -c $SMARTDNS_CONF -p $SMARTDNS_PID
 	if [ $? -ne 0 ]; then
 		clear_rule

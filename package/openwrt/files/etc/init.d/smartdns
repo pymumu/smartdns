@@ -126,6 +126,30 @@ conf_append()
 	echo "$1 $2" >> $SMARTDNS_CONF_TMP
 }
 
+get_tz()
+{
+	SET_TZ=""
+
+	if [ -e "/etc/localtime" ]; then
+		return 
+	fi
+	
+	for tzfile in /etc/TZ /var/etc/TZ
+	do
+		if [ ! -e "$tzfile" ]; then
+			continue
+		fi
+		
+		tz="`cat $tzfile 2>/dev/null`"
+	done
+	
+	if [ -z "$tz" ]; then
+		return	
+	fi
+	
+	SET_TZ=$tz
+}
+
 load_server()
 {
 	local section="$1"
@@ -336,6 +360,11 @@ load_service() {
 		procd_set_param limits core="unlimited"
 	fi
 	
+	get_tz
+	if [ ! -z "$SET_TZ" ]; then
+		procd_set_param env TZ="$SET_TZ"
+	fi
+
 	procd_set_param command /usr/sbin/smartdns -f -c $SMARTDNS_CONF $args
 	if [ "$RESPAWN" = "1" ]; then
 		procd_set_param respawn ${respawn_threshold:-3600} ${respawn_timeout:-5} ${respawn_retry:-5}
