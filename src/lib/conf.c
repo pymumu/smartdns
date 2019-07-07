@@ -117,11 +117,13 @@ void conf_getopt_reset(void)
 	int argc = 2;
 	char *argv[3] = {"reset", "", 0};
 
-	optind = 1;
+	optind = 0;
 	opterr = 0;
+	optopt = 0;
 	getopt_long(argc, argv, "", long_options, NULL);
-	optind = 1;
+	optind = 0;
 	opterr = 0;
+	optopt = 0;
 }
 
 int conf_parse_args(char *key, char *value, int *argc, char **argv)
@@ -181,7 +183,7 @@ int conf_parse_args(char *key, char *value, int *argc, char **argv)
 	}
 
 	*argc = count;
-	argv[count + 1] = 0;
+	argv[count] = 0;
 
 	return 0;
 }
