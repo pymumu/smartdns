@@ -16,6 +16,8 @@ char *gethost_by_addr(char *host, int maxsize, struct sockaddr *addr);
 
 int getaddr_by_host(char *host, struct sockaddr *addr, socklen_t *addr_len);
 
+int fill_sockaddr_by_ip(unsigned char *ip, int ip_len, int port, struct sockaddr *addr, socklen_t *addr_len);
+
 int parse_ip(const char *value, char *ip, int *port);
 
 int check_is_ipaddr(const char *ip);
@@ -24,7 +26,7 @@ int parse_uri(char *value, char *scheme, char *host, int *port, char *path);
 
 int set_fd_nonblock(int fd, int nonblock);
 
-char *reverse_string(char *output, char *input, int len, int to_lower_case);
+char *reverse_string(char *output, const char *input, int len, int to_lower_case);
 
 void print_stack(void);
 

@@ -138,6 +138,33 @@ errout:
 	return -1;
 }
 
+int fill_sockaddr_by_ip(unsigned char *ip, int ip_len, int port, struct sockaddr *addr, socklen_t *addr_len)
+{
+	if (ip == NULL || addr == NULL || addr_len == NULL) {
+		return -1;
+	}
+
+	if (ip_len == IPV4_ADDR_LEN) {
+		struct sockaddr_in *addr_in = NULL;
+		addr->sa_family = AF_INET;
+		addr_in = (struct sockaddr_in *)addr;
+		addr_in->sin_port = htons(port);
+		addr_in->sin_family = AF_INET;
+		memcpy(&addr_in->sin_addr.s_addr, ip, ip_len);
+		*addr_len = 16;
+	} else if (ip_len == IPV6_ADDR_LEN) {
+		struct sockaddr_in6 *addr_in6 = NULL;
+		addr->sa_family = AF_INET6;
+		addr_in6 = (struct sockaddr_in6 *)addr;
+		addr_in6->sin6_port = htons(port);
+		addr_in6->sin6_family = AF_INET6;
+		memcpy(addr_in6->sin6_addr.s6_addr, ip, ip_len);
+		*addr_len = 28;
+	}
+
+	return -1;
+}
+
 int parse_ip(const char *value, char *ip, int *port)
 {
 	int offset = 0;
@@ -350,7 +377,7 @@ int set_fd_nonblock(int fd, int nonblock)
 	return 0;
 }
 
-char *reverse_string(char *output, char *input, int len, int to_lower_case)
+char *reverse_string(char *output, const char *input, int len, int to_lower_case)
 {
 	char *begin = output;
 	if (len <= 0) {
