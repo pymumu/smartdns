@@ -48,6 +48,11 @@
 #define DNS_TCPPING_START (300)
 #define DNS_PING_TCP_TIMEOUT (DNS_REQUEST_MAX_TIMEOUT - DNS_TCPPING_START)
 
+#define RECV_ERROR_AGAIN 1
+#define RECV_ERROR_OK 0
+#define RECV_ERROR_FAIL -1
+#define RECV_ERROR_CLOSE -2
+
 struct dns_conn_buf {
 	char buf[DNS_CONN_BUFF_SIZE];
 	int buffsize;
@@ -2020,13 +2025,13 @@ static int _dns_server_tcp_recv(struct dns_server_conn *dnsserver)
 		len = recv(dnsserver->fd, dnsserver->recvbuff.buf + dnsserver->recvbuff.size, sizeof(dnsserver->recvbuff.buf) - dnsserver->recvbuff.size, 0);
 		if (len < 0) {
 			if (errno == EAGAIN) {
-				return 1;
+				return RECV_ERROR_AGAIN;
 			}
 
 			tlog(TLOG_ERROR, "recv failed, %s\n", strerror(errno));
-			return -1;
+			return RECV_ERROR_FAIL;
 		} else if (len == 0) {
-			return -2;
+			return RECV_ERROR_CLOSE;
 		}
 
 		dnsserver->recvbuff.size += len;
@@ -2046,7 +2051,7 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn *dnsserver
 	/* Handling multiple requests */
 	for (;;) {
 		if ((total_len - proceed_len) <= sizeof(unsigned short)) {
-			ret = 1;
+			ret = RECV_ERROR_AGAIN;
 			break;
 		}
 
@@ -2056,11 +2061,11 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn *dnsserver
 
 		if (request_len >= sizeof(dnsserver->recvbuff.buf)) {
 			tlog(TLOG_ERROR, "request length is invalid.");
-			return -1;
+			return RECV_ERROR_FAIL;
 		}
 
 		if (request_len > (total_len - proceed_len)) {
-			ret = 1;
+			ret = RECV_ERROR_AGAIN;
 			break;
 		}
 
@@ -2069,7 +2074,7 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn *dnsserver
 		/* process one record */
 		if (_dns_server_recv(dnsserver, request_data, request_len, &dnsserver->addr, dnsserver->addr_len) != 0) {
 			tlog(TLOG_ERROR, "process tcp request failed.");
-			return -1;
+			return RECV_ERROR_FAIL;
 		}
 
 		proceed_len += sizeof(unsigned short) + request_len;
@@ -2093,14 +2098,14 @@ static int _dns_server_tcp_process_requests(struct dns_server_conn *client)
 	for (;;) {
 		recv_ret = _dns_server_tcp_recv(client);
 		if (recv_ret < 0) {
-			if (recv_ret == -2) {
-				return -2;
+			if (recv_ret == RECV_ERROR_CLOSE) {
+				return RECV_ERROR_CLOSE;
 			}
 
 			if (client->recvbuff.size > 0) {
-				is_eof = 1;
+				is_eof = RECV_ERROR_AGAIN;
 			} else {
-				return -1;
+				return RECV_ERROR_FAIL;
 			}
 		}
 
@@ -2108,15 +2113,15 @@ static int _dns_server_tcp_process_requests(struct dns_server_conn *client)
 		if (request_ret < 0) {
 			/* failed */
 			tlog(TLOG_ERROR, "process one request failed.");
-			return -1;
+			return RECV_ERROR_FAIL;
 		}
 
-		if (request_ret == 1 && is_eof == 1) {
+		if (request_ret == RECV_ERROR_AGAIN && is_eof == RECV_ERROR_AGAIN) {
 			/* failed or remote shutdown */
-			return -1;
+			return RECV_ERROR_FAIL;
 		}
 
-		if (recv_ret == 1 && request_ret == 1) {
+		if (recv_ret == RECV_ERROR_AGAIN && request_ret == RECV_ERROR_AGAIN) {
 			/* process complete */
 			return 0;
 		}
@@ -2132,9 +2137,9 @@ static int _dns_server_tcp_send(struct dns_server_conn *client)
 		len = send(client->fd, client->sndbuff.buf, client->sndbuff.size, MSG_NOSIGNAL);
 		if (len < 0) {
 			if (errno == EAGAIN) {
-				return 1;
+				return RECV_ERROR_AGAIN;
 			}
-			return -1;
+			return RECV_ERROR_FAIL;
 		} else if (len == 0) {
 			break;
 		}
@@ -2147,7 +2152,7 @@ static int _dns_server_tcp_send(struct dns_server_conn *client)
 	event_client.events = EPOLLIN;
 	if (epoll_ctl(server.epoll_fd, EPOLL_CTL_MOD, client->fd, &event_client) != 0) {
 		tlog(TLOG_ERROR, "epoll add failed, %s", strerror(errno));
-		return -1;
+		return RECV_ERROR_FAIL;
 	}
 
 	return 0;
@@ -2164,11 +2169,11 @@ static int _dns_server_process_tcp(struct dns_server_conn *dnsserver, struct epo
 		ret = _dns_server_tcp_process_requests(dnsserver);
 		if (ret != 0) {
 			_dns_server_client_close(dnsserver);
-			if (ret == -2) {
+			if (ret == RECV_ERROR_CLOSE) {
 				return 0;
 			}
 			tlog(TLOG_ERROR, "process tcp request failed.");
-			return -1;
+			return RECV_ERROR_FAIL;
 		}
 	}
 
@@ -2176,7 +2181,7 @@ static int _dns_server_process_tcp(struct dns_server_conn *dnsserver, struct epo
 		if (_dns_server_tcp_send(dnsserver) != 0) {
 			_dns_server_client_close(dnsserver);
 			tlog(TLOG_ERROR, "send tcp failed.");
-			return -1;
+			return RECV_ERROR_FAIL;
 		}
 	}
 
