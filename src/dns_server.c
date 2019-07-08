@@ -446,6 +446,46 @@ static int _dns_reply(struct dns_request *request)
 	return _dns_reply_inpacket(request, inpacket, encode_len);
 }
 
+static int _dns_result_callback(struct dns_request *request)
+{
+	char ip[DNS_MAX_CNAME_LEN];
+	unsigned int ping_time = -1;
+
+	if (request->result_callback == NULL) {
+		return 0;
+	}
+
+	ip[0] = 0;
+	if (request->qtype == DNS_T_A) {
+		if (request->has_ipv4 == 0) {
+			goto out;
+		}
+
+		sprintf(ip, "%d.%d.%d.%d", request->ipv4_addr[0], request->ipv4_addr[1], request->ipv4_addr[2], request->ipv4_addr[3]);
+		ping_time = request->ping_ttl_v4;
+		return request->result_callback(request->domain, request->rcode, request->qtype, ip, ping_time, request->user_ptr);
+	} else if (request->qtype == DNS_T_AAAA) {
+		if (request->has_ipv6 == 0) {
+			goto out;
+		}
+
+		sprintf(ip, "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", request->ipv6_addr[0], request->ipv6_addr[1],
+				request->ipv6_addr[2], request->ipv6_addr[3], request->ipv6_addr[4], request->ipv6_addr[5], request->ipv6_addr[6], request->ipv6_addr[7],
+				request->ipv6_addr[8], request->ipv6_addr[9], request->ipv6_addr[10], request->ipv6_addr[11], request->ipv6_addr[12], request->ipv6_addr[13],
+				request->ipv6_addr[14], request->ipv6_addr[15]);
+		ping_time = request->ping_ttl_v6;
+		return request->result_callback(request->domain, request->rcode, request->qtype, ip, ping_time, request->user_ptr);
+	}
+
+	request->result_callback(request->domain, DNS_RC_NXDOMAIN, request->qtype, ip, ping_time, request->user_ptr);
+
+	return 0;
+out:
+
+	request->result_callback(request->domain, DNS_RC_NXDOMAIN, request->qtype, ip, ping_time, request->user_ptr);
+	return 0;
+}
+
 static int _dns_server_reply_SOA(int rcode, struct dns_request *request)
 {
 	struct dns_soa *soa;
@@ -466,6 +506,9 @@ static int _dns_server_reply_SOA(int rcode, struct dns_request *request)
 	soa->retry = 900;
 	soa->expire = 604800;
 	soa->minimum = 86400;
+
+	_dns_result_callback(request);
+
 	_dns_reply(request);
 
 	return 0;
@@ -511,46 +554,6 @@ static int _dns_setup_ipset(struct dns_request *request)
 	tlog(TLOG_DEBUG, "IPSET-MATCH: domain:%s, ipset:%s, result: %d", request->domain, ipset_rule->ipsetname, ret);
 
 	return ret;
-}
-
-static int _dns_result_callback(struct dns_request *request)
-{
-	char ip[DNS_MAX_CNAME_LEN];
-	unsigned int ping_time = -1;
-
-	if (request->result_callback == NULL) {
-		return 0;
-	}
-
-	ip[0] = 0;
-	if (request->qtype == DNS_T_A) {
-		if (request->has_ipv4 == 0) {
-			goto out;
-		}
-
-		sprintf(ip, "%d.%d.%d.%d", request->ipv4_addr[0], request->ipv4_addr[1], request->ipv4_addr[2], request->ipv4_addr[3]);
-		ping_time = request->ping_ttl_v4;
-		return request->result_callback(request->domain, request->rcode, request->qtype, ip, ping_time, request->user_ptr);
-	} else if (request->qtype == DNS_T_AAAA) {
-		if (request->has_ipv6 == 0) {
-			goto out;
-		}
-
-		sprintf(ip, "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", request->ipv6_addr[0], request->ipv6_addr[1],
-				request->ipv6_addr[2], request->ipv6_addr[3], request->ipv6_addr[4], request->ipv6_addr[5], request->ipv6_addr[6], request->ipv6_addr[7],
-				request->ipv6_addr[8], request->ipv6_addr[9], request->ipv6_addr[10], request->ipv6_addr[11], request->ipv6_addr[12], request->ipv6_addr[13],
-				request->ipv6_addr[14], request->ipv6_addr[15]);
-		ping_time = request->ping_ttl_v6;
-		return request->result_callback(request->domain, request->rcode, request->qtype, ip, ping_time, request->user_ptr);
-	}
-
-	request->result_callback(request->domain, DNS_RC_NXDOMAIN, request->qtype, ip, ping_time, request->user_ptr);
-
-	return 0;
-out:
-
-	request->result_callback(request->domain, DNS_RC_NXDOMAIN, request->qtype, ip, ping_time, request->user_ptr);
-	return 0;
 }
 
 static int _dns_server_request_complete(struct dns_request *request)
@@ -1861,7 +1864,29 @@ errout:
 
 static int _dns_server_prefetch_request(char *domain, dns_type_t qtype)
 {
-	return dns_server_query(domain, qtype, NULL, NULL);
+	int ret = -1;
+	struct dns_request *request = NULL;
+
+	request = _dns_server_new_request();
+	if (request == NULL) {
+		tlog(TLOG_ERROR, "malloc failed.\n");
+		goto errout;
+	}
+
+	_dns_server_request_set_enable_prefetch(request);
+	ret = _dns_server_do_query(request, domain, qtype);
+	if (ret != 0) {
+		tlog(TLOG_ERROR, "do query %s failed.\n", domain);
+		goto errout;
+	}
+
+	return ret;
+errout:
+	if (request) {
+		_dns_server_delete_request(request);
+	}
+
+	return ret;
 }
 
 int dns_server_query(char *domain, int qtype, dns_result_callback callback, void *user_ptr)
@@ -1876,7 +1901,6 @@ int dns_server_query(char *domain, int qtype, dns_result_callback callback, void
 	}
 
 	_dns_server_request_set_callback(request, callback, user_ptr);
-	_dns_server_request_set_enable_prefetch(request);
 	ret = _dns_server_do_query(request, domain, qtype);
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "do query %s failed.\n", domain);
