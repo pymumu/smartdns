@@ -2640,7 +2640,7 @@ static int _dns_server_audit_init(void)
 		audit_file = dns_conf_audit_file;
 	}
 
-	dns_audit = tlog_open(audit_file, dns_conf_audit_size, dns_conf_audit_num, 1, 0, 0);
+	dns_audit = tlog_open(audit_file, dns_conf_audit_size, dns_conf_audit_num, 0, 0);
 	if (dns_audit == NULL) {
 		return -1;
 	}

@@ -1,6 +1,6 @@
 /*
  * tinylog
- * Copyright (C) 2018 Nick Peng <pymumu@gmail.com>
+ * Copyright (C) 2018-2019 Nick Peng <pymumu@gmail.com>
  * https://github.com/pymumu/tinylog
  */
 #ifndef _GNU_SOURCE
@@ -38,7 +38,10 @@
 #define TLOG_LOG_SIZE (1024 * 1024 * 50)
 #define TLOG_LOG_COUNT 32
 #define TLOG_LOG_NAME_LEN 128
-#define TLOG_BUFF_LEN (PATH_MAX + TLOG_LOG_NAME_LEN * 2)
+#define TLOG_BUFF_LEN (PATH_MAX + TLOG_LOG_NAME_LEN * 3)
+#define TLOG_SUFFIX_GZ ".gz"
+
+#define TLOG_SEGMENT_MAGIC 0xFF446154
 
 struct tlog_log {
     char *buff;
@@ -53,16 +56,26 @@ struct tlog_log {
     off_t filesize;
     char logdir[PATH_MAX];
     char logname[TLOG_LOG_NAME_LEN];
+    char suffix[TLOG_LOG_NAME_LEN];
     int logsize;
     int logcount;
     int block;
     int dropped;
+    int nocompress;
     int zip_pid;
     int multi_log;
     int logscreen;
-    
+    int segment_log;
+ 
+    tlog_output_func output_func;
+    void *private;
+
+    time_t last_try;
+    int waiters;
     int is_exit;
     struct tlog_log *next;
+    pthread_mutex_t lock;
+    pthread_cond_t client_cond;
 };
 
 struct tlog {
@@ -73,13 +86,25 @@ struct tlog {
     pthread_t tid;
     pthread_mutex_t lock;
     pthread_cond_t cond;
-    pthread_cond_t client_cond;
-    int waiters;
+    tlog_log_output_func output_func;
+    struct tlog_log *wait_on_log;
     int is_wait;
 };
 
+struct tlog_segment_log_head {
+    struct tlog_info info;
+    unsigned short len;
+    char data[0];
+}  __attribute__((packed));
+
+struct tlog_segment_head {
+    unsigned int magic;
+    unsigned short len;
+    char data[0];
+}  __attribute__((packed));
+
 struct oldest_log {
-    char name[TLOG_TMP_LEN];
+    char name[TLOG_LOG_NAME_LEN];
     time_t mtime;
     struct tlog_log *log;
 };
@@ -97,10 +122,10 @@ struct tlog_info_inter {
 typedef int (*list_callback)(const char *name, struct dirent *entry, void *user);
 typedef int (*vprint_callback)(char *buff, int maxlen, void *userptr, const char *format, va_list ap);
 
-static struct tlog tlog;
+struct tlog tlog;
 static int tlog_disable_early_print = 0;
 static tlog_level tlog_set_level = TLOG_INFO;
-static tlog_format_func tlog_format;
+tlog_format_func tlog_format;
 static unsigned int tlog_localtime_lock = 0;
 
 static const char *tlog_level_str[] = {
@@ -141,9 +166,9 @@ static int _tlog_mkdir(const char *path)
     }
 
     strncpy(path_c, path, sizeof(path_c) - 1);
-	path_c[sizeof(path_c) - 1] = 0;
-	len = strnlen(path_c, sizeof(path_c) - 1);
-	path_c[len] = '/';
+    path_c[sizeof(path_c) - 1] = '\0';
+    len = strnlen(path_c, sizeof(path_c) - 1);
+    path_c[len] = '/';
     path_c[len + 1] = '\0';
     path_end = path_c;
 
@@ -252,6 +277,24 @@ int tlog_localtime(struct tlog_time *tm)
     return _tlog_gettime(tm);
 }
 
+void tlog_set_private(tlog_log *log, void *private)
+{
+    if (log == NULL) {
+        return;
+    }
+
+    log->private = private;
+}
+
+void *tlog_get_private(tlog_log *log)
+{
+    if (log == NULL) {
+        return NULL;
+    }
+
+    return log->private;
+}
+
 static int _tlog_format(char *buff, int maxlen, struct tlog_info *info, void *userptr, const char *format, va_list ap)
 {
     int len = 0;
@@ -262,12 +305,12 @@ static int _tlog_format(char *buff, int maxlen, struct tlog_info *info, void *us
         /* format prefix */
         len = snprintf(buff, maxlen, "[%.4d-%.2d-%.2d %.2d:%.2d:%.2d,%.3d][%5d][%4s][%17s:%-4d] ", 
             tm->year, tm->mon, tm->mday, tm->hour, tm->min, tm->sec, tm->usec / 1000, getpid(), 
-            info->level, info->file, info->line);
+            tlog_get_level_string(info->level), info->file, info->line);
     } else {
         /* format prefix */
         len = snprintf(buff, maxlen, "[%.4d-%.2d-%.2d %.2d:%.2d:%.2d,%.3d][%5s][%17s:%-4d] ", 
             tm->year, tm->mon, tm->mday, tm->hour, tm->min, tm->sec, tm->usec / 1000, 
-            info->level, info->file, info->line);
+            tlog_get_level_string(info->level), info->file, info->line);
     }
 
     if (len < 0 || len == maxlen) {
@@ -291,26 +334,39 @@ static int _tlog_format(char *buff, int maxlen, struct tlog_info *info, void *us
 
 static int _tlog_root_log_buffer(char *buff, int maxlen, void *userptr, const char *format, va_list ap)
 {
-    int len;
+    int len = 0;
+    int log_len = 0;
     struct tlog_info_inter *info_inter = userptr;
+    struct tlog_segment_log_head *log_head = NULL;
 
     if (tlog_format == NULL) {
         return -1;
     }
 
-    if (_tlog_gettime(&info_inter->info.time) != 0) {
-        return -1;
+    if (tlog.root->segment_log) {
+        log_head = (struct tlog_segment_log_head *) buff;
+        len += sizeof(*log_head);
+        memcpy(&log_head->info, &info_inter->info, sizeof(log_head->info));
     }
 
-    len = tlog_format(buff, maxlen, &info_inter->info, info_inter->userptr, format, ap);
-    if (len < 0) {
+    log_len = tlog_format(buff + len, maxlen - len, &info_inter->info, info_inter->userptr, format, ap);
+    if (log_len < 0) {
         return -1;
     }
+    len += log_len;
 
     /* add new line character*/
     if (*(buff + len - 1) != '\n' && len + 1 < maxlen - len) {
         *(buff + len) = '\n';
         len++;
+        log_len++;
+    }
+
+    if (tlog.root->segment_log && len + 1 < maxlen - len) {
+        *(buff + len) = '\0';
+        len++;
+        log_len++;
+        log_head->len = log_len;
     }
 
     return len;
@@ -337,6 +393,7 @@ static int _tlog_vprintf(struct tlog_log *log, vprint_callback print_callback, v
 {
     int len;
     int maxlen = 0;
+    struct tlog_segment_head *segment_head = NULL;
 
     if (log == NULL || format == NULL) {
         return -1;
@@ -373,24 +430,44 @@ static int _tlog_vprintf(struct tlog_log *log, vprint_callback print_callback, v
                 pthread_mutex_unlock(&tlog.lock);
                 return -1;
             }
-            tlog.waiters++;
+            
+            pthread_mutex_unlock(&tlog.lock);
+            pthread_mutex_lock(&log->lock);
+            log->waiters++;
             /* block wait for free buffer */
-            int ret = pthread_cond_wait(&tlog.client_cond, &tlog.lock);
-            tlog.waiters--;
+            int ret = pthread_cond_wait(&log->client_cond, &log->lock);
+            log->waiters--;
+            pthread_mutex_unlock(&log->lock);
             if (ret < 0) {
-                pthread_mutex_unlock(&tlog.lock);
                 return -1;
             }
+
+            pthread_mutex_lock(&tlog.lock);
         }
     } while (maxlen < TLOG_MAX_LINE_LEN);
 
-    /* write log to buffer */
-    len = print_callback(log->buff + log->end, maxlen, userptr, format, ap);
-    if (len <= 0) {
-        pthread_mutex_unlock(&tlog.lock);
-        return -1;
+    if (log->segment_log) {
+        segment_head = (struct tlog_segment_head *)(log->buff + log->end);
+        /* write log to buffer */
+        len = print_callback(segment_head->data, maxlen - sizeof(*segment_head), userptr, format, ap);
+        if (len <= 0) {
+            pthread_mutex_unlock(&tlog.lock);
+            return -1;
+        }
+        log->end += len + sizeof(*segment_head) + 1;
+        segment_head->len = len + 1;
+        segment_head->data[len] = '\0';
+        segment_head->magic = TLOG_SEGMENT_MAGIC;
+    } else {
+        /* write log to buffer */
+        len = print_callback(log->buff + log->end, maxlen, userptr, format, ap);
+        if (len <= 0) {
+            pthread_mutex_unlock(&tlog.lock);
+            return -1;
+        }
+        log->end += len;
     }
-    log->end += len;
+
     /* if remain buffer is not enough for a line, move end to start of buffer. */
     if (log->end > log->buffsize - TLOG_MAX_LINE_LEN) {
         log->ext_end = log->end;
@@ -407,7 +484,7 @@ static int _tlog_vprintf(struct tlog_log *log, vprint_callback print_callback, v
 
 int tlog_vprintf(struct tlog_log *log, const char *format, va_list ap)
 {
-    return _tlog_vprintf(log, _tlog_print_buffer, NULL, format, ap);
+    return _tlog_vprintf(log, _tlog_print_buffer, 0, format, ap);
 }
 
 int tlog_printf(struct tlog_log *log, const char *format, ...)
@@ -471,8 +548,11 @@ int tlog_vext(tlog_level level, const char *file, int line, const char *func, vo
     info_inter.info.file = file;
     info_inter.info.line = line;
     info_inter.info.func = func;
-    info_inter.info.level = tlog_level_str[level];
+    info_inter.info.level = level;
     info_inter.userptr = userptr;
+    if (_tlog_gettime(&info_inter.info.time) != 0) {
+        return -1;
+    }
 
     return _tlog_vprintf(tlog.root, _tlog_root_log_buffer, &info_inter, format, ap);
 }
@@ -489,28 +569,28 @@ int tlog_ext(tlog_level level, const char *file, int line, const char *func, voi
     return len;
 }
 
-static int _tlog_rename_logfile(struct tlog_log *log, const char *gzip_file)
+static int _tlog_rename_logfile(struct tlog_log *log, const char *log_file)
 {
     char archive_file[TLOG_BUFF_LEN];
     struct tlog_time logtime;
     int i = 0;
 
-    if (_tlog_getmtime(&logtime, gzip_file) != 0) {
+    if (_tlog_getmtime(&logtime, log_file) != 0) {
         return -1;
     }
 
-    snprintf(archive_file, sizeof(archive_file), "%s/%s-%.4d%.2d%.2d-%.2d%.2d%.2d.gz", 
+    snprintf(archive_file, sizeof(archive_file), "%s/%s-%.4d%.2d%.2d-%.2d%.2d%.2d%s", 
         log->logdir, log->logname, logtime.year, logtime.mon, logtime.mday,
-        logtime.hour, logtime.min, logtime.sec);
+        logtime.hour, logtime.min, logtime.sec, log->suffix);
 
     while (access(archive_file, F_OK) == 0) {
         i++;
-        snprintf(archive_file, sizeof(archive_file), "%s/%s-%.4d%.2d%.2d-%.2d%.2d%.2d-%d.gz", 
+        snprintf(archive_file, sizeof(archive_file), "%s/%s-%.4d%.2d%.2d-%.2d%.2d%.2d-%d%s", 
             log->logdir, log->logname, logtime.year, logtime.mon,
-            logtime.mday, logtime.hour, logtime.min, logtime.sec, i);
+            logtime.mday, logtime.hour, logtime.min, logtime.sec, i, log->suffix);
     }
 
-    if (rename(gzip_file, archive_file) != 0) {
+    if (rename(log_file, archive_file) != 0) {
         return -1;
     }
 
@@ -553,13 +633,15 @@ static int _tlog_count_log_callback(const char *path, struct dirent *entry, void
 {
     struct count_log *count_log = (struct count_log *)userptr;
     struct tlog_log *log = count_log->log;
+    char logname[TLOG_LOG_NAME_LEN * 2];
 
-    if (strstr(entry->d_name, ".gz") == NULL) {
+    if (strstr(entry->d_name, log->suffix) == NULL) {
         return 0;
     }
 
-    int len = strnlen(log->logname, sizeof(log->logname));
-    if (strncmp(log->logname, entry->d_name, len) != 0) {
+    snprintf(logname, sizeof(logname), "%s-", log->logname);
+    int len = strnlen(logname, sizeof(logname));
+    if (strncmp(logname, entry->d_name, len) != 0) {
         return 0;
     }
 
@@ -573,15 +655,17 @@ static int _tlog_get_oldest_callback(const char *path, struct dirent *entry, voi
     char filename[TLOG_BUFF_LEN];
     struct oldest_log *oldestlog = userptr;
     struct tlog_log *log = oldestlog->log;
+    char logname[TLOG_LOG_NAME_LEN * 2];
 
-    /* if not a gz file, skip */
-    if (strstr(entry->d_name, ".gz") == NULL) {
+    /* if not a log file, skip */
+    if (strstr(entry->d_name, log->suffix) == NULL) {
         return 0;
     }
 
-    /* if not tlog gz file, skip */
-    int len = strnlen(log->logname, sizeof(log->logname));
-    if (strncmp(log->logname, entry->d_name, len) != 0) {
+    /* if not tlog log file, skip */
+    snprintf(logname, sizeof(logname), "%s-", log->logname);
+    int len = strnlen(logname, sizeof(logname));
+    if (strncmp(logname, entry->d_name, len) != 0) {
         return 0;
     }
 
@@ -594,9 +678,9 @@ static int _tlog_get_oldest_callback(const char *path, struct dirent *entry, voi
     if (oldestlog->mtime == 0 || oldestlog->mtime > sb.st_mtime) {
         oldestlog->mtime = sb.st_mtime;
         strncpy(oldestlog->name, entry->d_name, sizeof(oldestlog->name) - 1);
-		oldestlog->name[sizeof(oldestlog->name) - 1] = 0;
-		return 0;
-	}
+        oldestlog->name[sizeof(oldestlog->name) - 1] = '\0';
+        return 0;
+    }
 
     return 0;
 }
@@ -778,7 +862,7 @@ errout:
     return;
 }
 
-static int _tlog_archive_log(struct tlog_log *log)
+static int _tlog_archive_log_compressed(struct tlog_log *log)
 {
     char gzip_file[TLOG_BUFF_LEN];
     char gzip_cmd[PATH_MAX * 2];
@@ -829,7 +913,51 @@ errout:
     return -1;
 }
 
-static int _tlog_write_log(struct tlog_log *log, char *buff, int bufflen)
+static int _tlog_archive_log_nocompress(struct tlog_log *log)
+{
+    char log_file[TLOG_BUFF_LEN];
+    char pending_file[TLOG_BUFF_LEN];
+
+    snprintf(pending_file, sizeof(pending_file), "%s/%s.pending", log->logdir, log->logname);
+
+    if (_tlog_log_lock(log) != 0) {
+        return -1;
+    }
+
+    if (access(pending_file, F_OK) != 0) {
+        /* rename current log file to pending */
+        snprintf(log_file, sizeof(log_file), "%s/%s", log->logdir, log->logname);
+        if (rename(log_file, pending_file) != 0) {
+            goto errout;
+        }
+    }
+
+    /* rename pending file */
+    if (_tlog_rename_logfile(log, pending_file) != 0) {
+        goto errout;
+    }
+
+    /* remove oldes file */
+    _tlog_remove_oldlog(log);
+    _tlog_log_unlock(log);
+
+    return 0;
+
+errout:
+    _tlog_log_unlock(log);
+    return -1;
+}
+
+static int _tlog_archive_log(struct tlog_log *log)
+{
+    if (log->nocompress) {
+        return _tlog_archive_log_nocompress(log);
+    } else {
+        return _tlog_archive_log_compressed(log);
+    }
+}
+
+static int _tlog_write(struct tlog_log *log, char *buff, int bufflen)
 {
     int len;
 
@@ -843,7 +971,7 @@ static int _tlog_write_log(struct tlog_log *log, char *buff, int bufflen)
     }
 
     /* if log file size exceeds threshold, start to compress */
-    if (log->multi_log) {
+    if (log->multi_log && log->fd > 0) {
         log->filesize = lseek(log->fd, 0, SEEK_END);
     }
 
@@ -861,18 +989,17 @@ static int _tlog_write_log(struct tlog_log *log, char *buff, int bufflen)
 
     if (log->fd <= 0) {
         /* open a new log file to write */
-		static time_t last_try = 0;
-		static int print_errmsg = 1;
-		time_t now;
+        static int print_errmsg = 1;
+        time_t now;
 
-		time(&now);
-        if (now == last_try) {
-			return -1;
-		}
-		last_try = now;
+        time(&now);
+        if (now == log->last_try) {
+            return -1;
+        }
+        log->last_try = now;
 
-		char logfile[PATH_MAX * 2];
-		if (_tlog_mkdir(log->logdir) != 0) {
+        char logfile[PATH_MAX * 2];
+        if (_tlog_mkdir(log->logdir) != 0) {
             fprintf(stderr, "create log dir %s failed.\n", log->logdir);
             return -1;
         }
@@ -881,44 +1008,66 @@ static int _tlog_write_log(struct tlog_log *log, char *buff, int bufflen)
         log->fd = open(logfile, O_APPEND | O_CREAT | O_WRONLY | O_CLOEXEC, 0640);
         if (log->fd < 0) {
             if (print_errmsg == 0) {
-				return -1;
-			}
+                return -1;
+            }
 
-			fprintf(stderr, "open log file %s failed, %s\n", logfile, strerror(errno));
-			print_errmsg = 0;
-			return -1;
-		}
+            fprintf(stderr, "open log file %s failed, %s\n", logfile, strerror(errno));
+            print_errmsg = 0;
+            return -1;
+        }
 
-		print_errmsg = 1;
-		/* get log file size */
-		log->filesize = lseek(log->fd, 0, SEEK_END);
+        log->last_try = 0;
+        print_errmsg = 1;
+        /* get log file size */
+        log->filesize = lseek(log->fd, 0, SEEK_END);
     }
 
     /* write log to file */
     len = write(log->fd, buff, bufflen);
     if (len > 0) {
         log->filesize += len;
-    }
-
+    } 
     return len;
 }
 
-static int _tlog_has_data(void)
+int tlog_write(struct tlog_log *log, char *buff, int bufflen)
+{
+    return _tlog_write(log, buff, bufflen);
+}
+
+static int _tlog_has_data(struct tlog_log *log)
+{
+    if (log->end != log->start || log->ext_end > 0) {
+        return 1;
+    }
+
+    return 0;
+}
+
+static int _tlog_any_has_data_locked(void)
 {
     struct tlog_log *next = NULL;
 
-    pthread_mutex_lock(&tlog.lock);
     next = tlog.log;
     while (next) {
-        if (next->end != next->start || next->ext_end > 0) {
-            pthread_mutex_unlock(&tlog.lock);
+        if (_tlog_has_data(next) == 1) {
             return 1;
         }
         next = next->next;
     }
-    pthread_mutex_unlock(&tlog.lock);
 
     return 0;
+}
+
+
+static int _tlog_any_has_data(void)
+{
+    int ret = 0;
+    pthread_mutex_lock(&tlog.lock);
+    ret = _tlog_any_has_data_locked();
+    pthread_mutex_unlock(&tlog.lock);
+
+    return ret;
 }
 
 static int _tlog_wait_pids(void)
@@ -933,7 +1082,7 @@ static int _tlog_wait_pids(void)
     while (next) {
         if (next->zip_pid > 0) {
             if (now == 0) {
-                now = time(NULL);
+                now = time(0);
             }
 
             if (now != last) {
@@ -997,18 +1146,129 @@ static int _tlog_close(struct tlog_log *log, int wait_hang)
         next = next->next;
     }
 
+    pthread_cond_destroy(&log->client_cond);
+    pthread_mutex_destroy(&log->lock);
+
     return 0;
+}
+
+static struct tlog_log *_tlog_next_log(struct tlog_log *last_log)
+{
+    if (last_log == NULL) {
+        return tlog.log;
+    }
+
+    return last_log->next;
+}
+
+static struct tlog_log *_tlog_wait_log_locked(struct tlog_log *last_log)
+{
+    int ret = 0;
+    struct timespec tm;
+    struct tlog_log *log = NULL;
+
+    clock_gettime(CLOCK_REALTIME, &tm);
+    tm.tv_sec += 2;
+    tlog.is_wait = 1;
+    tlog.wait_on_log = last_log;
+    ret = pthread_cond_timedwait(&tlog.cond, &tlog.lock, &tm);
+    tlog.is_wait = 0;
+    tlog.wait_on_log = NULL;
+    errno = ret;
+    if (ret == 0 || ret == ETIMEDOUT) {
+        log = tlog.notify_log;
+        tlog.notify_log = NULL;
+    }
+
+    return log;
+}
+
+static void _tlog_wakeup_waiters(struct tlog_log *log)
+{
+    pthread_mutex_lock(&log->lock);
+    if (log->waiters > 0) {
+        /* if there are waiters, wakeup */
+        pthread_cond_broadcast(&log->client_cond);
+    }
+    pthread_mutex_unlock(&log->lock);
+}
+
+
+static void _tlog_write_one_segment_log(struct tlog_log *log, char *buff, int bufflen)
+{
+    struct tlog_segment_head *segment_head = NULL;
+    int write_len = 0;
+
+    segment_head = (struct tlog_segment_head *)buff;
+    for (write_len = 0; write_len < bufflen;) {
+        if (segment_head->magic != TLOG_SEGMENT_MAGIC) {
+            return;
+        }
+
+        log->output_func(log, segment_head->data, segment_head->len - 1);
+        write_len += segment_head->len + sizeof(*segment_head);
+        segment_head = (struct tlog_segment_head *)(buff + write_len);
+    }
+}
+
+static void _tlog_write_segments_log(struct tlog_log *log, int log_len, int log_extlen)
+{
+    _tlog_write_one_segment_log(log, log->buff + log->start, log_len);
+    if (log_extlen > 0) {
+        /* write extend buffer log */
+        _tlog_write_one_segment_log(log, log->buff, log_extlen);
+    }
+}
+
+static void _tlog_write_buff_log(struct tlog_log *log, int log_len, int log_extlen)
+{
+    log->output_func(log, log->buff + log->start, log_len);
+    if (log_extlen > 0) {
+        /* write extend buffer log */
+        log->output_func(log, log->buff, log_extlen);
+    }
+}
+
+static void _tlog_work_write(struct tlog_log *log, int log_len, int log_extlen, int log_dropped)
+{
+    /* write log */
+    if (log->segment_log) {
+        _tlog_write_segments_log(log, log_len, log_extlen);
+    } else {
+        _tlog_write_buff_log(log, log_len, log_extlen);
+    }
+
+    if (log_dropped > 0) {
+        /* if there is dropped log, record dropped log number */
+        char dropmsg[TLOG_TMP_LEN];
+        snprintf(dropmsg, sizeof(dropmsg), "[Totoal Dropped %d Messages]\n", log_dropped);
+        log->output_func(log, dropmsg, strnlen(dropmsg, sizeof(dropmsg)));
+    }
+}
+
+static int _tlog_root_write_log(struct tlog_log *log, char *buff, int bufflen)
+{
+    struct tlog_segment_log_head *head = NULL;
+    static struct tlog_segment_log_head empty_info;
+    if (tlog.output_func == NULL) {
+        return _tlog_write(log, buff, bufflen);
+    }
+
+    if (log->segment_log && tlog.root == log) {
+        head = (struct tlog_segment_log_head *)buff;
+        return tlog.output_func(&head->info, head->data, head->len - 1, tlog_get_private(log));
+    }
+
+    return tlog.output_func(&empty_info.info, buff, bufflen, tlog_get_private(log));
 }
 
 static void *_tlog_work(void *arg)
 {
-    int ret = 0;
-    int log_len;
-    int log_extlen;
-    int log_end;
-    int log_extend;
-    int log_dropped;
-    struct timespec tm;
+    int log_len = 0;
+    int log_extlen = 0;
+    int log_end = 0;
+    int log_extend = 0;
+    int log_dropped = 0;
     struct tlog_log *log = NULL;
     struct tlog_log *loop_log = NULL;
 
@@ -1017,14 +1277,12 @@ static void *_tlog_work(void *arg)
         log_end = 0;
         log_extlen = 0;
         log_extend = 0;
-
         if (tlog.run == 0) {
-            if (_tlog_has_data() == 0) {
+            if (_tlog_any_has_data() == 0) {
                 break;
             }
         }
 
-        /* if compressing */
         _tlog_wait_pids();
 
         pthread_mutex_lock(&tlog.lock);
@@ -1032,41 +1290,25 @@ static void *_tlog_work(void *arg)
             loop_log = log;
         }
 
+        log = _tlog_next_log(log);
         if (log == NULL) {
-            log = tlog.log;
-        } else {
-            log = log->next;
+            pthread_mutex_unlock(&tlog.lock);
+            continue;
+        }
+
+        /* if buffer is empty, wait */
+        if (_tlog_any_has_data_locked() == 0 && tlog.run) {
+            log = _tlog_wait_log_locked(log);
             if (log == NULL) {
                 pthread_mutex_unlock(&tlog.lock);
+                if (errno != ETIMEDOUT) {
+                    sleep(1);
+                }
                 continue;
             }
         }
 
-        if ((log == loop_log || log == NULL) && tlog.run) {
-            /* if buffer is empty, wait */
-            if ((log == NULL) || (log && (log->end == log->start) && (log->ext_end <= 0))) {
-                clock_gettime(CLOCK_REALTIME, &tm);
-                tm.tv_sec += 2;
-                tlog.is_wait = 1;
-                ret = pthread_cond_timedwait(&tlog.cond, &tlog.lock, &tm);
-                tlog.is_wait = 0;
-                if (ret < 0 && ret != ETIMEDOUT) {
-                    pthread_mutex_unlock(&tlog.lock);
-                    sleep(1);
-                    continue;
-                } else if (ret == ETIMEDOUT) {
-                    log = tlog.notify_log;
-                    tlog.notify_log = NULL;
-                }
-
-                if (log == NULL) {
-                    pthread_mutex_unlock(&tlog.lock);
-                    continue;
-                }
-            }
-        }
-
-        if (log && (log->end == log->start) && (log->ext_end <= 0)) {
+        if (_tlog_has_data(log) == 0) {
             if (log->is_exit) {
                 if (_tlog_close(log, 0) == 0) {
                     log = NULL;
@@ -1093,19 +1335,8 @@ static void *_tlog_work(void *arg)
         log->dropped = 0;
         pthread_mutex_unlock(&tlog.lock);
 
-        /* write log */
-        _tlog_write_log(log, log->buff + log->start, log_len);
-        if (log_extlen > 0) {
-            /* write extend buffer log */
-            _tlog_write_log(log, log->buff, log_extlen);
-        }
-
-        if (log_dropped > 0) {
-            /* if there is dropped log, record dropped log number */
-            char dropmsg[TLOG_TMP_LEN];
-            snprintf(dropmsg, sizeof(dropmsg), "[Totoal Dropped %d Messages]\n", log_dropped);
-            _tlog_write_log(log, dropmsg, strnlen(dropmsg, sizeof(dropmsg)));
-        }
+        /* start write log work */
+        _tlog_work_write(log, log_len, log_extlen, log_dropped);
 
         pthread_mutex_lock(&tlog.lock);
         /* release finished buffer */
@@ -1113,13 +1344,11 @@ static void *_tlog_work(void *arg)
         if (log_extend > 0) {
             log->ext_end = 0;
         }
-
-        if (tlog.waiters > 0) {
-            /* if there are waiters, wakeup */
-            pthread_cond_broadcast(&tlog.client_cond);
-        }
         pthread_mutex_unlock(&tlog.lock);
+
+        _tlog_wakeup_waiters(log);
     }
+
     return NULL;
 }
 
@@ -1128,7 +1357,16 @@ void tlog_set_early_printf(int enable)
     tlog_disable_early_print = (enable == 0) ? 1 : 0;    
 }
 
-static void _tlog_log_setlogscreen(struct tlog_log *log, int enable)
+const char *tlog_get_level_string(tlog_level level)
+{
+    if (level >= TLOG_END) {
+        return NULL;
+    }
+
+    return tlog_level_str[level];
+}
+
+void _tlog_log_setlogscreen(struct tlog_log *log, int enable)
 {
     if (log == NULL) {
         return;
@@ -1142,6 +1380,15 @@ void tlog_setlogscreen(int enable)
     _tlog_log_setlogscreen(tlog.root, enable);
 }
 
+int tlog_write_log(char *buff, int bufflen)
+{
+    if (unlikely(tlog.root == NULL)) {
+        return -1;
+    }
+
+    return _tlog_write(tlog.root, buff, bufflen);
+}
+
 void tlog_logscreen(tlog_log *log, int enable)
 {
     if (log == NULL) {
@@ -1151,9 +1398,32 @@ void tlog_logscreen(tlog_log *log, int enable)
     _tlog_log_setlogscreen(log, enable);
 }
 
+int tlog_reg_output_func(tlog_log *log, tlog_output_func output)
+{
+    if (log == NULL) {
+        return -1;
+    }
+
+    if (output == NULL) {
+        log->output_func = _tlog_write;
+        return 0;
+    }
+
+    log->output_func = output;
+
+    return 0;
+}
+
 int tlog_reg_format_func(tlog_format_func callback)
 {
     tlog_format = callback;
+    return 0;
+}
+
+int tlog_reg_log_output_func(tlog_log_output_func output, void *private)
+{
+    tlog.output_func = output;
+    tlog_set_private(tlog.root, private);
     return 0;
 }
 
@@ -1167,7 +1437,7 @@ int tlog_setlevel(tlog_level level)
     return 0;
 }
 
-tlog_log *tlog_open(const char *logfile, int maxlogsize, int maxlogcount, int block, int buffsize, int multiwrite)
+tlog_log *tlog_open(const char *logfile, int maxlogsize, int maxlogcount, int buffsize, unsigned int flag)
 {
     struct tlog_log *log = NULL;
     char log_file[PATH_MAX];
@@ -1184,32 +1454,40 @@ tlog_log *tlog_open(const char *logfile, int maxlogsize, int maxlogcount, int bl
     }
 
     memset(log, 0, sizeof(*log));
-    log->buffsize = (buffsize > 0) ? buffsize : TLOG_BUFF_SIZE;
     log->start = 0;
     log->end = 0;
     log->ext_end = 0;
-    log->block = (block != 0) ? 1 : 0;
     log->dropped = 0;
+    log->buffsize = (buffsize > 0) ? buffsize : TLOG_BUFF_SIZE;
     log->logsize = (maxlogsize >= 0) ? maxlogsize : TLOG_LOG_SIZE;
     log->logcount = (maxlogcount > 0) ? maxlogcount : TLOG_LOG_COUNT;
     log->fd = -1;
     log->filesize = 0;
     log->zip_pid = -1;
-    log->logscreen = 0;
     log->is_exit = 0;
-    log->multi_log = (multiwrite != 0) ? 1 : 0;
+    log->waiters = 0;
+    log->block = ((flag & TLOG_NONBLOCK) == 0) ? 1 : 0;
+    log->nocompress = ((flag & TLOG_NOCOMPRESS) == 0) ? 0 : 1;
+    log->logscreen = ((flag & TLOG_SCREEN) == 0) ? 0 : 1;
+    log->multi_log = ((flag & TLOG_MULTI_WRITE) == 0) ? 0 : 1;
+    log->segment_log = ((flag & TLOG_SEGMENT) == 0) ? 0 : 1;
+    log->output_func = _tlog_write;
 
-    strncpy(log_file, logfile, PATH_MAX - 1);
-	log_file[PATH_MAX - 1] = 0;
-	strncpy(log->logdir, dirname(log_file), sizeof(log->logdir) - 1);
-	log->logdir[sizeof(log->logdir) - 1] = 0;
-
-	strncpy(log_file, logfile, PATH_MAX - 1);
-    log_file[PATH_MAX - 1] = 0;
+    strncpy(log_file, logfile, sizeof(log_file) - 1);
+    log_file[sizeof(log_file) - 1] = '\0';
+    strncpy(log->logdir, dirname(log_file), sizeof(log->logdir));
+    log->logdir[sizeof(log->logdir) - 1] = '\0';
+    strncpy(log_file, logfile, PATH_MAX);
+    log_file[sizeof(log_file) - 1] = '\0';
     strncpy(log->logname, basename(log_file), sizeof(log->logname));
-	log->logname[sizeof(log->logname) - 1] = 0;
+    log->logname[sizeof(log->logname) - 1] = '\0';
+    if (log->nocompress) {
+        log->suffix[0] = '\0';
+    } else {
+        strncpy(log->suffix, TLOG_SUFFIX_GZ, sizeof(log->suffix));
+    }
 
-	log->buff = malloc(log->buffsize);
+    log->buff = malloc(log->buffsize);
     if (log->buff == NULL) {
         fprintf(stderr, "malloc log buffer failed, %s\n", strerror(errno));
         goto errout;
@@ -1228,6 +1506,8 @@ tlog_log *tlog_open(const char *logfile, int maxlogsize, int maxlogcount, int bl
 
 errout:
     if (log) {
+        pthread_cond_destroy(&log->client_cond);
+        pthread_mutex_destroy(&log->lock);
         free(log);
         log = NULL;
     }
@@ -1244,7 +1524,7 @@ void tlog_close(tlog_log *log)
     log->is_exit = 1;
 }
 
-int tlog_init(const char *logfile, int maxlogsize, int maxlogcount, int block, int buffsize, int multiwrite)
+int tlog_init(const char *logfile, int maxlogsize, int maxlogcount, int buffsize, unsigned int flag)
 {
     pthread_attr_t attr;
     int ret;
@@ -1263,20 +1543,19 @@ int tlog_init(const char *logfile, int maxlogsize, int maxlogcount, int block, i
     tlog_format = _tlog_format;
 
     memset(&tlog, 0, sizeof(tlog));
-    tlog.waiters = 0;
     tlog.is_wait = 0;
 
     pthread_attr_init(&attr);
-    pthread_mutex_init(&tlog.lock, NULL);
-    pthread_cond_init(&tlog.cond, NULL);
-    pthread_cond_init(&tlog.client_cond, NULL);
+    pthread_cond_init(&tlog.cond, 0);
+    pthread_mutex_init(&tlog.lock, 0);
     tlog.run = 1;
 
-    log = tlog_open(logfile, maxlogsize, maxlogcount, block, buffsize, multiwrite);
+    log = tlog_open(logfile, maxlogsize, maxlogcount, buffsize, flag);
     if (log == NULL) {
         fprintf(stderr, "init tlog root failed.\n");
         goto errout;
     }
+    tlog_reg_output_func(log, _tlog_root_write_log);
 
     ret = pthread_create(&tlog.tid, &attr, _tlog_work, NULL);
     if (ret != 0) {
@@ -1293,9 +1572,8 @@ errout:
         pthread_join(tlog.tid, &retval);
     }
 
-    pthread_cond_destroy(&tlog.client_cond);
-    pthread_mutex_destroy(&tlog.lock);
     pthread_cond_destroy(&tlog.cond);
+    pthread_mutex_destroy(&tlog.lock);
     tlog.run = 0;
 
     _tlog_close(log, 1);
@@ -1319,7 +1597,6 @@ void tlog_exit(void)
         _tlog_close(tlog.log, 1);
     }
 
-    pthread_cond_destroy(&tlog.client_cond);
-    pthread_mutex_destroy(&tlog.lock);
     pthread_cond_destroy(&tlog.cond);
+    pthread_mutex_destroy(&tlog.lock);
 }

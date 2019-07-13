@@ -248,7 +248,7 @@ static int _smartdns_init(void)
 		logfile = dns_conf_log_file;
 	}
 
-	ret = tlog_init(logfile, dns_conf_log_size, dns_conf_log_num, 1, 0, 0);
+	ret = tlog_init(logfile, dns_conf_log_size, dns_conf_log_num, 0, 0);
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "start tlog failed.\n");
 		goto errout;
