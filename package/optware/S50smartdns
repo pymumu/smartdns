@@ -52,11 +52,11 @@ clear_iptable()
 
 restart_dnsmasq()
 {
-	CMD="`ps | grep "  dnsmasq" | grep -v grep 2>/dev/null`"
+	CMD="`ps | grep "dnsmasq" | grep -v grep 2>/dev/null`"
 	if [ -z "$CMD" ]; then
 		CMD="`ps | grep "/usr/sbin/dnsmasq" | grep -v grep 2>/dev/null`"
 		if [ -z "$CMD" ]; then
-			CMD="`ps ax | grep "  dnsmasq" | grep -v grep 2>/dev/null`"
+			CMD="`ps ax | grep "dnsmasq" | grep -v grep 2>/dev/null`"
 			if [ -z "$CMD" ]; then
 				CMD="`ps ax | grep /usr/sbin/dnsmasq | grep -v grep 2>/dev/null`"
 			fi	
