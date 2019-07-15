@@ -115,8 +115,8 @@ extern int tlog_reg_format_func(tlog_format_func func);
 /* register log output callback 
  Note: info is invalid when flag TLOG_SEGMENT is not set.
  */
-typedef int (*tlog_log_output_func)(struct tlog_info *info, char *buff, int bufflen, void *private);
-extern int tlog_reg_log_output_func(tlog_log_output_func output, void *private);
+typedef int (*tlog_log_output_func)(struct tlog_info *info, char *buff, int bufflen, void *private_data);
+extern int tlog_reg_log_output_func(tlog_log_output_func output, void *private_data);
 
 struct tlog_log;
 typedef struct tlog_log tlog_log;
@@ -160,7 +160,7 @@ typedef int (*tlog_output_func)(struct tlog_log *log, char *buff, int bufflen);
 extern int tlog_reg_output_func(tlog_log *log, tlog_output_func output);
 
 /* set private data */
-extern void tlog_set_private(tlog_log *log, void *private);
+extern void tlog_set_private(tlog_log *log, void *private_data);
 
 /* get private data */
 extern void *tlog_get_private(tlog_log *log);
