@@ -50,19 +50,44 @@ clear_iptable()
 	
 }
 
-restart_dnsmasq()
+get_dnsmasq_cmd()
 {
-	CMD="`ps | grep "dnsmasq" | grep -v grep 2>/dev/null`"
-	if [ -z "$CMD" ]; then
-		CMD="`ps | grep "/usr/sbin/dnsmasq" | grep -v grep 2>/dev/null`"
-		if [ -z "$CMD" ]; then
-			CMD="`ps ax | grep "dnsmasq" | grep -v grep 2>/dev/null`"
-			if [ -z "$CMD" ]; then
-				CMD="`ps ax | grep /usr/sbin/dnsmasq | grep -v grep 2>/dev/null`"
-			fi	
-		fi	
+	CMD="`ps | grep -e '[a-zA-Z]* \{1,\}dnsmasq | grep -v grep 2>/dev/null'`"
+	if [ ! -z "$CMD" ]; then
+		return
 	fi
 
+	CMD="`ps | grep "/usr/sbin/dnsmasq" | grep -v grep 2>/dev/null`"
+	if [ ! -z "$CMD" ]; then
+		return
+	fi
+
+	CMD="`ps | grep "dnsmasq" | grep -v grep 2>/dev/null`"
+	if [ ! -z "$CMD" ]; then
+		return
+	fi
+
+	CMD="`ps ax | grep -e '[a-zA-Z]* \{1,\}dnsmasq | grep -v grep 2>/dev/null'`"
+	if [ ! -z "$CMD" ]; then
+		return
+	fi
+
+	CMD="`ps ax | grep /usr/sbin/dnsmasq | grep -v grep 2>/dev/null`"
+	if [ ! -z "$CMD" ]; then
+		return
+	fi
+
+	CMD="`ps ax | grep "dnsmasq" | grep -v grep 2>/dev/null`"
+	if [ ! -z "$CMD" ]; then
+		return
+	fi	
+}
+
+restart_dnsmasq()
+{
+	local CMD=""
+
+	get_dnsmasq_cmd
 	if [ -z "$CMD" ]; then
 		echo "cannot find dnsmasq"
 		return 1
@@ -127,6 +152,8 @@ set_dnsmasq_conf()
 		echo "port=0" >> $CONF_FILE
 		RESTART_DNSMASQ=1
 	fi
+
+	RESTART_DNSMASQ=1
 }
 
 set_dnsmasq()
@@ -193,10 +220,10 @@ set_smartdns_port()
 		return 0
 	elif [ "$SMARTDNS_WORKMODE" = "1" ]; then
 		sed -i "s/^\(bind .*\):53 *\(.*\)\$/\1:$SMARTDNS_PORT \2/g" $SMARTDNS_CONF
-    	sed -i "s/^\(bind-tcp .*\):53 *\(.*\)\$/\1:$SMARTDNS_PORT \2/g" $SMARTDNS_CONF
+		sed -i "s/^\(bind-tcp .*\):53 *\(.*\)\$/\1:$SMARTDNS_PORT \2/g" $SMARTDNS_CONF
 	elif [ "$SMARTDNS_WORKMODE" = "2" ]; then
 		sed -i "s/^\(bind .*\):$SMARTDNS_PORT *\(.*\)\$/\1:53 \2/g" $SMARTDNS_CONF
-    	sed -i "s/^\(bind-tcp .*\):$SMARTDNS_PORT *\(.*\)\$/\1:53 \2/g" $SMARTDNS_CONF
+		sed -i "s/^\(bind-tcp .*\):$SMARTDNS_PORT *\(.*\)\$/\1:53 \2/g" $SMARTDNS_CONF
 	else
 		return 1
 	fi	
