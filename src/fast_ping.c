@@ -30,6 +30,7 @@
 #include <netinet/ip.h>
 #include <netinet/ip6.h>
 #include <netinet/ip_icmp.h>
+#include <netinet/tcp.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,6 +44,8 @@
 #define PING_MAX_HOSTLEN 128
 #define ICMP_PACKET_SIZE (1024 * 64)
 #define ICMP_INPACKET_SIZE 1024
+#define IPV4_ADDR_LEN 4
+#define IPV6_ADDR_LEN 16
 
 #ifndef ICMP_FILTER
 #define ICMP_FILTER 1
@@ -215,17 +218,91 @@ static void _fast_ping_install_filter_v4(int sock)
 	}
 }
 
+static int _fast_ping_sockaddr_ip_cmp(struct sockaddr *first_addr, socklen_t first_addr_len, struct sockaddr *second_addr, socklen_t second_addr_len)
+{
+	if (first_addr_len != second_addr_len) {
+		return -1;
+	}
+
+	if (first_addr->sa_family != second_addr->sa_family) {
+		return -1;
+	}
+
+	switch (first_addr->sa_family) {
+	case AF_INET: {
+		struct sockaddr_in *first_addr_in = (struct sockaddr_in *)first_addr;
+		struct sockaddr_in *second_addr_in = (struct sockaddr_in *)second_addr;
+		if (memcmp(&first_addr_in->sin_addr.s_addr, &second_addr_in->sin_addr.s_addr, IPV4_ADDR_LEN) != 0) {
+			return -1;
+		}
+	} break;
+	case AF_INET6: {
+		struct sockaddr_in6 *first_addr_in6 = (struct sockaddr_in6 *)first_addr;
+		struct sockaddr_in6 *second_addr_in6 = (struct sockaddr_in6 *)second_addr;
+		if (memcmp(&first_addr_in6->sin6_addr.s6_addr, &second_addr_in6->sin6_addr.s6_addr, IPV4_ADDR_LEN) != 0) {
+			return -1;
+		}
+	} break;
+	default:
+		return -1;
+	}
+
+	return 0;
+}
+
+static uint32_t _fast_ping_hash_key(unsigned int sid, struct sockaddr *addr)
+{
+	uint32_t key = 0;
+	void *sin_addr = NULL;
+	unsigned int sin_addr_len = 0;
+
+	switch (addr->sa_family) {
+	case AF_INET: {
+		struct sockaddr_in *addr_in;
+		addr_in = (struct sockaddr_in *)addr;
+		sin_addr = &addr_in->sin_addr.s_addr;
+		sin_addr_len = IPV4_ADDR_LEN;
+	} break;
+	case AF_INET6: {
+		struct sockaddr_in6 *addr_in6;
+		addr_in6 = (struct sockaddr_in6 *)addr;
+		if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
+			sin_addr = addr_in6->sin6_addr.s6_addr + 12;
+			sin_addr_len = IPV4_ADDR_LEN;
+		} else {
+			sin_addr = addr_in6->sin6_addr.s6_addr;
+			sin_addr_len = IPV6_ADDR_LEN;
+		}
+	} break;
+	default:
+		goto errout;
+		break;
+	}
+	if (sin_addr == NULL) {
+		return -1;
+	}
+
+	key = jhash(sin_addr, sin_addr_len, 0);
+	key = jhash(&sid, sizeof(sid), key);
+
+	return key;
+errout:
+	return -1;
+}
+
 static struct addrinfo *_fast_ping_getaddr(const char *host, const char *port, int type, int protocol)
 {
 	struct addrinfo hints;
 	struct addrinfo *result = NULL;
+	int errcode = 0;
 
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = type;
 	hints.ai_protocol = protocol;
-	if (getaddrinfo(host, port, &hints, &result) != 0) {
-		tlog(TLOG_ERROR, "get addr info failed. %s\n", strerror(errno));
+	errcode = getaddrinfo(host, port, &hints, &result);
+	if (errcode != 0) {
+		tlog(TLOG_ERROR, "get addr info failed. %s\n", gai_strerror(errcode));
 		goto errout;
 	}
 
@@ -741,8 +818,8 @@ errout:
 	return -1;
 }
 
-static void _fast_ping_print_result(struct ping_host_struct *ping_host, const char *host, FAST_PING_RESULT result, struct sockaddr *addr, socklen_t addr_len, int seqno,
-							int ttl, struct timeval *tv, void *userptr)
+static void _fast_ping_print_result(struct ping_host_struct *ping_host, const char *host, FAST_PING_RESULT result, struct sockaddr *addr, socklen_t addr_len,
+									int seqno, int ttl, struct timeval *tv, void *userptr)
 {
 	if (result == PING_RESULT_RESPONSE) {
 		double rtt = tv->tv_sec * 1000.0 + tv->tv_usec / 1000.0;
@@ -754,111 +831,188 @@ static void _fast_ping_print_result(struct ping_host_struct *ping_host, const ch
 	}
 }
 
+static int _fast_ping_get_addr_by_icmp(const char *ip_str, int port, struct addrinfo **out_gai, FAST_PING_TYPE *out_ping_type)
+{
+	struct addrinfo *gai = NULL;
+	int socktype = 0;
+	int domain = -1;
+	FAST_PING_TYPE ping_type;
+	int sockproto = 0;
+	char *service = NULL;
+
+	socktype = SOCK_RAW;
+	domain = _fast_ping_getdomain(ip_str);
+	if (domain < 0) {
+		goto errout;
+	}
+
+	switch (domain) {
+	case AF_INET:
+		sockproto = IPPROTO_ICMP;
+		ping_type = FAST_PING_ICMP;
+		break;
+	case AF_INET6:
+		sockproto = IPPROTO_ICMPV6;
+		ping_type = FAST_PING_ICMP6;
+		break;
+	default:
+		goto errout;
+		break;
+	}
+
+	if (_fast_ping_create_icmp(ping_type) < 0) {
+		goto errout;
+	}
+
+	gai = _fast_ping_getaddr(ip_str, service, socktype, sockproto);
+	if (gai == NULL) {
+		goto errout;
+	}
+
+	*out_gai = gai;
+	*out_ping_type = ping_type;
+
+	return 0;
+errout:
+	if (gai) {
+		freeaddrinfo(gai);
+	}
+	return -1;
+}
+
+static int _fast_ping_get_addr_by_tcp(const char *ip_str, int port, struct addrinfo **out_gai, FAST_PING_TYPE *out_ping_type)
+{
+	struct addrinfo *gai = NULL;
+	int socktype = 0;
+	FAST_PING_TYPE ping_type;
+	int sockproto = 0;
+	char *service = NULL;
+	char port_str[MAX_IP_LEN];
+
+	if (port <= 0) {
+		port = 80;
+	}
+
+	sockproto = 0;
+	socktype = SOCK_STREAM;
+	snprintf(port_str, MAX_IP_LEN, "%d", port);
+	service = port_str;
+	ping_type = FAST_PING_TCP;
+
+	gai = _fast_ping_getaddr(ip_str, service, socktype, sockproto);
+	if (gai == NULL) {
+		goto errout;
+	}
+
+	*out_gai = gai;
+	*out_ping_type = ping_type;
+
+	return 0;
+errout:
+	if (gai) {
+		freeaddrinfo(gai);
+	}
+	return -1;
+}
+
+static int _fast_ping_get_addr_by_dns(const char *ip_str, int port, struct addrinfo **out_gai, FAST_PING_TYPE *out_ping_type)
+{
+	struct addrinfo *gai = NULL;
+	int socktype = 0;
+	FAST_PING_TYPE ping_type;
+	int sockproto = 0;
+	char port_str[MAX_IP_LEN];
+	int domain = -1;
+	char *service = NULL;
+
+	if (port <= 0) {
+		port = 53;
+	}
+
+	domain = _fast_ping_getdomain(ip_str);
+	if (domain < 0) {
+		goto errout;
+	}
+
+	switch (domain) {
+	case AF_INET:
+		ping_type = FAST_PING_UDP;
+		break;
+	case AF_INET6:
+		ping_type = FAST_PING_UDP6;
+		break;
+	default:
+		goto errout;
+		break;
+	}
+
+	sockproto = 0;
+	socktype = SOCK_DGRAM;
+	snprintf(port_str, MAX_IP_LEN, "%d", port);
+	service = port_str;
+
+	if (_fast_ping_create_udp(ping_type) < 0) {
+		goto errout;
+	}
+
+	gai = _fast_ping_getaddr(ip_str, service, socktype, sockproto);
+	if (gai == NULL) {
+		goto errout;
+	}
+
+	*out_gai = gai;
+	*out_ping_type = ping_type;
+
+	return 0;
+errout:
+	if (gai) {
+		freeaddrinfo(gai);
+	}
+	return -1;
+}
+
+static int _fast_ping_get_addr_by_type(PING_TYPE type, const char *ip_str, int port, struct addrinfo **out_gai, FAST_PING_TYPE *out_ping_type)
+{
+	switch (type) {
+	case PING_TYPE_ICMP:
+		return _fast_ping_get_addr_by_icmp(ip_str, port, out_gai, out_ping_type);
+		break;
+	case PING_TYPE_TCP:
+		return _fast_ping_get_addr_by_tcp(ip_str, port, out_gai, out_ping_type);
+		break;
+	case PING_TYPE_DNS:
+		return _fast_ping_get_addr_by_dns(ip_str, port, out_gai, out_ping_type);
+		break;
+	default:
+		goto errout;
+		break;
+	}
+
+	return -1;
+
+errout:
+	return -1;
+}
+
 struct ping_host_struct *fast_ping_start(PING_TYPE type, const char *host, int count, int interval, int timeout, fast_ping_result ping_callback, void *userptr)
 {
 	struct ping_host_struct *ping_host = NULL;
 	struct addrinfo *gai = NULL;
-	int domain = -1;
-	int icmp_proto = 0;
 	uint32_t addrkey;
 	char ip_str[PING_MAX_HOSTLEN];
-	char port_str[MAX_IP_LEN];
-	char *service = NULL;
 	int port = -1;
 	FAST_PING_TYPE ping_type;
-	int socktype = 0;
 	unsigned int seed;
+	int ret = 0;
 
 	if (parse_ip(host, ip_str, &port) != 0) {
 		goto errout;
 	}
 
-	switch (type) {
-	case PING_TYPE_ICMP: {
-		socktype = SOCK_RAW;
-		domain = _fast_ping_getdomain(ip_str);
-		if (domain < 0) {
-			return NULL;
-		}
-
-		switch (domain) {
-		case AF_INET:
-			icmp_proto = IPPROTO_ICMP;
-			ping_type = FAST_PING_ICMP;
-			break;
-		case AF_INET6:
-			icmp_proto = IPPROTO_ICMPV6;
-			ping_type = FAST_PING_ICMP6;
-			break;
-		default:
-			return NULL;
-			break;
-		}
-
-		if (_fast_ping_create_icmp(ping_type) < 0) {
-			goto errout;
-		}
-
-		gai = _fast_ping_getaddr(ip_str, service, socktype, icmp_proto);
-		if (gai == NULL) {
-			goto errout;
-		}
-	} break;
-	case PING_TYPE_TCP: {
-		if (port <= 0) {
-			port = 80;
-		}
-
-		icmp_proto = 0;
-		socktype = SOCK_STREAM;
-		snprintf(port_str, MAX_IP_LEN, "%d", port);
-		service = port_str;
-		ping_type = FAST_PING_TCP;
-
-		gai = _fast_ping_getaddr(ip_str, service, socktype, icmp_proto);
-		if (gai == NULL) {
-			goto errout;
-		}
-	} break;
-	case PING_TYPE_DNS: {
-		if (port <= 0) {
-			port = 53;
-		}
-
-		domain = _fast_ping_getdomain(ip_str);
-		if (domain < 0) {
-			return NULL;
-		}
-
-		switch (domain) {
-		case AF_INET:
-			ping_type = FAST_PING_UDP;
-			break;
-		case AF_INET6:
-			ping_type = FAST_PING_UDP6;
-			break;
-		default:
-			return NULL;
-			break;
-		}
-
-		icmp_proto = 0;
-		socktype = SOCK_DGRAM;
-		snprintf(port_str, MAX_IP_LEN, "%d", port);
-		service = port_str;
-
-		if (_fast_ping_create_udp(ping_type) < 0) {
-			goto errout;
-		}
-
-		gai = _fast_ping_getaddr(ip_str, service, socktype, icmp_proto);
-		if (gai == NULL) {
-			goto errout;
-		}
-	} break;
-	default:
+	ret = _fast_ping_get_addr_by_type(type, ip_str, port, &gai, &ping_type);
+	if (ret != 0) {
+		tlog(TLOG_ERROR, "get addr by type failed.");
 		goto errout;
-		break;
 	}
 
 	ping_host = malloc(sizeof(*ping_host));
@@ -892,12 +1046,10 @@ struct ping_host_struct *fast_ping_start(PING_TYPE type, const char *host, int c
 		goto errout;
 	}
 	memcpy(&ping_host->addr, gai->ai_addr, gai->ai_addrlen);
-	freeaddrinfo(gai);
 
 	tlog(TLOG_DEBUG, "ping %s, id = %d", host, ping_host->sid);
 
-	addrkey = jhash(&ping_host->addr, ping_host->addr_len, 0);
-	addrkey = jhash(&ping_host->sid, sizeof(ping_host->sid), addrkey);
+	addrkey = _fast_ping_hash_key(ping_host->sid, &ping_host->addr);
 	pthread_mutex_lock(&ping.map_lock);
 	_fast_ping_host_get(ping_host);
 	hash_add(ping.addrmap, &ping_host->addr_node, addrkey);
@@ -910,6 +1062,7 @@ struct ping_host_struct *fast_ping_start(PING_TYPE type, const char *host, int c
 	}
 
 	ping_host->run = 1;
+	freeaddrinfo(gai);
 	_fast_ping_host_put(ping_host);
 	return ping_host;
 errout:
@@ -1028,7 +1181,8 @@ static struct fast_ping_packet *_fast_ping_icmp_packet(struct ping_host_struct *
 	return packet;
 }
 
-static struct fast_ping_packet *_fast_ping_recv_packet(struct ping_host_struct *ping_host, struct msghdr *msg, u_char *inpacket, int len, struct timeval *tvrecv)
+static struct fast_ping_packet *_fast_ping_recv_packet(struct ping_host_struct *ping_host, struct msghdr *msg, u_char *inpacket, int len,
+													   struct timeval *tvrecv)
 {
 	struct fast_ping_packet *packet = NULL;
 
@@ -1094,17 +1248,16 @@ static int _fast_ping_process_icmp(struct ping_host_struct *ping_host, struct ti
 		goto errout;
 	}
 
-	addrkey = jhash(&from, from_len, 0);
 	tvsend = &packet->msg.tv;
 	sid = packet->msg.sid;
 	seq = packet->msg.seq;
 	cookie = packet->msg.cookie;
-	addrkey = jhash(&sid, sizeof(sid), addrkey);
+	addrkey = _fast_ping_hash_key(sid, (struct sockaddr *)&from);
 	pthread_mutex_lock(&ping.map_lock);
 	hash_for_each_possible(ping.addrmap, recv_ping_host, addr_node, addrkey)
 	{
-		if (recv_ping_host->addr_len == from_len && memcmp(&recv_ping_host->addr, &from, from_len) == 0 && recv_ping_host->sid == sid &&
-			recv_ping_host->cookie == cookie) {
+		if (_fast_ping_sockaddr_ip_cmp(&recv_ping_host->addr, recv_ping_host->addr_len, (struct sockaddr *)&from, from_len) == 0 &&
+			recv_ping_host->sid == sid && recv_ping_host->cookie == cookie) {
 			_fast_ping_host_get(recv_ping_host);
 			break;
 		}
@@ -1230,13 +1383,14 @@ static int _fast_ping_process_udp(struct ping_host_struct *ping_host, struct tim
 	if (len < sizeof(*dns_head)) {
 		goto errout;
 	}
-	addrkey = jhash(&from, from_len, 0);
+
 	sid = ntohs(dns_head->id);
-	addrkey = jhash(&sid, sizeof(sid), addrkey);
+	addrkey = _fast_ping_hash_key(sid, (struct sockaddr *)&from);
 	pthread_mutex_lock(&ping.map_lock);
 	hash_for_each_possible(ping.addrmap, recv_ping_host, addr_node, addrkey)
 	{
-		if (recv_ping_host->addr_len == from_len && memcmp(&recv_ping_host->addr, &from, from_len) == 0 && recv_ping_host->sid == sid) {
+		if (_fast_ping_sockaddr_ip_cmp(&recv_ping_host->addr, recv_ping_host->addr_len, (struct sockaddr *)&from, from_len) == 0 &&
+			recv_ping_host->sid == sid) {
 			_fast_ping_host_get(recv_ping_host);
 			break;
 		}
@@ -1486,14 +1640,8 @@ errout:
 	return -1;
 }
 
-void fast_ping_exit(void)
+void _fast_ping_close_fds(void)
 {
-	if (ping.tid > 0) {
-		void *ret = NULL;
-		ping.run = 0;
-		pthread_join(ping.tid, &ret);
-	}
-
 	if (ping.fd_icmp > 0) {
 		close(ping.fd_icmp);
 		ping.fd_icmp = -1;
@@ -1504,6 +1652,26 @@ void fast_ping_exit(void)
 		ping.fd_icmp6 = -1;
 	}
 
+	if (ping.fd_udp > 0) {
+		close(ping.fd_udp);
+		ping.fd_udp = -1;
+	}
+
+	if (ping.fd_udp6 > 0) {
+		close(ping.fd_udp6);
+		ping.fd_udp6 = -1;
+	}
+}
+
+void fast_ping_exit(void)
+{
+	if (ping.tid > 0) {
+		void *ret = NULL;
+		ping.run = 0;
+		pthread_join(ping.tid, &ret);
+	}
+
+	_fast_ping_close_fds();
 	_fast_ping_remove_all();
 
 	pthread_mutex_destroy(&ping.lock);
