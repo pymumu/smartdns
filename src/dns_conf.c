@@ -36,6 +36,11 @@ struct dns_servers dns_conf_servers[DNS_MAX_SERVERS];
 char dns_conf_server_name[DNS_MAX_SERVER_NAME_LEN];
 int dns_conf_server_num;
 
+struct dns_domain_check_order dns_conf_check_order = {
+	.order = {DOMAIN_CHECK_ICMP, DOMAIN_CHECK_TCP},
+	.tcp_port = 80,
+	};
+
 /* logging */
 int dns_conf_log_level = TLOG_ERROR;
 char dns_conf_log_file[DNS_MAX_PATH];
@@ -727,6 +732,62 @@ errout:
 	return 0;
 }
 
+static int _config_speed_check_mode(void *data, int argc, char *argv[])
+{
+	char mode[DNS_MAX_OPT_LEN];
+	char *field;
+	char *ptr;
+	int order = 0;
+	int port = 80;
+
+	if (argc <= 1) {
+		return -1;
+	}
+
+	safe_strncpy(mode, argv[1], sizeof(mode));
+	ptr = mode;
+	do {
+		field = ptr;
+		ptr = strstr(mode, ",");
+		if (field == NULL || order >= DOMAIN_CHECK_NUM) {
+			return 0;
+		}
+		
+		if (ptr) {
+			*ptr = 0;
+		}
+
+		if (strncmp(field, "ping", sizeof("ping")) == 0) {
+			dns_conf_check_order.order[order] = DOMAIN_CHECK_ICMP;
+		} else if (strstr(field, "tcp") == field) {
+			char *port_str = strstr(field, ":");
+			if (port_str) {
+				port = atoi(port_str + 1);
+				if (port <= 0 || port >= 65535) {
+					port = 80;
+				} 
+			}
+
+			dns_conf_check_order.order[order] = DOMAIN_CHECK_TCP;
+			dns_conf_check_order.tcp_port = port;
+		} else if (strncmp(field, "none", sizeof("none")) == 0) {
+			dns_conf_check_order.order[order] = DOMAIN_CHECK_NONE;
+			for (int i = order + 1; i < DOMAIN_CHECK_NUM; i++) {
+				dns_conf_check_order.order[i] = DOMAIN_CHECK_NONE;
+			}
+
+			return 0;
+		}
+		order++;
+		if (ptr) {
+			ptr++;
+		}
+
+	} while (1);
+
+	return 0;
+}
+
 static int _config_server_udp(void *data, int argc, char *argv[])
 {
 	return _config_server(argc, argv, DNS_SERVER_UDP, DEFAULT_DNS_PORT);
@@ -1024,6 +1085,7 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("address", _config_address, NULL),
 	CONF_YESNO("ipset-timeout", &dns_conf_ipset_timeout_enable),
 	CONF_CUSTOM("ipset", _config_ipset, NULL),
+	CONF_CUSTOM("speed-check-mode", _config_speed_check_mode, NULL),
 	CONF_INT("tcp-idle-time", &dns_conf_tcp_idle_time, 0, 3600),
 	CONF_INT("cache-size", &dns_conf_cachesize, 0, CONF_INT_MAX),
 	CONF_YESNO("prefetch-domain", &dns_conf_prefetch),

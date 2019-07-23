@@ -36,6 +36,11 @@ enum domain_rule {
 	DOMAIN_RULE_MAX,
 };
 
+#define DOMAIN_CHECK_NONE 0
+#define DOMAIN_CHECK_ICMP 1
+#define DOMAIN_CHECK_TCP 2
+#define DOMAIN_CHECK_NUM 2 
+
 #define DOMAIN_FLAG_ADDR_SOA (1 << 0)
 #define DOMAIN_FLAG_ADDR_IPV4_SOA (1 << 1)
 #define DOMAIN_FLAG_ADDR_IPV6_SOA (1 << 2)
@@ -81,6 +86,11 @@ struct dns_server_groups {
 	char group_name[DNS_GROUP_NAME_LEN];
 	int server_num;
 	struct dns_servers *servers[DNS_MAX_SERVERS];
+};
+
+struct dns_domain_check_order {
+	char order[DOMAIN_CHECK_NUM];
+	unsigned short tcp_port;
 };
 
 struct dns_group_table {
@@ -150,6 +160,8 @@ extern int dns_conf_log_level;
 extern char dns_conf_log_file[DNS_MAX_PATH];
 extern size_t dns_conf_log_size;
 extern int dns_conf_log_num;
+
+extern struct dns_domain_check_order dns_conf_check_order;
 
 extern struct dns_server_groups dns_conf_server_groups[DNS_NAX_GROUP_NUMBER];
 extern int dns_conf_server_group_num;
