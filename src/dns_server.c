@@ -81,9 +81,6 @@ struct dns_server_conn_udp {
 	struct dns_server_conn_head head;
 	socklen_t addr_len;
 	struct sockaddr_storage addr;
-
-	socklen_t localaddr_len;
-	struct sockaddr_storage localaddr;
 };
 
 struct dns_server_conn_tcp_server {
@@ -148,6 +145,7 @@ struct dns_request {
 		struct sockaddr_in6 in6;
 		struct sockaddr addr;
 	};
+	struct sockaddr_storage localaddr;
 
 	dns_result_callback result_callback;
 	void *user_ptr;
@@ -2018,7 +2016,8 @@ static void _dns_server_check_set_passthrough(struct dns_request *request, struc
 	}
 }
 
-static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *inpacket, int inpacket_len, struct sockaddr_storage *from, socklen_t from_len)
+static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *inpacket, int inpacket_len, struct sockaddr_storage *local, socklen_t local_len,
+							struct sockaddr_storage *from, socklen_t from_len)
 {
 	int decode_len;
 	int ret = -1;
@@ -2073,6 +2072,7 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 		goto errout;
 	}
 
+	memcpy(&request->localaddr, local, local_len);
 	_dns_server_request_set_client(request, conn);
 	_dns_server_check_set_passthrough(request, conn);
 	_dns_server_request_set_client_addr(request, from, from_len);
@@ -2155,6 +2155,8 @@ static int _dns_server_process_udp(struct dns_server_conn_udp *udpconn, struct e
 	unsigned char inpacket[DNS_IN_PACKSIZE];
 	struct sockaddr_storage from;
 	socklen_t from_len = sizeof(from);
+	struct sockaddr_storage local;
+	socklen_t local_len = sizeof(local);
 	struct msghdr msg;
 	struct iovec iov;
 	char ans_data[4096];
@@ -2181,15 +2183,15 @@ static int _dns_server_process_udp(struct dns_server_conn_udp *udpconn, struct e
 		if (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_PKTINFO) {
 			const struct in_pktinfo *pktinfo = (struct in_pktinfo *)CMSG_DATA(cmsg);
 			unsigned char *addr = (unsigned char *)&pktinfo->ipi_addr.s_addr;
-			fill_sockaddr_by_ip(addr, sizeof(in_addr_t), 0, (struct sockaddr *)&udpconn->localaddr, &udpconn->localaddr_len);
+			fill_sockaddr_by_ip(addr, sizeof(in_addr_t), 0, (struct sockaddr *)&local, &local_len);
 		} else if (cmsg->cmsg_level == IPPROTO_IPV6 && cmsg->cmsg_type == IPV6_PKTINFO) {
 			const struct in6_pktinfo *pktinfo = (struct in6_pktinfo *)CMSG_DATA(cmsg);
 			unsigned char *addr = (unsigned char *)pktinfo->ipi6_addr.s6_addr;
-			fill_sockaddr_by_ip(addr, sizeof(struct in6_addr), 0, (struct sockaddr *)&udpconn->localaddr, &udpconn->localaddr_len);
+			fill_sockaddr_by_ip(addr, sizeof(struct in6_addr), 0, (struct sockaddr *)&local, &local_len);
 		}
 	}
 
-	return _dns_server_recv(&udpconn->head, inpacket, len, &from, from_len);
+	return _dns_server_recv(&udpconn->head, inpacket, len, &local, local_len, &from, from_len);
 }
 
 static void _dns_server_client_touch(struct dns_server_conn_head *conn)
@@ -2326,7 +2328,8 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn_tcp_client
 		request_data = (unsigned char *)(tcpclient->recvbuff.buf + proceed_len + sizeof(unsigned short));
 
 		/* process one record */
-		if (_dns_server_recv(&tcpclient->head, request_data, request_len, &tcpclient->addr, tcpclient->addr_len) != 0) {
+		if (_dns_server_recv(&tcpclient->head, request_data, request_len, &tcpclient->localaddr, tcpclient->localaddr_len, &tcpclient->addr,
+							 tcpclient->addr_len) != 0) {
 			tlog(TLOG_ERROR, "process tcp request failed.");
 			return RECV_ERROR_FAIL;
 		}
