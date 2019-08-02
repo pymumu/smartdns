@@ -1,6 +1,6 @@
 #include "dns_cache.h"
-#include "tlog.h"
 #include "stringutil.h"
+#include "tlog.h"
 #include <pthread.h>
 
 struct dns_cache_head {
@@ -25,7 +25,7 @@ int dns_cache_init(int size)
 	return 0;
 }
 
-static __attribute__((unused)) struct dns_cache *_dns_cache_last(void) 
+static __attribute__((unused)) struct dns_cache *_dns_cache_last(void)
 {
 	return list_last_entry(&dns_cache_head.cache_list, struct dns_cache, list);
 }
@@ -120,7 +120,7 @@ int dns_cache_replace(char *domain, char *cname, int cname_ttl, int ttl, dns_typ
 	return 0;
 errout_unlock:
 	pthread_mutex_unlock(&dns_cache_head.lock);
-//errout:
+// errout:
 	if (dns_cache) {
 		dns_cache_release(dns_cache);
 	}

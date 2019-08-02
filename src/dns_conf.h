@@ -46,7 +46,7 @@ typedef enum {
 #define DOMAIN_CHECK_NONE 0
 #define DOMAIN_CHECK_ICMP 1
 #define DOMAIN_CHECK_TCP 2
-#define DOMAIN_CHECK_NUM 2 
+#define DOMAIN_CHECK_NUM 2
 
 #define DOMAIN_FLAG_ADDR_SOA (1 << 0)
 #define DOMAIN_FLAG_ADDR_IPV4_SOA (1 << 1)
@@ -161,8 +161,7 @@ struct dns_conf_address_rule {
 	radix_tree_t *ipv6;
 };
 
-struct dns_bind_ip
-{
+struct dns_bind_ip {
 	DNS_BIND_TYPE type;
 	uint32_t flags;
 	char ip[DNS_MAX_IPLEN];

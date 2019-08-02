@@ -70,7 +70,7 @@ static void _help(void)
 	printf("%s", help);
 }
 
-static void _show_version(void) 
+static void _show_version(void)
 {
 	char str_ver[256] = {0};
 #ifdef SMARTDNS_VERION
@@ -79,8 +79,7 @@ static void _show_version(void)
 #else
 	struct tm tm;
 	get_compiled_time(&tm);
-	snprintf(str_ver, sizeof(str_ver), "1.%.4d%.2d%.2d-%.2d%.2d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour,
-			 tm.tm_min);
+	snprintf(str_ver, sizeof(str_ver), "1.%.4d%.2d%.2d-%.2d%.2d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min);
 #endif
 	printf("smartdns %s\n", str_ver);
 }

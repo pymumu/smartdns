@@ -137,12 +137,12 @@ HTTP_METHOD http_head_get_method(struct http_head *http_head)
 	return http_head->method;
 }
 
-const char *http_head_get_url(struct http_head *http_head) 
+const char *http_head_get_url(struct http_head *http_head)
 {
 	return http_head->url;
 }
 
-const char *http_head_get_httpversion(struct http_head *http_head) 
+const char *http_head_get_httpversion(struct http_head *http_head)
 {
 	return http_head->version;
 }
@@ -162,7 +162,7 @@ HTTP_HEAD_TYPE http_head_get_head_type(struct http_head *http_head)
 	return http_head->head_type;
 }
 
-char *http_head_get_data(struct http_head *http_head) 
+char *http_head_get_data(struct http_head *http_head)
 {
 	return http_head->data;
 }
@@ -232,7 +232,7 @@ static int _http_head_parse_response(struct http_head *http_head, char *key, cha
 	http_head->code = atol(ret_code);
 	http_head->code_msg = result;
 	http_head->version = key;
-    http_head->head_type = HTTP_HEAD_RESPONSE;
+	http_head->head_type = HTTP_HEAD_RESPONSE;
 
 	return 0;
 }

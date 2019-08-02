@@ -19,7 +19,7 @@ struct dns_cache {
 	char domain[DNS_MAX_CNAME_LEN];
 	char cname[DNS_MAX_CNAME_LEN];
 	unsigned int cname_ttl;
-	unsigned int ttl;;
+	unsigned int ttl;
 	int speed;
 	atomic_t hitnum;
 	int del_pending;

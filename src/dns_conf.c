@@ -4,12 +4,12 @@
 #include "tlog.h"
 #include "util.h"
 #include <getopt.h>
+#include <libgen.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <syslog.h>
 #include <unistd.h>
-#include <libgen.h>
 
 #define DEFAULT_DNS_CACHE_SIZE 512
 
@@ -39,7 +39,7 @@ int dns_conf_server_num;
 struct dns_domain_check_order dns_conf_check_order = {
 	.order = {DOMAIN_CHECK_ICMP, DOMAIN_CHECK_TCP},
 	.tcp_port = 80,
-	};
+};
 
 /* logging */
 int dns_conf_log_level = TLOG_ERROR;
@@ -752,7 +752,7 @@ static int _config_speed_check_mode(void *data, int argc, char *argv[])
 		if (field == NULL || order >= DOMAIN_CHECK_NUM) {
 			return 0;
 		}
-		
+
 		if (ptr) {
 			*ptr = 0;
 		}
@@ -765,7 +765,7 @@ static int _config_speed_check_mode(void *data, int argc, char *argv[])
 				port = atoi(port_str + 1);
 				if (port <= 0 || port >= 65535) {
 					port = 80;
-				} 
+				}
 			}
 
 			dns_conf_check_order.order[order] = DOMAIN_CHECK_TCP;
@@ -1169,7 +1169,7 @@ static int _config_log_level(void *data, int argc, char *argv[])
 		dns_conf_log_level = TLOG_ERROR;
 	} else if (strncmp("fatal", value, MAX_LINE_LEN) == 0) {
 		dns_conf_log_level = TLOG_FATAL;
-	}else {
+	} else {
 		return -1;
 	}
 

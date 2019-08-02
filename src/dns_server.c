@@ -814,7 +814,7 @@ errout:
 	return NULL;
 }
 
-static void _dns_server_delete_request(struct dns_request *request) 
+static void _dns_server_delete_request(struct dns_request *request)
 {
 	if (request->conn) {
 		_dns_server_conn_release(request->conn);
@@ -852,7 +852,7 @@ static void _dns_server_request_release(struct dns_request *request)
 		hash_del(&addr_map->node);
 		free(addr_map);
 	}
-	
+
 	_dns_server_delete_request(request);
 }
 
@@ -1094,7 +1094,7 @@ static int _dns_server_ip_rule_check(struct dns_request *request, unsigned char 
 	if (rule->ip_ignore) {
 		goto skip;
 	}
-	
+
 rule_not_found:
 	if (result_flag & DNSSERVER_FLAG_WHITELIST_IP) {
 		if (rule == NULL) {
@@ -1205,7 +1205,6 @@ static int _dns_server_process_answer_A(struct dns_rrs *rrs, struct dns_request 
 	return 0;
 }
 
-
 static int _dns_server_process_answer_AAAA(struct dns_rrs *rrs, struct dns_request *request, char *domain, unsigned int result_flag, int ping_timeout)
 {
 	unsigned char addr[16];
@@ -1221,8 +1220,8 @@ static int _dns_server_process_answer_AAAA(struct dns_rrs *rrs, struct dns_reque
 	_dns_server_request_get(request);
 	dns_get_AAAA(rrs, name, DNS_MAX_CNAME_LEN, &ttl, addr);
 
-	tlog(TLOG_DEBUG, "domain: %s TTL: %d IP: %.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", name, ttl, addr[0], addr[1],
-			addr[2], addr[3], addr[4], addr[5], addr[6], addr[7], addr[8], addr[9], addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
+	tlog(TLOG_DEBUG, "domain: %s TTL: %d IP: %.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", name, ttl, addr[0], addr[1], addr[2],
+		 addr[3], addr[4], addr[5], addr[6], addr[7], addr[8], addr[9], addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
 
 	ip_check_result = _dns_server_ip_rule_check(request, addr, 16, DNS_T_AAAA, result_flag);
 	if (ip_check_result == 0) {
@@ -1266,8 +1265,8 @@ static int _dns_server_process_answer_AAAA(struct dns_rrs *rrs, struct dns_reque
 		return -1;
 	}
 
-	sprintf(ip, "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", addr[0], addr[1], addr[2], addr[3], addr[4], addr[5],
-			addr[6], addr[7], addr[8], addr[9], addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
+	sprintf(ip, "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr[6],
+			addr[7], addr[8], addr[9], addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
 
 	/* start ping */
 	if (_dns_server_check_speed(request, ip, 0, ping_timeout) != 0) {
@@ -1490,7 +1489,7 @@ static int dns_server_resolve_callback(char *domain, dns_result_type rtype, unsi
 			ret = _dns_server_passthrough_rule_check(request, domain, packet, result_flag);
 			if (ret == 0) {
 				return 0;
-			} 
+			}
 
 			return _dns_server_reply_passthrouth(request, packet, inpacket, inpacket_len);
 		}
@@ -1869,7 +1868,7 @@ static int _dns_server_request_set_client_addr(struct dns_request *request, stru
 	return 0;
 }
 
-static void _dns_server_request_set_callback(struct dns_request *request, dns_result_callback callback, void *user_ptr) 
+static void _dns_server_request_set_callback(struct dns_request *request, dns_result_callback callback, void *user_ptr)
 {
 	request->result_callback = callback;
 	request->user_ptr = user_ptr;
@@ -2005,7 +2004,7 @@ errout:
 
 	_dns_server_request_remove(request);
 	request = NULL;
-	return ret;	
+	return ret;
 }
 
 static void _dns_server_check_set_passthrough(struct dns_request *request, struct dns_server_conn_head *conn)
@@ -2695,7 +2694,8 @@ int dns_server_start(void)
 {
 	struct dns_server_conn_head *conn = NULL;
 
-	list_for_each_entry(conn, &server.conn_list, list) {
+	list_for_each_entry(conn, &server.conn_list, list)
+	{
 		if (conn->fd <= 0) {
 			continue;
 		}
@@ -2823,13 +2823,12 @@ errout:
 	return -1;
 }
 
-
 static int _dns_server_socket_tcp(struct dns_bind_ip *bind_ip)
 {
 	const char *host_ip;
 	struct dns_server_conn_tcp_server *conn = NULL;
 	int fd = -1;
-	
+
 	host_ip = bind_ip->ip;
 	conn = malloc(sizeof(struct dns_server_conn_tcp_server));
 	if (conn == NULL) {

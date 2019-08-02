@@ -943,7 +943,8 @@ errout:
 	return -1;
 }
 
-static int _dns_client_add_server_pending(char *server_ip, char *server_host, int port, dns_server_type_t server_type, struct client_dns_server_flags *flags, int ispending)
+static int _dns_client_add_server_pending(char *server_ip, char *server_host, int port, dns_server_type_t server_type, struct client_dns_server_flags *flags,
+										  int ispending)
 {
 	int ret;
 

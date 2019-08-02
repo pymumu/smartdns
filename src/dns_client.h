@@ -2,7 +2,7 @@
 #define _SMART_DNS_CLIENT_H
 
 #include "dns.h"
-#define DNS_SERVER_SPKI_LEN  64
+#define DNS_SERVER_SPKI_LEN 64
 #define DNS_SERVER_GROUP_DEFAULT "default"
 
 typedef enum {
