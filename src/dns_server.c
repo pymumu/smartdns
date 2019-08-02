@@ -2532,6 +2532,10 @@ static void _dns_server_tcp_idle_check(void)
 	time(&now);
 	list_for_each_entry_safe(conn, tmp, &server.conn_list, list)
 	{
+		if (conn->type != DNS_CONN_TYPE_TCP_CLIENT && conn->type != DNS_CONN_TYPE_TLS_CLIENT) {
+			continue;
+		}
+
 		if (conn->last_request_time > now - dns_conf_tcp_idle_time) {
 			continue;
 		}
