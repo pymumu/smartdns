@@ -53,40 +53,63 @@
 #define RECV_ERROR_FAIL -1
 #define RECV_ERROR_CLOSE -2
 
+typedef enum {
+	DNS_CONN_TYPE_UDP_SERVER = 0,
+	DNS_CONN_TYPE_TCP_SERVER,
+	DNS_CONN_TYPE_TCP_CLIENT,
+	DNS_CONN_TYPE_TLS_SERVER,
+	DNS_CONN_TYPE_TLS_CLIENT,
+} DNS_CONN_TYPE;
+
 struct dns_conn_buf {
 	char buf[DNS_CONN_BUFF_SIZE];
 	int buffsize;
 	int size;
 };
 
-struct dns_server_conn {
-	struct list_head list;
-	atomic_t refcnt;
-	dns_server_type_t type;
+struct dns_server_conn_head {
+	DNS_CONN_TYPE type;
 	int fd;
-	struct dns_conn_buf recvbuff;
-	struct dns_conn_buf sndbuff;
+	struct list_head list;
+	time_t last_request_time;
+	atomic_t refcnt;
+	const char *dns_group;
+	uint32_t server_flags;
+};
 
+struct dns_server_conn_udp {
+	struct dns_server_conn_head head;
 	socklen_t addr_len;
 	struct sockaddr_storage addr;
 
 	socklen_t localaddr_len;
 	struct sockaddr_storage localaddr;
+};
 
-	time_t last_request_time;
+struct dns_server_conn_tcp_server {
+	struct dns_server_conn_head head;
+};
+
+struct dns_server_conn_tcp_client {
+	struct dns_server_conn_head head;
+	struct dns_conn_buf recvbuff;
+	struct dns_conn_buf sndbuff;
+	socklen_t addr_len;
+	struct sockaddr_storage addr;
+
+	socklen_t localaddr_len;
+	struct sockaddr_storage localaddr;
 };
 
 /* dns server data */
 struct dns_server {
 	int run;
 	int epoll_fd;
-	struct dns_server_conn udp_server;
-	struct dns_server_conn tcp_server;
+	struct list_head conn_list;
 
 	/* dns request list */
 	pthread_mutex_t request_list_lock;
 	struct list_head request_list;
-	struct list_head client_list;
 };
 
 /* ip address lists of domain */
@@ -105,7 +128,7 @@ struct dns_ip_address {
 struct dns_request {
 	atomic_t refcnt;
 
-	struct dns_server_conn *client;
+	struct dns_server_conn_head *conn;
 	/* dns request list */
 	struct list_head list;
 
@@ -151,9 +174,7 @@ struct dns_request {
 	int has_soa;
 
 	atomic_t notified;
-
 	atomic_t adblock;
-
 	atomic_t soa_num;
 
 	/* send original raw packet to server/client like proxy */
@@ -178,6 +199,35 @@ static int _dns_server_forward_request(unsigned char *inpacket, int inpacket_len
 {
 	tlog(TLOG_DEBUG, "forward request.\n");
 	return -1;
+}
+
+static int _dns_server_has_bind_flag(struct dns_request *request, uint32_t flag)
+{
+	if (request->conn == NULL) {
+		return -1;
+	}
+
+	if (request->conn->server_flags & flag) {
+		return 0;
+	}
+
+	return -1;
+}
+
+static int _dns_server_epoll_ctl(struct dns_server_conn_head *head, int op, uint32_t events)
+{
+	struct epoll_event event;
+
+	memset(&event, 0, sizeof(event));
+	event.events = events;
+	event.data.ptr = head;
+
+	if (epoll_ctl(server.epoll_fd, op, head->fd, &event) != 0) {
+		tlog(TLOG_ERROR, "epoll ctl failed, fd = %d, %s", head->fd, strerror(errno));
+		return -1;
+	}
+
+	return 0;
 }
 
 static void _dns_server_audit_log(struct dns_request *request)
@@ -272,58 +322,53 @@ static int _dns_add_rrs(struct dns_packet *packet, struct dns_request *request)
 	return ret;
 }
 
-static void _dns_server_client_release(struct dns_server_conn *client)
+static void _dns_server_conn_release(struct dns_server_conn_head *conn)
 {
-	if (client == NULL) {
+	if (conn == NULL) {
 		return;
 	}
 
-	int refcnt = atomic_dec_return(&client->refcnt);
+	int refcnt = atomic_dec_return(&conn->refcnt);
 
 	if (refcnt) {
 		if (refcnt < 0) {
-			tlog(TLOG_ERROR, "BUG: refcnt is %d, type = %d", refcnt, client->type);
+			tlog(TLOG_ERROR, "BUG: refcnt is %d, type = %d", refcnt, conn->type);
 			abort();
 		}
 		return;
 	}
 
-	if (client->fd > 0) {
-		close(client->fd);
-		client->fd = -1;
+	if (conn->fd > 0) {
+		close(conn->fd);
+		conn->fd = -1;
 	}
 
-	list_del_init(&client->list);
-	free(client);
+	list_del_init(&conn->list);
+	free(conn);
 }
 
-static void _dns_server_client_get(struct dns_server_conn *client)
+static void _dns_server_conn_get(struct dns_server_conn_head *conn)
 {
-	if (client == NULL) {
+	if (conn == NULL) {
 		return;
 	}
 
-	if (atomic_inc_return(&client->refcnt) <= 0) {
+	if (atomic_inc_return(&conn->refcnt) <= 0) {
 		tlog(TLOG_ERROR, "BUG: client ref is invalid.");
 		abort();
 	}
 }
 
-static int _dns_server_reply_tcp_to_buffer(struct dns_server_conn *client, void *packet, int len)
+static int _dns_server_reply_tcp_to_buffer(struct dns_server_conn_tcp_client *tcpclient, void *packet, int len)
 {
-	struct epoll_event event;
-
-	if (sizeof(client->sndbuff.buf) - client->sndbuff.size < len) {
+	if (sizeof(tcpclient->sndbuff.buf) - tcpclient->sndbuff.size < len) {
 		return -1;
 	}
 
-	memcpy(client->sndbuff.buf + client->sndbuff.size, packet, len);
-	client->sndbuff.size += len;
+	memcpy(tcpclient->sndbuff.buf + tcpclient->sndbuff.size, packet, len);
+	tcpclient->sndbuff.size += len;
 
-	memset(&event, 0, sizeof(event));
-	event.events = EPOLLIN | EPOLLOUT;
-	event.data.ptr = client;
-	if (epoll_ctl(server.epoll_fd, EPOLL_CTL_MOD, client->fd, &event) != 0) {
+	if (_dns_server_epoll_ctl(&tcpclient->head, EPOLL_CTL_MOD, EPOLLIN | EPOLLOUT) != 0) {
 		tlog(TLOG_ERROR, "epoll ctl failed.");
 		return -1;
 	}
@@ -331,7 +376,7 @@ static int _dns_server_reply_tcp_to_buffer(struct dns_server_conn *client, void 
 	return 0;
 }
 
-static int _dns_server_reply_tcp(struct dns_server_conn *client, void *packet, unsigned short len)
+static int _dns_server_reply_tcp(struct dns_request *request, struct dns_server_conn_tcp_client *tcpclient, void *packet, unsigned short len)
 {
 	int send_len = 0;
 	unsigned char inpacket_data[DNS_IN_PACKSIZE];
@@ -344,25 +389,25 @@ static int _dns_server_reply_tcp(struct dns_server_conn *client, void *packet, u
 	memcpy(inpacket + 2, packet, len);
 	len += 2;
 
-	send_len = send(client->fd, inpacket, len, MSG_NOSIGNAL);
+	send_len = send(tcpclient->head.fd, inpacket, len, MSG_NOSIGNAL);
 	if (send_len < 0) {
 		if (errno == EAGAIN) {
 			/* save data to buffer, and retry when EPOLLOUT is available */
-			return _dns_server_reply_tcp_to_buffer(client, inpacket, len);
+			return _dns_server_reply_tcp_to_buffer(tcpclient, inpacket, len);
 		}
 		return -1;
 	} else if (send_len < len) {
 		/* save remain data to buffer, and retry when EPOLLOUT is available */
-		return _dns_server_reply_tcp_to_buffer(client, inpacket + send_len, len - send_len);
+		return _dns_server_reply_tcp_to_buffer(tcpclient, inpacket + send_len, len - send_len);
 	}
 
 	return 0;
 }
 
-static int _dns_server_reply_udp(struct dns_request *request, struct dns_server_conn *client, unsigned char *inpacket, int inpacket_len)
+static int _dns_server_reply_udp(struct dns_request *request, struct dns_server_conn_udp *udpserver, unsigned char *inpacket, int inpacket_len)
 {
 	int send_len = 0;
-	send_len = sendto(client->fd, inpacket, inpacket_len, 0, (struct sockaddr *)&request->addr, request->addr_len);
+	send_len = sendto(udpserver->head.fd, inpacket, inpacket_len, 0, (struct sockaddr *)&request->addr, request->addr_len);
 	if (send_len != inpacket_len) {
 		tlog(TLOG_ERROR, "send failed.");
 		return -1;
@@ -373,19 +418,19 @@ static int _dns_server_reply_udp(struct dns_request *request, struct dns_server_
 
 static int _dns_reply_inpacket(struct dns_request *request, unsigned char *inpacket, int inpacket_len)
 {
-	struct dns_server_conn *client = request->client;
+	struct dns_server_conn_head *conn = request->conn;
 	int ret = 0;
 
-	if (client == NULL) {
+	if (conn == NULL) {
 		tlog(TLOG_ERROR, "client is invalid, domain: %s", request->domain);
 		return -1;
 	}
 
-	if (client->type == DNS_SERVER_UDP) {
-		ret = _dns_server_reply_udp(request, client, inpacket, inpacket_len);
-	} else if (client->type == DNS_SERVER_TCP) {
-		ret = _dns_server_reply_tcp(client, inpacket, inpacket_len);
-	} else if (client->type == DNS_SERVER_TLS) {
+	if (conn->type == DNS_CONN_TYPE_UDP_SERVER) {
+		ret = _dns_server_reply_udp(request, (struct dns_server_conn_udp *)conn, inpacket, inpacket_len);
+	} else if (conn->type == DNS_CONN_TYPE_TCP_CLIENT) {
+		ret = _dns_server_reply_tcp(request, (struct dns_server_conn_tcp_client *)conn, inpacket, inpacket_len);
+	} else if (conn->type == DNS_CONN_TYPE_TLS_CLIENT) {
 		ret = -1;
 	} else {
 		ret = -1;
@@ -403,7 +448,7 @@ static int _dns_reply(struct dns_request *request)
 	int ret = 0;
 	int encode_len = 0;
 
-	if (request->client == NULL) {
+	if (request->conn == NULL) {
 		return 0;
 	}
 
@@ -523,6 +568,10 @@ static int _dns_setup_ipset(struct dns_request *request)
 	int ret = 0;
 
 	if (request->domain_rule == NULL) {
+		return 0;
+	}
+
+	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_RULE_IPSET) == 0) {
 		return 0;
 	}
 
@@ -754,7 +803,7 @@ static struct dns_request *_dns_server_new_request(void)
 	request->ping_ttl_v6 = -1;
 	request->prefetch = 0;
 	request->rcode = DNS_RC_SERVFAIL;
-	request->client = NULL;
+	request->conn = NULL;
 	request->result_callback = NULL;
 	request->check_order_list = &dns_conf_check_order;
 	INIT_LIST_HEAD(&request->list);
@@ -767,8 +816,8 @@ errout:
 
 static void _dns_server_delete_request(struct dns_request *request) 
 {
-	if (request->client) {
-		_dns_server_client_release(request->client);
+	if (request->conn) {
+		_dns_server_conn_release(request->conn);
 	}
 	pthread_mutex_destroy(&request->ip_map_lock);
 	memset(request, 0, sizeof(*request));
@@ -1667,6 +1716,10 @@ static int _dns_server_process_address(struct dns_request *request)
 		goto errout;
 	}
 
+	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_RULE_ADDR) == 0) {
+		goto errout;
+	}
+
 	/* address /domain/ rule */
 	switch (request->qtype) {
 	case DNS_T_A:
@@ -1704,6 +1757,10 @@ static int _dns_server_process_cache(struct dns_request *request)
 {
 	struct dns_cache *dns_cache = NULL;
 	struct dns_cache *dns_cache_A = NULL;
+
+	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_CACHE) == 0) {
+		goto errout;
+	}
 
 	dns_cache = dns_cache_lookup(request->domain, request->qtype);
 	if (dns_cache == NULL) {
@@ -1777,10 +1834,10 @@ errout:
 	return -1;
 }
 
-static void _dns_server_request_set_client(struct dns_request *request, struct dns_server_conn *client)
+static void _dns_server_request_set_client(struct dns_request *request, struct dns_server_conn_head *conn)
 {
-	request->client = client;
-	_dns_server_client_get(client);
+	request->conn = conn;
+	_dns_server_conn_get(conn);
 }
 
 static void _dns_server_request_set_id(struct dns_request *request, unsigned short id)
@@ -1857,6 +1914,10 @@ clean_exit:
 
 static const char *_dns_server_get_request_groupname(struct dns_request *request)
 {
+	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_RULE_NAMESERVER) == 0) {
+		return NULL;
+	}
+
 	if (request->domain_rule) {
 		/* Get the nameserver rule */
 		if (request->domain_rule->rules[DOMAIN_RULE_NAMESERVER]) {
@@ -1872,12 +1933,20 @@ static int _dns_server_do_query(struct dns_request *request, const char *domain,
 {
 	int ret = -1;
 	const char *group_name = NULL;
+	const char *dns_group = NULL;
+
+	if (request->conn) {
+		dns_group = request->conn->dns_group;
+	}
 
 	/* lookup domain rule */
 	request->domain_rule = _dns_server_get_domain_rule(domain);
 	request->qtype = qtype;
 	safe_strncpy(request->domain, domain, sizeof(request->domain));
 	group_name = _dns_server_get_request_groupname(request);
+	if (group_name == NULL) {
+		group_name = dns_group;
+	}
 
 	if (_dns_server_process_special_query(request) == 0) {
 		goto clean_exit;
@@ -1939,14 +2008,18 @@ errout:
 	return ret;	
 }
 
-static void _dns_server_check_set_passthrough(struct dns_request *request, struct dns_server_conn *client)
+static void _dns_server_check_set_passthrough(struct dns_request *request, struct dns_server_conn_head *conn)
 {
 	if (request->check_order_list->order[0] == DOMAIN_CHECK_NONE) {
 		request->passthrough = 1;
 	}
+
+	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_SPEED_CHECK) == 0) {
+		request->passthrough = 1;
+	}
 }
 
-static int _dns_server_recv(struct dns_server_conn *client, unsigned char *inpacket, int inpacket_len, struct sockaddr_storage *from, socklen_t from_len)
+static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *inpacket, int inpacket_len, struct sockaddr_storage *from, socklen_t from_len)
 {
 	int decode_len;
 	int ret = -1;
@@ -1961,7 +2034,7 @@ static int _dns_server_recv(struct dns_server_conn *client, unsigned char *inpac
 	int qclass;
 	int qtype = DNS_T_ALL;
 
-	_dns_server_client_get(client);
+	_dns_server_conn_get(conn);
 	/* decode packet */
 	tlog(TLOG_DEBUG, "recv query packet from %s, len = %d", gethost_by_addr(name, sizeof(name), (struct sockaddr *)from), inpacket_len);
 	decode_len = dns_decode(packet, DNS_PACKSIZE, inpacket, inpacket_len);
@@ -2001,8 +2074,8 @@ static int _dns_server_recv(struct dns_server_conn *client, unsigned char *inpac
 		goto errout;
 	}
 
-	_dns_server_check_set_passthrough(request, client);
-	_dns_server_request_set_client(request, client);
+	_dns_server_request_set_client(request, conn);
+	_dns_server_check_set_passthrough(request, conn);
 	_dns_server_request_set_client_addr(request, from, from_len);
 	_dns_server_request_set_id(request, packet->head.id);
 	ret = _dns_server_do_query(request, domain, qtype);
@@ -2011,7 +2084,7 @@ static int _dns_server_recv(struct dns_server_conn *client, unsigned char *inpac
 		goto errout;
 	}
 
-	_dns_server_client_release(client);
+	_dns_server_conn_release(conn);
 	return ret;
 errout:
 	if (request) {
@@ -2019,7 +2092,7 @@ errout:
 		_dns_server_delete_request(request);
 	}
 
-	_dns_server_client_release(client);
+	_dns_server_conn_release(conn);
 	return ret;
 }
 
@@ -2077,7 +2150,7 @@ errout:
 	return ret;
 }
 
-static int _dns_server_process_udp(struct dns_server_conn *dnsserver, struct epoll_event *event, unsigned long now)
+static int _dns_server_process_udp(struct dns_server_conn_udp *udpconn, struct epoll_event *event, unsigned long now)
 {
 	int len;
 	unsigned char inpacket[DNS_IN_PACKSIZE];
@@ -2098,7 +2171,7 @@ static int _dns_server_process_udp(struct dns_server_conn *dnsserver, struct epo
 	msg.msg_control = ans_data;
 	msg.msg_controllen = sizeof(ans_data);
 
-	len = recvmsg(dnsserver->fd, &msg, MSG_DONTWAIT);
+	len = recvmsg(udpconn->head.fd, &msg, MSG_DONTWAIT);
 	if (len < 0) {
 		tlog(TLOG_ERROR, "recvfrom failed, %s\n", strerror(errno));
 		return -1;
@@ -2109,105 +2182,102 @@ static int _dns_server_process_udp(struct dns_server_conn *dnsserver, struct epo
 		if (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_PKTINFO) {
 			const struct in_pktinfo *pktinfo = (struct in_pktinfo *)CMSG_DATA(cmsg);
 			unsigned char *addr = (unsigned char *)&pktinfo->ipi_addr.s_addr;
-			fill_sockaddr_by_ip(addr, sizeof(in_addr_t), 0, (struct sockaddr *)&dnsserver->localaddr, &dnsserver->localaddr_len);
+			fill_sockaddr_by_ip(addr, sizeof(in_addr_t), 0, (struct sockaddr *)&udpconn->localaddr, &udpconn->localaddr_len);
 		} else if (cmsg->cmsg_level == IPPROTO_IPV6 && cmsg->cmsg_type == IPV6_PKTINFO) {
 			const struct in6_pktinfo *pktinfo = (struct in6_pktinfo *)CMSG_DATA(cmsg);
 			unsigned char *addr = (unsigned char *)pktinfo->ipi6_addr.s6_addr;
-			fill_sockaddr_by_ip(addr, sizeof(struct in6_addr), 0, (struct sockaddr *)&dnsserver->localaddr, &dnsserver->localaddr_len);
+			fill_sockaddr_by_ip(addr, sizeof(struct in6_addr), 0, (struct sockaddr *)&udpconn->localaddr, &udpconn->localaddr_len);
 		}
 	}
 
-	return _dns_server_recv(dnsserver, inpacket, len, &from, from_len);
+	return _dns_server_recv(&udpconn->head, inpacket, len, &from, from_len);
 }
 
-static void _dns_server_client_touch(struct dns_server_conn *client)
+static void _dns_server_client_touch(struct dns_server_conn_head *conn)
 {
-	time(&client->last_request_time);
+	time(&conn->last_request_time);
 }
 
-static int _dns_server_client_close(struct dns_server_conn *client)
+static int _dns_server_client_close(struct dns_server_conn_head *conn)
 {
-	if (client->fd > 0) {
-		epoll_ctl(server.epoll_fd, EPOLL_CTL_DEL, client->fd, NULL);
-		close(client->fd);
-		client->fd = -1;
+	if (conn->fd > 0) {
+		_dns_server_epoll_ctl(conn, EPOLL_CTL_DEL, 0);
+		close(conn->fd);
+		conn->fd = -1;
 	}
 
-	list_del_init(&client->list);
+	list_del_init(&conn->list);
 
-	_dns_server_client_release(client);
+	_dns_server_conn_release(conn);
 
 	return 0;
 }
 
-static int _dns_server_accept(struct dns_server_conn *dnsserver, struct epoll_event *event, unsigned long now)
+static int _dns_server_tcp_accept(struct dns_server_conn_tcp_server *tcpserver, struct epoll_event *event, unsigned long now)
 {
 	struct sockaddr_storage addr;
-	struct dns_server_conn *client = NULL;
+	struct dns_server_conn_tcp_client *tcpclient = NULL;
 	socklen_t addr_len = sizeof(addr);
 	int fd = -1;
 
-	fd = accept4(dnsserver->fd, (struct sockaddr *)&addr, &addr_len, SOCK_NONBLOCK | SOCK_CLOEXEC);
+	fd = accept4(tcpserver->head.fd, (struct sockaddr *)&addr, &addr_len, SOCK_NONBLOCK | SOCK_CLOEXEC);
 	if (fd < 0) {
 		tlog(TLOG_ERROR, "accept failed, %s", strerror(errno));
 		return -1;
 	}
 
-	client = malloc(sizeof(*client));
-	if (client == NULL) {
-		tlog(TLOG_ERROR, "malloc for client failed.");
+	tcpclient = malloc(sizeof(*tcpclient));
+	if (tcpclient == NULL) {
+		tlog(TLOG_ERROR, "malloc for tcpclient failed.");
 		goto errout;
 	}
+	memset(tcpclient, 0, sizeof(*tcpclient));
 
-	memset(client, 0, sizeof(*client));
-	struct epoll_event event_client;
-	memset(&event_client, 0, sizeof(event_client));
-	event_client.data.ptr = client;
-	event_client.events = EPOLLIN;
-	if (epoll_ctl(server.epoll_fd, EPOLL_CTL_ADD, fd, &event_client) != 0) {
-		tlog(TLOG_ERROR, "epoll add failed, %s", strerror(errno));
-		goto errout;
+	tcpclient->head.fd = fd;
+	tcpclient->head.type = DNS_CONN_TYPE_TCP_CLIENT;
+	tcpclient->head.server_flags = tcpserver->head.server_flags;
+	tcpclient->head.dns_group = tcpserver->head.dns_group;
+	atomic_set(&tcpclient->head.refcnt, 0);
+	memcpy(&tcpclient->addr, &addr, addr_len);
+	tcpclient->addr_len = addr_len;
+	tcpclient->localaddr_len = sizeof(struct sockaddr_storage);
+	if (_dns_server_epoll_ctl(&tcpclient->head, EPOLL_CTL_ADD, EPOLLIN) != 0) {
+		tlog(TLOG_ERROR, "epoll ctl failed.");
+		return -1;
 	}
 
-	client->fd = fd;
-	client->type = DNS_SERVER_TCP;
-	atomic_set(&client->refcnt, 0);
-	memcpy(&client->addr, &addr, addr_len);
-	client->addr_len = addr_len;
-	client->localaddr_len = sizeof(struct sockaddr_storage);
-
-	if (getsockname(client->fd, (struct sockaddr *)&client->localaddr, &client->localaddr_len) != 0) {
+	if (getsockname(tcpclient->head.fd, (struct sockaddr *)&tcpclient->localaddr, &tcpclient->localaddr_len) != 0) {
 		tlog(TLOG_ERROR, "get local addr failed, %s", strerror(errno));
 		goto errout;
 	}
 
-	_dns_server_client_touch(client);
+	_dns_server_client_touch(&tcpclient->head);
 
-	list_add(&client->list, &server.client_list);
-	_dns_server_client_get(client);
+	list_add(&tcpclient->head.list, &server.conn_list);
+	_dns_server_conn_get(&tcpclient->head);
 
 	return 0;
 errout:
 	if (fd > 0) {
 		close(fd);
 	}
-	if (client) {
-		free(client);
+	if (tcpclient) {
+		free(tcpclient);
 	}
 	return -1;
 }
 
-static int _dns_server_tcp_recv(struct dns_server_conn *dnsserver)
+static int _dns_server_tcp_recv(struct dns_server_conn_tcp_client *tcpclient)
 {
 	int len = 0;
 
 	/* Receive data */
-	while (dnsserver->recvbuff.size < sizeof(dnsserver->recvbuff.buf)) {
-		if (dnsserver->recvbuff.size == sizeof(dnsserver->recvbuff.buf)) {
+	while (tcpclient->recvbuff.size < sizeof(tcpclient->recvbuff.buf)) {
+		if (tcpclient->recvbuff.size == sizeof(tcpclient->recvbuff.buf)) {
 			return 0;
 		}
 
-		len = recv(dnsserver->fd, dnsserver->recvbuff.buf + dnsserver->recvbuff.size, sizeof(dnsserver->recvbuff.buf) - dnsserver->recvbuff.size, 0);
+		len = recv(tcpclient->head.fd, tcpclient->recvbuff.buf + tcpclient->recvbuff.size, sizeof(tcpclient->recvbuff.buf) - tcpclient->recvbuff.size, 0);
 		if (len < 0) {
 			if (errno == EAGAIN) {
 				return RECV_ERROR_AGAIN;
@@ -2219,16 +2289,16 @@ static int _dns_server_tcp_recv(struct dns_server_conn *dnsserver)
 			return RECV_ERROR_CLOSE;
 		}
 
-		dnsserver->recvbuff.size += len;
+		tcpclient->recvbuff.size += len;
 	}
 
 	return 0;
 }
 
-static int _dns_server_tcp_process_one_request(struct dns_server_conn *dnsserver)
+static int _dns_server_tcp_process_one_request(struct dns_server_conn_tcp_client *tcpclient)
 {
 	int request_len = 0;
-	int total_len = dnsserver->recvbuff.size;
+	int total_len = tcpclient->recvbuff.size;
 	int proceed_len = 0;
 	unsigned char *request_data = NULL;
 	int ret = 0;
@@ -2241,10 +2311,10 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn *dnsserver
 		}
 
 		/* Get record length */
-		request_data = (unsigned char *)(dnsserver->recvbuff.buf + proceed_len);
+		request_data = (unsigned char *)(tcpclient->recvbuff.buf + proceed_len);
 		request_len = ntohs(*((unsigned short *)(request_data)));
 
-		if (request_len >= sizeof(dnsserver->recvbuff.buf)) {
+		if (request_len >= sizeof(tcpclient->recvbuff.buf)) {
 			tlog(TLOG_ERROR, "request length is invalid.");
 			return RECV_ERROR_FAIL;
 		}
@@ -2254,10 +2324,10 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn *dnsserver
 			break;
 		}
 
-		request_data = (unsigned char *)(dnsserver->recvbuff.buf + proceed_len + sizeof(unsigned short));
+		request_data = (unsigned char *)(tcpclient->recvbuff.buf + proceed_len + sizeof(unsigned short));
 
 		/* process one record */
-		if (_dns_server_recv(dnsserver, request_data, request_len, &dnsserver->addr, dnsserver->addr_len) != 0) {
+		if (_dns_server_recv(&tcpclient->head, request_data, request_len, &tcpclient->addr, tcpclient->addr_len) != 0) {
 			tlog(TLOG_ERROR, "process tcp request failed.");
 			return RECV_ERROR_FAIL;
 		}
@@ -2266,35 +2336,35 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn *dnsserver
 	}
 
 	if (total_len > proceed_len && proceed_len > 0) {
-		memmove(dnsserver->recvbuff.buf, dnsserver->recvbuff.buf + proceed_len, total_len - proceed_len);
+		memmove(tcpclient->recvbuff.buf, tcpclient->recvbuff.buf + proceed_len, total_len - proceed_len);
 	}
 
-	dnsserver->recvbuff.size -= proceed_len;
+	tcpclient->recvbuff.size -= proceed_len;
 
 	return ret;
 }
 
-static int _dns_server_tcp_process_requests(struct dns_server_conn *client)
+static int _dns_server_tcp_process_requests(struct dns_server_conn_tcp_client *tcpclient)
 {
 	int recv_ret = 0;
 	int request_ret = 0;
 	int is_eof = 0;
 
 	for (;;) {
-		recv_ret = _dns_server_tcp_recv(client);
+		recv_ret = _dns_server_tcp_recv(tcpclient);
 		if (recv_ret < 0) {
 			if (recv_ret == RECV_ERROR_CLOSE) {
 				return RECV_ERROR_CLOSE;
 			}
 
-			if (client->recvbuff.size > 0) {
+			if (tcpclient->recvbuff.size > 0) {
 				is_eof = RECV_ERROR_AGAIN;
 			} else {
 				return RECV_ERROR_FAIL;
 			}
 		}
 
-		request_ret = _dns_server_tcp_process_one_request(client);
+		request_ret = _dns_server_tcp_process_one_request(tcpclient);
 		if (request_ret < 0) {
 			/* failed */
 			tlog(TLOG_ERROR, "process one request failed.");
@@ -2315,11 +2385,11 @@ static int _dns_server_tcp_process_requests(struct dns_server_conn *client)
 	return 0;
 }
 
-static int _dns_server_tcp_send(struct dns_server_conn *client)
+static int _dns_server_tcp_send(struct dns_server_conn_tcp_client *tcpclient)
 {
 	int len;
-	while (client->sndbuff.size > 0) {
-		len = send(client->fd, client->sndbuff.buf, client->sndbuff.size, MSG_NOSIGNAL);
+	while (tcpclient->sndbuff.size > 0) {
+		len = send(tcpclient->head.fd, tcpclient->sndbuff.buf, tcpclient->sndbuff.size, MSG_NOSIGNAL);
 		if (len < 0) {
 			if (errno == EAGAIN) {
 				return RECV_ERROR_AGAIN;
@@ -2329,31 +2399,25 @@ static int _dns_server_tcp_send(struct dns_server_conn *client)
 			break;
 		}
 
-		client->sndbuff.size -= len;
+		tcpclient->sndbuff.size -= len;
 	}
 
-	struct epoll_event event_client;
-	event_client.data.ptr = client;
-	event_client.events = EPOLLIN;
-	if (epoll_ctl(server.epoll_fd, EPOLL_CTL_MOD, client->fd, &event_client) != 0) {
-		tlog(TLOG_ERROR, "epoll add failed, %s", strerror(errno));
-		return RECV_ERROR_FAIL;
+	if (_dns_server_epoll_ctl(&tcpclient->head, EPOLL_CTL_MOD, EPOLLIN) != 0) {
+		tlog(TLOG_ERROR, "epoll ctl failed.");
+		return -1;
 	}
 
 	return 0;
 }
 
-static int _dns_server_process_tcp(struct dns_server_conn *dnsserver, struct epoll_event *event, unsigned long now)
+static int _dns_server_process_tcp(struct dns_server_conn_tcp_client *dnsserver, struct epoll_event *event, unsigned long now)
 {
 	int ret = 0;
-	if (dnsserver == &server.tcp_server) {
-		return _dns_server_accept(dnsserver, event, now);
-	}
 
 	if (event->events & EPOLLIN) {
 		ret = _dns_server_tcp_process_requests(dnsserver);
 		if (ret != 0) {
-			_dns_server_client_close(dnsserver);
+			_dns_server_client_close(&dnsserver->head);
 			if (ret == RECV_ERROR_CLOSE) {
 				return 0;
 			}
@@ -2364,7 +2428,7 @@ static int _dns_server_process_tcp(struct dns_server_conn *dnsserver, struct epo
 
 	if (event->events & EPOLLOUT) {
 		if (_dns_server_tcp_send(dnsserver) != 0) {
-			_dns_server_client_close(dnsserver);
+			_dns_server_client_close(&dnsserver->head);
 			tlog(TLOG_ERROR, "send tcp failed.");
 			return RECV_ERROR_FAIL;
 		}
@@ -2373,18 +2437,23 @@ static int _dns_server_process_tcp(struct dns_server_conn *dnsserver, struct epo
 	return 0;
 }
 
-static int _dns_server_process(struct dns_server_conn *dnsserver, struct epoll_event *event, unsigned long now)
+static int _dns_server_process(struct dns_server_conn_head *conn, struct epoll_event *event, unsigned long now)
 {
-	_dns_server_client_touch(dnsserver);
-	if (dnsserver->type == DNS_SERVER_UDP) {
-		return _dns_server_process_udp(dnsserver, event, now);
-	} else if (dnsserver->type == DNS_SERVER_TCP) {
-		return _dns_server_process_tcp(dnsserver, event, now);
-	} else if (dnsserver->type == DNS_SERVER_TLS) {
-		tlog(TLOG_ERROR, "unsupport dns server type %d", dnsserver->type);
+	_dns_server_client_touch(conn);
+	if (conn->type == DNS_CONN_TYPE_UDP_SERVER) {
+		struct dns_server_conn_udp *udpconn = (struct dns_server_conn_udp *)conn;
+		return _dns_server_process_udp(udpconn, event, now);
+	} else if (conn->type == DNS_CONN_TYPE_TCP_SERVER) {
+		struct dns_server_conn_tcp_server *tcpserver = (struct dns_server_conn_tcp_server *)conn;
+		return _dns_server_tcp_accept(tcpserver, event, now);
+	} else if (conn->type == DNS_CONN_TYPE_TCP_CLIENT) {
+		struct dns_server_conn_tcp_client *tcpclient = (struct dns_server_conn_tcp_client *)conn;
+		return _dns_server_process_tcp(tcpclient, event, now);
+	} else if (conn->type == DNS_CONN_TYPE_TLS_SERVER) {
+		tlog(TLOG_ERROR, "unsupport dns server type %d", conn->type);
 		return -1;
 	} else {
-		tlog(TLOG_ERROR, "unsupport dns server type %d", dnsserver->type);
+		tlog(TLOG_ERROR, "unsupport dns server type %d", conn->type);
 		return -1;
 	}
 }
@@ -2451,7 +2520,7 @@ static void _dns_server_prefetch_domain(struct dns_cache *dns_cache)
 
 static void _dns_server_tcp_idle_check(void)
 {
-	struct dns_server_conn *client, *tmp;
+	struct dns_server_conn_head *conn, *tmp;
 	time_t now;
 
 	if (dns_conf_tcp_idle_time <= 0) {
@@ -2459,13 +2528,13 @@ static void _dns_server_tcp_idle_check(void)
 	}
 
 	time(&now);
-	list_for_each_entry_safe(client, tmp, &server.client_list, list)
+	list_for_each_entry_safe(conn, tmp, &server.conn_list, list)
 	{
-		if (client->last_request_time > now - dns_conf_tcp_idle_time) {
+		if (conn->last_request_time > now - dns_conf_tcp_idle_time) {
 			continue;
 		}
 
-		_dns_server_client_close(client);
+		_dns_server_client_close(conn);
 	}
 }
 
@@ -2533,6 +2602,16 @@ static void _dns_server_period_run(void)
 	}
 }
 
+static void _dns_server_close_socket(void)
+{
+	struct dns_server_conn_head *conn, *tmp;
+
+	list_for_each_entry_safe(conn, tmp, &server.conn_list, list)
+	{
+		_dns_server_client_close(conn);
+	}
+}
+
 int dns_server_run(void)
 {
 	struct epoll_event events[DNS_MAX_EVENTS + 1];
@@ -2570,18 +2649,19 @@ int dns_server_run(void)
 
 		for (i = 0; i < num; i++) {
 			struct epoll_event *event = &events[i];
-			struct dns_server_conn *dnsserver = event->data.ptr;
-			if (dnsserver == NULL) {
+			struct dns_server_conn_head *conn_head = event->data.ptr;
+			if (conn_head == NULL) {
 				tlog(TLOG_ERROR, "invalid fd\n");
 				continue;
 			}
 
-			if (_dns_server_process(dnsserver, event, now) != 0) {
+			if (_dns_server_process(conn_head, event, now) != 0) {
 				tlog(TLOG_ERROR, "dns server process failed.");
 			}
 		}
 	}
 
+	_dns_server_close_socket();
 	close(server.epoll_fd);
 	server.epoll_fd = -1;
 
@@ -2611,55 +2691,21 @@ errout:
 	return NULL;
 }
 
-static int _dns_server_start_udp(void)
-{
-	struct epoll_event event;
-
-	if (server.udp_server.fd <= 0) {
-		return 0;
-	}
-
-	memset(&event, 0, sizeof(event));
-	event.events = EPOLLIN;
-	event.data.ptr = &server.udp_server;
-	if (epoll_ctl(server.epoll_fd, EPOLL_CTL_ADD, server.udp_server.fd, &event) != 0) {
-		tlog(TLOG_ERROR, "epoll ctl failed.");
-		return -1;
-	}
-
-	return 0;
-}
-
-static int _dns_server_start_tcp(void)
-{
-	struct epoll_event event;
-
-	if (server.tcp_server.fd <= 0) {
-		return 0;
-	}
-
-	memset(&event, 0, sizeof(event));
-	event.events = EPOLLIN;
-	event.data.ptr = &server.tcp_server;
-	if (epoll_ctl(server.epoll_fd, EPOLL_CTL_ADD, server.tcp_server.fd, &event) != 0) {
-		tlog(TLOG_ERROR, "epoll ctl failed.");
-		return -1;
-	}
-
-	return 0;
-}
-
 int dns_server_start(void)
 {
-	if (_dns_server_start_udp() != 0) {
-		tlog(TLOG_ERROR, "start udp server failed.");
-		return -1;
+	struct dns_server_conn_head *conn = NULL;
+
+	list_for_each_entry(conn, &server.conn_list, list) {
+		if (conn->fd <= 0) {
+			continue;
+		}
+
+		if (_dns_server_epoll_ctl(conn, EPOLL_CTL_ADD, EPOLLIN) != 0) {
+			tlog(TLOG_ERROR, "epoll ctl failed.");
+			return -1;
+		}
 	}
 
-	if (_dns_server_start_tcp() != 0) {
-		tlog(TLOG_ERROR, "start tcp server failed.");
-		return -1;
-	}
 	return 0;
 }
 
@@ -2730,64 +2776,118 @@ errout:
 	return -1;
 }
 
-static int _dns_server_socket(void)
+static int _dns_server_set_flags(struct dns_server_conn_head *head, struct dns_bind_ip *bind_ip)
 {
-	int fd_udp = -1;
-	int fd_tcp = -1;
+	time(&head->last_request_time);
+	head->server_flags = bind_ip->flags;
+	head->dns_group = bind_ip->group;
+	atomic_set(&head->refcnt, 0);
+	list_add(&head->list, &server.conn_list);
 
-	if (dns_conf_server_ip[0] != 0) {
-		fd_udp = _dns_create_socket(dns_conf_server_ip, SOCK_DGRAM);
-		if (fd_udp < 0) {
-			goto errout;
-		}
+	return 0;
+}
+
+static int _dns_server_socket_udp(struct dns_bind_ip *bind_ip)
+{
+	const char *host_ip;
+	struct dns_server_conn_udp *conn = NULL;
+	int fd = -1;
+
+	host_ip = bind_ip->ip;
+	conn = malloc(sizeof(struct dns_server_conn_udp));
+	if (conn == NULL) {
+		goto errout;
+	}
+	INIT_LIST_HEAD(&conn->head.list);
+
+	fd = _dns_create_socket(host_ip, SOCK_DGRAM);
+	if (fd <= 0) {
+		goto errout;
 	}
 
-	if (dns_conf_server_tcp_ip[0] != 0) {
-		fd_tcp = _dns_create_socket(dns_conf_server_tcp_ip, SOCK_STREAM);
-		if (fd_tcp < 0) {
-			goto errout;
-		}
-	}
+	conn->head.type = DNS_CONN_TYPE_UDP_SERVER;
+	conn->head.fd = fd;
+	_dns_server_set_flags(&conn->head, bind_ip);
+	_dns_server_conn_get(&conn->head);
 
-	server.udp_server.fd = fd_udp;
-	server.udp_server.type = DNS_SERVER_UDP;
-	_dns_server_client_get(&server.udp_server);
-	INIT_LIST_HEAD(&server.udp_server.list);
-	server.tcp_server.fd = fd_tcp;
-	server.tcp_server.type = DNS_SERVER_TCP;
-	INIT_LIST_HEAD(&server.tcp_server.list);
-	_dns_server_client_get(&server.tcp_server);
 	return 0;
 errout:
-	if (fd_udp > 0) {
-		close(fd_udp);
+	if (conn) {
+		free(conn);
+		conn = NULL;
 	}
 
-	if (fd_tcp > 0) {
-		close(fd_tcp);
+	if (fd > 0) {
+		close(fd);
 	}
-
 	return -1;
 }
 
-static void _dns_server_close_socket(void)
+
+static int _dns_server_socket_tcp(struct dns_bind_ip *bind_ip)
 {
-	struct dns_server_conn *client, *tmp;
+	const char *host_ip;
+	struct dns_server_conn_tcp_server *conn = NULL;
+	int fd = -1;
+	
+	host_ip = bind_ip->ip;
+	conn = malloc(sizeof(struct dns_server_conn_tcp_server));
+	if (conn == NULL) {
+		goto errout;
+	}
+	INIT_LIST_HEAD(&conn->head.list);
 
-	list_for_each_entry_safe(client, tmp, &server.client_list, list)
-	{
-		_dns_server_client_close(client);
+	fd = _dns_create_socket(host_ip, SOCK_STREAM);
+	if (fd <= 0) {
+		goto errout;
 	}
 
-	if (server.udp_server.fd > 0) {
-		close(server.udp_server.fd);
-		server.udp_server.fd = 0;
+	conn->head.type = DNS_CONN_TYPE_TCP_SERVER;
+	conn->head.fd = fd;
+	_dns_server_set_flags(&conn->head, bind_ip);
+	_dns_server_conn_get(&conn->head);
+
+	return 0;
+errout:
+	if (conn) {
+		free(conn);
+		conn = NULL;
 	}
 
-	if (server.tcp_server.fd > 0) {
-		close(server.tcp_server.fd);
-		server.tcp_server.fd = 0;
+	if (fd > 0) {
+		close(fd);
 	}
+	return -1;
+}
+
+static int _dns_server_socket(void)
+{
+	int i = 0;
+
+	for (i = 0; i < dns_conf_bind_ip_num; i++) {
+		struct dns_bind_ip *bind_ip = &dns_conf_bind_ip[i];
+		switch (bind_ip->type) {
+		case DNS_BIND_TYPE_UDP:
+			if (_dns_server_socket_udp(bind_ip) != 0) {
+				goto errout;
+			}
+			break;
+		case DNS_BIND_TYPE_TCP:
+			if (_dns_server_socket_tcp(bind_ip) != 0) {
+				goto errout;
+			}
+			break;
+		case DNS_BIND_TYPE_TLS:
+			break;
+		default:
+			break;
+		}
+	}
+
+	return 0;
+errout:
+
+	return -1;
 }
 
 static int _dns_server_audit_init(void)
@@ -2831,7 +2931,7 @@ int dns_server_init(void)
 
 	memset(&server, 0, sizeof(server));
 	pthread_attr_init(&attr);
-	INIT_LIST_HEAD(&server.client_list);
+	INIT_LIST_HEAD(&server.conn_list);
 
 	epollfd = epoll_create1(EPOLL_CLOEXEC);
 	if (epollfd < 0) {

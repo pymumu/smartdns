@@ -10,6 +10,7 @@
 #include "list.h"
 #include "radix.h"
 
+#define DNS_MAX_BIND_IP 16
 #define DNS_MAX_SERVERS 64
 #define DNS_MAX_SERVER_NAME_LEN 128
 #define DNS_MAX_IPSET_NAMELEN 32
@@ -36,6 +37,12 @@ enum domain_rule {
 	DOMAIN_RULE_MAX,
 };
 
+typedef enum {
+	DNS_BIND_TYPE_UDP,
+	DNS_BIND_TYPE_TCP,
+	DNS_BIND_TYPE_TLS,
+} DNS_BIND_TYPE;
+
 #define DOMAIN_CHECK_NONE 0
 #define DOMAIN_CHECK_ICMP 1
 #define DOMAIN_CHECK_TCP 2
@@ -51,6 +58,13 @@ enum domain_rule {
 #define DOMAIN_FLAG_NAMESERVER_IGNORE (1 << 7)
 
 #define SERVER_FLAG_EXCLUDE_DEFAULT (1 << 0)
+
+#define BIND_FLAG_NO_RULE_ADDR (1 << 0)
+#define BIND_FLAG_NO_RULE_NAMESERVER (1 << 1)
+#define BIND_FLAG_NO_RULE_IPSET (1 << 2)
+#define BIND_FLAG_NO_RULE_SNIPROXY (1 << 3)
+#define BIND_FLAG_NO_SPEED_CHECK (1 << 4)
+#define BIND_FLAG_NO_CACHE (1 << 5)
 
 struct dns_rule_flags {
 	unsigned int flags;
@@ -147,8 +161,16 @@ struct dns_conf_address_rule {
 	radix_tree_t *ipv6;
 };
 
-extern char dns_conf_server_ip[DNS_MAX_IPLEN];
-extern char dns_conf_server_tcp_ip[DNS_MAX_IPLEN];
+struct dns_bind_ip
+{
+	DNS_BIND_TYPE type;
+	uint32_t flags;
+	char ip[DNS_MAX_IPLEN];
+	const char *group;
+};
+
+extern struct dns_bind_ip dns_conf_bind_ip[DNS_MAX_BIND_IP];
+extern int dns_conf_bind_ip_num;
 
 extern int dns_conf_tcp_idle_time;
 extern int dns_conf_cachesize;

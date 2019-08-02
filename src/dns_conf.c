@@ -23,8 +23,8 @@ static struct dns_ipset_table dns_ipset_table;
 struct dns_group_table dns_group_table;
 
 /* server ip/port  */
-char dns_conf_server_ip[DNS_MAX_IPLEN];
-char dns_conf_server_tcp_ip[DNS_MAX_IPLEN];
+struct dns_bind_ip dns_conf_bind_ip[DNS_MAX_BIND_IP];
+int dns_conf_bind_ip_num = 0;
 int dns_conf_tcp_idle_time = 120;
 
 /* cache */
@@ -788,6 +788,109 @@ static int _config_speed_check_mode(void *data, int argc, char *argv[])
 	return 0;
 }
 
+static int _config_bind_ip(int argc, char *argv[], DNS_BIND_TYPE type)
+{
+	int index = dns_conf_bind_ip_num;
+	struct dns_bind_ip *bind_ip;
+	char *ip = NULL;
+	int opt = 0;
+	char group_name[DNS_GROUP_NAME_LEN];
+	const char *group = NULL;
+	unsigned int server_flag = 0;
+
+	/* clang-format off */
+	static struct option long_options[] = {
+		{"group", required_argument, NULL, 'g'}, /* add to group */
+		{"no-rule-addr", no_argument, NULL, 'A'},   
+		{"no-rule-nameserver", no_argument, NULL, 'N'},   
+		{"no-rule-ipset", no_argument, NULL, 'I'},   
+		{"no-rule-sni-proxy", no_argument, NULL, 'P'},   
+		{"no-speed-check", no_argument, NULL, 'S'},  
+		{"no-cache", no_argument, NULL, 'C'},  
+		{NULL, no_argument, NULL, 0}
+	};
+	/* clang-format on */
+	if (argc <= 1) {
+		tlog(TLOG_ERROR, "invalid parameter.");
+		goto errout;
+	}
+
+	if (index >= DNS_MAX_SERVERS) {
+		tlog(TLOG_WARN, "exceeds max server number, %s", ip);
+		return 0;
+	}
+
+	bind_ip = &dns_conf_bind_ip[index];
+	bind_ip->type = type;
+	bind_ip->flags = 0;
+	ip = argv[1];
+	safe_strncpy(bind_ip->ip, ip, DNS_MAX_IPLEN);
+
+	/* process extra options */
+	optind = 1;
+	while (1) {
+		opt = getopt_long_only(argc, argv, "", long_options, NULL);
+		if (opt == -1) {
+			break;
+		}
+
+		switch (opt) {
+		case 'g': {
+			safe_strncpy(group_name, optarg, DNS_GROUP_NAME_LEN);
+			group = _dns_conf_get_group_name(group_name);
+			break;
+		}
+		case 'A': {
+			server_flag |= BIND_FLAG_NO_RULE_ADDR;
+			break;
+		}
+		case 'N': {
+			server_flag |= BIND_FLAG_NO_RULE_NAMESERVER;
+			break;
+		}
+		case 'I': {
+			server_flag |= BIND_FLAG_NO_RULE_IPSET;
+			break;
+		}
+		case 'P': {
+			server_flag |= BIND_FLAG_NO_RULE_SNIPROXY;
+			break;
+		}
+		case 'S': {
+			server_flag |= BIND_FLAG_NO_SPEED_CHECK;
+			break;
+		}
+		case 'C': {
+			server_flag |= BIND_FLAG_NO_CACHE;
+			break;
+		}
+		default:
+			break;
+		}
+	}
+
+	/* add new server */
+	bind_ip->flags = server_flag;
+	bind_ip->group = group;
+	dns_conf_bind_ip_num++;
+	tlog(TLOG_DEBUG, "bind ip %s, type:%d, flag: %X", ip, type, server_flag);
+
+	return 0;
+
+errout:
+	return -1;
+}
+
+static int _config_bind_ip_udp(void *data, int argc, char *argv[])
+{
+	return _config_bind_ip(argc, argv, DNS_BIND_TYPE_UDP);
+}
+
+static int _config_bind_ip_tcp(void *data, int argc, char *argv[])
+{
+	return _config_bind_ip(argc, argv, DNS_BIND_TYPE_TCP);
+}
+
 static int _config_server_udp(void *data, int argc, char *argv[])
 {
 	return _config_server(argc, argv, DNS_SERVER_UDP, DEFAULT_DNS_PORT);
@@ -1075,8 +1178,8 @@ static int _config_log_level(void *data, int argc, char *argv[])
 
 static struct config_item _config_item[] = {
 	CONF_STRING("server-name", (char *)dns_conf_server_name, DNS_MAX_SERVER_NAME_LEN),
-	CONF_STRING("bind", dns_conf_server_ip, DNS_MAX_IPLEN),
-	CONF_STRING("bind-tcp", dns_conf_server_tcp_ip, DNS_MAX_IPLEN),
+	CONF_CUSTOM("bind", _config_bind_ip_udp, NULL),
+	CONF_CUSTOM("bind-tcp", _config_bind_ip_tcp, NULL),
 	CONF_CUSTOM("server", _config_server_udp, NULL),
 	CONF_CUSTOM("server-tcp", _config_server_tcp, NULL),
 	CONF_CUSTOM("server-tls", _config_server_tls, NULL),
