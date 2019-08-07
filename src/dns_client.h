@@ -45,6 +45,7 @@ struct client_dns_server_flag_tls {
 	char spki[DNS_SERVER_SPKI_LEN];
 	int spi_len;
 	char hostname[DNS_MAX_CNAME_LEN];
+	char tls_host_check[DNS_MAX_CNAME_LEN];
 };
 
 struct client_dns_server_flag_https {
@@ -53,6 +54,7 @@ struct client_dns_server_flag_https {
 	char hostname[DNS_MAX_CNAME_LEN];
 	char httphost[DNS_MAX_CNAME_LEN];
 	char path[DNS_MAX_CNAME_LEN];
+	char tls_host_check[DNS_MAX_CNAME_LEN];
 };
 
 struct client_dns_server_flags {

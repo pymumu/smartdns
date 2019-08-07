@@ -29,6 +29,7 @@
 #include "util.h"
 #include <arpa/inet.h>
 #include <errno.h>
+#include <ctype.h>
 #include <fcntl.h>
 #include <linux/filter.h>
 #include <netdb.h>
@@ -621,6 +622,38 @@ int dns_client_spki_decode(const char *spki, unsigned char *spki_data_out)
 	}
 
 	return spki_data_len;
+}
+
+static char *_dns_client_server_get_tls_host_check(struct dns_server_info *server_info)
+{
+	char *tls_host_check = NULL;
+
+	switch (server_info->type) {
+	case DNS_SERVER_UDP: {
+	} break;
+	case DNS_SERVER_HTTPS: {
+		struct client_dns_server_flag_https *flag_https = &server_info->flags.https;
+		tls_host_check = flag_https->tls_host_check;
+	} break;
+	case DNS_SERVER_TLS: {
+		struct client_dns_server_flag_tls *flag_tls = &server_info->flags.tls;
+		tls_host_check = flag_tls->tls_host_check;
+	} break;
+		break;
+	case DNS_SERVER_TCP:
+		break;
+	default:
+		return NULL;
+		break;
+	}
+
+	if (tls_host_check) {
+		if (tls_host_check[0] == '\0') {
+			return NULL;
+		}
+	}
+
+	return tls_host_check;
 }
 
 static char *_dns_client_server_get_spki(struct dns_server_info *server_info, int *spki_len)
@@ -1874,6 +1907,34 @@ static inline int _dns_client_to_hex(int c)
 	}
 }
 
+static int _dns_client_tls_matchName(const char *host, const char *pattern, int size)
+{
+	int match = -1;
+	int i = 0, j = 0;
+
+	while (i < size && host[j] != '\0') {
+		if (toupper(pattern[i]) == toupper(host[j])) {
+			i++;
+			j++;
+			continue;
+		}
+		if (pattern[i] == '*') {
+			while (host[j] != '.' && host[j] != '\0') {
+				j++;
+			}
+			i++;
+			continue;
+		}
+		break;
+	}
+
+	if (i == size && host[j] == '\0') {
+		match = 0;
+	}
+	
+	return match;
+}
+
 static int _dns_client_tls_verify(struct dns_server_info *server_info)
 {
 	X509 *cert = NULL;
@@ -1886,6 +1947,7 @@ static int _dns_client_tls_verify(struct dns_server_info *server_info)
 	unsigned char *key_sha256 = NULL;
 	char *spki = NULL;
 	int spki_len = 0;
+	char *tls_host_check = NULL;
 
 	cert = SSL_get_peer_certificate(server_info->ssl);
 	if (cert == NULL) {
@@ -1895,6 +1957,15 @@ static int _dns_client_tls_verify(struct dns_server_info *server_info)
 
 	X509_NAME_get_text_by_NID(X509_get_subject_name(cert), NID_commonName, peer_CN, 256);
 	tlog(TLOG_DEBUG, "peer CN: %s", peer_CN);
+
+	/* check tls host */
+	tls_host_check = _dns_client_server_get_tls_host_check(server_info);
+	if (tls_host_check) {
+		if (_dns_client_tls_matchName(peer_CN, tls_host_check, strnlen(tls_host_check, DNS_MAX_CNAME_LEN)) != 0) {
+			tlog(TLOG_INFO, "server %s CN is invalid, peer CN: %s, expect CN: %s", server_info->ip, peer_CN, tls_host_check);
+			goto errout;
+		}
+	}
 
 	/* get spki pin */
 	key_len = i2d_X509_PUBKEY(X509_get_X509_PUBKEY(cert), NULL);

@@ -181,6 +181,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 		{"spki-pin", required_argument, NULL, 'p'}, /* check SPKI pin */
 		{"host-name", required_argument, NULL, 'h'}, /* host name */
 		{"http-host", required_argument, NULL, 'H'}, /* http host */
+		{"tls-host-check", required_argument, NULL, 'V' }, /* check tls hostname */
 		{"group", required_argument, NULL, 'g'}, /* add to group */
 		{"exclude-default-group", no_argument, NULL, 'E'}, /* ecluse this from default group */
 		{NULL, no_argument, NULL, 0}
@@ -201,6 +202,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 	server->path[0] = '\0';
 	server->hostname[0] = '\0';
 	server->httphost[0] = '\0';
+	server->tls_host_check[0] = '\0';
 
 	ip = argv[1];
 
@@ -267,6 +269,10 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 		}
 		case 'p': {
 			safe_strncpy(server->spki, optarg, DNS_MAX_SPKI_LEN);
+			break;
+		}
+		case 'V': {
+			safe_strncpy(server->tls_host_check, optarg, DNS_MAX_CNAME_LEN);
 			break;
 		}
 		default:

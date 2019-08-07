@@ -122,6 +122,7 @@ struct dns_servers {
 	char spki[DNS_MAX_SPKI_LEN];
 	char hostname[DNS_MAX_CNAME_LEN];
 	char httphost[DNS_MAX_CNAME_LEN];
+	char tls_host_check[DNS_MAX_CNAME_LEN];
 	char path[DNS_MAX_URL_LEN];
 };
 

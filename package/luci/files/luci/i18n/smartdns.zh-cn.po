@@ -139,6 +139,12 @@ msgstr "协议类型"
 msgid "Domain Address"
 msgstr "域名地址"
 
+msgid "TLS Hostname Verify"
+msgstr "校验TLS主机名"
+
+msgid "Set TLS hostname to verify"
+msgstr "设置校验TLS主机名"
+
 msgid "TLS SNI name"
 msgstr "TLS SNI名称"
 
