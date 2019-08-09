@@ -228,6 +228,49 @@ static int _dns_server_epoll_ctl(struct dns_server_conn_head *head, int op, uint
 	return 0;
 }
 
+static int _dns_server_is_dualstack_selection(struct dns_request *request)
+{
+	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_DUALSTACK_SELECTION) == 0) {
+		return 0;
+	}
+
+	return dns_conf_dualstack_ip_selection;
+}
+
+static int _dns_server_is_return_soa(struct dns_request *request)
+{
+	struct dns_rule_flags *rule_flag = NULL;
+	unsigned int flags = 0;
+
+	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_RULE_SOA) == 0) {
+		return 0;
+	}
+
+	if (dns_conf_force_AAAA_SOA == 1 && request->qtype == DNS_T_AAAA) {
+		return 1;
+	}
+
+	if (request->domain_rule) {
+		rule_flag = request->domain_rule->rules[DOMAIN_RULE_FLAGS];
+		if (rule_flag) {
+			flags = rule_flag->flags;
+			if (flags & DOMAIN_FLAG_ADDR_SOA) {
+				return 1;
+			} 
+
+			if ((flags & DOMAIN_FLAG_ADDR_IPV4_SOA) && (request->qtype == DNS_T_A)) {
+				return 1;
+			}
+
+			if ((flags & DOMAIN_FLAG_ADDR_IPV6_SOA) && (request->qtype == DNS_T_AAAA)) {
+				return 1;
+			}
+		}
+	}
+
+	return 0;
+}
+
 static void _dns_server_audit_log(struct dns_request *request)
 {
 	char req_host[MAX_IP_LEN];
@@ -604,10 +647,109 @@ static int _dns_setup_ipset(struct dns_request *request)
 	return ret;
 }
 
-static int _dns_server_request_complete(struct dns_request *request)
+static int _dns_server_request_complete_A(struct dns_request *request)
 {
 	char *cname = NULL;
 	int cname_ttl = 0;
+
+	if (request->has_cname) {
+		cname = request->cname;
+		cname_ttl = request->ttl_cname;
+	}
+
+	if (request->has_ipv4 == 0) {
+		return 0;
+	}
+
+	tlog(TLOG_INFO, "result: %s, rcode: %d,  %d.%d.%d.%d\n", request->domain, request->rcode, request->ipv4_addr[0], request->ipv4_addr[1],
+		 request->ipv4_addr[2], request->ipv4_addr[3]);
+
+	request->has_soa = 0;
+	if (request->has_ping_result == 0 && request->ttl_v4 > DNS_SERVER_TMOUT_TTL) {
+		request->ttl_v4 = DNS_SERVER_TMOUT_TTL;
+	}
+
+	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_CACHE) == 0) {
+		return 0;
+	}
+
+	/* if doing prefetch, update cache only */
+	if (request->prefetch) {
+		dns_cache_replace(request->domain, cname, cname_ttl, request->ttl_v4, DNS_T_A, request->ipv4_addr, DNS_RR_A_LEN, request->ping_ttl_v4);
+	} else {
+		/* insert result to cache */
+		dns_cache_insert(request->domain, cname, cname_ttl, request->ttl_v4, DNS_T_A, request->ipv4_addr, DNS_RR_A_LEN, request->ping_ttl_v4);
+	}
+
+	return 0;
+}
+
+static int _dns_server_request_complete_AAAA(struct dns_request *request)
+{
+	char *cname = NULL;
+	int cname_ttl = 0;
+
+	if (request->has_cname) {
+		cname = request->cname;
+		cname_ttl = request->ttl_cname;
+	}
+
+	if (request->has_ipv6) {
+		tlog(TLOG_INFO, "result: %s, rcode: %d,  %.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", request->domain, request->rcode,
+			 request->ipv6_addr[0], request->ipv6_addr[1], request->ipv6_addr[2], request->ipv6_addr[3], request->ipv6_addr[4], request->ipv6_addr[5],
+			 request->ipv6_addr[6], request->ipv6_addr[7], request->ipv6_addr[8], request->ipv6_addr[9], request->ipv6_addr[10], request->ipv6_addr[11],
+			 request->ipv6_addr[12], request->ipv6_addr[13], request->ipv6_addr[14], request->ipv6_addr[15]);
+
+		if (request->has_ping_result == 0 && request->ttl_v6 > DNS_SERVER_TMOUT_TTL) {
+			request->ttl_v6 = DNS_SERVER_TMOUT_TTL;
+		}
+
+		/* if doing prefetch, update cache only */
+		if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_CACHE) != 0) {
+			if (request->prefetch) {
+				dns_cache_replace(request->domain, cname, cname_ttl, request->ttl_v6, DNS_T_AAAA, request->ipv6_addr, DNS_RR_AAAA_LEN, request->ping_ttl_v6);
+			} else {
+				/* insert result to cache */
+				dns_cache_insert(request->domain, cname, cname_ttl, request->ttl_v6, DNS_T_AAAA, request->ipv6_addr, DNS_RR_AAAA_LEN, request->ping_ttl_v6);
+			}
+		}
+
+		request->has_soa = 0;
+	}
+
+	if (request->has_ipv4 && (request->ping_ttl_v4 > 0)) {
+		tlog(TLOG_INFO, "result: %s, rcode: %d,  %d.%d.%d.%d\n", request->domain, request->rcode, request->ipv4_addr[0], request->ipv4_addr[1],
+			 request->ipv4_addr[2], request->ipv4_addr[3]);
+
+		/* if ipv4 is fasting than ipv6, add ipv4 to cache, and return SOA for AAAA request */
+		if ((request->ping_ttl_v4 + (dns_conf_dualstack_ip_selection_threshold * 10)) < request->ping_ttl_v6 || request->ping_ttl_v6 < 0) {
+			tlog(TLOG_DEBUG, "Force IPV4 perfered.");
+			if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_CACHE) != 0) {
+				if (request->prefetch) {
+					dns_cache_replace(request->domain, cname, cname_ttl, request->ttl_v4, DNS_T_A, request->ipv4_addr, DNS_RR_A_LEN, request->ping_ttl_v4);
+				} else {
+					dns_cache_insert(request->domain, cname, cname_ttl, request->ttl_v4, DNS_T_A, request->ipv4_addr, DNS_RR_A_LEN, request->ping_ttl_v4);
+				}
+			}
+
+			if (_dns_server_is_dualstack_selection(request)) {
+				if (_dns_server_reply_SOA(DNS_RC_NOERROR, request) != 0) {
+					return -1;
+				}
+
+				return 1;
+			}
+		}
+	}
+
+	request->has_ipv4 = 0;
+
+	return 0;
+}
+
+static int _dns_server_request_complete(struct dns_request *request)
+{
+	int ret = 0;
 
 	if (atomic_inc_return(&request->notified) != 1) {
 		return 0;
@@ -618,71 +760,20 @@ static int _dns_server_request_complete(struct dns_request *request)
 		return 0;
 	}
 
-	if (request->has_cname) {
-		cname = request->cname;
-		cname_ttl = request->ttl_cname;
-	}
-
 	if (request->qtype == DNS_T_A) {
-		if (request->has_ipv4) {
-			tlog(TLOG_INFO, "result: %s, rcode: %d,  %d.%d.%d.%d\n", request->domain, request->rcode, request->ipv4_addr[0], request->ipv4_addr[1],
-				 request->ipv4_addr[2], request->ipv4_addr[3]);
-
-			if (request->has_ping_result == 0 && request->ttl_v4 > DNS_SERVER_TMOUT_TTL) {
-				request->ttl_v4 = DNS_SERVER_TMOUT_TTL;
-			}
-
-			/* if doing prefetch, update cache only */
-			if (request->prefetch) {
-				dns_cache_replace(request->domain, cname, cname_ttl, request->ttl_v4, DNS_T_A, request->ipv4_addr, DNS_RR_A_LEN, request->ping_ttl_v4);
-			} else {
-				/* insert result to cache */
-				dns_cache_insert(request->domain, cname, cname_ttl, request->ttl_v4, DNS_T_A, request->ipv4_addr, DNS_RR_A_LEN, request->ping_ttl_v4);
-			}
-
-			request->has_soa = 0;
+		if (_dns_server_request_complete_A(request) != 0) {
+			tlog(TLOG_ERROR, "complete DNS A failed.");
+			return -1;
 		}
-
 	} else if (request->qtype == DNS_T_AAAA) {
-		if (request->has_ipv6) {
-			tlog(TLOG_INFO, "result: %s, rcode: %d,  %.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", request->domain, request->rcode,
-				 request->ipv6_addr[0], request->ipv6_addr[1], request->ipv6_addr[2], request->ipv6_addr[3], request->ipv6_addr[4], request->ipv6_addr[5],
-				 request->ipv6_addr[6], request->ipv6_addr[7], request->ipv6_addr[8], request->ipv6_addr[9], request->ipv6_addr[10], request->ipv6_addr[11],
-				 request->ipv6_addr[12], request->ipv6_addr[13], request->ipv6_addr[14], request->ipv6_addr[15]);
-
-			if (request->has_ping_result == 0 && request->ttl_v6 > DNS_SERVER_TMOUT_TTL) {
-				request->ttl_v6 = DNS_SERVER_TMOUT_TTL;
+		ret = _dns_server_request_complete_AAAA(request);
+		if (ret != 0) {
+			if (ret == 1) {
+				return 0;
 			}
-
-			/* if doing prefetch, update cache only */
-			if (request->prefetch) {
-				dns_cache_replace(request->domain, cname, cname_ttl, request->ttl_v6, DNS_T_AAAA, request->ipv6_addr, DNS_RR_AAAA_LEN, request->ping_ttl_v6);
-			} else {
-				/* insert result to cache */
-				dns_cache_insert(request->domain, cname, cname_ttl, request->ttl_v6, DNS_T_AAAA, request->ipv6_addr, DNS_RR_AAAA_LEN, request->ping_ttl_v6);
-			}
-
-			request->has_soa = 0;
+			tlog(TLOG_ERROR, "complete DNS A failed.");
+			return -1;
 		}
-
-		if (request->has_ipv4 && (request->ping_ttl_v4 > 0)) {
-			tlog(TLOG_INFO, "result: %s, rcode: %d,  %d.%d.%d.%d\n", request->domain, request->rcode, request->ipv4_addr[0], request->ipv4_addr[1],
-				 request->ipv4_addr[2], request->ipv4_addr[3]);
-
-			/* if ipv4 is fasting than ipv6, add ipv4 to cache, and return SOA for AAAA request */
-			if ((request->ping_ttl_v4 + (dns_conf_dualstack_ip_selection_threshold * 10)) < request->ping_ttl_v6 || request->ping_ttl_v6 < 0) {
-				tlog(TLOG_DEBUG, "Force IPV4 perfered.");
-				if (request->prefetch) {
-					dns_cache_replace(request->domain, cname, cname_ttl, request->ttl_v4, DNS_T_A, request->ipv4_addr, DNS_RR_A_LEN, request->ping_ttl_v4);
-				} else {
-					dns_cache_insert(request->domain, cname, cname_ttl, request->ttl_v4, DNS_T_A, request->ipv4_addr, DNS_RR_A_LEN, request->ping_ttl_v4);
-				}
-
-				return _dns_server_reply_SOA(DNS_RC_NOERROR, request);
-			}
-		}
-
-		request->has_ipv4 = 0;
 	}
 
 	if (request->has_soa) {
@@ -893,7 +984,7 @@ static void _dns_server_ping_result(struct ping_host_struct *ping_host, const ch
 			memcpy(request->ipv4_addr, &addr_in->sin_addr.s_addr, 4);
 		}
 
-		if (request->qtype == DNS_T_AAAA && dns_conf_dualstack_ip_selection == 1) {
+		if (request->qtype == DNS_T_AAAA && _dns_server_is_dualstack_selection(request)) {
 			if (request->ping_ttl_v6 < 0 && request->has_soa == 0) {
 				return;
 			}
@@ -1140,7 +1231,7 @@ static int _dns_server_process_answer_A(struct dns_rrs *rrs, struct dns_request 
 
 	if (request->qtype != DNS_T_A) {
 		/* ignore non-matched query type */
-		if (dns_conf_dualstack_ip_selection == 0) {
+		if (_dns_server_is_dualstack_selection(request) == 0) {
 			return 0;
 		}
 	}
@@ -1399,7 +1490,7 @@ static int _dns_server_passthrough_rule_check(struct dns_request *request, char 
 				unsigned char addr[4];
 				if (request->qtype != DNS_T_A) {
 					/* ignore non-matched query type */
-					if (dns_conf_dualstack_ip_selection == 0) {
+					if (_dns_server_is_dualstack_selection(request) == 0) {
 						break;
 					}
 				}
@@ -1663,7 +1754,7 @@ static int _dns_server_pre_process_rule_flags(struct dns_request *request)
 		goto errout;
 	}
 
-	if (flags & DOMAIN_FLAG_ADDR_SOA) {
+	if (_dns_server_is_return_soa(request)) {
 		/* return SOA */
 		_dns_server_reply_SOA(DNS_RC_NOERROR, request);
 		return 0;
@@ -1677,7 +1768,7 @@ static int _dns_server_pre_process_rule_flags(struct dns_request *request)
 			goto errout;
 		}
 
-		if (flags & DOMAIN_FLAG_ADDR_IPV4_SOA) {
+		if (_dns_server_is_return_soa(request)) {
 			/* return SOA for A request */
 			_dns_server_reply_SOA(DNS_RC_NOERROR, request);
 			return 0;
@@ -1689,7 +1780,7 @@ static int _dns_server_pre_process_rule_flags(struct dns_request *request)
 			goto errout;
 		}
 
-		if (flags & DOMAIN_FLAG_ADDR_IPV6_SOA) {
+		if (_dns_server_is_return_soa(request)) {
 			/* return SOA for A request */
 			_dns_server_reply_SOA(DNS_RC_NOERROR, request);
 			return 0;
@@ -1768,7 +1859,7 @@ static int _dns_server_process_cache(struct dns_request *request)
 		goto errout;
 	}
 
-	if (dns_conf_dualstack_ip_selection && request->qtype == DNS_T_AAAA) {
+	if (_dns_server_is_dualstack_selection(request) && request->qtype == DNS_T_AAAA) {
 		dns_cache_A = dns_cache_lookup(request->domain, DNS_T_A);
 		if (dns_cache_A && (dns_cache_A->speed > 0)) {
 			if ((dns_cache_A->speed + (dns_conf_dualstack_ip_selection_threshold * 10)) < dns_cache->speed || dns_cache->speed < 0) {
@@ -1891,7 +1982,7 @@ static int _dns_server_process_special_query(struct dns_request *request)
 		break;
 	case DNS_T_AAAA:
 		/* force return SOA */
-		if (dns_conf_force_AAAA_SOA == 1) {
+		if (_dns_server_is_return_soa(request)) {
 			_dns_server_reply_SOA(DNS_RC_NOERROR, request);
 			goto clean_exit;
 		}
@@ -1975,7 +2066,7 @@ static int _dns_server_do_query(struct dns_request *request, const char *domain,
 	request->send_tick = get_tick_count();
 
 	/* When the dual stack ip preference is enabled, both A and AAAA records are requested. */
-	if (qtype == DNS_T_AAAA && dns_conf_dualstack_ip_selection) {
+	if (qtype == DNS_T_AAAA && _dns_server_is_dualstack_selection(request)) {
 		_dns_server_request_get(request);
 		request->request_wait++;
 		if (dns_client_query(request->domain, DNS_T_A, dns_server_resolve_callback, request, group_name) != 0) {

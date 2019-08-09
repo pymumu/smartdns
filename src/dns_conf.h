@@ -63,8 +63,10 @@ typedef enum {
 #define BIND_FLAG_NO_RULE_NAMESERVER (1 << 1)
 #define BIND_FLAG_NO_RULE_IPSET (1 << 2)
 #define BIND_FLAG_NO_RULE_SNIPROXY (1 << 3)
-#define BIND_FLAG_NO_SPEED_CHECK (1 << 4)
-#define BIND_FLAG_NO_CACHE (1 << 5)
+#define BIND_FLAG_NO_RULE_SOA (1 << 4)
+#define BIND_FLAG_NO_SPEED_CHECK (1 << 5)
+#define BIND_FLAG_NO_CACHE (1 << 6)
+#define BIND_FLAG_NO_DUALSTACK_SELECTION (1 << 7)
 
 struct dns_rule_flags {
 	unsigned int flags;

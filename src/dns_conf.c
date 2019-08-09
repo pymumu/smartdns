@@ -811,8 +811,10 @@ static int _config_bind_ip(int argc, char *argv[], DNS_BIND_TYPE type)
 		{"no-rule-nameserver", no_argument, NULL, 'N'},   
 		{"no-rule-ipset", no_argument, NULL, 'I'},   
 		{"no-rule-sni-proxy", no_argument, NULL, 'P'},   
+		{"no-rule-soa", no_argument, NULL, 'O'},
 		{"no-speed-check", no_argument, NULL, 'S'},  
 		{"no-cache", no_argument, NULL, 'C'},  
+		{"no-dualstack-selection", no_argument, NULL, 'D'},
 		{NULL, no_argument, NULL, 0}
 	};
 	/* clang-format on */
@@ -868,6 +870,14 @@ static int _config_bind_ip(int argc, char *argv[], DNS_BIND_TYPE type)
 		}
 		case 'C': {
 			server_flag |= BIND_FLAG_NO_CACHE;
+			break;
+		}
+		case 'O': {
+			server_flag |= BIND_FLAG_NO_RULE_SOA;
+			break;
+		}
+		case 'D': {
+			server_flag |= BIND_FLAG_NO_DUALSTACK_SELECTION;
 			break;
 		}
 		default:
