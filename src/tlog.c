@@ -33,7 +33,6 @@
 #endif
 
 #define TLOG_BUFF_SIZE (1024 * 128)
-#define TLOG_MAX_LINE_LEN (1024)
 #define TLOG_TMP_LEN 128
 #define TLOG_LOG_SIZE (1024 * 1024 * 50)
 #define TLOG_LOG_COUNT 32
@@ -125,10 +124,10 @@ struct tlog_info_inter {
 typedef int (*list_callback)(const char *name, struct dirent *entry, void *user);
 typedef int (*vprint_callback)(char *buff, int maxlen, void *userptr, const char *format, va_list ap);
 
-struct tlog tlog;
+static struct tlog tlog;
 static int tlog_disable_early_print = 0;
 static tlog_level tlog_set_level = TLOG_INFO;
-tlog_format_func tlog_format;
+static tlog_format_func tlog_format;
 static unsigned int tlog_localtime_lock = 0;
 
 static const char *tlog_level_str[] = {
@@ -341,8 +340,9 @@ static int _tlog_root_log_buffer(char *buff, int maxlen, void *userptr, const ch
     int log_len = 0;
     struct tlog_info_inter *info_inter = (struct tlog_info_inter *)userptr;
     struct tlog_segment_log_head *log_head = NULL;
+	int max_format_len = 0;
 
-    if (tlog_format == NULL) {
+	if (tlog_format == NULL) {
         return -1;
     }
 
@@ -352,11 +352,17 @@ static int _tlog_root_log_buffer(char *buff, int maxlen, void *userptr, const ch
         memcpy(&log_head->info, &info_inter->info, sizeof(log_head->info));
     }
 
-    log_len = tlog_format(buff + len, maxlen - len, &info_inter->info, info_inter->userptr, format, ap);
-    if (log_len < 0) {
+	max_format_len = maxlen - len - 2;
+	log_len = tlog_format(buff + len, max_format_len, &info_inter->info, info_inter->userptr, format, ap);
+	if (log_len < 0) {
         return -1;
-    }
-    len += log_len;
+    } else if (log_len >= max_format_len) {
+		buff[max_format_len - 1] = '.';
+        buff[max_format_len - 2] = '.';
+        buff[max_format_len - 3] = '.';
+		log_len = max_format_len;
+	}
+	len += log_len;
 
     /* add new line character*/
     if (*(buff + len - 1) != '\n' && len + 1 < maxlen - len) {
@@ -443,11 +449,14 @@ static int _tlog_vprintf(struct tlog_log *log, vprint_callback print_callback, v
     }
 
     len = print_callback(buff, sizeof(buff), userptr, format, ap);
-    if (len <= 0 || len >= TLOG_MAX_LINE_LEN) {
+    if (len <= 0) {
         return -1;
-    }
+    } else if (len >= TLOG_MAX_LINE_LEN) {
+		strncpy(buff, "[LOG TOO LONG, DISCARD]\n", sizeof(buff));
+		len = strnlen(buff, sizeof(buff));
+	}
 
-    pthread_mutex_lock(&tlog.lock);
+	pthread_mutex_lock(&tlog.lock);
     do {
         if (log->end == log->start) {
             if (log->ext_end == 0) {
@@ -519,7 +528,7 @@ static int _tlog_vprintf(struct tlog_log *log, vprint_callback print_callback, v
 
 int tlog_vprintf(struct tlog_log *log, const char *format, va_list ap)
 {
-    return _tlog_vprintf(log, _tlog_print_buffer, 0, format, ap);
+    return _tlog_vprintf(log, _tlog_print_buffer, NULL, format, ap);
 }
 
 int tlog_printf(struct tlog_log *log, const char *format, ...)
@@ -1112,7 +1121,7 @@ static int _tlog_any_has_data(void)
 
 static int _tlog_wait_pids(void)
 {
-    time_t now = time(0);
+    time_t now = time(NULL);
     struct tlog_log *next = NULL;
     static struct tlog_log *last_log = NULL;
 
@@ -1312,7 +1321,6 @@ static void *_tlog_work(void *arg)
 
     while (1) {
         log_len = 0;
-        log_end = 0;
         log_extlen = 0;
         log_extend = 0;
         if (tlog.run == 0) {
@@ -1404,7 +1412,7 @@ const char *tlog_get_level_string(tlog_level level)
     return tlog_level_str[level];
 }
 
-void _tlog_log_setlogscreen(struct tlog_log *log, int enable)
+static void _tlog_log_setlogscreen(struct tlog_log *log, int enable)
 {
     if (log == NULL) {
         return;
@@ -1584,8 +1592,8 @@ int tlog_init(const char *logfile, int maxlogsize, int maxlogcount, int buffsize
     tlog.is_wait = 0;
 
     pthread_attr_init(&attr);
-    pthread_cond_init(&tlog.cond, 0);
-    pthread_mutex_init(&tlog.lock, 0);
+    pthread_cond_init(&tlog.cond, NULL);
+    pthread_mutex_init(&tlog.lock, NULL);
     tlog.run = 1;
 
     log = tlog_open(logfile, maxlogsize, maxlogcount, buffsize, flag);
