@@ -506,7 +506,7 @@ static int _ipset_operate(const char *ipsetname, const unsigned char addr[], int
 	nested[0]->len = (void *)buffer + NETLINK_ALIGN(netlink_head->nlmsg_len) - (void *)nested[0];
 
 	for (;;) {
-		rc = sendto(ipset_fd, buffer, netlink_head->nlmsg_len, 0, (struct sockaddr *)&snl, sizeof(snl));
+		rc = sendto(ipset_fd, buffer, netlink_head->nlmsg_len, 0, (const struct sockaddr *)&snl, sizeof(snl));
 		if (rc >= 0) {
 			break;
 		}
@@ -680,24 +680,9 @@ void SSL_CRYPTO_thread_cleanup(void)
 #ifndef MIN
 #define MIN(X, Y) ((X) < (Y) ? (X) : (Y))
 #endif
-typedef struct Protocol {
-    const char *const name;
-    const uint16_t default_port;
-    int (*const parse_packet)(const char*, size_t, char *, const char **);
-    const char *const abort_message;
-    const size_t abort_message_len;
-} protocol_t;
 
 static int parse_extensions(const char *, size_t, char *, const char **);
 static int parse_server_name_extension(const char *, size_t, char *, const char **);
-
-const struct Protocol *const tls_protocol;
-
-static const protocol_t tls_protocol_st = {
-	.default_port = 443,
-	.parse_packet = &parse_tls_header,
-};
-const protocol_t *const tls_protocol = &tls_protocol_st;
 
 /* Parse a TLS packet for the Server Name Indication extension in the client
  * hello handshake, returning the first servername found (pointer to static

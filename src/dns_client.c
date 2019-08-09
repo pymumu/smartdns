@@ -242,7 +242,7 @@ struct dns_query_struct {
 static struct dns_client client;
 static atomic_t dns_client_sid = ATOMIC_INIT(0);
 static LIST_HEAD(pending_servers);
-pthread_mutex_t pending_server_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t pending_server_mutex = PTHREAD_MUTEX_INITIALIZER;
 static int dns_client_has_bootstrap_dns = 0;
 
 /* get addr info */
@@ -452,7 +452,7 @@ errout:
 }
 
 /* add server to group */
-int _dns_client_add_to_group_pending(char *group_name, char *server_ip, int port, dns_server_type_t server_type, int ispending)
+static int _dns_client_add_to_group_pending(char *group_name, char *server_ip, int port, dns_server_type_t server_type, int ispending)
 {
 	struct dns_server_info *server_info = NULL;
 

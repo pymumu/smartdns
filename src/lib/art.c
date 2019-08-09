@@ -52,23 +52,28 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 static art_node* alloc_node(uint8_t type) {
     art_node* n;
-    switch (type) {
+	void *mem = NULL;
+	switch (type) {
         case NODE4:
-            n = (art_node*)calloc(1, sizeof(art_node4));
+            mem = (art_node*)calloc(1, sizeof(art_node4));
             break;
         case NODE16:
-            n = (art_node*)calloc(1, sizeof(art_node16));
+            mem = (art_node*)calloc(1, sizeof(art_node16));
             break;
         case NODE48:
-            n = (art_node*)calloc(1, sizeof(art_node48));
+            mem = (art_node*)calloc(1, sizeof(art_node48));
             break;
         case NODE256:
-            n = (art_node*)calloc(1, sizeof(art_node256));
+            mem = (art_node*)calloc(1, sizeof(art_node256));
             break;
         default:
             abort();
     }
-    n->type = type;
+    if (mem == NULL) {
+		abort();
+	}
+	n = mem;
+	n->type = type;
     return n;
 }
 

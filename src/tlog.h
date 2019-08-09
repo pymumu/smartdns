@@ -71,7 +71,7 @@ format: Log formats
 #ifndef BASE_FILE_NAME
 #define BASE_FILE_NAME __FILE__
 #endif
-#define tlog(level, format, ...) tlog_ext(level, BASE_FILE_NAME, __LINE__, __func__, 0, format, ##__VA_ARGS__)
+#define tlog(level, format, ...) tlog_ext(level, BASE_FILE_NAME, __LINE__, __func__, NULL, format, ##__VA_ARGS__)
 
 extern int tlog_ext(tlog_level level, const char *file, int line, const char *func, void *userptr, const char *format, ...)
     __attribute__((format(printf, 6, 7))) __attribute__((nonnull (6)));

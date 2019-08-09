@@ -2032,7 +2032,6 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 	int qclass;
 	int qtype = DNS_T_ALL;
 
-	_dns_server_conn_get(conn);
 	/* decode packet */
 	tlog(TLOG_DEBUG, "recv query packet from %s, len = %d", gethost_by_addr(name, sizeof(name), (struct sockaddr *)from), inpacket_len);
 	decode_len = dns_decode(packet, DNS_PACKSIZE, inpacket, inpacket_len);
@@ -2083,7 +2082,6 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 		goto errout;
 	}
 
-	_dns_server_conn_release(conn);
 	return ret;
 errout:
 	if (request) {
@@ -2091,7 +2089,6 @@ errout:
 		_dns_server_delete_request(request);
 	}
 
-	_dns_server_conn_release(conn);
 	return ret;
 }
 
@@ -2441,23 +2438,28 @@ static int _dns_server_process_tcp(struct dns_server_conn_tcp_client *dnsserver,
 
 static int _dns_server_process(struct dns_server_conn_head *conn, struct epoll_event *event, unsigned long now)
 {
+	int ret;
 	_dns_server_client_touch(conn);
+	_dns_server_conn_get(conn);
 	if (conn->type == DNS_CONN_TYPE_UDP_SERVER) {
 		struct dns_server_conn_udp *udpconn = (struct dns_server_conn_udp *)conn;
-		return _dns_server_process_udp(udpconn, event, now);
+		ret = _dns_server_process_udp(udpconn, event, now);
 	} else if (conn->type == DNS_CONN_TYPE_TCP_SERVER) {
 		struct dns_server_conn_tcp_server *tcpserver = (struct dns_server_conn_tcp_server *)conn;
-		return _dns_server_tcp_accept(tcpserver, event, now);
+		ret = _dns_server_tcp_accept(tcpserver, event, now);
 	} else if (conn->type == DNS_CONN_TYPE_TCP_CLIENT) {
 		struct dns_server_conn_tcp_client *tcpclient = (struct dns_server_conn_tcp_client *)conn;
-		return _dns_server_process_tcp(tcpclient, event, now);
+		ret = _dns_server_process_tcp(tcpclient, event, now);
 	} else if (conn->type == DNS_CONN_TYPE_TLS_SERVER) {
 		tlog(TLOG_ERROR, "unsupport dns server type %d", conn->type);
-		return -1;
+		ret = -1;
 	} else {
 		tlog(TLOG_ERROR, "unsupport dns server type %d", conn->type);
-		return -1;
+		ret = -1;
 	}
+	_dns_server_conn_release(conn);
+
+	return ret;
 }
 
 static void _dns_server_second_ping_check(struct dns_request *request)

@@ -167,7 +167,6 @@ int conf_parse_args(char *key, char *value, int *argc, char **argv)
 			argv[count] = start;
 			*ptr = '\0';
 			ptr++;
-			start = ptr;
 			count++;
 			sep_flag = ' ';
 			start = NULL;

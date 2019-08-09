@@ -984,13 +984,9 @@ static int _fast_ping_get_addr_by_type(PING_TYPE type, const char *ip_str, int p
 		return _fast_ping_get_addr_by_dns(ip_str, port, out_gai, out_ping_type);
 		break;
 	default:
-		goto errout;
 		break;
 	}
 
-	return -1;
-
-errout:
 	return -1;
 }
 
@@ -1056,15 +1052,16 @@ struct ping_host_struct *fast_ping_start(PING_TYPE type, const char *host, int c
 	pthread_mutex_unlock(&ping.map_lock);
 
 	_fast_ping_host_get(ping_host);
-	_fast_ping_host_get(ping_host);
 	if (_fast_ping_sendping(ping_host) != 0) {
 		goto errout_remove;
 	}
 
 	ping_host->run = 1;
 	freeaddrinfo(gai);
-	_fast_ping_host_put(ping_host);
 	return ping_host;
+errout_remove:
+	fast_ping_stop(ping_host);
+	ping_host = NULL;
 errout:
 	if (gai) {
 		freeaddrinfo(gai);
@@ -1074,10 +1071,6 @@ errout:
 		free(ping_host);
 	}
 
-	return NULL;
-errout_remove:
-	fast_ping_stop(ping_host);
-	_fast_ping_host_put(ping_host);
 	return NULL;
 }
 
@@ -1270,8 +1263,8 @@ static int _fast_ping_process_icmp(struct ping_host_struct *ping_host, struct ti
 	}
 
 	if (recv_ping_host->seq != seq) {
-		_fast_ping_host_put(recv_ping_host);
 		tlog(TLOG_ERROR, "seq num mismatch, expect %u, real %u", recv_ping_host->seq, seq);
+		_fast_ping_host_put(recv_ping_host);
 		return -1;
 	}
 
@@ -1640,7 +1633,7 @@ errout:
 	return -1;
 }
 
-void _fast_ping_close_fds(void)
+static void _fast_ping_close_fds(void)
 {
 	if (ping.fd_icmp > 0) {
 		close(ping.fd_icmp);
