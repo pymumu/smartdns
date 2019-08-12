@@ -2602,12 +2602,13 @@ static void _dns_server_second_ping_check(struct dns_request *request)
 static void _dns_server_prefetch_domain(struct dns_cache *dns_cache)
 {
 	/* If there are still hits, continue pre-fetching */
-	if (atomic_dec_return(&dns_cache->hitnum) <= 0) {
+	int hitnum = dns_cache_hitnum_dec_get(dns_cache);
+	if (hitnum <= 0) {
 		return;
 	}
 
 	/* start prefetch domain */
-	tlog(TLOG_DEBUG, "prefetch by cache %s, qtype %d, ttl %d, hitnum %d", dns_cache->domain, dns_cache->qtype, dns_cache->ttl, atomic_read(&dns_cache->hitnum));
+	tlog(TLOG_DEBUG, "prefetch by cache %s, qtype %d, ttl %d, hitnum %d", dns_cache->domain, dns_cache->qtype, dns_cache->ttl, hitnum);
 	if (_dns_server_prefetch_request(dns_cache->domain, dns_cache->qtype) != 0) {
 		tlog(TLOG_ERROR, "prefetch domain %s, qtype %d, failed.", dns_cache->domain, dns_cache->qtype);
 	}

@@ -22,6 +22,7 @@ struct dns_cache {
 	unsigned int ttl;
 	int speed;
 	atomic_t hitnum;
+	int hitnum_update_add;
 	int del_pending;
 	time_t insert_time;
 	dns_type_t qtype;
@@ -45,6 +46,8 @@ void dns_cache_delete(struct dns_cache *dns_cache);
 void dns_cache_get(struct dns_cache *dns_cache);
 
 void dns_cache_release(struct dns_cache *dns_cache);
+
+int dns_cache_hitnum_dec_get(struct dns_cache *dns_cache);
 
 void dns_cache_update(struct dns_cache *dns_cache);
 

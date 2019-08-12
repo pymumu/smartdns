@@ -3,6 +3,10 @@
 #include "tlog.h"
 #include <pthread.h>
 
+#define DNS_CACHE_MAX_HITNUM 5000
+#define DNS_CACHE_HITNUM_STEP 2
+#define DNS_CACHE_HITNUM_STEP_MAX 6
+
 struct dns_cache_head {
 	DECLARE_HASHTABLE(cache_hash, 10);
 	struct list_head cache_list;
@@ -159,7 +163,8 @@ int dns_cache_insert(char *domain, char *cname, int cname_ttl, int ttl, dns_type
 	dns_cache->cname[0] = 0;
 	dns_cache->qtype = qtype;
 	dns_cache->ttl = ttl;
-	atomic_set(&dns_cache->hitnum, 2);
+	atomic_set(&dns_cache->hitnum, 3);
+	dns_cache->hitnum_update_add = DNS_CACHE_HITNUM_STEP;
 	dns_cache->del_pending = 0;
 	dns_cache->speed = speed;
 	atomic_set(&dns_cache->ref, 1);
@@ -274,13 +279,33 @@ void dns_cache_delete(struct dns_cache *dns_cache)
 	pthread_mutex_unlock(&dns_cache_head.lock);
 }
 
+int dns_cache_hitnum_dec_get(struct dns_cache *dns_cache)
+{
+	int hitnum = 0;
+	pthread_mutex_lock(&dns_cache_head.lock);
+	hitnum = atomic_dec_return(&dns_cache->hitnum);
+	if (dns_cache->hitnum_update_add > DNS_CACHE_HITNUM_STEP) {
+		dns_cache->hitnum_update_add--;
+	}
+	pthread_mutex_unlock(&dns_cache_head.lock);
+
+	return hitnum;
+}
+
 void dns_cache_update(struct dns_cache *dns_cache)
 {
 	pthread_mutex_lock(&dns_cache_head.lock);
 	if (!list_empty(&dns_cache->list)) {
 		list_del_init(&dns_cache->list);
 		list_add_tail(&dns_cache->list, &dns_cache_head.cache_list);
-		atomic_inc(&dns_cache->hitnum);
+		atomic_add(dns_cache->hitnum_update_add, &dns_cache->hitnum);
+		if (atomic_read(&dns_cache->hitnum) > DNS_CACHE_MAX_HITNUM) {
+			atomic_set(&dns_cache->hitnum, DNS_CACHE_MAX_HITNUM);
+		}
+
+		if (dns_cache->hitnum_update_add < DNS_CACHE_HITNUM_STEP_MAX) {
+			dns_cache->hitnum_update_add++;
+		}
 	}
 	pthread_mutex_unlock(&dns_cache_head.lock);
 }
