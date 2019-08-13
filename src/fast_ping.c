@@ -302,7 +302,7 @@ static struct addrinfo *_fast_ping_getaddr(const char *host, const char *port, i
 	hints.ai_protocol = protocol;
 	errcode = getaddrinfo(host, port, &hints, &result);
 	if (errcode != 0) {
-		tlog(TLOG_ERROR, "get addr info failed. %s\n", gai_strerror(errcode));
+		tlog(TLOG_ERROR, "get addr info failed. host:%s, port: %s, error %s\n", host, port, gai_strerror(errcode));
 		goto errout;
 	}
 
@@ -1007,7 +1007,7 @@ struct ping_host_struct *fast_ping_start(PING_TYPE type, const char *host, int c
 
 	ret = _fast_ping_get_addr_by_type(type, ip_str, port, &gai, &ping_type);
 	if (ret != 0) {
-		tlog(TLOG_ERROR, "get addr by type failed.");
+		tlog(TLOG_ERROR, "get addr by type failed, host: %s", host);
 		goto errout;
 	}
 
