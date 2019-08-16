@@ -213,7 +213,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 		safe_strncpy(server->hostname, server->server, sizeof(server->hostname));
 		safe_strncpy(server->httphost, server->server, sizeof(server->httphost));
 		if (server->path[0] == 0) {
-			strcpy(server->path, "/");
+			safe_strncpy(server->path, "/", sizeof(server->path));
 		}
 	} else {
 		/* parse ip, port from ip */

@@ -639,7 +639,6 @@ static char *_dns_client_server_get_tls_host_check(struct dns_server_info *serve
 		struct client_dns_server_flag_tls *flag_tls = &server_info->flags.tls;
 		tls_host_check = flag_tls->tls_host_check;
 	} break;
-		break;
 	case DNS_SERVER_TCP:
 		break;
 	default:
@@ -673,7 +672,6 @@ static char *_dns_client_server_get_spki(struct dns_server_info *server_info, in
 		spki = flag_tls->spki;
 		*spki_len = flag_tls->spi_len;
 	} break;
-		break;
 	case DNS_SERVER_TCP:
 		break;
 	default:
@@ -728,7 +726,6 @@ static int _dns_client_server_add(char *server_ip, char *server_host, int port, 
 		spki_data_len = flag_tls->spi_len;
 		sock_type = SOCK_STREAM;
 	} break;
-		break;
 	case DNS_SERVER_TCP:
 		sock_type = SOCK_STREAM;
 		break;
@@ -1273,10 +1270,12 @@ static int _dns_client_recv(struct dns_server_info *server_info, unsigned char *
 
 	/* get query reference */
 	query = _dns_client_get_request(packet->head.id, domain);
-	if (query == NULL || (query && has_opt == 0 && server_info->flags.result_flag & DNSSERVER_FLAG_CHECK_EDNS)) {
-		if (query) {
-			_dns_client_query_release(query);
-		}
+	if (query == NULL) {
+		return 0;
+	}
+
+	if (has_opt == 0 && server_info->flags.result_flag & DNSSERVER_FLAG_CHECK_EDNS) {
+		_dns_client_query_release(query);
 		return 0;
 	}
 
@@ -2494,7 +2493,6 @@ errout_del_list:
 	query = NULL;
 errout:
 	if (query) {
-		tlog(TLOG_ERROR, "release %p", query);
 		free(query);
 	}
 	return -1;
@@ -2618,9 +2616,9 @@ static void _dns_client_add_pending_servers(void)
 		/* if has no bootstrap DNS, just call getaddrinfo to get address */
 		if (dns_client_has_bootstrap_dns == 0) {
 			if (_dns_client_add_pendings(pending, pending->host) != 0) {
+				pthread_mutex_unlock(&pending_server_mutex);
 				tlog(TLOG_ERROR, "add pending DNS server %s failed", pending->host);
 				exit(1);
-				pthread_mutex_unlock(&pending_server_mutex);
 				return;
 			}
 			list_del_init(&pending->list);

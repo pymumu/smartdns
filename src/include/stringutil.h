@@ -20,4 +20,5 @@ static inline char *safe_strncpy(char *dest, const char *src, size_t n)
 	return ret;
 }
 
+
 #endif

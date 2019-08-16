@@ -390,6 +390,10 @@ art_leaf* art_maximum(art_tree *t) {
 
 static art_leaf* make_leaf(const unsigned char *key, int key_len, void *value) {
     art_leaf *l = (art_leaf*)calloc(1, sizeof(art_leaf)+key_len+1);
+    if (l == NULL) {
+		return NULL;
+	}
+    
     l->value = value;
     l->key_len = key_len;
     memcpy(l->key, key, key_len);

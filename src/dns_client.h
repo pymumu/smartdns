@@ -2,6 +2,11 @@
 #define _SMART_DNS_CLIENT_H
 
 #include "dns.h"
+
+#ifdef __cpluscplus
+extern "C" {
+#endif
+
 #define DNS_SERVER_SPKI_LEN 64
 #define DNS_SERVER_GROUP_DEFAULT "default"
 
@@ -87,4 +92,7 @@ int dns_client_remove_group(char *group_name);
 
 int dns_server_num(void);
 
+#ifdef __cpluscplus
+}
+#endif
 #endif

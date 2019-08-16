@@ -65,6 +65,7 @@ struct ipset_netlink_msg {
 };
 
 static int ipset_fd;
+static int pidfile_fd;
 
 unsigned long get_tick_count(void)
 {
@@ -125,6 +126,7 @@ int getaddr_by_host(char *host, struct sockaddr *addr, socklen_t *addr_len)
 		result->ai_addrlen = *addr_len;
 	}
 
+	addr->sa_family = result->ai_family;
 	memcpy(addr, result->ai_addr, result->ai_addrlen);
 	*addr_len = result->ai_addrlen;
 
@@ -354,7 +356,7 @@ int parse_uri(char *value, char *scheme, char *host, int *port, char *path)
 	process_ptr += field_len;
 
 	if (path) {
-		strcpy(path, process_ptr);
+		strncpy(path, process_ptr, PATH_MAX);
 	} 
 	return 0;
 }
@@ -608,6 +610,12 @@ int create_pid_file(const char *pid_file)
 		goto errout;
 	}
 
+	if (pidfile_fd > 0) {
+		close(pidfile_fd);
+	}
+
+	pidfile_fd = fd;
+
 	return 0;
 errout:
 	if (fd > 0) {
@@ -859,7 +867,7 @@ void get_compiled_time(struct tm *tm)
 	int hour, min, sec;
     static const char *month_names = "JanFebMarAprMayJunJulAugSepOctNovDec";
 
-    sscanf(__DATE__, "%s %d %d", s_month, &day, &year);
+    sscanf(__DATE__, "%5s %d %d", s_month, &day, &year);
     month = (strstr(month_names, s_month) - month_names) / 3;
 	sscanf(__TIME__, "%d:%d:%d", &hour, &min, &sec);
     tm->tm_year = year - 1900;

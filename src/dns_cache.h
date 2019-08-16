@@ -9,6 +9,10 @@
 #include <stdlib.h>
 #include <time.h>
 
+#ifdef __cpluscplus
+extern "C" {
+#endif
+
 #define DNS_CACHE_TTL_MIN 30
 
 struct dns_cache {
@@ -59,4 +63,7 @@ int dns_cache_get_ttl(struct dns_cache *dns_cache);
 
 void dns_cache_destroy(void);
 
+#ifdef __cpluscplus
+}
+#endif
 #endif // !_SMARTDNS_CACHE_H

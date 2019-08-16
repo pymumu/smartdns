@@ -165,7 +165,6 @@ static int _smartdns_add_servers(void)
 			safe_strncpy(flag_tls->hostname, dns_conf_servers[i].hostname, sizeof(flag_tls->hostname));
 			safe_strncpy(flag_tls->tls_host_check, dns_conf_servers[i].tls_host_check, sizeof(flag_tls->tls_host_check));
 		} break;
-			break;
 		case DNS_SERVER_TCP:
 			break;
 		default:

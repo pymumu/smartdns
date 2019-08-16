@@ -873,6 +873,63 @@ static void _dns_server_select_possible_ipaddress(struct dns_request *request)
 	}
 }
 
+static void _dns_server_delete_request(struct dns_request *request)
+{
+	if (request->conn) {
+		_dns_server_conn_release(request->conn);
+	}
+	pthread_mutex_destroy(&request->ip_map_lock);
+	memset(request, 0, sizeof(*request));
+	free(request);
+}
+
+static void _dns_server_request_release_complete(struct dns_request *request, int do_complete)
+{
+	struct dns_ip_address *addr_map;
+	struct hlist_node *tmp;
+	int bucket = 0;
+
+	int refcnt = atomic_dec_return(&request->refcnt);
+	if (refcnt) {
+		if (refcnt < 0) {
+			tlog(TLOG_ERROR, "BUG: refcnt is %d, domain %s, qtype =%d", refcnt, request->domain, request->qtype);
+			abort();
+		}
+		return;
+	}
+
+	pthread_mutex_lock(&server.request_list_lock);
+	list_del_init(&request->list);
+	pthread_mutex_unlock(&server.request_list_lock);
+
+	if (do_complete) {
+		/* Select max hit ip address, and return to client */
+		_dns_server_select_possible_ipaddress(request);
+		_dns_server_request_complete(request);
+	}
+
+	hash_for_each_safe(request->ip_map, bucket, tmp, addr_map, node)
+	{
+		hash_del(&addr_map->node);
+		free(addr_map);
+	}
+
+	_dns_server_delete_request(request);
+}
+
+static void _dns_server_request_release(struct dns_request *request)
+{
+	_dns_server_request_release_complete(request, 1);
+}
+
+static void _dns_server_request_get(struct dns_request *request)
+{
+	if (atomic_inc_return(&request->refcnt) <= 0) {
+		tlog(TLOG_ERROR, "BUG: request ref is invalid, %s", request->domain);
+		abort();
+	}
+}
+
 static struct dns_request *_dns_server_new_request(void)
 {
 	struct dns_request *request = NULL;
@@ -897,60 +954,11 @@ static struct dns_request *_dns_server_new_request(void)
 	request->check_order_list = &dns_conf_check_order;
 	INIT_LIST_HEAD(&request->list);
 	hash_init(request->ip_map);
+	_dns_server_request_get(request);
 
 	return request;
 errout:
 	return NULL;
-}
-
-static void _dns_server_delete_request(struct dns_request *request)
-{
-	if (request->conn) {
-		_dns_server_conn_release(request->conn);
-	}
-	pthread_mutex_destroy(&request->ip_map_lock);
-	memset(request, 0, sizeof(*request));
-	free(request);
-}
-
-static void _dns_server_request_release(struct dns_request *request)
-{
-	struct dns_ip_address *addr_map;
-	struct hlist_node *tmp;
-	int bucket = 0;
-
-	int refcnt = atomic_dec_return(&request->refcnt);
-	if (refcnt) {
-		if (refcnt < 0) {
-			tlog(TLOG_ERROR, "BUG: refcnt is %d, domain %s, qtype =%d", refcnt, request->domain, request->qtype);
-			abort();
-		}
-		return;
-	}
-
-	pthread_mutex_lock(&server.request_list_lock);
-	list_del_init(&request->list);
-	pthread_mutex_unlock(&server.request_list_lock);
-
-	/* Select max hit ip address, and return to client */
-	_dns_server_select_possible_ipaddress(request);
-
-	_dns_server_request_complete(request);
-	hash_for_each_safe(request->ip_map, bucket, tmp, addr_map, node)
-	{
-		hash_del(&addr_map->node);
-		free(addr_map);
-	}
-
-	_dns_server_delete_request(request);
-}
-
-static void _dns_server_request_get(struct dns_request *request)
-{
-	if (atomic_inc_return(&request->refcnt) <= 0) {
-		tlog(TLOG_ERROR, "BUG: request ref is invalid, %s", request->domain);
-		abort();
-	}
 }
 
 static void _dns_server_ping_result(struct ping_host_struct *ping_host, const char *host, FAST_PING_RESULT result, struct sockaddr *addr, socklen_t addr_len,
@@ -2057,40 +2065,37 @@ static int _dns_server_do_query(struct dns_request *request, const char *domain,
 		}
 	}
 
+	// Get reference for server thread
 	_dns_server_request_get(request);
 	pthread_mutex_lock(&server.request_list_lock);
 	list_add_tail(&request->list, &server.request_list);
 	pthread_mutex_unlock(&server.request_list_lock);
-
-	_dns_server_request_get(request);
 	request->send_tick = get_tick_count();
 
 	/* When the dual stack ip preference is enabled, both A and AAAA records are requested. */
 	if (qtype == DNS_T_AAAA && _dns_server_is_dualstack_selection(request)) {
+		// Get reference for AAAA query
 		_dns_server_request_get(request);
 		request->request_wait++;
 		if (dns_client_query(request->domain, DNS_T_A, dns_server_resolve_callback, request, group_name) != 0) {
-			_dns_server_request_release(request);
 			request->request_wait--;
+			_dns_server_request_release(request);
 		}
 	}
 
+	// Get reference for DNS query
 	request->request_wait++;
+	_dns_server_request_get(request);
 	if (dns_client_query(request->domain, qtype, dns_server_resolve_callback, request, group_name) != 0) {
+		request->request_wait--;
 		_dns_server_request_release(request);
 		tlog(TLOG_ERROR, "send dns request failed.");
 		goto errout;
 	}
 
-	return 0;
 clean_exit:
-	if (request) {
-		_dns_server_delete_request(request);
-	}
-
 	return 0;
 errout:
-
 	_dns_server_request_remove(request);
 	request = NULL;
 	return ret;
@@ -2172,12 +2177,12 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 		tlog(TLOG_ERROR, "do query %s failed.\n", domain);
 		goto errout;
 	}
-
+	_dns_server_request_release_complete(request, 0);
 	return ret;
 errout:
 	if (request) {
 		ret = _dns_server_forward_request(inpacket, inpacket_len);
-		_dns_server_delete_request(request);
+		_dns_server_request_release(request);
 	}
 
 	return ret;
@@ -2201,10 +2206,11 @@ static int _dns_server_prefetch_request(char *domain, dns_type_t qtype)
 		goto errout;
 	}
 
+	_dns_server_request_release_complete(request, 0);
 	return ret;
 errout:
 	if (request) {
-		_dns_server_delete_request(request);
+		_dns_server_request_release(request);
 	}
 
 	return ret;
@@ -2228,10 +2234,11 @@ int dns_server_query(char *domain, int qtype, dns_result_callback callback, void
 		goto errout;
 	}
 
+	_dns_server_request_release_complete(request, 0);
 	return ret;
 errout:
 	if (request) {
-		_dns_server_delete_request(request);
+		_dns_server_request_release(request);
 	}
 
 	return ret;

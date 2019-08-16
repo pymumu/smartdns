@@ -281,7 +281,7 @@ static radix_node_t
 *radix_search_best2(radix_tree_t *radix, prefix_t *prefix, int inclusive)
 {
 	radix_node_t *node;
-	radix_node_t *stack[RADIX_MAXBITS + 1];
+	radix_node_t *stack[RADIX_MAXBITS + 1] = {0};
 	unsigned char *addr;
 	unsigned int bitlen;
 	int cnt = 0;

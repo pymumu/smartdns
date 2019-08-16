@@ -1470,9 +1470,10 @@ static void _fast_ping_period_run(void)
 	struct hlist_node *tmp = NULL;
 	int i = 0;
 	struct timeval now;
+	struct timezone tz;
 	struct timeval interval;
 	int64_t millisecond;
-	gettimeofday(&now, NULL);
+	gettimeofday(&now, &tz);
 	LIST_HEAD(action);
 
 	pthread_mutex_lock(&ping.map_lock);

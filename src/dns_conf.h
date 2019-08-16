@@ -10,6 +10,10 @@
 #include "list.h"
 #include "radix.h"
 
+#ifdef __cpluscplus
+extern "C" {
+#endif
+
 #define DNS_MAX_BIND_IP 16
 #define DNS_MAX_SERVERS 64
 #define DNS_MAX_SERVER_NAME_LEN 128
@@ -218,5 +222,7 @@ void dns_server_load_exit(void);
 int dns_server_load_conf(const char *file);
 
 extern int config_addtional_file(void *data, int argc, char *argv[]);
-
+#ifdef __cpluscplus
+}
+#endif
 #endif // !_DNS_CONF

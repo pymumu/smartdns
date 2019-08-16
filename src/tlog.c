@@ -453,6 +453,7 @@ static int _tlog_vprintf(struct tlog_log *log, vprint_callback print_callback, v
         return -1;
     } else if (len >= TLOG_MAX_LINE_LEN) {
 		strncpy(buff, "[LOG TOO LONG, DISCARD]\n", sizeof(buff));
+        buff[sizeof(buff) - 1] = '\0';
 		len = strnlen(buff, sizeof(buff));
 	}
 
@@ -1528,7 +1529,7 @@ tlog_log *tlog_open(const char *logfile, int maxlogsize, int maxlogcount, int bu
     strncpy(log->logname, basename(log_file), sizeof(log->logname));
     log->logname[sizeof(log->logname) - 1] = '\0';
     if (log->nocompress) {
-        strncpy(log->suffix, TLOG_SUFFIX_LOG, sizeof(sizeof(log->suffix)));
+        strncpy(log->suffix, TLOG_SUFFIX_LOG, sizeof(log->suffix));
     } else {
         strncpy(log->suffix, TLOG_SUFFIX_GZ, sizeof(log->suffix));
     }
