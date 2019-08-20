@@ -2132,7 +2132,7 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 	tlog(TLOG_DEBUG, "recv query packet from %s, len = %d", gethost_by_addr(name, sizeof(name), (struct sockaddr *)from), inpacket_len);
 	decode_len = dns_decode(packet, DNS_PACKSIZE, inpacket, inpacket_len);
 	if (decode_len < 0) {
-		tlog(TLOG_ERROR, "decode failed.\n");
+		tlog(TLOG_DEBUG, "decode failed.\n");
 		goto errout;
 	}
 

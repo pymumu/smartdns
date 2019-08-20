@@ -956,7 +956,7 @@ static int _dns_decode_domain(struct dns_context *context, char *output, int siz
 			}
 			ptr = context->data + len;
 			if (ptr > context->data + context->maxsize) {
-				tlog(TLOG_DEBUG, "length is not enouth %u:%ld, %p, %p", context->maxsize, (long)(ptr - context->data), context->ptr, context->data);
+				tlog(TLOG_DEBUG, "length is not enough %u:%ld, %p, %p", context->maxsize, (long)(ptr - context->data), context->ptr, context->data);
 				return -1;
 			}
 			is_compressed = 1;
@@ -974,7 +974,7 @@ static int _dns_decode_domain(struct dns_context *context, char *output, int siz
 		}
 
 		if (ptr > context->data + context->maxsize) {
-			tlog(TLOG_DEBUG, "length is not enouth %u:%ld, %p, %p", context->maxsize, (long)(ptr - context->data), context->ptr, context->data);
+			tlog(TLOG_DEBUG, "length is not enough %u:%ld, %p, %p", context->maxsize, (long)(ptr - context->data), context->ptr, context->data);
 			return -1;
 		}
 
@@ -983,7 +983,7 @@ static int _dns_decode_domain(struct dns_context *context, char *output, int siz
 			/* copy sub string */
 			copy_len = (len < size - output_len) ? len : size - 1 - output_len;
 			if ((ptr + copy_len) > (context->data + context->maxsize)) {
-				tlog(TLOG_DEBUG, "length is not enouth %u:%ld, %p, %p", context->maxsize, (long)(ptr - context->data), context->ptr, context->data);
+				tlog(TLOG_DEBUG, "length is not enough %u:%ld, %p, %p", context->maxsize, (long)(ptr - context->data), context->ptr, context->data);
 				return -1;
 			}
 			memcpy(output, ptr, copy_len);
