@@ -1774,7 +1774,9 @@ static int _dns_client_process_tcp(struct dns_server_info *server_info, struct e
 
 				len = http_head_parse(http_head, (char *)server_info->recv_buff.data, server_info->recv_buff.len);
 				if (len < 0) {
+					tlog(TLOG_DEBUG, "remote server not supported.");
 					http_head_destroy(http_head);
+					http_head = NULL;
 					if (len == -1) {
 						break;
 					}
