@@ -140,6 +140,48 @@ errout:
 	return -1;
 }
 
+int getsocknet_inet(int fd, struct sockaddr *addr, socklen_t *addr_len)
+{
+	struct sockaddr_storage addr_store;
+	socklen_t addr_store_len = sizeof(addr_store);
+	if (getsockname(fd, (struct sockaddr *)&addr_store, &addr_store_len) != 0) {
+		goto errout;
+	}
+
+	switch (addr_store.ss_family) {
+	case AF_INET: {
+		struct sockaddr_in *addr_in;
+		addr_in = (struct sockaddr_in *)addr;
+		addr_in->sin_family = AF_INET;
+		*addr_len = sizeof(struct sockaddr_in);
+		memcpy(addr, addr_in, sizeof(struct sockaddr_in));
+	} break;
+	case AF_INET6: {
+		struct sockaddr_in6 *addr_in6;
+		addr_in6 = (struct sockaddr_in6 *)addr;
+		if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
+			struct sockaddr_in addr_in4;
+			memset(&addr_in4, 0, sizeof(addr_in4));
+			memcpy(&addr_in4.sin_addr.s_addr, addr_in6->sin6_addr.s6_addr + 12, sizeof(addr_in4.sin_addr.s_addr));
+			addr_in4.sin_family = AF_INET;
+			addr_in4.sin_port = 0;
+			*addr_len = sizeof(struct sockaddr_in);
+			memcpy(addr, &addr_in4, sizeof(struct sockaddr_in));
+		} else {
+			addr_in6->sin6_family = AF_INET6;
+			*addr_len = sizeof(struct sockaddr_in6);
+			memcpy(addr, addr_in6, sizeof(struct sockaddr_in6));
+		}
+	} break;
+	default:
+		goto errout;
+		break;
+	}
+	return 0;
+errout:
+	return -1;
+}
+
 int fill_sockaddr_by_ip(unsigned char *ip, int ip_len, int port, struct sockaddr *addr, socklen_t *addr_len)
 {
 	if (ip == NULL || addr == NULL || addr_len == NULL) {

@@ -20,6 +20,8 @@ char *gethost_by_addr(char *host, int maxsize, struct sockaddr *addr);
 
 int getaddr_by_host(char *host, struct sockaddr *addr, socklen_t *addr_len);
 
+int getsocknet_inet(int fd, struct sockaddr *addr, socklen_t *addr_len);
+
 int fill_sockaddr_by_ip(unsigned char *ip, int ip_len, int port, struct sockaddr *addr, socklen_t *addr_len);
 
 int parse_ip(const char *value, char *ip, int *port);

@@ -2342,7 +2342,7 @@ static int _dns_server_tcp_accept(struct dns_server_conn_tcp_server *tcpserver, 
 		return -1;
 	}
 
-	if (getsockname(tcpclient->head.fd, (struct sockaddr *)&tcpclient->localaddr, &tcpclient->localaddr_len) != 0) {
+	if (getsocknet_inet(tcpclient->head.fd, (struct sockaddr *)&tcpclient->localaddr, &tcpclient->localaddr_len) != 0) {
 		tlog(TLOG_ERROR, "get local addr failed, %s", strerror(errno));
 		goto errout;
 	}
