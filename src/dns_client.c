@@ -624,20 +624,20 @@ int dns_client_spki_decode(const char *spki, unsigned char *spki_data_out)
 	return spki_data_len;
 }
 
-static char *_dns_client_server_get_tls_host_check(struct dns_server_info *server_info)
+static char *_dns_client_server_get_tls_host_verify(struct dns_server_info *server_info)
 {
-	char *tls_host_check = NULL;
+	char *tls_host_verify = NULL;
 
 	switch (server_info->type) {
 	case DNS_SERVER_UDP: {
 	} break;
 	case DNS_SERVER_HTTPS: {
 		struct client_dns_server_flag_https *flag_https = &server_info->flags.https;
-		tls_host_check = flag_https->tls_host_check;
+		tls_host_verify = flag_https->tls_host_verify;
 	} break;
 	case DNS_SERVER_TLS: {
 		struct client_dns_server_flag_tls *flag_tls = &server_info->flags.tls;
-		tls_host_check = flag_tls->tls_host_check;
+		tls_host_verify = flag_tls->tls_host_verify;
 	} break;
 	case DNS_SERVER_TCP:
 		break;
@@ -646,13 +646,13 @@ static char *_dns_client_server_get_tls_host_check(struct dns_server_info *serve
 		break;
 	}
 
-	if (tls_host_check) {
-		if (tls_host_check[0] == '\0') {
+	if (tls_host_verify) {
+		if (tls_host_verify[0] == '\0') {
 			return NULL;
 		}
 	}
 
-	return tls_host_check;
+	return tls_host_verify;
 }
 
 static char *_dns_client_server_get_spki(struct dns_server_info *server_info, int *spki_len)
@@ -691,7 +691,6 @@ static int _dns_client_server_add(char *server_ip, char *server_host, int port, 
 {
 	struct dns_server_info *server_info = NULL;
 	struct addrinfo *gai = NULL;
-	unsigned char *spki_data = NULL;
 	int spki_data_len = 0;
 	int ttl = 0;
 	char port_s[8];
@@ -825,10 +824,6 @@ static int _dns_client_server_add(char *server_ip, char *server_host, int port, 
 
 	return 0;
 errout:
-	if (spki_data) {
-		free(spki_data);
-	}
-
 	if (server_info) {
 		if (server_info->ssl_ctx) {
 			SSL_CTX_free(server_info->ssl_ctx);
@@ -1948,7 +1943,7 @@ static int _dns_client_tls_verify(struct dns_server_info *server_info)
 	unsigned char *key_sha256 = NULL;
 	char *spki = NULL;
 	int spki_len = 0;
-	char *tls_host_check = NULL;
+	char *tls_host_verify = NULL;
 
 	cert = SSL_get_peer_certificate(server_info->ssl);
 	if (cert == NULL) {
@@ -1960,10 +1955,10 @@ static int _dns_client_tls_verify(struct dns_server_info *server_info)
 	tlog(TLOG_DEBUG, "peer CN: %s", peer_CN);
 
 	/* check tls host */
-	tls_host_check = _dns_client_server_get_tls_host_check(server_info);
-	if (tls_host_check) {
-		if (_dns_client_tls_matchName(peer_CN, tls_host_check, strnlen(tls_host_check, DNS_MAX_CNAME_LEN)) != 0) {
-			tlog(TLOG_INFO, "server %s CN is invalid, peer CN: %s, expect CN: %s", server_info->ip, peer_CN, tls_host_check);
+	tls_host_verify = _dns_client_server_get_tls_host_verify(server_info);
+	if (tls_host_verify) {
+		if (_dns_client_tls_matchName(peer_CN, tls_host_verify, strnlen(tls_host_verify, DNS_MAX_CNAME_LEN)) != 0) {
+			tlog(TLOG_INFO, "server %s CN is invalid, peer CN: %s, expect CN: %s", server_info->ip, peer_CN, tls_host_verify);
 			goto errout;
 		}
 	}

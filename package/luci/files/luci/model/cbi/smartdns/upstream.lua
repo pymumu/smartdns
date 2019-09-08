@@ -39,8 +39,8 @@ o:value("https", translate("https"))
 o.default     = "udp"
 o.rempty      = false
 
----- TLS host check
-o = s:option(Value, "tls_host_check", translate("TLS Hostname Verify"), translate("Set TLS hostname to verify"))
+---- TLS host verify
+o = s:option(Value, "tls_host_verify", translate("TLS Hostname Verify"), translate("Set TLS hostname to verify"))
 o.default     = ""
 o.datatype    = "string"
 o.rempty      = true

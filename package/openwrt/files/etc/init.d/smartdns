@@ -160,7 +160,7 @@ load_server()
 	config_get "port" "$section" "port" ""
 	config_get "type" "$section" "type" "udp"
 	config_get "ip" "$section" "ip" ""
-	config_get "tls_host_check" "$section" "tls_host_check" ""
+	config_get "tls_host_verify" "$section" "tls_host_verify" ""
 	config_get "host_name" "$section" "host_name" ""
 	config_get "http_host" "$section" "http_host" ""
 	config_get "server_group" "$section" "server_group" ""
@@ -192,8 +192,8 @@ load_server()
 		fi
 	fi
 
-	if [ ! -z "$tls_host_check" ]; then
-		ADDITIONAL_ARGS="$ADDITIONAL_ARGS -tls-host-check $tls_host_check"
+	if [ ! -z "$tls_host_verify" ]; then
+		ADDITIONAL_ARGS="$ADDITIONAL_ARGS -tls-host-verify $tls_host_verify"
 	fi
 
 	if [ ! -z "$host_name" ]; then
