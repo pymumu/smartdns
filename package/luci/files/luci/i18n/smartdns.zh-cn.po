@@ -112,6 +112,60 @@ msgstr "设置所有域名的TTL最大值"
 msgid "smartdns custom settings"
 msgstr "smartdns 自定义设置，具体配置参数参考指导"
 
+msgid "Second Server Settings"
+msgstr "第二DNS服务器"
+
+msgid "Enable or disable second DNS server."
+msgstr "是否启用第二DNS服务器。"
+
+msgid "Skip Speed Check"
+msgstr "跳过测速"
+
+msgid "Do not check speed."
+msgstr "禁用测速。"
+
+msgid "Server Group"
+msgstr "服务器组"
+
+msgid "Query DNS through specific dns server group, such as office, home."
+msgstr "使用指定服务器组查询，比如office, home。"
+
+msgid "Skip Address Rules"
+msgstr "跳过address规则"
+
+msgid "Skip address rules."
+msgstr "跳过address规则。"
+
+msgid "Skip Nameserver Rule"
+msgstr "跳过Nameserver规则"
+
+msgid "Skip nameserver rules."
+msgstr "跳过Nameserver规则。"
+
+msgid "Skip Ipset Rule"
+msgstr "跳过ipset规则"
+
+msgid "Skip ipset rules."
+msgstr "跳过ipset规则。"
+
+msgid "Skip SOA Address Rule"
+msgstr "跳过address SOA(#)规则"
+
+msgid "Skip SOA address rules."
+msgstr "跳过address SOA(#)规则。"
+
+msgid "Skip Dualstack Selection"
+msgstr "跳过双栈优选"
+
+msgid "Skip Sualstack Selection."
+msgstr "跳过双栈优选。"
+
+msgid "Skip Cache"
+msgstr "跳过cache"
+
+msgid "Skip Cache."
+msgstr "跳过cache。"
+
 msgid "Upstream Servers"
 msgstr "上游服务器"
 
@@ -142,8 +196,8 @@ msgstr "域名地址"
 msgid "TLS Hostname Verify"
 msgstr "校验TLS主机名"
 
-msgid "Set TLS hostname to verify"
-msgstr "设置校验TLS主机名"
+msgid "Set TLS hostname to verify."
+msgstr "设置校验TLS主机名。"
 
 msgid "TLS SNI name"
 msgstr "TLS SNI名称"
@@ -151,8 +205,8 @@ msgstr "TLS SNI名称"
 msgid "HTTP Host"
 msgstr "HTTP主机"
 
-msgid "Sets the server name indication"
-msgstr "设置服务器SNI名称"
+msgid "Sets the server name indication for query."
+msgstr "设置查询时使用的服务器SNI名称。"
 
 msgid "Set the HTTP host used for the query. Use this parameter when the host of the URL address is an IP address."
 msgstr "设置查询时使用的HTTP主机，当URL地址的host是IP地址时，使用此参数。"
@@ -160,7 +214,7 @@ msgstr "设置查询时使用的HTTP主机，当URL地址的host是IP地址时�
 msgid "Server Group"
 msgstr "服务器组"
 
-msgid "DNS Server group belongs to, used with nameserver, such as offlce, home."
+msgid "DNS Server group belongs to, used with nameserver, such as office, home."
 msgsr "DNS服务器所属组， 配合nameserver使用，例如：office，home。"
 
 msgid "IP Blacklist Filtering"

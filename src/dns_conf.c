@@ -745,6 +745,7 @@ static int _config_speed_check_mode(void *data, int argc, char *argv[])
 	char *ptr;
 	int order = 0;
 	int port = 80;
+	int i = 0;
 
 	if (argc <= 1) {
 		return -1;
@@ -778,7 +779,7 @@ static int _config_speed_check_mode(void *data, int argc, char *argv[])
 			dns_conf_check_order.tcp_port = port;
 		} else if (strncmp(field, "none", sizeof("none")) == 0) {
 			dns_conf_check_order.order[order] = DOMAIN_CHECK_NONE;
-			for (int i = order + 1; i < DOMAIN_CHECK_NUM; i++) {
+			for (i = order + 1; i < DOMAIN_CHECK_NUM; i++) {
 				dns_conf_check_order.order[i] = DOMAIN_CHECK_NONE;
 			}
 
