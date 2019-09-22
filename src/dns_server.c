@@ -290,7 +290,11 @@ static void _dns_server_audit_log(struct dns_request *request)
 	} else if (request->qtype == DNS_T_A && request->has_ipv4) {
 		snprintf(req_result, sizeof(req_result), "%d.%d.%d.%d", request->ipv4_addr[0], request->ipv4_addr[1], request->ipv4_addr[2], request->ipv4_addr[3]);
 	} else if (request->has_soa) {
-		return;
+		if (!dns_conf_audit_log_SOA) {
+			return;
+		}
+
+		snprintf(req_result, sizeof(req_result), "SOA");
 	} else {
 		return;
 	}
@@ -1747,25 +1751,23 @@ static int _dns_server_pre_process_rule_flags(struct dns_request *request)
 	struct dns_rule_flags *rule_flag = NULL;
 	unsigned int flags = 0;
 	if (request->domain_rule == NULL) {
-		goto errout;
+		goto out;
 	}
 
 	/* get domain rule flag */
 	rule_flag = request->domain_rule->rules[DOMAIN_RULE_FLAGS];
 	if (rule_flag == NULL) {
-		goto errout;
+		goto out;
 	}
 
 	flags = rule_flag->flags;
 	if (flags & DOMAIN_FLAG_ADDR_IGN) {
 		/* ignore this domain */
-		goto errout;
+		goto out;
 	}
 
 	if (_dns_server_is_return_soa(request)) {
-		/* return SOA */
-		_dns_server_reply_SOA(DNS_RC_NOERROR, request);
-		return 0;
+		goto soa;
 	}
 
 	/* return specific type of address */
@@ -1773,34 +1775,38 @@ static int _dns_server_pre_process_rule_flags(struct dns_request *request)
 	case DNS_T_A:
 		if (flags & DOMAIN_FLAG_ADDR_IPV4_IGN) {
 			/* ignore this domain for A reqeust */
-			goto errout;
+			goto out;
 		}
 
 		if (_dns_server_is_return_soa(request)) {
 			/* return SOA for A request */
-			_dns_server_reply_SOA(DNS_RC_NOERROR, request);
-			return 0;
+			goto soa;
 		}
 		break;
 	case DNS_T_AAAA:
 		if (flags & DOMAIN_FLAG_ADDR_IPV6_IGN) {
 			/* ignore this domain for A reqeust */
-			goto errout;
+			goto out;
 		}
 
 		if (_dns_server_is_return_soa(request)) {
 			/* return SOA for A request */
-			_dns_server_reply_SOA(DNS_RC_NOERROR, request);
-			return 0;
+			goto soa;
 		}
 		break;
 	default:
-		goto errout;
+		goto out;
 		break;
 	}
 
-errout:
+out:
 	return -1;
+
+soa:
+	/* return SOA */
+	_dns_server_reply_SOA(DNS_RC_NOERROR, request);
+	_dns_server_audit_log(request);
+	return 0;
 }
 
 static int _dns_server_process_address(struct dns_request *request)

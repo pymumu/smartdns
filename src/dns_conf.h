@@ -195,6 +195,7 @@ extern struct dns_server_groups dns_conf_server_groups[DNS_NAX_GROUP_NUMBER];
 extern int dns_conf_server_group_num;
 
 extern int dns_conf_audit_enable;
+extern int dns_conf_audit_log_SOA;
 extern char dns_conf_audit_file[DNS_MAX_PATH];
 extern size_t dns_conf_audit_size;
 extern int dns_conf_audit_num;

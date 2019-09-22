@@ -49,6 +49,7 @@ int dns_conf_log_num = 8;
 
 /* auditing */
 int dns_conf_audit_enable = 0;
+int dns_conf_audit_log_SOA;
 char dns_conf_audit_file[DNS_MAX_PATH];
 size_t dns_conf_audit_size = 1024 * 1024;
 int dns_conf_audit_num = 2;
@@ -1216,6 +1217,7 @@ static struct config_item _config_item[] = {
 	CONF_SIZE("log-size", &dns_conf_log_size, 0, 1024 * 1024 * 1024),
 	CONF_INT("log-num", &dns_conf_log_num, 0, 1024),
 	CONF_YESNO("audit-enable", &dns_conf_audit_enable),
+	CONF_YESNO("audit-SOA", &dns_conf_audit_log_SOA),
 	CONF_STRING("audit-file", (char *)&dns_conf_audit_file, DNS_MAX_PATH),
 	CONF_SIZE("audit-size", &dns_conf_audit_size, 0, 1024 * 1024 * 1024),
 	CONF_INT("audit-num", &dns_conf_audit_num, 0, 1024),
