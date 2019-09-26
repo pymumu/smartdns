@@ -1712,13 +1712,91 @@ static int _dns_client_socket_recv(struct dns_server_info *server_info)
 	}
 }
 
+static int _dns_client_process_tcp_buff(struct dns_server_info *server_info)
+{
+	int len = 0;
+	int dns_packet_len = 0;
+	struct http_head *http_head = NULL;
+	unsigned char *inpacket_data = NULL;
+
+	while (1) {
+		if (server_info->type == DNS_SERVER_HTTPS) {
+			http_head = http_head_init(4096);
+			if (http_head == NULL) {
+				goto errout;
+			}
+
+			len = http_head_parse(http_head, (char *)server_info->recv_buff.data, server_info->recv_buff.len);
+			if (len < 0) {
+				tlog(TLOG_DEBUG, "remote server not supported.");
+				if (len == -1) {
+					break;
+				}
+				goto errout;
+			}
+
+			if (http_head_get_httpcode(http_head) != 200) {
+				tlog(TLOG_WARN, "http server query failed, server return http code : %d, %s", http_head_get_httpcode(http_head),
+					 http_head_get_httpcode_msg(http_head));
+				goto errout;
+			}
+
+			dns_packet_len = http_head_get_data_len(http_head);
+			inpacket_data = (unsigned char *)http_head_get_data(http_head);
+		} else {
+			/* tcp result format
+			 * | len (short) | dns query result |
+			 */
+			inpacket_data = server_info->recv_buff.data;
+			len = ntohs(*((unsigned short *)(inpacket_data)));
+			if (len <= 0 || len >= DNS_IN_PACKSIZE) {
+				/* data len is invalid */
+				goto errout;
+			}
+
+			if (len > server_info->recv_buff.len - 2) {
+				/* len is not expceded, wait and recv */
+				break;
+			}
+
+			inpacket_data = server_info->recv_buff.data + 2;
+			dns_packet_len = len;
+			len += 2;
+		}
+
+		tlog(TLOG_DEBUG, "recv tcp packet from %s, len = %d", server_info->ip, len);
+		/* process result */
+		if (_dns_client_recv(server_info, inpacket_data, dns_packet_len, &server_info->addr, server_info->ai_addrlen) != 0) {
+			goto errout;
+		}
+
+		if (http_head) {
+			http_head_destroy(http_head);
+			http_head = NULL;
+		}
+
+		server_info->recv_buff.len -= len;
+
+		/* move to next result */
+		if (server_info->recv_buff.len > 0) {
+			memmove(server_info->recv_buff.data, server_info->recv_buff.data + len, server_info->recv_buff.len);
+		} else {
+			break;
+		}
+	}
+
+	return 0;
+errout:
+	if (http_head) {
+		http_head_destroy(http_head);
+	}
+	return -1;
+}
+
 static int _dns_client_process_tcp(struct dns_server_info *server_info, struct epoll_event *event, unsigned long now)
 {
 	int len;
-	int dns_packet_len = 0;
 	int ret = -1;
-	struct http_head *http_head = NULL;
-	unsigned char *inpacket_data = NULL;
 
 	if (event->events & EPOLLIN) {
 		/* receive from tcp */
@@ -1755,79 +1833,14 @@ static int _dns_client_process_tcp(struct dns_server_info *server_info, struct e
 		}
 
 		time(&server_info->last_recv);
-
 		server_info->recv_buff.len += len;
 		if (server_info->recv_buff.len < 2) {
 			/* wait and recv */
 			return 0;
 		}
 
-		while (1) {
-			if (server_info->type == DNS_SERVER_HTTPS) {
-				http_head = http_head_init(4096);
-				if (http_head == NULL) {
-					goto errout;
-				}
-
-				len = http_head_parse(http_head, (char *)server_info->recv_buff.data, server_info->recv_buff.len);
-				if (len < 0) {
-					tlog(TLOG_DEBUG, "remote server not supported.");
-					http_head_destroy(http_head);
-					http_head = NULL;
-					if (len == -1) {
-						break;
-					}
-					goto errout;
-				}
-
-				if (http_head_get_httpcode(http_head) != 200) {
-					tlog(TLOG_WARN, "http server query failed, server return http code : %d, %s", http_head_get_httpcode(http_head),
-						 http_head_get_httpcode_msg(http_head));
-					goto errout;
-				}
-
-				dns_packet_len = http_head_get_data_len(http_head);
-				inpacket_data = (unsigned char *)http_head_get_data(http_head);
-			} else {
-				/* tcp result format
-				 * | len (short) | dns query result |
-				 */
-				inpacket_data = server_info->recv_buff.data;
-				len = ntohs(*((unsigned short *)(inpacket_data)));
-				if (len <= 0 || len >= DNS_IN_PACKSIZE) {
-					/* data len is invalid */
-					goto errout;
-				}
-
-				if (len > server_info->recv_buff.len - 2) {
-					/* len is not expceded, wait and recv */
-					break;
-				}
-
-				inpacket_data = server_info->recv_buff.data + 2;
-				dns_packet_len = len;
-				len += 2;
-			}
-			tlog(TLOG_DEBUG, "recv tcp packet from %s, len = %d", server_info->ip, len);
-
-			/* process result */
-			if (_dns_client_recv(server_info, inpacket_data, dns_packet_len, &server_info->addr, server_info->ai_addrlen) != 0) {
-				goto errout;
-			}
-
-			if (http_head) {
-				http_head_destroy(http_head);
-				http_head = NULL;
-			}
-
-			server_info->recv_buff.len -= len;
-
-			/* move to next result */
-			if (server_info->recv_buff.len > 0) {
-				memmove(server_info->recv_buff.data, server_info->recv_buff.data + len, server_info->recv_buff.len);
-			} else {
-				break;
-			}
+		if (_dns_client_process_tcp_buff(server_info) != 0) {
+			goto errout;
 		}
 	}
 
@@ -1843,6 +1856,7 @@ static int _dns_client_process_tcp(struct dns_server_info *server_info, struct e
 		if (server_info->status != DNS_SERVER_STATUS_CONNECTED) {
 			server_info->status = DNS_SERVER_STATUS_DISCONNECTED;
 		}
+
 		pthread_mutex_lock(&client.server_list_lock);
 		if (server_info->send_buff.len > 0) {
 			/* send existing send_buffer data  */
@@ -1861,12 +1875,12 @@ static int _dns_client_process_tcp(struct dns_server_info *server_info, struct e
 				memmove(server_info->send_buff.data, server_info->send_buff.data + len, server_info->send_buff.len);
 			}
 		}
-		pthread_mutex_unlock(&client.server_list_lock);
-
 		/* still remain data, retry */
 		if (server_info->send_buff.len > 0) {
+			pthread_mutex_unlock(&client.server_list_lock);
 			return 0;
 		}
+		pthread_mutex_unlock(&client.server_list_lock);
 
 		/* clear epllout event */
 		memset(&event, 0, sizeof(event));
@@ -1876,17 +1890,11 @@ static int _dns_client_process_tcp(struct dns_server_info *server_info, struct e
 			tlog(TLOG_ERROR, "epoll ctl failed.");
 			goto errout;
 		}
-
-		return 0;
 	}
 
 	return 0;
 
 errout:
-	if (http_head) {
-		http_head_destroy(http_head);
-	}
-
 	pthread_mutex_lock(&client.server_list_lock);
 	server_info->recv_buff.len = 0;
 	server_info->send_buff.len = 0;
@@ -2065,6 +2073,7 @@ static int _dns_client_process_tls(struct dns_server_info *server_info, struct e
 			tlog(TLOG_DEBUG, "reused session");
 		} else {
 			tlog(TLOG_DEBUG, "new session");
+			pthread_mutex_lock(&client.server_list_lock);
 			if (server_info->ssl_session) {
 				/* free session */
 				SSL_SESSION_free(server_info->ssl_session);
@@ -2073,11 +2082,13 @@ static int _dns_client_process_tls(struct dns_server_info *server_info, struct e
 
 			if (_dns_client_tls_verify(server_info) != 0) {
 				tlog(TLOG_WARN, "peer %s verify failed.", server_info->ip);
+				pthread_mutex_unlock(&client.server_list_lock);
 				goto errout;
 			}
 
 			/* save ssl session for next request */
 			server_info->ssl_session = SSL_get1_session(server_info->ssl);
+			pthread_mutex_unlock(&client.server_list_lock);
 		}
 
 		server_info->status = DNS_SERVER_STATUS_CONNECTED;
