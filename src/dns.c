@@ -265,6 +265,7 @@ static int _dns_add_qr_head(struct dns_data_context *data_context, char *domain,
 static int _dns_get_qr_head(struct dns_data_context *data_context, char *domain, int maxsize, int *qtype, int *qclass)
 {
 	int i;
+	int is_read_all = 0;
 	/* question head */
 	/* |domain         |
 	 * |qtype | qclass |
@@ -278,6 +279,7 @@ static int _dns_get_qr_head(struct dns_data_context *data_context, char *domain,
 			domain++;
 			data_context->ptr++;
 			i++;
+			is_read_all = 1;
 			break;
 		}
 		*domain = *data_context->ptr;
@@ -286,6 +288,9 @@ static int _dns_get_qr_head(struct dns_data_context *data_context, char *domain,
 	}
 
 	*domain = '\0';
+	if (is_read_all == 0) {
+		return -1;
+	}
 
 	if (_dns_data_left_len(data_context) < 4) {
 		return -1;

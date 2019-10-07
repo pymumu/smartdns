@@ -1428,13 +1428,13 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 				request->rcode = packet->head.rcode;
 			} break;
 			case DNS_T_NS: {
-				char cname[128];
-				dns_get_CNAME(rrs, name, 128, &ttl, cname, 128);
+				char cname[DNS_MAX_CNAME_LEN];
+				dns_get_CNAME(rrs, name, DNS_MAX_CNAME_LEN, &ttl, cname, DNS_MAX_CNAME_LEN);
 				tlog(TLOG_DEBUG, "NS: %s ttl:%d cname: %s\n", name, ttl, cname);
 			} break;
 			case DNS_T_CNAME: {
-				char cname[128];
-				dns_get_CNAME(rrs, name, 128, &ttl, cname, 128);
+				char cname[DNS_MAX_CNAME_LEN];
+				dns_get_CNAME(rrs, name, DNS_MAX_CNAME_LEN, &ttl, cname, DNS_MAX_CNAME_LEN);
 				tlog(TLOG_DEBUG, "name:%s ttl: %d cname: %s\n", name, ttl, cname);
 				safe_strncpy(request->cname, cname, DNS_MAX_CNAME_LEN);
 				request->ttl_cname = ttl;
