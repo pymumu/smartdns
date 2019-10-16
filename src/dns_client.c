@@ -60,6 +60,8 @@
 #define DNS_TCP_CONNECT_TIMEOUT (5)
 #define DNS_QUERY_TIMEOUT (500)
 #define DNS_QUERY_RETRY (3)
+#define SOCKET_PRIORITY (6)
+#define SOCKET_IP_TOS (IPTOS_LOWDELAY | IPTOS_RELIABILITY)
 
 #ifndef TCP_FASTOPEN_CONNECT
 #define TCP_FASTOPEN_CONNECT 30
@@ -1312,6 +1314,8 @@ static int _dns_client_create_socket_udp(struct dns_server_info *server_info)
 	struct epoll_event event;
 	const int on = 1;
 	const int val = 255;
+	const int priority = SOCKET_PRIORITY;
+	const int ip_tos = SOCKET_IP_TOS;
 
 	fd = socket(server_info->ai_family, SOCK_DGRAM, 0);
 	if (fd < 0) {
@@ -1331,6 +1335,8 @@ static int _dns_client_create_socket_udp(struct dns_server_info *server_info)
 	server_info->status = DNS_SERVER_STATUS_CONNECTIONLESS;
 	setsockopt(server_info->fd, IPPROTO_IP, IP_RECVTTL, &on, sizeof(on));
 	setsockopt(server_info->fd, SOL_IP, IP_TTL, &val, sizeof(val));
+	setsockopt(server_info->fd, SOL_SOCKET, SO_PRIORITY, &priority, sizeof(priority));
+	setsockopt(server_info->fd, IPPROTO_IP, IP_TOS, &ip_tos, sizeof(ip_tos));
 	if (server_info->ai_family == AF_INET6) {
 		/* for recving ip ttl value */
 		setsockopt(server_info->fd, IPPROTO_IPV6, IPV6_RECVHOPLIMIT, &on, sizeof(on));
@@ -1352,6 +1358,8 @@ static int _DNS_client_create_socket_tcp(struct dns_server_info *server_info)
 	int fd = 0;
 	struct epoll_event event;
 	int yes = 1;
+	const int priority = SOCKET_PRIORITY;
+	const int ip_tos = SOCKET_IP_TOS;
 
 	fd = socket(server_info->ai_family, SOCK_STREAM, 0);
 	if (fd < 0) {
@@ -1370,6 +1378,8 @@ static int _DNS_client_create_socket_tcp(struct dns_server_info *server_info)
 	}
 
 	setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
+	setsockopt(fd, SOL_SOCKET, SO_PRIORITY, &priority, sizeof(priority));
+	setsockopt(fd, IPPROTO_IP, IP_TOS, &ip_tos, sizeof(ip_tos));
 
 	if (connect(fd, (struct sockaddr *)&server_info->addr, server_info->ai_addrlen) != 0) {
 		if (errno != EINPROGRESS) {
@@ -1406,6 +1416,8 @@ static int _DNS_client_create_socket_tls(struct dns_server_info *server_info, ch
 	struct epoll_event event;
 	SSL *ssl = NULL;
 	int yes = 1;
+	const int priority = SOCKET_PRIORITY;
+	const int ip_tos = SOCKET_IP_TOS;
 
 	if (server_info->ssl_ctx == NULL) {
 		tlog(TLOG_ERROR, "create ssl ctx failed.");
@@ -1435,6 +1447,8 @@ static int _DNS_client_create_socket_tls(struct dns_server_info *server_info, ch
 
 	// ? this cause ssl crash ?
 	// setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
+	setsockopt(fd, SOL_SOCKET, SO_PRIORITY, &priority, sizeof(priority));
+	setsockopt(fd, IPPROTO_IP, IP_TOS, &ip_tos, sizeof(ip_tos));
 
 	if (connect(fd, (struct sockaddr *)&server_info->addr, server_info->ai_addrlen) != 0) {
 		if (errno != EINPROGRESS) {

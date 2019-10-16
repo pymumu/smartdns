@@ -38,7 +38,9 @@
 #include <string.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
-#include <sys/types.h> /* See NOTES */
+#include <sys/types.h>
+#include <netinet/ip.h>
+#include <netinet/tcp.h>
 
 #define DNS_MAX_EVENTS 256
 #define DNS_SERVER_TMOUT_TTL (5 * 60)
@@ -47,6 +49,8 @@
 #define DNS_PING_TIMEOUT (DNS_REQUEST_MAX_TIMEOUT)
 #define DNS_TCPPING_START (300)
 #define DNS_PING_SECOND_TIMEOUT (DNS_REQUEST_MAX_TIMEOUT - DNS_TCPPING_START)
+#define SOCKET_IP_TOS (IPTOS_LOWDELAY | IPTOS_RELIABILITY)
+#define SOCKET_PRIORITY (6)
 
 #define RECV_ERROR_AGAIN 1
 #define RECV_ERROR_OK 0
@@ -2832,6 +2836,9 @@ static int _dns_create_socket(const char *host_ip, int type)
 	int port;
 	char *host = NULL;
 	int optval = 1;
+	int yes = 1;
+	const int priority = SOCKET_PRIORITY;
+	const int ip_tos = SOCKET_IP_TOS;
 
 	if (parse_ip(host_ip, ip, &port) == 0) {
 		host = ip;
@@ -2859,10 +2866,13 @@ static int _dns_create_socket(const char *host_ip, int type)
 			tlog(TLOG_ERROR, "set socket opt failed.");
 			goto errout;
 		}
+		setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
 	} else {
 		setsockopt(fd, IPPROTO_IP, IP_PKTINFO, &optval, sizeof(optval));
 		setsockopt(fd, IPPROTO_IPV6, IPV6_RECVPKTINFO, &optval, sizeof(optval));
 	}
+	setsockopt(fd, SOL_SOCKET, SO_PRIORITY, &priority, sizeof(priority));
+	setsockopt(fd, IPPROTO_IP, IP_TOS, &ip_tos, sizeof(ip_tos));
 
 	if (bind(fd, gai->ai_addr, gai->ai_addrlen) != 0) {
 		tlog(TLOG_ERROR, "bind service failed, %s\n", strerror(errno));

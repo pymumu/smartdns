@@ -46,6 +46,7 @@
 #define ICMP_INPACKET_SIZE 1024
 #define IPV4_ADDR_LEN 4
 #define IPV6_ADDR_LEN 16
+#define SOCKET_PRIORITY (6)
 
 #ifndef ICMP_FILTER
 #define ICMP_FILTER 1
@@ -550,6 +551,9 @@ static int _fast_ping_sendping_tcp(struct ping_host_struct *ping_host)
 	struct epoll_event event;
 	int flags;
 	int fd = -1;
+	int yes = 1;
+	const int priority = SOCKET_PRIORITY;
+	const int ip_tos = IP_TOS;
 
 	_fast_ping_close_host_sock(ping_host);
 
@@ -560,6 +564,9 @@ static int _fast_ping_sendping_tcp(struct ping_host_struct *ping_host)
 
 	flags = fcntl(fd, F_GETFL, 0);
 	fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+	setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
+	setsockopt(fd, SOL_SOCKET, SO_PRIORITY, &priority, sizeof(priority));
+	setsockopt(fd, IPPROTO_IP, IP_TOS, &ip_tos, sizeof(ip_tos));
 
 	ping_host->seq++;
 	if (connect(fd, (struct sockaddr *)&ping_host->addr, ping_host->addr_len) != 0) {
@@ -635,6 +642,7 @@ static int _fast_ping_create_icmp_sock(FAST_PING_TYPE type)
 	socklen_t optlen = sizeof(buffsize);
 	const int val = 255;
 	const int on = 1;
+	const int ip_tos = (IPTOS_LOWDELAY | IPTOS_RELIABILITY);
 
 	switch (type) {
 	case FAST_PING_ICMP:
@@ -669,6 +677,7 @@ static int _fast_ping_create_icmp_sock(FAST_PING_TYPE type)
 	setsockopt(fd, SOL_SOCKET, SO_SNDBUF, (const char *)&buffsize, optlen);
 	setsockopt(fd, SOL_SOCKET, SO_RCVBUF, (const char *)&buffsize, optlen);
 	setsockopt(fd, SOL_IP, IP_TTL, &val, sizeof(val));
+	setsockopt(fd, IPPROTO_IP, IP_TOS, &ip_tos, sizeof(ip_tos));
 
 	memset(&event, 0, sizeof(event));
 	event.events = EPOLLIN;
@@ -732,6 +741,7 @@ static int _fast_ping_create_udp_sock(FAST_PING_TYPE type)
 	struct epoll_event event;
 	const int val = 255;
 	const int on = 1;
+	const int ip_tos = (IPTOS_LOWDELAY | IPTOS_RELIABILITY);
 
 	switch (type) {
 	case FAST_PING_UDP:
@@ -763,6 +773,7 @@ static int _fast_ping_create_udp_sock(FAST_PING_TYPE type)
 
 	setsockopt(fd, SOL_IP, IP_TTL, &val, sizeof(val));
 	setsockopt(fd, IPPROTO_IP, IP_RECVTTL, &on, sizeof(on));
+	setsockopt(fd, IPPROTO_IP, IP_TOS, &ip_tos, sizeof(ip_tos));
 
 	memset(&event, 0, sizeof(event));
 	event.events = EPOLLIN;
