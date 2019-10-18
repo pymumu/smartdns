@@ -183,6 +183,7 @@ struct dns_request {
 	int passthrough;
 	int request_wait;
 	int prefetch;
+	int dualstack_selection;
 
 	pthread_mutex_t ip_map_lock;
 
@@ -232,13 +233,14 @@ static int _dns_server_epoll_ctl(struct dns_server_conn_head *head, int op, uint
 	return 0;
 }
 
-static int _dns_server_is_dualstack_selection(struct dns_request *request)
+static void _dns_server_set_dualstack_selection(struct dns_request *request)
 {
 	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_DUALSTACK_SELECTION) == 0) {
-		return 0;
+		request->dualstack_selection = 0;
+		return;
 	}
 
-	return dns_conf_dualstack_ip_selection;
+	request->dualstack_selection = dns_conf_dualstack_ip_selection;
 }
 
 static int _dns_server_is_return_soa(struct dns_request *request)
@@ -740,7 +742,7 @@ static int _dns_server_request_complete_AAAA(struct dns_request *request)
 				}
 			}
 
-			if (_dns_server_is_dualstack_selection(request)) {
+			if (request->dualstack_selection) {
 				if (_dns_server_reply_SOA(DNS_RC_NOERROR, request) != 0) {
 					return -1;
 				}
@@ -956,6 +958,7 @@ static struct dns_request *_dns_server_new_request(void)
 	request->ping_ttl_v4 = -1;
 	request->ping_ttl_v6 = -1;
 	request->prefetch = 0;
+	request->dualstack_selection = dns_conf_dualstack_ip_selection;
 	request->rcode = DNS_RC_SERVFAIL;
 	request->conn = NULL;
 	request->result_callback = NULL;
@@ -1000,7 +1003,7 @@ static void _dns_server_ping_result(struct ping_host_struct *ping_host, const ch
 			memcpy(request->ipv4_addr, &addr_in->sin_addr.s_addr, 4);
 		}
 
-		if (request->qtype == DNS_T_AAAA && _dns_server_is_dualstack_selection(request)) {
+		if (request->qtype == DNS_T_AAAA && request->dualstack_selection) {
 			if (request->ping_ttl_v6 < 0 && request->has_soa == 0) {
 				return;
 			}
@@ -1247,7 +1250,7 @@ static int _dns_server_process_answer_A(struct dns_rrs *rrs, struct dns_request 
 
 	if (request->qtype != DNS_T_A) {
 		/* ignore non-matched query type */
-		if (_dns_server_is_dualstack_selection(request) == 0) {
+		if (request->dualstack_selection == 0) {
 			return 0;
 		}
 	}
@@ -1506,7 +1509,7 @@ static int _dns_server_passthrough_rule_check(struct dns_request *request, char 
 				unsigned char addr[4];
 				if (request->qtype != DNS_T_A) {
 					/* ignore non-matched query type */
-					if (_dns_server_is_dualstack_selection(request) == 0) {
+					if (request->dualstack_selection == 0) {
 						break;
 					}
 				}
@@ -1797,6 +1800,11 @@ static int _dns_server_pre_process_rule_flags(struct dns_request *request)
 			/* return SOA for A request */
 			goto soa;
 		}
+
+		if (flags & DOMAIN_FLAG_ADDR_IPV4_SOA && request->dualstack_selection) {
+			/* if IPV4 return SOA and dualstack-selection enabled, set request dualstack disable */
+			request->dualstack_selection = 0;
+		}
 		break;
 	default:
 		goto out;
@@ -1877,7 +1885,7 @@ static int _dns_server_process_cache(struct dns_request *request)
 		goto errout;
 	}
 
-	if (_dns_server_is_dualstack_selection(request) && request->qtype == DNS_T_AAAA) {
+	if (request->dualstack_selection && request->qtype == DNS_T_AAAA) {
 		dns_cache_A = dns_cache_lookup(request->domain, DNS_T_A);
 		if (dns_cache_A && (dns_cache_A->speed > 0)) {
 			if ((dns_cache_A->speed + (dns_conf_dualstack_ip_selection_threshold * 10)) < dns_cache->speed || dns_cache->speed < 0) {
@@ -2083,7 +2091,7 @@ static int _dns_server_do_query(struct dns_request *request, const char *domain,
 	request->send_tick = get_tick_count();
 
 	/* When the dual stack ip preference is enabled, both A and AAAA records are requested. */
-	if (qtype == DNS_T_AAAA && _dns_server_is_dualstack_selection(request)) {
+	if (qtype == DNS_T_AAAA && request->dualstack_selection) {
 		// Get reference for AAAA query
 		_dns_server_request_get(request);
 		request->request_wait++;
@@ -2182,6 +2190,7 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 	_dns_server_check_set_passthrough(request, conn);
 	_dns_server_request_set_client_addr(request, from, from_len);
 	_dns_server_request_set_id(request, packet->head.id);
+	_dns_server_set_dualstack_selection(request);
 	ret = _dns_server_do_query(request, domain, qtype);
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "do query %s failed.\n", domain);
