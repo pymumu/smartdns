@@ -196,6 +196,17 @@ void* art_search(const art_tree *t, const unsigned char *key, int key_len);
 void *art_substring(const art_tree *t, const unsigned char *str, int str_len, unsigned char *key, int *key_len);
 
 /**
+ * Wakk substring for a value in the ART tree
+ * @arg t The tree
+ * @arg str The key
+ * @arg str_len The length of the key
+ * @return NULL if the item was not found, otherwise
+ * the value pointer is returned.
+ */
+typedef int (*walk_func)(unsigned char *key, uint32_t key_len, void *value, void *arg);
+void art_substring_walk(const art_tree *t, const unsigned char *str, int str_len, walk_func func, void *arg);
+
+/**
  * Returns the minimum valued leaf
  * @return The minimum leaf or NULL
  */

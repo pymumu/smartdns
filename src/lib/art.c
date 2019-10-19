@@ -1073,3 +1073,57 @@ void *art_substring(const art_tree *t, const unsigned char *str, int str_len, un
 
     return found->value;
 }
+
+void art_substring_walk(const art_tree *t, const unsigned char *str, int str_len, walk_func func, void *arg)
+{
+    art_node **child;
+    art_node *n = t->root;
+    art_node *m;    
+    art_leaf *found = NULL;
+    int prefix_len, depth = 0;
+	int stop_search = 0;
+
+	while (n && stop_search == 0) {
+        // Might be a leaf
+        if (IS_LEAF(n)) {
+            n = (art_node*)LEAF_RAW(n);
+            // Check if the expanded path matches
+            if (!str_prefix_matches((art_leaf*)n, str, str_len)) {
+                found = (art_leaf*)n;
+				stop_search = func(found->key, found->key_len, found->value, arg);
+			}
+            break;
+        }
+
+        // Check if current is leaf
+    	child = find_child(n, 0);
+    	m = (child) ? *child : NULL;
+    	if (m && IS_LEAF(m)) {
+            m = (art_node*)LEAF_RAW(m);
+            // Check if the expanded path matches
+            if (!str_prefix_matches((art_leaf*)m, str, str_len)) {
+                found = (art_leaf*)m;
+                stop_search = func(found->key, found->key_len, found->value, arg);
+            }
+    	}
+
+        // Bail if the prefix does not match
+        if (n->partial_len) {
+            prefix_len = check_prefix(n, str, str_len, depth);
+            if (prefix_len != min(MAX_PREFIX_LEN, n->partial_len))
+                break;
+            depth = depth + n->partial_len;
+        }
+
+        // Recursively search
+        child = find_child(n, str[depth]);
+        n = (child) ? *child : NULL;
+        depth++;
+    }
+
+    if (found == NULL) {
+        return ;
+    }
+
+    return ;
+}
