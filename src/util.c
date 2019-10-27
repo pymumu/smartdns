@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/netlink.h>
+#include <linux/capability.h>
 #include <openssl/crypto.h>
 #include <openssl/ssl.h>
 #include <pthread.h>
@@ -17,6 +18,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <inttypes.h>
+#include <sys/prctl.h>
 
 #define TMP_BUFF_LEN_32 32
 
@@ -919,4 +921,15 @@ void get_compiled_time(struct tm *tm)
 	tm->tm_hour = hour;
 	tm->tm_min = min;
 	tm->tm_sec = sec;
+}
+
+int has_network_raw_cap(void)
+{
+	int fd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
+	if (fd < 0) {
+		return 0;
+	}
+
+	close(fd);
+	return 1;
 }

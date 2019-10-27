@@ -67,6 +67,8 @@ int parse_tls_header(const char *data, size_t data_len, char *hostname, const ch
 
 void get_compiled_time(struct tm *tm);
 
+int has_network_raw_cap(void);
+
 #ifdef __cplusplus
 }
 #endif /*__cplusplus */

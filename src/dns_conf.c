@@ -1300,6 +1300,38 @@ void dns_server_load_exit(void)
 	_config_group_table_destroy();
 }
 
+static int _dns_conf_speed_check_mode_verify(void)
+{
+	int i, j;
+	int has_cap = has_network_raw_cap();
+	int print_log = 0;
+	if (has_cap == 1) {
+		return 0;
+	}
+
+	for (i = 0; i < DOMAIN_CHECK_NUM; i++) {
+		if (dns_conf_check_order.order[i] == DOMAIN_CHECK_ICMP) {
+			for (j = i + 1; j < DOMAIN_CHECK_NUM; j++) {
+				dns_conf_check_order.order[j - 1] = dns_conf_check_order.order[j];
+			}
+			dns_conf_check_order.order[j - 1] = DOMAIN_CHECK_NONE;
+			print_log = 1;
+		}
+	}
+
+	if (print_log) {
+		tlog(TLOG_WARN, "speed check by ping is disabled because smartdns does not have network raw privileges");
+	}
+
+	return 0;
+}
+
+static int _dns_conf_load_post(void)
+{
+	_dns_conf_speed_check_mode_verify();
+	return 0;
+}
+
 int dns_server_load_conf(const char *file)
 {
 	int ret = 0;
@@ -1307,5 +1339,6 @@ int dns_server_load_conf(const char *file)
 	openlog("smartdns", LOG_CONS | LOG_NDELAY, LOG_LOCAL1);
 	ret = load_conf(file, _config_item, _conf_printf);
 	closelog();
+	_dns_conf_load_post();
 	return ret;
 }
