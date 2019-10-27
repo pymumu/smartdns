@@ -1619,17 +1619,17 @@ static int _dns_client_socket_ssl_send(SSL *ssl, const void *buf, int num)
 		break;
 	case SSL_ERROR_SSL:
 		ssl_err = ERR_get_error();
-		if (ERR_GET_REASON(ssl_err) == SSL_R_UNINITIALIZED) {
+		if (ERR_GET_REASON(ssl_err) == SSL_R_UNINITIALIZED || ERR_GET_REASON(ssl_err) == SSL_R_PROTOCOL_IS_SHUTDOWN) {
 			errno = EAGAIN;
 			return -1;
 		}
 
-		tlog(TLOG_ERROR, "SSL write fail error no:  %s(%ld)\n", ERR_reason_error_string(ssl_err), ssl_err);
+		tlog(TLOG_DEBUG, "SSL write fail error no:  %s(%ld)\n", ERR_reason_error_string(ssl_err), ssl_err);
 		errno = EFAULT;
 		ret = -1;
 		break;
 	case SSL_ERROR_SYSCALL:
-		tlog(TLOG_ERROR, "SSL syscall failed, %s", strerror(errno));
+		tlog(TLOG_DEBUG, "SSL syscall failed, %s", strerror(errno));
 		return ret;
 	default:
 		errno = EFAULT;
@@ -2253,7 +2253,7 @@ static int _dns_client_send_tls(struct dns_server_info *server_info, void *packe
 
 	send_len = _dns_client_socket_ssl_send(server_info->ssl, inpacket, len);
 	if (send_len < 0) {
-		if (errno == EAGAIN || server_info->ssl == NULL) {
+		if (errno == EAGAIN || errno == EPIPE || server_info->ssl == NULL ) {
 			/* save data to buffer, and retry when EPOLLOUT is available */
 			return _dns_client_send_data_to_buffer(server_info, inpacket, len);
 		} else if (server_info->ssl && errno != ENOMEM) {
@@ -2303,7 +2303,7 @@ static int _dns_client_send_https(struct dns_server_info *server_info, void *pac
 
 	send_len = _dns_client_socket_ssl_send(server_info->ssl, inpacket, http_len);
 	if (send_len < 0) {
-		if (errno == EAGAIN || server_info->ssl == NULL) {
+		if (errno == EAGAIN || errno == EPIPE || server_info->ssl == NULL ) {
 			/* save data to buffer, and retry when EPOLLOUT is available */
 			return _dns_client_send_data_to_buffer(server_info, inpacket, http_len);
 		} else if (server_info->ssl && errno != ENOMEM) {
