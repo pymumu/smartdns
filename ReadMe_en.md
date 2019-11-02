@@ -591,6 +591,7 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
     * Cache mechanism to make access faster.
     * Asynchronous log, audit log mechanism, does not affect DNS query performance while recording information.
     * Domain group mechanism, specific domain names use specific upstream server group queries to avoid privacy leakage.
+    * The second DNS supports customizing more behavior.
 
 1. What is the best practices for upstream server configuration?  
     Smartdns has a speed measurement mechanism. When configuring an upstream server, it is recommended to configure multiple upstream DNS servers, including servers in different regions, but the total number is recommended to be around 10. Recommended configuration
@@ -645,6 +646,13 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
     Nameserver /.office/office
     ```
 
+    You can use the above configuration to implement DNS resolution and offload. If you need to implement traffic distribution on the requesting port, you can configure the second DNS server. The bind configuration is added. The group parameter specifies the traffic distribution name.
+
+    ```sh
+    Bind :7053 -group office
+    Bind :8053 -group home
+    ```
+
 1. How to use the IPV4, IPV6 dual stack IP optimization feature  
     At present, IPV6 network is not as fast as IPV4 in some cases. In order to get a better experience in the dual-stack network, SmartDNS provides a dual-stack IP optimization mechanism, the same domain name, and the speed of IPV4. Far faster than IPV6, then SmartDNS will block the resolution of IPV6, let the PC use IPV4, the feature is enabled by `dualstack-ip-selection yes`, `dualstack-ip-selection-threshold [time]` is for threshold. if you want to disable IPV6 AAAA record complete, please try `force-AAAA-SOA yes`.
 
@@ -661,6 +669,14 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
     * Enable domain pre-acquisition  
     Enable pre-fetching of domain names with `prefetch-domain yes` to improve query hit rate.
     by default, Smartdns will send domain query request again before cache expire, and cache the result for the next query. Frequently accessed domain names will continue to be cached. This feature will consume more CPU when idle.
+
+1. How does the second DNS customize more behavior?
+    The second DNS can be used as the upstream of other DNS servers to provide more query behaviors. Bind configuration support can bind multiple ports. Different ports can be set with different flags to implement different functions, such as
+
+    ```sh
+    # Binding 6053 port, request for port 6053 will be configured with the upstream query of the office group, and the result will not be measured. The address configuration address is ignored.
+    bind [::]:6053 -no-speed-check -group office -no-rule-addr
+    ```
 
 ## [Donate](#Donate)  
 

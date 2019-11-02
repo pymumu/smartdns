@@ -595,6 +595,7 @@ https://github.com/pymumu/smartdns/releases
     * 高速缓存机制，使访问更快速。
     * 异步日志，审计机制，在记录信息的同时不影响DNS查询性能。
     * 域名组（group）机制，特定域名使用特定上游服务器组查询，避免隐私泄漏。
+    * 第二DNS支持自定义更多行为。
 
 1. 如何配置上游服务器最佳。  
     smartdns有测速机制，在配置上游服务器时，建议配置多个上游DNS服务器，包含多个不同区域的服务器，但总数建议在10个左右。推荐配置  
@@ -648,7 +649,12 @@ https://github.com/pymumu/smartdns/releases
     nameserver /.office/office
     ```
 
-    通过上述配置即可实现DNS解析分流
+    通过上述配置即可实现DNS解析分流，如果需要实现按请求端端口分流，可以配置第二DNS服务器，bind配置增加--group参数指定分流名称。
+
+    ```sh
+    bind :7053 -group office
+    bind :8053 -group home
+    ```
 
 1. IPV4, IPV6双栈IP优选功能如何使用  
     目前IPV6已经开始普及，但IPV6网络在速度上，某些情况下还不如IPV4，为在双栈网络下获得较好的体验，smartdns提供来双栈IP优选机制，同一个域名，若IPV4的速度远快与IPV6，那么smartdns就会阻止IPV6的解析，让PC使用IPV4访问，具体配置文件通过`dualstack-ip-selection yes`启用此功能，通过`dualstack-ip-selection-threshold [time]`来修改阈值。如果要完全禁止IPV6 AAAA记录解析，可设置`force-AAAA-SOA yes`。
@@ -666,6 +672,14 @@ https://github.com/pymumu/smartdns/releases
     * 开启域名预获取功能  
     通过`prefetch-domain yes`来启用域名预先获取功能，提高查询命中率。  
     配合上述ttl超时时间，smartdns将在域名ttl即将超时使，再次发送查询请求，并缓存查询结果供后续使用。频繁访问的域名将会持续缓存。此功能将在空闲时消耗更多的CPU。
+
+1. 第二DNS如何自定义更多行为  
+    第二DNS可以作为其他DNS服务器的上游，提供更多的查询行为，通过bind配置支持可以绑定多个端口，不同端口可设置不同的标志，实现不同的功能，如
+
+    ```sh
+    # 绑定 6053端口，6053端口的请求将采用配置office组的上游查询，且不对结果进行测速，忽略address的配置地址。
+    bind [::]:6053 -no-speed-check -group office -no-rule-addr
+    ```
 
 ## Donate
 
