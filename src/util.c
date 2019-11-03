@@ -11,6 +11,7 @@
 #include <openssl/crypto.h>
 #include <openssl/ssl.h>
 #include <pthread.h>
+#include <netinet/tcp.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -932,4 +933,18 @@ int has_network_raw_cap(void)
 
 	close(fd);
 	return 1;
+}
+
+int set_sock_keepalive(int fd, int keepidle, int keepinterval, int keepcnt)
+{
+	const int yes = 1;
+	if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &yes, sizeof(yes))!= 0) {
+		return -1;
+	}
+
+	setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &keepidle, sizeof(keepidle));
+	setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &keepinterval, sizeof(keepinterval));
+	setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &keepcnt, sizeof(keepcnt));
+
+	return 0;
 }

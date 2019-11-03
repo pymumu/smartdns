@@ -69,6 +69,8 @@ void get_compiled_time(struct tm *tm);
 
 int has_network_raw_cap(void);
 
+int set_sock_keepalive(int fd, int keepidle, int keepinterval, int keepcnt);
+
 #ifdef __cplusplus
 }
 #endif /*__cplusplus */
