@@ -416,12 +416,12 @@ int main(int argc, char *argv[])
 		_reg_signal();
 	}
 
-	if (dns_server_load_conf(config_file) != 0) {
-		fprintf(stderr, "load config failed.\n");
+	if (create_pid_file(pid_file) != 0) {
 		goto errout;
 	}
 
-	if (create_pid_file(pid_file) != 0) {
+	if (dns_server_load_conf(config_file) != 0) {
+		fprintf(stderr, "load config failed.\n");
 		goto errout;
 	}
 
