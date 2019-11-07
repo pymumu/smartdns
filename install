@@ -82,7 +82,9 @@ install_files()
 	
 	install -v -m 0755 -t $SMARTDNS_INIT_DIR etc/init.d/smartdns 
 	if [ $? -ne 0 ]; then
-		return 1
+		if [ $ISSYSTEMD -ne 0 ]; then
+			return 1
+		fi
 	fi
 
 	if [ $ISSYSTEMD -eq 0 ]; then
