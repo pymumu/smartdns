@@ -1717,7 +1717,35 @@ static void _dns_server_log_rule(const char *domain, enum domain_rule rule_type,
 	tlog(TLOG_INFO, "RULE-MATCH, type: %d, domain: %s, rule: %s", rule_type, domain, rule_name);
 }
 
-int _dns_server_get_rules(unsigned char *key, uint32_t key_len, void *value, void *arg)
+static void _dns_server_update_rule_by_flags(struct dns_request *request)
+{
+	struct dns_rule_flags *rule_flag =
+		(struct dns_rule_flags *)request->domain_rule.rules[0];
+	unsigned flags = rule_flag->flags;
+
+	if (flags & DOMAIN_FLAG_ADDR_IGN) {
+		request->domain_rule.rules[DOMAIN_RULE_ADDRESS_IPV4] = NULL;
+		request->domain_rule.rules[DOMAIN_RULE_ADDRESS_IPV6] = NULL;
+	}
+
+	if (flags & DOMAIN_FLAG_ADDR_IPV4_IGN) {
+		request->domain_rule.rules[DOMAIN_RULE_ADDRESS_IPV4] = NULL;
+	}
+
+	if (flags & DOMAIN_FLAG_ADDR_IPV6_IGN) {
+		request->domain_rule.rules[DOMAIN_RULE_ADDRESS_IPV6] = NULL;
+	}
+
+	if (flags & DOMAIN_FLAG_IPSET_IGNORE) {
+		request->domain_rule.rules[DOMAIN_RULE_IPSET] = NULL;
+	}
+
+	if (flags & DOMAIN_FLAG_NAMESERVER_IGNORE) {
+		request->domain_rule.rules[DOMAIN_RULE_NAMESERVER] = NULL;
+	}
+}
+
+static int _dns_server_get_rules(unsigned char *key, uint32_t key_len, void *value, void *arg)
 {
 	struct rule_walk_args *walk_args = arg;
 	struct dns_request *request = walk_args->args;
@@ -1736,6 +1764,9 @@ int _dns_server_get_rules(unsigned char *key, uint32_t key_len, void *value, voi
 		walk_args->key[i] = key;
 		walk_args->key_len[i] = key_len;
 	}
+
+	/* update rules by flags */
+	_dns_server_update_rule_by_flags(request);
 
 	return 0;
 }
