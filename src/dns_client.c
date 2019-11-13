@@ -1450,11 +1450,11 @@ static int _DNS_client_create_socket_tls(struct dns_server_info *server_info, ch
 
 	// ? this cause ssl crash ?
 	// setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
+	// set_sock_keepalive(fd, 15, 3, 4);
 	setsockopt(fd, SOL_SOCKET, SO_PRIORITY, &priority, sizeof(priority));
 	setsockopt(fd, IPPROTO_IP, IP_TOS, &ip_tos, sizeof(ip_tos));
 	setsockopt(fd, IPPROTO_TCP, TCP_THIN_DUPACK, &yes, sizeof(yes));
 	setsockopt(fd, IPPROTO_TCP, TCP_THIN_LINEAR_TIMEOUTS, &yes, sizeof(yes));
-	set_sock_keepalive(fd, 15, 3, 4);
 
 	if (connect(fd, (struct sockaddr *)&server_info->addr, server_info->ai_addrlen) != 0) {
 		if (errno != EINPROGRESS) {
@@ -1877,30 +1877,27 @@ static int _dns_client_process_tcp(struct dns_server_info *server_info, struct e
 			server_info->status = DNS_SERVER_STATUS_DISCONNECTED;
 		}
 
-		pthread_mutex_lock(&client.server_list_lock);
 		if (server_info->send_buff.len > 0) {
 			/* send existing send_buffer data  */
 			len = _dns_client_socket_send(server_info);
 			if (len < 0) {
 				if (errno == EAGAIN) {
-					pthread_mutex_unlock(&client.server_list_lock);
 					return 0;
 				}
-				pthread_mutex_unlock(&client.server_list_lock);
 				goto errout;
 			}
 
+			pthread_mutex_lock(&client.server_list_lock);
 			server_info->send_buff.len -= len;
 			if (server_info->send_buff.len > 0) {
 				memmove(server_info->send_buff.data, server_info->send_buff.data + len, server_info->send_buff.len);
 			}
+			pthread_mutex_unlock(&client.server_list_lock);
 		}
 		/* still remain data, retry */
 		if (server_info->send_buff.len > 0) {
-			pthread_mutex_unlock(&client.server_list_lock);
 			return 0;
 		}
-		pthread_mutex_unlock(&client.server_list_lock);
 
 		/* clear epllout event */
 		memset(&event, 0, sizeof(event));
@@ -1974,6 +1971,9 @@ static int _dns_client_tls_verify(struct dns_server_info *server_info)
 	char *spki = NULL;
 	int spki_len = 0;
 	char *tls_host_verify = NULL;
+	if (server_info->ssl == NULL) {
+		return -1;
+	}
 
 	cert = SSL_get_peer_certificate(server_info->ssl);
 	if (cert == NULL) {
@@ -2061,6 +2061,11 @@ static int _dns_client_process_tls(struct dns_server_info *server_info, struct e
 	int ret = -1;
 	struct epoll_event fd_event;
 	int ssl_ret;
+
+	if (unlikely(server_info->ssl == NULL)) {
+		tlog(TLOG_ERROR, "ssl is invalid.");
+		goto errout;
+	}
 
 	if (server_info->status == DNS_SERVER_STATUS_CONNECTING) {
 		/* do SSL hand shake */
