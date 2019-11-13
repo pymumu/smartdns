@@ -622,15 +622,15 @@ int dns_add_SOA(struct dns_packet *packet, dns_rr_type type, char *domain, int t
 	ptr += strnlen(soa->mname, DNS_MAX_CNAME_LEN - 1) + 1;
 	safe_strncpy((char *)ptr, soa->rname, DNS_MAX_CNAME_LEN);
 	ptr += strnlen(soa->rname, DNS_MAX_CNAME_LEN - 1) + 1;
-	*((unsigned int *)ptr) = soa->serial;
+	memcpy(ptr, &soa->serial, sizeof(unsigned int));
 	ptr += 4;
-	*((unsigned int *)ptr) = soa->refresh;
+	memcpy(ptr, &soa->refresh, sizeof(unsigned int));
 	ptr += 4;
-	*((unsigned int *)ptr) = soa->retry;
+	memcpy(ptr, &soa->retry, sizeof(unsigned int));
 	ptr += 4;
-	*((unsigned int *)ptr) = soa->expire;
+	memcpy(ptr, &soa->expire, sizeof(unsigned int));
 	ptr += 4;
-	*((unsigned int *)ptr) = soa->minimum;
+	memcpy(ptr, &soa->minimum, sizeof(unsigned int));
 	ptr += 4;
 	len = ptr - data;
 
