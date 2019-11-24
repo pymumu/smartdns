@@ -63,9 +63,6 @@
 #define SOCKET_PRIORITY (6)
 #define SOCKET_IP_TOS (IPTOS_LOWDELAY | IPTOS_RELIABILITY)
 
-#ifndef TCP_FASTOPEN_CONNECT
-#define TCP_FASTOPEN_CONNECT 30
-#endif
 
 /* ECS info */
 struct dns_client_ecs {

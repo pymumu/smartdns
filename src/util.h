@@ -11,6 +11,17 @@
 extern "C" {
 #endif /*__cplusplus */
 
+#ifndef TCP_FASTOPEN_CONNECT
+#define TCP_FASTOPEN_CONNECT 30
+#endif
+#ifndef TCP_THIN_LINEAR_TIMEOUTS
+#define TCP_THIN_LINEAR_TIMEOUTS 16 
+#endif
+
+#ifndef TCP_THIN_DUPACK
+#define TCP_THIN_DUPACK		 17 
+#endif
+
 #define PORT_NOT_DEFINED -1
 #define MAX_IP_LEN 64
 
