@@ -315,7 +315,7 @@ static int _tlog_format(char *buff, int maxlen, struct tlog_info *info, void *us
             tlog_get_level_string(info->level), info->file, info->line);
     }
 
-    if (len < 0 || len == maxlen) {
+    if (len < 0 || len >= maxlen) {
         return -1;
     }
     buff += len;
@@ -340,9 +340,9 @@ static int _tlog_root_log_buffer(char *buff, int maxlen, void *userptr, const ch
     int log_len = 0;
     struct tlog_info_inter *info_inter = (struct tlog_info_inter *)userptr;
     struct tlog_segment_log_head *log_head = NULL;
-	int max_format_len = 0;
+    int max_format_len = 0;
 
-	if (tlog_format == NULL) {
+    if (tlog_format == NULL) {
         return -1;
     }
 
@@ -352,29 +352,32 @@ static int _tlog_root_log_buffer(char *buff, int maxlen, void *userptr, const ch
         memcpy(&log_head->info, &info_inter->info, sizeof(log_head->info));
     }
 
-	max_format_len = maxlen - len - 2;
-	log_len = tlog_format(buff + len, max_format_len, &info_inter->info, info_inter->userptr, format, ap);
-	if (log_len < 0) {
+    max_format_len = maxlen - len - 2;
+    buff[maxlen - 1] = 0;
+    log_len = tlog_format(buff + len, max_format_len, &info_inter->info, info_inter->userptr, format, ap);
+    if (log_len < 0) {
         return -1;
     } else if (log_len >= max_format_len) {
-		buff[max_format_len - 1] = '.';
-        buff[max_format_len - 2] = '.';
-        buff[max_format_len - 3] = '.';
-		log_len = max_format_len;
-	}
-	len += log_len;
+        buff[len + max_format_len - 2] = '.';
+        buff[len + max_format_len - 3] = '.';
+        buff[len + max_format_len - 4] = '.';
+        log_len = max_format_len - 1;
+    }
+    len += log_len;
 
     /* add new line character*/
-    if (*(buff + len - 1) != '\n' && len + 1 < maxlen - len) {
+    if (*(buff + len - 1) != '\n' && len + 1 < maxlen - 1) {
         *(buff + len) = '\n';
         len++;
         log_len++;
     }
 
-    if (tlog.root->segment_log && len + 1 < maxlen - len) {
-        *(buff + len) = '\0';
-        len++;
-        log_len++;
+    if (tlog.root->segment_log) {
+        if (len + 1 < maxlen - 1) {
+            *(buff + len) = '\0';
+            len++;
+            log_len++;
+        }
         log_head->len = log_len;
     }
 
@@ -452,12 +455,12 @@ static int _tlog_vprintf(struct tlog_log *log, vprint_callback print_callback, v
     if (len <= 0) {
         return -1;
     } else if (len >= TLOG_MAX_LINE_LEN) {
-		strncpy(buff, "[LOG TOO LONG, DISCARD]\n", sizeof(buff));
+        strncpy(buff, "[LOG TOO LONG, DISCARD]\n", sizeof(buff));
         buff[sizeof(buff) - 1] = '\0';
-		len = strnlen(buff, sizeof(buff));
-	}
+        len = strnlen(buff, sizeof(buff));
+    }
 
-	pthread_mutex_lock(&tlog.lock);
+    pthread_mutex_lock(&tlog.lock);
     do {
         if (log->end == log->start) {
             if (log->ext_end == 0) {
@@ -1299,6 +1302,10 @@ static int _tlog_root_write_log(struct tlog_log *log, char *buff, int bufflen)
     struct tlog_segment_log_head *head = NULL;
     static struct tlog_segment_log_head empty_info;
     if (tlog.output_func == NULL) {
+        if (log->segment_log) {
+            head = (struct tlog_segment_log_head *)buff;
+            return _tlog_write(log, head->data, head->len);
+        }
         return _tlog_write(log, buff, bufflen);
     }
 
