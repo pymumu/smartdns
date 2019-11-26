@@ -246,6 +246,31 @@ static LIST_HEAD(pending_servers);
 static pthread_mutex_t pending_server_mutex = PTHREAD_MUTEX_INITIALIZER;
 static int dns_client_has_bootstrap_dns = 0;
 
+const char *_dns_server_get_type_string(dns_server_type_t type) 
+{
+	const char *type_str = "";
+
+	switch (type)
+	{
+	case DNS_SERVER_UDP:
+		type_str = "udp";
+		break;
+	case DNS_SERVER_TCP:
+		type_str = "tcp";
+		break;
+	case DNS_SERVER_TLS:
+		type_str = "tls";
+		break;
+	case DNS_SERVER_HTTPS:
+		type_str = "https";
+		break;
+	default:
+		break;
+	}
+
+	return type_str;
+}
+
 /* get addr info */
 static struct addrinfo *_dns_client_getaddr(const char *host, char *port, int type, int protocol)
 {
@@ -822,6 +847,8 @@ static int _dns_client_server_add(char *server_ip, char *server_host, int port, 
 
 	atomic_inc(&client.dns_server_num);
 	freeaddrinfo(gai);
+
+	tlog(TLOG_INFO, "add server %s:%d, type: %s", server_ip, port, _dns_server_get_type_string(server_info->type));
 
 	return 0;
 errout:
@@ -1753,8 +1780,10 @@ static int _dns_client_process_tcp_buff(struct dns_server_info *server_info)
 			}
 
 			if (http_head_get_httpcode(http_head) != 200) {
-				tlog(TLOG_WARN, "http server query failed, server return http code : %d, %s", http_head_get_httpcode(http_head),
-					 http_head_get_httpcode_msg(http_head));
+				tlog(TLOG_WARN, "http server query from %s:%d failed, server return http code : %d, %s", 
+					server_info->ip, server_info->port,
+					http_head_get_httpcode(http_head),
+					http_head_get_httpcode_msg(http_head));
 				goto errout;
 			}
 
@@ -1829,7 +1858,7 @@ static int _dns_client_process_tcp(struct dns_server_info *server_info, struct e
 				goto errout;
 			}
 
-			tlog(TLOG_ERROR, "recv failed, server %s, %s\n", server_info->ip, strerror(errno));
+			tlog(TLOG_ERROR, "recv failed, server %s:%d, %s\n", server_info->ip, server_info->port, strerror(errno));
 			goto errout;
 		}
 

@@ -1721,7 +1721,12 @@ static void _dns_server_update_rule_by_flags(struct dns_request *request)
 {
 	struct dns_rule_flags *rule_flag =
 		(struct dns_rule_flags *)request->domain_rule.rules[0];
-	unsigned flags = rule_flag->flags;
+	unsigned int flags = 0;
+
+	if (rule_flag == NULL) {
+		return;
+	}
+	flags = rule_flag->flags;
 
 	if (flags & DOMAIN_FLAG_ADDR_IGN) {
 		request->domain_rule.rules[DOMAIN_RULE_ADDRESS_IPV4] = NULL;

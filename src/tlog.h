@@ -24,12 +24,12 @@ typedef enum {
 
 struct tlog_time {
     int year;
+    unsigned int usec;
     unsigned char mon;
     unsigned char mday;
     unsigned char hour;
     unsigned char min;
     unsigned char sec;
-    unsigned char usec;
 } __attribute__((packed));
 
 #ifndef TLOG_MAX_LINE_LEN
