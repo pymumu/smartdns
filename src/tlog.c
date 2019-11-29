@@ -1,6 +1,6 @@
 /*
  * tinylog
- * Copyright (C) 2018-2019 Nick Peng <pymumu@gmail.com>
+ * Copyright (C) 2018-2020 Nick Peng <pymumu@gmail.com>
  * https://github.com/pymumu/tinylog
  */
 #ifndef _GNU_SOURCE

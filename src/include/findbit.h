@@ -1,5 +1,24 @@
-#ifndef _TOOLS_LINUX_ASM_GENERIC_BITOPS_FIND_H_
-#define _TOOLS_LINUX_ASM_GENERIC_BITOPS_FIND_H_
+/*************************************************************************
+ *
+ * Copyright (C) 2018-2020 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ *
+ * smartdns is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * smartdns is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+
+#ifndef _TOOLS_GENERIC_BITOPS_FIND_H_
+#define _TOOLS_GENERIC_BITOPS_FIND_H_
 
 #ifndef find_next_bit
 /**
@@ -74,4 +93,4 @@ extern unsigned long find_first_bit(const unsigned long *addr,
 unsigned long find_first_zero_bit(const unsigned long *addr, unsigned long size);
 #endif
 
-#endif /*_TOOLS_LINUX_ASM_GENERIC_BITOPS_FIND_H_ */
+#endif /*_TOOLS_GENERIC_BITOPS_FIND_H_ */

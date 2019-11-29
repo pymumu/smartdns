@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2020 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -15,6 +15,7 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
