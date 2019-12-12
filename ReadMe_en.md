@@ -21,7 +21,6 @@ Support Raspberry Pi, openwrt, ASUS router, Windows and other devices.
     1. [Windows 10 WSL Installation/WSL ubuntu](#windows-10-wsl-installation/wsl-ubuntu)
 1. [Configuration parameter](#configuration-parameter)
 1. [Donate](#Donate)
-1. [Statement](#Statement)
 1. [FAQ](#FAQ)
 
 ## Software Show
@@ -694,14 +693,6 @@ If you feel that this project is helpful to you, please donate to us so that the
   
 ![wechat](doc/wechat_donate.jpg)
 
-## Statement
+## Open Source License
 
-* `SmartDNS` copyright belongs to Nick Peng (pymumu at gmail.com).
-* `SmartDNS` is free software, users can copy and use `SmartDNS` non-commercially.
-* It is forbidden to use `SmartDNS` for commercial purposes.
-* The use of the software is at the user's own risk and, to the fullest extent permitted by applicable law, damages and risks resulting from the use of this product, including but not limited to direct or indirect personal damage, loss of commercial profit, trade disruption No loss of business information or any other financial loss.
-* This software does not collect any user information without the user's consent.
-
-## Additional information
-
-Currently the code is not open source, and subsequent open source according to the situation.
+Smartdns is licensed to the public under the GPL V3 License.

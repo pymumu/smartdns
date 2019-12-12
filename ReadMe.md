@@ -23,7 +23,6 @@ SmartDNS是一个运行在本地的DNS服务器，SmartDNS接受本地客户端�
     1. [Windows 10 WSL安装/WSL ubuntu](#windows-10-wsl安装wsl-ubuntu)
 1. [配置参数](#配置参数)
 1. [捐助](#donate)
-1. [声明](#声明)
 1. [FAQ](#faq)
 
 ## 软件效果展示
@@ -697,14 +696,6 @@ https://github.com/pymumu/smartdns/releases
   
 ![wechat](doc/wechat_donate.jpg)
 
-## 声明
+## 开源声明
 
-* `SmartDNS`著作权归属Nick Peng (pymumu at gmail.com)。
-* `SmartDNS`为免费软件，用户可以非商业性地复制和使用`SmartDNS`。
-* 禁止将 `SmartDNS` 用于商业用途。
-* 使用本软件的风险由用户自行承担，在适用法律允许的最大范围内，对因使用本产品所产生的损害及风险，包括但不限于直接或间接的个人损害、商业赢利的丧失、贸易中断、商业信息的丢失或任何其它经济损失，不承担任何责任。
-* 本软件不会未经用户同意收集任何用户信息。
-
-## 说明
-
-目前代码未开源，后续根据情况开源。
+Smartdns 基于GPL V3协议开源。
