@@ -677,6 +677,10 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
     bind [::]:6053 -no-speed-check -group office -no-rule-addr
     ```
 
+## Compile
+
+smartdns contains scripts for compiling packages, supports compiling luci, debian, openwrt, opare installation packages, and can execute `package/build-pkg.sh` compilation.
+
 ## [Donate](#Donate)  
 
 If you feel that this project is helpful to you, please donate to us so that the project can continue to develop and be more perfect.

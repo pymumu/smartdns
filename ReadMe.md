@@ -680,6 +680,10 @@ https://github.com/pymumu/smartdns/releases
     bind [::]:6053 -no-speed-check -group office -no-rule-addr
     ```
 
+## 编译
+
+smartdns包含了编译软件包的脚本，支持编译luci，debian，openwrt，optare安装包，可执行`package/build-pkg.sh`编译。
+
 ## Donate
 
 如果你觉得此项目对你有帮助，请捐助我们，以使项目能持续发展，更加完善。

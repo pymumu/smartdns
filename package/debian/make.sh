@@ -14,7 +14,6 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
 CURR_DIR=$(cd $(dirname $0);pwd)
 VER="`date +"1.%Y.%m.%d-%H%M"`"
 SMARTDNS_DIR=$CURR_DIR/../../
@@ -26,37 +25,41 @@ showhelp()
 	echo "Options:"
 	echo " -o               output directory."
 	echo " --arch           archtecture."
-    echo " --ver            version."
+	echo " --ver            version."
 	echo " -h               show this message."
 }
 
 build()
 {
-    ROOT=/tmp/smartdns-deiban
-    rm -fr $ROOT
-    mkdir -p $ROOT
-    cd $ROOT/
+	ROOT=/tmp/smartdns-deiban
+	rm -fr $ROOT
+	mkdir -p $ROOT
+	cd $ROOT/
 
-    cp $CURR_DIR/DEBIAN $ROOT/ -af
-    CONTROL=$ROOT/DEBIAN/control
-    mkdir $ROOT/usr/sbin -p
-    mkdir $ROOT/etc/smartdns/ -p
-    mkdir $ROOT/etc/default/ -p
-    mkdir $ROOT/lib/systemd/system/ -p
+	cp $CURR_DIR/DEBIAN $ROOT/ -af
+	CONTROL=$ROOT/DEBIAN/control
+	mkdir $ROOT/usr/sbin -p
+	mkdir $ROOT/etc/smartdns/ -p
+	mkdir $ROOT/etc/default/ -p
+	mkdir $ROOT/lib/systemd/system/ -p
 
-    sed -i "s/Version:.*/Version: $VER/" $ROOT/DEBIAN/control
-    sed -i "s/Architecture:.*/Architecture: $ARCH/" $ROOT/DEBIAN/control
-    chmod 0755 $ROOT/DEBIAN/prerm
+	sed -i "s/Version:.*/Version: $VER/" $ROOT/DEBIAN/control
+	sed -i "s/Architecture:.*/Architecture: $ARCH/" $ROOT/DEBIAN/control
+	chmod 0755 $ROOT/DEBIAN/prerm
 
-    cp $SMARTDNS_DIR/etc/smartdns/smartdns.conf  $ROOT/etc/smartdns/
-    cp $SMARTDNS_DIR/etc/default/smartdns  $ROOT/etc/default/
-    cp $SMARTDNS_DIR/systemd/smartdns.service $ROOT/lib/systemd/system/ 
-    cp $SMARTDNS_DIR/src/smartdns $ROOT/usr/sbin
-    chmod +x $ROOT/usr/sbin/smartdns
+	cp $SMARTDNS_DIR/etc/smartdns/smartdns.conf  $ROOT/etc/smartdns/
+	cp $SMARTDNS_DIR/etc/default/smartdns  $ROOT/etc/default/
+	cp $SMARTDNS_DIR/systemd/smartdns.service $ROOT/lib/systemd/system/ 
+	cp $SMARTDNS_DIR/src/smartdns $ROOT/usr/sbin
+	if [ $? -ne 0 ]; then
+		echo "copy smartdns file failed."
+		return 1
+	fi
+	chmod +x $ROOT/usr/sbin/smartdns
 
-    dpkg -b $ROOT $OUTPUTDIR/smartdns.$VER.$FILEARCH.deb
+	dpkg -b $ROOT $OUTPUTDIR/smartdns.$VER.$FILEARCH.deb
 
-    rm -fr $ROOT/
+	rm -fr $ROOT/
 }
 
 main()
@@ -74,38 +77,38 @@ main()
 		--arch)
 			ARCH="$2"
 			shift 2;;
-        --filearch)
-            FILEARCH="$2"
-            shift 2;;
-        --ver)
-            VER="$2"
-            shift 2;;
+		--filearch)
+			FILEARCH="$2"
+			shift 2;;
+		--ver)
+			VER="$2"
+			shift 2;;
 		-o )
 			OUTPUTDIR="$2"
 			shift 2;;
-        -h | --help )
+		-h | --help )
 			showhelp
 			return 0
 			shift ;;
 		-- ) shift; break ;;
 		* ) break ;;
-  		esac
+		esac
 	done
 
-    if [ -z "$ARCH" ]; then
-        echo "please input arch."
-        return 1;
-    fi
+	if [ -z "$ARCH" ]; then
+		echo "please input arch."
+		return 1;
+	fi
 
-    if [ -z "$FILEARCH" ]; then
-        FILEARCH=$ARCH
-    fi
+	if [ -z "$FILEARCH" ]; then
+		FILEARCH=$ARCH
+	fi
 
-    if [ -z "$OUTPUTDIR" ]; then
-        OUTPUTDIR=$CURR_DIR;
-    fi
+	if [ -z "$OUTPUTDIR" ]; then
+		OUTPUTDIR=$CURR_DIR;
+	fi
 
-    build
+	build
 }
 
 main $@

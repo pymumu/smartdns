@@ -14,7 +14,6 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
 CURR_DIR=$(cd $(dirname $0);pwd)
 VER="`date +"1.%Y.%m.%d-%H%M"`"
 SMARTDNS_DIR=$CURR_DIR/../../
@@ -28,39 +27,44 @@ showhelp()
 	echo "Options:"
 	echo " -o               output directory."
 	echo " --arch           archtecture."
-    echo " --ver            version."
+	echo " --ver            version."
 	echo " -h               show this message."
 }
 
 build()
 {
-    ROOT=/tmp/smartdns-optware
-    rm -fr $ROOT
+	ROOT=/tmp/smartdns-optware
+	rm -fr $ROOT
 
-    mkdir -p $ROOT
-    cp $CURR_DIR/* $ROOT/ -af
-    cd $ROOT/
-    mkdir $ROOT/opt/usr/sbin -p
-    mkdir $ROOT/opt/etc/init.d -p
-    mkdir $ROOT/opt/etc/smartdns/ -p
+	mkdir -p $ROOT
+	cp $CURR_DIR/* $ROOT/ -af
+	cd $ROOT/
+	mkdir $ROOT/opt/usr/sbin -p
+	mkdir $ROOT/opt/etc/init.d -p
+	mkdir $ROOT/opt/etc/smartdns/ -p
 
-    cp $SMARTDNS_CONF  $ROOT/opt/etc/smartdns/
-    cp $SMARTDNS_OPT $ROOT/opt/etc/smartdns/
-    cp $CURR_DIR/S50smartdns $ROOT/opt/etc/init.d/
-    cp $SMARTDNS_BIN $ROOT/opt/usr/sbin
+	cp $SMARTDNS_CONF  $ROOT/opt/etc/smartdns/
+	cp $SMARTDNS_OPT $ROOT/opt/etc/smartdns/
+	cp $CURR_DIR/S50smartdns $ROOT/opt/etc/init.d/
+	cp $SMARTDNS_BIN $ROOT/opt/usr/sbin
+	if [ $? -ne 0 ]; then
+		echo "copy smartdns file failed."
+		rm -fr $ROOT/
+		return 1
+	fi
 
-    sed -i "s/# *server-name smartdns/server-name smartdns/g" $ROOT/opt/etc/smartdns/smartdns.conf
-    sed -i "s/^Architecture.*/Architecture: $ARCH/g" $ROOT/control/control
-    sed -i "s/Version:.*/Version: $VER/" $ROOT/control/control
+	sed -i "s/# *server-name smartdns/server-name smartdns/g" $ROOT/opt/etc/smartdns/smartdns.conf
+	sed -i "s/^Architecture.*/Architecture: $ARCH/g" $ROOT/control/control
+	sed -i "s/Version:.*/Version: $VER/" $ROOT/control/control
 
-    cd $ROOT/control
-    chmod +x *
-    tar zcf ../control.tar.gz --owner=0 --group=0 ./ 
-    cd $ROOT
+	cd $ROOT/control
+	chmod +x *
+	tar zcf ../control.tar.gz --owner=0 --group=0 ./ 
+	cd $ROOT
 
-    tar zcf data.tar.gz --owner=0 --group=0 opt
-    tar zcf $OUTPUTDIR/smartdns.$VER.$FILEARCH.ipk --owner=0 --group=0 control.tar.gz data.tar.gz debian-binary
-    rm -fr $ROOT/
+	tar zcf data.tar.gz --owner=0 --group=0 opt
+	tar zcf $OUTPUTDIR/smartdns.$VER.$FILEARCH.ipk --owner=0 --group=0 control.tar.gz data.tar.gz debian-binary
+	rm -fr $ROOT/
 }
 
 main()
@@ -78,38 +82,38 @@ main()
 		--arch)
 			ARCH="$2"
 			shift 2;;
-        --filearch)
-            FILEARCH="$2"
-            shift 2;;
-        --ver)
-            VER="$2"
-            shift 2;;
+		--filearch)
+			FILEARCH="$2"
+			shift 2;;
+		--ver)
+			VER="$2"
+			shift 2;;
 		-o )
 			OUTPUTDIR="$2"
 			shift 2;;
-        -h | --help )
+		-h | --help )
 			showhelp
 			return 0
 			shift ;;
 		-- ) shift; break ;;
 		* ) break ;;
-  		esac
+		esac
 	done
 
-    if [ -z "$ARCH" ]; then
-        echo "please input arch."
-        return 1;
-    fi
+	if [ -z "$ARCH" ]; then
+		echo "please input arch."
+		return 1;
+	fi
 
-    if [ -z "$FILEARCH" ]; then
-        FILEARCH=$ARCH
-    fi
+	if [ -z "$FILEARCH" ]; then
+		FILEARCH=$ARCH
+	fi
 
-    if [ -z "$OUTPUTDIR" ]; then
-        OUTPUTDIR=$CURR_DIR;
-    fi
+	if [ -z "$OUTPUTDIR" ]; then
+		OUTPUTDIR=$CURR_DIR;
+	fi
 
-    build
+	build
 }
 
 main $@

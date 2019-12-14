@@ -14,7 +14,6 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
 CURR_DIR=$(cd $(dirname $0);pwd)
 
 VER="`date +"1.%Y.%m.%d-%H%M"`"
@@ -27,58 +26,58 @@ showhelp()
 	echo "Options:"
 	echo " -o               output directory."
 	echo " --arch           archtecture."
-    echo " --ver            version."
+	echo " --ver            version."
 	echo " -h               show this message."
 }
 
 build_tool()
 {
-    make -C $ROOT/tool/po2lmo -j 
-    PO2LMO="$ROOT/tool/po2lmo/src/po2lmo"
+	make -C $ROOT/tool/po2lmo -j 
+	PO2LMO="$ROOT/tool/po2lmo/src/po2lmo"
 
 }
 
 clean_tool()
 {
-    make -C $ROOT/tool/po2lmo clean
+	make -C $ROOT/tool/po2lmo clean
 }
 
 build()
 {
 
-    ROOT=/tmp/luci-app-smartdns
-    rm -fr $ROOT
+	ROOT=/tmp/luci-app-smartdns
+	rm -fr $ROOT
 
-    mkdir -p $ROOT
-    cp $CURR_DIR/* $ROOT/ -af
-    cd $ROOT/
-    build_tool
-    mkdir $ROOT/root/usr/lib/lua/ -p
-    cp $ROOT/files/luci $ROOT/root/usr/lib/lua/ -af
-    
-    #Generate Language
-    $PO2LMO $ROOT/files/luci/i18n/smartdns.zh-cn.po $ROOT/root/usr/lib/lua/luci/i18n/smartdns.zh-cn.lmo
-    rm $ROOT/root/usr/lib/lua/luci/i18n/smartdns.zh-cn.po
+	mkdir -p $ROOT
+	cp $CURR_DIR/* $ROOT/ -af
+	cd $ROOT/
+	build_tool
+	mkdir $ROOT/root/usr/lib/lua/ -p
+	cp $ROOT/files/luci $ROOT/root/usr/lib/lua/ -af
+	
+	#Generate Language
+	$PO2LMO $ROOT/files/luci/i18n/smartdns.zh-cn.po $ROOT/root/usr/lib/lua/luci/i18n/smartdns.zh-cn.lmo
+	rm $ROOT/root/usr/lib/lua/luci/i18n/smartdns.zh-cn.po
 
-    cp $ROOT/files/etc $ROOT/root/ -af
-    INST_SIZE="`du -sb $ROOT/root/ | awk '{print $1}'`"
-    
-    sed -i "s/^Architecture.*/Architecture: $ARCH/g" $ROOT/control/control
-    sed -i "s/Version:.*/Version: $VER/" $ROOT/control/control
+	cp $ROOT/files/etc $ROOT/root/ -af
+	INST_SIZE="`du -sb $ROOT/root/ | awk '{print $1}'`"
+	
+	sed -i "s/^Architecture.*/Architecture: all/g" $ROOT/control/control
+	sed -i "s/Version:.*/Version: $VER/" $ROOT/control/control
 
-    if [ ! -z "$INST_SIZE" ]; then
-        echo "Installed-Size: $INST_SIZE" >> $ROOT/control/control
-    fi
+	if [ ! -z "$INST_SIZE" ]; then
+		echo "Installed-Size: $INST_SIZE" >> $ROOT/control/control
+	fi
 
-    cd $ROOT/control
-    chmod +x *
-    tar zcf ../control.tar.gz ./
-    cd $ROOT
+	cd $ROOT/control
+	chmod +x *
+	tar zcf ../control.tar.gz ./
+	cd $ROOT
 
-    tar zcf $ROOT/data.tar.gz -C root .
-    tar zcf $OUTPUTDIR/luci-app-smartdns.$VER.$FILEARCH.ipk control.tar.gz data.tar.gz debian-binary
+	tar zcf $ROOT/data.tar.gz -C root .
+	tar zcf $OUTPUTDIR/luci-app-smartdns.$VER.$FILEARCH.ipk control.tar.gz data.tar.gz debian-binary
 
-    rm -fr $ROOT/
+	rm -fr $ROOT/
 }
 
 main()
@@ -96,38 +95,38 @@ main()
 		--arch)
 			ARCH="$2"
 			shift 2;;
-        --filearch)
-            FILEARCH="$2"
-            shift 2;;
-        --ver)
-            VER="$2"
-            shift 2;;
+		--filearch)
+			FILEARCH="$2"
+			shift 2;;
+		--ver)
+			VER="$2"
+			shift 2;;
 		-o )
 			OUTPUTDIR="$2"
 			shift 2;;
-        -h | --help )
+		-h | --help )
 			showhelp
 			return 0
 			shift ;;
 		-- ) shift; break ;;
 		* ) break ;;
-  		esac
+		esac
 	done
 
-    if [ -z "$ARCH" ]; then
-        echo "please input arch."
-        return 1;
-    fi
+	if [ -z "$ARCH" ]; then
+		echo "please input arch."
+		return 1;
+	fi
 
-    if [ -z "$FILEARCH" ]; then
-        FILEARCH=$ARCH
-    fi
+	if [ -z "$FILEARCH" ]; then
+		FILEARCH=$ARCH
+	fi
 
-    if [ -z "$OUTPUTDIR" ]; then
-        OUTPUTDIR=$CURR_DIR;
-    fi
+	if [ -z "$OUTPUTDIR" ]; then
+		OUTPUTDIR=$CURR_DIR;
+	fi
 
-    build
+	build
 }
 
 main $@
