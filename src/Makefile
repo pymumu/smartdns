@@ -26,7 +26,7 @@ endif
 CXXFLAGS=-O2 -g -Wall -std=c++11 
 override CXXFLAGS +=-Iinclude
 ifeq ($(STATIC), yes)
-LDFLAGS += -lssl -lcrypto -Wl,--whole-archive -lpthread -Wl,--no-whole-archive -ldl -static
+LDFLAGS += -lssl -lcrypto -Wl,--whole-archive -lpthread -Wl,--no-whole-archive -ldl -lz -static -s
 else
 LDFLAGS += -lssl -lcrypto -lpthread 
 endif
