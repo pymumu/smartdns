@@ -43,56 +43,56 @@ set_iptable()
 		redirect_tcp=1;
 	fi
 
-	IPS="`ifconfig | grep "inet addr" | grep -v ":127" | grep "Bcast" | awk '{print $2}' | awk -F: '{print $2}'`"
+	IPS="$(ifconfig | grep "inet addr" | grep -v ":127" | grep "Bcast" | awk '{print $2}' | awk -F: '{print $2}')"
 	for IP in $IPS
 	do
 		if [ $redirect_tcp -eq 1 ]; then
-			iptables -t nat -A PREROUTING -p tcp -d $IP --dport 53 -j REDIRECT --to-ports $SMARTDNS_PORT > /dev/null 2>&1
+			iptables -t nat -A PREROUTING -p tcp -d "$IP" --dport 53 -j REDIRECT --to-ports "$SMARTDNS_PORT" > /dev/null 2>&1
 		fi
-		iptables -t nat -A PREROUTING -p udp -d $IP --dport 53 -j REDIRECT --to-ports $SMARTDNS_PORT > /dev/null 2>&1
+		iptables -t nat -A PREROUTING -p udp -d "$IP" --dport 53 -j REDIRECT --to-ports "$SMARTDNS_PORT" > /dev/null 2>&1
 	done
 
 }
 
 clear_iptable()
 {
-	IPS="`ifconfig | grep "inet addr" | grep -v ":127" | grep "Bcast" | awk '{print $2}' | awk -F: '{print $2}'`"
+	IPS="$(ifconfig | grep "inet addr" | grep -v ":127" | grep "Bcast" | awk '{print $2}' | awk -F: '{print $2}')"
 	for IP in $IPS
 	do
-		iptables -t nat -D PREROUTING -p tcp -d $IP --dport 53 -j REDIRECT --to-ports $SMARTDNS_PORT > /dev/null 2>&1
-		iptables -t nat -D PREROUTING -p udp -d $IP --dport 53 -j REDIRECT --to-ports $SMARTDNS_PORT > /dev/null 2>&1
+		iptables -t nat -D PREROUTING -p tcp -d "$IP" --dport 53 -j REDIRECT --to-ports "$SMARTDNS_PORT" > /dev/null 2>&1
+		iptables -t nat -D PREROUTING -p udp -d "$IP" --dport 53 -j REDIRECT --to-ports "$SMARTDNS_PORT" > /dev/null 2>&1
 	done
 	
 }
 
 get_dnsmasq_cmd()
 {
-	CMD="`ps | grep -e '[a-zA-Z]\{0,2\} \{1,\}dnsmasq' | grep -v grep 2>/dev/null`"
+	CMD="$(ps 2>/dev/null | grep -e '[a-zA-Z]\{0,2\} \{1,\}dnsmasq' | grep -v grep 2>/dev/null)"
 	if [ ! -z "$CMD" ]; then
 		return
 	fi
 
-	CMD="`ps | grep '/usr/sbin/dnsmasq' | grep -v grep 2>/dev/null`"
+	CMD="$(ps 2>/dev/null | grep '/usr/sbin/dnsmasq' | grep -v grep 2>/dev/null)"
 	if [ ! -z "$CMD" ]; then
 		return
 	fi
 
-	CMD="`ps | grep 'dnsmasq' | grep -v grep 2>/dev/null`"
+	CMD="$(ps 2>/dev/null | grep 'dnsmasq' | grep -v grep 2>/dev/null)"
 	if [ ! -z "$CMD" ]; then
 		return
 	fi
 
-	CMD="`ps ax | grep -e '[a-zA-Z]\{0,2\} \{1,\}dnsmasq' | grep -v grep 2>/dev/null`"
+	CMD="$(ps ax 2>/dev/null | grep -e '[a-zA-Z]\{0,2\} \{1,\}dnsmasq' | grep -v grep 2>/dev/null)"
 	if [ ! -z "$CMD" ]; then
 		return
 	fi
 
-	CMD="`ps ax | grep /usr/sbin/dnsmasq | grep -v grep 2>/dev/null`"
+	CMD="$(ps ax 2>/dev/null | grep /usr/sbin/dnsmasq | grep -v grep 2>/dev/null)"
 	if [ ! -z "$CMD" ]; then
 		return
 	fi
 
-	CMD="`ps ax | grep 'dnsmasq' | grep -v grep 2>/dev/null`"
+	CMD="$(ps ax 2>/dev/null | grep 'dnsmasq' | grep -v grep 2>/dev/null)"
 	if [ ! -z "$CMD" ]; then
 		return
 	fi	
@@ -108,15 +108,15 @@ restart_dnsmasq()
 		return 1
 	fi
 
-	PID=`echo "$CMD" | awk '{print $1}'`
+	PID="$(echo "$CMD" | awk '{print $1}')"
 	if [ ! -d "/proc/$PID" ]; then
 		echo "dnsmasq is not running"
 		return 1
 	fi
 
-	kill -9 $PID
+	kill -9 "$PID"
 
-	DNSMASQ_CMD="`echo $CMD | awk '{for(i=5; i<=NF;i++)printf \$i " "}'`"
+	DNSMASQ_CMD="$(echo "$CMD" | awk '{for(i=5; i<=NF;i++)printf $i " "}')"
 
 	$DNSMASQ_CMD
 }
@@ -124,21 +124,20 @@ restart_dnsmasq()
 get_server_ip()
 {
 	CONF_FILE=$1
-	IPS="`ifconfig | grep "inet addr" | grep -v ":127" | grep "Bcast" | awk '{print $2}' | awk -F: '{print $2}'`"
-	LOCAL_SERVER_IP=""
+	IPS="$(ifconfig | grep "inet addr" | grep -v ":127" | grep "Bcast" | awk '{print $2}' | awk -F: '{print $2}')"
 	for IP in $IPS
 	do
 		N=3
 		while [ $N -gt 0 ]
 		do
-			ADDR=`echo $IP | awk -F. "{for(i=1;i<=$N;i++)printf \\$i\".\"}"`
-			grep "dhcp-range=" $CONF_FILE | grep $ADDR >/dev/null 2>&1
+			ADDR="$(echo "$IP" | awk -F. "{for(i=1;i<="$N";i++)printf \$i\".\"}")"
+			grep "dhcp-range=" "$CONF_FILE" | grep "$ADDR" >/dev/null 2>&1
 			if [ $? -eq 0 ]; then
-					SERVER_TAG="`grep "^dhcp-range *=" $CONF_FILE | grep $ADDR | awk -F= '{print $2}' | awk -F, '{print $1}'`"
+					SERVER_TAG="$(grep "^dhcp-range *=" "$CONF_FILE" | grep "$ADDR" | awk -F= '{print $2}' | awk -F, '{print $1}')"
 					LOCAL_SERVER_IP="$IP"
-					return 0
+					return 1
 			fi
-			N="`expr $N - 1`"
+			N=$((N-1))
 		done
 	done
 
@@ -152,19 +151,20 @@ set_dnsmasq_conf()
 	local CONF_FILE=$1
 
 	get_server_ip $CONF_FILE
+
 	if [ "$LOCAL_SERVER_IP" ] && [ "$SERVER_TAG" ]; then
-		grep "dhcp-option *=" $CONF_FILE | grep "$SERVER_TAG,6,$LOCAL_SERVER_IP" > /dev/null 2>&1
+		grep "dhcp-option *=" "$CONF_FILE" | grep "$SERVER_TAG,6,$LOCAL_SERVER_IP" > /dev/null 2>&1
 		if [ $? -ne 0 ]; then
-			sed -i "/^dhcp-option *=$SERVER_TAG,6,/d" $CONF_FILE
-			echo "dhcp-option=$SERVER_TAG,6,$LOCAL_SERVER_IP" >> $CONF_FILE
+			sed -i "/^dhcp-option *=$SERVER_TAG,6,/d" "$CONF_FILE"
+			echo "dhcp-option=$SERVER_TAG,6,$LOCAL_SERVER_IP" >> "$CONF_FILE"
 			RESTART_DNSMASQ=1
 		fi
 	fi
 
-	grep "^port *=0" $CONF_FILE > /dev/null 2>&1
+	grep "^port *=0" "$CONF_FILE" > /dev/null 2>&1
 	if [ $? -ne 0 ]; then
-		sed -i "/^port *=/d" $CONF_FILE
-		echo "port=0" >> $CONF_FILE
+		sed -i "/^port *=/d" "$CONF_FILE"
+		echo "port=0" >> "$CONF_FILE"
 		RESTART_DNSMASQ=1
 	fi
 }
@@ -179,7 +179,7 @@ set_dnsmasq()
 			continue
 		fi
 
-		set_dnsmasq_conf $conf
+		set_dnsmasq_conf "$conf"
 	done
 	
 	if [ $RESTART_DNSMASQ -ne 0 ]; then
@@ -193,18 +193,18 @@ clear_dnsmasq_conf()
 	local SERVER_TAG=""
 	local CONF_FILE=$1
 	
-	get_server_ip $CONF_FILE
+	get_server_ip "$CONF_FILE"
 	if [ "$LOCAL_SERVER_IP" ] && [ "$SERVER_TAG" ]; then
-		grep "dhcp-option *=" $CONF_FILE | grep "$SERVER_TAG,6,$LOCAL_SERVER_IP" > /dev/null 2>&1
+		grep "dhcp-option *=" "$CONF_FILE" | grep "$SERVER_TAG,6,$LOCAL_SERVER_IP" > /dev/null 2>&1
 		if [ $? -eq 0 ]; then
-			sed -i "/^dhcp-option *=$SERVER_TAG,6,/d" $CONF_FILE
+			sed -i "/^dhcp-option *=$SERVER_TAG,6,/d" "$CONF_FILE"
 			RESTART_DNSMASQ=1
 		fi
 	fi
 
-	grep "^port *=" $CONF_FILE > /dev/null 2>&1
+	grep "^port *=" "$CONF_FILE" > /dev/null 2>&1
 	if [ $? -eq 0 ]; then
-		sed -i "/^port *=/d" $CONF_FILE
+		sed -i "/^port *=/d" "$CONF_FILE"
 		RESTART_DNSMASQ=1
 	fi
 }
@@ -219,7 +219,7 @@ clear_dnsmasq()
 			continue
 		fi
 
-		clear_dnsmasq_conf $conf
+		clear_dnsmasq_conf "$conf"
 	done
 
 	if [ $RESTART_DNSMASQ -ne 0 ]; then
@@ -232,11 +232,11 @@ set_smartdns_port()
 	if [ "$SMARTDNS_WORKMODE" = "0" ]; then
 		return 0
 	elif [ "$SMARTDNS_WORKMODE" = "1" ]; then
-		sed -i "s/^\(bind .*\):53 *\(.*\)\$/\1:$SMARTDNS_PORT \2/g" $SMARTDNS_CONF
-		sed -i "s/^\(bind-tcp .*\):53 *\(.*\)\$/\1:$SMARTDNS_PORT \2/g" $SMARTDNS_CONF
+		sed -i "s/^\\(bind .*\\):53 *\\(.*\\)\$/\\1:$SMARTDNS_PORT \\2/g" $SMARTDNS_CONF
+		sed -i "s/^\\(bind-tcp .*\\):53 *\\(.*\\)\$/\\1:$SMARTDNS_PORT \\2/g" $SMARTDNS_CONF
 	elif [ "$SMARTDNS_WORKMODE" = "2" ]; then
-		sed -i "s/^\(bind .*\):$SMARTDNS_PORT *\(.*\)\$/\1:53 \2/g" $SMARTDNS_CONF
-		sed -i "s/^\(bind-tcp .*\):$SMARTDNS_PORT *\(.*\)\$/\1:53 \2/g" $SMARTDNS_CONF
+		sed -i "s/^\\(bind .*\\):$SMARTDNS_PORT *\\(.*\\)\$/\\1:53 \\2/g" $SMARTDNS_CONF
+		sed -i "s/^\\(bind-tcp .*\\):$SMARTDNS_PORT *\\(.*\\)\$/\\1:53 \\2/g" $SMARTDNS_CONF
 	else
 		return 1
 	fi	
@@ -286,7 +286,7 @@ get_tz()
 			continue
 		fi
 		
-		tz="`cat $tzfile 2>/dev/null`"
+		tz="$(cat $tzfile 2>/dev/null)"
 	done
 	
 	if [ -z "$tz" ]; then
@@ -311,7 +311,7 @@ case "$1" in
 	fi
 	;;
 	status)
-	pid="`cat $SMARTDNS_PID |head -n 1 2>/dev/null`"
+	pid="$(cat $SMARTDNS_PID |head -n 1 2>/dev/null)"
 	if [ -z "$pid" ]; then
 		echo "smartdns not running."
 		return 0
@@ -326,7 +326,7 @@ case "$1" in
 	;;
 	stop)
 	clear_rule
-	pid="`cat $SMARTDNS_PID | head -n 1 2>/dev/null`"
+	pid="$(cat "$SMARTDNS_PID" | head -n 1 2>/dev/null)"
 	if [ -z "$pid" ]; then
 		echo "smartdns not running."
 		return 0
@@ -336,7 +336,7 @@ case "$1" in
 		return 0;
 	fi
 
-	kill -9 $pid 2>/dev/null
+	kill -9 "$pid" 2>/dev/null
 	;;
 	restart)
 	$0 stop

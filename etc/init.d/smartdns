@@ -34,14 +34,14 @@ test -x $SMARTDNS || exit 5
 
 case $1 in
 	start)
-		$SMARTDNS $SMART_DNS_OPTS
+		$SMARTDNS "$SMART_DNS_OPTS"
 		while true; do
 			if [ -e "$PIDFILE" ]; then
 				break;
 			fi
 			sleep .5
 		done
-		PID="`cat $PIDFILE 2>/dev/null`"
+		PID="$(cat $PIDFILE 2>/dev/null)"
 		if [ -z "$PID" ]; then
 			echo "start smartdns server failed."
 			exit 1
@@ -57,25 +57,25 @@ case $1 in
 			echo "smartdns server is stopped."
 			exit 0
 		fi
-		PID="`cat $PIDFILE 2>/dev/null`"
+		PID="$(cat $PIDFILE 2>/dev/null)"
 		if [ ! -e "/proc/$PID" ] || [ -z "$PID" ]; then
 			echo "smartdns server is stopped"
 			exit 0
 		fi
 
-		kill -TERM $PID
+		kill -TERM "$PID"
 		if [ $? -ne 0 ]; then
 			echo "Stop smartdns server failed."
 			exit 1;
 		fi
-		rm -f $PIDFILE
+		rm -f "$PIDFILE"
 		echo "Stop smartdns server success."
 		;;
 	restart)
-		$0 stop && sleep 1 && $0 start
+		"$0" stop && sleep 1 && "$0" start
 		;;
 	status)
-		PID="`cat $PIDFILE 2>/dev/null`"
+		PID="$(cat "$PIDFILE" 2>/dev/null)"
 		if [ ! -e "/proc/$PID" ] || [ -z "$PID" ]; then
 			echo "smartdns server is not running."
 			exit 1
