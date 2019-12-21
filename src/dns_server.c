@@ -1688,6 +1688,11 @@ static int _dns_server_process_ptr(struct dns_request *request)
 		found = 1;
 	}
 
+	/* Determine if the smartdns service is in effect. */
+	if (found == 0 && strncmp(request->domain, "smartdns", sizeof("smartdns")) == 0) {
+		found = 1;
+	}
+
 	if (found == 0) {
 		goto errout;
 	}

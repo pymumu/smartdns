@@ -17,18 +17,25 @@
 BIN=smartdns 
 OBJS_LIB=lib/rbtree.o lib/art.o lib/bitops.o lib/radix.o lib/conf.o
 OBJS=smartdns.o fast_ping.o dns_client.o dns_server.o dns.o util.o tlog.o dns_conf.o dns_cache.o http_parse.o $(OBJS_LIB)
-CFLAGS +=-O2 -g -Wall -Wstrict-prototypes -fno-omit-frame-pointer -Wstrict-aliasing 
+
+# cflags
+ifndef CFLAGS
+CFLAGS =-O2 -g -Wall -Wstrict-prototypes -fno-omit-frame-pointer -Wstrict-aliasing 
+endif
 override CFLAGS +=-Iinclude
 override CFLAGS += -DBASE_FILE_NAME=\"$(notdir $<)\"
 ifdef VER
 override CFLAGS += -DSMARTDNS_VERION=\"$(VER)\"
 endif
+
 CXXFLAGS=-O2 -g -Wall -std=c++11 
 override CXXFLAGS +=-Iinclude
+
+# ldflags
 ifeq ($(STATIC), yes)
-LDFLAGS += -lssl -lcrypto -Wl,--whole-archive -lpthread -Wl,--no-whole-archive -ldl -static
+override LDFLAGS += -lssl -lcrypto -Wl,--whole-archive -lpthread -Wl,--no-whole-archive -ldl -static
 else
-LDFLAGS += -lssl -lcrypto -lpthread 
+override LDFLAGS += -lssl -lcrypto -lpthread 
 endif
 
 .PHONY: all

@@ -247,16 +247,16 @@ https://github.com/pymumu/smartdns/releases
 
 1. Check if the service is configured successfully
 
-    Query domain name with `nslookup -querytype=ptr 0.0.0.0`  
+    Query domain name with `nslookup -querytype=ptr smartdns`  
     Check if the `name` item in the command result is displayed as `smartdns` or `hostname`, such as `smartdns`
 
     ```shell
-    pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 0.0.0.0
+    pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr smartdns
     Server:         192.168.1.1
     Address:        192.168.1.1#53
 
     Non-authoritative answer:
-    0.0.0.0.in-addr.arpa  name = smartdns.
+    smartdns         name = smartdns.
     ```
 
 ### openwrt/LEDE
@@ -291,16 +291,16 @@ https://github.com/pymumu/smartdns/releases
 
     * **Check if the service is configured successfully**
 
-        Query domain name with `nslookup -querytype=ptr 0.0.0.0`
+        Query domain name with `nslookup -querytype=ptr smartdns`
         See if the `name` item in the command result is displayed as `smartdns` or `hostname`, such as `smartdns`
 
         ```shell
-        pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 0.0.0.0
+        pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr smartdns
         Server:         192.168.1.1
         Address:        192.168.1.1#53
 
         Non-authoritative answer:
-        0.0.0.0.in-addr.arpa  name = smartdns.
+        smartdns         name = smartdns.
         ```
 
     * **The interface prompts that the redirect failed**
@@ -328,12 +328,12 @@ https://github.com/pymumu/smartdns/releases
         See if the `name` item in the command result is displayed as `smartdns` or `hostname`, such as `smartdns`
 
         ```shell
-        pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 0.0.0.0
+        pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr smartdns
         Server:         192.168.1.1
         Address:        192.168.1.1#53
 
         Non-authoritative answer:
-        0.0.0.0.in-addr.arpa  name = smartdns.
+        smartdns         name = smartdns.
         ```
 
         * Method 2: Use `nslookup` to query the `www.baidu.com` domain name to see if the IP address of Baidu in the result is `only one. If there are multiple IP addresses returned, it means that it is not valid. Please try to check several domain names.
@@ -388,16 +388,16 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 
 1. Restart router
 
-    After the router is started, use `nslookup -querytype=ptr 0.0.0.0` to query the domain name.  
+    After the router is started, use `nslookup -querytype=ptr smartdns` to query the domain name.  
     See if the `name` item in the command result is displayed as `smartdns` or `hostname`, such as `smartdns`
 
     ```shell
-    pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 0.0.0.0
+    pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr smartdns
     Server:         192.168.1.1
     Address:        192.168.1.1#53
 
     Non-authoritative answer:
-    0.0.0.0.in-addr.arpa  name = smartdns.
+    smartdns         name = smartdns.
     ```
 
 1. Note
@@ -464,16 +464,16 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 
 1. Restart the router to take effect
 
-    After the router is started, use `nslookup -querytype=ptr 0.0.0.0` to query the domain name.
+    After the router is started, use `nslookup -querytype=ptr smartdns` to query the domain name.
     See if the `name` item in the command result is displayed as `smartdns` or `hostname`, such as `smartdns`
 
     ```shell
-    Pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 0.0.0.0
+    Pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr smartdns
     Server: 192.168.1.1
     Address: 192.168.1.1#53
 
     Non-authoritative answer:
-    0.0.0.0.in-addr.arpa name = smartdns.
+    smartdns        name = smartdns.
     ```
 
     Note: If the service does not start automatically, you need to set optwre/entware to start automatically. For details, see the optware/entware documentation.
@@ -521,16 +521,16 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 
 1. Check if the service is configured successfully
 
-    Query domain name with `nslookup -querytype=ptr 0.0.0.0`  
+    Query domain name with `nslookup -querytype=ptr smartdns`  
     Check if the `name` item in the command result is displayed as `smartdns` or `hostname`, such as `smartdns`
 
     ```shell
-    pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 0.0.0.0
+    pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr smartdns
     Server:         192.168.1.1
     Address:        192.168.1.1#53
 
     Non-authoritative answer:
-    0.0.0.0.in-addr.arpa  name = smartdns.
+    smartdns         name = smartdns.
     ```
 
 ## Configuration parameter

@@ -252,16 +252,16 @@ https://github.com/pymumu/smartdns/releases
 
 1. 检测服务是否配置成功。
 
-    使用`nslookup -querytype=ptr 0.0.0.0`查询域名  
+    使用`nslookup -querytype=ptr smartdns`查询域名  
     看命令结果中的`name`项目是否显示为`smartdns`或`主机名`，如`smartdns`则表示生效  
 
     ```shell
-    pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 0.0.0.0
+    pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr smartdns
     Server:         192.168.1.1
     Address:        192.168.1.1#53
 
     Non-authoritative answer:
-    0.0.0.0.in-addr.arpa  name = smartdns.
+    smartdns        name = smartdns.
     ```
 
 ### openwrt/LEDE
@@ -296,16 +296,16 @@ https://github.com/pymumu/smartdns/releases
 
     * **检测转发服务是否配置成功**
 
-        使用`nslookup -querytype=ptr 0.0.0.0`查询域名  
+        使用`nslookup -querytype=ptr smartdns`查询域名  
         看命令结果中的`name`项目是否显示为`smartdns`或`主机名`，如`smartdns`则表示生效  
 
         ```shell
-        pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 0.0.0.0
+        pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr smartdns
         Server:         192.168.1.1
         Address:        192.168.1.1#53
 
         Non-authoritative answer:
-        0.0.0.0.in-addr.arpa  name = smartdns.
+        smartdns        name = smartdns.
         ```
 
     * **界面提示重定向失败**
@@ -329,16 +329,16 @@ https://github.com/pymumu/smartdns/releases
 
     * **检测上游服务是否配置成功**
 
-        * 方法一：使用`nslookup -querytype=ptr 0.0.0.0`查询域名  
+        * 方法一：使用`nslookup -querytype=ptr smartdns`查询域名  
         看命令结果中的`name`项目是否显示为`smartdns`或`主机名`，如`smartdns`则表示生效  
 
         ```shell
-        pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 0.0.0.0
+        pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr smartdns
         Server:         192.168.1.1
         Address:        192.168.1.1#53
 
         Non-authoritative answer:
-        0.0.0.0.in-addr.arpa  name = smartdns.
+        smartdns        name = smartdns.
         ```
 
         * 方法二：使用`nslookup`查询`www.baidu.com`域名，查看结果中百度的IP地址是否`只有一个`，如有多个IP地址返回，则表示未生效，请多尝试几个域名检查。
@@ -393,16 +393,16 @@ https://github.com/pymumu/smartdns/releases
 
 1. 重启路由器生效服务
 
-    待路由器启动后，使用`nslookup -querytype=ptr 0.0.0.0`查询域名  
+    待路由器启动后，使用`nslookup -querytype=ptr smartdns`查询域名  
     看命令结果中的`name`项目是否显示为`smartdns`或`主机名`，如`smartdns`则表示生效  
 
     ```shell
-    pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 0.0.0.0
+    pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr smartdns
     Server:         192.168.1.1
     Address:        192.168.1.1#53
 
     Non-authoritative answer:
-    0.0.0.0.in-addr.arpa  name = smartdns.
+    smartdns        name = smartdns.
     ```
 
 1. 额外说明
@@ -469,16 +469,16 @@ https://github.com/pymumu/smartdns/releases
 
 1. 重启路由器生效服务
 
-    待路由器启动后，使用`nslookup -querytype=ptr 0.0.0.0`查询域名  
+    待路由器启动后，使用`nslookup -querytype=ptr smartdns`查询域名  
     看命令结果中的`name`项目是否显示为`smartdns`或`主机名`，如`smartdns`则表示生效  
 
     ```shell
-    pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 0.0.0.0
+    pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr smartdns
     Server:         192.168.1.1
     Address:        192.168.1.1#53
 
     Non-authoritative answer:
-    0.0.0.0.in-addr.arpa  name = smartdns.
+    smartdns        name = smartdns.
     ```
 
     注意：若服务没有自动启动，则需要设置optwre/entware自动启动，具体方法参考optware/entware的文档。
@@ -526,16 +526,16 @@ https://github.com/pymumu/smartdns/releases
 
 1. 检测服务是否配置成功。
 
-    使用`nslookup -querytype=ptr 0.0.0.0`查询域名  
+    使用`nslookup -querytype=ptr smartdns`查询域名  
     看命令结果中的`name`项目是否显示为`smartdns`或`主机名`，如`smartdns`则表示生效  
 
     ```shell
-    pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr 0.0.0.0
+    pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr smartdns
     Server:         192.168.1.1
     Address:        192.168.1.1#53
 
     Non-authoritative answer:
-    0.0.0.0.in-addr.arpa  name = smartdns.
+    smartdns  name = smartdns.
     ```
 
 ## 配置参数
