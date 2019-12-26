@@ -879,7 +879,6 @@ static void _dns_client_close_socket(struct dns_server_info *server_info)
 
 	if (server_info->ssl) {
 		/* Shutdown ssl */
-		SSL_shutdown(server_info->ssl);
 		SSL_free(server_info->ssl);
 		server_info->ssl = NULL;
 	}
@@ -1987,6 +1986,8 @@ static int _dns_client_tls_matchName(const char *host, const char *pattern, int 
 static int _dns_client_tls_verify(struct dns_server_info *server_info)
 {
 	X509 *cert = NULL;
+	X509_PUBKEY *pubkey = NULL;
+	X509_NAME *cert_name = NULL;
 	char peer_CN[256];
 	char cert_fingerprint[256];
 	int i = 0;
@@ -2007,7 +2008,17 @@ static int _dns_client_tls_verify(struct dns_server_info *server_info)
 		return -1;
 	}
 
-	X509_NAME_get_text_by_NID(X509_get_subject_name(cert), NID_commonName, peer_CN, 256);
+	cert_name = X509_get_subject_name(cert);
+	if (cert_name == NULL) {
+		tlog(TLOG_ERROR, "get subject name failed.");
+		goto errout;
+	}
+
+	if (X509_NAME_get_text_by_NID(cert_name, NID_commonName, peer_CN, 256) == -1) {
+		tlog(TLOG_ERROR, "cannot found x509 name");
+		goto errout;
+	}
+	
 	tlog(TLOG_DEBUG, "peer CN: %s", peer_CN);
 
 	/* check tls host */
@@ -2019,8 +2030,14 @@ static int _dns_client_tls_verify(struct dns_server_info *server_info)
 		}
 	}
 
+	pubkey = X509_get_X509_PUBKEY(cert);
+	if (pubkey == NULL) {
+		tlog(TLOG_ERROR, "get pub key failed.");
+		goto errout;
+	}
+
 	/* get spki pin */
-	key_len = i2d_X509_PUBKEY(X509_get_X509_PUBKEY(cert), NULL);
+	key_len = i2d_X509_PUBKEY(pubkey, NULL);
 	if (key_len <= 0) {
 		tlog(TLOG_ERROR, "get x509 public key failed.");
 		goto errout;
@@ -2033,7 +2050,7 @@ static int _dns_client_tls_verify(struct dns_server_info *server_info)
 		goto errout;
 	}
 
-	i2d_X509_PUBKEY(X509_get_X509_PUBKEY(cert), &key_data_tmp);
+	i2d_X509_PUBKEY(pubkey, &key_data_tmp);
 
 	/* Get the SHA256 value of SPKI */
 	key_sha256 = SSL_SHA256(key_data, key_len, NULL);
@@ -2056,7 +2073,7 @@ static int _dns_client_tls_verify(struct dns_server_info *server_info)
 	tlog(TLOG_DEBUG, "cert SPKI pin(%s): %s", "sha256", cert_fingerprint);
 
 	spki = _dns_client_server_get_spki(server_info, &spki_len);
-	if (spki) {
+	if (spki && spki_len > 0 && spki_len <= SHA256_DIGEST_LENGTH) {
 		/* check SPKI */
 		if (memcmp(spki, key_sha256, spki_len) != 0) {
 			tlog(TLOG_INFO, "server %s cert spki is invalid", server_info->ip);
@@ -2294,7 +2311,7 @@ static int _dns_client_send_tls(struct dns_server_info *server_info, void *packe
 			/* save data to buffer, and retry when EPOLLOUT is available */
 			return _dns_client_send_data_to_buffer(server_info, inpacket, len);
 		} else if (server_info->ssl && errno != ENOMEM) {
-			SSL_shutdown(server_info->ssl);
+			SSL_set_shutdown(server_info->ssl, SSL_SENT_SHUTDOWN | SSL_RECEIVED_SHUTDOWN);
 		}
 		return -1;
 	} else if (send_len < len) {
@@ -2344,7 +2361,7 @@ static int _dns_client_send_https(struct dns_server_info *server_info, void *pac
 			/* save data to buffer, and retry when EPOLLOUT is available */
 			return _dns_client_send_data_to_buffer(server_info, inpacket, http_len);
 		} else if (server_info->ssl && errno != ENOMEM) {
-			SSL_shutdown(server_info->ssl);
+			SSL_set_shutdown(server_info->ssl, SSL_SENT_SHUTDOWN | SSL_RECEIVED_SHUTDOWN);
 		}
 		return -1;
 	} else if (send_len < http_len) {
