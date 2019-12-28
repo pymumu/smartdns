@@ -1821,6 +1821,10 @@ static int _dns_client_process_tcp_buff(struct dns_server_info *server_info)
 		}
 
 		server_info->recv_buff.len -= len;
+		if (server_info->recv_buff.len < 0) {
+			tlog(TLOG_ERROR, "Internal error.");
+			abort();
+		}
 
 		/* move to next result */
 		if (server_info->recv_buff.len > 0) {
@@ -1879,7 +1883,7 @@ static int _dns_client_process_tcp(struct dns_server_info *server_info, struct e
 
 		time(&server_info->last_recv);
 		server_info->recv_buff.len += len;
-		if (server_info->recv_buff.len < 2) {
+		if (server_info->recv_buff.len <= 2) {
 			/* wait and recv */
 			return 0;
 		}
@@ -1916,6 +1920,9 @@ static int _dns_client_process_tcp(struct dns_server_info *server_info, struct e
 			server_info->send_buff.len -= len;
 			if (server_info->send_buff.len > 0) {
 				memmove(server_info->send_buff.data, server_info->send_buff.data + len, server_info->send_buff.len);
+			} else if (server_info->send_buff.len < 0) {
+				tlog(TLOG_ERROR, "Internal Error");
+				abort();
 			}
 			pthread_mutex_unlock(&client.server_list_lock);
 		}
@@ -1929,7 +1936,7 @@ static int _dns_client_process_tcp(struct dns_server_info *server_info, struct e
 		event.events = EPOLLIN;
 		event.data.ptr = server_info;
 		if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &event) != 0) {
-			tlog(TLOG_ERROR, "epoll ctl failed.");
+			tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
 			goto errout;
 		}
 	}
@@ -2128,7 +2135,7 @@ static int _dns_client_process_tls(struct dns_server_info *server_info, struct e
 
 			fd_event.data.ptr = server_info;
 			if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &fd_event) != 0) {
-				tlog(TLOG_ERROR, "epoll ctl failed.");
+				tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
 				goto errout;
 			}
 
@@ -2164,7 +2171,7 @@ static int _dns_client_process_tls(struct dns_server_info *server_info, struct e
 		fd_event.events = EPOLLIN | EPOLLOUT;
 		fd_event.data.ptr = server_info;
 		if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &fd_event) != 0) {
-			tlog(TLOG_ERROR, "epoll ctl failed.");
+			tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
 			goto errout;
 		}
 	}
