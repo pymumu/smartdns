@@ -687,6 +687,7 @@ errout:
 	return -1;
 }
 
+#if OPENSSL_API_COMPAT < 0x10100000
 #define THREAD_STACK_SIZE (16 * 1024)
 static pthread_mutex_t *lock_cs;
 static long *lock_count;
@@ -743,6 +744,7 @@ void SSL_CRYPTO_thread_cleanup(void)
 	OPENSSL_free(lock_cs);
 	OPENSSL_free(lock_count);
 }
+#endif
 
 #define SERVER_NAME_LEN 256
 #define TLS_HEADER_LEN 5

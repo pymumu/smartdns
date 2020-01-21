@@ -222,20 +222,22 @@ static int _smartdns_set_ecs_ip(void)
 
 static int _smartdns_init_ssl(void)
 {
+#if OPENSSL_API_COMPAT < 0x10100000L
 	SSL_load_error_strings();
 	SSL_library_init();
 	OpenSSL_add_all_algorithms();
 	SSL_CRYPTO_thread_setup();
-
+#endif
 	return 0;
 }
 
 static int _smartdns_destroy_ssl(void)
 {
+#if OPENSSL_API_COMPAT < 0x10100000L
 	SSL_CRYPTO_thread_cleanup();
 	ERR_free_strings();
 	EVP_cleanup();
-
+#endif
 	return 0;
 }
 
