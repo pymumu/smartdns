@@ -14,7 +14,7 @@ showhelp()
 	echo "Usage: $0 [OPTION]"
 	echo "Options:"
 	echo " --platform [luci|debian|openwrt|optware|linux]    build for platform. "
-	echo " --arch [all|armhf|arm64|x86_64|...]               build for architecture, e.g. "
+	echo " --arch [all|armhf|arm64|x86-64|...]               build for architecture, e.g. "
 	echo " --cross-tool [cross-tool]                         cross compiler, e.g. mips-openwrt-linux-"
 	echo ""
 	echo "Advance Options:"
@@ -27,7 +27,7 @@ showhelp()
 	echo " build luci:"
 	echo "   $0 --platform luci"
 	echo " build debian:"
-	echo "   $0 --platform debian --arch x86_64"
+	echo "   $0 --platform debian --arch x86-64"
 	echo " build raspbian pi:"
 	echo "   $0 --platform debian --arch armhf"
 	echo " build optware mips:"
@@ -35,7 +35,7 @@ showhelp()
 	echo " build openwrt mips:"
 	echo "   $0 --platform openwrt --arch mips_24kc"
 	echo " build generic linux:"
-	echo "   $0 --platform linux --arch x86_64"
+	echo "   $0 --platform linux --arch x86-64"
 }
 
 build_smartdns()
