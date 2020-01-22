@@ -38,20 +38,16 @@ set_forward_dnsmasq()
 	addr="127.0.0.1#$PORT"
 	OLD_SERVER="$(uci get dhcp.@dnsmasq[0].server 2>/dev/null)"
 	echo "$OLD_SERVER" | grep "^$addr" >/dev/null 2>&1
-	if [ $? -eq 0 ]; then
-		return
-	fi
+	[ $? -eq 0 ] && return
 	uci delete dhcp.@dnsmasq[0].server 2>/dev/null
 	uci add_list dhcp.@dnsmasq[0].server="$addr"
 	for server in $OLD_SERVER; do
-		if [ "$server" = "$addr" ]; then
-			continue
-		fi
+		[ "$server" = "$addr" ] && continue
 		uci add_list dhcp.@dnsmasq[0].server="$server"
 	done
 	uci delete dhcp.@dnsmasq[0].resolvfile 2>/dev/null
 	uci set dhcp.@dnsmasq[0].noresolv=1
-	uci commit dhcp 
+	uci commit dhcp
 	/etc/init.d/dnsmasq restart
 }
 
@@ -61,16 +57,14 @@ stop_forward_dnsmasq()
 	addr="127.0.0.1#$OLD_PORT"
 	OLD_SERVER="$(uci get dhcp.@dnsmasq[0].server 2>/dev/null)"
 	echo "$OLD_SERVER" | grep "^$addr" >/dev/null 2>&1
-	if [ $? -ne 0 ]; then
-		return
-	fi
+	[ $? -ne 0 ] && return
 
 	uci del_list dhcp.@dnsmasq[0].server="$addr" 2>/dev/null
 	addrlist="$(uci get dhcp.@dnsmasq[0].server 2>/dev/null)"
-	if [ -z "$addrlist" ] ; then
+	[ -z "$addrlist" ] && {
 		uci set dhcp.@dnsmasq[0].resolvfile=/tmp/resolv.conf.auto 2>/dev/null
 		uci delete dhcp.@dnsmasq[0].noresolv 2>/dev/null
-	fi
+	}
 	uci commit dhcp
 	/etc/init.d/dnsmasq restart
 }
@@ -89,9 +83,7 @@ set_iptable()
 		iptables -t nat -A PREROUTING -p udp -d "$IP" --dport 53 -j REDIRECT --to-ports "$SMARTDNS_PORT" >/dev/null 2>&1
 	done
 
-	if [ "$ipv6_server" = 0 ]; then
-		return
-	fi
+	[ "$ipv6_server" = 0 ] && return
 
 	IPS="$(ifconfig | grep "inet6 addr" | grep -v " fe80::" | grep -v " ::1" | grep "Global" | awk '{print $3}')"
 	for IP in $IPS
@@ -115,9 +107,7 @@ clear_iptable()
 		iptables -t nat -D PREROUTING -p tcp -d "$IP" --dport 53 -j REDIRECT --to-ports "$OLD_PORT" >/dev/null 2>&1
 	done
 
-	if [ "$ipv6_server" = 0 ]; then
-		return
-	fi
+	[ "$ipv6_server" = 0 ] && return
 
 	IPS="$(ifconfig | grep "inet6 addr" | grep -v " fe80::" | grep -v " ::1" | grep "Global" | awk '{print $3}')"
 	for IP in $IPS
@@ -125,7 +115,7 @@ clear_iptable()
 		ip6tables -t nat -D PREROUTING -p udp -d "$IP" --dport 53 -j REDIRECT --to-ports "$OLD_PORT" >/dev/null 2>&1
 		ip6tables -t nat -D PREROUTING -p tcp -d "$IP" --dport 53 -j REDIRECT --to-ports "$OLD_PORT" >/dev/null 2>&1
 	done
-	
+
 }
 
 service_triggers() {
@@ -143,23 +133,16 @@ get_tz()
 {
 	SET_TZ=""
 
-	if [ -e "/etc/localtime" ]; then
-		return 
-	fi
-	
+	[ -e "/etc/localtime" ] && return
+
 	for tzfile in /etc/TZ /var/etc/TZ
 	do
-		if [ ! -e "$tzfile" ]; then
-			continue
-		fi
-		
+		[ -e "$tzfile" ] || continue
 		tz="$(cat $tzfile 2>/dev/null)"
 	done
-	
-	if [ -z "$tz" ]; then
-		return	
-	fi
-	
+
+	[ -z "$tz" ] && return
+
 	SET_TZ=$tz
 }
 
@@ -173,7 +156,7 @@ load_server()
 	config_get port "$section" "port" ""
 	config_get type "$section" "type" "udp"
 	config_get ip "$section" "ip" ""
-	config_get tls_host_verify "$section" "tls_host_verify" ""
+	config_get tls_host_verify "$secti1on" "tls_host_verify" ""
 	config_get host_name "$section" "host_name" ""
 	config_get http_host "$section" "http_host" ""
 	config_get server_group "$section" "server_group" ""
@@ -182,9 +165,7 @@ load_server()
 	config_get spki_pin "$section" "spki_pin" ""
 	config_get addition_arg "$section" "addition_arg" ""
 
-	if [ "$enabled" = "0" ]; then
-		return
-	fi
+	[ "$enabled" = "0" ] && return
 
 	if [ -z "$ip" ] || [ -z "$type" ]; then
 		return
@@ -199,105 +180,65 @@ load_server()
 		SERVER="server-https"
 	fi
 
-	if [ ! -z "$(echo "$ip" | grep ":" | grep -v "https://")" ]; then
-		if [ -z "$(echo "$ip" | grep "\\[")" ]; then
+	if echo "$ip" | grep ":" | grep -q -v "https://"; then
+		if ! echo "$ip" | grep -q "\\["; then
 			ip="[$ip]"
 		fi
 	fi
 
-	if [ ! -z "$tls_host_verify" ]; then
-		ADDITIONAL_ARGS="$ADDITIONAL_ARGS -tls-host-verify $tls_host_verify"
-	fi
+	[ -z "$tls_host_verify" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -tls-host-verify $tls_host_verify"
+	[ -z "$host_name" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -host-name $host_name"
+	[ -z "$http_host" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -http-host $http_host"
+	[ -z "$server_group" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -group $server_group"
+	[ "$blacklist_ip" = "0" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -blacklist-ip"
+	[ "$check_edns" = "0" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -check-edns"
+	[ -z "$spki_pin" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -spki-pin $spki_pin"
 
-	if [ ! -z "$host_name" ]; then
-		ADDITIONAL_ARGS="$ADDITIONAL_ARGS -host-name $host_name"
-	fi
-
-	if [ ! -z "$http_host" ]; then
-		ADDITIONAL_ARGS="$ADDITIONAL_ARGS -http-host $http_host"
-	fi
-
-	if [ ! -z "$server_group" ]; then
-		ADDITIONAL_ARGS="$ADDITIONAL_ARGS -group $server_group"
-	fi
-
-	if [ "$blacklist_ip" != "0" ]; then
-		ADDITIONAL_ARGS="$ADDITIONAL_ARGS -blacklist-ip"
-	fi
-
-	if [ "$check_edns" != "0" ]; then
-		ADDITIONAL_ARGS="$ADDITIONAL_ARGS -check-edns"
-	fi
-
-	if [ ! -z "$spki_pin" ]; then
-		ADDITIONAL_ARGS="$ADDITIONAL_ARGS -spki-pin $spki_pin"
-	fi
-
-	if [ ! -z "$port" ]; then
-		DNS_ADDRESS="$ip:$port"
+	if [ -z "$port" ]; then
+		DNS_ADDRESS="$ip"
 	else
-		DNS_ADDRESS="$ip"
+		DNS_ADDRESS="$ip:$port"
 	fi
 
-	if [ "$type" = "https" ]; then
-		DNS_ADDRESS="$ip"
-	fi
+	[ "$type" = "https" ] && DNS_ADDRESS="$ip"
 
 	conf_append "$SERVER" "$DNS_ADDRESS $ADDITIONAL_ARGS $addition_arg"
 }
 
-load_second_server() 
+load_second_server()
 {
 	local section="$1"
 	local ARGS=""
 	local ADDR=""
 
 	config_get_bool seconddns_enabled "$section" "seconddns_enabled" "0"
-	if [ "$seconddns_enabled" = "0" ]; then
-		return
-	fi
+	[ "$seconddns_enabled" = "0" ] && return
 
 	config_get seconddns_port "$section" "seconddns_port" "7053"
 
 	config_get_bool seconddns_no_speed_check "$section" "seconddns_no_speed_check" "0"
-	if [ "$seconddns_no_speed_check" = "1" ]; then
-		ARGS="$ARGS -no-speed-check"
-	fi
+	[ "$seconddns_no_speed_check" = "1" ] && ARGS="$ARGS -no-speed-check"
 
 	config_get seconddns_server_group "$section" "seconddns_server_group" ""
-	if [ ! -z "$seconddns_server_group" ]; then
-		ARGS="$ARGS -group $seconddns_server_group"
-	fi
+	[ -z "$seconddns_server_group" ] || ARGS="$ARGS -group $seconddns_server_group"
 
 	config_get_bool seconddns_no_rule_addr "$section" "seconddns_no_rule_addr" "0"
-	if [ "$seconddns_no_rule_addr" = "1" ]; then
-		ARGS="$ARGS -no-rule-addr"
-	fi
+	[ "$seconddns_no_rule_addr" = "1" ] && ARGS="$ARGS -no-rule-addr"
 
 	config_get_bool seconddns_no_rule_nameserver "$section" "seconddns_no_rule_nameserver" "0"
-	if [ "$seconddns_no_rule_nameserver" = "1" ]; then
-		ARGS="$ARGS -no-rule-nameserver"
-	fi
+	[ "$seconddns_no_rule_nameserver" = "1" ] && ARGS="$ARGS -no-rule-nameserver"
 
 	config_get_bool seconddns_no_rule_ipset "$section" "seconddns_no_rule_ipset" "0"
-	if [ "$seconddns_no_rule_ipset" = "1" ]; then
-		ARGS="$ARGS -no-rule-ipset"
-	fi
+	[ "$seconddns_no_rule_ipset" = "1" ] && ARGS="$ARGS -no-rule-ipset"
 
 	config_get_bool seconddns_no_rule_soa "$section" "seconddns_no_rule_soa" "0"
-	if [ "$seconddns_no_rule_soa" = "1" ]; then
-		ARGS="$ARGS -no-rule-soa"
-	fi
+	[ "$seconddns_no_rule_soa" = "1" ] && ARGS="$ARGS -no-rule-soa"
 
 	config_get_bool seconddns_no_dualstack_selection "$section" "seconddns_no_dualstack_selection" "0"
-	if [ "$seconddns_no_dualstack_selection" = "1" ]; then
-		ARGS="$ARGS -no-dualstack-selection"
-	fi
+	[ "$seconddns_no_dualstack_selection" = "1" ] && ARGS="$ARGS -no-dualstack-selection"
 
 	config_get_bool seconddns_no_cache "$section" "seconddns_no_cache" "0"
-	if [ "$seconddns_no_cache" = "1" ]; then
-		ARGS="$ARGS -no-cache"
-	fi
+	[ "$seconddns_no_cache" = "1" ] && ARGS="$ARGS -no-cache"
 
 	config_get ipv6_server "$section" "ipv6_server" "1"
 	if [ "$ipv6_server" = "1" ]; then
@@ -308,12 +249,10 @@ load_second_server()
 
 	conf_append "bind" "$ADDR:$seconddns_port $ARGS"
 	config_get_bool "seconddns_tcp_server" "$section" "seconddns_tcp_server" "1"
-	if [ "$seconddns_tcp_server" = "1" ]; then
-		conf_append "bind-tcp" "$ADDR:$seconddns_port $ARGS"
-	fi
+	[ "$seconddns_tcp_server" = "1" ] && conf_append "bind-tcp" "$ADDR:$seconddns_port $ARGS"
 }
 
-load_service() 
+load_service()
 {
 	local section="$1"
 	args=""
@@ -324,14 +263,10 @@ load_service()
 	config_get_bool enabled "$section" "enabled" '0'
 
 	config_get server_name "$section" "server_name" ""
-	if [ ! -z "$server_name" ]; then
-		conf_append "server-name" "$server_name"	
-	fi
+	[ -z "$server_name" ] || conf_append "server-name" "$server_name"
 
 	config_get coredump "$section" "coredump" "0"
-	if [ "$coredump" = "1" ]; then
-		COREDUMP="1"
-	fi
+	[ "$coredump" = "1" ] && COREDUMP="1"
 
 	config_get port "$section" "port" "6053"
 	config_get ipv6_server "$section" "ipv6_server" "1"
@@ -342,64 +277,45 @@ load_service()
 		conf_append "bind" ":$port"
 	fi
 
-	if [ "$tcp_server" = "1" ]; then
+	[ "$tcp_server" = "1" ] && {
 		if [ "$ipv6_server" = "1" ]; then
 			conf_append "bind-tcp" "[::]:$port"
 		else
 			conf_append "bind-tcp" ":$port"
 		fi
-	fi
+	}
 	config_get dualstack_ip_selection "$section" "dualstack_ip_selection" "0"
-	if [ "$dualstack_ip_selection" = "1" ]; then
-		conf_append "dualstack-ip-selection" "yes"
-	fi
+	[ "$dualstack_ip_selection" = "1" ] && conf_append "dualstack-ip-selection" "yes"
 
 	config_get prefetch_domain "$section" "prefetch_domain" "0"
-	if [ "$prefetch_domain" = "1" ]; then
-		conf_append "prefetch-domain" "yes"
-	fi
+	[ "$prefetch_domain" = "1" ] && conf_append "prefetch-domain" "yes"
+
 
 	SMARTDNS_PORT="$port"
 
 	config_get cache_size "$section" "cache_size" ""
-	if [ ! -z "$cache_size" ]; then
-		conf_append "cache-size" "$cache_size"
-	fi
+	[ -z "$cache_size" ] || conf_append "cache-size" "$cache_size"
 
 	config_get rr_ttl "$section" "rr_ttl" ""
-	if [ ! -z "$rr_ttl" ]; then
-		conf_append "rr-ttl" "$rr_ttl"
-	fi
+	[ -z "$rr_ttl" ] || conf_append "rr-ttl" "$rr_ttl"
 
 	config_get rr_ttl_min "$section" "rr_ttl_min" ""
-	if [ ! -z "$rr_ttl_min" ]; then
-		conf_append "rr-ttl-min" "$rr_ttl_min"
-	fi
+	[ -z "$rr_ttl_min" ] || conf_append "rr-ttl-min" "$rr_ttl_min"
 
 	config_get rr_ttl_max "$section" "rr_ttl_max" ""
-	if [ ! -z "$rr_ttl_max" ]; then
-		conf_append "rr-ttl-max" "$rr_ttl_max"
-	fi
+	[ -z "$rr_ttl_max" ] || conf_append "rr-ttl-max" "$rr_ttl_max"
 
 	config_get log_size "$section" "log_size" "64K"
-	if [ ! -z "$log_size" ]; then
-		conf_append "log-size" "$log_size"
-	fi
+	[ -z "$log_size" ] || vonf_append "log-size" "$log_size"
 
 	config_get log_num "$section" "log_num" "1"
-	if [ ! -z $log_num ]; then
-		conf_append "log-num" "$log_num"
-	fi
+	[ -z "$log_num" ] || conf_append "log-num" "$log_num"
 
 	config_get log_level "$section" "log_level" "error"
-	if [ ! -z "$log_level" ]; then
-		conf_append "log-level" "$log_level"
-	fi
+	[ -z "$log_level" ]|| conf_append "log-level" "$log_level"
 
 	config_get log_file "$section" "log_file" ""
-	if [ ! -z "$log_file" ]; then
-		conf_append "log-file" "$log_file"
-	fi
+	[ -z "$log_file" ] || conf_append "log-file" "$log_file"
 
 	config_get redirect "$section" "redirect" "none"
 	config_get old_redirect "$section" "old_redirect" "none"
@@ -407,16 +323,12 @@ load_service()
 	config_get old_enabled "$section" "old_enabled" "0"
 
 	if [ "$old_redirect" != "$redirect" ] || [ "$old_port" != "$SMARTDNS_PORT" ] || [ "$old_enabled" = "1" -a "$enabled" = "0" ]; then
-		if [ "$old_redirect" != "none" ]; then
-			if [ "$old_port" != "0" ]; then
-				clear_iptable "$old_port" "$ipv6_server"
-			fi
-			if [ "$old_redirect" = "dnsmasq-upstream" ]; then
-				stop_forward_dnsmasq "$old_port"
-			fi
-		fi
+		[ "$old_redirect" = "none" ] || {
+			[ "$old_port" = "0" ] || clear_iptable "$old_port" "$ipv6_server"
+			[ "$old_redirect" = "dnsmasq-upstream" ] && stop_forward_dnsmasq "$old_port"
+		}
 	fi
-	
+
 	uci delete smartdns.@smartdns[0].old_redirect 2>/dev/null
 	uci delete smartdns.@smartdns[0].old_port 2>/dev/null
 	uci delete smartdns.@smartdns[0].old_enabled 2>/dev/null
@@ -437,31 +349,29 @@ load_service()
 
 	config_foreach load_server "server"
 
-	echo "conf-file $ADDRESS_CONF" >> $SMARTDNS_CONF_TMP
-	echo "conf-file $BLACKLIST_IP_CONF" >> $SMARTDNS_CONF_TMP
-	echo "conf-file $CUSTOM_CONF" >> $SMARTDNS_CONF_TMP
+	{
+		echo "conf-file $ADDRESS_CONF"
+		echo "conf-file $BLACKLIST_IP_CONF"
+		echo "conf-file $CUSTOM_CONF"
+	} >> $SMARTDNS_CONF_TMP
 	mv $SMARTDNS_CONF_TMP $SMARTDNS_CONF
 
 	procd_open_instance "smartdns"
-	if [ "$COREDUMP" = "1" ]; then
+	[ "$COREDUMP" = "1" ] && {
 		args="$args -S"
 		procd_set_param limits core="unlimited"
-	fi
-	
+	}
+
 	get_tz
-	if [ ! -z "$SET_TZ" ]; then
-		procd_set_param env TZ="$SET_TZ"
-	fi
+	[ -z "$SET_TZ" ] || procd_set_param env TZ="$SET_TZ"
 
 	procd_set_param command /usr/sbin/smartdns -f -c $SMARTDNS_CONF $args
-	if [ "$RESPAWN" = "1" ]; then
-		procd_set_param respawn ${respawn_threshold:-3600} ${respawn_timeout:-5} ${respawn_retry:-5}
-	fi
+	[ "$RESPAWN" = "1" ] &&	procd_set_param respawn ${respawn_threshold:-3600} ${respawn_timeout:-5} ${respawn_retry:-5}
 	procd_set_param file "$SMARTDNS_CONF"
 	procd_close_instance
 }
 
-start_service() 
+start_service()
 {
 	config_load "smartdns"
 	config_foreach load_service "smartdns"
