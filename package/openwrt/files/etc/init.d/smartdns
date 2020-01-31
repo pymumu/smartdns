@@ -308,7 +308,7 @@ load_service()
 	[ -z "$rr_ttl_max" ] || conf_append "rr-ttl-max" "$rr_ttl_max"
 
 	config_get log_size "$section" "log_size" "64K"
-	[ -z "$log_size" ] || vonf_append "log-size" "$log_size"
+	[ -z "$log_size" ] || conf_append "log-size" "$log_size"
 
 	config_get log_num "$section" "log_num" "1"
 	[ -z "$log_num" ] || conf_append "log-num" "$log_num"
