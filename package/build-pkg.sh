@@ -13,7 +13,7 @@ showhelp()
 {
 	echo "Usage: $0 [OPTION]"
 	echo "Options:"
-	echo " --platform [luci|debian|openwrt|optware|linux]    build for platform. "
+	echo " --platform [luci|luci-compat|debian|openwrt|optware|linux]    build for platform. "
 	echo " --arch [all|armhf|arm64|x86-64|...]               build for architecture, e.g. "
 	echo " --cross-tool [cross-tool]                         cross compiler, e.g. mips-openwrt-linux-"
 	echo ""
@@ -26,6 +26,8 @@ showhelp()
 	echo "Example:"
 	echo " build luci:"
 	echo "   $0 --platform luci"
+	echo " build luci:"
+	echo "   $0 --platform luci-compat"
 	echo " build debian:"
 	echo "   $0 --platform debian --arch x86-64"
 	echo " build raspbian pi:"
