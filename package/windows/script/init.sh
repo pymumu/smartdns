@@ -2,7 +2,7 @@
 
 source /etc/os-release
 case $ID in
-debian|ubuntu)
+debian | ubuntu)
     echo default wsl distro is debian or ubuntu.
     echo
     echo using default distro.
@@ -14,6 +14,6 @@ debian|ubuntu)
     echo
     echo try to use ubuntu now.
     echo
-    exit 1
+    exit 10
     ;;
 esac
