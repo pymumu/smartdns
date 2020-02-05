@@ -58,6 +58,7 @@ struct dns_domain_check_order dns_conf_check_order = {
 	.order = {DOMAIN_CHECK_ICMP, DOMAIN_CHECK_TCP},
 	.tcp_port = 80,
 };
+int dns_has_cap_ping = 0;
 
 /* logging */
 int dns_conf_log_level = TLOG_ERROR;
@@ -93,6 +94,49 @@ struct dns_edns_client_subnet dns_conf_ipv4_ecs;
 struct dns_edns_client_subnet dns_conf_ipv6_ecs;
 
 char dns_conf_sni_proxy_ip[DNS_MAX_IPLEN];
+
+static int _get_domain(char *value, char *domain, int max_dmain_size, char **ptr_after_domain)
+{
+	char *begin = NULL;
+	char *end = NULL;
+	int len = 0;
+
+	/* first field */
+	begin = strstr(value, "/");
+	if (begin == NULL) {
+		goto errout;
+	}
+
+	/* second field */
+	begin++;
+	end = strstr(begin, "/");
+	if (end == NULL) {
+		goto errout;
+	}
+
+	/* remove prefix . */
+	while (*begin == '.') {
+		begin++;
+	}
+
+	/* Get domain */
+	len = end - begin;
+	if (len >= max_dmain_size) {
+		tlog(TLOG_ERROR, "domain name %s too long", value);
+		goto errout;
+	}
+
+	memcpy(domain, begin, len);
+	domain[len] = '\0';
+
+	if (ptr_after_domain) {
+		*ptr_after_domain = end + 1;
+	}
+
+	return 0;
+errout:
+	return -1;
+}
 
 /* create and get dns server group */
 static struct dns_server_groups *_dns_conf_get_group(const char *group_name)
@@ -523,58 +567,14 @@ errout:
 	return NULL;
 }
 
-static int _config_ipset(void *data, int argc, char *argv[])
+static int _conf_domain_rule_ipset(char *domain, const char *ipsetname)
 {
 	struct dns_ipset_rule *ipset_rule = NULL;
-	char domain[DNS_MAX_CONF_CNAME_LEN];
-	char ipsetname[DNS_MAX_IPSET_NAMELEN];
 	const char *ipset = NULL;
-	char *begin = NULL;
-	char *end = NULL;
-	int len = 0;
-	char *value = argv[1];
-
-	if (argc <= 1) {
-		goto errout;
-	}
-
-	/* first field */
-	begin = strstr(value, "/");
-	if (begin == NULL) {
-		goto errout;
-	}
-
-	/* second field */
-	begin++;
-	end = strstr(begin, "/");
-	if (end == NULL) {
-		goto errout;
-	}
-
-	/* remove prefix . */
-	while (*begin == '.') {
-		begin++;
-	}
-
-	/* Get domain */
-	len = end - begin;
-	if (len >= sizeof(domain)) {
-		tlog(TLOG_ERROR, "domain name %s too long", value);
-		goto errout;
-	}
-
-	memcpy(domain, begin, len);
-	domain[len] = '\0';
-
-	len = strlen(end + 1);
-	if (len <= 0) {
-		goto errout;
-	}
 
 	/* Process domain option */
-	if (strncmp(end + 1, "-", sizeof("-")) != 0) {
+	if (strncmp(ipsetname, "-", sizeof("-")) != 0) {
 		/* new ipset domain */
-		safe_strncpy(ipsetname, end + 1, DNS_MAX_IPSET_NAMELEN);
 		ipset = _dns_conf_get_ipset(ipsetname);
 		if (ipset == NULL) {
 			goto errout;
@@ -605,66 +605,47 @@ errout:
 		free(ipset_rule);
 	}
 
+	tlog(TLOG_ERROR, "add ipset %s failed", ipsetname);
+	return 0;
+}
+
+static int _config_ipset(void *data, int argc, char *argv[])
+{
+	char domain[DNS_MAX_CONF_CNAME_LEN];
+	char *value = argv[1];
+
+	if (argc <= 1) {
+		goto errout;
+	}
+
+	if (_get_domain(value, domain, DNS_MAX_CONF_CNAME_LEN, &value) != 0) {
+		goto errout;
+	}
+
+	return _conf_domain_rule_ipset(domain, value);
+errout:
 	tlog(TLOG_ERROR, "add ipset %s failed", value);
 	return 0;
 }
 
-static int _config_address(void *data, int argc, char *argv[])
+static int _conf_domain_rule_address(char *domain, const char *domain_address)
 {
 	struct dns_address_IPV4 *address_ipv4 = NULL;
 	struct dns_address_IPV6 *address_ipv6 = NULL;
 	void *address = NULL;
-	char *value = argv[1];
 	char ip[MAX_IP_LEN];
-	char domain[DNS_MAX_CONF_CNAME_LEN];
-	char *begin = NULL;
-	char *end = NULL;
-	int len = 0;
 	int port;
 	struct sockaddr_storage addr;
 	socklen_t addr_len = sizeof(addr);
 	enum domain_rule type = 0;
 	unsigned int flag = 0;
 
-	if (argc <= 1) {
-		goto errout;
-	}
-
-	/* first field */
-	begin = strstr(value, "/");
-	if (begin == NULL) {
-		goto errout;
-	}
-
-	/* second field */
-	begin++;
-	end = strstr(begin, "/");
-	if (end == NULL) {
-		goto errout;
-	}
-
-	/* remove prefix . */
-	while (*begin == '.') {
-		begin++;
-	}
-
-	/* get domain */
-	len = end - begin;
-
-	if (len >= sizeof(domain)) {
-		tlog(TLOG_ERROR, "domain name %s too long", value);
-		goto errout;
-	}
-
-	memcpy(domain, begin, len);
-	domain[len] = 0;
-
-	if (*(end + 1) == '#') {
-		if (strncmp(end + 1, "#4", sizeof("#4")) == 0) {
+	if (*(domain_address) == '#') {
+		if (strncmp(domain_address, "#4", sizeof("#4")) == 0) {
 			flag = DOMAIN_FLAG_ADDR_IPV4_SOA;
-		} else if (strncmp(end + 1, "#6", sizeof("#6")) == 0) {
+		} else if (strncmp(domain_address, "#6", sizeof("#6")) == 0) {
 			flag = DOMAIN_FLAG_ADDR_IPV6_SOA;
-		} else if (strncmp(end + 1, "#", sizeof("#")) == 0) {
+		} else if (strncmp(domain_address, "#", sizeof("#")) == 0) {
 			flag = DOMAIN_FLAG_ADDR_SOA;
 		} else {
 			goto errout;
@@ -676,12 +657,12 @@ static int _config_address(void *data, int argc, char *argv[])
 		}
 
 		return 0;
-	} else if (*(end + 1) == '-') {
-		if (strncmp(end + 1, "-4", sizeof("-4")) == 0) {
+	} else if (*(domain_address) == '-') {
+		if (strncmp(domain_address, "-4", sizeof("-4")) == 0) {
 			flag = DOMAIN_FLAG_ADDR_IPV4_IGN;
-		} else if (strncmp(end + 1, "-6", sizeof("-6")) == 0) {
+		} else if (strncmp(domain_address, "-6", sizeof("-6")) == 0) {
 			flag = DOMAIN_FLAG_ADDR_IPV6_IGN;
-		} else if (strncmp(end + 1, "-", sizeof("-")) == 0) {
+		} else if (strncmp(domain_address, "-", sizeof("-")) == 0) {
 			flag = DOMAIN_FLAG_ADDR_IGN;
 		} else {
 			goto errout;
@@ -695,7 +676,7 @@ static int _config_address(void *data, int argc, char *argv[])
 		return 0;
 	} else {
 		/* set address to domain */
-		if (parse_ip(end + 1, ip, &port) != 0) {
+		if (parse_ip(domain_address, ip, &port) != 0) {
 			goto errout;
 		}
 
@@ -753,28 +734,45 @@ errout:
 		free(address);
 	}
 
+	tlog(TLOG_ERROR, "add address %s, %s  failed", domain, domain_address);
+	return 0;
+}
+
+static int _config_address(void *data, int argc, char *argv[])
+{
+	char *value = argv[1];
+	char domain[DNS_MAX_CONF_CNAME_LEN];
+
+	if (argc <= 1) {
+		goto errout;
+	}
+
+	if (_get_domain(value, domain, DNS_MAX_CONF_CNAME_LEN, &value) != 0) {
+		goto errout;
+	}
+
+	return _conf_domain_rule_address(domain, value);
+errout:
 	tlog(TLOG_ERROR, "add address %s failed", value);
 	return 0;
 }
 
-static int _config_speed_check_mode(void *data, int argc, char *argv[])
+static int _config_speed_check_mode_parser(struct dns_domain_check_order *check_order, const char *mode)
 {
-	char mode[DNS_MAX_OPT_LEN];
+	char tmpbuff[DNS_MAX_OPT_LEN];
 	char *field;
 	char *ptr;
 	int order = 0;
 	int port = 80;
 	int i = 0;
 
-	if (argc <= 1) {
-		return -1;
-	}
+	safe_strncpy(tmpbuff, mode, DNS_MAX_OPT_LEN);
+	memset(check_order, 0, sizeof(*check_order));
 
-	safe_strncpy(mode, argv[1], sizeof(mode));
-	ptr = mode;
+	ptr = tmpbuff;
 	do {
 		field = ptr;
-		ptr = strstr(mode, ",");
+		ptr = strstr(ptr, ",");
 		if (field == NULL || order >= DOMAIN_CHECK_NUM) {
 			return 0;
 		}
@@ -784,7 +782,13 @@ static int _config_speed_check_mode(void *data, int argc, char *argv[])
 		}
 
 		if (strncmp(field, "ping", sizeof("ping")) == 0) {
-			dns_conf_check_order.order[order] = DOMAIN_CHECK_ICMP;
+			if (dns_has_cap_ping == 0) {
+				if (ptr) {
+					ptr++;
+				}
+				continue;
+			}
+			check_order->order[order] = DOMAIN_CHECK_ICMP;
 		} else if (strstr(field, "tcp") == field) {
 			char *port_str = strstr(field, ":");
 			if (port_str) {
@@ -794,12 +798,12 @@ static int _config_speed_check_mode(void *data, int argc, char *argv[])
 				}
 			}
 
-			dns_conf_check_order.order[order] = DOMAIN_CHECK_TCP;
-			dns_conf_check_order.tcp_port = port;
+			check_order->order[order] = DOMAIN_CHECK_TCP;
+			check_order->tcp_port = port;
 		} else if (strncmp(field, "none", sizeof("none")) == 0) {
-			dns_conf_check_order.order[order] = DOMAIN_CHECK_NONE;
+			check_order->order[order] = DOMAIN_CHECK_NONE;
 			for (i = order + 1; i < DOMAIN_CHECK_NUM; i++) {
-				dns_conf_check_order.order[i] = DOMAIN_CHECK_NONE;
+				check_order->order[i] = DOMAIN_CHECK_NONE;
 			}
 
 			return 0;
@@ -809,9 +813,21 @@ static int _config_speed_check_mode(void *data, int argc, char *argv[])
 			ptr++;
 		}
 
-	} while (1);
+	} while (ptr);
 
 	return 0;
+}
+
+static int _config_speed_check_mode(void *data, int argc, char *argv[])
+{
+	char mode[DNS_MAX_OPT_LEN];
+
+	if (argc <= 1) {
+		return -1;
+	}
+
+	safe_strncpy(mode, argv[1], sizeof(mode));
+	return _config_speed_check_mode_parser(&dns_conf_check_order, mode);
 }
 
 static int _config_bind_ip(int argc, char *argv[], DNS_BIND_TYPE type)
@@ -950,56 +966,12 @@ static int _config_server_https(void *data, int argc, char *argv[])
 	return ret;
 }
 
-static int _config_nameserver(void *data, int argc, char *argv[])
+static int _conf_domain_rule_nameserver(char *domain, const char *group_name)
 {
 	struct dns_nameserver_rule *nameserver_rule = NULL;
-	char domain[DNS_MAX_CONF_CNAME_LEN];
-	char group_name[DNS_GROUP_NAME_LEN];
 	const char *group = NULL;
-	char *begin = NULL;
-	char *end = NULL;
-	int len = 0;
-	char *value = argv[1];
 
-	if (argc <= 1) {
-		goto errout;
-	}
-
-	/* first field */
-	begin = strstr(value, "/");
-	if (begin == NULL) {
-		goto errout;
-	}
-
-	/* second field */
-	begin++;
-	end = strstr(begin, "/");
-	if (end == NULL) {
-		goto errout;
-	}
-
-	/* remove prefix . */
-	while (*begin == '.') {
-		begin++;
-	}
-
-	len = end - begin;
-
-	if (len >= sizeof(domain)) {
-		tlog(TLOG_ERROR, "domain name %s too long", value);
-		goto errout;
-	}
-
-	memcpy(domain, begin, len);
-	domain[len] = '\0';
-
-	len = strlen(end + 1);
-	if (len <= 0) {
-		goto errout;
-	}
-
-	if (strncmp(end + 1, "-", sizeof("-")) != 0) {
-		safe_strncpy(group_name, end + 1, DNS_GROUP_NAME_LEN);
+	if (strncmp(group_name, "-", sizeof("-")) != 0) {
 		group = _dns_conf_get_group_name(group_name);
 		if (group == NULL) {
 			goto errout;
@@ -1030,6 +1002,25 @@ errout:
 		free(nameserver_rule);
 	}
 
+	tlog(TLOG_ERROR, "add nameserver %s, %s failed", domain, group_name);
+	return 0;
+}
+
+static int _config_nameserver(void *data, int argc, char *argv[])
+{
+	char domain[DNS_MAX_CONF_CNAME_LEN];
+	char *value = argv[1];
+
+	if (argc <= 1) {
+		goto errout;
+	}
+
+	if (_get_domain(value, domain, DNS_MAX_CONF_CNAME_LEN, &value) != 0) {
+		goto errout;
+	}
+
+	return _conf_domain_rule_nameserver(domain, value);
+errout:
 	tlog(TLOG_ERROR, "add nameserver %s failed", value);
 	return 0;
 }
@@ -1188,6 +1179,127 @@ errout:
 	return -1;
 }
 
+static int _conf_domain_rule_speed_check(char *domain, const char *mode)
+{
+	struct dns_domain_check_order *check_order;
+
+	check_order = malloc(sizeof(*check_order));
+	if (check_order == NULL) {
+		goto errout;
+	}
+
+	if (_config_speed_check_mode_parser(check_order, mode) != 0) {
+		goto errout;
+	}
+
+	if (_config_domain_rule_add(domain, DOMAIN_RULE_CHECKSPEED, check_order) != 0) {
+		goto errout;
+	}
+
+	return 0;
+errout:
+	if (check_order) {
+		free(check_order);
+	}
+	return 0;
+}
+
+static int _conf_domain_rules(void *data, int argc, char *argv[])
+{
+	int opt = 0;
+	char domain[DNS_MAX_CONF_CNAME_LEN];
+	char *value = argv[1];
+
+	/* clang-format off */
+	static struct option long_options[] = {
+		{"speed-check-mode", required_argument, NULL, 'c'},
+		{"address", required_argument, NULL, 'a'},
+		{"ipset", required_argument, NULL, 'p'},
+		{"nameserver", required_argument, NULL, 'n'},
+		{NULL, no_argument, NULL, 0}
+	};
+	/* clang-format on */
+
+	if (argc <= 1) {
+		tlog(TLOG_ERROR, "invalid parameter.");
+		goto errout;
+	}
+
+	if (_get_domain(value, domain, DNS_MAX_CONF_CNAME_LEN, &value) != 0) {
+		goto errout;
+	}
+
+	/* process extra options */
+	optind = 1;
+	while (1) {
+		opt = getopt_long_only(argc, argv, "", long_options, NULL);
+		if (opt == -1) {
+			break;
+		}
+
+		switch (opt) {
+		case 'c': {
+			const char *check_mode = optarg;
+			if (check_mode == NULL) {
+				goto errout;
+			}
+
+			if (_conf_domain_rule_speed_check(domain, check_mode) != 0) {
+				tlog(TLOG_ERROR, "add check-speed-rule rule failed.");
+				goto errout;
+			}
+
+			break;
+		}
+		case 'a': {
+			const char *address = optarg;
+			if (address == NULL) {
+				goto errout;
+			}
+
+			if (_conf_domain_rule_address(domain, address) != 0) {
+				tlog(TLOG_ERROR, "add address rule failed.");
+				goto errout;
+			}
+
+			break;
+		}
+		case 'p': {
+			const char *ipsetname = optarg;
+			if (ipsetname == NULL) {
+				goto errout;
+			}
+
+			if (_conf_domain_rule_ipset(domain, ipsetname) != 0) {
+				tlog(TLOG_ERROR, "add ipset rule failed.");
+				goto errout;
+			}
+
+			break;
+		}
+		case 'n': {
+			const char *nameserver_group = optarg;
+			if (nameserver_group == NULL) {
+				goto errout;
+			}
+
+			if (_conf_domain_rule_nameserver(domain, nameserver_group) != 0) {
+				tlog(TLOG_ERROR, "add nameserver rule failed.");
+				goto errout;
+			}
+
+			break;
+		}
+		default:
+			break;
+		}
+	}
+
+	return 0;
+errout:
+	return -1;
+}
+
 static int _config_log_level(void *data, int argc, char *argv[])
 {
 	/* read log level and set */
@@ -1248,6 +1360,7 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("bogus-nxdomain", _conf_bogus_nxdomain, NULL),
 	CONF_CUSTOM("ignore-ip", _conf_ip_ignore, NULL),
 	CONF_CUSTOM("edns-client-subnet", _conf_edns_client_subnet, NULL),
+	CONF_CUSTOM("domain-rules", _conf_domain_rules, NULL),
 	CONF_CUSTOM("conf-file", config_addtional_file, NULL),
 	CONF_END(),
 };
@@ -1323,6 +1436,8 @@ static int _dns_conf_speed_check_mode_verify(void)
 	int i, j;
 	int has_cap = has_network_raw_cap();
 	int print_log = 0;
+
+	dns_has_cap_ping = has_cap;
 	if (has_cap == 1) {
 		return 0;
 	}
