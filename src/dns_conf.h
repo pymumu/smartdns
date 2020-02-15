@@ -200,6 +200,8 @@ extern int dns_conf_bind_ip_num;
 extern int dns_conf_tcp_idle_time;
 extern int dns_conf_cachesize;
 extern int dns_conf_prefetch;
+extern int dns_conf_serve_expired;
+extern int dns_conf_serve_expired_ttl;
 extern struct dns_servers dns_conf_servers[DNS_MAX_SERVERS];
 extern int dns_conf_server_num;
 

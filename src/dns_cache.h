@@ -55,7 +55,7 @@ struct dns_cache {
 	};
 };
 
-int dns_cache_init(int size);
+int dns_cache_init(int size, int enable_inactive, int inactive_list_expired);
 
 int dns_cache_replace(char *domain, char *cname, int cname_ttl, int ttl, dns_type_t qtype, unsigned char *addr, int addr_len, int speed);
 

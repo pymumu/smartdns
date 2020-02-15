@@ -16,6 +16,15 @@ msgstr "SmartDNS是一个本地高性能DNS服务器，支持返回最快IP，�
 msgid "Custom Settings"
 msgstr "自定义设置"
 
+msgid "General Settings"
+msgstr "基本设置"
+
+msgid "Settings"
+msgstr "设置"
+
+msgid "Advanced Settings"
+msgstr "高级设置"
+
 msgid "Generate Coredump"
 msgstr "生成coredump"
 
@@ -72,6 +81,12 @@ msgstr "域名预加载"
 
 msgid "Enable domain prefetch, accelerate domain response speed."
 msgstr "启用域名预加载，加速域名响应速度。"
+
+msgid "Serve expired"
+msgstr "过期缓存服务"
+
+msgid "Attempts to serve old responses from cache with a TTL of 0 in the response without waiting for the actual resolution to finish."
+msgstr "查询性能优化，有请求时尝试回应TTL为0的过期记录，以避免查询等待。"
 
 msgid "Redirect"
 msgstr "重定向"
@@ -276,7 +291,3 @@ msgstr "捐助smartdns项目"
 
 msgid "Donate"
 msgstr "捐助"
-
-
-
-

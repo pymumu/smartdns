@@ -191,9 +191,14 @@ return L.view.extend({
 		o.rmempty = false;
 		o.default = o.disabled;
 
-		// Domain prefetch load ;
 		o = s.taboption("settings", form.Flag, "prefetch_domain", _("Domain prefetch"),
-			_("Enable domain prefetch, accelerate domain response speed."));
+		_("Enable domain prefetch, accelerate domain response speed."));
+		o.rmempty = false;
+		o.default = o.disabled;
+		
+		// Domain Serve expired
+		o = s.taboption("settings", form.Flag, "serve_expired", _("Serve expired"),
+			_("Attempts to serve old responses from cache with a TTL of 0 in the response without waiting for the actual resolution to finish."));
 		o.rmempty = false;
 		o.default = o.disabled;
 

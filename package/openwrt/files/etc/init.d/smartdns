@@ -292,6 +292,8 @@ load_service()
 	config_get prefetch_domain "$section" "prefetch_domain" "0"
 	[ "$prefetch_domain" = "1" ] && conf_append "prefetch-domain" "yes"
 
+	config_get serve_expired "$section" "serve_expired" "0"
+	[ "$serve_expired" = "1" ] && conf_append "serve-expired" "yes"
 
 	SMARTDNS_PORT="$port"
 

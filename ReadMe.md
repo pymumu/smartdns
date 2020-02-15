@@ -575,6 +575,8 @@ https://github.com/pymumu/smartdns/releases
 |blacklist-ip|黑名单IP地址|无|[ip/subnet]，可重复| blacklist-ip 1.2.3.4/16
 |force-AAAA-SOA|强制AAAA地址返回SOA|no|[yes\|no]|force-AAAA-SOA yes
 |prefetch-domain|域名预先获取功能|no|[yes\|no]|prefetch-domain yes
+|serve-expired|过期缓存服务功能|no|[yes\|no]，开启此功能后，如果有请求时尝试回应TTL为0的过期记录，并并发查询记录，以避免查询等待|serve-expired yes
+|serve-expired-ttl|过期缓存服务最长超时时间|0|秒，0：表示停用超时，> 0表示指定的超时的秒数|serve-expired-ttl 0
 |dualstack-ip-selection|双栈IP优选|no|[yes\|no]|dualstack-ip-selection yes
 |dualstack-ip-selection-threshold|双栈IP优选阈值|30ms|毫秒|dualstack-ip-selection-threshold [0-1000]
 
@@ -672,6 +674,10 @@ https://github.com/pymumu/smartdns/releases
     * 开启域名预获取功能  
     通过`prefetch-domain yes`来启用域名预先获取功能，提高查询命中率。  
     配合上述ttl超时时间，smartdns将在域名ttl即将超时使，再次发送查询请求，并缓存查询结果供后续使用。频繁访问的域名将会持续缓存。此功能将在空闲时消耗更多的CPU。
+
+    * 过期缓存服务功能  
+    通过`serve-expired`来启用过期缓存服务功能，可提高缓存命中率的同时，降低CPU占用。  
+    此功能会在TTL超时后，将返回TTL=0给客户端，并且同时再次发送查询请求，并缓存新的结果给后续使用。
 
 1. 第二DNS如何自定义更多行为  
     第二DNS可以作为其他DNS服务器的上游，提供更多的查询行为，通过bind配置支持可以绑定多个端口，不同端口可设置不同的标志，实现不同的功能，如

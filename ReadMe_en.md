@@ -570,6 +570,8 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 |blacklist-ip|ip blacklist|None|[ip/subnet], Repeatable，When the filtering server responds IPs in the IP blacklist, The result will be discarded directly| blacklist-ip 1.2.3.4/16
 |force-AAAA-SOA|force AAAA query return SOA|no|[yes\|no]|force-AAAA-SOA yes
 |prefetch-domain|domain prefetch feature|no|[yes\|no]|prefetch-domain yes
+|serve-expired|Cache serve expired feature|no|[yes\|no], Attempts to serve old responses from cache with a TTL of 0 in the response without waiting for the actual resolution to finish.|serve-expired yes
+|serve-expired-ttl|Cache serve expired limite TTL|0|second，0：disable，> 0  seconds after expiration|serve-expired-ttl 0
 |dualstack-ip-selection|Dualstack ip selection|no|[yes\|no]|dualstack-ip-selection yes
 |dualstack-ip-selection-threshold|Dualstack ip select threadhold|30ms|millisecond|dualstack-ip-selection-threshold [0-1000]
 
@@ -669,6 +671,10 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
     * Enable domain pre-acquisition  
     Enable pre-fetching of domain names with `prefetch-domain yes` to improve query hit rate.
     by default, Smartdns will send domain query request again before cache expire, and cache the result for the next query. Frequently accessed domain names will continue to be cached. This feature will consume more CPU when idle.
+
+    * Cache serve expired feature  
+    Enable cache serve expired feature with `serve-expired yes` to improve the cache hit rate and reduce the CPU consumption.
+    This feature will return TTL = 0 to the client after the TTL timeout, and send a new query request again at the same time, and cache the new results for later query.
 
 1. How does the second DNS customize more behavior?
     The second DNS can be used as the upstream of other DNS servers to provide more query behaviors. Bind configuration support can bind multiple ports. Different ports can be set with different flags to implement different functions, such as

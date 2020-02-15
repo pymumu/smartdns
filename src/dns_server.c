@@ -205,6 +205,8 @@ static struct dns_server server;
 
 static tlog_log *dns_audit;
 
+static int _dns_server_prefetch_request(char *domain, dns_type_t qtype);
+
 static int _dns_server_forward_request(unsigned char *inpacket, int inpacket_len)
 {
 	tlog(TLOG_DEBUG, "forward request.\n");
@@ -1617,6 +1619,7 @@ static int dns_server_resolve_callback(char *domain, dns_result_type rtype, unsi
 
 		/* Not need to wait check result if only has one ip address */
 		if (ip_num == 1 && request_wait == 1) {
+			request->has_ping_result = 1;
 			_dns_server_request_complete(request);
 			_dns_server_request_remove(request);
 		}
@@ -2009,7 +2012,11 @@ static int _dns_server_process_cache(struct dns_request *request)
 		_dns_reply(request);
 	}
 
-	dns_cache_update(dns_cache);
+	if (dns_cache_get_ttl(dns_cache) == 0) {
+		_dns_server_prefetch_request(request->domain, request->qtype);
+	} else {
+		dns_cache_update(dns_cache);
+	}
 	dns_cache_release(dns_cache);
 
 	if (dns_cache_A) {
@@ -3136,7 +3143,7 @@ int dns_server_init(void)
 		return -1;
 	}
 
-	if (dns_cache_init(dns_conf_cachesize) != 0) {
+	if (dns_cache_init(dns_conf_cachesize, dns_conf_serve_expired, dns_conf_serve_expired_ttl) != 0) {
 		tlog(TLOG_ERROR, "init cache failed.");
 		return -1;
 	}

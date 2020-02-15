@@ -83,6 +83,15 @@ o.cfgvalue    = function(...)
     return Flag.cfgvalue(...) or "0"
 end
 
+---- Domain Serve expired
+o = s:taboption("settings", Flag, "serve_expired", translate("Serve expired"), 
+	translate("Attempts to serve old responses from cache with a TTL of 0 in the response without waiting for the actual resolution to finish."))
+o.rmempty     = false
+o.default     = o.disabled
+o.cfgvalue    = function(...)
+    return Flag.cfgvalue(...) or "0"
+end
+
 ---- Redirect
 o = s:taboption("settings", ListValue, "redirect", translate("Redirect"), translate("SmartDNS redirect mode"))
 o.placeholder = "none"
@@ -260,13 +269,14 @@ o:value("https", translate("https"))
 o.default     = "udp"
 o.rempty      = false
 
--- Doman addresss
-s = m:section(TypedSection, "smartdns", translate("Domain Address"), 
-	translate("Set Specific domain ip address."))
-s.anonymous = true
+s = m:section(TypedSection, "smartdns", translate("Advanced Settings"), translate("Advanced Settings"));
+s.anonymous = true;
 
----- address
-addr = s:option(Value, "address",
+s:tab("domain-address", translate("Domain Address"), translate("Set Specific domain ip address."));
+s:tab("blackip-list", translate("IP Blacklist"), translate("Set Specific ip blacklist."));
+
+-- Doman addresss
+addr = s:taboption("domain-address", Value, "address",
 	translate(""), 
 	translate("Specify an IP address to return for any host in the given domains, Queries in the domains are never forwarded and always replied to with the specified IP address which may be IPv4 or IPv6."))
 
@@ -283,12 +293,7 @@ function addr.write(self, section, value)
 end
 
 -- IP Blacklist
-s = m:section(TypedSection, "smartdns", translate("IP Blacklist"), 
-	translate("Set Specific ip blacklist."))
-s.anonymous = true
-
----- blacklist
-addr = s:option(Value, "blacklist_ip",
+addr = s:taboption("blackip-list", Value, "blacklist_ip",
 	translate(""), 
 	translate("Configure IP blacklists that will be filtered from the results of specific DNS server."))
 
@@ -304,7 +309,7 @@ function addr.write(self, section, value)
 	nixio.fs.writefile("/etc/smartdns/blacklist-ip.conf", value)
 end
 
--- Doman addresss
+-- Technical Support
 s = m:section(TypedSection, "smartdns", translate("Technical Support"), 
 	translate("If you like this software, please buy me a cup of coffee."))
 s.anonymous = true
