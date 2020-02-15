@@ -1962,6 +1962,15 @@ static int _dns_server_process_cache(struct dns_request *request)
 
 	dns_cache = dns_cache_lookup(request->domain, request->qtype);
 	if (dns_cache == NULL) {
+		if (request->dualstack_selection && request->qtype == DNS_T_AAAA) {
+			dns_cache_A = dns_cache_lookup(request->domain, DNS_T_A);
+			if (dns_cache_A) {
+				tlog(TLOG_DEBUG, "No IPV6 Found, Force IPV4 perfered.");
+				dns_cache_release(dns_cache_A);
+				dns_cache_release(dns_cache);
+				return _dns_server_reply_SOA(DNS_RC_NOERROR, request);
+			}
+		}
 		goto errout;
 	}
 
