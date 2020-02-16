@@ -128,8 +128,8 @@ o.rempty      = false
 
 ---- Port
 o = s:taboption("seconddns", Value, "seconddns_port", translate("Local Port"), translate("Smartdns local server port"))
-o.placeholder = 7053
-o.default     = 7053
+o.placeholder = 6553
+o.default     = 6553
 o.datatype    = "port"
 o.rempty      = false
 
