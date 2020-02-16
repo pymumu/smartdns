@@ -84,6 +84,7 @@ function smartdnsRenderStatus(res) {
 		renderHTML += "<b><font color=green>SmartDNS - " + _("RUNNING") + "</font></b></em>";
 	} else {
 		renderHTML += "<b><font color=red>SmartDNS - " + _("NOT RUNNING") + "</font></b></em>";
+		return renderHTML;
 	}
 
 	if (redirectMode === "dnsmasq-upstream") {
