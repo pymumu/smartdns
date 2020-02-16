@@ -853,6 +853,7 @@ static int _config_bind_ip(int argc, char *argv[], DNS_BIND_TYPE type)
 		{"no-speed-check", no_argument, NULL, 'S'},  
 		{"no-cache", no_argument, NULL, 'C'},  
 		{"no-dualstack-selection", no_argument, NULL, 'D'},
+		{"force-aaaa-soa", no_argument, NULL, 'F'},
 		{NULL, no_argument, NULL, 0}
 	};
 	/* clang-format on */
@@ -916,6 +917,10 @@ static int _config_bind_ip(int argc, char *argv[], DNS_BIND_TYPE type)
 		}
 		case 'D': {
 			server_flag |= BIND_FLAG_NO_DUALSTACK_SELECTION;
+			break;
+		}
+		case 'F': {
+			server_flag |= BIND_FLAG_FORCE_AAAA_SOA;
 			break;
 		}
 		default:

@@ -251,11 +251,6 @@ return L.view.extend({
 		o.rmempty = false;
 		o.default = o.enabled;
 
-		o = s.taboption("seconddns", form.Flag, "seconddns_no_speed_check", _("Skip Speed Check"),
-			_("Do not check speed."));
-		o.rmempty = false;
-		o.default = o.disabled;
-
 		// dns server group;
 		o = s.taboption("seconddns", form.Value, "seconddns_server_group", _("Server Group"),
 			_("Query DNS through specific dns server group, such as office, home."));
@@ -263,6 +258,11 @@ return L.view.extend({
 		o.placeholder = "default";
 		o.datatype = "hostname";
 		o.rempty = true;
+
+		o = s.taboption("seconddns", form.Flag, "seconddns_no_speed_check", _("Skip Speed Check"),
+			_("Do not check speed."));
+		o.rmempty = false;
+		o.default = o.disabled;
 
 		// skip address rules;
 		o = s.taboption("seconddns", form.Flag, "seconddns_no_rule_addr", _("Skip Address Rules"),
@@ -289,12 +289,17 @@ return L.view.extend({
 		o.default = o.disabled;
 
 		o = s.taboption("seconddns", form.Flag, "seconddns_no_dualstack_selection", _("Skip Dualstack Selection"),
-			_("Skip Sualstack Selection."));
+			_("Skip Dualstack Selection."));
 		o.rmempty = false;
 		o.default = o.disabled;
 
 		// skip cache;
 		o = s.taboption("seconddns", form.Flag, "seconddns_no_cache", _("Skip Cache"), _("Skip Cache."));
+		o.rmempty = false;
+		o.default = o.disabled;
+
+		// Force AAAA SOA
+		o = s.taboption("seconddns", form.Flag, "force_aaaa_soa", _("Force AAAA SOA"), _("Force AAAA SOA."));
 		o.rmempty = false;
 		o.default = o.disabled;
 

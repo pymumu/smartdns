@@ -261,8 +261,10 @@ static int _dns_server_is_return_soa(struct dns_request *request)
 		return 0;
 	}
 
-	if (dns_conf_force_AAAA_SOA == 1 && request->qtype == DNS_T_AAAA) {
-		return 1;
+	if (request->qtype == DNS_T_AAAA) {
+		if (_dns_server_has_bind_flag(request, BIND_FLAG_FORCE_AAAA_SOA) == 0 || dns_conf_force_AAAA_SOA == 1) {
+			return 1;
+		}
 	}
 
 	rule_flag = request->domain_rule.rules[DOMAIN_RULE_FLAGS];

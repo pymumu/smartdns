@@ -178,7 +178,7 @@ msgstr "跳过address SOA(#)规则。"
 msgid "Skip Dualstack Selection"
 msgstr "跳过双栈优选"
 
-msgid "Skip Sualstack Selection."
+msgid "Skip Dualstack Selection."
 msgstr "跳过双栈优选。"
 
 msgid "Skip Cache"
@@ -186,6 +186,12 @@ msgstr "跳过cache"
 
 msgid "Skip Cache."
 msgstr "跳过cache。"
+
+msgid "Force AAAA SOA"
+msgstr "停用IPV6地址解析"
+
+msgid "Force AAAA SOA."
+msgstr "停用IPV6地址解析。"
 
 msgid "Upstream Servers"
 msgstr "上游服务器"
