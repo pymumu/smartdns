@@ -65,7 +65,7 @@ clean_service()
 
 get_systemd_path()
 {
-	service="`systemctl --no-legend| grep .service | head -n 1 | awk '{print $1}'`"
+	service="`systemctl --no-legend| grep '\.service' | head -n 1 | awk '{print $1}'`"
 	SERVICE_PATH="`systemctl show $service | grep FragmentPath | awk -F'=' '{print $2}'`"
 	dirname $SERVICE_PATH
 }

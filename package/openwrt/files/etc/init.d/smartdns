@@ -216,7 +216,7 @@ load_second_server()
 	config_get_bool seconddns_enabled "$section" "seconddns_enabled" "0"
 	[ "$seconddns_enabled" = "0" ] && return
 
-	config_get seconddns_port "$section" "seconddns_port" "7053"
+	config_get seconddns_port "$section" "seconddns_port" "6553"
 
 	config_get_bool seconddns_no_speed_check "$section" "seconddns_no_speed_check" "0"
 	[ "$seconddns_no_speed_check" = "1" ] && ARGS="$ARGS -no-speed-check"
