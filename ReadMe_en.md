@@ -129,66 +129,21 @@ Download the matching version of the SmartDNS installation package. The correspo
 
 |system |package|Description
 |-----|-----|-----
-|Standard Linux system (Raspberry Pi)| smartdns.xxxxxxxx.armhf.deb|Support Raspberry Pi Raspbian stretch, Debian 9 system.
-|Standard Linux system (Armbian arm64)| smartdns.xxxxxxxx.arm64.deb|Support Armbian debian stretch, Debian 9 system.
-|Standard Linux system (x86_64)| smartdns.xxxxxxxx.x86_64.tar.gz|Support for x86_64 Linux systems.
-|Windows 10 WSL (Ubuntu)| smartdns.xxxxxxxx.x86_64.tar.gz|Windows 10 WSL ubuntu.
-|Standard Linux system (x86)| smartdns.xxxxxxxx.x86.tar.gz|Support for x86_64 systems.
-|ASUS native firmware (optware)|smartdns.xxxxxxx.mipsbig.ipk|Systems that support the MIPS big-end architecture, such as RT-AC55U, RT-AC66U.
-|ASUS native firmware (optware)|smartdns.xxxxxxx.mipsel.ipk|System that supports the MIPS little endian architecture.
-|ASUS native firmware (optware)|smartdns.xxxxxxx.arm.ipk|System that supports the ARM small endian architecture, such as the RT-AC88U, RT-AC68U.
-|Padavan|smartdns.xxxxxxx.mipselsf.ipk|padavan Firmware.
-|openwrt 15.01|smartdns.xxxxxxxx.ar71xx.ipk|Support AR71XX MIPS system.
-|openwrt 15.01|smartdns.xxxxxxxx.ramips_24kec.ipk|Support small-end routers such as MT762X
-|openwrt 15.01(Pandora)|smartdns.xxxxxxxx.mipsel_24kec_dsp.ipk|Support for Pandora firmware of MT7620 series
-|openwrt 15.01(Pandora)|smartdns.xxxxxxxx.mips_74kc_dsp2.ipk|Support for Pandora firmware of AR71xx series
-|openwrt 18.06|smartdns.xxxxxxxx.mips_24kc.ipk|Support AR71XX MIPS system.
-|openwrt 18.06|smartdns.xxxxxxxx.mipsel_24kc.ipk|Support small-end routers such as MT726X
-|openwrt 18.06|smartdns.xxxxxxxx.x86_64.ipk|Support x86_64 router
-|openwrt 18.06|smartdns.xxxxxxxx.i386_pentium4.ipk|Support x86_64 router
-|openwrt 18.06|smartdns.xxxxxxxxxxx.arm_cortex-a9.ipk|Router supporting arm A9 core CPU
-|openwrt 18.06|smartdns.xxxxxxxxx.arm_cortex-a7_neon-vfpv4.ipk|Router supporting arm A7 core CPU
-|openwrt LUCI|luci-app-smartdns.xxxxxxxxx.xxxx.all.ipk|Openwrt management interface
+|Standard Linux system (Raspberry Pi)| smartdns.xxxxxxxx.arm-debian-all.deb|Support Raspberry Pi Raspbian stretch, Debian 9 system.
+|Standard Linux system (Armbian arm64)| smartdns.xxxxxxxx.aarch64-debian-all.deb|Support Armbian debian stretch, Debian 9 system.
+|Standard Linux system (x86_64)| smartdns.xxxxxxxx.x86_64-linux-all.tar.gz|Support for x86_64 Linux systems.
+|Windows 10 WSL (ubuntu)| smartdns.xxxxxxxx.x86_64-linux-all.tar.gz|Windows 10 WSL ubuntu.
+|Standard Linux system (x86)| smartdns.xxxxxxxx.x86-linux-all.tar.gz|Support for x86_64 systems.
+|optware|smartdns.xxxxxxxx.mips-optware-all.ipk|Support the MIPS big-endian architecture for optware。
+|optware|smartdns.xxxxxxxx.mipsel-optware-all.ipk|Support the MIPS little-endian architecture for optware。
+|optware|smartdns.xxxxxxxx.arm-optware-all.ipk|Support the arm architecture for optware。
+|openwrt|smartdns.xxxxxxxx.mips-openwrt-all.ipk|Support the MIPS big-endian architecture for openwrt。
+|openwrt|smartdns.xxxxxxxx.mipsel-openwrt-all.ipk|Support the MIPS little-endian architecture for openwrt。
+|openwrt|smartdns.xxxxxxxx.arm-openwrt-all.ipk|Support the arm architecture for openwrt。
+|openwrt LUCI|luci-app-smartdns.xxxxxxxxx.all.ipk|Openwrt management interface.
+|openwrt LUCI|luci-app-smartdns.xxxxxxxxx.all-luci-compat-all|Compat Openwrt management interface for early openwrt.
 
-* The openwrt system supports a lot of CPU architecture. The above table does not list all the supported systems. Please check the CPU architecture and download it.
-* The merlin Merlin firmware theory is the same as the ASUS firmware, so install the corresponding ipk package according to the hardware type. (Merlin is not verified yet, and has a problem to submit an issue)
-* The CPU architecture can be found in the router management interface:  
-    Log in to the router, click `System`->`Software`, click the `Configuration` tab page, and find the corresponding software architecture in the opkg installation source. The download path can be found, as follows, the architecture is ar71xx
-
-    ```shell
-    src/gz chaos_calmer_base http://downloads.openwrt.org/chaos_calmer/15.05/ar71xx/generic/packages/base
-    ```
-
-* Or after login to the system, you can query the architecture with the following commands:
-
-  * **Openwrt series commands**
-
-    ```shell
-    opkg print_architecture
-    ```
-
-  * **Optiware series commands**
-
-    ```shell
-    ipkg print_architecture
-    ```
-
-  * **Dedebian Series Order**
-
-    ```shell
-    dpkg -- print-architecture
-    ```
-
-  * **for example**
-
-    The following query result `arch ar71xx 10` represents the ar71xx series architecture, so select the `smartdns.xxxxxxx.ar71xx.ipk` installation package.
-
-    ```shell
-    Root@OpenWrt:# opkg print_architecture
-    Arch all 1
-    Arch noarch 1
-    Arch ar71xx 10
-    ```
+* The released packages are statically compiled. If you need a small size package, please compile it yourself or obtain it from the openwrt / entware repository.
 
 * **Please download from the Release page: [Download here](https://github.com/pymu/smartdns/releases)**
 
@@ -204,16 +159,16 @@ https://github.com/pymumu/smartdns/releases
 
 1. Installation
 
-    Download the installation package like `smartdns.xxxxxxxx.armhf.deb` and upload it to the Linux system. Run the following command to install
+    Download the installation package like `smartdns.xxxxxxxx.arm-debian-all.deb` and upload it to the Linux system. Run the following command to install
 
     ```shell
-    dpkg -i smartdns.xxxxxxxx.armhf.deb
+    dpkg -i smartdns.xxxxxxxx.arm-debian-all.deb
     ```
 
-    For X86-64 system, download the installation package like `smartdns.xxxxxxxx.x86-64.tar.gz` and upload it to the Linux system. Run the following command to install
+    For X86-64 system, download the installation package like `smartdns.xxxxxxxx.x86_64-linux-all.tar.gz` and upload it to the Linux system. Run the following command to install
 
     ```shell
-    tar zxf smartdns.xxxxxxxx.x86-64.tar.gz
+    tar zxf smartdns.xxxxxxxx.x86_64-linux-all.tar.gz
     cd smartdns
     chmod +x ./install
     ./install -i
@@ -259,7 +214,7 @@ https://github.com/pymumu/smartdns/releases
     smartdns         name = smartdns.
     ```
 
-### openwrt/LEDE
+### openwrt
 
 --------------
 
@@ -271,6 +226,8 @@ https://github.com/pymumu/smartdns/releases
     opkg install smartdns.xxxxxxxx.xxxx.ipk
     opkg install luci-app-smartdns.xxxxxxxx.xxxx.all.ipk
     ```
+
+    * Note: For versions before openwrt 19.07, please install `luci-app-smartdns.xxxxxxxxx.all-luci-compat-all` package.
 
 1. Configuration
 
@@ -488,7 +445,7 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 
 1. Install smartdns
 
-    download install package `smartdns.xxxxxxxx.x86_64.tar.gz`，and unzip to the `D:\` directory, after decompression, the directory is as follows: 
+    download install package `smartdns.xxxxxxxx.x86_64-linux-all.tar.gz`，and unzip to the `D:\` directory, after decompression, the directory is as follows: 
 
     ```shell
     D:\SMARTDNS

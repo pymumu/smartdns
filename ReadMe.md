@@ -5,7 +5,7 @@
 ![SmartDNS](doc/smartdns-banner.png)  
 SmartDNS是一个运行在本地的DNS服务器，SmartDNS接受本地客户端的DNS查询请求，从多个上游DNS服务器获取DNS查询结果，并将访问速度最快的结果返回给客户端，提高网络访问速度。
 同时支持指定特定域名IP地址，并高性匹配，达到过滤广告的效果。  
-与dnsmasq的all-servers不同，smartdns返回的是访问速度最快的解析结果。 (详细差异请看[FAQ](#faq)) 
+与dnsmasq的all-servers不同，smartdns返回的是访问速度最快的解析结果。 (详细差异请看[FAQ](#faq))  
 
 支持树莓派，openwrt，华硕路由器，windows等设备。  
 
@@ -134,66 +134,22 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 
 |系统 |安装包|说明
 |-----|-----|-----
-|标准Linux系统(树莓派)| smartdns.xxxxxxxx.armhf.deb|支持树莓派Raspbian stretch，Debian 9系统。
-|标准Linux系统(Armbian arm64)| smartdns.xxxxxxxx.arm64.deb|支持ARM64的Debian stretch，Debian 9系统。
-|标准Linux系统(x86_64)| smartdns.xxxxxxxx.x86_64.tar.gz|支持x86_64 Linux 系统。
-|Windows 10 WSL (ubuntu)| smartdns.xxxxxxxx.x86_64.tar.gz|支持Windows 10 WSL ubuntu系统。
-|标准Linux系统(x86)| smartdns.xxxxxxxx.x86.tar.gz|支持x86系统。
-|华硕原生固件(optware)|smartdns.xxxxxxx.mipsbig.ipk|支持MIPS大端架构的系统，如RT-AC55U, RT-AC66U.
-|华硕原生固件(optware)|smartdns.xxxxxxx.mipsel.ipk|支持MIPS小端架构的系统。
-|华硕原生固件(optware)|smartdns.xxxxxxx.arm.ipk|支持arm小端架构的系统，如RT-AC68U。
-|Padavan|smartdns.xxxxxxx.mipselsf.ipk|padavan固件。
-|openwrt 15.01|smartdns.xxxxxxxx.ar71xx.ipk|支持AR71XX MIPS系统。
-|openwrt 15.01|smartdns.xxxxxxxx.ramips_24kec.ipk|支持MT762X等小端路由器
-|openwrt 15.01(潘多拉)|smartdns.xxxxxxxx.mipsel_24kec_dsp.ipk|支持MT7620系列的潘多拉固件
-|openwrt 15.01(潘多拉)|smartdns.xxxxxxxx.mips_74kc_dsp2.ipk|支持AR71xx系列的潘多拉固件
-|openwrt 18.06|smartdns.xxxxxxxx.mips_24kc.ipk|支持AR71XX MIPS系统。
-|openwrt 18.06|smartdns.xxxxxxxx.mipsel_24kc.ipk|支持MT726X等小端路由器
-|openwrt 18.06|smartdns.xxxxxxxx.x86_64.ipk|支持x86_64路由器
-|openwrt 18.06|smartdns.xxxxxxxx.i386_pentium4.ipk|支持x86路由器
-|openwrt 18.06|smartdns.xxxxxxxxxxx.arm_cortex-a9.ipk|支持arm A9核心CPU的路由器
-|openwrt 18.06|smartdns.xxxxxxxxx.arm_cortex-a7_neon-vfpv4.ipk|支持arm A7核心CPU的路由器
-|openwrt LUCI|luci-app-smartdns.xxxxxxxxx.xxxx.all.ipk|openwrt管理统一界面
+|标准Linux系统(树莓派)| smartdns.xxxxxxxx.arm-debian-all.deb|支持树莓派Raspbian stretch，Debian 9系统。
+|标准Linux系统(Armbian arm64)| smartdns.xxxxxxxx.aarch64-debian-all.deb|支持ARM64的Debian stretch，Debian 9系统。
+|标准Linux系统(x86_64)| smartdns.xxxxxxxx.x86_64-linux-all.tar.gz|支持x86_64 Linux 系统。
+|Windows 10 WSL (ubuntu)| smartdns.xxxxxxxx.x86_64-linux-all.tar.gz|支持Windows 10 WSL ubuntu系统。
+|标准Linux系统(x86)| smartdns.xxxxxxxx.x86-linux-all.tar.gz|支持x86系统。
+|optware|smartdns.xxxxxxxx.mips-optware-all.ipk|支持MIPS大端架构的optware系统。
+|optware|smartdns.xxxxxxxx.mipsel-optware-all.ipk|支持MIPS小端架构的optware系统。
+|optware|smartdns.xxxxxxxx.arm-optware-all.ipk|支持arm小端架构的optware系统。
+|openwrt|smartdns.xxxxxxxx.mips-openwrt-all.ipk|支持MIPS大端架构的openwrt系统。
+|openwrt|smartdns.xxxxxxxx.mipsel-openwrt-all.ipk|支持MIPS小端架构的openwrt系统。
+|openwrt|smartdns.xxxxxxxx.arm-openwrt-all.ipk|支持arm小端架构的openwrt系统。
+|openwrt LUCI|luci-app-smartdns.xxxxxxxxx.all.ipk|openwrt管理界面。
+|openwrt LUCI|luci-app-smartdns.xxxxxxxxx.all-luci-compat-all|兼容版本openwrt管理界面, openwrt 18.xx及之前版本安装。
 
-* openwrt系统CPU架构比较多，上述表格未列出所有支持系统，请查看CPU架构后下载。
-* merlin梅林固件理论和华硕固件一致，所以根据硬件类型安装相应的ipk包即可。（梅林暂时未验证，有问题提交issue）
-* CPU架构可在路由器管理界面找到，查看方法：
-    登录路由器，点击`System`->`Software`，点击`Configuration` Tab页面，在opkg安装源中可找到对应软件架构，下载路径中可找到，如下，架构为ar71xx
-
-    ```shell
-    src/gz chaos_calmer_base http://downloads.openwrt.org/chaos_calmer/15.05/ar71xx/generic/packages/base
-    ```
-
-* 或ssh登录系统后通过如下命令查询软件架构：
-
-  * **openwrt系列命令**
-
-    ```shell
-    opkg print_architecture
-    ```
-
-  * **optware系列命令**
-
-    ```shell
-    ipkg print_architecture
-    ```
-
-  * **debian系列命令**
-
-    ```shell
-    dpkg --print-architecture
-    ```
-
-  * **例如**
-
-    下面的查询结果`arch ar71xx 10`表示ar71xx系列架构，选择`smartdns.xxxxxxxx.ar71xx.ipk`安装包
-
-    ```shell
-    root@OpenWrt:~# opkg print_architecture
-    arch all 1
-    arch noarch 1
-    arch ar71xx 10
-    ```
+* 单独release的软件包为静态编译软件包，无外部依赖，但体积大。若需要小体积软件包，请自行编译或从openwrt/entware仓库获取。
+* 因静态编译，软件包未强制判断CPU架构，安装不正确的软件包将会导致服务无法启动，请获取正确的软件包。
 
 * **请在Release页面下载：[点击此处下载](https://github.com/pymumu/smartdns/releases)**
 
@@ -209,16 +165,16 @@ https://github.com/pymumu/smartdns/releases
 
 1. 安装
 
-    下载配套安装包`smartdns.xxxxxxxx.armhf.deb`，并上传到Linux系统中。 执行如下命令安装
+    下载配套安装包`smartdns.xxxxxxxx.arm-debian-all.deb`，并上传到Linux系统中。 执行如下命令安装
 
     ```shell
-    dpkg -i smartdns.xxxxxxxx.armhf.deb
+    dpkg -i smartdns.xxxxxxxx.arm-debian-all.deb
     ```
 
-    x86系统下载配套安装包`smartdns.xxxxxxxx.x86-64.tar.gz`, 并上传到Linux系统中。 执行如下命令安装
+    x86系统下载配套安装包`smartdns.xxxxxxxx.x86_64-linux-all.tar.gz`, 并上传到Linux系统中。 执行如下命令安装
 
     ```shell
-    tar zxf smartdns.xxxxxxxx.x86-64.tar.gz
+    tar zxf smartdns.xxxxxxxx.x86_64-linux-all.tar.gz
     cd smartdns
     chmod +x ./install
     ./install -i
@@ -264,7 +220,7 @@ https://github.com/pymumu/smartdns/releases
     smartdns        name = smartdns.
     ```
 
-### openwrt/LEDE
+### openwrt
 
 --------------
 
@@ -276,6 +232,8 @@ https://github.com/pymumu/smartdns/releases
     opkg install smartdns.xxxxxxxx.xxxx.ipk
     opkg install luci-app-smartdns.xxxxxxxx.xxxx.all.ipk
     ```
+
+    * 注意： 19.07之前的版本，请安装`luci-app-smartdns.xxxxxxxxx.all-luci-compat-all`界面。
 
 1. 修改配置
 
@@ -493,7 +451,7 @@ https://github.com/pymumu/smartdns/releases
 
 1. 安装smartdns
 
-    下载安装包`smartdns.xxxxxxxx.x86_64.tar.gz`，并解压到D盘根目录。解压后目录如下：
+    下载安装包`smartdns.xxxxxxxx.x86-linux-all.tar.gz`，并解压到D盘根目录。解压后目录如下：
 
     ```shell
     D:\SMARTDNS
