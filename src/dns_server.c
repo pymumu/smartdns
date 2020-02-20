@@ -183,6 +183,7 @@ struct dns_request {
 	int has_soa;
 
 	atomic_t notified;
+	atomic_t do_callback;
 	atomic_t adblock;
 	atomic_t soa_num;
 
@@ -552,12 +553,30 @@ static int _dns_reply(struct dns_request *request)
 	return _dns_reply_inpacket(request, inpacket, encode_len);
 }
 
+static int _dns_result_callback_nxdomain(struct dns_request *request)
+{
+	char ip[DNS_MAX_CNAME_LEN];
+	unsigned int ping_time = -1;
+
+
+	ip[0] = 0;
+	if (request->result_callback == NULL) {
+		return 0;
+	}
+
+	return request->result_callback(request->domain, DNS_RC_NXDOMAIN, request->qtype, ip, ping_time, request->user_ptr);
+}
+
 static int _dns_result_callback(struct dns_request *request)
 {
 	char ip[DNS_MAX_CNAME_LEN];
 	unsigned int ping_time = -1;
 
 	if (request->result_callback == NULL) {
+		return 0;
+	}
+
+	if (atomic_inc_return(&request->do_callback) != 1) {
 		return 0;
 	}
 
@@ -583,12 +602,12 @@ static int _dns_result_callback(struct dns_request *request)
 		return request->result_callback(request->domain, request->rcode, request->qtype, ip, ping_time, request->user_ptr);
 	}
 
-	request->result_callback(request->domain, DNS_RC_NXDOMAIN, request->qtype, ip, ping_time, request->user_ptr);
+	_dns_result_callback_nxdomain(request);
 
 	return 0;
 out:
 
-	request->result_callback(request->domain, DNS_RC_NXDOMAIN, request->qtype, ip, ping_time, request->user_ptr);
+	_dns_result_callback_nxdomain(request);
 	return 0;
 }
 
@@ -960,6 +979,8 @@ static struct dns_request *_dns_server_new_request(void)
 	atomic_set(&request->adblock, 0);
 	atomic_set(&request->soa_num, 0);
 	atomic_set(&request->refcnt, 0);
+	atomic_set(&request->notified, 0);
+	atomic_set(&request->do_callback, 0);
 	request->ping_ttl_v4 = -1;
 	request->ping_ttl_v6 = -1;
 	request->prefetch = 0;
@@ -2356,7 +2377,7 @@ int dns_server_query(char *domain, int qtype, dns_result_callback callback, void
 		goto errout;
 	}
 
-	_dns_server_request_release_complete(request, 0);
+	_dns_server_request_release_complete(request, 1);
 	return ret;
 errout:
 	if (request) {
@@ -3234,3 +3255,4 @@ void dns_server_exit(void)
 
 	dns_cache_destroy();
 }
+
