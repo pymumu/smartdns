@@ -1443,11 +1443,9 @@ void dns_server_load_exit(void)
 static int _dns_conf_speed_check_mode_verify(void)
 {
 	int i, j;
-	int has_cap = has_network_raw_cap();
 	int print_log = 0;
 
-	dns_has_cap_ping = has_cap;
-	if (has_cap == 1) {
+	if (dns_has_cap_ping == 1) {
 		return 0;
 	}
 
@@ -1468,16 +1466,31 @@ static int _dns_conf_speed_check_mode_verify(void)
 	return 0;
 }
 
+static int _dns_conf_load_pre(void)
+{
+	if (_dns_server_load_conf_init() != 0) {
+		goto errout;
+	}
+
+	dns_has_cap_ping = has_network_raw_cap();
+
+	return 0;
+
+errout:
+	return -1;
+}
+
 static int _dns_conf_load_post(void)
 {
 	_dns_conf_speed_check_mode_verify();
+
 	return 0;
 }
 
 int dns_server_load_conf(const char *file)
 {
 	int ret = 0;
-	_dns_server_load_conf_init();
+	_dns_conf_load_pre();
 	openlog("smartdns", LOG_CONS | LOG_NDELAY, LOG_LOCAL1);
 	ret = load_conf(file, _config_item, _conf_printf);
 	closelog();
