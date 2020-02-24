@@ -4,5 +4,4 @@ Depends: libc, smartdns
 Source: feeds/luci/applications/luci-app-smartdns
 Section: luci
 Architecture: all
-Installed-Size: 1040
-Description:  A smartdns server module
+Description:  A smartdns server

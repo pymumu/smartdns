@@ -67,7 +67,6 @@ build()
 	$PO2LMO $ROOT/files/luci/i18n/smartdns.zh-cn.po $ROOT/root/usr/lib/lua/luci/i18n/smartdns.zh-cn.lmo
 	rm $ROOT/root/usr/lib/lua/luci/i18n/smartdns.zh-cn.po
 
-	cp $ROOT/files/etc $ROOT/root/ -avf
 	cp $ROOT/files/usr $ROOT/root/ -avf
 	INST_SIZE="`du -sb $ROOT/root/ | awk '{print $1}'`"
 	
@@ -84,7 +83,7 @@ build()
 	cd $ROOT
 
 	tar zcf $ROOT/data.tar.gz -C root .
-	tar zcf $OUTPUTDIR/luci-app-smartdns.$VER.$FILEARCH.ipk control.tar.gz data.tar.gz debian-binary
+	tar zcf $OUTPUTDIR/luci-app-smartdns.$VER.$FILEARCH.ipk ./control.tar.gz ./data.tar.gz ./debian-binary
 
 	rm -fr $ROOT/
 }
