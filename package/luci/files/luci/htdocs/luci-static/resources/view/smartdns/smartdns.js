@@ -81,9 +81,9 @@ function smartdnsRenderStatus(res) {
 	var ipv6Enabled = uci.get_first('smartdns', 'smartdns', 'ipv6_server');
 
 	if (isRunning) {
-		renderHTML += "<b><font color=green>SmartDNS - " + _("RUNNING") + "</font></b></em>";
+		renderHTML += "<span style=\"color:green;font-weight:bold\">SmartDNS - " + _("RUNNING") + "</span>";
 	} else {
-		renderHTML += "<b><font color=red>SmartDNS - " + _("NOT RUNNING") + "</font></b></em>";
+		renderHTML += "<span style=\"color:red;font-weight:bold\">SmartDNS - " + _("NOT RUNNING") + "</span>";
 		return renderHTML;
 	}
 
@@ -92,7 +92,7 @@ function smartdnsRenderStatus(res) {
 		var dnsmasqServer = uci.get_first('dhcp', 'dnsmasq', 'server') || "";
 
 		if (dnsmasqServer.indexOf(matchLine) < 0) {
-			renderHTML += "<br></br><b><font color=red>" + _("Dnsmasq Forwared To Smartdns Failure") + "</font></b>";
+			renderHTML += "<br /><span style=\"color:red;font-weight:bold\">" + _("Dnsmasq Forwared To Smartdns Failure") + "</span>";
 		}
 	} else if (redirectMode === "redirect") {
 		var redirectRules = (ipt || '').split(/\n/).filter(function (rule) {
@@ -100,13 +100,13 @@ function smartdnsRenderStatus(res) {
 		});
 
 		if (redirectRules.length <= 0) {
-			renderHTML += "<br></br><b><font color=red>" + _("IPV4 53 Port Redirect Failure") + "</font></b>";
+			renderHTML += "<br /><span style=\"color:red;font-weight:bold\">" + _("IPV4 53 Port Redirect Failure") + "</span>";
 			if (ipv6Enabled) {
 				var redirectRules = (ip6t || '').split(/\n/).filter(function (rule) {
 					return rule.match(/REDIRECT/) && rule.match(/dpt:53/) && rule.match("ports " + serverPort);
 				});
 				if (redirectRules.length <= 0) {
-					renderHTML += "<br></br><b><font color=red>" + _("IPV6 53 Port Redirect Failure") + "</font></b>";
+					renderHTML += "<br /><span style=\"color:red;font-weight:bold\">" + _("IPV6 53 Port Redirect Failure") + "</span>";
 				}
 			}
 		}
@@ -118,8 +118,6 @@ function smartdnsRenderStatus(res) {
 return L.view.extend({
 	load: function () {
 		return Promise.all([
-			L.resolveDefault(fs.stat('/etc/config/smartdns'), null),
-			L.resolveDefault(fs.stat('/usr/sbin/smartdns'), {}),
 			uci.load('smartdns'),
 			uci.load('dhcp')
 		]);
@@ -192,17 +190,18 @@ return L.view.extend({
 		o.rmempty = false;
 		o.default = o.disabled;
 
+		// Domain prefetch load ;
 		o = s.taboption("settings", form.Flag, "prefetch_domain", _("Domain prefetch"),
-		_("Enable domain prefetch, accelerate domain response speed."));
+			_("Enable domain prefetch, accelerate domain response speed."));
 		o.rmempty = false;
 		o.default = o.disabled;
-		
+
 		// Domain Serve expired
 		o = s.taboption("settings", form.Flag, "serve_expired", _("Serve expired"),
 			_("Attempts to serve old responses from cache with a TTL of 0 in the response without waiting for the actual resolution to finish."));
 		o.rmempty = false;
 		o.default = o.disabled;
-
+	
 		// Redirect;
 		o = s.taboption("settings", form.ListValue, "redirect", _("Redirect"), _("SmartDNS redirect mode"));
 		o.placeholder = "none";
@@ -254,7 +253,7 @@ return L.view.extend({
 
 		// dns server group;
 		o = s.taboption("seconddns", form.Value, "seconddns_server_group", _("Server Group"),
-			_("Query DNS through specific dns server group, such as office, home."));
+		_("Query DNS through specific dns server group, such as office, home."));
 		o.rmempty = true;
 		o.placeholder = "default";
 		o.datatype = "hostname";
@@ -436,7 +435,7 @@ return L.view.extend({
 		s.tab("blackip-list", _("IP Blacklist"), _("Set Specific ip blacklist."));
 
 		o = s.taboption("domain-address", form.TextValue, "address_conf",
-			_(""),
+			"",
 			_("Specify an IP address to return for any host in the given domains, Queries in the domains are never "
 				+ "forwarded and always replied to with the specified IP address which may be IPv4 or IPv6."));
 		o.rows = 20;
@@ -450,8 +449,7 @@ return L.view.extend({
 		// IP Blacklist;
 		// blacklist;
 		o = s.taboption("blackip-list", form.TextValue, "blackip_ip_conf",
-			_(""),
-			_("Configure IP blacklists that will be filtered from the results of specific DNS server."));
+			"", _("Configure IP blacklists that will be filtered from the results of specific DNS server."));
 		o.rows = 20;
 		o.cfgvalue = function (section_id) {
 			return fs.trimmed('/etc/smartdns/blacklist-ip.conf');
