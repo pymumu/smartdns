@@ -136,6 +136,7 @@ struct dns_server_pending_group {
 
 struct dns_server_pending {
 	struct list_head list;
+	atomic_t refcnt;
 
 	char host[DNS_HOSTNAME_LEN];
 	char ipv4[DNS_HOSTNAME_LEN];
@@ -960,6 +961,49 @@ static int _dns_client_server_remove(char *server_ip, int port, dns_server_type_
 	return -1;
 }
 
+void _dns_client_server_pending_get(struct dns_server_pending *pending)
+{
+	if (atomic_inc_return(&pending->refcnt) <= 0) {
+		tlog(TLOG_ERROR, "BUG: pending ref is invalid");
+		abort();
+	}
+}
+
+void _dns_client_server_pending_release_lck(struct dns_server_pending *pending)
+{
+	int refcnt = atomic_dec_return(&pending->refcnt);
+
+	if (refcnt) {
+		if (refcnt < 0) {
+			tlog(TLOG_ERROR, "BUG: pending refcnt is %d", refcnt);
+			abort();
+		}
+		return;
+	}
+
+	list_del_init(&pending->list);
+	free(pending);
+}
+
+void _dns_client_server_pending_release(struct dns_server_pending *pending)
+{
+	int refcnt = atomic_dec_return(&pending->refcnt);
+
+	if (refcnt) {
+		if (refcnt < 0) {
+			tlog(TLOG_ERROR, "BUG: pending refcnt is %d", refcnt);
+			abort();
+		}
+		return;
+	}
+
+	pthread_mutex_lock(&pending_server_mutex);
+	list_del_init(&pending->list);
+	pthread_mutex_unlock(&pending_server_mutex);
+
+	free(pending);
+}
+
 static int _dns_client_server_pending(char *server_ip, int port, dns_server_type_t server_type, struct client_dns_server_flags *flags)
 {
 	struct dns_server_pending *pending = NULL;
@@ -980,6 +1024,7 @@ static int _dns_client_server_pending(char *server_ip, int port, dns_server_type
 	pending->ipv6[0] = 0;
 	pending->has_v4 = 0;
 	pending->has_v6 = 0;
+	_dns_client_server_pending_get(pending);
 	INIT_LIST_HEAD(&pending->group_list);
 	memcpy(&pending->flags, flags, sizeof(struct client_dns_server_flags));
 
@@ -2613,6 +2658,7 @@ static void _dns_client_check_servers(void)
 static int _dns_client_pending_server_resolve(char *domain, dns_rtcode_t rtcode, dns_type_t addr_type, char *ip, unsigned int ping_time, void *user_ptr)
 {
 	struct dns_server_pending *pending = user_ptr;
+	int ret = 0;
 
 	if (addr_type == DNS_T_A) {
 		pending->has_v4 = 1;
@@ -2629,10 +2675,11 @@ static int _dns_client_pending_server_resolve(char *domain, dns_rtcode_t rtcode,
 			safe_strncpy(pending->ipv6, ip, DNS_HOSTNAME_LEN);
 		}
 	} else {
-		return -1;
+		ret = -1;
 	}
 
-	return 0;
+	_dns_client_server_pending_release(pending);
+	return ret;
 }
 
 static int _dns_client_add_pendings(struct dns_server_pending *pending, char *ip)
@@ -2672,11 +2719,15 @@ static void _dns_client_add_pending_servers(void)
 		/* send dns type A, AAAA query to bootstrap DNS server */
 		if (pending->query_v4 == 0) {
 			pending->query_v4 = 1;
-			dns_server_query(pending->host, DNS_T_A, _dns_client_pending_server_resolve, pending);
+			_dns_client_server_pending_get(pending);
+			if (dns_server_query(pending->host, DNS_T_A, _dns_client_pending_server_resolve, pending) != 0) {
+				_dns_client_server_pending_release_lck(pending);
+			}
 		}
 
 		if (pending->query_v6 == 0) {
 			pending->query_v6 = 1;
+			_dns_client_server_pending_get(pending);
 			dns_server_query(pending->host, DNS_T_AAAA, _dns_client_pending_server_resolve, pending);
 		}
 
@@ -2694,8 +2745,8 @@ static void _dns_client_add_pending_servers(void)
 					tlog(TLOG_WARN, "add pending DNS server %s failed.", pending->host);
 				}
 			}
-			list_del_init(&pending->list);
-			free(pending);
+
+			_dns_client_server_pending_release_lck(pending);
 		}
 
 		/* if has no bootstrap DNS, just call getaddrinfo to get address */
@@ -2706,8 +2757,8 @@ static void _dns_client_add_pending_servers(void)
 				exit(1);
 				return;
 			}
-			list_del_init(&pending->list);
-			free(pending);
+			
+			_dns_client_server_pending_release_lck(pending);
 		}
 	}
 	pthread_mutex_unlock(&pending_server_mutex);
