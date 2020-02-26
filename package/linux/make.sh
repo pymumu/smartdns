@@ -23,12 +23,17 @@ build()
 	cd $PKG_ROOT/
 
 	# Generic x86_64
-	mkdir $PKG_ROOT/smartdns/src -p
+	mkdir $PKG_ROOT/smartdns/usr/sbin -p
 	mkdir $PKG_ROOT/smartdns/package -p
+	mkdir $PKG_ROOT/smartdns/systemd -p 
+	
 	cd $SMARTDNS_DIR
 	cp package/windows $PKG_ROOT/smartdns/package/ -a
-	cp etc systemd *.md LICENSE install $PKG_ROOT/smartdns/ -a
-	cp src/smartdns $PKG_ROOT/smartdns/src -a
+	cp etc *.md LICENSE package/linux/install $PKG_ROOT/smartdns/ -a
+	cp systemd/smartdns.service $PKG_ROOT/smartdns/systemd
+	cp src/smartdns $PKG_ROOT/smartdns/usr/sbin -a
+	chmod +x $PKG_ROOT/smartdns/install
+
 	if [ $? -ne 0 ]; then
 		echo "copy smartdns file failed"
 		rm -fr $PKG_ROOT
