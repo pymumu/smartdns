@@ -38,7 +38,7 @@ else
 override LDFLAGS += -lssl -lcrypto -lpthread 
 endif
 
-.PHONY: all
+.PHONY: all clean
 
 all: $(BIN)
  

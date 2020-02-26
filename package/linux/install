@@ -77,14 +77,18 @@ install_files()
 		return 1
 	fi
 
-	install -v -m 0755 -t $PREFIX/usr/sbin src/smartdns
+	install -v -m 0755 -t $PREFIX/usr/sbin usr/sbin/smartdns
 	if [ $? -ne 0 ]; then
 		return 1
 	fi
 
-	install -v -m 0640 -t  $PREFIX$SMARTDNS_CONF_DIR etc/smartdns/smartdns.conf
-	if [ $? -ne 0 ]; then
-		return 1
+	if [ -e "$PREFIX$SMARTDNS_CONF_DIR/smartdns.conf" ]; then
+		cp etc/smartdns/smartdns.conf $PREFIX$SMARTDNS_CONF_DIR/smartdns.conf.pkg
+	else 
+		install -v -m 0640 -t  $PREFIX$SMARTDNS_CONF_DIR etc/smartdns/smartdns.conf
+		if [ $? -ne 0 ]; then
+			return 1
+		fi
 	fi
 
 	install -v -m 0640 -t  $PREFIX/etc/default etc/default/smartdns
@@ -118,7 +122,6 @@ uninstall_smartdns()
 	if [ -z "$PREFIX" ]; then
 		stop_service 2>/dev/null
 	fi	
-	rm -f $PREFIX$SMARTDNS_CONF_DIR/smartdns.conf
 	rmdir $PREFIX$SMARTDNS_CONF_DIR 2>/dev/null
 	rm -f $PREFIX/usr/sbin/smartdns
 	rm -f $PREFIX/etc/default/smartdns
