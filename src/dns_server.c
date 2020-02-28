@@ -663,31 +663,41 @@ static int _dns_setup_ipset(struct dns_request *request)
 
 	/* check ipset rule */
 	rule_flags = request->domain_rule.rules[DOMAIN_RULE_FLAGS];
-	if (rule_flags) {
-		if (rule_flags->flags & DOMAIN_FLAG_IPSET_IGNORE) {
-			return 0;
-		}
-	}
-
-	ipset_rule = request->domain_rule.rules[DOMAIN_RULE_IPSET];
-	if (ipset_rule == NULL) {
-		return 0;
-	}
 
 	/* add IPV4 to ipset */
-	if (request->has_ipv4 && request->qtype == DNS_T_A) {
+	if (!(rule_flags && (rule_flags->flags & DOMAIN_FLAG_IPSET_IPV4_IGN)) && request->has_ipv4 &&
+		request->qtype == DNS_T_A) {
+		ipset_rule = request->domain_rule.rules[DOMAIN_RULE_IPSET_IPV4];
+		if (ipset_rule == NULL) {
+			/* fallback to ipv6 */
+			ipset_rule = request->domain_rule.rules[DOMAIN_RULE_IPSET_IPV6];
+			if (ipset_rule == NULL) {
+				return 0;
+			}
+		}
+		if (ipset_rule == NULL) {
+			return 0;
+		}
 		ret |= ipset_add(ipset_rule->ipsetname, request->ipv4_addr, DNS_RR_A_LEN, request->ttl_v4 * 2);
+		tlog(TLOG_DEBUG, "IPSET-IPV4-MATCH: domain:%s, ipset:%s, result: %d", request->domain, ipset_rule->ipsetname,
+			 ret);
 	}
 
 	/* add IPV6 to ipset */
-	if (request->has_ipv6 && request->qtype == DNS_T_AAAA) {
-		if (request->has_ipv4) {
-			ret |= ipset_add(ipset_rule->ipsetname, request->ipv4_addr, DNS_RR_A_LEN, request->ttl_v4 * 2);
+	if (!(rule_flags && (rule_flags->flags & DOMAIN_FLAG_IPSET_IPV6_IGN)) && request->has_ipv6 &&
+		request->qtype == DNS_T_AAAA) {
+		ipset_rule = request->domain_rule.rules[DOMAIN_RULE_IPSET_IPV6];
+		if (ipset_rule == NULL) {
+			/* fallback to ipv4 */
+			ipset_rule = request->domain_rule.rules[DOMAIN_RULE_IPSET_IPV4];
+			if (ipset_rule == NULL) {
+				return 0;
+			}
 		}
 		ret |= ipset_add(ipset_rule->ipsetname, request->ipv6_addr, DNS_RR_AAAA_LEN, request->ttl_v6 * 2);
+		tlog(TLOG_DEBUG, "IPSET-IPV6-MATCH: domain:%s, ipset:%s, result: %d", request->domain, ipset_rule->ipsetname,
+			 ret);
 	}
-
-	tlog(TLOG_DEBUG, "IPSET-MATCH: domain:%s, ipset:%s, result: %d", request->domain, ipset_rule->ipsetname, ret);
 
 	return ret;
 }
@@ -1816,8 +1826,12 @@ static void _dns_server_update_rule_by_flags(struct dns_request *request)
 		request->domain_rule.rules[DOMAIN_RULE_ADDRESS_IPV6] = NULL;
 	}
 
-	if (flags & DOMAIN_FLAG_IPSET_IGNORE) {
-		request->domain_rule.rules[DOMAIN_RULE_IPSET] = NULL;
+	if (flags & DOMAIN_FLAG_IPSET_IPV4_IGN) {
+		request->domain_rule.rules[DOMAIN_RULE_IPSET_IPV4] = NULL;
+	}
+
+	if (flags & DOMAIN_FLAG_IPSET_IPV6_IGN) {
+		request->domain_rule.rules[DOMAIN_RULE_IPSET_IPV6] = NULL;
 	}
 
 	if (flags & DOMAIN_FLAG_NAMESERVER_IGNORE) {

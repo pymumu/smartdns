@@ -524,7 +524,7 @@ https://github.com/pymumu/smartdns/releases
 |speed-check-mode|测速模式选择|无|[ping\|tcp:[80]\|none]|speed-check-mode ping,tcp:80
 |address|指定域名IP地址|无|address /domain/[ip\|-\|-4\|-6\|#\|#4\|#6] <br>`-`表示忽略 <br>`#`表示返回SOA <br>`4`表示IPV4 <br>`6`表示IPV6| address /www.example.com/1.2.3.4
 |nameserver|指定域名使用server组解析|无|nameserver /domain/[group\|-], `group`为组名，`-`表示忽略此规则，配套server中的`-group`参数使用| nameserver /www.example.com/office
-|ipset|域名IPSET|None|ipset /domain/[ipset\|-], `-`表示忽略|ipset /www.example.com/pass
+|ipset|域名IPSET|None|ipset /domain/[ipset\|-\|#[4\|6]:[ipset\|-][,#[4\|6]:[ipset\|-]]], `-`表示忽略|ipset /www.example.com/#4:dns4,#6:-
 |ipset-timeout|设置IPSET超时功能启用|auto|[yes]|ipset-timeout yes
 |domain-rules|设置域名规则|无|domain-rules /domain/ [-rules...]<br>`[-speed-check-mode]`: 测速模式，参考`speed-check-mode`配置<br>`[-address]`: 参考`address`配置<br>`[-nameserver]`: 参考`nameserver`配置<br>`[-ipset]`:参考`ipset`配置|domain-rules /www.example.com/ -speed-check-mode none
 |bogus-nxdomain|假冒IP地址过滤|无|[ip/subnet]，可重复| bogus-nxdomain 1.2.3.4/16

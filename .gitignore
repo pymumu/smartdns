@@ -1,4 +1,5 @@
 .vscode
-.o
+*.o
 .DS_Store
-.swp.
+*.swp.
+src/smartdns
