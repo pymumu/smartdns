@@ -24,20 +24,20 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <linux/netlink.h>
+#include <inttypes.h>
 #include <linux/capability.h>
+#include <linux/netlink.h>
+#include <netinet/tcp.h>
 #include <openssl/crypto.h>
 #include <openssl/ssl.h>
 #include <pthread.h>
-#include <netinet/tcp.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/prctl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
-#include <inttypes.h>
-#include <sys/prctl.h>
 
 #define TMP_BUFF_LEN_32 32
 
@@ -285,14 +285,14 @@ int parse_ip(const char *value, char *ip, int *port)
 	return 0;
 }
 
-static int _check_is_ipv4(const char *ip) 
+static int _check_is_ipv4(const char *ip)
 {
 	const char *ptr = ip;
 	char c = 0;
 	int dot_num = 0;
 	int dig_num = 0;
 
-	while ( (c = *ptr++) != '\0') {
+	while ((c = *ptr++) != '\0') {
 		if (c == '.') {
 			dot_num++;
 			dig_num = 0;
@@ -326,7 +326,7 @@ static int _check_is_ipv6(const char *ip)
 	int colon_num = 0;
 	int dig_num = 0;
 
-	while ( (c = *ptr++) != '\0') {
+	while ((c = *ptr++) != '\0') {
 		if (c == '[' || c == ']') {
 			continue;
 		}
@@ -420,7 +420,7 @@ int parse_uri(char *value, char *scheme, char *host, int *port, char *path)
 
 	if (path) {
 		strncpy(path, process_ptr, PATH_MAX);
-	} 
+	}
 	return 0;
 }
 
@@ -456,8 +456,8 @@ char *reverse_string(char *output, const char *input, int len, int to_lower_case
 		if (to_lower_case) {
 			if (*output >= 'A' && *output <= 'Z') {
 				/* To lower case */
-         		*output = *output + 32;
-      		}
+				*output = *output + 32;
+			}
 		}
 		output++;
 		len--;
@@ -502,7 +502,8 @@ static int _ipset_support_timeout(const char *ipsetname)
 	return -1;
 }
 
-static int _ipset_operate(const char *ipsetname, const unsigned char addr[], int addr_len, unsigned long timeout, int operate)
+static int _ipset_operate(const char *ipsetname, const unsigned char addr[], int addr_len, unsigned long timeout,
+						  int operate)
 {
 	struct nlmsghdr *netlink_head;
 	struct ipset_netlink_msg *netlink_msg;
@@ -560,7 +561,9 @@ static int _ipset_operate(const char *ipsetname, const unsigned char addr[], int
 	netlink_head->nlmsg_len += NETLINK_ALIGN(sizeof(struct ipset_netlink_attr));
 	nested[1]->type = NLA_F_NESTED | IPSET_ATTR_IP;
 
-	_ipset_add_attr(netlink_head, (af == AF_INET ? IPSET_ATTR_IPADDR_IPV4 : IPSET_ATTR_IPADDR_IPV6) | NLA_F_NET_BYTEORDER, addr_len, addr);
+	_ipset_add_attr(netlink_head,
+					(af == AF_INET ? IPSET_ATTR_IPADDR_IPV4 : IPSET_ATTR_IPADDR_IPV6) | NLA_F_NET_BYTEORDER, addr_len,
+					addr);
 	nested[1]->len = (void *)buffer + NETLINK_ALIGN(netlink_head->nlmsg_len) - (void *)nested[1];
 
 	if (timeout > 0 && _ipset_support_timeout(ipsetname) == 0) {
@@ -925,20 +928,20 @@ static int parse_server_name_extension(const char *data, size_t data_len, char *
 	return -2;
 }
 
-void get_compiled_time(struct tm *tm) 
-{ 
-    char s_month[5];
-    int month, day, year;
+void get_compiled_time(struct tm *tm)
+{
+	char s_month[5];
+	int month, day, year;
 	int hour, min, sec;
-    static const char *month_names = "JanFebMarAprMayJunJulAugSepOctNovDec";
+	static const char *month_names = "JanFebMarAprMayJunJulAugSepOctNovDec";
 
-    sscanf(__DATE__, "%5s %d %d", s_month, &day, &year);
-    month = (strstr(month_names, s_month) - month_names) / 3;
+	sscanf(__DATE__, "%5s %d %d", s_month, &day, &year);
+	month = (strstr(month_names, s_month) - month_names) / 3;
 	sscanf(__TIME__, "%d:%d:%d", &hour, &min, &sec);
-    tm->tm_year = year - 1900;
-    tm->tm_mon = month;
-    tm->tm_mday = day;
-    tm->tm_isdst = -1;
+	tm->tm_year = year - 1900;
+	tm->tm_mon = month;
+	tm->tm_mday = day;
+	tm->tm_isdst = -1;
 	tm->tm_hour = hour;
 	tm->tm_min = min;
 	tm->tm_sec = sec;
@@ -958,7 +961,7 @@ int has_network_raw_cap(void)
 int set_sock_keepalive(int fd, int keepidle, int keepinterval, int keepcnt)
 {
 	const int yes = 1;
-	if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &yes, sizeof(yes))!= 0) {
+	if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &yes, sizeof(yes)) != 0) {
 		return -1;
 	}
 

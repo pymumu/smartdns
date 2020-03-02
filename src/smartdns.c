@@ -79,7 +79,8 @@ static void _show_version(void)
 #else
 	struct tm tm;
 	get_compiled_time(&tm);
-	snprintf(str_ver, sizeof(str_ver), "1.%.4d%.2d%.2d-%.2d%.2d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min);
+	snprintf(str_ver, sizeof(str_ver), "1.%.4d%.2d%.2d-%.2d%.2d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+			 tm.tm_hour, tm.tm_min);
 #endif
 	printf("smartdns %s\n", str_ver);
 }
@@ -157,13 +158,15 @@ static int _smartdns_add_servers(void)
 			safe_strncpy(flag_http->hostname, dns_conf_servers[i].hostname, sizeof(flag_http->hostname));
 			safe_strncpy(flag_http->path, dns_conf_servers[i].path, sizeof(flag_http->path));
 			safe_strncpy(flag_http->httphost, dns_conf_servers[i].httphost, sizeof(flag_http->httphost));
-			safe_strncpy(flag_http->tls_host_verify, dns_conf_servers[i].tls_host_verify, sizeof(flag_http->tls_host_verify));
+			safe_strncpy(flag_http->tls_host_verify, dns_conf_servers[i].tls_host_verify,
+						 sizeof(flag_http->tls_host_verify));
 		} break;
 		case DNS_SERVER_TLS: {
 			struct client_dns_server_flag_tls *flag_tls = &flags.tls;
 			flag_tls->spi_len = dns_client_spki_decode(dns_conf_servers[i].spki, (unsigned char *)flag_tls->spki);
 			safe_strncpy(flag_tls->hostname, dns_conf_servers[i].hostname, sizeof(flag_tls->hostname));
-			safe_strncpy(flag_tls->tls_host_verify, dns_conf_servers[i].tls_host_verify, sizeof(flag_tls->tls_host_verify));
+			safe_strncpy(flag_tls->tls_host_verify, dns_conf_servers[i].tls_host_verify,
+						 sizeof(flag_tls->tls_host_verify));
 		} break;
 		case DNS_SERVER_TCP:
 			break;
@@ -175,7 +178,8 @@ static int _smartdns_add_servers(void)
 		flags.type = dns_conf_servers[i].type;
 		flags.server_flag = dns_conf_servers[i].server_flag;
 		flags.result_flag = dns_conf_servers[i].result_flag;
-		ret = dns_client_add_server(dns_conf_servers[i].server, dns_conf_servers[i].port, dns_conf_servers[i].type, &flags);
+		ret = dns_client_add_server(dns_conf_servers[i].server, dns_conf_servers[i].port, dns_conf_servers[i].type,
+									&flags);
 		if (ret != 0) {
 			tlog(TLOG_ERROR, "add server failed, %s:%d", dns_conf_servers[i].server, dns_conf_servers[i].port);
 			return -1;
@@ -259,7 +263,8 @@ static int _smartdns_init(void)
 	tlog_setlogscreen(verbose_screen);
 	tlog_setlevel(dns_conf_log_level);
 
-	tlog(TLOG_NOTICE, "smartdns starting...(Copyright (C) Nick Peng <pymumu@gmail.com>, build:%s %s)", __DATE__, __TIME__);
+	tlog(TLOG_NOTICE, "smartdns starting...(Copyright (C) Nick Peng <pymumu@gmail.com>, build:%s %s)", __DATE__,
+		 __TIME__);
 
 	if (_smartdns_init_ssl() != 0) {
 		tlog(TLOG_ERROR, "init ssl failed.");
@@ -344,8 +349,11 @@ static void _sig_error_exit(int signo, siginfo_t *siginfo, void *ct)
 #elif defined(__mips__)
 	PC = context->uc_mcontext.pc;
 #endif
-	tlog(TLOG_FATAL, "process exit with signal %d, code = %d, errno = %d, pid = %d, self = %d, pc = %#lx, addr = %#lx, build(%s %s)\n", signo, siginfo->si_code,
-		 siginfo->si_errno, siginfo->si_pid, getpid(), PC, (unsigned long)siginfo->si_addr, __DATE__, __TIME__);
+	tlog(TLOG_FATAL,
+		 "process exit with signal %d, code = %d, errno = %d, pid = %d, self = %d, pc = %#lx, addr = %#lx, build(%s "
+		 "%s)\n",
+		 signo, siginfo->si_code, siginfo->si_errno, siginfo->si_pid, getpid(), PC, (unsigned long)siginfo->si_addr,
+		 __DATE__, __TIME__);
 
 	sleep(1);
 	_exit(0);

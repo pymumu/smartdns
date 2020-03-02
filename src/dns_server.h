@@ -36,7 +36,8 @@ void dns_server_stop(void);
 void dns_server_exit(void);
 
 /* query result notify function */
-typedef int (*dns_result_callback)(char *domain, dns_rtcode_t rtcode, dns_type_t addr_type, char *ip, unsigned int ping_time, void *user_ptr);
+typedef int (*dns_result_callback)(char *domain, dns_rtcode_t rtcode, dns_type_t addr_type, char *ip,
+								   unsigned int ping_time, void *user_ptr);
 
 /* query domain */
 int dns_server_query(char *domain, int qtype, dns_result_callback callback, void *user_ptr);

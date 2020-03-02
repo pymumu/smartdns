@@ -7,3 +7,4 @@ UseTab: ForContinuationAndIndentation
 MaxEmptyLinesToKeep: 1
 AllowShortFunctionsOnASingleLine: Empty
 BreakBeforeBraces: Linux
+ColumnLimit: 120

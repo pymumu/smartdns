@@ -18,15 +18,15 @@
 
 #define _GNU_SOURCE
 #include "dns.h"
-#include "tlog.h"
 #include "stringutil.h"
+#include "tlog.h"
+#include <arpa/inet.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include <arpa/inet.h>
 
 #define QR_MASK 0x8000
 #define OPCODE_MASK 0x7800
@@ -37,9 +37,9 @@
 #define RCODE_MASK 0x000F
 #define DNS_RR_END (0XFFFF)
 
-#define UNUSED(expr)                                                                                                                                           \
-	do {                                                                                                                                                       \
-		(void)(expr);                                                                                                                                          \
+#define UNUSED(expr)                                                                                                   \
+	do {                                                                                                               \
+		(void)(expr);                                                                                                  \
 	} while (0)
 
 /* read short and move pointer */
@@ -305,7 +305,8 @@ static int _dns_get_qr_head(struct dns_data_context *data_context, char *domain,
 	return 0;
 }
 
-static int _dns_add_rr_head(struct dns_data_context *data_context, char *domain, int qtype, int qclass, int ttl, int rr_len)
+static int _dns_add_rr_head(struct dns_data_context *data_context, char *domain, int qtype, int qclass, int ttl,
+							int rr_len)
 {
 	int len = 0;
 
@@ -333,7 +334,8 @@ static int _dns_add_rr_head(struct dns_data_context *data_context, char *domain,
 	return 0;
 }
 
-static int _dns_get_rr_head(struct dns_data_context *data_context, char *domain, int maxsize, int *qtype, int *qclass, int *ttl, int *rr_len)
+static int _dns_get_rr_head(struct dns_data_context *data_context, char *domain, int maxsize, int *qtype, int *qclass,
+							int *ttl, int *rr_len)
 {
 	int len = 0;
 
@@ -358,7 +360,8 @@ static int _dns_get_rr_head(struct dns_data_context *data_context, char *domain,
 	return len;
 }
 
-static int _dns_add_RAW(struct dns_packet *packet, dns_rr_type rrtype, dns_type_t rtype, char *domain, int ttl, void *raw, int raw_len)
+static int _dns_add_RAW(struct dns_packet *packet, dns_rr_type rrtype, dns_type_t rtype, char *domain, int ttl,
+						void *raw, int raw_len)
 {
 	int maxlen = 0;
 	int len = 0;
@@ -451,14 +454,16 @@ static int _dns_add_opt_RAW(struct dns_packet *packet, dns_opt_code_t opt_rrtype
 	return _dns_add_RAW(packet, DNS_RRS_OPT, DNS_OPT_T_TCP_KEEPALIVE, "", 0, opt_data, len);
 }
 
-static int _dns_get_opt_RAW(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, struct dns_opt *dns_opt, int *dns_optlen)
+static int _dns_get_opt_RAW(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, struct dns_opt *dns_opt,
+							int *dns_optlen)
 {
 	*dns_optlen = DNS_MAX_OPT_LEN;
 
 	return _dns_get_RAW(rrs, domain, maxsize, ttl, dns_opt, dns_optlen);
 }
 
-static int __attribute__((unused))  _dns_add_OPT(struct dns_packet *packet, dns_rr_type type, unsigned short opt_code, unsigned short opt_len, struct dns_opt *opt)
+static int __attribute__((unused)) _dns_add_OPT(struct dns_packet *packet, dns_rr_type type, unsigned short opt_code,
+												unsigned short opt_len, struct dns_opt *opt)
 {
 	// TODO
 
@@ -508,7 +513,8 @@ static int __attribute__((unused))  _dns_add_OPT(struct dns_packet *packet, dns_
 	return _dns_rr_add_end(packet, type, DNS_T_OPT, len);
 }
 
-static int __attribute__((unused)) _dns_get_OPT(struct dns_rrs *rrs, unsigned short *opt_code, unsigned short *opt_len, struct dns_opt *opt, int *opt_maxlen)
+static int __attribute__((unused)) _dns_get_OPT(struct dns_rrs *rrs, unsigned short *opt_code, unsigned short *opt_len,
+												struct dns_opt *opt, int *opt_maxlen)
 {
 	// TODO
 
@@ -593,7 +599,8 @@ int dns_get_NS(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, char *c
 	return _dns_get_RAW(rrs, domain, maxsize, ttl, cname, &len);
 }
 
-int dns_add_AAAA(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, unsigned char addr[DNS_RR_AAAA_LEN])
+int dns_add_AAAA(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl,
+				 unsigned char addr[DNS_RR_AAAA_LEN])
 {
 	return _dns_add_RAW(packet, type, DNS_T_AAAA, domain, ttl, addr, DNS_RR_AAAA_LEN);
 }
@@ -749,7 +756,8 @@ int dns_add_OPT_TCP_KEEYALIVE(struct dns_packet *packet, unsigned short timeout)
 	return _dns_add_opt_RAW(packet, DNS_OPT_T_TCP_KEEPALIVE, &timeout_net, data_len);
 }
 
-int dns_get_OPT_TCP_KEEYALIVE(struct dns_rrs *rrs, unsigned short *opt_code, unsigned short *opt_len, unsigned short *timeout)
+int dns_get_OPT_TCP_KEEYALIVE(struct dns_rrs *rrs, unsigned short *opt_code, unsigned short *opt_len,
+							  unsigned short *timeout)
 {
 	unsigned char opt_data[DNS_MAX_OPT_LEN];
 	struct dns_opt *opt = (struct dns_opt *)opt_data;
@@ -961,7 +969,8 @@ static int _dns_decode_domain(struct dns_context *context, char *output, int siz
 			}
 			ptr = context->data + len;
 			if (ptr > context->data + context->maxsize) {
-				tlog(TLOG_DEBUG, "length is not enough %u:%ld, %p, %p", context->maxsize, (long)(ptr - context->data), context->ptr, context->data);
+				tlog(TLOG_DEBUG, "length is not enough %u:%ld, %p, %p", context->maxsize, (long)(ptr - context->data),
+					 context->ptr, context->data);
 				return -1;
 			}
 			is_compressed = 1;
@@ -979,7 +988,8 @@ static int _dns_decode_domain(struct dns_context *context, char *output, int siz
 		}
 
 		if (ptr > context->data + context->maxsize) {
-			tlog(TLOG_DEBUG, "length is not enough %u:%ld, %p, %p", context->maxsize, (long)(ptr - context->data), context->ptr, context->data);
+			tlog(TLOG_DEBUG, "length is not enough %u:%ld, %p, %p", context->maxsize, (long)(ptr - context->data),
+				 context->ptr, context->data);
 			return -1;
 		}
 
@@ -988,7 +998,8 @@ static int _dns_decode_domain(struct dns_context *context, char *output, int siz
 			/* copy sub string */
 			copy_len = (len < size - output_len) ? len : size - 1 - output_len;
 			if ((ptr + copy_len) > (context->data + context->maxsize)) {
-				tlog(TLOG_DEBUG, "length is not enough %u:%ld, %p, %p", context->maxsize, (long)(ptr - context->data), context->ptr, context->data);
+				tlog(TLOG_DEBUG, "length is not enough %u:%ld, %p, %p", context->maxsize, (long)(ptr - context->data),
+					 context->ptr, context->data);
 				return -1;
 			}
 			memcpy(output, ptr, copy_len);
@@ -1089,7 +1100,8 @@ static int _dns_encode_qr_head(struct dns_context *context, char *domain, int qt
 	return 0;
 }
 
-static int _dns_decode_rr_head(struct dns_context *context, char *domain, int domain_size, int *qtype, int *qclass, int *ttl, int *rr_len)
+static int _dns_decode_rr_head(struct dns_context *context, char *domain, int domain_size, int *qtype, int *qclass,
+							   int *ttl, int *rr_len)
 {
 	int len = 0;
 
@@ -1358,7 +1370,8 @@ static int _dns_decode_opt_ecs(struct dns_context *context, struct dns_opt_ecs *
 	memcpy(ecs->addr, context->ptr, len);
 	context->ptr += len;
 
-	tlog(TLOG_DEBUG, "ECS: family:%d, source_prefix:%d, scope_prefix:%d, len:%d", ecs->family, ecs->source_prefix, ecs->scope_prefix, len);
+	tlog(TLOG_DEBUG, "ECS: family:%d, source_prefix:%d, scope_prefix:%d, len:%d", ecs->family, ecs->source_prefix,
+		 ecs->scope_prefix, len);
 	tlog(TLOG_DEBUG, "%d.%d.%d.%d", ecs->addr[0], ecs->addr[1], ecs->addr[2], ecs->addr[3]);
 
 	return 0;

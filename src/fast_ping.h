@@ -38,11 +38,13 @@ typedef enum {
 } FAST_PING_RESULT;
 
 struct ping_host_struct;
-typedef void (*fast_ping_result)(struct ping_host_struct *ping_host, const char *host, FAST_PING_RESULT result, struct sockaddr *addr, socklen_t addr_len,
-								 int seqno, int ttl, struct timeval *tv, void *userptr);
+typedef void (*fast_ping_result)(struct ping_host_struct *ping_host, const char *host, FAST_PING_RESULT result,
+								 struct sockaddr *addr, socklen_t addr_len, int seqno, int ttl, struct timeval *tv,
+								 void *userptr);
 
 /* start ping */
-struct ping_host_struct *fast_ping_start(PING_TYPE type, const char *host, int count, int interval, int timeout, fast_ping_result ping_callback, void *userptr);
+struct ping_host_struct *fast_ping_start(PING_TYPE type, const char *host, int count, int interval, int timeout,
+										 fast_ping_result ping_callback, void *userptr);
 
 /* stop ping */
 int fast_ping_stop(struct ping_host_struct *ping_host);

@@ -19,27 +19,27 @@
 #ifndef SMART_DNS_UTIL_H
 #define SMART_DNS_UTIL_H
 
+#include "stringutil.h"
 #include <netdb.h>
 #include <time.h>
-#include "stringutil.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif /*__cplusplus */
 
 #ifndef TCP_FASTOPEN
-#define TCP_FASTOPEN		 23 
+#define TCP_FASTOPEN 23
 #endif
 
 #ifndef TCP_FASTOPEN_CONNECT
 #define TCP_FASTOPEN_CONNECT 30
 #endif
 #ifndef TCP_THIN_LINEAR_TIMEOUTS
-#define TCP_THIN_LINEAR_TIMEOUTS 16 
+#define TCP_THIN_LINEAR_TIMEOUTS 16
 #endif
 
 #ifndef TCP_THIN_DUPACK
-#define TCP_THIN_DUPACK		 17 
+#define TCP_THIN_DUPACK 17
 #endif
 
 #define PORT_NOT_DEFINED -1

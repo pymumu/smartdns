@@ -52,8 +52,9 @@ int dns_client_init(void);
 int dns_client_set_ecs(char *ip, int subnet);
 
 /* query result notify function */
-typedef int (*dns_client_callback)(char *domain, dns_result_type rtype, unsigned int result_flag, struct dns_packet *packet, unsigned char *inpacket,
-								   int inpacket_len, void *user_ptr);
+typedef int (*dns_client_callback)(char *domain, dns_result_type rtype, unsigned int result_flag,
+								   struct dns_packet *packet, unsigned char *inpacket, int inpacket_len,
+								   void *user_ptr);
 
 /* query domain */
 int dns_client_query(char *domain, int qtype, dns_client_callback callback, void *user_ptr, const char *group_name);
@@ -95,7 +96,8 @@ struct client_dns_server_flags {
 int dns_client_spki_decode(const char *spki, unsigned char *spki_data_out);
 
 /* add remote dns server */
-int dns_client_add_server(char *server_ip, int port, dns_server_type_t server_type, struct client_dns_server_flags *flags);
+int dns_client_add_server(char *server_ip, int port, dns_server_type_t server_type,
+						  struct client_dns_server_flags *flags);
 
 /* remove remote dns server */
 int dns_client_remove_server(char *server_ip, int port, dns_server_type_t server_type);

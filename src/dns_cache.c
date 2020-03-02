@@ -118,7 +118,8 @@ static void _dns_cache_move_inactive(struct dns_cache *dns_cache)
 	list_add_tail(&dns_cache->list, &dns_cache_head.inactive_list);
 }
 
-int dns_cache_replace(char *domain, char *cname, int cname_ttl, int ttl, dns_type_t qtype, unsigned char *addr, int addr_len, int speed)
+int dns_cache_replace(char *domain, char *cname, int cname_ttl, int ttl, dns_type_t qtype, unsigned char *addr,
+					  int addr_len, int speed)
 {
 	struct dns_cache *dns_cache = NULL;
 
@@ -178,7 +179,8 @@ errout_unlock:
 	return -1;
 }
 
-int dns_cache_insert(char *domain, char *cname, int cname_ttl, int ttl, dns_type_t qtype, unsigned char *addr, int addr_len, int speed)
+int dns_cache_insert(char *domain, char *cname, int cname_ttl, int ttl, dns_type_t qtype, unsigned char *addr,
+					 int addr_len, int speed)
 {
 	uint32_t key = 0;
 	struct dns_cache *dns_cache = NULL;

@@ -44,7 +44,10 @@ typedef enum dns_rr_type {
 	DNS_RRS_END,
 } dns_rr_type;
 
-typedef enum dns_class { DNS_C_IN = 1, DNS_C_ANY = 255 } dns_class_t;
+typedef enum dns_class {
+	DNS_C_IN = 1, // DNS C IN
+	DNS_C_ANY = 255
+} dns_class_t;
 
 typedef enum dns_type {
 	DNS_T_A = 1,
@@ -63,10 +66,10 @@ typedef enum dns_type {
 	DNS_T_ALL = 255
 } dns_type_t;
 
-typedef enum dns_opt_code { 
-	DNS_OPT_T_ECS = 8, 
+typedef enum dns_opt_code {
+	DNS_OPT_T_ECS = 8, // OPT ECS
 	DNS_OPT_T_TCP_KEEPALIVE = 11,
-	DNS_OPT_T_ALL = 255 
+	DNS_OPT_T_ALL = 255
 } dns_opt_code_t;
 
 typedef enum dns_opcode {
@@ -196,7 +199,8 @@ int dns_get_A(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, unsigned
 int dns_add_PTR(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, char *cname);
 int dns_get_PTR(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, char *cname, int cname_size);
 
-int dns_add_AAAA(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, unsigned char addr[DNS_RR_AAAA_LEN]);
+int dns_add_AAAA(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl,
+				 unsigned char addr[DNS_RR_AAAA_LEN]);
 int dns_get_AAAA(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, unsigned char addr[DNS_RR_AAAA_LEN]);
 
 int dns_add_SOA(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, struct dns_soa *soa);
@@ -212,7 +216,8 @@ int dns_add_OPT_ECS(struct dns_packet *packet, struct dns_opt_ecs *ecs);
 int dns_get_OPT_ECS(struct dns_rrs *rrs, unsigned short *opt_code, unsigned short *opt_len, struct dns_opt_ecs *ecs);
 
 int dns_add_OPT_TCP_KEEYALIVE(struct dns_packet *packet, unsigned short timeout);
-int dns_get_OPT_TCP_KEEYALIVE(struct dns_rrs *rrs, unsigned short *opt_code, unsigned short *opt_len, unsigned short *timeout);
+int dns_get_OPT_TCP_KEEYALIVE(struct dns_rrs *rrs, unsigned short *opt_code, unsigned short *opt_len,
+							  unsigned short *timeout);
 /*
  * Packet operation
  */
