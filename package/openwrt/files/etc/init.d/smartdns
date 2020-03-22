@@ -46,7 +46,6 @@ set_forward_dnsmasq()
 		[ "$server" = "$addr" ] && continue
 		uci add_list dhcp.@dnsmasq[0].server="$server"
 	done
-	uci delete dhcp.@dnsmasq[0].resolvfile 2>/dev/null
 	uci set dhcp.@dnsmasq[0].noresolv=1
 	uci commit dhcp
 	/etc/init.d/dnsmasq restart
@@ -57,14 +56,13 @@ stop_forward_dnsmasq()
 	local OLD_PORT="$1"
 	addr="127.0.0.1#$OLD_PORT"
 	OLD_SERVER="$(uci get dhcp.@dnsmasq[0].server 2>/dev/null)"
-	if echo "$OLD_SERVER" | grep "^$addr" >/dev/null 2>&1; then
+	if ! echo "$OLD_SERVER" | grep "^$addr" >/dev/null 2>&1; then
 		return
 	fi
 
 	uci del_list dhcp.@dnsmasq[0].server="$addr" 2>/dev/null
 	addrlist="$(uci get dhcp.@dnsmasq[0].server 2>/dev/null)"
 	[ -z "$addrlist" ] && {
-		uci set dhcp.@dnsmasq[0].resolvfile=/tmp/resolv.conf.auto 2>/dev/null
 		uci delete dhcp.@dnsmasq[0].noresolv 2>/dev/null
 	}
 	uci commit dhcp
@@ -124,7 +122,6 @@ service_triggers() {
 	procd_add_reload_trigger firewall
 	procd_add_reload_trigger smartdns
 }
-
 
 conf_append()
 {
