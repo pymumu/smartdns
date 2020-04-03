@@ -162,15 +162,17 @@ set_dnsmasq_conf()
 	fi
 
 	grep "^port *=0" "$CONF_FILE" > /dev/null 2>&1
-	if [ $? -ne 0 ]; then
+	if [ $? -ne 0 ] && [ ! "$ADDED_PORT" ]; then
 		sed -i "/^port *=/d" "$CONF_FILE"
 		echo "port=0" >> "$CONF_FILE"
 		RESTART_DNSMASQ=1
+		ADDED_PORT="true"
 	fi
 }
 
 set_dnsmasq()
 {
+	ADDED_PORT=""
 	local RESTART_DNSMASQ=0
 
 	for conf in $DNSMASQ_CONF
