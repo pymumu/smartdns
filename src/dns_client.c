@@ -1817,28 +1817,31 @@ static int _dns_client_process_tcp_buff(struct dns_server_info *server_info)
 	int dns_packet_len = 0;
 	struct http_head *http_head = NULL;
 	unsigned char *inpacket_data = NULL;
+	int ret = -1;
 
 	while (1) {
 		if (server_info->type == DNS_SERVER_HTTPS) {
 			http_head = http_head_init(4096);
 			if (http_head == NULL) {
-				goto errout;
+				goto out;
 			}
 
 			len = http_head_parse(http_head, (char *)server_info->recv_buff.data, server_info->recv_buff.len);
 			if (len < 0) {
-				tlog(TLOG_DEBUG, "remote server not supported.");
 				if (len == -1) {
-					break;
+					ret = 0;
+					goto out;
 				}
-				goto errout;
+
+				tlog(TLOG_DEBUG, "remote server not supported.");
+				goto out;
 			}
 
 			if (http_head_get_httpcode(http_head) != 200) {
 				tlog(TLOG_WARN, "http server query from %s:%d failed, server return http code : %d, %s",
 					 server_info->ip, server_info->port, http_head_get_httpcode(http_head),
 					 http_head_get_httpcode_msg(http_head));
-				goto errout;
+				goto out;
 			}
 
 			dns_packet_len = http_head_get_data_len(http_head);
@@ -1851,12 +1854,13 @@ static int _dns_client_process_tcp_buff(struct dns_server_info *server_info)
 			len = ntohs(*((unsigned short *)(inpacket_data)));
 			if (len <= 0 || len >= DNS_IN_PACKSIZE) {
 				/* data len is invalid */
-				goto errout;
+				goto out;
 			}
 
 			if (len > server_info->recv_buff.len - 2) {
 				/* len is not expceded, wait and recv */
-				break;
+				ret = 0;
+				goto out;
 			}
 
 			inpacket_data = server_info->recv_buff.data + 2;
@@ -1868,7 +1872,7 @@ static int _dns_client_process_tcp_buff(struct dns_server_info *server_info)
 		/* process result */
 		if (_dns_client_recv(server_info, inpacket_data, dns_packet_len, &server_info->addr, server_info->ai_addrlen) !=
 			0) {
-			goto errout;
+			goto out;
 		}
 
 		if (http_head) {
@@ -1886,16 +1890,17 @@ static int _dns_client_process_tcp_buff(struct dns_server_info *server_info)
 		if (server_info->recv_buff.len > 0) {
 			memmove(server_info->recv_buff.data, server_info->recv_buff.data + len, server_info->recv_buff.len);
 		} else {
-			break;
+			ret = 0;
+			goto out;
 		}
 	}
 
-	return 0;
-errout:
+	ret = 0;
+out:
 	if (http_head) {
 		http_head_destroy(http_head);
 	}
-	return -1;
+	return ret;
 }
 
 static int _dns_client_process_tcp(struct dns_server_info *server_info, struct epoll_event *event, unsigned long now)
