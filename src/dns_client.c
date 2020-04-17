@@ -59,6 +59,7 @@
 #define DNS_TCP_CONNECT_TIMEOUT (5)
 #define DNS_QUERY_TIMEOUT (500)
 #define DNS_QUERY_RETRY (3)
+#define DNS_PENDING_SERVER_RETRY 40
 #define SOCKET_PRIORITY (6)
 #define SOCKET_IP_TOS (IPTOS_LOWDELAY | IPTOS_RELIABILITY)
 
@@ -147,6 +148,7 @@ struct dns_server_pending {
 	unsigned int query_v6;
 	/* server type */
 	dns_server_type_t type;
+	int retry_cnt;
 
 	int port;
 
@@ -2681,16 +2683,16 @@ static int _dns_client_pending_server_resolve(char *domain, dns_rtcode_t rtcode,
 	int ret = 0;
 
 	if (addr_type == DNS_T_A) {
-		pending->has_v4 = 1;
 		pending->ping_time_v4 = -1;
 		if (rtcode == DNS_RC_NOERROR) {
+			pending->has_v4 = 1;
 			pending->ping_time_v4 = ping_time;
 			safe_strncpy(pending->ipv4, ip, DNS_HOSTNAME_LEN);
 		}
 	} else if (addr_type == DNS_T_AAAA) {
-		pending->has_v6 = 1;
 		pending->ping_time_v6 = -1;
 		if (rtcode == DNS_RC_NOERROR) {
+			pending->has_v6 = 1;
 			pending->ping_time_v6 = ping_time;
 			safe_strncpy(pending->ipv6, ip, DNS_HOSTNAME_LEN);
 		}
@@ -2732,11 +2734,14 @@ static void _dns_client_add_pending_servers(void)
 	if (++dely < 3) {
 		return;
 	}
+	dely = 0;
 
 	pthread_mutex_lock(&pending_server_mutex);
 	list_for_each_entry_safe(pending, tmp, &pending_servers, list)
 	{
 		/* send dns type A, AAAA query to bootstrap DNS server */
+		int add_success = 0;
+
 		if (pending->query_v4 == 0) {
 			pending->query_v4 = 1;
 			_dns_client_server_pending_get(pending);
@@ -2748,7 +2753,9 @@ static void _dns_client_add_pending_servers(void)
 		if (pending->query_v6 == 0) {
 			pending->query_v6 = 1;
 			_dns_client_server_pending_get(pending);
-			dns_server_query(pending->host, DNS_T_AAAA, _dns_client_pending_server_resolve, pending);
+			if (dns_server_query(pending->host, DNS_T_AAAA, _dns_client_pending_server_resolve, pending) != 0) {
+				_dns_client_server_pending_release_lck(pending);
+			}
 		}
 
 		/* if both A, AAAA has query result, select fastest IP address */
@@ -2761,12 +2768,22 @@ static void _dns_client_add_pending_servers(void)
 			}
 
 			if (ip[0]) {
-				if (_dns_client_add_pendings(pending, ip) != 0) {
-					tlog(TLOG_WARN, "add pending DNS server %s failed.", pending->host);
+				if (_dns_client_add_pendings(pending, ip) == 0) {
+					add_success = 1;
 				}
 			}
+		}
 
+		pending->retry_cnt++;
+		if (pending->retry_cnt >= DNS_PENDING_SERVER_RETRY || add_success) {
+			if (add_success == 0) {
+				tlog(TLOG_WARN, "add pending DNS server %s failed.", pending->host);
+			}
 			_dns_client_server_pending_release_lck(pending);
+		} else {
+			tlog(TLOG_DEBUG, "add pending DNS server %s failed, retry %d...", pending->host, pending->retry_cnt);
+			pending->query_v4 = 0;
+			pending->query_v6 = 0;
 		}
 
 		/* if has no bootstrap DNS, just call getaddrinfo to get address */
