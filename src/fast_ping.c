@@ -573,6 +573,11 @@ static int _fast_ping_sendping_tcp(struct ping_host_struct *ping_host)
 	setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
 	setsockopt(fd, SOL_SOCKET, SO_PRIORITY, &priority, sizeof(priority));
 	setsockopt(fd, IPPROTO_IP, IP_TOS, &ip_tos, sizeof(ip_tos));
+	set_sock_keepalive(fd, 0, 0, 0);
+	/* Set the socket lingering so we will RST connections instead of wasting
+	 * bandwidth with the four-step close
+	 */
+	set_sock_lingertime(fd, 0);
 
 	ping_host->seq++;
 	if (connect(fd, (struct sockaddr *)&ping_host->addr, ping_host->addr_len) != 0) {

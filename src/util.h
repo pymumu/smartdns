@@ -102,6 +102,8 @@ int has_network_raw_cap(void);
 
 int set_sock_keepalive(int fd, int keepidle, int keepinterval, int keepcnt);
 
+int set_sock_lingertime(int fd, int time);
+
 #ifdef __cplusplus
 }
 #endif /*__cplusplus */

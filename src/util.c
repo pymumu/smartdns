@@ -971,3 +971,17 @@ int set_sock_keepalive(int fd, int keepidle, int keepinterval, int keepcnt)
 
 	return 0;
 }
+
+int set_sock_lingertime(int fd, int time)
+{
+	struct linger l;
+
+	l.l_onoff = 1;
+	l.l_linger = 0;
+
+	if (setsockopt(fd, SOL_SOCKET, SO_LINGER, (const char *)&l, sizeof(l)) != 0) {
+		return -1;
+	}
+
+	return 0;
+}
