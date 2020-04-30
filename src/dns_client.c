@@ -107,6 +107,7 @@ struct dns_server_info {
 	SSL *ssl;
 	SSL_CTX *ssl_ctx;
 	SSL_SESSION *ssl_session;
+	char skip_check_cert;
 	dns_server_status status;
 
 	struct dns_server_buff send_buff;
@@ -714,6 +715,39 @@ static char *_dns_client_server_get_spki(struct dns_server_info *server_info, in
 	return spki;
 }
 
+static int _dns_client_set_trusted_cert(SSL_CTX *ssl_ctx)
+{
+	char *cafile = NULL;
+	char *capath = NULL;
+	int cert_path_set = 0;
+
+	if (dns_conf_ca_file[0]) {
+		cafile = dns_conf_ca_file;
+	}
+
+	if (dns_conf_ca_path[0]) {
+		capath = dns_conf_ca_path;
+	}
+
+	if (cafile == NULL && capath == NULL) {
+		if (SSL_CTX_set_default_verify_paths(ssl_ctx)) {
+			cafile = "/etc/ssl/certs/ca-certificates.crt";
+			capath = "/etc/ssl/certs";
+		} else {
+			cert_path_set = 1;
+		}
+	}
+
+	if (cert_path_set == 0) {
+		if (!SSL_CTX_load_verify_locations(ssl_ctx, cafile, capath)) {
+			tlog(TLOG_WARN, "load certificate from %s:%s failed.", cafile, capath);
+			return -1;
+		}
+	}
+	
+	return 0;
+}
+
 /* add dns server information */
 static int _dns_client_server_add(char *server_ip, char *server_host, int port, dns_server_type_t server_type,
 								  struct client_dns_server_flags *flags)
@@ -724,6 +758,7 @@ static int _dns_client_server_add(char *server_ip, char *server_host, int port, 
 	int ttl = 0;
 	char port_s[8];
 	int sock_type;
+	char skip_check_cert = 0;
 
 	switch (server_type) {
 	case DNS_SERVER_UDP: {
@@ -748,11 +783,13 @@ static int _dns_client_server_add(char *server_ip, char *server_host, int port, 
 			}
 		}
 		sock_type = SOCK_STREAM;
+		skip_check_cert = flag_https->skip_check_cert;
 	} break;
 	case DNS_SERVER_TLS: {
 		struct client_dns_server_flag_tls *flag_tls = &flags->tls;
 		spki_data_len = flag_tls->spi_len;
 		sock_type = SOCK_STREAM;
+		skip_check_cert = flag_tls->skip_check_cert;
 	} break;
 	case DNS_SERVER_TCP:
 		sock_type = SOCK_STREAM;
@@ -798,6 +835,7 @@ static int _dns_client_server_add(char *server_ip, char *server_host, int port, 
 	server_info->status = DNS_SERVER_STATUS_INIT;
 	server_info->ttl = ttl;
 	server_info->ttl_range = 0;
+	server_info->skip_check_cert = skip_check_cert;
 	memcpy(&server_info->flags, flags, sizeof(server_info->flags));
 
 	/* exclude this server from default group */
@@ -815,6 +853,11 @@ static int _dns_client_server_add(char *server_ip, char *server_host, int port, 
 #else
 		server_info->ssl_ctx = SSL_CTX_new(SSLv23_client_method());
 #endif
+		if (_dns_client_set_trusted_cert(server_info->ssl_ctx) != 0) {
+			tlog(TLOG_WARN, "disable check certificate for %s.", server_info->ip);
+			server_info->skip_check_cert = 1;
+		}
+
 		if (server_info->ssl_ctx == NULL) {
 			tlog(TLOG_ERROR, "init ssl failed.");
 			goto errout;
@@ -2078,6 +2121,14 @@ static int _dns_client_tls_verify(struct dns_server_info *server_info)
 		return -1;
 	}
 
+	if (server_info->skip_check_cert == 0) {
+		long res = SSL_get_verify_result(server_info->ssl);
+		if (res != X509_V_OK) {
+			tlog(TLOG_WARN, "peer server certificate verify failed.");
+			goto errout;
+		}
+	}
+
 	cert_name = X509_get_subject_name(cert);
 	if (cert_name == NULL) {
 		tlog(TLOG_ERROR, "get subject name failed.");
@@ -2094,7 +2145,7 @@ static int _dns_client_tls_verify(struct dns_server_info *server_info)
 	/* check tls host */
 	tls_host_verify = _dns_client_server_get_tls_host_verify(server_info);
 	if (tls_host_verify) {
-		if (_dns_client_tls_matchName(peer_CN, tls_host_verify, strnlen(tls_host_verify, DNS_MAX_CNAME_LEN)) != 0) {
+		if (_dns_client_tls_matchName(tls_host_verify, peer_CN, strnlen(peer_CN, DNS_MAX_CNAME_LEN)) != 0) {
 			tlog(TLOG_INFO, "server %s CN is invalid, peer CN: %s, expect CN: %s", server_info->ip, peer_CN,
 				 tls_host_verify);
 			goto errout;

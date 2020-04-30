@@ -1026,7 +1026,7 @@ struct ping_host_struct *fast_ping_start(PING_TYPE type, const char *host, int c
 	uint32_t addrkey;
 	char ip_str[PING_MAX_HOSTLEN];
 	int port = -1;
-	FAST_PING_TYPE ping_type;
+	FAST_PING_TYPE ping_type = FAST_PING_END;
 	unsigned int seed;
 	int ret = 0;
 

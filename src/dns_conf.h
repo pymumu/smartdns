@@ -145,6 +145,7 @@ struct dns_servers {
 	unsigned int server_flag;
 	int ttl;
 	dns_server_type_t type;
+	char skip_check_cert;
 	char spki[DNS_MAX_SPKI_LEN];
 	char hostname[DNS_MAX_CNAME_LEN];
 	char httphost[DNS_MAX_CNAME_LEN];
@@ -210,6 +211,9 @@ extern int dns_conf_log_level;
 extern char dns_conf_log_file[DNS_MAX_PATH];
 extern size_t dns_conf_log_size;
 extern int dns_conf_log_num;
+
+extern char dns_conf_ca_file[DNS_MAX_PATH];
+extern char dns_conf_ca_path[DNS_MAX_PATH];
 
 extern struct dns_domain_check_order dns_conf_check_order;
 

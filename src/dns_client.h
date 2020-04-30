@@ -70,6 +70,7 @@ struct client_dns_server_flag_tls {
 	int spi_len;
 	char hostname[DNS_MAX_CNAME_LEN];
 	char tls_host_verify[DNS_MAX_CNAME_LEN];
+	char skip_check_cert;
 };
 
 struct client_dns_server_flag_https {
@@ -79,6 +80,7 @@ struct client_dns_server_flag_https {
 	char httphost[DNS_MAX_CNAME_LEN];
 	char path[DNS_MAX_CNAME_LEN];
 	char tls_host_verify[DNS_MAX_CNAME_LEN];
+	char skip_check_cert;
 };
 
 struct client_dns_server_flags {

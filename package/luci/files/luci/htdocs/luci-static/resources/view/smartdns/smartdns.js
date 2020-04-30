@@ -390,6 +390,15 @@ return L.view.extend({
 		o.depends("type", "tls")
 		o.depends("type", "https")
 
+		// certificate verify
+		o = s.taboption("advanced", form.Flag, "no_check_certificate", _("No check certificate"),
+			_("Do not check certificate."))
+		o.rmempty = false
+		o.default = o.disabled
+		o.modalonly = true;
+		o.depends("type", "tls")
+		o.depends("type", "https")
+
 		// SNI host name
 		o = s.taboption("advanced", form.Value, "host_name", _("TLS SNI name"),
 			_("Sets the server name indication for query."))

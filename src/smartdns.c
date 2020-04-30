@@ -160,6 +160,7 @@ static int _smartdns_add_servers(void)
 			safe_strncpy(flag_http->httphost, dns_conf_servers[i].httphost, sizeof(flag_http->httphost));
 			safe_strncpy(flag_http->tls_host_verify, dns_conf_servers[i].tls_host_verify,
 						 sizeof(flag_http->tls_host_verify));
+			flag_http->skip_check_cert = dns_conf_servers[i].skip_check_cert;
 		} break;
 		case DNS_SERVER_TLS: {
 			struct client_dns_server_flag_tls *flag_tls = &flags.tls;
@@ -167,6 +168,8 @@ static int _smartdns_add_servers(void)
 			safe_strncpy(flag_tls->hostname, dns_conf_servers[i].hostname, sizeof(flag_tls->hostname));
 			safe_strncpy(flag_tls->tls_host_verify, dns_conf_servers[i].tls_host_verify,
 						 sizeof(flag_tls->tls_host_verify));
+			flag_tls->skip_check_cert = dns_conf_servers[i].skip_check_cert;
+
 		} break;
 		case DNS_SERVER_TCP:
 			break;
