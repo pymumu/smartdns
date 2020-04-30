@@ -53,17 +53,15 @@ build()
 	cd $ROOT/
 	build_tool
 	
-	mkdir $ROOT/root/usr/lib/lua/ -p
-	mkdir $ROOT/root/usr/lib/lua/luci/controller/ -p
+	mkdir $ROOT/root/usr/lib/lua/luci -p
 	mkdir $ROOT/root/usr/share/rpcd/acl.d/ -p
-	cp $ROOT/files/luci/controller/* $ROOT/root/usr/lib/lua/luci/controller/ -avf
 	cp $ROOT/files/luci/i18n $ROOT/root/usr/lib/lua/luci/ -avf
 
 	#Generate Language
 	$PO2LMO $ROOT/files/luci/i18n/smartdns.zh-cn.po $ROOT/root/usr/lib/lua/luci/i18n/smartdns.zh-cn.lmo
 	rm $ROOT/root/usr/lib/lua/luci/i18n/smartdns.zh-cn.po
 
-	cp $ROOT/files/usr $ROOT/root/ -avf
+	cp $ROOT/files/root/* $ROOT/root/ -avf
 	INST_SIZE="`du -sb $ROOT/root/ | awk '{print $1}'`"
 	
 	sed -i "s/^Architecture.*/Architecture: all/g" $ROOT/control/control
