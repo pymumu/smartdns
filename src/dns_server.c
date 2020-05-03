@@ -2026,9 +2026,10 @@ static int _dns_server_process_cache(struct dns_request *request)
 {
 	struct dns_cache *dns_cache = NULL;
 	struct dns_cache *dns_cache_A = NULL;
+	int ret = -1;
 
 	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_CACHE) == 0) {
-		goto errout;
+		goto out;
 	}
 
 	dns_cache = dns_cache_lookup(request->domain, request->qtype);
@@ -2037,16 +2038,18 @@ static int _dns_server_process_cache(struct dns_request *request)
 			dns_cache_A = dns_cache_lookup(request->domain, DNS_T_A);
 			if (dns_cache_A) {
 				tlog(TLOG_DEBUG, "No IPV6 Found, Force IPV4 perfered.");
-				dns_cache_release(dns_cache_A);
-				dns_cache_release(dns_cache);
-				return _dns_server_reply_SOA(DNS_RC_NOERROR, request);
+				if (dns_cache_get_ttl(dns_cache_A) == 0) {
+					_dns_server_prefetch_request(request->domain, request->qtype);
+				}
+				ret =  _dns_server_reply_SOA(DNS_RC_NOERROR, request);
+				goto out;
 			}
 		}
-		goto errout;
+		goto out;
 	}
 
 	if (request->qtype != dns_cache->qtype) {
-		goto errout;
+		goto out;
 	}
 
 	if (request->dualstack_selection && request->qtype == DNS_T_AAAA) {
@@ -2055,9 +2058,8 @@ static int _dns_server_process_cache(struct dns_request *request)
 			if ((dns_cache_A->speed + (dns_conf_dualstack_ip_selection_threshold * 10)) < dns_cache->speed ||
 				dns_cache->speed < 0) {
 				tlog(TLOG_DEBUG, "Force IPV4 perfered.");
-				dns_cache_release(dns_cache_A);
-				dns_cache_release(dns_cache);
-				return _dns_server_reply_SOA(DNS_RC_NOERROR, request);
+				ret = _dns_server_reply_SOA(DNS_RC_NOERROR, request);
+				goto out_update_cache;
 			}
 		}
 	}
@@ -2075,7 +2077,7 @@ static int _dns_server_process_cache(struct dns_request *request)
 		request->has_ipv6 = 1;
 		break;
 	default:
-		goto errout;
+		goto out;
 		break;
 	}
 
@@ -2093,28 +2095,26 @@ static int _dns_server_process_cache(struct dns_request *request)
 		_dns_reply(request);
 	}
 
+	ret = 0;
+
+out_update_cache:
 	if (dns_cache_get_ttl(dns_cache) == 0) {
 		_dns_server_prefetch_request(request->domain, request->qtype);
 	} else {
 		dns_cache_update(dns_cache);
 	}
-	dns_cache_release(dns_cache);
 
-	if (dns_cache_A) {
-		dns_cache_release(dns_cache_A);
-		dns_cache_A = NULL;
-	}
-
-	return 0;
-errout:
+out:
 	if (dns_cache) {
 		dns_cache_release(dns_cache);
 	}
+
 	if (dns_cache_A) {
 		dns_cache_release(dns_cache_A);
 		dns_cache_A = NULL;
 	}
-	return -1;
+
+	return ret;
 }
 
 static void _dns_server_request_set_client(struct dns_request *request, struct dns_server_conn_head *conn)

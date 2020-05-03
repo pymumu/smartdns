@@ -130,7 +130,7 @@ int dns_cache_replace(char *domain, char *cname, int cname_ttl, int ttl, dns_typ
 	/* lookup existing cache */
 	dns_cache = dns_cache_lookup(domain, qtype);
 	if (dns_cache == NULL) {
-		return 0;
+		return dns_cache_insert(domain, cname, cname_ttl, ttl, qtype, addr, addr_len, speed);
 	}
 
 	if (ttl < DNS_CACHE_TTL_MIN) {
