@@ -85,8 +85,8 @@ o.default     = o.disabled
 o.cfgvalue    = function(...)
     return Flag.cfgvalue(...) or "0"
 end
-o.depends("type", "tls")
-o.depends("type", "https")
+o:depends("type", "tls")
+o:depends("type", "https")
 
 ---- SNI host name
 o = s:option(Value, "host_name", translate("TLS SNI name"), translate("Sets the server name indication for query."))
