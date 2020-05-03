@@ -1636,6 +1636,10 @@ static int _dns_server_reply_passthrouth(struct dns_request *request, struct dns
 		return 0;
 	}
 
+	if (request->conn == NULL) {
+		return 0;
+	}
+
 	/* When passthrough, modify the id to be the id of the client request. */
 	dns_server_update_reply_packet_id(request, inpacket, inpacket_len);
 	ret = _dns_reply_inpacket(request, inpacket, inpacket_len);

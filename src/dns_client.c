@@ -744,7 +744,7 @@ static int _dns_client_set_trusted_cert(SSL_CTX *ssl_ctx)
 			return -1;
 		}
 	}
-	
+
 	return 0;
 }
 
@@ -2792,6 +2792,7 @@ static void _dns_client_add_pending_servers(void)
 	{
 		/* send dns type A, AAAA query to bootstrap DNS server */
 		int add_success = 0;
+		char *dnsserver_ip = NULL;
 
 		if (pending->query_v4 == 0) {
 			pending->query_v4 = 1;
@@ -2811,17 +2812,21 @@ static void _dns_client_add_pending_servers(void)
 
 		/* if both A, AAAA has query result, select fastest IP address */
 		if (pending->has_v4 && pending->has_v6) {
-			char *ip = NULL;
-			if (pending->ping_time_v4 <= pending->ping_time_v6 && pending->ipv4[0]) {
-				ip = pending->ipv4;
-			} else {
-				ip = pending->ipv6;
-			}
 
-			if (ip[0]) {
-				if (_dns_client_add_pendings(pending, ip) == 0) {
-					add_success = 1;
-				}
+			if (pending->ping_time_v4 <= pending->ping_time_v6 && pending->ipv4[0]) {
+				dnsserver_ip = pending->ipv4;
+			} else {
+				dnsserver_ip = pending->ipv6;
+			}
+		} else if (pending->has_v4) {
+			dnsserver_ip = pending->ipv4;
+		} else if (pending->has_v6) {
+			dnsserver_ip = pending->ipv6;
+		}
+
+		if (dnsserver_ip && dnsserver_ip[0]) {
+			if (_dns_client_add_pendings(pending, dnsserver_ip) == 0) {
+				add_success = 1;
 			}
 		}
 
