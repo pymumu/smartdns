@@ -853,14 +853,15 @@ static int _dns_client_server_add(char *server_ip, char *server_host, int port, 
 #else
 		server_info->ssl_ctx = SSL_CTX_new(SSLv23_client_method());
 #endif
-		if (_dns_client_set_trusted_cert(server_info->ssl_ctx) != 0) {
-			tlog(TLOG_WARN, "disable check certificate for %s.", server_info->ip);
-			server_info->skip_check_cert = 1;
-		}
 
 		if (server_info->ssl_ctx == NULL) {
 			tlog(TLOG_ERROR, "init ssl failed.");
 			goto errout;
+		}
+		
+		if (_dns_client_set_trusted_cert(server_info->ssl_ctx) != 0) {
+			tlog(TLOG_WARN, "disable check certificate for %s.", server_info->ip);
+			server_info->skip_check_cert = 1;
 		}
 	}
 
