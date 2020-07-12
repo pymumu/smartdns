@@ -339,24 +339,30 @@ static void _sig_error_exit(int signo, siginfo_t *siginfo, void *ct)
 {
 	unsigned long PC = 0;
 	ucontext_t *context = ct;
+	const char *arch = NULL;
 #if defined(__i386__)
 	int *pgregs = (int *)(&(context->uc_mcontext.gregs));
 	PC = pgregs[REG_EIP];
+	arch = "i386";
 #elif defined(__x86_64__)
 	int *pgregs = (int *)(&(context->uc_mcontext.gregs));
 	PC = pgregs[REG_RIP];
+	arch = "x86_64";
 #elif defined(__arm__)
 	PC = context->uc_mcontext.arm_pc;
+	arch = "arm";
 #elif defined(__aarch64__)
 	PC = context->uc_mcontext.pc;
+	arch = "arm64";
 #elif defined(__mips__)
 	PC = context->uc_mcontext.pc;
+	arch = "mips";
 #endif
 	tlog(TLOG_FATAL,
 		 "process exit with signal %d, code = %d, errno = %d, pid = %d, self = %d, pc = %#lx, addr = %#lx, build(%s "
-		 "%s)\n",
+		 "%s %s)\n",
 		 signo, siginfo->si_code, siginfo->si_errno, siginfo->si_pid, getpid(), PC, (unsigned long)siginfo->si_addr,
-		 __DATE__, __TIME__);
+		 __DATE__, __TIME__, arch);
 
 	sleep(1);
 	_exit(0);

@@ -902,12 +902,13 @@ static int _dns_client_server_add(char *server_ip, char *server_host, int port, 
 	return 0;
 errout:
 	if (server_info) {
+		if (server_info->ping_host) {
+			fast_ping_stop(server_info->ping_host);
+		}
+		
 		if (server_info->ssl_ctx) {
 			SSL_CTX_free(server_info->ssl_ctx);
 			server_info->ssl_ctx = NULL;
-		}
-		if (server_info->ping_host) {
-			fast_ping_stop(server_info->ping_host);
 		}
 
 		free(server_info);
@@ -1509,7 +1510,7 @@ static int _DNS_client_create_socket_tcp(struct dns_server_info *server_info)
 
 	if (connect(fd, (struct sockaddr *)&server_info->addr, server_info->ai_addrlen) != 0) {
 		if (errno != EINPROGRESS) {
-			tlog(TLOG_ERROR, "connect failed.");
+			tlog(TLOG_ERROR, "connect %s failed, %s", server_info->ip, strerror(errno));
 			goto errout;
 		}
 	}
@@ -1518,7 +1519,7 @@ static int _DNS_client_create_socket_tcp(struct dns_server_info *server_info)
 	event.events = EPOLLIN | EPOLLOUT;
 	event.data.ptr = server_info;
 	if (epoll_ctl(client.epoll_fd, EPOLL_CTL_ADD, fd, &event) != 0) {
-		tlog(TLOG_ERROR, "epoll ctl failed.");
+		tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
 		return -1;
 	}
 
@@ -1575,7 +1576,7 @@ static int _DNS_client_create_socket_tls(struct dns_server_info *server_info, ch
 	// setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
 	// setsockopt(fd, IPPROTO_TCP, TCP_THIN_DUPACK, &yes, sizeof(yes));
 	// setsockopt(fd, IPPROTO_TCP, TCP_THIN_LINEAR_TIMEOUTS, &yes, sizeof(yes));
-	// set_sock_keepalive(fd, 15, 3, 4);
+	set_sock_keepalive(fd, 15, 3, 4);
 	setsockopt(fd, SOL_SOCKET, SO_PRIORITY, &priority, sizeof(priority));
 	setsockopt(fd, IPPROTO_IP, IP_TOS, &ip_tos, sizeof(ip_tos));
 
@@ -2352,7 +2353,7 @@ static int _dns_client_send_data_to_buffer(struct dns_server_info *server_info, 
 	event.events = EPOLLIN | EPOLLOUT;
 	event.data.ptr = server_info;
 	if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &event) != 0) {
-		tlog(TLOG_ERROR, "epoll ctl failed.");
+		tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
 		return -1;
 	}
 
@@ -2506,59 +2507,79 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 	query->send_tick = get_tick_count();
 
 	/* send query to all dns servers */
-	pthread_mutex_lock(&client.server_list_lock);
-	list_for_each_entry_safe(group_member, tmp, &query->server_group->head, list)
-	{
-		server_info = group_member->server;
-		if (server_info->fd <= 0) {
-			ret = _dns_client_create_socket(server_info);
+	for (int i = 0; i < 2; i++) {
+		pthread_mutex_lock(&client.server_list_lock);
+		list_for_each_entry_safe(group_member, tmp, &query->server_group->head, list)
+		{
+			server_info = group_member->server;
+			if (server_info->fd <= 0) {
+				ret = _dns_client_create_socket(server_info);
+				if (ret != 0) {
+					continue;
+				}
+			}
+
+			atomic_inc(&query->dns_request_sent);
+			switch (server_info->type) {
+			case DNS_SERVER_UDP:
+				/* udp query */
+				ret = _dns_client_send_udp(server_info, packet, len);
+				send_err = errno;
+				break;
+			case DNS_SERVER_TCP:
+				/* tcp query */
+				ret = _dns_client_send_tcp(server_info, packet, len);
+				send_err = errno;
+				break;
+			case DNS_SERVER_TLS:
+				/* tls query */
+				ret = _dns_client_send_tls(server_info, packet, len);
+				send_err = errno;
+				break;
+			case DNS_SERVER_HTTPS:
+				/* https query */
+				ret = _dns_client_send_https(server_info, packet, len);
+				send_err = errno;
+				break;
+			default:
+				/* unsupport query type */
+				ret = -1;
+				break;
+			}
+
 			if (ret != 0) {
+				if (send_err != ENOMEM) {
+					tlog(TLOG_ERROR, "send query to %s failed, %s, type: %d", server_info->ip, strerror(send_err),
+						server_info->type);
+				} else {
+					tlog(TLOG_DEBUG, "send query to %s failed, %s, type: %d", server_info->ip, strerror(send_err),
+						server_info->type);
+					time_t now;
+					time(&now);
+					if (now - 5 > server_info->last_recv) {
+						server_info->recv_buff.len = 0;
+						server_info->send_buff.len = 0;
+						tlog(TLOG_DEBUG, "server %s not response, retry.", server_info->ip);
+						_dns_client_close_socket(server_info);
+					}
+				}
+				atomic_dec(&query->dns_request_sent);
 				continue;
 			}
+			time(&server_info->last_send);
 		}
+		pthread_mutex_unlock(&client.server_list_lock);
 
-		atomic_inc(&query->dns_request_sent);
-		switch (server_info->type) {
-		case DNS_SERVER_UDP:
-			/* udp query */
-			ret = _dns_client_send_udp(server_info, packet, len);
-			send_err = errno;
-			break;
-		case DNS_SERVER_TCP:
-			/* tcp query */
-			ret = _dns_client_send_tcp(server_info, packet, len);
-			send_err = errno;
-			break;
-		case DNS_SERVER_TLS:
-			/* tls query */
-			ret = _dns_client_send_tls(server_info, packet, len);
-			send_err = errno;
-			break;
-		case DNS_SERVER_HTTPS:
-			/* https query */
-			ret = _dns_client_send_https(server_info, packet, len);
-			send_err = errno;
-			break;
-		default:
-			/* unsupport query type */
-			ret = -1;
+		if (atomic_read(&query->dns_request_sent) > 0) {
 			break;
 		}
-
-		if (ret != 0) {
-			if (send_err != ENOMEM) {
-				tlog(TLOG_ERROR, "send query to %s failed, %s, type: %d", server_info->ip, strerror(send_err),
-					 server_info->type);
-			} else {
-				tlog(TLOG_DEBUG, "send query to %s failed, %s, type: %d", server_info->ip, strerror(send_err),
-					 server_info->type);
-			}
-			atomic_dec(&query->dns_request_sent);
-			continue;
-		}
-		time(&server_info->last_send);
 	}
-	pthread_mutex_unlock(&client.server_list_lock);
+
+	if (atomic_read(&query->dns_request_sent) <= 0) {
+		tlog(TLOG_ERROR, "Send query to upstream server failed.");
+		return -1;
+	}
+
 	return 0;
 }
 
