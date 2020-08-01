@@ -214,7 +214,7 @@ static int _http_head_parse_response(struct http_head *http_head, char *key, cha
 {
 	char *field_start = NULL;
 	char *tmp_ptr = NULL;
-	char *result = NULL;
+	char *ret_msg = NULL;
 	char *ret_code = NULL;
 
 	if (strstr(key, "HTTP/") == NULL) {
@@ -226,29 +226,27 @@ static int _http_head_parse_response(struct http_head *http_head, char *key, cha
 			field_start = tmp_ptr;
 		}
 
-		if (*tmp_ptr == ' ') {
-			*tmp_ptr = '\0';
-			if (ret_code == NULL) {
-				ret_code = field_start;
-			} else if (result == NULL) {
-				result = field_start;
-				break;
-			}
-
-			field_start = NULL;
+		if (*tmp_ptr != ' ') {
+			continue;
 		}
+		
+		*tmp_ptr = '\0';
+		ret_code = field_start;
+		ret_msg = tmp_ptr + 1;
+		field_start = NULL;
+		break;
 	}
 
-	if (field_start && result == NULL) {
-		result = field_start;
+	if (ret_code == NULL || ret_msg == NULL) {
+		return -1;
 	}
 
-	if (ret_code == NULL || result == NULL) {
+	if (is_numeric(ret_code) != 0) {
 		return -1;
 	}
 
 	http_head->code = atol(ret_code);
-	http_head->code_msg = result;
+	http_head->code_msg = ret_msg;
 	http_head->version = key;
 	http_head->head_type = HTTP_HEAD_RESPONSE;
 

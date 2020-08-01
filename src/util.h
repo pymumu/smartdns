@@ -98,6 +98,8 @@ int parse_tls_header(const char *data, size_t data_len, char *hostname, const ch
 
 void get_compiled_time(struct tm *tm);
 
+int is_numeric(const char *str);
+
 int has_network_raw_cap(void);
 
 int set_sock_keepalive(int fd, int keepidle, int keepinterval, int keepcnt);

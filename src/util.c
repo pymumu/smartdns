@@ -947,6 +947,16 @@ void get_compiled_time(struct tm *tm)
 	tm->tm_sec = sec;
 }
 
+int is_numeric(const char *str)
+{
+	while (*str != '\0') {
+		if (*str < '0' || *str > '9')
+			return -1;
+		str++;
+	}
+	return 0;
+}
+
 int has_network_raw_cap(void)
 {
 	int fd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
