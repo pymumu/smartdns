@@ -19,6 +19,7 @@
 #include "http_parse.h"
 #include "hash.h"
 #include "hashtable.h"
+#include "util.h"
 #include "jhash.h"
 #include "list.h"
 #include <stdlib.h>

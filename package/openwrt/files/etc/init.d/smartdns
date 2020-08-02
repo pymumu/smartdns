@@ -156,7 +156,7 @@ load_server()
 	config_get type "$section" "type" "udp"
 	config_get ip "$section" "ip" ""
 	config_get tls_host_verify "$section" "tls_host_verify" ""
-	config_get no_check_certificate "$section" "no_check_certificate" ""
+	config_get no_check_certificate "$section" "no_check_certificate" "0"
 	config_get host_name "$section" "host_name" ""
 	config_get http_host "$section" "http_host" ""
 	config_get server_group "$section" "server_group" ""
@@ -187,7 +187,7 @@ load_server()
 	fi
 
 	[ -z "$tls_host_verify" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -tls-host-verify $tls_host_verify"
-	[ -z "$no_check_certificate" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -no-check-certificate"
+	[ "$no_check_certificate" = "0" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -no-check-certificate"
 	[ -z "$host_name" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -host-name $host_name"
 	[ -z "$http_host" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -http-host $http_host"
 	[ -z "$server_group" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -group $server_group"
