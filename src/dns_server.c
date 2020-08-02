@@ -2009,7 +2009,7 @@ errout:
 	return -1;
 }
 
-static void _dns_server_prolcess_speed_check_rule(struct dns_request *request)
+static void _dns_server_process_speed_check_rule(struct dns_request *request)
 {
 	struct dns_domain_check_order *check_order = NULL;
 
@@ -2257,7 +2257,7 @@ static int _dns_server_do_query(struct dns_request *request, const char *domain,
 	}
 
 	/* process speed check rule */
-	_dns_server_prolcess_speed_check_rule(request);
+	_dns_server_process_speed_check_rule(request);
 
 	/* check and set passthrough */
 	_dns_server_check_set_passthrough(request);
