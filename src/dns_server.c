@@ -880,6 +880,7 @@ static void _dns_server_select_possible_ipaddress(struct dns_request *request)
 
 	/* Return the most likely correct IP address */
 	/* Returns the IP with the most hits, or the last returned record is considered to be the most likely correct. */
+	pthread_mutex_lock(&request->ip_map_lock);
 	hash_for_each_safe(request->ip_map, bucket, tmp, addr_map, node)
 	{
 		if (addr_map->addr_type != request->qtype) {
@@ -896,6 +897,7 @@ static void _dns_server_select_possible_ipaddress(struct dns_request *request)
 			maxhit_addr_map = addr_map;
 		}
 	}
+	pthread_mutex_unlock(&request->ip_map_lock);
 
 	if (maxhit_addr_map && maxhit > 1) {
 		selected_addr_map = maxhit_addr_map;
@@ -966,11 +968,13 @@ static void _dns_server_request_release_complete(struct dns_request *request, in
 		_dns_server_request_complete(request);
 	}
 
+	pthread_mutex_lock(&request->ip_map_lock);
 	hash_for_each_safe(request->ip_map, bucket, tmp, addr_map, node)
 	{
 		hash_del(&addr_map->node);
 		free(addr_map);
 	}
+	pthread_mutex_unlock(&request->ip_map_lock);
 
 	_dns_server_delete_request(request);
 }
