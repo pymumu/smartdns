@@ -860,7 +860,7 @@ static int _dns_client_server_add(char *server_ip, char *server_host, int port, 
 		}
 
 		SSL_CTX_set_options(server_info->ssl_ctx, SSL_OP_ALL | SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION);
-
+		SSL_CTX_set_session_cache_mode(server_info->ssl_ctx, SSL_SESS_CACHE_CLIENT);
 		if (_dns_client_set_trusted_cert(server_info->ssl_ctx) != 0) {
 			tlog(TLOG_WARN, "disable check certificate for %s.", server_info->ip);
 			server_info->skip_check_cert = 1;
@@ -2115,11 +2115,30 @@ static int _dns_client_tls_matchName(const char *host, const char *pattern, int 
 	return match;
 }
 
+static int _dns_client_tls_get_cert_CN(X509 *cert, char *cn, int max_cn_len) {
+	X509_NAME *cert_name = NULL;
+
+	cert_name = X509_get_subject_name(cert);
+	if (cert_name == NULL) {
+		tlog(TLOG_ERROR, "get subject name failed.");
+		goto errout;
+	}
+
+	if (X509_NAME_get_text_by_NID(cert_name, NID_commonName, cn, max_cn_len) == -1) {
+		tlog(TLOG_ERROR, "cannot found x509 name");
+		goto errout;
+	}
+
+	return 0;
+
+errout:
+	return -1;
+}
+
 static int _dns_client_tls_verify(struct dns_server_info *server_info)
 {
 	X509 *cert = NULL;
 	X509_PUBKEY *pubkey = NULL;
-	X509_NAME *cert_name = NULL;
 	char peer_CN[256];
 	char cert_fingerprint[256];
 	int i = 0;
@@ -2143,24 +2162,20 @@ static int _dns_client_tls_verify(struct dns_server_info *server_info)
 	if (server_info->skip_check_cert == 0) {
 		long res = SSL_get_verify_result(server_info->ssl);
 		if (res != X509_V_OK) {
-			tlog(TLOG_WARN, "peer server certificate verify failed.");
+			peer_CN[0] = '\0';
+			_dns_client_tls_get_cert_CN(cert, peer_CN, sizeof(peer_CN));
+			tlog(TLOG_WARN, "peer server %s certificate verify failed", server_info->ip);
+			tlog(TLOG_WARN, "peer CN: %s", peer_CN);
 			goto errout;
 		}
 	}
 
-	cert_name = X509_get_subject_name(cert);
-	if (cert_name == NULL) {
-		tlog(TLOG_ERROR, "get subject name failed.");
-		goto errout;
-	}
-
-	if (X509_NAME_get_text_by_NID(cert_name, NID_commonName, peer_CN, 256) == -1) {
-		tlog(TLOG_ERROR, "cannot found x509 name");
+	if (_dns_client_tls_get_cert_CN(cert, peer_CN, sizeof(peer_CN)) != 0) {
+		tlog(TLOG_ERROR, "get cert CN failed.");
 		goto errout;
 	}
 
 	tlog(TLOG_DEBUG, "peer CN: %s", peer_CN);
-
 	/* check tls host */
 	tls_host_verify = _dns_client_server_get_tls_host_verify(server_info);
 	if (tls_host_verify) {
@@ -2311,7 +2326,7 @@ static int _dns_client_process_tls(struct dns_server_info *server_info, struct e
 
 		server_info->status = DNS_SERVER_STATUS_CONNECTED;
 		memset(&fd_event, 0, sizeof(fd_event));
-		fd_event.events = EPOLLIN;
+		fd_event.events = EPOLLIN | EPOLLOUT;
 		fd_event.data.ptr = server_info;
 		if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &fd_event) != 0) {
 			tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
@@ -2531,11 +2546,12 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 	struct dns_server_group_member *tmp = NULL;
 	int ret = 0;
 	int send_err = 0;
+	int i = 0;
 
 	query->send_tick = get_tick_count();
 
 	/* send query to all dns servers */
-	for (int i = 0; i < 2; i++) {
+	for (i = 0; i < 2; i++) {
 		pthread_mutex_lock(&client.server_list_lock);
 		list_for_each_entry_safe(group_member, tmp, &query->server_group->head, list)
 		{

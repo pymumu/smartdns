@@ -110,7 +110,7 @@ struct dns_head {
 	unsigned short ancount; /* number of answer entries */
 	unsigned short nscount; /* number of authority entries */
 	unsigned short nrcount; /* number of addititional resource entries */
-} __attribute__((packed));
+} __attribute__((packed, aligned(2)));
 
 struct dns_rrs {
 	unsigned short next;

@@ -262,6 +262,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 		return -1;
 	}
 
+	ip = argv[1];
 	if (index >= DNS_MAX_SERVERS) {
 		tlog(TLOG_WARN, "exceeds max server number, %s", ip);
 		return 0;
@@ -273,8 +274,6 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 	server->hostname[0] = '\0';
 	server->httphost[0] = '\0';
 	server->tls_host_verify[0] = '\0';
-
-	ip = argv[1];
 
 	if (type == DNS_SERVER_HTTPS) {
 		if (parse_uri(ip, NULL, server->server, &port, server->path) != 0) {
@@ -871,6 +870,7 @@ static int _config_bind_ip(int argc, char *argv[], DNS_BIND_TYPE type)
 		goto errout;
 	}
 
+	ip = argv[1];
 	if (index >= DNS_MAX_SERVERS) {
 		tlog(TLOG_WARN, "exceeds max server number, %s", ip);
 		return 0;
@@ -879,7 +879,6 @@ static int _config_bind_ip(int argc, char *argv[], DNS_BIND_TYPE type)
 	bind_ip = &dns_conf_bind_ip[index];
 	bind_ip->type = type;
 	bind_ip->flags = 0;
-	ip = argv[1];
 	safe_strncpy(bind_ip->ip, ip, DNS_MAX_IPLEN);
 
 	/* process extra options */
