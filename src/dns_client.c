@@ -932,7 +932,9 @@ static void _dns_client_close_socket(struct dns_server_info *server_info)
 
 	if (server_info->ssl) {
 		/* Shutdown ssl */
-		SSL_shutdown(server_info->ssl);
+		if (server_info->status == DNS_SERVER_STATUS_CONNECTED) {
+			SSL_shutdown(server_info->ssl);
+		}
 		SSL_free(server_info->ssl);
 		server_info->ssl = NULL;
 	}
@@ -947,6 +949,36 @@ static void _dns_client_close_socket(struct dns_server_info *server_info)
 	time(&server_info->last_send);
 	time(&server_info->last_recv);
 	tlog(TLOG_DEBUG, "server %s closed.", server_info->ip);
+}
+
+static void _dns_client_shutdown_socket(struct dns_server_info *server_info)
+{
+	if (server_info->fd <= 0) {
+		return;
+	}
+
+	switch (server_info->type) {
+	case DNS_SERVER_UDP:
+		return;
+		break;
+	case DNS_SERVER_TCP:
+		if (server_info->fd > 0) {
+			shutdown(server_info->fd, SHUT_RDWR);
+		}
+		break;
+	case DNS_SERVER_TLS:
+	case DNS_SERVER_HTTPS:
+		if (server_info->ssl) {
+			/* Shutdown ssl */
+			if (server_info->status == DNS_SERVER_STATUS_CONNECTED) {
+				SSL_shutdown(server_info->ssl);
+			}
+			shutdown(server_info->fd, SHUT_RDWR);
+		}
+		break;
+	default:
+		break;
+	}
 }
 
 static void _dns_client_server_close(struct dns_server_info *server_info)
@@ -1750,9 +1782,9 @@ static int _dns_client_socket_ssl_send(SSL *ssl, const void *buf, int num)
 	ssl_ret = SSL_get_error(ssl, ret);
 	switch (ssl_ret) {
 	case SSL_ERROR_NONE:
-	case SSL_ERROR_ZERO_RETURN:
 		return 0;
 		break;
+	case SSL_ERROR_ZERO_RETURN:
 	case SSL_ERROR_WANT_READ:
 		errno = EAGAIN;
 		ret = -1;
@@ -1765,7 +1797,8 @@ static int _dns_client_socket_ssl_send(SSL *ssl, const void *buf, int num)
 		ssl_err = ERR_get_error();
 		int ssl_reason = ERR_GET_REASON(ssl_err);
 		if (ssl_reason == SSL_R_UNINITIALIZED || ssl_reason == SSL_R_PROTOCOL_IS_SHUTDOWN ||
-			ssl_reason == SSL_R_BAD_LENGTH || ssl_reason == SSL_R_SHUTDOWN_WHILE_IN_INIT) {
+			ssl_reason == SSL_R_BAD_LENGTH || ssl_reason == SSL_R_SHUTDOWN_WHILE_IN_INIT ||
+			ssl_reason == SSL_R_BAD_WRITE_RETRY) {
 			errno = EAGAIN;
 			return -1;
 		}
@@ -1828,11 +1861,15 @@ static int _dns_client_socket_ssl_recv(SSL *ssl, void *buf, int num)
 			return 0;
 		}
 
-		tlog(TLOG_ERROR, "SSL read fail error no: %s(%ld)\n", ERR_reason_error_string(ssl_err), ssl_err);
+		tlog(TLOG_ERROR, "SSL read fail error no: %s(%lx)\n", ERR_reason_error_string(ssl_err), ssl_err);
 		errno = EFAULT;
 		ret = -1;
 		break;
 	case SSL_ERROR_SYSCALL:
+		if (errno == 0) {
+			return 0;
+		}
+
 		if (errno != ECONNRESET) {
 			tlog(TLOG_INFO, "SSL syscall failed, %s ", strerror(errno));
 		}
@@ -2115,7 +2152,8 @@ static int _dns_client_tls_matchName(const char *host, const char *pattern, int 
 	return match;
 }
 
-static int _dns_client_tls_get_cert_CN(X509 *cert, char *cn, int max_cn_len) {
+static int _dns_client_tls_get_cert_CN(X509 *cert, char *cn, int max_cn_len)
+{
 	X509_NAME *cert_name = NULL;
 
 	cert_name = X509_get_subject_name(cert);
@@ -2477,7 +2515,7 @@ static int _dns_client_send_tls(struct dns_server_info *server_info, void *packe
 			/* save data to buffer, and retry when EPOLLOUT is available */
 			return _dns_client_send_data_to_buffer(server_info, inpacket, len);
 		} else if (server_info->ssl && errno != ENOMEM) {
-			SSL_set_shutdown(server_info->ssl, SSL_SENT_SHUTDOWN | SSL_RECEIVED_SHUTDOWN);
+			SSL_shutdown(server_info->ssl);
 		}
 		return -1;
 	} else if (send_len < len) {
@@ -2596,21 +2634,18 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 					tlog(TLOG_DEBUG, "send query to %s failed, %s, type: %d", server_info->ip, strerror(send_err),
 						 server_info->type);
 					_dns_client_close_socket(server_info);
-				} else if (send_err != ENOMEM) {
-					tlog(TLOG_ERROR, "send query to %s failed, %s, type: %d", server_info->ip, strerror(send_err),
-						 server_info->type);
-				} else {
-					tlog(TLOG_DEBUG, "send query to %s failed, %s, type: %d", server_info->ip, strerror(send_err),
-						 server_info->type);
-					time_t now;
-					time(&now);
-					if (now - 5 > server_info->last_recv) {
-						server_info->recv_buff.len = 0;
-						server_info->send_buff.len = 0;
-						tlog(TLOG_DEBUG, "server %s not response, retry.", server_info->ip);
-						_dns_client_close_socket(server_info);
-					}
+					atomic_dec(&query->dns_request_sent);
+					continue;
 				}
+
+				tlog(TLOG_DEBUG, "send query to %s failed, %s, type: %d", server_info->ip, strerror(send_err),
+					 server_info->type);
+				time_t now;
+				time(&now);
+				if (now - 5 > server_info->last_recv || send_err != ENOMEM) {
+					_dns_client_shutdown_socket(server_info);
+				}
+
 				atomic_dec(&query->dns_request_sent);
 				continue;
 			}
