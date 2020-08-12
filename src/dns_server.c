@@ -2439,6 +2439,7 @@ int dns_server_query(char *domain, int qtype, dns_result_callback callback, void
 	return ret;
 errout:
 	if (request) {
+		_dns_server_request_set_callback(request, NULL, NULL);
 		_dns_server_request_release(request);
 	}
 

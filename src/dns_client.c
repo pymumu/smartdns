@@ -105,6 +105,7 @@ struct dns_server_info {
 	int ttl;
 	int ttl_range;
 	SSL *ssl;
+	int ssl_write_len;
 	SSL_CTX *ssl_ctx;
 	SSL_SESSION *ssl_session;
 	char skip_check_cert;
@@ -937,6 +938,7 @@ static void _dns_client_close_socket(struct dns_server_info *server_info)
 		}
 		SSL_free(server_info->ssl);
 		server_info->ssl = NULL;
+		server_info->ssl_write_len = -1;
 	}
 
 	/* remove fd from epoll */
@@ -1659,6 +1661,7 @@ static int _DNS_client_create_socket_tls(struct dns_server_info *server_info, ch
 
 	server_info->fd = fd;
 	server_info->ssl = ssl;
+	server_info->ssl_write_len = -1;
 	server_info->status = DNS_SERVER_STATUS_CONNECTING;
 
 	tlog(TLOG_DEBUG, "tls server %s connecting.\n", server_info->ip);
@@ -1891,7 +1894,18 @@ static int _dns_client_socket_send(struct dns_server_info *server_info)
 	} else if (server_info->type == DNS_SERVER_TCP) {
 		return send(server_info->fd, server_info->send_buff.data, server_info->send_buff.len, MSG_NOSIGNAL);
 	} else if (server_info->type == DNS_SERVER_TLS || server_info->type == DNS_SERVER_HTTPS) {
-		return _dns_client_socket_ssl_send(server_info->ssl, server_info->send_buff.data, server_info->send_buff.len);
+		int write_len = server_info->send_buff.len;
+		if (server_info->ssl_write_len > 0) {
+			write_len = server_info->ssl_write_len;
+			server_info->ssl_write_len = -1;
+		}
+		int ret = _dns_client_socket_ssl_send(server_info->ssl, server_info->send_buff.data, write_len);
+		if (ret != 0) {
+			if (errno == EAGAIN) {
+				server_info->ssl_write_len = write_len;
+			}
+		}
+		return ret;
 	} else {
 		return -1;
 	}
