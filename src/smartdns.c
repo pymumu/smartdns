@@ -439,6 +439,7 @@ int main(int argc, char *argv[])
 		goto errout;
 	}
 
+	signal(SIGPIPE, SIG_IGN);
 	if (dns_server_load_conf(config_file) != 0) {
 		fprintf(stderr, "load config failed.\n");
 		goto errout;
@@ -451,7 +452,6 @@ int main(int argc, char *argv[])
 	}
 
 	signal(SIGINT, _sig_exit);
-	signal(SIGPIPE, SIG_IGN);
 	atexit(_smartdns_exit);
 
 	return _smartdns_run();

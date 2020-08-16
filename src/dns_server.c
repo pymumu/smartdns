@@ -1631,6 +1631,84 @@ static int _dns_server_passthrough_rule_check(struct dns_request *request, char 
 	return -1;
 }
 
+static int _dns_server_get_answer(struct dns_request *request, struct dns_packet *packet)
+{
+	int i = 0;
+	int j = 0;
+	int ttl = 0;
+	struct dns_rrs *rrs = NULL;
+	int rr_count = 0;
+	char name[DNS_MAX_CNAME_LEN] = {0};
+
+	for (j = 1; j < DNS_RRS_END; j++) {
+		rrs = dns_get_rrs_start(packet, j, &rr_count);
+		for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
+			switch (rrs->type) {
+			case DNS_T_A: {
+				unsigned char addr[4];
+				char name[DNS_MAX_CNAME_LEN] = {0};
+
+				if (request->qtype != DNS_T_A) {
+					continue;
+				}
+
+				/* get A result */
+				dns_get_A(rrs, name, DNS_MAX_CNAME_LEN, &ttl, addr);
+				memcpy(request->ipv4_addr, addr, DNS_RR_A_LEN);
+				request->ttl_v4 = _dns_server_get_conf_ttl(ttl);
+				request->has_ipv4 = 1;
+				request->rcode = packet->head.rcode;
+			} break;
+			case DNS_T_AAAA: {
+				unsigned char addr[16];
+				char name[DNS_MAX_CNAME_LEN] = {0};
+
+				if (request->qtype != DNS_T_AAAA) {
+					/* ignore non-matched query type */
+					continue;
+				}
+				dns_get_AAAA(rrs, name, DNS_MAX_CNAME_LEN, &ttl, addr);
+				memcpy(request->ipv6_addr, addr, DNS_RR_AAAA_LEN);
+				request->ttl_v6 = _dns_server_get_conf_ttl(ttl);
+				request->has_ipv6 = 1;
+				request->rcode = packet->head.rcode;
+			} break;
+			case DNS_T_NS: {
+				char cname[DNS_MAX_CNAME_LEN];
+				dns_get_CNAME(rrs, name, DNS_MAX_CNAME_LEN, &ttl, cname, DNS_MAX_CNAME_LEN);
+				tlog(TLOG_DEBUG, "NS: %s ttl:%d cname: %s\n", name, ttl, cname);
+			} break;
+			case DNS_T_CNAME: {
+				char cname[DNS_MAX_CNAME_LEN];
+				dns_get_CNAME(rrs, name, DNS_MAX_CNAME_LEN, &ttl, cname, DNS_MAX_CNAME_LEN);
+				tlog(TLOG_DEBUG, "name:%s ttl: %d cname: %s\n", name, ttl, cname);
+				safe_strncpy(request->cname, cname, DNS_MAX_CNAME_LEN);
+				request->ttl_cname = ttl;
+				request->has_cname = 1;
+			} break;
+			case DNS_T_SOA: {
+				request->has_soa = 1;
+				request->rcode = packet->head.rcode;
+				dns_get_SOA(rrs, name, 128, &ttl, &request->soa);
+				tlog(TLOG_DEBUG,
+					 "domain: %s, qtype: %d, SOA: mname: %s, rname: %s, serial: %d, refresh: %d, retry: %d, expire: "
+					 "%d, minimum: %d",
+					 request->domain, request->qtype, request->soa.mname, request->soa.rname, request->soa.serial,
+					 request->soa.refresh, request->soa.retry, request->soa.expire, request->soa.minimum);
+				if (atomic_inc_return(&request->soa_num) >= (dns_server_num() / 2)) {
+					_dns_server_request_complete(request);
+				}
+			} break;
+			default:
+				tlog(TLOG_DEBUG, "%s, qtype: %d", name, rrs->type);
+				break;
+			}
+		}
+	}
+
+	return 0;
+}
+
 static int _dns_server_reply_passthrouth(struct dns_request *request, struct dns_packet *packet,
 										 unsigned char *inpacket, int inpacket_len)
 {
@@ -1638,6 +1716,11 @@ static int _dns_server_reply_passthrouth(struct dns_request *request, struct dns
 
 	if (atomic_inc_return(&request->notified) != 1) {
 		return 0;
+	}
+
+	if (request->result_callback) {
+		_dns_server_get_answer(request, packet);
+		_dns_result_callback(request);
 	}
 
 	if (request->conn == NULL) {
@@ -1673,7 +1756,6 @@ static int dns_server_resolve_callback(char *domain, dns_result_type rtype, unsi
 
 			return _dns_server_reply_passthrouth(request, packet, inpacket, inpacket_len);
 		}
-
 		_dns_server_process_answer(request, domain, packet, result_flag);
 		return 0;
 	} else if (rtype == DNS_QUERY_ERR) {
@@ -2045,7 +2127,7 @@ static int _dns_server_process_cache(struct dns_request *request)
 				if (dns_cache_get_ttl(dns_cache_A) == 0) {
 					_dns_server_prefetch_request(request->domain, request->qtype);
 				}
-				ret =  _dns_server_reply_SOA(DNS_RC_NOERROR, request);
+				ret = _dns_server_reply_SOA(DNS_RC_NOERROR, request);
 				goto out;
 			}
 		}
@@ -3074,7 +3156,7 @@ static int _dns_create_socket(const char *host_ip, int type)
 	setsockopt(fd, IPPROTO_IP, IP_TOS, &ip_tos, sizeof(ip_tos));
 
 	if (bind(fd, gai->ai_addr, gai->ai_addrlen) != 0) {
-		tlog(TLOG_ERROR, "bind service failed, %s\n", strerror(errno));
+		tlog(TLOG_ERROR, "bind service %s failed, %s\n", host_ip, strerror(errno));
 		goto errout;
 	}
 
