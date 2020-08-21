@@ -1712,6 +1712,14 @@ static int _dns_server_get_answer(struct dns_request *request, struct dns_packet
 static int _dns_server_reply_passthrouth(struct dns_request *request, struct dns_packet *packet,
 										 unsigned char *inpacket, int inpacket_len)
 {
+	int ttl;
+	char name[DNS_MAX_CNAME_LEN] = {0};
+	int rr_count;
+	int i = 0;
+	int j = 0;
+	struct dns_rrs *rrs = NULL;
+	struct dns_ipset_rule *ipset_rule = NULL;
+	struct dns_rule_flags *rule_flags = NULL;
 	int ret = 0;
 
 	if (atomic_inc_return(&request->notified) != 1) {
@@ -1730,6 +1738,74 @@ static int _dns_server_reply_passthrouth(struct dns_request *request, struct dns
 	/* When passthrough, modify the id to be the id of the client request. */
 	dns_server_update_reply_packet_id(request, inpacket, inpacket_len);
 	ret = _dns_reply_inpacket(request, inpacket, inpacket_len);
+
+	if (packet->head.rcode != DNS_RC_NOERROR && packet->head.rcode != DNS_RC_NXDOMAIN) {
+		return ret;
+	}
+
+	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_RULE_IPSET) == 0) {
+		return ret;
+	}
+
+	/* check ipset rule */
+	rule_flags = request->domain_rule.rules[DOMAIN_RULE_FLAGS];
+	if (rule_flags) {
+		if (rule_flags->flags & DOMAIN_FLAG_IPSET_IGNORE) {
+			return ret;
+		}
+	}
+
+	ipset_rule = request->domain_rule.rules[DOMAIN_RULE_IPSET];
+	if (ipset_rule == NULL) {
+		return ret;
+	}
+
+	for (j = 1; j < DNS_RRS_END; j++) {
+		rrs = dns_get_rrs_start(packet, j, &rr_count);
+		for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
+			switch (rrs->type) {
+			case DNS_T_A: {
+				unsigned char addr[4];
+				if (request->qtype != DNS_T_A) {
+					/* ignore non-matched query type */
+					if (request->dualstack_selection == 0) {
+						break;
+					}
+				}
+				/* get A result */
+				dns_get_A(rrs, name, DNS_MAX_CNAME_LEN, &ttl, addr);
+
+				/* add IPV4 to ipset */
+				ipset_add(ipset_rule->ipsetname, addr, DNS_RR_A_LEN, request->ttl_v4 * 2);
+
+				tlog(TLOG_DEBUG, "IPSET-MATCH-PASSTHROUTH: domain: %s, ipset: %s, IP: %d.%d.%d.%d",
+					request->domain, ipset_rule->ipsetname, addr[0], addr[1], addr[2], addr[3]);
+			} break;
+			case DNS_T_AAAA: {
+				unsigned char addr[16];
+				if (request->qtype != DNS_T_AAAA) {
+					/* ignore non-matched query type */
+					break;
+				}
+				dns_get_AAAA(rrs, name, DNS_MAX_CNAME_LEN, &ttl, addr);
+
+				/* add IPV6 to ipset */
+				if (request->has_ipv6) {
+					if (request->has_ipv4) {
+						ipset_add(ipset_rule->ipsetname, addr, DNS_RR_A_LEN, request->ttl_v4 * 2);
+					}
+					ipset_add(ipset_rule->ipsetname, addr, DNS_RR_AAAA_LEN, request->ttl_v6 * 2);
+				}
+
+				tlog(TLOG_DEBUG, "IPSET-MATCH-PASSTHROUTH: domain: %s, ipset: %s, IP: %.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x",
+					request->domain, ipset_rule->ipsetname, addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr[6], addr[7], addr[8],
+					addr[9], addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
+			} break;
+			default:
+				break;
+			}
+		}
+	}
 
 	return ret;
 }
