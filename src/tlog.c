@@ -1377,7 +1377,7 @@ static void *_tlog_work(void *arg)
             log = _tlog_wait_log_locked(log);
             if (log == NULL) {
                 pthread_mutex_unlock(&tlog.lock);
-                if (errno != ETIMEDOUT) {
+                if (errno != ETIMEDOUT && tlog.run) {
                     sleep(1);
                 }
                 continue;
