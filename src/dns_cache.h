@@ -33,35 +33,74 @@ extern "C" {
 
 #define DNS_CACHE_TTL_MIN 30
 
+enum CACHE_TYPE {
+	CACHE_TYPE_NONE,
+	CACHE_TYPE_ADDR,
+	CACHE_TYPE_PACKET,
+};
+struct dns_cache_data_head {
+	uint32_t cache_flag;
+	enum CACHE_TYPE cache_type;
+	size_t size;
+};
+
+struct dns_cache_data {
+	struct dns_cache_data_head head;
+	unsigned char data[0];
+};
+
+struct dns_cache_addr {
+	struct dns_cache_data_head head;
+	struct dns_cache_addr_data {
+		unsigned int cname_ttl;
+		char cname[DNS_MAX_CNAME_LEN];
+		union {
+			unsigned char ipv4_addr[DNS_RR_A_LEN];
+			unsigned char ipv6_addr[DNS_RR_AAAA_LEN];
+			unsigned char addr[0];
+		};
+	} addr_data;
+};
+
+struct dns_cache_packet {
+	struct dns_cache_data_head head;
+	unsigned char data[0];
+};
+
 struct dns_cache {
 	struct hlist_node node;
 	struct list_head list;
 	struct list_head check_list;
+	
 	atomic_t ref;
-	char domain[DNS_MAX_CNAME_LEN];
-	char cname[DNS_MAX_CNAME_LEN];
-	unsigned int cname_ttl;
-	unsigned int ttl;
-	int speed;
 	atomic_t hitnum;
+
+	char domain[DNS_MAX_CNAME_LEN];
+	int ttl;
+	int speed;
 	int hitnum_update_add;
 	int del_pending;
 	time_t insert_time;
+	
 	dns_type_t qtype;
-	union {
-		unsigned char ipv4_addr[DNS_RR_A_LEN];
-		unsigned char ipv6_addr[DNS_RR_AAAA_LEN];
-		unsigned char addr[0];
-	};
+	struct dns_cache_data *cache_data;
 };
+
+enum CACHE_TYPE dns_cache_data_type(struct dns_cache_data *cache_data);
+
+uint32_t dns_cache_get_cache_flag(struct dns_cache_data *cache_data);
+
+void dns_cache_data_free(struct dns_cache_data *data);
+
+struct dns_cache_data *dns_cache_new_data_addr(uint32_t cache_flag, char *cname, int cname_ttl, unsigned char *addr, int addr_len);
+
+struct dns_cache_data *dns_cache_new_data_packet(uint32_t cache_flag, void *packet, size_t packet_len);
 
 int dns_cache_init(int size, int enable_inactive, int inactive_list_expired);
 
-int dns_cache_replace(char *domain, char *cname, int cname_ttl, int ttl, dns_type_t qtype, unsigned char *addr,
-					  int addr_len, int speed);
+int dns_cache_replace(char *domain, int ttl, dns_type_t qtype, int speed, struct dns_cache_data *cache_data);
 
-int dns_cache_insert(char *domain, char *cname, int cname_ttl, int ttl, dns_type_t qtype, unsigned char *addr,
-					 int addr_len, int speed);
+int dns_cache_insert(char *domain, int ttl, dns_type_t qtype, int speed, struct dns_cache_data *cache_data);
 
 struct dns_cache *dns_cache_lookup(char *domain, dns_type_t qtype);
 
@@ -80,6 +119,8 @@ typedef void dns_cache_preinvalid_callback(struct dns_cache *dns_cache);
 void dns_cache_invalidate(dns_cache_preinvalid_callback callback, int ttl_pre);
 
 int dns_cache_get_ttl(struct dns_cache *dns_cache);
+
+struct dns_cache_data *dns_cache_get_data(struct dns_cache *dns_cache);
 
 void dns_cache_destroy(void);
 

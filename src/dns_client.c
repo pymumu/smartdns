@@ -2917,7 +2917,7 @@ static void _dns_client_add_pending_servers(void)
 		if (pending->query_v4 == 0) {
 			pending->query_v4 = 1;
 			_dns_client_server_pending_get(pending);
-			if (dns_server_query(pending->host, DNS_T_A, _dns_client_pending_server_resolve, pending) != 0) {
+			if (dns_server_query(pending->host, DNS_T_A, 0, _dns_client_pending_server_resolve, pending) != 0) {
 				_dns_client_server_pending_release_lck(pending);
 			}
 		}
@@ -2925,7 +2925,7 @@ static void _dns_client_add_pending_servers(void)
 		if (pending->query_v6 == 0) {
 			pending->query_v6 = 1;
 			_dns_client_server_pending_get(pending);
-			if (dns_server_query(pending->host, DNS_T_AAAA, _dns_client_pending_server_resolve, pending) != 0) {
+			if (dns_server_query(pending->host, DNS_T_AAAA, 0, _dns_client_pending_server_resolve, pending) != 0) {
 				_dns_client_server_pending_release_lck(pending);
 			}
 		}

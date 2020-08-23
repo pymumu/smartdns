@@ -82,6 +82,7 @@ static void _dns_cache_delete(struct dns_cache *dns_cache)
 	hash_del(&dns_cache->node);
 	list_del_init(&dns_cache->list);
 	atomic_dec(&dns_cache_head.num);
+	dns_cache_data_free(dns_cache->cache_data);
 	free(dns_cache);
 }
 
@@ -118,10 +119,89 @@ static void _dns_cache_move_inactive(struct dns_cache *dns_cache)
 	list_add_tail(&dns_cache->list, &dns_cache_head.inactive_list);
 }
 
-int dns_cache_replace(char *domain, char *cname, int cname_ttl, int ttl, dns_type_t qtype, unsigned char *addr,
-					  int addr_len, int speed)
+enum CACHE_TYPE dns_cache_data_type(struct dns_cache_data *cache_data)
+{
+	return cache_data->head.cache_type;
+}
+
+uint32_t dns_cache_get_cache_flag(struct dns_cache_data *cache_data)
+{
+	return cache_data->head.cache_flag;
+}
+
+void dns_cache_data_free(struct dns_cache_data *data)
+{
+	if (data == NULL) {
+		return;
+	}
+
+	free(data);
+}
+
+struct dns_cache_data *dns_cache_new_data_addr(uint32_t cache_flag, char *cname, int cname_ttl, unsigned char *addr,
+											   int addr_len)
+{
+	struct dns_cache_addr *cache_addr = malloc(sizeof(struct dns_cache_addr));
+	memset(cache_addr, 0, sizeof(struct dns_cache_addr));
+	if (cache_addr == NULL) {
+		return NULL;
+	}
+
+	if (addr_len == DNS_RR_A_LEN) {
+		memcpy(cache_addr->addr_data.addr, addr, DNS_RR_A_LEN);
+	} else if (addr_len != DNS_RR_AAAA_LEN) {
+		memcpy(cache_addr->addr_data.addr, addr, DNS_RR_AAAA_LEN);
+	} else {
+		goto errout;
+	}
+
+	if (cname) {
+		safe_strncpy(cache_addr->addr_data.cname, cname, DNS_MAX_CNAME_LEN);
+		cache_addr->addr_data.cname_ttl = cname_ttl;
+	}
+
+	cache_addr->head.cache_flag = cache_flag;
+	cache_addr->head.cache_type = CACHE_TYPE_ADDR;
+	cache_addr->head.size = sizeof(struct dns_cache_addr) - sizeof(struct dns_cache_head);
+
+	return (struct dns_cache_data *)cache_addr;
+
+errout:
+	if (cache_addr) {
+		free(cache_addr);
+		cache_addr = NULL;
+	}
+
+	return NULL;
+}
+
+struct dns_cache_data *dns_cache_new_data_packet(uint32_t cache_flag, void *packet, size_t packet_len)
+{
+	struct dns_cache_packet *cache_packet = NULL;
+	size_t data_size = 0;
+	if (packet == NULL || packet_len <= 0) {
+		return NULL;
+	}
+
+	data_size = sizeof(*cache_packet) + packet_len;
+	cache_packet = malloc(data_size);
+	if (cache_packet == NULL) {
+		return NULL;
+	}
+
+	memcpy(cache_packet->data, packet, packet_len);
+
+	cache_packet->head.cache_flag = cache_flag;
+	cache_packet->head.cache_type = CACHE_TYPE_PACKET;
+	cache_packet->head.size = packet_len;
+
+	return (struct dns_cache_data *)cache_packet;
+}
+
+int dns_cache_replace(char *domain, int ttl, dns_type_t qtype, int speed, struct dns_cache_data *cache_data)
 {
 	struct dns_cache *dns_cache = NULL;
+	struct dns_cache_data *old_cache_data = NULL;
 
 	if (dns_cache_head.size <= 0) {
 		return 0;
@@ -130,7 +210,7 @@ int dns_cache_replace(char *domain, char *cname, int cname_ttl, int ttl, dns_typ
 	/* lookup existing cache */
 	dns_cache = dns_cache_lookup(domain, qtype);
 	if (dns_cache == NULL) {
-		return dns_cache_insert(domain, cname, cname_ttl, ttl, qtype, addr, addr_len, speed);
+		return dns_cache_insert(domain, ttl, qtype, speed, cache_data);
 	}
 
 	if (ttl < DNS_CACHE_TTL_MIN) {
@@ -145,45 +225,25 @@ int dns_cache_replace(char *domain, char *cname, int cname_ttl, int ttl, dns_typ
 	dns_cache->del_pending = 0;
 	dns_cache->speed = speed;
 	time(&dns_cache->insert_time);
-	if (qtype == DNS_T_A) {
-		if (addr_len != DNS_RR_A_LEN) {
-			goto errout_unlock;
-		}
-		memcpy(dns_cache->addr, addr, DNS_RR_A_LEN);
-	} else if (qtype == DNS_T_AAAA) {
-		if (addr_len != DNS_RR_AAAA_LEN) {
-			goto errout_unlock;
-		}
-		memcpy(dns_cache->addr, addr, DNS_RR_AAAA_LEN);
-	} else {
-		goto errout_unlock;
-	}
-
-	if (cname) {
-		safe_strncpy(dns_cache->cname, cname, DNS_MAX_CNAME_LEN);
-		dns_cache->cname_ttl = cname_ttl;
-	}
-
+	old_cache_data = dns_cache->cache_data;
+	dns_cache->cache_data = cache_data;
 	list_del_init(&dns_cache->list);
 	list_add_tail(&dns_cache->list, &dns_cache_head.cache_list);
 	pthread_mutex_unlock(&dns_cache_head.lock);
 
+	dns_cache_data_free(old_cache_data);
 	dns_cache_release(dns_cache);
 	return 0;
-errout_unlock:
-	pthread_mutex_unlock(&dns_cache_head.lock);
-	// errout:
-	if (dns_cache) {
-		dns_cache_release(dns_cache);
-	}
-	return -1;
 }
 
-int dns_cache_insert(char *domain, char *cname, int cname_ttl, int ttl, dns_type_t qtype, unsigned char *addr,
-					 int addr_len, int speed)
+int dns_cache_insert(char *domain, int ttl, dns_type_t qtype, int speed, struct dns_cache_data *cache_data)
 {
 	uint32_t key = 0;
 	struct dns_cache *dns_cache = NULL;
+
+	if (cache_data == NULL || domain == NULL) {
+		return -1;
+	}
 
 	if (dns_cache_head.size <= 0) {
 		return 0;
@@ -206,37 +266,19 @@ int dns_cache_insert(char *domain, char *cname, int cname_ttl, int ttl, dns_type
 		ttl = DNS_CACHE_TTL_MIN;
 	}
 
+	memset(dns_cache, 0, sizeof(*dns_cache));
 	key = hash_string(domain);
 	key = jhash(&qtype, sizeof(qtype), key);
 	safe_strncpy(dns_cache->domain, domain, DNS_MAX_CNAME_LEN);
-	dns_cache->cname[0] = 0;
+	atomic_set(&dns_cache->hitnum, 3);
+	atomic_set(&dns_cache->ref, 1);
 	dns_cache->qtype = qtype;
 	dns_cache->ttl = ttl;
-	atomic_set(&dns_cache->hitnum, 3);
 	dns_cache->hitnum_update_add = DNS_CACHE_HITNUM_STEP;
 	dns_cache->del_pending = 0;
 	dns_cache->speed = speed;
-	atomic_set(&dns_cache->ref, 1);
+	dns_cache->cache_data = cache_data;
 	time(&dns_cache->insert_time);
-	if (qtype == DNS_T_A) {
-		if (addr_len != DNS_RR_A_LEN) {
-			goto errout;
-		}
-		memcpy(dns_cache->addr, addr, DNS_RR_A_LEN);
-	} else if (qtype == DNS_T_AAAA) {
-		if (addr_len != DNS_RR_AAAA_LEN) {
-			goto errout;
-		}
-		memcpy(dns_cache->addr, addr, DNS_RR_AAAA_LEN);
-	} else {
-		goto errout;
-	}
-
-	if (cname) {
-		safe_strncpy(dns_cache->cname, cname, DNS_MAX_CNAME_LEN);
-		dns_cache->cname_ttl = cname_ttl;
-	}
-
 	pthread_mutex_lock(&dns_cache_head.lock);
 	hash_add(dns_cache_head.cache_hash, &dns_cache->node, key);
 	list_add_tail(&dns_cache->list, &dns_cache_head.cache_list);
@@ -319,6 +361,11 @@ int dns_cache_get_ttl(struct dns_cache *dns_cache)
 	}
 
 	return ttl;
+}
+
+struct dns_cache_data *dns_cache_get_data(struct dns_cache *dns_cache)
+{
+	return dns_cache->cache_data;
 }
 
 void dns_cache_delete(struct dns_cache *dns_cache)

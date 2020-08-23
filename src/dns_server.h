@@ -20,6 +20,7 @@
 #define _SMART_DNS_SERVER_H
 
 #include "dns.h"
+#include <stdint.h>
 
 #ifdef __cpluscplus
 extern "C" {
@@ -40,7 +41,7 @@ typedef int (*dns_result_callback)(char *domain, dns_rtcode_t rtcode, dns_type_t
 								   unsigned int ping_time, void *user_ptr);
 
 /* query domain */
-int dns_server_query(char *domain, int qtype, dns_result_callback callback, void *user_ptr);
+int dns_server_query(char *domain, int qtype, uint32_t server_flags, dns_result_callback callback, void *user_ptr);
 
 #ifdef __cpluscplus
 }
