@@ -2382,6 +2382,10 @@ static void _dns_server_check_set_passthrough(struct dns_request *request)
 	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_SPEED_CHECK) == 0) {
 		request->passthrough = 1;
 	}
+
+	if (request->passthrough == 1) {
+		request->dualstack_selection = 0;
+	}
 }
 
 static int _dns_server_do_query(struct dns_request *request, const char *domain, int qtype)
