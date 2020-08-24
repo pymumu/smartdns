@@ -1468,7 +1468,7 @@ static int _dns_client_recv(struct dns_server_info *server_info, unsigned char *
 	}
 
 	_dns_client_query_release(query);
-	return ret;
+	return 0;
 }
 
 static int _dns_client_create_socket_udp(struct dns_server_info *server_info)

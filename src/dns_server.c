@@ -1778,19 +1778,19 @@ static int _dns_server_setup_ipset_packet(struct dns_request *request, struct dn
 	struct dns_rule_flags *rule_flags = NULL;
 
 	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_RULE_IPSET) == 0) {
-		return -1;
+		return 0;
 	}
 	/* check ipset rule */
 	rule_flags = request->domain_rule.rules[DOMAIN_RULE_FLAGS];
 	if (rule_flags) {
 		if (rule_flags->flags & DOMAIN_FLAG_IPSET_IGNORE) {
-			return -1;
+			return 0;
 		}
 	}
 
 	ipset_rule = request->domain_rule.rules[DOMAIN_RULE_IPSET];
 	if (ipset_rule == NULL) {
-		return -1;
+		return 0;
 	}
 
 	for (j = 1; j < DNS_RRS_END; j++) {
@@ -1883,7 +1883,11 @@ static int _dns_server_reply_passthrouth(struct dns_request *request, struct dns
 		}
 	}
 
-	return _dns_server_setup_ipset_packet(request, packet);
+	if(_dns_server_setup_ipset_packet(request, packet) != 0) {
+		tlog(TLOG_DEBUG, "setup ipset failed.");
+	}
+
+	return 0;
 }
 
 static int dns_server_resolve_callback(char *domain, dns_result_type rtype, unsigned int result_flag,
