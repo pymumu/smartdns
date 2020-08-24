@@ -1559,6 +1559,9 @@ static int _DNS_client_create_socket_tcp(struct dns_server_info *server_info)
 		}
 	}
 
+	server_info->fd = fd;
+	server_info->status = DNS_SERVER_STATUS_CONNECTING;
+
 	memset(&event, 0, sizeof(event));
 	event.events = EPOLLIN | EPOLLOUT;
 	event.data.ptr = server_info;
@@ -1567,17 +1570,19 @@ static int _DNS_client_create_socket_tcp(struct dns_server_info *server_info)
 		return -1;
 	}
 
-	server_info->fd = fd;
-	server_info->status = DNS_SERVER_STATUS_CONNECTING;
-
 	tlog(TLOG_DEBUG, "tcp server %s connecting.\n", server_info->ip);
 
 	return 0;
 errout:
+	if (server_info->fd > 0) {
+		server_info->fd = -1;
+	}
+
+	server_info->status = DNS_SERVER_STATUS_INIT;
+
 	if (fd > 0) {
 		close(fd);
 	}
-
 	return -1;
 }
 
@@ -1652,6 +1657,11 @@ static int _DNS_client_create_socket_tls(struct dns_server_info *server_info, ch
 		SSL_set_tlsext_host_name(ssl, hostname);
 	}
 
+	server_info->fd = fd;
+	server_info->ssl = ssl;
+	server_info->ssl_write_len = -1;
+	server_info->status = DNS_SERVER_STATUS_CONNECTING;
+
 	memset(&event, 0, sizeof(event));
 	event.events = EPOLLIN | EPOLLOUT;
 	event.data.ptr = server_info;
@@ -1660,15 +1670,20 @@ static int _DNS_client_create_socket_tls(struct dns_server_info *server_info, ch
 		goto errout;
 	}
 
-	server_info->fd = fd;
-	server_info->ssl = ssl;
-	server_info->ssl_write_len = -1;
-	server_info->status = DNS_SERVER_STATUS_CONNECTING;
-
 	tlog(TLOG_DEBUG, "tls server %s connecting.\n", server_info->ip);
 
 	return 0;
 errout:
+	if (server_info->fd > 0) {
+		server_info->fd = -1;
+	}
+
+	if (server_info->ssl) {
+		server_info->ssl = NULL;
+	}
+
+	server_info->status = DNS_SERVER_STATUS_INIT;
+
 	if (fd > 0) {
 		close(fd);
 	}
