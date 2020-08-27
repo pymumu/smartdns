@@ -862,7 +862,7 @@ static int _dns_client_server_add(char *server_ip, char *server_host, int port, 
 
 		SSL_CTX_set_options(server_info->ssl_ctx, SSL_OP_ALL | SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION);
 		SSL_CTX_set_session_cache_mode(server_info->ssl_ctx, SSL_SESS_CACHE_CLIENT);
-		SSL_CTX_sess_set_cache_size(server_info->ssl_ctx, 64);
+		SSL_CTX_sess_set_cache_size(server_info->ssl_ctx, 1);
 		if (_dns_client_set_trusted_cert(server_info->ssl_ctx) != 0) {
 			tlog(TLOG_WARN, "disable check certificate for %s.", server_info->ip);
 			server_info->skip_check_cert = 1;
