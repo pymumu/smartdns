@@ -108,6 +108,7 @@ struct dns_server_info {
 	int ssl_write_len;
 	SSL_CTX *ssl_ctx;
 	SSL_SESSION *ssl_session;
+	pthread_mutex_t lock;
 	char skip_check_cert;
 	dns_server_status status;
 
@@ -248,6 +249,69 @@ static atomic_t dns_client_sid = ATOMIC_INIT(0);
 static LIST_HEAD(pending_servers);
 static pthread_mutex_t pending_server_mutex = PTHREAD_MUTEX_INITIALIZER;
 static int dns_client_has_bootstrap_dns = 0;
+
+int _ssl_read(struct dns_server_info *server, void *buff, int num)
+{
+	int ret = 0;
+	pthread_mutex_lock(&server->lock);
+	ret = SSL_read(server->ssl, buff, num);
+	pthread_mutex_unlock(&server->lock);
+	return ret;
+}
+
+int _ssl_write(struct dns_server_info *server, const void *buff, int num)
+{
+	int ret = 0;
+	pthread_mutex_lock(&server->lock);
+	ret = SSL_write(server->ssl, buff, num);
+	pthread_mutex_unlock(&server->lock);
+	return ret;
+}
+
+int _ssl_shutdown(struct dns_server_info *server)
+{
+	int ret = 0;
+	pthread_mutex_lock(&server->lock);
+	ret = SSL_shutdown(server->ssl);
+	pthread_mutex_unlock(&server->lock);
+	return ret;
+}
+
+int _ssl_get_error(struct dns_server_info *server, int ret)
+{
+	int err = 0;
+	pthread_mutex_lock(&server->lock);
+	err = SSL_get_error(server->ssl, ret);
+	pthread_mutex_unlock(&server->lock);
+	return err;
+}
+
+int _ssl_do_handshake(struct dns_server_info *server)
+{
+	int err = 0;
+	pthread_mutex_lock(&server->lock);
+	err = SSL_do_handshake(server->ssl);
+	pthread_mutex_unlock(&server->lock);
+	return err;
+}
+
+int _ssl_session_reused(struct dns_server_info *server)
+{
+	int err = 0;
+	pthread_mutex_lock(&server->lock);
+	err = SSL_session_reused(server->ssl);
+	pthread_mutex_unlock(&server->lock);
+	return err;
+}
+
+SSL_SESSION *_ssl_get1_session(struct dns_server_info *server)
+{
+	SSL_SESSION *ret = 0;
+	pthread_mutex_lock(&server->lock);
+	ret = SSL_get1_session(server->ssl);
+	pthread_mutex_unlock(&server->lock);
+	return ret;
+}
 
 const char *_dns_server_get_type_string(dns_server_type_t type)
 {
@@ -837,6 +901,7 @@ static int _dns_client_server_add(char *server_ip, char *server_host, int port, 
 	server_info->ttl = ttl;
 	server_info->ttl_range = 0;
 	server_info->skip_check_cert = skip_check_cert;
+	pthread_mutex_init(&server_info->lock, NULL);
 	memcpy(&server_info->flags, flags, sizeof(server_info->flags));
 
 	/* exclude this server from default group */
@@ -862,7 +927,7 @@ static int _dns_client_server_add(char *server_ip, char *server_host, int port, 
 
 		SSL_CTX_set_options(server_info->ssl_ctx, SSL_OP_ALL | SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION);
 		SSL_CTX_set_session_cache_mode(server_info->ssl_ctx, SSL_SESS_CACHE_CLIENT);
-		SSL_CTX_sess_set_cache_size(server_info->ssl_ctx, 1);
+		SSL_CTX_sess_set_cache_size(server_info->ssl_ctx, 32);
 		if (_dns_client_set_trusted_cert(server_info->ssl_ctx) != 0) {
 			tlog(TLOG_WARN, "disable check certificate for %s.", server_info->ip);
 			server_info->skip_check_cert = 1;
@@ -916,6 +981,7 @@ errout:
 			server_info->ssl_ctx = NULL;
 		}
 
+		pthread_mutex_destroy(&server_info->lock);
 		free(server_info);
 	}
 
@@ -935,7 +1001,7 @@ static void _dns_client_close_socket(struct dns_server_info *server_info)
 	if (server_info->ssl) {
 		/* Shutdown ssl */
 		if (server_info->status == DNS_SERVER_STATUS_CONNECTED) {
-			SSL_shutdown(server_info->ssl);
+			_ssl_shutdown(server_info);
 		}
 		SSL_free(server_info->ssl);
 		server_info->ssl = NULL;
@@ -974,7 +1040,7 @@ static void _dns_client_shutdown_socket(struct dns_server_info *server_info)
 		if (server_info->ssl) {
 			/* Shutdown ssl */
 			if (server_info->status == DNS_SERVER_STATUS_CONNECTED) {
-				SSL_shutdown(server_info->ssl);
+				_ssl_shutdown(server_info);
 			}
 			shutdown(server_info->fd, SHUT_RDWR);
 		}
@@ -1015,6 +1081,7 @@ static void _dns_client_server_remove_all(void)
 	{
 		list_del(&server_info->list);
 		_dns_client_server_close(server_info);
+		pthread_mutex_destroy(&server_info->lock);
 		free(server_info);
 	}
 	pthread_mutex_unlock(&client.server_list_lock);
@@ -1782,23 +1849,23 @@ static int _dns_client_process_udp(struct dns_server_info *server_info, struct e
 	return 0;
 }
 
-static int _dns_client_socket_ssl_send(SSL *ssl, const void *buf, int num)
+static int _dns_client_socket_ssl_send(struct dns_server_info *server, const void *buf, int num)
 {
 	int ret = 0;
 	int ssl_ret = 0;
 	unsigned long ssl_err = 0;
 
-	if (ssl == NULL) {
+	if (server->ssl == NULL) {
 		errno = EINVAL;
 		return -1;
 	}
 
-	ret = SSL_write(ssl, buf, num);
+	ret = _ssl_write(server, buf, num);
 	if (ret > 0) {
 		return ret;
 	}
 
-	ssl_ret = SSL_get_error(ssl, ret);
+	ssl_ret = _ssl_get_error(server, ret);
 	switch (ssl_ret) {
 	case SSL_ERROR_NONE:
 		return 0;
@@ -1838,23 +1905,23 @@ static int _dns_client_socket_ssl_send(SSL *ssl, const void *buf, int num)
 	return ret;
 }
 
-static int _dns_client_socket_ssl_recv(SSL *ssl, void *buf, int num)
+static int _dns_client_socket_ssl_recv(struct dns_server_info *server, void *buf, int num)
 {
 	int ret = 0;
 	int ssl_ret = 0;
 	unsigned long ssl_err = 0;
 
-	if (ssl == NULL) {
+	if (server->ssl == NULL) {
 		errno = EFAULT;
 		return -1;
 	}
 
-	ret = SSL_read(ssl, buf, num);
+	ret = _ssl_read(server, buf, num);
 	if (ret >= 0) {
 		return ret;
 	}
 
-	ssl_ret = SSL_get_error(ssl, ret);
+	ssl_ret = _ssl_get_error(server, ret);
 	switch (ssl_ret) {
 	case SSL_ERROR_NONE:
 	case SSL_ERROR_ZERO_RETURN:
@@ -1915,7 +1982,7 @@ static int _dns_client_socket_send(struct dns_server_info *server_info)
 			write_len = server_info->ssl_write_len;
 			server_info->ssl_write_len = -1;
 		}
-		int ret = _dns_client_socket_ssl_send(server_info->ssl, server_info->send_buff.data, write_len);
+		int ret = _dns_client_socket_ssl_send(server_info, server_info->send_buff.data, write_len);
 		if (ret != 0) {
 			if (errno == EAGAIN) {
 				server_info->ssl_write_len = write_len;
@@ -1935,7 +2002,7 @@ static int _dns_client_socket_recv(struct dns_server_info *server_info)
 		return recv(server_info->fd, server_info->recv_buff.data + server_info->recv_buff.len,
 					DNS_TCP_BUFFER - server_info->recv_buff.len, 0);
 	} else if (server_info->type == DNS_SERVER_TLS || server_info->type == DNS_SERVER_HTTPS) {
-		return _dns_client_socket_ssl_recv(server_info->ssl, server_info->recv_buff.data + server_info->recv_buff.len,
+		return _dns_client_socket_ssl_recv(server_info, server_info->recv_buff.data + server_info->recv_buff.len,
 										   DNS_TCP_BUFFER - server_info->recv_buff.len);
 	} else {
 		return -1;
@@ -2050,6 +2117,11 @@ static int _dns_client_process_tcp(struct dns_server_info *server_info, struct e
 
 			/* FOR GFW */
 			if (errno == ECONNRESET) {
+				goto errout;
+			}
+
+			if (errno == ETIMEDOUT) {
+				tlog(TLOG_INFO, "recv failed, server %s:%d, %s\n", server_info->ip, server_info->port, strerror(errno));
 				goto errout;
 			}
 
@@ -2221,8 +2293,10 @@ static int _dns_client_tls_verify(struct dns_server_info *server_info)
 		return -1;
 	}
 
+	pthread_mutex_lock(&server_info->lock);
 	cert = SSL_get_peer_certificate(server_info->ssl);
 	if (cert == NULL) {
+		pthread_mutex_unlock(&server_info->lock);
 		tlog(TLOG_ERROR, "get peer certificate failed.");
 		return -1;
 	}
@@ -2230,6 +2304,7 @@ static int _dns_client_tls_verify(struct dns_server_info *server_info)
 	if (server_info->skip_check_cert == 0) {
 		long res = SSL_get_verify_result(server_info->ssl);
 		if (res != X509_V_OK) {
+			pthread_mutex_unlock(&server_info->lock);
 			peer_CN[0] = '\0';
 			_dns_client_tls_get_cert_CN(cert, peer_CN, sizeof(peer_CN));
 			tlog(TLOG_WARN, "peer server %s certificate verify failed", server_info->ip);
@@ -2237,6 +2312,7 @@ static int _dns_client_tls_verify(struct dns_server_info *server_info)
 			goto errout;
 		}
 	}
+	pthread_mutex_unlock(&server_info->lock);
 
 	if (_dns_client_tls_get_cert_CN(cert, peer_CN, sizeof(peer_CN)) != 0) {
 		tlog(TLOG_ERROR, "get cert CN failed.");
@@ -2336,12 +2412,12 @@ static int _dns_client_process_tls(struct dns_server_info *server_info, struct e
 
 	if (server_info->status == DNS_SERVER_STATUS_CONNECTING) {
 		/* do SSL hand shake */
-		ret = SSL_do_handshake(server_info->ssl);
+		ret = _ssl_do_handshake(server_info);
 		if (ret == 0) {
 			goto errout;
 		} else if (ret < 0) {
 			memset(&fd_event, 0, sizeof(fd_event));
-			ssl_ret = SSL_get_error(server_info->ssl, ret);
+			ssl_ret = _ssl_get_error(server_info, ret);
 			if (ssl_ret == SSL_ERROR_WANT_READ) {
 				fd_event.events = EPOLLIN;
 			} else if (ssl_ret == SSL_ERROR_WANT_WRITE) {
@@ -2370,7 +2446,7 @@ static int _dns_client_process_tls(struct dns_server_info *server_info, struct e
 
 		tlog(TLOG_DEBUG, "tls server %s connected.\n", server_info->ip);
 		/* Was the stored session reused? */
-		if (SSL_session_reused(server_info->ssl)) {
+		if (_ssl_session_reused(server_info)) {
 			tlog(TLOG_DEBUG, "reused session");
 		} else {
 			tlog(TLOG_DEBUG, "new session");
@@ -2388,7 +2464,7 @@ static int _dns_client_process_tls(struct dns_server_info *server_info, struct e
 			}
 
 			/* save ssl session for next request */
-			server_info->ssl_session = SSL_get1_session(server_info->ssl);
+			server_info->ssl_session = _ssl_get1_session(server_info);
 			pthread_mutex_unlock(&client.server_list_lock);
 		}
 
@@ -2539,7 +2615,7 @@ static int _dns_client_send_tls(struct dns_server_info *server_info, void *packe
 		return -1;
 	}
 
-	send_len = _dns_client_socket_ssl_send(server_info->ssl, inpacket, len);
+	send_len = _dns_client_socket_ssl_send(server_info, inpacket, len);
 	if (send_len <= 0) {
 		if (errno == EAGAIN || errno == EPIPE || server_info->ssl == NULL) {
 			/* save data to buffer, and retry when EPOLLOUT is available */
@@ -2590,13 +2666,13 @@ static int _dns_client_send_https(struct dns_server_info *server_info, void *pac
 		return -1;
 	}
 
-	send_len = _dns_client_socket_ssl_send(server_info->ssl, inpacket, http_len);
+	send_len = _dns_client_socket_ssl_send(server_info, inpacket, http_len);
 	if (send_len <= 0) {
 		if (errno == EAGAIN || errno == EPIPE || server_info->ssl == NULL) {
 			/* save data to buffer, and retry when EPOLLOUT is available */
 			return _dns_client_send_data_to_buffer(server_info, inpacket, http_len);
 		} else if (server_info->ssl && errno != ENOMEM) {
-			SSL_set_shutdown(server_info->ssl, SSL_SENT_SHUTDOWN | SSL_RECEIVED_SHUTDOWN);
+			_ssl_shutdown(server_info);
 		}
 		return -1;
 	} else if (send_len < http_len) {
