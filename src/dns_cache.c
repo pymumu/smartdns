@@ -656,7 +656,7 @@ int dns_cache_save(const char *file)
 	uint32_t cache_number = 0;
 	tlog(TLOG_DEBUG, "write cache file %s", file);
 
-	fd = open(file, O_TRUNC | O_CREAT | O_WRONLY | O_CLOEXEC, 0640);
+	fd = open(file, O_TRUNC | O_CREAT | O_WRONLY, 0640);
 	if (fd < 0) {
 		tlog(TLOG_ERROR, "create file %s failed, %s", file, strerror(errno));
 		goto errout;
