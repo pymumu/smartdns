@@ -332,9 +332,28 @@ case "$1" in
 		return 0
 	fi
 
-	if [ ! -d "/proc/$pid" ]; then
-		return 0;
+	kill -15 "$pid" 2>/dev/null
+	SLEEP=`which usleep`
+	SLEEPTIME=200000
+	if [ -z "$SLEEP" ]; then
+		SLEEP="sleep"
+		SLEEPTIME=0.2
 	fi
+	N=30
+	while [ $N -gt 0 ]
+	do
+		pid="$(cat "$SMARTDNS_PID" | head -n 1 2>/dev/null)"
+		if [ -z "$pid" ]; then
+			return 0
+		fi
+
+		if [ ! -d "/proc/$pid" ]; then
+			return 0;
+		fi
+
+		$SLEEP $SLEEPTIME 2>/dev/null
+		N=$((N-1))
+	done
 
 	kill -9 "$pid" 2>/dev/null
 	;;

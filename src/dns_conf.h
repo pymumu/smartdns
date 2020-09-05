@@ -49,6 +49,7 @@ extern "C" {
 #define SMARTDNS_CONF_FILE "/etc/smartdns/smartdns.conf"
 #define SMARTDNS_LOG_FILE "/var/log/smartdns.log"
 #define SMARTDNS_AUDIT_FILE "/var/log/smartdns-audit.log"
+#define SMARTDNS_CACHE_FILE "/tmp/smartdns.cache"
 
 enum domain_rule {
 	DOMAIN_RULE_FLAGS = 0,
@@ -90,7 +91,7 @@ typedef enum {
 #define BIND_FLAG_NO_SPEED_CHECK (1 << 5)
 #define BIND_FLAG_NO_CACHE (1 << 6)
 #define BIND_FLAG_NO_DUALSTACK_SELECTION (1 << 7)
-#define BIND_FLAG_FORCE_AAAA_SOA (1 << 8) 
+#define BIND_FLAG_FORCE_AAAA_SOA (1 << 8)
 
 struct dns_rule_flags {
 	unsigned int flags;
@@ -214,6 +215,9 @@ extern int dns_conf_log_num;
 
 extern char dns_conf_ca_file[DNS_MAX_PATH];
 extern char dns_conf_ca_path[DNS_MAX_PATH];
+
+extern char dns_conf_cache_file[DNS_MAX_PATH];
+extern int dns_conf_cache_persist;
 
 extern struct dns_domain_check_order dns_conf_check_order;
 

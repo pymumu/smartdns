@@ -52,6 +52,7 @@
 #define DNS_PING_SECOND_TIMEOUT (DNS_REQUEST_MAX_TIMEOUT - DNS_TCPPING_START)
 #define SOCKET_IP_TOS (IPTOS_LOWDELAY | IPTOS_RELIABILITY)
 #define SOCKET_PRIORITY (6)
+#define CACHE_AUTO_ENABLE_SIZE (1024 * 1024 * 128)
 
 #define RECV_ERROR_AGAIN 1
 #define RECV_ERROR_OK 0
@@ -490,7 +491,7 @@ static int _dns_server_reply_udp(struct dns_request *request, struct dns_server_
 	send_len =
 		sendto(udpserver->head.fd, inpacket, inpacket_len, 0, (struct sockaddr *)&request->addr, request->addr_len);
 	if (send_len != inpacket_len) {
-		tlog(TLOG_ERROR, "send failed.");
+		tlog(TLOG_ERROR, "send failed, %s", strerror(errno));
 		return -1;
 	}
 
@@ -1883,7 +1884,7 @@ static int _dns_server_reply_passthrouth(struct dns_request *request, struct dns
 		}
 	}
 
-	if(_dns_server_setup_ipset_packet(request, packet) != 0) {
+	if (_dns_server_setup_ipset_packet(request, packet) != 0) {
 		tlog(TLOG_DEBUG, "setup ipset failed.");
 	}
 
@@ -2314,7 +2315,7 @@ static int _dns_server_process_cache_packet(struct dns_request *request, struct 
 		goto errout;
 	}
 
-	if (dns_cache->qtype != request->qtype) {
+	if (dns_cache->info.qtype != request->qtype) {
 		goto errout;
 	}
 
@@ -2405,15 +2406,15 @@ static int _dns_server_process_cache(struct dns_request *request)
 		goto out;
 	}
 
-	if (request->qtype != dns_cache->qtype) {
+	if (request->qtype != dns_cache->info.qtype) {
 		goto out;
 	}
 
 	if (request->dualstack_selection && request->qtype == DNS_T_AAAA) {
 		dns_cache_A = dns_cache_lookup(request->domain, DNS_T_A);
-		if (dns_cache_A && (dns_cache_A->speed > 0)) {
-			if ((dns_cache_A->speed + (dns_conf_dualstack_ip_selection_threshold * 10)) < dns_cache->speed ||
-				dns_cache->speed < 0) {
+		if (dns_cache_A && (dns_cache_A->info.speed > 0)) {
+			if ((dns_cache_A->info.speed + (dns_conf_dualstack_ip_selection_threshold * 10)) < dns_cache->info.speed ||
+				dns_cache->info.speed < 0) {
 				tlog(TLOG_DEBUG, "Force IPV4 perfered.");
 				ret = _dns_server_reply_SOA(DNS_RC_NOERROR, request);
 				goto out_update_cache;
@@ -2430,7 +2431,7 @@ out_update_cache:
 	if (dns_cache_get_ttl(dns_cache) == 0) {
 		uint32_t server_flags = request->server_flags;
 		if (request->conn == NULL) {
-			server_flags = dns_cache_get_cache_flag(dns_cache_A->cache_data);
+			server_flags = dns_cache_get_cache_flag(dns_cache->cache_data);
 		}
 		_dns_server_prefetch_request(request->domain, request->qtype, server_flags);
 	} else {
@@ -3158,11 +3159,11 @@ static void _dns_server_prefetch_domain(struct dns_cache *dns_cache)
 	}
 
 	/* start prefetch domain */
-	tlog(TLOG_DEBUG, "prefetch by cache %s, qtype %d, ttl %d, hitnum %d", dns_cache->domain, dns_cache->qtype,
-		 dns_cache->ttl, hitnum);
-	if (_dns_server_prefetch_request(dns_cache->domain, dns_cache->qtype,
+	tlog(TLOG_DEBUG, "prefetch by cache %s, qtype %d, ttl %d, hitnum %d", dns_cache->info.domain, dns_cache->info.qtype,
+		 dns_cache->info.ttl, hitnum);
+	if (_dns_server_prefetch_request(dns_cache->info.domain, dns_cache->info.qtype,
 									 dns_cache_get_cache_flag(dns_cache->cache_data)) != 0) {
-		tlog(TLOG_ERROR, "prefetch domain %s, qtype %d, failed.", dns_cache->domain, dns_cache->qtype);
+		tlog(TLOG_ERROR, "prefetch domain %s, qtype %d, failed.", dns_cache->info.domain, dns_cache->info.qtype);
 	}
 }
 
@@ -3568,6 +3569,60 @@ static int _dns_server_audit_init(void)
 	return 0;
 }
 
+static int _dns_server_cache_init(void)
+{
+	if (dns_cache_init(dns_conf_cachesize, dns_conf_serve_expired, dns_conf_serve_expired_ttl) != 0) {
+		tlog(TLOG_ERROR, "init cache failed.");
+		return -1;
+	}
+
+	char *dns_cache_file = SMARTDNS_CACHE_FILE;
+	if (dns_conf_cache_file[0] != 0) {
+		dns_cache_file = dns_conf_cache_file;
+	}
+
+	if (dns_conf_cache_persist == 2) {
+		uint64_t freespace = get_free_space(dns_cache_file);
+		if (freespace >= CACHE_AUTO_ENABLE_SIZE) {
+			tlog(TLOG_INFO, "auto enable cache persist.");
+			dns_conf_cache_persist = 1;
+		}
+	}
+
+	if (dns_conf_cachesize <= 0 || dns_conf_cache_persist == 0) {
+		return 0;
+	}
+
+	if (dns_cache_load(dns_cache_file) != 0) {
+		tlog(TLOG_WARN, "Load cache failed.");
+		return 0;
+	}
+
+	return 0;
+}
+
+static int _dns_server_cache_save(void)
+{
+	char *dns_cache_file = SMARTDNS_CACHE_FILE;
+	if (dns_conf_cache_file[0] != 0) {
+		dns_cache_file = dns_conf_cache_file;
+	}
+
+	if (dns_conf_cache_persist == 0 || dns_conf_cachesize <= 0) {
+		if (access(dns_cache_file, F_OK) == 0) {
+			unlink(dns_cache_file);
+		}
+		return 0;
+	}
+
+	if (dns_cache_save(dns_cache_file) != 0) {
+		tlog(TLOG_WARN, "save cache failed.");
+		return -1;
+	}
+
+	return 0;
+}
+
 int dns_server_init(void)
 {
 	pthread_attr_t attr;
@@ -3578,9 +3633,9 @@ int dns_server_init(void)
 		return -1;
 	}
 
-	if (dns_cache_init(dns_conf_cachesize, dns_conf_serve_expired, dns_conf_serve_expired_ttl) != 0) {
-		tlog(TLOG_ERROR, "init cache failed.");
-		return -1;
+	if (_dns_server_cache_init() != 0) {
+		tlog(TLOG_ERROR, "init dns cache filed.");
+		goto errout;
 	}
 
 	if (_dns_server_audit_init() != 0) {
@@ -3656,5 +3711,6 @@ void dns_server_exit(void)
 
 	pthread_mutex_destroy(&server.request_list_lock);
 
+	_dns_server_cache_save();
 	dns_cache_destroy();
 }

@@ -106,6 +106,8 @@ int set_sock_keepalive(int fd, int keepidle, int keepinterval, int keepcnt);
 
 int set_sock_lingertime(int fd, int time);
 
+uint64_t get_free_space(const char *path);
+
 #ifdef __cplusplus
 }
 #endif /*__cplusplus */

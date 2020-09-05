@@ -1,8 +1,9 @@
 [Unit]
-Description=smart dns server
+Description=smartdns server
 After=network.target 
 StartLimitBurst=0
 StartLimitIntervalSec=60
+TimeoutStopSec=5
 
 [Service]
 Type=forking

@@ -452,6 +452,7 @@ int main(int argc, char *argv[])
 	}
 
 	signal(SIGINT, _sig_exit);
+	signal(SIGTERM, _sig_exit);
 	atexit(_smartdns_exit);
 
 	return _smartdns_run();

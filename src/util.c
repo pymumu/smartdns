@@ -35,6 +35,7 @@
 #include <string.h>
 #include <sys/prctl.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
@@ -994,4 +995,17 @@ int set_sock_lingertime(int fd, int time)
 	}
 
 	return 0;
+}
+
+uint64_t get_free_space(const char *path)
+{
+	uint64_t size = 0;
+	struct statvfs buf;
+	if (statvfs(path, &buf) != 0) {
+		return 0;
+	}
+
+	size = (uint64_t)buf.f_frsize * buf.f_bavail;
+
+	return size;
 }
