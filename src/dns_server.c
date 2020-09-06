@@ -2264,6 +2264,16 @@ static void _dns_server_process_speed_check_rule(struct dns_request *request)
 	request->check_order_list = check_order;
 }
 
+static int _dns_server_get_expired_ttl_reply(struct dns_cache *dns_cache)
+{
+	int ttl = dns_cache_get_ttl(dns_cache);
+	if (ttl > 0) {
+		return ttl;
+	}
+
+	return dns_conf_serve_expired_reply_ttl;
+}
+
 static int _dns_server_process_cache_addr(struct dns_request *request, struct dns_cache *dns_cache)
 {
 	struct dns_cache_addr *cache_addr = (struct dns_cache_addr *)dns_cache_get_data(dns_cache);
@@ -2275,12 +2285,12 @@ static int _dns_server_process_cache_addr(struct dns_request *request, struct dn
 	switch (request->qtype) {
 	case DNS_T_A:
 		memcpy(request->ipv4_addr, cache_addr->addr_data.ipv4_addr, DNS_RR_A_LEN);
-		request->ttl_v4 = dns_cache_get_ttl(dns_cache);
+		request->ttl_v4 = _dns_server_get_expired_ttl_reply(dns_cache);
 		request->has_ipv4 = 1;
 		break;
 	case DNS_T_AAAA:
 		memcpy(request->ipv6_addr, cache_addr->addr_data.ipv6_addr, DNS_RR_AAAA_LEN);
-		request->ttl_v6 = dns_cache_get_ttl(dns_cache);
+		request->ttl_v6 = _dns_server_get_expired_ttl_reply(dns_cache);
 		request->has_ipv6 = 1;
 		break;
 	default:

@@ -531,6 +531,7 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 |prefetch-domain|domain prefetch feature|no|[yes\|no]|prefetch-domain yes
 |serve-expired|Cache serve expired feature|no|[yes\|no], Attempts to serve old responses from cache with a TTL of 0 in the response without waiting for the actual resolution to finish.|serve-expired yes
 |serve-expired-ttl|Cache serve expired limite TTL|0|second，0：disable，> 0  seconds after expiration|serve-expired-ttl 0
+|serve-expired-reply-ttl|TTL value to use when replying with expired data|5|second，0：disable，> 0  seconds after expiration|serve-expired-reply-ttl 30
 |dualstack-ip-selection|Dualstack ip selection|no|[yes\|no]|dualstack-ip-selection yes
 |dualstack-ip-selection-threshold|Dualstack ip select threadhold|30ms|millisecond|dualstack-ip-selection-threshold [0-1000]
 |ca-file|certificate file|/etc/ssl/certs/ca-certificates.crt|path|ca-file /etc/ssl/certs/ca-certificates.crt

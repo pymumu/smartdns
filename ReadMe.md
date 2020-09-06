@@ -537,6 +537,7 @@ https://github.com/pymumu/smartdns/releases
 |prefetch-domain|域名预先获取功能|no|[yes\|no]|prefetch-domain yes
 |serve-expired|过期缓存服务功能|no|[yes\|no]，开启此功能后，如果有请求时尝试回应TTL为0的过期记录，并并发查询记录，以避免查询等待|serve-expired yes
 |serve-expired-ttl|过期缓存服务最长超时时间|0|秒，0：表示停用超时，> 0表示指定的超时的秒数|serve-expired-ttl 0
+|serve-expired-reply-ttl|回应的过期缓存TTL|5|秒，0：表示停用超时，> 0表示指定的超时的秒数|serve-expired-reply-ttl 30
 |dualstack-ip-selection|双栈IP优选|no|[yes\|no]|dualstack-ip-selection yes
 |dualstack-ip-selection-threshold|双栈IP优选阈值|30ms|毫秒|dualstack-ip-selection-threshold [0-1000]
 |ca-file|证书文件|/etc/ssl/certs/ca-certificates.crt|路径|ca-file /etc/ssl/certs/ca-certificates.crt
