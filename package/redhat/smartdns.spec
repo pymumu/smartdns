@@ -1,21 +1,23 @@
 Name:           smartdns
-Version:        31
-Release:        1%{?dist}
+Version:        1.2020.09.08
+Release:        2235%{?dist}
 Summary:        smartdns
 
 License:        GPL 3.0
 URL:            https://github.com/pymumu/smartdns
-Source0:        smartdns-Release31.tar.gz
+Source0:        %{name}-%{version}.tar.gz
 
 BuildRequires:  glibc
+BuildRequires:  openssl-devel
 Requires:       glibc
+Requires:       openssl
 Requires:       systemd
 
 %description
 A local DNS server to obtain the fastest website IP for the best Internet experience.
 
 %prep
-%setup -q -n smartdns-Release31
+%setup -q
 
 %build
 cd src
