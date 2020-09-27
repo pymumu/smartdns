@@ -8,6 +8,7 @@ URL:            https://github.com/pymumu/smartdns
 Source0:        %{name}-%{version}.tar.gz
 
 BuildRequires:  glibc
+BuildRequires:  centos-release >= 7
 BuildRequires:  openssl-devel
 Requires:       glibc
 Requires:       openssl
