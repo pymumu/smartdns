@@ -2577,7 +2577,7 @@ static int _dns_client_send_tcp(struct dns_server_info *server_info, void *packe
 			/* save data to buffer, and retry when EPOLLOUT is available */
 			return _dns_client_send_data_to_buffer(server_info, inpacket, len);
 		} else if (errno == EPIPE) {
-			shutdown(server_info->fd, SHUT_RDWR);
+			_dns_client_shutdown_socket(server_info);
 		}
 		return -1;
 	} else if (send_len < len) {
@@ -2621,7 +2621,7 @@ static int _dns_client_send_tls(struct dns_server_info *server_info, void *packe
 			/* save data to buffer, and retry when EPOLLOUT is available */
 			return _dns_client_send_data_to_buffer(server_info, inpacket, len);
 		} else if (server_info->ssl && errno != ENOMEM) {
-			SSL_shutdown(server_info->ssl);
+			_dns_client_shutdown_socket(server_info);
 		}
 		return -1;
 	} else if (send_len < len) {
@@ -2672,7 +2672,7 @@ static int _dns_client_send_https(struct dns_server_info *server_info, void *pac
 			/* save data to buffer, and retry when EPOLLOUT is available */
 			return _dns_client_send_data_to_buffer(server_info, inpacket, http_len);
 		} else if (server_info->ssl && errno != ENOMEM) {
-			_ssl_shutdown(server_info);
+			_dns_client_shutdown_socket(server_info);
 		}
 		return -1;
 	} else if (send_len < http_len) {
@@ -2691,15 +2691,19 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 	int ret = 0;
 	int send_err = 0;
 	int i = 0;
+	int total_server = 0;
 
 	query->send_tick = get_tick_count();
 
 	/* send query to all dns servers */
 	for (i = 0; i < 2; i++) {
+		total_server = 0;
 		pthread_mutex_lock(&client.server_list_lock);
 		list_for_each_entry_safe(group_member, tmp, &query->server_group->head, list)
 		{
 			server_info = group_member->server;
+			total_server++;
+			tlog(TLOG_DEBUG, "send query to server %s", server_info->ip);
 			if (server_info->fd <= 0) {
 				ret = _dns_client_create_socket(server_info);
 				if (ret != 0) {
@@ -2765,7 +2769,7 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 	}
 
 	if (atomic_read(&query->dns_request_sent) <= 0) {
-		tlog(TLOG_ERROR, "Send query to upstream server failed.");
+		tlog(TLOG_ERROR, "Send query to upstream server failed, total server number %d", total_server);
 		return -1;
 	}
 
