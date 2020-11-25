@@ -1,5 +1,5 @@
 [Unit]
-Description=smartdns server
+Description=SmartDNS Server
 After=network.target 
 StartLimitBurst=0
 StartLimitIntervalSec=60
