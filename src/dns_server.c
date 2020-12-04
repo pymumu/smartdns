@@ -1194,7 +1194,7 @@ static int _dns_server_check_speed(struct dns_request *request, char *ip, int mo
 	if (mode_order >= DOMAIN_CHECK_NUM || request->check_order_list == NULL) {
 		return -1;
 	}
-
+	else
 	port = request->check_order_list->tcp_port;
 	type = request->check_order_list->order[mode_order];
 	switch (type) {
