@@ -940,7 +940,7 @@ static int _dns_decode_domain(struct dns_context *context, char *output, int siz
 
 	/*[len]string[len]string...[0]0 */
 	while (1) {
-		if (ptr > context->data + context->maxsize || ptr < context->data || output_len >= size - 1 || ptr_jump > 4) {
+		if (ptr >= context->data + context->maxsize || ptr < context->data || output_len >= size - 1 || ptr_jump > 4) {
 			return -1;
 		}
 
