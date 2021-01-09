@@ -258,6 +258,21 @@ static int _dns_server_epoll_ctl(struct dns_server_conn_head *head, int op, uint
 
 static void _dns_server_set_dualstack_selection(struct dns_request *request)
 {
+	struct dns_rule_flags *rule_flag = NULL;
+
+	rule_flag = request->domain_rule.rules[DOMAIN_RULE_FLAGS];
+	if (rule_flag) {
+		if (rule_flag->flags & DOMAIN_FLAG_DUALSTACK_SELECT) {
+			request->dualstack_selection = 1;
+			return;
+		}
+
+		if (rule_flag->is_flag_set & DOMAIN_FLAG_DUALSTACK_SELECT) {
+			request->dualstack_selection = 0;
+			return;
+		}
+	}
+
 	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_DUALSTACK_SELECTION) == 0) {
 		request->dualstack_selection = 0;
 		return;
@@ -2591,6 +2606,10 @@ static int _dns_server_do_query(struct dns_request *request, const char *domain,
 		group_name = dns_group;
 	}
 
+	_dns_server_set_dualstack_selection(request);
+
+	tlog(TLOG_DEBUG, "dualstack selection %d", request->dualstack_selection);
+
 	if (_dns_server_process_special_query(request) == 0) {
 		goto clean_exit;
 	}
@@ -2717,7 +2736,6 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 	_dns_server_request_set_client(request, conn);
 	_dns_server_request_set_client_addr(request, from, from_len);
 	_dns_server_request_set_id(request, packet->head.id);
-	_dns_server_set_dualstack_selection(request);
 	ret = _dns_server_do_query(request, domain, qtype);
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "do query %s failed.\n", domain);

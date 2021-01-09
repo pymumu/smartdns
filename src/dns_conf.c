@@ -482,7 +482,7 @@ errout:
 	return -1;
 }
 
-static int _config_domain_rule_flag_set(char *domain, unsigned int flag)
+static int _config_domain_rule_flag_set(char *domain, unsigned int flag, unsigned int is_clear)
 {
 	struct dns_domain_rule *domain_rule = NULL;
 	struct dns_domain_rule *old_domain_rule = NULL;
@@ -521,7 +521,12 @@ static int _config_domain_rule_flag_set(char *domain, unsigned int flag)
 	}
 
 	rule_flags = domain_rule->rules[DOMAIN_RULE_FLAGS];
-	rule_flags->flags |= flag;
+	if (is_clear == false) {
+		rule_flags->flags |= flag;
+	} else {
+		rule_flags->flags &= ~flag;
+	}
+	rule_flags->is_flag_set |= flag;
 
 	/* update domain rule */
 	if (add_domain_rule) {
@@ -606,7 +611,7 @@ static int _conf_domain_rule_ipset(char *domain, const char *ipsetname)
 		ipset_rule->ipsetname = ipset;
 	} else {
 		/* ignore this domain */
-		if (_config_domain_rule_flag_set(domain, DOMAIN_FLAG_IPSET_IGNORE) != 0) {
+		if (_config_domain_rule_flag_set(domain, DOMAIN_FLAG_IPSET_IGNORE, 0) != 0) {
 			goto errout;
 		}
 
@@ -670,7 +675,7 @@ static int _conf_domain_rule_address(char *domain, const char *domain_address)
 		}
 
 		/* add SOA rule */
-		if (_config_domain_rule_flag_set(domain, flag) != 0) {
+		if (_config_domain_rule_flag_set(domain, flag, 0) != 0) {
 			goto errout;
 		}
 
@@ -687,7 +692,7 @@ static int _conf_domain_rule_address(char *domain, const char *domain_address)
 		}
 
 		/* ignore rule */
-		if (_config_domain_rule_flag_set(domain, flag) != 0) {
+		if (_config_domain_rule_flag_set(domain, flag, 0) != 0) {
 			goto errout;
 		}
 
@@ -1008,7 +1013,7 @@ static int _conf_domain_rule_nameserver(char *domain, const char *group_name)
 		nameserver_rule->group_name = group;
 	} else {
 		/* ignore this domain */
-		if (_config_domain_rule_flag_set(domain, DOMAIN_FLAG_NAMESERVER_IGNORE) != 0) {
+		if (_config_domain_rule_flag_set(domain, DOMAIN_FLAG_NAMESERVER_IGNORE, 0) != 0) {
 			goto errout;
 		}
 
@@ -1027,6 +1032,26 @@ errout:
 
 	tlog(TLOG_ERROR, "add nameserver %s, %s failed", domain, group_name);
 	return 0;
+}
+
+static int _conf_domain_rule_dualstack_selection(char *domain, const char *yesno)
+{
+	if (strncmp(yesno, "yes", sizeof("yes")) == 0 || strncmp(yesno, "Yes", sizeof("Yes")) == 0) {
+		if (_config_domain_rule_flag_set(domain, DOMAIN_FLAG_DUALSTACK_SELECT, 0) != 0) {
+			goto errout;
+		}
+	} else {
+		/* ignore this domain */
+		if (_config_domain_rule_flag_set(domain, DOMAIN_FLAG_DUALSTACK_SELECT, 1) != 0) {
+			goto errout;
+		}
+	}
+
+	return 0;
+
+errout:
+	tlog(TLOG_ERROR, "set dualstack for %s failed. ", domain);
+	return 1;
 }
 
 static int _config_nameserver(void *data, int argc, char *argv[])
@@ -1239,6 +1264,7 @@ static int _conf_domain_rules(void *data, int argc, char *argv[])
 		{"address", required_argument, NULL, 'a'},
 		{"ipset", required_argument, NULL, 'p'},
 		{"nameserver", required_argument, NULL, 'n'},
+		{"dualstack-ip-selection", required_argument, NULL, 'd'},
 		{NULL, no_argument, NULL, 0}
 	};
 	/* clang-format on */
@@ -1255,7 +1281,7 @@ static int _conf_domain_rules(void *data, int argc, char *argv[])
 	/* process extra options */
 	optind = 1;
 	while (1) {
-		opt = getopt_long_only(argc, argv, "", long_options, NULL);
+		opt = getopt_long_only(argc, argv, "c:a:p:n:d:", long_options, NULL);
 		if (opt == -1) {
 			break;
 		}
@@ -1308,6 +1334,15 @@ static int _conf_domain_rules(void *data, int argc, char *argv[])
 
 			if (_conf_domain_rule_nameserver(domain, nameserver_group) != 0) {
 				tlog(TLOG_ERROR, "add nameserver rule failed.");
+				goto errout;
+			}
+
+			break;
+		}
+		case 'd': {
+			const char *yesno = optarg;
+			if (_conf_domain_rule_dualstack_selection(domain, yesno) != 0) {
+				tlog(TLOG_ERROR, "set dualstack selection rule failed.");
 				goto errout;
 			}
 

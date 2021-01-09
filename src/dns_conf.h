@@ -80,6 +80,7 @@ typedef enum {
 #define DOMAIN_FLAG_ADDR_IPV6_IGN (1 << 5)
 #define DOMAIN_FLAG_IPSET_IGNORE (1 << 6)
 #define DOMAIN_FLAG_NAMESERVER_IGNORE (1 << 7)
+#define DOMAIN_FLAG_DUALSTACK_SELECT (1 << 8)
 
 #define SERVER_FLAG_EXCLUDE_DEFAULT (1 << 0)
 
@@ -95,6 +96,7 @@ typedef enum {
 
 struct dns_rule_flags {
 	unsigned int flags;
+	unsigned int is_flag_set;
 };
 
 struct dns_address_IPV4 {

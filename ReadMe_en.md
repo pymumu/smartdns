@@ -522,7 +522,7 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 |nameserver|To query domain with specific server group|None|nameserver /domain/[group\|-], `group` is the group name, `-` means ignore this rule, use the `-group` parameter in the related server|nameserver /www.example.com/office
 |ipset|Domain IPSet|None|ipset /domain/[ipset\|-], `-` for ignore|ipset /www.example.com/pass
 |ipset-timeout|ipset timeout enable|auto|[yes]|ipset-timeout yes
-|domain-rules|set domain rules|None|domain-rules /domain/ [-rules...]<br>`[-speed-check-mode]`: set speed check mode，same as parameter `speed-check-mode`<br>`[-address]`: same as  parameter `address` <br>`[-nameserver]`: same as parameter `nameserver`<br>`[-ipset]`: same as parameter `ipset`|domain-rules /www.example.com/ -speed-check-mode none
+|domain-rules|set domain rules|None|domain-rules /domain/ [-rules...]<br>`[-c\|-speed-check-mode]`: set speed check mode，same as parameter `speed-check-mode`<br>`[-a\|-address]`: same as  parameter `address` <br>`[-n\|-nameserver]`: same as parameter `nameserver`<br>`[-p\|-ipset]`: same as parameter `ipset`<br>`[-d\|-dualstack-ip-selection]`: same as parameter `dualstack-ip-selection`|domain-rules /www.example.com/ -speed-check-mode none
 |bogus-nxdomain|bogus IP address|None|[IP/subnet], Repeatable| bogus-nxdomain 1.2.3.4/16
 |ignore-ip|ignore ip address|None|[ip/subnet], Repeatable| ignore-ip 1.2.3.4/16
 |whitelist-ip|ip whitelist|None|[ip/subnet], Repeatable，When the filtering server responds IPs in the IP whitelist, only result in whitelist will be accepted| whitelist-ip 1.2.3.4/16
