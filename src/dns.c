@@ -1363,7 +1363,7 @@ static int _dns_decode_opt_ecs(struct dns_context *context, struct dns_opt_ecs *
 	len = (ecs->source_prefix / 8);
 	len += (ecs->source_prefix % 8 > 0) ? 1 : 0;
 
-	if (_dns_left_len(context) < len) {
+	if (_dns_left_len(context) < len || len > sizeof(ecs->addr)) {
 		return -1;
 	}
 
