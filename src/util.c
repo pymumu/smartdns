@@ -732,8 +732,9 @@ void SSL_CRYPTO_thread_setup(void)
 		lock_count[i] = 0;
 		pthread_mutex_init(&(lock_cs[i]), NULL);
 	}
-
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 	CRYPTO_set_id_callback(_pthreads_thread_id);
+#endif
 	CRYPTO_set_locking_callback(_pthreads_locking_callback);
 }
 
