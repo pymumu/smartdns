@@ -298,6 +298,7 @@ int dns_cache_insert(char *domain, int ttl, dns_type_t qtype, int speed, struct 
 	}
 
 	if (dns_cache_head.size <= 0) {
+		dns_cache_data_free(cache_data);
 		return 0;
 	}
 

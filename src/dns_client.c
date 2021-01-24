@@ -1718,19 +1718,19 @@ static int _DNS_client_create_socket_tls(struct dns_server_info *server_info, ch
 	const int ip_tos = SOCKET_IP_TOS;
 
 	if (server_info->ssl_ctx == NULL) {
-		tlog(TLOG_ERROR, "create ssl ctx failed.");
+		tlog(TLOG_ERROR, "create ssl ctx failed, %s", server_info->ip);
 		goto errout;
 	}
 
 	ssl = SSL_new(server_info->ssl_ctx);
 	if (ssl == NULL) {
-		tlog(TLOG_ERROR, "new ssl failed.");
+		tlog(TLOG_ERROR, "new ssl failed, %s", server_info->ip);
 		goto errout;
 	}
 
 	fd = socket(server_info->ai_family, SOCK_STREAM, 0);
 	if (fd < 0) {
-		tlog(TLOG_ERROR, "create socket failed.");
+		tlog(TLOG_ERROR, "create socket failed, %s", strerror(errno));
 		goto errout;
 	}
 

@@ -839,6 +839,7 @@ static int _dns_server_request_complete_AAAA(struct dns_request *request)
 			if (_dns_server_request_update_cache(request, DNS_T_AAAA, cache_data) != 0) {
 				goto errout;
 			}
+			cache_data = NULL;
 		}
 
 		request->has_soa = 0;
@@ -862,6 +863,7 @@ static int _dns_server_request_complete_AAAA(struct dns_request *request)
 				if (_dns_server_request_update_cache(request, DNS_T_A, cache_data) != 0) {
 					goto errout;
 				}
+				cache_data = NULL;
 			}
 
 			if (request->dualstack_selection) {
@@ -881,7 +883,7 @@ static int _dns_server_request_complete_AAAA(struct dns_request *request)
 	return 0;
 
 errout:
-	if (cache_data == NULL) {
+	if (cache_data != NULL) {
 		dns_cache_data_free(cache_data);
 		cache_data = NULL;
 	}
