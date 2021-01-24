@@ -142,13 +142,56 @@ void dns_cache_data_free(struct dns_cache_data *data)
 	free(data);
 }
 
-struct dns_cache_data *dns_cache_new_data_addr(uint32_t cache_flag, char *cname, int cname_ttl, unsigned char *addr,
-											   int addr_len)
+struct dns_cache_data *dns_cache_new_data(void)
 {
 	struct dns_cache_addr *cache_addr = malloc(sizeof(struct dns_cache_addr));
 	memset(cache_addr, 0, sizeof(struct dns_cache_addr));
 	if (cache_addr == NULL) {
 		return NULL;
+	}
+
+	cache_addr->head.cache_type = CACHE_TYPE_NONE;
+	cache_addr->head.size = sizeof(struct dns_cache_addr) - sizeof(struct dns_cache_data_head);
+
+	return (struct dns_cache_data *)cache_addr;
+}
+
+void dns_cache_set_data_soa(struct dns_cache_data *dns_cache, int32_t cache_flag, char *cname, int cname_ttl)
+{
+	if (dns_cache == NULL) {
+		goto errout;
+	}
+
+	struct dns_cache_addr *cache_addr = (struct dns_cache_addr *)dns_cache;
+	if (cache_addr == NULL) {
+		goto errout;
+	}
+
+	memset(cache_addr->addr_data.addr, 0, sizeof(cache_addr->addr_data.addr));
+
+	if (cname) {
+		safe_strncpy(cache_addr->addr_data.cname, cname, DNS_MAX_CNAME_LEN);
+		cache_addr->addr_data.cname_ttl = cname_ttl;
+	}
+
+	cache_addr->head.cache_flag = cache_flag;
+	cache_addr->addr_data.soa = 1;
+	cache_addr->head.cache_type = CACHE_TYPE_ADDR;
+	cache_addr->head.size = sizeof(struct dns_cache_addr) - sizeof(struct dns_cache_data_head);
+errout:
+	return;
+}
+
+void dns_cache_set_data_addr(struct dns_cache_data *dns_cache, uint32_t cache_flag, char *cname, int cname_ttl,
+							 unsigned char *addr, int addr_len)
+{
+	if (dns_cache == NULL) {
+		goto errout;
+	}
+
+	struct dns_cache_addr *cache_addr = (struct dns_cache_addr *)dns_cache;
+	if (cache_addr == NULL) {
+		goto errout;
 	}
 
 	if (addr_len == DNS_RR_A_LEN) {
@@ -167,16 +210,8 @@ struct dns_cache_data *dns_cache_new_data_addr(uint32_t cache_flag, char *cname,
 	cache_addr->head.cache_flag = cache_flag;
 	cache_addr->head.cache_type = CACHE_TYPE_ADDR;
 	cache_addr->head.size = sizeof(struct dns_cache_addr) - sizeof(struct dns_cache_data_head);
-
-	return (struct dns_cache_data *)cache_addr;
-
 errout:
-	if (cache_addr) {
-		free(cache_addr);
-		cache_addr = NULL;
-	}
-
-	return NULL;
+	return;
 }
 
 struct dns_cache_data *dns_cache_new_data_packet(uint32_t cache_flag, void *packet, size_t packet_len)
@@ -377,6 +412,18 @@ int dns_cache_get_ttl(struct dns_cache *dns_cache)
 	return ttl;
 }
 
+int dns_cache_is_soa(struct dns_cache *dns_cache) {
+	if (dns_cache == NULL) {
+		return 0;
+	}
+
+	struct dns_cache_addr *cache_addr = (struct dns_cache_addr *)dns_cache_get_data(dns_cache);
+	if (cache_addr->addr_data.soa) {
+		return 1;
+	}
+	return 0;
+}
+
 struct dns_cache_data *dns_cache_get_data(struct dns_cache *dns_cache)
 {
 	return dns_cache->cache_data;
@@ -468,7 +515,7 @@ void dns_cache_invalidate(dns_cache_preinvalid_callback callback, int ttl_pre)
 		}
 
 		if (ttl < 0) {
-			if (dns_cache_head.enable_inactive) {
+			if (dns_cache_head.enable_inactive && (dns_cache_is_soa(dns_cache) == 0)) {
 				_dns_cache_move_inactive(dns_cache);
 			} else {
 				_dns_cache_remove(dns_cache);

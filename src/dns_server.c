@@ -736,6 +736,10 @@ static int _dns_server_request_update_cache(struct dns_request *request, dns_typ
 		goto errout;
 	}
 
+	if (request->has_soa) {
+		ttl = dns_conf_rr_ttl;
+	}
+
 	/* if doing prefetch, update cache only */
 	if (request->prefetch) {
 		if (dns_cache_replace(request->domain, ttl, qtype, speed, cache_data) != 0) {
@@ -759,7 +763,7 @@ errout:
 static int _dns_server_request_complete_A(struct dns_request *request)
 {
 	char *cname = NULL;
-	int cname_ttl = 0;
+	int cname_ttl = dns_conf_rr_ttl;
 	struct dns_cache_data *cache_data = NULL;
 
 	if (request->has_cname) {
@@ -767,25 +771,27 @@ static int _dns_server_request_complete_A(struct dns_request *request)
 		cname_ttl = request->ttl_cname;
 	}
 
-	if (request->has_ipv4 == 0) {
-		return 0;
+	cache_data = dns_cache_new_data();
+	if (cache_data == NULL) {
+		goto errout;
 	}
 
-	tlog(TLOG_INFO, "result: %s, rcode: %d,  %d.%d.%d.%d\n", request->domain, request->rcode, request->ipv4_addr[0],
-		 request->ipv4_addr[1], request->ipv4_addr[2], request->ipv4_addr[3]);
+	if (request->has_ipv4 != 0) {
+		tlog(TLOG_INFO, "result: %s, rcode: %d,  %d.%d.%d.%d\n", request->domain, request->rcode, request->ipv4_addr[0],
+			 request->ipv4_addr[1], request->ipv4_addr[2], request->ipv4_addr[3]);
 
-	request->has_soa = 0;
-	if (request->has_ping_result == 0 && request->ttl_v4 > DNS_SERVER_TMOUT_TTL) {
-		request->ttl_v4 = DNS_SERVER_TMOUT_TTL;
+		request->has_soa = 0;
+		if (request->has_ping_result == 0 && request->ttl_v4 > DNS_SERVER_TMOUT_TTL) {
+			request->ttl_v4 = DNS_SERVER_TMOUT_TTL;
+		}
+		dns_cache_set_data_addr(cache_data, request->server_flags, cname, cname_ttl, request->ipv4_addr, DNS_RR_A_LEN);
+	} else {
+		dns_cache_set_data_soa(cache_data, request->server_flags, cname, cname_ttl);
 	}
 
 	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_CACHE) == 0) {
+		dns_cache_data_free(cache_data);
 		return 0;
-	}
-
-	cache_data = dns_cache_new_data_addr(request->server_flags, cname, cname_ttl, request->ipv4_addr, DNS_RR_A_LEN);
-	if (cache_data == NULL) {
-		goto errout;
 	}
 
 	if (_dns_server_request_update_cache(request, DNS_T_A, cache_data) != 0) {
@@ -807,12 +813,17 @@ static int _dns_server_request_complete_AAAA(struct dns_request *request)
 {
 	int ret = -1;
 	char *cname = NULL;
-	int cname_ttl = 0;
+	int cname_ttl = dns_conf_rr_ttl;
 	struct dns_cache_data *cache_data = NULL;
 
 	if (request->has_cname) {
 		cname = request->cname;
 		cname_ttl = request->ttl_cname;
+	}
+
+	cache_data = dns_cache_new_data();
+	if (cache_data == NULL) {
+		goto errout;
 	}
 
 	if (request->has_ipv6) {
@@ -829,20 +840,22 @@ static int _dns_server_request_complete_AAAA(struct dns_request *request)
 		}
 
 		/* if doing prefetch, update cache only */
-		if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_CACHE) != 0) {
-			cache_data =
-				dns_cache_new_data_addr(request->server_flags, cname, cname_ttl, request->ipv6_addr, DNS_T_AAAA);
-			if (cache_data == NULL) {
-				goto errout;
-			}
-
-			if (_dns_server_request_update_cache(request, DNS_T_AAAA, cache_data) != 0) {
-				goto errout;
-			}
-			cache_data = NULL;
-		}
+		dns_cache_set_data_addr(cache_data, request->server_flags, cname, cname_ttl, request->ipv6_addr,
+								DNS_T_AAAA);
 
 		request->has_soa = 0;
+	} else {
+		dns_cache_set_data_soa(cache_data, request->server_flags, cname, cname_ttl);
+	}
+
+	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_CACHE) != 0) {
+		if (_dns_server_request_update_cache(request, DNS_T_AAAA, cache_data) != 0) {
+			goto errout;
+		}
+		cache_data = NULL;
+	} else {
+		dns_cache_data_free(cache_data);
+		cache_data = NULL;
 	}
 
 	if (request->has_ipv4 && (request->ping_ttl_v4 > 0)) {
@@ -854,12 +867,13 @@ static int _dns_server_request_complete_AAAA(struct dns_request *request)
 			request->ping_ttl_v6 < 0) {
 			tlog(TLOG_DEBUG, "Force IPV4 perfered.");
 			if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_CACHE) != 0) {
-				cache_data =
-					dns_cache_new_data_addr(request->server_flags, cname, cname_ttl, request->ipv4_addr, DNS_T_A);
+				cache_data = dns_cache_new_data();
 				if (cache_data == NULL) {
 					goto errout;
 				}
 
+				dns_cache_set_data_addr(cache_data, request->server_flags, cname, cname_ttl, request->ipv4_addr,
+										DNS_T_A);
 				if (_dns_server_request_update_cache(request, DNS_T_A, cache_data) != 0) {
 					goto errout;
 				}
@@ -2417,7 +2431,7 @@ static int _dns_server_process_cache(struct dns_request *request)
 	if (dns_cache == NULL) {
 		if (request->dualstack_selection && request->qtype == DNS_T_AAAA) {
 			dns_cache_A = dns_cache_lookup(request->domain, DNS_T_A);
-			if (dns_cache_A) {
+			if (dns_cache_A && dns_cache_is_soa(dns_cache_A) == 0 && dns_cache_is_soa(dns_cache)) {
 				tlog(TLOG_DEBUG, "No IPV6 Found, Force IPV4 perfered.");
 				if (dns_cache_get_ttl(dns_cache_A) == 0) {
 					uint32_t server_flags = request->server_flags;
@@ -2435,6 +2449,13 @@ static int _dns_server_process_cache(struct dns_request *request)
 
 	if (request->qtype != dns_cache->info.qtype) {
 		goto out;
+	}
+
+	if (request->qtype == DNS_T_A) {
+		if (dns_cache_is_soa(dns_cache)) {
+			ret = _dns_server_reply_SOA(DNS_RC_NOERROR, request);
+			goto out;
+		}
 	}
 
 	if (request->dualstack_selection && request->qtype == DNS_T_AAAA) {
@@ -2609,8 +2630,6 @@ static int _dns_server_do_query(struct dns_request *request, const char *domain,
 	}
 
 	_dns_server_set_dualstack_selection(request);
-
-	tlog(TLOG_DEBUG, "dualstack selection %d", request->dualstack_selection);
 
 	if (_dns_server_process_special_query(request) == 0) {
 		goto clean_exit;

@@ -63,6 +63,7 @@ struct dns_cache_addr {
 	struct dns_cache_addr_data {
 		unsigned int cname_ttl;
 		char cname[DNS_MAX_CNAME_LEN];
+		char soa;
 		union {
 			unsigned char ipv4_addr[DNS_RR_A_LEN];
 			unsigned char ipv6_addr[DNS_RR_AAAA_LEN];
@@ -116,9 +117,6 @@ uint32_t dns_cache_get_cache_flag(struct dns_cache_data *cache_data);
 
 void dns_cache_data_free(struct dns_cache_data *data);
 
-struct dns_cache_data *dns_cache_new_data_addr(uint32_t cache_flag, char *cname, int cname_ttl, unsigned char *addr,
-											   int addr_len);
-
 struct dns_cache_data *dns_cache_new_data_packet(uint32_t cache_flag, void *packet, size_t packet_len);
 
 int dns_cache_init(int size, int enable_inactive, int inactive_list_expired);
@@ -145,7 +143,16 @@ void dns_cache_invalidate(dns_cache_preinvalid_callback callback, int ttl_pre);
 
 int dns_cache_get_ttl(struct dns_cache *dns_cache);
 
+int dns_cache_is_soa(struct dns_cache *dns_cache);
+
+struct dns_cache_data *dns_cache_new_data(void);
+
 struct dns_cache_data *dns_cache_get_data(struct dns_cache *dns_cache);
+
+void dns_cache_set_data_addr(struct dns_cache_data *dns_cache, uint32_t cache_flag, char *cname, int cname_ttl,
+							 unsigned char *addr, int addr_len);
+
+void dns_cache_set_data_soa(struct dns_cache_data *dns_cache, int32_t cache_flag, char *cname, int cname_ttl);
 
 void dns_cache_destroy(void);
 
