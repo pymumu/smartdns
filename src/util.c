@@ -936,7 +936,7 @@ void get_compiled_time(struct tm *tm)
 	int hour, min, sec;
 	static const char *month_names = "JanFebMarAprMayJunJulAugSepOctNovDec";
 
-	sscanf(__DATE__, "%5s %d %d", s_month, &day, &year);
+	sscanf(__DATE__, "%4s %d %d", s_month, &day, &year);
 	month = (strstr(month_names, s_month) - month_names) / 3;
 	sscanf(__TIME__, "%d:%d:%d", &hour, &min, &sec);
 	tm->tm_year = year - 1900;

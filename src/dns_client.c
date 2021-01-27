@@ -850,11 +850,15 @@ static int _dns_client_set_trusted_cert(SSL_CTX *ssl_ctx)
 	}
 
 	if (cafile == NULL && capath == NULL) {
-		if (SSL_CTX_set_default_verify_paths(ssl_ctx) == 0) {
+		if (SSL_CTX_set_default_verify_paths(ssl_ctx)) {
+			cert_path_set = 1;
+		}
+
+		const STACK_OF(X509_NAME) *cas = SSL_CTX_get_client_CA_list(ssl_ctx);
+		if (cas && sk_X509_NAME_num(cas) == 0) {
 			cafile = "/etc/ssl/certs/ca-certificates.crt";
 			capath = "/etc/ssl/certs";
-		} else {
-			cert_path_set = 1;
+			cert_path_set = 0;
 		}
 	}
 
@@ -2362,7 +2366,7 @@ static int _dns_client_tls_verify(struct dns_server_info *server_info)
 			pthread_mutex_unlock(&server_info->lock);
 			peer_CN[0] = '\0';
 			_dns_client_tls_get_cert_CN(cert, peer_CN, sizeof(peer_CN));
-			tlog(TLOG_WARN, "peer server %s certificate verify failed", server_info->ip);
+			tlog(TLOG_WARN, "peer server %s certificate verify failed, ret = %ld", server_info->ip, res);
 			tlog(TLOG_WARN, "peer CN: %s", peer_CN);
 			goto errout;
 		}
@@ -3108,6 +3112,7 @@ static void _dns_client_add_pending_servers(void)
 			if (add_success == 0) {
 				tlog(TLOG_WARN, "add pending DNS server %s failed.", pending->host);
 			}
+			list_del_init(&pending->list);
 			_dns_client_server_pending_release_lck(pending);
 		} else {
 			tlog(TLOG_DEBUG, "add pending DNS server %s failed, retry %d...", pending->host, pending->retry_cnt);

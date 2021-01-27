@@ -2451,16 +2451,14 @@ static int _dns_server_process_cache(struct dns_request *request)
 		goto out;
 	}
 
-	if (request->qtype == DNS_T_A) {
-		if (dns_cache_is_soa(dns_cache)) {
-			ret = _dns_server_reply_SOA(DNS_RC_NOERROR, request);
-			goto out;
-		}
+	if (dns_cache_is_soa(dns_cache)) {
+		ret = _dns_server_reply_SOA(DNS_RC_NOERROR, request);
+		goto out;
 	}
 
 	if (request->dualstack_selection && request->qtype == DNS_T_AAAA) {
 		dns_cache_A = dns_cache_lookup(request->domain, DNS_T_A);
-		if (dns_cache_A && (dns_cache_A->info.speed > 0)) {
+		if (dns_cache_A && dns_cache_is_soa(dns_cache_A) == 0 && (dns_cache_A->info.speed > 0)) {
 			if ((dns_cache_A->info.speed + (dns_conf_dualstack_ip_selection_threshold * 10)) < dns_cache->info.speed ||
 				dns_cache->info.speed < 0) {
 				tlog(TLOG_DEBUG, "Force IPV4 perfered.");
