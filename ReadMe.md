@@ -17,7 +17,7 @@ SmartDNS是一个运行在本地的DNS服务器，SmartDNS接受本地客户端�
 1. [使用](#使用)  
     1. [下载配套安装包](#下载配套安装包)
     1. [标准Linux系统安装](#标准linux系统安装树莓派x86_64系统)
-    1. [openwrt/LEDE](#openwrtlede)
+    1. [openwrt/LEDE](#openwrt)
     1. [华硕路由器原生固件/梅林固件](#华硕路由器原生固件梅林固件)
     1. [optware/entware](#optwareentware)
     1. [Windows 10 WSL安装/WSL ubuntu](#windows-10-wsl安装wsl-ubuntu)
