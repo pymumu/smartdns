@@ -681,7 +681,7 @@ static int _dns_server_reply_SOA(int rcode, struct dns_request *request)
 /* add ip to specific ipset */
 static int _dns_setup_ipset(struct dns_request *request)
 {
-	struct dns_ipset_rule *ipset_rule = NULL;
+	struct dns_ipset_rule *rule = NULL, *ipset_rule = NULL, *ipset_rule_v4 = NULL, *ipset_rule_v6 = NULL;
 	struct dns_rule_flags *rule_flags = NULL;
 	int ret = 0;
 
@@ -691,31 +691,55 @@ static int _dns_setup_ipset(struct dns_request *request)
 
 	/* check ipset rule */
 	rule_flags = request->domain_rule.rules[DOMAIN_RULE_FLAGS];
-	if (rule_flags) {
-		if (rule_flags->flags & DOMAIN_FLAG_IPSET_IGNORE) {
-			return 0;
-		}
+	if (!rule_flags || (rule_flags->flags & DOMAIN_FLAG_IPSET_IGN) != 0) {
+		ipset_rule = request->domain_rule.rules[DOMAIN_RULE_IPSET];
+	}
+	if (!rule_flags || (rule_flags->flags & DOMAIN_FLAG_IPSET_IPV4_IGN) != 0) {
+		ipset_rule_v4 = request->domain_rule.rules[DOMAIN_RULE_IPSET_IPV4];
+	}
+	if (!rule_flags || (rule_flags->flags & DOMAIN_FLAG_IPSET_IPV6_IGN) != 0) {
+		ipset_rule_v6 = request->domain_rule.rules[DOMAIN_RULE_IPSET_IPV6];
 	}
 
-	ipset_rule = request->domain_rule.rules[DOMAIN_RULE_IPSET];
-	if (ipset_rule == NULL) {
+	if (!(ipset_rule || ipset_rule_v4 || ipset_rule_v6)) {
 		return 0;
 	}
 
 	/* add IPV4 to ipset */
 	if (request->has_ipv4 && request->qtype == DNS_T_A) {
-		ret |= ipset_add(ipset_rule->ipsetname, request->ipv4_addr, DNS_RR_A_LEN, request->ttl_v4 * 2);
+		rule = ipset_rule_v4 ? ipset_rule_v4 : ipset_rule;
+		if (rule) {
+			ret |= ipset_add(rule->ipsetname, request->ipv4_addr, DNS_RR_A_LEN, request->ttl_v4 * 2);
+			tlog(TLOG_DEBUG, "IPSET-MATCH: domain:%s, ipset:%s, IP: %d.%d.%d.%d, result: %d", request->domain,
+				 rule->ipsetname, request->ipv4_addr[0], request->ipv4_addr[1], request->ipv4_addr[2],
+				 request->ipv4_addr[3], ret);
+		}
 	}
 
 	/* add IPV6 to ipset */
 	if (request->has_ipv6 && request->qtype == DNS_T_AAAA) {
 		if (request->has_ipv4) {
-			ret |= ipset_add(ipset_rule->ipsetname, request->ipv4_addr, DNS_RR_A_LEN, request->ttl_v4 * 2);
+			rule = ipset_rule_v4 ? ipset_rule_v4 : ipset_rule;
+			if (rule) {
+				ret |= ipset_add(rule->ipsetname, request->ipv4_addr, DNS_RR_A_LEN, request->ttl_v4 * 2);
+				tlog(TLOG_DEBUG, "IPSET-MATCH: domain:%s, ipset:%s, IP: %d.%d.%d.%d, result: %d", request->domain,
+					 rule->ipsetname, request->ipv4_addr[0], request->ipv4_addr[1], request->ipv4_addr[2],
+					 request->ipv4_addr[3], ret);
+			}
 		}
-		ret |= ipset_add(ipset_rule->ipsetname, request->ipv6_addr, DNS_RR_AAAA_LEN, request->ttl_v6 * 2);
+		rule = ipset_rule_v6 ? ipset_rule_v6 : ipset_rule;
+		if (rule) {
+			ret |= ipset_add(rule->ipsetname, request->ipv6_addr, DNS_RR_AAAA_LEN, request->ttl_v6 * 2);
+			tlog(TLOG_DEBUG,
+				 "IPSET-MATCH: domain:%s, ipset:%s, IP: "
+				 "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x, result: %d",
+				 request->domain, rule->ipsetname, request->ipv6_addr[0], request->ipv6_addr[1], request->ipv6_addr[2],
+				 request->ipv6_addr[3], request->ipv6_addr[4], request->ipv6_addr[5], request->ipv6_addr[6],
+				 request->ipv6_addr[7], request->ipv6_addr[8], request->ipv6_addr[9], request->ipv6_addr[10],
+				 request->ipv6_addr[11], request->ipv6_addr[12], request->ipv6_addr[13], request->ipv6_addr[14],
+				 request->ipv6_addr[15], ret);
+		}
 	}
-
-	tlog(TLOG_DEBUG, "IPSET-MATCH: domain:%s, ipset:%s, result: %d", request->domain, ipset_rule->ipsetname, ret);
 
 	return ret;
 }
@@ -840,8 +864,7 @@ static int _dns_server_request_complete_AAAA(struct dns_request *request)
 		}
 
 		/* if doing prefetch, update cache only */
-		dns_cache_set_data_addr(cache_data, request->server_flags, cname, cname_ttl, request->ipv6_addr,
-								DNS_T_AAAA);
+		dns_cache_set_data_addr(cache_data, request->server_flags, cname, cname_ttl, request->ipv6_addr, DNS_T_AAAA);
 
 		request->has_soa = 0;
 	} else {
@@ -1806,7 +1829,7 @@ static int _dns_server_setup_ipset_packet(struct dns_request *request, struct dn
 	int i = 0;
 	int j = 0;
 	struct dns_rrs *rrs = NULL;
-	struct dns_ipset_rule *ipset_rule = NULL;
+	struct dns_ipset_rule *rule = NULL, *ipset_rule = NULL, *ipset_rule_v4 = NULL, *ipset_rule_v6 = NULL;
 	struct dns_rule_flags *rule_flags = NULL;
 
 	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_RULE_IPSET) == 0) {
@@ -1815,13 +1838,18 @@ static int _dns_server_setup_ipset_packet(struct dns_request *request, struct dn
 	/* check ipset rule */
 	rule_flags = request->domain_rule.rules[DOMAIN_RULE_FLAGS];
 	if (rule_flags) {
-		if (rule_flags->flags & DOMAIN_FLAG_IPSET_IGNORE) {
-			return 0;
+		if ((rule_flags->flags & DOMAIN_FLAG_IPSET_IGN) == 0) {
+			ipset_rule = request->domain_rule.rules[DOMAIN_RULE_IPSET];
+		}
+		if ((rule_flags->flags & DOMAIN_FLAG_IPSET_IPV4_IGN) == 0) {
+			ipset_rule_v4 = request->domain_rule.rules[DOMAIN_RULE_IPSET_IPV4];
+		}
+		if ((rule_flags->flags & DOMAIN_FLAG_IPSET_IPV6_IGN) == 0) {
+			ipset_rule_v6 = request->domain_rule.rules[DOMAIN_RULE_IPSET_IPV6];
 		}
 	}
 
-	ipset_rule = request->domain_rule.rules[DOMAIN_RULE_IPSET];
-	if (ipset_rule == NULL) {
+	if (!(ipset_rule || ipset_rule_v4 || ipset_rule_v6)) {
 		return 0;
 	}
 
@@ -1840,11 +1868,14 @@ static int _dns_server_setup_ipset_packet(struct dns_request *request, struct dn
 				/* get A result */
 				dns_get_A(rrs, name, DNS_MAX_CNAME_LEN, &ttl, addr);
 
-				/* add IPV4 to ipset */
-				ipset_add(ipset_rule->ipsetname, addr, DNS_RR_A_LEN, request->ttl_v4 * 2);
+				rule = ipset_rule_v4 ? ipset_rule_v4 : ipset_rule;
 
-				tlog(TLOG_DEBUG, "IPSET-MATCH-PASSTHROUTH: domain: %s, ipset: %s, IP: %d.%d.%d.%d", request->domain,
-					 ipset_rule->ipsetname, addr[0], addr[1], addr[2], addr[3]);
+				if (rule) {
+					/* add IPV4 to ipset */
+					ipset_add(rule->ipsetname, addr, DNS_RR_A_LEN, request->ttl_v4 * 2);
+					tlog(TLOG_DEBUG, "IPSET-MATCH-PASSTHROUTH: domain: %s, ipset: %s, IP: %d.%d.%d.%d", request->domain,
+						 rule->ipsetname, addr[0], addr[1], addr[2], addr[3]);
+				}
 			} break;
 			case DNS_T_AAAA: {
 				unsigned char addr[16];
@@ -1857,16 +1888,25 @@ static int _dns_server_setup_ipset_packet(struct dns_request *request, struct dn
 				/* add IPV6 to ipset */
 				if (request->has_ipv6) {
 					if (request->has_ipv4) {
-						ipset_add(ipset_rule->ipsetname, addr, DNS_RR_A_LEN, request->ttl_v4 * 2);
+						rule = ipset_rule_v4 ? ipset_rule_v4 : ipset_rule;
+						if (rule) {
+							/* add IPV4 to ipset */
+							ipset_add(rule->ipsetname, addr, DNS_RR_A_LEN, request->ttl_v4 * 2);
+							tlog(TLOG_DEBUG, "IPSET-MATCH-PASSTHROUTH: domain: %s, ipset: %s, IP: %d.%d.%d.%d",
+								 request->domain, rule->ipsetname, addr[0], addr[1], addr[2], addr[3]);
+						}
 					}
-					ipset_add(ipset_rule->ipsetname, addr, DNS_RR_AAAA_LEN, request->ttl_v6 * 2);
+					rule = ipset_rule_v6 ? ipset_rule_v6 : ipset_rule;
+					if (rule) {
+						ipset_add(rule->ipsetname, addr, DNS_RR_AAAA_LEN, request->ttl_v6 * 2);
+						tlog(TLOG_DEBUG,
+							 "IPSET-MATCH-PASSTHROUTH: domain: %s, ipset: %s, IP: "
+							 "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x",
+							 request->domain, rule->ipsetname, addr[0], addr[1], addr[2], addr[3], addr[4], addr[5],
+							 addr[6], addr[7], addr[8], addr[9], addr[10], addr[11], addr[12], addr[13], addr[14],
+							 addr[15]);
+					}
 				}
-
-				tlog(TLOG_DEBUG,
-					 "IPSET-MATCH-PASSTHROUTH: domain: %s, ipset: %s, IP: "
-					 "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x",
-					 request->domain, ipset_rule->ipsetname, addr[0], addr[1], addr[2], addr[3], addr[4], addr[5],
-					 addr[6], addr[7], addr[8], addr[9], addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
 			} break;
 			default:
 				break;
@@ -2093,8 +2133,16 @@ static void _dns_server_update_rule_by_flags(struct dns_request *request)
 		request->domain_rule.rules[DOMAIN_RULE_ADDRESS_IPV6] = NULL;
 	}
 
-	if (flags & DOMAIN_FLAG_IPSET_IGNORE) {
+	if (flags & DOMAIN_FLAG_IPSET_IGN) {
 		request->domain_rule.rules[DOMAIN_RULE_IPSET] = NULL;
+	}
+
+	if (flags & DOMAIN_FLAG_IPSET_IPV4_IGN) {
+		request->domain_rule.rules[DOMAIN_RULE_IPSET_IPV4] = NULL;
+	}
+
+	if (flags & DOMAIN_FLAG_IPSET_IPV6_IGN) {
+		request->domain_rule.rules[DOMAIN_RULE_IPSET_IPV6] = NULL;
 	}
 
 	if (flags & DOMAIN_FLAG_NAMESERVER_IGNORE) {

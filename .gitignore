@@ -1,4 +1,4 @@
 .vscode
-.o
+*.o
 .DS_Store
-.swp.
+*.swp.
