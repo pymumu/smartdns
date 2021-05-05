@@ -595,11 +595,40 @@ static int _conf_domain_rule_ipset(char *domain, const char *ipsetname)
 {
 	struct dns_ipset_rule *ipset_rule = NULL;
 	const char *ipset = NULL;
+	char *copied_name = NULL;
+	enum domain_rule type;
+	int ignore_flag;
 
-	/* Process domain option */
-	if (strncmp(ipsetname, "-", sizeof("-")) != 0) {
+	copied_name = strdup(ipsetname);
+
+	if (copied_name == NULL) {
+		goto errout;
+	}
+
+	for (char *tok = strtok(copied_name, ","); tok; tok = strtok(NULL, ",")) {
+		if (tok[0] == '#') {
+			if (strncmp(tok, "#6:", 3u) == 0) {
+				type = DOMAIN_RULE_IPSET_IPV6;
+				ignore_flag = DOMAIN_FLAG_IPSET_IPV6_IGN;
+			} else if (strncmp(tok, "#4:", 3u) == 0) {
+				type = DOMAIN_RULE_IPSET_IPV4;
+				ignore_flag = DOMAIN_FLAG_IPSET_IPV4_IGN;
+			} else {
+				goto errout;
+			}
+			tok += 3;
+		} else {
+			type = DOMAIN_RULE_IPSET;
+			ignore_flag = DOMAIN_FLAG_IPSET_IGN;
+		}
+
+		if (strncmp(tok, "-", 1) == 0) {
+			_config_domain_rule_flag_set(domain, ignore_flag, 0);
+			continue;
+		}
+
 		/* new ipset domain */
-		ipset = _dns_conf_get_ipset(ipsetname);
+		ipset = _dns_conf_get_ipset(tok);
 		if (ipset == NULL) {
 			goto errout;
 		}
@@ -610,26 +639,26 @@ static int _conf_domain_rule_ipset(char *domain, const char *ipsetname)
 		}
 
 		ipset_rule->ipsetname = ipset;
-	} else {
-		/* ignore this domain */
-		if (_config_domain_rule_flag_set(domain, DOMAIN_FLAG_IPSET_IGNORE, 0) != 0) {
+
+		if (_config_domain_rule_add(domain, type, ipset_rule) != 0) {
 			goto errout;
 		}
-
-		return 0;
 	}
 
-	if (_config_domain_rule_add(domain, DOMAIN_RULE_IPSET, ipset_rule) != 0) {
-		goto errout;
-	}
+	goto clear;
 
-	return 0;
 errout:
+	tlog(TLOG_ERROR, "add ipset %s failed", ipsetname);
+
 	if (ipset_rule) {
 		free(ipset_rule);
 	}
 
-	tlog(TLOG_ERROR, "add ipset %s failed", ipsetname);
+clear:
+	if (copied_name) {
+		free(copied_name);
+	}
+
 	return 0;
 }
 
