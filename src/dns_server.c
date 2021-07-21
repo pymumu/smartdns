@@ -691,13 +691,13 @@ static int _dns_setup_ipset(struct dns_request *request)
 
 	/* check ipset rule */
 	rule_flags = request->domain_rule.rules[DOMAIN_RULE_FLAGS];
-	if (!rule_flags || (rule_flags->flags & DOMAIN_FLAG_IPSET_IGN) != 0) {
+	if (!rule_flags || (rule_flags->flags & DOMAIN_FLAG_IPSET_IGN) == 0) {
 		ipset_rule = request->domain_rule.rules[DOMAIN_RULE_IPSET];
 	}
-	if (!rule_flags || (rule_flags->flags & DOMAIN_FLAG_IPSET_IPV4_IGN) != 0) {
+	if (!rule_flags || (rule_flags->flags & DOMAIN_FLAG_IPSET_IPV4_IGN) == 0) {
 		ipset_rule_v4 = request->domain_rule.rules[DOMAIN_RULE_IPSET_IPV4];
 	}
-	if (!rule_flags || (rule_flags->flags & DOMAIN_FLAG_IPSET_IPV6_IGN) != 0) {
+	if (!rule_flags || (rule_flags->flags & DOMAIN_FLAG_IPSET_IPV6_IGN) == 0) {
 		ipset_rule_v6 = request->domain_rule.rules[DOMAIN_RULE_IPSET_IPV6];
 	}
 
@@ -1837,16 +1837,14 @@ static int _dns_server_setup_ipset_packet(struct dns_request *request, struct dn
 	}
 	/* check ipset rule */
 	rule_flags = request->domain_rule.rules[DOMAIN_RULE_FLAGS];
-	if (rule_flags) {
-		if ((rule_flags->flags & DOMAIN_FLAG_IPSET_IGN) == 0) {
-			ipset_rule = request->domain_rule.rules[DOMAIN_RULE_IPSET];
-		}
-		if ((rule_flags->flags & DOMAIN_FLAG_IPSET_IPV4_IGN) == 0) {
-			ipset_rule_v4 = request->domain_rule.rules[DOMAIN_RULE_IPSET_IPV4];
-		}
-		if ((rule_flags->flags & DOMAIN_FLAG_IPSET_IPV6_IGN) == 0) {
-			ipset_rule_v6 = request->domain_rule.rules[DOMAIN_RULE_IPSET_IPV6];
-		}
+	if (!rule_flags || (rule_flags->flags & DOMAIN_FLAG_IPSET_IGN) == 0) {
+		ipset_rule = request->domain_rule.rules[DOMAIN_RULE_IPSET];
+	}
+	if (!rule_flags || (rule_flags->flags & DOMAIN_FLAG_IPSET_IPV4_IGN) == 0) {
+		ipset_rule_v4 = request->domain_rule.rules[DOMAIN_RULE_IPSET_IPV4];
+	}
+	if (!rule_flags || (rule_flags->flags & DOMAIN_FLAG_IPSET_IPV6_IGN) == 0) {
+		ipset_rule_v6 = request->domain_rule.rules[DOMAIN_RULE_IPSET_IPV6];
 	}
 
 	if (!(ipset_rule || ipset_rule_v4 || ipset_rule_v6)) {
