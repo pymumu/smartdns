@@ -1,19 +1,20 @@
 /*
  * tinylog
- * Copyright (C) 2018-2020 Ruilin Peng (Nick) <pymumu@gmail.com>
+ * Copyright (C) 2018-2021 Ruilin Peng (Nick) <pymumu@gmail.com>
  * https://github.com/pymumu/tinylog
  */
 
 #ifndef TLOG_H
 #define TLOG_H
 #include <stdarg.h>
+#include <sys/stat.h>
 
 #ifdef __cplusplus
-#include <string>
+#include <functional>
+#include <iostream>
 #include <memory>
 #include <sstream>
-#include <iostream>
-#include <functional>
+#include <string>
 extern "C" {
 #endif /*__cplusplus */
 
@@ -60,6 +61,9 @@ struct tlog_time {
 /* enable log to screen */
 #define TLOG_SCREEN (1 << 4)
 
+/* enable suppport fork process */
+#define TLOG_SUPPORT_FORK (1 << 5)
+
 struct tlog_loginfo {
     tlog_level level;
     const char *file;
@@ -79,7 +83,7 @@ format: Log formats
 #define tlog(level, format, ...) tlog_ext(level, BASE_FILE_NAME, __LINE__, __func__, NULL, format, ##__VA_ARGS__)
 
 extern int tlog_ext(tlog_level level, const char *file, int line, const char *func, void *userptr, const char *format, ...)
-    __attribute__((format(printf, 6, 7))) __attribute__((nonnull (6)));
+    __attribute__((format(printf, 6, 7))) __attribute__((nonnull(6)));
 extern int tlog_vext(tlog_level level, const char *file, int line, const char *func, void *userptr, const char *format, va_list ap);
 
 /* write buff to log file */
@@ -90,6 +94,9 @@ extern int tlog_setlevel(tlog_level level);
 
 /* get log level */
 extern tlog_level tlog_getlevel(void);
+
+/* set log file */
+extern void tlog_set_logfile(const char *logfile);
 
 /* enalbe log to screen */
 extern void tlog_setlogscreen(int enable);
@@ -132,6 +139,10 @@ extern int tlog_reg_log_output_func(tlog_log_output_func output, void *private_d
 
 struct tlog_log;
 typedef struct tlog_log tlog_log;
+
+/* get root log handler */
+extern tlog_log *tlog_get_root(void);
+
 /*
 Function: open a new log stream, handler should close by tlog_close
 logfile: log file.
@@ -149,12 +160,15 @@ extern int tlog_write(struct tlog_log *log, const char *buff, int bufflen);
 /* close log stream */
 extern void tlog_close(tlog_log *log);
 
+/* change log file */
+extern void tlog_rename_logfile(struct tlog_log *log, const char *logfile);
+
 /*
 Function: Print log to log stream
 log: log stream
 format: Log formats
 */
-extern int tlog_printf(tlog_log *log, const char *format, ...) __attribute__((format(printf, 2, 3))) __attribute__((nonnull (1, 2)));
+extern int tlog_printf(tlog_log *log, const char *format, ...) __attribute__((format(printf, 2, 3))) __attribute__((nonnull(1, 2)));
 
 /*
 Function: Print log to log stream with ap
@@ -180,49 +194,78 @@ extern void *tlog_get_private(tlog_log *log);
 /* get local time */
 extern int tlog_localtime(struct tlog_time *tm);
 
+/* set max line size */
+extern void tlog_set_maxline_size(struct tlog_log *log, int size);
+
+/*
+Function: set log file and archive permission
+log: log stream
+file: log file permission, default is 640
+archive: archive file permission, default is 440
+*/
+
+extern void tlog_set_permission(struct  tlog_log *log, mode_t file, mode_t archive);
+
 #ifdef __cplusplus
 class Tlog {
-    using Stream = std::ostringstream;
-    using Buffer = std::unique_ptr<Stream, std::function<void(Stream*)>>;
 public:
-    Tlog(){}
-    ~Tlog(){}
-
-    static Tlog &Instance() {
-        static Tlog logger;
-        return logger;
+    Tlog(tlog_level level, const char *file, int line, const char *func, void *userptr)
+    {
+        level_ = level;
+        file_ = file;
+        line_ = line;
+        func_ = func;
+        userptr_ = userptr;
     }
 
-    Buffer LogStream(tlog_level level, const char *file, int line, const char *func, void *userptr) {
-        return Buffer(new Stream, [=](Stream *st) {
-            tlog_ext(level, file, line, func, userptr, "%s", st->str().c_str());
-            delete st;
-        });
+    ~Tlog()
+    {
+        tlog_ext(level_, file_, line_, func_, userptr_, "%s", msg_.str().c_str());
     }
+
+    std::ostream &Stream()
+    {
+        return msg_;
+    }
+
+private:
+    tlog_level level_;
+    const char *file_;
+    int line_;
+    const char *func_;
+    void *userptr_;
+    std::ostringstream msg_;
 };
 
 class TlogOut {
-    using Stream = std::ostringstream;
-    using Buffer = std::unique_ptr<Stream, std::function<void(Stream*)>>;
 public:
-    TlogOut(){}
-    ~TlogOut(){}
-
-    static TlogOut &Instance() {
-        static TlogOut logger;
-        return logger;
+    TlogOut(tlog_log *log)
+    {
+        log_ = log;
     }
 
-    Buffer Out(tlog_log *log) {
-        return Buffer(new Stream, [=](Stream *st) {
-            tlog_printf(log, "%s", st->str().c_str());
-            delete st;
-        });
+    ~TlogOut()
+    {
+        if (log_ == nullptr) {
+            return;
+        }
+
+        tlog_printf(log_, "%s", msg_.str().c_str());
     }
+
+    std::ostream &Stream()
+    {
+        return msg_;
+    }
+
+private:
+    tlog_log *log_;
+    std::ostringstream msg_;
 };
 
-#define Tlog_logger (Tlog::Instance())
-#define Tlog_stream(level) if (tlog_getlevel() <= level) *Tlog_logger.LogStream(level, BASE_FILE_NAME, __LINE__, __func__, NULL) 
+#define Tlog_stream(level)        \
+    if (tlog_getlevel() <= level) \
+    Tlog(level, BASE_FILE_NAME, __LINE__, __func__, NULL).Stream()
 #define tlog_debug Tlog_stream(TLOG_DEBUG)
 #define tlog_info Tlog_stream(TLOG_INFO)
 #define tlog_notice Tlog_stream(TLOG_NOTICE)
@@ -230,8 +273,7 @@ public:
 #define tlog_error Tlog_stream(TLOG_ERROR)
 #define tlog_fatal Tlog_stream(TLOG_FATAL)
 
-#define Tlog_out_logger (TlogOut::Instance())
-#define tlog_out(stream)  (*Tlog_out_logger.Out(stream))
+#define tlog_out(stream) TlogOut(stream).Stream()
 
 } /*__cplusplus */
 #else
@@ -241,5 +283,5 @@ public:
 #define tlog_warn(...) tlog(TLOG_WARN, ##__VA_ARGS__)
 #define tlog_error(...) tlog(TLOG_ERROR, ##__VA_ARGS__)
 #define tlog_fatal(...) tlog(TLOG_FATAL, ##__VA_ARGS__)
-#endif 
+#endif
 #endif // !TLOG_H
