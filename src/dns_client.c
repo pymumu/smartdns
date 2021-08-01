@@ -1774,10 +1774,10 @@ static int _DNS_client_create_socket_tls(struct dns_server_info *server_info, ch
 	}
 
 	// ? this cause ssl crash ?
-	setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
-	setsockopt(fd, IPPROTO_TCP, TCP_THIN_DUPACK, &yes, sizeof(yes));
-	setsockopt(fd, IPPROTO_TCP, TCP_THIN_LINEAR_TIMEOUTS, &yes, sizeof(yes));
-	set_sock_keepalive(fd, 15, 3, 4);
+	// setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
+	// setsockopt(fd, IPPROTO_TCP, TCP_THIN_DUPACK, &yes, sizeof(yes));
+	// setsockopt(fd, IPPROTO_TCP, TCP_THIN_LINEAR_TIMEOUTS, &yes, sizeof(yes));
+	// set_sock_keepalive(fd, 15, 3, 4);
 	setsockopt(fd, SOL_SOCKET, SO_PRIORITY, &priority, sizeof(priority));
 	setsockopt(fd, IPPROTO_IP, IP_TOS, &ip_tos, sizeof(ip_tos));
 
