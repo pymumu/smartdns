@@ -101,10 +101,10 @@ msgid "Redirect 53 port to SmartDNS"
 msgstr "重定向53端口到SmartDNS"
 
 msgid "Cache Size"
-msgstr "缓存大小"
+msgstr "缓存大小（单位：条）"
 
 msgid "DNS domain result cache size"
-msgstr "缓存DNS的结果，缓存大小，配置零则不缓存"
+msgstr "缓存DNS的结果，缓存大小，配置零则不缓存（单位：秒，下同）"
 
 msgid "Domain TTL"
 msgstr "域名TTL"
