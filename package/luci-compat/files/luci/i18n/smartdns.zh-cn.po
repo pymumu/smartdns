@@ -104,13 +104,13 @@ msgid "Cache Size"
 msgstr "缓存大小"
 
 msgid "DNS domain result cache size"
-msgstr "缓存DNS的结果，缓存大小，配置零则不缓存"
+msgstr "缓存DNS的结果，缓存大小，配置零则不缓存（单位：条）"
 
 msgid "Domain TTL"
 msgstr "域名TTL"
 
 msgid "TTL for all domain result."
-msgstr "设置所有域名的TTL值"
+msgstr "设置所有域名的TTL值（单位：秒，下同）"
 
 msgid "Domain TTL Min"
 msgstr "域名TTL最小值"
