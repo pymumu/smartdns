@@ -61,6 +61,8 @@ char *http_head_get_data(struct http_head *http_head);
 
 int http_head_get_data_len(struct http_head *http_head);
 
+int http_head_buff_len(struct http_head *http_head);
+
 struct http_head_fields *http_head_first_fields(struct http_head *http_head);
 
 struct http_head_fields *http_head_next_fields(struct http_head_fields *fields);

@@ -191,6 +191,11 @@ int http_head_get_data_len(struct http_head *http_head)
 	return http_head->data_len;
 }
 
+int http_head_buff_len(struct http_head *http_head) 
+{
+	return http_head->buff_len;
+}
+
 static int _http_head_add_fields(struct http_head *http_head, char *name, char *value)
 {
 	unsigned long key = 0;
@@ -372,7 +377,6 @@ int http_head_parse(struct http_head *http_head, const char *data, int data_len)
 	int i = 0;
 	char *buff_end = NULL;
 	int left_size = 0;
-	int process_data_len = 0;
 
 	left_size = http_head->buff_size - http_head->buff_len;
 
@@ -384,18 +388,14 @@ int http_head_parse(struct http_head *http_head, const char *data, int data_len)
 	if (http_head->head_ok == 0) {
 		for (i = 0; i < data_len; i++, data++) {
 			*(buff_end + i) = *data;
-			if (*data == '\n') {
-				if (http_head->buff_len + i < 2) {
+			if (http_head->buff_len > 1 && *(buff_end + i - 1) == '\r' && *(buff_end + i) == '\n') {
+				if (http_head->buff_len + i < 4) {
 					continue;
 				}
 
 				if (*(buff_end + i - 2) == '\n') {
 					http_head->head_ok = 1;
-					http_head->head_len = http_head->buff_len + i - 2;
-					i++;
-					buff_end += i;
-					data_len -= i;
-					data++;
+					http_head->head_len = http_head->buff_len + i - 1;
 					if (_http_head_parse(http_head) != 0) {
 						return -2;
 					}
@@ -412,36 +412,53 @@ int http_head_parse(struct http_head *http_head, const char *data, int data_len)
 						return -2;
 					}
 
+					i++;
+					buff_end += i;
+					data_len -= i;
+					data++;
+					http_head->buff_len += i;
 					break;
 				}
 			}
 		}
 
-		process_data_len += i;
 		if (http_head->head_ok == 0) {
 			// Read data again */
-			http_head->buff_len += process_data_len;
+			http_head->buff_len += i;
 			return -1;
 		}
 	}
 
-	if (http_head->head_ok == 1) {
+	if (http_head->head_ok == 1 && data_len > 0) {
 		int get_data_len = (http_head->expect_data_len > data_len) ? data_len : http_head->expect_data_len;
+		if (http_head->expect_data_len == 0) {
+			get_data_len  = data_len;
+		}
 		if (http_head->data == NULL) {
 			http_head->data = buff_end;
 		}
 
 		memcpy(buff_end, data, get_data_len);
-		process_data_len += get_data_len;
 		http_head->data_len += get_data_len;
-	}
-
-	http_head->buff_len += process_data_len;
-	if (http_head->data_len < http_head->expect_data_len) {
+		http_head->buff_len += get_data_len;
+		if (http_head->expect_data_len > 0) {
+			http_head->expect_data_len -= get_data_len;
+			if (http_head->expect_data_len == 0) {
+				return 0;
+			}
+		}
+		if (http_head->data_len < http_head->expect_data_len) {
+			return -1;
+		}
+	} else {
 		return -1;
 	}
 
-	return process_data_len;
+	if (http_head->expect_data_len == 0) {
+		return -1;
+	}
+
+	return 0;
 }
 
 void http_head_destroy(struct http_head *http_head)
