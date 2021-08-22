@@ -363,7 +363,7 @@ static void _sig_error_exit(int signo, siginfo_t *siginfo, void *ct)
 		 "%s %s)\n",
 		 signo, siginfo->si_code, siginfo->si_errno, siginfo->si_pid, getpid(), PC, (unsigned long)siginfo->si_addr,
 		 __DATE__, __TIME__, arch);
-
+	print_stack();
 	sleep(1);
 	_exit(0);
 }
