@@ -1045,7 +1045,7 @@ void print_stack(void)
 	}
 	
 	tlog(TLOG_FATAL, "Stack:");
-	for (size_t idx = 0; idx < frame_num; ++idx) {
+	for (int idx = 0; idx < frame_num; ++idx) {
 		const void *addr = buffer[idx];
 		const char *symbol = "";
 

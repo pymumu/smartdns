@@ -365,7 +365,12 @@ static void _fast_ping_close_host_sock(struct ping_host_struct *ping_host)
 
 static void _fast_ping_host_put(struct ping_host_struct *ping_host)
 {
-	if (!atomic_dec_and_test(&ping_host->ref)) {
+	int ref_cnt = atomic_dec_and_test(&ping_host->ref);
+	if (!ref_cnt) {
+		if (ref_cnt < 0) {
+			tlog(TLOG_ERROR, "invalid refcount of ping_host %s", ping_host->host);
+			abort();
+		}
 		return;
 	}
 
@@ -1081,15 +1086,19 @@ struct ping_host_struct *fast_ping_start(PING_TYPE type, const char *host, int c
 	pthread_mutex_unlock(&ping.map_lock);
 
 	_fast_ping_host_get(ping_host);
+	_fast_ping_host_get(ping_host);
+	// for ping race condition, get reference count twice
 	if (_fast_ping_sendping(ping_host) != 0) {
 		goto errout_remove;
 	}
 
 	ping_host->run = 1;
 	freeaddrinfo(gai);
+	_fast_ping_host_put(ping_host);
 	return ping_host;
 errout_remove:
 	fast_ping_stop(ping_host);
+	_fast_ping_host_put(ping_host);
 	ping_host = NULL;
 errout:
 	if (gai) {
