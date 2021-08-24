@@ -62,8 +62,8 @@ struct dns_cache_addr {
 	struct dns_cache_data_head head;
 	struct dns_cache_addr_data {
 		unsigned int cname_ttl;
-		char cname[DNS_MAX_CNAME_LEN];
 		char soa;
+		char cname[DNS_MAX_CNAME_LEN];
 		union {
 			unsigned char ipv4_addr[DNS_RR_A_LEN];
 			unsigned char ipv6_addr[DNS_RR_AAAA_LEN];
