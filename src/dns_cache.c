@@ -418,7 +418,7 @@ int dns_cache_is_soa(struct dns_cache *dns_cache) {
 	}
 
 	struct dns_cache_addr *cache_addr = (struct dns_cache_addr *)dns_cache_get_data(dns_cache);
-	if (cache_addr->addr_data.soa) {
+	if (cache_addr->head.cache_type == CACHE_TYPE_ADDR && cache_addr->addr_data.soa) {
 		return 1;
 	}
 	return 0;
