@@ -32,6 +32,8 @@ SMARTDNS_CONF_TMP="${SMARTDNS_CONF}.tmp"
 COREDUMP="0"
 RESPAWN="1"
 
+DEBUG="logger -t smartdns -p debug "
+
 set_forward_dnsmasq()
 {
 	local PORT="$1"
@@ -388,3 +390,25 @@ reload_service()
 	stop
 	start
 }
+stop_smartdns()
+{
+    local section="$1"
+	config_get port "$section" "port" "6053"
+	config_get redirect "$section" "redirect" "none"
+	config_get ipv6_server "$section" "ipv6_server" "1"
+	
+	$DEBUG  "stop smartdns port:$port, redirect:$redirect,ipv6_server:$ipv6_server."
+	if [ "$redirect" = "redirect" ]; then
+		clear_iptable $port $ipv6_server
+	elif [ "$redirect" = "dnsmasq-upstream" ]; then
+		stop_forward_dnsmasq "$port"
+    fi
+}
+stop_service()
+{
+	config_load "smartdns"
+	config_foreach stop_smartdns "smartdns"
+    killall -s SIGTERM smartdns
+       
+}
+
