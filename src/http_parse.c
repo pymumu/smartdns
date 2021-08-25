@@ -388,8 +388,9 @@ int http_head_parse(struct http_head *http_head, const char *data, int data_len)
 	if (http_head->head_ok == 0) {
 		for (i = 0; i < data_len; i++, data++) {
 			*(buff_end + i) = *data;
+			http_head->buff_len++;
 			if (http_head->buff_len > 1 && *(buff_end + i - 1) == '\r' && *(buff_end + i) == '\n') {
-				if (http_head->buff_len + i < 4) {
+				if (http_head->buff_len < 4) {
 					continue;
 				}
 
@@ -416,7 +417,6 @@ int http_head_parse(struct http_head *http_head, const char *data, int data_len)
 					buff_end += i;
 					data_len -= i;
 					data++;
-					http_head->buff_len += i;
 					break;
 				}
 			}
@@ -424,7 +424,6 @@ int http_head_parse(struct http_head *http_head, const char *data, int data_len)
 
 		if (http_head->head_ok == 0) {
 			// Read data again */
-			http_head->buff_len += i;
 			return -1;
 		}
 	}
@@ -444,7 +443,7 @@ int http_head_parse(struct http_head *http_head, const char *data, int data_len)
 		if (http_head->expect_data_len > 0) {
 			http_head->expect_data_len -= get_data_len;
 			if (http_head->expect_data_len == 0) {
-				return 0;
+				return http_head->buff_len;
 			}
 		}
 		if (http_head->data_len < http_head->expect_data_len) {
