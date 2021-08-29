@@ -508,8 +508,8 @@ https://github.com/pymumu/smartdns/releases
 |参数|  功能  |默认值|配置值|例子|
 |--|--|--|--|--|
 |server-name|DNS服务器名称|操作系统主机名/smartdns|符合主机名规格的字符串|server-name smartdns
-|bind|DNS监听端口号|[::]:53|可绑定多个端口<br>`IP:PORT`: 服务器IP，端口号。<br>`[-group]`: 请求时使用的DNS服务器组。<br>`[-no-rule-addr]`：跳过address规则。<br>`[-no-rule-nameserver]`：跳过Nameserver规则。<br>`[-no-rule-ipset]`：跳过Ipset规则。<br>`[no-rule-soa]`：跳过SOA(#)规则.<br>`[no-dualstack-selection]`：停用双栈测速。<br>`[-no-speed-check]`：停用测速。<br>`[-no-cache]`：停止缓存|bind :53
-|bind-tcp|TCP DNS监听端口号|[::]:53|可绑定多个端口<br>`IP:PORT`: 服务器IP，端口号。<br>`[-group]`: 请求时使用的DNS服务器组。<br>`[-no-rule-addr]`：跳过address规则。<br>`[-no-rule-nameserver]`：跳过Nameserver规则。<br>`[-no-rule-ipset]`：跳过Ipset规则。<br>`[no-rule-soa]`：跳过SOA(#)规则.<br>`[no-dualstack-selection]`：停用双栈测速。<br>`[-no-speed-check]`：停用测速。<br>`[-no-cache]`：停止缓存|bind-tcp :53
+|bind|DNS监听端口号|[::]:53|可绑定多个端口<br>`IP:PORT`: 服务器IP，端口号。<br>`[-group]`: 请求时使用的DNS服务器组。<br>`[-no-rule-addr]`：跳过address规则。<br>`[-no-rule-nameserver]`：跳过Nameserver规则。<br>`[-no-rule-ipset]`：跳过Ipset与nftset规则。<br>`[no-rule-soa]`：跳过SOA(#)规则.<br>`[no-dualstack-selection]`：停用双栈测速。<br>`[-no-speed-check]`：停用测速。<br>`[-no-cache]`：停止缓存|bind :53
+|bind-tcp|TCP DNS监听端口号|[::]:53|可绑定多个端口<br>`IP:PORT`: 服务器IP，端口号。<br>`[-group]`: 请求时使用的DNS服务器组。<br>`[-no-rule-addr]`：跳过address规则。<br>`[-no-rule-nameserver]`：跳过Nameserver规则。<br>`[-no-rule-ipset]`：跳过Ipset与nftset规则。<br>`[no-rule-soa]`：跳过SOA(#)规则.<br>`[no-dualstack-selection]`：停用双栈测速。<br>`[-no-speed-check]`：停用测速。<br>`[-no-cache]`：停止缓存|bind-tcp :53
 |cache-size|域名结果缓存个数|512|数字|cache-size 512
 |cache-persist|是否持久化缓存|自动<br>当 `cache-file` 所在的位置有超过 128MB 的可用空间时启用，否则禁用。|[yes\|no]|cache-persist yes
 |cache-file|缓存持久化文件路径|/tmp/smartdns.cache|路径|cache-file /tmp/smartdns.cache
@@ -534,7 +534,8 @@ https://github.com/pymumu/smartdns/releases
 |address|指定域名IP地址|无|address /domain/[ip\|-\|-4\|-6\|#\|#4\|#6] <br>`-`表示忽略 <br>`#`表示返回SOA <br>`4`表示IPV4 <br>`6`表示IPV6| address /www.example.com/1.2.3.4
 |nameserver|指定域名使用server组解析|无|nameserver /domain/[group\|-], `group`为组名，`-`表示忽略此规则，配套server中的`-group`参数使用| nameserver /www.example.com/office
 |ipset|域名IPSET|None|ipset /domain/[ipset\|-\|#[4\|6]:[ipset\|-][,#[4\|6]:[ipset\|-]]], `-`表示忽略|ipset /www.example.com/#4:dns4,#6:-
-|ipset-timeout|设置IPSET超时功能启用|auto|[yes]|ipset-timeout yes
+|nftset|域名 nftables set|None|nftset /domain/[nftset\|-\|#[4\|6]:[nftset\|-][,#[4\|6]:[nftset\|-]]], `-`表示忽略|nftset /www.example.com/#4:inet mytable myset,#6:-
+|ipset-timeout|设置IPSET与NFTSET超时功能启用|auto|[yes]|ipset-timeout yes
 |domain-rules|设置域名规则|无|domain-rules /domain/ [-rules...]<br>`[-c\|-speed-check-mode]`: 测速模式，参考`speed-check-mode`配置<br>`[-a\|-address]`: 参考`address`配置<br>`[-n\|-nameserver]`: 参考`nameserver`配置<br>`[-p\|-ipset]`:参考`ipset`配置<br>`[-d\|-dualstack-ip-selection]`: 参考`dualstack-ip-selection`|domain-rules /www.example.com/ -speed-check-mode none
 |bogus-nxdomain|假冒IP地址过滤|无|[ip/subnet]，可重复| bogus-nxdomain 1.2.3.4/16
 |ignore-ip|忽略IP地址|无|[ip/subnet]，可重复| ignore-ip 1.2.3.4/16

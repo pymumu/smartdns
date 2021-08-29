@@ -682,6 +682,7 @@ static int _dns_server_reply_SOA(int rcode, struct dns_request *request)
 static int _dns_setup_ipset(struct dns_request *request)
 {
 	struct dns_ipset_rule *rule = NULL, *ipset_rule = NULL, *ipset_rule_v4 = NULL, *ipset_rule_v6 = NULL;
+	struct dns_ipset_rule *nftset_rule = NULL, *nftset_rule_v4 = NULL, *nftset_rule_v6 = NULL;
 	struct dns_rule_flags *rule_flags = NULL;
 	int ret = 0;
 
@@ -693,15 +694,18 @@ static int _dns_setup_ipset(struct dns_request *request)
 	rule_flags = request->domain_rule.rules[DOMAIN_RULE_FLAGS];
 	if (!rule_flags || (rule_flags->flags & DOMAIN_FLAG_IPSET_IGN) == 0) {
 		ipset_rule = request->domain_rule.rules[DOMAIN_RULE_IPSET];
+		nftset_rule = request->domain_rule.rules[DOMAIN_RULE_NFTSET];
 	}
 	if (!rule_flags || (rule_flags->flags & DOMAIN_FLAG_IPSET_IPV4_IGN) == 0) {
 		ipset_rule_v4 = request->domain_rule.rules[DOMAIN_RULE_IPSET_IPV4];
+		nftset_rule_v4 = request->domain_rule.rules[DOMAIN_RULE_NFTSET_IPV4];
 	}
 	if (!rule_flags || (rule_flags->flags & DOMAIN_FLAG_IPSET_IPV6_IGN) == 0) {
 		ipset_rule_v6 = request->domain_rule.rules[DOMAIN_RULE_IPSET_IPV6];
+		nftset_rule_v6 = request->domain_rule.rules[DOMAIN_RULE_NFTSET_IPV6];
 	}
 
-	if (!(ipset_rule || ipset_rule_v4 || ipset_rule_v6)) {
+	if (!(ipset_rule || ipset_rule_v4 || ipset_rule_v6 || nftset_rule || nftset_rule_v4 || nftset_rule_v6)) {
 		return 0;
 	}
 
@@ -711,6 +715,14 @@ static int _dns_setup_ipset(struct dns_request *request)
 		if (rule) {
 			ret |= ipset_add(rule->ipsetname, request->ipv4_addr, DNS_RR_A_LEN, request->ttl_v4 * 2);
 			tlog(TLOG_DEBUG, "IPSET-MATCH: domain:%s, ipset:%s, IP: %d.%d.%d.%d, result: %d", request->domain,
+				 rule->ipsetname, request->ipv4_addr[0], request->ipv4_addr[1], request->ipv4_addr[2],
+				 request->ipv4_addr[3], ret);
+		}
+
+		rule = nftset_rule_v4 ? nftset_rule_v4 : nftset_rule;
+		if (rule) {
+			ret |= nftset_add(rule->ipsetname, request->ipv4_addr, DNS_RR_A_LEN, request->ttl_v4 * 2);
+			tlog(TLOG_DEBUG, "NFTSET-MATCH: domain:%s, nftset:%s, IP: %d.%d.%d.%d, result: %d", request->domain,
 				 rule->ipsetname, request->ipv4_addr[0], request->ipv4_addr[1], request->ipv4_addr[2],
 				 request->ipv4_addr[3], ret);
 		}
@@ -726,12 +738,33 @@ static int _dns_setup_ipset(struct dns_request *request)
 					 rule->ipsetname, request->ipv4_addr[0], request->ipv4_addr[1], request->ipv4_addr[2],
 					 request->ipv4_addr[3], ret);
 			}
+
+			rule = nftset_rule_v4 ? nftset_rule_v4 : nftset_rule;
+			if (rule) {
+				ret |= nftset_add(rule->ipsetname, request->ipv4_addr, DNS_RR_A_LEN, request->ttl_v4 * 2);
+				tlog(TLOG_DEBUG, "NFTSET-MATCH: domain:%s, nftset:%s, IP: %d.%d.%d.%d, result: %d", request->domain,
+				     rule->ipsetname, request->ipv4_addr[0], request->ipv4_addr[1], request->ipv4_addr[2],
+				     request->ipv4_addr[3], ret);
+			}
 		}
 		rule = ipset_rule_v6 ? ipset_rule_v6 : ipset_rule;
 		if (rule) {
 			ret |= ipset_add(rule->ipsetname, request->ipv6_addr, DNS_RR_AAAA_LEN, request->ttl_v6 * 2);
 			tlog(TLOG_DEBUG,
 				 "IPSET-MATCH: domain:%s, ipset:%s, IP: "
+				 "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x, result: %d",
+				 request->domain, rule->ipsetname, request->ipv6_addr[0], request->ipv6_addr[1], request->ipv6_addr[2],
+				 request->ipv6_addr[3], request->ipv6_addr[4], request->ipv6_addr[5], request->ipv6_addr[6],
+				 request->ipv6_addr[7], request->ipv6_addr[8], request->ipv6_addr[9], request->ipv6_addr[10],
+				 request->ipv6_addr[11], request->ipv6_addr[12], request->ipv6_addr[13], request->ipv6_addr[14],
+				 request->ipv6_addr[15], ret);
+		}
+
+		rule = nftset_rule_v6 ? nftset_rule_v6 : nftset_rule;
+		if (rule) {
+			ret |= nftset_add(rule->ipsetname, request->ipv6_addr, DNS_RR_AAAA_LEN, request->ttl_v6 * 2);
+			tlog(TLOG_DEBUG,
+				 "NFTSET-MATCH: domain:%s, nftset:%s, IP: "
 				 "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x, result: %d",
 				 request->domain, rule->ipsetname, request->ipv6_addr[0], request->ipv6_addr[1], request->ipv6_addr[2],
 				 request->ipv6_addr[3], request->ipv6_addr[4], request->ipv6_addr[5], request->ipv6_addr[6],
@@ -1830,6 +1863,7 @@ static int _dns_server_setup_ipset_packet(struct dns_request *request, struct dn
 	int j = 0;
 	struct dns_rrs *rrs = NULL;
 	struct dns_ipset_rule *rule = NULL, *ipset_rule = NULL, *ipset_rule_v4 = NULL, *ipset_rule_v6 = NULL;
+	struct dns_ipset_rule *nftset_rule = NULL, *nftset_rule_v4 = NULL, *nftset_rule_v6 = NULL;
 	struct dns_rule_flags *rule_flags = NULL;
 
 	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_RULE_IPSET) == 0) {
@@ -1839,15 +1873,18 @@ static int _dns_server_setup_ipset_packet(struct dns_request *request, struct dn
 	rule_flags = request->domain_rule.rules[DOMAIN_RULE_FLAGS];
 	if (!rule_flags || (rule_flags->flags & DOMAIN_FLAG_IPSET_IGN) == 0) {
 		ipset_rule = request->domain_rule.rules[DOMAIN_RULE_IPSET];
+		nftset_rule = request->domain_rule.rules[DOMAIN_RULE_NFTSET];
 	}
 	if (!rule_flags || (rule_flags->flags & DOMAIN_FLAG_IPSET_IPV4_IGN) == 0) {
 		ipset_rule_v4 = request->domain_rule.rules[DOMAIN_RULE_IPSET_IPV4];
+		nftset_rule_v4 = request->domain_rule.rules[DOMAIN_RULE_NFTSET_IPV4];
 	}
 	if (!rule_flags || (rule_flags->flags & DOMAIN_FLAG_IPSET_IPV6_IGN) == 0) {
 		ipset_rule_v6 = request->domain_rule.rules[DOMAIN_RULE_IPSET_IPV6];
+		nftset_rule_v6 = request->domain_rule.rules[DOMAIN_RULE_NFTSET_IPV6];
 	}
 
-	if (!(ipset_rule || ipset_rule_v4 || ipset_rule_v6)) {
+	if (!(ipset_rule || ipset_rule_v4 || ipset_rule_v6 || nftset_rule || nftset_rule_v4 || nftset_rule_v6)) {
 		return 0;
 	}
 
@@ -1874,6 +1911,15 @@ static int _dns_server_setup_ipset_packet(struct dns_request *request, struct dn
 					tlog(TLOG_DEBUG, "IPSET-MATCH-PASSTHROUTH: domain: %s, ipset: %s, IP: %d.%d.%d.%d", request->domain,
 						 rule->ipsetname, addr[0], addr[1], addr[2], addr[3]);
 				}
+
+				rule = nftset_rule_v4 ? nftset_rule_v4 : nftset_rule;
+
+				if (rule) {
+					/* add IPV4 to ipset */
+					nftset_add(rule->ipsetname, addr, DNS_RR_A_LEN, request->ttl_v4 * 2);
+					tlog(TLOG_DEBUG, "NFTSET-MATCH-PASSTHROUTH: domain: %s, ipset: %s, IP: %d.%d.%d.%d", request->domain,
+						 rule->ipsetname, addr[0], addr[1], addr[2], addr[3]);
+				}
 			} break;
 			case DNS_T_AAAA: {
 				unsigned char addr[16];
@@ -1893,12 +1939,30 @@ static int _dns_server_setup_ipset_packet(struct dns_request *request, struct dn
 							tlog(TLOG_DEBUG, "IPSET-MATCH-PASSTHROUTH: domain: %s, ipset: %s, IP: %d.%d.%d.%d",
 								 request->domain, rule->ipsetname, addr[0], addr[1], addr[2], addr[3]);
 						}
+
+						rule = nftset_rule_v4 ? nftset_rule_v4 : nftset_rule;
+						if (rule) {
+							nftset_add(rule->ipsetname, request->ipv4_addr, DNS_RR_A_LEN, request->ttl_v4 * 2);
+							tlog(TLOG_DEBUG, "NFTSET-MATCH-PASSTHROUTH: domain:%s, nftset:%s, IP: %d.%d.%d.%d",
+							     request->domain, rule->ipsetname, addr[0], addr[1], addr[2], addr[3]);
+						}
 					}
 					rule = ipset_rule_v6 ? ipset_rule_v6 : ipset_rule;
 					if (rule) {
 						ipset_add(rule->ipsetname, addr, DNS_RR_AAAA_LEN, request->ttl_v6 * 2);
 						tlog(TLOG_DEBUG,
 							 "IPSET-MATCH-PASSTHROUTH: domain: %s, ipset: %s, IP: "
+							 "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x",
+							 request->domain, rule->ipsetname, addr[0], addr[1], addr[2], addr[3], addr[4], addr[5],
+							 addr[6], addr[7], addr[8], addr[9], addr[10], addr[11], addr[12], addr[13], addr[14],
+							 addr[15]);
+					}
+					
+					rule = nftset_rule_v6 ? nftset_rule_v6 : nftset_rule;
+					if (rule) {
+						nftset_add(rule->ipsetname, addr, DNS_RR_AAAA_LEN, request->ttl_v6 * 2);
+						tlog(TLOG_DEBUG,
+							 "NFTSET-MATCH-PASSTHROUTH: domain: %s, nftset: %s, IP: "
 							 "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x",
 							 request->domain, rule->ipsetname, addr[0], addr[1], addr[2], addr[3], addr[4], addr[5],
 							 addr[6], addr[7], addr[8], addr[9], addr[10], addr[11], addr[12], addr[13], addr[14],
@@ -2133,14 +2197,17 @@ static void _dns_server_update_rule_by_flags(struct dns_request *request)
 
 	if (flags & DOMAIN_FLAG_IPSET_IGN) {
 		request->domain_rule.rules[DOMAIN_RULE_IPSET] = NULL;
+		request->domain_rule.rules[DOMAIN_RULE_NFTSET] = NULL;
 	}
 
 	if (flags & DOMAIN_FLAG_IPSET_IPV4_IGN) {
 		request->domain_rule.rules[DOMAIN_RULE_IPSET_IPV4] = NULL;
+		request->domain_rule.rules[DOMAIN_RULE_NFTSET_IPV4] = NULL;
 	}
 
 	if (flags & DOMAIN_FLAG_IPSET_IPV6_IGN) {
 		request->domain_rule.rules[DOMAIN_RULE_IPSET_IPV6] = NULL;
+		request->domain_rule.rules[DOMAIN_RULE_NFTSET_IPV6] = NULL;
 	}
 
 	if (flags & DOMAIN_FLAG_NAMESERVER_IGNORE) {

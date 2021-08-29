@@ -18,10 +18,11 @@
 
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#include <stdio.h>
 #endif
-#include "util.h"
 #include "dns_conf.h"
 #include "tlog.h"
+#include "util.h"
 #include <arpa/inet.h>
 #include <dlfcn.h>
 #include <errno.h>
@@ -30,6 +31,7 @@
 #include <linux/capability.h>
 #include <linux/netlink.h>
 #include <netinet/tcp.h>
+#include <nftables/libnftables.h>
 #include <openssl/crypto.h>
 #include <openssl/ssl.h>
 #include <pthread.h>
@@ -91,6 +93,8 @@ struct ipset_netlink_msg {
 
 static int ipset_fd;
 static int pidfile_fd;
+
+static struct nft_ctx *nft_ctx;
 
 unsigned long get_tick_count(void)
 {
@@ -605,6 +609,65 @@ int ipset_del(const char *ipsetname, const unsigned char addr[], int addr_len)
 	return _ipset_operate(ipsetname, addr, addr_len, 0, IPSET_DEL);
 }
 
+static int _nftset_init(void)
+{
+	if (nft_ctx)
+		return 0;
+
+	nft_ctx = nft_ctx_new(NFT_CTX_DEFAULT);
+	if (!nft_ctx) {
+		return -1;
+	}
+
+	nft_ctx_buffer_error(nft_ctx);
+	return 0;
+}
+
+static int _nftset_operate(const char *nftsetname, const unsigned char addr[], int af, const char *op,
+						   const char *flags)
+{
+	char cmd_buf[BUFF_SZ];
+
+	if (_nftset_init() != 0) {
+		return -1;
+	}
+
+	int sz = snprintf(cmd_buf, sizeof(cmd_buf), "%s element %s { ", op, nftsetname);
+	if (sz >= sizeof(cmd_buf)) {
+		return -1;
+	}
+
+	const char *str = inet_ntop(af, addr, cmd_buf + sz, sizeof(cmd_buf) - sz);
+	if (!str) {
+		return -1;
+	}
+
+	int len = strlen(cmd_buf);
+	sz = snprintf(cmd_buf + len, sizeof(cmd_buf) - len, " %s }", flags);
+	if (sz + len >= sizeof(cmd_buf)) {
+		return -1;
+	}
+
+	int ret = nft_run_cmd_from_buffer(nft_ctx, cmd_buf);
+	nft_ctx_get_error_buffer(nft_ctx);
+
+	return ret;
+}
+
+int nftset_add(const char *nftsetname, const unsigned char addr[], int addr_len, unsigned long timeout)
+{
+	char flag_timeout[32];
+	int af = addr_len == IPV6_ADDR_LEN ? AF_INET6 : AF_INET;
+	sprintf(flag_timeout, "timeout %lus", timeout);
+	return _nftset_operate(nftsetname, addr, af, "add", flag_timeout);
+}
+
+int nftset_del(const char *nftsetname, const unsigned char addr[], int addr_len)
+{
+	int af = addr_len == IPV6_ADDR_LEN ? AF_INET6 : AF_INET;
+	return _nftset_operate(nftsetname, addr, af, "delete", "");
+}
+
 unsigned char *SSL_SHA256(const unsigned char *d, size_t n, unsigned char *md)
 {
 	SHA256_CTX c;
@@ -1043,7 +1106,8 @@ void print_stack(void)
 	if (frame_num == 0) {
 		return;
 	}
-	
+
+
 	tlog(TLOG_FATAL, "Stack:");
 	for (int idx = 0; idx < frame_num; ++idx) {
 		const void *addr = buffer[idx];

@@ -36,6 +36,7 @@ struct dns_ipset_table {
 	DECLARE_HASHTABLE(ipset, 8);
 };
 static struct dns_ipset_table dns_ipset_table;
+static struct dns_ipset_table dns_nftset_table;
 
 /* dns groups */
 struct dns_group_table dns_group_table;
@@ -547,26 +548,26 @@ errout:
 	return 0;
 }
 
-static void _config_ipset_table_destroy(void)
+static void _config_ipset_table_destroy(struct dns_ipset_table *table)
 {
 	struct dns_ipset_name *ipset_name = NULL;
 	struct hlist_node *tmp = NULL;
 	int i;
 
-	hash_for_each_safe(dns_ipset_table.ipset, i, tmp, ipset_name, node)
+	hash_for_each_safe(table->ipset, i, tmp, ipset_name, node)
 	{
 		hlist_del_init(&ipset_name->node);
 		free(ipset_name);
 	}
 }
 
-static const char *_dns_conf_get_ipset(const char *ipsetname)
+static const char *_dns_conf_get_ipset(struct dns_ipset_table *table, const char *ipsetname)
 {
 	uint32_t key = 0;
 	struct dns_ipset_name *ipset_name = NULL;
 
 	key = hash_string(ipsetname);
-	hash_for_each_possible(dns_ipset_table.ipset, ipset_name, node, key)
+	hash_for_each_possible(table->ipset, ipset_name, node, key)
 	{
 		if (strncmp(ipset_name->ipsetname, ipsetname, DNS_MAX_IPSET_NAMELEN) == 0) {
 			return ipset_name->ipsetname;
@@ -580,7 +581,7 @@ static const char *_dns_conf_get_ipset(const char *ipsetname)
 
 	key = hash_string(ipsetname);
 	safe_strncpy(ipset_name->ipsetname, ipsetname, DNS_MAX_IPSET_NAMELEN);
-	hash_add(dns_ipset_table.ipset, &ipset_name->node, key);
+	hash_add(table->ipset, &ipset_name->node, key);
 
 	return ipset_name->ipsetname;
 errout:
@@ -591,13 +592,24 @@ errout:
 	return NULL;
 }
 
-static int _conf_domain_rule_ipset(char *domain, const char *ipsetname)
+static int _conf_domain_rule_ipset(struct dns_ipset_table *table, char *domain, const char *ipsetname)
 {
+	enum domain_rule rule, rule_v4, rule_v6;
 	struct dns_ipset_rule *ipset_rule = NULL;
 	const char *ipset = NULL;
 	char *copied_name = NULL;
 	enum domain_rule type;
 	int ignore_flag;
+
+	if (table == &dns_nftset_table) {
+		rule = DOMAIN_RULE_NFTSET;
+		rule_v4 = DOMAIN_RULE_NFTSET_IPV4;
+		rule_v6 = DOMAIN_RULE_NFTSET_IPV6;
+	} else {
+		rule = DOMAIN_RULE_IPSET;
+		rule_v4 = DOMAIN_RULE_IPSET_IPV4;
+		rule_v6 = DOMAIN_RULE_IPSET_IPV6;
+	}
 
 	copied_name = strdup(ipsetname);
 
@@ -608,17 +620,17 @@ static int _conf_domain_rule_ipset(char *domain, const char *ipsetname)
 	for (char *tok = strtok(copied_name, ","); tok; tok = strtok(NULL, ",")) {
 		if (tok[0] == '#') {
 			if (strncmp(tok, "#6:", 3u) == 0) {
-				type = DOMAIN_RULE_IPSET_IPV6;
+				type = rule_v6;
 				ignore_flag = DOMAIN_FLAG_IPSET_IPV6_IGN;
 			} else if (strncmp(tok, "#4:", 3u) == 0) {
-				type = DOMAIN_RULE_IPSET_IPV4;
+				type = rule_v4;
 				ignore_flag = DOMAIN_FLAG_IPSET_IPV4_IGN;
 			} else {
 				goto errout;
 			}
 			tok += 3;
 		} else {
-			type = DOMAIN_RULE_IPSET;
+			type = rule;
 			ignore_flag = DOMAIN_FLAG_IPSET_IGN;
 		}
 
@@ -628,7 +640,7 @@ static int _conf_domain_rule_ipset(char *domain, const char *ipsetname)
 		}
 
 		/* new ipset domain */
-		ipset = _dns_conf_get_ipset(tok);
+		ipset = _dns_conf_get_ipset(table, tok);
 		if (ipset == NULL) {
 			goto errout;
 		}
@@ -662,23 +674,60 @@ clear:
 	return 0;
 }
 
-static int _config_ipset(void *data, int argc, char *argv[])
+static char *_concat_args(int argc, char *argv[])
+{
+	int len = 0;
+	for (int i = 0; i < argc; i++)
+		len += strlen(argv[i]);
+
+	char *str = malloc(len + argc);
+	if (!str) {
+		return NULL;
+	}
+
+	strcpy(str, argv[0]);
+	for (int i = 1; i < argc; i++) {
+		strcat(str, " ");
+		strcat(str, argv[i]);
+	}
+
+	return str;
+}
+
+static int _config_ipset_table(struct dns_ipset_table *table, void *data, int argc, char *argv[])
 {
 	char domain[DNS_MAX_CONF_CNAME_LEN];
-	char *value = argv[1];
+	char *value = _concat_args(argc - 1, argv + 1);
+	if (!value) {
+		return 0;
+	}
 
 	if (argc <= 1) {
 		goto errout;
 	}
 
-	if (_get_domain(value, domain, DNS_MAX_CONF_CNAME_LEN, &value) != 0) {
+	char *ipsetname;
+	if (_get_domain(value, domain, DNS_MAX_CONF_CNAME_LEN, &ipsetname) != 0) {
 		goto errout;
 	}
 
-	return _conf_domain_rule_ipset(domain, value);
+	int ret = _conf_domain_rule_ipset(table, domain, ipsetname);
+	free(value);
+	return ret;
 errout:
 	tlog(TLOG_ERROR, "add ipset %s failed", value);
+	free(value);
 	return 0;
+}
+
+static int _config_ipset(void *data, int argc, char *argv[])
+{
+	return _config_ipset_table(&dns_ipset_table, data, argc, argv);
+}
+
+static int _config_nftset(void *data, int argc, char *argv[])
+{
+	return _config_ipset_table(&dns_nftset_table, data, argc, argv);
 }
 
 static int _conf_domain_rule_address(char *domain, const char *domain_address)
@@ -1349,7 +1398,7 @@ static int _conf_domain_rules(void *data, int argc, char *argv[])
 				goto errout;
 			}
 
-			if (_conf_domain_rule_ipset(domain, ipsetname) != 0) {
+			if (_conf_domain_rule_ipset(&dns_ipset_table, domain, ipsetname) != 0) {
 				tlog(TLOG_ERROR, "add ipset rule failed.");
 				goto errout;
 			}
@@ -1424,6 +1473,7 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("address", _config_address, NULL),
 	CONF_YESNO("ipset-timeout", &dns_conf_ipset_timeout_enable),
 	CONF_CUSTOM("ipset", _config_ipset, NULL),
+	CONF_CUSTOM("nftset", _config_nftset, NULL),
 	CONF_CUSTOM("speed-check-mode", _config_speed_check_mode, NULL),
 	CONF_INT("tcp-idle-time", &dns_conf_tcp_idle_time, 0, 3600),
 	CONF_INT("cache-size", &dns_conf_cachesize, 0, CONF_INT_MAX),
@@ -1518,6 +1568,7 @@ static int _dns_server_load_conf_init(void)
 	art_tree_init(&dns_conf_domain_rule);
 
 	hash_init(dns_ipset_table.ipset);
+	hash_init(dns_nftset_table.ipset);
 	hash_init(dns_group_table.group);
 
 	return 0;
@@ -1528,7 +1579,8 @@ void dns_server_load_exit(void)
 	_config_domain_destroy();
 	Destroy_Radix(dns_conf_address_rule.ipv4, _config_address_destroy, NULL);
 	Destroy_Radix(dns_conf_address_rule.ipv6, _config_address_destroy, NULL);
-	_config_ipset_table_destroy();
+	_config_ipset_table_destroy(&dns_ipset_table);
+	_config_ipset_table_destroy(&dns_nftset_table);
 	_config_group_table_destroy();
 }
 
