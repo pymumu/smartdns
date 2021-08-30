@@ -19,6 +19,8 @@
 #ifndef _DNS_HEAD_H
 #define _DNS_HEAD_H
 
+#include "config.h"
+
 #define DNS_RR_A_LEN 4
 #define DNS_RR_AAAA_LEN 16
 #define DNS_MAX_CNAME_LEN 256

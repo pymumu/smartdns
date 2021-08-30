@@ -19,6 +19,7 @@
 #ifndef _DNS_CONF
 #define _DNS_CONF
 
+#include "config.h"
 #include "art.h"
 #include "conf.h"
 #include "dns.h"
@@ -58,9 +59,11 @@ enum domain_rule {
 	DOMAIN_RULE_IPSET,
 	DOMAIN_RULE_IPSET_IPV4,
 	DOMAIN_RULE_IPSET_IPV6,
+#ifdef HAVE_NFTSET
 	DOMAIN_RULE_NFTSET,
 	DOMAIN_RULE_NFTSET_IPV4,
 	DOMAIN_RULE_NFTSET_IPV6,
+#endif
 	DOMAIN_RULE_NAMESERVER,
 	DOMAIN_RULE_CHECKSPEED,
 	DOMAIN_RULE_MAX,

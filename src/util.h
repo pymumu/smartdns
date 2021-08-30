@@ -19,6 +19,7 @@
 #ifndef SMART_DNS_UTIL_H
 #define SMART_DNS_UTIL_H
 
+#include "config.h"
 #include "stringutil.h"
 #include <netdb.h>
 #include <time.h>
@@ -71,9 +72,13 @@ int ipset_add(const char *ipsetname, const unsigned char addr[], int addr_len, u
 
 int ipset_del(const char *ipsetname, const unsigned char addr[], int addr_len);
 
+#ifdef HAVE_NFTSET
+
 int nftset_add(const char *nftsetname, const unsigned char addr[], int addr_len, unsigned long timeout);
 
 int nftset_del(const char *nftsetname, const unsigned char addr[], int addr_len);
+
+#endif
 
 void SSL_CRYPTO_thread_setup(void);
 
@@ -113,6 +118,8 @@ int set_sock_lingertime(int fd, int time);
 uint64_t get_free_space(const char *path);
 
 void print_stack(void);
+
+__attribute__((noreturn)) void panic(const char *msg);
 
 #ifdef __cplusplus
 }

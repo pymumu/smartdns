@@ -1,0 +1,59 @@
+#!/bin/sh
+# dnsmasq is Copyright (c) 2000-2021 Simon Kelley
+#
+#  This program is free software; you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation; version 2 dated June, 1991, or
+#  (at your option) version 3 dated 29 June, 2007.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#    
+#  You should have received a copy of the GNU General Public License
+#  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+in=`cat`
+
+search()
+{
+    grep "^\#[[:space:]]*define[[:space:]]*$1" config.h >/dev/null 2>&1 || \
+    echo $in | grep $1 >/dev/null 2>&1
+}
+
+while [ "$#" -gt 0 ]; do
+    search=$1
+    pkg=$2
+    op=$3
+    lib=$4
+    shift 4
+if search "$search"; then
+
+# Nasty, nasty, in --copy, arg 2 (if non-empty) is another config to search for, used with NO_GMP
+    if [ $op = "--copy" ]; then
+	if [ -z "$pkg" ]; then
+	    pkg="$lib"
+	elif search "$pkg"; then
+	    pkg=""
+	else 
+	    pkg="$lib"
+	fi
+    elif search "${search}_STATIC"; then
+	pkg=`$pkg  --static $op $lib`
+    else
+	pkg=`$pkg $op $lib`
+    fi
+    
+    if search "${search}_STATIC"; then
+	if [ $op = "--libs" ] || [ $op = "--copy" ]; then
+	    echo "-Wl,-Bstatic $pkg -Wl,-Bdynamic"
+	else
+	    echo "$pkg" 
+	fi
+    else
+	echo "$pkg"
+    fi
+fi
+
+done

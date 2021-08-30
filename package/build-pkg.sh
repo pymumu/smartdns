@@ -16,6 +16,7 @@ showhelp()
 	echo " --platform [luci|luci-compat|debian|openwrt|optware|linux]    build for platform. "
 	echo " --arch [all|armhf|arm64|x86-64|...]               build for architecture, e.g. "
 	echo " --cross-tool [cross-tool]                         cross compiler, e.g. mips-openwrt-linux-"
+	echo " --with-nftables                                   build with nftables support"
 	echo ""
 	echo "Advance Options:"
 	echo " --static                                          static link smartdns"
@@ -43,8 +44,9 @@ showhelp()
 build_smartdns()
 {
 	if [ "$PLATFORM" != "luci" ]; then
-		make -C $CODE_DIR clean $MAKE_ARGS
-		make -C $CODE_DIR all -j8 VER=$VER $MAKE_ARGS
+		echo "COPTS=$COPTS"
+		make -C $CODE_DIR clean $MAKE_ARGS "COPTS=$COPTS"
+		make -C $CODE_DIR all -j8 VER=$VER $MAKE_ARGS "COPTS=$COPTS"
 		if [ $? -ne 0 ]; then
 			echo "make smartdns failed"
 			exit 1
@@ -81,7 +83,7 @@ build()
 
 main()
 {
-	OPTS=`getopt -o o:h --long arch:,filearch:,ver:,platform:,cross-tool:,static,only-package,outputdir: \
+	OPTS=`getopt -o o:h --long arch:,filearch:,ver:,platform:,cross-tool:,with-nftables,static,only-package,outputdir: \
 		-n  "" -- "$@"`
 
 	if [ "$#" -le "1" ]; then
@@ -108,6 +110,9 @@ main()
 		--cross-tool)
 			CROSS_TOOL="$2"
 			shift 2;;
+		 --with-nftables)
+			COPTS+="-DHAVE_NFTSET"
+			shift 1;;
 		--static)
 			export STATIC="yes"
 			shift 1;;

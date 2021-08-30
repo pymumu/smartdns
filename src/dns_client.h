@@ -19,6 +19,7 @@
 #ifndef _SMART_DNS_CLIENT_H
 #define _SMART_DNS_CLIENT_H
 
+#include "config.h"
 #include "dns.h"
 
 #ifdef __cpluscplus

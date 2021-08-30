@@ -19,6 +19,7 @@
 #ifndef _SMARTDNS_CACHE_H
 #define _SMARTDNS_CACHE_H
 
+#include "config.h"
 #include "atomic.h"
 #include "dns.h"
 #include "hash.h"

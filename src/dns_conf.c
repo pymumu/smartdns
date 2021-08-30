@@ -16,6 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "config.h"
 #include "dns_conf.h"
 #include "list.h"
 #include "rbtree.h"
@@ -36,7 +37,9 @@ struct dns_ipset_table {
 	DECLARE_HASHTABLE(ipset, 8);
 };
 static struct dns_ipset_table dns_ipset_table;
+#ifdef HAVE_NFTSET
 static struct dns_ipset_table dns_nftset_table;
+#endif
 
 /* dns groups */
 struct dns_group_table dns_group_table;
@@ -601,14 +604,18 @@ static int _conf_domain_rule_ipset(struct dns_ipset_table *table, char *domain, 
 	enum domain_rule type;
 	int ignore_flag;
 
-	if (table == &dns_nftset_table) {
-		rule = DOMAIN_RULE_NFTSET;
-		rule_v4 = DOMAIN_RULE_NFTSET_IPV4;
-		rule_v6 = DOMAIN_RULE_NFTSET_IPV6;
-	} else {
+	if (table == &dns_ipset_table) {
 		rule = DOMAIN_RULE_IPSET;
 		rule_v4 = DOMAIN_RULE_IPSET_IPV4;
 		rule_v6 = DOMAIN_RULE_IPSET_IPV6;
+	} else {
+#ifdef HAVE_NFTSET
+		rule = DOMAIN_RULE_NFTSET;
+		rule_v4 = DOMAIN_RULE_NFTSET_IPV4;
+		rule_v6 = DOMAIN_RULE_NFTSET_IPV6;
+#else
+		panic("unreachable");
+#endif
 	}
 
 	copied_name = strdup(ipsetname);
@@ -727,7 +734,12 @@ static int _config_ipset(void *data, int argc, char *argv[])
 
 static int _config_nftset(void *data, int argc, char *argv[])
 {
+#ifdef HAVE_NFTSET
 	return _config_ipset_table(&dns_nftset_table, data, argc, argv);
+#else
+	tlog(TLOG_ERROR, "nftset disabled, rebuild with HAVE_NFTSET to enable");
+	return -1;
+#endif
 }
 
 static int _conf_domain_rule_address(char *domain, const char *domain_address)
@@ -1568,7 +1580,9 @@ static int _dns_server_load_conf_init(void)
 	art_tree_init(&dns_conf_domain_rule);
 
 	hash_init(dns_ipset_table.ipset);
+#ifdef HAVE_NFTSET
 	hash_init(dns_nftset_table.ipset);
+#endif
 	hash_init(dns_group_table.group);
 
 	return 0;
@@ -1580,7 +1594,9 @@ void dns_server_load_exit(void)
 	Destroy_Radix(dns_conf_address_rule.ipv4, _config_address_destroy, NULL);
 	Destroy_Radix(dns_conf_address_rule.ipv6, _config_address_destroy, NULL);
 	_config_ipset_table_destroy(&dns_ipset_table);
+#ifdef HAVE_NFTSET
 	_config_ipset_table_destroy(&dns_nftset_table);
+#endif
 	_config_group_table_destroy();
 }
 

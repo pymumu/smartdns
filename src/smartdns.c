@@ -17,6 +17,7 @@
  */
 
 #define _GNU_SOURCE
+#include "config.h"
 #include "art.h"
 #include "atomic.h"
 #include "dns_client.h"

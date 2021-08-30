@@ -6,6 +6,7 @@
 
 #ifndef TLOG_H
 #define TLOG_H
+#include "config.h"
 #include <stdarg.h>
 #include <sys/stat.h>
 

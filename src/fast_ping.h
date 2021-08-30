@@ -19,6 +19,7 @@
 #ifndef FAST_PING_H
 #define FAST_PING_H
 
+#include "config.h"
 #include <netdb.h>
 #include <sys/time.h>
 #ifdef __cpluscplus

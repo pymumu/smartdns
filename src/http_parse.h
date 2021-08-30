@@ -19,6 +19,8 @@
 #ifndef HTTP_PARSER_H
 #define HTTP_PARSER_H
 
+#include "config.h"
+
 #ifdef __cpluscplus
 extern "C" {
 #endif

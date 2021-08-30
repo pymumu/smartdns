@@ -20,6 +20,7 @@
 #define _GNU_SOURCE
 #include <stdio.h>
 #endif
+#include "config.h"
 #include "dns_conf.h"
 #include "tlog.h"
 #include "util.h"
@@ -31,7 +32,6 @@
 #include <linux/capability.h>
 #include <linux/netlink.h>
 #include <netinet/tcp.h>
-#include <nftables/libnftables.h>
 #include <openssl/crypto.h>
 #include <openssl/ssl.h>
 #include <pthread.h>
@@ -44,6 +44,10 @@
 #include <time.h>
 #include <unistd.h>
 #include <unwind.h>
+
+#ifdef HAVE_NFTSET
+#include <nftables/libnftables.h>
+#endif
 
 #define TMP_BUFF_LEN_32 32
 
@@ -94,7 +98,9 @@ struct ipset_netlink_msg {
 static int ipset_fd;
 static int pidfile_fd;
 
+#ifdef HAVE_NFTSET
 static struct nft_ctx *nft_ctx;
+#endif
 
 unsigned long get_tick_count(void)
 {
@@ -609,6 +615,7 @@ int ipset_del(const char *ipsetname, const unsigned char addr[], int addr_len)
 	return _ipset_operate(ipsetname, addr, addr_len, 0, IPSET_DEL);
 }
 
+#ifdef HAVE_NFTSET
 static int _nftset_init(void)
 {
 	if (nft_ctx)
@@ -667,6 +674,7 @@ int nftset_del(const char *nftsetname, const unsigned char addr[], int addr_len)
 	int af = addr_len == IPV6_ADDR_LEN ? AF_INET6 : AF_INET;
 	return _nftset_operate(nftsetname, addr, af, "delete", "");
 }
+#endif
 
 unsigned char *SSL_SHA256(const unsigned char *d, size_t n, unsigned char *md)
 {
@@ -1107,7 +1115,6 @@ void print_stack(void)
 		return;
 	}
 
-
 	tlog(TLOG_FATAL, "Stack:");
 	for (int idx = 0; idx < frame_num; ++idx) {
 		const void *addr = buffer[idx];
@@ -1122,4 +1129,10 @@ void print_stack(void)
 		void *offset = (void *)((char *)(addr) - (char *)(info.dli_fbase));
 		tlog(TLOG_FATAL, "#%.2d: %p %s from %s+%p", idx + 1, addr, symbol, info.dli_fname, offset);
 	}
+}
+
+void panic(const char *msg) {
+	tlog(TLOG_FATAL, "%s", msg);
+	print_stack();
+	exit(1);
 }

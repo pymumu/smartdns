@@ -16,6 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "config.h"
 #include "fast_ping.h"
 #include "atomic.h"
 #include "hashtable.h"

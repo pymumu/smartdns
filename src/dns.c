@@ -17,6 +17,7 @@
  */
 
 #define _GNU_SOURCE
+#include "config.h"
 #include "dns.h"
 #include "stringutil.h"
 #include "tlog.h"
