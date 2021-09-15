@@ -28,6 +28,7 @@
 #include <fcntl.h>
 #include <inttypes.h>
 #include <linux/capability.h>
+#include <linux/limits.h>
 #include <linux/netlink.h>
 #include <netinet/tcp.h>
 #include <openssl/crypto.h>
