@@ -738,7 +738,11 @@ void SSL_CRYPTO_thread_setup(void)
 		pthread_mutex_init(&(lock_cs[i]), NULL);
 	}
 
+#if OPENSSL_API_COMPAT < 0x10000000
 	CRYPTO_set_id_callback(_pthreads_thread_id);
+#else
+	CRYPTO_THREADID_set_callback(_pthreads_thread_id);
+#endif
 	CRYPTO_set_locking_callback(_pthreads_locking_callback);
 }
 
