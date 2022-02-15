@@ -1,0 +1,69 @@
+name: Test Build
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        goos: [debian, openwrt, optware]
+        goarch: [x86, x86_64, mips, arm, aarch64]
+        exclude:
+          - goarch: x86
+            goos: debian
+          - goarch: 386
+            goos: darwin
+        include:
+          - goos: openwrt
+            goarch: mipsel
+          - goos: optware
+            goarch: mipsel
+          - goos: linux
+            goarch: x86
+          - goos: linux
+            goarch: x86_64
+          - goos: luci
+            goarch: all
+          - goos: luci-compat
+            goarch: all
+      fail-fast: false
+
+    runs-on: ubuntu-latest
+    env:
+      GOOS: ${{ matrix.goos }}
+      GOARCH: ${{ matrix.goarch }}
+      CGO_ENABLED: 0
+    steps:
+      - uses: actions/checkout@v2
+      - name: Build
+        continue-on-error: true
+        run: |
+          sudo timedatectl set-timezone "Asia/Shanghai"
+          cd ${{ github.workspace }}/package/
+          mkdir -p output
+          ./build-pkg.sh --platform $GOOS --arch $GOARCH --filearch $GOARCH-$GOOS --outputdir ${{ github.workspace }}/package/output
+          mkdir -p output-static
+          ./build-pkg.sh --platform $GOOS --arch $GOARCH --static --filearch $GOARCH-$GOOS-all --outputdir ${{ github.workspace }}/package/output-static
+      - name: Upload To Artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: smartdns-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: ${{ github.workspace }}/package/output/
+      - uses: actions/upload-artifact@v2
+        with:
+          name: smartdns-${{ matrix.goos }}-${{ matrix.goarch }}-all
+          path: ${{ github.workspace }}/package/output-static/
+      - name: Upload To One Artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: smartdns-package
+          path: ${{ github.workspace }}/package/output/
+      - uses: actions/upload-artifact@v2
+        with:
+          name: smartdns-static-package
+          path: ${{ github.workspace }}/package/output-static/
