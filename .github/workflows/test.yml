@@ -56,7 +56,7 @@ jobs:
           path: ${{ github.workspace }}/package/output/
       - uses: actions/upload-artifact@v2
         with:
-          name: smartdns-${{ matrix.goos }}-${{ matrix.goarch }}-all
+          name: smartdns-${{ matrix.goos }}-${{ matrix.goarch }}-static
           path: ${{ github.workspace }}/package/output-static/
       - name: Upload To One Artifact
         uses: actions/upload-artifact@v2
