@@ -2349,6 +2349,17 @@ static int _dns_server_get_expired_ttl_reply(struct dns_cache *dns_cache)
 	return dns_conf_serve_expired_reply_ttl;
 }
 
+
+static int _dns_server_get_expired_cname_ttl_reply(struct dns_cache *dns_cache)
+{
+	int ttl = dns_cache_get_cname_ttl(dns_cache);
+	if (ttl > 0) {
+		return ttl;
+	}
+
+	return dns_conf_serve_expired_reply_ttl;
+}
+
 static int _dns_server_process_cache_addr(struct dns_request *request, struct dns_cache *dns_cache)
 {
 	struct dns_cache_addr *cache_addr = (struct dns_cache_addr *)dns_cache_get_data(dns_cache);
@@ -2376,7 +2387,7 @@ static int _dns_server_process_cache_addr(struct dns_request *request, struct dn
 	if (cache_addr->addr_data.cname[0] != 0) {
 		safe_strncpy(request->cname, cache_addr->addr_data.cname, DNS_MAX_CNAME_LEN);
 		request->has_cname = 1;
-		request->ttl_cname = cache_addr->addr_data.cname_ttl;
+		request->ttl_cname = _dns_server_get_expired_cname_ttl_reply(dns_cache);
 	}
 
 	request->rcode = DNS_RC_NOERROR;

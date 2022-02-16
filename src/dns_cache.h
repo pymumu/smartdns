@@ -143,6 +143,8 @@ void dns_cache_invalidate(dns_cache_preinvalid_callback callback, int ttl_pre);
 
 int dns_cache_get_ttl(struct dns_cache *dns_cache);
 
+int dns_cache_get_cname_ttl(struct dns_cache *dns_cache);
+
 int dns_cache_is_soa(struct dns_cache *dns_cache);
 
 struct dns_cache_data *dns_cache_new_data(void);

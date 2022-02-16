@@ -412,7 +412,37 @@ int dns_cache_get_ttl(struct dns_cache *dns_cache)
 	return ttl;
 }
 
-int dns_cache_is_soa(struct dns_cache *dns_cache) {
+int dns_cache_get_cname_ttl(struct dns_cache *dns_cache) 
+{
+	time_t now;
+	int ttl = 0;
+	time(&now);
+
+	struct dns_cache_addr *cache_addr = (struct dns_cache_addr *)dns_cache_get_data(dns_cache);
+
+	if (cache_addr->head.cache_type != CACHE_TYPE_ADDR) {
+		return 0;
+	}
+
+	ttl = dns_cache->info.insert_time + cache_addr->addr_data.cname_ttl - now;
+	if (ttl < 0) {
+		return 0;
+	}
+
+	int addr_ttl = dns_cache_get_ttl(dns_cache);
+	if (ttl < addr_ttl) {
+		return addr_ttl;
+	}
+
+	if (ttl < 0) {
+		return 0;
+	}
+
+	return ttl;	
+}
+
+int dns_cache_is_soa(struct dns_cache *dns_cache) 
+{
 	if (dns_cache == NULL) {
 		return 0;
 	}
