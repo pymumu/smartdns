@@ -809,7 +809,7 @@ static int _dns_server_request_complete_A(struct dns_request *request)
 			request->ttl_v4 = DNS_SERVER_TMOUT_TTL;
 		}
 		dns_cache_set_data_addr(cache_data, request->server_flags, cname, cname_ttl, request->ipv4_addr, DNS_RR_A_LEN);
-	} else {
+	} else if (request->has_soa) {
 		dns_cache_set_data_soa(cache_data, request->server_flags, cname, cname_ttl);
 	}
 
@@ -867,7 +867,7 @@ static int _dns_server_request_complete_AAAA(struct dns_request *request)
 		dns_cache_set_data_addr(cache_data, request->server_flags, cname, cname_ttl, request->ipv6_addr, DNS_T_AAAA);
 
 		request->has_soa = 0;
-	} else {
+	} else if (request->has_soa) {
 		dns_cache_set_data_soa(cache_data, request->server_flags, cname, cname_ttl);
 	}
 
