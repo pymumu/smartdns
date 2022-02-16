@@ -1929,6 +1929,8 @@ static int _dns_server_reply_passthrouth(struct dns_request *request, struct dns
 		_dns_result_callback(request);
 	}
 
+	_dns_server_audit_log(request);
+
 	if (request->conn) {
 		/* When passthrough, modify the id to be the id of the client request. */
 		dns_server_update_reply_packet_id(request, inpacket, inpacket_len);
@@ -2419,17 +2421,20 @@ static int _dns_server_process_cache_packet(struct dns_request *request, struct 
 		return 0;
 	}
 
+	unsigned char packet_buff[DNS_PACKSIZE];
+	struct dns_packet *packet = (struct dns_packet *)packet_buff;
+
+	if (dns_decode(packet, DNS_PACKSIZE, cache_packet->data, cache_packet->head.size) != 0) {
+		goto errout;
+	}
+
+	_dns_server_get_answer(request, packet);
+	
+	_dns_server_audit_log(request);
 	if (request->result_callback) {
-		unsigned char packet_buff[DNS_PACKSIZE];
-		struct dns_packet *packet = (struct dns_packet *)packet_buff;
-
-		if (dns_decode(packet, DNS_PACKSIZE, cache_packet->data, cache_packet->head.size) != 0) {
-			goto errout;
-		}
-
-		_dns_server_get_answer(request, packet);
 		_dns_result_callback(request);
 	}
+
 
 	if (request->conn == NULL) {
 		return 0;
