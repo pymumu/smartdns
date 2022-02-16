@@ -657,6 +657,13 @@ https://github.com/pymumu/smartdns/releases
     bind [::]:6053 -no-speed-check -group office -no-rule-addr
     ```
 
+1. DOT的SPKI如何获取  
+    SPKI可以通过DNS服务商发布的页面获取，如果没有发布，可以通过如下命令获取，其中将对应IP地址更换为要获取SPKI的IP地址。
+
+    ```sh
+    echo | openssl s_client -connect '1.0.0.1:853' 2>/dev/null | openssl x509 -pubkey -noout | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | openssl enc -base64
+    ```
+
 ## 编译
 
 smartdns包含了编译软件包的脚本，支持编译luci，debian，openwrt，optare安装包，可执行`package/build-pkg.sh`编译。

@@ -638,13 +638,20 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
     Enable cache serve expired feature with `serve-expired yes` to improve the cache hit rate and reduce the CPU consumption.
     This feature will return TTL = 0 to the client after the TTL timeout, and send a new query request again at the same time, and cache the new results for later query.
 
-1. How does the second DNS customize more behavior?
+1. How does the second DNS customize more behavior?  
     The second DNS can be used as the upstream of other DNS servers to provide more query behaviors. Bind configuration support can bind multiple ports. Different ports can be set with different flags to implement different functions, such as
 
     ```sh
     # Binding 6053 port, request for port 6053 will be configured with the upstream query of the office group, and the result will not be measured. The address configuration address is ignored.
     bind [::]:6053 -no-speed-check -group office -no-rule-addr
     ```
+
+1. How to get SPKI of DOT  
+    The SPKI can be obtained from the page published by the DNS service provider. If it is not published, it can be obtained by the following command, replace IP with your own IP.
+
+    ````sh
+    echo | openssl s_client -connect '1.0.0.1:853' 2>/dev/null | openssl x509 -pubkey -noout | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | openssl enc -base64
+    ````
 
 ## Compile
 
