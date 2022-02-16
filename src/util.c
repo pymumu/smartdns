@@ -609,15 +609,22 @@ int ipset_del(const char *ipsetname, const unsigned char addr[], int addr_len)
 
 unsigned char *SSL_SHA256(const unsigned char *d, size_t n, unsigned char *md)
 {
-	SHA256_CTX c;
 	static unsigned char m[SHA256_DIGEST_LENGTH];
 
 	if (md == NULL)
 		md = m;
-	SHA256_Init(&c);
-	SHA256_Update(&c, d, n);
-	SHA256_Final(md, &c);
-	OPENSSL_cleanse(&c, sizeof(c));
+
+	EVP_MD_CTX* ctx = EVP_MD_CTX_create();
+	if (ctx == NULL) {
+		return NULL;
+	}
+
+	EVP_MD_CTX_init(ctx);
+	EVP_DigestInit_ex(ctx, EVP_sha256(), NULL);
+	EVP_DigestUpdate(ctx, d, n);
+	EVP_DigestFinal_ex(ctx, m, NULL);
+	EVP_MD_CTX_destroy(ctx);
+
 	return (md);
 }
 
