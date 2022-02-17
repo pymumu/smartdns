@@ -936,11 +936,6 @@ static int _dns_server_request_complete(struct dns_request *request)
 		return 0;
 	}
 
-	/* if passthrouth, return */
-	if (request->passthrough) {
-		return 0;
-	}
-
 	if (request->qtype == DNS_T_A) {
 		if (_dns_server_request_complete_A(request) != 0) {
 			tlog(TLOG_ERROR, "complete DNS A failed.");
@@ -1062,6 +1057,9 @@ static void _dns_server_select_possible_ipaddress(struct dns_request *request)
 static void _dns_server_delete_request(struct dns_request *request)
 {
 	if (request->conn) {
+		if (atomic_read(&request->notified) == 0) {
+			_dns_server_request_complete(request);
+		}
 		_dns_server_conn_release(request->conn);
 	}
 	pthread_mutex_destroy(&request->ip_map_lock);
@@ -1667,6 +1665,7 @@ static int _dns_server_passthrough_rule_check(struct dns_request *request, char 
 	int j = 0;
 	struct dns_rrs *rrs = NULL;
 	int ip_check_result = 0;
+	int is_result_strict = 0;
 
 	if (packet->head.rcode != DNS_RC_NOERROR && packet->head.rcode != DNS_RC_NXDOMAIN) {
 		if (request->rcode == DNS_RC_SERVFAIL) {
@@ -1680,6 +1679,10 @@ static int _dns_server_passthrough_rule_check(struct dns_request *request, char 
 	for (j = 1; j < DNS_RRS_END; j++) {
 		rrs = dns_get_rrs_start(packet, j, &rr_count);
 		for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
+			if (rrs->type == request->qtype || rrs->type == DNS_T_SOA) {
+				is_result_strict = 1;
+			}
+
 			switch (rrs->type) {
 			case DNS_T_A: {
 				unsigned char addr[4];
@@ -1738,6 +1741,10 @@ static int _dns_server_passthrough_rule_check(struct dns_request *request, char 
 				break;
 			}
 		}
+	}
+
+	if (is_result_strict == 0) {
+		return 0;
 	}
 
 	return -1;
