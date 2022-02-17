@@ -528,6 +528,7 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 |whitelist-ip|ip whitelist|None|[ip/subnet], Repeatable，When the filtering server responds IPs in the IP whitelist, only result in whitelist will be accepted| whitelist-ip 1.2.3.4/16
 |blacklist-ip|ip blacklist|None|[ip/subnet], Repeatable，When the filtering server responds IPs in the IP blacklist, The result will be discarded directly| blacklist-ip 1.2.3.4/16
 |force-AAAA-SOA|force AAAA query return SOA|no|[yes\|no]|force-AAAA-SOA yes
+|force-qtype-SOA|force specific qtype return SOA|qtype id|[qtypeid | ...]|force-qtype-SOA 65 28
 |prefetch-domain|domain prefetch feature|no|[yes\|no]|prefetch-domain yes
 |serve-expired|Cache serve expired feature|no|[yes\|no], Attempts to serve old responses from cache with a TTL of 0 in the response without waiting for the actual resolution to finish.|serve-expired yes
 |serve-expired-ttl|Cache serve expired limite TTL|0|second，0：disable，> 0  seconds after expiration|serve-expired-ttl 0

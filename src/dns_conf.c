@@ -37,6 +37,8 @@ struct dns_ipset_table {
 };
 static struct dns_ipset_table dns_ipset_table;
 
+struct dns_qtype_soa_table dns_qtype_soa_table;
+
 /* dns groups */
 struct dns_group_table dns_group_table;
 
@@ -1171,6 +1173,42 @@ static int _config_iplist_rule(char *subnet, enum address_rule rule)
 	return 0;
 }
 
+static int _config_qtype_soa(void *data, int argc, char *argv[])
+{
+	struct dns_qtype_soa_list *soa_list;
+	if (argc <= 1) {
+		return -1;
+	}
+
+	for (int i = 1; i < argc; i++) {
+		soa_list = malloc(sizeof(*soa_list));
+		if (soa_list == NULL) {
+			tlog(TLOG_ERROR, "cannot malloc memory");
+			return -1;
+		}
+
+		memset(soa_list, 0, sizeof(*soa_list));
+		soa_list->qtypeid = atol(argv[i]);
+		uint32_t key = hash_32_generic(soa_list->qtypeid, 32);
+		hash_add(dns_qtype_soa_table.qtype, &soa_list->node, key);
+	}
+
+	return 0;
+}
+
+static void _config_qtype_soa_table_destroy(void)
+{
+	struct dns_qtype_soa_list *soa_list = NULL;
+	struct hlist_node *tmp = NULL;
+	int i;
+
+	hash_for_each_safe(dns_qtype_soa_table.qtype, i, tmp, soa_list, node)
+	{
+		hlist_del_init(&soa_list->node);
+		free(soa_list);
+	}
+}
+
 static int _config_blacklist_ip(void *data, int argc, char *argv[])
 {
 	if (argc <= 1) {
@@ -1448,6 +1486,7 @@ static struct config_item _config_item[] = {
 	CONF_INT("rr-ttl-min", &dns_conf_rr_ttl_min, 0, CONF_INT_MAX),
 	CONF_INT("rr-ttl-max", &dns_conf_rr_ttl_max, 0, CONF_INT_MAX),
 	CONF_YESNO("force-AAAA-SOA", &dns_conf_force_AAAA_SOA),
+	CONF_CUSTOM("force-qtype-SOA", _config_qtype_soa, NULL),
 	CONF_CUSTOM("blacklist-ip", _config_blacklist_ip, NULL),
 	CONF_CUSTOM("whitelist-ip", _conf_whitelist_ip, NULL),
 	CONF_CUSTOM("bogus-nxdomain", _conf_bogus_nxdomain, NULL),
@@ -1518,6 +1557,7 @@ static int _dns_server_load_conf_init(void)
 	art_tree_init(&dns_conf_domain_rule);
 
 	hash_init(dns_ipset_table.ipset);
+	hash_init(dns_qtype_soa_table.qtype);
 	hash_init(dns_group_table.group);
 
 	return 0;
@@ -1530,6 +1570,7 @@ void dns_server_load_exit(void)
 	Destroy_Radix(dns_conf_address_rule.ipv6, _config_address_destroy, NULL);
 	_config_ipset_table_destroy();
 	_config_group_table_destroy();
+	_config_qtype_soa_table_destroy();
 }
 
 static int _dns_conf_speed_check_mode_verify(void)

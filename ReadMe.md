@@ -541,6 +541,7 @@ https://github.com/pymumu/smartdns/releases
 |whitelist-ip|白名单IP地址|无|[ip/subnet]，可重复| whitelist-ip 1.2.3.4/16
 |blacklist-ip|黑名单IP地址|无|[ip/subnet]，可重复| blacklist-ip 1.2.3.4/16
 |force-AAAA-SOA|强制AAAA地址返回SOA|no|[yes\|no]|force-AAAA-SOA yes
+|force-qtype-SOA|强制指定qtype返回SOA|qtype id|[qtypeid | ...]|force-qtype-SOA 65 28
 |prefetch-domain|域名预先获取功能|no|[yes\|no]|prefetch-domain yes
 |serve-expired|过期缓存服务功能|no|[yes\|no]，开启此功能后，如果有请求时尝试回应TTL为0的过期记录，并并发查询记录，以避免查询等待|serve-expired yes
 |serve-expired-ttl|过期缓存服务最长超时时间|0|秒，0：表示停用超时，> 0表示指定的超时的秒数|serve-expired-ttl 0

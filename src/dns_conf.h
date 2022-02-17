@@ -203,6 +203,16 @@ struct dns_bind_ip {
 	const char *group;
 };
 
+struct dns_qtype_soa_list {
+	struct hlist_node node;
+	uint32_t qtypeid;
+};
+
+struct dns_qtype_soa_table {
+	DECLARE_HASHTABLE(qtype, 8);
+};
+extern struct dns_qtype_soa_table dns_qtype_soa_table;
+
 extern struct dns_bind_ip dns_conf_bind_ip[DNS_MAX_BIND_IP];
 extern int dns_conf_bind_ip_num;
 

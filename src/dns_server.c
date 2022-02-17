@@ -2328,6 +2328,25 @@ errout:
 	return -1;
 }
 
+static int _dns_server_qtype_soa(struct dns_request *request)
+{
+	struct dns_qtype_soa_list *soa_list = NULL;
+
+	uint32_t key = hash_32_generic(request->qtype, 32);
+	hash_for_each_possible(dns_qtype_soa_table.qtype, soa_list, node, key)
+	{
+		if (request->qtype != soa_list->qtypeid) {
+			continue;
+		}
+
+		_dns_server_reply_SOA(DNS_RC_NOERROR, request);
+		tlog(TLOG_DEBUG, "force qtype %d soa", request->qtype);
+		return 0;
+	}
+
+	return -1;
+}
+
 static void _dns_server_process_speed_check_rule(struct dns_request *request)
 {
 	struct dns_domain_check_order *check_order = NULL;
@@ -2350,7 +2369,6 @@ static int _dns_server_get_expired_ttl_reply(struct dns_cache *dns_cache)
 
 	return dns_conf_serve_expired_reply_ttl;
 }
-
 
 static int _dns_server_get_expired_cname_ttl_reply(struct dns_cache *dns_cache)
 {
@@ -2429,12 +2447,11 @@ static int _dns_server_process_cache_packet(struct dns_request *request, struct 
 	}
 
 	_dns_server_get_answer(request, packet);
-	
+
 	_dns_server_audit_log(request);
 	if (request->result_callback) {
 		_dns_result_callback(request);
 	}
-
 
 	if (request->conn == NULL) {
 		return 0;
@@ -2700,6 +2717,11 @@ static int _dns_server_do_query(struct dns_request *request, const char *domain,
 
 	/* process domain address */
 	if (_dns_server_process_address(request) == 0) {
+		goto clean_exit;
+	}
+
+	/* process qtype soa */
+	if (_dns_server_qtype_soa(request) == 0) {
 		goto clean_exit;
 	}
 
