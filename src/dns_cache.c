@@ -430,7 +430,7 @@ int dns_cache_get_cname_ttl(struct dns_cache *dns_cache)
 	}
 
 	int addr_ttl = dns_cache_get_ttl(dns_cache);
-	if (ttl < addr_ttl) {
+	if (ttl < addr_ttl && ttl < 0) {
 		return addr_ttl;
 	}
 

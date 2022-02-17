@@ -586,6 +586,7 @@ static int _dns_reply(struct dns_request *request)
 	}
 
 	/* send request */
+	atomic_inc_return(&request->notified);
 	return _dns_reply_inpacket(request, inpacket, encode_len);
 }
 
@@ -1802,7 +1803,7 @@ static int _dns_server_get_answer(struct dns_request *request, struct dns_packet
 				dns_get_CNAME(rrs, name, DNS_MAX_CNAME_LEN, &ttl, cname, DNS_MAX_CNAME_LEN);
 				tlog(TLOG_DEBUG, "name:%s ttl: %d cname: %s\n", name, ttl, cname);
 				safe_strncpy(request->cname, cname, DNS_MAX_CNAME_LEN);
-				request->ttl_cname = ttl;
+				request->ttl_cname = _dns_server_get_conf_ttl(ttl);
 				request->has_cname = 1;
 			} break;
 			case DNS_T_SOA: {
@@ -2384,7 +2385,7 @@ static int _dns_server_get_expired_cname_ttl_reply(struct dns_cache *dns_cache)
 		return ttl;
 	}
 
-	return dns_conf_serve_expired_reply_ttl;
+	return _dns_server_get_expired_ttl_reply(dns_cache);
 }
 
 static int _dns_server_process_cache_addr(struct dns_request *request, struct dns_cache *dns_cache)

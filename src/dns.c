@@ -1369,6 +1369,38 @@ static int _dns_decode_opt_ecs(struct dns_context *context, struct dns_opt_ecs *
 	return 0;
 }
 
+
+static int _dns_decode_opt_cookie(struct dns_context *context, struct dns_opt_cookie *cookie)
+{
+	// TODO
+	int len = _dns_left_len(context);
+	if (len < 8) {
+		return -1;
+	}
+
+	len = 8;
+	memcpy(cookie->client_cookie, context->ptr, len);
+	context->ptr += len;
+
+	len = _dns_left_len(context);
+	if (len == 0) {
+		cookie->server_cookie_len = 0;
+		return 0;
+	}
+
+	if (len < 8) {
+		return -1;
+	}
+
+	memcpy(cookie->server_cookie, context->ptr, len);
+	cookie->server_cookie_len = len;
+	context->ptr += len;
+
+	tlog(TLOG_DEBUG, "OPT COOKIE");
+	return 0;
+}
+
+
 static int _dns_encode_OPT(struct dns_context *context, struct dns_rrs *rrs)
 {
 	int ret;
@@ -1548,6 +1580,14 @@ static int _dns_decode_opt(struct dns_context *context, dns_rr_type type, unsign
 			ret = dns_add_OPT_ECS(packet, &ecs);
 			if (ret != 0) {
 				tlog(TLOG_ERROR, "add ecs failed.");
+				return -1;
+			}
+		} break;
+		case DNS_OPT_T_COOKIE: {
+			struct dns_opt_cookie cookie;
+			ret = _dns_decode_opt_cookie(context, &cookie);
+			if (ret != 0) {
+				tlog(TLOG_ERROR, "decode cookie failed.");
 				return -1;
 			}
 		} break;

@@ -68,6 +68,7 @@ typedef enum dns_type {
 
 typedef enum dns_opt_code {
 	DNS_OPT_T_ECS = 8, // OPT ECS
+	DNS_OPT_T_COOKIE = 10, //OPT Cookie
 	DNS_OPT_T_TCP_KEEPALIVE = 11,
 	DNS_OPT_T_ALL = 255
 } dns_opt_code_t;
@@ -169,6 +170,13 @@ struct dns_opt_ecs {
 	unsigned char source_prefix;
 	unsigned char scope_prefix;
 	unsigned char addr[DNS_RR_AAAA_LEN];
+};
+
+/* OPT COOLIE */
+struct dns_opt_cookie {
+	char server_cookie_len;
+	unsigned char client_cookie[8];
+	unsigned char server_cookie[32];
 };
 
 /* OPT */
