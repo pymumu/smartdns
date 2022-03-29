@@ -306,7 +306,7 @@ void tlog_set_maxline_size(struct tlog_log *log, int size)
     log->max_line_size = size;
 }
 
-void tlog_set_permission(struct tlog_log *log, mode_t file, mode_t archive)
+void tlog_set_permission(struct tlog_log *log, unsigned int file, unsigned int archive)
 {
     log->file_perm = file;
     log->archive_perm = archive;
@@ -317,7 +317,7 @@ int tlog_localtime(struct tlog_time *tm)
     return _tlog_gettime(tm);
 }
 
-tlog_log *tlog_get_root()
+tlog_log *tlog_get_root(void)
 {
     return tlog.root;
 }
@@ -1395,6 +1395,35 @@ static int _tlog_root_write_log(struct tlog_log *log, const char *buff, int buff
     return tlog.output_func(&empty_info.info, buff, bufflen, tlog_get_private(log));
 }
 
+static void tlog_wait_zip_fini(void)
+{
+    tlog_log *next;
+    if (tlog.root == NULL) {
+        return;
+    }
+
+    int wait_zip = 1;
+    int time_out = 0;
+    while (wait_zip) {
+        wait_zip = 0;
+        time_out++;
+        next = tlog.log;
+        while (next) {
+            if (next->zip_pid > 0 && wait_zip == 0) {
+                wait_zip = 1;
+                usleep(1000);
+            }
+
+            if (kill(next->zip_pid, 0) != 0 || time_out >= 5000) {
+                next->zip_pid = -1;
+            }
+            next = next->next;
+        }
+    }
+
+    return;
+}
+
 static void *_tlog_work(void *arg)
 {
     int log_len = 0;
@@ -1407,6 +1436,9 @@ static void *_tlog_work(void *arg)
     void *unused __attribute__((unused));
 
     unused = arg;
+
+    // for child process
+    tlog_wait_zip_fini();
 
     while (1) {
         log_len = 0;
@@ -1680,6 +1712,12 @@ static void tlog_fork_prepare(void)
     }
 
     pthread_mutex_lock(&tlog.lock);
+    tlog_log *next;
+    next = tlog.log;
+    while (next) {
+        next->multi_log = 1;
+        next = next->next;
+    }
 }
 
 static void tlog_fork_parent(void)
@@ -1697,6 +1735,16 @@ static void tlog_fork_child(void)
     tlog_log *next;
     if (tlog.root == NULL) {
         return;
+    }
+
+    next = tlog.log;
+    while (next) {
+        next->start = 0;
+        next->end = 0;
+        next->ext_end = 0;
+        next->dropped = 0;
+        next->filesize = 0;
+        next = next->next;
     }
 
     pthread_attr_init(&attr);
