@@ -1049,6 +1049,7 @@ void print_stack(void)
 {
 	const size_t max_buffer = 30;
 	void *buffer[max_buffer];
+	int idx = 0;
 
 	struct backtrace_state state = {buffer, buffer + max_buffer};
 	_Unwind_Backtrace(unwind_callback, &state);
@@ -1058,7 +1059,7 @@ void print_stack(void)
 	}
 	
 	tlog(TLOG_FATAL, "Stack:");
-	for (int idx = 0; idx < frame_num; ++idx) {
+	for (idx = 0; idx < frame_num; ++idx) {
 		const void *addr = buffer[idx];
 		const char *symbol = "";
 

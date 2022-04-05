@@ -113,11 +113,15 @@ struct dns_head {
 	unsigned short nrcount; /* number of addititional resource entries */
 } __attribute__((packed, aligned(2)));
 
-struct dns_rrs {
-	unsigned short next;
-	unsigned short len;
-	dns_type_t type;
-	unsigned char data[0];
+#define DNS_PACKET_DICT_SIZE 16
+struct dns_packet_dict_item {
+	unsigned pos;
+	unsigned int hash;
+};
+
+struct dns_packet_dict {
+	short dict_count;
+	struct dns_packet_dict_item names[DNS_PACKET_DICT_SIZE];
 };
 
 /* packet haed */
@@ -130,21 +134,24 @@ struct dns_packet {
 	unsigned short optcount;
 	unsigned short optional;
 	unsigned short payloadsize;
+	struct dns_packet_dict namedict;
 	int size;
 	int len;
 	unsigned char data[0];
 };
 
-/* RRS encode/decode context */
-struct dns_data_context {
-	unsigned char *data;
-	unsigned char *ptr;
-	unsigned int maxsize;
+struct dns_rrs {
+	struct dns_packet *packet;
+	unsigned short next;
+	unsigned short len;
+	dns_type_t type;
+	unsigned char data[0];
 };
 
 /* packet encode/decode context */
 struct dns_context {
 	struct dns_packet *packet;
+	struct dns_packet_dict *namedict;
 	unsigned char *data;
 	unsigned int maxsize;
 	unsigned char *ptr;
@@ -233,5 +240,13 @@ int dns_decode(struct dns_packet *packet, int maxsize, unsigned char *data, int 
 int dns_encode(unsigned char *data, int size, struct dns_packet *packet);
 
 int dns_packet_init(struct dns_packet *packet, int size, struct dns_head *head);
+
+struct dns_update_param {
+	int id;
+	int ip_ttl;
+	int cname_ttl;
+};
+
+int dns_packet_update(unsigned char *data, int size, struct dns_update_param *param);
 
 #endif

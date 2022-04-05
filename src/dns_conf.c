@@ -1176,11 +1176,13 @@ static int _config_iplist_rule(char *subnet, enum address_rule rule)
 static int _config_qtype_soa(void *data, int argc, char *argv[])
 {
 	struct dns_qtype_soa_list *soa_list;
+	int i = 0;
+
 	if (argc <= 1) {
 		return -1;
 	}
 
-	for (int i = 1; i < argc; i++) {
+	for (i = 1; i < argc; i++) {
 		soa_list = malloc(sizeof(*soa_list));
 		if (soa_list == NULL) {
 			tlog(TLOG_ERROR, "cannot malloc memory");
