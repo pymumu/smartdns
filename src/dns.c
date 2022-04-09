@@ -836,15 +836,15 @@ int dns_get_SOA(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, struct
 	if (ptr - data + 20 > len) {
 		return -1;
 	}
-	soa->serial = *((unsigned int *)ptr);
+	memcpy(&soa->serial, ptr, 4);
 	ptr += 4;
-	soa->refresh = *((unsigned int *)ptr);
+	memcpy(&soa->refresh, ptr, 4);
 	ptr += 4;
-	soa->retry = *((unsigned int *)ptr);
+	memcpy(&soa->retry, ptr, 4);
 	ptr += 4;
-	soa->expire = *((unsigned int *)ptr);
+	memcpy(&soa->expire, ptr, 4);
 	ptr += 4;
-	soa->minimum = *((unsigned int *)ptr);
+	memcpy(&soa->minimum, ptr, 4);
 	ptr += 4;
 
 	return 0;
@@ -1537,7 +1537,7 @@ static int _dns_encode_opts(struct dns_packet *packet, struct dns_context *conte
 	return 0;
 }
 
-static int _dns_decode_opt(struct dns_context *context, dns_rr_type type, unsigned int ttl, int rr_len)
+static int __attribute__((unused)) _dns_decode_opt(struct dns_context *context, dns_rr_type type, unsigned int ttl, int rr_len)
 {
 	unsigned short opt_code;
 	unsigned short opt_len;

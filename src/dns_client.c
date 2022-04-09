@@ -58,7 +58,7 @@
 #define DNS_TCP_IDLE_TIMEOUT (60 * 10)
 #define DNS_TCP_CONNECT_TIMEOUT (5)
 #define DNS_QUERY_TIMEOUT (500)
-#define DNS_QUERY_RETRY (6)
+#define DNS_QUERY_RETRY (4)
 #define DNS_PENDING_SERVER_RETRY 40
 #define SOCKET_PRIORITY (6)
 #define SOCKET_IP_TOS (IPTOS_LOWDELAY | IPTOS_RELIABILITY)
@@ -117,6 +117,7 @@ struct dns_server_info {
 
 	time_t last_send;
 	time_t last_recv;
+	int prohibit;
 
 	/* server addr info */
 	unsigned short ai_family;
@@ -1004,6 +1005,7 @@ static int _dns_client_server_add(char *server_ip, char *server_host, int port, 
 	server_info->ttl = ttl;
 	server_info->ttl_range = 0;
 	server_info->skip_check_cert = skip_check_cert;
+	server_info->prohibit = 0;
 	pthread_mutex_init(&server_info->lock, NULL);
 	memcpy(&server_info->flags, flags, sizeof(server_info->flags));
 
@@ -2152,6 +2154,7 @@ static int _dns_client_process_tcp_buff(struct dns_server_info *server_info)
 		}
 
 		tlog(TLOG_DEBUG, "recv tcp packet from %s, len = %d", server_info->ip, len);
+		time(&server_info->last_recv);
 		/* process result */
 		if (_dns_client_recv(server_info, inpacket_data, dns_packet_len, &server_info->addr, server_info->ai_addrlen) !=
 			0) {
@@ -2230,7 +2233,6 @@ static int _dns_client_process_tcp(struct dns_server_info *server_info, struct e
 			return ret;
 		}
 
-		time(&server_info->last_recv);
 		server_info->recv_buff.len += len;
 		if (server_info->recv_buff.len <= 2) {
 			/* wait and recv */
@@ -2787,6 +2789,14 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 		list_for_each_entry_safe(group_member, tmp, &query->server_group->head, list)
 		{
 			server_info = group_member->server;
+			if (server_info->prohibit) {
+				time_t now;
+				time(&now);
+				if ((now - 60 < server_info->last_send) && (now - 5 > server_info->last_recv)) {
+					continue;
+				}
+				server_info->prohibit = 0;
+			}
 			total_server++;
 			tlog(TLOG_DEBUG, "send query to server %s", server_info->ip);
 			if (server_info->fd <= 0) {
@@ -2838,6 +2848,8 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 				time_t now;
 				time(&now);
 				if (now - 5 > server_info->last_recv || send_err != ENOMEM) {
+					server_info->prohibit = 1;
+					tlog(TLOG_INFO, "server %s not alive, prohibit", server_info->ip);
 					_dns_client_shutdown_socket(server_info);
 				}
 
