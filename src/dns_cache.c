@@ -162,6 +162,11 @@ void dns_cache_set_data_soa(struct dns_cache_data *dns_cache, int32_t cache_flag
 		goto errout;
 	}
 
+	dns_cache->head.is_soa = 1;
+	if (dns_cache->head.cache_type == CACHE_TYPE_PACKET) {
+		return;
+	}
+
 	struct dns_cache_addr *cache_addr = (struct dns_cache_addr *)dns_cache;
 	if (cache_addr == NULL) {
 		goto errout;
@@ -229,6 +234,7 @@ struct dns_cache_data *dns_cache_new_data_packet(uint32_t cache_flag, void *pack
 	}
 
 	memcpy(cache_packet->data, packet, packet_len);
+	memset(&cache_packet->head, 0, sizeof(cache_packet->head));
 
 	cache_packet->head.cache_flag = cache_flag;
 	cache_packet->head.cache_type = CACHE_TYPE_PACKET;
@@ -447,10 +453,10 @@ int dns_cache_is_soa(struct dns_cache *dns_cache)
 		return 0;
 	}
 
-	struct dns_cache_addr *cache_addr = (struct dns_cache_addr *)dns_cache_get_data(dns_cache);
-	if (cache_addr->head.cache_type == CACHE_TYPE_ADDR && cache_addr->addr_data.soa) {
+	if (dns_cache->cache_data->head.is_soa) {
 		return 1;
 	}
+
 	return 0;
 }
 
