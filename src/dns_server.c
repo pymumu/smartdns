@@ -129,17 +129,6 @@ struct dns_server_conn_tcp_client {
 	struct sockaddr_storage localaddr;
 };
 
-/* dns server data */
-struct dns_server {
-	int run;
-	int epoll_fd;
-	struct list_head conn_list;
-
-	/* dns request list */
-	pthread_mutex_t request_list_lock;
-	struct list_head request_list;
-};
-
 /* ip address lists of domain */
 struct dns_ip_address {
 	struct hlist_node node;
@@ -154,6 +143,15 @@ struct dns_ip_address {
 	};
 };
 
+struct dns_request_pending_list {
+	pthread_mutex_t request_list_lock;
+	int is_requester;
+	unsigned short qtype;
+	char domain[DNS_MAX_CNAME_LEN];
+	struct list_head request_list;
+	struct hlist_node node;
+};
+
 struct dns_request {
 	atomic_t refcnt;
 
@@ -162,6 +160,8 @@ struct dns_request {
 
 	/* dns request list */
 	struct list_head list;
+
+	struct list_head pending_list;
 
 	/* dns request timeout check list */
 	struct list_head check_list;
@@ -223,6 +223,22 @@ struct dns_request {
 
 	struct dns_domain_rule domain_rule;
 	struct dns_domain_check_order *check_order_list;
+
+	struct dns_request_pending_list *request_pending_list;
+};
+
+/* dns server data */
+struct dns_server {
+	int run;
+	int epoll_fd;
+	struct list_head conn_list;
+
+	/* dns request list */
+	pthread_mutex_t request_list_lock;
+	struct list_head request_list;
+
+	DECLARE_HASHTABLE(request_pending, 4);
+	pthread_mutex_t request_pending_lock;
 };
 
 static struct dns_server server;
@@ -1049,7 +1065,7 @@ static int _dns_request_post(struct dns_server_post_context *context)
 
 	if (context->skip_notify_count == 0) {
 		if (atomic_inc_return(&request->notified) != 1) {
-			tlog(TLOG_INFO, "skip reply %s %d", request->domain, request->qtype);
+			tlog(TLOG_DEBUG, "skip reply %s %d", request->domain, request->qtype);
 			return 0;
 		}
 	}
@@ -1132,32 +1148,17 @@ out:
 
 static int _dns_server_reply_SOA(int rcode, struct dns_request *request)
 {
-	int has_soa = request->has_soa;
-	int has_ipv4 = request->has_ipv4;
-	int has_ipv6 = request->has_ipv6;
-	int has_ptr = request->has_ptr;
-
 	/* return SOA record */
 	request->rcode = rcode;
-	request->has_soa = 1;
-	request->has_ipv4 = 0;
-	request->has_ipv6 = 0;
-	request->has_ptr = 0;
-
 	_dns_server_setup_soa(request);
-
 	_dns_result_callback(request);
 
 	struct dns_server_post_context context;
 	_dns_server_post_context_init(&context, request);
 	context.do_audit = 1;
 	context.do_reply = 1;
+	context.do_force_soa = 1;
 	_dns_request_post(&context);
-
-	request->has_soa = has_soa;
-	request->has_ipv4 = has_ipv4;
-	request->has_ipv6 = has_ipv6;
-	request->has_ptr = has_ptr;
 
 	return 0;
 }
@@ -1181,9 +1182,70 @@ static void _dns_server_dualstack_selection_cache_A(struct dns_request *request)
 	_dns_request_post(&context);
 }
 
+static int dns_server_update_reply_packet_id(struct dns_request *request, unsigned char *inpacket, int inpacket_len)
+{
+	struct dns_head *dns_head = (struct dns_head *)inpacket;
+	unsigned short id = request->id;
+
+	if (inpacket_len < sizeof(*dns_head)) {
+		return -1;
+	}
+
+	dns_head->id = htons(id);
+
+	return 0;
+}
+
+static void _dns_server_request_release(struct dns_request *request);
+
+int _dns_server_reply_all_pending_list(struct dns_request *request, struct dns_server_post_context *context)
+{
+	struct dns_request_pending_list *pending_list;
+	struct dns_request *req, *tmp;
+	int ret = 0;
+
+	if (request->request_pending_list == NULL) {
+		return 0;
+	}
+
+	pthread_mutex_lock(&server.request_pending_lock);
+	pending_list = request->request_pending_list;
+	request->request_pending_list = NULL;
+	hlist_del_init(&pending_list->node);
+	pthread_mutex_unlock(&server.request_pending_lock);
+
+	pthread_mutex_lock(&pending_list->request_list_lock);
+	list_del(&request->pending_list);
+	list_for_each_entry_safe(req, tmp, &(pending_list->request_list), pending_list)
+	{
+		list_del(&req->pending_list);
+		if (req->result_callback) {
+			_dns_result_callback(req);
+		}
+
+		if (req->conn) {
+			if (atomic_inc_return(&req->notified) != 1) {
+				return 0;
+			}
+			/* When passthrough, modify the id to be the id of the client request. */
+			dns_server_update_reply_packet_id(req, context->inpacket, context->inpacket_len);
+			ret = _dns_reply_inpacket(req, context->inpacket, context->inpacket_len);
+		}
+
+		req->request_pending_list = NULL;
+		_dns_server_request_release(req);
+	}
+	pthread_mutex_unlock(&pending_list->request_list_lock);
+
+	free(pending_list);
+
+	return ret;
+}
+
 static int _dns_server_request_complete(struct dns_request *request)
 {
 	int force_A = 0;
+
 	if (request->prefetch == 1) {
 		return 0;
 	}
@@ -1217,8 +1279,6 @@ static int _dns_server_request_complete(struct dns_request *request)
 				}
 			}
 		}
-
-		request->has_ipv4 = 0;
 	}
 
 	if (request->has_soa) {
@@ -1238,8 +1298,8 @@ out:
 	context.do_reply = 1;
 	context.skip_notify_count = 1;
 
-	int ret = _dns_request_post(&context);
-	return ret;
+	_dns_request_post(&context);
+	return _dns_server_reply_all_pending_list(request, &context);
 }
 
 static int _dns_ip_address_check_add(struct dns_request *request, unsigned char *addr, dns_type_t addr_type)
@@ -1297,7 +1357,6 @@ static int _dns_ip_address_check_add(struct dns_request *request, unsigned char 
 	return 0;
 }
 
-static void _dns_server_request_release(struct dns_request *request);
 static void _dns_server_request_remove(struct dns_request *request)
 {
 	pthread_mutex_lock(&server.request_list_lock);
@@ -1415,6 +1474,7 @@ static void _dns_server_complete_with_multi_ipaddress(struct dns_request *reques
 	context.do_cache = 1;
 	context.do_reply = do_reply;
 	context.select_all_best_ip = 1;
+	context.skip_notify_count = 1;
 	_dns_request_post(&context);
 
 	if (request->dualstack_selection == 1 && request->qtype == DNS_T_AAAA) {
@@ -1422,8 +1482,11 @@ static void _dns_server_complete_with_multi_ipaddress(struct dns_request *reques
 		context.qtype = DNS_T_A;
 		context.do_cache = 1;
 		context.select_all_best_ip = 1;
+		context.skip_notify_count = 1;
 		_dns_request_post(&context);
 	}
+
+	_dns_server_reply_all_pending_list(request, &context);
 }
 
 static void _dns_server_request_release_complete(struct dns_request *request, int do_complete)
@@ -1473,6 +1536,60 @@ static void _dns_server_request_get(struct dns_request *request)
 		tlog(TLOG_ERROR, "BUG: request ref is invalid, %s", request->domain);
 		abort();
 	}
+}
+
+int _dns_server_set_to_pending_list(struct dns_request *request)
+{
+	struct dns_request_pending_list *pending_list;
+	uint32_t key = 0;
+	int ret = -1;
+	if (request->qtype != DNS_T_A && request->qtype != DNS_T_AAAA) {
+		return ret;
+	}
+
+	key = hash_string(request->domain);
+	key = jhash(&(request->qtype), sizeof(request->qtype), key);
+	pthread_mutex_lock(&server.request_pending_lock);
+	hash_for_each_possible(server.request_pending, pending_list, node, key)
+	{
+		if (request->qtype != pending_list->qtype) {
+			continue;
+		}
+
+		if (strncmp(request->domain, pending_list->domain, DNS_MAX_CNAME_LEN) != 0) {
+			continue;
+		}
+
+		break;
+	}
+
+	if (pending_list == NULL) {
+		pending_list = malloc(sizeof(*pending_list));
+		if (pending_list == NULL) {
+			goto out;
+		}
+
+		memset(pending_list, 0, sizeof(*pending_list));
+		pthread_mutex_init(&pending_list->request_list_lock, 0);
+		INIT_LIST_HEAD(&pending_list->request_list);
+		pending_list->qtype = request->qtype;
+		safe_strncpy(pending_list->domain, request->domain, DNS_MAX_CNAME_LEN);
+		hash_add(server.request_pending, &pending_list->node, key);
+	} else {
+		ret = 0;
+	}
+
+out:
+	pthread_mutex_unlock(&server.request_pending_lock);
+
+	pthread_mutex_lock(&pending_list->request_list_lock);
+	if (ret == 0) {
+		_dns_server_request_get(request);
+	}
+	list_add_tail(&request->pending_list, &pending_list->request_list);
+	request->request_pending_list = pending_list;
+	pthread_mutex_unlock(&pending_list->request_list_lock);
+	return ret;
 }
 
 static struct dns_request *_dns_server_new_request(void)
@@ -1956,20 +2073,6 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 			}
 		}
 	}
-
-	return 0;
-}
-
-static int dns_server_update_reply_packet_id(struct dns_request *request, unsigned char *inpacket, int inpacket_len)
-{
-	struct dns_head *dns_head = (struct dns_head *)inpacket;
-	unsigned short id = request->id;
-
-	if (inpacket_len < sizeof(*dns_head)) {
-		return -1;
-	}
-
-	dns_head->id = htons(id);
 
 	return 0;
 }
@@ -2979,6 +3082,11 @@ static int _dns_server_do_query(struct dns_request *request, const char *domain,
 		if (_dns_server_process_cache(request) == 0) {
 			goto clean_exit;
 		}
+	}
+
+	ret = _dns_server_set_to_pending_list(request);
+	if (ret == 0) {
+		goto clean_exit;
 	}
 
 	// Get reference for server thread
