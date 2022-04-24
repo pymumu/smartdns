@@ -70,7 +70,7 @@ end
 ---- Support DualStack ip selection
 o = s:taboption("settings", Flag, "dualstack_ip_selection", translate("Dual-stack IP Selection"), translate("Enable IP selection between IPV4 and IPV6"))
 o.rmempty     = false
-o.default     = o.disabled
+o.default     = o.enabled
 o.cfgvalue    = function(...)
     return Flag.cfgvalue(...) or "0"
 end
@@ -87,7 +87,7 @@ end
 o = s:taboption("settings", Flag, "serve_expired", translate("Serve expired"), 
 	translate("Attempts to serve old responses from cache with a TTL of 0 in the response without waiting for the actual resolution to finish."))
 o.rmempty     = false
-o.default     = o.disabled
+o.default     = o.enabled
 o.cfgvalue    = function(...)
     return Flag.cfgvalue(...) or "0"
 end
@@ -112,8 +112,8 @@ o.rempty      = true
 ---- rr-ttl-min
 o = s:taboption("settings", Value, "rr_ttl_min", translate("Domain TTL Min"), translate("Minimum TTL for all domain result."))
 o.rempty      = true
-o.placeholder = "300"
-o.default     = 300
+o.placeholder = "600"
+o.default     = 600
 o.optional    = true
 
 ---- second dns server

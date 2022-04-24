@@ -50,7 +50,7 @@ int dns_conf_tcp_idle_time = 120;
 /* cache */
 int dns_conf_cachesize = DEFAULT_DNS_CACHE_SIZE;
 int dns_conf_prefetch = 0;
-int dns_conf_serve_expired = 0;
+int dns_conf_serve_expired = 1;
 int dns_conf_serve_expired_ttl = 0;
 int dns_conf_serve_expired_reply_ttl = 5;
 
@@ -90,12 +90,12 @@ art_tree dns_conf_domain_rule;
 struct dns_conf_address_rule dns_conf_address_rule;
 
 /* dual-stack selection */
-int dns_conf_dualstack_ip_selection;
-int dns_conf_dualstack_ip_selection_threshold = 30;
+int dns_conf_dualstack_ip_selection = 1;
+int dns_conf_dualstack_ip_selection_threshold = 15;
 
 /* TTL */
 int dns_conf_rr_ttl;
-int dns_conf_rr_ttl_min;
+int dns_conf_rr_ttl_min = 600;
 int dns_conf_rr_ttl_max;
 int dns_conf_force_AAAA_SOA;
 
