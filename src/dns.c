@@ -2087,6 +2087,9 @@ static int _dns_update_an(struct dns_context *context, dns_rr_type type, struct 
 		break;
 	default: {
 		unsigned char *ttl_ptr = start - sizeof(int) - sizeof(short);
+		if (param->ip_ttl < 0) {
+			break;
+		}
 		_dns_write_int(&ttl_ptr, param->ip_ttl);
 	} break;
 	}
