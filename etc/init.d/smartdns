@@ -68,11 +68,23 @@ case $1 in
 			echo "Stop smartdns server failed."
 			exit 1;
 		fi
-		rm -f "$PIDFILE"
+		LOOP=1
+		while true; do
+			if [ ! -d "/proc/$PID" ]; then
+				break;
+			fi
+
+			if [ $LOOP -gt 12 ]; then
+				kill -9 "$PID"
+				break;
+			fi
+			LOOP=$((LOOP+1))
+			sleep .5
+		done
 		echo "Stop smartdns server success."
 		;;
 	restart)
-		"$0" stop && sleep 1 && "$0" start
+		"$0" stop && "$0" start
 		;;
 	status)
 		PID="$(cat "$PIDFILE" 2>/dev/null)"
