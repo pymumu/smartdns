@@ -503,6 +503,7 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 |tcp-idle-time|TCP connection idle timeout|120|integer|tcp-idle-time 120
 |rr-ttl|Domain name TTL|Remote query result|number greater than 0|rr-ttl 600
 |rr-ttl-min|Domain name Minimum TTL|Remote query result|number greater than 0|rr-ttl-min 60
+|rr-ttl-reply-max|Domain name Minimum Reply TTL|Remote query result|number greater than 0|rr-ttl-reply-max 60
 |rr-ttl-max|Domain name Maximum TTL|Remote query result|number greater than 0|rr-ttl-max 600
 |log-level|log level|error|fatal,error,warn,notice,info,debug|log-level error
 |log-file|log path|/var/log/smartdns.log|File Pah|log-file /var/log/smartdns.log

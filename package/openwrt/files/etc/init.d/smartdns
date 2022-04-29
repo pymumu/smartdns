@@ -311,6 +311,9 @@ load_service()
 	config_get rr_ttl_max "$section" "rr_ttl_max" ""
 	[ -z "$rr_ttl_max" ] || conf_append "rr-ttl-max" "$rr_ttl_max"
 
+	config_get rr_ttl_reply_max "$section" "rr_ttl_reply_max" ""
+	[ -z "$rr_ttl_reply_max" ] || conf_append "rr-ttl-reply-max" "$rr_ttl_reply_max"
+
 	config_get log_size "$section" "log_size" "64K"
 	[ -z "$log_size" ] || conf_append "log-size" "$log_size"
 

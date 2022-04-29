@@ -255,6 +255,7 @@ extern int dns_conf_dualstack_ip_selection;
 extern int dns_conf_dualstack_ip_selection_threshold;
 
 extern int dns_conf_rr_ttl;
+extern int dns_conf_rr_ttl_rely_max;
 extern int dns_conf_rr_ttl_min;
 extern int dns_conf_rr_ttl_max;
 extern int dns_conf_force_AAAA_SOA;

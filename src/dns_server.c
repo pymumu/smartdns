@@ -1082,6 +1082,17 @@ static int _dns_request_post(struct dns_server_post_context *context)
 	/* log audit log */
 
 	_dns_server_audit_log(context);
+
+	if (context->reply_ttl > 0) {
+		struct dns_update_param param;
+		param.id = request->id;
+		param.ip_ttl = context->reply_ttl;
+		if (dns_packet_update(context->inpacket, context->inpacket_len, &param) != 0) {
+			tlog(TLOG_ERROR, "update packet info failed.");
+			return -1;
+		}
+	}
+
 	ret = _dns_reply_inpacket(request, context->inpacket, context->inpacket_len);
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "replay raw packet to client failed.");
@@ -1304,6 +1315,7 @@ out:
 	context.do_force_soa = force_A;
 	context.do_audit = 1;
 	context.do_reply = 1;
+	context.reply_ttl = dns_conf_rr_ttl_rely_max;
 	context.skip_notify_count = 1;
 
 	_dns_request_post(&context);
@@ -2299,7 +2311,6 @@ static int _dns_server_reply_passthrouth(struct dns_server_post_context *context
 
 	if (request->conn && context->do_reply == 1) {
 		/* When passthrough, modify the id to be the id of the client request. */
-		dns_server_update_reply_packet_id(request, context->inpacket, context->inpacket_len);
 		struct dns_update_param param;
 		param.id = request->id;
 		param.ip_ttl = context->reply_ttl;
@@ -2339,7 +2350,7 @@ static int dns_server_resolve_callback(char *domain, dns_result_type rtype, unsi
 			context.do_audit = 1;
 			context.do_reply = 1;
 			context.do_ipset = 1;
-			context.reply_ttl = -1;
+			context.reply_ttl = dns_conf_rr_ttl_rely_max;
 			return _dns_server_reply_passthrouth(&context);
 		}
 		_dns_server_process_answer(request, domain, packet, result_flag);
@@ -2731,7 +2742,16 @@ static int _dns_server_get_expired_ttl_reply(struct dns_cache *dns_cache)
 {
 	int ttl = dns_cache_get_ttl(dns_cache);
 	if (ttl > 0) {
-		return ttl;
+		int ttl_reply = 0;
+		if (dns_conf_rr_ttl_rely_max > 0) {
+			ttl_reply = ttl % dns_conf_rr_ttl_rely_max;
+		}
+
+		if (ttl_reply == 0) {
+			ttl_reply = (ttl > dns_conf_rr_ttl_rely_max) ? dns_conf_rr_ttl_rely_max : ttl;
+		}
+
+		return ttl_reply;
 	}
 
 	return dns_conf_serve_expired_reply_ttl;

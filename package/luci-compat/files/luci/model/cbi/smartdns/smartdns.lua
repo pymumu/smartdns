@@ -116,11 +116,15 @@ o.placeholder = "600"
 o.default     = 600
 o.optional    = true
 
----- second dns server
 ---- rr-ttl-max
 o = s:taboption("settings", Value, "rr_ttl_max", translate("Domain TTL Max"), translate("Maximum TTL for all domain result."))
 o.rempty      = true
 
+---- rr-ttl-reply-max
+o = s:taboption("settings", Value, "rr_ttl_reply_max", translate("Domain TTL Max"), translate("Maximum Reply TTL for all domain result."))
+o.rempty      = true
+
+---- second dns server
 ---- Eanble
 o = s:taboption("seconddns", Flag, "seconddns_enabled", translate("Enable"), translate("Enable or disable second DNS server."))
 o.default     = o.disabled

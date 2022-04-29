@@ -95,6 +95,7 @@ int dns_conf_dualstack_ip_selection_threshold = 15;
 
 /* TTL */
 int dns_conf_rr_ttl;
+int dns_conf_rr_ttl_rely_max = 60;
 int dns_conf_rr_ttl_min = 600;
 int dns_conf_rr_ttl_max;
 int dns_conf_force_AAAA_SOA;
@@ -1487,6 +1488,7 @@ static struct config_item _config_item[] = {
 	CONF_INT("rr-ttl", &dns_conf_rr_ttl, 0, CONF_INT_MAX),
 	CONF_INT("rr-ttl-min", &dns_conf_rr_ttl_min, 0, CONF_INT_MAX),
 	CONF_INT("rr-ttl-max", &dns_conf_rr_ttl_max, 0, CONF_INT_MAX),
+	CONF_INT("rr-ttl-reply-max", &dns_conf_rr_ttl_rely_max, 0, CONF_INT_MAX),
 	CONF_YESNO("force-AAAA-SOA", &dns_conf_force_AAAA_SOA),
 	CONF_CUSTOM("force-qtype-SOA", _config_qtype_soa, NULL),
 	CONF_CUSTOM("blacklist-ip", _config_blacklist_ip, NULL),

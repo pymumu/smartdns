@@ -124,6 +124,9 @@ msgstr "域名TTL最大值"
 msgid "Maximum TTL for all domain result."
 msgstr "设置所有域名的TTL最大值"
 
+msgid "Maximum Reply TTL for all domain result."
+msgstr "设置返回给客户端的TTL最大值"
+
 msgid "smartdns custom settings"
 msgstr "smartdns 自定义设置，具体配置参数参考指导"
 
