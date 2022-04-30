@@ -2888,7 +2888,7 @@ static int _dns_server_process_cache(struct dns_request *request)
 	if (dns_cache == NULL) {
 		if (request->dualstack_selection && request->qtype == DNS_T_AAAA) {
 			dns_cache_A = dns_cache_lookup(request->domain, DNS_T_A);
-			if (dns_cache_A && dns_cache_is_soa(dns_cache_A) == 0 && dns_cache_is_soa(dns_cache)) {
+			if (dns_cache_A && dns_cache_is_soa(dns_cache_A) == 0) {
 				tlog(TLOG_DEBUG, "No IPV6 Found, Force IPV4 perfered.");
 				if (dns_cache_get_ttl(dns_cache_A) == 0) {
 					uint32_t server_flags = request->server_flags;
