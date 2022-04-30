@@ -1257,7 +1257,7 @@ static int _conf_edns_client_subnet(void *data, int argc, char *argv[])
 	struct sockaddr_storage addr;
 	socklen_t addr_len = sizeof(addr);
 
-	if (argc <= 1 || data == NULL) {
+	if (argc <= 1) {
 		return -1;
 	}
 

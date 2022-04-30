@@ -177,7 +177,7 @@ struct dns_opt_ecs {
 	unsigned char source_prefix;
 	unsigned char scope_prefix;
 	unsigned char addr[DNS_RR_AAAA_LEN];
-};
+} __attribute__((packed));;
 
 /* OPT COOLIE */
 struct dns_opt_cookie {

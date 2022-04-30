@@ -871,14 +871,15 @@ int dns_add_OPT_ECS(struct dns_packet *packet, struct dns_opt_ecs *ecs)
 	struct dns_opt *opt = (struct dns_opt *)opt_data;
 	int len = 0;
 
-	opt->code = DNS_OPT_T_ECS;
-	opt->length = sizeof(*ecs);
-	memcpy(opt->data, ecs, sizeof(*ecs));
-
 	/* ecs size 4 + bit of address*/
-	len = sizeof(*opt) + 4;
+	len = 4;
 	len += (ecs->source_prefix / 8);
 	len += (ecs->source_prefix % 8 > 0) ? 1 : 0;
+
+	opt->length = len;
+	opt->code = DNS_OPT_T_ECS;
+	memcpy(opt->data, ecs, len);
+	len += sizeof(*opt);
 
 	return _dns_add_RAW(packet, DNS_RRS_OPT, DNS_OPT_T_ECS, "", 0, opt_data, len);
 }
@@ -1468,9 +1469,20 @@ static int _dns_encode_OPT(struct dns_context *context, struct dns_rrs *rrs)
 		return -1;
 	}
 
-	memcpy(context->ptr, dns_opt->data, dns_opt->length);
-	context->ptr += dns_opt->length;
-
+	switch (dns_opt->code) {
+	case DNS_OPT_T_ECS: {
+		struct dns_opt_ecs *ecs = (struct dns_opt_ecs *)&(dns_opt->data);
+		_dns_write_short(&context->ptr, ecs->family);
+		_dns_write_char(&context->ptr, ecs->source_prefix);
+		_dns_write_char(&context->ptr, ecs->scope_prefix);
+		memcpy(context->ptr, ecs->addr, dns_opt->length - 4);
+		context->ptr += dns_opt->length - 4;
+	} break;
+	default:
+		memcpy(context->ptr, dns_opt->data, dns_opt->length);
+		context->ptr += dns_opt->length;
+		break;
+	}
 	return 0;
 }
 
@@ -1756,21 +1768,21 @@ static int _dns_decode_an(struct dns_context *context, dns_rr_type type)
 			return -1;
 		}
 	} break;
-	// case DNS_T_OPT: {
-	// 	unsigned char *opt_start = context->ptr;
-	// 	ret = _dns_decode_opt(context, type, ttl, rr_len);
-	// 	if (ret < 0) {
-	// 		tlog(TLOG_ERROR, "decode opt failed, %s", domain);
-	// 		return -1;
-	// 	}
+	case DNS_T_OPT: {
+		unsigned char *opt_start = context->ptr;
+		ret = _dns_decode_opt(context, type, ttl, rr_len);
+		if (ret < 0) {
+			tlog(TLOG_ERROR, "decode opt failed, %s", domain);
+			return -1;
+		}
 
-	// 	if (context->ptr - opt_start != rr_len) {
-	// 		tlog(TLOG_ERROR, "opt length mismatch, %s\n", domain);
-	// 		return -1;
-	// 	}
+		if (context->ptr - opt_start != rr_len) {
+			tlog(TLOG_ERROR, "opt length mismatch, %s\n", domain);
+			return -1;
+		}
 
-	// 	dns_set_OPT_payload_size(packet, qclass);
-	// } break;
+		dns_set_OPT_payload_size(packet, qclass);
+	} break;
 	default: {
 		unsigned char raw_data[1024];
 		if (_dns_left_len(context) < rr_len || rr_len >= sizeof(raw_data)) {

@@ -3273,6 +3273,34 @@ static void *_dns_client_work(void *arg)
 
 int dns_client_set_ecs(char *ip, int subnet)
 {
+	struct sockaddr_storage addr;
+	socklen_t addr_len = sizeof(addr);
+	getaddr_by_host(ip, (struct sockaddr *)&addr, &addr_len);
+
+	switch (addr.ss_family) {
+	case AF_INET: {
+		struct sockaddr_in *addr_in;
+		addr_in = (struct sockaddr_in *)&addr;
+		memcpy(&client.ecs_ipv4.ipv4_addr, &addr_in->sin_addr.s_addr, 4);
+		client.ecs_ipv4.bitlen = subnet;
+		client.ecs_ipv4.enable = 1;
+	} break;
+	case AF_INET6: {
+		struct sockaddr_in6 *addr_in6;
+		addr_in6 = (struct sockaddr_in6 *)&addr;
+		if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
+			memcpy(&client.ecs_ipv4.ipv4_addr, addr_in6->sin6_addr.s6_addr + 12, 4);
+			client.ecs_ipv4.bitlen = subnet;
+			client.ecs_ipv4.enable = 1;
+		} else {
+			memcpy(&client.ecs_ipv6.ipv6_addr, addr_in6->sin6_addr.s6_addr, 16);
+			client.ecs_ipv6.bitlen = subnet;
+			client.ecs_ipv6.enable = 1;
+		}
+	} break;
+	default:
+		return -1;
+	}
 	return 0;
 }
 
