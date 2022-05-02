@@ -257,7 +257,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 #ifdef FEATURE_CHECK_EDNS
 		/* experimental feature */
 		{"check-edns", no_argument, NULL, 'e'},   /* check edns */
-#endif 
+#endif
 		{"spki-pin", required_argument, NULL, 'p'}, /* check SPKI pin */
 		{"host-name", required_argument, NULL, 'h'}, /* host name */
 		{"http-host", required_argument, NULL, 'H'}, /* http host */
@@ -608,7 +608,8 @@ static int _conf_domain_rule_ipset(char *domain, const char *ipsetname)
 		goto errout;
 	}
 
-	for (char *tok = strtok(copied_name, ","); tok; tok = strtok(NULL, ",")) {
+	char *tok; // make gcc 4.9 happy
+	for (tok = strtok(copied_name, ","); tok; tok = strtok(NULL, ",")) {
 		if (tok[0] == '#') {
 			if (strncmp(tok, "#6:", 3u) == 0) {
 				type = DOMAIN_RULE_IPSET_IPV6;
@@ -899,13 +900,13 @@ static int _config_bind_ip(int argc, char *argv[], DNS_BIND_TYPE type)
 	/* clang-format off */
 	static struct option long_options[] = {
 		{"group", required_argument, NULL, 'g'}, /* add to group */
-		{"no-rule-addr", no_argument, NULL, 'A'},   
-		{"no-rule-nameserver", no_argument, NULL, 'N'},   
-		{"no-rule-ipset", no_argument, NULL, 'I'},   
-		{"no-rule-sni-proxy", no_argument, NULL, 'P'},   
+		{"no-rule-addr", no_argument, NULL, 'A'},
+		{"no-rule-nameserver", no_argument, NULL, 'N'},
+		{"no-rule-ipset", no_argument, NULL, 'I'},
+		{"no-rule-sni-proxy", no_argument, NULL, 'P'},
 		{"no-rule-soa", no_argument, NULL, 'O'},
-		{"no-speed-check", no_argument, NULL, 'S'},  
-		{"no-cache", no_argument, NULL, 'C'},  
+		{"no-speed-check", no_argument, NULL, 'S'},
+		{"no-cache", no_argument, NULL, 'C'},
 		{"no-dualstack-selection", no_argument, NULL, 'D'},
 		{"force-aaaa-soa", no_argument, NULL, 'F'},
 		{NULL, no_argument, NULL, 0}

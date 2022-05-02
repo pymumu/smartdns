@@ -65,6 +65,7 @@ struct client_dns_server_flag_udp {
 	int ttl;
 };
 
+#ifndef NOT_USE_OPENSSL
 struct client_dns_server_flag_tls {
 	char spki[DNS_SERVER_SPKI_LEN];
 	int spi_len;
@@ -82,6 +83,7 @@ struct client_dns_server_flag_https {
 	char tls_host_verify[DNS_MAX_CNAME_LEN];
 	char skip_check_cert;
 };
+#endif // USE_SSL
 
 struct client_dns_server_flags {
 	dns_server_type_t type;
@@ -90,12 +92,16 @@ struct client_dns_server_flags {
 
 	union {
 		struct client_dns_server_flag_udp udp;
+#ifndef NOT_USE_OPENSSL
 		struct client_dns_server_flag_tls tls;
 		struct client_dns_server_flag_https https;
+#endif // USE_SSL
 	};
 };
 
-int dns_client_spki_decode(const char *spki, unsigned char *spki_data_out);
+#ifndef NOT_USE_OPENSSL
+	int dns_client_spki_decode(const char *spki, unsigned char *spki_data_out);
+#endif // USE_SSL
 
 /* add remote dns server */
 int dns_client_add_server(char *server_ip, int port, dns_server_type_t server_type,
