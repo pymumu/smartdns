@@ -1263,6 +1263,7 @@ int _dns_server_reply_all_pending_list(struct dns_request *request, struct dns_s
 static int _dns_server_request_complete(struct dns_request *request)
 {
 	int force_A = 0;
+	int ttl = DNS_SERVER_TMOUT_TTL;
 
 	if (request->prefetch == 1) {
 		return 0;
@@ -1277,6 +1278,7 @@ static int _dns_server_request_complete(struct dns_request *request)
 		if (request->has_ping_result == 0 && request->ttl_v4 > DNS_SERVER_TMOUT_TTL) {
 			request->ttl_v4 = DNS_SERVER_TMOUT_TTL;
 		}
+		ttl = request->ttl_v4;
 	} else if (request->qtype == DNS_T_AAAA) {
 		if (request->has_ipv6) {
 			if (request->has_ping_result == 0 && request->ttl_v6 > DNS_SERVER_TMOUT_TTL) {
@@ -1284,6 +1286,7 @@ static int _dns_server_request_complete(struct dns_request *request)
 			}
 
 			request->has_soa = 0;
+			ttl = request->ttl_v6;
 		}
 
 		if (request->has_ipv4 && (request->ping_ttl_v4 > 0)) {
@@ -1308,6 +1311,15 @@ static int _dns_server_request_complete(struct dns_request *request)
 out:
 	_dns_server_dualstack_selection_cache_A(request);
 
+	if (dns_conf_rr_ttl_rely_max > 0) {
+		if (ttl > dns_conf_rr_ttl_rely_max) {
+			ttl = dns_conf_rr_ttl_rely_max;
+		}
+	} else {
+		/* no need upate ttl */
+		ttl = -1;
+	}
+
 	struct dns_server_post_context context;
 	_dns_server_post_context_init(&context, request);
 	context.do_cache = 1;
@@ -1315,7 +1327,7 @@ out:
 	context.do_force_soa = force_A;
 	context.do_audit = 1;
 	context.do_reply = 1;
-	context.reply_ttl = dns_conf_rr_ttl_rely_max;
+	context.reply_ttl = ttl;
 	context.skip_notify_count = 1;
 
 	_dns_request_post(&context);
@@ -2742,16 +2754,11 @@ static int _dns_server_get_expired_ttl_reply(struct dns_cache *dns_cache)
 {
 	int ttl = dns_cache_get_ttl(dns_cache);
 	if (ttl > 0) {
-		int ttl_reply = 0;
-		if (dns_conf_rr_ttl_rely_max > 0) {
-			ttl_reply = ttl % dns_conf_rr_ttl_rely_max;
+		if (dns_conf_rr_ttl_rely_max > 0 && ttl > dns_conf_rr_ttl_rely_max) {
+			ttl = dns_conf_rr_ttl_rely_max;
 		}
 
-		if (ttl_reply == 0) {
-			ttl_reply = (ttl > dns_conf_rr_ttl_rely_max) ? dns_conf_rr_ttl_rely_max : ttl;
-		}
-
-		return ttl_reply;
+		return ttl;
 	}
 
 	return dns_conf_serve_expired_reply_ttl;
