@@ -1086,6 +1086,7 @@ static int _dns_request_post(struct dns_server_post_context *context)
 	if (context->reply_ttl > 0) {
 		struct dns_update_param param;
 		param.id = request->id;
+		param.cname_ttl = context->reply_ttl;
 		param.ip_ttl = context->reply_ttl;
 		if (dns_packet_update(context->inpacket, context->inpacket_len, &param) != 0) {
 			tlog(TLOG_ERROR, "update packet info failed.");
@@ -1311,13 +1312,10 @@ static int _dns_server_request_complete(struct dns_request *request)
 out:
 	_dns_server_dualstack_selection_cache_A(request);
 
-	if (dns_conf_rr_ttl_rely_max > 0) {
-		if (ttl > dns_conf_rr_ttl_rely_max) {
-			ttl = dns_conf_rr_ttl_rely_max;
+	if (dns_conf_rr_ttl_reply_max > 0) {
+		if (ttl > dns_conf_rr_ttl_reply_max) {
+			ttl = dns_conf_rr_ttl_reply_max;
 		}
-	} else {
-		/* no need upate ttl */
-		ttl = -1;
 	}
 
 	struct dns_server_post_context context;
@@ -2362,7 +2360,7 @@ static int dns_server_resolve_callback(char *domain, dns_result_type rtype, unsi
 			context.do_audit = 1;
 			context.do_reply = 1;
 			context.do_ipset = 1;
-			context.reply_ttl = dns_conf_rr_ttl_rely_max;
+			context.reply_ttl = dns_conf_rr_ttl_reply_max;
 			return _dns_server_reply_passthrouth(&context);
 		}
 		_dns_server_process_answer(request, domain, packet, result_flag);
@@ -2754,8 +2752,8 @@ static int _dns_server_get_expired_ttl_reply(struct dns_cache *dns_cache)
 {
 	int ttl = dns_cache_get_ttl(dns_cache);
 	if (ttl > 0) {
-		if (dns_conf_rr_ttl_rely_max > 0 && ttl > dns_conf_rr_ttl_rely_max) {
-			ttl = dns_conf_rr_ttl_rely_max;
+		if (dns_conf_rr_ttl_reply_max > 0 && ttl > dns_conf_rr_ttl_reply_max) {
+			ttl = dns_conf_rr_ttl_reply_max;
 		}
 
 		return ttl;
