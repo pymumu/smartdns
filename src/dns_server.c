@@ -2111,7 +2111,7 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 }
 
 static int _dns_server_passthrough_rule_check(struct dns_request *request, char *domain, struct dns_packet *packet,
-											  unsigned int result_flag)
+											  unsigned int result_flag, int *pttl)
 {
 	int ttl;
 	char name[DNS_MAX_CNAME_LEN] = {0};
@@ -2198,6 +2198,8 @@ static int _dns_server_passthrough_rule_check(struct dns_request *request, char 
 			}
 		}
 	}
+
+	*pttl = ttl;
 
 	if (is_result_discard == 1) {
 		return 0;
@@ -2350,9 +2352,15 @@ static int dns_server_resolve_callback(char *domain, dns_result_type rtype, unsi
 	if (rtype == DNS_QUERY_RESULT) {
 		if (request->passthrough) {
 			struct dns_server_post_context context;
-			ret = _dns_server_passthrough_rule_check(request, domain, packet, result_flag);
+			int ttl = 0;
+			ret = _dns_server_passthrough_rule_check(request, domain, packet, result_flag, &ttl);
 			if (ret == 0) {
 				return 0;
+			}
+
+			ttl = _dns_server_get_conf_ttl(ttl);
+			if ( ttl > dns_conf_rr_ttl_reply_max && dns_conf_rr_ttl_reply_max > 0) {
+				ttl = dns_conf_rr_ttl_reply_max;
 			}
 
 			_dns_server_post_context_init_from(&context, request, packet, inpacket, inpacket_len);
@@ -2360,7 +2368,7 @@ static int dns_server_resolve_callback(char *domain, dns_result_type rtype, unsi
 			context.do_audit = 1;
 			context.do_reply = 1;
 			context.do_ipset = 1;
-			context.reply_ttl = dns_conf_rr_ttl_reply_max;
+			context.reply_ttl = ttl;
 			return _dns_server_reply_passthrouth(&context);
 		}
 		_dns_server_process_answer(request, domain, packet, result_flag);
