@@ -504,9 +504,12 @@ static int _tlog_vprintf(struct tlog_log *log, vprint_callback print_callback, v
     if (len <= 0) {
         return -1;
     } else if (len >= log->max_line_size) {
-        strncpy(buff, "[LOG TOO LONG, DISCARD]\n", sizeof(buff));
-        buff[sizeof(buff) - 1] = '\0';
-        len = strnlen(buff, sizeof(buff));
+        len = log->max_line_size;
+        buff[len - 1] = '\0';
+        buff[len - 2] = '\n';
+        buff[len - 3] = '.';
+        buff[len - 4] = '.';
+        buff[len - 5] = '.';
     }
 
     pthread_mutex_lock(&tlog.lock);
@@ -1834,6 +1837,7 @@ void tlog_exit(void)
         pthread_cond_signal(&tlog.cond);
         pthread_mutex_unlock(&tlog.lock);
         pthread_join(tlog.tid, &ret);
+        tlog.tid = 0;
     }
 
     tlog.root = NULL;
@@ -1843,4 +1847,7 @@ void tlog_exit(void)
 
     pthread_cond_destroy(&tlog.cond);
     pthread_mutex_destroy(&tlog.lock);
+
+    tlog_format = NULL;
+    tlog.is_wait = 0;
 }
