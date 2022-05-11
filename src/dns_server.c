@@ -1507,6 +1507,7 @@ static void _dns_server_complete_with_multi_ipaddress(struct dns_request *reques
 	context.select_all_best_ip = 1;
 	context.skip_notify_count = 1;
 	_dns_request_post(&context);
+	_dns_result_callback(request);
 
 	if (request->dualstack_selection == 1 && request->qtype == DNS_T_AAAA) {
 		_dns_server_post_context_init(&context, request);
