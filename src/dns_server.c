@@ -544,7 +544,7 @@ static int _dns_rrs_add_all_best_ip(struct dns_server_post_context *context)
 		added_ipv6_addr = _dns_ip_address_get(request, request->ipv6_addr, DNS_T_AAAA);
 	}
 
-	while (true) {
+	while (true && context->ip_num < 10) {
 		pthread_mutex_lock(&request->ip_map_lock);
 		hash_for_each_safe(request->ip_map, bucket, tmp, addr_map, node)
 		{
