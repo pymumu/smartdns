@@ -625,6 +625,7 @@ static int _dns_add_rrs(struct dns_server_post_context *context)
 {
 	struct dns_request *request = context->request;
 	int ret = 0;
+	int has_soa = request->has_soa;
 	char *domain = request->domain;
 	if (request->has_ptr) {
 		/* add PTR record */
@@ -689,11 +690,11 @@ static int _dns_add_rrs(struct dns_server_post_context *context)
 
 	if (context->qtype == DNS_T_A || context->qtype == DNS_T_AAAA) {
 		if (context->ip_num > 0) {
-			request->has_soa = 0;
+			has_soa = 0;
 		}
 	}
 	/* add SOA record */
-	if (request->has_soa) {
+	if (has_soa) {
 		ret |= dns_add_SOA(context->packet, DNS_RRS_NS, domain, 0, &request->soa);
 	} else if (context->do_force_soa == 1) {
 		_dns_server_setup_soa(request);
@@ -874,7 +875,7 @@ static int _dns_reply_inpacket(struct dns_request *request, unsigned char *inpac
 }
 
 static int _dns_server_request_update_cache(struct dns_request *request, dns_type_t qtype,
-											struct dns_cache_data *cache_data)
+											struct dns_cache_data *cache_data, int has_soa)
 {
 	int ttl;
 	int speed = 0;
@@ -889,8 +890,12 @@ static int _dns_server_request_update_cache(struct dns_request *request, dns_typ
 		goto errout;
 	}
 
-	if (request->has_soa) {
-		ttl = dns_conf_rr_ttl;
+	if (has_soa) {
+		if (request->dualstack_selection && request->has_ipv4 && request->qtype == DNS_T_AAAA) {
+			ttl = _dns_server_get_conf_ttl(request->ttl_v4);
+		} else {
+			ttl = dns_conf_rr_ttl;
+		}
 		dns_cache_set_data_soa(cache_data, request->server_flags, request->cname, request->ttl_cname);
 	}
 
@@ -919,6 +924,7 @@ errout:
 static int _dns_cache_reply_packet(struct dns_server_post_context *context)
 {
 	struct dns_request *request = context->request;
+	int has_soa = request->has_soa;
 	if (context->do_cache == 0 || _dns_server_has_bind_flag(request, BIND_FLAG_NO_CACHE) == 0) {
 		return 0;
 	}
@@ -937,7 +943,11 @@ static int _dns_cache_reply_packet(struct dns_server_post_context *context)
 		return -1;
 	}
 
-	if (_dns_server_request_update_cache(request, context->qtype, cache_packet) != 0) {
+	if (context->ip_num > 0) {
+		has_soa = 0;
+	}
+
+	if (_dns_server_request_update_cache(request, context->qtype, cache_packet, has_soa) != 0) {
 		tlog(TLOG_WARN, "update packet cache failed.");
 	}
 
@@ -2900,21 +2910,6 @@ static int _dns_server_process_cache(struct dns_request *request)
 
 	dns_cache = dns_cache_lookup(request->domain, request->qtype);
 	if (dns_cache == NULL) {
-		if (request->dualstack_selection && request->qtype == DNS_T_AAAA) {
-			dns_cache_A = dns_cache_lookup(request->domain, DNS_T_A);
-			if (dns_cache_A && dns_cache_is_soa(dns_cache_A) == 0) {
-				tlog(TLOG_DEBUG, "No IPV6 Found, Force IPV4 perfered.");
-				if (dns_cache_get_ttl(dns_cache_A) == 0) {
-					uint32_t server_flags = request->server_flags;
-					if (request->conn == NULL) {
-						server_flags = dns_cache_get_cache_flag(dns_cache_A->cache_data);
-					}
-					_dns_server_prefetch_request(request->domain, request->qtype, server_flags);
-				}
-				ret = _dns_server_reply_SOA(DNS_RC_NOERROR, request);
-				goto out;
-			}
-		}
 		goto out;
 	}
 
