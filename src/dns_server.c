@@ -397,15 +397,16 @@ struct dns_ip_address *_dns_ip_address_get(struct dns_request *request, unsigned
 
 	/* store the ip address and the number of hits */
 	key = jhash(addr, addr_len, 0);
+	key = jhash(&addr_type, sizeof(addr_type), key);
 	pthread_mutex_lock(&request->ip_map_lock);
 	hash_for_each_possible(request->ip_map, addr_tmp, node, key)
 	{
-		if (addr_type == DNS_T_A) {
+		if (addr_type == DNS_T_A && addr_tmp->addr_type == DNS_T_A) {
 			if (memcmp(addr_tmp->ipv4_addr, addr, addr_len) == 0) {
 				addr_map = addr_tmp;
 				break;
 			}
-		} else if (addr_type == DNS_T_AAAA) {
+		} else if (addr_type == DNS_T_AAAA && addr_tmp->addr_type == DNS_T_AAAA) {
 			if (memcmp(addr_tmp->ipv6_addr, addr, addr_len) == 0) {
 				addr_map = addr_tmp;
 				break;
@@ -1051,7 +1052,7 @@ static int _dns_request_post(struct dns_server_post_context *context)
 	struct dns_request *request = context->request;
 	int ret = 0;
 
-	tlog(TLOG_DEBUG, "reply %s %d", request->domain, request->qtype);
+	tlog(TLOG_DEBUG, "reply %s %d %d", request->domain, request->qtype, context->qtype);
 
 	if (request->conn == NULL) {
 		context->do_reply = 0;
@@ -1359,17 +1360,18 @@ static int _dns_ip_address_check_add(struct dns_request *request, char *cname, u
 
 	/* store the ip address and the number of hits */
 	key = jhash(addr, addr_len, 0);
+	key = jhash(&addr_type, sizeof(addr_type), key);
 	pthread_mutex_lock(&request->ip_map_lock);
 	hash_for_each_possible(request->ip_map, addr_map, node, key)
 	{
-		if (addr_type == DNS_T_A) {
+		if (addr_map->addr_type == DNS_T_A && addr_type == DNS_T_A) {
 			if (memcmp(addr_map->ipv4_addr, addr, addr_len) == 0) {
 				addr_map->hitnum++;
 				addr_map->recv_tick = get_tick_count();
 				pthread_mutex_unlock(&request->ip_map_lock);
 				return -1;
 			}
-		} else if (addr_type == DNS_T_AAAA) {
+		} else if (addr_map->addr_type == DNS_T_AAAA && addr_type == DNS_T_AAAA) {
 			if (memcmp(addr_map->ipv6_addr, addr, addr_len) == 0) {
 				addr_map->hitnum++;
 				addr_map->recv_tick = get_tick_count();
@@ -1572,7 +1574,6 @@ static void _dns_server_request_release_complete(struct dns_request *request, in
 
 static void _dns_server_request_release(struct dns_request *request)
 {
-
 	_dns_server_request_release_complete(request, request->passthrough == 0);
 }
 
@@ -1711,6 +1712,7 @@ static void _dns_server_ping_result(struct ping_host_struct *ping_host, const ch
 				 request->ipv4_addr[3], request->ping_ttl_v4, rtt);
 			request->ping_ttl_v4 = rtt;
 			request->has_cname = 0;
+			request->has_ipv4 = 1;
 			if (addr_map && addr_map->cname[0] != 0) {
 				request->has_cname = 1;
 				safe_strncpy(request->cname, addr_map->cname, DNS_MAX_CNAME_LEN);
@@ -1724,6 +1726,10 @@ static void _dns_server_ping_result(struct ping_host_struct *ping_host, const ch
 				return;
 			}
 		}
+
+		if (request->qtype == DNS_T_A) {
+			request->has_ping_result = 1;
+		}
 	} break;
 	case AF_INET6: {
 		struct sockaddr_in6 *addr_in6;
@@ -1736,6 +1742,8 @@ static void _dns_server_ping_result(struct ping_host_struct *ping_host, const ch
 
 			if (request->ping_ttl_v4 > rtt || request->ping_ttl_v4 == -1) {
 				request->ping_ttl_v4 = rtt;
+				request->has_cname = 0;
+				request->has_ipv4 = 1;
 				memcpy(request->ipv4_addr, addr_in6->sin6_addr.s6_addr + 12, 4);
 				if (addr_map && addr_map->cname[0] != 0) {
 					request->has_cname = 1;
@@ -1744,29 +1752,41 @@ static void _dns_server_ping_result(struct ping_host_struct *ping_host, const ch
 					request->has_cname = 0;
 				}
 			}
+
+			if (request->qtype == DNS_T_A) {
+				request->has_ping_result = 1;
+			}
 		} else {
-			addr_map = _dns_ip_address_get(request, addr_in6->sin6_addr.s6_addr, DNS_T_AAAA);
+			addr_map = _dns_ip_address_get(request, addr_in6->sin6_addr.s6_addr,
+										   DNS_T_AAAA);
 			if (addr_map) {
 				addr_map->ping_ttl = rtt;
 			}
 
 			if (request->ping_ttl_v6 > rtt || request->ping_ttl_v6 == -1) {
 				request->ping_ttl_v6 = rtt;
+				request->has_cname = 0;
+				request->has_ipv6 = 1;
 				memcpy(request->ipv6_addr, addr_in6->sin6_addr.s6_addr, 16);
 				if (addr_map && addr_map->cname[0] != 0) {
 					request->has_cname = 1;
-					safe_strncpy(request->cname, addr_map->cname, DNS_MAX_CNAME_LEN);
+					safe_strncpy(request->cname, addr_map->cname,
+								 DNS_MAX_CNAME_LEN);
 				} else {
 					request->has_cname = 0;
 				}
+			}
+
+			if (request->qtype == DNS_T_AAAA) {
+				request->has_ping_result = 1;
 			}
 		}
 	} break;
 	default:
 		break;
 	}
+
 	if (result == PING_RESULT_RESPONSE) {
-		request->has_ping_result = 1;
 		tlog(TLOG_DEBUG, "from %s: seq=%d time=%d\n", host, seqno, rtt);
 	} else {
 		tlog(TLOG_DEBUG, "from %s: seq=%d timeout\n", host, seqno);
