@@ -43,7 +43,9 @@ build()
 	mkdir $ROOT/etc/default/ -p
 	mkdir $ROOT/lib/systemd/system/ -p
 
-	sed -i "s/Version:.*/Version: $VER/" $ROOT/DEBIAN/control
+
+	pkgver=$(echo ${VER}| sed 's/^1\.//g')
+	sed -i "s/Version:.*/Version: ${pkgver}/" $ROOT/DEBIAN/control
 	sed -i "s/Architecture:.*/Architecture: $ARCH/" $ROOT/DEBIAN/control
 	chmod 0755 $ROOT/DEBIAN/prerm
 
