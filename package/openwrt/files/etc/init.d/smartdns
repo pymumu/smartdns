@@ -289,7 +289,7 @@ load_service()
 		fi
 	}
 	config_get dualstack_ip_selection "$section" "dualstack_ip_selection" "0"
-	[ "$dualstack_ip_selection" = "1" ] && conf_append "dualstack-ip-selection" "yes"
+	[ "$dualstack_ip_selection" = "0" ] && conf_append "dualstack-ip-selection" "no"
 
 	config_get prefetch_domain "$section" "prefetch_domain" "0"
 	[ "$prefetch_domain" = "1" ] && conf_append "prefetch-domain" "yes"
