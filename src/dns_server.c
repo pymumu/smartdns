@@ -44,6 +44,7 @@
 #include <sys/types.h>
 
 #define DNS_MAX_EVENTS 256
+#define IPV6_READY_CHECK_TIME 180
 #define DNS_SERVER_TMOUT_TTL (5 * 60)
 #define DNS_CONN_BUFF_SIZE 4096
 #define DNS_REQUEST_MAX_TIMEOUT 850
@@ -247,6 +248,8 @@ struct dns_server {
 static struct dns_server server;
 
 static tlog_log *dns_audit;
+
+static int is_ipv6_ready;
 
 static int _dns_server_prefetch_request(char *domain, dns_type_t qtype, uint32_t server_flags);
 
@@ -1675,7 +1678,7 @@ errout:
 
 static void _dns_server_ping_result(struct ping_host_struct *ping_host, const char *host, FAST_PING_RESULT result,
 									struct sockaddr *addr, socklen_t addr_len, int seqno, int ttl, struct timeval *tv,
-									void *userptr)
+									int error, void *userptr)
 {
 	struct dns_request *request = userptr;
 	int may_complete = 0;
@@ -1691,6 +1694,18 @@ static void _dns_server_ping_result(struct ping_host_struct *ping_host, const ch
 		fast_ping_stop(ping_host);
 		return;
 	} else if (result == PING_RESULT_TIMEOUT) {
+		return;
+	} else if (result == PING_RESULT_ERROR) {
+		if (addr->sa_family != AF_INET6) {
+			return;
+		}
+
+		if (is_ipv6_ready) {
+			if (error == EADDRNOTAVAIL || errno == EACCES) {
+				is_ipv6_ready = 0;
+				tlog(TLOG_ERROR, "IPV6 is not ready, disable all ipv6 feature, recheck after %ds", IPV6_READY_CHECK_TIME);
+			}
+		}
 		return;
 	}
 
@@ -3011,6 +3026,60 @@ out:
 	return ret;
 }
 
+void _dns_server_check_ipv6_ready(void)
+{
+	static int do_get_conf = 0;
+	static int is_icmp_check_set;
+	static int is_tcp_check_set;
+	int i = 0;
+
+	if (do_get_conf == 0) {
+		for (i = 0; i < DOMAIN_CHECK_NUM; i++) {
+			if (dns_conf_check_order.order[i] == DOMAIN_CHECK_ICMP) {
+				is_icmp_check_set = 1;
+			}
+
+			if (dns_conf_check_order.order[i] == DOMAIN_CHECK_TCP) {
+				is_tcp_check_set = 1;
+			}
+		}
+
+		if (is_icmp_check_set == 0) {
+			tlog(TLOG_INFO, "ICMP ping is disabled, no ipv6 icmp check feature");
+		}
+
+		do_get_conf = 1;
+	}
+
+	if (is_icmp_check_set) {
+		struct ping_host_struct *check_ping = fast_ping_start(PING_TYPE_ICMP, "2001::", 1, 0, 100, 0, 0);
+		if (check_ping) {
+			fast_ping_stop(check_ping);
+			is_ipv6_ready = 1;
+			return;
+		}
+
+		if (errno == EADDRNOTAVAIL) {
+			is_ipv6_ready = 0;
+			return;
+		}
+	}
+
+	if (is_tcp_check_set) {
+		struct ping_host_struct *check_ping = fast_ping_start(PING_TYPE_TCP, "2001::", 1, 0, 100, 0, 0);
+		if (check_ping) {
+			fast_ping_stop(check_ping);
+			is_ipv6_ready = 1;
+			return;
+		}
+
+		if (errno == EADDRNOTAVAIL) {
+			is_ipv6_ready = 0;
+			return;
+		}
+	}
+}
+
 static void _dns_server_request_set_client(struct dns_request *request, struct dns_server_conn_head *conn)
 {
 	request->conn = conn;
@@ -3113,6 +3182,10 @@ static void _dns_server_check_set_passthrough(struct dns_request *request)
 	}
 
 	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_SPEED_CHECK) == 0) {
+		request->passthrough = 1;
+	}
+
+	if (is_ipv6_ready == 0 && request->qtype == DNS_T_AAAA) {
 		request->passthrough = 1;
 	}
 
@@ -3791,6 +3864,10 @@ static void _dns_server_period_run_second(void)
 	}
 
 	_dns_server_tcp_idle_check();
+
+	if (sec % IPV6_READY_CHECK_TIME == 0 && is_ipv6_ready == 0) {
+		_dns_server_check_ipv6_ready();
+	}
 }
 
 static void _dns_server_period_run(void)
@@ -4239,6 +4316,9 @@ int dns_server_init(void)
 		tlog(TLOG_ERROR, "start service failed.\n");
 		goto errout;
 	}
+
+	_dns_server_check_ipv6_ready();
+	tlog(TLOG_INFO, "%s", (is_ipv6_ready) ? "IPV6 is ready, enable IPV6 features" : "IPV6 is not ready, disable IPV6 features");
 
 	return 0;
 errout:

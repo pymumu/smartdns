@@ -420,7 +420,7 @@ static int _dns_client_server_exist(const char *server_ip, int port, dns_server_
 
 static void _dns_client_server_update_ttl(struct ping_host_struct *ping_host, const char *host, FAST_PING_RESULT result,
 										  struct sockaddr *addr, socklen_t addr_len, int seqno, int ttl,
-										  struct timeval *tv, void *userptr)
+										  struct timeval *tv, int error, void *userptr)
 {
 	struct dns_server_info *server_info = userptr;
 	if (result != PING_RESULT_RESPONSE || server_info == NULL) {

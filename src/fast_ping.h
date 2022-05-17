@@ -34,13 +34,14 @@ typedef enum {
 typedef enum {
 	PING_RESULT_RESPONSE = 1,
 	PING_RESULT_TIMEOUT = 2,
-	PING_RESULT_END = 3,
+	PING_RESULT_ERROR = 3,
+	PING_RESULT_END = 4,
 } FAST_PING_RESULT;
 
 struct ping_host_struct;
 typedef void (*fast_ping_result)(struct ping_host_struct *ping_host, const char *host, FAST_PING_RESULT result,
 								 struct sockaddr *addr, socklen_t addr_len, int seqno, int ttl, struct timeval *tv,
-								 void *userptr);
+								 int error, void *userptr);
 
 /* start ping */
 struct ping_host_struct *fast_ping_start(PING_TYPE type, const char *host, int count, int interval, int timeout,
