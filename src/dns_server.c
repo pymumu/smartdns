@@ -44,6 +44,7 @@
 #include <sys/types.h>
 
 #define DNS_MAX_EVENTS 256
+#define DNS_SERVER_MAX_REPONSE_IPNUM 10
 #define IPV6_READY_CHECK_TIME 180
 #define DNS_SERVER_TMOUT_TTL (5 * 60)
 #define DNS_CONN_BUFF_SIZE 4096
@@ -549,10 +550,14 @@ static int _dns_rrs_add_all_best_ip(struct dns_server_post_context *context)
 		added_ipv6_addr = _dns_ip_address_get(request, request->ipv6_addr, DNS_T_AAAA);
 	}
 
-	while (true && context->ip_num < 10) {
+	while (true) {
 		pthread_mutex_lock(&request->ip_map_lock);
 		hash_for_each_safe(request->ip_map, bucket, tmp, addr_map, node)
 		{
+			if (context->ip_num >= DNS_SERVER_MAX_REPONSE_IPNUM) {
+				break;
+			}
+
 			if (context->qtype != addr_map->addr_type) {
 				continue;
 			}

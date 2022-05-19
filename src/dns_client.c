@@ -908,7 +908,7 @@ SSL_CTX *_ssl_ctx_get(void)
 	pthread_mutex_unlock(&client.server_list_lock);
 	return client.ssl_ctx;
 errout:
-	
+
 	pthread_mutex_unlock(&client.server_list_lock);
 	if (ssl_ctx) {
 		SSL_CTX_free(ssl_ctx);
@@ -2875,14 +2875,31 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 
 static int _dns_client_dns_add_ecs(struct dns_packet *packet, int qtype)
 {
+	int add_ipv4_ecs = 0;
+	int add_ipv6_ecs = 0;
+
 	if (qtype == DNS_T_A && client.ecs_ipv4.enable) {
+		add_ipv4_ecs = 1;
+	} else if (qtype == DNS_T_AAAA && client.ecs_ipv6.enable) {
+		add_ipv6_ecs = 1;
+	} else {
+		if (client.ecs_ipv4.enable) {
+			add_ipv4_ecs = 1;
+		} else if (client.ecs_ipv6.enable) {
+			add_ipv4_ecs = 1;
+		}
+	}
+
+	if (add_ipv4_ecs) {
 		struct dns_opt_ecs ecs;
 		ecs.family = DNS_ADDR_FAMILY_IP;
 		ecs.source_prefix = client.ecs_ipv4.bitlen;
 		ecs.scope_prefix = 0;
 		memcpy(ecs.addr, client.ecs_ipv4.ipv4_addr, DNS_RR_A_LEN);
 		return dns_add_OPT_ECS(packet, &ecs);
-	} else if (qtype == DNS_T_AAAA && client.ecs_ipv6.enable) {
+	}
+
+	if (add_ipv6_ecs) {
 		struct dns_opt_ecs ecs;
 		ecs.family = DNS_ADDR_FAMILY_IPV6;
 		ecs.source_prefix = client.ecs_ipv6.bitlen;
@@ -2890,6 +2907,7 @@ static int _dns_client_dns_add_ecs(struct dns_packet *packet, int qtype)
 		memcpy(ecs.addr, client.ecs_ipv6.ipv6_addr, DNS_RR_AAAA_LEN);
 		return dns_add_OPT_ECS(packet, &ecs);
 	}
+
 	return 0;
 }
 
