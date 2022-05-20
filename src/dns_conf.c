@@ -1749,6 +1749,10 @@ int dns_server_check_update_hosts(void)
 	struct stat statbuf;
 	time_t now;
 
+	if (dns_conf_dnsmasq_lease_file[0] == '\0') {
+		return -1;
+	}
+
 	if (stat(dns_conf_dnsmasq_lease_file, &statbuf) != 0) {
 		return -1;
 	}
@@ -1796,6 +1800,35 @@ static int _config_log_level(void *data, int argc, char *argv[])
 	}
 
 	return 0;
+}
+
+static void _config_setup_smartdns_domain(void) 
+{
+	char hostname[DNS_MAX_CNAME_LEN];
+	/* get local host name */
+	if (getdomainname(hostname, DNS_MAX_CNAME_LEN) != 0) {
+		gethostname(hostname, DNS_MAX_CNAME_LEN);
+	}
+
+	/* get host name again */
+	if (strncmp(hostname, "(none)", DNS_MAX_CNAME_LEN) == 0) {
+		gethostname(hostname, DNS_MAX_CNAME_LEN);
+	}
+
+	/* if hostname is (none), return smartdns */
+	if (strncmp(hostname, "(none)", DNS_MAX_CNAME_LEN) == 0) {
+		safe_strncpy(hostname, "smartdns", DNS_MAX_CNAME_LEN);
+	}
+
+	if (hostname[0] != '\0') {
+		_config_domain_rule_flag_set(hostname, DOMAIN_FLAG_SMARTDNS_DOMAIN, 0);
+	}
+
+	if (dns_conf_server_name[0] != '\0') {
+		_config_domain_rule_flag_set(dns_conf_server_name, DOMAIN_FLAG_SMARTDNS_DOMAIN, 0);
+	}
+
+	_config_domain_rule_flag_set("smartdns", DOMAIN_FLAG_SMARTDNS_DOMAIN, 0);
 }
 
 static struct config_item _config_item[] = {
@@ -1917,6 +1950,8 @@ static int _dns_server_load_conf_init(void)
 	hash_init(dns_group_table.group);
 	hash_init(dns_hosts_table.hosts);
 	hash_init(dns_ptr_table.ptr);
+
+	_config_setup_smartdns_domain();
 
 	return 0;
 }

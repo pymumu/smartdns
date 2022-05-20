@@ -281,7 +281,7 @@ https://github.com/pymumu/smartdns/releases
 
     * **Check if the service is configured successfully**
 
-        * Method 1: Query domain name with `nslookup -querytype=ptr 0.0.0.1`
+        * Query domain name with `nslookup -querytype=ptr 0.0.0.1`
         See if the `name` item in the command result is displayed as `smartdns` or `hostname`, such as `smartdns`
 
         ```shell
@@ -293,18 +293,12 @@ https://github.com/pymumu/smartdns/releases
         smartdns         name = smartdns.
         ```
 
-        * Method 2: Use `nslookup` to query the `www.baidu.com` domain name to see if the IP address of Baidu in the result is `only one. If there are multiple IP addresses returned, it means that it is not valid. Please try to check several domain names.
+        * or Query doman name `smartdns `with `nslookup smartdns`
+         ```shell
+         $ nslookup smartdns
+         ```
 
-        ```shell
-        pi@raspberrypi:~ $ nslookup www.baidu.com 192.168.1.1
-        Server:         192.168.1.1
-        Address:        192.168.1.1#53
-
-        Non-authoritative answer:
-        www.baidu.com   canonical name = www.a.shifen.com.
-        Name:   www.a.shifen.com
-        Address: 14.215.177.38
-        ```
+        Check whether the command result resolves the IP address of the router, if so, it means it is working.
 
 1. Start Service
 

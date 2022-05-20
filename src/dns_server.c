@@ -665,11 +665,11 @@ static int _dns_add_rrs(struct dns_server_post_context *context)
 		tlog(TLOG_INFO,
 			 "result: %s, rcode: %d,  index: %d, rtt: %d, "
 			 "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x",
-			 request->domain, request->rcode, context->ip_num, request->ping_ttl_v6, request->ipv6_addr[0], request->ipv6_addr[1],
-			 request->ipv6_addr[2], request->ipv6_addr[3], request->ipv6_addr[4], request->ipv6_addr[5],
-			 request->ipv6_addr[6], request->ipv6_addr[7], request->ipv6_addr[8], request->ipv6_addr[9],
-			 request->ipv6_addr[10], request->ipv6_addr[11], request->ipv6_addr[12], request->ipv6_addr[13],
-			 request->ipv6_addr[14], request->ipv6_addr[15]);
+			 request->domain, request->rcode, context->ip_num, request->ping_ttl_v6, request->ipv6_addr[0],
+			 request->ipv6_addr[1], request->ipv6_addr[2], request->ipv6_addr[3], request->ipv6_addr[4],
+			 request->ipv6_addr[5], request->ipv6_addr[6], request->ipv6_addr[7], request->ipv6_addr[8],
+			 request->ipv6_addr[9], request->ipv6_addr[10], request->ipv6_addr[11], request->ipv6_addr[12],
+			 request->ipv6_addr[13], request->ipv6_addr[14], request->ipv6_addr[15]);
 	}
 
 	ret |= _dns_rrs_add_all_best_ip(context);
@@ -1328,7 +1328,8 @@ out:
 	return _dns_server_reply_all_pending_list(request, &context);
 }
 
-static int _dns_ip_address_check_add(struct dns_request *request, char *cname, unsigned char *addr, dns_type_t addr_type)
+static int _dns_ip_address_check_add(struct dns_request *request, char *cname, unsigned char *addr,
+									 dns_type_t addr_type)
 {
 	uint32_t key = 0;
 	struct dns_ip_address *addr_map = NULL;
@@ -1684,7 +1685,8 @@ static void _dns_server_ping_result(struct ping_host_struct *ping_host, const ch
 		if (is_ipv6_ready) {
 			if (error == EADDRNOTAVAIL || errno == EACCES) {
 				is_ipv6_ready = 0;
-				tlog(TLOG_ERROR, "IPV6 is not ready, disable all ipv6 feature, recheck after %ds", IPV6_READY_CHECK_TIME);
+				tlog(TLOG_ERROR, "IPV6 is not ready, disable all ipv6 feature, recheck after %ds",
+					 IPV6_READY_CHECK_TIME);
 			}
 		}
 		return;
@@ -1753,8 +1755,7 @@ static void _dns_server_ping_result(struct ping_host_struct *ping_host, const ch
 				request->has_ping_result = 1;
 			}
 		} else {
-			addr_map = _dns_ip_address_get(request, addr_in6->sin6_addr.s6_addr,
-										   DNS_T_AAAA);
+			addr_map = _dns_ip_address_get(request, addr_in6->sin6_addr.s6_addr, DNS_T_AAAA);
 			if (addr_map) {
 				addr_map->ping_ttl = rtt;
 			}
@@ -1766,8 +1767,7 @@ static void _dns_server_ping_result(struct ping_host_struct *ping_host, const ch
 				memcpy(request->ipv6_addr, addr_in6->sin6_addr.s6_addr, 16);
 				if (addr_map && addr_map->cname[0] != 0) {
 					request->has_cname = 1;
-					safe_strncpy(request->cname, addr_map->cname,
-								 DNS_MAX_CNAME_LEN);
+					safe_strncpy(request->cname, addr_map->cname, DNS_MAX_CNAME_LEN);
 				} else {
 					request->has_cname = 0;
 				}
@@ -2414,7 +2414,7 @@ static int dns_server_resolve_callback(char *domain, dns_result_type rtype, unsi
 			}
 
 			ttl = _dns_server_get_conf_ttl(ttl);
-			if ( ttl > dns_conf_rr_ttl_reply_max && dns_conf_rr_ttl_reply_max > 0) {
+			if (ttl > dns_conf_rr_ttl_reply_max && dns_conf_rr_ttl_reply_max > 0) {
 				ttl = dns_conf_rr_ttl_reply_max;
 			}
 
@@ -2454,6 +2454,153 @@ static int dns_server_resolve_callback(char *domain, dns_result_type rtype, unsi
 	return 0;
 }
 
+static int _dns_server_get_inet_by_addr(struct sockaddr_storage *localaddr, struct sockaddr_storage *addr, int family)
+{
+	struct ifaddrs *ifaddr = NULL;
+	struct ifaddrs *ifa = NULL;
+	char ethname[16] = {0};
+
+	if (getifaddrs(&ifaddr) == -1) {
+		return -1;
+	}
+
+	for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
+		if (ifa->ifa_addr == NULL) {
+			continue;
+		}
+
+		if (localaddr->ss_family != ifa->ifa_addr->sa_family) {
+			continue;
+		}
+
+		switch (ifa->ifa_addr->sa_family) {
+		case AF_INET: {
+			struct sockaddr_in *addr_in_1;
+			struct sockaddr_in *addr_in_2;
+			addr_in_1 = (struct sockaddr_in *)ifa->ifa_addr;
+			addr_in_2 = (struct sockaddr_in *)localaddr;
+			if (memcmp(&(addr_in_1->sin_addr.s_addr), &(addr_in_2->sin_addr.s_addr), 4) != 0) {
+				continue;
+			}
+		} break;
+		case AF_INET6: {
+			struct sockaddr_in6 *addr_in6_1;
+			struct sockaddr_in6 *addr_in6_2;
+			addr_in6_1 = (struct sockaddr_in6 *)ifa->ifa_addr;
+			addr_in6_2 = (struct sockaddr_in6 *)localaddr;
+			if (IN6_IS_ADDR_V4MAPPED(&addr_in6_1->sin6_addr)) {
+				unsigned char *addr1 = addr_in6_1->sin6_addr.s6_addr + 12;
+				unsigned char *addr2 = addr_in6_2->sin6_addr.s6_addr + 12;
+				if (memcmp(addr1, addr2, 4) != 0) {
+					continue;
+				}
+			} else {
+				unsigned char *addr1 = addr_in6_1->sin6_addr.s6_addr;
+				unsigned char *addr2 = addr_in6_2->sin6_addr.s6_addr;
+				if (memcmp(addr1, addr2, 16) != 0) {
+					continue;
+				}
+			}
+		} break;
+		default:
+			continue;
+			break;
+		}
+
+		safe_strncpy(ethname, ifa->ifa_name, sizeof(ethname));
+		break;
+	}
+
+	if (ethname[0] == '\0') {
+		goto errout;
+	}
+
+	for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
+		if (ifa->ifa_addr == NULL) {
+			continue;
+		}
+
+		if (ifa->ifa_addr->sa_family != family) {
+			continue;
+		}
+
+		if (strncmp(ethname, ifa->ifa_name, sizeof(ethname)) != 0) {
+			continue;
+		}
+
+		if (family == AF_INET) {
+			memcpy(addr, ifa->ifa_addr, sizeof(struct sockaddr_in));
+		} else if (family == AF_INET6) {
+			memcpy(addr, ifa->ifa_addr, sizeof(struct sockaddr_in6));
+		}
+
+		break;
+	}
+
+	freeifaddrs(ifaddr);
+	return 0;
+errout:
+	if (ifaddr) {
+		freeifaddrs(ifaddr);
+	}
+
+	return -1;
+}
+
+static int _dns_server_reply_request_eth_ip(struct dns_request *request)
+{
+	struct sockaddr_in *addr_in = NULL;
+	struct sockaddr_in6 *addr_in6 = NULL;
+	struct sockaddr_storage *localaddr;
+	struct sockaddr_storage localaddr_buff;
+
+	localaddr = &request->localaddr;
+
+	/* address /domain/ rule */
+	switch (request->qtype) {
+	case DNS_T_A:
+		if (localaddr->ss_family != AF_INET) {
+			if (_dns_server_get_inet_by_addr(localaddr, &localaddr_buff, AF_INET) != 0) {
+				_dns_server_reply_SOA(DNS_RC_NOERROR, request);
+				return 0;
+			}
+
+			localaddr = &localaddr_buff;
+		}
+		addr_in = (struct sockaddr_in *)localaddr;
+		memcpy(request->ipv4_addr, &addr_in->sin_addr.s_addr, DNS_RR_A_LEN);
+		request->ttl_v4 = 600;
+		request->has_ipv4 = 1;
+		break;
+	case DNS_T_AAAA:
+		if (localaddr->ss_family != AF_INET6) {
+			if (_dns_server_get_inet_by_addr(localaddr, &localaddr_buff, AF_INET6) != 0) {
+				_dns_server_reply_SOA(DNS_RC_NOERROR, request);
+				return 0;
+			}
+
+			localaddr = &localaddr_buff;
+		}
+		addr_in6 = (struct sockaddr_in6 *)localaddr;
+		memcpy(request->ipv6_addr, &addr_in6->sin6_addr.s6_addr, DNS_RR_AAAA_LEN);
+		request->ttl_v6 = 600;
+		request->has_ipv6 = 1;
+		break;
+	default:
+		goto out;
+		break;
+	}
+
+	request->rcode = DNS_RC_NOERROR;
+	struct dns_server_post_context context;
+	_dns_server_post_context_init(&context, request);
+	context.do_reply = 1;
+	_dns_request_post(&context);
+
+	return 0;
+out:
+	return -1;
+}
 
 static int _dns_server_process_ptrs(struct dns_request *request)
 {
@@ -2462,7 +2609,7 @@ static int _dns_server_process_ptrs(struct dns_request *request)
 	struct dns_ptr *ptr_tmp = NULL;
 	key = hash_string(request->domain);
 	hash_for_each_possible(dns_ptr_table.ptr, ptr_tmp, node, key)
-	{	
+	{
 		if (strncmp(ptr_tmp->ptr_domain, request->domain, DNS_MAX_CNAME_LEN) != 0) {
 			continue;
 		}
@@ -2482,7 +2629,7 @@ errout:
 	return -1;
 }
 
-static int _dns_server_process_local_ptr(struct dns_request *request) 
+static int _dns_server_process_local_ptr(struct dns_request *request)
 {
 	struct ifaddrs *ifaddr = NULL;
 	struct ifaddrs *ifa = NULL;
@@ -2541,14 +2688,12 @@ static int _dns_server_process_local_ptr(struct dns_request *request)
 	}
 
 	/* Determine if the smartdns service is in effect. */
-	if (strncmp(request->domain, "0.0.0.0.in-addr.arpa", DNS_MAX_CNAME_LEN) ==
-		0) {
+	if (strncmp(request->domain, "0.0.0.0.in-addr.arpa", DNS_MAX_CNAME_LEN) == 0) {
 		found = 1;
 	}
 
 	/* Determine if the smartdns service is in effect. */
-	if (found == 0 &&
-		strncmp(request->domain, "smartdns", sizeof("smartdns")) == 0) {
+	if (found == 0 && strncmp(request->domain, "smartdns", sizeof("smartdns")) == 0) {
 		found = 1;
 	}
 
@@ -3176,9 +3321,32 @@ static void _dns_server_request_set_callback(struct dns_request *request, dns_re
 	request->user_ptr = user_ptr;
 }
 
+static int _dns_server_process_smartdns_domain(struct dns_request *request)
+{
+	struct dns_rule_flags *rule_flag = NULL;
+	unsigned int flags = 0;
+
+	/* get domain rule flag */
+	rule_flag = request->domain_rule.rules[DOMAIN_RULE_FLAGS];
+	if (rule_flag == NULL) {
+		return -1;
+	}
+
+	flags = rule_flag->flags;
+	if (!(flags & DOMAIN_FLAG_SMARTDNS_DOMAIN)) {
+		return -1;
+	}
+
+	return _dns_server_reply_request_eth_ip(request);
+}
+
 static int _dns_server_process_special_query(struct dns_request *request)
 {
 	int ret = 0;
+
+	if (_dns_server_process_smartdns_domain(request) == 0) {
+		goto clean_exit;
+	}
 
 	switch (request->qtype) {
 	case DNS_T_PTR:
@@ -3266,7 +3434,7 @@ static int _dns_server_process_host(struct dns_request *request)
 		if (host_tmp->dns_type != dns_type) {
 			continue;
 		}
-		
+
 		if (strncmp(host_tmp->domain, hostname_lower, DNS_MAX_CNAME_LEN) != 0) {
 			continue;
 		}
@@ -3283,7 +3451,7 @@ static int _dns_server_process_host(struct dns_request *request)
 		request->has_soa = 1;
 		return _dns_server_reply_SOA(DNS_RC_NOERROR, request);
 	}
-	
+
 	switch (request->qtype) {
 	case DNS_T_A:
 		memcpy(request->ipv4_addr, host->ipv4_addr, DNS_RR_A_LEN);
@@ -4446,7 +4614,8 @@ int dns_server_init(void)
 	}
 
 	_dns_server_check_ipv6_ready();
-	tlog(TLOG_INFO, "%s", (is_ipv6_ready) ? "IPV6 is ready, enable IPV6 features" : "IPV6 is not ready, disable IPV6 features");
+	tlog(TLOG_INFO, "%s",
+		 (is_ipv6_ready) ? "IPV6 is ready, enable IPV6 features" : "IPV6 is not ready, disable IPV6 features");
 
 	return 0;
 errout:

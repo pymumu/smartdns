@@ -311,8 +311,6 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
      
      * **检测上游服务是否配置成功**
        
-       * 方法一
-         
          执行
          
          ```shell
@@ -329,21 +327,14 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
          Non-authoritative answer:
          smartdns        name = smartdns.
          ```
-       
-       * 方法二
-         
-         使用 `nslookup` 查询域名（例如 `www.baidu.com`），查看结果中 IP 地址是否**只有一个**，如有多个 IP 地址返回，则表示未生效，请多尝试几个域名检查。
-         
+
+         或执行
          ```shell
-         $ nslookup www.baidu.com 192.168.1.1
-         Server:         192.168.1.1
-         Address:        192.168.1.1#53
-         
-         Non-authoritative answer:
-         www.baidu.com   canonical name = www.a.shifen.com.
-         Name:   www.a.shifen.com
-         Address: 14.215.177.38
+         $ nslookup smartdns
          ```
+
+         查看命令结果是否有解析出路由器的IP地址，如果是则表示生效。
+
 
 4. 启动服务
    
