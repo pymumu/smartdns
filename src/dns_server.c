@@ -192,6 +192,7 @@ struct dns_request {
 	int has_ping_result;
 	int has_ping_tcp;
 	int has_ptr;
+	char ptr_hostname[DNS_MAX_CNAME_LEN];
 
 	int has_cname;
 	char cname[DNS_MAX_CNAME_LEN];
@@ -639,32 +640,7 @@ static int _dns_add_rrs(struct dns_server_post_context *context)
 	char *domain = request->domain;
 	if (request->has_ptr) {
 		/* add PTR record */
-		char hostname[DNS_MAX_CNAME_LEN];
-		if (dns_conf_server_name[0] == 0) {
-			/* get local host name */
-			if (getdomainname(hostname, DNS_MAX_CNAME_LEN) != 0) {
-				if (gethostname(hostname, DNS_MAX_CNAME_LEN) != 0) {
-					return -1;
-				}
-			}
-
-			/* get host name again */
-			if (strncmp(hostname, "(none)", DNS_MAX_CNAME_LEN) == 0) {
-				if (gethostname(hostname, DNS_MAX_CNAME_LEN) != 0) {
-					return -1;
-				}
-			}
-
-			/* if hostname is (none), return smartdns */
-			if (strncmp(hostname, "(none)", DNS_MAX_CNAME_LEN) == 0) {
-				safe_strncpy(hostname, "smartdns", DNS_MAX_CNAME_LEN);
-			}
-		} else {
-			/* return configured server name */
-			safe_strncpy(hostname, dns_conf_server_name, DNS_MAX_CNAME_LEN);
-		}
-
-		ret = dns_add_PTR(context->packet, DNS_RRS_AN, request->domain, 30, hostname);
+		ret = dns_add_PTR(context->packet, DNS_RRS_AN, request->domain, 30, request->ptr_hostname);
 	}
 
 	/* add CNAME record */
@@ -2478,7 +2454,35 @@ static int dns_server_resolve_callback(char *domain, dns_result_type rtype, unsi
 	return 0;
 }
 
-static int _dns_server_process_ptr(struct dns_request *request)
+
+static int _dns_server_process_ptrs(struct dns_request *request)
+{
+	uint32_t key = 0;
+	struct dns_ptr *ptr = NULL;
+	struct dns_ptr *ptr_tmp = NULL;
+	key = hash_string(request->domain);
+	hash_for_each_possible(dns_ptr_table.ptr, ptr_tmp, node, key)
+	{	
+		if (strncmp(ptr_tmp->ptr_domain, request->domain, DNS_MAX_CNAME_LEN) != 0) {
+			continue;
+		}
+
+		ptr = ptr_tmp;
+		break;
+	}
+
+	if (ptr == NULL) {
+		goto errout;
+	}
+
+	request->has_ptr = 1;
+	safe_strncpy(request->ptr_hostname, ptr->hostname, DNS_MAX_CNAME_LEN);
+	return 0;
+errout:
+	return -1;
+}
+
+static int _dns_server_process_local_ptr(struct dns_request *request) 
 {
 	struct ifaddrs *ifaddr = NULL;
 	struct ifaddrs *ifa = NULL;
@@ -2530,19 +2534,21 @@ static int _dns_server_process_ptr(struct dns_request *request)
 			break;
 		}
 
-		if (strstr(request->domain, reverse_addr) != NULL) {
+		if (strncmp(request->domain, reverse_addr, DNS_MAX_CNAME_LEN) == 0) {
 			found = 1;
 			break;
 		}
 	}
 
 	/* Determine if the smartdns service is in effect. */
-	if (strstr(request->domain, "0.0.0.0.in-addr.arpa") != NULL) {
+	if (strncmp(request->domain, "0.0.0.0.in-addr.arpa", DNS_MAX_CNAME_LEN) ==
+		0) {
 		found = 1;
 	}
 
 	/* Determine if the smartdns service is in effect. */
-	if (found == 0 && strncmp(request->domain, "smartdns", sizeof("smartdns")) == 0) {
+	if (found == 0 &&
+		strncmp(request->domain, "smartdns", sizeof("smartdns")) == 0) {
 		found = 1;
 	}
 
@@ -2550,13 +2556,33 @@ static int _dns_server_process_ptr(struct dns_request *request)
 		goto errout;
 	}
 
-	request->rcode = DNS_RC_NOERROR;
+	char hostname[DNS_MAX_CNAME_LEN];
+	if (dns_conf_server_name[0] == 0) {
+		/* get local host name */
+		if (getdomainname(hostname, DNS_MAX_CNAME_LEN) != 0) {
+			if (gethostname(hostname, DNS_MAX_CNAME_LEN) != 0) {
+				return -1;
+			}
+		}
+
+		/* get host name again */
+		if (strncmp(hostname, "(none)", DNS_MAX_CNAME_LEN) == 0) {
+			if (gethostname(hostname, DNS_MAX_CNAME_LEN) != 0) {
+				return -1;
+			}
+		}
+
+		/* if hostname is (none), return smartdns */
+		if (strncmp(hostname, "(none)", DNS_MAX_CNAME_LEN) == 0) {
+			safe_strncpy(hostname, "smartdns", DNS_MAX_CNAME_LEN);
+		}
+	} else {
+		/* return configured server name */
+		safe_strncpy(hostname, dns_conf_server_name, DNS_MAX_CNAME_LEN);
+	}
+
 	request->has_ptr = 1;
-	struct dns_server_post_context context;
-	_dns_server_post_context_init(&context, request);
-	context.do_reply = 1;
-	context.do_audit = 0;
-	_dns_request_post(&context);
+	safe_strncpy(request->ptr_hostname, hostname, DNS_MAX_CNAME_LEN);
 
 	freeifaddrs(ifaddr);
 	return 0;
@@ -2565,6 +2591,28 @@ errout:
 		freeifaddrs(ifaddr);
 	}
 	return -1;
+}
+
+static int _dns_server_process_ptr(struct dns_request *request)
+{
+	if (_dns_server_process_ptrs(request) == 0) {
+		goto reply_exit;
+	}
+
+	if (_dns_server_process_local_ptr(request) == 0) {
+		goto reply_exit;
+	}
+
+	return -1;
+
+reply_exit:
+	request->rcode = DNS_RC_NOERROR;
+	struct dns_server_post_context context;
+	_dns_server_post_context_init(&context, request);
+	context.do_reply = 1;
+	context.do_audit = 0;
+	_dns_request_post(&context);
+	return 0;
 }
 
 static void _dns_server_log_rule(const char *domain, enum domain_rule rule_type, unsigned char *rule_key,
@@ -3199,6 +3247,71 @@ static void _dns_server_check_set_passthrough(struct dns_request *request)
 	}
 }
 
+static int _dns_server_process_host(struct dns_request *request)
+{
+	uint32_t key = 0;
+	struct dns_hosts *host = NULL;
+	struct dns_hosts *host_tmp = NULL;
+	int dns_type = request->qtype;
+	char hostname_lower[DNS_MAX_CNAME_LEN];
+
+	if (dns_hosts_record_num <= 0) {
+		return -1;
+	}
+
+	key = hash_string(to_lower_case(hostname_lower, request->domain, DNS_MAX_CNAME_LEN));
+	key = jhash(&dns_type, sizeof(dns_type), key);
+	hash_for_each_possible(dns_hosts_table.hosts, host_tmp, node, key)
+	{
+		if (host_tmp->dns_type != dns_type) {
+			continue;
+		}
+		
+		if (strncmp(host_tmp->domain, hostname_lower, DNS_MAX_CNAME_LEN) != 0) {
+			continue;
+		}
+
+		host = host_tmp;
+		break;
+	}
+
+	if (host == NULL) {
+		return -1;
+	}
+
+	if (host->is_soa) {
+		request->has_soa = 1;
+		return _dns_server_reply_SOA(DNS_RC_NOERROR, request);
+	}
+	
+	switch (request->qtype) {
+	case DNS_T_A:
+		memcpy(request->ipv4_addr, host->ipv4_addr, DNS_RR_A_LEN);
+		request->ttl_v4 = 600;
+		request->has_ipv4 = 1;
+		break;
+	case DNS_T_AAAA:
+		memcpy(request->ipv6_addr, host->ipv6_addr, DNS_RR_AAAA_LEN);
+		request->ttl_v6 = 600;
+		request->has_ipv6 = 1;
+		break;
+	default:
+		goto errout;
+		break;
+	}
+
+	request->rcode = DNS_RC_NOERROR;
+	struct dns_server_post_context context;
+	_dns_server_post_context_init(&context, request);
+	context.do_reply = 1;
+	context.do_audit = 1;
+	_dns_request_post(&context);
+
+	return 0;
+errout:
+	return -1;
+}
+
 static int _dns_server_do_query(struct dns_request *request, const char *domain, int qtype)
 {
 	int ret = -1;
@@ -3217,6 +3330,10 @@ static int _dns_server_do_query(struct dns_request *request, const char *domain,
 	group_name = _dns_server_get_request_groupname(request);
 	if (group_name == NULL) {
 		group_name = dns_group;
+	}
+
+	if (_dns_server_process_host(request) == 0) {
+		goto clean_exit;
 	}
 
 	_dns_server_set_dualstack_selection(request);
@@ -3872,6 +3989,12 @@ static void _dns_server_period_run_second(void)
 
 	if (sec % IPV6_READY_CHECK_TIME == 0 && is_ipv6_ready == 0) {
 		_dns_server_check_ipv6_ready();
+	}
+
+	if (sec % 60 == 0) {
+		if (dns_server_check_update_hosts() == 0) {
+			tlog(TLOG_INFO, "Update host file data");
+		}
 	}
 }
 

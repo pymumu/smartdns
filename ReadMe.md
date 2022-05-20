@@ -587,6 +587,7 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 | force-AAAA-SOA | 强制 AAAA 地址返回 SOA | no | [yes\|no] | force-AAAA-SOA yes |
 | force-qtype-SOA | 强制指定 qtype 返回 SOA | qtype id | [<qtypeid> \| ...] | force-qtype-SOA 65 28
 | prefetch-domain | 域名预先获取功能 | no | [yes\|no] | prefetch-domain yes |
+| dnsmasq-lease-file | 支持读取dnsmasq dhcp文件解析本地主机名功能 | 无 | dnsmasq dhcp lease文件路径 | dnsmasq-lease-file /var/lib/misc/dnsmasq.leases |
 | serve-expired | 过期缓存服务功能 | yes | [yes\|no]，开启此功能后，如果有请求时尝试回应 TTL 为 0 的过期记录，并发查询记录，以避免查询等待 |
 | serve-expired-ttl | 过期缓存服务最长超时时间 | 0 | 秒，0 表示停用超时，大于 0 表示指定的超时的秒数 | serve-expired-ttl 0 |
 | serve-expired-reply-ttl | 回应的过期缓存 TTL | 5 | 秒，0 表示停用超时，大于 0 表示指定的超时的秒数 | serve-expired-reply-ttl 30 |

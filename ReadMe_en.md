@@ -531,6 +531,7 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 |force-AAAA-SOA|force AAAA query return SOA|no|[yes\|no]|force-AAAA-SOA yes
 |force-qtype-SOA|force specific qtype return SOA|qtype id|[qtypeid | ...]|force-qtype-SOA 65 28
 |prefetch-domain|domain prefetch feature|no|[yes\|no]|prefetch-domain yes
+|dnsmasq-lease-file|Support reading dnsmasq dhcp file to resolve local hostname|None|dnsmasq dhcp lease file| dnsmasq-lease-file /var/lib/misc/dnsmasq.leases
 |serve-expired|Cache serve expired feature|yes|[yes\|no], Attempts to serve old responses from cache with a TTL of 0 in the response without waiting for the actual resolution to finish.|serve-expired yes
 |serve-expired-ttl|Cache serve expired limite TTL|0|second，0：disable，> 0  seconds after expiration|serve-expired-ttl 0
 |serve-expired-reply-ttl|TTL value to use when replying with expired data|5|second，0：disable，> 0  seconds after expiration|serve-expired-reply-ttl 30

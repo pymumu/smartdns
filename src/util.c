@@ -133,7 +133,7 @@ errout:
 	return NULL;
 }
 
-int getaddr_by_host(char *host, struct sockaddr *addr, socklen_t *addr_len)
+int getaddr_by_host(const char *host, struct sockaddr *addr, socklen_t *addr_len)
 {
 	struct addrinfo hints;
 	struct addrinfo *result = NULL;
@@ -466,6 +466,31 @@ char *reverse_string(char *output, const char *input, int len, int to_lower_case
 		}
 		output++;
 		len--;
+	}
+
+	*output = 0;
+
+	return begin;
+}
+
+char *to_lower_case(char *output, const char *input, int len)
+{
+	char *begin = output;
+	int i = 0;
+	if (len <= 0) {
+		*output = 0;
+		return output;
+	}
+
+	len--;
+	while (i < len && *(input + i) != '\0') {
+		*output = *(input + i);
+		if (*output >= 'A' && *output <= 'Z') {
+			/* To lower case */
+			*output = *output + 32;
+		}
+		output++;
+		i++;
 	}
 
 	*output = 0;

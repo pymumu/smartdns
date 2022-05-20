@@ -35,6 +35,7 @@ extern "C" {
 #define DNS_MAX_BIND_IP 16
 #define DNS_MAX_SERVERS 64
 #define DNS_MAX_SERVER_NAME_LEN 128
+#define DNS_MAX_PTR_LEN 128
 #define DNS_MAX_IPSET_NAMELEN 32
 #define DNS_GROUP_NAME_LEN 32
 #define DNS_NAX_GROUP_NUMBER 16
@@ -144,6 +145,40 @@ struct dns_group_table {
 	DECLARE_HASHTABLE(group, 8);
 };
 extern struct dns_group_table dns_group_table;
+
+struct dns_ptr {
+	struct hlist_node node;
+	char ptr_domain[DNS_MAX_PTR_LEN];
+	char hostname[DNS_MAX_CNAME_LEN];
+};
+
+struct dns_ptr_table {
+	DECLARE_HASHTABLE(ptr, 16);
+};
+extern struct dns_ptr_table dns_ptr_table;
+
+typedef enum dns_hosts_type {
+	DNS_HOST_TYPE_HOST = 0,
+	DNS_HOST_TYPE_DNSMASQ = 1,
+} dns_hosts_type;
+
+struct dns_hosts {
+	struct hlist_node node;
+	char domain[DNS_MAX_CNAME_LEN];
+	dns_hosts_type host_type;
+	int dns_type;
+	int is_soa;	
+	union {
+		unsigned char ipv4_addr[DNS_RR_A_LEN];
+		unsigned char ipv6_addr[DNS_RR_AAAA_LEN];
+	};
+};
+
+struct dns_hosts_table {
+	DECLARE_HASHTABLE(hosts, 16);
+};
+extern struct dns_hosts_table dns_hosts_table;
+extern int dns_hosts_record_num;
 
 struct dns_servers {
 	char server[DNS_MAX_IPLEN];
@@ -269,6 +304,8 @@ extern char dns_conf_sni_proxy_ip[DNS_MAX_IPLEN];
 void dns_server_load_exit(void);
 
 int dns_server_load_conf(const char *file);
+
+int dns_server_check_update_hosts(void);
 
 extern int config_addtional_file(void *data, int argc, char *argv[]);
 #ifdef __cpluscplus
