@@ -44,7 +44,6 @@
 #include <sys/types.h>
 
 #define DNS_MAX_EVENTS 256
-#define DNS_SERVER_MAX_REPONSE_IPNUM 10
 #define IPV6_READY_CHECK_TIME 180
 #define DNS_SERVER_TMOUT_TTL (5 * 60)
 #define DNS_CONN_BUFF_SIZE 4096
@@ -532,7 +531,7 @@ static int _dns_rrs_add_all_best_ip(struct dns_server_post_context *context)
 	int ignore_speed = 0;
 	int maxhit = 0;
 
-	if (context->select_all_best_ip == 0) {
+	if (context->select_all_best_ip == 0 || dns_conf_max_reply_ip_num - 1 <= 0) {
 		return 0;
 	}
 
@@ -555,7 +554,7 @@ static int _dns_rrs_add_all_best_ip(struct dns_server_post_context *context)
 		pthread_mutex_lock(&request->ip_map_lock);
 		hash_for_each_safe(request->ip_map, bucket, tmp, addr_map, node)
 		{
-			if (context->ip_num >= DNS_SERVER_MAX_REPONSE_IPNUM) {
+			if (context->ip_num >= dns_conf_max_reply_ip_num) {
 				break;
 			}
 
@@ -1497,6 +1496,8 @@ static void _dns_server_complete_with_multi_ipaddress(struct dns_request *reques
 	int do_reply = 0;
 	if (atomic_inc_return(&request->notified) == 1) {
 		do_reply = 1;
+	} else if (dns_conf_max_reply_ip_num == 1) {
+		return;
 	}
 
 	_dns_server_post_context_init(&context, request);

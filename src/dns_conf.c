@@ -31,6 +31,7 @@
 #include <errno.h>
 
 #define DEFAULT_DNS_CACHE_SIZE 512
+#define DNS_MAX_REPLY_IP_NUM 8
 
 /* ipset */
 struct dns_ipset_table {
@@ -55,6 +56,8 @@ int dns_hosts_record_num;
 struct dns_bind_ip dns_conf_bind_ip[DNS_MAX_BIND_IP];
 int dns_conf_bind_ip_num = 0;
 int dns_conf_tcp_idle_time = 120;
+
+int dns_conf_max_reply_ip_num = DNS_MAX_REPLY_IP_NUM;
 
 /* cache */
 int dns_conf_cachesize = DEFAULT_DNS_CACHE_SIZE;
@@ -1867,6 +1870,7 @@ static struct config_item _config_item[] = {
 	CONF_INT("rr-ttl-min", &dns_conf_rr_ttl_min, 0, CONF_INT_MAX),
 	CONF_INT("rr-ttl-max", &dns_conf_rr_ttl_max, 0, CONF_INT_MAX),
 	CONF_INT("rr-ttl-reply-max", &dns_conf_rr_ttl_reply_max, 0, CONF_INT_MAX),
+	CONF_INT("max-reply-ip-num", &dns_conf_max_reply_ip_num, 1, CONF_INT_MAX),
 	CONF_YESNO("force-AAAA-SOA", &dns_conf_force_AAAA_SOA),
 	CONF_CUSTOM("force-qtype-SOA", _config_qtype_soa, NULL),
 	CONF_CUSTOM("blacklist-ip", _config_blacklist_ip, NULL),

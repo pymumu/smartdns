@@ -552,6 +552,7 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 | rr-ttl-min | 允许的最小 TTL 值 | 远程查询结果 | 大于 0 的数字 | rr-ttl-min 60 |
 | rr-ttl-max | 允许的最大 TTL 值 | 远程查询结果 | 大于 0 的数字 | rr-ttl-max 600 |
 | rr-ttl-reply-max | 允许返回给客户端的最大 TTL 值 | 远程查询结果 | 大于 0 的数字 | rr-ttl-reply-max 60 |
+| max-reply-ip-num | 允许返回给客户的最大IP数量 | IP数量 | 大于 0 的数字 | max-reply-ip-num 1 |
 | log-level | 设置日志级别 | error | fatal、error、warn、notice、info 或 debug | log-level error |
 | log-file | 日志文件路径 | /var/log/smartdns.log | 合法路径字符串 | log-file /var/log/smartdns.log |
 | log-size | 日志大小 | 128K | 数字 + K、M 或 G | log-size 128K |

@@ -290,6 +290,8 @@ extern struct dns_conf_address_rule dns_conf_address_rule;
 extern int dns_conf_dualstack_ip_selection;
 extern int dns_conf_dualstack_ip_selection_threshold;
 
+extern int dns_conf_max_reply_ip_num;
+
 extern int dns_conf_rr_ttl;
 extern int dns_conf_rr_ttl_reply_max;
 extern int dns_conf_rr_ttl_min;
