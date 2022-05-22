@@ -1372,13 +1372,17 @@ static int _dns_ip_address_check_add(struct dns_request *request, char *cname, u
 		tlog(TLOG_ERROR, "malloc failed");
 		return -1;
 	}
+	memset(addr_map, 0, sizeof(*addr_map));
 
 	addr_map->addr_type = addr_type;
 	addr_map->hitnum = 1;
 	addr_map->recv_tick = get_tick_count();
 	addr_map->ping_ttl = -1;
 	memcpy(addr_map->addr, addr, addr_len);
-	safe_strncpy(addr_map->cname, cname, DNS_MAX_CNAME_LEN);
+	if (dns_conf_force_no_cname == 0) {
+		safe_strncpy(addr_map->cname, cname, DNS_MAX_CNAME_LEN);
+	}
+
 	hash_add(request->ip_map, &addr_map->node, key);
 	pthread_mutex_unlock(&request->ip_map_lock);
 
@@ -1969,7 +1973,7 @@ static int _dns_server_process_answer_A(struct dns_rrs *rrs, struct dns_request 
 		request->has_ipv4 = 1;
 		memcpy(request->ipv4_addr, addr, DNS_RR_A_LEN);
 		request->ttl_v4 = _dns_server_get_conf_ttl(ttl);
-		if (cname[0] != 0 && request->has_cname == 0) {
+		if (cname[0] != 0 && request->has_cname == 0 && dns_conf_force_no_cname == 0) {
 			request->has_cname = 1;
 			safe_strncpy(request->cname, cname, DNS_MAX_CNAME_LEN);
 		}
@@ -2045,7 +2049,7 @@ static int _dns_server_process_answer_AAAA(struct dns_rrs *rrs, struct dns_reque
 		request->has_ipv6 = 1;
 		memcpy(request->ipv6_addr, addr, DNS_RR_AAAA_LEN);
 		request->ttl_v6 = _dns_server_get_conf_ttl(ttl);
-		if (cname[0] != 0 && request->has_cname == 0) {
+		if (cname[0] != 0 && request->has_cname == 0 && dns_conf_force_no_cname == 0) {
 			request->has_cname = 1;
 			safe_strncpy(request->cname, cname, DNS_MAX_CNAME_LEN);
 		}
@@ -2317,6 +2321,10 @@ static int _dns_server_get_answer(struct dns_server_post_context *context)
 			} break;
 			case DNS_T_CNAME: {
 				char cname[DNS_MAX_CNAME_LEN];
+				if (dns_conf_force_no_cname) {
+					continue;
+				}
+
 				dns_get_CNAME(rrs, name, DNS_MAX_CNAME_LEN, &ttl, cname, DNS_MAX_CNAME_LEN);
 				tlog(TLOG_DEBUG, "name:%s ttl: %d cname: %s\n", name, ttl, cname);
 				safe_strncpy(request->cname, cname, DNS_MAX_CNAME_LEN);

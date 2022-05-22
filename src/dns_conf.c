@@ -111,7 +111,7 @@ int dns_conf_rr_ttl_reply_max;
 int dns_conf_rr_ttl_min = 600;
 int dns_conf_rr_ttl_max;
 int dns_conf_force_AAAA_SOA;
-
+int dns_conf_force_no_cname;
 int dns_conf_ipset_timeout_enable;
 
 /* ECS */
@@ -1872,6 +1872,7 @@ static struct config_item _config_item[] = {
 	CONF_INT("rr-ttl-reply-max", &dns_conf_rr_ttl_reply_max, 0, CONF_INT_MAX),
 	CONF_INT("max-reply-ip-num", &dns_conf_max_reply_ip_num, 1, CONF_INT_MAX),
 	CONF_YESNO("force-AAAA-SOA", &dns_conf_force_AAAA_SOA),
+	CONF_YESNO("force-no-CNAME", &dns_conf_force_no_cname),
 	CONF_CUSTOM("force-qtype-SOA", _config_qtype_soa, NULL),
 	CONF_CUSTOM("blacklist-ip", _config_blacklist_ip, NULL),
 	CONF_CUSTOM("whitelist-ip", _conf_whitelist_ip, NULL),

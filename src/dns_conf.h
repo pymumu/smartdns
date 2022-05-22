@@ -299,6 +299,8 @@ extern int dns_conf_rr_ttl_max;
 extern int dns_conf_force_AAAA_SOA;
 extern int dns_conf_ipset_timeout_enable;
 
+extern int dns_conf_force_no_cname;
+
 extern struct dns_edns_client_subnet dns_conf_ipv4_ecs;
 extern struct dns_edns_client_subnet dns_conf_ipv6_ecs;
 
