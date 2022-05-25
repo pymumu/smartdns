@@ -884,7 +884,7 @@ static int _dns_server_request_update_cache(struct dns_request *request, dns_typ
 		dns_cache_set_data_soa(cache_data, request->server_flags, request->cname, request->ttl_cname);
 	}
 
-	tlog(TLOG_DEBUG, "cache %s %d\n", request->domain, qtype);
+	tlog(TLOG_DEBUG, "cache %s qtype:%d ttl: %d\n", request->domain, qtype, ttl);
 
 	/* if doing prefetch, update cache only */
 	if (request->prefetch) {
@@ -903,6 +903,136 @@ errout:
 	if (cache_data) {
 		dns_cache_data_free(cache_data);
 	}
+	return -1;
+}
+
+int _dns_cache_cname_packet(struct dns_server_post_context *context)
+{
+	struct dns_packet *packet = context->packet;
+	struct dns_packet *cname_packet;
+	int ret = 0;
+	int i = 0;
+	int j = 0;
+	int rr_count = 0;
+	int ttl;
+	int speed = 0;
+	unsigned char packet_buff[DNS_PACKSIZE];
+	unsigned char inpacket_buff[DNS_IN_PACKSIZE];
+	int inpacket_len = 0;
+
+	struct dns_cache_data *cache_packet = NULL;
+	struct dns_rrs *rrs = NULL;
+	char name[DNS_MAX_CNAME_LEN] = {0};
+	cname_packet = (struct dns_packet *)packet_buff;
+	int has_result = 0;
+
+	struct dns_request *request = context->request;
+
+	if (request->has_cname == 0) {
+		return 0;
+	}
+
+	/* init a new DNS packet */
+	ret = dns_packet_init(cname_packet, DNS_PACKSIZE, &packet->head);
+	if (ret != 0) {
+		return -1;
+	}
+
+	/* add request domain */
+	ret = dns_add_domain(cname_packet, request->cname, context->qtype, DNS_C_IN);
+	if (ret != 0) {
+		return -1;
+	}
+
+	for (j = 1; j < DNS_RRS_END && context->packet; j++) {
+		rrs = dns_get_rrs_start(context->packet, j, &rr_count);
+		for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(context->packet, rrs)) {
+			switch (rrs->type) {
+			case DNS_T_A: {
+				unsigned char ipv4_addr[4];
+				if (dns_get_A(rrs, name, DNS_MAX_CNAME_LEN, &ttl, ipv4_addr) != 0) {
+					continue;
+				}
+
+				ret = dns_add_A(cname_packet, rrs->type, request->cname, ttl, ipv4_addr);
+				if (ret != 0) {
+					return -1;
+				}
+				has_result = 1;
+			} break;
+			case DNS_T_AAAA: {
+				unsigned char ipv6_addr[16];
+				if (dns_get_AAAA(rrs, name, DNS_MAX_CNAME_LEN, &ttl, ipv6_addr) != 0) {
+					continue;
+				}
+
+				ret = dns_add_AAAA(cname_packet, rrs->type, request->cname, ttl, ipv6_addr);
+				if (ret != 0) {
+					return -1;
+				}
+				has_result = 1;
+			} break;
+			case DNS_T_SOA: {
+				struct dns_soa soa;
+				if (dns_get_SOA(rrs, name, DNS_MAX_CNAME_LEN, &ttl, &soa) != 0) {
+					continue;
+				}
+
+				ret = dns_add_SOA(cname_packet, rrs->type, request->cname, ttl, &soa);
+				if (ret != 0) {
+					return -1;
+				}
+				has_result = 1;
+				break;
+			}
+			default:
+				continue;
+			}
+		}
+	}
+
+	if (has_result == 0) {
+		return 0;
+	}
+
+	inpacket_len = dns_encode(inpacket_buff, DNS_IN_PACKSIZE, cname_packet);
+	if (inpacket_len <= 0) {
+		return -1;
+	}
+	cache_packet =
+		dns_cache_new_data_packet(request->server_flags, inpacket_buff, inpacket_len);
+	if (cache_packet == NULL) {
+		return -1;
+	}
+
+	if (context->qtype == DNS_T_A) {
+		ttl = _dns_server_get_conf_ttl(request->ttl_v4);
+		speed = request->ping_ttl_v4;
+	} else if (context->qtype == DNS_T_AAAA) {
+		ttl = _dns_server_get_conf_ttl(request->ttl_v6);
+		speed = request->ping_ttl_v6;
+	} else {
+		goto errout;
+	}
+
+	/* if doing prefetch, update cache only */
+	if (request->prefetch) {
+		if (dns_cache_replace(request->cname, ttl, context->qtype, speed, cache_packet) != 0) {
+			goto errout;
+		}
+	} else {
+		/* insert result to cache */
+		if (dns_cache_insert(request->cname, ttl, context->qtype, speed, cache_packet) != 0) {
+			goto errout;
+		}
+	}
+
+	return 0;
+errout:
+	if (cache_packet) {
+		dns_cache_data_free(cache_packet);
+	}
+
 	return -1;
 }
 
@@ -935,6 +1065,9 @@ static int _dns_cache_reply_packet(struct dns_server_post_context *context)
 	if (_dns_server_request_update_cache(request, context->qtype, cache_packet, has_soa) != 0) {
 		tlog(TLOG_WARN, "update packet cache failed.");
 	}
+
+
+	_dns_cache_cname_packet(context);
 
 	return 0;
 }
@@ -2998,6 +3131,7 @@ static int _dns_server_process_address(struct dns_request *request)
 	_dns_server_post_context_init(&context, request);
 	context.do_reply = 1;
 	context.do_audit = 1;
+	context.do_ipset = 1;
 	_dns_request_post(&context);
 
 	return 0;
