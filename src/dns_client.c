@@ -66,13 +66,7 @@
 /* ECS info */
 struct dns_client_ecs {
 	int enable;
-	unsigned int family;
-	unsigned int bitlen;
-	union {
-		unsigned char ipv4_addr[DNS_RR_A_LEN];
-		unsigned char ipv6_addr[DNS_RR_AAAA_LEN];
-		unsigned char addr[0];
-	};
+	struct dns_opt_ecs ecs;
 };
 
 /* TCP/TLS buffer */
@@ -243,6 +237,9 @@ struct dns_query_struct {
 
 	/* has result */
 	int has_result;
+
+	/* ECS */
+	struct dns_client_ecs ecs;
 
 	/* replied hash table */
 	DECLARE_HASHTABLE(replied_map, 4);
@@ -2873,42 +2870,13 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 	return 0;
 }
 
-static int _dns_client_dns_add_ecs(struct dns_packet *packet, int qtype)
+static int _dns_client_dns_add_ecs(struct dns_query_struct *query, struct dns_packet *packet)
 {
-	int add_ipv4_ecs = 0;
-	int add_ipv6_ecs = 0;
-
-	if (qtype == DNS_T_A && client.ecs_ipv4.enable) {
-		add_ipv4_ecs = 1;
-	} else if (qtype == DNS_T_AAAA && client.ecs_ipv6.enable) {
-		add_ipv6_ecs = 1;
-	} else {
-		if (client.ecs_ipv4.enable) {
-			add_ipv4_ecs = 1;
-		} else if (client.ecs_ipv6.enable) {
-			add_ipv4_ecs = 1;
-		}
+	if (query->ecs.enable == 0) {
+		return 0;
 	}
 
-	if (add_ipv4_ecs) {
-		struct dns_opt_ecs ecs;
-		ecs.family = DNS_ADDR_FAMILY_IP;
-		ecs.source_prefix = client.ecs_ipv4.bitlen;
-		ecs.scope_prefix = 0;
-		memcpy(ecs.addr, client.ecs_ipv4.ipv4_addr, DNS_RR_A_LEN);
-		return dns_add_OPT_ECS(packet, &ecs);
-	}
-
-	if (add_ipv6_ecs) {
-		struct dns_opt_ecs ecs;
-		ecs.family = DNS_ADDR_FAMILY_IPV6;
-		ecs.source_prefix = client.ecs_ipv6.bitlen;
-		ecs.scope_prefix = 0;
-		memcpy(ecs.addr, client.ecs_ipv6.ipv6_addr, DNS_RR_AAAA_LEN);
-		return dns_add_OPT_ECS(packet, &ecs);
-	}
-
-	return 0;
+	return dns_add_OPT_ECS(packet, &query->ecs.ecs);
 }
 
 static int _dns_client_send_query(struct dns_query_struct *query, char *doamin)
@@ -2942,7 +2910,7 @@ static int _dns_client_send_query(struct dns_query_struct *query, char *doamin)
 
 	dns_set_OPT_payload_size(packet, DNS_IN_PACKSIZE);
 	/* dns_add_OPT_TCP_KEEYALIVE(packet, 600); */
-	if (_dns_client_dns_add_ecs(packet, query->qtype) != 0) {
+	if (_dns_client_dns_add_ecs(query, packet) != 0) {
 		tlog(TLOG_ERROR, "add ecs failed.");
 		return -1;
 	}
@@ -2964,7 +2932,102 @@ static int _dns_client_send_query(struct dns_query_struct *query, char *doamin)
 	return _dns_client_send_packet(query, inpacket, encode_len);
 }
 
-int dns_client_query(char *domain, int qtype, dns_client_callback callback, void *user_ptr, const char *group_name)
+int _dns_client_query_setup_default_ecs(struct dns_query_struct *query)
+{
+	int add_ipv4_ecs = 0;
+	int add_ipv6_ecs = 0;
+
+	if (query->qtype == DNS_T_A && client.ecs_ipv4.enable) {
+		add_ipv4_ecs = 1;
+	} else if (query->qtype == DNS_T_AAAA && client.ecs_ipv6.enable) {
+		add_ipv6_ecs = 1;
+	} else {
+		if (client.ecs_ipv4.enable) {
+			add_ipv4_ecs = 1;
+		} else if (client.ecs_ipv6.enable) {
+			add_ipv4_ecs = 1;
+		}
+	}
+
+	if (add_ipv4_ecs) {
+		memcpy(&query->ecs, &client.ecs_ipv4, sizeof(query->ecs));
+		return 0;
+	}
+
+	if (add_ipv6_ecs) {
+		memcpy(&query->ecs, &client.ecs_ipv6, sizeof(query->ecs));
+		return 0;
+	}
+
+	return 0;
+}
+
+int _dns_client_query_parser_options(struct dns_query_struct *query, struct dns_query_options *options)
+{
+	if (options == NULL) {
+		_dns_client_query_setup_default_ecs(query);
+		return 0;
+	}
+
+	if (options->enable_flag & DNS_QUEY_OPTION_ECS_IP) {
+		struct sockaddr_storage addr;
+		socklen_t addr_len = sizeof(addr);
+		struct dns_opt_ecs *ecs;
+		
+		ecs = &query->ecs.ecs;
+		getaddr_by_host(options->ecs_ip.ip, (struct sockaddr *)&addr, &addr_len);
+
+		query->ecs.enable = 1;
+		ecs->source_prefix = options->ecs_ip.subnet;
+		ecs->scope_prefix = 0;
+
+		switch (addr.ss_family) {
+		case AF_INET: {
+			struct sockaddr_in *addr_in;
+			addr_in = (struct sockaddr_in *)&addr;
+			ecs->family = DNS_OPT_ECS_FAMILY_IPV4;
+			memcpy(&ecs->addr, &addr_in->sin_addr.s_addr, 4);
+		} break;
+		case AF_INET6: {
+			struct sockaddr_in6 *addr_in6;
+			addr_in6 = (struct sockaddr_in6 *)&addr;
+			if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
+				memcpy(&ecs->addr, addr_in6->sin6_addr.s6_addr + 12, 4);
+				ecs->family = DNS_OPT_ECS_FAMILY_IPV4;
+			} else {
+				memcpy(&ecs->addr, addr_in6->sin6_addr.s6_addr, 16);
+				ecs->family = DNS_OPT_ECS_FAMILY_IPV6;
+			}
+		} break;
+		default:
+			tlog(TLOG_WARN, "ECS set failure.");
+			break;
+		}
+	}
+
+	if (options->enable_flag & DNS_QUEY_OPTION_ECS_DNS) {
+		struct dns_opt_ecs *ecs = &options->ecs_dns;
+		if (ecs->family != DNS_OPT_ECS_FAMILY_IPV6 && ecs->family != DNS_OPT_ECS_FAMILY_IPV4) {
+			return -1;
+		}
+
+		if (ecs->family == DNS_OPT_ECS_FAMILY_IPV4 && ecs->source_prefix > 32) {
+			return -1;
+		}
+
+		if (ecs->family == DNS_OPT_ECS_FAMILY_IPV6 && ecs->source_prefix > 128) {
+			return -1;
+		}
+
+		memcpy(&query->ecs.ecs, ecs, sizeof(query->ecs.ecs));
+		query->ecs.enable = 1;
+	}
+
+	return 0;
+}
+
+int dns_client_query(char *domain, int qtype, dns_client_callback callback, void *user_ptr, const char *group_name,
+					 struct dns_query_options *options)
 {
 	struct dns_query_struct *query = NULL;
 	int ret = 0;
@@ -2996,6 +3059,11 @@ int dns_client_query(char *domain, int qtype, dns_client_callback callback, void
 	query->server_group = _dns_client_get_dnsserver_group(group_name);
 	if (query->server_group == NULL) {
 		tlog(TLOG_ERROR, "get dns server group %s failed.", group_name);
+		goto errout;
+	}
+
+	if (_dns_client_query_parser_options(query, options) != 0) {
+		tlog(TLOG_ERROR, "parser options for %s failed.", domain);
 		goto errout;
 	}
 
@@ -3299,20 +3367,25 @@ int dns_client_set_ecs(char *ip, int subnet)
 	case AF_INET: {
 		struct sockaddr_in *addr_in;
 		addr_in = (struct sockaddr_in *)&addr;
-		memcpy(&client.ecs_ipv4.ipv4_addr, &addr_in->sin_addr.s_addr, 4);
-		client.ecs_ipv4.bitlen = subnet;
+		memcpy(&client.ecs_ipv4.ecs.addr, &addr_in->sin_addr.s_addr, 4);
+		client.ecs_ipv4.ecs.source_prefix = subnet;
+		client.ecs_ipv4.ecs.scope_prefix = 0;
+		client.ecs_ipv4.ecs.family = DNS_OPT_ECS_FAMILY_IPV4;
 		client.ecs_ipv4.enable = 1;
 	} break;
 	case AF_INET6: {
 		struct sockaddr_in6 *addr_in6;
 		addr_in6 = (struct sockaddr_in6 *)&addr;
 		if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
-			memcpy(&client.ecs_ipv4.ipv4_addr, addr_in6->sin6_addr.s6_addr + 12, 4);
-			client.ecs_ipv4.bitlen = subnet;
+			client.ecs_ipv4.ecs.source_prefix = subnet;
+			client.ecs_ipv4.ecs.scope_prefix = 0;
+			client.ecs_ipv4.ecs.family = DNS_OPT_ECS_FAMILY_IPV4;
 			client.ecs_ipv4.enable = 1;
 		} else {
-			memcpy(&client.ecs_ipv6.ipv6_addr, addr_in6->sin6_addr.s6_addr, 16);
-			client.ecs_ipv6.bitlen = subnet;
+			memcpy(&client.ecs_ipv6.ecs.addr, addr_in6->sin6_addr.s6_addr, 16);
+			client.ecs_ipv6.ecs.source_prefix = subnet;
+			client.ecs_ipv6.ecs.scope_prefix = 0;
+			client.ecs_ipv6.ecs.family = DNS_ADDR_FAMILY_IPV6;
 			client.ecs_ipv6.enable = 1;
 		}
 	} break;

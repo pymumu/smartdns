@@ -184,6 +184,8 @@ struct dns_request {
 		struct sockaddr addr;
 	};
 	struct sockaddr_storage localaddr;
+	int has_ecs;
+	struct dns_opt_ecs ecs;
 
 	dns_result_callback result_callback;
 	void *user_ptr;
@@ -252,7 +254,7 @@ static tlog_log *dns_audit;
 
 static int is_ipv6_ready;
 
-static int _dns_server_prefetch_request(char *domain, dns_type_t qtype, uint32_t server_flags);
+static int _dns_server_prefetch_request(char *domain, dns_type_t qtype, uint32_t server_flags, struct dns_query_options *options);
 
 static int _dns_server_forward_request(unsigned char *inpacket, int inpacket_len)
 {
@@ -684,6 +686,10 @@ static int _dns_add_rrs(struct dns_server_post_context *context)
 	} else if (context->do_force_soa == 1) {
 		_dns_server_setup_soa(request);
 		ret |= dns_add_SOA(context->packet, DNS_RRS_NS, domain, 0, &request->soa);
+	}
+
+	if (request->has_ecs) {
+		ret |= dns_add_OPT_ECS(context->packet, &request->ecs);
 	}
 	return ret;
 }
@@ -3346,10 +3352,17 @@ static int _dns_server_process_cache(struct dns_request *request)
 out_update_cache:
 	if (dns_cache_get_ttl(dns_cache) == 0) {
 		uint32_t server_flags = request->server_flags;
+		struct dns_query_options options;
 		if (request->conn == NULL) {
 			server_flags = dns_cache_get_cache_flag(dns_cache->cache_data);
 		}
-		_dns_server_prefetch_request(request->domain, request->qtype, server_flags);
+
+		options.enable_flag = 0;
+		if (request->has_ecs) {
+			options.enable_flag |= DNS_QUEY_OPTION_ECS_DNS;
+			memcpy(&options.ecs_dns, &request->ecs, sizeof(options.ecs_dns));
+		}
+		_dns_server_prefetch_request(request->domain, request->qtype, server_flags, &options);
 	} else {
 		dns_cache_update(dns_cache);
 	}
@@ -3623,18 +3636,28 @@ errout:
 	return -1;
 }
 
-static int _dns_server_do_query(struct dns_request *request, const char *domain, int qtype)
+static int _dns_server_setup_query_option(struct dns_request *request, struct dns_query_options *options)
+{
+	options->enable_flag = 0;
+
+	if (request->has_ecs) {
+		memcpy(&options->ecs_dns, &request->ecs, sizeof(options->ecs_dns));
+		options->enable_flag |= DNS_QUEY_OPTION_ECS_DNS;
+	}
+
+	return 0;
+}
+
+static int _dns_server_do_query(struct dns_request *request)
 {
 	int ret = -1;
 	const char *group_name = NULL;
 	const char *dns_group = NULL;
+	struct dns_query_options options;
 
 	if (request->conn) {
 		dns_group = request->conn->dns_group;
 	}
-
-	safe_strncpy(request->domain, domain, sizeof(request->domain));
-	request->qtype = qtype;
 
 	/* lookup domain rule */
 	_dns_server_get_domain_rule(request);
@@ -3686,6 +3709,9 @@ static int _dns_server_do_query(struct dns_request *request, const char *domain,
 		goto clean_exit;
 	}
 
+	// setup options
+	_dns_server_setup_query_option(request, &options);
+
 	// Get reference for server thread
 	_dns_server_request_get(request);
 	pthread_mutex_lock(&server.request_list_lock);
@@ -3694,11 +3720,11 @@ static int _dns_server_do_query(struct dns_request *request, const char *domain,
 	request->send_tick = get_tick_count();
 
 	/* When the dual stack ip preference is enabled, both A and AAAA records are requested. */
-	if (qtype == DNS_T_AAAA && request->dualstack_selection) {
+	if (request->qtype == DNS_T_AAAA && request->dualstack_selection) {
 		// Get reference for AAAA query
 		_dns_server_request_get(request);
 		request->request_wait++;
-		if (dns_client_query(request->domain, DNS_T_A, dns_server_resolve_callback, request, group_name) != 0) {
+		if (dns_client_query(request->domain, DNS_T_A, dns_server_resolve_callback, request, group_name, &options) != 0) {
 			request->request_wait--;
 			_dns_server_request_release(request);
 		}
@@ -3707,7 +3733,7 @@ static int _dns_server_do_query(struct dns_request *request, const char *domain,
 	// Get reference for DNS query
 	request->request_wait++;
 	_dns_server_request_get(request);
-	if (dns_client_query(request->domain, qtype, dns_server_resolve_callback, request, group_name) != 0) {
+	if (dns_client_query(request->domain, request->qtype, dns_server_resolve_callback, request, group_name, &options) != 0) {
 		request->request_wait--;
 		_dns_server_request_release(request);
 		tlog(TLOG_ERROR, "send dns request failed.");
@@ -3722,6 +3748,60 @@ errout:
 	return ret;
 }
 
+static int _dns_server_parser_request(struct dns_request *request, struct dns_packet *packet) 
+{
+	struct dns_rrs *rrs;
+	int rr_count = 0;
+	int i = 0;
+	int ret = 0;
+	int qclass;
+	int qtype = DNS_T_ALL;
+	char domain[DNS_MAX_CNAME_LEN];
+
+	if (packet->head.qr != DNS_QR_QUERY) {
+		goto errout;
+	}
+
+	/* get request domain and request qtype */
+	rrs = dns_get_rrs_start(packet, DNS_RRS_QD, &rr_count);
+	if (rr_count > 1 || rr_count <= 0) {
+		goto errout;
+	}
+
+	for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
+		ret = dns_get_domain(rrs, domain, sizeof(domain), &qtype, &qclass);
+		if (ret != 0) {
+			goto errout;
+		}
+
+		// Only support one question.
+		safe_strncpy(request->domain, domain, sizeof(request->domain));
+		request->qtype = qtype;
+		break;
+	}
+
+
+	/* get request opts */
+	rr_count = 0;
+	rrs = dns_get_rrs_start(packet, DNS_RRS_OPT, &rr_count);
+	if (rr_count <= 0) {
+		return 0;
+	}
+
+	for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
+		ret = dns_get_OPT_ECS(rrs, NULL, NULL, &request->ecs);
+		if (ret != 0) {
+			continue;
+		}
+		request->has_ecs = 1;
+		break;
+	}
+
+	return 0;
+errout:
+	return -1;
+}
+
 static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *inpacket, int inpacket_len,
 							struct sockaddr_storage *local, socklen_t local_len, struct sockaddr_storage *from,
 							socklen_t from_len)
@@ -3730,14 +3810,9 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 	int ret = -1;
 	unsigned char packet_buff[DNS_PACKSIZE];
 	char name[DNS_MAX_CNAME_LEN];
-	char domain[DNS_MAX_CNAME_LEN];
 	struct dns_packet *packet = (struct dns_packet *)packet_buff;
 	struct dns_request *request = NULL;
-	struct dns_rrs *rrs;
-	int rr_count = 0;
-	int i = 0;
-	int qclass;
-	int qtype = DNS_T_ALL;
+
 
 	/* decode packet */
 	tlog(TLOG_DEBUG, "recv query packet from %s, len = %d",
@@ -3754,40 +3829,25 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 		 packet->head.qdcount, packet->head.ancount, packet->head.nscount, packet->head.nrcount, inpacket_len,
 		 packet->head.id, packet->head.tc, packet->head.rd, packet->head.ra, packet->head.rcode);
 
-	if (packet->head.qr != DNS_QR_QUERY) {
-		goto errout;
-	}
-
-	/* get request domain and request qtype */
-	rrs = dns_get_rrs_start(packet, DNS_RRS_QD, &rr_count);
-	if (rr_count > 1) {
-		goto errout;
-	}
-
-	for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
-		ret = dns_get_domain(rrs, domain, sizeof(domain), &qtype, &qclass);
-		if (ret != 0) {
-			goto errout;
-		}
-
-		// Only support one question.
-		break;
-	}
-	tlog(TLOG_INFO, "query server %s from %s, qtype = %d\n", domain, name, qtype);
-
 	request = _dns_server_new_request();
 	if (request == NULL) {
 		tlog(TLOG_ERROR, "malloc failed.\n");
 		goto errout;
 	}
 
+	if (_dns_server_parser_request(request, packet) != 0) {
+		goto errout;
+	}
+
+	tlog(TLOG_INFO, "query server %s from %s, qtype = %d\n", request->domain, name, request->qtype);
+
 	memcpy(&request->localaddr, local, local_len);
 	_dns_server_request_set_client(request, conn);
 	_dns_server_request_set_client_addr(request, from, from_len);
 	_dns_server_request_set_id(request, packet->head.id);
-	ret = _dns_server_do_query(request, domain, qtype);
+	ret = _dns_server_do_query(request);
 	if (ret != 0) {
-		tlog(TLOG_ERROR, "do query %s failed.\n", domain);
+		tlog(TLOG_ERROR, "do query %s failed.\n", request->domain);
 		goto errout;
 	}
 	_dns_server_request_release_complete(request, 0);
@@ -3801,7 +3861,21 @@ errout:
 	return ret;
 }
 
-static int _dns_server_prefetch_request(char *domain, dns_type_t qtype, uint32_t server_flags)
+static int _dns_server_prefetch_setup_options(struct dns_request *request, struct dns_query_options *options) 
+{
+	if (options == NULL) {
+		return 0;
+	}
+
+	if (options->enable_flag & DNS_QUEY_OPTION_ECS_DNS) {
+		request->has_ecs = 1;
+		memcpy(&request->ecs, &options->ecs_dns, sizeof(request->ecs));
+	}
+
+	return 0;
+}
+
+static int _dns_server_prefetch_request(char *domain, dns_type_t qtype, uint32_t server_flags, struct dns_query_options *options)
 {
 	int ret = -1;
 	struct dns_request *request = NULL;
@@ -3812,11 +3886,14 @@ static int _dns_server_prefetch_request(char *domain, dns_type_t qtype, uint32_t
 		goto errout;
 	}
 
+	safe_strncpy(request->domain, domain, sizeof(request->domain));
+	request->qtype = qtype;
 	request->server_flags = server_flags;
+	_dns_server_prefetch_setup_options(request, options);
 	_dns_server_request_set_enable_prefetch(request);
-	ret = _dns_server_do_query(request, domain, qtype);
+	ret = _dns_server_do_query(request);
 	if (ret != 0) {
-		tlog(TLOG_ERROR, "do query %s failed.\n", domain);
+		tlog(TLOG_ERROR, "do query %s failed.\n", request->domain);
 		goto errout;
 	}
 
@@ -3842,8 +3919,10 @@ int dns_server_query(char *domain, int qtype, uint32_t server_flags, dns_result_
 	}
 
 	request->server_flags = server_flags;
+	safe_strncpy(request->domain, domain, sizeof(request->domain));
+	request->qtype = qtype;
 	_dns_server_request_set_callback(request, callback, user_ptr);
-	ret = _dns_server_do_query(request, domain, qtype);
+	ret = _dns_server_do_query(request);
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "do query %s failed.\n", domain);
 		goto errout;
@@ -4239,7 +4318,7 @@ static void _dns_server_prefetch_domain(struct dns_cache *dns_cache)
 	tlog(TLOG_DEBUG, "prefetch by cache %s, qtype %d, ttl %d, hitnum %d", dns_cache->info.domain, dns_cache->info.qtype,
 		 dns_cache->info.ttl, hitnum);
 	if (_dns_server_prefetch_request(dns_cache->info.domain, dns_cache->info.qtype,
-									 dns_cache_get_cache_flag(dns_cache->cache_data)) != 0) {
+									 dns_cache_get_cache_flag(dns_cache->cache_data), NULL) != 0) {
 		tlog(TLOG_ERROR, "prefetch domain %s, qtype %d, failed.", dns_cache->info.domain, dns_cache->info.qtype);
 	}
 }

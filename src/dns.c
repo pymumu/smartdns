@@ -887,11 +887,12 @@ int dns_add_OPT_ECS(struct dns_packet *packet, struct dns_opt_ecs *ecs)
 int dns_get_OPT_ECS(struct dns_rrs *rrs, unsigned short *opt_code, unsigned short *opt_len, struct dns_opt_ecs *ecs)
 {
 	unsigned char opt_data[DNS_MAX_OPT_LEN];
+	char domain[DNS_MAX_CNAME_LEN] = {0};
 	struct dns_opt *opt = (struct dns_opt *)opt_data;
 	int len = DNS_MAX_OPT_LEN;
 	int ttl = 0;
 
-	if (_dns_get_RAW(rrs, NULL, 0, &ttl, opt_data, &len) != 0) {
+	if (_dns_get_RAW(rrs, domain, DNS_MAX_CNAME_LEN, &ttl, opt_data, &len) != 0) {
 		return -1;
 	}
 
