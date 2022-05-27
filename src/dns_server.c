@@ -535,7 +535,7 @@ static int _dns_rrs_add_all_best_ip(struct dns_server_post_context *context)
 	int ignore_speed = 0;
 	int maxhit = 0;
 
-	if (context->select_all_best_ip == 0 || dns_conf_max_reply_ip_num - 1 <= 0) {
+	if (context->select_all_best_ip == 0 || context->ip_num >= dns_conf_max_reply_ip_num) {
 		return 0;
 	}
 
@@ -685,6 +685,7 @@ static int _dns_add_rrs(struct dns_server_post_context *context)
 	/* add SOA record */
 	if (has_soa) {
 		ret |= dns_add_SOA(context->packet, DNS_RRS_NS, domain, 0, &request->soa);
+		tlog(TLOG_INFO, "result: %s, return SOA", request->domain);
 	} else if (context->do_force_soa == 1) {
 		_dns_server_setup_soa(request);
 		ret |= dns_add_SOA(context->packet, DNS_RRS_NS, domain, 0, &request->soa);
@@ -693,6 +694,11 @@ static int _dns_add_rrs(struct dns_server_post_context *context)
 	if (request->has_ecs) {
 		ret |= dns_add_OPT_ECS(context->packet, &request->ecs);
 	}
+
+	if (request->rcode != DNS_RC_NOERROR) {
+		tlog(TLOG_INFO, "result %s, rc-code: %d", domain, request->rcode);
+	}
+
 	return ret;
 }
 
@@ -1679,8 +1685,6 @@ static void _dns_server_complete_with_multi_ipaddress(struct dns_request *reques
 	int do_reply = 0;
 	if (atomic_inc_return(&request->notified) == 1) {
 		do_reply = 1;
-	} else if (dns_conf_max_reply_ip_num == 1) {
-		return;
 	}
 
 	_dns_server_post_context_init(&context, request);
