@@ -46,6 +46,7 @@
 #define DNS_MAX_EVENTS 256
 #define IPV6_READY_CHECK_TIME 180
 #define DNS_SERVER_TMOUT_TTL (5 * 60)
+#define DNS_SERVER_FAIL_TTL (60)
 #define DNS_CONN_BUFF_SIZE 4096
 #define DNS_REQUEST_MAX_TIMEOUT 850
 #define DNS_PING_TIMEOUT (DNS_REQUEST_MAX_TIMEOUT)
@@ -254,7 +255,8 @@ static tlog_log *dns_audit;
 
 static int is_ipv6_ready;
 
-static int _dns_server_prefetch_request(char *domain, dns_type_t qtype, uint32_t server_flags, struct dns_query_options *options);
+static int _dns_server_prefetch_request(char *domain, dns_type_t qtype, uint32_t server_flags,
+										struct dns_query_options *options);
 
 static int _dns_server_forward_request(unsigned char *inpacket, int inpacket_len)
 {
@@ -1005,8 +1007,7 @@ int _dns_cache_cname_packet(struct dns_server_post_context *context)
 	if (inpacket_len <= 0) {
 		return -1;
 	}
-	cache_packet =
-		dns_cache_new_data_packet(request->server_flags, inpacket_buff, inpacket_len);
+	cache_packet = dns_cache_new_data_packet(request->server_flags, inpacket_buff, inpacket_len);
 	if (cache_packet == NULL) {
 		return -1;
 	}
@@ -1042,12 +1043,46 @@ errout:
 	return -1;
 }
 
+static int _dns_cache_error_packet(struct dns_server_post_context *context)
+{
+	struct dns_request *request = context->request;
+	struct dns_cache_data *cache_packet =
+		dns_cache_new_data_packet(request->server_flags, context->inpacket, context->inpacket_len);
+	if (cache_packet == NULL) {
+		return -1;
+	}
+
+	/* if doing prefetch, update cache only */
+	if (request->prefetch) {
+		if (dns_cache_replace(request->domain, DNS_SERVER_FAIL_TTL, context->qtype, -1, cache_packet) != 0) {
+			goto errout;
+		}
+	} else {
+		/* insert result to cache */
+		if (dns_cache_insert(request->domain, DNS_SERVER_FAIL_TTL, context->qtype, -1, cache_packet) != 0) {
+			goto errout;
+		}
+	}
+
+	return 0;
+errout:
+	if (cache_packet) {
+		dns_cache_data_free(cache_packet);
+	}
+
+	return -1;
+}
+
 static int _dns_cache_reply_packet(struct dns_server_post_context *context)
 {
 	struct dns_request *request = context->request;
 	int has_soa = request->has_soa;
 	if (context->do_cache == 0 || _dns_server_has_bind_flag(request, BIND_FLAG_NO_CACHE) == 0) {
 		return 0;
+	}
+
+	if (context->packet->head.rcode == DNS_RC_SERVFAIL || context->packet->head.rcode == DNS_RC_NXDOMAIN) {
+		return _dns_cache_error_packet(context);
 	}
 
 	if (context->qtype != DNS_T_AAAA && context->qtype != DNS_T_A) {
@@ -1071,7 +1106,6 @@ static int _dns_cache_reply_packet(struct dns_server_post_context *context)
 	if (_dns_server_request_update_cache(request, context->qtype, cache_packet, has_soa) != 0) {
 		tlog(TLOG_WARN, "update packet cache failed.");
 	}
-
 
 	_dns_cache_cname_packet(context);
 
@@ -1174,7 +1208,7 @@ static int _dns_request_post(struct dns_server_post_context *context)
 	struct dns_request *request = context->request;
 	int ret = 0;
 
-	tlog(TLOG_DEBUG, "reply %s %d %d", request->domain, request->qtype, context->qtype);
+	tlog(TLOG_DEBUG, "reply %s qtype: %d, rcode: %d", request->domain, request->qtype, context->packet->head.rcode);
 
 	if (request->conn == NULL) {
 		context->do_reply = 0;
@@ -1350,6 +1384,7 @@ static int dns_server_update_reply_packet_id(struct dns_request *request, unsign
 }
 
 static void _dns_server_request_release(struct dns_request *request);
+static void _dns_server_request_release_complete(struct dns_request *request, int do_complete);
 
 int _dns_server_reply_all_pending_list(struct dns_request *request, struct dns_server_post_context *context)
 {
@@ -1380,13 +1415,14 @@ int _dns_server_reply_all_pending_list(struct dns_request *request, struct dns_s
 			if (atomic_inc_return(&req->notified) != 1) {
 				return 0;
 			}
+			req->rcode = request->rcode;
 			/* When passthrough, modify the id to be the id of the client request. */
 			dns_server_update_reply_packet_id(req, context->inpacket, context->inpacket_len);
 			ret = _dns_reply_inpacket(req, context->inpacket, context->inpacket_len);
 		}
 
 		req->request_pending_list = NULL;
-		_dns_server_request_release(req);
+		_dns_server_request_release_complete(req, 0);
 	}
 	pthread_mutex_unlock(&pending_list->request_list_lock);
 
@@ -1400,6 +1436,10 @@ static int _dns_server_request_complete(struct dns_request *request)
 	int force_A = 0;
 	int ttl = DNS_SERVER_TMOUT_TTL;
 
+	if (request->rcode == DNS_RC_SERVFAIL || request->rcode == DNS_RC_NXDOMAIN) {
+		ttl = DNS_SERVER_FAIL_TTL;
+	}
+	
 	if (request->prefetch == 1) {
 		return 0;
 	}
@@ -2312,9 +2352,9 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 static int _dns_server_passthrough_rule_check(struct dns_request *request, char *domain, struct dns_packet *packet,
 											  unsigned int result_flag, int *pttl)
 {
-	int ttl;
+	int ttl = 0;
 	char name[DNS_MAX_CNAME_LEN] = {0};
-	int rr_count;
+	int rr_count = 0;
 	int i = 0;
 	int j = 0;
 	struct dns_rrs *rrs = NULL;
@@ -3724,7 +3764,8 @@ static int _dns_server_do_query(struct dns_request *request)
 		// Get reference for AAAA query
 		_dns_server_request_get(request);
 		request->request_wait++;
-		if (dns_client_query(request->domain, DNS_T_A, dns_server_resolve_callback, request, group_name, &options) != 0) {
+		if (dns_client_query(request->domain, DNS_T_A, dns_server_resolve_callback, request, group_name, &options) !=
+			0) {
 			request->request_wait--;
 			_dns_server_request_release(request);
 		}
@@ -3733,7 +3774,8 @@ static int _dns_server_do_query(struct dns_request *request)
 	// Get reference for DNS query
 	request->request_wait++;
 	_dns_server_request_get(request);
-	if (dns_client_query(request->domain, request->qtype, dns_server_resolve_callback, request, group_name, &options) != 0) {
+	if (dns_client_query(request->domain, request->qtype, dns_server_resolve_callback, request, group_name, &options) !=
+		0) {
 		request->request_wait--;
 		_dns_server_request_release(request);
 		tlog(TLOG_ERROR, "send dns request failed.");
@@ -3748,7 +3790,7 @@ errout:
 	return ret;
 }
 
-static int _dns_server_parser_request(struct dns_request *request, struct dns_packet *packet) 
+static int _dns_server_parser_request(struct dns_request *request, struct dns_packet *packet)
 {
 	struct dns_rrs *rrs;
 	int rr_count = 0;
@@ -3779,7 +3821,6 @@ static int _dns_server_parser_request(struct dns_request *request, struct dns_pa
 		request->qtype = qtype;
 		break;
 	}
-
 
 	/* get request opts */
 	rr_count = 0;
@@ -3812,7 +3853,6 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 	char name[DNS_MAX_CNAME_LEN];
 	struct dns_packet *packet = (struct dns_packet *)packet_buff;
 	struct dns_request *request = NULL;
-
 
 	/* decode packet */
 	tlog(TLOG_DEBUG, "recv query packet from %s, len = %d",
@@ -3861,7 +3901,7 @@ errout:
 	return ret;
 }
 
-static int _dns_server_prefetch_setup_options(struct dns_request *request, struct dns_query_options *options) 
+static int _dns_server_prefetch_setup_options(struct dns_request *request, struct dns_query_options *options)
 {
 	if (options == NULL) {
 		return 0;
@@ -3875,7 +3915,8 @@ static int _dns_server_prefetch_setup_options(struct dns_request *request, struc
 	return 0;
 }
 
-static int _dns_server_prefetch_request(char *domain, dns_type_t qtype, uint32_t server_flags, struct dns_query_options *options)
+static int _dns_server_prefetch_request(char *domain, dns_type_t qtype, uint32_t server_flags,
+										struct dns_query_options *options)
 {
 	int ret = -1;
 	struct dns_request *request = NULL;
