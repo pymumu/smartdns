@@ -1049,7 +1049,7 @@ errout:
 	return -1;
 }
 
-static int _dns_cache_error_packet(struct dns_server_post_context *context)
+static int _dns_cache_packet(struct dns_server_post_context *context)
 {
 	struct dns_request *request = context->request;
 	struct dns_cache_data *cache_packet =
@@ -1060,12 +1060,12 @@ static int _dns_cache_error_packet(struct dns_server_post_context *context)
 
 	/* if doing prefetch, update cache only */
 	if (request->prefetch) {
-		if (dns_cache_replace(request->domain, DNS_SERVER_FAIL_TTL, context->qtype, -1, cache_packet) != 0) {
+		if (dns_cache_replace(request->domain, context->reply_ttl, context->qtype, -1, cache_packet) != 0) {
 			goto errout;
 		}
 	} else {
 		/* insert result to cache */
-		if (dns_cache_insert(request->domain, DNS_SERVER_FAIL_TTL, context->qtype, -1, cache_packet) != 0) {
+		if (dns_cache_insert(request->domain, context->reply_ttl, context->qtype, -1, cache_packet) != 0) {
 			goto errout;
 		}
 	}
@@ -1079,6 +1079,23 @@ errout:
 	return -1;
 }
 
+
+static int _dns_cache_specify_packet(struct dns_server_post_context *context) 
+{
+	switch (context->qtype) {
+	case DNS_T_PTR:
+	case DNS_T_HTTPS:
+	case DNS_T_TXT:
+	case DNS_T_SRV:
+		break;
+	default:
+		return 0;
+		break;
+	}
+
+	return _dns_cache_packet(context);
+}
+
 static int _dns_cache_reply_packet(struct dns_server_post_context *context)
 {
 	struct dns_request *request = context->request;
@@ -1088,11 +1105,12 @@ static int _dns_cache_reply_packet(struct dns_server_post_context *context)
 	}
 
 	if (context->packet->head.rcode == DNS_RC_SERVFAIL || context->packet->head.rcode == DNS_RC_NXDOMAIN) {
-		return _dns_cache_error_packet(context);
+		context->reply_ttl = DNS_SERVER_FAIL_TTL;
+		return _dns_cache_packet(context);
 	}
 
 	if (context->qtype != DNS_T_AAAA && context->qtype != DNS_T_A) {
-		return 0;
+		return _dns_cache_specify_packet(context);
 	}
 
 	if (context->ip_num == 0 && request->has_soa == 0) {
