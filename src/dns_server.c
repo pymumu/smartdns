@@ -259,6 +259,8 @@ static int is_ipv6_ready;
 static int _dns_server_prefetch_request(char *domain, dns_type_t qtype, uint32_t server_flags,
 										struct dns_query_options *options);
 
+static int _dns_server_get_answer(struct dns_server_post_context *context);
+
 static int _dns_server_forward_request(unsigned char *inpacket, int inpacket_len)
 {
 	tlog(TLOG_DEBUG, "forward request.\n");
@@ -1432,6 +1434,14 @@ int _dns_server_reply_all_pending_list(struct dns_request *request, struct dns_s
 	list_for_each_entry_safe(req, tmp, &(pending_list->request_list), pending_list)
 	{
 		list_del(&req->pending_list);
+		struct dns_server_post_context context_pending;
+		_dns_server_post_context_init_from(&context_pending, req, context->packet, context->inpacket,
+										   context->inpacket_len);
+		context_pending.do_cache = 0;
+		context_pending.do_audit = 0;
+		context_pending.do_reply = 0;
+		context_pending.do_ipset = 0;
+		_dns_server_get_answer(&context_pending);
 		if (req->result_callback) {
 			_dns_result_callback(req);
 		}
@@ -1440,7 +1450,6 @@ int _dns_server_reply_all_pending_list(struct dns_request *request, struct dns_s
 			if (atomic_inc_return(&req->notified) != 1) {
 				return 0;
 			}
-			req->rcode = request->rcode;
 			/* When passthrough, modify the id to be the id of the client request. */
 			dns_server_update_reply_packet_id(req, context->inpacket, context->inpacket_len);
 			ret = _dns_reply_inpacket(req, context->inpacket, context->inpacket_len);
@@ -4411,6 +4420,13 @@ static void _dns_server_tcp_idle_check(void)
 
 		_dns_server_client_close(conn);
 	}
+}
+
+int testfunc(char *domain, dns_rtcode_t rtcode, dns_type_t addr_type, char *ip,
+								   unsigned int ping_time, void *user_ptr)
+{
+	tlog(TLOG_ERROR, "Result: %s, %d -> %s %d", domain, rtcode, ip, ping_time);
+	return 0;
 }
 
 static void _dns_server_period_run_second(void)
