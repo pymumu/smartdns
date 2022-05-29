@@ -647,9 +647,27 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 1. How to get SPKI of DOT  
     The SPKI can be obtained from the page published by the DNS service provider. If it is not published, it can be obtained by the following command, replace IP with your own IP.
 
-    ````sh
+    ```sh
     echo | openssl s_client -connect '1.0.0.1:853' 2>/dev/null | openssl x509 -pubkey -noout | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | openssl enc -base64
-    ````
+    ```
+
+1. How to solve the problem of slow DNS resolution in iOS system?  
+    Since iOS14, Apple has supported the resolution of DNS HTTPS (TYPE65) records. This function is used for solving problems related to HTTPS connections, but it is still a draft, and it will cause some functions such as adblocking fail. It is recommended to disable it through the following configuration.
+
+    ```sh
+    force-qtype-SOA 65
+    ```
+
+1. How to resolve localhost ip by hostname?
+    smartdns can cooperate with the dhcp server of DNSMASQ to support the resolution of local host name to IP address. You can configure smartdns to read the lease file of dnsmasq and support the resolution. The specific configuration parameters are as follows, (note that the DNSMASQ lease file may be different for each system and needs to be configured according to the actual situation)
+
+    ```sh
+    dnsmasq-lease-file /var/lib/misc/dnsmasq.leases
+    ````\
+
+    After the configuration is complete, you can directly use the host name to connect to the local machine. But need to pay attention:
+
+    * Windows system uses mDNS to resolve addresses by default. If you need to use smartdns to resolve addresses under Windows, you need to add `.` after the host name, indicating that DNS resolution is used. Such as `ping smartdns.`
 
 ## Compile
 
