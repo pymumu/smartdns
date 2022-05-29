@@ -390,8 +390,7 @@ static void _fast_ping_host_put(struct ping_host_struct *ping_host)
 								 ping_host->seq, ping_host->ttl, &tv, ping_host->error, ping_host->userptr);
 	}
 
-	tlog(TLOG_DEBUG, "ping end, id %d", ping_host->sid);
-	// memset(ping_host, 0, sizeof(*ping_host));
+	tlog(TLOG_DEBUG, "ping %s end, id %d", ping_host->host, ping_host->sid);
 	ping_host->type = FAST_PING_END;
 	free(ping_host);
 }

@@ -71,9 +71,10 @@ struct dns_servers dns_conf_servers[DNS_MAX_SERVERS];
 char dns_conf_server_name[DNS_MAX_SERVER_NAME_LEN];
 int dns_conf_server_num;
 
-struct dns_domain_check_order dns_conf_check_order = {
-	.order = {DOMAIN_CHECK_ICMP, DOMAIN_CHECK_TCP},
-	.tcp_port = 80,
+struct dns_domain_check_order dns_conf_check_order[DOMAIN_CHECK_NUM] = {
+	{.type = DOMAIN_CHECK_ICMP, .tcp_port = 0},
+	{.type = DOMAIN_CHECK_TCP, .tcp_port = 80},
+	{.type = DOMAIN_CHECK_TCP, .tcp_port = 443},
 };
 int dns_has_cap_ping = 0;
 
@@ -825,7 +826,7 @@ errout:
 	return 0;
 }
 
-static int _config_speed_check_mode_parser(struct dns_domain_check_order *check_order, const char *mode)
+static int _config_speed_check_mode_parser(struct dns_domain_check_order check_order[], const char *mode)
 {
 	char tmpbuff[DNS_MAX_OPT_LEN];
 	char *field;
@@ -856,7 +857,8 @@ static int _config_speed_check_mode_parser(struct dns_domain_check_order *check_
 				}
 				continue;
 			}
-			check_order->order[order] = DOMAIN_CHECK_ICMP;
+			check_order[order].type = DOMAIN_CHECK_ICMP;
+			check_order[order].tcp_port = 0;
 		} else if (strstr(field, "tcp") == field) {
 			char *port_str = strstr(field, ":");
 			if (port_str) {
@@ -866,12 +868,12 @@ static int _config_speed_check_mode_parser(struct dns_domain_check_order *check_
 				}
 			}
 
-			check_order->order[order] = DOMAIN_CHECK_TCP;
-			check_order->tcp_port = port;
+			check_order[order].type = DOMAIN_CHECK_TCP;
+			check_order[order].tcp_port = port;
 		} else if (strncmp(field, "none", sizeof("none")) == 0) {
-			check_order->order[order] = DOMAIN_CHECK_NONE;
-			for (i = order + 1; i < DOMAIN_CHECK_NUM; i++) {
-				check_order->order[i] = DOMAIN_CHECK_NONE;
+			for (i = order; i < DOMAIN_CHECK_NUM; i++) {
+				check_order[i].type = DOMAIN_CHECK_NONE;
+				check_order[i].tcp_port = 0;
 			}
 
 			return 0;
@@ -895,7 +897,7 @@ static int _config_speed_check_mode(void *data, int argc, char *argv[])
 	}
 
 	safe_strncpy(mode, argv[1], sizeof(mode));
-	return _config_speed_check_mode_parser(&dns_conf_check_order, mode);
+	return _config_speed_check_mode_parser(dns_conf_check_order, mode);
 }
 
 static int _config_bind_ip(int argc, char *argv[], DNS_BIND_TYPE type)
@@ -1983,11 +1985,13 @@ static int _dns_conf_speed_check_mode_verify(void)
 	}
 
 	for (i = 0; i < DOMAIN_CHECK_NUM; i++) {
-		if (dns_conf_check_order.order[i] == DOMAIN_CHECK_ICMP) {
+		if (dns_conf_check_order[i].type == DOMAIN_CHECK_ICMP) {
 			for (j = i + 1; j < DOMAIN_CHECK_NUM; j++) {
-				dns_conf_check_order.order[j - 1] = dns_conf_check_order.order[j];
+				dns_conf_check_order[j - 1].type = dns_conf_check_order[j].type;
+				dns_conf_check_order[j - 1].tcp_port = dns_conf_check_order[j].tcp_port;
 			}
-			dns_conf_check_order.order[j - 1] = DOMAIN_CHECK_NONE;
+			dns_conf_check_order[j - 1].type = DOMAIN_CHECK_NONE;
+			dns_conf_check_order[j - 1].tcp_port = 0;
 			print_log = 1;
 		}
 	}

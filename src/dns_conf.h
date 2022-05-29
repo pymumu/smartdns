@@ -73,7 +73,7 @@ typedef enum {
 #define DOMAIN_CHECK_NONE 0
 #define DOMAIN_CHECK_ICMP 1
 #define DOMAIN_CHECK_TCP 2
-#define DOMAIN_CHECK_NUM 2
+#define DOMAIN_CHECK_NUM 3
 
 #define DOMAIN_FLAG_ADDR_SOA (1 << 0)
 #define DOMAIN_FLAG_ADDR_IPV4_SOA (1 << 1)
@@ -138,7 +138,7 @@ struct dns_server_groups {
 };
 
 struct dns_domain_check_order {
-	char order[DOMAIN_CHECK_NUM];
+	char type;
 	unsigned short tcp_port;
 };
 
@@ -272,7 +272,7 @@ extern char dns_conf_ca_path[DNS_MAX_PATH];
 extern char dns_conf_cache_file[DNS_MAX_PATH];
 extern int dns_conf_cache_persist;
 
-extern struct dns_domain_check_order dns_conf_check_order;
+extern struct dns_domain_check_order dns_conf_check_order[DOMAIN_CHECK_NUM];
 
 extern struct dns_server_groups dns_conf_server_groups[DNS_NAX_GROUP_NUMBER];
 extern int dns_conf_server_group_num;

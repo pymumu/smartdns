@@ -48,10 +48,10 @@
 #define DNS_SERVER_TMOUT_TTL (5 * 60)
 #define DNS_SERVER_FAIL_TTL (60)
 #define DNS_CONN_BUFF_SIZE 4096
-#define DNS_REQUEST_MAX_TIMEOUT 850
+#define DNS_REQUEST_MAX_TIMEOUT 900
 #define DNS_PING_TIMEOUT (DNS_REQUEST_MAX_TIMEOUT)
-#define DNS_TCPPING_START (300)
-#define DNS_PING_SECOND_TIMEOUT (DNS_REQUEST_MAX_TIMEOUT - DNS_TCPPING_START)
+#define DNS_PING_CHECK_INTERVAL (250)
+#define DNS_PING_SECOND_TIMEOUT (DNS_REQUEST_MAX_TIMEOUT - DNS_PING_CHECK_INTERVAL)
 #define SOCKET_IP_TOS (IPTOS_LOWDELAY | IPTOS_RELIABILITY)
 #define SOCKET_PRIORITY (6)
 #define CACHE_AUTO_ENABLE_SIZE (1024 * 1024 * 128)
@@ -231,6 +231,7 @@ struct dns_request {
 
 	struct dns_domain_rule domain_rule;
 	struct dns_domain_check_order *check_order_list;
+	int check_order;
 
 	struct dns_request_pending_list *request_pending_list;
 };
@@ -1079,8 +1080,7 @@ errout:
 	return -1;
 }
 
-
-static int _dns_cache_specify_packet(struct dns_server_post_context *context) 
+static int _dns_cache_specify_packet(struct dns_server_post_context *context)
 {
 	switch (context->qtype) {
 	case DNS_T_PTR:
@@ -1232,7 +1232,8 @@ static int _dns_request_post(struct dns_server_post_context *context)
 	struct dns_request *request = context->request;
 	int ret = 0;
 
-	tlog(TLOG_DEBUG, "reply %s qtype: %d, rcode: %d", request->domain, request->qtype, context->packet->head.rcode);
+	tlog(TLOG_DEBUG, "reply %s qtype: %d, rcode: %d, reply: %d", request->domain, request->qtype,
+		 context->packet->head.rcode, context->do_reply);
 
 	if (request->conn == NULL) {
 		context->do_reply = 0;
@@ -1463,7 +1464,7 @@ static int _dns_server_request_complete(struct dns_request *request)
 	if (request->rcode == DNS_RC_SERVFAIL || request->rcode == DNS_RC_NXDOMAIN) {
 		ttl = DNS_SERVER_FAIL_TTL;
 	}
-	
+
 	if (request->prefetch == 1) {
 		return 0;
 	}
@@ -1854,7 +1855,7 @@ static struct dns_request *_dns_server_new_request(void)
 	request->rcode = DNS_RC_SERVFAIL;
 	request->conn = NULL;
 	request->result_callback = NULL;
-	request->check_order_list = &dns_conf_check_order;
+	request->check_order_list = dns_conf_check_order;
 	INIT_LIST_HEAD(&request->list);
 	hash_init(request->ip_map);
 	_dns_server_request_get(request);
@@ -1882,6 +1883,7 @@ static void _dns_server_ping_result(struct ping_host_struct *ping_host, const ch
 		fast_ping_stop(ping_host);
 		return;
 	} else if (result == PING_RESULT_TIMEOUT) {
+		tlog(TLOG_DEBUG, "ping %s timeout", host);
 		return;
 	} else if (result == PING_RESULT_ERROR) {
 		if (addr->sa_family != AF_INET6) {
@@ -2016,27 +2018,37 @@ static int _dns_server_ping(struct dns_request *request, PING_TYPE type, char *i
 	return 0;
 }
 
-static int _dns_server_check_speed(struct dns_request *request, char *ip, int mode_order, int timeout)
+static int _dns_server_check_speed(struct dns_request *request, char *ip)
 {
 	char tcp_ip[DNS_MAX_CNAME_LEN] = {0};
 	int port = 80;
 	int type = DOMAIN_CHECK_NONE;
+	int order = request->check_order;
+	int ping_timeout = DNS_PING_TIMEOUT;
+	unsigned long now = get_tick_count();
 
-	if (mode_order >= DOMAIN_CHECK_NUM || request->check_order_list == NULL) {
+	if (order >= DOMAIN_CHECK_NUM || request->check_order_list == NULL) {
 		return -1;
 	}
 
-	port = request->check_order_list->tcp_port;
-	type = request->check_order_list->order[mode_order];
+	ping_timeout = ping_timeout - (now - request->send_tick);
+	if (ping_timeout > DNS_PING_TIMEOUT) {
+		ping_timeout = DNS_PING_TIMEOUT;
+	} else if (ping_timeout < 10) {
+		ping_timeout = 10;
+	}
+
+	port = request->check_order_list[order].tcp_port;
+	type = request->check_order_list[order].type;
 	switch (type) {
 	case DOMAIN_CHECK_ICMP:
-		tlog(TLOG_DEBUG, "ping %s with icmp", ip);
-		return _dns_server_ping(request, PING_TYPE_ICMP, ip, timeout);
+		tlog(TLOG_DEBUG, "ping %s with icmp, order: %d, timeout: %d", ip, order, ping_timeout);
+		return _dns_server_ping(request, PING_TYPE_ICMP, ip, ping_timeout);
 		break;
 	case DOMAIN_CHECK_TCP:
 		snprintf(tcp_ip, sizeof(tcp_ip), "%s:%d", ip, port);
-		tlog(TLOG_DEBUG, "ping %s with tcp", tcp_ip);
-		return _dns_server_ping(request, PING_TYPE_TCP, tcp_ip, timeout);
+		tlog(TLOG_DEBUG, "ping %s with tcp, order: %d, timeout: %d", tcp_ip, order, ping_timeout);
+		return _dns_server_ping(request, PING_TYPE_TCP, tcp_ip, ping_timeout);
 		break;
 	default:
 		break;
@@ -2132,7 +2144,7 @@ static int _dns_server_is_adblock_ipv6(unsigned char addr[16])
 }
 
 static int _dns_server_process_answer_A(struct dns_rrs *rrs, struct dns_request *request, char *domain, char *cname,
-										unsigned int result_flag, int ping_timeout)
+										unsigned int result_flag)
 {
 	int ttl;
 	int ip_check_result = 0;
@@ -2186,8 +2198,8 @@ static int _dns_server_process_answer_A(struct dns_rrs *rrs, struct dns_request 
 
 	/* Ad blocking result */
 	if (addr[0] == 0 || addr[0] == 127) {
-		/* If half of the servers return the same result, then the domain name result is the IP address. */
-		if (atomic_inc_return(&request->adblock) <= dns_server_num() / 2) {
+		/* If half of the servers return the same result, then ignore this address */
+		if (atomic_inc_return(&request->adblock) <= (dns_server_num() / 2 + dns_server_num() % 2)) {
 			_dns_server_request_release(request);
 			return -1;
 		}
@@ -2202,7 +2214,7 @@ static int _dns_server_process_answer_A(struct dns_rrs *rrs, struct dns_request 
 	sprintf(ip, "%d.%d.%d.%d", addr[0], addr[1], addr[2], addr[3]);
 
 	/* start ping */
-	if (_dns_server_check_speed(request, ip, 0, ping_timeout) != 0) {
+	if (_dns_server_check_speed(request, ip) != 0) {
 		_dns_server_request_release(request);
 	}
 
@@ -2210,7 +2222,7 @@ static int _dns_server_process_answer_A(struct dns_rrs *rrs, struct dns_request 
 }
 
 static int _dns_server_process_answer_AAAA(struct dns_rrs *rrs, struct dns_request *request, char *domain, char *cname,
-										   unsigned int result_flag, int ping_timeout)
+										   unsigned int result_flag)
 {
 	unsigned char addr[16];
 	char name[DNS_MAX_CNAME_LEN] = {0};
@@ -2262,8 +2274,8 @@ static int _dns_server_process_answer_AAAA(struct dns_rrs *rrs, struct dns_reque
 
 	/* Ad blocking result */
 	if (_dns_server_is_adblock_ipv6(addr) == 0) {
-		/* If half of the servers return the same result, then the domain name result is the IP address. */
-		if (atomic_inc_return(&request->adblock) <= dns_server_num() / 2) {
+		/* If half of the servers return the same result, then ignore this address */
+		if (atomic_inc_return(&request->adblock) <= (dns_server_num() / 2 + dns_server_num() % 2)) {
 			_dns_server_request_release(request);
 			return -1;
 		}
@@ -2280,7 +2292,7 @@ static int _dns_server_process_answer_AAAA(struct dns_rrs *rrs, struct dns_reque
 			addr[14], addr[15]);
 
 	/* start ping */
-	if (_dns_server_check_speed(request, ip, 0, ping_timeout) != 0) {
+	if (_dns_server_check_speed(request, ip) != 0) {
 		_dns_server_request_release(request);
 	}
 
@@ -2297,8 +2309,6 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 	int i = 0;
 	int j = 0;
 	struct dns_rrs *rrs = NULL;
-	int ping_timeout = DNS_PING_TIMEOUT;
-	unsigned long now = get_tick_count();
 	int ret = 0;
 
 	if (packet->head.rcode != DNS_RC_NOERROR && packet->head.rcode != DNS_RC_NXDOMAIN) {
@@ -2310,19 +2320,12 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 		return -1;
 	}
 
-	ping_timeout = ping_timeout - (now - request->send_tick);
-	if (ping_timeout > DNS_PING_TIMEOUT) {
-		ping_timeout = DNS_PING_TIMEOUT;
-	} else if (ping_timeout < 10) {
-		ping_timeout = 10;
-	}
-
 	for (j = 1; j < DNS_RRS_END; j++) {
 		rrs = dns_get_rrs_start(packet, j, &rr_count);
 		for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
 			switch (rrs->type) {
 			case DNS_T_A: {
-				ret = _dns_server_process_answer_A(rrs, request, domain, cname, result_flag, ping_timeout);
+				ret = _dns_server_process_answer_A(rrs, request, domain, cname, result_flag);
 				if (ret == -1) {
 					break;
 				} else if (ret == -2) {
@@ -2331,7 +2334,7 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 				request->rcode = packet->head.rcode;
 			} break;
 			case DNS_T_AAAA: {
-				ret = _dns_server_process_answer_AAAA(rrs, request, domain, cname, result_flag, ping_timeout);
+				ret = _dns_server_process_answer_AAAA(rrs, request, domain, cname, result_flag);
 				if (ret == -1) {
 					break;
 				} else if (ret == -2) {
@@ -2644,6 +2647,8 @@ static int dns_server_resolve_callback(char *domain, dns_result_type rtype, unsi
 	} else {
 		pthread_mutex_lock(&request->ip_map_lock);
 		ip_num = request->ip_map_num;
+		/* if adblock ip address exist */
+		ip_num += atomic_read(&request->adblock) == 0 ? 0 : 1;
 		request_wait = request->request_wait;
 		request->request_wait--;
 		pthread_mutex_unlock(&request->ip_map_lock);
@@ -3451,11 +3456,11 @@ void _dns_server_check_ipv6_ready(void)
 
 	if (do_get_conf == 0) {
 		for (i = 0; i < DOMAIN_CHECK_NUM; i++) {
-			if (dns_conf_check_order.order[i] == DOMAIN_CHECK_ICMP) {
+			if (dns_conf_check_order[i].type == DOMAIN_CHECK_ICMP) {
 				is_icmp_check_set = 1;
 			}
 
-			if (dns_conf_check_order.order[i] == DOMAIN_CHECK_TCP) {
+			if (dns_conf_check_order[i].type == DOMAIN_CHECK_TCP) {
 				is_tcp_check_set = 1;
 			}
 		}
@@ -3616,7 +3621,7 @@ static const char *_dns_server_get_request_groupname(struct dns_request *request
 
 static void _dns_server_check_set_passthrough(struct dns_request *request)
 {
-	if (request->check_order_list->order[0] == DOMAIN_CHECK_NONE) {
+	if (request->check_order_list[0].type == DOMAIN_CHECK_NONE) {
 		request->passthrough = 1;
 	}
 
@@ -4321,18 +4326,15 @@ static int _dns_server_process(struct dns_server_conn_head *conn, struct epoll_e
 	return ret;
 }
 
-static void _dns_server_second_ping_check(struct dns_request *request)
+static int _dns_server_second_ping_check(struct dns_request *request)
 {
 	struct dns_ip_address *addr_map;
 	int bucket = 0;
 	char ip[DNS_MAX_CNAME_LEN] = {0};
+	int ret = -1;
 
 	if (request->has_ping_result) {
-		return;
-	}
-
-	if (request->has_ping_tcp) {
-		return;
+		return ret;
 	}
 
 	/* start tcping */
@@ -4344,7 +4346,8 @@ static void _dns_server_second_ping_check(struct dns_request *request)
 			_dns_server_request_get(request);
 			sprintf(ip, "%d.%d.%d.%d", addr_map->ipv4_addr[0], addr_map->ipv4_addr[1], addr_map->ipv4_addr[2],
 					addr_map->ipv4_addr[3]);
-			if (_dns_server_check_speed(request, ip, 1, DNS_PING_SECOND_TIMEOUT) != 0) {
+			ret = _dns_server_check_speed(request, ip);
+			if (ret != 0) {
 				_dns_server_request_release(request);
 			}
 		} break;
@@ -4355,8 +4358,8 @@ static void _dns_server_second_ping_check(struct dns_request *request)
 					addr_map->ipv6_addr[4], addr_map->ipv6_addr[5], addr_map->ipv6_addr[6], addr_map->ipv6_addr[7],
 					addr_map->ipv6_addr[8], addr_map->ipv6_addr[9], addr_map->ipv6_addr[10], addr_map->ipv6_addr[11],
 					addr_map->ipv6_addr[12], addr_map->ipv6_addr[13], addr_map->ipv6_addr[14], addr_map->ipv6_addr[15]);
-
-			if (_dns_server_check_speed(request, ip, 1, DNS_PING_SECOND_TIMEOUT) != 0) {
+			ret = _dns_server_check_speed(request, ip);
+			if (ret != 0) {
 				_dns_server_request_release(request);
 			}
 		} break;
@@ -4366,7 +4369,7 @@ static void _dns_server_second_ping_check(struct dns_request *request)
 	}
 	pthread_mutex_unlock(&request->ip_map_lock);
 
-	request->has_ping_tcp = 1;
+	return ret;
 }
 
 static void _dns_server_prefetch_domain(struct dns_cache *dns_cache)
@@ -4468,17 +4471,20 @@ static void _dns_server_period_run(void)
 	list_for_each_entry_safe(request, tmp, &server.request_list, list)
 	{
 		/* Need to use tcping detection speed */
-		if (request->send_tick < now - DNS_TCPPING_START && request->has_ping_tcp == 0) {
+		int check_order = request->check_order + 1;
+		if (request->send_tick < now - (check_order * DNS_PING_CHECK_INTERVAL) && request->has_ping_result == 0) {
 			_dns_server_request_get(request);
 			list_add_tail(&request->check_list, &check_list);
+			request->check_order++;
 		}
 	}
 	pthread_mutex_unlock(&server.request_list_lock);
 
 	list_for_each_entry_safe(request, tmp, &check_list, check_list)
 	{
-		_dns_server_second_ping_check(request);
-		_dns_server_request_remove(request);
+		if (_dns_server_second_ping_check(request) != 0) {
+			_dns_server_request_remove(request);
+		}
 		list_del_init(&request->check_list);
 		_dns_server_request_release(request);
 	}
