@@ -1352,6 +1352,8 @@ static void _dns_client_query_release(struct dns_query_struct *query)
 
 	/* notify caller query end */
 	if (query->callback) {
+		tlog(TLOG_INFO, "result %s, qtype: %d, rcode: %d, id %d", query->domain, query->qtype, query->has_result,
+			 query->sid);
 		query->callback(query->domain, DNS_QUERY_END, 0, NULL, NULL, 0, query->user_ptr);
 	}
 
@@ -3239,7 +3241,7 @@ static void _dns_client_add_pending_servers(void)
 			list_del_init(&pending->list);
 			_dns_client_server_pending_release_lck(pending);
 		} else {
-			tlog(TLOG_DEBUG, "add pending DNS server %s failed, retry %d...", pending->host, pending->retry_cnt);
+			tlog(TLOG_INFO, "add pending DNS server %s failed, retry %d...", pending->host, pending->retry_cnt);
 			pending->query_v4 = 0;
 			pending->query_v6 = 0;
 		}
@@ -3294,8 +3296,9 @@ static void _dns_client_period_run(void)
 		_dns_client_check_udp_nat(query);
 		if (atomic_dec_and_test(&query->retry_count) || (query->has_result != 0)) {
 			_dns_client_query_remove(query);
+			tlog(TLOG_INFO, "retry query %s, type: %d, id: %d failed", query->domain, query->qtype, query->sid);
 		} else {
-			tlog(TLOG_DEBUG, "retry query %s", query->domain);
+			tlog(TLOG_INFO, "retry query %s, type: %d, id: %d", query->domain, query->qtype, query->sid);
 			_dns_client_send_query(query, query->domain);
 		}
 		_dns_client_query_release(query);

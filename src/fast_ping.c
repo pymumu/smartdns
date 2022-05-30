@@ -494,7 +494,7 @@ static int _fast_ping_sendping_v4(struct ping_host_struct *ping_host)
 				 ping_host->addr_len);
 	if (len < 0 || len != sizeof(struct fast_ping_packet)) {
 		int err = errno;
-		if (errno == ENETUNREACH || errno == EINVAL) {
+		if (errno == ENETUNREACH || errno == EINVAL || errno == EADDRNOTAVAIL) {
 			goto errout;
 		}
 		char ping_host_name[PING_MAX_HOSTLEN];
@@ -541,7 +541,7 @@ static int _fast_ping_sendping_udp(struct ping_host_struct *ping_host)
 	len = sendto(fd, &dns_head, sizeof(dns_head), 0, (struct sockaddr *)&ping_host->addr, ping_host->addr_len);
 	if (len < 0 || len != sizeof(dns_head)) {
 		int err = errno;
-		if (errno == ENETUNREACH || errno == EINVAL) {
+		if (errno == ENETUNREACH || errno == EINVAL || errno == EADDRNOTAVAIL) {
 			goto errout;
 		}
 		char ping_host_name[PING_MAX_HOSTLEN];
@@ -588,7 +588,7 @@ static int _fast_ping_sendping_tcp(struct ping_host_struct *ping_host)
 	if (connect(fd, (struct sockaddr *)&ping_host->addr, ping_host->addr_len) != 0) {
 		if (errno != EINPROGRESS) {
 			char ping_host_name[PING_MAX_HOSTLEN];
-			if (errno == ENETUNREACH || errno == EINVAL) {
+			if (errno == ENETUNREACH || errno == EINVAL || errno == EADDRNOTAVAIL) {
 				goto errout;
 			}
 
@@ -1099,9 +1099,8 @@ struct ping_host_struct *fast_ping_start(PING_TYPE type, const char *host, int c
 	_fast_ping_host_put(ping_host);
 	return ping_host;
 errout_remove:
-	ping_host->ping_callback(ping_host, ping_host->host, PING_RESULT_ERROR, &ping_host->addr,
-									  ping_host->addr_len, ping_host->seq, ping_host->ttl, 0,
-									  ping_host->error, ping_host->userptr);
+	ping_host->ping_callback(ping_host, ping_host->host, PING_RESULT_ERROR, &ping_host->addr, ping_host->addr_len,
+							 ping_host->seq, ping_host->ttl, 0, ping_host->error, ping_host->userptr);
 	fast_ping_stop(ping_host);
 	_fast_ping_host_put(ping_host);
 	ping_host = NULL;
@@ -1559,8 +1558,8 @@ static void _fast_ping_period_run(void)
 		millisecond = interval.tv_sec * 1000 + interval.tv_usec / 1000;
 		if (millisecond >= ping_host->timeout && ping_host->send == 1) {
 			ping_host->ping_callback(ping_host, ping_host->host, PING_RESULT_TIMEOUT, &ping_host->addr,
-									 ping_host->addr_len, ping_host->seq, ping_host->ttl, &interval,
-									 ping_host->error, ping_host->userptr);
+									 ping_host->addr_len, ping_host->seq, ping_host->ttl, &interval, ping_host->error,
+									 ping_host->userptr);
 			ping_host->send = 0;
 		}
 
