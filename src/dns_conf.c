@@ -1206,6 +1206,9 @@ static int _config_qtype_soa(void *data, int argc, char *argv[])
 
 		memset(soa_list, 0, sizeof(*soa_list));
 		soa_list->qtypeid = atol(argv[i]);
+		if (soa_list->qtypeid == DNS_T_AAAA) {
+			dns_conf_force_AAAA_SOA = 1;
+		}
 		uint32_t key = hash_32_generic(soa_list->qtypeid, 32);
 		hash_add(dns_qtype_soa_table.qtype, &soa_list->node, key);
 	}

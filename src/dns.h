@@ -30,6 +30,11 @@
 #define DNS_ADDR_FAMILY_IP 1
 #define DNS_ADDR_FAMILY_IPV6 2
 
+/*
+DNS parameters:
+https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml
+*/
+
 typedef enum dns_qr {
 	DNS_QR_QUERY = 0,
 	DNS_QR_ANSWER = 1,

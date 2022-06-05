@@ -54,10 +54,19 @@ int dns_client_init(void);
 
 int dns_client_set_ecs(char *ip, int subnet);
 
+struct dns_server_info;
 /* query result notify function */
-typedef int (*dns_client_callback)(char *domain, dns_result_type rtype, unsigned int result_flag,
+typedef int (*dns_client_callback)(char *domain, dns_result_type rtype, struct dns_server_info *server_info,
 								   struct dns_packet *packet, unsigned char *inpacket, int inpacket_len,
 								   void *user_ptr);
+
+unsigned int dns_client_server_result_flag(struct dns_server_info *server_info);
+
+const char *dns_client_get_server_ip(struct dns_server_info *server_info);
+
+int dns_client_get_server_port(struct dns_server_info *server_info);
+
+dns_server_type_t dns_client_get_server_type(struct dns_server_info *server_info);
 
 struct dns_query_ecs_ip {
 	char ip[DNS_MAX_CNAME_LEN];

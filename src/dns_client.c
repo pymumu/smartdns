@@ -341,6 +341,42 @@ SSL_SESSION *_ssl_get1_session(struct dns_server_info *server)
 	return ret;
 }
 
+unsigned int dns_client_server_result_flag(struct dns_server_info *server_info)
+{
+	if (server_info == NULL) {
+		return 0;
+	}
+
+	return server_info->flags.result_flag;
+}
+
+const char *dns_client_get_server_ip(struct dns_server_info *server_info)
+{
+	if (server_info == NULL) {
+		return NULL;
+	}
+
+	return server_info->ip;
+}
+
+int dns_client_get_server_port(struct dns_server_info *server_info)
+{
+	if (server_info == NULL) {
+		return 0;
+	}
+
+	return server_info->port;
+}
+
+dns_server_type_t dns_client_get_server_type(struct dns_server_info *server_info)
+{
+	if (server_info == NULL) {
+		return DNS_SERVER_TYPE_END;
+	}
+
+	return server_info->type;
+}
+
 const char *_dns_server_get_type_string(dns_server_type_t type)
 {
 	const char *type_str = "";
@@ -1210,6 +1246,8 @@ void _dns_client_server_pending_get(struct dns_server_pending *pending)
 
 void _dns_client_server_pending_release_lck(struct dns_server_pending *pending)
 {
+	struct dns_server_pending_group *group, *tmp;
+
 	int refcnt = atomic_dec_return(&pending->refcnt);
 
 	if (refcnt) {
@@ -1218,6 +1256,12 @@ void _dns_client_server_pending_release_lck(struct dns_server_pending *pending)
 			abort();
 		}
 		return;
+	}
+
+	list_for_each_entry_safe(group, tmp, &pending->group_list, list)
+	{
+		list_del_init(&group->list);
+		free(group);
 	}
 
 	list_del_init(&pending->list);
@@ -1352,7 +1396,7 @@ static void _dns_client_query_release(struct dns_query_struct *query)
 
 	/* notify caller query end */
 	if (query->callback) {
-		tlog(TLOG_INFO, "result %s, qtype: %d, rcode: %d, id %d", query->domain, query->qtype, query->has_result,
+		tlog(TLOG_DEBUG, "result: %s, qtype: %d, hasresult: %d, id %d", query->domain, query->qtype, query->has_result,
 			 query->sid);
 		query->callback(query->domain, DNS_QUERY_END, 0, NULL, NULL, 0, query->user_ptr);
 	}
@@ -1608,8 +1652,8 @@ static int _dns_client_recv(struct dns_server_info *server_info, unsigned char *
 
 	/* notify caller dns query result */
 	if (query->callback) {
-		ret = query->callback(query->domain, DNS_QUERY_RESULT, server_info->flags.result_flag, packet, inpacket,
-							  inpacket_len, query->user_ptr);
+		ret = query->callback(query->domain, DNS_QUERY_RESULT, server_info, packet, inpacket, inpacket_len,
+							  query->user_ptr);
 		if (request_num == 0 || ret) {
 			/* if all server replied, or done, stop query, release resource */
 			_dns_client_query_remove(query);
@@ -2975,7 +3019,7 @@ int _dns_client_query_parser_options(struct dns_query_struct *query, struct dns_
 		struct sockaddr_storage addr;
 		socklen_t addr_len = sizeof(addr);
 		struct dns_opt_ecs *ecs;
-		
+
 		ecs = &query->ecs.ecs;
 		getaddr_by_host(options->ecs_ip.ip, (struct sockaddr *)&addr, &addr_len);
 
@@ -3180,6 +3224,19 @@ static int _dns_client_add_pendings(struct dns_server_pending *pending, char *ip
 	return 0;
 }
 
+static void _dns_client_remove_all_pending_servers(void)
+{
+	struct dns_server_pending *pending, *tmp;
+
+	pthread_mutex_lock(&pending_server_mutex);
+	list_for_each_entry_safe(pending, tmp, &pending_servers, list)
+	{
+		list_del_init(&pending->list);
+		_dns_client_server_pending_release_lck(pending);
+	}
+	pthread_mutex_unlock(&pending_server_mutex);
+}
+
 static void _dns_client_add_pending_servers(void)
 {
 	struct dns_server_pending *pending, *tmp;
@@ -3296,7 +3353,9 @@ static void _dns_client_period_run(void)
 		_dns_client_check_udp_nat(query);
 		if (atomic_dec_and_test(&query->retry_count) || (query->has_result != 0)) {
 			_dns_client_query_remove(query);
-			tlog(TLOG_INFO, "retry query %s, type: %d, id: %d failed", query->domain, query->qtype, query->sid);
+			if (query->has_result == 0) {
+				tlog(TLOG_INFO, "retry query %s, type: %d, id: %d failed", query->domain, query->qtype, query->sid);
+			}
 		} else {
 			tlog(TLOG_INFO, "retry query %s, type: %d, id: %d", query->domain, query->qtype, query->sid);
 			_dns_client_send_query(query, query->domain);
@@ -3469,6 +3528,7 @@ void dns_client_exit(void)
 	}
 
 	/* free all resouces */
+	_dns_client_remove_all_pending_servers();
 	_dns_client_server_remove_all();
 	_dns_client_query_remove_all();
 	_dns_client_group_remove_all();
