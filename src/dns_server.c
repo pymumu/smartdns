@@ -230,7 +230,7 @@ struct dns_request {
 	DECLARE_HASHTABLE(ip_map, 4);
 
 	struct dns_domain_rule domain_rule;
-	struct dns_domain_check_order *check_order_list;
+	struct dns_domain_check_orders *check_order_list;
 	int check_order;
 
 	struct dns_request_pending_list *request_pending_list;
@@ -1850,7 +1850,7 @@ static struct dns_request *_dns_server_new_request(void)
 	request->rcode = DNS_RC_SERVFAIL;
 	request->conn = NULL;
 	request->result_callback = NULL;
-	request->check_order_list = dns_conf_check_order;
+	request->check_order_list = &dns_conf_check_orders;
 	INIT_LIST_HEAD(&request->list);
 	hash_init(request->ip_map);
 	_dns_server_request_get(request);
@@ -2030,8 +2030,8 @@ static int _dns_server_check_speed(struct dns_request *request, char *ip)
 		ping_timeout = 10;
 	}
 
-	port = request->check_order_list[order].tcp_port;
-	type = request->check_order_list[order].type;
+	port = request->check_order_list->orders[order].tcp_port;
+	type = request->check_order_list->orders[order].type;
 	switch (type) {
 	case DOMAIN_CHECK_ICMP:
 		tlog(TLOG_DEBUG, "ping %s with icmp, order: %d, timeout: %d", ip, order, ping_timeout);
@@ -3242,7 +3242,7 @@ static int _dns_server_qtype_soa(struct dns_request *request)
 
 static void _dns_server_process_speed_check_rule(struct dns_request *request)
 {
-	struct dns_domain_check_order *check_order = NULL;
+	struct dns_domain_check_orders *check_order = NULL;
 
 	/* get domain rule flag */
 	check_order = request->domain_rule.rules[DOMAIN_RULE_CHECKSPEED];
@@ -3475,11 +3475,11 @@ void _dns_server_check_ipv6_ready(void)
 
 	if (do_get_conf == 0) {
 		for (i = 0; i < DOMAIN_CHECK_NUM; i++) {
-			if (dns_conf_check_order[i].type == DOMAIN_CHECK_ICMP) {
+			if (dns_conf_check_orders.orders[i].type == DOMAIN_CHECK_ICMP) {
 				is_icmp_check_set = 1;
 			}
 
-			if (dns_conf_check_order[i].type == DOMAIN_CHECK_TCP) {
+			if (dns_conf_check_orders.orders[i].type == DOMAIN_CHECK_TCP) {
 				is_tcp_check_set = 1;
 			}
 		}
@@ -3640,7 +3640,7 @@ static const char *_dns_server_get_request_groupname(struct dns_request *request
 
 static void _dns_server_check_set_passthrough(struct dns_request *request)
 {
-	if (request->check_order_list[0].type == DOMAIN_CHECK_NONE) {
+	if (request->check_order_list->orders[0].type == DOMAIN_CHECK_NONE) {
 		request->passthrough = 1;
 	}
 

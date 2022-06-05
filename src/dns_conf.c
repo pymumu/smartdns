@@ -21,6 +21,7 @@
 #include "rbtree.h"
 #include "tlog.h"
 #include "util.h"
+#include <errno.h>
 #include <getopt.h>
 #include <libgen.h>
 #include <stdio.h>
@@ -28,7 +29,6 @@
 #include <string.h>
 #include <syslog.h>
 #include <unistd.h>
-#include <errno.h>
 
 #define DEFAULT_DNS_CACHE_SIZE 512
 #define DNS_MAX_REPLY_IP_NUM 8
@@ -71,10 +71,13 @@ struct dns_servers dns_conf_servers[DNS_MAX_SERVERS];
 char dns_conf_server_name[DNS_MAX_SERVER_NAME_LEN];
 int dns_conf_server_num;
 
-struct dns_domain_check_order dns_conf_check_order[DOMAIN_CHECK_NUM] = {
-	{.type = DOMAIN_CHECK_ICMP, .tcp_port = 0},
-	{.type = DOMAIN_CHECK_TCP, .tcp_port = 80},
-	{.type = DOMAIN_CHECK_TCP, .tcp_port = 443},
+struct dns_domain_check_orders dns_conf_check_orders = {
+	.orders =
+		{
+			{.type = DOMAIN_CHECK_ICMP, .tcp_port = 0},
+			{.type = DOMAIN_CHECK_TCP, .tcp_port = 80},
+			{.type = DOMAIN_CHECK_TCP, .tcp_port = 443},
+		},
 };
 int dns_has_cap_ping = 0;
 
@@ -826,7 +829,7 @@ errout:
 	return 0;
 }
 
-static int _config_speed_check_mode_parser(struct dns_domain_check_order check_order[], const char *mode)
+static int _config_speed_check_mode_parser(struct dns_domain_check_orders *check_orders, const char *mode)
 {
 	char tmpbuff[DNS_MAX_OPT_LEN];
 	char *field;
@@ -836,7 +839,7 @@ static int _config_speed_check_mode_parser(struct dns_domain_check_order check_o
 	int i = 0;
 
 	safe_strncpy(tmpbuff, mode, DNS_MAX_OPT_LEN);
-	memset(check_order, 0, sizeof(*check_order));
+	memset(check_orders, 0, sizeof(*check_orders));
 
 	ptr = tmpbuff;
 	do {
@@ -857,8 +860,8 @@ static int _config_speed_check_mode_parser(struct dns_domain_check_order check_o
 				}
 				continue;
 			}
-			check_order[order].type = DOMAIN_CHECK_ICMP;
-			check_order[order].tcp_port = 0;
+			check_orders->orders[order].type = DOMAIN_CHECK_ICMP;
+			check_orders->orders[order].tcp_port = 0;
 		} else if (strstr(field, "tcp") == field) {
 			char *port_str = strstr(field, ":");
 			if (port_str) {
@@ -868,12 +871,12 @@ static int _config_speed_check_mode_parser(struct dns_domain_check_order check_o
 				}
 			}
 
-			check_order[order].type = DOMAIN_CHECK_TCP;
-			check_order[order].tcp_port = port;
+			check_orders->orders[order].type = DOMAIN_CHECK_TCP;
+			check_orders->orders[order].tcp_port = port;
 		} else if (strncmp(field, "none", sizeof("none")) == 0) {
 			for (i = order; i < DOMAIN_CHECK_NUM; i++) {
-				check_order[i].type = DOMAIN_CHECK_NONE;
-				check_order[i].tcp_port = 0;
+				check_orders->orders[i].type = DOMAIN_CHECK_NONE;
+				check_orders->orders[i].tcp_port = 0;
 			}
 
 			return 0;
@@ -897,7 +900,7 @@ static int _config_speed_check_mode(void *data, int argc, char *argv[])
 	}
 
 	safe_strncpy(mode, argv[1], sizeof(mode));
-	return _config_speed_check_mode_parser(dns_conf_check_order, mode);
+	return _config_speed_check_mode_parser(&dns_conf_check_orders, mode);
 }
 
 static int _config_bind_ip(int argc, char *argv[], DNS_BIND_TYPE type)
@@ -1317,25 +1320,26 @@ errout:
 
 static int _conf_domain_rule_speed_check(char *domain, const char *mode)
 {
-	struct dns_domain_check_order *check_order;
+	struct dns_domain_check_orders *check_orders = NULL;
 
-	check_order = malloc(sizeof(*check_order));
-	if (check_order == NULL) {
+	check_orders = malloc(sizeof(*check_orders) * DOMAIN_CHECK_NUM);
+	if (check_orders == NULL) {
+		goto errout;
+	}
+	memset(check_orders, 0, sizeof(*check_orders));
+
+	if (_config_speed_check_mode_parser(check_orders, mode) != 0) {
 		goto errout;
 	}
 
-	if (_config_speed_check_mode_parser(check_order, mode) != 0) {
-		goto errout;
-	}
-
-	if (_config_domain_rule_add(domain, DOMAIN_RULE_CHECKSPEED, check_order) != 0) {
+	if (_config_domain_rule_add(domain, DOMAIN_RULE_CHECKSPEED, check_orders) != 0) {
 		goto errout;
 	}
 
 	return 0;
 errout:
-	if (check_order) {
-		free(check_order);
+	if (check_orders) {
+		free(check_orders);
 	}
 	return 0;
 }
@@ -1495,34 +1499,29 @@ static int _conf_ptr_add(const char *hostname, const char *ip)
 		struct sockaddr_in *addr_in;
 		addr_in = (struct sockaddr_in *)&addr;
 		paddr = (unsigned char *)&(addr_in->sin_addr.s_addr);
-		snprintf(ptr_domain, sizeof(ptr_domain), "%d.%d.%d.%d.in-addr.arpa",
-				 paddr[3], paddr[2], paddr[1], paddr[0]);
+		snprintf(ptr_domain, sizeof(ptr_domain), "%d.%d.%d.%d.in-addr.arpa", paddr[3], paddr[2], paddr[1], paddr[0]);
 	} break;
 	case AF_INET6: {
 		struct sockaddr_in6 *addr_in6;
 		addr_in6 = (struct sockaddr_in6 *)&addr;
 		if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
 			paddr = addr_in6->sin6_addr.s6_addr + 12;
-			snprintf(ptr_domain, sizeof(ptr_domain), "%d.%d.%d.%d.in-addr.arpa",
-					 paddr[3], paddr[2], paddr[1], paddr[0]);
+			snprintf(ptr_domain, sizeof(ptr_domain), "%d.%d.%d.%d.in-addr.arpa", paddr[3], paddr[2], paddr[1],
+					 paddr[0]);
 		} else {
 			paddr = addr_in6->sin6_addr.s6_addr;
-			snprintf(
-				ptr_domain, sizeof(ptr_domain),
-				"%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x."
-				"%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x."
-				"%x.ip6.arpa",
-				paddr[15] & 0xF, (paddr[15] >> 4) & 0xF, paddr[14] & 0xF,
-				(paddr[14] >> 4) & 0xF, paddr[13] & 0xF, (paddr[13] >> 4) & 0xF,
-				paddr[12] & 0xF, (paddr[12] >> 4) & 0xF, paddr[11] & 0xF,
-				(paddr[11] >> 4) & 0xF, paddr[10] & 0xF, (paddr[10] >> 4) & 0xF,
-				paddr[9] & 0xF, (paddr[9] >> 4) & 0xF, paddr[8] & 0xF,
-				(paddr[8] >> 4) & 0xF, paddr[7] & 0xF, (paddr[7] >> 4) & 0xF,
-				paddr[6] & 0xF, (paddr[6] >> 4) & 0xF, paddr[5] & 0xF,
-				(paddr[5] >> 4) & 0xF, paddr[4] & 0xF, (paddr[4] >> 4) & 0xF,
-				paddr[3] & 0xF, (paddr[3] >> 4) & 0xF, paddr[2] & 0xF,
-				(paddr[2] >> 4) & 0xF, paddr[1] & 0xF, (paddr[1] >> 4) & 0xF,
-				paddr[0] & 0xF, (paddr[0] >> 4) & 0xF);
+			snprintf(ptr_domain, sizeof(ptr_domain),
+					 "%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x."
+					 "%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x."
+					 "%x.ip6.arpa",
+					 paddr[15] & 0xF, (paddr[15] >> 4) & 0xF, paddr[14] & 0xF, (paddr[14] >> 4) & 0xF, paddr[13] & 0xF,
+					 (paddr[13] >> 4) & 0xF, paddr[12] & 0xF, (paddr[12] >> 4) & 0xF, paddr[11] & 0xF,
+					 (paddr[11] >> 4) & 0xF, paddr[10] & 0xF, (paddr[10] >> 4) & 0xF, paddr[9] & 0xF,
+					 (paddr[9] >> 4) & 0xF, paddr[8] & 0xF, (paddr[8] >> 4) & 0xF, paddr[7] & 0xF,
+					 (paddr[7] >> 4) & 0xF, paddr[6] & 0xF, (paddr[6] >> 4) & 0xF, paddr[5] & 0xF,
+					 (paddr[5] >> 4) & 0xF, paddr[4] & 0xF, (paddr[4] >> 4) & 0xF, paddr[3] & 0xF,
+					 (paddr[3] >> 4) & 0xF, paddr[2] & 0xF, (paddr[2] >> 4) & 0xF, paddr[1] & 0xF,
+					 (paddr[1] >> 4) & 0xF, paddr[0] & 0xF, (paddr[0] >> 4) & 0xF);
 		}
 	} break;
 	default:
@@ -1598,7 +1597,8 @@ errout:
 static int _conf_host_add(const char *hostname, const char *ip, dns_hosts_type host_type)
 {
 	struct dns_hosts *host = NULL;
-	struct dns_hosts *host_other __attribute__((unused));;
+	struct dns_hosts *host_other __attribute__((unused));
+	;
 	struct sockaddr_storage addr;
 	socklen_t addr_len = sizeof(addr);
 	int dns_type = 0;
@@ -1636,7 +1636,7 @@ static int _conf_host_add(const char *hostname, const char *ip, dns_hosts_type h
 
 	/* add this to return SOA when addr is not exist */
 	host_other = _dns_conf_get_hosts(hostname, dns_type_other);
-	
+
 	host->host_type = host_type;
 
 	switch (addr.ss_family) {
@@ -1667,7 +1667,7 @@ errout:
 	return -1;
 }
 
-static int _conf_dhcp_lease_dnsmasq_add(const char *file) 
+static int _conf_dhcp_lease_dnsmasq_add(const char *file)
 {
 	FILE *fp = NULL;
 	char line[MAX_LINE_LEN];
@@ -1709,7 +1709,7 @@ static int _conf_dhcp_lease_dnsmasq_add(const char *file)
 	fclose(fp);
 
 	return 0;
-} 
+}
 
 static int _conf_dhcp_lease_dnsmasq_file(void *data, int argc, char *argv[])
 {
@@ -1752,7 +1752,7 @@ static void _config_host_table_destroy(void)
 	dns_hosts_record_num = 0;
 }
 
-int dns_server_check_update_hosts(void) 
+int dns_server_check_update_hosts(void)
 {
 	struct stat statbuf;
 	time_t now;
@@ -1810,7 +1810,7 @@ static int _config_log_level(void *data, int argc, char *argv[])
 	return 0;
 }
 
-static void _config_setup_smartdns_domain(void) 
+static void _config_setup_smartdns_domain(void)
 {
 	char hostname[DNS_MAX_CNAME_LEN];
 	/* get local host name */
@@ -1988,13 +1988,13 @@ static int _dns_conf_speed_check_mode_verify(void)
 	}
 
 	for (i = 0; i < DOMAIN_CHECK_NUM; i++) {
-		if (dns_conf_check_order[i].type == DOMAIN_CHECK_ICMP) {
+		if (dns_conf_check_orders.orders[i].type == DOMAIN_CHECK_ICMP) {
 			for (j = i + 1; j < DOMAIN_CHECK_NUM; j++) {
-				dns_conf_check_order[j - 1].type = dns_conf_check_order[j].type;
-				dns_conf_check_order[j - 1].tcp_port = dns_conf_check_order[j].tcp_port;
+				dns_conf_check_orders.orders[j - 1].type = dns_conf_check_orders.orders[j].type;
+				dns_conf_check_orders.orders[j - 1].tcp_port = dns_conf_check_orders.orders[j].tcp_port;
 			}
-			dns_conf_check_order[j - 1].type = DOMAIN_CHECK_NONE;
-			dns_conf_check_order[j - 1].tcp_port = 0;
+			dns_conf_check_orders.orders[j - 1].type = DOMAIN_CHECK_NONE;
+			dns_conf_check_orders.orders[j - 1].tcp_port = 0;
 			print_log = 1;
 		}
 	}

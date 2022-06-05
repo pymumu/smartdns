@@ -142,6 +142,10 @@ struct dns_domain_check_order {
 	unsigned short tcp_port;
 };
 
+struct dns_domain_check_orders {
+	struct dns_domain_check_order orders[DOMAIN_CHECK_NUM];
+};
+
 struct dns_group_table {
 	DECLARE_HASHTABLE(group, 8);
 };
@@ -272,7 +276,7 @@ extern char dns_conf_ca_path[DNS_MAX_PATH];
 extern char dns_conf_cache_file[DNS_MAX_PATH];
 extern int dns_conf_cache_persist;
 
-extern struct dns_domain_check_order dns_conf_check_order[DOMAIN_CHECK_NUM];
+extern struct dns_domain_check_orders dns_conf_check_orders;
 
 extern struct dns_server_groups dns_conf_server_groups[DNS_NAX_GROUP_NUMBER];
 extern int dns_conf_server_group_num;
