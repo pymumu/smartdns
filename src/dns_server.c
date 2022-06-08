@@ -219,7 +219,7 @@ struct dns_request {
 
 	int dualstack_selection;
 	int dualstack_selection_force_soa;
-	int dualstack_selection_force_disable;
+	int dualstack_selection_query;
 	int dualstack_selection_ping_time;
 	int dualstack_selection_has_ip;
 	struct dns_request *dualstack_request;
@@ -314,7 +314,7 @@ static void _dns_server_set_dualstack_selection(struct dns_request *request)
 {
 	struct dns_rule_flags *rule_flag = NULL;
 
-	if (request->dualstack_selection_force_disable) {
+	if (request->dualstack_selection_query) {
 		request->dualstack_selection = 0;
 		return;
 	}
@@ -1425,7 +1425,7 @@ int _dns_server_reply_all_pending_list(struct dns_request *request, struct dns_s
 										   context->inpacket_len);
 		_dns_server_get_answer(&context_pending);
 		req->dualstack_selection = request->dualstack_selection;
-		req->dualstack_selection_force_disable = request->dualstack_selection_force_disable;
+		req->dualstack_selection_query = request->dualstack_selection_query;
 		req->dualstack_selection_force_soa = request->dualstack_selection_force_soa;
 		req->dualstack_selection_has_ip = request->dualstack_selection_has_ip;
 		req->dualstack_selection_ping_time = request->dualstack_selection_ping_time;
@@ -1449,6 +1449,44 @@ int _dns_server_reply_all_pending_list(struct dns_request *request, struct dns_s
 	return ret;
 }
 
+static int _dns_server_force_dualstack(struct dns_request *request)
+{
+	/* for dualstack request as first pending request, check if need to choose another request*/
+	if (request->dualstack_request) {
+		struct dns_request *dualstack_request = request->dualstack_request;
+		request->dualstack_selection_has_ip = dualstack_request->has_ip;
+		request->dualstack_selection_ping_time = dualstack_request->ping_time;
+		request->dualstack_selection = 1;
+	}
+
+	if (request->dualstack_selection_ping_time < 0 || request->dualstack_selection == 0) {
+		return -1;
+	}
+
+	if (request->has_soa || request->rcode != DNS_RC_NOERROR) {
+		return -1;
+	}
+
+	if (request->dualstack_selection_has_ip == 0) {
+		return -1;
+	}
+
+	if (request->ping_time > 0) {
+		if (request->dualstack_selection_ping_time + (dns_conf_dualstack_ip_selection_threshold * 10) >
+			request->ping_time) {
+			return -1;
+		}
+	}
+
+	/* if ipv4 is fasting than ipv6, add ipv4 to cache, and return SOA for AAAA request */
+	tlog(TLOG_INFO, "result: %s, qtype: %d, force %s perfered, id: %d, time1: %d, time2: %d", request->domain,
+		 request->qtype, request->qtype == DNS_T_AAAA ? "IPv4" : "IPv6", request->id, request->ping_time,
+		 request->dualstack_selection_ping_time);
+	request->dualstack_selection_force_soa = 1;
+
+	return 0;
+}
+
 static int _dns_server_request_complete(struct dns_request *request)
 {
 	int ttl = DNS_SERVER_TMOUT_TTL;
@@ -1465,14 +1503,6 @@ static int _dns_server_request_complete(struct dns_request *request)
 		return 0;
 	}
 
-	/* for dualstack request as first pending request, check if need to choose another request*/
-	if (request->dualstack_request) {
-		struct dns_request *dualstack_request = request->dualstack_request;
-		request->dualstack_selection_has_ip = dualstack_request->has_ip;
-		request->dualstack_selection_ping_time = dualstack_request->ping_time;
-		request->dualstack_selection = 1;
-	}
-
 	if (request->has_ip != 0) {
 		request->has_soa = 0;
 		if (request->has_ping_result == 0 && request->ip_ttl > DNS_SERVER_TMOUT_TTL) {
@@ -1481,18 +1511,8 @@ static int _dns_server_request_complete(struct dns_request *request)
 		ttl = request->ip_ttl;
 	}
 
-	if (request->dualstack_selection_ping_time > 0 && request->dualstack_selection &&
-		request->dualstack_selection_has_ip) {
-		if ((request->dualstack_selection_ping_time + (dns_conf_dualstack_ip_selection_threshold * 10)) <
-				request->ping_time ||
-			request->ping_time < 0) {
-			/* if ipv4 is fasting than ipv6, add ipv4 to cache, and return SOA for AAAA request */
-			tlog(TLOG_INFO, "result: %s, qtype: %d, force %s perfered, id: %d, time1: %d, time2: %d", request->domain,
-				 request->qtype, request->qtype == DNS_T_AAAA ? "IPv4" : "IPv6", request->id, request->ping_time,
-				 request->dualstack_selection_ping_time);
-			request->dualstack_selection_force_soa = 1;
-			goto out;
-		}
+	if (_dns_server_force_dualstack(request) == 0) {
+		goto out;
 	}
 
 	if (request->has_soa) {
@@ -1707,8 +1727,13 @@ static void _dns_server_complete_with_multi_ipaddress(struct dns_request *reques
 {
 	struct dns_server_post_context context;
 	int do_reply = 0;
+	if (request->ip_map_num > 0) {
+		request->has_soa = 0;
+	}
+
 	if (atomic_inc_return(&request->notified) == 1) {
 		do_reply = 1;
+		_dns_server_force_dualstack(request);
 	}
 
 	_dns_server_post_context_init(&context, request);
@@ -2347,7 +2372,9 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 			} break;
 			case DNS_T_SOA: {
 				request->has_soa = 1;
-				request->rcode = packet->head.rcode;
+				if (request->rcode != DNS_RC_NOERROR) {
+					request->rcode = packet->head.rcode;
+				}
 				dns_get_SOA(rrs, name, 128, &ttl, &request->soa);
 				tlog(TLOG_DEBUG,
 					 "domain: %s, qtype: %d, SOA: mname: %s, rname: %s, serial: %d, refresh: %d, retry: %d, expire: "
@@ -2355,7 +2382,7 @@ static int _dns_server_process_answer(struct dns_request *request, char *domain,
 					 domain, request->qtype, request->soa.mname, request->soa.rname, request->soa.serial,
 					 request->soa.refresh, request->soa.retry, request->soa.expire, request->soa.minimum);
 				int soa_num = atomic_inc_return(&request->soa_num);
-				if (soa_num >= (dns_server_num() / 3) + 1 || soa_num > 4) {
+				if ((soa_num >= (dns_server_num() / 3) + 1 || soa_num > 4) && request->ip_map_num <= 0) {
 					_dns_server_request_complete(request);
 				}
 			} break;
@@ -2534,7 +2561,9 @@ static int _dns_server_get_answer(struct dns_server_post_context *context)
 			} break;
 			case DNS_T_SOA: {
 				request->has_soa = 1;
-				request->rcode = packet->head.rcode;
+				if (request->rcode != DNS_RC_NOERROR) {
+					request->rcode = packet->head.rcode;
+				}
 				dns_get_SOA(rrs, name, 128, &ttl, &request->soa);
 				tlog(TLOG_DEBUG,
 					 "domain: %s, qtype: %d, SOA: mname: %s, rname: %s, serial: %d, refresh: %d, retry: %d, expire: "
@@ -3400,12 +3429,7 @@ static int _dns_server_process_cache(struct dns_request *request)
 		goto out;
 	}
 
-	if (dns_cache_is_soa(dns_cache)) {
-		ret = _dns_server_reply_SOA(DNS_RC_NOERROR, request);
-		goto out;
-	}
-
-	if (request->dualstack_selection && request->qtype == DNS_T_AAAA) {
+	if (request->dualstack_selection) {
 		int dualstack_qtype;
 		if (request->qtype == DNS_T_A) {
 			dualstack_qtype = DNS_T_AAAA;
@@ -3418,16 +3442,29 @@ static int _dns_server_process_cache(struct dns_request *request)
 		dualstack_dns_cache = dns_cache_lookup(request->domain, dualstack_qtype);
 		if (dualstack_dns_cache && dns_cache_is_soa(dualstack_dns_cache) == 0 &&
 			(dualstack_dns_cache->info.speed > 0)) {
+
+			if (dns_cache_is_soa(dns_cache)) {
+				ret = _dns_server_process_cache_packet(request, dns_cache);
+				goto out_update_cache;
+			}
+
 			if ((dualstack_dns_cache->info.speed + (dns_conf_dualstack_ip_selection_threshold * 10)) <
 					dns_cache->info.speed ||
 				dns_cache->info.speed < 0) {
 				tlog(TLOG_DEBUG, "cache result: %s, qtype: %d, force %s perfered, id: %d, time1: %d, time2: %d",
 					 request->domain, request->qtype, request->qtype == DNS_T_AAAA ? "IPv4" : "IPv6", request->id,
-					 request->ping_time, request->dualstack_selection_ping_time);
+					 dns_cache->info.speed, dualstack_dns_cache->info.speed);
 				ret = _dns_server_reply_SOA(DNS_RC_NOERROR, request);
 				goto out_update_cache;
 			}
 		}
+	}
+
+	if (dns_cache_is_soa(dns_cache)) {
+		if (dns_cache_get_ttl(dns_cache) > 0) {
+			ret = _dns_server_process_cache_packet(request, dns_cache);
+		}
+		goto out;
 	}
 
 	ret = _dns_server_process_cache_data(request, dns_cache);
@@ -3760,7 +3797,7 @@ int _dns_server_query_dualstack(struct dns_request *request)
 	request_dualstack->server_flags = request->server_flags;
 	safe_strncpy(request_dualstack->domain, request->domain, sizeof(request->domain));
 	request_dualstack->qtype = qtype;
-	request_dualstack->dualstack_selection_force_disable = 1;
+	request_dualstack->dualstack_selection_query = 1;
 	request_dualstack->prefetch = request->prefetch;
 	_dns_server_request_get(request);
 	request_dualstack->dualstack_request = request;
@@ -3838,7 +3875,7 @@ static int _dns_server_do_query(struct dns_request *request)
 	_dns_server_check_set_passthrough(request);
 
 	/* process cache */
-	if (request->prefetch == 0) {
+	if (request->prefetch == 0 && request->dualstack_selection_query == 0) {
 		if (_dns_server_process_cache(request) == 0) {
 			goto clean_exit;
 		}

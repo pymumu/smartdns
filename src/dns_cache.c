@@ -551,7 +551,7 @@ void dns_cache_invalidate(dns_cache_preinvalid_callback callback, int ttl_pre)
 		}
 
 		if (ttl < 0) {
-			if (dns_cache_head.enable_inactive && (dns_cache_is_soa(dns_cache) == 0)) {
+			if (dns_cache_head.enable_inactive) {
 				_dns_cache_move_inactive(dns_cache);
 			} else {
 				_dns_cache_remove(dns_cache);

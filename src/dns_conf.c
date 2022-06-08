@@ -64,7 +64,7 @@ int dns_conf_cachesize = DEFAULT_DNS_CACHE_SIZE;
 int dns_conf_prefetch = 0;
 int dns_conf_serve_expired = 1;
 int dns_conf_serve_expired_ttl = 0;
-int dns_conf_serve_expired_reply_ttl = 5;
+int dns_conf_serve_expired_reply_ttl = 3;
 
 /* upstream servers */
 struct dns_servers dns_conf_servers[DNS_MAX_SERVERS];
