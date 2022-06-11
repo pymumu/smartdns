@@ -1,18 +1,17 @@
- FROM debian:buster-slim
+FROM ubuntu:latest as smartdns-builder
 
- RUN apt update && \
-     apt install -y git make gcc libssl-dev && \
-     git clone https://github.com/pymumu/smartdns.git --depth 1 && \
+COPY . /smartdns/
+RUN  apt update && \
+     apt install -y make gcc libssl-dev && \
      cd smartdns && \
-     sh ./package/build-pkg.sh --platform debian --arch `dpkg --print-architecture` && \
-     dpkg -i package/*.deb && \
-     cd / && \
-     rm -rf smartdns/ && \
-     apt autoremove -y git make gcc libssl-dev && \
-     apt clean && \
-     rm -rf /var/lib/apt/lists/*
+     sh ./package/build-pkg.sh --platform debian --arch `dpkg --print-architecture`
 
- EXPOSE 53/udp
- VOLUME "/etc/smartdns/"
+FROM ubuntu:latest
+COPY --from=smartdns-builder /smartdns/package/*.deb /opt/
+RUN dpkg -i /opt/*.deb && \
+    rm /opt/*deb -fr
 
- CMD ["/usr/sbin/smartdns", "-f"]
+EXPOSE 53/udp
+VOLUME "/etc/smartdns/"
+
+CMD ["/usr/sbin/smartdns", "-f", "-x"]

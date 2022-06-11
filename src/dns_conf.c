@@ -1458,7 +1458,7 @@ static struct dns_ptr *_dns_conf_get_ptr(const char *ptr_domain)
 	key = hash_string(ptr_domain);
 	hash_for_each_possible(dns_ptr_table.ptr, ptr, node, key)
 	{
-		if (strncmp(ptr->ptr_domain, ptr_domain, DNS_MAX_CNAME_LEN) != 0) {
+		if (strncmp(ptr->ptr_domain, ptr_domain, DNS_MAX_PTR_LEN) != 0) {
 			continue;
 		}
 
