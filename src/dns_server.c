@@ -2406,7 +2406,7 @@ static int _dns_server_passthrough_rule_check(struct dns_request *request, char 
 	int j = 0;
 	struct dns_rrs *rrs = NULL;
 	int ip_check_result = 0;
-	int is_result_discard = 0;
+	int is_result_discard = 1;
 
 	if (packet->head.rcode != DNS_RC_NOERROR && packet->head.rcode != DNS_RC_NXDOMAIN) {
 		if (request->rcode == DNS_RC_SERVFAIL) {
@@ -2422,9 +2422,8 @@ static int _dns_server_passthrough_rule_check(struct dns_request *request, char 
 	for (j = 1; j < DNS_RRS_END; j++) {
 		rrs = dns_get_rrs_start(packet, j, &rr_count);
 		for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
-			if ((rrs->type == DNS_T_A || rrs->type == DNS_T_AAAA) &&
-				(request->qtype != DNS_T_A && request->qtype != DNS_T_AAAA)) {
-				is_result_discard = 1;
+			if (rrs->type == request->qtype) {
+				is_result_discard = 0;
 			}
 
 			switch (rrs->type) {
