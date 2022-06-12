@@ -2422,7 +2422,7 @@ static int _dns_server_passthrough_rule_check(struct dns_request *request, char 
 	for (j = 1; j < DNS_RRS_END; j++) {
 		rrs = dns_get_rrs_start(packet, j, &rr_count);
 		for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
-			if (rrs->type == request->qtype) {
+			if (rrs->type == request->qtype || rrs->type == DNS_T_SOA) {
 				is_result_discard = 0;
 			}
 
