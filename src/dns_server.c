@@ -48,7 +48,7 @@
 #define DNS_SERVER_TMOUT_TTL (5 * 60)
 #define DNS_SERVER_FAIL_TTL (60)
 #define DNS_CONN_BUFF_SIZE 4096
-#define DNS_REQUEST_MAX_TIMEOUT 900
+#define DNS_REQUEST_MAX_TIMEOUT 950
 #define DNS_PING_TIMEOUT (DNS_REQUEST_MAX_TIMEOUT)
 #define DNS_PING_CHECK_INTERVAL (250)
 #define DNS_PING_SECOND_TIMEOUT (DNS_REQUEST_MAX_TIMEOUT - DNS_PING_CHECK_INTERVAL)
@@ -455,6 +455,7 @@ static void _dns_server_audit_log(struct dns_server_post_context *context)
 	int total_len = 0;
 	int ip_num = 0;
 	struct dns_request *request = context->request;
+	int has_soa = request->has_soa;
 
 	if (dns_audit == NULL || !dns_conf_audit_enable || context->do_audit == 0) {
 		return;
@@ -481,6 +482,8 @@ static void _dns_server_audit_log(struct dns_server_post_context *context)
 
 				len =
 					snprintf(ip_msg + total_len, left_len, fmt, ipv4_addr[0], ipv4_addr[1], ipv4_addr[2], ipv4_addr[3]);
+				ip_num++;
+				has_soa = 0;
 			} break;
 			case DNS_T_AAAA: {
 				unsigned char ipv6_addr[16];
@@ -494,35 +497,38 @@ static void _dns_server_audit_log(struct dns_server_post_context *context)
 				req_host[0] = '\0';
 				inet_ntop(AF_INET6, ipv6_addr, req_host, sizeof(req_host));
 				len = snprintf(ip_msg + total_len, left_len, fmt, req_host);
+				ip_num++;
+				has_soa = 0;
 			} break;
 			case DNS_T_SOA: {
-				left_len = 0;
-				request->has_soa = 1;
-				break;
-			}
+				if (ip_num == 0) {
+					has_soa = 1;
+				}
+			} break;
 			default:
 				continue;
 			}
 
-			if (len <= 0 || len >= left_len) {
+			if (len < 0 || len >= left_len) {
 				left_len = 0;
 				break;
 			}
 
-			ip_num++;
-
-			request->has_soa = 0;
 			left_len -= len;
 			total_len += len;
 		}
 	}
 
-	if (request->has_soa || ip_num == 0) {
+	if (has_soa && ip_num == 0) {
 		if (!dns_conf_audit_log_SOA) {
 			return;
 		}
 
-		snprintf(req_result, left_len, "SOA");
+		if (request->dualstack_selection_force_soa) {
+			snprintf(req_result, left_len, "dualstack soa");
+		} else {
+			snprintf(req_result, left_len, "soa");
+		}
 	}
 
 	gethost_by_addr(req_host, sizeof(req_host), &request->addr);
@@ -2051,8 +2057,8 @@ static int _dns_server_check_speed(struct dns_request *request, char *ip)
 	ping_timeout = ping_timeout - (now - request->send_tick);
 	if (ping_timeout > DNS_PING_TIMEOUT) {
 		ping_timeout = DNS_PING_TIMEOUT;
-	} else if (ping_timeout < 10) {
-		ping_timeout = 10;
+	} else if (ping_timeout < 200) {
+		ping_timeout = 200;
 	}
 
 	port = request->check_order_list->orders[order].tcp_port;
@@ -4400,6 +4406,11 @@ static int _dns_server_process(struct dns_server_conn_head *conn, struct epoll_e
 	} else if (conn->type == DNS_CONN_TYPE_TCP_CLIENT) {
 		struct dns_server_conn_tcp_client *tcpclient = (struct dns_server_conn_tcp_client *)conn;
 		ret = _dns_server_process_tcp(tcpclient, event, now);
+		if (ret != 0) {
+			char name[DNS_MAX_CNAME_LEN];
+			tlog(TLOG_ERROR, "process TCP packet from %s failed.",
+				 gethost_by_addr(name, sizeof(name), (struct sockaddr *)&tcpclient->addr));
+		}
 	} else if (conn->type == DNS_CONN_TYPE_TLS_SERVER) {
 		tlog(TLOG_ERROR, "unsupport dns server type %d", conn->type);
 		ret = -1;
