@@ -55,6 +55,7 @@
 #define SOCKET_IP_TOS (IPTOS_LOWDELAY | IPTOS_RELIABILITY)
 #define SOCKET_PRIORITY (6)
 #define CACHE_AUTO_ENABLE_SIZE (1024 * 1024 * 128)
+#define EXPIRED_DOMAIN_PREFTCH_TIME (3600 * 8)
 
 #define RECV_ERROR_AGAIN 1
 #define RECV_ERROR_OK 0
@@ -216,6 +217,7 @@ struct dns_request {
 	int passthrough;
 	int request_wait;
 	int prefetch;
+	int prefetch_expired_domain;
 
 	int dualstack_selection;
 	int dualstack_selection_force_soa;
@@ -256,7 +258,7 @@ static tlog_log *dns_audit;
 
 static int is_ipv6_ready;
 
-static int _dns_server_prefetch_request(char *domain, dns_type_t qtype, uint32_t server_flags,
+static int _dns_server_prefetch_request(char *domain, dns_type_t qtype, int expired_domain, uint32_t server_flags,
 										struct dns_query_options *options);
 static int _dns_server_get_answer(struct dns_server_post_context *context);
 static void _dns_server_request_get(struct dns_request *request);
@@ -314,7 +316,7 @@ static void _dns_server_set_dualstack_selection(struct dns_request *request)
 {
 	struct dns_rule_flags *rule_flag = NULL;
 
-	if (request->dualstack_selection_query) {
+	if (request->dualstack_selection_query || request->prefetch_expired_domain == 1) {
 		request->dualstack_selection = 0;
 		return;
 	}
@@ -931,8 +933,14 @@ static int _dns_server_request_update_cache(struct dns_request *request, dns_typ
 
 	/* if doing prefetch, update cache only */
 	if (request->prefetch) {
-		if (dns_cache_replace(request->domain, ttl, qtype, speed, cache_data) != 0) {
-			goto errout;
+		if (request->prefetch_expired_domain == 0) {
+			if (dns_cache_replace(request->domain, ttl, qtype, speed, cache_data) != 0) {
+				goto errout;
+			}
+		} else {
+			if (dns_cache_replace_inactive(request->domain, ttl, qtype, speed, cache_data) != 0) {
+				goto errout;
+			}
 		}
 	} else {
 		/* insert result to cache */
@@ -1058,8 +1066,14 @@ int _dns_cache_cname_packet(struct dns_server_post_context *context)
 
 	/* if doing prefetch, update cache only */
 	if (request->prefetch) {
-		if (dns_cache_replace(request->cname, ttl, context->qtype, speed, cache_packet) != 0) {
-			goto errout;
+		if (request->prefetch_expired_domain == 0) {
+			if (dns_cache_replace(request->cname, ttl, context->qtype, speed, cache_packet) != 0) {
+				goto errout;
+			}
+		} else {
+			if (dns_cache_replace_inactive(request->cname, ttl, context->qtype, speed, cache_packet) != 0) {
+				goto errout;
+			}
 		}
 	} else {
 		/* insert result to cache */
@@ -3480,7 +3494,7 @@ out_update_cache:
 			options.enable_flag |= DNS_QUEY_OPTION_ECS_DNS;
 			memcpy(&options.ecs_dns, &request->ecs, sizeof(options.ecs_dns));
 		}
-		_dns_server_prefetch_request(request->domain, request->qtype, server_flags, &options);
+		_dns_server_prefetch_request(request->domain, request->qtype, 0, server_flags, &options);
 	} else {
 		dns_cache_update(dns_cache);
 	}
@@ -3564,9 +3578,10 @@ static void _dns_server_request_set_id(struct dns_request *request, unsigned sho
 	request->id = id;
 }
 
-static void _dns_server_request_set_enable_prefetch(struct dns_request *request)
+static void _dns_server_request_set_enable_prefetch(struct dns_request *request, int expired_domain)
 {
 	request->prefetch = 1;
+	request->prefetch_expired_domain = expired_domain;
 }
 
 static int _dns_server_request_set_client_addr(struct dns_request *request, struct sockaddr_storage *from,
@@ -3794,6 +3809,7 @@ int _dns_server_query_dualstack(struct dns_request *request)
 	request_dualstack->qtype = qtype;
 	request_dualstack->dualstack_selection_query = 1;
 	request_dualstack->prefetch = request->prefetch;
+	request_dualstack->prefetch_expired_domain = request->prefetch_expired_domain;
 	_dns_server_request_get(request);
 	request_dualstack->dualstack_request = request;
 	_dns_server_request_set_callback(request_dualstack, dns_server_dualstack_callback, request);
@@ -4034,7 +4050,7 @@ static int _dns_server_prefetch_setup_options(struct dns_request *request, struc
 	return 0;
 }
 
-static int _dns_server_prefetch_request(char *domain, dns_type_t qtype, uint32_t server_flags,
+static int _dns_server_prefetch_request(char *domain, dns_type_t qtype, int expired_domain, uint32_t server_flags,
 										struct dns_query_options *options)
 {
 	int ret = -1;
@@ -4050,7 +4066,7 @@ static int _dns_server_prefetch_request(char *domain, dns_type_t qtype, uint32_t
 	request->qtype = qtype;
 	request->server_flags = server_flags;
 	_dns_server_prefetch_setup_options(request, options);
-	_dns_server_request_set_enable_prefetch(request);
+	_dns_server_request_set_enable_prefetch(request, expired_domain);
 	ret = _dns_server_do_query(request);
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "do query %s failed.\n", request->domain);
@@ -4480,7 +4496,19 @@ static void _dns_server_prefetch_domain(struct dns_cache *dns_cache)
 	/* start prefetch domain */
 	tlog(TLOG_DEBUG, "prefetch by cache %s, qtype %d, ttl %d, hitnum %d", dns_cache->info.domain, dns_cache->info.qtype,
 		 dns_cache->info.ttl, hitnum);
-	if (_dns_server_prefetch_request(dns_cache->info.domain, dns_cache->info.qtype,
+	if (_dns_server_prefetch_request(dns_cache->info.domain, dns_cache->info.qtype, 0,
+									 dns_cache_get_cache_flag(dns_cache->cache_data), NULL) != 0) {
+		tlog(TLOG_ERROR, "prefetch domain %s, qtype %d, failed.", dns_cache->info.domain, dns_cache->info.qtype);
+	}
+}
+
+static void _dns_server_prefetch_expired_domain(struct dns_cache *dns_cache)
+{
+	/* start prefetch domain */
+	tlog(TLOG_DEBUG, "expired domain, prefetch by cache %s, qtype %d, ttl %d", dns_cache->info.domain,
+		 dns_cache->info.qtype, dns_cache->info.ttl);
+
+	if (_dns_server_prefetch_request(dns_cache->info.domain, dns_cache->info.qtype, 1,
 									 dns_cache_get_cache_flag(dns_cache->cache_data), NULL) != 0) {
 		tlog(TLOG_ERROR, "prefetch domain %s, qtype %d, failed.", dns_cache->info.domain, dns_cache->info.qtype);
 	}
@@ -4523,7 +4551,7 @@ static void _dns_server_period_run_second(void)
 	}
 
 	if (now - 180 > last) {
-		dns_cache_invalidate(NULL, 0);
+		dns_cache_invalidate(NULL, 0, NULL, 0);
 		tlog(TLOG_WARN, "Service paused for 180s, force invalidate cache.");
 	}
 
@@ -4532,9 +4560,17 @@ static void _dns_server_period_run_second(void)
 	if (sec % 2 == 0) {
 		if (dns_conf_prefetch) {
 			/* do pre-fetching */
-			dns_cache_invalidate(_dns_server_prefetch_domain, 3);
+			if (dns_conf_serve_expired) {
+				int prefetch_time = dns_conf_serve_expired_ttl / 2;
+				if (prefetch_time == 0 || prefetch_time > EXPIRED_DOMAIN_PREFTCH_TIME) {
+					prefetch_time = EXPIRED_DOMAIN_PREFTCH_TIME;
+				}
+				dns_cache_invalidate(NULL, 0, _dns_server_prefetch_expired_domain, prefetch_time);
+			} else {
+				dns_cache_invalidate(_dns_server_prefetch_domain, 3, NULL, 0);
+			}
 		} else {
-			dns_cache_invalidate(NULL, 0);
+			dns_cache_invalidate(NULL, 0, NULL, 0);
 		}
 	}
 

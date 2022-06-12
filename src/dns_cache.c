@@ -243,7 +243,7 @@ struct dns_cache_data *dns_cache_new_data_packet(uint32_t cache_flag, void *pack
 	return (struct dns_cache_data *)cache_packet;
 }
 
-int dns_cache_replace(char *domain, int ttl, dns_type_t qtype, int speed, struct dns_cache_data *cache_data)
+int _dns_cache_replace(char *domain, int ttl, dns_type_t qtype, int speed, int inactive, struct dns_cache_data *cache_data)
 {
 	struct dns_cache *dns_cache = NULL;
 	struct dns_cache_data *old_cache_data = NULL;
@@ -269,16 +269,34 @@ int dns_cache_replace(char *domain, int ttl, dns_type_t qtype, int speed, struct
 	dns_cache->info.qtype = qtype;
 	dns_cache->info.ttl = ttl;
 	dns_cache->info.speed = speed;
-	time(&dns_cache->info.insert_time);
 	old_cache_data = dns_cache->cache_data;
 	dns_cache->cache_data = cache_data;
 	list_del_init(&dns_cache->list);
-	list_add_tail(&dns_cache->list, &dns_cache_head.cache_list);
+
+	if (inactive == 0) {
+		time(&dns_cache->info.insert_time);
+		time(&dns_cache->info.replace_time);
+		list_add_tail(&dns_cache->list, &dns_cache_head.cache_list);
+	} else {
+		time(&dns_cache->info.replace_time);
+		list_add_tail(&dns_cache->list, &dns_cache_head.inactive_list);
+	}
+
 	pthread_mutex_unlock(&dns_cache_head.lock);
 
 	dns_cache_data_free(old_cache_data);
 	dns_cache_release(dns_cache);
 	return 0;
+}
+
+int dns_cache_replace(char *domain, int ttl, dns_type_t qtype, int speed, struct dns_cache_data *cache_data)
+{
+	return _dns_cache_replace(domain, ttl, qtype, speed, 0, cache_data);
+}
+
+int dns_cache_replace_inactive(char *domain, int ttl, dns_type_t qtype, int speed, struct dns_cache_data *cache_data)
+{
+	return _dns_cache_replace(domain, ttl, qtype, speed, 1, cache_data);
 }
 
 int _dns_cache_insert(struct dns_cache_info *info, struct dns_cache_data *cache_data, struct list_head *head)
@@ -354,6 +372,7 @@ int dns_cache_insert(char *domain, int ttl, dns_type_t qtype, int speed, struct 
 	info.hitnum_update_add = DNS_CACHE_HITNUM_STEP;
 	info.speed = speed;
 	time(&info.insert_time);
+	time(&info.replace_time);
 
 	return _dns_cache_insert(&info, cache_data, &dns_cache_head.cache_list);
 }
@@ -418,7 +437,7 @@ int dns_cache_get_ttl(struct dns_cache *dns_cache)
 	return ttl;
 }
 
-int dns_cache_get_cname_ttl(struct dns_cache *dns_cache) 
+int dns_cache_get_cname_ttl(struct dns_cache *dns_cache)
 {
 	time_t now;
 	int ttl = 0;
@@ -444,10 +463,10 @@ int dns_cache_get_cname_ttl(struct dns_cache *dns_cache)
 		return 0;
 	}
 
-	return ttl;	
+	return ttl;
 }
 
-int dns_cache_is_soa(struct dns_cache *dns_cache) 
+int dns_cache_is_soa(struct dns_cache *dns_cache)
 {
 	if (dns_cache == NULL) {
 		return 0;
@@ -502,12 +521,14 @@ void dns_cache_update(struct dns_cache *dns_cache)
 	pthread_mutex_unlock(&dns_cache_head.lock);
 }
 
-void _dns_cache_remove_expired_ttl(time_t *now)
+void _dns_cache_remove_expired_ttl(dns_cache_callback inactive_precallback, int ttl_inactive_pre, time_t *now)
 {
 	struct dns_cache *dns_cache = NULL;
 	struct dns_cache *tmp;
 	int ttl = 0;
+	LIST_HEAD(checklist);
 
+	pthread_mutex_lock(&dns_cache_head.lock);
 	list_for_each_entry_safe(dns_cache, tmp, &dns_cache_head.inactive_list, list)
 	{
 		ttl = dns_cache->info.insert_time + dns_cache->info.ttl - *now;
@@ -515,15 +536,42 @@ void _dns_cache_remove_expired_ttl(time_t *now)
 			continue;
 		}
 
-		if (dns_cache_head.inactive_list_expired + ttl > 0) {
+		if (dns_cache_head.inactive_list_expired + ttl < 0) {
+			_dns_cache_remove(dns_cache);
 			continue;
 		}
 
-		_dns_cache_remove(dns_cache);
+		ttl = dns_cache->info.replace_time + dns_cache->info.ttl - *now;
+		if (ttl > 0) {
+			continue;
+		}
+
+		if (dns_cache->del_pending == 1) {
+			continue;
+		}
+
+		/* If the TTL time is in the pre-timeout range, call callback function */
+		if (inactive_precallback && ttl_inactive_pre < -ttl) {
+			list_add_tail(&dns_cache->check_list, &checklist);
+			dns_cache_get(dns_cache);
+			dns_cache->del_pending = 1;
+			continue;
+		}
+	}
+	pthread_mutex_unlock(&dns_cache_head.lock);
+
+	list_for_each_entry_safe(dns_cache, tmp, &checklist, check_list)
+	{
+		/* run inactive_precallback */
+		if (inactive_precallback) {
+			inactive_precallback(dns_cache);
+		}
+		dns_cache_release(dns_cache);
 	}
 }
 
-void dns_cache_invalidate(dns_cache_preinvalid_callback callback, int ttl_pre)
+void dns_cache_invalidate(dns_cache_callback precallback, int ttl_pre, dns_cache_callback inactive_precallback,
+						  int ttl_inactive_pre)
 {
 	struct dns_cache *dns_cache = NULL;
 	struct dns_cache *tmp;
@@ -542,7 +590,7 @@ void dns_cache_invalidate(dns_cache_preinvalid_callback callback, int ttl_pre)
 		ttl = dns_cache->info.insert_time + dns_cache->info.ttl - now;
 		if (ttl > 0 && ttl < ttl_pre) {
 			/* If the TTL time is in the pre-timeout range, call callback function */
-			if (callback && dns_cache->del_pending == 0) {
+			if (precallback && dns_cache->del_pending == 0) {
 				list_add_tail(&dns_cache->check_list, &checklist);
 				dns_cache_get(dns_cache);
 				dns_cache->del_pending = 1;
@@ -558,18 +606,17 @@ void dns_cache_invalidate(dns_cache_preinvalid_callback callback, int ttl_pre)
 			}
 		}
 	}
+	pthread_mutex_unlock(&dns_cache_head.lock);
 
 	if (dns_cache_head.enable_inactive && dns_cache_head.inactive_list_expired != 0) {
-		_dns_cache_remove_expired_ttl(&now);
+		_dns_cache_remove_expired_ttl(inactive_precallback, ttl_inactive_pre, &now);
 	}
-
-	pthread_mutex_unlock(&dns_cache_head.lock);
 
 	list_for_each_entry_safe(dns_cache, tmp, &checklist, check_list)
 	{
 		/* run callback */
-		if (callback) {
-			callback(dns_cache);
+		if (precallback) {
+			precallback(dns_cache);
 		}
 		dns_cache_release(dns_cache);
 	}

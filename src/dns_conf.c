@@ -63,7 +63,7 @@ int dns_conf_max_reply_ip_num = DNS_MAX_REPLY_IP_NUM;
 int dns_conf_cachesize = DEFAULT_DNS_CACHE_SIZE;
 int dns_conf_prefetch = 0;
 int dns_conf_serve_expired = 1;
-int dns_conf_serve_expired_ttl = 0;
+int dns_conf_serve_expired_ttl = 24 * 3600; /* 1 day */
 int dns_conf_serve_expired_reply_ttl = 3;
 
 /* upstream servers */
