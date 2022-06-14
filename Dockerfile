@@ -8,10 +8,13 @@ RUN  apt update && \
 
 FROM ubuntu:latest
 COPY --from=smartdns-builder /smartdns/package/*.deb /opt/
+COPY docker-entrypoint.sh /entrypoint.sh
 RUN dpkg -i /opt/*.deb && \
     rm /opt/*deb -fr
 
 EXPOSE 53/udp
 VOLUME "/etc/smartdns/"
 
-CMD ["/usr/sbin/smartdns", "-f", "-x"]
+ENTRYPOINT ["/entrypoint.sh"]
+
+CMD ["smartdns"]
