@@ -85,6 +85,7 @@ struct dns_cache_info {
 	int speed;
 	int hitnum_update_add;
 	time_t insert_time;
+	time_t replace_time;
 	dns_type_t qtype;
 };
 
@@ -124,6 +125,8 @@ int dns_cache_init(int size, int enable_inactive, int inactive_list_expired);
 
 int dns_cache_replace(char *domain, int ttl, dns_type_t qtype, int speed, struct dns_cache_data *cache_data);
 
+int dns_cache_replace_inactive(char *domain, int ttl, dns_type_t qtype, int speed, struct dns_cache_data *cache_data);
+
 int dns_cache_insert(char *domain, int ttl, dns_type_t qtype, int speed, struct dns_cache_data *cache_data);
 
 struct dns_cache *dns_cache_lookup(char *domain, dns_type_t qtype);
@@ -138,9 +141,10 @@ int dns_cache_hitnum_dec_get(struct dns_cache *dns_cache);
 
 void dns_cache_update(struct dns_cache *dns_cache);
 
-typedef void dns_cache_preinvalid_callback(struct dns_cache *dns_cache);
+typedef void dns_cache_callback(struct dns_cache *dns_cache);
 
-void dns_cache_invalidate(dns_cache_preinvalid_callback callback, int ttl_pre);
+void dns_cache_invalidate(dns_cache_callback precallback, int ttl_pre, dns_cache_callback inactive_precallback,
+						  int ttl_inactive_pre);
 
 int dns_cache_get_ttl(struct dns_cache *dns_cache);
 
