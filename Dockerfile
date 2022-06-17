@@ -12,10 +12,10 @@ COPY docker-entrypoint.sh /entrypoint.sh
 RUN dpkg -i /opt/*.deb && \
     rm /opt/*.deb -fr
 RUN apt-get update \
-  && apt-get install -y libssl1.1 \
-  && apt autoremove \
-  && apt autoclean \
-  && rm -rf /tmp/*
+  && apt-get install -qq --no-install-recommends libssl1.1 \
+  && apt-get autoremove \
+  && apt-get autoclean \
+  && rm -rf /var/lib/apt/lists/* /tmp/*
 
 EXPOSE 53/udp
 VOLUME "/etc/smartdns/"
