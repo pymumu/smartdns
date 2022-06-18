@@ -4562,9 +4562,13 @@ static void _dns_server_period_run_second(void)
 		if (dns_conf_prefetch) {
 			/* do pre-fetching */
 			if (dns_conf_serve_expired) {
-				int prefetch_time = dns_conf_serve_expired_ttl / 2;
-				if (prefetch_time == 0 || prefetch_time > EXPIRED_DOMAIN_PREFTCH_TIME) {
-					prefetch_time = EXPIRED_DOMAIN_PREFTCH_TIME;
+				int prefetch_time = dns_conf_serve_expired_prefetch_time;
+
+				if (prefetch_time == 0) {
+					prefetch_time = dns_conf_serve_expired_ttl / 2;
+					if (prefetch_time == 0 || prefetch_time > EXPIRED_DOMAIN_PREFTCH_TIME) {
+						prefetch_time = EXPIRED_DOMAIN_PREFTCH_TIME;
+					}
 				}
 				dns_cache_invalidate(NULL, 0, _dns_server_prefetch_expired_domain, prefetch_time);
 			} else {
