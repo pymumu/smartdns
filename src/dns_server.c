@@ -1360,6 +1360,9 @@ static int _dns_request_post(struct dns_server_post_context *context)
 		tlog(TLOG_WARN, "cache packet for %s failed.", request->domain);
 	}
 
+	/* setup ipset */
+	_dns_server_setup_ipset_packet(context);
+
 	if (context->do_reply == 0) {
 		return 0;
 	}
@@ -1370,9 +1373,6 @@ static int _dns_request_post(struct dns_server_post_context *context)
 			return 0;
 		}
 	}
-
-	/* setup ipset */
-	_dns_server_setup_ipset_packet(context);
 
 	/* log audit log */
 	_dns_server_audit_log(context);
@@ -3360,6 +3360,7 @@ errout:
 static int _dns_server_process_cache_packet(struct dns_request *request, struct dns_cache *dns_cache)
 {
 	struct dns_cache_packet *cache_packet = (struct dns_cache_packet *)dns_cache_get_data(dns_cache);
+	int do_ipset = (dns_cache_get_ttl(dns_cache) == 0);
 
 	if (cache_packet->head.cache_type != CACHE_TYPE_PACKET) {
 		return -1;
@@ -3380,7 +3381,7 @@ static int _dns_server_process_cache_packet(struct dns_request *request, struct 
 
 	request->rcode = context.packet->head.rcode;
 	context.do_cache = 0;
-	context.do_ipset = 0;
+	context.do_ipset = do_ipset;
 	context.do_audit = 1;
 	context.do_reply = 1;
 	context.reply_ttl = _dns_server_get_expired_ttl_reply(dns_cache);
