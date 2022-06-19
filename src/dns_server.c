@@ -2199,7 +2199,7 @@ static int _dns_server_process_answer_A(struct dns_rrs *rrs, struct dns_request 
 	/* get A result */
 	dns_get_A(rrs, name, DNS_MAX_CNAME_LEN, &ttl, addr);
 
-	tlog(TLOG_DEBUG, "domain: %s TTL:%d IP: %d.%d.%d.%d", name, ttl, addr[0], addr[1], addr[2], addr[3]);
+	tlog(TLOG_DEBUG, "domain: %s TTL: %d IP: %d.%d.%d.%d", name, ttl, addr[0], addr[1], addr[2], addr[3]);
 
 	/* if domain is not match */
 	if (strncmp(name, domain, DNS_MAX_CNAME_LEN) != 0 && strncmp(cname, name, DNS_MAX_CNAME_LEN) != 0) {
@@ -2642,10 +2642,18 @@ void _dns_server_query_end(struct dns_request *request)
 
 	/* Not need to wait check result if only has one ip address */
 	if (ip_num == 1 && request_wait == 1) {
+		if (request->dualstack_selection_query == 1) {
+			goto out;
+		}
+
+		if (request->dualstack_selection_has_ip && request->dualstack_selection_ping_time > 0) {
+			goto out;
+		}
+		
 		request->has_ping_result = 1;
 		_dns_server_request_complete(request);
 	}
-
+out:
 	_dns_server_request_release(request);
 }
 
