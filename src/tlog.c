@@ -929,6 +929,11 @@ static void _tlog_close_all_fd(void)
     struct dirent *ent;
     int dir_fd = -1;
 
+#ifndef __USE_POSIX
+    /* patch for musl, may cause deadlock when call readdir */
+    goto errout;
+#endif
+
     snprintf(path_name, sizeof(path_name), "/proc/self/fd/");
     dir = opendir(path_name);
     if (dir == NULL) {
