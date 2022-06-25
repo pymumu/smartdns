@@ -1,0 +1,25 @@
+name: Docker Image CI
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'release tag to dockerhub'
+        required: true
+        default: ''
+        
+jobs:
+  # 构建并上传 Docker镜像
+  build: 
+    runs-on: ubuntu-latest # 依赖的环境      
+    steps:
+      - uses: actions/checkout@v2
+      - name: Build Image
+        run: |
+          cd ${{ github.workspace }} && \
+          docker build -t pikuzheng/smartdns:latest -t pikuzheng/smartdns:${{ github.event.inputs.tag }} -f Dockerfile.alpine .
+      - name: Login to Registry
+        run: docker login --username=${{ secrets.DOCKER_USERNAME }} --password='${{ secrets.DOCKER_PASSWORD }}'
+      - name: Push Image
+        run: |
+          docker push pikuzheng/smartdns:latest
+          docker push pikuzheng/smartdns:${{ github.event.inputs.tag }}
