@@ -913,6 +913,7 @@ static int _config_bind_ip(int argc, char *argv[], DNS_BIND_TYPE type)
 	char group_name[DNS_GROUP_NAME_LEN];
 	const char *group = NULL;
 	unsigned int server_flag = 0;
+	int i = 0;
 
 	/* clang-format off */
 	static struct option long_options[] = {
@@ -937,6 +938,20 @@ static int _config_bind_ip(int argc, char *argv[], DNS_BIND_TYPE type)
 	ip = argv[1];
 	if (index >= DNS_MAX_SERVERS) {
 		tlog(TLOG_WARN, "exceeds max server number, %s", ip);
+		return 0;
+	}
+
+	for (i = 0; i < dns_conf_bind_ip_num; i++) {
+		bind_ip = &dns_conf_bind_ip[i];
+		if (bind_ip->type != type) {
+			continue;
+		}
+
+		if (strncmp(bind_ip->ip, ip, DNS_MAX_IPLEN) != 0) {
+			continue;
+		}
+
+		tlog(TLOG_WARN, "Bind server %s, type %d, already configured, skip.", ip, type);
 		return 0;
 	}
 

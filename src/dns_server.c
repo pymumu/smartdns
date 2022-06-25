@@ -56,6 +56,7 @@
 #define SOCKET_PRIORITY (6)
 #define CACHE_AUTO_ENABLE_SIZE (1024 * 1024 * 128)
 #define EXPIRED_DOMAIN_PREFTCH_TIME (3600 * 8)
+#define DNS_MAX_DOMAIN_REFETCH_NUM 16
 
 #define RECV_ERROR_AGAIN 1
 #define RECV_ERROR_OK 0
@@ -556,14 +557,14 @@ static void _dns_rrs_result_log(struct dns_server_post_context *context, struct 
 	}
 
 	if (addr_map->addr_type == DNS_T_A) {
-		tlog(TLOG_INFO, "result: %s, id: %d, index: %d, rtt: %d, %d.%d.%d.%d", request->domain, request->id,
-			 context->ip_num, addr_map->ping_time, addr_map->ip_addr[0], addr_map->ip_addr[1], addr_map->ip_addr[2],
-			 addr_map->ip_addr[3]);
+		tlog(TLOG_INFO, "result: %s, id: %d, index: %d, rtt: %.1f ms, %d.%d.%d.%d", request->domain, request->id,
+			 context->ip_num, ((float)addr_map->ping_time) / 10, addr_map->ip_addr[0], addr_map->ip_addr[1],
+			 addr_map->ip_addr[2], addr_map->ip_addr[3]);
 	} else if (addr_map->addr_type == DNS_T_AAAA) {
 		tlog(TLOG_INFO,
-			 "result: %s, id: %d, index: %d, rtt: %d, "
+			 "result: %s, id: %d, index: %d, rtt: %.1f ms, "
 			 "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x",
-			 request->domain, request->id, context->ip_num, addr_map->ping_time, addr_map->ip_addr[0],
+			 request->domain, request->id, context->ip_num, ((float)addr_map->ping_time) / 10, addr_map->ip_addr[0],
 			 addr_map->ip_addr[1], addr_map->ip_addr[2], addr_map->ip_addr[3], addr_map->ip_addr[4],
 			 addr_map->ip_addr[5], addr_map->ip_addr[6], addr_map->ip_addr[7], addr_map->ip_addr[8],
 			 addr_map->ip_addr[9], addr_map->ip_addr[10], addr_map->ip_addr[11], addr_map->ip_addr[12],
@@ -689,7 +690,7 @@ static int _dns_add_rrs(struct dns_server_post_context *context)
 		context->ip_num++;
 		if (context->qtype == DNS_T_A) {
 			ret |= dns_add_A(context->packet, DNS_RRS_AN, domain, request->ip_ttl, request->ip_addr);
-			tlog(TLOG_DEBUG, "result: %s, rtt: %d, %d.%d.%d.%d", request->domain, request->ping_time,
+			tlog(TLOG_DEBUG, "result: %s, rtt: %.1f ms, %d.%d.%d.%d", request->domain, ((float)request->ping_time) / 10,
 				 request->ip_addr[0], request->ip_addr[1], request->ip_addr[2], request->ip_addr[3]);
 		}
 
@@ -697,13 +698,13 @@ static int _dns_add_rrs(struct dns_server_post_context *context)
 		if (context->qtype == DNS_T_AAAA) {
 			ret |= dns_add_AAAA(context->packet, DNS_RRS_AN, domain, request->ip_ttl, request->ip_addr);
 			tlog(TLOG_DEBUG,
-				 "result: %s, rtt: %d, "
+				 "result: %s, rtt: %.1f ms, "
 				 "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x",
-				 request->domain, request->ping_time, request->ip_addr[0], request->ip_addr[1], request->ip_addr[2],
-				 request->ip_addr[3], request->ip_addr[4], request->ip_addr[5], request->ip_addr[6],
-				 request->ip_addr[7], request->ip_addr[8], request->ip_addr[9], request->ip_addr[10],
-				 request->ip_addr[11], request->ip_addr[12], request->ip_addr[13], request->ip_addr[14],
-				 request->ip_addr[15]);
+				 request->domain, ((float)request->ping_time) / 10, request->ip_addr[0], request->ip_addr[1],
+				 request->ip_addr[2], request->ip_addr[3], request->ip_addr[4], request->ip_addr[5],
+				 request->ip_addr[6], request->ip_addr[7], request->ip_addr[8], request->ip_addr[9],
+				 request->ip_addr[10], request->ip_addr[11], request->ip_addr[12], request->ip_addr[13],
+				 request->ip_addr[14], request->ip_addr[15]);
 		}
 	}
 
@@ -1539,18 +1540,18 @@ static int _dns_server_request_complete(struct dns_request *request)
 		tlog(TLOG_INFO, "result: %s, qtype: %d, SOA", request->domain, request->qtype);
 	} else {
 		if (request->qtype == DNS_T_A) {
-			tlog(TLOG_INFO, "result: %s, qtype: %d, rtt: %d, %d.%d.%d.%d", request->domain, request->qtype,
-				 request->ping_time, request->ip_addr[0], request->ip_addr[1], request->ip_addr[2],
+			tlog(TLOG_INFO, "result: %s, qtype: %d, rtt: %.1f ms, %d.%d.%d.%d", request->domain, request->qtype,
+				 ((float)request->ping_time) / 10, request->ip_addr[0], request->ip_addr[1], request->ip_addr[2],
 				 request->ip_addr[3]);
 		} else if (request->qtype == DNS_T_AAAA) {
 			tlog(TLOG_INFO,
-				 "result: %s, qtype: %d, rtt: %d, "
+				 "result: %s, qtype: %d, rtt: %.1f ms, "
 				 "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x",
-				 request->domain, request->qtype, request->ping_time, request->ip_addr[0], request->ip_addr[1],
-				 request->ip_addr[2], request->ip_addr[3], request->ip_addr[4], request->ip_addr[5],
-				 request->ip_addr[6], request->ip_addr[7], request->ip_addr[8], request->ip_addr[9],
-				 request->ip_addr[10], request->ip_addr[11], request->ip_addr[12], request->ip_addr[13],
-				 request->ip_addr[14], request->ip_addr[15]);
+				 request->domain, request->qtype, ((float)request->ping_time) / 10, request->ip_addr[0],
+				 request->ip_addr[1], request->ip_addr[2], request->ip_addr[3], request->ip_addr[4],
+				 request->ip_addr[5], request->ip_addr[6], request->ip_addr[7], request->ip_addr[8],
+				 request->ip_addr[9], request->ip_addr[10], request->ip_addr[11], request->ip_addr[12],
+				 request->ip_addr[13], request->ip_addr[14], request->ip_addr[15]);
 		}
 	}
 
@@ -2649,7 +2650,7 @@ void _dns_server_query_end(struct dns_request *request)
 		if (request->dualstack_selection_has_ip && request->dualstack_selection_ping_time > 0) {
 			goto out;
 		}
-		
+
 		request->has_ping_result = 1;
 		_dns_server_request_complete(request);
 	}
@@ -4560,7 +4561,7 @@ static void _dns_server_period_run_second(void)
 	}
 
 	if (now - 180 > last) {
-		dns_cache_invalidate(NULL, 0, NULL, 0);
+		dns_cache_invalidate(NULL, 0, 0, NULL, 0);
 		tlog(TLOG_WARN, "Service paused for 180s, force invalidate cache.");
 	}
 
@@ -4578,12 +4579,13 @@ static void _dns_server_period_run_second(void)
 						prefetch_time = EXPIRED_DOMAIN_PREFTCH_TIME;
 					}
 				}
-				dns_cache_invalidate(NULL, 0, _dns_server_prefetch_expired_domain, prefetch_time);
+				dns_cache_invalidate(NULL, 0, DNS_MAX_DOMAIN_REFETCH_NUM, _dns_server_prefetch_expired_domain,
+									 prefetch_time);
 			} else {
-				dns_cache_invalidate(_dns_server_prefetch_domain, 3, NULL, 0);
+				dns_cache_invalidate(_dns_server_prefetch_domain, 3, DNS_MAX_DOMAIN_REFETCH_NUM, NULL, 0);
 			}
 		} else {
-			dns_cache_invalidate(NULL, 0, NULL, 0);
+			dns_cache_invalidate(NULL, 0, 0, NULL, 0);
 		}
 	}
 
@@ -4805,6 +4807,8 @@ static int _dns_create_socket(const char *host_ip, int type)
 			goto errout;
 		}
 	}
+
+	fcntl(fd, F_SETFD, fcntl(fd, F_GETFD) | FD_CLOEXEC);
 
 	freeaddrinfo(gai);
 

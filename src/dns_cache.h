@@ -143,8 +143,8 @@ void dns_cache_update(struct dns_cache *dns_cache);
 
 typedef void dns_cache_callback(struct dns_cache *dns_cache);
 
-void dns_cache_invalidate(dns_cache_callback precallback, int ttl_pre, dns_cache_callback inactive_precallback,
-						  int ttl_inactive_pre);
+void dns_cache_invalidate(dns_cache_callback precallback, int ttl_pre, unsigned int max_callback_num,
+						  dns_cache_callback inactive_precallback, int ttl_inactive_pre);
 
 int dns_cache_get_ttl(struct dns_cache *dns_cache);
 

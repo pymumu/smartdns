@@ -243,7 +243,8 @@ struct dns_cache_data *dns_cache_new_data_packet(uint32_t cache_flag, void *pack
 	return (struct dns_cache_data *)cache_packet;
 }
 
-int _dns_cache_replace(char *domain, int ttl, dns_type_t qtype, int speed, int inactive, struct dns_cache_data *cache_data)
+int _dns_cache_replace(char *domain, int ttl, dns_type_t qtype, int speed, int inactive,
+					   struct dns_cache_data *cache_data)
 {
 	struct dns_cache *dns_cache = NULL;
 	struct dns_cache_data *old_cache_data = NULL;
@@ -521,10 +522,12 @@ void dns_cache_update(struct dns_cache *dns_cache)
 	pthread_mutex_unlock(&dns_cache_head.lock);
 }
 
-void _dns_cache_remove_expired_ttl(dns_cache_callback inactive_precallback, int ttl_inactive_pre, time_t *now)
+void _dns_cache_remove_expired_ttl(dns_cache_callback inactive_precallback, int ttl_inactive_pre,
+								   unsigned int max_callback_num, time_t *now)
 {
 	struct dns_cache *dns_cache = NULL;
 	struct dns_cache *tmp;
+	int callback_num = 0;
 	int ttl = 0;
 	LIST_HEAD(checklist);
 
@@ -541,8 +544,12 @@ void _dns_cache_remove_expired_ttl(dns_cache_callback inactive_precallback, int 
 			continue;
 		}
 
-		ttl = dns_cache->info.replace_time + dns_cache->info.ttl - *now;
-		if (ttl > 0) {
+		ttl = *now - dns_cache->info.replace_time;
+		if (ttl < ttl_inactive_pre || inactive_precallback == NULL) {
+			continue;
+		}
+
+		if (callback_num >= max_callback_num) {
 			continue;
 		}
 
@@ -551,12 +558,10 @@ void _dns_cache_remove_expired_ttl(dns_cache_callback inactive_precallback, int 
 		}
 
 		/* If the TTL time is in the pre-timeout range, call callback function */
-		if (inactive_precallback && ttl_inactive_pre < -ttl) {
-			list_add_tail(&dns_cache->check_list, &checklist);
-			dns_cache_get(dns_cache);
-			dns_cache->del_pending = 1;
-			continue;
-		}
+		dns_cache_get(dns_cache);
+		list_add_tail(&dns_cache->check_list, &checklist);
+		dns_cache->del_pending = 1;
+		callback_num++;
 	}
 	pthread_mutex_unlock(&dns_cache_head.lock);
 
@@ -570,14 +575,19 @@ void _dns_cache_remove_expired_ttl(dns_cache_callback inactive_precallback, int 
 	}
 }
 
-void dns_cache_invalidate(dns_cache_callback precallback, int ttl_pre, dns_cache_callback inactive_precallback,
-						  int ttl_inactive_pre)
+void dns_cache_invalidate(dns_cache_callback precallback, int ttl_pre, unsigned int max_callback_num,
+						  dns_cache_callback inactive_precallback, int ttl_inactive_pre)
 {
 	struct dns_cache *dns_cache = NULL;
 	struct dns_cache *tmp;
 	time_t now;
 	int ttl = 0;
 	LIST_HEAD(checklist);
+	int callback_num = 0;
+
+	if (max_callback_num <= 0) {
+		max_callback_num = -1;
+	}
 
 	if (dns_cache_head.size <= 0) {
 		return;
@@ -590,10 +600,11 @@ void dns_cache_invalidate(dns_cache_callback precallback, int ttl_pre, dns_cache
 		ttl = dns_cache->info.insert_time + dns_cache->info.ttl - now;
 		if (ttl > 0 && ttl < ttl_pre) {
 			/* If the TTL time is in the pre-timeout range, call callback function */
-			if (precallback && dns_cache->del_pending == 0) {
+			if (precallback && dns_cache->del_pending == 0 && callback_num < max_callback_num) {
 				list_add_tail(&dns_cache->check_list, &checklist);
 				dns_cache_get(dns_cache);
 				dns_cache->del_pending = 1;
+				callback_num++;
 				continue;
 			}
 		}
@@ -609,7 +620,7 @@ void dns_cache_invalidate(dns_cache_callback precallback, int ttl_pre, dns_cache
 	pthread_mutex_unlock(&dns_cache_head.lock);
 
 	if (dns_cache_head.enable_inactive && dns_cache_head.inactive_list_expired != 0) {
-		_dns_cache_remove_expired_ttl(inactive_precallback, ttl_inactive_pre, &now);
+		_dns_cache_remove_expired_ttl(inactive_precallback, ttl_inactive_pre, max_callback_num, &now);
 	}
 
 	list_for_each_entry_safe(dns_cache, tmp, &checklist, check_list)
@@ -618,6 +629,7 @@ void dns_cache_invalidate(dns_cache_callback precallback, int ttl_pre, dns_cache
 		if (precallback) {
 			precallback(dns_cache);
 		}
+		list_del(&dns_cache->check_list);
 		dns_cache_release(dns_cache);
 	}
 }
@@ -695,10 +707,15 @@ int dns_cache_load(const char *file)
 {
 	int fd = -1;
 	int ret = 0;
+	size_t filesize;
 	fd = open(file, O_RDONLY);
 	if (fd < 0) {
 		return 0;
 	}
+
+	filesize = lseek(fd, 0, SEEK_END);
+	lseek(fd, 0, SEEK_SET);
+	posix_fadvise(fd, 0, filesize, POSIX_FADV_WILLNEED | POSIX_FADV_SEQUENTIAL);
 
 	struct dns_cache_file cache_file;
 	ret = read(fd, &cache_file, sizeof(cache_file));
@@ -717,6 +734,7 @@ int dns_cache_load(const char *file)
 		goto errout;
 	}
 
+	tlog(TLOG_INFO, "load cache file %s, total %d records", file, cache_file.cache_number);
 	if (_dns_cache_read_record(fd, cache_file.cache_number) != 0) {
 		goto errout;
 	}
