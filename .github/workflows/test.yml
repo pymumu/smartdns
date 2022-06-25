@@ -45,8 +45,8 @@ jobs:
         run: |
           sudo timedatectl set-timezone "Asia/Shanghai"
           cd ${{ github.workspace }}/package/
-#          mkdir -p output
-#          ./build-pkg.sh --platform $GOOS --arch $GOARCH --filearch $GOARCH-$GOOS --outputdir ${{ github.workspace }}/package/output
+          # mkdir -p output
+          # ./build-pkg.sh --platform $GOOS --arch $GOARCH --filearch $GOARCH-$GOOS --outputdir ${{ github.workspace }}/package/output
           mkdir -p output-static
           ./build-pkg.sh --platform $GOOS --arch $GOARCH --static --filearch $GOARCH-$GOOS-all --outputdir ${{ github.workspace }}/package/output-static
       - name: Upload To Artifact
