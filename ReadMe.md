@@ -1,5 +1,7 @@
 # SmartDNS
 
+[![fetch upstream](https://github.com/PikuZheng/smartdns/actions/workflows/fetch%20upstream.yml/badge.svg)](https://github.com/PikuZheng/smartdns/actions/workflows/fetch%20upstream.yml)[![Test Build](https://github.com/PikuZheng/smartdns/actions/workflows/test.yml/badge.svg)](https://github.com/PikuZheng/smartdns/actions/workflows/test.yml)[![Docker Image CI](https://github.com/PikuZheng/smartdns/actions/workflows/deploy-docker.yml/badge.svg)](https://github.com/PikuZheng/smartdns/actions/workflows/deploy-docker.yml)
+
 **[English](ReadMe_en.md)**
 
 ![SmartDNS](doc/smartdns-banner.png)
