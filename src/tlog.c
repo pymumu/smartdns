@@ -19,6 +19,7 @@
 #include <string.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -44,6 +45,14 @@
 #define TLOG_MIN_LINE_SIZE_SET (128)
 
 #define TLOG_SEGMENT_MAGIC 0xFF446154
+
+struct linux_dirent64 {
+    unsigned long long d_ino;
+    long long d_off;
+    unsigned short d_reclen;
+    unsigned char d_type;
+    char d_name[256];
+};
 
 struct tlog_log {
     char *buff;
@@ -922,52 +931,67 @@ static void _tlog_close_all_fd_by_res(void)
     }
 }
 
+static int _tlog_str_to_int(const char *str)
+{
+    int num = 0;
+
+    while (*str >= '0' && *str <= '9') {
+        num = num * 10 + (*str - '0');
+        ++str;
+    }
+
+    if (*str) {
+        return -1;
+    }
+
+    return num;
+}
+
 static void _tlog_close_all_fd(void)
 {
-    char path_name[PATH_MAX];
-    DIR *dir = NULL;
-    struct dirent *ent;
+#if defined(__linux__)
     int dir_fd = -1;
 
-#ifndef __USE_POSIX
-    /* patch for musl, may cause deadlock when call readdir */
-    goto errout;
-#endif
-
-    snprintf(path_name, sizeof(path_name), "/proc/self/fd/");
-    dir = opendir(path_name);
-    if (dir == NULL) {
+    dir_fd = open("/proc/self/fd/", O_RDONLY | O_DIRECTORY);
+    if (dir_fd < 0) {
         goto errout;
     }
 
-    dir_fd = dirfd(dir);
+    char buffer[sizeof(struct linux_dirent64)];
+    int bytes;
+    while ((bytes = syscall(SYS_getdents64, dir_fd,
+                (struct linux_dirent64 *)buffer,
+                sizeof(buffer)))
+        > 0) {
+        struct linux_dirent64 *entry;
+        int offset;
 
-    while ((ent = readdir(dir)) != NULL) {
-        int fd = atoi(ent->d_name);
-        if (fd < 0 || dir_fd == fd) {
-            continue;
-        }
-        switch (fd) {
-        case STDIN_FILENO:
-        case STDOUT_FILENO:
-        case STDERR_FILENO:
-            continue;
-            break;
-        default:
-            break;
-        }
+        for (offset = 0; offset < bytes; offset += entry->d_reclen) {
+            int fd;
+            entry = (struct linux_dirent64 *)(buffer + offset);
+            if ((fd = _tlog_str_to_int(entry->d_name)) < 0) {
+                continue;
+            }
 
-        close(fd);
+            if (fd == dir_fd || fd == STDIN_FILENO || fd == STDOUT_FILENO || fd == STDERR_FILENO) {
+                continue;
+            }
+            close(fd);
+        }
     }
 
-    closedir(dir);
+    close(dir_fd);
+
+    if (bytes < 0) {
+        goto errout;
+    }
 
     return;
 errout:
-    if (dir) {
-        closedir(dir);
+    if (dir_fd > 0) {
+        close(dir_fd);
     }
-
+#endif
     _tlog_close_all_fd_by_res();
     return;
 }
