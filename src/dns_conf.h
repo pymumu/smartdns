@@ -293,6 +293,7 @@ extern art_tree dns_conf_domain_rule;
 extern struct dns_conf_address_rule dns_conf_address_rule;
 
 extern int dns_conf_dualstack_ip_selection;
+extern int dns_conf_dualstack_ip_allow_force_AAAA;
 extern int dns_conf_dualstack_ip_selection_threshold;
 
 extern int dns_conf_max_reply_ip_num;
