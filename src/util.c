@@ -1098,3 +1098,25 @@ void print_stack(void)
 		tlog(TLOG_FATAL, "#%.2d: %p %s from %s+%p", idx + 1, addr, symbol, info.dli_fname, offset);
 	}
 }
+
+int write_file(const char *filename, void *data, int data_len)
+{
+	int fd = open(filename, O_WRONLY|O_CREAT, 0644);
+	if (fd < 0) {
+		return -1;
+	}
+
+	int len = write(fd, data, data_len);
+	if (len < 0) {
+		goto errout;
+	}
+
+	close(fd);
+	return 0;
+errout:
+	if (fd > 0) {
+		close(fd);
+	}
+
+	return -1;
+}

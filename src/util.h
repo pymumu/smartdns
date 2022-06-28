@@ -112,6 +112,8 @@ uint64_t get_free_space(const char *path);
 
 void print_stack(void);
 
+int write_file(const char *filename, void *data, int data_len);
+
 #ifdef __cplusplus
 }
 #endif /*__cplusplus */

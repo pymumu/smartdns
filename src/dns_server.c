@@ -62,6 +62,7 @@
 #define RECV_ERROR_OK 0
 #define RECV_ERROR_FAIL -1
 #define RECV_ERROR_CLOSE -2
+#define RECV_ERROR_INVALID_PACKET -3
 
 typedef enum {
 	DNS_CONN_TYPE_UDP_SERVER = 0,
@@ -4000,11 +4001,12 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 	struct dns_request *request = NULL;
 
 	/* decode packet */
-	tlog(TLOG_DEBUG, "recv query packet from %s, len = %d",
-		 gethost_by_addr(name, sizeof(name), (struct sockaddr *)from), inpacket_len);
+	tlog(TLOG_DEBUG, "recv query packet from %s, len = %d, type = %d",
+		 gethost_by_addr(name, sizeof(name), (struct sockaddr *)from), inpacket_len, conn->type);
 	decode_len = dns_decode(packet, DNS_PACKSIZE, inpacket, inpacket_len);
 	if (decode_len < 0) {
 		tlog(TLOG_DEBUG, "decode failed.\n");
+		ret = RECV_ERROR_INVALID_PACKET;
 		goto errout;
 	}
 
@@ -4306,10 +4308,10 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn_tcp_client
 		request_data = (unsigned char *)(tcpclient->recvbuff.buf + proceed_len + sizeof(unsigned short));
 
 		/* process one record */
-		if (_dns_server_recv(&tcpclient->head, request_data, request_len, &tcpclient->localaddr,
-							 tcpclient->localaddr_len, &tcpclient->addr, tcpclient->addr_len) != 0) {
-			tlog(TLOG_ERROR, "process tcp request failed.");
-			return RECV_ERROR_FAIL;
+		ret = _dns_server_recv(&tcpclient->head, request_data, request_len, &tcpclient->localaddr,
+							   tcpclient->localaddr_len, &tcpclient->addr, tcpclient->addr_len);
+		if (ret != 0) {
+			return ret;
 		}
 
 		proceed_len += sizeof(unsigned short) + request_len;
@@ -4445,6 +4447,10 @@ static int _dns_server_process(struct dns_server_conn_head *conn, struct epoll_e
 		ret = -1;
 	}
 	_dns_server_conn_release(conn);
+
+	if (ret == RECV_ERROR_INVALID_PACKET) {
+		ret = 0;
+	}
 
 	return ret;
 }
