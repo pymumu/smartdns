@@ -108,6 +108,7 @@ struct dns_conf_address_rule dns_conf_address_rule;
 
 /* dual-stack selection */
 int dns_conf_dualstack_ip_selection = 1;
+int dns_conf_dualstack_ip_allow_force_AAAA;
 int dns_conf_dualstack_ip_selection_threshold = 15;
 
 /* TTL */
@@ -1878,6 +1879,7 @@ static struct config_item _config_item[] = {
 	CONF_INT("serve-expired-reply-ttl", &dns_conf_serve_expired_reply_ttl, 0, CONF_INT_MAX),
 	CONF_INT("serve-expired-prefetch-time", &dns_conf_serve_expired_prefetch_time, 0, CONF_INT_MAX),
 	CONF_YESNO("dualstack-ip-selection", &dns_conf_dualstack_ip_selection),
+	CONF_YESNO("dualstack-ip-allow-force-AAAA", &dns_conf_dualstack_ip_allow_force_AAAA),
 	CONF_INT("dualstack-ip-selection-threshold", &dns_conf_dualstack_ip_selection_threshold, 0, 1000),
 	CONF_CUSTOM("log-level", _config_log_level, NULL),
 	CONF_STRING("log-file", (char *)dns_conf_log_file, DNS_MAX_PATH),

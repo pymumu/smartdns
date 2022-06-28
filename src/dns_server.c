@@ -1500,6 +1500,10 @@ static int _dns_server_force_dualstack(struct dns_request *request)
 		}
 	}
 
+	if (request->qtype == DNS_T_A && dns_conf_dualstack_ip_allow_force_AAAA == 0) {
+		return -1;
+	}
+
 	/* if ipv4 is fasting than ipv6, add ipv4 to cache, and return SOA for AAAA request */
 	tlog(TLOG_INFO, "result: %s, qtype: %d, force %s perfered, id: %d, time1: %d, time2: %d", request->domain,
 		 request->qtype, request->qtype == DNS_T_AAAA ? "IPv4" : "IPv6", request->id, request->ping_time,
@@ -3449,6 +3453,10 @@ static int _dns_server_process_cache(struct dns_request *request)
 		goto out;
 	}
 
+	if (request->qtype == DNS_T_A && dns_conf_dualstack_ip_allow_force_AAAA == 0) {
+		goto reply_cache;
+	}
+
 	if (request->dualstack_selection) {
 		int dualstack_qtype;
 		if (request->qtype == DNS_T_A) {
@@ -3480,6 +3488,7 @@ static int _dns_server_process_cache(struct dns_request *request)
 		}
 	}
 
+reply_cache:
 	if (dns_cache_is_soa(dns_cache)) {
 		if (dns_cache_get_ttl(dns_cache) > 0) {
 			ret = _dns_server_process_cache_packet(request, dns_cache);
