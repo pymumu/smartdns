@@ -130,6 +130,7 @@ struct fast_ping_struct {
 	unsigned short ident;
 
 	int epoll_fd;
+	int no_unprivileged_ping;
 	int fd_icmp;
 	struct ping_host_struct icmp_host;
 	int fd_icmp6;
@@ -664,21 +665,34 @@ static int _fast_ping_create_icmp_sock(FAST_PING_TYPE type)
 
 	switch (type) {
 	case FAST_PING_ICMP:
-		fd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
+		if (ping.no_unprivileged_ping == 0) {
+			fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP);
+		} else {
+			fd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
+			if (fd > 0) {
+				_fast_ping_install_filter_v4(fd);
+			}
+		}
 		if (fd < 0) {
 			tlog(TLOG_ERROR, "create icmp socket failed, %s\n", strerror(errno));
 			goto errout;
 		}
-		_fast_ping_install_filter_v4(fd);
 		icmp_host = &ping.icmp_host;
 		break;
 	case FAST_PING_ICMP6:
-		fd = socket(AF_INET6, SOCK_RAW, IPPROTO_ICMPV6);
+		if (ping.no_unprivileged_ping == 0) {
+			fd = socket(AF_INET6, SOCK_DGRAM, IPPROTO_ICMPV6);
+		} else {
+			fd = socket(AF_INET6, SOCK_RAW, IPPROTO_ICMPV6);
+			if (fd > 0) {
+				_fast_ping_install_filter_v6(fd);
+			}
+		}
+
 		if (fd < 0) {
 			tlog(TLOG_ERROR, "create icmp socket failed, %s\n", strerror(errno));
 			goto errout;
 		}
-		_fast_ping_install_filter_v6(fd);
 		setsockopt(fd, IPPROTO_IPV6, IPV6_RECVHOPLIMIT, &on, sizeof(on));
 		setsockopt(fd, IPPROTO_IPV6, IPV6_2292HOPLIMIT, &on, sizeof(on));
 		setsockopt(fd, IPPROTO_IPV6, IPV6_HOPLIMIT, &on, sizeof(on));
@@ -1172,9 +1186,11 @@ static struct fast_ping_packet *_fast_ping_icmp6_packet(struct ping_host_struct 
 		return NULL;
 	}
 
-	if (icmp6->icmp6_id != ping.ident) {
-		tlog(TLOG_ERROR, "ident failed, %d:%d", icmp6->icmp6_id, ping.ident);
-		return NULL;
+	if (ping.no_unprivileged_ping) {
+		if (icmp6->icmp6_id != ping.ident) {
+			tlog(TLOG_ERROR, "ident failed, %d:%d", icmp6->icmp6_id, ping.ident);
+			return NULL;
+		}
 	}
 
 	return packet;
@@ -1189,11 +1205,6 @@ static struct fast_ping_packet *_fast_ping_icmp_packet(struct ping_host_struct *
 	int hlen;
 	int icmp_len;
 
-	if (ip->ip_p != IPPROTO_ICMP) {
-		tlog(TLOG_ERROR, "ip type faild, %d:%d", ip->ip_p, IPPROTO_ICMP);
-		return NULL;
-	}
-
 	hlen = ip->ip_hl << 2;
 	packet = (struct fast_ping_packet *)(packet_data + hlen);
 	icmp = &packet->icmp;
@@ -1205,15 +1216,23 @@ static struct fast_ping_packet *_fast_ping_icmp_packet(struct ping_host_struct *
 		return NULL;
 	}
 
+	if (ping.no_unprivileged_ping) {
+		if (ip->ip_p != IPPROTO_ICMP) {
+			tlog(TLOG_ERROR, "ip type faild, %d:%d", ip->ip_p, IPPROTO_ICMP);
+			return NULL;
+		}
+
+		if (icmp->icmp_id != ping.ident) {
+			tlog(TLOG_ERROR, "ident failed, %d:%d", icmp->icmp_id, ping.ident);
+			return NULL;
+		}
+	}
+
 	if (icmp->icmp_type != ICMP_ECHOREPLY) {
 		tlog(TLOG_DEBUG, "icmp type faild, %d:%d", icmp->icmp_type, ICMP_ECHOREPLY);
 		return NULL;
 	}
 
-	if (icmp->icmp_id != ping.ident) {
-		tlog(TLOG_ERROR, "ident failed, %d:%d", icmp->icmp_id, ping.ident);
-		return NULL;
-	}
 
 	return packet;
 }
@@ -1659,6 +1678,7 @@ int fast_ping_init(void)
 	pthread_mutex_init(&ping.lock, NULL);
 	hash_init(ping.addrmap);
 	ping.epoll_fd = epollfd;
+	ping.no_unprivileged_ping = !has_unprivileged_ping();
 	ping.ident = (getpid() & 0XFFFF);
 	ping.run = 1;
 	ret = pthread_create(&ping.tid, &attr, _fast_ping_work, NULL);

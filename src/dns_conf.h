@@ -40,6 +40,7 @@ extern "C" {
 #define DNS_GROUP_NAME_LEN 32
 #define DNS_NAX_GROUP_NUMBER 16
 #define DNS_MAX_IPLEN 64
+#define DNS_CONF_USRNAME_LEN 32
 #define DNS_MAX_SPKI_LEN 64
 #define DNS_MAX_URL_LEN 256
 #define DNS_MAX_PATH 1024
@@ -306,6 +307,8 @@ extern int dns_conf_force_AAAA_SOA;
 extern int dns_conf_ipset_timeout_enable;
 
 extern int dns_conf_force_no_cname;
+
+extern char dns_conf_user[DNS_CONF_USRNAME_LEN];
 
 extern struct dns_edns_client_subnet dns_conf_ipv4_ecs;
 extern struct dns_edns_client_subnet dns_conf_ipv6_ecs;

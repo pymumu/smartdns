@@ -120,6 +120,8 @@ int dns_conf_force_AAAA_SOA;
 int dns_conf_force_no_cname;
 int dns_conf_ipset_timeout_enable;
 
+char dns_conf_user[DNS_CONF_USRNAME_LEN];
+
 /* ECS */
 struct dns_edns_client_subnet dns_conf_ipv4_ecs;
 struct dns_edns_client_subnet dns_conf_ipv6_ecs;
@@ -1908,6 +1910,7 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("hosts-file", _conf_hosts_file, NULL),
 	CONF_STRING("ca-file", (char *)&dns_conf_ca_file, DNS_MAX_PATH),
 	CONF_STRING("ca-path", (char *)&dns_conf_ca_path, DNS_MAX_PATH),
+	CONF_STRING("user", (char *)&dns_conf_user, sizeof(dns_conf_user)),
 	CONF_CUSTOM("conf-file", config_addtional_file, NULL),
 	CONF_END(),
 };
@@ -2025,13 +2028,33 @@ static int _dns_conf_speed_check_mode_verify(void)
 	return 0;
 }
 
+static int _dns_ping_cap_check(void)
+{
+	int has_ping = 0;
+	int has_raw_cap;
+
+	has_raw_cap = has_network_raw_cap();
+	has_ping = has_unprivileged_ping();
+	if (has_ping == 0) {
+		if (errno == EACCES && has_raw_cap == 0) {
+			tlog(TLOG_WARN, "unpriviledged ping is disabled, please enable by setting net.ipv4.ping_group_range");
+		}
+	}
+
+	if (has_ping == 1 || has_raw_cap == 1) {
+		dns_has_cap_ping = 1;
+	}
+
+	return 0;
+}
+
 static int _dns_conf_load_pre(void)
 {
 	if (_dns_server_load_conf_init() != 0) {
 		goto errout;
 	}
 
-	dns_has_cap_ping = has_network_raw_cap();
+	_dns_ping_cap_check();
 
 	return 0;
 
