@@ -11,7 +11,7 @@ EnvironmentFile=@SYSCONFDIR@/default/smartdns
 ExecStart=@SBINDIR@/smartdns -p @RUNSTATEDIR@/smartdns.pid $SMART_DNS_OPTS 
 Restart=always
 RestartSec=2
-TimeoutStopSec=5
+TimeoutStopSec=15
 
 [Install]
 WantedBy=multi-user.target

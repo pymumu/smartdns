@@ -339,7 +339,7 @@ case "$1" in
 		SLEEP="sleep"
 		SLEEPTIME=0.2
 	fi
-	N=30
+	N=300
 	while [ $N -gt 0 ]
 	do
 		pid="$(cat "$SMARTDNS_PID" | head -n 1 2>/dev/null)"
