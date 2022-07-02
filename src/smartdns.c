@@ -31,12 +31,15 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <libgen.h>
+#include <linux/capability.h>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
+#include <pwd.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/prctl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <ucontext.h>
@@ -48,6 +51,77 @@
 #define TMP_BUFF_LEN_32 32
 
 static int verbose_screen;
+
+int capget(struct __user_cap_header_struct *header, struct __user_cap_data_struct *cap);
+int capset(struct __user_cap_header_struct *header, struct __user_cap_data_struct *cap);
+
+int get_uid_gid(int *uid, int *gid)
+{
+	struct passwd *result = NULL;
+	struct passwd pwd;
+	char *buf = NULL;
+	size_t bufsize;
+	int ret = -1;
+
+	if (dns_conf_user[0] == '\0') {
+		return -1;
+	}
+
+	bufsize = sysconf(_SC_GETPW_R_SIZE_MAX);
+	if (bufsize == -1) {
+		bufsize = 1024 * 16;
+	}
+
+	buf = malloc(bufsize);
+	if (buf == NULL) {
+		goto out;
+	}
+
+	ret = getpwnam_r(dns_conf_user, &pwd, buf, bufsize, &result);
+	if (ret != 0) {
+		return -1;
+	}
+
+	*uid = result->pw_uid;
+	*gid = result->pw_gid;
+
+out:
+	if (buf) {
+		free(buf);
+	}
+
+	return ret;
+}
+
+int drop_root_privilege(void)
+{
+	struct __user_cap_data_struct cap;
+	struct __user_cap_header_struct header;
+	header.version = _LINUX_CAPABILITY_VERSION;
+	header.pid = 0;
+	int uid;
+	int gid;
+
+	if (get_uid_gid(&uid, &gid) != 0) {
+		return -1;
+	}
+
+	if (capget(&header, &cap) < 0) {
+		return -1;
+	}
+
+	prctl(PR_SET_KEEPCAPS, 1, 0, 0, 0);
+	cap.effective |= (1 << CAP_NET_RAW | 1 << CAP_NET_ADMIN);
+	cap.permitted |= (1 << CAP_NET_RAW | 1 << CAP_NET_ADMIN);
+	setuid(uid);
+	setgid(gid);
+	if (capset(&header, &cap) < 0) {
+		return -1;
+	}
+
+	prctl(PR_SET_KEEPCAPS, 0, 0, 0, 0);
+	return 0;
+}
 
 static void _help(void)
 {
@@ -322,6 +396,7 @@ static int _smartdns_run(void)
 
 static void _smartdns_exit(void)
 {
+	tlog(TLOG_INFO, "smartdns starting exit...");
 	dns_server_exit();
 	dns_client_exit();
 	fast_ping_exit();
@@ -332,6 +407,7 @@ static void _smartdns_exit(void)
 
 static void _sig_exit(int signo)
 {
+	tlog(TLOG_INFO, "start stop smartdns");
 	dns_server_stop();
 }
 
@@ -444,6 +520,8 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "load config failed.\n");
 		goto errout;
 	}
+
+	drop_root_privilege();
 
 	ret = _smartdns_init();
 	if (ret != 0) {

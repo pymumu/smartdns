@@ -1010,6 +1010,25 @@ int has_network_raw_cap(void)
 	return 1;
 }
 
+int has_unprivileged_ping(void)
+{
+	int fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP);
+	if (fd < 0) {
+		return 0;
+	}
+
+	close(fd);
+
+	fd = socket(AF_INET6, SOCK_DGRAM, IPPROTO_ICMPV6);
+	if (fd < 0) {
+		return 0;
+	}
+
+	close(fd);
+
+	return 1;
+}
+
 int set_sock_keepalive(int fd, int keepidle, int keepinterval, int keepcnt)
 {
 	const int yes = 1;

@@ -104,6 +104,8 @@ int is_numeric(const char *str);
 
 int has_network_raw_cap(void);
 
+int has_unprivileged_ping(void);
+
 int set_sock_keepalive(int fd, int keepidle, int keepinterval, int keepcnt);
 
 int set_sock_lingertime(int fd, int time);
