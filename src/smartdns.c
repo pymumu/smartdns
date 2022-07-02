@@ -469,9 +469,14 @@ int main(int argc, char *argv[])
 	char config_file[MAX_LINE_LEN];
 	char pid_file[MAX_LINE_LEN];
 	int signal_ignore = 0;
+	sigset_t empty_sigblock;
 
 	safe_strncpy(config_file, SMARTDNS_CONF_FILE, MAX_LINE_LEN);
 	safe_strncpy(pid_file, SMARTDNS_PID_FILE, MAX_LINE_LEN);
+
+	/* patch for Asus router:  unblock all signal*/
+	sigemptyset(&empty_sigblock);
+    sigprocmask(SIG_SETMASK, &empty_sigblock, NULL);
 
 	while ((opt = getopt(argc, argv, "fhc:p:Svx")) != -1) {
 		switch (opt) {
