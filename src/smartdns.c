@@ -101,6 +101,7 @@ int drop_root_privilege(void)
 	header.pid = 0;
 	int uid;
 	int gid;
+	int unused __attribute__((unused));
 
 	if (get_uid_gid(&uid, &gid) != 0) {
 		return -1;
@@ -113,8 +114,8 @@ int drop_root_privilege(void)
 	prctl(PR_SET_KEEPCAPS, 1, 0, 0, 0);
 	cap.effective |= (1 << CAP_NET_RAW | 1 << CAP_NET_ADMIN);
 	cap.permitted |= (1 << CAP_NET_RAW | 1 << CAP_NET_ADMIN);
-	setuid(uid);
-	setgid(gid);
+	unused = setuid(uid);
+	unused = setgid(gid);
 	if (capset(&header, &cap) < 0) {
 		return -1;
 	}
@@ -476,7 +477,7 @@ int main(int argc, char *argv[])
 
 	/* patch for Asus router:  unblock all signal*/
 	sigemptyset(&empty_sigblock);
-    sigprocmask(SIG_SETMASK, &empty_sigblock, NULL);
+	sigprocmask(SIG_SETMASK, &empty_sigblock, NULL);
 
 	while ((opt = getopt(argc, argv, "fhc:p:Svx")) != -1) {
 		switch (opt) {
