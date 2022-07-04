@@ -1458,6 +1458,7 @@ int _dns_server_reply_all_pending_list(struct dns_request *request, struct dns_s
 		context_pending.do_reply = context->do_reply;
 		context_pending.do_force_soa = context->do_force_soa;
 		context_pending.do_ipset = 0;
+		context_pending.reply_ttl = request->ip_ttl;
 		_dns_server_reply_passthrouth(&context_pending);
 
 		req->request_pending_list = NULL;
@@ -1753,6 +1754,11 @@ static void _dns_server_complete_with_multi_ipaddress(struct dns_request *reques
 {
 	struct dns_server_post_context context;
 	int do_reply = 0;
+
+	if (request->passthrough) {
+		return;
+	}
+
 	if (request->ip_map_num > 0) {
 		request->has_soa = 0;
 	}
@@ -1780,8 +1786,10 @@ static void _dns_server_request_release_complete(struct dns_request *request, in
 	struct hlist_node *tmp;
 	int bucket = 0;
 
+	pthread_mutex_lock(&server.request_list_lock);
 	int refcnt = atomic_dec_return(&request->refcnt);
 	if (refcnt) {
+		pthread_mutex_unlock(&server.request_list_lock);
 		if (refcnt < 0) {
 			tlog(TLOG_ERROR, "BUG: refcnt is %d, domain %s, qtype %d", refcnt, request->domain, request->qtype);
 			abort();
@@ -1789,7 +1797,6 @@ static void _dns_server_request_release_complete(struct dns_request *request, in
 		return;
 	}
 
-	pthread_mutex_lock(&server.request_list_lock);
 	list_del_init(&request->list);
 	pthread_mutex_unlock(&server.request_list_lock);
 
@@ -2536,11 +2543,20 @@ static int _dns_server_get_answer(struct dns_server_post_context *context)
 
 				/* get A result */
 				dns_get_A(rrs, name, DNS_MAX_CNAME_LEN, &ttl, addr);
+				if (_dns_ip_address_check_add(request, name, addr, DNS_T_A) != 0) {
+					continue;
+				}
+
+				context->ip_num++;
+				if (request->has_ip == 1) {
+					continue;
+				}
+
 				memcpy(request->ip_addr, addr, DNS_RR_A_LEN);
+				/* add this ip to reqeust */
 				request->ip_ttl = _dns_server_get_conf_ttl(ttl);
 				request->has_ip = 1;
 				request->rcode = packet->head.rcode;
-				context->ip_num++;
 			} break;
 			case DNS_T_AAAA: {
 				unsigned char addr[16];
@@ -2551,11 +2567,19 @@ static int _dns_server_get_answer(struct dns_server_post_context *context)
 					continue;
 				}
 				dns_get_AAAA(rrs, name, DNS_MAX_CNAME_LEN, &ttl, addr);
+				if (_dns_ip_address_check_add(request, name, addr, DNS_T_AAAA) != 0) {
+					continue;
+				}
+				
+				context->ip_num++;
+				if (request->has_ip == 1) {
+					continue;
+				}
+
 				memcpy(request->ip_addr, addr, DNS_RR_AAAA_LEN);
 				request->ip_ttl = _dns_server_get_conf_ttl(ttl);
 				request->has_ip = 1;
 				request->rcode = packet->head.rcode;
-				context->ip_num++;
 			} break;
 			case DNS_T_NS: {
 				char cname[DNS_MAX_CNAME_LEN];
