@@ -397,7 +397,7 @@ static int _smartdns_run(void)
 
 static void _smartdns_exit(void)
 {
-	tlog(TLOG_INFO, "smartdns starting exit...");
+	tlog(TLOG_INFO, "smartdns exit...");
 	dns_server_exit();
 	dns_client_exit();
 	fast_ping_exit();
@@ -408,7 +408,7 @@ static void _smartdns_exit(void)
 
 static void _sig_exit(int signo)
 {
-	tlog(TLOG_INFO, "start stop smartdns");
+	tlog(TLOG_INFO, "stop smartdns by signal %d", signo);
 	dns_server_stop();
 }
 

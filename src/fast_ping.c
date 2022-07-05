@@ -1216,6 +1216,11 @@ static struct fast_ping_packet *_fast_ping_icmp_packet(struct ping_host_struct *
 		return NULL;
 	}
 
+	if (icmp->icmp_type != ICMP_ECHOREPLY) {
+		tlog(TLOG_DEBUG, "icmp type faild, %d:%d", icmp->icmp_type, ICMP_ECHOREPLY);
+		return NULL;
+	}
+
 	if (ping.no_unprivileged_ping) {
 		if (ip->ip_p != IPPROTO_ICMP) {
 			tlog(TLOG_ERROR, "ip type faild, %d:%d", ip->ip_p, IPPROTO_ICMP);
@@ -1227,12 +1232,6 @@ static struct fast_ping_packet *_fast_ping_icmp_packet(struct ping_host_struct *
 			return NULL;
 		}
 	}
-
-	if (icmp->icmp_type != ICMP_ECHOREPLY) {
-		tlog(TLOG_DEBUG, "icmp type faild, %d:%d", icmp->icmp_type, ICMP_ECHOREPLY);
-		return NULL;
-	}
-
 
 	return packet;
 }
