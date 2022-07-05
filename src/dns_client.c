@@ -133,6 +133,7 @@ struct dns_server_pending_group {
 
 struct dns_server_pending {
 	struct list_head list;
+	struct list_head retry_list;
 	atomic_t refcnt;
 
 	char host[DNS_HOSTNAME_LEN];
@@ -1244,7 +1245,7 @@ void _dns_client_server_pending_get(struct dns_server_pending *pending)
 	}
 }
 
-void _dns_client_server_pending_release_lck(struct dns_server_pending *pending)
+void _dns_client_server_pending_release(struct dns_server_pending *pending)
 {
 	struct dns_server_pending_group *group, *tmp;
 
@@ -1258,6 +1259,7 @@ void _dns_client_server_pending_release_lck(struct dns_server_pending *pending)
 		return;
 	}
 
+	pthread_mutex_lock(&pending_server_mutex);
 	list_for_each_entry_safe(group, tmp, &pending->group_list, list)
 	{
 		list_del_init(&group->list);
@@ -1265,26 +1267,16 @@ void _dns_client_server_pending_release_lck(struct dns_server_pending *pending)
 	}
 
 	list_del_init(&pending->list);
+	pthread_mutex_unlock(&pending_server_mutex);
 	free(pending);
 }
 
-void _dns_client_server_pending_release(struct dns_server_pending *pending)
+void _dns_client_server_pending_remove(struct dns_server_pending *pending)
 {
-	int refcnt = atomic_dec_return(&pending->refcnt);
-
-	if (refcnt) {
-		if (refcnt < 0) {
-			tlog(TLOG_ERROR, "BUG: pending refcnt is %d", refcnt);
-			abort();
-		}
-		return;
-	}
-
 	pthread_mutex_lock(&pending_server_mutex);
 	list_del_init(&pending->list);
 	pthread_mutex_unlock(&pending_server_mutex);
-
-	free(pending);
+	_dns_client_server_pending_release(pending);
 }
 
 static int _dns_client_server_pending(char *server_ip, int port, dns_server_type_t server_type,
@@ -1310,6 +1302,7 @@ static int _dns_client_server_pending(char *server_ip, int port, dns_server_type
 	pending->has_v6 = 0;
 	_dns_client_server_pending_get(pending);
 	INIT_LIST_HEAD(&pending->group_list);
+	INIT_LIST_HEAD(&pending->retry_list);
 	memcpy(&pending->flags, flags, sizeof(struct client_dns_server_flags));
 
 	pthread_mutex_lock(&pending_server_mutex);
@@ -3227,20 +3220,30 @@ static int _dns_client_add_pendings(struct dns_server_pending *pending, char *ip
 static void _dns_client_remove_all_pending_servers(void)
 {
 	struct dns_server_pending *pending, *tmp;
+	LIST_HEAD(remove_list);
 
 	pthread_mutex_lock(&pending_server_mutex);
 	list_for_each_entry_safe(pending, tmp, &pending_servers, list)
 	{
 		list_del_init(&pending->list);
-		_dns_client_server_pending_release_lck(pending);
+		list_add(&pending->retry_list, &remove_list);
+		_dns_client_server_pending_get(pending);
 	}
 	pthread_mutex_unlock(&pending_server_mutex);
+
+	list_for_each_entry_safe(pending, tmp, &remove_list, retry_list)
+	{
+		list_del_init(&pending->retry_list);
+		_dns_client_server_pending_release(pending);
+		_dns_client_server_pending_remove(pending);
+	}
 }
 
 static void _dns_client_add_pending_servers(void)
 {
 	struct dns_server_pending *pending, *tmp;
 	static int dely = 0;
+	LIST_HEAD(retry_list);
 
 	/* add pending server after 3 seconds */
 	if (++dely < 3) {
@@ -3251,6 +3254,13 @@ static void _dns_client_add_pending_servers(void)
 	pthread_mutex_lock(&pending_server_mutex);
 	list_for_each_entry_safe(pending, tmp, &pending_servers, list)
 	{
+		list_add(&pending->retry_list, &retry_list);
+		_dns_client_server_pending_get(pending);
+	}
+	pthread_mutex_unlock(&pending_server_mutex);
+
+	list_for_each_entry_safe(pending, tmp, &retry_list, retry_list)
+	{
 		/* send dns type A, AAAA query to bootstrap DNS server */
 		int add_success = 0;
 		char *dnsserver_ip = NULL;
@@ -3259,7 +3269,8 @@ static void _dns_client_add_pending_servers(void)
 			pending->query_v4 = 1;
 			_dns_client_server_pending_get(pending);
 			if (dns_server_query(pending->host, DNS_T_A, 0, _dns_client_pending_server_resolve, pending) != 0) {
-				_dns_client_server_pending_release_lck(pending);
+				_dns_client_server_pending_release(pending);
+				pending->query_v4 = 0;
 			}
 		}
 
@@ -3267,9 +3278,13 @@ static void _dns_client_add_pending_servers(void)
 			pending->query_v6 = 1;
 			_dns_client_server_pending_get(pending);
 			if (dns_server_query(pending->host, DNS_T_AAAA, 0, _dns_client_pending_server_resolve, pending) != 0) {
-				_dns_client_server_pending_release_lck(pending);
+				_dns_client_server_pending_release(pending);
+				pending->query_v4 = 0;
 			}
 		}
+
+		list_del_init(&pending->retry_list);
+		_dns_client_server_pending_release(pending);
 
 		/* if both A, AAAA has query result, select fastest IP address */
 		if (pending->has_v4 && pending->has_v6) {
@@ -3291,14 +3306,17 @@ static void _dns_client_add_pending_servers(void)
 		}
 
 		pending->retry_cnt++;
-		if (pending->retry_cnt >= DNS_PENDING_SERVER_RETRY || add_success) {
+		if (pending->retry_cnt == 1) {
+			continue;
+		}
+
+		if (pending->retry_cnt - 1 > DNS_PENDING_SERVER_RETRY || add_success) {
 			if (add_success == 0) {
 				tlog(TLOG_WARN, "add pending DNS server %s failed.", pending->host);
 			}
-			list_del_init(&pending->list);
-			_dns_client_server_pending_release_lck(pending);
+			_dns_client_server_pending_remove(pending);
 		} else {
-			tlog(TLOG_INFO, "add pending DNS server %s failed, retry %d...", pending->host, pending->retry_cnt);
+			tlog(TLOG_INFO, "add pending DNS server %s failed, retry %d...", pending->host, pending->retry_cnt - 1);
 			pending->query_v4 = 0;
 			pending->query_v6 = 0;
 		}
@@ -3312,10 +3330,9 @@ static void _dns_client_add_pending_servers(void)
 				return;
 			}
 
-			_dns_client_server_pending_release_lck(pending);
+			_dns_client_server_pending_release(pending);
 		}
 	}
-	pthread_mutex_unlock(&pending_server_mutex);
 }
 
 static void _dns_client_period_run_second(void)

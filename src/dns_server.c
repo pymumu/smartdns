@@ -732,7 +732,7 @@ static int _dns_add_rrs(struct dns_server_post_context *context)
 	}
 
 	if (request->rcode != DNS_RC_NOERROR) {
-		tlog(TLOG_INFO, "result %s, qtype: %d, rc-code: %d", domain, context->qtype, request->rcode);
+		tlog(TLOG_INFO, "result %s, qtype: %d, rccode: %d", domain, context->qtype, request->rcode);
 	}
 
 	return ret;
@@ -2434,6 +2434,7 @@ static int _dns_server_passthrough_rule_check(struct dns_request *request, char 
 {
 	int ttl = 0;
 	char name[DNS_MAX_CNAME_LEN] = {0};
+	char cname[DNS_MAX_CNAME_LEN];
 	int rr_count = 0;
 	int i = 0;
 	int j = 0;
@@ -2457,6 +2458,7 @@ static int _dns_server_passthrough_rule_check(struct dns_request *request, char 
 			switch (rrs->type) {
 			case DNS_T_A: {
 				unsigned char addr[4];
+				int ttl_tmp;
 				if (request->qtype != DNS_T_A) {
 					/* ignore non-matched query type */
 					if (request->dualstack_selection == 0) {
@@ -2465,9 +2467,15 @@ static int _dns_server_passthrough_rule_check(struct dns_request *request, char 
 				}
 				_dns_server_request_get(request);
 				/* get A result */
-				dns_get_A(rrs, name, DNS_MAX_CNAME_LEN, &ttl, addr);
+				dns_get_A(rrs, name, DNS_MAX_CNAME_LEN, &ttl_tmp, addr);
 
-				tlog(TLOG_DEBUG, "domain: %s TTL:%d IP: %d.%d.%d.%d", name, ttl, addr[0], addr[1], addr[2], addr[3]);
+				/* if domain is not match */
+				if (strncmp(name, domain, DNS_MAX_CNAME_LEN) != 0 && strncmp(cname, name, DNS_MAX_CNAME_LEN) != 0) {
+					_dns_server_request_release(request);
+					continue;
+				}
+
+				tlog(TLOG_DEBUG, "domain: %s TTL:%d IP: %d.%d.%d.%d", name, ttl_tmp, addr[0], addr[1], addr[2], addr[3]);
 
 				/* ip rule check */
 				ip_check_result = _dns_server_ip_rule_check(request, addr, 4, DNS_T_A, result_flag);
@@ -2480,20 +2488,28 @@ static int _dns_server_passthrough_rule_check(struct dns_request *request, char 
 					_dns_server_request_release(request);
 					return 0;
 				}
+				ttl = ttl_tmp;
 				_dns_server_request_release(request);
 			} break;
 			case DNS_T_AAAA: {
 				unsigned char addr[16];
+				int ttl_tmp;
 				if (request->qtype != DNS_T_AAAA) {
 					/* ignore non-matched query type */
 					break;
 				}
 				_dns_server_request_get(request);
-				dns_get_AAAA(rrs, name, DNS_MAX_CNAME_LEN, &ttl, addr);
+				dns_get_AAAA(rrs, name, DNS_MAX_CNAME_LEN, &ttl_tmp, addr);
+
+				/* if domain is not match */
+				if (strncmp(name, domain, DNS_MAX_CNAME_LEN) != 0 && strncmp(cname, name, DNS_MAX_CNAME_LEN) != 0) {
+					_dns_server_request_release(request);
+					continue;
+				}
 
 				tlog(TLOG_DEBUG,
 					 "domain: %s TTL: %d IP: %.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x",
-					 name, ttl, addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr[6], addr[7], addr[8],
+					 name, ttl_tmp, addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr[6], addr[7], addr[8],
 					 addr[9], addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
 
 				ip_check_result = _dns_server_ip_rule_check(request, addr, 16, DNS_T_AAAA, result_flag);
@@ -2506,7 +2522,12 @@ static int _dns_server_passthrough_rule_check(struct dns_request *request, char 
 					_dns_server_request_release(request);
 					return 0;
 				}
+
+				ttl = ttl_tmp;
 				_dns_server_request_release(request);
+			} break;
+			case DNS_T_CNAME: {
+				dns_get_CNAME(rrs, name, DNS_MAX_CNAME_LEN, &ttl, cname, DNS_MAX_CNAME_LEN);
 			} break;
 			default:
 				break;
@@ -2570,7 +2591,7 @@ static int _dns_server_get_answer(struct dns_server_post_context *context)
 				if (_dns_ip_address_check_add(request, name, addr, DNS_T_AAAA) != 0) {
 					continue;
 				}
-				
+
 				context->ip_num++;
 				if (request->has_ip == 1) {
 					continue;
@@ -3412,6 +3433,7 @@ static int _dns_server_process_cache_packet(struct dns_request *request, struct 
 	_dns_server_post_context_init(&context, request);
 	context.inpacket = cache_packet->data;
 	context.inpacket_len = cache_packet->head.size;
+	request->ping_time = dns_cache->info.speed;
 
 	if (dns_decode(context.packet, context.packet_maxlen, cache_packet->data, cache_packet->head.size) != 0) {
 		return -1;
@@ -4149,7 +4171,7 @@ int dns_server_query(char *domain, int qtype, uint32_t server_flags, dns_result_
 		goto errout;
 	}
 
-	_dns_server_request_release(request);
+	_dns_server_request_release_complete(request, 0);
 	return ret;
 errout:
 	if (request) {
