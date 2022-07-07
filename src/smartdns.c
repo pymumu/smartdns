@@ -506,6 +506,11 @@ int main(int argc, char *argv[])
 		}
 	}
 
+	if (dns_server_load_conf(config_file) != 0) {
+		fprintf(stderr, "load config failed.\n");
+		goto errout;
+	}
+
 	if (is_forground == 0) {
 		if (daemon(0, 0) < 0) {
 			fprintf(stderr, "run daemon process failed, %s\n", strerror(errno));
@@ -522,10 +527,8 @@ int main(int argc, char *argv[])
 	}
 
 	signal(SIGPIPE, SIG_IGN);
-	if (dns_server_load_conf(config_file) != 0) {
-		fprintf(stderr, "load config failed.\n");
-		goto errout;
-	}
+	signal(SIGINT, _sig_exit);
+	signal(SIGTERM, _sig_exit);
 
 	drop_root_privilege();
 
@@ -535,8 +538,6 @@ int main(int argc, char *argv[])
 		goto errout;
 	}
 
-	signal(SIGINT, _sig_exit);
-	signal(SIGTERM, _sig_exit);
 	atexit(_smartdns_exit);
 
 	return _smartdns_run();

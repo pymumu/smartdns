@@ -77,7 +77,7 @@
 
 #define NETLINK_ALIGN(len) (((len) + 3) & ~(3))
 
-#define BUFF_SZ 256
+#define BUFF_SZ 1024
 
 struct ipset_netlink_attr {
 	unsigned short len;

@@ -30,6 +30,7 @@
 #define CONF_RET_ERR -1
 #define CONF_RET_WARN -2
 #define CONF_RET_NOENT -3
+#define CONF_RET_BADCONF -4
 
 struct config_item {
 	const char *item;
