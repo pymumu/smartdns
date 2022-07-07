@@ -262,6 +262,7 @@ int load_conf_file(const char *file, struct config_item *items, conf_error_handl
 
 		/* if field format is not key = value, error */
 		if (filed_num != 2) {
+			handler(file, line_no, CONF_RET_BADCONF);
 			goto errout;
 		}
 

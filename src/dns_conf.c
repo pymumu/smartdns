@@ -1917,14 +1917,16 @@ static struct config_item _config_item[] = {
 
 static int _conf_printf(const char *file, int lineno, int ret)
 {
-	if (ret == CONF_RET_ERR) {
-		tlog(TLOG_ERROR, "process config file '%s' failed at line %d.", file, lineno);
-		syslog(LOG_NOTICE, "process config file '%s' failed at line %d.", file, lineno);
-		return -1;
-	} else if (ret == CONF_RET_WARN) {
+	switch (ret) {
+	case CONF_RET_ERR:
+	case CONF_RET_WARN:
+	case CONF_RET_BADCONF:
 		tlog(TLOG_WARN, "process config file '%s' failed at line %d.", file, lineno);
 		syslog(LOG_NOTICE, "process config file '%s' failed at line %d.", file, lineno);
 		return -1;
+		break;
+	default:
+		break;
 	}
 
 	return 0;
