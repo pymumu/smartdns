@@ -23,8 +23,8 @@
 #define DNS_RR_AAAA_LEN 16
 #define DNS_MAX_CNAME_LEN 256
 #define DNS_MAX_OPT_LEN 256
-#define DNS_IN_PACKSIZE (512 * 4)
-#define DNS_PACKSIZE (512 * 10)
+#define DNS_IN_PACKSIZE (512 * 8)
+#define DNS_PACKSIZE (512 * 12)
 #define DNS_DEFAULT_PACKET_SIZE 512
 
 #define DNS_ADDR_FAMILY_IP 1
@@ -121,7 +121,7 @@ struct dns_head {
 
 #define DNS_PACKET_DICT_SIZE 16
 struct dns_packet_dict_item {
-	unsigned pos;
+	unsigned short pos;
 	unsigned int hash;
 };
 
@@ -150,7 +150,7 @@ struct dns_rrs {
 	struct dns_packet *packet;
 	unsigned short next;
 	unsigned short len;
-	dns_type_t type;
+	int type;
 	unsigned char data[0];
 };
 
@@ -159,7 +159,7 @@ struct dns_context {
 	struct dns_packet *packet;
 	struct dns_packet_dict *namedict;
 	unsigned char *data;
-	unsigned int maxsize;
+	int maxsize;
 	unsigned char *ptr;
 };
 
@@ -205,29 +205,29 @@ struct dns_rrs *dns_get_rrs_start(struct dns_packet *packet, dns_rr_type type, i
 /*
  * Question
  */
-int dns_add_domain(struct dns_packet *packet, char *domain, int qtype, int qclass);
+int dns_add_domain(struct dns_packet *packet, const char *domain, int qtype, int qclass);
 int dns_get_domain(struct dns_rrs *rrs, char *domain, int maxsize, int *qtype, int *qclass);
 
 /*
  * Answers
  */
-int dns_add_CNAME(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, char *cname);
+int dns_add_CNAME(struct dns_packet *packet, dns_rr_type type, const char *domain, int ttl, const char *cname);
 int dns_get_CNAME(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, char *cname, int cname_size);
 
-int dns_add_A(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, unsigned char addr[DNS_RR_A_LEN]);
+int dns_add_A(struct dns_packet *packet, dns_rr_type type, const char *domain, int ttl, unsigned char addr[DNS_RR_A_LEN]);
 int dns_get_A(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, unsigned char addr[DNS_RR_A_LEN]);
 
-int dns_add_PTR(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, char *cname);
+int dns_add_PTR(struct dns_packet *packet, dns_rr_type type, const char *domain, int ttl, char *cname);
 int dns_get_PTR(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, char *cname, int cname_size);
 
-int dns_add_AAAA(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl,
+int dns_add_AAAA(struct dns_packet *packet, dns_rr_type type, const char *domain, int ttl,
 				 unsigned char addr[DNS_RR_AAAA_LEN]);
 int dns_get_AAAA(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, unsigned char addr[DNS_RR_AAAA_LEN]);
 
-int dns_add_SOA(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, struct dns_soa *soa);
+int dns_add_SOA(struct dns_packet *packet, dns_rr_type type, const char *domain, int ttl, struct dns_soa *soa);
 int dns_get_SOA(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, struct dns_soa *soa);
 
-int dns_add_NS(struct dns_packet *packet, dns_rr_type type, char *domain, int ttl, char *cname);
+int dns_add_NS(struct dns_packet *packet, dns_rr_type type, const char *domain, int ttl, const char *cname);
 int dns_get_NS(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, char *cname, int cname_size);
 
 int dns_set_OPT_payload_size(struct dns_packet *packet, int payload_size);

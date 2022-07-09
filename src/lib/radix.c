@@ -87,7 +87,7 @@ comp_with_mask(unsigned char *addr, unsigned char *dest, unsigned int mask)
 {
 	if (memcmp(addr, dest, mask / 8) == 0) {
 		unsigned int n = mask / 8;
-		unsigned int m = ((~0) << (8 - (mask % 8)));
+		unsigned int m = ((unsigned int)(~0) << (8 - (mask % 8)));
 
 		if (mask % 8 == 0 || (addr[n] & m) == (dest[n] & m))
 			return (1);
@@ -549,7 +549,7 @@ sanitise_mask(unsigned char *addr, unsigned int masklen, unsigned int maskbits)
 	unsigned int j = masklen % 8;
 
 	if (j != 0) {
-		addr[i] &= (~0) << (8 - j);
+		addr[i] &= (unsigned int)(~0) << (8 - j);
 		i++;
 	}
 	for (; i < maskbits / 8; i++)

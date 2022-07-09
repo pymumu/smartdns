@@ -1016,7 +1016,7 @@ static void art_copy_key(art_leaf *leaf, unsigned char *key, int *key_len)
 		return;
 	}
 
-	len = leaf->key_len > *key_len ? *key_len : leaf->key_len;
+	len = (int)leaf->key_len > *key_len ? *key_len : (int)leaf->key_len;
 	memcpy(key, leaf->key, len);
 	*key_len = len;
 }

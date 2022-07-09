@@ -55,12 +55,12 @@ static int verbose_screen;
 int capget(struct __user_cap_header_struct *header, struct __user_cap_data_struct *cap);
 int capset(struct __user_cap_header_struct *header, struct __user_cap_data_struct *cap);
 
-int get_uid_gid(int *uid, int *gid)
+static int get_uid_gid(int *uid, int *gid)
 {
 	struct passwd *result = NULL;
 	struct passwd pwd;
 	char *buf = NULL;
-	size_t bufsize;
+	ssize_t bufsize = 0;
 	int ret = -1;
 
 	if (dns_conf_user[0] == '\0') {
@@ -79,7 +79,7 @@ int get_uid_gid(int *uid, int *gid)
 
 	ret = getpwnam_r(dns_conf_user, &pwd, buf, bufsize, &result);
 	if (ret != 0) {
-		return -1;
+		goto out;
 	}
 
 	*uid = result->pw_uid;
@@ -93,15 +93,15 @@ out:
 	return ret;
 }
 
-int drop_root_privilege(void)
+static int drop_root_privilege(void)
 {
 	struct __user_cap_data_struct cap;
 	struct __user_cap_header_struct header;
 	header.version = _LINUX_CAPABILITY_VERSION;
 	header.pid = 0;
-	int uid;
-	int gid;
-	int unused __attribute__((unused));
+	int uid = 0;
+	int gid = 0;
+	int unused __attribute__((unused)) = 0;
 
 	if (get_uid_gid(&uid, &gid) != 0) {
 		return -1;
@@ -187,7 +187,7 @@ static int _smartdns_load_from_resolv(void)
 			continue;
 		}
 
-		if (strncmp(key, "nameserver", MAX_KEY_LEN) != 0) {
+		if (strncmp(key, "nameserver", MAX_KEY_LEN - 1) != 0) {
 			continue;
 		}
 
@@ -213,14 +213,14 @@ static int _smartdns_load_from_resolv(void)
 
 static int _smartdns_add_servers(void)
 {
-	int i = 0;
+	unsigned long i = 0;
 	int j = 0;
 	int ret = 0;
 	struct dns_server_groups *group = NULL;
 	struct dns_servers *server = NULL;
 	struct client_dns_server_flags flags;
 
-	for (i = 0; i < dns_conf_server_num; i++) {
+	for (i = 0; i < (unsigned int)dns_conf_server_num; i++) {
 		memset(&flags, 0, sizeof(flags));
 		switch (dns_conf_servers[i].type) {
 		case DNS_SERVER_UDP: {
@@ -325,7 +325,7 @@ static int _smartdns_destroy_ssl(void)
 
 static int _smartdns_init(void)
 {
-	int ret;
+	int ret = 0;
 	char *logfile = SMARTDNS_LOG_FILE;
 
 	if (dns_conf_log_file[0] != 0) {
@@ -398,9 +398,9 @@ static int _smartdns_run(void)
 static void _smartdns_exit(void)
 {
 	tlog(TLOG_INFO, "smartdns exit...");
-	dns_server_exit();
 	dns_client_exit();
 	fast_ping_exit();
+	dns_server_exit();
 	_smartdns_destroy_ssl();
 	tlog_exit();
 	dns_server_load_exit();
@@ -451,7 +451,8 @@ static int sig_num = sizeof(sig_list) / sizeof(int);
 
 static void _reg_signal(void)
 {
-	struct sigaction act, old;
+	struct sigaction act;
+	struct sigaction old;
 	int i = 0;
 	act.sa_sigaction = _sig_error_exit;
 	sigemptyset(&act.sa_mask);
@@ -464,9 +465,9 @@ static void _reg_signal(void)
 
 int main(int argc, char *argv[])
 {
-	int ret;
+	int ret = 0;
 	int is_forground = 0;
-	int opt;
+	int opt = 0;
 	char config_file[MAX_LINE_LEN];
 	char pid_file[MAX_LINE_LEN];
 	int signal_ignore = 0;

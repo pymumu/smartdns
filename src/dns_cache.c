@@ -243,8 +243,8 @@ struct dns_cache_data *dns_cache_new_data_packet(uint32_t cache_flag, void *pack
 	return (struct dns_cache_data *)cache_packet;
 }
 
-int _dns_cache_replace(char *domain, int ttl, dns_type_t qtype, int speed, int inactive,
-					   struct dns_cache_data *cache_data)
+static int _dns_cache_replace(char *domain, int ttl, dns_type_t qtype, int speed, int inactive,
+							  struct dns_cache_data *cache_data)
 {
 	struct dns_cache *dns_cache = NULL;
 	struct dns_cache_data *old_cache_data = NULL;
@@ -300,18 +300,38 @@ int dns_cache_replace_inactive(char *domain, int ttl, dns_type_t qtype, int spee
 	return _dns_cache_replace(domain, ttl, qtype, speed, 1, cache_data);
 }
 
-int _dns_cache_insert(struct dns_cache_info *info, struct dns_cache_data *cache_data, struct list_head *head)
+static void _dns_cache_remove_by_domain(const char *domain, dns_type_t qtype)
+{
+	uint32_t key = 0;
+	struct dns_cache *dns_cache = NULL;
+
+	key = hash_string(domain);
+	key = jhash(&qtype, sizeof(qtype), key);
+	pthread_mutex_lock(&dns_cache_head.lock);
+	hash_for_each_possible(dns_cache_head.cache_hash, dns_cache, node, key)
+	{
+		if (dns_cache->info.qtype != qtype) {
+			continue;
+		}
+
+		if (strncmp(domain, dns_cache->info.domain, DNS_MAX_CNAME_LEN) != 0) {
+			continue;
+		}
+
+		_dns_cache_remove(dns_cache);
+		break;
+	}
+
+	pthread_mutex_unlock(&dns_cache_head.lock);
+}
+
+static int _dns_cache_insert(struct dns_cache_info *info, struct dns_cache_data *cache_data, struct list_head *head)
 {
 	uint32_t key = 0;
 	struct dns_cache *dns_cache = NULL;
 
 	/* if cache already exists, free */
-	dns_cache = dns_cache_lookup(info->domain, info->qtype);
-	if (dns_cache) {
-		dns_cache_delete(dns_cache);
-		dns_cache_release(dns_cache);
-		dns_cache = NULL;
-	}
+	_dns_cache_remove_by_domain(info->domain, info->qtype);
 
 	dns_cache = malloc(sizeof(*dns_cache));
 	if (dns_cache == NULL) {
@@ -332,7 +352,7 @@ int _dns_cache_insert(struct dns_cache_info *info, struct dns_cache_data *cache_
 
 	/* Release extra cache, remove oldest cache record */
 	if (atomic_inc_return(&dns_cache_head.num) > dns_cache_head.size) {
-		struct dns_cache *del_cache;
+		struct dns_cache *del_cache = NULL;
 		del_cache = _dns_inactive_cache_first();
 		if (del_cache) {
 			_dns_cache_remove(del_cache);
@@ -383,7 +403,7 @@ struct dns_cache *dns_cache_lookup(char *domain, dns_type_t qtype)
 	uint32_t key = 0;
 	struct dns_cache *dns_cache = NULL;
 	struct dns_cache *dns_cache_ret = NULL;
-	time_t now;
+	time_t now = 0;
 
 	if (dns_cache_head.size <= 0) {
 		return NULL;
@@ -426,7 +446,7 @@ struct dns_cache *dns_cache_lookup(char *domain, dns_type_t qtype)
 
 int dns_cache_get_ttl(struct dns_cache *dns_cache)
 {
-	time_t now;
+	time_t now = 0;
 	int ttl = 0;
 	time(&now);
 
@@ -440,7 +460,7 @@ int dns_cache_get_ttl(struct dns_cache *dns_cache)
 
 int dns_cache_get_cname_ttl(struct dns_cache *dns_cache)
 {
-	time_t now;
+	time_t now = 0;
 	int ttl = 0;
 	time(&now);
 
@@ -522,12 +542,12 @@ void dns_cache_update(struct dns_cache *dns_cache)
 	pthread_mutex_unlock(&dns_cache_head.lock);
 }
 
-void _dns_cache_remove_expired_ttl(dns_cache_callback inactive_precallback, int ttl_inactive_pre,
-								   unsigned int max_callback_num, time_t *now)
+static void _dns_cache_remove_expired_ttl(dns_cache_callback inactive_precallback, int ttl_inactive_pre,
+										  unsigned int max_callback_num, const time_t *now)
 {
 	struct dns_cache *dns_cache = NULL;
-	struct dns_cache *tmp;
-	int callback_num = 0;
+	struct dns_cache *tmp = NULL;
+	unsigned int callback_num = 0;
 	int ttl = 0;
 	LIST_HEAD(checklist);
 
@@ -579,11 +599,11 @@ void dns_cache_invalidate(dns_cache_callback precallback, int ttl_pre, unsigned 
 						  dns_cache_callback inactive_precallback, int ttl_inactive_pre)
 {
 	struct dns_cache *dns_cache = NULL;
-	struct dns_cache *tmp;
-	time_t now;
+	struct dns_cache *tmp = NULL;
+	time_t now = 0;
 	int ttl = 0;
 	LIST_HEAD(checklist);
-	int callback_num = 0;
+	unsigned int callback_num = 0;
 
 	if (max_callback_num <= 0) {
 		max_callback_num = -1;
@@ -637,8 +657,8 @@ void dns_cache_invalidate(dns_cache_callback precallback, int ttl_pre, unsigned 
 static int _dns_cache_read_record(int fd, uint32_t cache_number)
 {
 
-	int i = 0;
-	int ret = 0;
+	unsigned int i = 0;
+	ssize_t ret = 0;
 	struct dns_cache_record cache_record;
 	struct dns_cache_data_head data_head;
 	struct dns_cache_data *cache_data = NULL;
@@ -706,8 +726,9 @@ errout:
 int dns_cache_load(const char *file)
 {
 	int fd = -1;
-	int ret = 0;
-	size_t filesize;
+	ssize_t ret = 0;
+	off_t filesize = 0;
+
 	fd = open(file, O_RDONLY);
 	if (fd < 0) {
 		return 0;
@@ -729,7 +750,7 @@ int dns_cache_load(const char *file)
 		goto errout;
 	}
 
-	if (strncmp(cache_file.version, __TIMESTAMP__, DNS_CACHE_VERSION_LEN) != 0) {
+	if (strncmp(cache_file.version, __TIMESTAMP__, DNS_CACHE_VERSION_LEN - 1) != 0) {
 		tlog(TLOG_WARN, "cache version is different, skip load cache.");
 		goto errout;
 	}
@@ -761,7 +782,7 @@ static int _dns_cache_write_record(int fd, uint32_t *cache_number, enum CACHE_RE
 		cache_record.magic = MAGIC_CACHE_DATA;
 		cache_record.type = type;
 		memcpy(&cache_record.info, &dns_cache->info, sizeof(struct dns_cache_info));
-		int ret = write(fd, &cache_record, sizeof(cache_record));
+		ssize_t ret = write(fd, &cache_record, sizeof(cache_record));
 		if (ret != sizeof(cache_record)) {
 			tlog(TLOG_ERROR, "write cache failed, %s", strerror(errno));
 			goto errout;
@@ -769,7 +790,7 @@ static int _dns_cache_write_record(int fd, uint32_t *cache_number, enum CACHE_RE
 
 		struct dns_cache_data *cache_data = dns_cache->cache_data;
 		ret = write(fd, cache_data, sizeof(*cache_data) + cache_data->head.size);
-		if (ret != sizeof(*cache_data) + cache_data->head.size) {
+		if (ret != (int)sizeof(*cache_data) + cache_data->head.size) {
 			tlog(TLOG_ERROR, "write cache data failed, %s", strerror(errno));
 			goto errout;
 		}
@@ -853,7 +874,8 @@ errout:
 void dns_cache_destroy(void)
 {
 	struct dns_cache *dns_cache = NULL;
-	struct dns_cache *tmp;
+	struct dns_cache *tmp = NULL;
+
 	pthread_mutex_lock(&dns_cache_head.lock);
 	list_for_each_entry_safe(dns_cache, tmp, &dns_cache_head.inactive_list, list)
 	{

@@ -56,7 +56,7 @@ int dns_client_set_ecs(char *ip, int subnet);
 
 struct dns_server_info;
 /* query result notify function */
-typedef int (*dns_client_callback)(char *domain, dns_result_type rtype, struct dns_server_info *server_info,
+typedef int (*dns_client_callback)(const char *domain, dns_result_type rtype, struct dns_server_info *server_info,
 								   struct dns_packet *packet, unsigned char *inpacket, int inpacket_len,
 								   void *user_ptr);
 
@@ -80,7 +80,7 @@ struct dns_query_options {
 };
 
 /* query domain */
-int dns_client_query(char *domain, int qtype, dns_client_callback callback, void *user_ptr, const char *group_name,
+int dns_client_query(const char *domain, int qtype, dns_client_callback callback, void *user_ptr, const char *group_name,
 					 struct dns_query_options *options);
 
 void dns_client_exit(void);
@@ -128,13 +128,13 @@ int dns_client_add_server(char *server_ip, int port, dns_server_type_t server_ty
 /* remove remote dns server */
 int dns_client_remove_server(char *server_ip, int port, dns_server_type_t server_type);
 
-int dns_client_add_group(char *group_name);
+int dns_client_add_group(const char *group_name);
 
-int dns_client_add_to_group(char *group_name, char *server_ip, int port, dns_server_type_t server_type);
+int dns_client_add_to_group(const char *group_name, char *server_ip, int port, dns_server_type_t server_type);
 
-int dns_client_remove_from_group(char *group_name, char *server_ip, int port, dns_server_type_t server_type);
+int dns_client_remove_from_group(const char *group_name, char *server_ip, int port, dns_server_type_t server_type);
 
-int dns_client_remove_group(char *group_name);
+int dns_client_remove_group(const char *group_name);
 
 int dns_server_num(void);
 

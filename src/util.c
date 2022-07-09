@@ -108,12 +108,12 @@ char *gethost_by_addr(char *host, int maxsize, struct sockaddr *addr)
 	host[0] = 0;
 	switch (addr_store->ss_family) {
 	case AF_INET: {
-		struct sockaddr_in *addr_in;
+		struct sockaddr_in *addr_in = NULL;
 		addr_in = (struct sockaddr_in *)addr;
 		inet_ntop(AF_INET, &addr_in->sin_addr, host, maxsize);
 	} break;
 	case AF_INET6: {
-		struct sockaddr_in6 *addr_in6;
+		struct sockaddr_in6 *addr_in6 = NULL;
 		addr_in6 = (struct sockaddr_in6 *)addr;
 		if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
 			struct sockaddr_in addr_in4;
@@ -176,14 +176,14 @@ int getsocknet_inet(int fd, struct sockaddr *addr, socklen_t *addr_len)
 
 	switch (addr_store.ss_family) {
 	case AF_INET: {
-		struct sockaddr_in *addr_in;
+		struct sockaddr_in *addr_in = NULL;
 		addr_in = (struct sockaddr_in *)addr;
 		addr_in->sin_family = AF_INET;
 		*addr_len = sizeof(struct sockaddr_in);
 		memcpy(addr, addr_in, sizeof(struct sockaddr_in));
 	} break;
 	case AF_INET6: {
-		struct sockaddr_in6 *addr_in6;
+		struct sockaddr_in6 *addr_in6 = NULL;
 		addr_in6 = (struct sockaddr_in6 *)addr;
 		if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
 			struct sockaddr_in addr_in4;
@@ -411,7 +411,7 @@ int parse_uri(char *value, char *scheme, char *host, int *port, char *path)
 	};
 
 	field_len = host_end - process_ptr;
-	if (field_len >= sizeof(host_name)) {
+	if (field_len >= (int)sizeof(host_name)) {
 		return -1;
 	}
 	memcpy(host_name, process_ptr, field_len);
@@ -431,7 +431,7 @@ int parse_uri(char *value, char *scheme, char *host, int *port, char *path)
 
 int set_fd_nonblock(int fd, int nonblock)
 {
-	int ret;
+	int ret = 0;
 	int flags = fcntl(fd, F_GETFL);
 
 	if (flags == -1) {
@@ -523,7 +523,7 @@ static int _ipset_socket_init(void)
 	return 0;
 }
 
-static int _ipset_support_timeout(const char *ipsetname)
+static int _ipset_support_timeout(void)
 {
 	if (dns_conf_ipset_timeout_enable) {
 		return 0;
@@ -535,15 +535,15 @@ static int _ipset_support_timeout(const char *ipsetname)
 static int _ipset_operate(const char *ipsetname, const unsigned char addr[], int addr_len, unsigned long timeout,
 						  int operate)
 {
-	struct nlmsghdr *netlink_head;
-	struct ipset_netlink_msg *netlink_msg;
+	struct nlmsghdr *netlink_head = NULL;
+	struct ipset_netlink_msg *netlink_msg = NULL;
 	struct ipset_netlink_attr *nested[3];
 	char buffer[BUFF_SZ];
-	uint8_t proto;
-	ssize_t rc;
+	uint8_t proto = 0;
+	ssize_t rc = 0;
 	int af = 0;
 	static const struct sockaddr_nl snl = {.nl_family = AF_NETLINK};
-	uint32_t expire;
+	uint32_t expire = 0;
 
 	if (addr_len != IPV4_ADDR_LEN && addr_len != IPV6_ADDR_LEN) {
 		errno = EINVAL;
@@ -597,7 +597,7 @@ static int _ipset_operate(const char *ipsetname, const unsigned char addr[], int
 					addr);
 	nested[1]->len = (void *)buffer + NETLINK_ALIGN(netlink_head->nlmsg_len) - (void *)nested[1];
 
-	if (timeout > 0 && _ipset_support_timeout(ipsetname) == 0) {
+	if (timeout > 0 && _ipset_support_timeout() == 0) {
 		expire = htonl(timeout);
 		_ipset_add_attr(netlink_head, IPSET_ATTR_TIMEOUT | NLA_F_NET_BYTEORDER, sizeof(expire), &expire);
 	}
@@ -636,8 +636,9 @@ unsigned char *SSL_SHA256(const unsigned char *d, size_t n, unsigned char *md)
 {
 	static unsigned char m[SHA256_DIGEST_LENGTH];
 
-	if (md == NULL)
+	if (md == NULL) {
 		md = m;
+	}
 
 	EVP_MD_CTX* ctx = EVP_MD_CTX_create();
 	if (ctx == NULL) {
@@ -656,7 +657,7 @@ unsigned char *SSL_SHA256(const unsigned char *d, size_t n, unsigned char *md)
 int SSL_base64_decode(const char *in, unsigned char *out)
 {
 	size_t inlen = strlen(in);
-	int outlen;
+	int outlen = 0;
 
 	if (inlen == 0) {
 		return 0;
@@ -679,8 +680,8 @@ errout:
 
 int create_pid_file(const char *pid_file)
 {
-	int fd;
-	int flags;
+	int fd = 0;
+	int flags = 0;
 	char buff[TMP_BUFF_LEN_32];
 
 	/*  create pid file, and lock this file */
@@ -745,7 +746,7 @@ static __attribute__((unused)) void _pthreads_locking_callback(int mode, int typ
 
 static __attribute__((unused)) unsigned long _pthreads_thread_id(void)
 {
-	unsigned long ret;
+	unsigned long ret = 0;
 
 	ret = (unsigned long)pthread_self();
 	return (ret);
@@ -753,16 +754,18 @@ static __attribute__((unused)) unsigned long _pthreads_thread_id(void)
 
 void SSL_CRYPTO_thread_setup(void)
 {
-	int i;
+	int i = 0;
 
 	lock_cs = OPENSSL_malloc(CRYPTO_num_locks() * sizeof(pthread_mutex_t));
 	lock_count = OPENSSL_malloc(CRYPTO_num_locks() * sizeof(long));
 	if (!lock_cs || !lock_count) {
 		/* Nothing we can do about this...void function! */
-		if (lock_cs)
+		if (lock_cs) {
 			OPENSSL_free(lock_cs);
-		if (lock_count)
+		}
+		if (lock_count) {
 			OPENSSL_free(lock_count);
+		}
 		return;
 	}
 	for (i = 0; i < CRYPTO_num_locks(); i++) {
@@ -780,7 +783,7 @@ void SSL_CRYPTO_thread_setup(void)
 
 void SSL_CRYPTO_thread_cleanup(void)
 {
-	int i;
+	int i = 0;
 
 	CRYPTO_set_locking_callback(NULL);
 	for (i = 0; i < CRYPTO_num_locks(); i++) {
@@ -817,18 +820,20 @@ static int parse_server_name_extension(const char *, size_t, char *, const char 
  */
 int parse_tls_header(const char *data, size_t data_len, char *hostname, const char **hostname_ptr)
 {
-	char tls_content_type;
-	char tls_version_major;
-	char tls_version_minor;
+	char tls_content_type = 0;
+	char tls_version_major = 0;
+	char tls_version_minor = 0;
 	size_t pos = TLS_HEADER_LEN;
-	size_t len;
+	size_t len = 0;
 
-	if (hostname == NULL)
+	if (hostname == NULL) {
 		return -3;
+	}
 
 	/* Check that our TCP payload is at least large enough for a TLS header */
-	if (data_len < TLS_HEADER_LEN)
+	if (data_len < TLS_HEADER_LEN) {
 		return -1;
+	}
 
 	/* SSL 2.0 compatible Client Hello
 	 *
@@ -856,8 +861,9 @@ int parse_tls_header(const char *data, size_t data_len, char *hostname, const ch
 	data_len = MIN(data_len, len);
 
 	/* Check we received entire TLS record length */
-	if (data_len < len)
+	if (data_len < len) {
 		return -1;
+	}
 
 	/*
 	 * Handshake
@@ -879,20 +885,23 @@ int parse_tls_header(const char *data, size_t data_len, char *hostname, const ch
 	pos += 38;
 
 	/* Session ID */
-	if (pos + 1 > data_len)
+	if (pos + 1 > data_len) {
 		return -5;
+	}
 	len = (unsigned char)data[pos];
 	pos += 1 + len;
 
 	/* Cipher Suites */
-	if (pos + 2 > data_len)
+	if (pos + 2 > data_len) {
 		return -5;
+	}
 	len = ((unsigned char)data[pos] << 8) + (unsigned char)data[pos + 1];
 	pos += 2 + len;
 
 	/* Compression Methods */
-	if (pos + 1 > data_len)
+	if (pos + 1 > data_len) {
 		return -5;
+	}
 	len = (unsigned char)data[pos];
 	pos += 1 + len;
 
@@ -901,20 +910,22 @@ int parse_tls_header(const char *data, size_t data_len, char *hostname, const ch
 	}
 
 	/* Extensions */
-	if (pos + 2 > data_len)
+	if (pos + 2 > data_len) {
 		return -5;
+	}
 	len = ((unsigned char)data[pos] << 8) + (unsigned char)data[pos + 1];
 	pos += 2;
 
-	if (pos + len > data_len)
+	if (pos + len > data_len) {
 		return -5;
+	}
 	return parse_extensions(data + pos, len, hostname, hostname_ptr);
 }
 
 static int parse_extensions(const char *data, size_t data_len, char *hostname, const char **hostname_ptr)
 {
 	size_t pos = 0;
-	size_t len;
+	size_t len = 0;
 
 	/* Parse each 4 bytes for the extension header */
 	while (pos + 4 <= data_len) {
@@ -925,15 +936,17 @@ static int parse_extensions(const char *data, size_t data_len, char *hostname, c
 		if (data[pos] == 0x00 && data[pos + 1] == 0x00) {
 			/* There can be only one extension of each type, so we break
 			 * our state and move p to beinnging of the extension here */
-			if (pos + 4 + len > data_len)
+			if (pos + 4 + len > data_len) {
 				return -5;
+			}
 			return parse_server_name_extension(data + pos + 4, len, hostname, hostname_ptr);
 		}
 		pos += 4 + len; /* Advance to the next extension header */
 	}
 	/* Check we ended where we expected to */
-	if (pos != data_len)
+	if (pos != data_len) {
 		return -5;
+	}
 
 	return -2;
 }
@@ -941,13 +954,14 @@ static int parse_extensions(const char *data, size_t data_len, char *hostname, c
 static int parse_server_name_extension(const char *data, size_t data_len, char *hostname, const char **hostname_ptr)
 {
 	size_t pos = 2; /* skip server name list length */
-	size_t len;
+	size_t len = 0;
 
 	while (pos + 3 < data_len) {
 		len = ((unsigned char)data[pos + 1] << 8) + (unsigned char)data[pos + 2];
 
-		if (pos + 3 + len > data_len)
+		if (pos + 3 + len > data_len) {
 			return -5;
+		}
 
 		switch (data[pos]) { /* name type */
 		case 0x00:           /* host_name */
@@ -964,8 +978,9 @@ static int parse_server_name_extension(const char *data, size_t data_len, char *
 		pos += 3 + len;
 	}
 	/* Check we ended where we expected to */
-	if (pos != data_len)
+	if (pos != data_len) {
 		return -5;
+	}
 
 	return -2;
 }
@@ -973,8 +988,12 @@ static int parse_server_name_extension(const char *data, size_t data_len, char *
 void get_compiled_time(struct tm *tm)
 {
 	char s_month[5];
-	int month, day, year;
-	int hour, min, sec;
+	int month = 0;
+	int day = 0;
+	int year = 0;
+	int hour = 0;
+	int min = 0;
+	int sec = 0;
 	static const char *month_names = "JanFebMarAprMayJunJulAugSepOctNovDec";
 
 	sscanf(__DATE__, "%4s %d %d", s_month, &day, &year);
@@ -992,8 +1011,9 @@ void get_compiled_time(struct tm *tm)
 int is_numeric(const char *str)
 {
 	while (*str != '\0') {
-		if (*str < '0' || *str > '9')
+		if (*str < '0' || *str > '9') {
 			return -1;
+		}
 		str++;
 	}
 	return 0;
@@ -1082,9 +1102,9 @@ static _Unwind_Reason_Code unwind_callback(struct _Unwind_Context *context, void
 	if (pc) {
 		if (state->current == state->end) {
 			return _URC_END_OF_STACK;
-		} else {
-			*state->current++ = (void *)(pc);
 		}
+
+		*state->current++ = (void *)(pc);
 	}
 	return _URC_NO_REASON;
 }

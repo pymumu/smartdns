@@ -80,7 +80,7 @@ struct tlog_log {
     int multi_log;
     int logscreen;
     int segment_log;
-    unsigned int max_line_size;
+    int max_line_size;
 
     tlog_output_func output_func;
     void *private_data;
@@ -1091,7 +1091,7 @@ static int _tlog_archive_log(struct tlog_log *log)
     }
 }
 
-void _tlog_get_log_name_dir(struct tlog_log *log)
+static void _tlog_get_log_name_dir(struct tlog_log *log)
 {
     char log_file[PATH_MAX];
     if (log->fd > 0) {
@@ -1842,10 +1842,11 @@ int tlog_init(const char *logfile, int maxlogsize, int maxlogcount, int buffsize
     }
     return 0;
 errout:
-    if (tlog.tid > 0) {
+    if (tlog.tid) {
         void *retval = NULL;
         tlog.run = 0;
         pthread_join(tlog.tid, &retval);
+        tlog.tid = 0;
     }
 
     pthread_cond_destroy(&tlog.cond);
@@ -1859,7 +1860,7 @@ errout:
 
 void tlog_exit(void)
 {
-    if (tlog.tid > 0) {
+    if (tlog.tid) {
         void *ret = NULL;
         tlog.run = 0;
         pthread_mutex_lock(&tlog.lock);
