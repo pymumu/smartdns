@@ -108,7 +108,7 @@ struct http_head_fields *http_head_first_fields(struct http_head *http_head)
 
 const char *http_head_get_fields_value(struct http_head *http_head, const char *name)
 {
-	unsigned long key;
+	uint32_t key;
 	struct http_head_fields *filed;
 
 	key = hash_string(name);
@@ -193,7 +193,7 @@ int http_head_get_data_len(struct http_head *http_head)
 
 static int _http_head_add_fields(struct http_head *http_head, char *name, char *value)
 {
-	unsigned long key = 0;
+	uint32_t key = 0;
 	struct http_head_fields *fields = NULL;
 	fields = malloc(sizeof(*fields));
 	if (fields == NULL) {

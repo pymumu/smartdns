@@ -219,14 +219,16 @@ static inline uint32_t hash32_ptr(const void *ptr)
 	return (uint32_t)val;
 }
 
-static inline unsigned long
-hash_string(const char *str)
+static inline uint32_t hash_string(const char *s)
 {
-	unsigned long v = 0;
-    const char *c;
-	for (c = str; *c; )
-		v = (((v << 1) + (v >> 14)) ^ (*c++)) & 0x3fff;
-	return(v);
+    uint32_t h = 0;
+
+    while (*s) {
+        h = h * 31 + *s;
+        s++;
+    }
+
+    return h;
 }
 
 #endif /* _GENERIC_HASH_H */

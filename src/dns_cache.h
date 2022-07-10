@@ -51,7 +51,7 @@ struct dns_cache_data_head {
 	uint32_t cache_flag;
 	enum CACHE_TYPE cache_type;
 	int is_soa;
-	size_t size;
+	ssize_t size;
 };
 
 struct dns_cache_data {
