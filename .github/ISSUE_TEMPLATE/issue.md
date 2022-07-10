@@ -15,6 +15,11 @@ assignees: ''
 
 2. 运营商  
 
+3. smartdns来源以及版本
+
+4. 涉及的配置(注意去除个人相关信息)
+
+
 **重现步骤**
 1. 上游DNS配置。  
 
@@ -22,8 +27,8 @@ assignees: ''
 
 
 **信息收集**  
-1. 将/var/log/smrtdns.log日志作为附件上传。  
-2. 如进程异常，请将coredump功能开启，上传coredump信息文件。  
+1. 将/var/log/smrtdns.log日志作为附件上传(注意去除个人相关信息)。  
+2. 如进程异常，请将coredump功能开启，上传coredump信息文件，同时上传配套的smartdns进程文件。  
 在自定义界面，开启设置->自定义设置->生成coredump配置，重现问题后提交coredump文件
 coredump文件在/tmp目录下
 

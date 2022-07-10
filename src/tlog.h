@@ -8,6 +8,7 @@
 #define TLOG_H
 #include <stdarg.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 
 #ifdef __cplusplus
 #include <functional>

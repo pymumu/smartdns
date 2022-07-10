@@ -46,8 +46,8 @@ struct dns_group_table dns_group_table;
 
 struct dns_ptr_table dns_ptr_table;
 
-char dns_conf_dnsmasq_lease_file[DNS_MAX_PATH];
-time_t dns_conf_dnsmasq_lease_file_time;
+static char dns_conf_dnsmasq_lease_file[DNS_MAX_PATH];
+static time_t dns_conf_dnsmasq_lease_file_time;
 
 struct dns_hosts_table dns_hosts_table;
 int dns_hosts_record_num;
@@ -80,7 +80,7 @@ struct dns_domain_check_orders dns_conf_check_orders = {
 			{.type = DOMAIN_CHECK_TCP, .tcp_port = 443},
 		},
 };
-int dns_has_cap_ping = 0;
+static int dns_has_cap_ping = 0;
 
 /* logging */
 int dns_conf_log_level = TLOG_ERROR;
@@ -249,7 +249,7 @@ static void _config_group_table_destroy(void)
 {
 	struct dns_server_groups *group = NULL;
 	struct hlist_node *tmp = NULL;
-	int i;
+	unsigned long i = 0;
 
 	hash_for_each_safe(dns_group_table.group, i, tmp, group, node)
 	{
@@ -261,7 +261,7 @@ static void _config_group_table_destroy(void)
 static int _config_server(int argc, char *argv[], dns_server_type_t type, int default_port)
 {
 	int index = dns_conf_server_num;
-	struct dns_servers *server;
+	struct dns_servers *server = NULL;
 	int port = -1;
 	char *ip = NULL;
 	int opt = 0;
@@ -455,7 +455,7 @@ static int _config_domain_rule_add(char *domain, enum domain_rule type, void *ru
 
 	/* Reverse string, for suffix match */
 	len = strlen(domain);
-	if (len >= sizeof(domain_key)) {
+	if (len >= (int)sizeof(domain_key)) {
 		tlog(TLOG_ERROR, "domain name %s too long", domain);
 		goto errout;
 	}
@@ -516,7 +516,7 @@ static int _config_domain_rule_flag_set(char *domain, unsigned int flag, unsigne
 	int len = 0;
 
 	len = strlen(domain);
-	if (len >= sizeof(domain_key)) {
+	if (len >= (int)sizeof(domain_key)) {
 		tlog(TLOG_ERROR, "domain %s too long", domain);
 		return -1;
 	}
@@ -574,7 +574,7 @@ static void _config_ipset_table_destroy(void)
 {
 	struct dns_ipset_name *ipset_name = NULL;
 	struct hlist_node *tmp = NULL;
-	int i;
+	unsigned long i = 0;
 
 	hash_for_each_safe(dns_ipset_table.ipset, i, tmp, ipset_name, node)
 	{
@@ -619,8 +619,8 @@ static int _conf_domain_rule_ipset(char *domain, const char *ipsetname)
 	struct dns_ipset_rule *ipset_rule = NULL;
 	const char *ipset = NULL;
 	char *copied_name = NULL;
-	enum domain_rule type;
-	int ignore_flag;
+	enum domain_rule type = 0;
+	int ignore_flag = 0;
 
 	copied_name = strdup(ipsetname);
 
@@ -630,10 +630,10 @@ static int _conf_domain_rule_ipset(char *domain, const char *ipsetname)
 
 	for (char *tok = strtok(copied_name, ","); tok; tok = strtok(NULL, ",")) {
 		if (tok[0] == '#') {
-			if (strncmp(tok, "#6:", 3u) == 0) {
+			if (strncmp(tok, "#6:", 3U) == 0) {
 				type = DOMAIN_RULE_IPSET_IPV6;
 				ignore_flag = DOMAIN_FLAG_IPSET_IPV6_IGN;
-			} else if (strncmp(tok, "#4:", 3u) == 0) {
+			} else if (strncmp(tok, "#4:", 3U) == 0) {
 				type = DOMAIN_RULE_IPSET_IPV4;
 				ignore_flag = DOMAIN_FLAG_IPSET_IPV4_IGN;
 			} else {
@@ -710,7 +710,7 @@ static int _conf_domain_rule_address(char *domain, const char *domain_address)
 	struct dns_address_IPV6 *address_ipv6 = NULL;
 	void *address = NULL;
 	char ip[MAX_IP_LEN];
-	int port;
+	int port = 0;
 	struct sockaddr_storage addr;
 	socklen_t addr_len = sizeof(addr);
 	enum domain_rule type = 0;
@@ -762,7 +762,7 @@ static int _conf_domain_rule_address(char *domain, const char *domain_address)
 
 		switch (addr.ss_family) {
 		case AF_INET: {
-			struct sockaddr_in *addr_in;
+			struct sockaddr_in *addr_in = NULL;
 			address_ipv4 = malloc(sizeof(*address_ipv4));
 			if (address_ipv4 == NULL) {
 				goto errout;
@@ -774,7 +774,7 @@ static int _conf_domain_rule_address(char *domain, const char *domain_address)
 			address = address_ipv4;
 		} break;
 		case AF_INET6: {
-			struct sockaddr_in6 *addr_in6;
+			struct sockaddr_in6 *addr_in6 = NULL;
 			addr_in6 = (struct sockaddr_in6 *)&addr;
 			if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
 				address_ipv4 = malloc(sizeof(*address_ipv4));
@@ -836,8 +836,8 @@ errout:
 static int _config_speed_check_mode_parser(struct dns_domain_check_orders *check_orders, const char *mode)
 {
 	char tmpbuff[DNS_MAX_OPT_LEN];
-	char *field;
-	char *ptr;
+	char *field = NULL;
+	char *ptr = NULL;
 	int order = 0;
 	int port = 80;
 	int i = 0;
@@ -910,7 +910,7 @@ static int _config_speed_check_mode(void *data, int argc, char *argv[])
 static int _config_bind_ip(int argc, char *argv[], DNS_BIND_TYPE type)
 {
 	int index = dns_conf_bind_ip_num;
-	struct dns_bind_ip *bind_ip;
+	struct dns_bind_ip *bind_ip = NULL;
 	char *ip = NULL;
 	int opt = 0;
 	char group_name[DNS_GROUP_NAME_LEN];
@@ -1144,8 +1144,8 @@ errout:
 
 static radix_node_t *_create_addr_node(char *addr)
 {
-	radix_node_t *node;
-	void *p;
+	radix_node_t *node = NULL;
+	void *p = NULL;
 	prefix_t prefix;
 	const char *errmsg = NULL;
 	radix_tree_t *tree = NULL;
@@ -1212,7 +1212,7 @@ static int _config_iplist_rule(char *subnet, enum address_rule rule)
 
 static int _config_qtype_soa(void *data, int argc, char *argv[])
 {
-	struct dns_qtype_soa_list *soa_list;
+	struct dns_qtype_soa_list *soa_list = NULL;
 	int i = 0;
 
 	if (argc <= 1) {
@@ -1242,7 +1242,7 @@ static void _config_qtype_soa_table_destroy(void)
 {
 	struct dns_qtype_soa_list *soa_list = NULL;
 	struct hlist_node *tmp = NULL;
-	int i;
+	unsigned long i = 0;
 
 	hash_for_each_safe(dns_qtype_soa_table.qtype, i, tmp, soa_list, node)
 	{
@@ -1505,7 +1505,7 @@ static int _conf_ptr_add(const char *hostname, const char *ip)
 {
 	struct dns_ptr *ptr = NULL;
 	struct sockaddr_storage addr;
-	unsigned char *paddr;
+	unsigned char *paddr = NULL;
 	socklen_t addr_len = sizeof(addr);
 	char ptr_domain[DNS_MAX_PTR_LEN];
 
@@ -1515,13 +1515,13 @@ static int _conf_ptr_add(const char *hostname, const char *ip)
 
 	switch (addr.ss_family) {
 	case AF_INET: {
-		struct sockaddr_in *addr_in;
+		struct sockaddr_in *addr_in = NULL;
 		addr_in = (struct sockaddr_in *)&addr;
 		paddr = (unsigned char *)&(addr_in->sin_addr.s_addr);
 		snprintf(ptr_domain, sizeof(ptr_domain), "%d.%d.%d.%d.in-addr.arpa", paddr[3], paddr[2], paddr[1], paddr[0]);
 	} break;
 	case AF_INET6: {
-		struct sockaddr_in6 *addr_in6;
+		struct sockaddr_in6 *addr_in6 = NULL;
 		addr_in6 = (struct sockaddr_in6 *)&addr;
 		if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
 			paddr = addr_in6->sin6_addr.s6_addr + 12;
@@ -1565,7 +1565,7 @@ static void _config_ptr_table_destroy(void)
 {
 	struct dns_ptr *ptr = NULL;
 	struct hlist_node *tmp = NULL;
-	int i;
+	unsigned long i = 0;
 
 	hash_for_each_safe(dns_ptr_table.ptr, i, tmp, ptr, node)
 	{
@@ -1617,7 +1617,7 @@ static int _conf_host_add(const char *hostname, const char *ip, dns_hosts_type h
 {
 	struct dns_hosts *host = NULL;
 	struct dns_hosts *host_other __attribute__((unused));
-	;
+
 	struct sockaddr_storage addr;
 	socklen_t addr_len = sizeof(addr);
 	int dns_type = 0;
@@ -1633,7 +1633,7 @@ static int _conf_host_add(const char *hostname, const char *ip, dns_hosts_type h
 		dns_type_other = DNS_T_AAAA;
 		break;
 	case AF_INET6: {
-		struct sockaddr_in6 *addr_in6;
+		struct sockaddr_in6 *addr_in6 = NULL;
 		addr_in6 = (struct sockaddr_in6 *)&addr;
 		if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
 			dns_type = DNS_T_A;
@@ -1660,13 +1660,13 @@ static int _conf_host_add(const char *hostname, const char *ip, dns_hosts_type h
 
 	switch (addr.ss_family) {
 	case AF_INET: {
-		struct sockaddr_in *addr_in;
+		struct sockaddr_in *addr_in = NULL;
 		addr_in = (struct sockaddr_in *)&addr;
 		memcpy(host->ipv4_addr, &addr_in->sin_addr.s_addr, 4);
 		host->is_soa = 0;
 	} break;
 	case AF_INET6: {
-		struct sockaddr_in6 *addr_in6;
+		struct sockaddr_in6 *addr_in6 = NULL;
 		addr_in6 = (struct sockaddr_in6 *)&addr;
 		if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
 			memcpy(host->ipv4_addr, addr_in6->sin6_addr.s6_addr + 12, 4);
@@ -1694,7 +1694,7 @@ static int _conf_dhcp_lease_dnsmasq_add(const char *file)
 	char hostname[DNS_MAX_CNAME_LEN];
 	int ret = 0;
 	int line_no = 0;
-	int filed_num;
+	int filed_num = 0;
 
 	fp = fopen(file, "r");
 	if (fp == NULL) {
@@ -1710,7 +1710,7 @@ static int _conf_dhcp_lease_dnsmasq_add(const char *file)
 			continue;
 		}
 
-		if (strncmp(hostname, "*", DNS_MAX_CNAME_LEN) == 0) {
+		if (strncmp(hostname, "*", DNS_MAX_CNAME_LEN - 1) == 0) {
 			continue;
 		}
 
@@ -1760,7 +1760,7 @@ static void _config_host_table_destroy(void)
 {
 	struct dns_hosts *host = NULL;
 	struct hlist_node *tmp = NULL;
-	int i;
+	unsigned long i = 0;
 
 	hash_for_each_safe(dns_hosts_table.hosts, i, tmp, host, node)
 	{
@@ -1774,7 +1774,7 @@ static void _config_host_table_destroy(void)
 int dns_server_check_update_hosts(void)
 {
 	struct stat statbuf;
-	time_t now;
+	time_t now = 0;
 
 	if (dns_conf_dnsmasq_lease_file[0] == '\0') {
 		return -1;
@@ -1838,12 +1838,12 @@ static void _config_setup_smartdns_domain(void)
 	}
 
 	/* get host name again */
-	if (strncmp(hostname, "(none)", DNS_MAX_CNAME_LEN) == 0) {
+	if (strncmp(hostname, "(none)", DNS_MAX_CNAME_LEN - 1) == 0) {
 		gethostname(hostname, DNS_MAX_CNAME_LEN);
 	}
 
 	/* if hostname is (none), return smartdns */
-	if (strncmp(hostname, "(none)", DNS_MAX_CNAME_LEN) == 0) {
+	if (strncmp(hostname, "(none)", DNS_MAX_CNAME_LEN - 1) == 0) {
 		safe_strncpy(hostname, "smartdns", DNS_MAX_CNAME_LEN);
 	}
 
@@ -1934,7 +1934,7 @@ static int _conf_printf(const char *file, int lineno, int ret)
 
 int config_addtional_file(void *data, int argc, char *argv[])
 {
-	char *conf_file;
+	char *conf_file = NULL;
 	char file_path[DNS_MAX_PATH];
 	char file_path_dir[DNS_MAX_PATH];
 
@@ -2004,7 +2004,8 @@ void dns_server_load_exit(void)
 
 static int _dns_conf_speed_check_mode_verify(void)
 {
-	int i, j;
+	int i = 0;
+	int j = 0;
 	int print_log = 0;
 
 	if (dns_has_cap_ping == 1) {
@@ -2033,7 +2034,7 @@ static int _dns_conf_speed_check_mode_verify(void)
 static int _dns_ping_cap_check(void)
 {
 	int has_ping = 0;
-	int has_raw_cap;
+	int has_raw_cap = 0;
 
 	has_raw_cap = has_network_raw_cap();
 	has_ping = has_unprivileged_ping();
