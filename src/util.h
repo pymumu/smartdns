@@ -45,6 +45,16 @@ extern "C" {
 #define PORT_NOT_DEFINED -1
 #define MAX_IP_LEN 64
 
+#ifndef BASE_FILE_NAME
+#define BASE_FILE_NAME                                                     \
+  (__builtin_strrchr(__FILE__, '/') ? __builtin_strrchr(__FILE__, '/') + 1 \
+                                    : __FILE__)
+#endif
+#define BUG(format, ...) bug_ext(BASE_FILE_NAME, __LINE__, __func__, format, ##__VA_ARGS__)
+
+void bug_ext(const char *file, int line, const char *func, const char *errfmt, ...)
+	__attribute__((format(printf, 4, 5))) __attribute__((nonnull(4)));
+
 unsigned long get_tick_count(void);
 
 char *gethost_by_addr(char *host, int maxsize, struct sockaddr *addr);
