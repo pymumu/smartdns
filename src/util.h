@@ -46,9 +46,7 @@ extern "C" {
 #define MAX_IP_LEN 64
 
 #ifndef BASE_FILE_NAME
-#define BASE_FILE_NAME                                                     \
-  (__builtin_strrchr(__FILE__, '/') ? __builtin_strrchr(__FILE__, '/') + 1 \
-                                    : __FILE__)
+#define BASE_FILE_NAME (__builtin_strrchr(__FILE__, '/') ? __builtin_strrchr(__FILE__, '/') + 1 : __FILE__)
 #endif
 #define BUG(format, ...) bug_ext(BASE_FILE_NAME, __LINE__, __func__, format, ##__VA_ARGS__)
 
@@ -82,6 +80,12 @@ void print_stack(void);
 int ipset_add(const char *ipsetname, const unsigned char addr[], int addr_len, unsigned long timeout);
 
 int ipset_del(const char *ipsetname, const unsigned char addr[], int addr_len);
+
+int nftset_add(const char *familyname, const char *tablename, const char *setname, const unsigned char addr[],
+			   int addr_len, unsigned long timeout);
+
+int nftset_del(const char *faimlyname, const char *tablename, const char *setname, const unsigned char addr[],
+			   int addr_len);
 
 void SSL_CRYPTO_thread_setup(void);
 

@@ -46,6 +46,10 @@
 #include <unistd.h>
 #include <unwind.h>
 
+#ifdef WITH_NFTSET
+#include <nftables/libnftables.h>
+#endif
+
 #define TMP_BUFF_LEN_32 32
 
 #define NFNL_SUBSYS_IPSET 6
@@ -635,6 +639,70 @@ int ipset_del(const char *ipsetname, const unsigned char addr[], int addr_len)
 {
 	return _ipset_operate(ipsetname, addr, addr_len, 0, IPSET_DEL);
 }
+
+#ifdef WITH_NFTSET
+static struct nft_ctx *_nftset_init(void)
+{
+	static struct nft_ctx *nft_ctx = NULL;
+	if (nft_ctx)
+		return nft_ctx;
+
+	nft_ctx = nft_ctx_new(NFT_CTX_DEFAULT);
+	if (!nft_ctx) {
+		return NULL;
+	}
+
+	nft_ctx_buffer_error(nft_ctx);
+	return nft_ctx;
+}
+
+static int _nftset_operate(const char *familyname, const char *tablename, const char *setname,
+						   const unsigned char addr[], int af, const char *op, const char *flags)
+{
+	char *cmd_buf = NULL;
+
+	struct nft_ctx *nft_ctx = _nftset_init();
+	if (nft_ctx == NULL) {
+		return -1;
+	}
+
+	char addr_str[INET6_ADDRSTRLEN];
+	if (!inet_ntop(af, addr, addr_str, INET6_ADDRSTRLEN)) {
+		return -1;
+	}
+
+	int ret = asprintf(&cmd_buf, "%s element %s %s %s { %s %s }", op, familyname, tablename, setname, addr_str, flags);
+
+	if (ret == -1) {
+		return -1;
+	}
+
+	ret = nft_run_cmd_from_buffer(nft_ctx, cmd_buf);
+	nft_ctx_get_error_buffer(nft_ctx);
+
+	free(cmd_buf);
+
+	return ret;
+}
+
+int nftset_add(const char *familyname, const char *tablename, const char *setname, const unsigned char addr[],
+			   int addr_len, unsigned long timeout)
+{
+	char flag_timeout[32] = {'\0'};
+	int af = addr_len == IPV6_ADDR_LEN ? AF_INET6 : AF_INET;
+	if (dns_conf_nftset_timeout_enable) {
+		snprintf(flag_timeout, sizeof(flag_timeout), "timeout %lus", timeout);
+	}
+	return _nftset_operate(familyname, tablename, setname, addr, af, "add", flag_timeout);
+}
+
+int nftset_del(const char *familyname, const char *tablename, const char *setname, const unsigned char addr[],
+			   int addr_len)
+{
+	int af = addr_len == IPV6_ADDR_LEN ? AF_INET6 : AF_INET;
+	return _nftset_operate(familyname, tablename, setname, addr, af, "delete", "");
+}
+#endif
 
 unsigned char *SSL_SHA256(const unsigned char *d, size_t n, unsigned char *md)
 {

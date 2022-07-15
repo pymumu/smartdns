@@ -231,4 +231,19 @@ static inline uint32_t hash_string(const char *s)
     return h;
 }
 
+static inline uint32_t hash_string_array(const char **a)
+{
+    uint32_t h = 0;
+
+	const char* s;
+	while((s = *a++)) {
+		while (*s) {
+			h = h * 31 + *s;
+			s++;
+		}
+	}
+
+    return h;
+}
+
 #endif /* _GENERIC_HASH_H */

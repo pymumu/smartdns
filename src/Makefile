@@ -38,10 +38,15 @@ else
 override LDFLAGS += -lssl -lcrypto -lpthread -ldl
 endif
 
+ifdef WITH_NFTSET
+override CFLAGS += -DWITH_NFTSET
+override LDFLAGS += -lnftables
+endif
+
 .PHONY: all clean
 
 all: $(BIN)
- 
+
 $(BIN) : $(OBJS)
 	$(CC) $(OBJS) -o $@ $(LDFLAGS)
 

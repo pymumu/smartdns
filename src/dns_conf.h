@@ -38,6 +38,8 @@ extern "C" {
 #define DNS_MAX_SERVER_NAME_LEN 128
 #define DNS_MAX_PTR_LEN 128
 #define DNS_MAX_IPSET_NAMELEN 32
+#define DNS_MAX_NFTSET_FAMILYLEN 8
+#define DNS_MAX_NFTSET_NAMELEN 256
 #define DNS_GROUP_NAME_LEN 32
 #define DNS_NAX_GROUP_NUMBER 16
 #define DNS_MAX_IPLEN 64
@@ -62,6 +64,10 @@ enum domain_rule {
 	DOMAIN_RULE_IPSET,
 	DOMAIN_RULE_IPSET_IPV4,
 	DOMAIN_RULE_IPSET_IPV6,
+#ifdef WITH_NFTSET
+	DOMAIN_RULE_NFTSET_IP,
+	DOMAIN_RULE_NFTSET_IP6,
+#endif
 	DOMAIN_RULE_NAMESERVER,
 	DOMAIN_RULE_CHECKSPEED,
 	DOMAIN_RULE_MAX,
@@ -90,6 +96,11 @@ typedef enum {
 #define DOMAIN_FLAG_NAMESERVER_IGNORE (1 << 9)
 #define DOMAIN_FLAG_DUALSTACK_SELECT (1 << 10)
 #define DOMAIN_FLAG_SMARTDNS_DOMAIN (1 << 11)
+#ifdef WITH_NFTSET
+#define DOMAIN_FLAG_NFTSET_INET_IGN (1 << 12)
+#define DOMAIN_FLAG_NFTSET_IP_IGN (1 << 13)
+#define DOMAIN_FLAG_NFTSET_IP6_IGN (1 << 14)
+#endif
 
 #define SERVER_FLAG_EXCLUDE_DEFAULT (1 << 0)
 
@@ -134,6 +145,22 @@ struct dns_ipset_rule {
 	struct dns_rule head;
 	const char *ipsetname;
 };
+
+#ifdef WITH_NFTSET
+struct dns_nftset_name {
+	struct hlist_node node;
+	char nftfamilyname[DNS_MAX_NFTSET_FAMILYLEN];
+	char nfttablename[DNS_MAX_NFTSET_NAMELEN];
+	char nftsetname[DNS_MAX_NFTSET_NAMELEN];
+};
+
+struct dns_nftset_rule {
+	struct dns_rule head;
+	const char *familyname;
+	const char *nfttablename;
+	const char *nftsetname;
+};
+#endif
 
 struct dns_domain_rule {
 	struct dns_rule head;
@@ -366,6 +393,7 @@ extern int dns_conf_rr_ttl_min;
 extern int dns_conf_rr_ttl_max;
 extern int dns_conf_force_AAAA_SOA;
 extern int dns_conf_ipset_timeout_enable;
+extern int dns_conf_nftset_timeout_enable;
 extern int dns_conf_local_ttl;
 
 extern int dns_conf_force_no_cname;
