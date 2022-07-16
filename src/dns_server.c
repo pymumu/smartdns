@@ -797,8 +797,7 @@ static void _dns_server_conn_release(struct dns_server_conn_head *conn)
 
 	if (refcnt) {
 		if (refcnt < 0) {
-			tlog(TLOG_ERROR, "BUG: refcnt is %d, type = %d", refcnt, conn->type);
-			abort();
+			BUG("BUG: refcnt is %d, type = %d", refcnt, conn->type);
 		}
 		return;
 	}
@@ -819,8 +818,7 @@ static void _dns_server_conn_get(struct dns_server_conn_head *conn)
 	}
 
 	if (atomic_inc_return(&conn->refcnt) <= 0) {
-		tlog(TLOG_ERROR, "BUG: client ref is invalid.");
-		abort();
+		BUG("BUG: client ref is invalid.");
 	}
 }
 
@@ -1797,14 +1795,18 @@ static void _dns_server_request_release_complete(struct dns_request *request, in
 	if (refcnt) {
 		pthread_mutex_unlock(&server.request_list_lock);
 		if (refcnt < 0) {
-			tlog(TLOG_ERROR, "BUG: refcnt is %d, domain %s, qtype %d", refcnt, request->domain, request->qtype);
-			abort();
+			BUG("BUG: refcnt is %d, domain %s, qtype %d", refcnt, request->domain, request->qtype);
 		}
 		return;
 	}
 
 	list_del_init(&request->list);
+	list_del_init(&request->check_list);
 	pthread_mutex_unlock(&server.request_list_lock);
+
+	pthread_mutex_lock(&server.request_pending_lock);
+	list_del_init(&request->pending_list);
+	pthread_mutex_unlock(&server.request_pending_lock);
 
 	if (do_complete) {
 		/* Select max hit ip address, and return to client */
@@ -1831,8 +1833,7 @@ static void _dns_server_request_release(struct dns_request *request)
 static void _dns_server_request_get(struct dns_request *request)
 {
 	if (atomic_inc_return(&request->refcnt) <= 0) {
-		tlog(TLOG_ERROR, "BUG: request ref is invalid, %s", request->domain);
-		abort();
+		BUG("BUG: request ref is invalid, %s", request->domain);
 	}
 }
 
@@ -1867,7 +1868,7 @@ static int _dns_server_set_to_pending_list(struct dns_request *request)
 		pending_list = malloc(sizeof(*pending_list));
 		if (pending_list == NULL) {
 			ret = -1;
-			goto errout;
+			goto out;
 		}
 
 		memset(pending_list, 0, sizeof(*pending_list));
@@ -1882,14 +1883,11 @@ static int _dns_server_set_to_pending_list(struct dns_request *request)
 		ret = 0;
 	}
 
-	pthread_mutex_lock(&pending_list->request_list_lock);
 	if (ret == 0) {
 		_dns_server_request_get(request);
 	}
 	list_add_tail(&request->pending_list, &pending_list->request_list);
-
-	pthread_mutex_unlock(&pending_list->request_list_lock);
-errout:
+out:
 	pthread_mutex_unlock(&server.request_pending_lock);
 	return ret;
 }

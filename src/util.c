@@ -36,6 +36,7 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
 #include <sys/prctl.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
@@ -1121,7 +1122,7 @@ void print_stack(void)
 	if (frame_num == 0) {
 		return;
 	}
-	
+
 	tlog(TLOG_FATAL, "Stack:");
 	for (idx = 0; idx < frame_num; ++idx) {
 		const void *addr = buffer[idx];
@@ -1134,8 +1135,26 @@ void print_stack(void)
 		}
 
 		void *offset = (void *)((char *)(addr) - (char *)(info.dli_fbase));
-		tlog(TLOG_FATAL, "#%.2d: %p %s from %s+%p", idx + 1, addr, symbol, info.dli_fname, offset);
+		tlog(TLOG_FATAL, "#%.2d: %p %s() from %s+%p", idx + 1, addr, symbol, info.dli_fname, offset);
 	}
+}
+
+void bug_ext(const char *file, int line, const char *func, const char *errfmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, errfmt);
+	tlog_vext(TLOG_FATAL, file, line, func, NULL, errfmt, ap);
+	va_end(ap);
+
+	print_stack();
+	/* trigger BUG */
+	sleep(1);
+	raise(SIGSEGV);
+
+	while (true) {
+		sleep(1);
+	};
 }
 
 int write_file(const char *filename, void *data, int data_len)

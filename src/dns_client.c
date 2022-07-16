@@ -1245,8 +1245,7 @@ static int _dns_client_server_remove(char *server_ip, int port, dns_server_type_
 static void _dns_client_server_pending_get(struct dns_server_pending *pending)
 {
 	if (atomic_inc_return(&pending->refcnt) <= 0) {
-		tlog(TLOG_ERROR, "BUG: pending ref is invalid");
-		abort();
+		BUG("pending ref is invalid");
 	}
 }
 
@@ -1259,8 +1258,7 @@ static void _dns_client_server_pending_release(struct dns_server_pending *pendin
 
 	if (refcnt) {
 		if (refcnt < 0) {
-			tlog(TLOG_ERROR, "BUG: pending refcnt is %d", refcnt);
-			abort();
+			BUG("BUG: pending refcnt is %d", refcnt);
 		}
 		return;
 	}
@@ -1373,8 +1371,7 @@ int dns_server_num(void)
 static void _dns_client_query_get(struct dns_query_struct *query)
 {
 	if (atomic_inc_return(&query->refcnt) <= 0) {
-		tlog(TLOG_ERROR, "BUG: query ref is invalid, domain: %s", query->domain);
-		abort();
+		BUG("query ref is invalid, domain: %s", query->domain);
 	}
 }
 
@@ -1387,8 +1384,7 @@ static void _dns_client_query_release(struct dns_query_struct *query)
 
 	if (refcnt) {
 		if (refcnt < 0) {
-			tlog(TLOG_ERROR, "BUG: refcnt is %d", refcnt);
-			abort();
+			BUG("BUG: refcnt is %d", refcnt);
 		}
 		return;
 	}
@@ -2213,8 +2209,7 @@ static int _dns_client_process_tcp_buff(struct dns_server_info *server_info)
 
 		server_info->recv_buff.len -= len;
 		if (server_info->recv_buff.len < 0) {
-			tlog(TLOG_ERROR, "Internal error.");
-			abort();
+			BUG("Internal error.");
 		}
 
 		/* move to next result */
@@ -2315,8 +2310,7 @@ static int _dns_client_process_tcp(struct dns_server_info *server_info, struct e
 			if (server_info->send_buff.len > 0) {
 				memmove(server_info->send_buff.data, server_info->send_buff.data + len, server_info->send_buff.len);
 			} else if (server_info->send_buff.len < 0) {
-				tlog(TLOG_ERROR, "Internal Error");
-				abort();
+				BUG("Internal Error");
 			}
 			pthread_mutex_unlock(&client.server_list_lock);
 		}
@@ -2971,8 +2965,7 @@ static int _dns_client_send_query(struct dns_query_struct *query, const char *do
 	}
 
 	if (encode_len > DNS_IN_PACKSIZE) {
-		tlog(TLOG_ERROR, "size is invalid.");
-		abort();
+		BUG("size is invalid.");
 		return -1;
 	}
 
