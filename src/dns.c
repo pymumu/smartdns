@@ -342,7 +342,7 @@ struct dns_rrs *dns_get_rrs_start(struct dns_packet *packet, dns_rr_type type, i
 		break;
 	}
 
-	/* if not resource record, reutrn null */
+	/* if not resource record, return null */
 	if (start == DNS_RR_END) {
 		return NULL;
 	}
@@ -431,7 +431,7 @@ static int _dns_rr_add_end(struct dns_packet *packet, int type, dns_type_t rtype
 		break;
 	}
 
-	/* add data to end of dns_packet, and set previouse rrs point to this rrs */
+	/* add data to end of dns_packet, and set previous rrs point to this rrs */
 	if (*start != DNS_RR_END) {
 		rrs_next = (struct dns_rrs *)(packet->data + *start);
 		while (rrs_next->next != DNS_RR_END) {
