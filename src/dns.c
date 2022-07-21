@@ -731,7 +731,8 @@ int dns_get_CNAME(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, char
 	return _dns_get_RAW(rrs, domain, maxsize, ttl, cname, &len);
 }
 
-int dns_add_A(struct dns_packet *packet, dns_rr_type type, const char *domain, int ttl, unsigned char addr[DNS_RR_A_LEN])
+int dns_add_A(struct dns_packet *packet, dns_rr_type type, const char *domain, int ttl,
+			  unsigned char addr[DNS_RR_A_LEN])
 {
 	return _dns_add_RAW(packet, type, DNS_T_A, domain, ttl, addr, DNS_RR_A_LEN);
 }
@@ -1693,7 +1694,8 @@ static int _dns_decode_an(struct dns_context *context, dns_rr_type type)
 		unsigned char addr[DNS_RR_A_LEN];
 		ret = _dns_decode_raw(context, addr, sizeof(addr));
 		if (ret < 0) {
-			tlog(TLOG_ERROR, "decode A failed, %s", domain);
+			tlog(TLOG_DEBUG, "decode A failed, %s, len: %d:%d", domain, (int)(context->ptr - context->data),
+				 _dns_left_len(context));
 			return -1;
 		}
 
@@ -1707,7 +1709,8 @@ static int _dns_decode_an(struct dns_context *context, dns_rr_type type)
 		char cname[DNS_MAX_CNAME_LEN];
 		ret = _dns_decode_CNAME(context, cname, DNS_MAX_CNAME_LEN);
 		if (ret < 0) {
-			tlog(TLOG_ERROR, "decode CNAME failed, %s", domain);
+			tlog(TLOG_DEBUG, "decode CNAME failed, %s, len: %d:%d", domain, (int)(context->ptr - context->data),
+				 _dns_left_len(context));
 			return -1;
 		}
 
@@ -1721,7 +1724,7 @@ static int _dns_decode_an(struct dns_context *context, dns_rr_type type)
 		struct dns_soa soa;
 		ret = _dns_decode_SOA(context, &soa);
 		if (ret < 0) {
-			tlog(TLOG_ERROR, "decode SOA failed, %s", domain);
+			tlog(TLOG_DEBUG, "decode SOA failed, %s", domain);
 			return -1;
 		}
 
@@ -1735,7 +1738,7 @@ static int _dns_decode_an(struct dns_context *context, dns_rr_type type)
 		char ns[DNS_MAX_CNAME_LEN];
 		ret = _dns_decode_CNAME(context, ns, DNS_MAX_CNAME_LEN);
 		if (ret < 0) {
-			tlog(TLOG_ERROR, "decode NS failed, %s", domain);
+			tlog(TLOG_DEBUG, "decode NS failed, %s", domain);
 			return -1;
 		}
 
@@ -1749,7 +1752,7 @@ static int _dns_decode_an(struct dns_context *context, dns_rr_type type)
 		char name[DNS_MAX_CNAME_LEN];
 		ret = _dns_decode_CNAME(context, name, DNS_MAX_CNAME_LEN);
 		if (ret < 0) {
-			tlog(TLOG_ERROR, "decode PTR failed, %s", domain);
+			tlog(TLOG_DEBUG, "decode PTR failed, %s", domain);
 			return -1;
 		}
 
@@ -1763,7 +1766,7 @@ static int _dns_decode_an(struct dns_context *context, dns_rr_type type)
 		unsigned char addr[DNS_RR_AAAA_LEN];
 		ret = _dns_decode_raw(context, addr, sizeof(addr));
 		if (ret < 0) {
-			tlog(TLOG_ERROR, "decode AAAA failed, %s", domain);
+			tlog(TLOG_DEBUG, "decode AAAA failed, %s", domain);
 			return -1;
 		}
 
@@ -1777,7 +1780,7 @@ static int _dns_decode_an(struct dns_context *context, dns_rr_type type)
 		unsigned char *opt_start = context->ptr;
 		ret = _dns_decode_opt(context, type, ttl, rr_len);
 		if (ret < 0) {
-			tlog(TLOG_ERROR, "decode opt failed, %s", domain);
+			tlog(TLOG_DEBUG, "decode opt failed, %s", domain);
 			return -1;
 		}
 
@@ -1797,7 +1800,7 @@ static int _dns_decode_an(struct dns_context *context, dns_rr_type type)
 
 		ret = _dns_decode_raw(context, raw_data, rr_len);
 		if (ret < 0) {
-			tlog(TLOG_ERROR, "decode A failed, %s", domain);
+			tlog(TLOG_DEBUG, "decode A failed, %s", domain);
 			return -1;
 		}
 

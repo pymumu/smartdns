@@ -872,7 +872,7 @@ static int _dns_server_reply_udp(struct dns_request *request, struct dns_server_
 								 unsigned char *inpacket, int inpacket_len)
 {
 	int send_len = 0;
-	if (atomic_read(&server.run) == 0) {
+	if (atomic_read(&server.run) == 0 || inpacket == NULL || inpacket_len <= 0) {
 		return -1;
 	}
 
@@ -4089,6 +4089,8 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 	}
 
 	if (_dns_server_parser_request(request, packet) != 0) {
+		tlog(TLOG_DEBUG, "parser request failed.");
+		ret = RECV_ERROR_INVALID_PACKET;
 		goto errout;
 	}
 
@@ -4107,7 +4109,7 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 	return ret;
 errout:
 	if (request) {
-		ret = _dns_server_forward_request(inpacket, inpacket_len);
+		_dns_server_forward_request(inpacket, inpacket_len);
 		_dns_server_request_release(request);
 	}
 
