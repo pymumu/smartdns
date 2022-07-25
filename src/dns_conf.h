@@ -298,6 +298,12 @@ extern int dns_conf_dualstack_ip_allow_force_AAAA;
 extern int dns_conf_dualstack_ip_selection_threshold;
 
 extern int dns_conf_max_reply_ip_num;
+enum response_mode_type {
+	DNS_RESPONSE_MODE_FIRST_PING_IP = 0,
+	DNS_RESPONSE_MODE_FASTEST_IP,
+	DNS_RESPONSE_MODE_FASTEST_RESPONSE,
+};
+extern enum response_mode_type dns_conf_response_mode;
 
 extern int dns_conf_rr_ttl;
 extern int dns_conf_rr_ttl_reply_max;

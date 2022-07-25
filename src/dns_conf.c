@@ -59,6 +59,14 @@ int dns_conf_tcp_idle_time = 120;
 
 int dns_conf_max_reply_ip_num = DNS_MAX_REPLY_IP_NUM;
 
+static struct config_enum_list dns_conf_response_mode_enum[] = {
+	{"first-ping", DNS_RESPONSE_MODE_FIRST_PING_IP},
+	{"fastest-ip", DNS_RESPONSE_MODE_FASTEST_IP},
+	{"fastest-response", DNS_RESPONSE_MODE_FASTEST_RESPONSE},
+	{0, 0}};
+
+enum response_mode_type dns_conf_response_mode;
+
 /* cache */
 int dns_conf_cachesize = DEFAULT_DNS_CACHE_SIZE;
 int dns_conf_prefetch = 0;
@@ -1022,7 +1030,7 @@ static int _config_bind_ip(int argc, char *argv[], DNS_BIND_TYPE type)
 	bind_ip->flags = server_flag;
 	bind_ip->group = group;
 	dns_conf_bind_ip_num++;
-	tlog(TLOG_DEBUG, "bind ip %s, type:%d, flag: %X", ip, type, server_flag);
+	tlog(TLOG_DEBUG, "bind ip %s, type: %d, flag: %X", ip, type, server_flag);
 
 	return 0;
 
@@ -1897,6 +1905,7 @@ static struct config_item _config_item[] = {
 	CONF_INT("rr-ttl-max", &dns_conf_rr_ttl_max, 0, CONF_INT_MAX),
 	CONF_INT("rr-ttl-reply-max", &dns_conf_rr_ttl_reply_max, 0, CONF_INT_MAX),
 	CONF_INT("max-reply-ip-num", &dns_conf_max_reply_ip_num, 1, CONF_INT_MAX),
+	CONF_ENUM("response-mode", &dns_conf_response_mode, &dns_conf_response_mode_enum),
 	CONF_YESNO("force-AAAA-SOA", &dns_conf_force_AAAA_SOA),
 	CONF_YESNO("force-no-CNAME", &dns_conf_force_no_cname),
 	CONF_CUSTOM("force-qtype-SOA", _config_qtype_soa, NULL),
@@ -2068,6 +2077,12 @@ errout:
 static int _dns_conf_load_post(void)
 {
 	_dns_conf_speed_check_mode_verify();
+
+	if (dns_conf_cachesize == 0 && dns_conf_response_mode == DNS_RESPONSE_MODE_FASTEST_RESPONSE) {
+		dns_conf_response_mode = DNS_RESPONSE_MODE_FASTEST_IP;
+		tlog(TLOG_WARN, "force set response to %s as cache size is 0",
+			 dns_conf_response_mode_enum[dns_conf_response_mode].name);
+	}
 
 	return 0;
 }

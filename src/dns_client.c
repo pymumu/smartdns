@@ -1988,6 +1988,11 @@ static int _dns_client_socket_ssl_send(struct dns_server_info *server, const voi
 		return -1;
 	}
 
+	if (num < 0) {
+		errno = EINVAL;
+		return -1;
+	}
+
 	ret = _ssl_write(server, buf, num);
 	if (ret > 0) {
 		return ret;
@@ -2075,7 +2080,7 @@ static int _dns_client_socket_ssl_recv(struct dns_server_info *server, void *buf
 			return 0;
 		}
 
-		tlog(TLOG_ERROR, "SSL read fail error no: %s(%lx)\n", ERR_reason_error_string(ssl_err), ssl_err);
+		tlog(TLOG_INFO, "SSL read fail error no: %s(%lx), len: %d\n", ERR_reason_error_string(ssl_err), ssl_err, num);
 		errno = EFAULT;
 		ret = -1;
 		break;

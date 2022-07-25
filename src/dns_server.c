@@ -110,6 +110,8 @@ struct dns_server_post_context {
 	int do_ipset;
 	int do_log_result;
 	int reply_ttl;
+	int cache_ttl;
+	int no_check_add_ip;
 	int do_audit;
 	int do_force_soa;
 	int skip_notify_count;
@@ -477,6 +479,11 @@ static void _dns_server_audit_log(struct dns_server_post_context *context)
 					continue;
 				}
 
+				if (strncmp(name, request->domain, DNS_MAX_CNAME_LEN - 1) != 0 &&
+					strncmp(name, request->cname, DNS_MAX_CNAME_LEN - 1) != 0) {
+					continue;
+				}
+
 				const char *fmt = "%d.%d.%d.%d";
 				if (ip_num > 0) {
 					fmt = ", %d.%d.%d.%d";
@@ -492,6 +499,12 @@ static void _dns_server_audit_log(struct dns_server_post_context *context)
 				if (dns_get_AAAA(rrs, name, DNS_MAX_CNAME_LEN, &ttl, ipv6_addr) != 0) {
 					continue;
 				}
+
+				if (strncmp(name, request->domain, DNS_MAX_CNAME_LEN - 1) != 0 &&
+					strncmp(name, request->cname, DNS_MAX_CNAME_LEN - 1) != 0) {
+					continue;
+				}
+
 				const char *fmt = "%s";
 				if (ip_num > 0) {
 					fmt = ", %s";
@@ -543,8 +556,9 @@ static void _dns_server_audit_log(struct dns_server_post_context *context)
 	snprintf(req_time, sizeof(req_time), "[%.4d-%.2d-%.2d %.2d:%.2d:%.2d,%.3d]", tm.year, tm.mon, tm.mday, tm.hour,
 			 tm.min, tm.sec, tm.usec / 1000);
 
-	tlog_printf(dns_audit, "%s %s query %s, time %lums, type %d, result %s\n", req_time, req_host, request->domain,
-				get_tick_count() - request->send_tick, request->qtype, req_result);
+	tlog_printf(dns_audit, "%s %s query %s, type %d, time %lums, speed: %.1fms, result %s\n", req_time, req_host,
+				request->domain, request->qtype, get_tick_count() - request->send_tick, ((float)request->ping_time) / 10,
+				req_result);
 }
 
 static void _dns_rrs_result_log(struct dns_server_post_context *context, struct dns_ip_address *addr_map)
@@ -909,7 +923,7 @@ static int _dns_reply_inpacket(struct dns_request *request, unsigned char *inpac
 }
 
 static int _dns_server_request_update_cache(struct dns_request *request, dns_type_t qtype,
-											struct dns_cache_data *cache_data, int has_soa)
+											struct dns_cache_data *cache_data, int has_soa, int cache_ttl)
 {
 	int ttl = 0;
 	int speed = 0;
@@ -918,7 +932,11 @@ static int _dns_server_request_update_cache(struct dns_request *request, dns_typ
 		goto errout;
 	}
 
-	ttl = _dns_server_get_conf_ttl(request->ip_ttl);
+	if (cache_ttl > 0) {
+		ttl = cache_ttl;
+	} else {
+		ttl = _dns_server_get_conf_ttl(request->ip_ttl);
+	}
 	speed = request->ping_time;
 
 	if (has_soa) {
@@ -926,11 +944,14 @@ static int _dns_server_request_update_cache(struct dns_request *request, dns_typ
 			ttl = _dns_server_get_conf_ttl(request->ip_ttl);
 		} else {
 			ttl = dns_conf_rr_ttl;
+			if (ttl == 0) {
+				ttl = DNS_SERVER_TMOUT_TTL;
+			}
 		}
 		dns_cache_set_data_soa(cache_data, request->server_flags, request->cname, request->ttl_cname);
 	}
 
-	tlog(TLOG_DEBUG, "cache %s qtype:%d ttl: %d\n", request->domain, qtype, ttl);
+	tlog(TLOG_DEBUG, "cache %s qtype: %d ttl: %d\n", request->domain, qtype, ttl);
 
 	/* if doing prefetch, update cache only */
 	if (request->prefetch) {
@@ -1006,6 +1027,10 @@ static int _dns_cache_cname_packet(struct dns_server_post_context *context)
 					continue;
 				}
 
+				if (strncmp(request->cname, name, DNS_MAX_CNAME_LEN - 1) != 0) {
+					continue;
+				}
+
 				ret = dns_add_A(cname_packet, DNS_RRS_AN, request->cname, ttl, ipv4_addr);
 				if (ret != 0) {
 					return -1;
@@ -1015,6 +1040,10 @@ static int _dns_cache_cname_packet(struct dns_server_post_context *context)
 			case DNS_T_AAAA: {
 				unsigned char ipv6_addr[16];
 				if (dns_get_AAAA(rrs, name, DNS_MAX_CNAME_LEN, &ttl, ipv6_addr) != 0) {
+					continue;
+				}
+
+				if (strncmp(request->cname, name, DNS_MAX_CNAME_LEN - 1) != 0) {
 					continue;
 				}
 
@@ -1234,7 +1263,7 @@ static int _dns_cache_reply_packet(struct dns_server_post_context *context)
 		has_soa = 0;
 	}
 
-	if (_dns_server_request_update_cache(request, context->qtype, cache_packet, has_soa) != 0) {
+	if (_dns_server_request_update_cache(request, context->qtype, cache_packet, has_soa, context->cache_ttl) != 0) {
 		tlog(TLOG_WARN, "update packet cache failed.");
 	}
 
@@ -1937,6 +1966,7 @@ static void _dns_server_ping_result(struct ping_host_struct *ping_host, const ch
 	int may_complete = 0;
 	int threshold = 100;
 	struct dns_ip_address *addr_map = NULL;
+	int last_rtt = request->ping_time;
 
 	if (request == NULL) {
 		return;
@@ -1948,6 +1978,7 @@ static void _dns_server_ping_result(struct ping_host_struct *ping_host, const ch
 		return;
 	} else if (result == PING_RESULT_TIMEOUT) {
 		tlog(TLOG_DEBUG, "ping %s timeout", host);
+		goto out;
 		return;
 	} else if (result == PING_RESULT_ERROR) {
 		if (addr->sa_family != AF_INET6) {
@@ -1965,7 +1996,6 @@ static void _dns_server_ping_result(struct ping_host_struct *ping_host, const ch
 	}
 
 	int rtt = tv->tv_sec * 10000 + tv->tv_usec / 100;
-	int last_rtt = request->ping_time;
 
 	if (result == PING_RESULT_RESPONSE) {
 		tlog(TLOG_DEBUG, "from %s: seq=%d time=%d, lasttime=%d id=%d", host, seqno, rtt, last_rtt, request->id);
@@ -2058,10 +2088,18 @@ static void _dns_server_ping_result(struct ping_host_struct *ping_host, const ch
 		break;
 	}
 
+out:
 	/* If the ping delay is less than the threshold, the result is returned */
-	if (rtt < threshold) {
-		may_complete = 1;
-	} else if (rtt < (int)(get_tick_count() - request->send_tick) * 8) {
+	if (request->ping_time > 0) {
+		if (request->ping_time < threshold) {
+			may_complete = 1;
+		} else if (request->ping_time < (int)(get_tick_count() - request->send_tick) * 8) {
+			may_complete = 1;
+		}
+	}
+
+	/* Get first ping result */
+	if (dns_conf_response_mode == DNS_RESPONSE_MODE_FIRST_PING_IP && last_rtt == -1 && request->ping_time > 0) {
 		may_complete = 1;
 	}
 
@@ -2204,8 +2242,8 @@ static int _dns_server_is_adblock_ipv6(const unsigned char addr[16])
 	return -1;
 }
 
-static int _dns_server_process_answer_A(struct dns_rrs *rrs, struct dns_request *request, const char *domain, char *cname,
-										unsigned int result_flag)
+static int _dns_server_process_answer_A(struct dns_rrs *rrs, struct dns_request *request, const char *domain,
+										char *cname, unsigned int result_flag)
 {
 	int ttl = 0;
 	int ip_check_result = 0;
@@ -2282,8 +2320,8 @@ static int _dns_server_process_answer_A(struct dns_rrs *rrs, struct dns_request 
 	return 0;
 }
 
-static int _dns_server_process_answer_AAAA(struct dns_rrs *rrs, struct dns_request *request, const char *domain, char *cname,
-										   unsigned int result_flag)
+static int _dns_server_process_answer_AAAA(struct dns_rrs *rrs, struct dns_request *request, const char *domain,
+										   char *cname, unsigned int result_flag)
 {
 	unsigned char addr[16];
 	char name[DNS_MAX_CNAME_LEN] = {0};
@@ -2408,10 +2446,17 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 			case DNS_T_NS: {
 				char nsname[DNS_MAX_CNAME_LEN];
 				dns_get_CNAME(rrs, name, DNS_MAX_CNAME_LEN, &ttl, nsname, DNS_MAX_CNAME_LEN);
-				tlog(TLOG_DEBUG, "NS: %s ttl:%d nsname: %s\n", name, ttl, nsname);
+				tlog(TLOG_DEBUG, "NS: %s ttl: %d nsname: %s\n", name, ttl, nsname);
 			} break;
 			case DNS_T_CNAME: {
-				dns_get_CNAME(rrs, name, DNS_MAX_CNAME_LEN, &ttl, cname, DNS_MAX_CNAME_LEN);
+				char domain_name[DNS_MAX_CNAME_LEN] = {0};
+				char domain_cname[DNS_MAX_CNAME_LEN] = {0};
+				dns_get_CNAME(rrs, domain_name, DNS_MAX_CNAME_LEN, &ttl, domain_cname, DNS_MAX_CNAME_LEN);
+				if (strncmp(domain_name, request->domain, DNS_MAX_CNAME_LEN - 1) != 0 &&
+					strncmp(domain_name, cname, DNS_MAX_CNAME_LEN - 1) != 0) {
+					continue;
+				}
+				safe_strncpy(cname, domain_cname, DNS_MAX_CNAME_LEN);
 				tlog(TLOG_DEBUG, "name: %s ttl: %d cname: %s\n", name, ttl, cname);
 			} break;
 			case DNS_T_SOA: {
@@ -2440,8 +2485,8 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 	return 0;
 }
 
-static int _dns_server_passthrough_rule_check(struct dns_request *request, const char *domain, struct dns_packet *packet,
-											  unsigned int result_flag, int *pttl)
+static int _dns_server_passthrough_rule_check(struct dns_request *request, const char *domain,
+											  struct dns_packet *packet, unsigned int result_flag, int *pttl)
 {
 	int ttl = 0;
 	char name[DNS_MAX_CNAME_LEN] = {0};
@@ -2486,7 +2531,7 @@ static int _dns_server_passthrough_rule_check(struct dns_request *request, const
 					continue;
 				}
 
-				tlog(TLOG_DEBUG, "domain: %s TTL:%d IP: %d.%d.%d.%d", name, ttl_tmp, addr[0], addr[1], addr[2],
+				tlog(TLOG_DEBUG, "domain: %s TTL: %d IP: %d.%d.%d.%d", name, ttl_tmp, addr[0], addr[1], addr[2],
 					 addr[3]);
 
 				/* ip rule check */
@@ -2575,7 +2620,13 @@ static int _dns_server_get_answer(struct dns_server_post_context *context)
 
 				/* get A result */
 				dns_get_A(rrs, name, DNS_MAX_CNAME_LEN, &ttl, addr);
-				if (_dns_ip_address_check_add(request, name, addr, DNS_T_A) != 0) {
+
+				if (strncmp(name, request->domain, DNS_MAX_CNAME_LEN - 1) != 0 &&
+					strncmp(name, request->cname, DNS_MAX_CNAME_LEN - 1) != 0) {
+					continue;
+				}
+
+				if (context->no_check_add_ip == 0 && _dns_ip_address_check_add(request, name, addr, DNS_T_A) != 0) {
 					continue;
 				}
 
@@ -2599,7 +2650,13 @@ static int _dns_server_get_answer(struct dns_server_post_context *context)
 					continue;
 				}
 				dns_get_AAAA(rrs, name, DNS_MAX_CNAME_LEN, &ttl, addr);
-				if (_dns_ip_address_check_add(request, name, addr, DNS_T_AAAA) != 0) {
+
+				if (strncmp(name, request->domain, DNS_MAX_CNAME_LEN - 1) != 0 &&
+					strncmp(name, request->cname, DNS_MAX_CNAME_LEN - 1) != 0) {
+					continue;
+				}
+
+				if (context->no_check_add_ip == 0 && _dns_ip_address_check_add(request, name, addr, DNS_T_AAAA) != 0) {
 					continue;
 				}
 
@@ -2617,7 +2674,7 @@ static int _dns_server_get_answer(struct dns_server_post_context *context)
 				char cname[DNS_MAX_CNAME_LEN];
 				char name[DNS_MAX_CNAME_LEN] = {0};
 				dns_get_CNAME(rrs, name, DNS_MAX_CNAME_LEN, &ttl, cname, DNS_MAX_CNAME_LEN);
-				tlog(TLOG_DEBUG, "NS: %s ttl:%d cname: %s\n", name, ttl, cname);
+				tlog(TLOG_DEBUG, "NS: %s ttl: %d cname: %s\n", name, ttl, cname);
 			} break;
 			case DNS_T_CNAME: {
 				char cname[DNS_MAX_CNAME_LEN];
@@ -2627,7 +2684,12 @@ static int _dns_server_get_answer(struct dns_server_post_context *context)
 				}
 
 				dns_get_CNAME(rrs, name, DNS_MAX_CNAME_LEN, &ttl, cname, DNS_MAX_CNAME_LEN);
-				tlog(TLOG_DEBUG, "name:%s ttl: %d cname: %s\n", name, ttl, cname);
+				tlog(TLOG_DEBUG, "name: %s ttl: %d cname: %s\n", name, ttl, cname);
+				if (strncmp(name, request->domain, DNS_MAX_CNAME_LEN - 1) != 0 &&
+					strncmp(name, request->cname, DNS_MAX_CNAME_LEN - 1) != 0) {
+					continue;
+				}
+
 				safe_strncpy(request->cname, cname, DNS_MAX_CNAME_LEN);
 				request->ttl_cname = _dns_server_get_conf_ttl(ttl);
 				request->has_cname = 1;
@@ -2644,9 +2706,6 @@ static int _dns_server_get_answer(struct dns_server_post_context *context)
 					 "%d, minimum: %d",
 					 request->domain, request->qtype, request->soa.mname, request->soa.rname, request->soa.serial,
 					 request->soa.refresh, request->soa.retry, request->soa.expire, request->soa.minimum);
-				if (atomic_inc_return(&request->soa_num) >= (dns_server_num() / 2)) {
-					_dns_server_request_complete(request);
-				}
 			} break;
 			default:
 				break;
@@ -2754,10 +2813,10 @@ static int dns_server_resolve_callback(const char *domain, dns_result_type rtype
 	}
 
 	if (rtype == DNS_QUERY_RESULT) {
-		tlog(TLOG_DEBUG, "query result from server %s:%d, type: %d", dns_client_get_server_ip(server_info),
+		tlog(TLOG_DEBUG, "query result from server %s: %d, type: %d", dns_client_get_server_ip(server_info),
 			 dns_client_get_server_port(server_info), dns_client_get_server_type(server_info));
 
-		if (request->passthrough) {
+		if (request->passthrough && atomic_read(&request->notified) == 0) {
 			struct dns_server_post_context context;
 			int ttl = 0;
 			ret = _dns_server_passthrough_rule_check(request, domain, packet, result_flag, &ttl);
@@ -2778,6 +2837,33 @@ static int dns_server_resolve_callback(const char *domain, dns_result_type rtype
 			context.reply_ttl = ttl;
 			return _dns_server_reply_passthrouth(&context);
 		}
+
+		if (request->prefetch == 0 && dns_conf_response_mode == DNS_RESPONSE_MODE_FASTEST_RESPONSE &&
+			atomic_read(&request->notified) == 0) {
+			struct dns_server_post_context context;
+			int ttl = 0;
+			ret = _dns_server_passthrough_rule_check(request, domain, packet, result_flag, &ttl);
+			if (ret != 0) {
+				_dns_server_post_context_init_from(&context, request, packet, inpacket, inpacket_len);
+				context.do_cache = 1;
+				context.do_audit = 1;
+				context.do_reply = 1;
+				context.do_ipset = 1;
+				context.reply_ttl = 2;
+				context.cache_ttl = 2;
+				context.no_check_add_ip = 1;
+				_dns_server_reply_passthrouth(&context);
+				request->cname[0] = 0;
+				request->has_ip = 0;
+				request->has_cname = 0;
+				request->has_ping_result = 0;
+				request->has_soa = 0;
+				request->has_ptr = 0;
+				request->ping_time = -1;
+				request->ip_ttl = 0;
+			}
+		}
+
 		_dns_server_process_answer(request, domain, packet, result_flag);
 		return 0;
 	} else if (rtype == DNS_QUERY_ERR) {
