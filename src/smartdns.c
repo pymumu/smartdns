@@ -114,8 +114,8 @@ static int drop_root_privilege(void)
 	prctl(PR_SET_KEEPCAPS, 1, 0, 0, 0);
 	cap.effective |= (1 << CAP_NET_RAW | 1 << CAP_NET_ADMIN);
 	cap.permitted |= (1 << CAP_NET_RAW | 1 << CAP_NET_ADMIN);
-	unused = setuid(uid);
 	unused = setgid(gid);
+	unused = setuid(uid);
 	if (capset(&header, &cap) < 0) {
 		return -1;
 	}
@@ -323,14 +323,21 @@ static int _smartdns_destroy_ssl(void)
 	return 0;
 }
 
-static int _smartdns_init(void)
+static const char *_smartdns_log_path(void)
 {
-	int ret = 0;
 	char *logfile = SMARTDNS_LOG_FILE;
 
 	if (dns_conf_log_file[0] != 0) {
 		logfile = dns_conf_log_file;
 	}
+
+	return logfile;
+}
+
+static int _smartdns_init(void)
+{
+	int ret = 0;
+	const char *logfile = _smartdns_log_path();
 
 	ret = tlog_init(logfile, dns_conf_log_size, dns_conf_log_num, 0, 0);
 	if (ret != 0) {
@@ -463,6 +470,43 @@ static void _reg_signal(void)
 	}
 }
 
+static int _smartdns_create_logdir(void)
+{
+	int uid = 0;
+	int gid = 0;
+	char logdir[PATH_MAX] = {0};
+	safe_strncpy(logdir, _smartdns_log_path(), PATH_MAX);
+	dirname(logdir);
+
+	if (access(logdir, F_OK) == 0) {
+		return 0;
+	}
+
+	if (mkdir(logdir, 0750) != 0) {
+		if (errno == EEXIST) {
+			return 0;
+		}
+
+		return -1;
+	}
+
+	int unused __attribute__((unused)) = 0;
+
+	if (get_uid_gid(&uid, &gid) != 0) {
+		return -1;
+	}
+
+	chown(logdir, uid, gid);
+	return 0;
+}
+
+static int _smartdns_init_pre(void)
+{
+	_smartdns_create_logdir();
+
+	return 0;
+}
+
 int main(int argc, char *argv[])
 {
 	int ret = 0;
@@ -530,6 +574,11 @@ int main(int argc, char *argv[])
 	signal(SIGPIPE, SIG_IGN);
 	signal(SIGINT, _sig_exit);
 	signal(SIGTERM, _sig_exit);
+
+	if (_smartdns_init_pre() != 0) {
+		fprintf(stderr, "init failed.\n");
+		return 1;
+	}
 
 	drop_root_privilege();
 

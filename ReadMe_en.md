@@ -501,11 +501,11 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 |rr-ttl-max|Domain name Maximum TTL|Remote query result|number greater than 0|rr-ttl-max 600
 |max-reply-ip-num|Maximum number of IPs returned to the client|8|number of IPs, 1~16 |max-reply-ip-num 1
 |log-level|log level|error|fatal,error,warn,notice,info,debug|log-level error
-|log-file|log path|/var/log/smartdns.log|File Pah|log-file /var/log/smartdns.log
+|log-file|log path|/var/log/smartdns/smartdns.log|File Pah|log-file /var/log/smartdns/smartdns.log
 |log-size|log size|128K|number+K,M,G|log-size 128K
 |log-num|archived log number|2|Integer|log-num 2
 |audit-enable|audit log enable|no|[yes\|no]|audit-enable yes
-|audit-file|audit log file|/var/log/smartdns-audit.log|File Path|audit-file /var/log/smartdns-audit.log
+|audit-file|audit log file|/var/log/smartdns/smartdns-audit.log|File Path|audit-file /var/log/smartdns/smartdns-audit.log
 |audit-size|audit log size|128K|number+K,M,G|audit-size 128K
 |audit-num|archived audit log number|2|Integer|audit-num 2
 |conf-file|additional conf file|None|File path|conf-file /etc/smartdns/smartdns.more.conf

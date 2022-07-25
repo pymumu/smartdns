@@ -565,11 +565,11 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 | rr-ttl-reply-max | 允许返回给客户端的最大 TTL 值 | 远程查询结果 | 大于 0 的数字 | rr-ttl-reply-max 60 |
 | max-reply-ip-num | 允许返回给客户的最大IP数量 | IP数量 | 大于 0 的数字 | max-reply-ip-num 1 |
 | log-level | 设置日志级别 | error | fatal、error、warn、notice、info 或 debug | log-level error |
-| log-file | 日志文件路径 | /var/log/smartdns.log | 合法路径字符串 | log-file /var/log/smartdns.log |
+| log-file | 日志文件路径 | /var/log/smartdns/smartdns.log | 合法路径字符串 | log-file /var/log/smartdns/smartdns.log |
 | log-size | 日志大小 | 128K | 数字 + K、M 或 G | log-size 128K |
 | log-num | 日志归档个数 | 2 | 大于等于 0 的数字 | log-num 2 |
 | audit-enable | 设置审计启用 | no | [yes\|no] | audit-enable yes |
-| audit-file | 审计文件路径 | /var/log/smartdns-audit.log | 合法路径字符串 | audit-file /var/log/smartdns-audit.log |
+| audit-file | 审计文件路径 | /var/log/smartdns/smartdns-audit.log | 合法路径字符串 | audit-file /var/log/smartdns/smartdns-audit.log |
 | audit-size | 审计大小 | 128K | 数字 + K、M 或 G | audit-size 128K |
 | audit-num | 审计归档个数 | 2 | 大于等于 0 的数字 | audit-num 2 |
 | conf-file | 附加配置文件 | 无 | 合法路径字符串 | conf-file /etc/smartdns/smartdns.more.conf |
