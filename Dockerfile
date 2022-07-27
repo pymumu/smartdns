@@ -25,6 +25,7 @@ RUN apt update && \
 # do make
 COPY . /build/smartdns/
 RUN cd /build/smartdns && \
+    export CC=musl-gcc && \
     export CFLAGS="-I /opt/build/include" && \
     export LDFLAGS="-L /opt/build/lib" && \
     sh ./package/build-pkg.sh --platform linux --arch `dpkg --print-architecture` --static && \

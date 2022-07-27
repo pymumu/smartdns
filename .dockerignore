@@ -1,0 +1,11 @@
+.vscode
+*.o
+.DS_Store
+*.swp.
+
+.git*
+.docker*
+.clang-format
+
+# doc
+# ReadMe*
