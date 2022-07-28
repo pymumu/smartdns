@@ -64,6 +64,16 @@ struct config_item_size {
 	size_t max;
 };
 
+struct config_enum_list {
+	char *name;
+	int id;
+};
+
+struct config_enum {
+	int *data;
+	struct config_enum_list *list;
+};
+
 #define CONF_INT(key, value, min_value, max_value)                                                                     \
 	{                                                                                                                  \
 		key, conf_int, &(struct config_item_int)                                                                       \
@@ -92,6 +102,15 @@ struct config_item_size {
 			.data = value, .min = min_value, .max = max_value                                                          \
 		}                                                                                                              \
 	}
+
+#define CONF_ENUM(key, value, enum)                                                                                    \
+	{                                                                                                                  \
+		key, conf_enum, &(struct config_enum)                                                                          \
+		{                                                                                                              \
+			.data = (int *)value, .list = (struct config_enum_list *)enum                                              \
+		}                                                                                                              \
+	}
+
 /*
  * func: int (*func)(void *data, int argc, char *argv[]);
  */
@@ -117,6 +136,8 @@ extern int conf_string(const char *item, void *data, int argc, char *argv[]);
 extern int conf_yesno(const char *item, void *data, int argc, char *argv[]);
 
 extern int conf_size(const char *item, void *data, int argc, char *argv[]);
+
+extern int conf_enum(const char *item, void *data, int argc, char *argv[]);
 
 /*
  * Example:

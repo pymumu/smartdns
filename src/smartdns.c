@@ -348,7 +348,7 @@ static int _smartdns_init(void)
 	tlog_setlogscreen(verbose_screen);
 	tlog_setlevel(dns_conf_log_level);
 
-	tlog(TLOG_NOTICE, "smartdns starting...(Copyright (C) Nick Peng <pymumu@gmail.com>, build:%s %s)", __DATE__,
+	tlog(TLOG_NOTICE, "smartdns starting...(Copyright (C) Nick Peng <pymumu@gmail.com>, build: %s %s)", __DATE__,
 		 __TIME__);
 
 	if (_smartdns_init_ssl() != 0) {

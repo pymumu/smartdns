@@ -97,7 +97,6 @@ int conf_yesno(const char *item, void *data, int argc, char *argv[])
 
 int conf_size(const char *item, void *data, int argc, char *argv[])
 {
-	/* read dns cache size */
 	int base = 1;
 	size_t size = 0;
 	int num = 0;
@@ -127,6 +126,31 @@ int conf_size(const char *item, void *data, int argc, char *argv[])
 	*(item_size->data) = size;
 
 	return 0;
+}
+
+int conf_enum(const char *item, void *data, int argc, char *argv[])
+{
+	struct config_enum *item_enum = data;
+	char *enum_name = argv[1];
+	int i = 0;
+
+	if (argc <= 0) {
+		return -1;
+	}
+
+	for (i = 0; item_enum->list[i].name != NULL; i++) {
+		if (strcmp(enum_name, item_enum->list[i].name) == 0) {
+			*(item_enum->data) = item_enum->list[i].id;
+			return 0;
+		}
+	}
+
+	printf("Not found config value '%s', valid value is:\n", enum_name);
+	for (i = 0; item_enum->list[i].name != NULL; i++) {
+		printf(" %s\n", item_enum->list[i].name);
+	}
+
+	return -1;
 }
 
 static void conf_getopt_reset(void)
