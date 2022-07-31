@@ -557,8 +557,8 @@ static void _dns_server_audit_log(struct dns_server_post_context *context)
 			 tm.min, tm.sec, tm.usec / 1000);
 
 	tlog_printf(dns_audit, "%s %s query %s, type %d, time %lums, speed: %.1fms, result %s\n", req_time, req_host,
-				request->domain, request->qtype, get_tick_count() - request->send_tick, ((float)request->ping_time) / 10,
-				req_result);
+				request->domain, request->qtype, get_tick_count() - request->send_tick,
+				((float)request->ping_time) / 10, req_result);
 }
 
 static void _dns_rrs_result_log(struct dns_server_post_context *context, struct dns_ip_address *addr_map)
@@ -3533,6 +3533,7 @@ static int _dns_server_process_cache_packet(struct dns_request *request, struct 
 	request->ping_time = dns_cache->info.speed;
 
 	if (dns_decode(context.packet, context.packet_maxlen, cache_packet->data, cache_packet->head.size) != 0) {
+		tlog(TLOG_ERROR, "decode cache failed, %d, %d", context.packet_maxlen, context.inpacket_len);
 		return -1;
 	}
 
@@ -4159,6 +4160,9 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 	if (decode_len < 0) {
 		tlog(TLOG_DEBUG, "decode failed.\n");
 		ret = RECV_ERROR_INVALID_PACKET;
+		if (dns_save_fail_packet) {
+			dns_packet_save(dns_save_fail_packet_dir, "server", name, inpacket, inpacket_len);
+		}
 		goto errout;
 	}
 

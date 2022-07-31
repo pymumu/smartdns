@@ -130,6 +130,9 @@ int dns_conf_ipset_timeout_enable;
 
 char dns_conf_user[DNS_CONF_USRNAME_LEN];
 
+int dns_save_fail_packet;
+char dns_save_fail_packet_dir[DNS_MAX_PATH];
+
 /* ECS */
 struct dns_edns_client_subnet dns_conf_ipv4_ecs;
 struct dns_edns_client_subnet dns_conf_ipv6_ecs;
@@ -1920,6 +1923,8 @@ static struct config_item _config_item[] = {
 	CONF_STRING("ca-file", (char *)&dns_conf_ca_file, DNS_MAX_PATH),
 	CONF_STRING("ca-path", (char *)&dns_conf_ca_path, DNS_MAX_PATH),
 	CONF_STRING("user", (char *)&dns_conf_user, sizeof(dns_conf_user)),
+	CONF_YESNO("debug-save-fail-packet", &dns_save_fail_packet),
+	CONF_STRING("debug-save-fail-packet-dir", (char *)&dns_save_fail_packet_dir, sizeof(dns_save_fail_packet_dir)),
 	CONF_CUSTOM("conf-file", config_addtional_file, NULL),
 	CONF_END(),
 };
@@ -2067,6 +2072,8 @@ static int _dns_conf_load_pre(void)
 	}
 
 	_dns_ping_cap_check();
+
+	safe_strncpy(dns_save_fail_packet_dir, SMARTDNS_DEBUG_DIR, sizeof(dns_save_fail_packet_dir));
 
 	return 0;
 

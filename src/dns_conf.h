@@ -52,6 +52,7 @@ extern "C" {
 #define SMARTDNS_LOG_FILE "/var/log/smartdns/smartdns.log"
 #define SMARTDNS_AUDIT_FILE "/var/log/smartdns/smartdns-audit.log"
 #define SMARTDNS_CACHE_FILE "/tmp/smartdns.cache"
+#define SMARTDNS_DEBUG_DIR "/tmp/smartdns"
 
 enum domain_rule {
 	DOMAIN_RULE_FLAGS = 0,
@@ -320,6 +321,9 @@ extern struct dns_edns_client_subnet dns_conf_ipv4_ecs;
 extern struct dns_edns_client_subnet dns_conf_ipv6_ecs;
 
 extern char dns_conf_sni_proxy_ip[DNS_MAX_IPLEN];
+
+extern int dns_save_fail_packet;
+extern char dns_save_fail_packet_dir[DNS_MAX_PATH];
 
 void dns_server_load_exit(void);
 
