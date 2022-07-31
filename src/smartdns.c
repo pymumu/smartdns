@@ -524,7 +524,7 @@ int main(int argc, char *argv[])
 	sigemptyset(&empty_sigblock);
 	sigprocmask(SIG_SETMASK, &empty_sigblock, NULL);
 
-	while ((opt = getopt(argc, argv, "fhc:p:Svx")) != -1) {
+	while ((opt = getopt(argc, argv, "fhc:p:SvxN:")) != -1) {
 		switch (opt) {
 		case 'f':
 			is_forground = 1;
@@ -545,6 +545,10 @@ int main(int argc, char *argv[])
 			_show_version();
 			return 0;
 			break;
+#ifdef DEBUG
+		case 'N':
+			return dns_packet_debug(optarg);
+#endif
 		case 'h':
 			_help();
 			return 1;

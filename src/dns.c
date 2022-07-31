@@ -1785,7 +1785,7 @@ static int _dns_decode_an(struct dns_context *context, dns_rr_type type)
 		}
 
 		if (context->ptr - opt_start != rr_len) {
-			tlog(TLOG_ERROR, "opt length mismatch, %s\n", domain);
+			tlog(TLOG_DEBUG, "opt length mismatch, %s\n", domain);
 			return -1;
 		}
 
@@ -2223,43 +2223,3 @@ int dns_packet_update(unsigned char *data, int size, struct dns_update_param *pa
 
 	return 0;
 }
-
-#if 0
-void dns_debug(void)
-{
-	unsigned char data[1024];
-	ssize_t len;
-	char buff[4096];
-
-	int fd = open("dns.bin", O_RDWR);
-	if (fd < 0) {
-		return;
-	}
-	len = read(fd, data, 1024);
-	close(fd);
-	if (len < 0) {
-		return;
-	}
-
-	struct dns_packet *packet = (struct dns_packet *)buff;
-	if (dns_decode(packet, 4096, data, len) != 0) {
-		tlog(TLOG_ERROR, "decode failed.\n");
-	}
-
-	memset(data, 0, sizeof(data));
-	len = dns_encode(data, 1024, packet);
-	if (len < 0) {
-		tlog(TLOG_ERROR, "encode failed.");
-	}
-
-	fd = open("dns-cmp.bin", O_CREAT | O_TRUNC | O_RDWR, 0660);
-	write(fd, data, len);
-	close(fd);
-
-	packet = (struct dns_packet *)buff;
-	if (dns_decode(packet, 4096, data, len) != 0) {
-		tlog(TLOG_ERROR, "decode failed.\n");
-	}
-
-}
-#endif

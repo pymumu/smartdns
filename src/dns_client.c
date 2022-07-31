@@ -574,7 +574,8 @@ errout:
 	return -1;
 }
 
-static int _dns_client_add_to_pending_group(const char *group_name, char *server_ip, int port, dns_server_type_t server_type)
+static int _dns_client_add_to_pending_group(const char *group_name, char *server_ip, int port,
+											dns_server_type_t server_type)
 {
 	struct dns_server_pending *item = NULL;
 	struct dns_server_pending *tmp = NULL;
@@ -621,8 +622,8 @@ errout:
 }
 
 /* add server to group */
-static int _dns_client_add_to_group_pending(const char *group_name, char *server_ip, int port, dns_server_type_t server_type,
-											int ispending)
+static int _dns_client_add_to_group_pending(const char *group_name, char *server_ip, int port,
+											dns_server_type_t server_type, int ispending)
 {
 	struct dns_server_info *server_info = NULL;
 
@@ -1591,8 +1592,11 @@ static int _dns_client_recv(struct dns_server_info *server_info, unsigned char *
 	len = dns_decode(packet, DNS_PACKSIZE, inpacket, inpacket_len);
 	if (len != 0) {
 		char host_name[DNS_MAX_CNAME_LEN];
-		tlog(TLOG_WARN, "decode failed, packet len = %d, tc = %d, id = %d, from = %s\n", inpacket_len, packet->head.tc,
+		tlog(TLOG_INFO, "decode failed, packet len = %d, tc = %d, id = %d, from = %s\n", inpacket_len, packet->head.tc,
 			 packet->head.id, gethost_by_addr(host_name, sizeof(host_name), from));
+		if (dns_save_fail_packet) {
+			dns_packet_save(dns_save_fail_packet_dir, "client", host_name, inpacket, inpacket_len);
+		}
 		return -1;
 	}
 
@@ -1721,7 +1725,7 @@ static int _DNS_client_create_socket_tcp(struct dns_server_info *server_info)
 
 	fd = socket(server_info->ai_family, SOCK_STREAM, 0);
 	if (fd < 0) {
-		tlog(TLOG_ERROR, "create socket failed.");
+		tlog(TLOG_ERROR, "create socket failed, %s", strerror(errno));
 		goto errout;
 	}
 
@@ -1732,7 +1736,7 @@ static int _DNS_client_create_socket_tcp(struct dns_server_info *server_info)
 
 	/* enable tcp fast open */
 	if (setsockopt(fd, IPPROTO_TCP, TCP_FASTOPEN_CONNECT, &yes, sizeof(yes)) != 0) {
-		tlog(TLOG_DEBUG, "enable TCP fast open failed.");
+		tlog(TLOG_DEBUG, "enable TCP fast open failed, %s", strerror(errno));
 	}
 
 	setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));

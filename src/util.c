@@ -34,12 +34,13 @@
 #include <openssl/crypto.h>
 #include <openssl/ssl.h>
 #include <pthread.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
-#include <signal.h>
 #include <sys/prctl.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
+#include <sys/time.h>
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
@@ -79,6 +80,8 @@
 #define NETLINK_ALIGN(len) (((len) + 3) & ~(3))
 
 #define BUFF_SZ 1024
+#define PACKET_BUF_SIZE 8192
+#define PACKET_MAGIC 0X11040918
 
 struct ipset_netlink_attr {
 	unsigned short len;
@@ -641,7 +644,7 @@ unsigned char *SSL_SHA256(const unsigned char *d, size_t n, unsigned char *md)
 		md = m;
 	}
 
-	EVP_MD_CTX* ctx = EVP_MD_CTX_create();
+	EVP_MD_CTX *ctx = EVP_MD_CTX_create();
 	if (ctx == NULL) {
 		return NULL;
 	}
@@ -1159,7 +1162,7 @@ void bug_ext(const char *file, int line, const char *func, const char *errfmt, .
 
 int write_file(const char *filename, void *data, int data_len)
 {
-	int fd = open(filename, O_WRONLY|O_CREAT, 0644);
+	int fd = open(filename, O_WRONLY | O_CREAT, 0644);
 	if (fd < 0) {
 		return -1;
 	}
@@ -1178,3 +1181,277 @@ errout:
 
 	return -1;
 }
+
+int dns_packet_save(const char *dir, const char *type, const char *from, const void *packet, int packet_len)
+{
+	char *data = NULL;
+	int data_len = 0;
+	char filename[BUFF_SZ];
+	char time_s[BUFF_SZ];
+	int ret = -1;
+
+	struct tm *ptm;
+	struct tm tm;
+	struct timeval tmval;
+	struct stat sb;
+
+	if (stat(dir, &sb) != 0) {
+		mkdir(dir, 0750);
+	}
+
+	if (gettimeofday(&tmval, NULL) != 0) {
+		return -1;
+	}
+
+	ptm = localtime_r(&tmval.tv_sec, &tm);
+	if (ptm == NULL) {
+		return -1;
+	}
+
+	ret = snprintf(time_s, sizeof(time_s) - 1, "%.4d-%.2d-%.2d %.2d:%.2d:%.2d.%.3d", ptm->tm_year + 1900,
+				   ptm->tm_mon + 1, ptm->tm_mday, ptm->tm_hour, ptm->tm_min, ptm->tm_sec, (int)(tmval.tv_usec / 1000));
+	ret = snprintf(filename, sizeof(filename) - 1, "%s/%s-%.4d%.2d%.2d-%.2d%.2d%.2d%.1d.packet", dir, type,
+				   ptm->tm_year + 1900, ptm->tm_mon + 1, ptm->tm_mday, ptm->tm_hour, ptm->tm_min, ptm->tm_sec,
+				   (int)(tmval.tv_usec / 100000));
+
+	data = malloc(PACKET_BUF_SIZE);
+	if (data == NULL) {
+		return -1;
+	}
+
+	data_len = snprintf(data, PACKET_BUF_SIZE,
+						"type: %s\n"
+						"from: %s\n"
+						"time: %s\n"
+						"packet-len: %d\n",
+						type, from, time_s, packet_len);
+	if (data_len <= 0 || data_len >= PACKET_BUF_SIZE) {
+		goto out;
+	}
+
+	data[data_len] = 0;
+	data_len++;
+	uint32_t magic = htonl(PACKET_MAGIC);
+	memcpy(data + data_len, &magic, sizeof(magic));
+	data_len += sizeof(magic);
+	int len_in_h = htonl(packet_len);
+	memcpy(data + data_len, &len_in_h, sizeof(len_in_h));
+	data_len += 4;
+	memcpy(data + data_len, packet, packet_len);
+	data_len += packet_len;
+
+	ret = write_file(filename, data, data_len);
+	if (ret != 0) {
+		goto out;
+	}
+
+	ret = 0;
+out:
+	if (data) {
+		free(data);
+	}
+
+	return ret;
+}
+
+#ifdef DEBUG
+struct _dns_read_packet_info {
+	int data_len;
+	int message_len;
+	char *message;
+	int packet_len;
+	uint8_t *packet;
+	uint8_t data[0];
+};
+
+static struct _dns_read_packet_info *_dns_read_packet_file(const char *packet_file)
+{
+	struct _dns_read_packet_info *info = NULL;
+	int fd = 0;
+	int len = 0;
+	int message_len = 0;
+	uint8_t *ptr = NULL;
+
+	info = malloc(sizeof(struct _dns_read_packet_info) + PACKET_BUF_SIZE);
+	fd = open(packet_file, O_RDONLY);
+	if (fd < 0) {
+		printf("open file %s failed, %s\n", packet_file, strerror(errno));
+		goto errout;
+	}
+
+	len = read(fd, info->data, PACKET_BUF_SIZE);
+	if (len < 0) {
+		printf("read file %s failed, %s\n", packet_file, strerror(errno));
+		goto errout;
+	}
+
+	message_len = strnlen((char *)info->data, PACKET_BUF_SIZE);
+	if (message_len >= 512 || message_len >= len) {
+		printf("invalid packet file, bad message len\n");
+		goto errout;
+	}
+
+	info->message_len = message_len;
+	info->message = (char *)info->data;
+
+	ptr = info->data + message_len + 1;
+	uint32_t magic = 0;
+	if (ptr - (uint8_t *)info + sizeof(magic) >= (size_t)len) {
+		printf("invalid packet file, magic length is invalid.\n");
+		goto errout;
+	}
+
+	memcpy(&magic, ptr, sizeof(magic));
+	if (magic != htonl(PACKET_MAGIC)) {
+		printf("invalid packet file, bad magic\n");
+		goto errout;
+	}
+	ptr += sizeof(magic);
+
+	uint32_t packet_len = 0;
+	if (ptr - info->data + sizeof(packet_len) >= (size_t)len) {
+		printf("invalid packet file, packet length is invalid.\n");
+		goto errout;
+	}
+
+	memcpy(&packet_len, ptr, sizeof(packet_len));
+	packet_len = ntohl(packet_len);
+	ptr += sizeof(packet_len);
+	if (packet_len != (size_t)len - (ptr - info->data)) {
+		printf("invalid packet file, packet length is invalid\n");
+		goto errout;
+	}
+
+	info->packet_len = packet_len;
+	info->packet = ptr;
+
+	close(fd);
+	return info;
+errout:
+
+	if (fd > 0) {
+		close(fd);
+	}
+
+	if (info) {
+		free(info);
+	}
+
+	return NULL;
+}
+
+static int _dns_debug_display(struct dns_packet *packet)
+{
+	int i = 0;
+	int j = 0;
+	int ttl = 0;
+	struct dns_rrs *rrs = NULL;
+	int rr_count = 0;
+	char req_host[MAX_IP_LEN];
+
+	for (j = 1; j < DNS_RRS_END; j++) {
+		rrs = dns_get_rrs_start(packet, j, &rr_count);
+		printf("section: %d\n", j);
+		for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
+			switch (rrs->type) {
+			case DNS_T_A: {
+				unsigned char addr[4];
+				char name[DNS_MAX_CNAME_LEN] = {0};
+				/* get A result */
+				dns_get_A(rrs, name, DNS_MAX_CNAME_LEN, &ttl, addr);
+				req_host[0] = '\0';
+				inet_ntop(AF_INET, addr, req_host, sizeof(req_host));
+				printf("domain: %s A: %s TTL: %d\n", name, req_host, ttl);
+			} break;
+			case DNS_T_AAAA: {
+				unsigned char addr[16];
+				char name[DNS_MAX_CNAME_LEN] = {0};
+				dns_get_AAAA(rrs, name, DNS_MAX_CNAME_LEN, &ttl, addr);
+				req_host[0] = '\0';
+				inet_ntop(AF_INET6, addr, req_host, sizeof(req_host));
+				printf("domain: %s AAAA: %s TTL:%d\n", name, req_host, ttl);
+			} break;
+			case DNS_T_NS: {
+				char cname[DNS_MAX_CNAME_LEN];
+				char name[DNS_MAX_CNAME_LEN] = {0};
+				dns_get_CNAME(rrs, name, DNS_MAX_CNAME_LEN, &ttl, cname, DNS_MAX_CNAME_LEN);
+				printf("domain: %s TTL: %d NS: %s\n", name, ttl, cname);
+			} break;
+			case DNS_T_CNAME: {
+				char cname[DNS_MAX_CNAME_LEN];
+				char name[DNS_MAX_CNAME_LEN] = {0};
+				if (dns_conf_force_no_cname) {
+					continue;
+				}
+
+				dns_get_CNAME(rrs, name, DNS_MAX_CNAME_LEN, &ttl, cname, DNS_MAX_CNAME_LEN);
+				printf("domain: %s TTL: %d CNAME: %s\n", name, ttl, cname);
+			} break;
+			case DNS_T_SOA: {
+				char name[DNS_MAX_CNAME_LEN] = {0};
+				struct dns_soa soa;
+				dns_get_SOA(rrs, name, 128, &ttl, &soa);
+				printf("domain: %s SOA: mname: %s, rname: %s, serial: %d, refresh: %d, retry: %d, expire: "
+					   "%d, minimum: %d",
+					   name, soa.mname, soa.rname, soa.serial, soa.refresh, soa.retry, soa.expire, soa.minimum);
+			} break;
+			default:
+				break;
+			}
+		}
+		printf("\n");
+	}
+
+	return 0;
+}
+
+int dns_packet_debug(const char *packet_file)
+{
+	struct _dns_read_packet_info *info = NULL;
+	char buff[DNS_PACKSIZE];
+
+	tlog_setlogscreen_only(1);
+	tlog_setlevel(TLOG_DEBUG);
+
+	info = _dns_read_packet_file(packet_file);
+	if (info == NULL) {
+		goto errout;
+	}
+
+	const char *send_env = getenv("SMARTDNS_DEBUG_SEND");
+	if (send_env != NULL) {
+		char ip[32];
+		int port = 53;
+		if (parse_ip(send_env, ip, &port) == 0) {
+			int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+			if (sockfd > 0) {
+				struct sockaddr_in server;
+				server.sin_family = AF_INET;
+				server.sin_port = htons(port);
+				server.sin_addr.s_addr = inet_addr(ip);
+				sendto(sockfd, info->packet, info->packet_len, 0, (struct sockaddr *)&server, sizeof(server));
+				close(sockfd);
+			}
+		}
+	}
+
+	struct dns_packet *packet = (struct dns_packet *)buff;
+	if (dns_decode(packet, DNS_PACKSIZE, info->packet, info->packet_len) != 0) {
+		printf("decode failed.\n");
+		goto errout;
+	}
+
+	_dns_debug_display(packet);
+
+	free(info);
+	return 0;
+
+errout:
+	if (info) {
+		free(info);
+	}
+
+	return -1;
+}
+
+#endif

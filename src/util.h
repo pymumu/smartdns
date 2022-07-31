@@ -126,6 +126,10 @@ void print_stack(void);
 
 int write_file(const char *filename, void *data, int data_len);
 
+int dns_packet_save(const char *dir, const char *type, const char *from, const void *packet, int packet_len);
+
+int dns_packet_debug(const char *packet_file);
+
 #ifdef __cplusplus
 }
 #endif /*__cplusplus */

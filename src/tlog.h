@@ -104,6 +104,9 @@ extern void tlog_set_logfile(const char *logfile);
 /* enalbe log to screen */
 extern void tlog_setlogscreen(int enable);
 
+/* output log to screen only */
+extern void tlog_setlogscreen_only(int enable);
+
 /* enalbe early log to screen */
 extern void tlog_set_early_printf(int enable);
 
@@ -183,6 +186,9 @@ extern int tlog_vprintf(tlog_log *log, const char *format, va_list ap);
 
 /* enalbe log to screen */
 extern void tlog_logscreen(tlog_log *log, int enable);
+
+/* enalbe log to screen only*/
+extern void tlog_logscreen_only(tlog_log *log, int enable);
 
 /* register output callback */
 typedef int (*tlog_output_func)(struct tlog_log *log, const char *buff, int bufflen);
