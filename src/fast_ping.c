@@ -673,6 +673,12 @@ static int _fast_ping_create_icmp_sock(FAST_PING_TYPE type)
 			}
 		}
 		if (fd < 0) {
+			if (errno == EACCES || errno == EAFNOSUPPORT) {
+				if (bool_print_log == 0) {
+					goto errout;
+				}
+				bool_print_log = 0;
+			}
 			tlog(TLOG_ERROR, "create icmp socket failed, %s\n", strerror(errno));
 			goto errout;
 		}
@@ -689,6 +695,12 @@ static int _fast_ping_create_icmp_sock(FAST_PING_TYPE type)
 		}
 
 		if (fd < 0) {
+			if (errno == EACCES || errno == EAFNOSUPPORT) {
+				if (bool_print_log == 0) {
+					goto errout;
+				}
+				bool_print_log = 0;
+			}
 			tlog(TLOG_ERROR, "create icmp socket failed, %s\n", strerror(errno));
 			goto errout;
 		}
