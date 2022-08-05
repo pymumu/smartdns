@@ -132,7 +132,7 @@ static void _help(void)
 		"Start smartdns server.\n"
 		"  -f            run forground.\n"
 		"  -c [conf]     config file.\n"
-		"  -p [pid]      pid file path\n"
+		"  -p [pid]      pid file path, '-' means don't create pid file.\n"
 		"  -S            ignore segment fault signal.\n"
 		"  -x            verbose screen.\n"
 		"  -v            dispaly version.\n"
@@ -571,7 +571,7 @@ int main(int argc, char *argv[])
 		_reg_signal();
 	}
 
-	if (create_pid_file(pid_file) != 0) {
+	if (strncmp(pid_file, "-", 2) != 0 && create_pid_file(pid_file) != 0) {
 		goto errout;
 	}
 
