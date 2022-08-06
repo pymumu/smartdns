@@ -9,7 +9,6 @@ RUN apk update && \
     sh ./package/build-pkg.sh --platform linux --arch `uname -m` --static && \
     strip /smartdns/src/smartdns && \
     mkdir -p /release/usr/sbin/ && \
-    mkdir -p /release/var/run/ && \
     cp /smartdns/src/smartdns /release/usr/sbin/
 
 # FROM alpine:3.16
@@ -17,6 +16,6 @@ FROM scratch
 # 如果有进入镜像操作的必要，可以使用 busybox:musl 或 alpine。建议根据主机其他容器情况共用基础镜像
 ENV TZ="Asia/Shanghai"
 COPY --from=smartdns-builder /release/ /
-EXPOSE 53/udp
+EXPOSE 53/udp 53/tcp
 VOLUME "/etc/smartdns/"
-CMD ["/usr/sbin/smartdns", "-f", "-x"]
+CMD ["/usr/sbin/smartdns", "-f", "-x", "-p -"]
