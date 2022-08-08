@@ -187,7 +187,7 @@ init_dir()
 	which systemctl >/dev/null 2>&1
 	ISSYSTEMD="$?"
 	# Running under WSL (Windows Subsystem for Linux)?
-	cat /proc/version | grep Microsoft >/dev/null 2>&1; 
+	cat /proc/version | grep -E '[Mm]icrosoft' >/dev/null 2>&1; 
 	if [ $? -eq 0 ]; then
 		ISSYSTEMD=1
 		ISWSL=0
