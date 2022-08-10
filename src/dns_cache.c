@@ -128,9 +128,14 @@ enum CACHE_TYPE dns_cache_data_type(struct dns_cache_data *cache_data)
 	return cache_data->head.cache_type;
 }
 
-uint32_t dns_cache_get_cache_flag(struct dns_cache_data *cache_data)
+uint32_t dns_cache_get_query_flag(struct dns_cache_data *cache_data)
 {
-	return cache_data->head.cache_flag;
+	return cache_data->head.query_flag;
+}
+
+const char *dns_cache_get_dns_group_name(struct dns_cache_data *cache_data)
+{
+	return cache_data->head.dns_group_name;
 }
 
 void dns_cache_data_free(struct dns_cache_data *data)
@@ -156,7 +161,8 @@ struct dns_cache_data *dns_cache_new_data(void)
 	return (struct dns_cache_data *)cache_addr;
 }
 
-void dns_cache_set_data_soa(struct dns_cache_data *dns_cache, int32_t cache_flag, char *cname, int cname_ttl)
+void dns_cache_set_data_soa(struct dns_cache_data *dns_cache, struct dns_cache_query_option *query_option, char *cname,
+							int cname_ttl)
 {
 	if (dns_cache == NULL) {
 		goto errout;
@@ -179,7 +185,13 @@ void dns_cache_set_data_soa(struct dns_cache_data *dns_cache, int32_t cache_flag
 		cache_addr->addr_data.cname_ttl = cname_ttl;
 	}
 
-	cache_addr->head.cache_flag = cache_flag;
+	if (query_option) {
+		cache_addr->head.query_flag = query_option->query_flag;
+		if (query_option->dns_group_name) {
+			safe_strncpy(cache_addr->head.dns_group_name, query_option->dns_group_name, DNS_CACHE_GROUP_NAME_LEN);
+		}
+	}
+
 	cache_addr->addr_data.soa = 1;
 	cache_addr->head.cache_type = CACHE_TYPE_ADDR;
 	cache_addr->head.size = sizeof(struct dns_cache_addr) - sizeof(struct dns_cache_data_head);
@@ -187,8 +199,8 @@ errout:
 	return;
 }
 
-void dns_cache_set_data_addr(struct dns_cache_data *dns_cache, uint32_t cache_flag, char *cname, int cname_ttl,
-							 unsigned char *addr, int addr_len)
+void dns_cache_set_data_addr(struct dns_cache_data *dns_cache, struct dns_cache_query_option *query_option, char *cname,
+							 int cname_ttl, unsigned char *addr, int addr_len)
 {
 	if (dns_cache == NULL) {
 		goto errout;
@@ -212,14 +224,21 @@ void dns_cache_set_data_addr(struct dns_cache_data *dns_cache, uint32_t cache_fl
 		cache_addr->addr_data.cname_ttl = cname_ttl;
 	}
 
-	cache_addr->head.cache_flag = cache_flag;
+	if (query_option) {
+		cache_addr->head.query_flag = query_option->query_flag;
+		if (query_option->dns_group_name) {
+			safe_strncpy(cache_addr->head.dns_group_name, query_option->dns_group_name, DNS_CACHE_GROUP_NAME_LEN);
+		}
+	}
+
 	cache_addr->head.cache_type = CACHE_TYPE_ADDR;
 	cache_addr->head.size = sizeof(struct dns_cache_addr) - sizeof(struct dns_cache_data_head);
 errout:
 	return;
 }
 
-struct dns_cache_data *dns_cache_new_data_packet(uint32_t cache_flag, void *packet, size_t packet_len)
+struct dns_cache_data *dns_cache_new_data_packet(struct dns_cache_query_option *query_option, void *packet,
+												 size_t packet_len)
 {
 	struct dns_cache_packet *cache_packet = NULL;
 	size_t data_size = 0;
@@ -236,7 +255,12 @@ struct dns_cache_data *dns_cache_new_data_packet(uint32_t cache_flag, void *pack
 	memcpy(cache_packet->data, packet, packet_len);
 	memset(&cache_packet->head, 0, sizeof(cache_packet->head));
 
-	cache_packet->head.cache_flag = cache_flag;
+	if (query_option) {
+		cache_packet->head.query_flag = query_option->query_flag;
+		if (query_option->dns_group_name) {
+			strncpy(cache_packet->head.dns_group_name, query_option->dns_group_name, DNS_CACHE_GROUP_NAME_LEN - 1);
+		}
+	}
 	cache_packet->head.cache_type = CACHE_TYPE_PACKET;
 	cache_packet->head.size = packet_len;
 

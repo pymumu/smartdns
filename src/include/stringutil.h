@@ -24,6 +24,15 @@
 
 static inline char *safe_strncpy(char *dest, const char *src, size_t n) 
 {
+	if (src == NULL) {
+		dest[0] = '\0';
+		return dest;
+	}
+
+	if (n <= 0) {
+		return NULL;
+	}
+	
 #if __GNUC__  > 7
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wstringop-truncation"
