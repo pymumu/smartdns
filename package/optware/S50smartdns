@@ -22,6 +22,7 @@ SMARTDNS_PID=/var/run/smartdns.pid
 SMARTDNS_PORT=535
 SMARTDNS_OPT=/opt/etc/smartdns/smartdns-opt.conf
 # workmode 
+# DO NOT CHANGE THIS, CHANGE MODE IN smartdns-opt.conf
 # 0: run as port only
 # 1: redirect port
 # 2: replace 
@@ -232,11 +233,11 @@ set_smartdns_port()
 	if [ "$SMARTDNS_WORKMODE" = "0" ]; then
 		return 0
 	elif [ "$SMARTDNS_WORKMODE" = "1" ]; then
-		sed -i "s/^\\(bind .*\\):53 *\\(.*\\)\$/\\1:$SMARTDNS_PORT \\2/g" $SMARTDNS_CONF
-		sed -i "s/^\\(bind-tcp .*\\):53 *\\(.*\\)\$/\\1:$SMARTDNS_PORT \\2/g" $SMARTDNS_CONF
+		sed -i "s/^\(bind .*\):53\( .*\)\?$/\1:$SMARTDNS_PORT \2/g" $SMARTDNS_CONF
+		sed -i "s/^\(bind-tcp .*\):53\( .*\)\?$/\1:$SMARTDNS_PORT \2/g" $SMARTDNS_CONF
 	elif [ "$SMARTDNS_WORKMODE" = "2" ]; then
-		sed -i "s/^\\(bind .*\\):$SMARTDNS_PORT *\\(.*\\)\$/\\1:53 \\2/g" $SMARTDNS_CONF
-		sed -i "s/^\\(bind-tcp .*\\):$SMARTDNS_PORT *\\(.*\\)\$/\\1:53 \\2/g" $SMARTDNS_CONF
+		sed -i "s/^\(bind .*\):$SMARTDNS_PORT\( .*\)\?$/\1:53 \2/g" $SMARTDNS_CONF
+		sed -i "s/^\(bind-tcp .*\):$SMARTDNS_PORT\( .*\)\?$/\1:53 \2/g" $SMARTDNS_CONF
 	else
 		return 1
 	fi	
