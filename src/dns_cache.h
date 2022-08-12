@@ -33,6 +33,7 @@ extern "C" {
 
 #define DNS_CACHE_TTL_MIN 1
 #define DNS_CACHE_VERSION_LEN 32
+#define DNS_CACHE_GROUP_NAME_LEN 32
 #define MAGIC_NUMBER 0x6548634163536e44
 #define MAGIC_CACHE_DATA 0x44615461
 
@@ -47,9 +48,15 @@ enum CACHE_RECORD_TYPE {
 	CACHE_RECORD_TYPE_INACTIVE,
 };
 
+struct dns_cache_query_option {
+	uint32_t query_flag;
+	const char *dns_group_name;
+};
+
 struct dns_cache_data_head {
-	uint32_t cache_flag;
 	enum CACHE_TYPE cache_type;
+	uint32_t query_flag;
+	char dns_group_name[DNS_CACHE_GROUP_NAME_LEN];
 	int is_soa;
 	ssize_t size;
 };
@@ -115,11 +122,14 @@ struct dns_cache_file {
 
 enum CACHE_TYPE dns_cache_data_type(struct dns_cache_data *cache_data);
 
-uint32_t dns_cache_get_cache_flag(struct dns_cache_data *cache_data);
+uint32_t dns_cache_get_query_flag(struct dns_cache_data *cache_data);
+
+const char *dns_cache_get_dns_group_name(struct dns_cache_data *cache_data);
 
 void dns_cache_data_free(struct dns_cache_data *data);
 
-struct dns_cache_data *dns_cache_new_data_packet(uint32_t cache_flag, void *packet, size_t packet_len);
+struct dns_cache_data *dns_cache_new_data_packet(struct dns_cache_query_option *query_option, void *packet,
+												 size_t packet_len);
 
 int dns_cache_init(int size, int enable_inactive, int inactive_list_expired);
 
@@ -156,10 +166,11 @@ struct dns_cache_data *dns_cache_new_data(void);
 
 struct dns_cache_data *dns_cache_get_data(struct dns_cache *dns_cache);
 
-void dns_cache_set_data_addr(struct dns_cache_data *dns_cache, uint32_t cache_flag, char *cname, int cname_ttl,
-							 unsigned char *addr, int addr_len);
+void dns_cache_set_data_addr(struct dns_cache_data *dns_cache, struct dns_cache_query_option *query_option, char *cname,
+							 int cname_ttl, unsigned char *addr, int addr_len);
 
-void dns_cache_set_data_soa(struct dns_cache_data *dns_cache, int32_t cache_flag, char *cname, int cname_ttl);
+void dns_cache_set_data_soa(struct dns_cache_data *dns_cache, struct dns_cache_query_option *query_option, char *cname,
+							int cname_ttl);
 
 void dns_cache_destroy(void);
 
