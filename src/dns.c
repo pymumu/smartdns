@@ -43,7 +43,7 @@
 	} while (0)
 
 /* read short and move pointer */
-static short _dns_read_short(unsigned char **buffer)
+static unsigned short _dns_read_short(unsigned char **buffer)
 {
 	unsigned short value = 0;
 
@@ -548,6 +548,10 @@ static int _dns_add_RAW(struct dns_packet *packet, dns_rr_type rrtype, dns_type_
 	int len = 0;
 	struct dns_context context;
 	int ret = 0;
+
+	if (raw_len < 0) {
+		return -1;
+	}
 
 	/* resource record */
 	/* |domain          |
@@ -1153,6 +1157,11 @@ static int _dns_decode_rr_head(struct dns_context *context, char *domain, int do
 	*ttl = _dns_read_int(&context->ptr);
 	*rr_len = _dns_read_short(&context->ptr);
 
+	if (*rr_len < 0 || *ttl < 0) {
+		tlog(TLOG_DEBUG, "rr len or ttl is invalid.");
+		return -1;
+	}
+
 	return 0;
 }
 
@@ -1233,7 +1242,7 @@ static int _dns_encode_raw(struct dns_context *context, struct dns_rrs *rrs)
 
 static int _dns_decode_raw(struct dns_context *context, unsigned char *raw, int len)
 {
-	if (_dns_left_len(context) < len) {
+	if (_dns_left_len(context) < len || len < 0) {
 		return -1;
 	}
 
@@ -1595,6 +1604,11 @@ static int _dns_decode_opt(struct dns_context *context, dns_rr_type type, unsign
 	  +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
 	*/
 
+	if (rr_len < 0) {
+		tlog(TLOG_DEBUG, "opt len is invalid.");
+		return -1;
+	}
+
 	if (ercode != 0) {
 		tlog(TLOG_ERROR, "extend rcode invalid.");
 		return -1;
@@ -1682,7 +1696,7 @@ static int _dns_decode_an(struct dns_context *context, dns_rr_type type)
 
 	/* decode rr head */
 	ret = _dns_decode_rr_head(context, domain, DNS_MAX_CNAME_LEN, &qtype, &qclass, &ttl, &rr_len);
-	if (ret < 0) {
+	if (ret < 0 || qclass < 0) {
 		tlog(TLOG_DEBUG, "decode head failed.");
 		return -1;
 	}
