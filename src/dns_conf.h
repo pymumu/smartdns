@@ -312,6 +312,7 @@ extern int dns_conf_rr_ttl_min;
 extern int dns_conf_rr_ttl_max;
 extern int dns_conf_force_AAAA_SOA;
 extern int dns_conf_ipset_timeout_enable;
+extern int dns_conf_local_ttl;
 
 extern int dns_conf_force_no_cname;
 

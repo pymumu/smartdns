@@ -3413,7 +3413,7 @@ static int _dns_server_process_address(struct dns_request *request)
 	}
 
 	request->rcode = DNS_RC_NOERROR;
-	request->ip_ttl = 600;
+	request->ip_ttl = dns_conf_local_ttl;
 	request->has_ip = 1;
 
 	struct dns_server_post_context context;
@@ -3934,7 +3934,7 @@ static int _dns_server_process_host(struct dns_request *request)
 	}
 
 	request->rcode = DNS_RC_NOERROR;
-	request->ip_ttl = 600;
+	request->ip_ttl = dns_conf_local_ttl;
 	request->has_ip = 1;
 
 	struct dns_server_post_context context;
@@ -4040,9 +4040,6 @@ static int _dns_server_do_query(struct dns_request *request)
 		safe_strncpy(request->dns_group_name, group_name, DNS_GROUP_NAME_LEN);
 	}
 
-	if (_dns_server_process_host(request) == 0) {
-		goto clean_exit;
-	}
 
 	_dns_server_set_dualstack_selection(request);
 
@@ -4057,6 +4054,10 @@ static int _dns_server_do_query(struct dns_request *request)
 
 	/* process domain address */
 	if (_dns_server_process_address(request) == 0) {
+		goto clean_exit;
+	}
+
+	if (_dns_server_process_host(request) == 0) {
 		goto clean_exit;
 	}
 
