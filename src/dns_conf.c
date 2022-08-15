@@ -124,6 +124,7 @@ int dns_conf_rr_ttl;
 int dns_conf_rr_ttl_reply_max;
 int dns_conf_rr_ttl_min = 600;
 int dns_conf_rr_ttl_max;
+int dns_conf_local_ttl;
 int dns_conf_force_AAAA_SOA;
 int dns_conf_force_no_cname;
 int dns_conf_ipset_timeout_enable;
@@ -1907,6 +1908,7 @@ static struct config_item _config_item[] = {
 	CONF_INT("rr-ttl-min", &dns_conf_rr_ttl_min, 0, CONF_INT_MAX),
 	CONF_INT("rr-ttl-max", &dns_conf_rr_ttl_max, 0, CONF_INT_MAX),
 	CONF_INT("rr-ttl-reply-max", &dns_conf_rr_ttl_reply_max, 0, CONF_INT_MAX),
+	CONF_INT("local-ttl", &dns_conf_local_ttl, 0, CONF_INT_MAX),
 	CONF_INT("max-reply-ip-num", &dns_conf_max_reply_ip_num, 1, CONF_INT_MAX),
 	CONF_ENUM("response-mode", &dns_conf_response_mode, &dns_conf_response_mode_enum),
 	CONF_YESNO("force-AAAA-SOA", &dns_conf_force_AAAA_SOA),
@@ -2089,6 +2091,10 @@ static int _dns_conf_load_post(void)
 		dns_conf_response_mode = DNS_RESPONSE_MODE_FASTEST_IP;
 		tlog(TLOG_WARN, "force set response to %s as cache size is 0",
 			 dns_conf_response_mode_enum[dns_conf_response_mode].name);
+	}
+
+	if (dns_conf_local_ttl == 0) {
+		dns_conf_local_ttl = dns_conf_rr_ttl_min;
 	}
 
 	return 0;

@@ -497,6 +497,7 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 |tcp-idle-time|TCP connection idle timeout|120|integer|tcp-idle-time 120
 |rr-ttl|Domain name TTL|Remote query result|number greater than 0|rr-ttl 600
 |rr-ttl-min|Domain name Minimum TTL|Remote query result|number greater than 0|rr-ttl-min 60
+|local-ttl|ttl for address and host|rr-ttl-min|number greater than 0|local-ttl 600
 |rr-ttl-reply-max|Domain name Minimum Reply TTL|Remote query result|number greater than 0|rr-ttl-reply-max 60
 |rr-ttl-max|Domain name Maximum TTL|Remote query result|number greater than 0|rr-ttl-max 600
 |max-reply-ip-num|Maximum number of IPs returned to the client|8|number of IPs, 1~16 |max-reply-ip-num 1
