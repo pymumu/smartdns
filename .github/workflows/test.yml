@@ -12,7 +12,7 @@ jobs:
     strategy:
       matrix:
         goos: [debian, openwrt, optware]
-        goarch: [x86, x86_64, mips, arm, aarch64, powerpc]
+        goarch: [x86, x86_64, mips, arm, aarch64, powerpc, armvirt]
         exclude:
           - goarch: x86
             goos: debian
