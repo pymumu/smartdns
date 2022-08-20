@@ -1112,10 +1112,6 @@ struct ping_host_struct *fast_ping_start(PING_TYPE type, const char *host, int c
 	tlog(TLOG_DEBUG, "ping %s, id = %d", host, ping_host->sid);
 
 	addrkey = _fast_ping_hash_key(ping_host->sid, &ping_host->addr);
-	pthread_mutex_lock(&ping.map_lock);
-	_fast_ping_host_get(ping_host);
-	hash_add(ping.addrmap, &ping_host->addr_node, addrkey);
-	pthread_mutex_unlock(&ping.map_lock);
 
 	_fast_ping_host_get(ping_host);
 	_fast_ping_host_get(ping_host);
@@ -1124,7 +1120,11 @@ struct ping_host_struct *fast_ping_start(PING_TYPE type, const char *host, int c
 		goto errout_remove;
 	}
 
+	pthread_mutex_lock(&ping.map_lock);
+	_fast_ping_host_get(ping_host);
+	hash_add(ping.addrmap, &ping_host->addr_node, addrkey);
 	ping_host->run = 1;
+	pthread_mutex_unlock(&ping.map_lock);
 	freeaddrinfo(gai);
 	_fast_ping_host_put(ping_host);
 	return ping_host;
