@@ -1566,6 +1566,7 @@ static int _dns_server_force_dualstack(struct dns_request *request)
 static int _dns_server_request_complete(struct dns_request *request)
 {
 	int ttl = DNS_SERVER_TMOUT_TTL;
+	int reply_ttl = ttl;
 
 	if (request->rcode == DNS_RC_SERVFAIL || request->rcode == DNS_RC_NXDOMAIN) {
 		ttl = DNS_SERVER_FAIL_TTL;
@@ -1617,6 +1618,15 @@ out:
 		}
 	}
 
+	reply_ttl = ttl;
+	if (request->passthrough == 0 && dns_conf_cachesize > 0 &&
+		request->check_order_list->orders[0].type != DOMAIN_CHECK_NONE) {
+		reply_ttl = dns_conf_serve_expired_reply_ttl;
+		if (reply_ttl < 2) {
+			reply_ttl = 2;
+		}
+	}
+
 	struct dns_server_post_context context;
 	_dns_server_post_context_init(&context, request);
 	context.do_cache = 1;
@@ -1624,7 +1634,7 @@ out:
 	context.do_force_soa = request->dualstack_selection_force_soa;
 	context.do_audit = 1;
 	context.do_reply = 1;
-	context.reply_ttl = ttl;
+	context.reply_ttl = reply_ttl;
 	context.skip_notify_count = 1;
 
 	_dns_request_post(&context);
@@ -3023,7 +3033,7 @@ static int _dns_server_reply_request_eth_ip(struct dns_request *request)
 	}
 
 	request->rcode = DNS_RC_NOERROR;
-	request->ip_ttl = 600;
+	request->ip_ttl = dns_conf_local_ttl;
 	request->has_ip = 1;
 
 	struct dns_server_post_context context;
@@ -3813,10 +3823,6 @@ static int _dns_server_process_special_query(struct dns_request *request)
 {
 	int ret = 0;
 
-	if (_dns_server_process_smartdns_domain(request) == 0) {
-		goto clean_exit;
-	}
-
 	switch (request->qtype) {
 	case DNS_T_PTR:
 		/* return PTR record */
@@ -4054,6 +4060,10 @@ static int _dns_server_do_query(struct dns_request *request)
 
 	/* process domain address */
 	if (_dns_server_process_address(request) == 0) {
+		goto clean_exit;
+	}
+
+	if (_dns_server_process_smartdns_domain(request) == 0) {
 		goto clean_exit;
 	}
 
