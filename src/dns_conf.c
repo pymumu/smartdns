@@ -2093,6 +2093,15 @@ static int _dns_conf_load_post(void)
 			 dns_conf_response_mode_enum[dns_conf_response_mode].name);
 	}
 
+
+	if ((dns_conf_rr_ttl_min > dns_conf_rr_ttl_max) && dns_conf_rr_ttl_max > 0) {
+		dns_conf_rr_ttl_min = dns_conf_rr_ttl_max;
+	}
+
+	if ((dns_conf_rr_ttl_max < dns_conf_rr_ttl_min) && dns_conf_rr_ttl_max > 0) {
+		dns_conf_rr_ttl_max = dns_conf_rr_ttl_min;
+	}
+
 	if (dns_conf_local_ttl == 0) {
 		dns_conf_local_ttl = dns_conf_rr_ttl_min;
 	}

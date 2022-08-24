@@ -1824,6 +1824,10 @@ static void _dns_server_complete_with_multi_ipaddress(struct dns_request *reques
 		_dns_server_force_dualstack(request);
 	}
 
+	if (request->passthrough && do_reply == 0) {
+		return;
+	}
+
 	_dns_server_post_context_init(&context, request);
 	context.do_cache = 1;
 	context.do_ipset = 1;
