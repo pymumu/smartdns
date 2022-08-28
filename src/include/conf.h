@@ -160,4 +160,6 @@ void load_exit(void);
 
 const char *conf_get_conf_file(void);
 
+const char *conf_get_conf_fullpath(const char *path, char *fullpath, size_t path_len);
+
 #endif // !_GENERIC_CONF_H

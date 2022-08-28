@@ -18,16 +18,46 @@
 
 #include "conf.h"
 #include <getopt.h>
+#include <libgen.h>
+#include <linux/limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
-static const char *currrent_conf_file = NULL;
+static const char *current_conf_file = NULL;
 
 const char *conf_get_conf_file(void)
 {
-	return currrent_conf_file;
+	return current_conf_file;
+}
+
+const char *conf_get_conf_fullpath(const char *path, char *fullpath, size_t path_len)
+{
+	char file_path_dir[PATH_MAX];
+
+	if (path_len < 1) {
+		return NULL;
+	}
+
+	if (path[0] == '/') {
+		strncpy(fullpath, path, path_len);
+		return fullpath;
+	}
+
+	strncpy(file_path_dir, conf_get_conf_file(), PATH_MAX - 1);
+	file_path_dir[PATH_MAX - 1] = 0;
+	dirname(file_path_dir);
+	if (file_path_dir[0] == '\0') {
+		strncpy(fullpath, path, path_len);
+		return fullpath;
+	}
+
+	if (snprintf(fullpath, PATH_MAX, "%s/%s", file_path_dir, path) < 0) {
+		return NULL;
+	}
+
+	return fullpath;
 }
 
 int conf_custom(const char *item, void *data, int argc, char *argv[])
@@ -303,7 +333,7 @@ static int load_conf_file(const char *file, struct config_item *items, conf_erro
 
 			conf_getopt_reset();
 			/* call item function */
-			currrent_conf_file = file;
+			current_conf_file = file;
 			call_ret = items[i].item_func(items[i].item, items[i].data, argc, argv);
 			ret = handler(file, line_no, call_ret);
 			if (ret != 0) {

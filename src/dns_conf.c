@@ -1750,8 +1750,8 @@ static int _conf_dhcp_lease_dnsmasq_file(void *data, int argc, char *argv[])
 		return -1;
 	}
 
-	safe_strncpy(dns_conf_dnsmasq_lease_file, argv[1], DNS_MAX_PATH);
-	if (_conf_dhcp_lease_dnsmasq_add(argv[1]) != 0) {
+	conf_get_conf_fullpath(argv[1], dns_conf_dnsmasq_lease_file, sizeof(dns_conf_dnsmasq_lease_file));
+	if (_conf_dhcp_lease_dnsmasq_add(dns_conf_dnsmasq_lease_file) != 0) {
 		return -1;
 	}
 
