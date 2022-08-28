@@ -31,7 +31,7 @@ var callServiceList = rpc.declare({
 	expect: { '': {} }
 });
 
-function getPidOfSmartdns() {
+function getServiceStatus() {
 	return L.resolveDefault(callServiceList(conf), {})
 		.then(function (res) {
 			var isrunning = false;
@@ -49,6 +49,8 @@ function getIPTablesRedirect() {
 		} else {
 			return "";
 		}
+	}).catch(function (err) {
+		return "";
 	});
 }
 
@@ -59,12 +61,14 @@ function getIP6TablesRedirect() {
 		} else {
 			return "";
 		}
-	});
+	}).catch(function (err) {
+		return "";
+	});;
 }
 
 function smartdnsServiceStatus() {
 	return Promise.all([
-		getPidOfSmartdns(),
+		getServiceStatus(),
 		getIPTablesRedirect(),
 		getIP6TablesRedirect()
 	]);
@@ -136,6 +140,10 @@ return L.view.extend({
 			L.Poll.add(function () {
 				return L.resolveDefault(smartdnsServiceStatus()).then(function (res) {
 					var view = document.getElementById("service_status");
+					if (view == null) {
+						return;
+					}
+
 					view.innerHTML = smartdnsRenderStatus(res);
 				});
 			});
@@ -214,6 +222,21 @@ return L.view.extend({
 		// cache-size;
 		o = s.taboption("settings", form.Value, "cache_size", _("Cache Size"), _("DNS domain result cache size"));
 		o.rempty = true;
+
+		// cache-size;
+		o = s.taboption("settings", form.Flag, "resolve_local_hostnames", _("Resolve Local Hostnames"), _("Resolve local hostnames by reading Dnsmasq lease file"));
+		o.rmempty = false;
+		o.default = o.enabled;
+
+		// Force AAAA SOA
+		o = s.taboption("settings", form.Flag, "force_aaaa_soa", _("Force AAAA SOA"), _("Force AAAA SOA."));
+		o.rmempty = false;
+		o.default = o.disabled;
+
+		// Force HTTPS SOA
+		o = s.taboption("settings", form.Flag, "force_https_soa", _("Force HTTPS SOA"), _("Force HTTPS SOA."));
+		o.rmempty = false;
+		o.default = o.disabled;
 
 		// rr-ttl;
 		o = s.taboption("settings", form.Value, "rr_ttl", _("Domain TTL"), _("TTL for all domain result."));
