@@ -3010,11 +3010,6 @@ static int _dns_client_query_setup_default_ecs(struct dns_query_struct *query)
 
 static int _dns_client_query_parser_options(struct dns_query_struct *query, struct dns_query_options *options)
 {
-	if (options == NULL) {
-		_dns_client_query_setup_default_ecs(query);
-		return 0;
-	}
-
 	if (options->enable_flag & DNS_QUEY_OPTION_ECS_IP) {
 		struct sockaddr_storage addr;
 		socklen_t addr_len = sizeof(addr);
@@ -3067,6 +3062,10 @@ static int _dns_client_query_parser_options(struct dns_query_struct *query, stru
 
 		memcpy(&query->ecs.ecs, ecs, sizeof(query->ecs.ecs));
 		query->ecs.enable = 1;
+	}
+
+	if (query->ecs.enable == 0) {
+		_dns_client_query_setup_default_ecs(query);
 	}
 
 	return 0;
