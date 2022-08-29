@@ -69,6 +69,20 @@ stop_forward_dnsmasq()
 	/etc/init.d/dnsmasq restart
 }
 
+set_main_dns()
+{
+	uci set dhcp.@dnsmasq[0].port=0
+	uci commit dhcp
+	/etc/init.d/dnsmasq restart
+}
+
+stop_main_dns()
+{
+	uci delete dhcp.@dnsmasq[0].port
+	uci commit dhcp
+	/etc/init.d/dnsmasq restart
+}
+
 set_iptable()
 {
 	local ipv6_server=$1
@@ -274,22 +288,10 @@ load_service()
 	config_get coredump "$section" "coredump" "0"
 	[ "$coredump" = "1" ] && COREDUMP="1"
 
-	config_get port "$section" "port" "6053"
+	config_get port "$section" "port" "53"
 	config_get ipv6_server "$section" "ipv6_server" "1"
 	config_get tcp_server "$section" "tcp_server" "1"
-	if [ "$ipv6_server" = "1" ]; then
-		conf_append "bind" "[::]:$port"
-	else
-		conf_append "bind" ":$port"
-	fi
 
-	[ "$tcp_server" = "1" ] && {
-		if [ "$ipv6_server" = "1" ]; then
-			conf_append "bind-tcp" "[::]:$port"
-		else
-			conf_append "bind-tcp" ":$port"
-		fi
-	}
 	config_get dualstack_ip_selection "$section" "dualstack_ip_selection" "0"
 	[ "$dualstack_ip_selection" = "0" ] && conf_append "dualstack-ip-selection" "no"
 
@@ -351,6 +353,9 @@ load_service()
 		}
 	fi
 
+	[ "$enabled" = "0" ] && [ "$SMARTDNS_PORT" = "53" ] && stop_main_dns 
+	[ "$old_port" != "$SMARTDNS_PORT" ] && [ "$old_port" = "53" ] && stop_main_dns 
+
 	uci delete smartdns.@smartdns[0].old_redirect 2>/dev/null
 	uci delete smartdns.@smartdns[0].old_port 2>/dev/null
 	uci delete smartdns.@smartdns[0].old_enabled 2>/dev/null
@@ -366,6 +371,24 @@ load_service()
 	elif [ "$redirect" = "dnsmasq-upstream" ]; then
 		set_forward_dnsmasq "$SMARTDNS_PORT"
 	fi
+
+	if [ "$SMARTDNS_PORT" = "53" ]; then
+		set_main_dns
+	fi
+
+	if [ "$ipv6_server" = "1" ]; then
+		conf_append "bind" "[::]:$SMARTDNS_PORT"
+	else
+		conf_append "bind" ":$SMARTDNS_PORT"
+	fi
+
+	[ "$tcp_server" = "1" ] && {
+		if [ "$ipv6_server" = "1" ]; then
+			conf_append "bind-tcp" "[::]:$SMARTDNS_PORT"
+		else
+			conf_append "bind-tcp" ":$SMARTDNS_PORT"
+		fi
+	}
 
 	load_second_server $section
 

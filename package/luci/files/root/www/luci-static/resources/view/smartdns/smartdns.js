@@ -176,8 +176,8 @@ return L.view.extend({
 
 		// Port;
 		o = s.taboption("settings", form.Value, "port", _("Local Port"), _("Smartdns local server port"));
-		o.placeholder = 6053;
-		o.default = 6053;
+		o.placeholder = 53;
+		o.default = 53;
 		o.datatype = "port";
 		o.rempty = false;
 
