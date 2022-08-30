@@ -258,92 +258,29 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
    * 在 `Domain Address` 指定特定域名的 IP 地址，可用于广告屏蔽。
 
 3. 启用服务
-   
-   SmartDNS 服务生效方法有两种，一种是**直接作为主 DNS 服务**，另一种是**作为 DNSmasq 的上游**。
-   默认情况下，SmartDNS 采用第一种方式。如下两种方式根据需求选择即可。
-   
-   - **方法一：作为主 DNS 服务（默认方案）**
      
-     * 启用 SmartDNS 的 53 端口重定向
-       
-       登录 OpenWrt 管理界面，点击 `Services` -> `SmartDNS` -> `redirect`，选择 `重定向 53 端口到 SmartDNS `启用 53 端口转发。
-     
-     * 检测转发服务是否配置成功
-       
-       执行
-       
-       ```shell
-       $ nslookup -querytype=ptr smartdns
+  * 替换默认Dndmasq为主DNS。
+    
+    登录 OpenWrt 管理界面，点击 `Services` -> `SmartDNS` -> `port`，设置端口号为`53`，smartdns会自动接管主DNS服务器。
+
+  * 检测转发服务是否配置成功
+    
+    执行
+    
+    ```shell
+    $ nslookup -querytype=ptr smartdns
+    ```
+    
+    查看命令结果中的 `name` 是否为 `smartdns` 或你的主机名，如果是则表示生效
+    
+    ```shell
+    $ nslookup -querytype=ptr smartdns
+    Server:         192.168.1.1
+    Address:        192.168.1.1#53
+    
+    Non-authoritative answer:
+    smartdns        name = smartdns.
        ```
-       
-       查看命令结果中的 `name` 是否为 `smartdns` 或你的主机名，如果是则表示生效
-       
-       ```shell
-       $ nslookup -querytype=ptr smartdns
-       Server:         192.168.1.1
-       Address:        192.168.1.1#53
-       
-       Non-authoritative answer:
-       smartdns        name = smartdns.
-       ```
-     
-     * 界面提示重定向失败
-       
-       * 检查 `iptables` 和/或 `ip6tables` 命令是否正确安装。
-       
-       * OpenWrt 15.01 系统不支持 IPv6 重定向，如网络需要支持 IPv6，请将 DNSmasq 上游改为 SmartDNS，或者将 SmartDNS 的端口改为53，并停用 DNSmasq。
-       
-       * LEDE 系统请安装 IPv6 的 NAT 转发驱动。点击 `System` -> `Software`，点击 `Update lists` 更新软件列表后，安装 `ip6tables-mod-nat`。
-       
-       * 使用如下命令检查路由规则是否生效
-         
-         ```shell
-         iptables -t nat -L PREROUTING | grep REDIRECT
-         ```
-       
-       * 如转发功能不正常，请使用**方法二：作为 DNSmasq 的上游**。
-   
-   - **方法二：作为 DNSmasq 的上游**
-     
-     * **将 DNSmasq 的请求发送到 SmartDNS**
-       
-       登录 OpenWrt 管理界面，点击 `Services` -> `SmartDNS` -> `Redirect`，选择`作为 DNSmasq 的上游服务器`，设置 DNSmasq 的上游服务器为 SmartDNS。
-     
-     * **检测上游服务是否配置成功**
-       
-         执行
-         
-         ```shell
-         $ nslookup -querytype=ptr smartdns
-         ```
-         
-         查看命令结果中的 `name` 是否为 `smartdns` 或你的主机名，如果是则表示生效
-         
-         ```shell
-         $ nslookup -querytype=ptr smartdns
-         Server:         192.168.1.1
-         Address:        192.168.1.1#53
-         
-         Non-authoritative answer:
-         smartdns        name = smartdns.
-         ```
-
-         或执行
-
-         ```shell
-         $ nslookup smartdns
-         ```
-
-         查看命令结果是否有解析出路由器的IP地址，如果是则表示生效。
-
-         或执行
-
-         ```shell
-         ping smartdns.
-         ```
-
-         检测ping是否解析对应主机的IP地址。
-
 
 4. 启动服务
    
@@ -352,7 +289,14 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 5. **注意：**
    
    * 如已经安装 ChinaDNS，建议将 ChinaDNS 的上游配置为 SmartDNS。
-   * SmartDNS 默认情况下将 53 端口的请求转发到 SmartDNS的 本地端口，此行为由 `Redirect` 配置选项控制。
+   * 当smartdns的端口为53时，将自动接管dnsmasq为主dns。配置其他端口时，会重新启用dnsmasq为主dns。
+   * 若在此过程中发生异常，可使用如下命令还原dnsmasq为主DNS
+
+   ```shell
+   uci delete dhcp.@dnsmasq[0].port
+   uci commit dhcp
+   /etc/init.d/dnsmasq restart
+   ```
 
 ### 华硕路由器原生固件 / 梅林固件
 

@@ -4,8 +4,6 @@
 		"read": {
 			"file": {
 				"/etc/smartdns/*": [ "read" ],
-				"/usr/sbin/iptables -t nat -nL PREROUTING": [ "exec" ],
-				"/usr/sbin/ip6tables -t nat -nL PREROUTING": [ "exec" ],
 				"/usr/sbin/smartdns": [ "exec" ]
 			},
 			"ubus": {

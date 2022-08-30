@@ -240,11 +240,11 @@ https://github.com/pymumu/smartdns/releases
    There are two ways to use the SmartDNS service, `one is directly as the primary DNS service`, `the other is as the upstream of dnsmasq`.  
    By default, SmartDNS uses the first method. You can choose according to your needs in the following two ways.
 
-1. Method 1: SmartDNS as primary DNS Server (default scheme)
+1. Method 1: SmartDNS as primary DNS Server 
 
-    * **Enable SmartDNS port 53 port redirection**
+    * **Enable SmartDNS as primary DNS Server**
 
-        Log in to the router, click on `Services`->`SmartDNS`->`redirect`, select `Redirect 53 port to SmartDNS` option to enable port 53 forwarding.
+        Log in to the router, click on `Services`->`SmartDNS`->`port`, input port `53`, smartdns will run as primary DNS Server.
 
     * **Check if the service is configured successfully**
 
@@ -260,54 +260,20 @@ https://github.com/pymumu/smartdns/releases
         smartdns         name = smartdns.
         ```
 
-    * **The interface prompts that the redirect failed**
-
-        * Check if iptable, ip6table command is installed correctly.
-        * The openwrt 15.01 system does not support IPV6 redirection. If the network needs to support IPV6, please change DNSMASQ upstream to smartdns, or change the smartdns port to 53, and disable dnsmasq.
-        * After LEDE system, please install IPV6 nat forwarding driver. Click `system`->`Software`, click `update lists` to update the software list, install `ip6tables-mod-nat`
-        * Use the following command to check whether the routing rule takes effect.
-
-        ```shell
-        iptables -t nat -L PREROUTING | grep REDIRECT
-        ```
-
-        * If the forwarding function is abnormal, please use Method 2: As the upstream of DNSMASQ.
-
-1. Method 2: SmartDNS as upstream DNS Server of DNSMASQ
-
-    * **Forward dnsmasq's request to SmartDNS**
-
-        Log in to the router, click on `Services`->`SmartDNS`->`redirect`, select `Run as dnsmasq upstream server` option to forwarding dnsmasq request to Smartdns.
-
-    * **Check if the service is configured successfully**
-
-        * Query domain name with `nslookup -querytype=ptr 0.0.0.1`
-        See if the `name` item in the command result is displayed as `smartdns` or `hostname`, such as `smartdns`
-
-        ```shell
-        pi@raspberrypi:~/code/smartdns_build $ nslookup -querytype=ptr smartdns
-        Server:         192.168.1.1
-        Address:        192.168.1.1#53
-
-        Non-authoritative answer:
-        smartdns         name = smartdns.
-        ```
-
-        * or Query doman name `smartdns `with `nslookup smartdns`
-         ```shell
-         $ nslookup smartdns
-         ```
-
-        Check whether the command result resolves the IP address of the router, if so, it means it is working.
-
 1. Start Service
 
     Check the `Enable' in the configuration page to start SmartDNS server.
 
 1. Note
 
-    * If chinaDNS is already installed, it is recommended to configure the upstream of chinaDNS as SmartDNS.
-    * SmartDNS defaults to forwarding port 53 requests to the local port of SmartDNS, controlled by the `Redirect` configuration option.
+   * When the port of smartdns is 53, it will automatically take over dnsmasq as the primary dns. When configuring other ports, dnsmasq is re-enabled as primary dns.
+   * If an exception occurs during this process, you can use the following command to restore dnsmasq as the primary DNS
+
+   ```shell
+   uci delete dhcp.@dnsmasq[0].port
+   uci commit dhcp
+   /etc/init.d/dnsmasq restart
+   ```
 
 ### ASUS router native firmware / Merlin firmware
 
