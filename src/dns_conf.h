@@ -325,6 +325,7 @@ extern char dns_conf_sni_proxy_ip[DNS_MAX_IPLEN];
 
 extern int dns_save_fail_packet;
 extern char dns_save_fail_packet_dir[DNS_MAX_PATH];
+extern char dns_resolv_file[DNS_MAX_PATH];
 
 void dns_server_load_exit(void);
 

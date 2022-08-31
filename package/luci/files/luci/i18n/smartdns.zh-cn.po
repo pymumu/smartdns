@@ -269,6 +269,11 @@ msgstr "SmartDNS官方网站"
 msgid "Smartdns local server port"
 msgstr "SmartDNS本地服务端口"
 
+msgid ""
+"Smartdns local server port, smartdns will be automatically set as main dns "
+"when the port is 53."
+msgstr "SmartDNS本地服务端口，当端口号设置为53时，smartdns将会自动配置为主dns。"
+
 msgid "Smartdns server name"
 msgstr "SmartDNS的服务器名称，默认为smartdns，留空为主机名"
 

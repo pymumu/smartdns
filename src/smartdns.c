@@ -44,7 +44,6 @@
 #include <sys/types.h>
 #include <ucontext.h>
 
-#define RESOLVE_FILE "/etc/resolv.conf"
 #define MAX_LINE_LEN 1024
 #define MAX_KEY_LEN 64
 #define SMARTDNS_PID_FILE "/var/run/smartdns.pid"
@@ -173,9 +172,9 @@ static int _smartdns_load_from_resolv(void)
 	int filed_num = 0;
 	int line_num = 0;
 
-	fp = fopen(RESOLVE_FILE, "r");
+	fp = fopen(dns_resolv_file, "r");
 	if (fp == NULL) {
-		tlog(TLOG_ERROR, "open %s failed, %s", RESOLVE_FILE, strerror(errno));
+		tlog(TLOG_ERROR, "open %s failed, %s", dns_resolv_file, strerror(errno));
 		return -1;
 	}
 

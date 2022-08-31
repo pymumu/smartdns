@@ -31,22 +31,21 @@ CUSTOM_CONF="$SMARTDNS_CONF_DIR/custom.conf"
 SMARTDNS_CONF_TMP="${SMARTDNS_CONF}.tmp"
 COREDUMP="0"
 RESPAWN="1"
-UPSTREAM_SERVER_NUM=0
 
 set_forward_dnsmasq()
 {
 	local PORT="$1"
 	addr="127.0.0.1#$PORT"
-	OLD_SERVER="$(uci get dhcp.@dnsmasq[0].server 2>/dev/null)"
+	OLD_SERVER="$(uci -q get dhcp.@dnsmasq[0].server)"
 	if echo "$OLD_SERVER" | grep "^$addr" >/dev/null 2>&1; then
 		return
 	fi
 
-	uci delete dhcp.@dnsmasq[0].server 2>/dev/null
-	uci add_list dhcp.@dnsmasq[0].server="$addr"
-	uci set dhcp.@dnsmasq[0].noresolv=1
-	uci set dhcp.@dnsmasq[0].rebind_protection=0
-	uci set dhcp.@dnsmasq[0].domainneeded=0
+	uci -q delete dhcp.@dnsmasq[0].server
+	uci -q add_list dhcp.@dnsmasq[0].server="$addr"
+	uci -q set dhcp.@dnsmasq[0].noresolv=1
+	uci -q set dhcp.@dnsmasq[0].rebind_protection=0
+	uci -q set dhcp.@dnsmasq[0].domainneeded=0
 	uci commit dhcp
 	/etc/init.d/dnsmasq restart
 }
@@ -55,15 +54,15 @@ stop_forward_dnsmasq()
 {
 	local OLD_PORT="$1"
 	addr="127.0.0.1#$OLD_PORT"
-	OLD_SERVER="$(uci get dhcp.@dnsmasq[0].server 2>/dev/null)"
+	OLD_SERVER="$(uci -q get dhcp.@dnsmasq[0].server)"
 	if ! echo "$OLD_SERVER" | grep "^$addr" >/dev/null 2>&1; then
 		return
 	fi
 	
-	uci delete dhcp.@dnsmasq[0].server  2>/dev/null
-	uci delete dhcp.@dnsmasq[0].noresolv 2>/dev/null
-	uci set dhcp.@dnsmasq[0].rebind_protection=1
-	uci set dhcp.@dnsmasq[0].domainneeded=1
+	uci -q delete dhcp.@dnsmasq[0].server
+	uci -q delete dhcp.@dnsmasq[0].noresolv
+	uci -q set dhcp.@dnsmasq[0].rebind_protection=1
+	uci -q set dhcp.@dnsmasq[0].domainneeded=1
 	uci commit dhcp
 	/etc/init.d/dnsmasq restart
 }
@@ -85,17 +84,26 @@ stop_set_dnsmasq()
 	[ "$port" == "$old_port" ] || stop_forward_dnsmasq "$old_port"
 }
 
-
 set_main_dns()
 {
-	uci set dhcp.@dnsmasq[0].port=0
+	local hostip
+	hostip="$(uci -q get network.lan.ipaddr)"
+	
+	if [ -z "$hostip" ]; then
+		return
+	fi
+
+	uci -q set dhcp.@dnsmasq[0].port=0
+	uci -q set dhcp.lan.dhcp_option="6,$hostip"
+
 	uci commit dhcp
 	/etc/init.d/dnsmasq restart
 }
 
 stop_main_dns()
 {
-	uci delete dhcp.@dnsmasq[0].port 2>/dev/null
+	uci -q delete dhcp.@dnsmasq[0].port
+	uci -q delete dhcp.lan.dhcp_option
 	uci commit dhcp
 	/etc/init.d/dnsmasq restart
 }
@@ -119,7 +127,6 @@ clear_iptable()
 		ip6tables -t nat -D PREROUTING -p udp -d "$IP" --dport 53 -j REDIRECT --to-ports "$OLD_PORT" >/dev/null 2>&1
 		ip6tables -t nat -D PREROUTING -p tcp -d "$IP" --dport 53 -j REDIRECT --to-ports "$OLD_PORT" >/dev/null 2>&1
 	done
-
 }
 
 service_triggers() {
@@ -208,21 +215,6 @@ load_server()
 	[ "$type" = "https" ] && DNS_ADDRESS="$ip"
 
 	conf_append "$SERVER" "$DNS_ADDRESS $ADDITIONAL_ARGS $addition_arg"
-	((UPSTREAM_SERVER_NUM=UPSTREAM_SERVER_NUM+1))
-}
-
-load_resolv_conf()
-{
-	resolve_file="$(uci get dhcp.@dnsmasq[0].resolvfile 2>/dev/null)"
-	[ -z "$dhcp.@dnsmasq[0].resolvfile" ] && return 1
-	[ -e "$resolve_file" ] || return 1
-
-	while read line
-	do
-		IP="$(echo "$line" | grep "nameserver " | awk '{print $2}')"
-		[ -z "$IP" ] && continue
-		conf_append "server" "$IP"
-	done < $resolve_file
 }
 
 load_second_server()
@@ -279,8 +271,13 @@ load_service()
 {
 	local section="$1"
 	args=""
-	dnsmasq_lease_file="$(uci get dhcp.@dnsmasq[0].leasefile 2>/dev/null)"
-	dnsmasq_port="$(uci get dhcp.@dnsmasq[0].port 2>/dev/null)"
+	dnsmasq_lease_file="$(uci -q get dhcp.@dnsmasq[0].leasefile)"
+	dnsmasq_port="$(uci -q get dhcp.@dnsmasq[0].port)"
+	resolve_file="$(uci -q get dhcp.@dnsmasq[0].resolvfile)"
+	[ -z "$dnsmasq_lease_file" ] && dnsmasq_lease_file="/tmp/dhcp.leases"
+	[ -z "$dnsmasq_port" ] && dnsmasq_port="53"
+	[ -z "$resolve_file" ] && resolve_file="/tmp/resolv.conf.d/resolv.conf.auto"
+
 	qtype_soa_list=""
 
 	mkdir -p $SMARTDNS_VAR_CONF_DIR
@@ -319,7 +316,7 @@ load_service()
 	config_get force_https_soa "$section" "force_https_soa" "0"
 	[ "$force_https_soa" = "1" ] && qtype_soa_list="$qtype_soa_list 65"
 
-	config_get auto_set_dnsmasq "$section" "auto_set_dnsmasq" ""
+	config_get auto_set_dnsmasq "$section" "auto_set_dnsmasq" "0"
 
 	config_get rr_ttl "$section" "rr_ttl" ""
 	[ -z "$rr_ttl" ] || conf_append "rr-ttl" "$rr_ttl"
@@ -349,6 +346,7 @@ load_service()
 	config_get old_port "$section" "old_port" "0"
 
 	[ -z "$qtype_soa_list" ] || conf_append "force-qtype-SOA" "$qtype_soa_list"
+	[ -e "$resolve_file" ] && conf_append "resolv-file" "$resolve_file"
 
 	# upgrade old configuration
 	if [ "$redirect" = "redirect" ] || [ "$redirect" = "dnsmasq-upstream" ] || [ "$redirect" = "none" ]; then
@@ -357,16 +355,15 @@ load_service()
 		stop_forward_dnsmasq "$port"
 		stop_forward_dnsmasq "$old_port"
 		[ "$redirect" = "none" ] || {
-			uci delete smartdns.@smartdns[0].port="53" 2>/dev/null
+			uci -q delete smartdns.@smartdns[0].port="53"
 			port="53"
 		}
-		uci delete smartdns.@smartdns[0].redirect 2>/dev/null
-		uci delete smartdns.@smartdns[0].old_redirect 2>/dev/null
-		uci delete smartdns.@smartdns[0].old_enabled 2>/dev/null
+		uci -q delete smartdns.@smartdns[0].redirect
+		uci -q delete smartdns.@smartdns[0].old_redirect
+		uci -q delete smartdns.@smartdns[0].old_enabled
 	fi
 
 	SMARTDNS_PORT="$port"
-	[ -z "${dnsmasq_port}" ] && dnsmasq_port="53"
 	[ "$old_port" == "53" ] && [ "$dnsmasq_port" = "0" ] && {
 		[ "$SMARTDNS_PORT" = "53" ] || stop_main_dns
 		[ "$enabled" = "0" ] && stop_main_dns
@@ -376,8 +373,8 @@ load_service()
 		[ "$SMARTDNS_PORT" = "53" ] || stop_set_dnsmasq "$SMARTDNS_PORT" "$old_port"
 	}
 
-	uci delete smartdns.@smartdns[0].old_port 2>/dev/null
-	uci set smartdns.@smartdns[0].old_port="$SMARTDNS_PORT" 2>/dev/null
+	uci -q delete smartdns.@smartdns[0].old_port
+	uci -q set smartdns.@smartdns[0].old_port="$SMARTDNS_PORT"
 	uci commit smartdns
 
 	[ "$enabled" -gt 0 ] || return 1
@@ -407,8 +404,6 @@ load_service()
 
 	config_foreach load_server "server"
 
-	[ "$UPSTREAM_SERVER_NUM" -gt "0" ] || load_resolv_conf
-
 	{
 		echo "conf-file $ADDRESS_CONF"
 		echo "conf-file $BLACKLIST_IP_CONF"
@@ -435,14 +430,21 @@ load_service()
 unload_service()
 {
 	local section="$1"
-	dnsmasq_port="$(uci get dhcp.@dnsmasq[0].port 2>/dev/null)"
+	dnsmasq_port="$(uci -q get dhcp.@dnsmasq[0].port)"
 	config_get port "$section" "port" "53"
 	config_get old_port "$section" "old_port" "0"
+	config_get auto_set_dnsmasq "$section" "auto_set_dnsmasq" "0"
 	[ -z "${dnsmasq_port}" ] && dnsmasq_port="53"
 	[ "$old_port" = "53" ] && [ "$dnsmasq_port" = "0" ] && stop_main_dns
 	[ "$auto_set_dnsmasq" = "1" ] && {
 		[ "$port" = "53" ] || stop_set_dnsmasq "$port" "$old_port"
 	}
+}
+
+service_stopped()
+{
+	config_load "smartdns"
+	config_foreach unload_service "smartdns"
 }
 
 start_service()
@@ -455,10 +457,4 @@ reload_service()
 {
 	stop
 	start
-}
-
-stop_service()
-{
-	config_load "smartdns"
-	config_foreach unload_service "smartdns"
 }

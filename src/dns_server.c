@@ -793,7 +793,7 @@ static int _dns_setup_dns_raw_packet(struct dns_server_post_context *context)
 	/* encode to binary data */
 	int encode_len = dns_encode(context->inpacket, context->inpacket_maxlen, context->packet);
 	if (encode_len <= 0) {
-		tlog(TLOG_ERROR, "encode raw packet failed for %s", context->request->domain);
+		tlog(TLOG_DEBUG, "encode raw packet failed for %s", context->request->domain);
 		return -1;
 	}
 

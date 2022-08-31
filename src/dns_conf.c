@@ -32,6 +32,7 @@
 
 #define DEFAULT_DNS_CACHE_SIZE 512
 #define DNS_MAX_REPLY_IP_NUM 8
+#define DNS_RESOLV_FILE "/etc/resolv.conf"
 
 /* ipset */
 struct dns_ipset_table {
@@ -133,6 +134,7 @@ char dns_conf_user[DNS_CONF_USRNAME_LEN];
 
 int dns_save_fail_packet;
 char dns_save_fail_packet_dir[DNS_MAX_PATH];
+char dns_resolv_file[DNS_MAX_PATH];
 
 /* ECS */
 struct dns_edns_client_subnet dns_conf_ipv4_ecs;
@@ -1926,6 +1928,7 @@ static struct config_item _config_item[] = {
 	CONF_STRING("ca-path", (char *)&dns_conf_ca_path, DNS_MAX_PATH),
 	CONF_STRING("user", (char *)&dns_conf_user, sizeof(dns_conf_user)),
 	CONF_YESNO("debug-save-fail-packet", &dns_save_fail_packet),
+	CONF_STRING("resolv-file", (char *)&dns_resolv_file, sizeof(dns_resolv_file)),
 	CONF_STRING("debug-save-fail-packet-dir", (char *)&dns_save_fail_packet_dir, sizeof(dns_save_fail_packet_dir)),
 	CONF_CUSTOM("conf-file", config_addtional_file, NULL),
 	CONF_END(),
@@ -2104,6 +2107,10 @@ static int _dns_conf_load_post(void)
 
 	if (dns_conf_local_ttl == 0) {
 		dns_conf_local_ttl = dns_conf_rr_ttl_min;
+	}
+
+	if (dns_resolv_file[0] == '\0') {
+		safe_strncpy(dns_resolv_file, DNS_RESOLV_FILE, sizeof(dns_resolv_file));
 	}
 
 	return 0;

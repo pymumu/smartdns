@@ -45,7 +45,8 @@ o.datatype    = "hostname"
 o.rempty      = false
 
 ---- Port
-o = s:taboption("settings", Value, "port", translate("Local Port"), translate("Smartdns local server port"))
+o = s:taboption("settings", Value, "port", translate("Local Port"), 
+    translate("Smartdns local server port, smartdns will be automatically set as main dns when the port is 53."))
 o.placeholder = 53
 o.default     = 53
 o.datatype    = "port"
