@@ -316,7 +316,7 @@ load_service()
 	config_get force_https_soa "$section" "force_https_soa" "0"
 	[ "$force_https_soa" = "1" ] && qtype_soa_list="$qtype_soa_list 65"
 
-	config_get auto_set_dnsmasq "$section" "auto_set_dnsmasq" "0"
+	config_get auto_set_dnsmasq "$section" "auto_set_dnsmasq" "1"
 
 	config_get rr_ttl "$section" "rr_ttl" ""
 	[ -z "$rr_ttl" ] || conf_append "rr-ttl" "$rr_ttl"
@@ -350,13 +350,23 @@ load_service()
 
 	# upgrade old configuration
 	if [ "$redirect" = "redirect" ] || [ "$redirect" = "dnsmasq-upstream" ] || [ "$redirect" = "none" ]; then
-		clear_iptable "$port"
-		clear_iptable "$old_port"
-		stop_forward_dnsmasq "$port"
-		stop_forward_dnsmasq "$old_port"
-		[ "$redirect" = "none" ] || {
-			uci -q delete smartdns.@smartdns[0].port="53"
+		[ "$redirect" = "redirect" ] && {
+			clear_iptable "$port"
+			clear_iptable "$old_port"
+			uci -q delete smartdns.@smartdns[0].port
 			port="53"
+		}
+
+		[ "$redirect" = "dnsmasq-upstream" ] && {
+			stop_forward_dnsmasq "$port"
+			stop_forward_dnsmasq "$old_port"
+			auto_set_dnsmasq="1"
+			uci -q set smartdns.@smartdns[0].auto_set_dnsmasq="1"
+		}
+
+		[ "$redirect" = "none" ] && {
+			auto_set_dnsmasq="0"
+			uci -q set smartdns.@smartdns[0].auto_set_dnsmasq="0"
 		}
 		uci -q delete smartdns.@smartdns[0].redirect
 		uci -q delete smartdns.@smartdns[0].old_redirect
