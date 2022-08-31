@@ -252,8 +252,8 @@ load_second_server()
 	config_get_bool seconddns_no_cache "$section" "seconddns_no_cache" "0"
 	[ "$seconddns_no_cache" = "1" ] && ARGS="$ARGS -no-cache"
 
-	config_get_bool force_aaaa_soa "$section" "force_aaaa_soa" "0"
-	[ "$force_aaaa_soa" = "1" ] && ARGS="$ARGS -force-aaaa-soa"
+	config_get_bool seconddns_force_aaaa_soa "$section" "seconddns_force_aaaa_soa" "0"
+	[ "$seconddns_force_aaaa_soa" = "1" ] && ARGS="$ARGS -force-aaaa-soa"
 
 	config_get ipv6_server "$section" "ipv6_server" "1"
 	if [ "$ipv6_server" = "1" ]; then

@@ -270,7 +270,7 @@
 		 o.default = o.disabled;
  
 		 // Force AAAA SOA
-		 o = s.taboption("seconddns", form.Flag, "force_aaaa_soa", _("Force AAAA SOA"), _("Force AAAA SOA."));
+		 o = s.taboption("seconddns", form.Flag, "seconddns_force_aaaa_soa", _("Force AAAA SOA"), _("Force AAAA SOA."));
 		 o.rmempty = false;
 		 o.default = o.disabled;
  

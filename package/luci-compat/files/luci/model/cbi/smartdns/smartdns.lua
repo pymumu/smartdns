@@ -231,7 +231,7 @@ o.cfgvalue    = function(...)
 end
 
 ---- Force AAAA SOA
-o = s:taboption("seconddns", Flag, "force_aaaa_soa", translate("Force AAAA SOA"), translate("Force AAAA SOA."))
+o = s:taboption("seconddns", Flag, "seconddns_force_aaaa_soa", translate("Force AAAA SOA"), translate("Force AAAA SOA."))
 o.rmempty     = false
 o.default     = o.disabled
 o.cfgvalue    = function(...)
