@@ -96,6 +96,10 @@ set_main_dns()
 	uci -q set dhcp.@dnsmasq[0].port=0
 	uci -q set dhcp.lan.dhcp_option="6,$hostip"
 
+	# for some third-party firmware
+	redir_dns="$(uci -q get dhcp.@dnsmasq[0].dns_redirect)"
+	[ "$redir_dns" = "1" ] && uci -q set dhcp.@dnsmasq[0].dns_redirect=0
+
 	uci commit dhcp
 	/etc/init.d/dnsmasq restart
 }
