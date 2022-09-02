@@ -145,7 +145,7 @@ o = s:taboption("settings", Value, "rr_ttl_max", translate("Domain TTL Max"), tr
 o.rempty      = true
 
 ---- rr-ttl-reply-max
-o = s:taboption("settings", Value, "rr_ttl_reply_max", translate("Domain TTL Max"), translate("Reply maximum TTL for all domain result."))
+o = s:taboption("settings", Value, "rr_ttl_reply_max", translate("Reply Domain TTL Max"), translate("Reply maximum TTL for all domain result."))
 o.rempty      = true
 
 ---- second dns server
