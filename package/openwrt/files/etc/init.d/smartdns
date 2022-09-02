@@ -108,6 +108,11 @@ stop_main_dns()
 {
 	uci -q delete dhcp.@dnsmasq[0].port
 	uci -q delete dhcp.lan.dhcp_option
+
+	# for some third-party firmware
+	redir_dns="$(uci -q get dhcp.@dnsmasq[0].dns_redirect)"
+	[ "$redir_dns" = "0" ] && uci -q set dhcp.@dnsmasq[0].dns_redirect=1
+
 	uci commit dhcp
 	/etc/init.d/dnsmasq restart
 }
