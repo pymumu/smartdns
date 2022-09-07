@@ -495,7 +495,7 @@ static int _smartdns_create_logdir(void)
 		return -1;
 	}
 
-	chown(logdir, uid, gid);
+	unused = chown(logdir, uid, gid);
 	return 0;
 }
 

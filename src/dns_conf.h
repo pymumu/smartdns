@@ -20,6 +20,7 @@
 #define _DNS_CONF
 
 #include "art.h"
+#include "atomic.h"
 #include "conf.h"
 #include "dns.h"
 #include "dns_client.h"
@@ -102,16 +103,25 @@ typedef enum {
 #define BIND_FLAG_NO_DUALSTACK_SELECTION (1 << 7)
 #define BIND_FLAG_FORCE_AAAA_SOA (1 << 8)
 
+struct dns_rule {
+	atomic_t refcnt;
+	enum domain_rule rule;
+	char rule_data[];
+};
+
 struct dns_rule_flags {
+	struct dns_rule head;
 	unsigned int flags;
 	unsigned int is_flag_set;
 };
 
-struct dns_address_IPV4 {
+struct dns_rule_address_IPV4 {
+	struct dns_rule head;
 	unsigned char ipv4_addr[DNS_RR_A_LEN];
 };
 
-struct dns_address_IPV6 {
+struct dns_rule_address_IPV6 {
+	struct dns_rule head;
 	unsigned char ipv6_addr[DNS_RR_AAAA_LEN];
 };
 
@@ -121,14 +131,17 @@ struct dns_ipset_name {
 };
 
 struct dns_ipset_rule {
+	struct dns_rule head;
 	const char *ipsetname;
 };
 
 struct dns_domain_rule {
-	void *rules[DOMAIN_RULE_MAX];
+	struct dns_rule head;
+	struct dns_rule *rules[DOMAIN_RULE_MAX];
 };
 
 struct dns_nameserver_rule {
+	struct dns_rule head;
 	const char *group_name;
 };
 
@@ -145,6 +158,7 @@ struct dns_domain_check_order {
 };
 
 struct dns_domain_check_orders {
+	struct dns_rule head;
 	struct dns_domain_check_order orders[DOMAIN_CHECK_NUM];
 };
 
@@ -174,7 +188,7 @@ struct dns_hosts {
 	char domain[DNS_MAX_CNAME_LEN];
 	dns_hosts_type host_type;
 	int dns_type;
-	int is_soa;	
+	int is_soa;
 	union {
 		unsigned char ipv4_addr[DNS_RR_A_LEN];
 		unsigned char ipv6_addr[DNS_RR_AAAA_LEN];
@@ -254,6 +268,46 @@ struct dns_qtype_soa_table {
 	DECLARE_HASHTABLE(qtype, 8);
 };
 extern struct dns_qtype_soa_table dns_qtype_soa_table;
+
+struct dns_domain_set_rule {
+	struct list_head list;
+	enum domain_rule type;
+	void *rule;
+	unsigned int flags;
+	unsigned int is_clear_flag;
+};
+
+struct dns_domain_set_rule_list {
+	struct hlist_node node;
+	char domain_set[DNS_MAX_CNAME_LEN];
+	struct list_head domain_ruls_list;
+};
+
+struct dns_domain_set_rule_table {
+	DECLARE_HASHTABLE(rule_list, 4);
+};
+extern struct dns_domain_set_rule_table dns_domain_set_rule_table;
+
+enum dns_domain_set_type {
+	DNS_DOMAIN_SET_LIST = 0,
+	DNS_DOMAIN_SET_GEOSITE = 1,
+};
+
+struct dns_domain_set_name {
+	struct list_head list;
+	enum dns_domain_set_type type;
+	char file[DNS_MAX_PATH];
+};
+
+struct dns_domain_set_name_list {
+	struct hlist_node node;
+	char name[DNS_MAX_CNAME_LEN];
+	struct list_head set_name_list;
+};
+struct dns_domain_set_name_table {
+	DECLARE_HASHTABLE(names, 4);
+};
+extern struct dns_domain_set_name_table dns_domain_set_name_table;
 
 extern struct dns_bind_ip dns_conf_bind_ip[DNS_MAX_BIND_IP];
 extern int dns_conf_bind_ip_num;

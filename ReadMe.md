@@ -529,6 +529,7 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 | ipset | 域名 ipset | 无 | ipset /domain/[ipset\|-\|#[4\|6]:[ipset\|-][,#[4\|6]:[ipset\|-]]]，-表示忽略 | ipset /www.example.com/#4:dns4,#6:- |
 | ipset-timeout | 设置 ipset 超时功能启用  | 自动 | [yes] | ipset-timeout yes |
 | domain-rules | 设置域名规则 | 无 | domain-rules /domain/ [-rules...]<br>[-c\|-speed-check-mode]：测速模式，参考 speed-check-mode 配置<br>[-a\|-address]：参考 address 配置<br>[-n\|-nameserver]：参考 nameserver 配置<br>[-p\|-ipset]：参考ipset配置<br>[-d\|-dualstack-ip-selection]：参考 dualstack-ip-selection  | domain-rules /www.example.com/ -speed-check-mode none |
+| domain-set | 设置域名集合 | 无 | domain-set [options...]<br>[-n\|-name]：域名集合名称 <br>[-t\|-type]：域名集合类型，当前仅支持list，格式为域名列表，一行一个域名。<br>[-f\|-file]：域名集合文件路径。<br> 选项需要配合address, nameserver, ipset等需要指定域名的地方使用，使用方式为 /domain-set:[name]/| domain-set -name set -type list -file /path/to/list <br> address /domain-set:set/1.2.4.8 |
 | bogus-nxdomain | 假冒 IP 地址过滤 | 无 | [ip/subnet]，可重复 | bogus-nxdomain 1.2.3.4/16 |
 | ignore-ip | 忽略 IP 地址 | 无 | [ip/subnet]，可重复 | ignore-ip 1.2.3.4/16 |
 | whitelist-ip | 白名单 IP 地址 | 无 | [ip/subnet]，可重复 | whitelist-ip 1.2.3.4/16 |
@@ -696,6 +697,31 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
     配置完成后，可以直接使用主机名连接对应的机器。但需要注意：
 
     * Windows系统默认使用mDNS解析地址，如需要在windows下用使用smartdns解析，则需要在主机名后面增加`.`，表示使用DNS解析。如`ping smartdns.`
+
+13. 域名集合如何使用？  
+    为方便按集合配置域名，对于有/domain/的配置，可以指定域名集合，方便维护。具体方法为：
+    
+    * 使用`domain-set`配置集合文件，如
+    
+    ```sh
+    domain-set -name ad -file /etc/smartdns/ad-list.conf
+    ```
+
+    ad-list.conf的格式为一个域名一行，如
+    
+    ```
+    ad.com
+    site.com
+    ```
+
+    * 在有/domain/配置的选项使用域名集合，只需要将`/domain/`配置为`/domain-set:[集合名称]/`即可，如：
+
+    ```sh
+    address /domain-set:ad/#
+    domain-rules /domain-set:ad/ -a #
+    nameserver /domain-set:ad/server
+    ...
+    ```
 
 ## 编译
 

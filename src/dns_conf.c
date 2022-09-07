@@ -42,6 +42,9 @@ static struct dns_ipset_table dns_ipset_table;
 
 struct dns_qtype_soa_table dns_qtype_soa_table;
 
+struct dns_domain_set_rule_table dns_domain_set_rule_table;
+struct dns_domain_set_name_table dns_domain_set_name_table;
+
 /* dns groups */
 struct dns_group_table dns_group_table;
 
@@ -141,6 +144,62 @@ struct dns_edns_client_subnet dns_conf_ipv4_ecs;
 struct dns_edns_client_subnet dns_conf_ipv6_ecs;
 
 char dns_conf_sni_proxy_ip[DNS_MAX_IPLEN];
+
+static void *_new_dns_rule(enum domain_rule domain_rule)
+{
+	struct dns_rule *rule;
+	int size = 0;
+
+	if (domain_rule >= DOMAIN_RULE_MAX) {
+		return NULL;
+	}
+
+	switch (domain_rule) {
+	case DOMAIN_RULE_FLAGS:
+		size = sizeof(struct dns_rule_flags);
+		break;
+	case DOMAIN_RULE_ADDRESS_IPV4:
+		size = sizeof(struct dns_rule_address_IPV4);
+		break;
+	case DOMAIN_RULE_ADDRESS_IPV6:
+		size = sizeof(struct dns_rule_address_IPV6);
+		break;
+	case DOMAIN_RULE_IPSET:
+	case DOMAIN_RULE_IPSET_IPV4:
+	case DOMAIN_RULE_IPSET_IPV6:
+		size = sizeof(struct dns_ipset_rule);
+		break;
+	case DOMAIN_RULE_NAMESERVER:
+		size = sizeof(struct dns_nameserver_rule);
+		break;
+	case DOMAIN_RULE_CHECKSPEED:
+		size = sizeof(struct dns_domain_check_orders);
+		break;
+	default:
+		return NULL;
+	}
+
+	rule = malloc(size);
+	if (!rule) {
+		return NULL;
+	}
+	memset(rule, 0, size);
+	rule->rule = domain_rule;
+	atomic_set(&rule->refcnt, 1);
+	return rule;
+}
+
+static void _dns_rule_get(struct dns_rule *rule)
+{
+	atomic_inc(&rule->refcnt);
+}
+
+static void _dns_rule_put(struct dns_rule *rule)
+{
+	if (atomic_dec_and_test(&rule->refcnt)) {
+		free(rule);
+	}
+}
 
 static int _get_domain(char *value, char *domain, int max_dmain_size, char **ptr_after_domain)
 {
@@ -431,7 +490,8 @@ static int _config_domain_iter_free(void *data, const unsigned char *key, uint32
 			continue;
 		}
 
-		free(domain_rule->rules[i]);
+		_dns_rule_put(domain_rule->rules[i]);
+		domain_rule->rules[i] = NULL;
 	}
 
 	free(domain_rule);
@@ -458,6 +518,69 @@ static void _config_address_destroy(radix_node_t *node, void *cbctx)
 	node->data = NULL;
 }
 
+static int _config_domain_set_rule_add_ext(char *set_name, enum domain_rule type, void *rule, unsigned int flags, int is_clear_flag)
+{
+	struct dns_domain_set_rule *set_rule = NULL;
+	struct dns_domain_set_rule_list *set_rule_list = NULL;
+	uint32_t key = 0;
+
+	if (set_name == NULL) {
+		return -1;
+	}
+
+	set_rule = malloc(sizeof(struct dns_domain_set_rule));
+	if (set_rule == NULL) {
+		goto errout;
+	}
+	memset(set_rule, 0, sizeof(struct dns_domain_set_rule));
+
+	set_rule->type = type;
+	set_rule->rule = rule;
+	set_rule->flags = flags;
+	set_rule->is_clear_flag = is_clear_flag;
+
+	if (rule) {
+		_dns_rule_get(rule);
+	}
+
+	key = hash_string(set_name);
+	hash_for_each_possible(dns_domain_set_rule_table.rule_list, set_rule_list, node, key)
+	{
+		if (strncmp(set_rule_list->domain_set, set_name, DNS_MAX_CNAME_LEN) == 0) {
+			break;
+		}
+	}
+
+	if (set_rule_list == NULL) {
+		set_rule_list = malloc(sizeof(struct dns_domain_set_rule_list));
+		if (set_rule_list == NULL) {
+			goto errout;
+		}
+		memset(set_rule_list, 0, sizeof(struct dns_domain_set_rule_list));
+		INIT_LIST_HEAD(&set_rule_list->domain_ruls_list);
+		safe_strncpy(set_rule_list->domain_set, set_name, DNS_MAX_CNAME_LEN);
+		hash_add(dns_domain_set_rule_table.rule_list, &set_rule_list->node, key);
+	}
+
+	list_add_tail(&set_rule->list, &set_rule_list->domain_ruls_list);
+	return 0;
+errout:
+	if (set_rule) {
+		free(set_rule);
+	}
+	return -1;
+}
+
+static int _config_domian_set_rule_flags(char *set_name, unsigned int flags, int is_clear_flag)
+{
+	return _config_domain_set_rule_add_ext(set_name, DOMAIN_RULE_FLAGS, NULL, flags, is_clear_flag);
+}
+
+static int _config_domain_set_rule_add(char *set_name, enum domain_rule type, void *rule)
+{
+	return _config_domain_set_rule_add_ext(set_name, type, rule, 0, 0);
+}
+
 static int _config_domain_rule_add(char *domain, enum domain_rule type, void *rule)
 {
 	struct dns_domain_rule *domain_rule = NULL;
@@ -473,6 +596,11 @@ static int _config_domain_rule_add(char *domain, enum domain_rule type, void *ru
 		tlog(TLOG_ERROR, "domain name %s too long", domain);
 		goto errout;
 	}
+
+	if (strncmp(domain, "domain-set:", sizeof("domain-set:") - 1) == 0) {
+		return _config_domain_set_rule_add(domain + sizeof("domain-set:") - 1, type, rule);
+	}
+
 	reverse_string(domain_key, domain, len, 1);
 	domain_key[len] = '.';
 	len++;
@@ -495,11 +623,12 @@ static int _config_domain_rule_add(char *domain, enum domain_rule type, void *ru
 
 	/* add new rule to domain */
 	if (domain_rule->rules[type]) {
-		free(domain_rule->rules[type]);
+		_dns_rule_put(domain_rule->rules[type]);
 		domain_rule->rules[type] = NULL;
 	}
 
 	domain_rule->rules[type] = rule;
+	_dns_rule_get(rule);
 
 	/* update domain rule */
 	if (add_domain_rule) {
@@ -529,6 +658,10 @@ static int _config_domain_rule_flag_set(char *domain, unsigned int flag, unsigne
 	char domain_key[DNS_MAX_CONF_CNAME_LEN];
 	int len = 0;
 
+	if (strncmp(domain, "domain-set:", sizeof("domain-set:") - 1) == 0) {
+		return _config_domian_set_rule_flags(domain + sizeof("domain-set:") - 1, flag, is_clear);
+	}
+
 	len = strlen(domain);
 	if (len >= (int)sizeof(domain_key)) {
 		tlog(TLOG_ERROR, "domain %s too long", domain);
@@ -552,13 +685,12 @@ static int _config_domain_rule_flag_set(char *domain, unsigned int flag, unsigne
 
 	/* add new rule to domain */
 	if (domain_rule->rules[DOMAIN_RULE_FLAGS] == NULL) {
-		rule_flags = malloc(sizeof(*rule_flags));
-		memset(rule_flags, 0, sizeof(*rule_flags));
+		rule_flags = _new_dns_rule(DOMAIN_RULE_FLAGS);
 		rule_flags->flags = 0;
-		domain_rule->rules[DOMAIN_RULE_FLAGS] = rule_flags;
+		domain_rule->rules[DOMAIN_RULE_FLAGS] = (struct dns_rule *)rule_flags;
 	}
 
-	rule_flags = domain_rule->rules[DOMAIN_RULE_FLAGS];
+	rule_flags = (struct dns_rule_flags *)domain_rule->rules[DOMAIN_RULE_FLAGS];
 	if (is_clear == false) {
 		rule_flags->flags |= flag;
 	} else {
@@ -670,7 +802,7 @@ static int _conf_domain_rule_ipset(char *domain, const char *ipsetname)
 			goto errout;
 		}
 
-		ipset_rule = malloc(sizeof(*ipset_rule));
+		ipset_rule = _new_dns_rule(type);
 		if (ipset_rule == NULL) {
 			goto errout;
 		}
@@ -680,6 +812,7 @@ static int _conf_domain_rule_ipset(char *domain, const char *ipsetname)
 		if (_config_domain_rule_add(domain, type, ipset_rule) != 0) {
 			goto errout;
 		}
+		_dns_rule_put(&ipset_rule->head);
 	}
 
 	goto clear;
@@ -688,7 +821,7 @@ errout:
 	tlog(TLOG_ERROR, "add ipset %s failed", ipsetname);
 
 	if (ipset_rule) {
-		free(ipset_rule);
+		_dns_rule_put(&ipset_rule->head);
 	}
 
 clear:
@@ -720,9 +853,9 @@ errout:
 
 static int _conf_domain_rule_address(char *domain, const char *domain_address)
 {
-	struct dns_address_IPV4 *address_ipv4 = NULL;
-	struct dns_address_IPV6 *address_ipv6 = NULL;
-	void *address = NULL;
+	struct dns_rule_address_IPV4 *address_ipv4 = NULL;
+	struct dns_rule_address_IPV6 *address_ipv6 = NULL;
+	struct dns_rule *address = NULL;
 	char ip[MAX_IP_LEN];
 	int port = 0;
 	struct sockaddr_storage addr;
@@ -777,7 +910,7 @@ static int _conf_domain_rule_address(char *domain, const char *domain_address)
 		switch (addr.ss_family) {
 		case AF_INET: {
 			struct sockaddr_in *addr_in = NULL;
-			address_ipv4 = malloc(sizeof(*address_ipv4));
+			address_ipv4 = _new_dns_rule(DOMAIN_RULE_ADDRESS_IPV4);
 			if (address_ipv4 == NULL) {
 				goto errout;
 			}
@@ -785,27 +918,27 @@ static int _conf_domain_rule_address(char *domain, const char *domain_address)
 			addr_in = (struct sockaddr_in *)&addr;
 			memcpy(address_ipv4->ipv4_addr, &addr_in->sin_addr.s_addr, 4);
 			type = DOMAIN_RULE_ADDRESS_IPV4;
-			address = address_ipv4;
+			address = (struct dns_rule *)address_ipv4;
 		} break;
 		case AF_INET6: {
 			struct sockaddr_in6 *addr_in6 = NULL;
 			addr_in6 = (struct sockaddr_in6 *)&addr;
 			if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
-				address_ipv4 = malloc(sizeof(*address_ipv4));
+				address_ipv4 = _new_dns_rule(DOMAIN_RULE_ADDRESS_IPV4);
 				if (address_ipv4 == NULL) {
 					goto errout;
 				}
 				memcpy(address_ipv4->ipv4_addr, addr_in6->sin6_addr.s6_addr + 12, 4);
 				type = DOMAIN_RULE_ADDRESS_IPV4;
-				address = address_ipv4;
+				address = (struct dns_rule *)address_ipv4;
 			} else {
-				address_ipv6 = malloc(sizeof(*address_ipv6));
+				address_ipv6 = _new_dns_rule(DOMAIN_RULE_ADDRESS_IPV6);
 				if (address_ipv6 == NULL) {
 					goto errout;
 				}
 				memcpy(address_ipv6->ipv6_addr, addr_in6->sin6_addr.s6_addr, 16);
 				type = DOMAIN_RULE_ADDRESS_IPV6;
-				address = address_ipv6;
+				address = (struct dns_rule *)address_ipv6;
 			}
 		} break;
 		default:
@@ -818,10 +951,11 @@ static int _conf_domain_rule_address(char *domain, const char *domain_address)
 		goto errout;
 	}
 
+	_dns_rule_put(address);
 	return 0;
 errout:
 	if (address) {
-		free(address);
+		_dns_rule_put(address);
 	}
 
 	tlog(TLOG_ERROR, "add address %s, %s  failed", domain, domain_address);
@@ -857,7 +991,6 @@ static int _config_speed_check_mode_parser(struct dns_domain_check_orders *check
 	int i = 0;
 
 	safe_strncpy(tmpbuff, mode, DNS_MAX_OPT_LEN);
-	memset(check_orders, 0, sizeof(*check_orders));
 
 	ptr = tmpbuff;
 	do {
@@ -1088,7 +1221,7 @@ static int _conf_domain_rule_nameserver(char *domain, const char *group_name)
 			goto errout;
 		}
 
-		nameserver_rule = malloc(sizeof(*nameserver_rule));
+		nameserver_rule = _new_dns_rule(DOMAIN_RULE_NAMESERVER);
 		if (nameserver_rule == NULL) {
 			goto errout;
 		}
@@ -1107,10 +1240,12 @@ static int _conf_domain_rule_nameserver(char *domain, const char *group_name)
 		goto errout;
 	}
 
+	_dns_rule_put(&nameserver_rule->head);
+
 	return 0;
 errout:
 	if (nameserver_rule) {
-		free(nameserver_rule);
+		_dns_rule_put(&nameserver_rule->head);
 	}
 
 	tlog(TLOG_ERROR, "add nameserver %s, %s failed", domain, group_name);
@@ -1265,6 +1400,50 @@ static void _config_qtype_soa_table_destroy(void)
 	}
 }
 
+static void _config_domain_set_name_table_destroy(void)
+{
+	struct dns_domain_set_name_list *set_name_list = NULL;
+	struct hlist_node *tmp = NULL;
+	struct dns_domain_set_name *set_name = NULL;
+	struct dns_domain_set_name *tmp1 = NULL;
+	unsigned long i = 0;
+
+	hash_for_each_safe(dns_domain_set_name_table.names, i, tmp, set_name_list, node)
+	{
+		hlist_del_init(&set_name_list->node);
+		list_for_each_entry_safe(set_name, tmp1, &set_name_list->set_name_list, list)
+		{
+			list_del(&set_name->list);
+			free(set_name);
+		}
+
+		free(set_name_list);
+	}
+}
+
+static void _config_domain_set_rule_table_destroy(void)
+{
+	struct dns_domain_set_rule_list *set_rule_list = NULL;
+	struct hlist_node *tmp = NULL;
+	struct dns_domain_set_rule *set_rule = NULL;
+	struct dns_domain_set_rule *tmp1 = NULL;
+	unsigned long i = 0;
+
+	hash_for_each_safe(dns_domain_set_rule_table.rule_list, i, tmp, set_rule_list, node)
+	{
+		hlist_del_init(&set_rule_list->node);
+		list_for_each_entry_safe(set_rule, tmp1, &set_rule_list->domain_ruls_list, list)
+		{
+			list_del(&set_rule->list);
+			if (set_rule->rule) {
+				_dns_rule_put(set_rule->rule);
+			}
+			free(set_rule);
+		}
+		free(set_rule_list);
+	}
+}
+
 static int _config_blacklist_ip(void *data, int argc, char *argv[])
 {
 	if (argc <= 1) {
@@ -1355,11 +1534,10 @@ static int _conf_domain_rule_speed_check(char *domain, const char *mode)
 {
 	struct dns_domain_check_orders *check_orders = NULL;
 
-	check_orders = malloc(sizeof(*check_orders) * DOMAIN_CHECK_NUM);
+	check_orders = _new_dns_rule(DOMAIN_RULE_CHECKSPEED);
 	if (check_orders == NULL) {
 		goto errout;
 	}
-	memset(check_orders, 0, sizeof(*check_orders));
 
 	if (_config_speed_check_mode_parser(check_orders, mode) != 0) {
 		goto errout;
@@ -1369,12 +1547,109 @@ static int _conf_domain_rule_speed_check(char *domain, const char *mode)
 		goto errout;
 	}
 
+	_dns_rule_put(&check_orders->head);
 	return 0;
 errout:
 	if (check_orders) {
-		free(check_orders);
+		_dns_rule_put(&check_orders->head);
 	}
 	return 0;
+}
+
+static int _conf_domain_set(void *data, int argc, char *argv[])
+{
+	int opt = 0;
+	uint32_t key = 0;
+	struct dns_domain_set_name *domain_set = NULL;
+	struct dns_domain_set_name_list *domain_set_name_list = NULL;
+	char set_name[DNS_MAX_CNAME_LEN] = {0};
+
+	/* clang-format off */
+	static struct option long_options[] = {
+		{"name", required_argument, NULL, 'n'},
+		{"type", required_argument, NULL, 't'},
+		{"file", required_argument, NULL, 'f'},
+		{NULL, 0, NULL, 0}
+	};
+
+	if (argc <= 1) {
+		tlog(TLOG_ERROR, "invalid parameter.");
+		goto errout;
+	}
+
+	domain_set = malloc(sizeof(*domain_set));
+	if (domain_set == NULL) {
+		tlog(TLOG_ERROR, "cannot malloc memory.");
+		goto errout;
+	}
+	memset(domain_set, 0, sizeof(*domain_set));
+	INIT_LIST_HEAD(&domain_set->list);
+
+	optind = 1;
+	while (1) {
+		opt = getopt_long_only(argc, argv, "n:t:f:", long_options, NULL);
+		if (opt == -1) {
+			break;
+		}
+
+		switch (opt) {
+		case 'n':
+			safe_strncpy(set_name, optarg, DNS_MAX_CNAME_LEN);
+			break;
+		case 't': {
+			const char *type = optarg;
+			if (strncmp(type, "list", 5) == 0) {
+				domain_set->type = DNS_DOMAIN_SET_LIST;
+			} else if (strncmp(type, "geosite", 7) == 0) {
+				domain_set->type = DNS_DOMAIN_SET_GEOSITE;
+			} else {
+				tlog(TLOG_ERROR, "invalid domain set type.");
+				goto errout;
+			}
+			break;
+		}
+		case 'f':
+			conf_get_conf_fullpath(optarg, domain_set->file, DNS_MAX_PATH);
+			break;
+		default:
+			break;
+		}
+	}
+	/* clang-format on */
+
+	if (set_name[0] == 0 || domain_set->file[0] == 0) {
+		tlog(TLOG_ERROR, "invalid parameter.");
+		goto errout;
+	}
+
+	key = hash_string(set_name);
+	hash_for_each_possible(dns_domain_set_name_table.names, domain_set_name_list, node, key)
+	{
+		if (strcmp(domain_set_name_list->name, set_name) == 0) {
+			break;
+		}
+	}
+
+	if (domain_set_name_list == NULL) {
+		domain_set_name_list = malloc(sizeof(*domain_set_name_list));
+		if (domain_set_name_list == NULL) {
+			tlog(TLOG_ERROR, "cannot malloc memory.");
+			goto errout;
+		}
+		memset(domain_set_name_list, 0, sizeof(*domain_set_name_list));
+		INIT_LIST_HEAD(&domain_set_name_list->set_name_list);
+		safe_strncpy(domain_set_name_list->name, set_name, DNS_MAX_CNAME_LEN);
+		hash_add(dns_domain_set_name_table.names, &domain_set_name_list->node, key);
+	}
+
+	list_add_tail(&domain_set->list, &domain_set_name_list->set_name_list);
+	return 0;
+
+errout:
+	if (domain_set) {
+		free(domain_set);
+	}
+	return -1;
 }
 
 static int _conf_domain_rules(void *data, int argc, char *argv[])
@@ -1922,6 +2197,7 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("ignore-ip", _conf_ip_ignore, NULL),
 	CONF_CUSTOM("edns-client-subnet", _conf_edns_client_subnet, NULL),
 	CONF_CUSTOM("domain-rules", _conf_domain_rules, NULL),
+	CONF_CUSTOM("domain-set", _conf_domain_set, NULL),
 	CONF_CUSTOM("dnsmasq-lease-file", _conf_dhcp_lease_dnsmasq_file, NULL),
 	CONF_CUSTOM("hosts-file", _conf_hosts_file, NULL),
 	CONF_STRING("ca-file", (char *)&dns_conf_ca_file, DNS_MAX_PATH),
@@ -1987,6 +2263,96 @@ int config_addtional_file(void *data, int argc, char *argv[])
 	return load_conf(file_path, _config_item, _conf_printf);
 }
 
+static int _update_domain_set_from_list(const char *file, struct dns_domain_set_rule_list *set_rule_list)
+{
+	FILE *fp = NULL;
+	char line[MAX_LINE_LEN];
+	char domain[DNS_MAX_CNAME_LEN];
+	int ret = 0;
+	int line_no = 0;
+	int filed_num = 0;
+	struct dns_domain_set_rule *set_rule = NULL;
+
+	fp = fopen(file, "r");
+	if (fp == NULL) {
+		tlog(TLOG_WARN, "open file %s error, %s", file, strerror(errno));
+		return 0;
+	}
+
+	line_no = 0;
+	while (fgets(line, MAX_LINE_LEN, fp)) {
+		line_no++;
+		filed_num = sscanf(line, "%256s", domain);
+		if (filed_num <= 0) {
+			continue;
+		}
+
+		if (domain[0] == '#' || domain[0] == '\n') {
+			continue;
+		}
+
+		list_for_each_entry(set_rule, &set_rule_list->domain_ruls_list, list)
+		{
+			if (set_rule->type == DOMAIN_RULE_FLAGS) {
+				ret = _config_domain_rule_flag_set(domain, set_rule->flags, set_rule->is_clear_flag);
+			} else {
+				ret = _config_domain_rule_add(domain, set_rule->type, set_rule->rule);
+			}
+
+			if (ret != 0) {
+				tlog(TLOG_WARN, "process file %s failed at line %d.", file, line_no);
+				continue;
+			}
+		}
+	}
+
+	fclose(fp);
+	return ret;
+}
+
+static int _update_domain_set(void)
+{
+	struct dns_domain_set_rule_list *set_rule_list = NULL;
+
+	struct dns_domain_set_name_list *set_name_list = NULL;
+	struct dns_domain_set_name *set_name_item = NULL;
+
+	unsigned long i = 0;
+	uint32_t key = 0;
+
+	hash_for_each(dns_domain_set_rule_table.rule_list, i, set_rule_list, node)
+	{
+		key = hash_string(set_rule_list->domain_set);
+		hash_for_each_possible(dns_domain_set_name_table.names, set_name_list, node, key)
+		{
+			if (strcmp(set_name_list->name, set_rule_list->domain_set) == 0) {
+				break;
+			}
+		}
+
+		if (set_name_list == NULL) {
+			tlog(TLOG_WARN, "domain set %s not found.", set_rule_list->domain_set);
+			continue;
+		}
+
+		list_for_each_entry(set_name_item, &set_name_list->set_name_list, list)
+		{
+			switch (set_name_item->type) {
+			case DNS_DOMAIN_SET_LIST:
+				_update_domain_set_from_list(set_name_item->file, set_rule_list);
+				break;
+			case DNS_DOMAIN_SET_GEOSITE:
+				break;
+			default:
+				tlog(TLOG_WARN, "domain set %s type %d not support.", set_name_list->name, set_name_item->type);
+				break;
+			}
+		}
+	}
+
+	return 0;
+}
+
 static int _dns_server_load_conf_init(void)
 {
 	dns_conf_address_rule.ipv4 = New_Radix();
@@ -2003,6 +2369,8 @@ static int _dns_server_load_conf_init(void)
 	hash_init(dns_group_table.group);
 	hash_init(dns_hosts_table.hosts);
 	hash_init(dns_ptr_table.ptr);
+	hash_init(dns_domain_set_rule_table.rule_list);
+	hash_init(dns_domain_set_name_table.names);
 
 	_config_setup_smartdns_domain();
 
@@ -2096,7 +2464,6 @@ static int _dns_conf_load_post(void)
 			 dns_conf_response_mode_enum[dns_conf_response_mode].name);
 	}
 
-
 	if ((dns_conf_rr_ttl_min > dns_conf_rr_ttl_max) && dns_conf_rr_ttl_max > 0) {
 		dns_conf_rr_ttl_min = dns_conf_rr_ttl_max;
 	}
@@ -2112,6 +2479,10 @@ static int _dns_conf_load_post(void)
 	if (dns_resolv_file[0] == '\0') {
 		safe_strncpy(dns_resolv_file, DNS_RESOLV_FILE, sizeof(dns_resolv_file));
 	}
+
+	_update_domain_set();
+	_config_domain_set_name_table_destroy();
+	_config_domain_set_rule_table_destroy();
 
 	return 0;
 }

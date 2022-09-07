@@ -487,6 +487,7 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 |ipset|Domain IPSet|None|ipset /domain/[ipset\|-\|#[4\|6]:[ipset\|-][,#[4\|6]:[ipset\|-]]], `-` for ignore|ipset /www.example.com/#4:dns4,#6:-
 |ipset-timeout|ipset timeout enable|auto|[yes]|ipset-timeout yes
 |domain-rules|set domain rules|None|domain-rules /domain/ [-rules...]<br>`[-c\|-speed-check-mode]`: set speed check mode，same as parameter `speed-check-mode`<br>`[-a\|-address]`: same as  parameter `address` <br>`[-n\|-nameserver]`: same as parameter `nameserver`<br>`[-p\|-ipset]`: same as parameter `ipset`<br>`[-d\|-dualstack-ip-selection]`: same as parameter `dualstack-ip-selection`|domain-rules /www.example.com/ -speed-check-mode none
+| domain-set | collection of domains|None| domain-set [options...]<br>[-n\|-name]：name of set <br>[-t\|-type] [list]: set type, only support list, one domain per line <br>[-f\|-file]：file path of domain set<br> used with address, nameserver, ipset, example: /domain-set:[name]/ | domain-set -name set -type list -file /path/to/list <br> address /domain-set:set/1.2.4.8 |
 |bogus-nxdomain|bogus IP address|None|[IP/subnet], Repeatable| bogus-nxdomain 1.2.3.4/16
 |ignore-ip|ignore ip address|None|[ip/subnet], Repeatable| ignore-ip 1.2.3.4/16
 |whitelist-ip|ip whitelist|None|[ip/subnet], Repeatable，When the filtering server responds IPs in the IP whitelist, only result in whitelist will be accepted| whitelist-ip 1.2.3.4/16
@@ -534,13 +535,13 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 1. How to enable the audit log  
     The audit log records the domain name requested by the client. The record information includes the request time, the request IP address, the request domain name, and the request type. If you want to enable the audit log, configure `audit-enable yes` in the configuration file, `audit-size`, `Audit-file`, `audit-num` configure the audit log file size, the audit log file path, and the number of audit log files. The audit log file will be compressed to save space.
 
-1. How to avoid DNS privacy leaks
+1. How to avoid DNS privacy leaks  
     By default, smartdns will send requests to all configured DNS servers. If the upstream DNS servers record DNS logs, it will result in a DNS privacy leak. To avoid privacy leaks, try the following steps:
     * Use trusted DNS servers.
     * Use TLS servers.
     * Set up an upstream DNS server group.
 
-1. How to block ads
+1. How to block ads  
     Smartdns has a high-performance domain name matching algorithm. It is very efficient to filter advertisements by domain name. To block ads, you only need to configure records like the following configure. For example, if you block `*.ad.com`, configure as follows:
 
     ```sh
@@ -553,7 +554,7 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
     Address /pass.ad.com/-
     ```
 
-1. DNS query diversion
+1. DNS query diversion  
     In some cases, some domain names need to be queried using a specific DNS server to do DNS diversion. such as.
 
     ```sh
@@ -620,23 +621,48 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
     echo | openssl s_client -connect '1.0.0.1:853' 2>/dev/null | openssl x509 -pubkey -noout | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | openssl enc -base64
     ```
 
-1. How to solve the problem of slow DNS resolution in iOS system?  
+1. How to solve the problem of slow DNS resolution in iOS system?    
     Since iOS14, Apple has supported the resolution of DNS HTTPS (TYPE65) records. This function is used for solving problems related to HTTPS connections, but it is still a draft, and it will cause some functions such as adblocking fail. It is recommended to disable it through the following configuration.
 
     ```sh
     force-qtype-SOA 65
     ```
 
-1. How to resolve localhost ip by hostname?
+1. How to resolve localhost ip by hostname?  
     smartdns can cooperate with the dhcp server of DNSMASQ to support the resolution of local host name to IP address. You can configure smartdns to read the lease file of dnsmasq and support the resolution. The specific configuration parameters are as follows, (note that the DNSMASQ lease file may be different for each system and needs to be configured according to the actual situation)
 
     ```sh
     dnsmasq-lease-file /var/lib/misc/dnsmasq.leases
-    ````\
+    ```
 
     After the configuration is complete, you can directly use the host name to connect to the local machine. But need to pay attention:
 
     * Windows system uses mDNS to resolve addresses by default. If you need to use smartdns to resolve addresses under Windows, you need to add `.` after the host name, indicating that DNS resolution is used. Such as `ping smartdns.`
+
+1. How to use the domain set?  
+    To facilitate configuring domain names by set, for configurations with /domain/, you can specify a domain name set for easy maintenance. The specific method is:
+    
+    * Use `domain-set` configuration domain set file:
+    
+    ````sh
+    domain-set -name ad -file /etc/smartdns/ad-list.conf
+    ````
+
+    The format of ad-list.conf is one domain per line:
+    
+    ````
+    ad.com
+    site.com
+    ````
+
+    * To use the domain set, you only need to configure `/domain/` to `/domain-set:[collection name]/`, such as:
+
+    ````sh
+    address /domain-set:ad/#
+    domain-rules /domain-set:ad/ -a #
+    nameserver /domain-set:ad/server
+    ...
+    ````
 
 ## Compile
 
