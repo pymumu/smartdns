@@ -23,9 +23,9 @@ ifndef CFLAGS
 CFLAGS =-O2 -g -Wall -Wstrict-prototypes -fno-omit-frame-pointer -Wstrict-aliasing -funwind-tables -Wmissing-prototypes -Wshadow -Wextra -Wno-unused-parameter -Wno-implicit-fallthrough
 endif
 override CFLAGS +=-Iinclude
-override CFLAGS += -DBASE_FILE_NAME=\"$(notdir $<)\"
+override CFLAGS += -DBASE_FILE_NAME='"$(notdir $<)"'
 ifdef VER
-override CFLAGS += -DSMARTDNS_VERION=\"$(VER)\"
+override CFLAGS += -DSMARTDNS_VERION='"$(VER)"'
 endif
 
 CXXFLAGS=-O2 -g -Wall -std=c++11 

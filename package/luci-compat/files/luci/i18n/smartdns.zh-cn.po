@@ -52,6 +52,9 @@ msgstr "协议类型"
 msgid "DNS domain result cache size"
 msgstr "缓存DNS的结果，缓存大小，配置零则不缓存"
 
+msgid "Dnsmasq Forwared To Smartdns Failure"
+msgstr "重定向dnsmasq到smartdns失败"
+
 msgid "Do not check certificate."
 msgstr "不校验证书的合法性。"
 

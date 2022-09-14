@@ -6,6 +6,9 @@ XHR.poll(3, '<%=luci.dispatcher.build_url("admin", "services", "smartdns", "stat
 			var links = "";
 			if (data.running) {
 				links = '<b><font color=green>SmartDNS - <%:RUNNING%></font></b></em>';
+				if (data.dnsmasq_redirect_failure == 1) {
+					links += "<br></br><b><font color=red><%:Dnsmasq Forwared To Smartdns Failure%></font></b>"
+				}
 			} else {
 				links = '<b><font color=red>SmartDNS - <%:NOT RUNNING%></font></b>';
 			}
