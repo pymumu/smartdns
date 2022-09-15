@@ -57,7 +57,6 @@ function smartdnsRenderStatus(res) {
 	var autoSetDnsmasq = uci.get_first('smartdns', 'smartdns', 'auto_set_dnsmasq');
 	var smartdnsPort = uci.get_first('smartdns', 'smartdns', 'port');
 	var dnsmasqServer = uci.get_first('dhcp', 'dnsmasq', 'server');
-	uci.unload('dhcp');
 
 	if (isRunning) {
 		renderHTML += "<span style=\"color:green;font-weight:bold\">SmartDNS - " + _("RUNNING") + "</span>";
@@ -68,9 +67,10 @@ function smartdnsRenderStatus(res) {
 
 	if (autoSetDnsmasq === '1' && smartdnsPort != '53') {
 		var matchLine = "127.0.0.1#" + smartdnsPort;
-		var dnsmasqServer = uci.get_first('dhcp', 'dnsmasq', 'server') || "";
 
-		if (dnsmasqServer.indexOf(matchLine) < 0) {
+		uci.unload('dhcp');
+		uci.load('dhcp');
+		if (dnsmasqServer == undefined || dnsmasqServer.indexOf(matchLine) < 0) {
 			renderHTML += "<br /><span style=\"color:red;font-weight:bold\">" + _("Dnsmasq Forwared To Smartdns Failure") + "</span>";
 		}
 	}
@@ -106,8 +106,7 @@ return view.extend({
 					view.innerHTML = smartdnsRenderStatus(res);
 				});
 			}
-			poll.add(renderStatus);
-			setTimeout(renderStatus, 1000);
+			poll.add(renderStatus, 1);
 
 			return E('div', { class: 'cbi-map' },
 				E('div', { class: 'cbi-section' }, [
