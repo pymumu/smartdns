@@ -37,9 +37,8 @@ end
 
 function act_status()
 	local e={}
-	local ipv6_server;
-	local dnsmasq_server = luci.sys.exec("uci get dhcp.@dnsmasq[0].server")
-	local auto_set_dnsmasq = smartdns.get_config_option("smartdns", "smartdns", "auto_set_dnsmasq", nil);
+	local dnsmasq_server = smartdns.get_config_option("dhcp", "dnsmasq", "server", nil)
+	local auto_set_dnsmasq = smartdns.get_config_option("smartdns", "smartdns", "auto_set_dnsmasq", nil)
 	
 	e.auto_set_dnsmasq = auto_set_dnsmasq
 	e.dnsmasq_server = dnsmasq_server
