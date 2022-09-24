@@ -81,6 +81,11 @@ static int get_uid_gid(int *uid, int *gid)
 		goto out;
 	}
 
+	if (result == NULL) {
+		ret = -1;
+		goto out;
+	}
+
 	*uid = result->pw_uid;
 	*gid = result->pw_gid;
 
@@ -96,7 +101,11 @@ static int drop_root_privilege(void)
 {
 	struct __user_cap_data_struct cap;
 	struct __user_cap_header_struct header;
+#ifdef _LINUX_CAPABILITY_VERSION_3
+	header.version = _LINUX_CAPABILITY_VERSION_3;
+#else
 	header.version = _LINUX_CAPABILITY_VERSION;
+#endif
 	header.pid = 0;
 	int uid = 0;
 	int gid = 0;
