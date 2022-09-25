@@ -84,7 +84,10 @@ set_main_dns()
 
 	# for some third-party firmware
 	redir_dns="$(uci -q get dhcp.@dnsmasq[0].dns_redirect)"
-	[ "$redir_dns" = "1" ] && uci -q set dhcp.@dnsmasq[0].dns_redirect=0
+	[ "$redir_dns" = "1" ] && {
+		uci -q set dhcp.@dnsmasq[0].dns_redirect=0
+		uci -q set dhcp.@dnsmasq[0].old_dns_redirect=1
+	}
 
 	uci commit dhcp
 	/etc/init.d/dnsmasq restart
@@ -94,7 +97,12 @@ stop_main_dns()
 {
 	local norestart="$1"
 	dnsmasq_port="$(uci -q get dhcp.@dnsmasq[0].port)"
-	[ "$dnsmasq_port" != "0" ] && return 
+	redir_dns="$(uci -q get dhcp.@dnsmasq[0].old_dns_redirect)"
+	[ "$dnsmasq_port" != "0" ] && return
+	[ "$redir_dns" = "1" ] && {
+		uci -q set dhcp.@dnsmasq[0].dns_redirect=1
+		uci -q delete dhcp.@dnsmasq[0].old_dns_redirect
+	}
 	uci -q delete dhcp.@dnsmasq[0].port
 	uci -q delete dhcp.lan.dhcp_option
 	uci commit dhcp
