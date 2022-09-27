@@ -32,6 +32,7 @@ var callServiceList = rpc.declare({
 	params: ['name'],
 	expect: { '': {} }
 });
+var pollAdded = false;
 
 function getServiceStatus() {
 	return L.resolveDefault(callServiceList(conf), {})
@@ -106,7 +107,11 @@ return view.extend({
 					view.innerHTML = smartdnsRenderStatus(res);
 				});
 			}
-			poll.add(renderStatus, 1);
+
+			if (pollAdded == false) {
+				poll.add(renderStatus, 1);
+				pollAdded = true;
+			}
 
 			return E('div', { class: 'cbi-map' },
 				E('div', { class: 'cbi-section' }, [
@@ -296,7 +301,12 @@ return view.extend({
 			return fs.trimmed('/etc/smartdns/custom.conf');
 		};
 		o.write = function (section_id, formvalue) {
-			return fs.write('/etc/smartdns/custom.conf', formvalue.trim().replace(/\r\n/g, '\n') + '\n');
+			return this.cfgvalue(section_id).then(function (value) {
+				if (value == formvalue) {
+					return
+				}
+				return fs.write('/etc/smartdns/custom.conf', formvalue.trim().replace(/\r\n/g, '\n') + '\n');
+			});
 		};
 
 		o = s.taboption("custom", form.Flag, "coredump", _("Generate Coredump"),
@@ -435,7 +445,12 @@ return view.extend({
 			return fs.trimmed('/etc/smartdns/address.conf');
 		};
 		o.write = function (section_id, formvalue) {
-			return fs.write('/etc/smartdns/address.conf', formvalue.trim().replace(/\r\n/g, '\n') + '\n');
+			return this.cfgvalue(section_id).then(function (value) {
+				if (value == formvalue) {
+					return
+				}
+				return fs.write('/etc/smartdns/address.conf', formvalue.trim().replace(/\r\n/g, '\n') + '\n');
+			});
 		};
 
 		// IP Blacklist;
@@ -447,7 +462,12 @@ return view.extend({
 			return fs.trimmed('/etc/smartdns/blacklist-ip.conf');
 		};
 		o.write = function (section_id, formvalue) {
-			return fs.write('/etc/smartdns/blacklist-ip.conf', formvalue.trim().replace(/\r\n/g, '\n') + '\n');
+			return this.cfgvalue(section_id).then(function (value) {
+				if (value == formvalue) {
+					return
+				}
+				return fs.write('/etc/smartdns/blacklist-ip.conf', formvalue.trim().replace(/\r\n/g, '\n') + '\n');
+			});
 		};
 
 		// Doman addresss;
