@@ -2123,26 +2123,42 @@ static int _config_log_level(void *data, int argc, char *argv[])
 static void _config_setup_smartdns_domain(void)
 {
 	char hostname[DNS_MAX_CNAME_LEN];
-	/* get local host name */
-	if (getdomainname(hostname, DNS_MAX_CNAME_LEN) != 0) {
-		gethostname(hostname, DNS_MAX_CNAME_LEN);
+	char domainname[DNS_MAX_CNAME_LEN];
+
+	hostname[0] = '\0';
+	domainname[0] = '\0';
+
+	/* get local domain name */
+	if (getdomainname(domainname, DNS_MAX_CNAME_LEN - 1) == 0) {
+		/* check domain is valid */
+		if (strncmp(domainname, "(none)", DNS_MAX_CNAME_LEN - 1) == 0) {
+			domainname[0] = '\0';
+		}
 	}
 
-	/* get host name again */
-	if (strncmp(hostname, "(none)", DNS_MAX_CNAME_LEN - 1) == 0) {
-		gethostname(hostname, DNS_MAX_CNAME_LEN);
+	if (gethostname(hostname, DNS_MAX_CNAME_LEN - 1) == 0) {
+		/* check hostname is valid */
+		if (strncmp(hostname, "(none)", DNS_MAX_CNAME_LEN - 1) == 0) {
+			hostname[0] = '\0';
+		}
 	}
 
-	/* if hostname is (none), return smartdns */
-	if (strncmp(hostname, "(none)", DNS_MAX_CNAME_LEN - 1) == 0) {
-		safe_strncpy(hostname, "smartdns", DNS_MAX_CNAME_LEN);
+	if (dns_conf_resolv_hostname == 1) {
+		/* add hostname to rule table */
+		if (hostname[0] != '\0') {
+			_config_domain_rule_flag_set(hostname, DOMAIN_FLAG_SMARTDNS_DOMAIN, 0);
+		}
+
+		/* add domainname to rule table */
+		if (domainname[0] != '\0') {
+			char full_domain[DNS_MAX_CNAME_LEN];
+			snprintf(full_domain, DNS_MAX_CNAME_LEN, "%.64s.%.128s", hostname, domainname);
+			_config_domain_rule_flag_set(full_domain, DOMAIN_FLAG_SMARTDNS_DOMAIN, 0);
+		}
 	}
 
-	if (dns_conf_resolv_hostname == 1 && hostname[0] != '\0') {
-		_config_domain_rule_flag_set(hostname, DOMAIN_FLAG_SMARTDNS_DOMAIN, 0);
-	}
-
-	if (dns_conf_server_name[0] != '\0') {
+	/* add server name to rule table */
+	if (dns_conf_server_name[0] != '\0' && strncmp(dns_conf_server_name, "smartdns", DNS_MAX_CNAME_LEN - 1) != 0) {
 		_config_domain_rule_flag_set(dns_conf_server_name, DOMAIN_FLAG_SMARTDNS_DOMAIN, 0);
 	}
 

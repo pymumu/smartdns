@@ -3161,33 +3161,40 @@ static int _dns_server_process_local_ptr(struct dns_request *request)
 		goto errout;
 	}
 
-	char hostname[DNS_MAX_CNAME_LEN];
+	char full_hostname[DNS_MAX_CNAME_LEN];
 	if (dns_conf_server_name[0] == 0) {
-		/* get local host name */
-		if (getdomainname(hostname, DNS_MAX_CNAME_LEN) != 0) {
-			if (gethostname(hostname, DNS_MAX_CNAME_LEN) != 0) {
-				return -1;
+		char hostname[DNS_MAX_CNAME_LEN];
+		char domainname[DNS_MAX_CNAME_LEN];
+
+		/* get local domain name */
+		if (getdomainname(domainname, DNS_MAX_CNAME_LEN - 1) == 0) {
+			/* check domain is valid */
+			if (strncmp(domainname, "(none)", DNS_MAX_CNAME_LEN - 1) == 0) {
+				domainname[0] = '\0';
 			}
 		}
 
-		/* get host name again */
-		if (strncmp(hostname, "(none)", DNS_MAX_CNAME_LEN - 1) == 0) {
-			if (gethostname(hostname, DNS_MAX_CNAME_LEN) != 0) {
-				return -1;
+		if (gethostname(hostname, DNS_MAX_CNAME_LEN - 1) == 0) {
+			/* check hostname is valid */
+			if (strncmp(hostname, "(none)", DNS_MAX_CNAME_LEN - 1) == 0) {
+				hostname[0] = '\0';
 			}
 		}
 
-		/* if hostname is (none), return smartdns */
-		if (strncmp(hostname, "(none)", DNS_MAX_CNAME_LEN - 1) == 0) {
-			safe_strncpy(hostname, "smartdns", DNS_MAX_CNAME_LEN);
+		if (hostname[0] != '\0' && domainname[0] != '\0') {
+			snprintf(full_hostname, sizeof(full_hostname), "%.64s.%.128s", hostname, domainname);
+		} else if (hostname[0] != '\0') {
+			safe_strncpy(full_hostname, hostname, DNS_MAX_CNAME_LEN);
+		} else {
+			safe_strncpy(full_hostname, "smartdns", DNS_MAX_CNAME_LEN);
 		}
 	} else {
 		/* return configured server name */
-		safe_strncpy(hostname, dns_conf_server_name, DNS_MAX_CNAME_LEN);
+		safe_strncpy(full_hostname, dns_conf_server_name, DNS_MAX_CNAME_LEN);
 	}
 
 	request->has_ptr = 1;
-	safe_strncpy(request->ptr_hostname, hostname, DNS_MAX_CNAME_LEN);
+	safe_strncpy(request->ptr_hostname, full_hostname, DNS_MAX_CNAME_LEN);
 
 	freeifaddrs(ifaddr);
 	return 0;
