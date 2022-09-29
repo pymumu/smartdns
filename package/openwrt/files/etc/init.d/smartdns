@@ -31,6 +31,7 @@ CUSTOM_CONF="$SMARTDNS_CONF_DIR/custom.conf"
 SMARTDNS_CONF_TMP="${SMARTDNS_CONF}.tmp"
 COREDUMP="0"
 RESPAWN="1"
+DO_RELOAD="0"
 
 set_forward_dnsmasq()
 {
@@ -48,7 +49,7 @@ set_forward_dnsmasq()
 	uci -q set dhcp.@dnsmasq[0].rebind_protection=0
 	uci -q set dhcp.@dnsmasq[0].domainneeded=0
 	uci commit dhcp
-	/etc/init.d/dnsmasq restart
+	/etc/init.d/dnsmasq reload
 }
 
 stop_forward_dnsmasq()
@@ -66,7 +67,7 @@ stop_forward_dnsmasq()
 	uci -q set dhcp.@dnsmasq[0].rebind_protection=1
 	uci -q set dhcp.@dnsmasq[0].domainneeded=1
 	uci commit dhcp
-	[ "$norestart" != "1" ] && /etc/init.d/dnsmasq restart
+	[ "$norestart" != "1" ] && /etc/init.d/dnsmasq reload
 }
 
 set_main_dns()
@@ -79,7 +80,7 @@ set_main_dns()
 	[ -z "$hostip" ] && return
 	[ "$dnsmasq_port" = "53" ] && {
 		uci -q set dhcp.@dnsmasq[0].port=0
-		uci -q set dhcp.lan.dhcp_option="6,$hostip"
+		uci -q add_list dhcp.lan.dhcp_option="6,$hostip"
 	}
 
 	# for some third-party firmware
@@ -90,12 +91,13 @@ set_main_dns()
 	}
 
 	uci commit dhcp
-	/etc/init.d/dnsmasq restart
+	/etc/init.d/dnsmasq reload
 }
 
 stop_main_dns()
 {
 	local norestart="$1"
+	hostip="$(uci -q get network.lan.ipaddr)"
 	dnsmasq_port="$(uci -q get dhcp.@dnsmasq[0].port)"
 	redir_dns="$(uci -q get dhcp.@dnsmasq[0].old_dns_redirect)"
 	[ "$dnsmasq_port" != "0" ] && return
@@ -104,9 +106,9 @@ stop_main_dns()
 		uci -q delete dhcp.@dnsmasq[0].old_dns_redirect
 	}
 	uci -q delete dhcp.@dnsmasq[0].port
-	uci -q delete dhcp.lan.dhcp_option
+	uci -q del_list dhcp.lan.dhcp_option="6,$hostip"
 	uci commit dhcp
-	[ "$norestart" != "1" ] && /etc/init.d/dnsmasq restart
+	[ "$norestart" != "1" ] && /etc/init.d/dnsmasq reload
 }
 
 clear_iptable()
@@ -452,10 +454,16 @@ load_service()
 unload_service()
 {
 	local section="$1"
+
+	[ "$DO_RELOAD" = "1" ] && return 0
+
+	config_get_bool enabled "$section" "enabled" '0'
 	dnsmasq_port="$(uci -q get dhcp.@dnsmasq[0].port)"
 	config_get port "$section" "port" "53"
-	config_get old_port "$section" "old_port" "0"
 	config_get auto_set_dnsmasq "$section" "auto_set_dnsmasq" "0"
+	config_get old_enabled "$section" "old_enabled" "0"
+	config_get old_port "$section" "old_port" "0"
+	config_get old_auto_set_dnsmasq "$section" "old_auto_set_dnsmasq" "0"
 	[ -z "${dnsmasq_port}" ] && dnsmasq_port="53"
 
 	[ "$enabled" = "1" ] && {
@@ -479,6 +487,8 @@ start_service()
 
 reload_service()
 {
+	DO_RELOAD="1"
 	stop
 	start
+	DO_RELOAD="0"
 }
