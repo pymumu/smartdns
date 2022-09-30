@@ -1,0 +1,28 @@
+name: fetch upstream 
+on:
+  schedule:
+    - cron: '0 */4 * * *'
+  workflow_dispatch: # on button click
+
+jobs:
+  sync:
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: fetch upstream
+        uses: tgymnich/fork-sync@v1.3
+        with:
+          owner: pymumu
+          base: master
+          head: master
+          auto_approve: true
+          github_token: ${{ secrets.TOKEN }}
+
+      - name: Delete workflow runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ secrets.TOKEN }}
+          repository: ${{ github.repository }}
+          retain_days: 7
+          keep_minimum_runs: 7

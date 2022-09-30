@@ -1,0 +1,23 @@
+FROM alpine:3.16 as smartdns-builder
+LABEL previous-stage=smartdns
+# 添加标签，镜像生成后可使用 docker rmi `docker images --filter label=previous-stage=smartdns -q` 删除中间层
+COPY . /smartdns/
+RUN apk update && \
+    apk add make gcc build-base linux-headers openssl-dev openssl-libs-static && \
+    chmod -R 0755 /smartdns && \
+    cd /smartdns && \
+    sh ./package/build-pkg.sh --platform linux --arch `uname -m` --static && \
+    strip /smartdns/src/smartdns && \
+    mkdir -p /release/usr/sbin/ && \
+    mkdir -p /release/etc/smartdns/ && \
+    cp /smartdns/src/smartdns /release/usr/sbin/
+
+FROM alpine:3.16
+# FROM scratch
+# 如果有进入镜像操作的必要，可以使用 busybox:musl 或 alpine。建议根据主机其他容器情况共用基础镜像
+ENV TZ="Asia/Shanghai"
+COPY --from=smartdns-builder /release/ /
+EXPOSE 53/udp 53/tcp
+VOLUME "/etc/smartdns/"
+HEALTHCHECK --interval=5m CMD test `nslookup dns.pub 127.0.0.1 |grep answer |wc -l` -gt 0
+CMD ["/usr/sbin/smartdns", "-f", "-x", "-p -"]

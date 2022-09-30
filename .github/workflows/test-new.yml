@@ -1,0 +1,199 @@
+name: Test Build (new)
+
+on:
+  push:
+    branches:
+      - master
+#  pull_request:
+  workflow_dispatch:
+    inputs:
+      update-version-number:
+        description: 'set to true if you want to update last version number'
+        required: false
+        default: 'false'
+jobs:
+  get-version:
+    name: get latest version number
+    runs-on: ubuntu-latest
+    outputs:
+      CUR_VERSION: ${{steps.get-version.outputs.CUR_VERSION}}
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        ref: VERSION_CONTROL
+        fetch-depth: 1
+        path: version_control
+    - name: get version
+      id: get-version
+      run: |
+          #获取当前版本号
+          pre_version=$(cat version_control/VERSION | grep "PREFEX" | sed 's/PREFEX=\(.*\)/\1/')
+          cur_version=$(cat version_control/VERSION | grep "CUR_VERS" | sed 's/CUR_VERS=\(.*\)/\1/')
+          echo "::set-output name=CUR_VERSION::$pre_version$cur_version"
+
+  build:
+    needs: get-version
+    strategy:
+      matrix:
+        goarch: [x86_64, powerpc64le, mipsel, mips, i686, aarch64]
+      fail-fast: false
+    runs-on: ubuntu-latest
+    env:
+      GOARCH: ${{ matrix.goarch }}
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build
+        continue-on-error: true
+        run: |
+          sudo apt install -y rename
+          sudo timedatectl set-timezone "Asia/Shanghai"
+          cd ${{ github.workspace }}
+          mkdir -p ${{ github.workspace }}/build
+          #修改版本号
+          sed -i "s/VER=.*/VER=${{needs.get-version.outputs.CUR_VERSION}}/" ${{ github.workspace }}/package/build-pkg.sh
+          
+          mkdir -p openssl
+          curl -sSL https://github.com/openssl/openssl/archive/refs/tags/OpenSSL_1_1_1q.tar.gz -o openssl.tar.gz
+          tar -zxvf openssl.tar.gz --strip-components 1 -C openssl
+
+          cat >> docker-build.sh << EOF
+          apk add perl make coreutils tar pkgconfig dpkg
+          cd /workdir/openssl
+          if [ "$GOARCH" == "mipsel" ] || [ "$GOARCH" == "mips" ] ;then
+            ./Configure no-tests linux-mips32
+          elif [ "$GOARCH" == "i686" ] ;then
+            ./Configure no-tests linux-x86
+          elif [ "$GOARCH" == "powerpc64le" ] ;then
+            ./Configure no-tests linux-ppc64le
+          else
+           ./Configure no-tests linux-$GOARCH
+          fi
+          make all
+          cd /workdir
+          export CFLAGS="-I /workdir/openssl/include"
+          export LDFLAGS="-L /workdir/openssl"
+          ./package/build-pkg.sh --platform debian --arch all --filearch $GOARCH-debian --static --outputdir /workdir/build
+          ./package/build-pkg.sh --platform linux --arch all --filearch $GOARCH-linux --static --outputdir /workdir/build
+          ./package/build-pkg.sh --platform openwrt --arch all --filearch $GOARCH-openwrt --static --outputdir /workdir/build
+          ./package/build-pkg.sh --platform optware --arch all --filearch $GOARCH-optware --static --outputdir /workdir/build
+          patch -p0 src/Makefile Makefile.patch
+          ./package/build-pkg.sh --platform debian --arch all --filearch $GOARCH-debian-edns --static --outputdir /workdir/build
+          ./package/build-pkg.sh --platform linux --arch all --filearch $GOARCH-linux-edns --static --outputdir /workdir/build
+          ./package/build-pkg.sh --platform openwrt --arch all --filearch $GOARCH-openwrt-edns --static --outputdir /workdir/build
+          ./package/build-pkg.sh --platform optware --arch all --filearch $GOARCH-optware-edns --static --outputdir /workdir/build
+          EOF
+
+          cat >> Makefile.patch << EOF
+          --- Makefile
+          +++ Makefile
+          @@ -27,6 +27,7 @@
+           ifdef VER
+           override CFLAGS += -DSMARTDNS_VERION='"$(VER)"'
+           endif
+          +override CFLAGS += -DFEATURE_CHECK_EDNS
+          
+           CXXFLAGS=-O2 -g -Wall -std=c++11
+           override CXXFLAGS +=-Iinclude
+          EOF
+
+          docker run -i --rm -v ${{ github.workspace }}:/workdir muslcc/x86_64:$GOARCH-linux-musl sh /workdir/docker-build.sh
+
+      - name: Upload To Artifact
+        uses: actions/upload-artifact@v2
+        with:
+          path: ${{ github.workspace }}/build/
+
+      - name: Generate release tag
+        id: tag
+        run: |
+          echo "::set-output name=release_tag::${{needs.get-version.outputs.CUR_VERSION}}"
+          touch release.txt
+          echo "同步更新上游代码" >> release.txt
+          echo ${{ github.sha }} >> Release.txt
+          echo "::set-output name=status::success"
+      - name: Upload firmware to release
+        uses: softprops/action-gh-release@v1
+        if: steps.tag.outputs.status == 'success'
+        env:
+          GITHUB_TOKEN: ${{ secrets.TOKEN }}
+        with:
+          tag_name: ${{ steps.tag.outputs.release_tag }}
+          body_path: release.txt
+          files: |
+            ${{ github.workspace }}/build/*
+
+  build-luci:
+    needs: get-version
+    strategy:
+      matrix:
+        goarch: [luci, luci-compat]
+    runs-on: ubuntu-latest
+    env:
+      GOARCH: ${{ matrix.goarch }}
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build luci
+        continue-on-error: true
+        run: |
+          sudo apt install -y rename
+          sudo timedatectl set-timezone "Asia/Shanghai"
+          cd ${{ github.workspace }}
+          mkdir -p ${{ github.workspace }}/build
+          #修改版本号
+          sed -i "s/VER=.*/VER=${{needs.get-version.outputs.CUR_VERSION}}/" package/build-pkg.sh
+          #单独编译luci和luci-compat
+          ./package/build-pkg.sh --platform $GOARCH --arch all --filearch $GOARCH-all --outputdir ${{ github.workspace }}/build
+
+      - name: Upload To Artifact
+        uses: actions/upload-artifact@v2
+        with:
+          path: ${{ github.workspace }}/build/
+
+      - name: Generate release tag
+        id: tag
+        run: |
+          echo "::set-output name=release_tag::${{needs.get-version.outputs.CUR_VERSION}}"
+          touch release.txt
+          echo "同步更新上游代码" >> release.txt
+          echo ${{ github.sha }} >> Release.txt
+          echo "::set-output name=status::success"
+      - name: Upload firmware to release
+        uses: softprops/action-gh-release@v1
+        if: steps.tag.outputs.status == 'success'
+        env:
+          GITHUB_TOKEN: ${{ secrets.TOKEN }}
+        with:
+          tag_name: ${{ steps.tag.outputs.release_tag }}
+          body_path: release.txt
+          files: |
+            ${{ github.workspace }}/build/*
+
+  update-version:
+    if: ((github.event_name=='workflow_dispatch' && github.event.inputs.update-version-number=='true') || github.event_name=='push')
+    name: update latest version number
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        ref: VERSION_CONTROL
+        fetch-depth: 1
+        path: version_control
+    - name: update version
+      run: |
+          #更新当前版本号
+          cd version_control
+          pre_version=$(cat VERSION | grep "PREFEX" | sed 's/PREFEX=\(.*\)/\1/')
+          cur_version=$(cat VERSION | grep "CUR_VERS" | sed 's/CUR_VERS=\(.*\)/\1/')
+          cur_version=$(($cur_version + 1))
+          sed -i "s/CUR_VERS=.*/CUR_VERS=$cur_version/" VERSION
+          git config --local user.email "fake@mail.com"
+          git config --local user.name "PikuZheng"
+          git add VERSION
+          git commit -m "generate new post from github action" -a
+    - name: push changes
+      uses: ad-m/github-push-action@master
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        branch: VERSION_CONTROL
+        directory: ./version_control

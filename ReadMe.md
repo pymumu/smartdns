@@ -1,5 +1,15 @@
 # SmartDNS
 
+[![fetch upstream](https://github.com/PikuZheng/smartdns/actions/workflows/fetch%20upstream.yml/badge.svg)](https://github.com/PikuZheng/smartdns/actions/workflows/fetch%20upstream.yml)
+[![Test Build](https://github.com/PikuZheng/smartdns/actions/workflows/test.yml/badge.svg)](https://github.com/PikuZheng/smartdns/actions/workflows/test.yml)
+[![Test Build Openwrt](https://github.com/PikuZheng/smartdns/actions/workflows/test-openwrt.yml/badge.svg)](https://github.com/PikuZheng/smartdns/actions/workflows/test-openwrt.yml)
+[![Docker Image CI](https://github.com/PikuZheng/smartdns/actions/workflows/deploy-docker.yml/badge.svg)](https://github.com/PikuZheng/smartdns/actions/workflows/deploy-docker.yml)
+
+[![latest version](https://img.shields.io/docker/v/pikuzheng/smartdns?sort=date&display_name=tag&color=blue&logo=github&label=最新编译版本)](https://github.com/PikuZheng/smartdns/releases)
+[![upstream latest version](https://img.shields.io/github/v/release/pymumu/smartdns?display_name=tag&color=blue&logo=github&label=上游最新版本)](https://github.com/pymumu/smartdns/releases)
+[![upstream latest update](https://img.shields.io/github/last-commit/pymumu/smartdns?color=blue&logo=github&label=最后更新)](https://github.com/pymumu/smartdns/releases)
+[![download count](https://img.shields.io/github/downloads/PikuZheng/smartdns/total?color=blue&logo=github&label=%E4%B8%8B%E8%BD%BD%E8%AE%A1%E9%87%8F)](https://github.com/PikuZheng/smartdns/releases)
+
 **[English](ReadMe_en.md)**
 
 ![SmartDNS](doc/smartdns-banner.png)

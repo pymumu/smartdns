@@ -1,0 +1,167 @@
+name: Test Build
+
+on:
+  push:
+    branches:
+      - master
+#  pull_request:
+  workflow_dispatch:
+    inputs:
+      update-version-number:
+        description: 'set to true if you want to update last version number'
+        required: false
+        default: 'false'
+jobs:
+  get-version:
+    name: get latest version number
+    runs-on: ubuntu-latest
+    outputs:
+      CUR_VERSION: ${{steps.get-version.outputs.CUR_VERSION}}
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        ref: VERSION_CONTROL
+        fetch-depth: 1
+        path: version_control
+    - name: get version
+      id: get-version
+      run: |
+          #获取当前版本号
+          pre_version=$(cat version_control/VERSION | grep "PREFEX" | sed 's/PREFEX=\(.*\)/\1/')
+          cur_version=$(cat version_control/VERSION | grep "CUR_VERS" | sed 's/CUR_VERS=\(.*\)/\1/')
+          echo "::set-output name=CUR_VERSION::$pre_version$cur_version"
+  build:
+    needs: get-version
+    strategy:
+      matrix:
+        goos: [debian, openwrt, optware]
+        goarch: [x86, x86_64, mips, arm, aarch64, armvirt]
+        exclude:
+          - goarch: x86
+            goos: debian
+          - goarch: 386
+            goos: darwin
+        include:
+          - goos: openwrt
+            goarch: mipsel
+          - goos: optware
+            goarch: mipsel
+          - goos: linux
+            goarch: x86
+          - goos: linux
+            goarch: x86_64
+          - goos: luci
+            goarch: all
+          - goos: luci-compat
+            goarch: all
+         
+      fail-fast: false
+
+    runs-on: ubuntu-latest
+    env:
+      GOOS: ${{ matrix.goos }}
+      GOARCH: ${{ matrix.goarch }}
+      CGO_ENABLED: 0
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build
+        continue-on-error: true
+        run: |
+          sudo apt install -y rename
+          sudo timedatectl set-timezone "Asia/Shanghai"
+          cd ${{ github.workspace }}/package/
+          #修改版本号
+          sed -i "s/VER=.*/VER=${{needs.get-version.outputs.CUR_VERSION}}/" build-pkg.sh
+          # mkdir -p output
+          # ./build-pkg.sh --platform $GOOS --arch $GOARCH --filearch $GOARCH-$GOOS --outputdir ${{ github.workspace }}/package/output
+          mkdir -p output-static
+          ./build-pkg.sh --platform $GOOS --arch $GOARCH --static --filearch $GOARCH-$GOOS-all --outputdir ${{ github.workspace }}/package/output-static
+          #增加 -check-edns
+          if [ "$GOOS" != "luci" ] && [ "$GOOS" != "luci-compat" ]; then
+          mkdir -p output-check-edns
+          cat >> Makefile.patch << EOF
+          --- Makefile
+          +++ Makefile
+          @@ -27,6 +27,7 @@
+           ifdef VER
+           override CFLAGS += -DSMARTDNS_VERION='"$(VER)"'
+           endif
+          +override CFLAGS += -DFEATURE_CHECK_EDNS
+          
+           CXXFLAGS=-O2 -g -Wall -std=c++11
+           override CXXFLAGS +=-Iinclude
+          EOF
+          patch -p0 ../src/Makefile Makefile.patch
+          ./build-pkg.sh --platform $GOOS --arch $GOARCH --static --filearch $GOARCH-$GOOS-all --outputdir ${{ github.workspace }}/package/output-check-edns
+          rename "s/-all/-check-edns/"  ${{ github.workspace }}/package/output-check-edns/*
+          fi
+
+      - name: Upload To Artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: smartdns-${{ matrix.goos }}-${{ matrix.goarch }}-check-edns
+          path: ${{ github.workspace }}/package/output-check-edns/
+      - uses: actions/upload-artifact@v2
+        with:
+          name: smartdns-${{ matrix.goos }}-${{ matrix.goarch }}-static
+          path: ${{ github.workspace }}/package/output-static/
+#      - name: Upload To One Artifact
+#        uses: actions/upload-artifact@v2
+#        with:
+#          name: smartdns-package
+#          path: ${{ github.workspace }}/package/output/
+#      - uses: actions/upload-artifact@v2
+#        with:
+#          name: smartdns-static-package
+#          path: ${{ github.workspace }}/package/output-static/
+
+
+      - name: Generate release tag
+        id: tag
+        run: |
+          echo "::set-output name=release_tag::${{needs.get-version.outputs.CUR_VERSION}}"
+          touch release.txt
+          echo "同步更新上游代码" >> release.txt
+          echo ${{ github.sha }} >> Release.txt
+          echo "::set-output name=status::success"
+      - name: Upload firmware to release
+        uses: softprops/action-gh-release@v1
+        if: steps.tag.outputs.status == 'success'
+        env:
+          GITHUB_TOKEN: ${{ secrets.TOKEN }}
+        with:
+          tag_name: ${{ steps.tag.outputs.release_tag }}
+          body_path: release.txt
+          files: |
+            ${{ github.workspace }}/package/output-static/*
+            ${{ github.workspace }}/package/output-check-edns/*
+          
+  update-version:
+    if: ((github.event_name=='workflow_dispatch' && github.event.inputs.update-version-number=='true') || github.event_name=='push')
+    name: update latest version number
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        ref: VERSION_CONTROL
+        fetch-depth: 1
+        path: version_control
+    - name: update version
+      run: |
+          #更新当前版本号
+          cd version_control
+          pre_version=$(cat VERSION | grep "PREFEX" | sed 's/PREFEX=\(.*\)/\1/')
+          cur_version=$(cat VERSION | grep "CUR_VERS" | sed 's/CUR_VERS=\(.*\)/\1/')
+          cur_version=$(($cur_version + 1))
+          sed -i "s/CUR_VERS=.*/CUR_VERS=$cur_version/" VERSION
+          git config --local user.email "fake@mail.com"
+          git config --local user.name "PikuZheng"
+          git add VERSION
+          git commit -m "generate new post from github action" -a
+    - name: push changes
+      uses: ad-m/github-push-action@master
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        branch: VERSION_CONTROL
+        directory: ./version_control

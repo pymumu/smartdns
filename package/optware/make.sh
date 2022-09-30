@@ -58,6 +58,7 @@ build()
 	sed -i "s/Version:.*/Version: $VER/" $ROOT/control/control
 
 	cd $ROOT/control
+	sed -i '/^.*:\s*$/d' control
 	chmod +x *
 	tar zcf ../control.tar.gz --owner=0 --group=0 ./ 
 	cd $ROOT

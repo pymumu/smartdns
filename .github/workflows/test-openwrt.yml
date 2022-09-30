@@ -1,0 +1,202 @@
+name: Test Build Openwrt
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+jobs:
+  get-version:
+    name: get latest version number
+    runs-on: ubuntu-latest
+    outputs:
+      CUR_VERSION: ${{steps.get-version.outputs.CUR_VERSION}}
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        ref: VERSION_CONTROL
+        fetch-depth: 1
+        path: version_control
+    - name: get version
+      id: get-version
+      run: |
+          #获取当前版本号
+          pre_version=$(cat version_control/VERSION | grep "PREFEX" | sed 's/PREFEX=\(.*\)/\1/')
+          cur_version=$(cat version_control/VERSION | grep "CUR_VERS" | sed 's/CUR_VERS=\(.*\)/\1/')
+          echo "::set-output name=CUR_VERSION::$pre_version$cur_version"
+          
+  release:
+    name: Build for ${{ matrix.arch }}
+    needs: get-version
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: aarch64_cortex-a53
+            sdk_url_path: https://downloads.openwrt.org/snapshots/targets/bcm27xx/bcm2710
+            sdk_name: -sdk-bcm27xx-bcm2710_
+          - arch: aarch64_cortex-a72
+            sdk_url_path: https://downloads.openwrt.org/snapshots/targets/mvebu/cortexa72
+            sdk_name: -sdk-mvebu-cortexa72_
+          - arch: aarch64_generic
+            sdk_url_path: http://downloads.openwrt.org/snapshots/targets/layerscape/armv8_64b
+            sdk_name: -sdk-layerscape-armv8_64b_
+          - arch: arm_arm1176jzf-s_vfp
+            sdk_url_path: https://downloads.openwrt.org/snapshots/targets/bcm27xx/bcm2708
+            sdk_name: -sdk-bcm27xx-bcm2708_
+          #- arch: arm_arm926ej-s    #build openssl failed
+          #  sdk_url_path: https://downloads.openwrt.org/snapshots/targets/at91/legacy
+          #  sdk_name: -sdk-at91-legacy_
+          - arch: arm_cortex-a15_neon-vfpv4
+            sdk_url_path: https://downloads.openwrt.org/snapshots/targets/ipq806x/generic
+            sdk_name: -sdk-ipq806x-generic_
+          - arch: arm_cortex-a5-vfpv4
+            sdk_url_path: https://downloads.openwrt.org/snapshots/targets/at91/sama5
+            sdk_name: -sdk-at91-sama5_
+          - arch: arm_cortex-a7_neon-vfpv4
+            sdk_url_path: https://downloads.openwrt.org/snapshots/targets/bcm27xx/bcm2709
+            sdk_name: -sdk-bcm27xx-bcm2709_
+          - arch: arm_cortex-a8_vfpv3
+            sdk_url_path: https://downloads.openwrt.org/snapshots/targets/sunxi/cortexa8
+            sdk_name: -sdk-sunxi-cortexa8_
+          - arch: arm_cortex-a9
+            sdk_url_path: https://downloads.openwrt.org/snapshots/targets/bcm53xx/generic
+            sdk_name: -sdk-bcm53xx-generic_
+          #- arch: arm_cortex-a9_neon
+          #  sdk_url_path: https://downloads.openwrt.org/snapshots/targets/imx6/generic
+          #  sdk_name: -sdk-imx6_
+          - arch: arm_cortex-a9_vfpv3
+            sdk_url_path: https://downloads.openwrt.org/releases/19.07.2/targets/mvebu/cortexa9
+            sdk_name: -sdk-19.07.2-mvebu-cortexa9_
+          - arch: arm_cortex-a9_vfpv3-d16
+            sdk_url_path: https://downloads.openwrt.org/snapshots/targets/mvebu/cortexa9
+            sdk_name: -sdk-mvebu-cortexa9_
+          - arch: arm_fa526
+            sdk_url_path: https://downloads.openwrt.org/snapshots/targets/gemini/generic
+            sdk_name: -sdk-gemini_
+          - arch: arm_mpcore
+            sdk_url_path: https://downloads.openwrt.org/snapshots/targets/oxnas/ox820
+            sdk_name: -sdk-oxnas-ox820_
+          - arch: arm_mpcore_vfp
+            sdk_url_path: https://downloads.openwrt.org/releases/19.07.7/targets/cns3xxx/generic
+            sdk_name: -sdk-19.07.7-cns3xxx_
+          - arch: arm_xscale
+            sdk_url_path: https://downloads.openwrt.org/snapshots/targets/kirkwood/generic
+            sdk_name: -sdk-kirkwood_
+          - arch: i386_pentium
+            sdk_url_path: https://downloads.openwrt.org/snapshots/targets/x86/legacy
+            sdk_name: -sdk-x86-legacy_
+          - arch: i386_pentium4
+            sdk_url_path: https://downloads.openwrt.org/snapshots/targets/x86/generic
+            sdk_name: -sdk-x86-generic_
+          - arch: mips64_octeon
+            sdk_url_path: https://downloads.openwrt.org/snapshots/targets/octeon/generic
+            sdk_name: -sdk-octeon-generic_
+          - arch: mipsel_24kc
+            sdk_url_path: https://downloads.openwrt.org/snapshots/targets/ramips/mt7620
+            sdk_name: -sdk-ramips-mt7620_
+          - arch: mipsel_24kc_24kf
+            sdk_url_path: https://downloads.openwrt.org/snapshots/targets/pistachio/generic
+            sdk_name: -sdk-pistachio_
+          - arch: mipsel_74kc
+            sdk_url_path: https://downloads.openwrt.org/snapshots/targets/bcm47xx/mips74k
+            sdk_name: -sdk-bcm47xx-mips74k_
+          - arch: mipsel_mips32
+            sdk_url_path: https://downloads.openwrt.org/snapshots/targets/bcm47xx/generic
+            sdk_name: -sdk-bcm47xx-generic_
+          - arch: mips_24kc
+            sdk_url_path: https://downloads.openwrt.org/snapshots/targets/ath79/generic
+            sdk_name: -sdk-ath79-generic_
+          - arch: mips_mips32
+            sdk_url_path: https://downloads.openwrt.org/snapshots/targets/bcm63xx/generic
+            sdk_name: -sdk-bcm63xx-generic_
+          - arch: x86_64
+            sdk_url_path: https://downloads.openwrt.org/snapshots/targets/x86/64
+            sdk_name: -sdk-x86-64_
+          - arch: powerpc_464fp
+            sdk_url_path: https://downloads.openwrt.org/snapshots/targets/apm821xx/nand
+            sdk_name: -sdk-apm821xx-nand_
+          - arch: powerpc_8540         
+            sdk_url_path: https://downloads.openwrt.org/snapshots/targets/mpc85xx/generic
+            sdk_name: -sdk-mpc85xx-generic_
+          # - arch: arc_arc700
+          #   sdk_url_path: https://downloads.openwrt.org/snapshots/targets/arc770/generic
+          #   sdk_name: -sdk-arc770-generic_
+          # - arch: arc_archs
+          #   sdk_url_path: https://downloads.openwrt.org/snapshots/targets/archs38/generic
+          #   sdk_name: -sdk-archs38-generic_
+          # - arch: armeb_xscale
+          #   sdk_url_path: https://downloads.openwrt.org/snapshots/targets/ixp4xx/generic
+          #   sdk_name: -sdk-ixp4xx-generic_
+
+    env:
+      SDK_URL_PATH: ${{ matrix.sdk_url_path }}
+      SDK_NAME: ${{ matrix.sdk_name }}
+      ARCH: ${{ matrix.arch }}
+      CACHE_DIR: ~/cache
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Setup Cache
+        uses: actions/cache@v2
+        with:
+          path: ${{ env.CACHE_DIR }}
+          key: ${{ runner.os }}:openwrt-v2ray:${{ env.ARCH }}:release:cache:${{ github.run_number }}
+          restore-keys: |
+            ${{ runner.os }}:openwrt-v2ray:${{ env.ARCH }}:cache:
+      - name: Setup CCache
+        uses: actions/cache@v2
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}:openwrt-v2ray:${{ env.ARCH }}:release:ccache:${{ github.run_number }}
+          restore-keys: |
+            ${{ runner.os }}:openwrt-v2ray:${{ env.ARCH }}:ccache:
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update && \
+            sudo apt-get install -yq gettext libncurses5-dev rsync xsltproc
+      - name: Prepare For Build
+        run: |
+          sdk_home="$(mktemp -d)"
+          test -d ~/.ccache || mkdir -p ~/.ccache
+          ln -sf ~/.ccache "$sdk_home/.ccache"
+          echo "SDK_HOME=$sdk_home" >> $GITHUB_ENV
+          echo "CONFIG_CCACHE=y" >> $GITHUB_ENV
+          #修改版本号
+          sed -i "s/VER=.*/VER=${{needs.get-version.outputs.CUR_VERSION}}/" ${{ github.workspace }}/package/openwrt/make_openwrt.sh         
+      - name: Build package
+        env:
+          OPENWRT_GOLANG_COMMIT: ${{ secrets.OPENWRT_GOLANG_COMMIT }}
+        run: sh ${{ github.workspace }}/package/openwrt/make_openwrt.sh
+
+      - name: Show CCache Status
+        run: |
+          eval "${{ env.SDK_HOME }}/staging_dir/host/bin/ccache -s"
+
+#      - name: Upload To Artifact
+#        uses: actions/upload-artifact@v2
+#        with:
+#          name: smartdns-${{ matrix.arch }}-static
+#          path: "package/openwrt/smartdns*.ipk"
+
+      - name: Generate release tag
+        id: tag
+        run: |
+          echo "::set-output name=release_tag::${{needs.get-version.outputs.CUR_VERSION}}-OpenWrt"
+          touch release.txt
+          echo "同步更新上游代码" >> release.txt
+          echo ${{ github.sha }} >> Release.txt
+          echo "::set-output name=status::success"
+      - name: Upload firmware to release
+        uses: softprops/action-gh-release@v1
+        if: steps.tag.outputs.status == 'success'
+        env:
+          GITHUB_TOKEN: ${{ secrets.TOKEN }}
+          # do not use GITHUB_TOKEN
+        with:
+          tag_name: ${{ steps.tag.outputs.release_tag }}
+          body_path: release.txt
+          files: ${{ github.workspace }}/package/openwrt/smartdns*.ipk
