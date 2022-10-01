@@ -88,7 +88,7 @@ jobs:
           +++ Makefile
           @@ -27,6 +27,7 @@
            ifdef VER
-           override CFLAGS += -DSMARTDNS_VERION='"$(VER)"'
+           override CFLAGS += -DSMARTDNS_VERION='"\$(VER)"'
            endif
           +override CFLAGS += -DFEATURE_CHECK_EDNS
           
