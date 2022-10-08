@@ -184,6 +184,12 @@ msgstr "解析本地主机名"
 msgid "Resolve local hostnames by reading Dnsmasq lease file."
 msgstr "读取Dnsmasq的租约文件解析本地主机名。"
 
+msgid "Restart"
+msgstr "重启"
+
+msgid "Restart Service"
+msgstr "重启服务"
+
 msgid "Second Server Settings"
 msgstr "第二DNS服务器"
 
