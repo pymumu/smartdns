@@ -4,7 +4,8 @@
 		"read": {
 			"file": {
 				"/etc/smartdns/*": [ "read" ],
-				"/usr/sbin/smartdns": [ "exec" ]
+				"/usr/sbin/smartdns": [ "exec" ],
+				"/etc/init.d/smartdns restart" : [ "exec" ]
 			},
 			"ubus": {
 				"service": [ "list" ]

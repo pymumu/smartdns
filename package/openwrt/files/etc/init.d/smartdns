@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-START=99
+START=19
 NAME=smartdns
 USE_PROCD=1
 SERVICE_USE_PID=1
