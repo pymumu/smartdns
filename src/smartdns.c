@@ -138,7 +138,7 @@ static void _help(void)
 	char *help = ""
 		"Usage: smartdns [OPTION]...\n"
 		"Start smartdns server.\n"
-		"  -f            run forground.\n"
+		"  -f            run foreground.\n"
 		"  -c [conf]     config file.\n"
 		"  -p [pid]      pid file path, '-' means don't create pid file.\n"
 		"  -S            ignore segment fault signal.\n"
@@ -518,7 +518,7 @@ static int _smartdns_init_pre(void)
 int main(int argc, char *argv[])
 {
 	int ret = 0;
-	int is_forground = 0;
+	int is_foreground = 0;
 	int opt = 0;
 	char config_file[MAX_LINE_LEN];
 	char pid_file[MAX_LINE_LEN];
@@ -535,7 +535,7 @@ int main(int argc, char *argv[])
 	while ((opt = getopt(argc, argv, "fhc:p:SvxN:")) != -1) {
 		switch (opt) {
 		case 'f':
-			is_forground = 1;
+			is_foreground = 1;
 			break;
 		case 'c':
 			snprintf(config_file, sizeof(config_file), "%s", optarg);
@@ -568,7 +568,7 @@ int main(int argc, char *argv[])
 		goto errout;
 	}
 
-	if (is_forground == 0) {
+	if (is_foreground == 0) {
 		if (daemon(0, 0) < 0) {
 			fprintf(stderr, "run daemon process failed, %s\n", strerror(errno));
 			return 1;
