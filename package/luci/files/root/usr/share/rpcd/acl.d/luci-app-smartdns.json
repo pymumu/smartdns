@@ -3,9 +3,7 @@
 		"description": "Grant access to LuCI app smartdns",
 		"read": {
 			"file": {
-				"/etc/smartdns/*": [ "read" ],
-				"/usr/sbin/smartdns": [ "exec" ],
-				"/etc/init.d/smartdns restart" : [ "exec" ]
+				"/etc/smartdns/*": [ "read" ]
 			},
 			"ubus": {
 				"service": [ "list" ]
@@ -14,7 +12,8 @@
 		},
 		"write": {
 			"file": {
-				"/etc/smartdns/*": [ "write" ]
+				"/etc/smartdns/*": [ "write" ],
+				"/etc/init.d/smartdns restart": [ "exec" ]
 			},
 			"uci": [ "smartdns" ]
 		}
