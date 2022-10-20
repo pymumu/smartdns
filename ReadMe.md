@@ -17,6 +17,8 @@ SmartDNS 同时支持指定特定域名 IP 地址，并高性匹配，可达到�
   - [特性](#特性)
   - [架构](#架构)
   - [下载](#下载)
+    - [使用官方安装源](#使用官方安装源)
+    - [手工下载安装](#手工下载安装)
   - [安装和使用](#安装和使用)
     - [标准 Linux 系统 / 树莓派](#标准-linux-系统--树莓派)
     - [OpenWrt](#openwrt)
@@ -121,6 +123,9 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 9. **高性能、占用资源少**  
    多线程异步 IO 模式，cache 缓存查询结果。
 
+10. **主流系统官方支持**
+   主流路由系统官方软件源安装smartdns。
+
 ## 架构
 
 ![Architecture](https://github.com/pymumu/test/releases/download/blob/architecture.png)
@@ -131,6 +136,19 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 4. 最后将访问速度最快的服务器 IP 返回给本地客户端。
 
 ## 下载
+
+### 使用官方安装源
+
+smartdns已经合入主流系统的软件仓库，可以直接使用系统安装命令直接安装。
+
+系统|安装方式|说明|
+--|--|--
+openwrt|opkg update</br>opkg install luci-app-smartdns</br>opkg install smartdns|22.03之后的系统。软件源路径：https://downloads.openwrt.org/releases/
+ddwrt|官方最新固件service页面->SmartDNS Resolver->启用。|选择界面参考：https://forum.dd-wrt.com/demo/Services.html
+debian|apt-get install smartdns|
+entware|ipkg update</br>ipkg install smartdns|软件源路径：https://bin.entware.net/
+
+### 手工下载安装
 
 --------------
 
@@ -724,6 +742,9 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
     nameserver /domain-set:ad/server
     ...
     ```
+
+14. 更多问题  
+    如有更多问题，请查阅或提交issue: [https://github.com/pymumu/smartdns/issues](https://github.com/pymumu/smartdns/issues)
 
 ## 编译
 

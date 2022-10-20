@@ -24,6 +24,7 @@
 'require view';
 'require poll';
 'require rpc';
+'require ui';
 
 var conf = 'smartdns';
 var callServiceList = rpc.declare({
@@ -113,12 +114,10 @@ return view.extend({
 				pollAdded = true;
 			}
 
-			return E('div', { class: 'cbi-map' },
-				E('div', { class: 'cbi-section' }, [
-					E('div', { id: 'service_status' },
-						_('Collecting data ...'))
-				])
-			);
+			return E('div', { class: 'cbi-section' }, [
+				E('div', { id: 'service_status' },
+					_('Collecting data ...'))
+			]);
 		}
 
 		// Basic;
@@ -491,6 +490,17 @@ return view.extend({
 			window.open("https://pymumu.github.io/smartdns/#donate", '_blank');
 		};
 
+		o = s.option(form.DummyValue, "_restart", _("Restart Service"));
+		o.renderWidget = function () {
+			return E('button', {
+				'class': 'btn cbi-button cbi-button-apply',
+				'id': 'btn_restart',
+				'click': ui.createHandlerFn(this, function () {
+					return fs.exec('/etc/init.d/smartdns', ['restart'])
+						.catch(function (e) { ui.addNotification(null, E('p', e.message), 'error') });
+				})
+			}, [_("Restart")]);
+		}
 		return m.render();
 	}
 });

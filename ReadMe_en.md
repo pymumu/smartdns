@@ -9,19 +9,27 @@ Support Raspberry Pi, openwrt, ASUS router, Windows and other devices.
 
 ## Table Of Content
 
-1. [Software Show](#software-show)
-1. [Features](#features)
-1. [Architecture](#architecture)
-1. [Usage](#usage)  
-    1. [Download the package](#download-the-package)
-    1. [Standard Linux system installation/Raspberry Pi, X86_64 system](#standard-linux-system-installation/raspberry-pi,-x86_64-system)
-    1. [openwrt/LEDE](#openwrt/lede)
-    1. [ASUS router native firmware / Merlin firmware](#asus-router-native-firmware-/-merlin-firmware)
-    1. [optware/entware](#optware/entware)
-    1. [Windows 10 WSL Installation/WSL ubuntu](#windows-10-wsl-installation/wsl-ubuntu)
-1. [Configuration parameter](#configuration-parameter)
-1. [Donate](#Donate)
-1. [FAQ](#FAQ)
+- [SmartDNS](#smartdns)
+  - [Table Of Content](#table-of-content)
+  - [Software Show](#software-show)
+  - [Features](#features)
+  - [Architecture](#architecture)
+  - [Usage](#usage)
+    - [Use official installation source](#use-official-installation-source)
+    - [Download the package](#download-the-package)
+    - [Standard Linux system installation/Raspberry Pi, X86_64 system](#standard-linux-system-installationraspberry-pi-x86_64-system)
+    - [openwrt](#openwrt)
+    - [ASUS router native firmware / Merlin firmware](#asus-router-native-firmware--merlin-firmware)
+    - [optware/entware](#optwareentware)
+    - [Windows 10 WSL Installation/WSL ubuntu](#windows-10-wsl-installationwsl-ubuntu)
+  - [Configuration parameter](#configuration-parameter)
+  - [FAQ](#faq)
+  - [Compile](#compile)
+  - [Donate](#donate)
+    - [PayPal](#paypal)
+    - [Alipay](#alipay)
+    - [Wechat](#wechat)
+  - [Open Source License](#open-source-license)
 
 ## Software Show
 
@@ -120,6 +128,17 @@ From the comparison, smartdns found the fastest IP address to visit www.baidu.co
 4. Return the fastest accessed Server IP to the local client.
 
 ## Usage
+
+### Use official installation source
+
+smartdns can already be installed using system package management tools.
+
+System|Installation|Instructions|
+--|--|--
+openwrt|opkg update</br>opkg install luci-app-smartdns</br>opkg install smartdns|systems after 22.03. Software source: https://downloads.openwrt.org/releases/
+ddwrt|latest firmware. goto services page abd enable SmartDNS Resolver. |Demo: https://forum.dd-wrt.com/demo/Services.html
+debian|apt-get install smartdns|
+entware|ipkg update</br>ipkg install smartdns|Software source: https://bin.entware.net/
 
 ### Download the package
 
@@ -665,6 +684,9 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
     nameserver /domain-set:ad/server
     ...
     ````
+
+1. More questions    
+    More questions, please read issue: [https://github.com/pymumu/smartdns/issues](https://github.com/pymumu/smartdns/issues)
 
 ## Compile
 
