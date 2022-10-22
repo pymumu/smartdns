@@ -35,7 +35,7 @@ jobs:
     needs: get-version
     strategy:
       matrix:
-        goarch: [x86_64, powerpc64le, mipsel, mips, i686, aarch64]
+        goarch: [x86_64, powerpc64le, mipsel, mips, i686, aarch64, armv7l]
       fail-fast: false
     runs-on: ubuntu-latest
     env:
@@ -65,6 +65,8 @@ jobs:
             ./Configure no-tests linux-x86
           elif [ "$GOARCH" == "powerpc64le" ] ;then
             ./Configure no-tests linux-ppc64le
+          elif [ "$GOARCH" == "armv7l" ] ;then
+            ./Configure no-tests linux-armv4
           else
            ./Configure no-tests linux-$GOARCH
           fi
@@ -96,7 +98,11 @@ jobs:
            override CXXFLAGS +=-Iinclude
           EOF
 
-          docker run -i --rm -v ${{ github.workspace }}:/workdir muslcc/x86_64:$GOARCH-linux-musl sh /workdir/docker-build.sh
+          if [ "$GOARCH" == "armv7l" ] ;then
+            docker run -i --rm -v ${{ github.workspace }}:/workdir muslcc/x86_64:armv7l-linux-musleabihf sh /workdir/docker-build.sh
+          else
+            docker run -i --rm -v ${{ github.workspace }}:/workdir muslcc/x86_64:$GOARCH-linux-musl sh /workdir/docker-build.sh
+          fi
 
       - name: Upload To Artifact
         uses: actions/upload-artifact@v2
