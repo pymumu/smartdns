@@ -1834,6 +1834,7 @@ static int _conf_domain_rules(void *data, int argc, char *argv[])
 		{"speed-check-mode", required_argument, NULL, 'c'},
 		{"address", required_argument, NULL, 'a'},
 		{"ipset", required_argument, NULL, 'p'},
+		{"nftset", required_argument, NULL, 's'},
 		{"nameserver", required_argument, NULL, 'n'},
 		{"dualstack-ip-selection", required_argument, NULL, 'd'},
 		{NULL, no_argument, NULL, 0}
