@@ -40,6 +40,11 @@ struct dns_ipset_table {
 };
 static struct dns_ipset_table dns_ipset_table;
 
+struct dns_nftset_table {
+	DECLARE_HASHTABLE(nftset, 8);
+};
+static struct dns_nftset_table dns_nftset_table;
+
 struct dns_qtype_soa_table dns_qtype_soa_table;
 
 struct dns_domain_set_rule_table dns_domain_set_rule_table;
@@ -133,6 +138,7 @@ int dns_conf_local_ttl;
 int dns_conf_force_AAAA_SOA;
 int dns_conf_force_no_cname;
 int dns_conf_ipset_timeout_enable;
+int dns_conf_nftset_timeout_enable;
 
 char dns_conf_user[DNS_CONF_USRNAME_LEN];
 
@@ -169,6 +175,10 @@ static void *_new_dns_rule(enum domain_rule domain_rule)
 	case DOMAIN_RULE_IPSET_IPV4:
 	case DOMAIN_RULE_IPSET_IPV6:
 		size = sizeof(struct dns_ipset_rule);
+		break;
+	case DOMAIN_RULE_NFTSET_IP:
+	case DOMAIN_RULE_NFTSET_IP6:
+		size = sizeof(struct dns_nftset_rule);
 		break;
 	case DOMAIN_RULE_NAMESERVER:
 		size = sizeof(struct dns_nameserver_rule);
@@ -850,6 +860,165 @@ static int _config_ipset(void *data, int argc, char *argv[])
 	return _conf_domain_rule_ipset(domain, value);
 errout:
 	tlog(TLOG_ERROR, "add ipset %s failed", value);
+	return 0;
+}
+
+static void _config_nftset_table_destroy(void)
+{
+	struct dns_nftset_name *nftset = NULL;
+	struct hlist_node *tmp = NULL;
+	unsigned long i = 0;
+
+	hash_for_each_safe(dns_nftset_table.nftset, i, tmp, nftset, node)
+	{
+		hlist_del_init(&nftset->node);
+		free(nftset);
+	}
+}
+
+static const struct dns_nftset_name *_dns_conf_get_nftable(const char *familyname, const char *tablename,
+														   const char *setname)
+{
+	uint32_t key = 0;
+	struct dns_nftset_name *nftset_name = NULL;
+
+	if (familyname == NULL || tablename == NULL || setname == NULL) {
+		return NULL;
+	}
+
+	const char *hasher[4] = {familyname, tablename, setname, NULL};
+
+	key = hash_string_array(hasher);
+	hash_for_each_possible(dns_nftset_table.nftset, nftset_name, node, key)
+	{
+		if (strncmp(nftset_name->nftfamilyname, familyname, DNS_MAX_NFTSET_FAMILYLEN) == 0 &&
+			strncmp(nftset_name->nfttablename, tablename, DNS_MAX_NFTSET_NAMELEN) == 0 &&
+			strncmp(nftset_name->nftsetname, setname, DNS_MAX_NFTSET_NAMELEN) == 0) {
+			return nftset_name;
+		}
+	}
+
+	nftset_name = malloc(sizeof(*nftset_name));
+	if (nftset_name == NULL) {
+		goto errout;
+	}
+
+	safe_strncpy(nftset_name->nftfamilyname, familyname, DNS_MAX_NFTSET_FAMILYLEN);
+	safe_strncpy(nftset_name->nfttablename, tablename, DNS_MAX_NFTSET_NAMELEN);
+	safe_strncpy(nftset_name->nftsetname, setname, DNS_MAX_NFTSET_NAMELEN);
+	hash_add(dns_nftset_table.nftset, &nftset_name->node, key);
+
+	return nftset_name;
+errout:
+	if (nftset_name) {
+		free(nftset_name);
+	}
+
+	return NULL;
+}
+
+static int _conf_domain_rule_nftset(char *domain, const char *nftsetname)
+{
+	struct dns_nftset_rule *nftset_rule = NULL;
+	const struct dns_nftset_name *nftset = NULL;
+	char *copied_name = NULL;
+	enum domain_rule type = 0;
+	int ignore_flag = 0;
+	char *setname = NULL;
+	char *tablename = NULL;
+
+	copied_name = strdup(nftsetname);
+
+	if (copied_name == NULL) {
+		goto errout;
+	}
+
+	for (char *tok = strtok(copied_name, ","); tok; tok = strtok(NULL, ",")) {
+		if (tok[0] == '#') {
+			if (strncmp(tok, "#6:inet#", 8U) == 0 || strncmp(tok, "#6:ip6#", 7U) == 0) {
+				type = DOMAIN_RULE_NFTSET_IP6;
+				ignore_flag = DOMAIN_FLAG_NFTSET_IP6_IGN;
+			} else if (strncmp(tok, "#4:inet#", 4U) == 0 || strncmp(tok, "#4:ip#", 6U) == 0) {
+				type = DOMAIN_RULE_NFTSET_IP;
+				ignore_flag = DOMAIN_FLAG_NFTSET_IP_IGN;
+			} else {
+				goto errout;
+			}
+			tok += 3;
+		} else {
+			goto errout;
+		}
+
+		if (strncmp(tok, "-", 1U) == 0) {
+			_config_domain_rule_flag_set(domain, ignore_flag, 0);
+			continue;
+		}
+
+		tablename = strpbrk(tok, "#");
+		if (tablename == NULL) {
+			goto errout;
+		}
+		*tablename++ = '\0';
+		setname = strpbrk(tablename, "#");
+		if (setname == NULL) {
+			goto errout;
+		}
+		*setname++ = '\0';
+
+		/* new ipset domain */
+		nftset = _dns_conf_get_nftable(tok, tablename, setname);
+		if (nftset == NULL) {
+			goto errout;
+		}
+
+		nftset_rule = _new_dns_rule(type);
+		if (nftset_rule == NULL) {
+			goto errout;
+		}
+
+		nftset_rule->nfttablename = nftset->nfttablename;
+		nftset_rule->nftsetname = nftset->nftsetname;
+		nftset_rule->familyname = nftset->nftfamilyname;
+
+		if (_config_domain_rule_add(domain, type, nftset_rule) != 0) {
+			goto errout;
+		}
+		_dns_rule_put(&nftset_rule->head);
+	}
+
+	goto clear;
+
+errout:
+	tlog(TLOG_ERROR, "add nftset %s failed", nftsetname);
+
+	if (nftset_rule) {
+		_dns_rule_put(&nftset_rule->head);
+	}
+
+clear:
+	if (copied_name) {
+		free(copied_name);
+	}
+
+	return 0;
+}
+
+static int _config_nftset(void *data, int argc, char *argv[])
+{
+	char domain[DNS_MAX_CONF_CNAME_LEN];
+	char *value = argv[1];
+
+	if (argc <= 1) {
+		goto errout;
+	}
+
+	if (_get_domain(value, domain, DNS_MAX_CONF_CNAME_LEN, &value) != 0) {
+		goto errout;
+	}
+
+	return _conf_domain_rule_nftset(domain, value);
+errout:
+	tlog(TLOG_ERROR, "add nftset %s failed", value);
 	return 0;
 }
 
@@ -1665,6 +1834,7 @@ static int _conf_domain_rules(void *data, int argc, char *argv[])
 		{"speed-check-mode", required_argument, NULL, 'c'},
 		{"address", required_argument, NULL, 'a'},
 		{"ipset", required_argument, NULL, 'p'},
+		{"nftset", required_argument, NULL, 's'},
 		{"nameserver", required_argument, NULL, 'n'},
 		{"dualstack-ip-selection", required_argument, NULL, 'd'},
 		{NULL, no_argument, NULL, 0}
@@ -1745,6 +1915,19 @@ static int _conf_domain_rules(void *data, int argc, char *argv[])
 			const char *yesno = optarg;
 			if (_conf_domain_rule_dualstack_selection(domain, yesno) != 0) {
 				tlog(TLOG_ERROR, "set dualstack selection rule failed.");
+				goto errout;
+			}
+
+			break;
+		}
+		case 's': {
+			const char *nftsetname = optarg;
+			if (nftsetname == NULL) {
+				goto errout;
+			}
+
+			if (_conf_domain_rule_nftset(domain, nftsetname) != 0) {
+				tlog(TLOG_ERROR, "add nftset rule failed.");
 				goto errout;
 			}
 
@@ -2178,6 +2361,8 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("address", _config_address, NULL),
 	CONF_YESNO("ipset-timeout", &dns_conf_ipset_timeout_enable),
 	CONF_CUSTOM("ipset", _config_ipset, NULL),
+	CONF_YESNO("nftset-timeout", &dns_conf_nftset_timeout_enable),
+	CONF_CUSTOM("nftset", _config_nftset, NULL),
 	CONF_CUSTOM("speed-check-mode", _config_speed_check_mode, NULL),
 	CONF_INT("tcp-idle-time", &dns_conf_tcp_idle_time, 0, 3600),
 	CONF_INT("cache-size", &dns_conf_cachesize, 0, CONF_INT_MAX),
@@ -2384,6 +2569,7 @@ static int _dns_server_load_conf_init(void)
 	art_tree_init(&dns_conf_domain_rule);
 
 	hash_init(dns_ipset_table.ipset);
+	hash_init(dns_nftset_table.nftset);
 	hash_init(dns_qtype_soa_table.qtype);
 	hash_init(dns_group_table.group);
 	hash_init(dns_hosts_table.hosts);
@@ -2400,6 +2586,7 @@ void dns_server_load_exit(void)
 	Destroy_Radix(dns_conf_address_rule.ipv4, _config_address_destroy, NULL);
 	Destroy_Radix(dns_conf_address_rule.ipv6, _config_address_destroy, NULL);
 	_config_ipset_table_destroy();
+	_config_nftset_table_destroy();
 	_config_group_table_destroy();
 	_config_ptr_table_destroy();
 	_config_host_table_destroy();
