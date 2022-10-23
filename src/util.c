@@ -18,10 +18,11 @@
 
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#include <stdio.h>
 #endif
-#include "util.h"
 #include "dns_conf.h"
 #include "tlog.h"
+#include "util.h"
 #include <arpa/inet.h>
 #include <dlfcn.h>
 #include <errno.h>
@@ -644,8 +645,9 @@ int ipset_del(const char *ipsetname, const unsigned char addr[], int addr_len)
 static struct nft_ctx *_nftset_init(void)
 {
 	static struct nft_ctx *nft_ctx = NULL;
-	if (nft_ctx)
+	if (nft_ctx) {
 		return nft_ctx;
+	}
 
 	nft_ctx = nft_ctx_new(NFT_CTX_DEFAULT);
 	if (!nft_ctx) {
@@ -659,7 +661,7 @@ static struct nft_ctx *_nftset_init(void)
 static int _nftset_operate(const char *familyname, const char *tablename, const char *setname,
 						   const unsigned char addr[], int af, const char *op, const char *flags)
 {
-	char *cmd_buf = NULL;
+	char cmd_buf[1024] = {'\0'};
 
 	struct nft_ctx *nft_ctx = _nftset_init();
 	if (nft_ctx == NULL) {
@@ -671,7 +673,8 @@ static int _nftset_operate(const char *familyname, const char *tablename, const 
 		return -1;
 	}
 
-	int ret = asprintf(&cmd_buf, "%s element %s %s %s { %s %s }", op, familyname, tablename, setname, addr_str, flags);
+	int ret = snprintf(cmd_buf, sizeof(cmd_buf), "%s element %s %s %s { %s %s }", op, familyname, tablename, setname,
+					   addr_str, flags);
 
 	if (ret == -1) {
 		return -1;
@@ -679,8 +682,6 @@ static int _nftset_operate(const char *familyname, const char *tablename, const 
 
 	ret = nft_run_cmd_from_buffer(nft_ctx, cmd_buf);
 	nft_ctx_get_error_buffer(nft_ctx);
-
-	free(cmd_buf);
 
 	return ret;
 }

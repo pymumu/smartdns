@@ -40,12 +40,10 @@ struct dns_ipset_table {
 };
 static struct dns_ipset_table dns_ipset_table;
 
-#ifdef WITH_NFTSET
 struct dns_nftset_table {
 	DECLARE_HASHTABLE(nftset, 8);
 };
 static struct dns_nftset_table dns_nftset_table;
-#endif
 
 struct dns_qtype_soa_table dns_qtype_soa_table;
 
@@ -140,9 +138,7 @@ int dns_conf_local_ttl;
 int dns_conf_force_AAAA_SOA;
 int dns_conf_force_no_cname;
 int dns_conf_ipset_timeout_enable;
-#ifdef WITH_NFTSET
 int dns_conf_nftset_timeout_enable;
-#endif
 
 char dns_conf_user[DNS_CONF_USRNAME_LEN];
 
@@ -180,12 +176,10 @@ static void *_new_dns_rule(enum domain_rule domain_rule)
 	case DOMAIN_RULE_IPSET_IPV6:
 		size = sizeof(struct dns_ipset_rule);
 		break;
-#ifdef WITH_NFTSET
 	case DOMAIN_RULE_NFTSET_IP:
 	case DOMAIN_RULE_NFTSET_IP6:
 		size = sizeof(struct dns_nftset_rule);
 		break;
-#endif
 	case DOMAIN_RULE_NAMESERVER:
 		size = sizeof(struct dns_nameserver_rule);
 		break;
@@ -869,7 +863,6 @@ errout:
 	return 0;
 }
 
-#ifdef WITH_NFTSET
 static void _config_nftset_table_destroy(void)
 {
 	struct dns_nftset_name *nftset = NULL;
@@ -1028,7 +1021,6 @@ errout:
 	tlog(TLOG_ERROR, "add nftset %s failed", value);
 	return 0;
 }
-#endif
 
 static int _conf_domain_rule_address(char *domain, const char *domain_address)
 {
@@ -1927,7 +1919,6 @@ static int _conf_domain_rules(void *data, int argc, char *argv[])
 
 			break;
 		}
-#ifdef WITH_NFTSET
 		case 's': {
 			const char *nftsetname = optarg;
 			if (nftsetname == NULL) {
@@ -1941,7 +1932,6 @@ static int _conf_domain_rules(void *data, int argc, char *argv[])
 
 			break;
 		}
-#endif
 		default:
 			break;
 		}
@@ -2370,10 +2360,8 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("address", _config_address, NULL),
 	CONF_YESNO("ipset-timeout", &dns_conf_ipset_timeout_enable),
 	CONF_CUSTOM("ipset", _config_ipset, NULL),
-#ifdef WITH_NFTSET
 	CONF_YESNO("nftset-timeout", &dns_conf_nftset_timeout_enable),
 	CONF_CUSTOM("nftset", _config_nftset, NULL),
-#endif
 	CONF_CUSTOM("speed-check-mode", _config_speed_check_mode, NULL),
 	CONF_INT("tcp-idle-time", &dns_conf_tcp_idle_time, 0, 3600),
 	CONF_INT("cache-size", &dns_conf_cachesize, 0, CONF_INT_MAX),
@@ -2580,9 +2568,7 @@ static int _dns_server_load_conf_init(void)
 	art_tree_init(&dns_conf_domain_rule);
 
 	hash_init(dns_ipset_table.ipset);
-#ifdef WITH_NFTSET
 	hash_init(dns_nftset_table.nftset);
-#endif
 	hash_init(dns_qtype_soa_table.qtype);
 	hash_init(dns_group_table.group);
 	hash_init(dns_hosts_table.hosts);
@@ -2599,9 +2585,7 @@ void dns_server_load_exit(void)
 	Destroy_Radix(dns_conf_address_rule.ipv4, _config_address_destroy, NULL);
 	Destroy_Radix(dns_conf_address_rule.ipv6, _config_address_destroy, NULL);
 	_config_ipset_table_destroy();
-#ifdef WITH_NFTSET
 	_config_nftset_table_destroy();
-#endif
 	_config_group_table_destroy();
 	_config_ptr_table_destroy();
 	_config_host_table_destroy();

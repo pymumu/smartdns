@@ -1311,10 +1311,8 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 	struct dns_ipset_rule *ipset_rule = NULL;
 	struct dns_ipset_rule *ipset_rule_v4 = NULL;
 	struct dns_ipset_rule *ipset_rule_v6 = NULL;
-#ifdef WITH_NFTSET
 	struct dns_nftset_rule *nftset_ip = NULL;
 	struct dns_nftset_rule *nftset_ip6 = NULL;
-#endif
 	struct dns_rule_flags *rule_flags = NULL;
 
 	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_RULE_IPSET) == 0) {
@@ -1340,20 +1338,14 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 	if (!rule_flags || (rule_flags->flags & DOMAIN_FLAG_IPSET_IPV6_IGN) == 0) {
 		ipset_rule_v6 = _dns_server_get_dns_rule(request, DOMAIN_RULE_IPSET_IPV6);
 	}
-#ifdef WITH_NFTSET
 	if (!rule_flags || (rule_flags->flags & DOMAIN_FLAG_NFTSET_IP_IGN) == 0) {
 		nftset_ip = _dns_server_get_dns_rule(request, DOMAIN_RULE_NFTSET_IP);
 	}
 	if (!rule_flags || (rule_flags->flags & DOMAIN_FLAG_NFTSET_IP6_IGN) == 0) {
 		nftset_ip6 = _dns_server_get_dns_rule(request, DOMAIN_RULE_NFTSET_IP6);
 	}
-#endif
 
-	if (!(ipset_rule || ipset_rule_v4 || ipset_rule_v6
-#ifdef WITH_NFTSET
-		  || nftset_ip || nftset_ip6
-#endif
-		  )) {
+	if (!(ipset_rule || ipset_rule_v4 || ipset_rule_v6 || nftset_ip || nftset_ip6)) {
 		return 0;
 	}
 

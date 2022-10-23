@@ -64,10 +64,8 @@ enum domain_rule {
 	DOMAIN_RULE_IPSET,
 	DOMAIN_RULE_IPSET_IPV4,
 	DOMAIN_RULE_IPSET_IPV6,
-#ifdef WITH_NFTSET
 	DOMAIN_RULE_NFTSET_IP,
 	DOMAIN_RULE_NFTSET_IP6,
-#endif
 	DOMAIN_RULE_NAMESERVER,
 	DOMAIN_RULE_CHECKSPEED,
 	DOMAIN_RULE_MAX,
@@ -96,11 +94,9 @@ typedef enum {
 #define DOMAIN_FLAG_NAMESERVER_IGNORE (1 << 9)
 #define DOMAIN_FLAG_DUALSTACK_SELECT (1 << 10)
 #define DOMAIN_FLAG_SMARTDNS_DOMAIN (1 << 11)
-#ifdef WITH_NFTSET
 #define DOMAIN_FLAG_NFTSET_INET_IGN (1 << 12)
 #define DOMAIN_FLAG_NFTSET_IP_IGN (1 << 13)
 #define DOMAIN_FLAG_NFTSET_IP6_IGN (1 << 14)
-#endif
 
 #define SERVER_FLAG_EXCLUDE_DEFAULT (1 << 0)
 
@@ -146,7 +142,6 @@ struct dns_ipset_rule {
 	const char *ipsetname;
 };
 
-#ifdef WITH_NFTSET
 struct dns_nftset_name {
 	struct hlist_node node;
 	char nftfamilyname[DNS_MAX_NFTSET_FAMILYLEN];
@@ -160,7 +155,6 @@ struct dns_nftset_rule {
 	const char *nfttablename;
 	const char *nftsetname;
 };
-#endif
 
 struct dns_domain_rule {
 	struct dns_rule head;
