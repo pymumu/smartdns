@@ -36,6 +36,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/epoll.h>
+#include <sys/eventfd.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -140,6 +141,8 @@ struct fast_ping_struct {
 	int fd_udp6;
 	struct ping_host_struct udp6_host;
 
+	int event_fd;
+
 	pthread_mutex_t map_lock;
 	DECLARE_HASHTABLE(addrmap, 6);
 };
@@ -147,6 +150,13 @@ struct fast_ping_struct {
 static struct fast_ping_struct ping;
 static atomic_t ping_sid = ATOMIC_INIT(0);
 static int bool_print_log = 1;
+
+static void _fast_ping_wakup_thread(void)
+{
+	uint64_t u = 1;
+	int unused __attribute__((unused));
+	unused = write(ping.event_fd, &u, sizeof(u));
+}
 
 static uint16_t _fast_ping_checksum(uint16_t *header, size_t len)
 {
@@ -1122,6 +1132,9 @@ struct ping_host_struct *fast_ping_start(PING_TYPE type, const char *host, int c
 
 	pthread_mutex_lock(&ping.map_lock);
 	_fast_ping_host_get(ping_host);
+	if (hash_empty(ping.addrmap)) {
+		_fast_ping_wakup_thread();
+	}
 	hash_add(ping.addrmap, &ping_host->addr_node, addrkey);
 	ping_host->run = 1;
 	pthread_mutex_unlock(&ping.map_lock);
@@ -1627,6 +1640,7 @@ static void *_fast_ping_work(void *arg)
 	int num = 0;
 	int i = 0;
 	unsigned long now = {0};
+	unsigned long last = {0};
 	struct timeval tvnow = {0};
 	int sleep = 100;
 	int sleep_time = 0;
@@ -1634,9 +1648,18 @@ static void *_fast_ping_work(void *arg)
 
 	sleep_time = sleep;
 	now = get_tick_count() - sleep;
+	last = now;
 	expect_time = now + sleep;
 	while (atomic_read(&ping.run)) {
 		now = get_tick_count();
+		if (sleep_time > 0) {
+			sleep_time -= now - last;
+			if (sleep_time <= 0) {
+				sleep_time = 0;
+			}
+		}
+		last = now;
+
 		if (now >= expect_time) {
 			_fast_ping_period_run();
 			sleep_time = sleep - (now - expect_time);
@@ -1647,10 +1670,20 @@ static void *_fast_ping_work(void *arg)
 			expect_time += sleep;
 		}
 
+		pthread_mutex_lock(&ping.map_lock);
+		if (hash_empty(ping.addrmap)) {
+			sleep_time = -1;
+		}
+		pthread_mutex_unlock(&ping.map_lock);
+
 		num = epoll_wait(ping.epoll_fd, events, PING_MAX_EVENTS, sleep_time);
 		if (num < 0) {
 			usleep(100000);
 			continue;
+		}
+
+		if (sleep_time == -1) {
+			expect_time = get_tick_count();
 		}
 
 		if (num == 0) {
@@ -1660,6 +1693,14 @@ static void *_fast_ping_work(void *arg)
 		gettimeofday(&tvnow, NULL);
 		for (i = 0; i < num; i++) {
 			struct epoll_event *event = &events[i];
+			/* read event */
+			if (event->data.fd == ping.event_fd) {
+				uint64_t value;
+				int unused __attribute__((unused));
+				unused = read(ping.event_fd, &value, sizeof(uint64_t));
+				continue;
+			}
+
 			struct ping_host_struct *ping_host = (struct ping_host_struct *)event->data.ptr;
 			_fast_ping_process(ping_host, event, &tvnow);
 		}
@@ -1669,6 +1710,31 @@ static void *_fast_ping_work(void *arg)
 	ping.epoll_fd = -1;
 
 	return NULL;
+}
+
+static int _fast_ping_init_wakeup_event(void)
+{
+	int fdevent = -1;
+	fdevent = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+	if (fdevent < 0) {
+		tlog(TLOG_ERROR, "create eventfd failed, %s\n", strerror(errno));
+		goto errout;
+	}
+
+	struct epoll_event event;
+	memset(&event, 0, sizeof(event));
+	event.events = EPOLLIN | EPOLLERR;
+	event.data.fd = fdevent;
+	if (epoll_ctl(ping.epoll_fd, EPOLL_CTL_ADD, fdevent, &event) != 0) {
+		tlog(TLOG_ERROR, "set eventfd failed, %s\n", strerror(errno));
+		goto errout;
+	}
+
+	ping.event_fd = fdevent;
+
+	return 0;
+errout:
+	return -1;
 }
 
 int fast_ping_init(void)
@@ -1694,13 +1760,19 @@ int fast_ping_init(void)
 	pthread_mutex_init(&ping.map_lock, NULL);
 	pthread_mutex_init(&ping.lock, NULL);
 	hash_init(ping.addrmap);
-	ping.epoll_fd = epollfd;
 	ping.no_unprivileged_ping = !has_unprivileged_ping();
 	ping.ident = (getpid() & 0XFFFF);
 	atomic_set(&ping.run, 1);
 	ret = pthread_create(&ping.tid, &attr, _fast_ping_work, NULL);
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "create ping work thread failed, %s\n", strerror(errno));
+		goto errout;
+	}
+
+	ping.epoll_fd = epollfd;
+	ret = _fast_ping_init_wakeup_event();
+	if (ret != 0) {
+		tlog(TLOG_ERROR, "init wakeup event failed, %s\n", strerror(errno));
 		goto errout;
 	}
 
@@ -1713,12 +1785,18 @@ errout:
 		ping.tid = 0;
 	}
 
-	if (epollfd) {
+	if (epollfd > 0) {
 		close(epollfd);
+	}
+
+	if (ping.event_fd) {
+		close(ping.event_fd);
+		ping.event_fd = -1;
 	}
 
 	pthread_mutex_destroy(&ping.lock);
 	pthread_mutex_destroy(&ping.map_lock);
+	memset(&ping, 0, sizeof(ping));
 
 	return -1;
 }
@@ -1751,8 +1829,14 @@ void fast_ping_exit(void)
 	if (ping.tid) {
 		void *ret = NULL;
 		atomic_set(&ping.run, 0);
+		_fast_ping_wakup_thread();
 		pthread_join(ping.tid, &ret);
 		ping.tid = 0;
+	}
+
+	if (ping.event_fd > 0) {
+		close(ping.event_fd);
+		ping.event_fd = -1;
 	}
 
 	_fast_ping_close_fds();

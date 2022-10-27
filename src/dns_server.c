@@ -40,6 +40,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/epoll.h>
+#include <sys/eventfd.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 
@@ -246,6 +247,7 @@ struct dns_request {
 struct dns_server {
 	atomic_t run;
 	int epoll_fd;
+	int event_fd;
 	struct list_head conn_list;
 
 	/* dns request list */
@@ -269,7 +271,14 @@ static void _dns_server_request_get(struct dns_request *request);
 static void _dns_server_request_release(struct dns_request *request);
 static void _dns_server_request_release_complete(struct dns_request *request, int do_complete);
 static int _dns_server_reply_passthrouth(struct dns_server_post_context *context);
-static int _dns_server_do_query(struct dns_request *request);
+static int _dns_server_do_query(struct dns_request *request, int skip_notify_event);
+
+static void _dns_server_wakup_thread(void)
+{
+	uint64_t u = 1;
+	int unused __attribute__((unused));
+	unused = write(server.event_fd, &u, sizeof(u));
+}
 
 static int _dns_server_forward_request(unsigned char *inpacket, int inpacket_len)
 {
@@ -4054,7 +4063,7 @@ static int _dns_server_query_dualstack(struct dns_request *request)
 	request_dualstack->dualstack_request = request;
 	_dns_server_request_set_callback(request_dualstack, dns_server_dualstack_callback, request);
 	request->request_wait++;
-	ret = _dns_server_do_query(request_dualstack);
+	ret = _dns_server_do_query(request_dualstack, 0);
 	if (ret != 0) {
 		request->request_wait--;
 		tlog(TLOG_ERROR, "do query %s type %d failed.\n", request->domain, qtype);
@@ -4074,7 +4083,7 @@ errout:
 	return ret;
 }
 
-static int _dns_server_do_query(struct dns_request *request)
+static int _dns_server_do_query(struct dns_request *request, int skip_notify_event)
 {
 	int ret = -1;
 	const char *group_name = NULL;
@@ -4150,6 +4159,9 @@ static int _dns_server_do_query(struct dns_request *request)
 	_dns_server_setup_query_option(request, &options);
 
 	pthread_mutex_lock(&server.request_list_lock);
+	if (list_empty(&server.request_list) && skip_notify_event == 1) {
+		_dns_server_wakup_thread();
+	}
 	list_add_tail(&request->list, &server.request_list);
 	pthread_mutex_unlock(&server.request_list_lock);
 
@@ -4275,7 +4287,7 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 	_dns_server_request_set_client(request, conn);
 	_dns_server_request_set_client_addr(request, from, from_len);
 	_dns_server_request_set_id(request, packet->head.id);
-	ret = _dns_server_do_query(request);
+	ret = _dns_server_do_query(request, 1);
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "do query %s failed.\n", request->domain);
 		goto errout;
@@ -4327,7 +4339,7 @@ static int _dns_server_prefetch_request(char *domain, dns_type_t qtype, int expi
 	request->qtype = qtype;
 	_dns_server_setup_server_query_options(request, server_query_option);
 	_dns_server_request_set_enable_prefetch(request, expired_domain);
-	ret = _dns_server_do_query(request);
+	ret = _dns_server_do_query(request, 0);
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "do query %s failed.\n", request->domain);
 		goto errout;
@@ -4359,7 +4371,7 @@ int dns_server_query(const char *domain, int qtype, struct dns_server_query_opti
 	request->qtype = qtype;
 	_dns_server_setup_server_query_options(request, server_query_option);
 	_dns_server_request_set_callback(request, callback, user_ptr);
-	ret = _dns_server_do_query(request);
+	ret = _dns_server_do_query(request, 0);
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "do query %s failed.\n", domain);
 		goto errout;
@@ -4865,14 +4877,12 @@ static void _dns_server_period_run_second(void)
 	}
 }
 
-static void _dns_server_period_run(void)
+static void _dns_server_period_run(unsigned int msec)
 {
 	struct dns_request *request = NULL;
 	struct dns_request *tmp = NULL;
-	static unsigned int msec = 0;
 	LIST_HEAD(check_list);
 
-	msec++;
 	if (msec % 10 == 0) {
 		_dns_server_period_run_second();
 	}
@@ -4940,22 +4950,50 @@ int dns_server_run(void)
 	int num = 0;
 	int i = 0;
 	unsigned long now = {0};
+	unsigned long last = {0};
+	unsigned int msec = 0;
 	int sleep = 100;
 	int sleep_time = 0;
 	unsigned long expect_time = 0;
 
 	sleep_time = sleep;
 	now = get_tick_count() - sleep;
+	last = now;
 	expect_time = now + sleep;
 	while (atomic_read(&server.run)) {
 		now = get_tick_count();
+		if (sleep_time > 0) {
+			sleep_time -= now - last;
+			if (sleep_time <= 0) {
+				sleep_time = 0;
+			}
+
+			int cnt = sleep_time / sleep;
+			msec -= cnt;
+			expect_time -= cnt * sleep;
+			sleep_time -= cnt * sleep;
+		}
+		last = now;
+
 		if (now >= expect_time) {
-			_dns_server_period_run();
+			msec++;
+			_dns_server_period_run(msec);
 			sleep_time = sleep - (now - expect_time);
 			if (sleep_time < 0) {
 				sleep_time = 0;
 				expect_time = now;
 			}
+
+			/* When server is idle, the sleep time is 1000ms, to reduce CPU usage */
+			pthread_mutex_lock(&server.request_list_lock);
+			if (list_empty(&server.request_list)) {
+				int cnt = 10 - (msec % 10) - 1;
+				sleep_time += sleep * cnt;
+				msec += cnt;
+				/* sleep to next second */
+				expect_time += sleep * cnt;
+			}
+			pthread_mutex_unlock(&server.request_list_lock);
 			expect_time += sleep;
 		}
 
@@ -4971,6 +5009,14 @@ int dns_server_run(void)
 
 		for (i = 0; i < num; i++) {
 			struct epoll_event *event = &events[i];
+			/* read event */
+			if (event->data.fd == server.event_fd) {
+				uint64_t value;
+				int unused __attribute__((unused));
+				unused = read(server.event_fd, &value, sizeof(uint64_t));
+				continue;
+			}
+
 			struct dns_server_conn_head *conn_head = event->data.ptr;
 			if (conn_head == NULL) {
 				tlog(TLOG_ERROR, "invalid fd\n");
@@ -5294,6 +5340,31 @@ static int _dns_server_cache_save(void)
 	return 0;
 }
 
+static int _dns_server_init_wakeup_event(void)
+{
+	int fdevent = -1;
+	fdevent = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+	if (fdevent < 0) {
+		tlog(TLOG_ERROR, "create eventfd failed, %s\n", strerror(errno));
+		goto errout;
+	}
+
+	struct epoll_event event;
+	memset(&event, 0, sizeof(event));
+	event.events = EPOLLIN | EPOLLERR;
+	event.data.fd = fdevent;
+	if (epoll_ctl(server.epoll_fd, EPOLL_CTL_ADD, fdevent, &event) != 0) {
+		tlog(TLOG_ERROR, "set eventfd failed, %s\n", strerror(errno));
+		goto errout;
+	}
+
+	server.event_fd = fdevent;
+
+	return 0;
+errout:
+	return -1;
+}
+
 int dns_server_init(void)
 {
 	pthread_attr_t attr;
@@ -5344,6 +5415,11 @@ int dns_server_init(void)
 	tlog(TLOG_INFO, "%s",
 		 (is_ipv6_ready) ? "IPV6 is ready, enable IPV6 features" : "IPV6 is not ready, disable IPV6 features");
 
+	if (_dns_server_init_wakeup_event() != 0) {
+		tlog(TLOG_ERROR, "init wakeup event failed.");
+		goto errout;
+	}
+
 	return 0;
 errout:
 	atomic_set(&server.run, 0);
@@ -5363,10 +5439,15 @@ errout:
 void dns_server_stop(void)
 {
 	atomic_set(&server.run, 0);
+	_dns_server_wakup_thread();
 }
 
 void dns_server_exit(void)
 {
+	if (server.event_fd > 0) {
+		close(server.event_fd);
+		server.event_fd = -1;
+	}
 	_dns_server_close_socket();
 	_dns_server_cache_save();
 	_dns_server_request_remove_all();

@@ -2,3 +2,4 @@
 *.o
 .DS_Store
 *.swp.
+systemd/smartdns.service
