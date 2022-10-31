@@ -50,7 +50,7 @@
 #define TMP_BUFF_LEN_32 32
 
 static int verbose_screen;
-
+char operator_script[4096];
 int capget(struct __user_cap_header_struct *header, struct __user_cap_data_struct *cap);
 int capset(struct __user_cap_header_struct *header, struct __user_cap_data_struct *cap);
 
@@ -144,6 +144,7 @@ static void _help(void)
 		"  -S            ignore segment fault signal.\n"
 		"  -x            verbose screen.\n"
 		"  -v            dispaly version.\n"
+        "  -O [script]   when match ipset, call script. call format is: IP IPSET DOMAIN TIMEOUT IPV4/IPV6 OPERATOR, for example: 140.82.112.0 ipset live.github.com 120 ipv4 add\n"
 		"  -h            show this help message.\n"
 
 		"Online help: http://pymumu.github.io/smartdns\n"
@@ -524,7 +525,7 @@ int main(int argc, char *argv[])
 	char pid_file[MAX_LINE_LEN];
 	int signal_ignore = 0;
 	sigset_t empty_sigblock;
-
+	memset(operator_script,0,sizeof(operator_script));
 	safe_strncpy(config_file, SMARTDNS_CONF_FILE, MAX_LINE_LEN);
 	safe_strncpy(pid_file, SMARTDNS_PID_FILE, MAX_LINE_LEN);
 
@@ -532,7 +533,7 @@ int main(int argc, char *argv[])
 	sigemptyset(&empty_sigblock);
 	sigprocmask(SIG_SETMASK, &empty_sigblock, NULL);
 
-	while ((opt = getopt(argc, argv, "fhc:p:SvxN:")) != -1) {
+	while ((opt = getopt(argc, argv, "fhc:p:SvxN:O:")) != -1) {
 		switch (opt) {
 		case 'f':
 			is_foreground = 1;
@@ -542,6 +543,14 @@ int main(int argc, char *argv[])
 			break;
 		case 'p':
 			snprintf(pid_file, sizeof(pid_file), "%s", optarg);
+			break;
+		case 'O':
+			snprintf(operator_script, sizeof(operator_script), "%s", optarg);
+			if(access(operator_script, R_OK | X_OK) == -1){
+				fprintf(stderr, "operator_script can't access,operator_script: %s\n", operator_script);
+				_help();
+				return 1;
+			}
 			break;
 		case 'S':
 			signal_ignore = 1;

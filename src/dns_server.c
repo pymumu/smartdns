@@ -1306,7 +1306,7 @@ static int _dns_cache_reply_packet(struct dns_server_post_context *context)
 
 	return 0;
 }
-
+extern char operator_script[4096];
 static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context *context)
 {
 	int ttl = 0;
@@ -1374,6 +1374,13 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 				if (rule != NULL) {
 					/* add IPV4 to ipset */
 					ipset_add(rule->ipsetname, addr, DNS_RR_A_LEN, request->ip_ttl * 2);
+					if(strlen(operator_script)!=0){
+						char cmd[4096+312] = {0};
+						snprintf(cmd,sizeof(cmd),"%s %d.%d.%d.0 %s %s %d ipv4 add",operator_script, addr[0], addr[1], addr[2],  rule->ipsetname,request->domain,request->ip_ttl * 2);
+						tlog(TLOG_INFO, "call operator_script, for: IPSET-MATCH: domain: %s, ipset: %s, IP: %d.%d.%d.%d, cmd: %s", request->domain,
+							 rule->ipsetname, addr[0], addr[1], addr[2], addr[3], cmd);
+						system(cmd);
+					}
 					tlog(TLOG_DEBUG, "IPSET-MATCH: domain: %s, ipset: %s, IP: %d.%d.%d.%d", request->domain,
 						 rule->ipsetname, addr[0], addr[1], addr[2], addr[3]);
 				}
@@ -1400,6 +1407,13 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 				rule = ipset_rule_v6 ? ipset_rule_v6 : ipset_rule;
 				if (rule != NULL) {
 					ipset_add(rule->ipsetname, addr, DNS_RR_AAAA_LEN, request->ip_ttl * 2);
+					if(strlen(operator_script)!=0){
+						char cmd[4096+312] = {0};
+						snprintf(cmd,sizeof(cmd),"%s %d.%d.%d.0 %s %s %d ipv6 add",operator_script, addr[0], addr[1], addr[2],  rule->ipsetname,request->domain,request->ip_ttl * 2);
+						tlog(TLOG_INFO, "call operator_script, for: IPSET-MATCH: domain: %s, ipset: %s, IP: %d.%d.%d.%d, cmd: %s", request->domain,
+							 rule->ipsetname, addr[0], addr[1], addr[2], addr[3], cmd);
+						system(cmd);
+					}
 					tlog(TLOG_DEBUG,
 						 "IPSET-MATCH: domain: %s, ipset: %s, IP: "
 						 "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x",
