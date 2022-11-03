@@ -905,10 +905,56 @@ static int _dns_server_reply_udp(struct dns_request *request, struct dns_server_
 								 unsigned char *inpacket, int inpacket_len)
 {
 	int send_len = 0;
+	struct iovec iovec[1];
+	struct msghdr msg;
+	struct cmsghdr *cmsg;
+	char msg_control[256];
+
 	if (atomic_read(&server.run) == 0 || inpacket == NULL || inpacket_len <= 0) {
 		return -1;
 	}
 
+	iovec[0].iov_base = inpacket;
+	iovec[0].iov_len = inpacket_len;
+	msg.msg_iov = iovec;
+	msg.msg_iovlen = 1;
+	msg.msg_control = msg_control;
+	msg.msg_controllen = sizeof(msg_control);
+	msg.msg_flags = 0;
+	msg.msg_name = &request->addr;
+	msg.msg_namelen = request->addr_len;
+
+	cmsg = CMSG_FIRSTHDR(&msg);
+	if (request->localaddr.ss_family == AF_INET) {
+		struct sockaddr_in *s4 = (struct sockaddr_in *)&request->localaddr;
+		cmsg->cmsg_level = SOL_IP;
+		cmsg->cmsg_type = IP_PKTINFO;
+		cmsg->cmsg_len = CMSG_LEN(sizeof(struct in_pktinfo));
+		msg.msg_controllen = CMSG_SPACE(sizeof(struct in_pktinfo));
+
+		struct in_pktinfo *pktinfo = (struct in_pktinfo *)CMSG_DATA(cmsg);
+		memset(pktinfo, 0, sizeof(*pktinfo));
+		pktinfo->ipi_spec_dst = s4->sin_addr;
+	} else if (request->localaddr.ss_family == AF_INET6) {
+		struct sockaddr_in6 *s6 = (struct sockaddr_in6 *)&request->localaddr;
+		cmsg->cmsg_level = IPPROTO_IPV6;
+		cmsg->cmsg_type = IPV6_PKTINFO;
+		cmsg->cmsg_len = CMSG_LEN(sizeof(struct in6_pktinfo));
+		msg.msg_controllen = CMSG_SPACE(sizeof(struct in6_pktinfo));
+
+		struct in6_pktinfo *pktinfo = (struct in6_pktinfo *)CMSG_DATA(cmsg);
+		memset(pktinfo, 0, sizeof(*pktinfo));
+		pktinfo->ipi6_addr = s6->sin6_addr;
+	} else {
+		goto use_send;
+	}
+
+	send_len = sendmsg(udpserver->head.fd, &msg, 0);
+	if (send_len == inpacket_len) {
+		return 0;
+	}
+
+use_send:
 	send_len = sendto(udpserver->head.fd, inpacket, inpacket_len, 0, &request->addr, request->addr_len);
 	if (send_len != inpacket_len) {
 		tlog(TLOG_ERROR, "send failed, %s", strerror(errno));
