@@ -63,6 +63,9 @@ struct ping_dns_head {
 	unsigned short ancount;
 	unsigned short aucount;
 	unsigned short adcount;
+	char qd_name;
+	unsigned short q_qtype;
+	unsigned short q_qclass;
 } __attribute__((packed));
 
 typedef enum FAST_PING_TYPE {
@@ -547,6 +550,11 @@ static int _fast_ping_sendping_udp(struct ping_host_struct *ping_host)
 	memset(&dns_head, 0, sizeof(dns_head));
 	dns_head.id = htons(ping_host->sid);
 	dns_head.flag = flag;
+	dns_head.qdcount = htons(1);
+	dns_head.qd_name = 0;
+	dns_head.q_qtype = htons(2); /* DNS_T_NS */
+	dns_head.q_qclass = htons(1);
+
 	gettimeofday(&ping_host->last, NULL);
 	len = sendto(fd, &dns_head, sizeof(dns_head), 0, &ping_host->addr, ping_host->addr_len);
 	if (len < 0 || len != sizeof(dns_head)) {
