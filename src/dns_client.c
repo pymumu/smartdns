@@ -3135,11 +3135,13 @@ int dns_client_query(const char *domain, int qtype, dns_client_callback callback
 	}
 
 	pthread_mutex_lock(&client.domain_map_lock);
-	if (list_empty(&client.dns_request_list)) {
-		pthread_cond_signal(&client.run_cond);
-	}
+	if (hash_hashed(&query->domain_node)) {
+		if (list_empty(&client.dns_request_list)) {
+			pthread_cond_signal(&client.run_cond);
+		}
 
-	list_add_tail(&query->dns_request_list, &client.dns_request_list);
+		list_add_tail(&query->dns_request_list, &client.dns_request_list);
+	}
 	pthread_mutex_unlock(&client.domain_map_lock);
 
 	tlog(TLOG_INFO, "send request %s, qtype %d, id %d\n", domain, qtype, query->sid);

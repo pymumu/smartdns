@@ -908,7 +908,7 @@ static int _dns_server_reply_udp(struct dns_request *request, struct dns_server_
 	struct iovec iovec[1];
 	struct msghdr msg;
 	struct cmsghdr *cmsg;
-	char msg_control[256];
+	char msg_control[64];
 
 	if (atomic_read(&server.run) == 0 || inpacket == NULL || inpacket_len <= 0) {
 		return -1;
@@ -916,6 +916,7 @@ static int _dns_server_reply_udp(struct dns_request *request, struct dns_server_
 
 	iovec[0].iov_base = inpacket;
 	iovec[0].iov_len = inpacket_len;
+	memset(msg_control, 0, sizeof(msg_control));
 	msg.msg_iov = iovec;
 	msg.msg_iovlen = 1;
 	msg.msg_control = msg_control;
