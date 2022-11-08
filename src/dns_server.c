@@ -2909,6 +2909,11 @@ static void _dns_server_query_end(struct dns_request *request)
 		request->has_ping_result = 1;
 		_dns_server_request_complete(request);
 	}
+
+	/* If upstream return noting but NOERROR, force NOERROR */
+	if (ip_num == 0 && request_wait == 1 && request->remote_server_fail == 0 && request->has_soa == 0) {
+		request->rcode = DNS_RC_NOERROR;
+	}
 out:
 	_dns_server_request_release(request);
 }
