@@ -159,6 +159,7 @@ struct dns_nftset_rule {
 struct dns_domain_rule {
 	struct dns_rule head;
 	struct dns_rule *rules[DOMAIN_RULE_MAX];
+	int is_sub_rule[DOMAIN_RULE_MAX];
 };
 
 struct dns_nameserver_rule {
