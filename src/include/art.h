@@ -200,10 +200,11 @@ void *art_substring(const art_tree *t, const unsigned char *str, int str_len, un
  * @arg t The tree
  * @arg str The key
  * @arg str_len The length of the key
+ * @arg is_subkey is sub key or not
  * @return NULL if the item was not found, otherwise
  * the value pointer is returned.
  */
-typedef int (*walk_func)(unsigned char *key, uint32_t key_len, void *value, void *arg);
+typedef int (*walk_func)(unsigned char *key, uint32_t key_len, int is_subkey, void *value, void *arg);
 void art_substring_walk(const art_tree *t, const unsigned char *str, int str_len, walk_func func, void *arg);
 
 /**

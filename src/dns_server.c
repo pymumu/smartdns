@@ -334,6 +334,15 @@ static void *_dns_server_get_dns_rule(struct dns_request *request, enum domain_r
 	return request->domain_rule.rules[rule];
 }
 
+static int _dns_server_is_dns_rule_extact_match(struct dns_request *request, enum domain_rule rule)
+{
+	if (rule >= DOMAIN_RULE_MAX || request == NULL) {
+		return 0;
+	}
+
+	return request->domain_rule.is_sub_rule[rule] == 0;
+}
+
 static void _dns_server_set_dualstack_selection(struct dns_request *request)
 {
 	struct dns_rule_flags *rule_flag = NULL;
@@ -3365,7 +3374,7 @@ static void _dns_server_update_rule_by_flags(struct dns_request *request)
 	}
 }
 
-static int _dns_server_get_rules(unsigned char *key, uint32_t key_len, void *value, void *arg)
+static int _dns_server_get_rules(unsigned char *key, uint32_t key_len, int is_subkey, void *value, void *arg)
 {
 	struct rule_walk_args *walk_args = arg;
 	struct dns_request *request = walk_args->args;
@@ -3381,6 +3390,7 @@ static int _dns_server_get_rules(unsigned char *key, uint32_t key_len, void *val
 		}
 
 		request->domain_rule.rules[i] = domain_rule->rules[i];
+		request->domain_rule.is_sub_rule[i] = is_subkey;
 		walk_args->key[i] = key;
 		walk_args->key_len[i] = key_len;
 	}
@@ -3917,6 +3927,10 @@ static int _dns_server_process_smartdns_domain(struct dns_request *request)
 	/* get domain rule flag */
 	rule_flag = _dns_server_get_dns_rule(request, DOMAIN_RULE_FLAGS);
 	if (rule_flag == NULL) {
+		return -1;
+	}
+
+	if (_dns_server_is_dns_rule_extact_match(request, DOMAIN_RULE_FLAGS) == 0) {
 		return -1;
 	}
 
