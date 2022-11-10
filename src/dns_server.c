@@ -2553,6 +2553,10 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 	}
 
 	request->remote_server_fail = 0;
+	if (request->rcode == DNS_RC_SERVFAIL) {
+		request->rcode = packet->head.rcode;
+	}
+
 	for (j = 1; j < DNS_RRS_END; j++) {
 		rrs = dns_get_rrs_start(packet, j, &rr_count);
 		for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
@@ -2641,6 +2645,10 @@ static int _dns_server_passthrough_rule_check(struct dns_request *request, const
 	}
 
 	request->remote_server_fail = 0;
+	if (request->rcode == DNS_RC_SERVFAIL) {
+		request->rcode = packet->head.rcode;
+	}
+
 	for (j = 1; j < DNS_RRS_END; j++) {
 		rrs = dns_get_rrs_start(packet, j, &rr_count);
 		for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
@@ -2910,10 +2918,6 @@ static void _dns_server_query_end(struct dns_request *request)
 		_dns_server_request_complete(request);
 	}
 
-	/* If upstream return noting but NOERROR, force NOERROR */
-	if (ip_num == 0 && request_wait == 1 && request->remote_server_fail == 0 && request->has_soa == 0) {
-		request->rcode = DNS_RC_NOERROR;
-	}
 out:
 	_dns_server_request_release(request);
 }
