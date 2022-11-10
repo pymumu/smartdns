@@ -1652,6 +1652,9 @@ static int _dns_decode_opt(struct dns_context *context, dns_rr_type type, unsign
 				return -1;
 			}
 		} break;
+		case DNS_OPT_T_PADDING:
+			context->ptr += opt_len;
+			break;
 		default:
 			context->ptr += opt_len;
 			tlog(TLOG_DEBUG, "DNS opt type = %d not supported", opt_code);
