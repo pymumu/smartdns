@@ -76,6 +76,7 @@ typedef enum dns_opt_code {
 	DNS_OPT_T_ECS = 8, // OPT ECS
 	DNS_OPT_T_COOKIE = 10, //OPT Cookie
 	DNS_OPT_T_TCP_KEEPALIVE = 11,
+	DNS_OPT_T_PADDING = 12,
 	DNS_OPT_T_ALL = 255
 } dns_opt_code_t;
 
