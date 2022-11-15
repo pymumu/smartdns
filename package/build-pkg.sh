@@ -16,7 +16,6 @@ showhelp()
 	echo " --platform [luci|luci-compat|debian|openwrt|optware|linux]    build for platform. "
 	echo " --arch [all|armhf|arm64|x86-64|...]               build for architecture, e.g. "
 	echo " --cross-tool [cross-tool]                         cross compiler, e.g. mips-openwrt-linux-"
-	echo " --with-nftables                                   build with nftables support"
 	echo ""
 	echo "Advance Options:"
 	echo " --static                                          static link smartdns"
@@ -109,9 +108,6 @@ main()
 		--cross-tool)
 			CROSS_TOOL="$2"
 			shift 2;;
-		 --with-nftables)
-			MAKE_ARGS="WITH_NFTSET=1"
-			shift 1;;
 		--static)
 			export STATIC="yes"
 			shift 1;;

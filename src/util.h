@@ -81,14 +81,6 @@ int ipset_add(const char *ipsetname, const unsigned char addr[], int addr_len, u
 
 int ipset_del(const char *ipsetname, const unsigned char addr[], int addr_len);
 
-#ifdef WITH_NFTSET
-int nftset_add(const char *familyname, const char *tablename, const char *setname, const unsigned char addr[],
-			   int addr_len, unsigned long timeout);
-
-int nftset_del(const char *faimlyname, const char *tablename, const char *setname, const unsigned char addr[],
-			   int addr_len);
-#endif
-
 void SSL_CRYPTO_thread_setup(void);
 
 void SSL_CRYPTO_thread_cleanup(void);
