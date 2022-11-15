@@ -435,6 +435,9 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 		}
 		case 'h': {
 			safe_strncpy(server->hostname, optarg, DNS_MAX_CNAME_LEN);
+			if (strncmp(server->hostname, "-", 2) == 0) {
+				server->hostname[0] = '\0';
+			}
 			break;
 		}
 		case 'H': {
