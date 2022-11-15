@@ -99,7 +99,7 @@ out:
 
 static int drop_root_privilege(void)
 {
-	struct __user_cap_data_struct cap;
+	struct __user_cap_data_struct cap[2];
 	struct __user_cap_header_struct header;
 #ifdef _LINUX_CAPABILITY_VERSION_3
 	header.version = _LINUX_CAPABILITY_VERSION_3;
@@ -115,16 +115,20 @@ static int drop_root_privilege(void)
 		return -1;
 	}
 
-	if (capget(&header, &cap) < 0) {
+	memset(cap, 0, sizeof(cap));
+	if (capget(&header, cap) < 0) {
 		return -1;
 	}
 
 	prctl(PR_SET_KEEPCAPS, 1, 0, 0, 0);
-	cap.effective |= (1 << CAP_NET_RAW | 1 << CAP_NET_ADMIN);
-	cap.permitted |= (1 << CAP_NET_RAW | 1 << CAP_NET_ADMIN);
+	for (int i = 0; i < 2; i++) {
+		cap[i].effective = (1 << CAP_NET_RAW | 1 << CAP_NET_ADMIN | 1 << CAP_NET_BIND_SERVICE);
+		cap[i].permitted = (1 << CAP_NET_RAW | 1 << CAP_NET_ADMIN | 1 << CAP_NET_BIND_SERVICE);
+	}
+
 	unused = setgid(gid);
 	unused = setuid(uid);
-	if (capset(&header, &cap) < 0) {
+	if (capset(&header, cap) < 0) {
 		return -1;
 	}
 
