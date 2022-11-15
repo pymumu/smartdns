@@ -139,6 +139,7 @@ int dns_conf_force_AAAA_SOA;
 int dns_conf_force_no_cname;
 int dns_conf_ipset_timeout_enable;
 int dns_conf_nftset_timeout_enable;
+int dns_conf_nftset_debug_enable;
 
 char dns_conf_user[DNS_CONF_USRNAME_LEN];
 
@@ -984,6 +985,7 @@ static int _conf_domain_rule_nftset(char *domain, const char *nftsetname)
 			goto errout;
 		}
 		_dns_rule_put(&nftset_rule->head);
+		nftset_rule = NULL;
 	}
 
 	goto clear;
@@ -1834,7 +1836,7 @@ static int _conf_domain_rules(void *data, int argc, char *argv[])
 		{"speed-check-mode", required_argument, NULL, 'c'},
 		{"address", required_argument, NULL, 'a'},
 		{"ipset", required_argument, NULL, 'p'},
-		{"nftset", required_argument, NULL, 's'},
+		{"nftset", required_argument, NULL, 't'},
 		{"nameserver", required_argument, NULL, 'n'},
 		{"dualstack-ip-selection", required_argument, NULL, 'd'},
 		{NULL, no_argument, NULL, 0}
@@ -1920,7 +1922,7 @@ static int _conf_domain_rules(void *data, int argc, char *argv[])
 
 			break;
 		}
-		case 's': {
+		case 't': {
 			const char *nftsetname = optarg;
 			if (nftsetname == NULL) {
 				goto errout;
@@ -2362,6 +2364,7 @@ static struct config_item _config_item[] = {
 	CONF_YESNO("ipset-timeout", &dns_conf_ipset_timeout_enable),
 	CONF_CUSTOM("ipset", _config_ipset, NULL),
 	CONF_YESNO("nftset-timeout", &dns_conf_nftset_timeout_enable),
+	CONF_YESNO("nftset-debug", &dns_conf_nftset_debug_enable),
 	CONF_CUSTOM("nftset", _config_nftset, NULL),
 	CONF_CUSTOM("speed-check-mode", _config_speed_check_mode, NULL),
 	CONF_INT("tcp-idle-time", &dns_conf_tcp_idle_time, 0, 3600),

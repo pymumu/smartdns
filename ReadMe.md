@@ -555,10 +555,11 @@ entware|ipkg update</br>ipkg install smartdns|软件源路径：https://bin.entw
 | address | 指定域名 IP 地址 | 无 | address /domain/[ip\|-\|-4\|-6\|#\|#4\|#6] <br>- 表示忽略 <br># 表示返回 SOA <br>4 表示 IPv4 <br>6 表示 IPv6 | address /www.example.com/1.2.3.4 |
 | nameserver | 指定域名使用 server 组解析 | 无 | nameserver /domain/[group\|-], group 为组名，- 表示忽略此规则，配套 server 中的 -group 参数使用 | nameserver /www.example.com/office |
 | ipset | 域名 ipset | 无 | ipset /domain/[ipset\|-\|#[4\|6]:[ipset\|-][,#[4\|6]:[ipset\|-]]]，-表示忽略 | ipset /www.example.com/#4:dns4,#6:- |
-| ipset-timeout | 设置 ipset 超时功能启用  | 自动 | [yes] | ipset-timeout yes |
+| ipset-timeout | 设置 ipset 超时功能启用  | no | [yes\|no] | ipset-timeout yes |
 | nftset | 域名 nftset | 无 | nftset /domain/#[4\|6]:[family#nftable#nftset\|-][,#[4\|6]:[family#nftable#nftset\|-]]]，-表示忽略；ipv4 地址的 family 只支持 inet 和 ip；ipv6 地址的 family 只支持 inet 和 ip6；由于 nft 限制，两种地址只能分开存放于两个 set 中。| nftset /www.example.com/#4:inet#mytab#dns4,#6:- |
-| nftset-timeout | 设置 nftset 超时功能启用  | 自动 | [yes] | nftset-timeout yes |
-| domain-rules | 设置域名规则 | 无 | domain-rules /domain/ [-rules...]<br>[-c\|-speed-check-mode]：测速模式，参考 speed-check-mode 配置<br>[-a\|-address]：参考 address 配置<br>[-n\|-nameserver]：参考 nameserver 配置<br>[-p\|-ipset]：参考ipset配置<br>[-s\|-nftset]：参考nftset配置<br>[-d\|-dualstack-ip-selection]：参考 dualstack-ip-selection  | domain-rules /www.example.com/ -speed-check-mode none |
+| nftset-timeout | 设置 nftset 超时功能启用  | no | [yes\|no] | nftset-timeout yes |
+| nftset-debug | 设置 nftset 调试功能启用  | no | [yes\|no] | nftset-debug yes |
+| domain-rules | 设置域名规则 | 无 | domain-rules /domain/ [-rules...]<br>[-c\|-speed-check-mode]：测速模式，参考 speed-check-mode 配置<br>[-a\|-address]：参考 address 配置<br>[-n\|-nameserver]：参考 nameserver 配置<br>[-p\|-ipset]：参考ipset配置<br>[-t\|-nftset]：参考nftset配置<br>[-d\|-dualstack-ip-selection]：参考 dualstack-ip-selection  | domain-rules /www.example.com/ -speed-check-mode none |
 | domain-set | 设置域名集合 | 无 | domain-set [options...]<br>[-n\|-name]：域名集合名称 <br>[-t\|-type]：域名集合类型，当前仅支持list，格式为域名列表，一行一个域名。<br>[-f\|-file]：域名集合文件路径。<br> 选项需要配合address, nameserver, ipset, nftset等需要指定域名的地方使用，使用方式为 /domain-set:[name]/| domain-set -name set -type list -file /path/to/list <br> address /domain-set:set/1.2.4.8 |
 | bogus-nxdomain | 假冒 IP 地址过滤 | 无 | [ip/subnet]，可重复 | bogus-nxdomain 1.2.3.4/16 |
 | ignore-ip | 忽略 IP 地址 | 无 | [ip/subnet]，可重复 | ignore-ip 1.2.3.4/16 |

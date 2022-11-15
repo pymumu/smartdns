@@ -15,7 +15,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 BIN=smartdns 
-OBJS_LIB=lib/rbtree.o lib/art.o lib/bitops.o lib/radix.o lib/conf.o
+OBJS_LIB=lib/rbtree.o lib/art.o lib/bitops.o lib/radix.o lib/conf.o lib/nftset.o
 OBJS=smartdns.o fast_ping.o dns_client.o dns_server.o dns.o util.o tlog.o dns_conf.o dns_cache.o http_parse.o $(OBJS_LIB)
 
 # cflags
@@ -36,11 +36,6 @@ ifeq ($(STATIC), yes)
 override LDFLAGS += -lssl -lcrypto -Wl,--whole-archive -lpthread -Wl,--no-whole-archive -ldl -static
 else
 override LDFLAGS += -lssl -lcrypto -lpthread -ldl
-endif
-
-ifdef WITH_NFTSET
-override CFLAGS += -DWITH_NFTSET
-override LDFLAGS += -lnftables
 endif
 
 .PHONY: all clean
