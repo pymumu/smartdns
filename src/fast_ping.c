@@ -1762,6 +1762,8 @@ static void *_fast_ping_work(void *arg)
 	int sleep_time = 0;
 	unsigned long expect_time = 0;
 
+	setpriority(PRIO_PROCESS, 0, -5);
+
 	sleep_time = sleep;
 	now = get_tick_count() - sleep;
 	last = now;
