@@ -46,6 +46,27 @@ enum { PAYLOAD_MAX = 2048 };
 
 static int nftset_fd;
 
+static int _nftset_get_nffamily_from_str(const char *family)
+{
+	if (strncmp(family, "inet", sizeof("inet")) == 0) {
+		return NFPROTO_INET;
+	} else if (strncmp(family, "ip", sizeof("ip")) == 0) {
+		return NFPROTO_IPV4;
+	} else if (strncmp(family, "ip6", sizeof("ip6")) == 0) {
+		return NFPROTO_IPV6;
+	} else if (strncmp(family, "arp", sizeof("arp")) == 0) {
+		return NFPROTO_ARP;
+	} else if (strncmp(family, "netdev", sizeof("netdev")) == 0) {
+		return NFPROTO_NETDEV;
+	} else if (strncmp(family, "bridge", sizeof("bridge")) == 0) {
+		return NFPROTO_BRIDGE;
+	} else if (strncmp(family, "decnet", sizeof("decnet")) == 0) {
+		return NFPROTO_DECNET;
+	} else {
+		return NFPROTO_UNSPEC;
+	}
+}
+
 static struct rtattr *_nftset_nlmsg_tail(struct nlmsghdr *n)
 {
 	return (struct rtattr *)((uint8_t *)n + NLMSG_ALIGN(n->nlmsg_len));
@@ -249,7 +270,7 @@ static int _nftset_socket_send(void *msg, int msg_len)
 	return 0;
 }
 
-static int _nftset_del_element(const char *table_name, const char *setname, const void *data, int data_len, void *buf,
+static int _nftset_del_element(int nffamily, const char *table_name, const char *setname, const void *data, int data_len, void *buf,
 							   void **nextbuf)
 {
 	struct nlmsgreq *req = (struct nlmsgreq *)buf;
@@ -264,7 +285,7 @@ static int _nftset_del_element(const char *table_name, const char *setname, cons
 		req->h.nlmsg_flags |= NLM_F_ACK;
 	}
 
-	req->m.nfgen_family = NFPROTO_INET;
+	req->m.nfgen_family = nffamily;
 
 	struct nlmsghdr *n = &req->h;
 
@@ -286,7 +307,7 @@ static int _nftset_del_element(const char *table_name, const char *setname, cons
 	return 0;
 }
 
-static int _nftset_add_element(const char *table_name, const char *setname, const void *data, int data_len,
+static int _nftset_add_element(int nffamily, const char *table_name, const char *setname, const void *data, int data_len,
 							   unsigned long timeout, void *buf, void **nextbuf)
 {
 	struct nlmsgreq *req = (struct nlmsgreq *)buf;
@@ -301,7 +322,7 @@ static int _nftset_add_element(const char *table_name, const char *setname, cons
 		req->h.nlmsg_flags |= NLM_F_ACK;
 	}
 
-	req->m.nfgen_family = NFPROTO_INET;
+	req->m.nfgen_family = nffamily;
 
 	struct nlmsghdr *n = &req->h;
 
@@ -329,7 +350,7 @@ static int _nftset_add_element(const char *table_name, const char *setname, cons
 	return 0;
 }
 
-int nftset_del(const char *familyname, const char *tablename, const char *setname, const unsigned char addr[],
+static int _nftset_del(int nffamily, const char *tablename, const char *setname, const unsigned char addr[],
 			   int addr_len)
 {
 	uint8_t buf[PAYLOAD_MAX];
@@ -337,11 +358,17 @@ int nftset_del(const char *familyname, const char *tablename, const char *setnam
 	int buffer_len = 0;
 
 	_nftset_start_batch(next, &next);
-	_nftset_del_element(tablename, setname, addr, addr_len, next, &next);
+	_nftset_del_element(nffamily, tablename, setname, addr, addr_len, next, &next);
 	_nftset_end_batch(next, &next);
 	buffer_len = (uint8_t *)next - buf;
+	return _nftset_socket_send(buf, buffer_len);;
+}
 
-	int ret = _nftset_socket_send(buf, buffer_len);
+int nftset_del(const char *familyname, const char *tablename, const char *setname, const unsigned char addr[],
+			   int addr_len)
+{
+	int nffamily = _nftset_get_nffamily_from_str(familyname);
+	int ret = _nftset_del(nffamily, tablename, setname, addr, addr_len);
 	if (ret != 0 && errno != ENOENT) {
 		tlog(TLOG_ERROR, "nftset delete failed, family:%s, table:%s, set:%s, error:%s", familyname, tablename, setname,
 			 strerror(errno));
@@ -357,14 +384,15 @@ int nftset_add(const char *familyname, const char *tablename, const char *setnam
 	void *next = buf;
 	int buffer_len = 0;
 	int ret = -1;
+	int nffamily = _nftset_get_nffamily_from_str(familyname);
 
 	if (dns_conf_nftset_timeout_enable == 0) {
 		timeout = 0;
 	}
 
-	nftset_del(familyname, tablename, setname, addr, addr_len);
+	_nftset_del(nffamily, tablename, setname, addr, addr_len);
 	_nftset_start_batch(next, &next);
-	_nftset_add_element(tablename, setname, addr, addr_len, timeout, next, &next);
+	_nftset_add_element(nffamily, tablename, setname, addr, addr_len, timeout, next, &next);
 	_nftset_end_batch(next, &next);
 	buffer_len = (uint8_t *)next - buf;
 

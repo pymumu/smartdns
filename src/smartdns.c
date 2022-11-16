@@ -40,6 +40,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/prctl.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <ucontext.h>
@@ -512,9 +513,20 @@ static int _smartdns_create_logdir(void)
 	return 0;
 }
 
+static int _set_rlimit(void)
+{
+	struct rlimit value;
+	value.rlim_cur = 40;
+	value.rlim_max = 40;
+	setrlimit(RLIMIT_NICE, &value);
+	return 0;
+}
+
 static int _smartdns_init_pre(void)
 {
 	_smartdns_create_logdir();
+
+	_set_rlimit();
 
 	return 0;
 }
