@@ -30,7 +30,7 @@
 #define DNS_CACHE_HITNUM_STEP_MAX 6
 
 struct dns_cache_head {
-	DECLARE_HASHTABLE(cache_hash, 10);
+	DECLARE_HASHTABLE(cache_hash, 16);
 	struct list_head cache_list;
 	struct list_head inactive_list;
 	atomic_t num;
@@ -128,14 +128,14 @@ enum CACHE_TYPE dns_cache_data_type(struct dns_cache_data *cache_data)
 	return cache_data->head.cache_type;
 }
 
-uint32_t dns_cache_get_query_flag(struct dns_cache_data *cache_data)
+uint32_t dns_cache_get_query_flag(struct dns_cache *dns_cache)
 {
-	return cache_data->head.query_flag;
+	return dns_cache->info.query_flag;
 }
 
-const char *dns_cache_get_dns_group_name(struct dns_cache_data *cache_data)
+const char *dns_cache_get_dns_group_name(struct dns_cache *dns_cache)
 {
-	return cache_data->head.dns_group_name;
+	return dns_cache->info.dns_group_name;
 }
 
 void dns_cache_data_free(struct dns_cache_data *data)
@@ -161,8 +161,7 @@ struct dns_cache_data *dns_cache_new_data(void)
 	return (struct dns_cache_data *)cache_addr;
 }
 
-void dns_cache_set_data_soa(struct dns_cache_data *dns_cache, struct dns_cache_query_option *query_option, char *cname,
-							int cname_ttl)
+void dns_cache_set_data_soa(struct dns_cache_data *dns_cache, char *cname, int cname_ttl)
 {
 	if (dns_cache == NULL) {
 		goto errout;
@@ -185,13 +184,6 @@ void dns_cache_set_data_soa(struct dns_cache_data *dns_cache, struct dns_cache_q
 		cache_addr->addr_data.cname_ttl = cname_ttl;
 	}
 
-	if (query_option) {
-		cache_addr->head.query_flag = query_option->query_flag;
-		if (query_option->dns_group_name) {
-			safe_strncpy(cache_addr->head.dns_group_name, query_option->dns_group_name, DNS_CACHE_GROUP_NAME_LEN);
-		}
-	}
-
 	cache_addr->addr_data.soa = 1;
 	cache_addr->head.cache_type = CACHE_TYPE_ADDR;
 	cache_addr->head.size = sizeof(struct dns_cache_addr) - sizeof(struct dns_cache_data_head);
@@ -199,8 +191,8 @@ errout:
 	return;
 }
 
-void dns_cache_set_data_addr(struct dns_cache_data *dns_cache, struct dns_cache_query_option *query_option, char *cname,
-							 int cname_ttl, unsigned char *addr, int addr_len)
+void dns_cache_set_data_addr(struct dns_cache_data *dns_cache, char *cname, int cname_ttl, unsigned char *addr,
+							 int addr_len)
 {
 	if (dns_cache == NULL) {
 		goto errout;
@@ -224,21 +216,13 @@ void dns_cache_set_data_addr(struct dns_cache_data *dns_cache, struct dns_cache_
 		cache_addr->addr_data.cname_ttl = cname_ttl;
 	}
 
-	if (query_option) {
-		cache_addr->head.query_flag = query_option->query_flag;
-		if (query_option->dns_group_name) {
-			safe_strncpy(cache_addr->head.dns_group_name, query_option->dns_group_name, DNS_CACHE_GROUP_NAME_LEN);
-		}
-	}
-
 	cache_addr->head.cache_type = CACHE_TYPE_ADDR;
 	cache_addr->head.size = sizeof(struct dns_cache_addr) - sizeof(struct dns_cache_data_head);
 errout:
 	return;
 }
 
-struct dns_cache_data *dns_cache_new_data_packet(struct dns_cache_query_option *query_option, void *packet,
-												 size_t packet_len)
+struct dns_cache_data *dns_cache_new_data_packet(void *packet, size_t packet_len)
 {
 	struct dns_cache_packet *cache_packet = NULL;
 	size_t data_size = 0;
@@ -255,19 +239,13 @@ struct dns_cache_data *dns_cache_new_data_packet(struct dns_cache_query_option *
 	memcpy(cache_packet->data, packet, packet_len);
 	memset(&cache_packet->head, 0, sizeof(cache_packet->head));
 
-	if (query_option) {
-		cache_packet->head.query_flag = query_option->query_flag;
-		if (query_option->dns_group_name) {
-			strncpy(cache_packet->head.dns_group_name, query_option->dns_group_name, DNS_CACHE_GROUP_NAME_LEN - 1);
-		}
-	}
 	cache_packet->head.cache_type = CACHE_TYPE_PACKET;
 	cache_packet->head.size = packet_len;
 
 	return (struct dns_cache_data *)cache_packet;
 }
 
-static int _dns_cache_replace(char *domain, int ttl, dns_type_t qtype, int speed, int inactive,
+static int _dns_cache_replace(struct dns_cache_key *cache_key, int ttl, int speed, int inactive,
 							  struct dns_cache_data *cache_data)
 {
 	struct dns_cache *dns_cache = NULL;
@@ -278,9 +256,9 @@ static int _dns_cache_replace(char *domain, int ttl, dns_type_t qtype, int speed
 	}
 
 	/* lookup existing cache */
-	dns_cache = dns_cache_lookup(domain, qtype);
+	dns_cache = dns_cache_lookup(cache_key);
 	if (dns_cache == NULL) {
-		return dns_cache_insert(domain, ttl, qtype, speed, cache_data);
+		return dns_cache_insert(cache_key, ttl, speed, cache_data);
 	}
 
 	if (ttl < DNS_CACHE_TTL_MIN) {
@@ -291,7 +269,8 @@ static int _dns_cache_replace(char *domain, int ttl, dns_type_t qtype, int speed
 	pthread_mutex_lock(&dns_cache_head.lock);
 	dns_cache->del_pending = 0;
 	dns_cache->info.ttl = ttl;
-	dns_cache->info.qtype = qtype;
+	dns_cache->info.qtype = cache_key->qtype;
+	dns_cache->info.query_flag = cache_key->query_flag;
 	dns_cache->info.ttl = ttl;
 	dns_cache->info.speed = speed;
 	old_cache_data = dns_cache->cache_data;
@@ -314,31 +293,42 @@ static int _dns_cache_replace(char *domain, int ttl, dns_type_t qtype, int speed
 	return 0;
 }
 
-int dns_cache_replace(char *domain, int ttl, dns_type_t qtype, int speed, struct dns_cache_data *cache_data)
+int dns_cache_replace(struct dns_cache_key *cache_key, int ttl, int speed, struct dns_cache_data *cache_data)
 {
-	return _dns_cache_replace(domain, ttl, qtype, speed, 0, cache_data);
+	return _dns_cache_replace(cache_key, ttl, speed, 0, cache_data);
 }
 
-int dns_cache_replace_inactive(char *domain, int ttl, dns_type_t qtype, int speed, struct dns_cache_data *cache_data)
+int dns_cache_replace_inactive(struct dns_cache_key *cache_key, int ttl, int speed, struct dns_cache_data *cache_data)
 {
-	return _dns_cache_replace(domain, ttl, qtype, speed, 1, cache_data);
+	return _dns_cache_replace(cache_key, ttl, speed, 1, cache_data);
 }
 
-static void _dns_cache_remove_by_domain(const char *domain, dns_type_t qtype)
+static void _dns_cache_remove_by_domain(struct dns_cache_key *cache_key)
 {
 	uint32_t key = 0;
 	struct dns_cache *dns_cache = NULL;
 
-	key = hash_string(domain);
-	key = jhash(&qtype, sizeof(qtype), key);
+	key = hash_string(cache_key->domain);
+	key = jhash(&cache_key->qtype, sizeof(cache_key->qtype), key);
+	key = hash_string_initval(cache_key->dns_group_name, key);
+	key = jhash(&cache_key->query_flag, sizeof(cache_key->query_flag), key);
+
 	pthread_mutex_lock(&dns_cache_head.lock);
 	hash_for_each_possible(dns_cache_head.cache_hash, dns_cache, node, key)
 	{
-		if (dns_cache->info.qtype != qtype) {
+		if (dns_cache->info.qtype != cache_key->qtype) {
 			continue;
 		}
 
-		if (strncmp(domain, dns_cache->info.domain, DNS_MAX_CNAME_LEN) != 0) {
+		if (dns_cache->info.query_flag != cache_key->query_flag) {
+			continue;
+		}
+
+		if (strncmp(cache_key->domain, dns_cache->info.domain, DNS_MAX_CNAME_LEN) != 0) {
+			continue;
+		}
+
+		if (strncmp(dns_cache->info.dns_group_name, cache_key->dns_group_name, DNS_MAX_CNAME_LEN) != 0) {
 			continue;
 		}
 
@@ -355,7 +345,12 @@ static int _dns_cache_insert(struct dns_cache_info *info, struct dns_cache_data 
 	struct dns_cache *dns_cache = NULL;
 
 	/* if cache already exists, free */
-	_dns_cache_remove_by_domain(info->domain, info->qtype);
+	struct dns_cache_key cache_key;
+	cache_key.qtype = info->qtype;
+	cache_key.query_flag = info->query_flag;
+	cache_key.domain = info->domain;
+	cache_key.dns_group_name = info->dns_group_name;
+	_dns_cache_remove_by_domain(&cache_key);
 
 	dns_cache = malloc(sizeof(*dns_cache));
 	if (dns_cache == NULL) {
@@ -365,6 +360,8 @@ static int _dns_cache_insert(struct dns_cache_info *info, struct dns_cache_data 
 	memset(dns_cache, 0, sizeof(*dns_cache));
 	key = hash_string(info->domain);
 	key = jhash(&info->qtype, sizeof(info->qtype), key);
+	key = hash_string_initval(info->dns_group_name, key);
+	key = jhash(&info->query_flag, sizeof(info->query_flag), key);
 	atomic_set(&dns_cache->ref, 1);
 	memcpy(&dns_cache->info, info, sizeof(*info));
 	dns_cache->del_pending = 0;
@@ -393,11 +390,11 @@ errout:
 	return -1;
 }
 
-int dns_cache_insert(char *domain, int ttl, dns_type_t qtype, int speed, struct dns_cache_data *cache_data)
+int dns_cache_insert(struct dns_cache_key *cache_key, int ttl, int speed, struct dns_cache_data *cache_data)
 {
 	struct dns_cache_info info;
 
-	if (cache_data == NULL || domain == NULL) {
+	if (cache_data == NULL || cache_key == NULL || cache_key->dns_group_name == NULL || cache_key->domain == NULL) {
 		return -1;
 	}
 
@@ -411,8 +408,10 @@ int dns_cache_insert(char *domain, int ttl, dns_type_t qtype, int speed, struct 
 	}
 
 	info.hitnum = 3;
-	safe_strncpy(info.domain, domain, DNS_MAX_CNAME_LEN);
-	info.qtype = qtype;
+	safe_strncpy(info.domain, cache_key->domain, DNS_MAX_CNAME_LEN);
+	info.qtype = cache_key->qtype;
+	safe_strncpy(info.dns_group_name, cache_key->dns_group_name, DNS_GROUP_NAME_LEN);
+	info.query_flag = cache_key->query_flag;
 	info.ttl = ttl;
 	info.hitnum_update_add = DNS_CACHE_HITNUM_STEP;
 	info.speed = speed;
@@ -422,7 +421,7 @@ int dns_cache_insert(char *domain, int ttl, dns_type_t qtype, int speed, struct 
 	return _dns_cache_insert(&info, cache_data, &dns_cache_head.cache_list);
 }
 
-struct dns_cache *dns_cache_lookup(char *domain, dns_type_t qtype)
+struct dns_cache *dns_cache_lookup(struct dns_cache_key *cache_key)
 {
 	uint32_t key = 0;
 	struct dns_cache *dns_cache = NULL;
@@ -433,19 +432,29 @@ struct dns_cache *dns_cache_lookup(char *domain, dns_type_t qtype)
 		return NULL;
 	}
 
-	key = hash_string(domain);
-	key = jhash(&qtype, sizeof(qtype), key);
+	key = hash_string(cache_key->domain);
+	key = jhash(&cache_key->qtype, sizeof(cache_key->qtype), key);
+	key = hash_string_initval(cache_key->dns_group_name, key);
+	key = jhash(&cache_key->query_flag, sizeof(cache_key->query_flag), key);
 
 	time(&now);
 	/* find cache */
 	pthread_mutex_lock(&dns_cache_head.lock);
 	hash_for_each_possible(dns_cache_head.cache_hash, dns_cache, node, key)
 	{
-		if (dns_cache->info.qtype != qtype) {
+		if (dns_cache->info.qtype != cache_key->qtype) {
 			continue;
 		}
 
-		if (strncmp(domain, dns_cache->info.domain, DNS_MAX_CNAME_LEN) != 0) {
+		if (strncmp(cache_key->domain, dns_cache->info.domain, DNS_MAX_CNAME_LEN) != 0) {
+			continue;
+		}
+
+		if (strncmp(cache_key->dns_group_name, dns_cache->info.dns_group_name, DNS_GROUP_NAME_LEN) != 0) {
+			continue;
+		}
+
+		if (cache_key->query_flag != dns_cache->info.query_flag) {
 			continue;
 		}
 

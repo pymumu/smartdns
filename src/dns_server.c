@@ -156,6 +156,8 @@ struct dns_request_pending_list {
 	pthread_mutex_t request_list_lock;
 	unsigned short qtype;
 	char domain[DNS_MAX_CNAME_LEN];
+	uint32_t server_flags;
+	char dns_group_name[DNS_GROUP_NAME_LEN];
 	struct list_head request_list;
 	struct hlist_node node;
 };
@@ -1016,8 +1018,6 @@ static int _dns_server_request_update_cache(struct dns_request *request, dns_typ
 	speed = request->ping_time;
 
 	if (has_soa) {
-		struct dns_cache_query_option cache_option;
-
 		if (request->dualstack_selection && request->has_ip && request->qtype == DNS_T_AAAA) {
 			ttl = _dns_server_get_conf_ttl(request->ip_ttl);
 		} else {
@@ -1027,27 +1027,31 @@ static int _dns_server_request_update_cache(struct dns_request *request, dns_typ
 			}
 		}
 
-		cache_option.query_flag = request->server_flags;
-		cache_option.dns_group_name = 0;
-		dns_cache_set_data_soa(cache_data, &cache_option, request->cname, request->ttl_cname);
+		dns_cache_set_data_soa(cache_data, request->cname, request->ttl_cname);
 	}
 
 	tlog(TLOG_DEBUG, "cache %s qtype: %d ttl: %d\n", request->domain, qtype, ttl);
 
 	/* if doing prefetch, update cache only */
+	struct dns_cache_key cache_key;
+	cache_key.dns_group_name = request->dns_group_name;
+	cache_key.domain = request->domain;
+	cache_key.qtype = request->qtype;
+	cache_key.query_flag = request->server_flags;
+
 	if (request->prefetch) {
 		if (request->prefetch_expired_domain == 0) {
-			if (dns_cache_replace(request->domain, ttl, qtype, speed, cache_data) != 0) {
+			if (dns_cache_replace(&cache_key, ttl, speed, cache_data) != 0) {
 				goto errout;
 			}
 		} else {
-			if (dns_cache_replace_inactive(request->domain, ttl, qtype, speed, cache_data) != 0) {
+			if (dns_cache_replace_inactive(&cache_key, ttl, speed, cache_data) != 0) {
 				goto errout;
 			}
 		}
 	} else {
 		/* insert result to cache */
-		if (dns_cache_insert(request->domain, ttl, qtype, speed, cache_data) != 0) {
+		if (dns_cache_insert(&cache_key, ttl, speed, cache_data) != 0) {
 			goto errout;
 		}
 	}
@@ -1064,7 +1068,6 @@ static int _dns_cache_cname_packet(struct dns_server_post_context *context)
 {
 	struct dns_packet *packet = context->packet;
 	struct dns_packet *cname_packet = NULL;
-	struct dns_cache_query_option cache_option;
 	int ret = 0;
 	int i = 0;
 	int j = 0;
@@ -1163,9 +1166,7 @@ static int _dns_cache_cname_packet(struct dns_server_post_context *context)
 		return -1;
 	}
 
-	cache_option.query_flag = request->server_flags;
-	cache_option.dns_group_name = request->dns_group_name;
-	cache_packet = dns_cache_new_data_packet(&cache_option, inpacket_buff, inpacket_len);
+	cache_packet = dns_cache_new_data_packet(inpacket_buff, inpacket_len);
 	if (cache_packet == NULL) {
 		return -1;
 	}
@@ -1180,19 +1181,25 @@ static int _dns_cache_cname_packet(struct dns_server_post_context *context)
 	tlog(TLOG_DEBUG, "Cache CNAME: %s, qtype: %d, speed: %d", request->cname, request->qtype, speed);
 
 	/* if doing prefetch, update cache only */
+	struct dns_cache_key cache_key;
+	cache_key.dns_group_name = request->dns_group_name;
+	cache_key.domain = request->cname;
+	cache_key.qtype = context->qtype;
+	cache_key.query_flag = request->server_flags;
+
 	if (request->prefetch) {
 		if (request->prefetch_expired_domain == 0) {
-			if (dns_cache_replace(request->cname, ttl, context->qtype, speed, cache_packet) != 0) {
+			if (dns_cache_replace(&cache_key, ttl, speed, cache_packet) != 0) {
 				goto errout;
 			}
 		} else {
-			if (dns_cache_replace_inactive(request->cname, ttl, context->qtype, speed, cache_packet) != 0) {
+			if (dns_cache_replace_inactive(&cache_key, ttl, speed, cache_packet) != 0) {
 				goto errout;
 			}
 		}
 	} else {
 		/* insert result to cache */
-		if (dns_cache_insert(request->cname, ttl, context->qtype, speed, cache_packet) != 0) {
+		if (dns_cache_insert(&cache_key, ttl, speed, cache_packet) != 0) {
 			goto errout;
 		}
 	}
@@ -1208,25 +1215,28 @@ errout:
 
 static int _dns_cache_packet(struct dns_server_post_context *context)
 {
-	struct dns_cache_query_option cache_option;
 	struct dns_request *request = context->request;
 
-	cache_option.query_flag = request->server_flags;
-	cache_option.dns_group_name = request->dns_group_name;
-	struct dns_cache_data *cache_packet =
-		dns_cache_new_data_packet(&cache_option, context->inpacket, context->inpacket_len);
+	struct dns_cache_data *cache_packet = dns_cache_new_data_packet(context->inpacket, context->inpacket_len);
 	if (cache_packet == NULL) {
 		return -1;
 	}
 
 	/* if doing prefetch, update cache only */
+
+	struct dns_cache_key cache_key;
+	cache_key.dns_group_name = request->dns_group_name;
+	cache_key.domain = request->domain;
+	cache_key.qtype = context->qtype;
+	cache_key.query_flag = request->server_flags;
+
 	if (request->prefetch) {
-		if (dns_cache_replace(request->domain, context->reply_ttl, context->qtype, -1, cache_packet) != 0) {
+		if (dns_cache_replace(&cache_key, context->reply_ttl, -1, cache_packet) != 0) {
 			goto errout;
 		}
 	} else {
 		/* insert result to cache */
-		if (dns_cache_insert(request->domain, context->reply_ttl, context->qtype, -1, cache_packet) != 0) {
+		if (dns_cache_insert(&cache_key, context->reply_ttl, -1, cache_packet) != 0) {
 			goto errout;
 		}
 	}
@@ -1338,11 +1348,7 @@ static int _dns_cache_reply_packet(struct dns_server_post_context *context)
 		return _dns_cache_specify_packet(context);
 	}
 
-	struct dns_cache_query_option cache_option;
-	cache_option.query_flag = request->server_flags;
-	cache_option.dns_group_name = request->dns_group_name;
-	struct dns_cache_data *cache_packet =
-		dns_cache_new_data_packet(&cache_option, context->inpacket, context->inpacket_len);
+	struct dns_cache_data *cache_packet = dns_cache_new_data_packet(context->inpacket, context->inpacket_len);
 	if (cache_packet == NULL) {
 		return -1;
 	}
@@ -1445,7 +1451,7 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 						 nftset_ip->familyname, nftset_ip->nfttablename, nftset_ip->nftsetname, addr[0], addr[1],
 						 addr[2], addr[3]);
 					nftset_add(nftset_ip->familyname, nftset_ip->nfttablename, nftset_ip->nftsetname, addr,
-							   DNS_RR_A_LEN, request->ip_ttl * 2);					
+							   DNS_RR_A_LEN, request->ip_ttl * 2);
 				}
 			} break;
 			case DNS_T_AAAA: {
@@ -2009,11 +2015,21 @@ static int _dns_server_set_to_pending_list(struct dns_request *request)
 	}
 
 	key = hash_string(request->domain);
+	key = hash_string_initval(request->dns_group_name, key);
 	key = jhash(&(request->qtype), sizeof(request->qtype), key);
+	key = jhash(&(request->server_flags), sizeof(request->server_flags), key);
 	pthread_mutex_lock(&server.request_pending_lock);
 	hash_for_each_possible(server.request_pending, pending_list_tmp, node, key)
 	{
 		if (request->qtype != pending_list_tmp->qtype) {
+			continue;
+		}
+
+		if (request->server_flags != pending_list_tmp->server_flags) {
+			continue;
+		}
+
+		if (strcmp(request->dns_group_name, pending_list_tmp->dns_group_name) != 0) {
 			continue;
 		}
 
@@ -2037,7 +2053,9 @@ static int _dns_server_set_to_pending_list(struct dns_request *request)
 		INIT_LIST_HEAD(&pending_list->request_list);
 		INIT_HLIST_NODE(&pending_list->node);
 		pending_list->qtype = request->qtype;
+		pending_list->server_flags = request->server_flags;
 		safe_strncpy(pending_list->domain, request->domain, DNS_MAX_CNAME_LEN);
+		safe_strncpy(pending_list->dns_group_name, request->dns_group_name, DNS_GROUP_NAME_LEN);
 		hash_add(server.request_pending, &pending_list->node, key);
 		request->request_pending_list = pending_list;
 	} else {
@@ -3741,7 +3759,13 @@ static int _dns_server_process_cache(struct dns_request *request)
 		goto out;
 	}
 
-	dns_cache = dns_cache_lookup(request->domain, request->qtype);
+	struct dns_cache_key cache_key;
+	cache_key.dns_group_name = request->dns_group_name;
+	cache_key.domain = request->domain;
+	cache_key.qtype = request->qtype;
+	cache_key.query_flag = request->server_flags;
+
+	dns_cache = dns_cache_lookup(&cache_key);
 	if (dns_cache == NULL) {
 		goto out;
 	}
@@ -3764,7 +3788,8 @@ static int _dns_server_process_cache(struct dns_request *request)
 			goto out;
 		}
 
-		dualstack_dns_cache = dns_cache_lookup(request->domain, dualstack_qtype);
+		cache_key.qtype = dualstack_qtype;
+		dualstack_dns_cache = dns_cache_lookup(&cache_key);
 		if (dualstack_dns_cache && dns_cache_is_soa(dualstack_dns_cache) == 0 &&
 			(dualstack_dns_cache->info.speed > 0)) {
 
@@ -3804,8 +3829,8 @@ out_update_cache:
 		dns_query_options.server_flags = request->server_flags;
 		dns_query_options.dns_group_name = request->dns_group_name;
 		if (request->conn == NULL) {
-			dns_query_options.server_flags = dns_cache_get_query_flag(dns_cache->cache_data);
-			dns_query_options.dns_group_name = dns_cache_get_dns_group_name(dns_cache->cache_data);
+			dns_query_options.server_flags = dns_cache_get_query_flag(dns_cache);
+			dns_query_options.dns_group_name = dns_cache_get_dns_group_name(dns_cache);
 		}
 
 		dns_query_options.ecs_enable_flag = 0;
@@ -4846,8 +4871,8 @@ static void _dns_server_prefetch_domain(struct dns_cache *dns_cache)
 	/* start prefetch domain */
 	tlog(TLOG_DEBUG, "prefetch by cache %s, qtype %d, ttl %d, hitnum %d", dns_cache->info.domain, dns_cache->info.qtype,
 		 dns_cache->info.ttl, hitnum);
-	server_query_option.dns_group_name = dns_cache_get_dns_group_name(dns_cache->cache_data);
-	server_query_option.server_flags = dns_cache_get_query_flag(dns_cache->cache_data);
+	server_query_option.dns_group_name = dns_cache_get_dns_group_name(dns_cache);
+	server_query_option.server_flags = dns_cache_get_query_flag(dns_cache);
 	server_query_option.ecs_enable_flag = 0;
 	if (_dns_server_prefetch_request(dns_cache->info.domain, dns_cache->info.qtype, 0, &server_query_option) != 0) {
 		tlog(TLOG_ERROR, "prefetch domain %s, qtype %d, failed.", dns_cache->info.domain, dns_cache->info.qtype);
@@ -4861,8 +4886,8 @@ static void _dns_server_prefetch_expired_domain(struct dns_cache *dns_cache)
 		 dns_cache->info.qtype, dns_cache->info.ttl);
 
 	struct dns_server_query_option server_query_option;
-	server_query_option.dns_group_name = dns_cache_get_dns_group_name(dns_cache->cache_data);
-	server_query_option.server_flags = dns_cache_get_query_flag(dns_cache->cache_data);
+	server_query_option.dns_group_name = dns_cache_get_dns_group_name(dns_cache);
+	server_query_option.server_flags = dns_cache_get_query_flag(dns_cache);
 	server_query_option.ecs_enable_flag = 0;
 
 	if (_dns_server_prefetch_request(dns_cache->info.domain, dns_cache->info.qtype, 1, &server_query_option) != 0) {
