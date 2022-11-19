@@ -2613,6 +2613,7 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 					continue;
 				}
 				safe_strncpy(cname, domain_cname, DNS_MAX_CNAME_LEN);
+				request->ttl_cname = _dns_server_get_conf_ttl(ttl);;
 				tlog(TLOG_DEBUG, "name: %s ttl: %d cname: %s\n", name, ttl, cname);
 			} break;
 			case DNS_T_SOA: {

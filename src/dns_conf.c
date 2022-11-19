@@ -1175,6 +1175,7 @@ static int _config_speed_check_mode_parser(struct dns_domain_check_orders *check
 	int i = 0;
 
 	safe_strncpy(tmpbuff, mode, DNS_MAX_OPT_LEN);
+	memset(check_orders, 0, sizeof(*check_orders));
 
 	ptr = tmpbuff;
 	do {
