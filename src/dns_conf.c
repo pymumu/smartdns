@@ -930,6 +930,7 @@ static int _conf_domain_rule_nftset(char *domain, const char *nftsetname)
 	int ignore_flag = 0;
 	char *setname = NULL;
 	char *tablename = NULL;
+	char *family = NULL;
 
 	copied_name = strdup(nftsetname);
 
@@ -938,39 +939,47 @@ static int _conf_domain_rule_nftset(char *domain, const char *nftsetname)
 	}
 
 	for (char *tok = strtok(copied_name, ","); tok; tok = strtok(NULL, ",")) {
-		if (tok[0] == '#') {
-			if (strncmp(tok, "#6:inet#", 8U) == 0 || strncmp(tok, "#6:ip6#", 7U) == 0) {
-				type = DOMAIN_RULE_NFTSET_IP6;
-				ignore_flag = DOMAIN_FLAG_NFTSET_IP6_IGN;
-			} else if (strncmp(tok, "#4:inet#", 4U) == 0 || strncmp(tok, "#4:ip#", 6U) == 0) {
-				type = DOMAIN_RULE_NFTSET_IP;
-				ignore_flag = DOMAIN_FLAG_NFTSET_IP_IGN;
-			} else {
-				goto errout;
-			}
-			tok += 3;
+		char *saveptr = NULL;
+		char *tok_set = NULL;
+		nftset_rule = NULL;
+
+		if (strncmp(tok, "#4:", 3U) == 0) {
+			type = DOMAIN_RULE_NFTSET_IP;
+			ignore_flag = DOMAIN_FLAG_NFTSET_IP_IGN;
+		} else if (strncmp(tok, "#6:", 3U) == 0) {
+			type = DOMAIN_RULE_NFTSET_IP6;
+			ignore_flag = DOMAIN_FLAG_NFTSET_IP6_IGN;
+		} else if (strncmp(tok, "-", 2U) == 0) {
+			_config_domain_rule_flag_set(domain, DOMAIN_FLAG_NFTSET_INET_IGN, 0);
+			continue;
 		} else {
 			goto errout;
 		}
 
-		if (strncmp(tok, "-", 1U) == 0) {
+		tok_set = tok + 3;
+
+		if (strncmp(tok_set, "-", 2U) == 0) {
 			_config_domain_rule_flag_set(domain, ignore_flag, 0);
 			continue;
 		}
 
-		tablename = strpbrk(tok, "#");
+		family = strtok_r(tok_set, "#", &saveptr);
+		if (family == NULL) {
+			goto errout;
+		}
+
+		tablename = strtok_r(NULL, "#", &saveptr);
 		if (tablename == NULL) {
 			goto errout;
 		}
-		*tablename++ = '\0';
-		setname = strpbrk(tablename, "#");
+
+		setname = strtok_r(NULL, "#", &saveptr);
 		if (setname == NULL) {
 			goto errout;
 		}
-		*setname++ = '\0';
 
 		/* new ipset domain */
-		nftset = _dns_conf_get_nftable(tok, tablename, setname);
+		nftset = _dns_conf_get_nftable(family, tablename, setname);
 		if (nftset == NULL) {
 			goto errout;
 		}
@@ -988,13 +997,12 @@ static int _conf_domain_rule_nftset(char *domain, const char *nftsetname)
 			goto errout;
 		}
 		_dns_rule_put(&nftset_rule->head);
-		nftset_rule = NULL;
 	}
 
 	goto clear;
 
 errout:
-	tlog(TLOG_ERROR, "add nftset %s failed", nftsetname);
+	tlog(TLOG_ERROR, "add nftset %s %s failed", domain, nftsetname);
 
 	if (nftset_rule) {
 		_dns_rule_put(&nftset_rule->head);
