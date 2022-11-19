@@ -21,6 +21,7 @@
 
 #include "atomic.h"
 #include "dns.h"
+#include "dns_conf.h"
 #include "hash.h"
 #include "hashtable.h"
 #include "list.h"
@@ -48,15 +49,8 @@ enum CACHE_RECORD_TYPE {
 	CACHE_RECORD_TYPE_INACTIVE,
 };
 
-struct dns_cache_query_option {
-	uint32_t query_flag;
-	const char *dns_group_name;
-};
-
 struct dns_cache_data_head {
 	enum CACHE_TYPE cache_type;
-	uint32_t query_flag;
-	char dns_group_name[DNS_CACHE_GROUP_NAME_LEN];
 	int is_soa;
 	ssize_t size;
 };
@@ -87,13 +81,15 @@ struct dns_cache_packet {
 
 struct dns_cache_info {
 	char domain[DNS_MAX_CNAME_LEN];
+	dns_type_t qtype;
+	char dns_group_name[DNS_GROUP_NAME_LEN];
+	uint32_t query_flag;
 	int ttl;
 	int hitnum;
 	int speed;
 	int hitnum_update_add;
 	time_t insert_time;
 	time_t replace_time;
-	dns_type_t qtype;
 };
 
 struct dns_cache_record {
@@ -120,26 +116,32 @@ struct dns_cache_file {
 	uint32_t cache_number;
 };
 
+struct dns_cache_key {
+	const char *domain;
+	dns_type_t qtype;
+	const char *dns_group_name;
+	uint32_t query_flag;
+};
+
 enum CACHE_TYPE dns_cache_data_type(struct dns_cache_data *cache_data);
 
-uint32_t dns_cache_get_query_flag(struct dns_cache_data *cache_data);
+uint32_t dns_cache_get_query_flag(struct dns_cache *dns_cache);
 
-const char *dns_cache_get_dns_group_name(struct dns_cache_data *cache_data);
+const char *dns_cache_get_dns_group_name(struct dns_cache *dns_cache);
 
 void dns_cache_data_free(struct dns_cache_data *data);
 
-struct dns_cache_data *dns_cache_new_data_packet(struct dns_cache_query_option *query_option, void *packet,
-												 size_t packet_len);
+struct dns_cache_data *dns_cache_new_data_packet(void *packet, size_t packet_len);
 
 int dns_cache_init(int size, int enable_inactive, int inactive_list_expired);
 
-int dns_cache_replace(char *domain, int ttl, dns_type_t qtype, int speed, struct dns_cache_data *cache_data);
+int dns_cache_replace(struct dns_cache_key *key, int ttl, int speed, struct dns_cache_data *cache_data);
 
-int dns_cache_replace_inactive(char *domain, int ttl, dns_type_t qtype, int speed, struct dns_cache_data *cache_data);
+int dns_cache_replace_inactive(struct dns_cache_key *key, int ttl, int speed, struct dns_cache_data *cache_data);
 
-int dns_cache_insert(char *domain, int ttl, dns_type_t qtype, int speed, struct dns_cache_data *cache_data);
+int dns_cache_insert(struct dns_cache_key *key, int ttl, int speed, struct dns_cache_data *cache_data);
 
-struct dns_cache *dns_cache_lookup(char *domain, dns_type_t qtype);
+struct dns_cache *dns_cache_lookup(struct dns_cache_key *key);
 
 void dns_cache_delete(struct dns_cache *dns_cache);
 
@@ -166,11 +168,10 @@ struct dns_cache_data *dns_cache_new_data(void);
 
 struct dns_cache_data *dns_cache_get_data(struct dns_cache *dns_cache);
 
-void dns_cache_set_data_addr(struct dns_cache_data *dns_cache, struct dns_cache_query_option *query_option, char *cname,
-							 int cname_ttl, unsigned char *addr, int addr_len);
+void dns_cache_set_data_addr(struct dns_cache_data *dns_cache, char *cname, int cname_ttl, unsigned char *addr,
+							 int addr_len);
 
-void dns_cache_set_data_soa(struct dns_cache_data *dns_cache, struct dns_cache_query_option *query_option, char *cname,
-							int cname_ttl);
+void dns_cache_set_data_soa(struct dns_cache_data *dns_cache, char *cname, int cname_ttl);
 
 void dns_cache_destroy(void);
 
