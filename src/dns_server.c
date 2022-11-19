@@ -3398,6 +3398,14 @@ static void _dns_server_update_rule_by_flags(struct dns_request *request)
 		request->domain_rule.rules[DOMAIN_RULE_IPSET_IPV6] = NULL;
 	}
 
+	if (flags & DOMAIN_FLAG_NFTSET_IP_IGN || flags & DOMAIN_FLAG_NFTSET_INET_IGN) {
+		request->domain_rule.rules[DOMAIN_RULE_NFTSET_IP] = NULL;
+	}
+
+	if (flags & DOMAIN_FLAG_NFTSET_IP6_IGN || flags & DOMAIN_FLAG_NFTSET_INET_IGN) {
+		request->domain_rule.rules[DOMAIN_RULE_NFTSET_IP6] = NULL;
+	}
+
 	if (flags & DOMAIN_FLAG_NAMESERVER_IGNORE) {
 		request->domain_rule.rules[DOMAIN_RULE_NAMESERVER] = NULL;
 	}
