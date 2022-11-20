@@ -1279,7 +1279,7 @@ static struct fast_ping_packet *_fast_ping_icmp6_packet(struct ping_host_struct 
 
 	packet->ttl = hops;
 	if (icmp6->icmp6_type != ICMP6_ECHO_REPLY) {
-		tlog(TLOG_DEBUG, "icmp6 type faild, %d:%d", icmp6->icmp6_type, ICMP6_ECHO_REPLY);
+		errno = ENETUNREACH;
 		return NULL;
 	}
 
@@ -1320,7 +1320,7 @@ static struct fast_ping_packet *_fast_ping_icmp_packet(struct ping_host_struct *
 	}
 
 	if (icmp->icmp_type != ICMP_ECHOREPLY) {
-		tlog(TLOG_DEBUG, "icmp type faild, %d:%d", icmp->icmp_type, ICMP_ECHOREPLY);
+		errno = ENETUNREACH;
 		return NULL;
 	}
 
@@ -1402,6 +1402,10 @@ static int _fast_ping_process_icmp(struct ping_host_struct *ping_host, struct ti
 	packet = _fast_ping_recv_packet(ping_host, &msg, inpacket, len, now);
 	if (packet == NULL) {
 		char name[PING_MAX_HOSTLEN];
+		if (errno == ENETUNREACH) {
+			goto errout;
+		}
+
 		tlog(TLOG_DEBUG, "recv ping packet from %s failed.",
 			 gethost_by_addr(name, sizeof(name), (struct sockaddr *)&from));
 		goto errout;
