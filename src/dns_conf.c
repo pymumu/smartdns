@@ -1165,6 +1165,11 @@ errout:
 	return 0;
 }
 
+static void _config_speed_check_mode_clear(struct dns_domain_check_orders *check_orders)
+{
+	memset(check_orders->orders, 0, sizeof(check_orders->orders));
+}
+
 static int _config_speed_check_mode_parser(struct dns_domain_check_orders *check_orders, const char *mode)
 {
 	char tmpbuff[DNS_MAX_OPT_LEN];
@@ -1175,7 +1180,7 @@ static int _config_speed_check_mode_parser(struct dns_domain_check_orders *check
 	int i = 0;
 
 	safe_strncpy(tmpbuff, mode, DNS_MAX_OPT_LEN);
-	memset(check_orders, 0, sizeof(*check_orders));
+	_config_speed_check_mode_clear(check_orders);
 
 	ptr = tmpbuff;
 	do {
