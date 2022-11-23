@@ -196,7 +196,7 @@ return view.extend({
 		// Force HTTPS SOA
 		o = s.taboption("settings", form.Flag, "force_https_soa", _("Force HTTPS SOA"), _("Force HTTPS SOA."));
 		o.rmempty = false;
-		o.default = o.disabled;
+		o.default = o.enabled;
 
 		// rr-ttl;
 		o = s.taboption("settings", form.Value, "rr_ttl", _("Domain TTL"), _("TTL for all domain result."));

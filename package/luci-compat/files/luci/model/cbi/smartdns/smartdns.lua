@@ -126,7 +126,7 @@ o = s:taboption("settings", Flag, "force_https_soa", translate("Force HTTPS SOA"
 o.rmempty     = false
 o.default     = o.enabled
 o.cfgvalue    = function(...)
-    return Flag.cfgvalue(...) or "0"
+    return Flag.cfgvalue(...) or "1"
 end
 
 ---- rr-ttl
