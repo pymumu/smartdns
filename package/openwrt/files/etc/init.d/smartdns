@@ -316,7 +316,7 @@ load_service()
 	config_get force_aaaa_soa "$section" "force_aaaa_soa" "0"
 	[ "$force_aaaa_soa" = "1" ] && qtype_soa_list="$qtype_soa_list 28"
 
-	config_get force_https_soa "$section" "force_https_soa" "0"
+	config_get force_https_soa "$section" "force_https_soa" "1"
 	[ "$force_https_soa" = "1" ] && qtype_soa_list="$qtype_soa_list 65"
 
 	config_get auto_set_dnsmasq "$section" "auto_set_dnsmasq" "1"
