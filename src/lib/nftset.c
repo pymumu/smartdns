@@ -22,7 +22,6 @@
 #include "../tlog.h"
 #include <errno.h>
 #include <linux/netfilter.h>
-#include <linux/netfilter/nf_tables.h>
 #include <linux/netfilter/nfnetlink.h>
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
@@ -36,6 +35,8 @@
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
+#ifdef NFNL_SUBSYS_NFTABLES
+#include <linux/netfilter/nf_tables.h>
 
 struct nlmsgreq {
 	struct nlmsghdr h;
@@ -597,3 +598,19 @@ int nftset_add(const char *familyname, const char *tablename, const char *setnam
 
 	return ret;
 }
+
+#else
+
+int nftset_add(const char *familyname, const char *tablename, const char *setname, const unsigned char addr[],
+			   int addr_len, unsigned long timeout)
+{
+	return 0;
+}
+
+int nftset_del(const char *familyname, const char *tablename, const char *setname, const unsigned char addr[],
+			   int addr_len)
+{
+	return 0;
+}
+
+#endif
