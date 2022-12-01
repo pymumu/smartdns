@@ -180,6 +180,7 @@ struct dns_request {
 	/* dns query */
 	char domain[DNS_MAX_CNAME_LEN];
 	dns_type_t qtype;
+	int qclass;
 	unsigned long send_tick;
 	unsigned short id;
 	unsigned short rcode;
@@ -804,7 +805,7 @@ static int _dns_setup_dns_packet(struct dns_server_post_context *context)
 	}
 
 	/* add request domain */
-	ret = dns_add_domain(context->packet, request->domain, context->qtype, DNS_C_IN);
+	ret = dns_add_domain(context->packet, request->domain, context->qtype, request->qclass);
 	if (ret != 0) {
 		return -1;
 	}
@@ -1335,12 +1336,17 @@ static int _dns_cache_reply_packet(struct dns_server_post_context *context)
 		return 0;
 	}
 
-	if (context->packet->head.rcode == DNS_RC_SERVFAIL || context->packet->head.rcode == DNS_RC_NXDOMAIN) {
+	if (context->packet->head.rcode == DNS_RC_SERVFAIL || context->packet->head.rcode == DNS_RC_NXDOMAIN || context->packet->head.rcode == DNS_RC_NOTIMP) {
 		context->reply_ttl = DNS_SERVER_FAIL_TTL;
 		/* Do not cache record if cannot connect to remote */
 		if (request->remote_server_fail == 0 && context->packet->head.rcode == DNS_RC_SERVFAIL) {
 			return 0;
 		}
+
+		if (context->packet->head.rcode == DNS_RC_NOTIMP) {
+			return 0;
+		}
+
 		return _dns_cache_packet(context);
 	}
 
@@ -2095,6 +2101,7 @@ static struct dns_request *_dns_server_new_request(void)
 	request->dualstack_selection_ping_time = -1;
 	request->rcode = DNS_RC_SERVFAIL;
 	request->conn = NULL;
+	request->qclass = DNS_C_IN;
 	request->result_callback = NULL;
 	request->check_order_list = &dns_conf_check_orders;
 	INIT_LIST_HEAD(&request->list);
@@ -2613,7 +2620,7 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 					continue;
 				}
 				safe_strncpy(cname, domain_cname, DNS_MAX_CNAME_LEN);
-				request->ttl_cname = _dns_server_get_conf_ttl(ttl);;
+				request->ttl_cname = _dns_server_get_conf_ttl(ttl);
 				tlog(TLOG_DEBUG, "name: %s ttl: %d cname: %s\n", name, ttl, cname);
 			} break;
 			case DNS_T_SOA: {
@@ -4324,6 +4331,11 @@ static int _dns_server_parser_request(struct dns_request *request, struct dns_pa
 		break;
 	}
 
+	request->qclass = qclass;
+	if (qclass != DNS_C_IN) {
+		goto errout;
+	}
+
 	/* get request opts */
 	rr_count = 0;
 	rrs = dns_get_rrs_start(packet, DNS_RRS_OPT, &rr_count);
@@ -4342,6 +4354,7 @@ static int _dns_server_parser_request(struct dns_request *request, struct dns_pa
 
 	return 0;
 errout:
+	request->rcode = DNS_RC_NOTIMP;
 	return -1;
 }
 
@@ -4381,6 +4394,11 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 		goto errout;
 	}
 
+	memcpy(&request->localaddr, local, local_len);
+	_dns_server_request_set_client(request, conn);
+	_dns_server_request_set_client_addr(request, from, from_len);
+	_dns_server_request_set_id(request, packet->head.id);
+
 	if (_dns_server_parser_request(request, packet) != 0) {
 		tlog(TLOG_DEBUG, "parser request failed.");
 		ret = RECV_ERROR_INVALID_PACKET;
@@ -4389,10 +4407,6 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 
 	tlog(TLOG_INFO, "query server %s from %s, qtype = %d\n", request->domain, name, request->qtype);
 
-	memcpy(&request->localaddr, local, local_len);
-	_dns_server_request_set_client(request, conn);
-	_dns_server_request_set_client_addr(request, from, from_len);
-	_dns_server_request_set_id(request, packet->head.id);
 	ret = _dns_server_do_query(request, 1);
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "do query %s failed.\n", request->domain);
