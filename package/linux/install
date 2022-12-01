@@ -65,9 +65,31 @@ clean_service()
 
 get_systemd_path()
 {
-	service="`systemctl --no-legend| grep '\.service' | head -n 1 | awk '{print $1}'`"
-	SERVICE_PATH="`systemctl show $service | grep FragmentPath | awk -F'=' '{print $2}'`"
-	dirname $SERVICE_PATH
+	service="`systemctl --no-legend| grep '\.service' | head -n 1 | awk '{print $1}' 2>/dev/null`"
+	SERVICE_PATH="`systemctl show $service | grep FragmentPath | awk -F'=' '{print $2}' 2>/dev/null`"
+	if [ ! -z "$SERVICE_PATH" ]; then
+		SERVICE_PATH="`dirname $SERVICE_PATH 2>/dev/null`"
+		if [ -d "$SERVICE_PATH" ]; then
+			echo "$SERVICE_PATH"
+			return 0
+		fi 
+	fi
+
+	SERVICE_PATH="`pkg-config systemd --variable=systemdsystemunitdir 2>/dev/null`"
+	if [ ! -z "$SERVICE_PATH" ]; then
+		if [ -d "$SERVICE_PATH" ]; then
+			echo "$SERVICE_PATH"
+			return 0
+		fi 
+	fi
+
+	SERVICE_PATH="/lib/systemd/system"
+	if [ ! -d "$SERVICE_PATH" ]; then
+		echo "$SERVICE_PATH"
+		return 0
+	fi
+
+	return 1
 }
 
 install_files()
@@ -106,6 +128,7 @@ install_files()
 	if [ $ISSYSTEMD -eq 0 ]; then
 		SYSTEM_UNIT_PATH="`get_systemd_path`"
 		if [ -z "$SYSTEM_UNIT_PATH" ]; then
+			echo "cannot find systemd path"
 			return 1
 		fi
 		install -v -m 0644 -t $PREFIX$SYSTEM_UNIT_PATH systemd/smartdns.service 
