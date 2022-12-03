@@ -186,6 +186,7 @@ struct dns_request {
 	unsigned short rcode;
 	unsigned short ss_family;
 	char remote_server_fail;
+	char skip_qtype_soa;
 	socklen_t addr_len;
 	union {
 		struct sockaddr_in in;
@@ -386,12 +387,6 @@ static int _dns_server_is_return_soa(struct dns_request *request)
 		return 0;
 	}
 
-	if (request->qtype == DNS_T_AAAA) {
-		if (_dns_server_has_bind_flag(request, BIND_FLAG_FORCE_AAAA_SOA) == 0 || dns_conf_force_AAAA_SOA == 1) {
-			return 1;
-		}
-	}
-
 	rule_flag = _dns_server_get_dns_rule(request, DOMAIN_RULE_FLAGS);
 	if (rule_flag) {
 		flags = rule_flag->flags;
@@ -399,11 +394,39 @@ static int _dns_server_is_return_soa(struct dns_request *request)
 			return 1;
 		}
 
-		if ((flags & DOMAIN_FLAG_ADDR_IPV4_SOA) && (request->qtype == DNS_T_A)) {
-			return 1;
+		if (flags & DOMAIN_FLAG_ADDR_IGN) {
+			request->skip_qtype_soa = 1;
+			return 0;
 		}
 
-		if ((flags & DOMAIN_FLAG_ADDR_IPV6_SOA) && (request->qtype == DNS_T_AAAA)) {
+		switch (request->qtype) {
+		case DNS_T_A:
+			if (flags & DOMAIN_FLAG_ADDR_IPV4_SOA) {
+				return 1;
+			}
+
+			if (flags & DOMAIN_FLAG_ADDR_IPV4_IGN) {
+				request->skip_qtype_soa = 1;
+				return 0;
+			}
+			break;
+		case DNS_T_AAAA:
+			if (flags & DOMAIN_FLAG_ADDR_IPV6_SOA) {
+				return 1;
+			}
+
+			if (flags & DOMAIN_FLAG_ADDR_IPV6_IGN) {
+				request->skip_qtype_soa = 1;
+				return 0;
+			}
+			break;
+		default:
+			break;
+		}
+	}
+
+	if (request->qtype == DNS_T_AAAA) {
+		if (_dns_server_has_bind_flag(request, BIND_FLAG_FORCE_AAAA_SOA) == 0 || dns_conf_force_AAAA_SOA == 1) {
 			return 1;
 		}
 	}
@@ -3605,6 +3628,10 @@ errout:
 static int _dns_server_qtype_soa(struct dns_request *request)
 {
 	struct dns_qtype_soa_list *soa_list = NULL;
+
+	if (request->skip_qtype_soa) {
+		return -1;
+	}
 
 	uint32_t key = hash_32_generic(request->qtype, 32);
 	hash_for_each_possible(dns_qtype_soa_table.qtype, soa_list, node, key)
