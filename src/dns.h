@@ -73,12 +73,24 @@ typedef enum dns_type {
 } dns_type_t;
 
 typedef enum dns_opt_code {
-	DNS_OPT_T_ECS = 8, // OPT ECS
-	DNS_OPT_T_COOKIE = 10, //OPT Cookie
+	DNS_OPT_T_ECS = 8,     // OPT ECS
+	DNS_OPT_T_COOKIE = 10, // OPT Cookie
 	DNS_OPT_T_TCP_KEEPALIVE = 11,
 	DNS_OPT_T_PADDING = 12,
 	DNS_OPT_T_ALL = 255
 } dns_opt_code_t;
+
+/* https://datatracker.ietf.org/doc/draft-ietf-dnsop-svcb-https/11/ */
+typedef enum dns_htts_svcparam {
+	DNS_HTTPS_T_MANDATORY = 0,
+	DNS_HTTPS_T_ALPN = 1,
+	DNS_HTTPS_T_NO_DEFAULT_ALPN = 2,
+	DNS_HTTPS_T_PORT = 3,
+	DNS_HTTPS_T_IPV4HINT = 4,
+	DNS_HTTPS_T_ECH = 5,
+	DNS_HTTPS_T_IPV6HINT = 6,
+	DNS_HTTPS_T_ALL = 255
+} dns_htts_svcparam_t;
 
 typedef enum dns_opcode {
 	DNS_OP_QUERY = 0,
@@ -184,7 +196,7 @@ struct dns_opt_ecs {
 	unsigned char source_prefix;
 	unsigned char scope_prefix;
 	unsigned char addr[DNS_RR_AAAA_LEN];
-} __attribute__((packed));;
+} __attribute__((packed));
 
 /* OPT COOLIE */
 struct dns_opt_cookie {
@@ -200,8 +212,30 @@ struct dns_opt {
 	unsigned char data[0];
 } __attribute__((packed));
 
+struct dns_rr_nested {
+	struct dns_context context;
+	unsigned char *rr_start;
+	unsigned char *rr_len_ptr;
+	unsigned short rr_head_len;
+	dns_rr_type type;
+};
+
+struct dns_https_param {
+	unsigned short key;
+	unsigned short len;
+	unsigned char value[0];
+};
+
 struct dns_rrs *dns_get_rrs_next(struct dns_packet *packet, struct dns_rrs *rrs);
 struct dns_rrs *dns_get_rrs_start(struct dns_packet *packet, dns_rr_type type, int *count);
+
+struct dns_rr_nested *dns_add_rr_nested_start(struct dns_rr_nested *rr_nested_buffer, struct dns_packet *packet,
+											  dns_rr_type type, dns_type_t rtype, const char *domain, int ttl);
+int dns_add_rr_nested_end(struct dns_rr_nested *rr_nested, dns_type_t rtype);
+int dns_add_rr_nested_memcpy(struct dns_rr_nested *rr_nested, void *data, int data_len);
+
+void *dns_get_rr_nested_start(struct dns_rrs *rrs, char *domain, int maxsize, int *qtype, int *ttl, int *rr_len);
+void *dns_get_rr_nested_next(struct dns_rrs *rrs, void *rr_nested, int rr_nested_len);
 
 /*
  * Question
@@ -215,7 +249,8 @@ int dns_get_domain(struct dns_rrs *rrs, char *domain, int maxsize, int *qtype, i
 int dns_add_CNAME(struct dns_packet *packet, dns_rr_type type, const char *domain, int ttl, const char *cname);
 int dns_get_CNAME(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, char *cname, int cname_size);
 
-int dns_add_A(struct dns_packet *packet, dns_rr_type type, const char *domain, int ttl, unsigned char addr[DNS_RR_A_LEN]);
+int dns_add_A(struct dns_packet *packet, dns_rr_type type, const char *domain, int ttl,
+			  unsigned char addr[DNS_RR_A_LEN]);
 int dns_get_A(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, unsigned char addr[DNS_RR_A_LEN]);
 
 int dns_add_PTR(struct dns_packet *packet, dns_rr_type type, const char *domain, int ttl, char *cname);
@@ -240,6 +275,25 @@ int dns_get_OPT_ECS(struct dns_rrs *rrs, unsigned short *opt_code, unsigned shor
 int dns_add_OPT_TCP_KEEYALIVE(struct dns_packet *packet, unsigned short timeout);
 int dns_get_OPT_TCP_KEEYALIVE(struct dns_rrs *rrs, unsigned short *opt_code, unsigned short *opt_len,
 							  unsigned short *timeout);
+
+int dns_add_HTTPS_start(struct dns_rr_nested *svcparam_buffer, struct dns_packet *packet,
+										  dns_rr_type type, const char *domain, int ttl, int priority,
+										  const char *target);
+int dns_HTTPS_add_raw(struct dns_rr_nested *svcparam, unsigned short key, unsigned char *value, unsigned short len);
+int dns_HTTPS_add_port(struct dns_rr_nested *svcparam, unsigned short port);
+int dns_HTTPS_add_alpn(struct dns_rr_nested *svcparam, const char *alpn);
+int dns_HTTPS_add_no_default_alpn(struct dns_rr_nested *svcparam);
+int dns_HTTPS_add_ipv4hint(struct dns_rr_nested *svcparam, unsigned char addr[][DNS_RR_A_LEN],
+											 int addr_num);
+int dns_HTTPS_add_ipv6hint(struct dns_rr_nested *svcparam, unsigned char addr[][DNS_RR_AAAA_LEN],
+											 int addr_num);
+int dns_HTTPS_add_ech(struct dns_rr_nested *svcparam, void *ech, int ech_len);
+int dns_add_HTTPS_end(struct dns_rr_nested *svcparam);
+
+struct dns_https_param *dns_get_HTTPS_svcparm_start(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl,
+													int *priority, char *target, int target_size);
+struct dns_https_param *dns_get_HTTPS_svcparm_next(struct dns_rrs *rrs, struct dns_https_param *parm);
+
 /*
  * Packet operation
  */
