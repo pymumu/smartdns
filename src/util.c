@@ -1373,6 +1373,62 @@ static int _dns_debug_display(struct dns_packet *packet)
 				inet_ntop(AF_INET6, addr, req_host, sizeof(req_host));
 				printf("domain: %s AAAA: %s TTL:%d\n", name, req_host, ttl);
 			} break;
+			case DNS_T_HTTPS: {
+				char name[DNS_MAX_CNAME_LEN] = {0};
+				char target[DNS_MAX_CNAME_LEN] = {0};
+				struct dns_https_param *p = NULL;
+				int priority = 0;
+
+				p = dns_get_HTTPS_svcparm_start(rrs, name, DNS_MAX_CNAME_LEN, &ttl, &priority, target,
+												DNS_MAX_CNAME_LEN);
+				if (p == NULL) {
+					printf("get HTTPS svcparm failed\n");
+					break;
+				}
+
+				printf("domain: %s HTTPS: %s TTL: %d priority: %d\n", name, target, ttl, priority);
+
+				for (; p; p = dns_get_HTTPS_svcparm_next(rrs, p)) {
+					switch (p->key) {
+					case DNS_HTTPS_T_MANDATORY: {
+						printf("  HTTPS: mandatory: %s\n", p->value);
+					} break;
+					case DNS_HTTPS_T_ALPN: {
+						printf("  HTTPS: alpn: %s\n", p->value);
+					} break;
+					case DNS_HTTPS_T_NO_DEFAULT_ALPN: {
+						printf("  HTTPS: no_default_alpn: %s\n", p->value);
+					} break;
+					case DNS_HTTPS_T_PORT: {
+						int port = *(unsigned short *)(p->value);
+						printf("  HTTPS: port: %d\n", port);
+					} break;
+					case DNS_HTTPS_T_IPV4HINT: {
+						printf("  HTTPS: ipv4hint: %d\n", p->len / 4);
+						for (int k = 0; k < p->len / 4; k++) {
+							char ip[16] = {0};
+							inet_ntop(AF_INET, p->value + k * 4, ip, sizeof(ip));
+							printf("    ipv4: %s\n", ip);
+						}
+					} break;
+					case DNS_HTTPS_T_ECH: {
+						printf("  HTTPS: ech: ");
+						for (int k = 0; k < p->len; k++) {
+							printf("%02x ", p->value[k]);
+						}
+						printf("\n");
+					} break;
+					case DNS_HTTPS_T_IPV6HINT: {
+						printf("  HTTPS: ipv6hint: %d\n", p->len / 16);
+						for (int k = 0; k < p->len / 16; k++) {
+							char ip[64] = {0};
+							inet_ntop(AF_INET6, p->value + k * 16, ip, sizeof(ip));
+							printf("    ipv6: %s\n", ip);
+						}
+					} break;
+					}
+				}
+			} break;
 			case DNS_T_NS: {
 				char cname[DNS_MAX_CNAME_LEN];
 				char name[DNS_MAX_CNAME_LEN] = {0};
