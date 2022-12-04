@@ -1359,7 +1359,8 @@ static int _dns_cache_reply_packet(struct dns_server_post_context *context)
 		return 0;
 	}
 
-	if (context->packet->head.rcode == DNS_RC_SERVFAIL || context->packet->head.rcode == DNS_RC_NXDOMAIN || context->packet->head.rcode == DNS_RC_NOTIMP) {
+	if (context->packet->head.rcode == DNS_RC_SERVFAIL || context->packet->head.rcode == DNS_RC_NXDOMAIN ||
+		context->packet->head.rcode == DNS_RC_NOTIMP) {
 		context->reply_ttl = DNS_SERVER_FAIL_TTL;
 		/* Do not cache record if cannot connect to remote */
 		if (request->remote_server_fail == 0 && context->packet->head.rcode == DNS_RC_SERVFAIL) {
@@ -4326,6 +4327,20 @@ errout:
 	return ret;
 }
 
+static int _dns_server_check_request_supported(struct dns_request *request, struct dns_packet *packet)
+{
+	if (request->qclass != DNS_C_IN) {
+		return -1;
+	}
+
+	if (packet->head.opcode != DNS_OP_QUERY) {
+		return -1;
+	}
+
+
+	return 0;
+}
+
 static int _dns_server_parser_request(struct dns_request *request, struct dns_packet *packet)
 {
 	struct dns_rrs *rrs = NULL;
@@ -4359,7 +4374,7 @@ static int _dns_server_parser_request(struct dns_request *request, struct dns_pa
 	}
 
 	request->qclass = qclass;
-	if (qclass != DNS_C_IN) {
+	if (_dns_server_check_request_supported(request, packet) != 0) {
 		goto errout;
 	}
 
