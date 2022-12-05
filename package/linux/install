@@ -84,7 +84,7 @@ get_systemd_path()
 	fi
 
 	SERVICE_PATH="/lib/systemd/system"
-	if [ ! -d "$SERVICE_PATH" ]; then
+	if [ -d "$SERVICE_PATH" ]; then
 		echo "$SERVICE_PATH"
 		return 0
 	fi
