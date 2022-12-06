@@ -1,7 +1,7 @@
 # SmartDNS
 
 ![SmartDNS](doc/smartdns-banner.png)  
-SmartDNS is a local DNS server. SmartDNS accepts DNS query requests from local clients, obtains DNS query results from multiple upstream DNS servers, and returns the fastest access results to clients.  
+SmartDNS is a local DNS server. SmartDNS accepts DNS query requests from local clients, obtains DNS query results from multiple upstream DNS servers, and returns the fastest access results to clients. supports secure DNS protocols like DoT (DNS over TLS), DoH (DNS over HTTPS), better protect privacy,  
 Avoiding DNS pollution and improving network access speed, supports high-performance ad filtering.  
 Unlike dnsmasq's all-servers, smartdns returns the fastest access resolution. （[read more](#faq)）
 
@@ -101,7 +101,7 @@ From the comparison, smartdns found the fastest IP address to visit www.baidu.co
    Supports finding the fastest access IP address from the IP address list of the domain name and returning it to the client to avoid DNS pollution and improve network access speed.
 
 3. **Support for multiple query protocols**  
-   Support UDP, TCP, TLS, HTTPS queries, and non-53 port queries, effectively avoiding DNS pollution.
+   Support UDP, TCP, DOT(DNS over TLS), DOH(DNS over HTTPS) queries, and non-53 port queries, effectively avoiding DNS pollution and protect privacy.
 
 4. **Domain IP address specification**  
    Support configuring IP address of specific domain to achieve the effect of advertising filtering, and avoid malicious websites.
@@ -135,10 +135,10 @@ smartdns can already be installed using system package management tools.
 
 System|Installation|Instructions|
 --|--|--
-openwrt|opkg update</br>opkg install luci-app-smartdns</br>opkg install smartdns|systems after 22.03. Software source: https://downloads.openwrt.org/releases/
+openwrt|opkg update<br>opkg install luci-app-smartdns<br>opkg install smartdns|systems after 22.03. Software source: https://downloads.openwrt.org/releases/
 ddwrt|latest firmware. goto services page abd enable SmartDNS Resolver. |Demo: https://forum.dd-wrt.com/demo/Services.html
 debian|apt-get install smartdns|
-entware|ipkg update</br>ipkg install smartdns|Software source: https://bin.entware.net/
+entware|ipkg update<br>ipkg install smartdns|Software source: https://bin.entware.net/
 
 ### Download the package
 
@@ -508,7 +508,7 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 |nftset|Domain nftset|None|nftset /domain/[#4\|#6\|-]:[family#nftable#nftset\|-][,#[4\|6]:[family#nftable#nftset\|-]]], `-` to ignore; the valid families are inet and ip for ipv4 addresses while the valid ones are inet and ip6 for ipv6 addresses; due to the limitation of nft, two types of addresses have to be stored in two sets|nftset /www.example.com/#4:inet#mytab#dns4,#6:-
 |nftset-timeout|nftset timeout enable|no|[yes\|no]|nftset-timeout yes
 |nftset-debug|nftset debug enable|no|[yes\|no]|nftset-debug yes
-|domain-rules|set domain rules|None|domain-rules /domain/ [-rules...]<br>`[-c\|-speed-check-mode]`: set speed check mode，same as parameter `speed-check-mode`<br>`[-a\|-address]`: same as  parameter `address` <br>`[-n\|-nameserver]`: same as parameter `nameserver`<br>`[-p\|-ipset]`: same as parameter `nftset`<br>`[-t\|-nftset]`: same as parameter `nftset`<br>`[-d\|-dualstack-ip-selection]`: same as parameter `dualstack-ip-selection`|domain-rules /www.example.com/ -speed-check-mode none
+|domain-rules|set domain rules|None|domain-rules /domain/ [-rules...]<br>[-c\|-speed-check-mode]: set speed check mode，same as parameter speed-check-mode<br>[-a\|-address]: same as  parameter `address` <br>[-n\|-nameserver]: same as parameter `nameserver`<br>[-p\|-ipset]: same as parameter `nftset`<br>[-t\|-nftset]: same as parameter `nftset`<br>[-d\|-dualstack-ip-selection]: same as parameter `dualstack-ip-selection`|domain-rules /www.example.com/ -speed-check-mode none
 | domain-set | collection of domains|None| domain-set [options...]<br>[-n\|-name]：name of set <br>[-t\|-type] [list]: set type, only support list, one domain per line <br>[-f\|-file]：file path of domain set<br> used with address, nameserver, ipset, nftset, example: /domain-set:[name]/ | domain-set -name set -type list -file /path/to/list <br> address /domain-set:set/1.2.4.8 |
 |bogus-nxdomain|bogus IP address|None|[IP/subnet], Repeatable| bogus-nxdomain 1.2.3.4/16
 |ignore-ip|ignore ip address|None|[ip/subnet], Repeatable| ignore-ip 1.2.3.4/16

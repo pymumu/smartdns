@@ -2916,7 +2916,7 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 	}
 
 	if (atomic_read(&query->dns_request_sent) <= 0) {
-		tlog(TLOG_ERROR, "Send query to upstream server failed, total server number %d", total_server);
+		tlog(TLOG_WARN, "Send query to upstream server failed, total server number %d", total_server);
 		return -1;
 	}
 

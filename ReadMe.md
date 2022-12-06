@@ -14,7 +14,7 @@
 
 ![SmartDNS](doc/smartdns-banner.png)
 SmartDNS 是一个运行在本地的 DNS 服务器，它接受来自本地客户端的 DNS 查询请求，然后从多个上游 DNS 服务器获取 DNS 查询结果，并将访问速度最快的结果返回给客户端，以此提高网络访问速度。
-SmartDNS 同时支持指定特定域名 IP 地址，并高性匹配，可达到过滤广告的效果。  
+SmartDNS 同时支持指定特定域名 IP 地址，并高性匹配，可达到过滤广告的效果; 支持DOT(DNS over TLS)和DOH(DNS over HTTPS)，更好的保护隐私。
 与 DNSmasq 的 all-servers 不同，SmartDNS 返回的是访问速度最快的解析结果。详细差异请看[常见问题](#常见问题)。
 
 支持树莓派、OpenWrt、华硕路由器原生固件和 Windows 系统等。  
@@ -113,7 +113,7 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
    支持从域名所属 IP 地址列表中查找到访问速度最快的 IP 地址，并返回给客户端，提高网络访问速度。
 
 3. **支持多种查询协议**  
-   支持 UDP、TCP、TLS 和 HTTPS 查询，以及非 53 端口查询。
+   支持 UDP、TCP、DOT 和 DOH 查询，以及非 53 端口查询。
 
 4. **特定域名 IP 地址指定**  
    支持指定域名的 IP 地址，达到广告过滤效果、避免恶意网站的效果。
@@ -153,10 +153,10 @@ smartdns已经合入主流系统的软件仓库，可以直接使用系统安装
 
 系统|安装方式|说明|
 --|--|--
-openwrt|opkg update</br>opkg install luci-app-smartdns</br>opkg install smartdns|22.03之后的系统。软件源路径：https://downloads.openwrt.org/releases/
+openwrt|opkg update<br>opkg install luci-app-smartdns<br>opkg install smartdns|22.03之后的系统。软件源路径：https://downloads.openwrt.org/releases/
 ddwrt|官方最新固件service页面->SmartDNS Resolver->启用。|选择界面参考：https://forum.dd-wrt.com/demo/Services.html
 debian|apt-get install smartdns|
-entware|ipkg update</br>ipkg install smartdns|软件源路径：https://bin.entware.net/
+entware|ipkg update<br>ipkg install smartdns|软件源路径：https://bin.entware.net/
 
 ### 手工下载安装
 

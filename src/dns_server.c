@@ -1588,7 +1588,7 @@ static int _dns_request_post(struct dns_server_post_context *context)
 
 	ret = _dns_reply_inpacket(request, context->inpacket, context->inpacket_len);
 	if (ret != 0) {
-		tlog(TLOG_ERROR, "replay raw packet to client failed.");
+		tlog(TLOG_WARN, "replay raw packet to client failed.");
 		return -1;
 	}
 
@@ -4313,7 +4313,7 @@ static int _dns_server_do_query(struct dns_request *request, int skip_notify_eve
 		0) {
 		request->request_wait--;
 		_dns_server_request_release(request);
-		tlog(TLOG_ERROR, "send dns request failed.");
+		tlog(TLOG_WARN, "send dns request failed.");
 		goto errout;
 	}
 
@@ -4451,7 +4451,7 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 
 	ret = _dns_server_do_query(request, 1);
 	if (ret != 0) {
-		tlog(TLOG_ERROR, "do query %s failed.\n", request->domain);
+		tlog(TLOG_WARN, "do query %s failed.\n", request->domain);
 		goto errout;
 	}
 	_dns_server_request_release_complete(request, 0);
@@ -4503,7 +4503,7 @@ static int _dns_server_prefetch_request(char *domain, dns_type_t qtype, int expi
 	_dns_server_request_set_enable_prefetch(request, expired_domain);
 	ret = _dns_server_do_query(request, 0);
 	if (ret != 0) {
-		tlog(TLOG_ERROR, "do query %s failed.\n", request->domain);
+		tlog(TLOG_WARN, "do query %s failed.\n", request->domain);
 		goto errout;
 	}
 
@@ -4956,7 +4956,7 @@ static void _dns_server_prefetch_expired_domain(struct dns_cache *dns_cache)
 	server_query_option.ecs_enable_flag = 0;
 
 	if (_dns_server_prefetch_request(dns_cache->info.domain, dns_cache->info.qtype, 1, &server_query_option) != 0) {
-		tlog(TLOG_ERROR, "prefetch domain %s, qtype %d, failed.", dns_cache->info.domain, dns_cache->info.qtype);
+		tlog(TLOG_WARN, "prefetch domain %s, qtype %d, failed.", dns_cache->info.domain, dns_cache->info.qtype);
 	}
 }
 
@@ -5186,7 +5186,7 @@ int dns_server_run(void)
 			}
 
 			if (_dns_server_process(conn_head, event, now) != 0) {
-				tlog(TLOG_ERROR, "dns server process failed.");
+				tlog(TLOG_WARN, "dns server process failed.");
 			}
 		}
 	}
