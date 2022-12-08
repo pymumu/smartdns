@@ -109,7 +109,24 @@ restart_dnsmasq()
 		return 1
 	fi
 
-	PID="$(echo "$CMD" | awk '{print $1}')"
+	# check multiple dnsmasq
+	linecount="$(echo "$CMD" | wc -l)"
+	if [ $linecount -eq 1 ]; then
+		PID="$(echo "$CMD" | awk '{print $1}')"
+	elif [ $linecount -gt 1 ]; then
+		PID1="$(echo "$CMD" | awk 'NR==1{print $1}')"
+		PID2="$(echo "$CMD" | awk 'NR==2{print $1}')"
+		PID2_PPID="$(grep 'PPid:' /proc/$PID2/status | awk '{print $2}' 2>/dev/null)"
+		if [ "$PID2_PPID" != "$PID1" ]; then
+			echo "find multiple dnsmasq, but not started by the same process"
+			return 1
+		fi
+		PID=$PID1
+	else
+		echo "find multiple dnsmasq, but not started by the same process"
+		return 1
+	fi
+
 	if [ ! -d "/proc/$PID" ]; then
 		echo "dnsmasq is not running"
 		return 1
@@ -117,29 +134,61 @@ restart_dnsmasq()
 
 	kill -9 "$PID"
 
+	# get dnsmasq command
+	CMD="$(echo "$CMD" | head -n 1)"
 	DNSMASQ_CMD="$(echo "$CMD" | awk '{for(i=5; i<=NF;i++)printf $i " "}')"
 
 	$DNSMASQ_CMD
 }
 
-get_server_ip()
+add_dhcp_options6()
 {
 	CONF_FILE=$1
 	IPS="$(ifconfig | grep "inet addr" | grep -v ":127" | grep "Bcast" | awk '{print $2}' | awk -F: '{print $2}')"
 	for IP in $IPS
 	do
-		N=3
-		while [ $N -gt 0 ]
-		do
-			ADDR="$(echo "$IP" | awk -F. "{for(i=1;i<="$N";i++)printf \$i\".\"}")"
-			grep "dhcp-range=" "$CONF_FILE" | grep "$ADDR" >/dev/null 2>&1
-			if [ $? -eq 0 ]; then
-					SERVER_TAG="$(grep "^dhcp-range *=" "$CONF_FILE" | grep "$ADDR" | awk -F= '{print $2}' | awk -F, '{print $1}')"
-					LOCAL_SERVER_IP="$IP"
-					return 1
-			fi
-			N=$((N-1))
-		done
+		DHCP_OPTION="$(grep "dhcp-option=" "$CONF_FILE" | grep "$IP" | head -n 1)"
+		if [ -z "$DHCP_OPTION" ]; then
+			continue
+		fi
+
+		SERVER_TAG="$(echo "$DHCP_OPTION" | awk -F= '{print $2}' | awk -F, '{print $1}')"
+		LOCAL_SERVER_IP="$IP"
+
+		grep "dhcp-option *= *$SERVER_TAG, *6 *, *$LOCAL_SERVER_IP" $CONF_FILE 1>/dev/null 2>&1
+		if [ $? -eq 0 ]; then
+			continue
+		fi
+		
+		DHCP_OPTION="dhcp-option=$SERVER_TAG,6,$LOCAL_SERVER_IP"
+		echo "$DHCP_OPTION" >> "$CONF_FILE"
+		RESTART_DNSMASQ=1
+	done
+
+	return 1
+}
+
+clear_dhcp_options6()
+{
+	CONF_FILE=$1
+	IPS="$(ifconfig | grep "inet addr" | grep -v ":127" | grep "Bcast" | awk '{print $2}' | awk -F: '{print $2}')"
+	for IP in $IPS
+	do
+		DHCP_OPTION="$(grep "dhcp-option=" "$CONF_FILE" | grep "$IP" | head -n 1)"
+		if [ -z "$DHCP_OPTION" ]; then
+			continue
+		fi
+
+		SERVER_TAG="$(echo "$DHCP_OPTION" | awk -F= '{print $2}' | awk -F, '{print $1}')"
+		LOCAL_SERVER_IP="$IP"
+
+		grep "dhcp-option *= *$SERVER_TAG, *6 *, *$LOCAL_SERVER_IP" $CONF_FILE 1>/dev/null 2>&1
+		if [ $? -ne 0 ]; then
+			continue
+		fi
+		
+		sed -i "/^dhcp-option *=$SERVER_TAG,6,/d" "$CONF_FILE"
+		RESTART_DNSMASQ=1
 	done
 
 	return 1
@@ -150,17 +199,9 @@ set_dnsmasq_conf()
 	local LOCAL_SERVER_IP=""
 	local SERVER_TAG=""
 	local CONF_FILE=$1
+	local DHCP_OPTIONS=""
 
-	get_server_ip $CONF_FILE
-
-	if [ "$LOCAL_SERVER_IP" ] && [ "$SERVER_TAG" ]; then
-		grep "dhcp-option *=" "$CONF_FILE" | grep "$SERVER_TAG,6,$LOCAL_SERVER_IP" > /dev/null 2>&1
-		if [ $? -ne 0 ]; then
-			sed -i "/^dhcp-option *=$SERVER_TAG,6,/d" "$CONF_FILE"
-			echo "dhcp-option=$SERVER_TAG,6,$LOCAL_SERVER_IP" >> "$CONF_FILE"
-			RESTART_DNSMASQ=1
-		fi
-	fi
+	add_dhcp_options6 $CONF_FILE
 
 	grep "^port *=0" "$CONF_FILE" > /dev/null 2>&1
 	if [ $? -ne 0 ]; then
@@ -194,14 +235,7 @@ clear_dnsmasq_conf()
 	local SERVER_TAG=""
 	local CONF_FILE=$1
 	
-	get_server_ip "$CONF_FILE"
-	if [ "$LOCAL_SERVER_IP" ] && [ "$SERVER_TAG" ]; then
-		grep "dhcp-option *=" "$CONF_FILE" | grep "$SERVER_TAG,6,$LOCAL_SERVER_IP" > /dev/null 2>&1
-		if [ $? -eq 0 ]; then
-			sed -i "/^dhcp-option *=$SERVER_TAG,6,/d" "$CONF_FILE"
-			RESTART_DNSMASQ=1
-		fi
-	fi
+	clear_dhcp_options6 "$CONF_FILE"
 
 	grep "^port *=" "$CONF_FILE" > /dev/null 2>&1
 	if [ $? -eq 0 ]; then
