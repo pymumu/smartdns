@@ -1872,7 +1872,7 @@ static int _conf_domain_rules(void *data, int argc, char *argv[])
 	/* process extra options */
 	optind = 1;
 	while (1) {
-		opt = getopt_long_only(argc, argv, "c:a:p:n:d:", long_options, NULL);
+		opt = getopt_long_only(argc, argv, "c:a:p:t:n:d:", long_options, NULL);
 		if (opt == -1) {
 			break;
 		}
