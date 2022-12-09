@@ -49,6 +49,7 @@
 #define IPV6_READY_CHECK_TIME 180
 #define DNS_SERVER_TMOUT_TTL (5 * 60)
 #define DNS_SERVER_FAIL_TTL (60)
+#define DNS_SERVER_SOA_TTL (30)
 #define DNS_CONN_BUFF_SIZE 4096
 #define DNS_REQUEST_MAX_TIMEOUT 950
 #define DNS_PING_TIMEOUT (DNS_REQUEST_MAX_TIMEOUT)
@@ -1599,6 +1600,10 @@ static int _dns_server_reply_SOA(int rcode, struct dns_request *request)
 {
 	/* return SOA record */
 	request->rcode = rcode;
+	if (request->ip_ttl == 0) {
+		request->ip_ttl = DNS_SERVER_SOA_TTL;
+	}
+
 	_dns_server_setup_soa(request);
 
 	struct dns_server_post_context context;
@@ -3575,7 +3580,6 @@ out:
 
 soa:
 	/* return SOA */
-	request->ip_ttl = 30;
 	_dns_server_reply_SOA(DNS_RC_NOERROR, request);
 	return 0;
 }
@@ -4336,7 +4340,6 @@ static int _dns_server_check_request_supported(struct dns_request *request, stru
 	if (packet->head.opcode != DNS_OP_QUERY) {
 		return -1;
 	}
-
 
 	return 0;
 }
