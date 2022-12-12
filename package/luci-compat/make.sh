@@ -54,6 +54,7 @@ build()
 	build_tool
 	mkdir $ROOT/root/usr/lib/lua/ -p
 	cp $ROOT/files/luci $ROOT/root/usr/lib/lua/ -af
+	cp $ROOT/files/usr $ROOT/root/ -af
 	
 	#Generate Language
 	$PO2LMO $ROOT/files/luci/i18n/smartdns.zh-cn.po $ROOT/root/usr/lib/lua/luci/i18n/smartdns.zh-cn.lmo

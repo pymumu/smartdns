@@ -62,6 +62,13 @@ o.placeholder = "default"
 o.datatype    = "hostname"
 o.rempty      = true
 
+---- exclude default group
+o = s:option(Flag, "exclude_default_group", translate("Exclude Default Group"), translate("Exclude DNS Server from default group."))
+o.rmempty = false
+o.default = o.disabled
+o.editable = true
+o.modalonly = true
+
 ---- blacklist_ip
 o = s:option(Flag, "blacklist_ip", translate("IP Blacklist Filtering"), translate("Filtering IP with blacklist"))
 o.rmempty     = false
