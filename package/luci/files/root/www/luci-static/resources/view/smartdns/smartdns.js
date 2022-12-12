@@ -89,6 +89,8 @@ return view.extend({
 	},
 	render: function (stats) {
 		var m, s, o;
+		var ss, so;
+		var servers, downlfiles;
 
 		m = new form.Map('smartdns', _('SmartDNS'));
 		m.title = _("SmartDNS Server");
@@ -120,14 +122,21 @@ return view.extend({
 			]);
 		}
 
+		////////////////
 		// Basic;
+		////////////////
 		s = m.section(form.TypedSection, "smartdns", _("Settings"), _("General Settings"));
 		s.anonymous = true;
 
 		s.tab("settings", _("General Settings"));
+		s.tab("advanced", _('Advanced Settings'));
 		s.tab("seconddns", _("Second Server Settings"));
+		s.tab("files", _("Download Files Setting"), _("Download domain list files for domain-rule and include config files, please refresh the page after download to take effect."));
 		s.tab("custom", _("Custom Settings"));
 
+		///////////////////////////////////////
+		// Basic Settings
+		///////////////////////////////////////
 		o = s.taboption("settings", form.Flag, "enabled", _("Enable"), _("Enable or disable smartdns server"));
 		o.rmempty = false;
 		o.default = o.disabled;
@@ -156,54 +165,57 @@ return view.extend({
 		o.rmempty = false;
 		o.default = o.enabled;
 
+		///////////////////////////////////////
+		// advanced settings;
+		///////////////////////////////////////
 		// Support DualStack ip selection;
-		o = s.taboption("settings", form.Flag, "dualstack_ip_selection", _("Dual-stack IP Selection"),
+		o = s.taboption("advanced", form.Flag, "dualstack_ip_selection", _("Dual-stack IP Selection"),
 			_("Enable IP selection between IPV4 and IPV6"));
 		o.rmempty = false;
 		o.default = o.enabled;
 
 		// Domain prefetch load ;
-		o = s.taboption("settings", form.Flag, "prefetch_domain", _("Domain prefetch"),
+		o = s.taboption("advanced", form.Flag, "prefetch_domain", _("Domain prefetch"),
 			_("Enable domain prefetch, accelerate domain response speed."));
 		o.rmempty = false;
 		o.default = o.disabled;
 
 		// Domain Serve expired
-		o = s.taboption("settings", form.Flag, "serve_expired", _("Serve expired"),
+		o = s.taboption("advanced", form.Flag, "serve_expired", _("Serve expired"),
 			_("Attempts to serve old responses from cache with a TTL of 0 in the response without waiting for the actual resolution to finish."));
 		o.rmempty = false;
 		o.default = o.enabled;
 
 		// cache-size;
-		o = s.taboption("settings", form.Value, "cache_size", _("Cache Size"), _("DNS domain result cache size"));
+		o = s.taboption("advanced", form.Value, "cache_size", _("Cache Size"), _("DNS domain result cache size"));
 		o.rempty = true;
 
 		// cache-size;
-		o = s.taboption("settings", form.Flag, "resolve_local_hostnames", _("Resolve Local Hostnames"), _("Resolve local hostnames by reading Dnsmasq lease file."));
+		o = s.taboption("advanced", form.Flag, "resolve_local_hostnames", _("Resolve Local Hostnames"), _("Resolve local hostnames by reading Dnsmasq lease file."));
 		o.rmempty = false;
 		o.default = o.enabled;
 
 		// auto-conf-dnsmasq;
-		o = s.taboption("settings", form.Flag, "auto_set_dnsmasq", _("Automatically Set Dnsmasq"), _("Automatically set as upstream of dnsmasq when port changes."));
+		o = s.taboption("advanced", form.Flag, "auto_set_dnsmasq", _("Automatically Set Dnsmasq"), _("Automatically set as upstream of dnsmasq when port changes."));
 		o.rmempty = false;
 		o.default = o.enabled;
 
 		// Force AAAA SOA
-		o = s.taboption("settings", form.Flag, "force_aaaa_soa", _("Force AAAA SOA"), _("Force AAAA SOA."));
+		o = s.taboption("advanced", form.Flag, "force_aaaa_soa", _("Force AAAA SOA"), _("Force AAAA SOA."));
 		o.rmempty = false;
 		o.default = o.disabled;
 
 		// Force HTTPS SOA
-		o = s.taboption("settings", form.Flag, "force_https_soa", _("Force HTTPS SOA"), _("Force HTTPS SOA."));
+		o = s.taboption("advanced", form.Flag, "force_https_soa", _("Force HTTPS SOA"), _("Force HTTPS SOA."));
 		o.rmempty = false;
 		o.default = o.enabled;
 
 		// rr-ttl;
-		o = s.taboption("settings", form.Value, "rr_ttl", _("Domain TTL"), _("TTL for all domain result."));
+		o = s.taboption("advanced", form.Value, "rr_ttl", _("Domain TTL"), _("TTL for all domain result."));
 		o.rempty = true;
 
 		// rr-ttl-min;
-		o = s.taboption("settings", form.Value, "rr_ttl_min", _("Domain TTL Min"),
+		o = s.taboption("advanced", form.Value, "rr_ttl_min", _("Domain TTL Min"),
 			_("Minimum TTL for all domain result."));
 		o.rempty = true;
 		o.placeholder = "600";
@@ -211,16 +223,34 @@ return view.extend({
 		o.optional = true;
 
 		// rr-ttl-max;
-		o = s.taboption("settings", form.Value, "rr_ttl_max", _("Domain TTL Max"),
+		o = s.taboption("advanced", form.Value, "rr_ttl_max", _("Domain TTL Max"),
 			_("Maximum TTL for all domain result."));
 		o.rempty = true;
 
 		// rr-ttl-reply-max;
-		o = s.taboption("settings", form.Value, "rr_ttl_reply_max", _("Reply Domain TTL Max"),
+		o = s.taboption("advanced", form.Value, "rr_ttl_reply_max", _("Reply Domain TTL Max"),
 			_("Reply maximum TTL for all domain result."));
 		o.rempty = true;
 
+		// include config
+		downlfiles = uci.sections('smartdns', 'download-file');
+		o = s.taboption("advanced", form.DynamicList, "conf_files", _("Include Config Files<br>/etc/smartdns/conf.d"),
+			_("Include other config files from /etc/smartdns/conf.d or custom path, can be downloaded from the download page."));
+		for (var i = 0; i < downlfiles.length; i++) {
+			if (downlfiles[i].type == undefined) {
+				continue;
+			}
+
+			if (downlfiles[i].type != 'config') {
+				continue
+			}
+
+			o.value(downlfiles[i].name);
+		}
+
+		///////////////////////////////////////
 		// second dns server;
+		///////////////////////////////////////
 		// Eanble;
 		o = s.taboption("seconddns", form.Flag, "seconddns_enabled", _("Enable"),
 			_("Enable or disable second DNS server."));
@@ -291,10 +321,85 @@ return view.extend({
 		o.rmempty = false;
 		o.default = o.disabled;
 
+		///////////////////////////////////////
+		// download Files Settings
+		///////////////////////////////////////
+		o = s.taboption("files", form.Flag, "enable_auto_update", _("Enable Auto Update"), _("Enable daily auto update."));
+		o.rmempty = false;
+		o.default = o.disabled;
+		o.rempty = true;
+
+		o = s.taboption("files", form.FileUpload, "upload_conf_file", _("Upload Config File"),
+			_("Upload smartdns config file to /etc/smartdns/conf.d"));
+		o.rmempty = true
+		o.datatype = "file"
+		o.rempty = true
+		o.editable = true
+		o.root_directory = "/etc/smartdns/conf.d"
+
+		o = s.taboption("files", form.FileUpload, "upload_list_file", _("Upload Domain List File"),
+			_("Upload domain list file to /etc/smartdns/domain-set"));
+		o.rmempty = true
+		o.datatype = "file"
+		o.rempty = true
+		o.editable = true
+		o.root_directory = "/etc/smartdns/domain-set"
+
+		o = s.taboption('files', form.DummyValue, "_update", _("Update Files"));
+		o.renderWidget = function () {
+			return E('button', {
+				'class': 'btn cbi-button cbi-button-apply',
+				'id': 'btn_update',
+				'click': ui.createHandlerFn(this, function () {
+					return fs.exec('/etc/init.d/smartdns', ['updatefiles'])
+						.catch(function (e) { ui.addNotification(null, E('p', e.message), 'error') });
+				})
+			}, [_("Update")]);
+		}
+
+		o = s.taboption('files', form.SectionValue, '__files__', form.GridSection, 'download-file', _('Download Files'),
+			_('List of files to download.'));
+
+		ss = o.subsection;
+
+		ss.addremove = true;
+		ss.anonymous = true;
+		ss.sortable = true;
+
+		so = ss.option(form.Value, 'name', _('File Name'), _('File Name'));
+		so.rmempty = false;
+		so.datatype = 'file';
+
+		so = ss.option(form.Value, 'url', _('URL'), _('URL'));
+		so.rmempty = false;
+		so.datatype = 'string';
+		so.validate = function (section_id, value) {
+			if (value == "") {
+				return true;
+			}
+
+			if (!value.match(/^(http|https|ftp|sftp):\/\//)) {
+				return _("URL format error, format: http:// or https://");
+			}
+
+			return true;
+		}
+
+		so = ss.option(form.ListValue, "type", _("type"), _("File Type"));
+		so.value("list", _("domain list (/etc/smartdns/domain-set)"));
+		so.value("config", _("smartdns config (/etc/smartdns/conf.d)"));
+		so.default = "list";
+		so.rempty = false;
+
+		so = ss.option(form.Value, 'desc', _('Description'), _('Description'));
+		so.rmempty = true;
+		so.datatype = 'string';
+
+		///////////////////////////////////////
 		// custom settings;
+		///////////////////////////////////////
 		o = s.taboption("custom", form.TextValue, "custom_conf",
 			"", _("smartdns custom settings"));
-
 		o.rows = 20;
 		o.cfgvalue = function (section_id) {
 			return fs.trimmed('/etc/smartdns/custom.conf');
@@ -312,12 +417,16 @@ return view.extend({
 			_("Generate Coredump file when smartdns crash, coredump file is located at /tmp/smartdns.xxx.core."));
 		o.rmempty = false;
 		o.default = o.disabled;
+
+		////////////////
 		// Upstream servers;
+		////////////////
 		s = m.section(form.GridSection, "server", _("Upstream Servers"),
 			_("Upstream Servers, support UDP, TCP protocol. Please configure multiple DNS servers, "
 				+ "including multiple foreign DNS servers."));
 		s.anonymous = true;
 		s.addremove = true;
+		s.sortable = true;
 
 		s.tab('general', _('General Settings'));
 		s.tab('advanced', _('Advanced Settings'));
@@ -355,14 +464,30 @@ return view.extend({
 		o.default = "udp";
 		o.rempty = false;
 
-		// Advanced Options
 		// server group
-		o = s.taboption("advanced", form.Value, "server_group", _("Server Group"), _("DNS Server group belongs to, "
-			+ "used with nameserver, such as office, home."))
-		o.rmempty = true
-		o.placeholder = "default"
-		o.datatype = "hostname"
-		o.rempty = true
+		o = s.taboption("general", form.Value, "server_group", _("Server Group"), _("DNS Server group"))
+		o.rmempty = true;
+		o.placeholder = "default";
+		o.datatype = "hostname";
+		o.rempty = true;
+		servers = uci.sections('smartdns', 'server');
+		var groupnames = new Set();
+		for (var i = 0; i < servers.length; i++) {
+			if (servers[i].server_group == undefined) {
+				continue;
+			}
+			groupnames.add(servers[i].server_group);
+		}
+
+		for (const groupname of groupnames) {
+			o.value(groupname);
+		}
+
+		// Advanced Options
+		o = s.taboption("advanced", form.Flag, "exclude_default_group", _("Exclude Default Group"), _("Exclude DNS Server from default group."))
+		o.rmempty = false;
+		o.default = o.disabled;
+		o.editable = true;
 		o.modalonly = true;
 
 		// blacklist_ip
@@ -393,7 +518,7 @@ return view.extend({
 
 		// SNI host name
 		o = s.taboption("advanced", form.Value, "host_name", _("TLS SNI name"),
-			_("Sets the server name indication for query."))
+			_("Sets the server name indication for query. '-' for disable SNI name."))
 		o.default = ""
 		o.datatype = "hostname"
 		o.rempty = true
@@ -428,13 +553,155 @@ return view.extend({
 		o.rempty = true
 		o.modalonly = true;
 
-		// Doman addresss;
-		s = m.section(form.TypedSection, "smartdns", _("Advanced Settings"), _("Advanced Settings"));
+		////////////////
+		// domain rules;
+		////////////////
+		s = m.section(form.TypedSection, "domain-rule", _("Domain Rules"), _("Domain Rules Settings"));
 		s.anonymous = true;
+		s.nodescriptions = true;
 
+		s.tab("forwarding", _('DNS Forwarding Setting'));
+		s.tab("block", _("DNS Block Setting"));
 		s.tab("domain-address", _("Domain Address"), _("Set Specific domain ip address."));
 		s.tab("blackip-list", _("IP Blacklist"), _("Set Specific ip blacklist."));
 
+		///////////////////////////////////////
+		// domain forwarding;
+		///////////////////////////////////////
+		o = s.taboption("forwarding", form.Value, "server_group", _("Server Group"), _("DNS Server group belongs to, such as office, home."))
+		o.rmempty = true
+		o.placeholder = "default"
+		o.datatype = "hostname"
+		o.rempty = true
+		for (const groupname of groupnames) {
+			o.value(groupname);
+		}
+		o.validate = function (section_id, value) {
+			if (value == "") {
+				return true;
+			}
+
+			var val = uci.sections('smartdns', 'server');
+			for (var i = 0; i < val.length; i++) {
+				if (value == val[i].server_group) {
+					return true;
+				}
+			}
+
+			return _('Server Group %s not exists').format(value);
+
+		}
+
+		o = s.taboption("forwarding", form.Flag, "no_speed_check", _("Skip Speed Check"),
+			_("Do not check speed."));
+		o.rmempty = false;
+		o.default = o.disabled;
+
+		o = s.taboption("forwarding", form.Flag, "force_aaaa_soa", _("Force AAAA SOA"), _("Force AAAA SOA."));
+		o.rmempty = false;
+		o.default = o.disabled;
+
+		o = s.taboption("forwarding", form.Value, "ipset_name", _("IPset Name"), _("IPset name."));
+		o.rmempty = true;
+		o.datatype = "hostname";
+		o.rempty = true;
+
+		o = s.taboption("forwarding", form.Value, "nftset_name", _("NFTset Name"), _("NFTset name, format: [#[4|6]:[family#table#set]]"));
+		o.rmempty = true;
+		o.datatype = "string";
+		o.rempty = true;
+		o.validate = function (section_id, value) {
+			if (value == "") {
+				return true;
+			}
+
+			var nftset = value.split(",")
+			for (var i = 0; i < nftset.length; i++) {
+				if (!nftset[i].match(/#[4|6]:[a-zA-Z0-9\-_]+#[a-zA-Z0-9\-_]+#[a-zA-Z0-9\-_]+$/)) {
+					return _("NFTset name format error, format: [#[4|6]:[family#table#set]]");
+				}
+			}
+
+			return true;
+		}
+
+		o = s.taboption("forwarding", form.FileUpload, "forwarding_domain_set_file", _("Domain List File"),
+			_("Upload domain list file, or configure auto download from Download File Setting page."));
+		o.rmempty = true
+		o.datatype = "file"
+		o.rempty = true
+		o.editable = true
+		o.root_directory = "/etc/smartdns/domain-set"
+
+		o = s.taboption("forwarding", form.TextValue, "domain_forwarding_list",
+			_("Domain List"), _("Configure forwarding domain name list."));
+		o.rows = 10;
+		o.cols = 64;
+		o.monospace = true;
+		o.cfgvalue = function (section_id) {
+			return fs.trimmed('/etc/smartdns/domain-forwarding.list').catch(function (e) {
+				return "";
+			});
+		};
+		o.write = function (section_id, formvalue) {
+			return this.cfgvalue(section_id).then(function (value) {
+				if (value == formvalue) {
+					return
+				}
+				return fs.write('/etc/smartdns/domain-forwarding.list', formvalue.trim().replace(/\r\n/g, '\n') + '\n');
+			});
+		};
+
+		///////////////////////////////////////
+		// domain block;
+		///////////////////////////////////////
+		o = s.taboption("block", form.FileUpload, "block_domain_set_file", _("Domain List File"), _("Upload domain list file."));
+		o.rmempty = true
+		o.datatype = "file"
+		o.rempty = true
+		o.editable = true
+		o.root_directory = "/etc/smartdns/domain-set"
+
+		o = s.taboption("block", form.TextValue, "domain_block_list",
+			_("Domain List"), _("Configure block domain list."));
+		o.rows = 10;
+		o.cols = 64;
+		o.cfgvalue = function (section_id) {
+			return fs.trimmed('/etc/smartdns/domain-block.list').catch(function (e) {
+				return "";
+			});
+		};
+		o.write = function (section_id, formvalue) {
+			return this.cfgvalue(section_id).then(function (value) {
+				if (value == formvalue) {
+					return
+				}
+				return fs.write('/etc/smartdns/domain-block.list', formvalue.trim().replace(/\r\n/g, '\n') + '\n');
+			});
+		};
+
+		///////////////////////////////////////
+		// IP Blacklist;
+		///////////////////////////////////////
+		// blacklist;
+		o = s.taboption("blackip-list", form.TextValue, "blackip_ip_conf",
+			"", _("Configure IP blacklists that will be filtered from the results of specific DNS server."));
+		o.rows = 20;
+		o.cfgvalue = function (section_id) {
+			return fs.trimmed('/etc/smartdns/blacklist-ip.conf');
+		};
+		o.write = function (section_id, formvalue) {
+			return this.cfgvalue(section_id).then(function (value) {
+				if (value == formvalue) {
+					return
+				}
+				return fs.write('/etc/smartdns/blacklist-ip.conf', formvalue.trim().replace(/\r\n/g, '\n') + '\n');
+			});
+		};
+
+		///////////////////////////////////////
+		// domain address
+		///////////////////////////////////////
 		o = s.taboption("domain-address", form.TextValue, "address_conf",
 			"",
 			_("Specify an IP address to return for any host in the given domains, Queries in the domains are never "
@@ -452,24 +719,9 @@ return view.extend({
 			});
 		};
 
-		// IP Blacklist;
-		// blacklist;
-		o = s.taboption("blackip-list", form.TextValue, "blackip_ip_conf",
-			"", _("Configure IP blacklists that will be filtered from the results of specific DNS server."));
-		o.rows = 20;
-		o.cfgvalue = function (section_id) {
-			return fs.trimmed('/etc/smartdns/blacklist-ip.conf');
-		};
-		o.write = function (section_id, formvalue) {
-			return this.cfgvalue(section_id).then(function (value) {
-				if (value == formvalue) {
-					return
-				}
-				return fs.write('/etc/smartdns/blacklist-ip.conf', formvalue.trim().replace(/\r\n/g, '\n') + '\n');
-			});
-		};
-
-		// Doman addresss;
+		////////////////
+		// Support
+		////////////////
 		s = m.section(form.TypedSection, "smartdns", _("Technical Support"),
 			_("If you like this software, please buy me a cup of coffee."));
 		s.anonymous = true;

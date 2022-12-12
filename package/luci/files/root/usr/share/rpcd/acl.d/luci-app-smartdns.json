@@ -13,7 +13,8 @@
 		"write": {
 			"file": {
 				"/etc/smartdns/*": [ "write" ],
-				"/etc/init.d/smartdns restart": [ "exec" ]
+				"/etc/init.d/smartdns restart": [ "exec" ],
+				"/etc/init.d/smartdns updatefiles": [ "exec" ]
 			},
 			"uci": [ "smartdns" ]
 		}
