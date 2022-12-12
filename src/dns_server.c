@@ -670,6 +670,10 @@ static int _dns_rrs_add_all_best_ip(struct dns_server_post_context *context)
 		_dns_rrs_result_log(context, added_ip_addr);
 	}
 
+	if (request->passthrough == 2) {
+		ignore_speed = 1;
+	}
+
 	while (true) {
 		pthread_mutex_lock(&request->ip_map_lock);
 		hash_for_each_safe(request->ip_map, bucket, tmp, addr_map, node)
@@ -1709,9 +1713,9 @@ static int _dns_server_force_dualstack(struct dns_request *request)
 	return 0;
 }
 
-static int _dns_server_request_complete(struct dns_request *request)
+static int _dns_server_request_complete_with_all_IPs(struct dns_request *request, int with_all_ips)
 {
-	int ttl = DNS_SERVER_TMOUT_TTL;
+	int ttl = 0;
 	int reply_ttl = ttl;
 
 	if (request->rcode == DNS_RC_SERVFAIL || request->rcode == DNS_RC_NXDOMAIN) {
@@ -1726,7 +1730,7 @@ static int _dns_server_request_complete(struct dns_request *request)
 		return 0;
 	}
 
-	if (request->has_ip != 0) {
+	if (request->has_ip != 0 && request->passthrough == 0) {
 		request->has_soa = 0;
 		if (request->has_ping_result == 0 && request->ip_ttl > DNS_SERVER_TMOUT_TTL) {
 			request->ip_ttl = DNS_SERVER_TMOUT_TTL;
@@ -1782,9 +1786,15 @@ out:
 	context.do_reply = 1;
 	context.reply_ttl = reply_ttl;
 	context.skip_notify_count = 1;
+	context.select_all_best_ip = with_all_ips;
 
 	_dns_request_post(&context);
 	return _dns_server_reply_all_pending_list(request, &context);
+}
+
+static int _dns_server_request_complete(struct dns_request *request)
+{
+	return _dns_server_request_complete_with_all_IPs(request, 0);
 }
 
 static int _dns_ip_address_check_add(struct dns_request *request, char *cname, unsigned char *addr,
@@ -2316,6 +2326,10 @@ static int _dns_server_check_speed(struct dns_request *request, char *ip)
 		return -1;
 	}
 
+	if (request->passthrough) {
+		return -1;
+	}
+
 	ping_timeout = ping_timeout - (now - request->send_tick);
 	if (ping_timeout > DNS_PING_TIMEOUT) {
 		ping_timeout = DNS_PING_TIMEOUT;
@@ -2743,6 +2757,17 @@ static int _dns_server_passthrough_rule_check(struct dns_request *request, const
 					_dns_server_request_release(request);
 					return 0;
 				}
+
+				/* Ad blocking result */
+				if (addr[0] == 0 || addr[0] == 127) {
+					/* If half of the servers return the same result, then ignore this address */
+					if (atomic_inc_return(&request->adblock) <= (dns_server_num() / 2 + dns_server_num() % 2)) {
+						request->rcode = DNS_RC_NOERROR;
+						_dns_server_request_release(request);
+						return 0;
+					}
+				}
+
 				ttl = ttl_tmp;
 				_dns_server_request_release(request);
 			} break;
@@ -2776,6 +2801,16 @@ static int _dns_server_passthrough_rule_check(struct dns_request *request, const
 					/* skip */
 					_dns_server_request_release(request);
 					return 0;
+				}
+
+				/* Ad blocking result */
+				if (_dns_server_is_adblock_ipv6(addr) == 0) {
+					/* If half of the servers return the same result, then ignore this address */
+					if (atomic_inc_return(&request->adblock) <= (dns_server_num() / 2 + dns_server_num() % 2)) {
+						request->rcode = DNS_RC_NOERROR;
+						_dns_server_request_release(request);
+						return 0;
+					}
 				}
 
 				ttl = ttl_tmp;
@@ -2999,6 +3034,41 @@ static int dns_server_dualstack_callback(const char *domain, dns_rtcode_t rtcode
 	return 0;
 }
 
+static void _dns_server_passthrough_may_complete(struct dns_request *request)
+{
+	const unsigned char *addr;
+	if (request->passthrough != 2) {
+		return;
+	}
+
+	if (request->has_ip == 0 && request->has_soa == 0) {
+		return;
+	}
+
+	if (request->qtype == DNS_T_A && request->has_ip == 1) {
+		/* Ad blocking result */
+		addr = request->ip_addr;
+		if (addr[0] == 0 || addr[0] == 127) {
+			/* If half of the servers return the same result, then ignore this address */
+			if (atomic_read(&request->adblock) <= (dns_server_num() / 2 + dns_server_num() % 2)) {
+				return;
+			}
+		}
+	}
+
+	if (request->qtype == DNS_T_AAAA && request->has_ip == 1) {
+		addr = request->ip_addr;
+		if (_dns_server_is_adblock_ipv6(addr) == 0) {
+			/* If half of the servers return the same result, then ignore this address */
+			if (atomic_read(&request->adblock) <= (dns_server_num() / 2 + dns_server_num() % 2)) {
+				return;
+			}
+		}
+	}
+
+	_dns_server_request_complete_with_all_IPs(request, 1);
+}
+
 static int dns_server_resolve_callback(const char *domain, dns_result_type rtype, struct dns_server_info *server_info,
 									   struct dns_packet *packet, unsigned char *inpacket, int inpacket_len,
 									   void *user_ptr)
@@ -3015,7 +3085,7 @@ static int dns_server_resolve_callback(const char *domain, dns_result_type rtype
 		tlog(TLOG_DEBUG, "query result from server %s: %d, type: %d", dns_client_get_server_ip(server_info),
 			 dns_client_get_server_port(server_info), dns_client_get_server_type(server_info));
 
-		if (request->passthrough && atomic_read(&request->notified) == 0) {
+		if (request->passthrough == 1 && atomic_read(&request->notified) == 0) {
 			struct dns_server_post_context context;
 			int ttl = 0;
 			ret = _dns_server_passthrough_rule_check(request, domain, packet, result_flag, &ttl);
@@ -3064,6 +3134,7 @@ static int dns_server_resolve_callback(const char *domain, dns_result_type rtype
 		}
 
 		_dns_server_process_answer(request, domain, packet, result_flag);
+		_dns_server_passthrough_may_complete(request);
 		return 0;
 	} else if (rtype == DNS_QUERY_ERR) {
 		tlog(TLOG_ERROR, "request failed, %s", domain);
@@ -4094,6 +4165,10 @@ static void _dns_server_check_set_passthrough(struct dns_request *request)
 
 	if (request->passthrough == 1) {
 		request->dualstack_selection = 0;
+	}
+
+	if (request->passthrough == 1 && (request->qtype == DNS_T_A || request->qtype == DNS_T_AAAA)) {
+		request->passthrough = 2;
 	}
 }
 
