@@ -23,12 +23,16 @@ SERVICE_WRITE_PID=1
 SERVICE_DAEMONIZE=1
 SERVICE_PID_FILE="/var/run/smartdns.pid"
 SMARTDNS_CONF_DIR="/etc/smartdns"
+SMARTDNS_CONF_DOWNLOAD_DIR="$SMARTDNS_CONF_DIR/conf.d"
+SMARTDNS_DOMAIN_LIST_DOWNLOAD_DIR="$SMARTDNS_CONF_DIR/domain-set"
 SMARTDNS_VAR_CONF_DIR="/var/etc/smartdns"
 SMARTDNS_CONF="$SMARTDNS_VAR_CONF_DIR/smartdns.conf"
 ADDRESS_CONF="$SMARTDNS_CONF_DIR/address.conf"
 BLACKLIST_IP_CONF="$SMARTDNS_CONF_DIR/blacklist-ip.conf"
 CUSTOM_CONF="$SMARTDNS_CONF_DIR/custom.conf"
 SMARTDNS_CONF_TMP="${SMARTDNS_CONF}.tmp"
+EXTRA_COMMANDS="updatefiles"
+EXTRA_HELP="        updatefiles      Update files"
 COREDUMP="0"
 RESPAWN="1"
 DO_RELOAD="0"
@@ -174,6 +178,7 @@ load_server()
 	config_get host_name "$section" "host_name" ""
 	config_get http_host "$section" "http_host" ""
 	config_get server_group "$section" "server_group" ""
+	config_get_bool exclude_default_group "$section" "exclude_default_group" "0"
 	config_get blacklist_ip "$section" "blacklist_ip" "0"
 	config_get check_edns "$section" "check_edns" "0"
 	config_get spki_pin "$section" "spki_pin" ""
@@ -205,6 +210,7 @@ load_server()
 	[ -z "$host_name" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -host-name $host_name"
 	[ -z "$http_host" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -http-host $http_host"
 	[ -z "$server_group" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -group $server_group"
+	[ "$exclude_default_group" = "0" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -exclude-default-group"
 	[ "$blacklist_ip" = "0" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -blacklist-ip"
 	[ "$check_edns" = "0" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -check-edns"
 	[ -z "$spki_pin" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -spki-pin $spki_pin"
@@ -218,6 +224,80 @@ load_server()
 	[ "$type" = "https" ] && DNS_ADDRESS="$ip"
 
 	conf_append "$SERVER" "$DNS_ADDRESS $ADDITIONAL_ARGS $addition_arg"
+}
+
+restart_crond()
+{
+	/etc/init.d/cron restart >/dev/null 2>&1
+}
+
+disable_auto_update()
+{
+	local no_restart="$1"
+	grep "/etc/init.d/smartdns" /etc/crontabs/root 1>/dev/null 2>&1
+	if [ $? -ne 0 ]; then
+		return 
+	fi
+
+	sed -i '\@/etc/init.d/smartdns@d' /etc/crontabs/root
+
+	if [ "$no_restart" = "1" ]; then
+		return
+	fi
+
+	restart_crond
+}
+
+enable_auto_update()
+{
+	grep "0 5 * * * /etc/init.d/smartdns updatefiles" /etc/crontabs/root 2>/dev/null
+	if [ $? -eq 0 ]; then
+		return 
+	fi
+
+	disable_auto_update 1
+	echo "0 5 * * * /etc/init.d/smartdns updatefiles" >> /etc/crontabs/root
+	restart_crond
+}
+
+load_domain_rules()
+{
+	local section="$1"
+	local domain_set_args=""
+	local domain_set_name="domain"
+
+	config_get server_group "$section" "server_group" ""
+	[ ! -z "$server_group" ] && domain_set_args="$domain_set_args -nameserver $server_group"
+
+	config_get_bool no_speed_check "$section" "no_speed_check" "0"
+	[ "$no_speed_check" = "1" ] && domain_set_args="$domain_set_args -speed-check-mode none"
+
+	config_get_bool force_aaaa_soa "$section" "force_aaaa_soa" "0"
+	[ "$force_aaaa_soa" = "1" ] && domain_set_args="$domain_set_args -address #6"
+
+	config_get ipset_name "$section" "ipset_name" ""
+	[ ! -z "$ipset_name" ] && domain_set_args="$domain_set_args -ipset $ipset_name"
+
+	config_get ipset_name "$section" "nftset_name" ""
+	[ ! -z "$nftset_name" ] && domain_set_args="$domain_set_args -nftset '$nftset_name'"
+
+	config_get forwarding_domain_set_file "$section" "forwarding_domain_set_file" ""
+	[ ! -z "$forwarding_domain_set_file" ] && {
+		conf_append "domain-set" "-name ${domain_set_name}-forwarding-file -file $forwarding_domain_set_file"
+		conf_append "domain-rules" "/domain-set:${domain_set_name}-forwarding-file/ $domain_set_args"
+	}
+
+	conf_append "domain-set" "-name ${domain_set_name}-forwarding-list -file /etc/smartdns/domain-forwarding.list"
+	conf_append "domain-rules" "/domain-set:${domain_set_name}-forwarding-list/ $domain_set_args"
+
+	config_get block_domain_set_file "$section" "block_domain_set_file"
+	[ ! -z "$block_domain_set_file" ] && {
+		conf_append "domain-set" "-name ${domain_set_name}-block-file -file $block_domain_set_file"
+		conf_append "domain-rules" "/domain-set:${domain_set_name}-block-file/ -group block"
+	}
+
+	conf_append "domain-set" "-name ${domain_set_name}-block-list -file /etc/smartdns/domain-block.list"
+	conf_append "domain-rules" "/domain-set:${domain_set_name}-block-list/ --address #"
 }
 
 load_second_server()
@@ -268,6 +348,21 @@ load_second_server()
 	conf_append "bind" "$ADDR:$seconddns_port $ARGS"
 	config_get_bool "seconddns_tcp_server" "$section" "seconddns_tcp_server" "1"
 	[ "$seconddns_tcp_server" = "1" ] && conf_append "bind-tcp" "$ADDR:$seconddns_port $ARGS"
+}
+
+conf_append_conf_files()
+{
+	local conf_file="$1"
+
+	if [ "$1" != "${1#/}" ]; then
+		fullpath="$1"
+	else 
+		fullpath="$SMARTDNS_CONF_DOWNLOAD_DIR/$conf_file"
+	fi
+
+	[ -f "$fullpath" ] && {
+		conf_append "conf-file" "$fullpath"
+	}
 }
 
 load_service()
@@ -345,6 +440,9 @@ load_service()
 	config_get log_file "$section" "log_file" ""
 	[ -z "$log_file" ] || conf_append "log-file" "$log_file"
 
+	config_get_bool enable_auto_update "$section" "enable_auto_update" "0"
+	[ "$enable_auto_update" = "1" ] && enable_auto_update || disable_auto_update
+	
 	config_get redirect "$section" "redirect" ""
 	config_get old_port "$section" "old_port" "0"
 	config_get old_enabled "$section" "old_enabled" "0"
@@ -390,6 +488,7 @@ load_service()
 		[ "$old_enabled" = "0" ] && return 1
 		[ "$old_port" = "53" ] && stop_main_dns "0"
 		[ "$old_port" != "53" ] && [ "$old_auto_set_dnsmasq" = "1" ] && stop_forward_dnsmasq "$old_port" "0"
+		disable_auto_update
 		return 1
 	}
 
@@ -427,6 +526,10 @@ load_service()
 	load_second_server $section
 
 	config_foreach load_server "server"
+
+	config_list_foreach "$section" "conf_files" conf_append_conf_files
+
+	config_foreach load_domain_rules "domain-rule"
 
 	{
 		echo "conf-file $ADDRESS_CONF"
@@ -471,6 +574,38 @@ unload_service()
 		[ "$old_port" = "53" ] && stop_main_dns "0"
 		[ "$old_port" != "53" ] && [ "$old_auto_set_dnsmasq" = "1" ] && stop_forward_dnsmasq "$old_port" "0"
 	}
+}
+
+download_file() {
+	local section="$1"
+
+	config_get url "$section" "url" ""
+	config_get name "$section" "name" ""
+	config_get filetype "$section" "type" ""
+
+	[ -z "$url" ] && return 0
+	[ -z "$name" ] && return 0
+	[ -z "$filetype" ] && return 0
+
+	echo "download $filetype file $name from $url"
+	wget --timeout 120 -q -O "/tmp/$name" "$url"
+	if [ $? -ne 0 ]; then
+		echo "download file $name failed"
+		return 1
+	fi
+
+	echo "download file $name success"
+	if [ "$filetype" = "list" ]; then
+		mv "/tmp/$name" "$SMARTDNS_DOMAIN_LIST_DOWNLOAD_DIR/$name"	
+	elif [ "$filetype" = "config" ]; then
+		mv "/tmp/$name" "$SMARTDNS_CONF_DOWNLOAD_DIR/$name"	
+	fi
+}
+
+updatefiles() {
+	config_load "smartdns"
+	config_foreach download_file "download-file"
+	reload_service
 }
 
 service_stopped()
