@@ -219,8 +219,8 @@ static int conf_parse_args(char *key, char *value, int *argc, char **argv)
 			continue;
 		}
 
-		if (*ptr == '"' && start == NULL) {
-			sep_flag = '"';
+		if ((*ptr == '"' || *ptr == '\'') && start == NULL) {
+			sep_flag = *ptr;
 			start = NULL;
 		}
 

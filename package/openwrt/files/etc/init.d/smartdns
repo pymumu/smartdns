@@ -283,7 +283,7 @@ load_domain_rules()
 
 	config_get forwarding_domain_set_file "$section" "forwarding_domain_set_file" ""
 	[ ! -z "$forwarding_domain_set_file" ] && {
-		conf_append "domain-set" "-name ${domain_set_name}-forwarding-file -file $forwarding_domain_set_file"
+		conf_append "domain-set" "-name ${domain_set_name}-forwarding-file -file '$forwarding_domain_set_file'"
 		conf_append "domain-rules" "/domain-set:${domain_set_name}-forwarding-file/ $domain_set_args"
 	}
 
@@ -292,7 +292,7 @@ load_domain_rules()
 
 	config_get block_domain_set_file "$section" "block_domain_set_file"
 	[ ! -z "$block_domain_set_file" ] && {
-		conf_append "domain-set" "-name ${domain_set_name}-block-file -file $block_domain_set_file"
+		conf_append "domain-set" "-name ${domain_set_name}-block-file -file '$block_domain_set_file'"
 		conf_append "domain-rules" "/domain-set:${domain_set_name}-block-file/ -group block"
 	}
 
@@ -361,7 +361,7 @@ conf_append_conf_files()
 	fi
 
 	[ -f "$fullpath" ] && {
-		conf_append "conf-file" "$fullpath"
+		conf_append "conf-file" "'$fullpath'"
 	}
 }
 
