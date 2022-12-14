@@ -17,7 +17,7 @@ Support Raspberry Pi, openwrt, ASUS router, Windows and other devices.
   - [Usage](#usage)
     - [Use official installation source](#use-official-installation-source)
     - [Download the package](#download-the-package)
-    - [Standard Linux system installation/Raspberry Pi, X86_64 system](#standard-linux-system-installationraspberry-pi-x86_64-system)
+    - [Standard Linux system installation/Raspberry Pi, X86\_64 system](#standard-linux-system-installationraspberry-pi-x86_64-system)
     - [openwrt](#openwrt)
     - [ASUS router native firmware / Merlin firmware](#asus-router-native-firmware--merlin-firmware)
     - [optware/entware](#optwareentware)
@@ -489,11 +489,11 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 |log-level|log level|error|fatal,error,warn,notice,info,debug|log-level error
 |log-file|log path|/var/log/smartdns/smartdns.log|File Pah|log-file /var/log/smartdns/smartdns.log
 |log-size|log size|128K|number+K,M,G|log-size 128K
-|log-num|archived log number|2|Integer|log-num 2
+|log-num|archived log number|2 for openwrt, 8 for other system|Integer, 0 means turn off the log|log-num 2
 |audit-enable|audit log enable|no|[yes\|no]|audit-enable yes
 |audit-file|audit log file|/var/log/smartdns/smartdns-audit.log|File Path|audit-file /var/log/smartdns/smartdns-audit.log
 |audit-size|audit log size|128K|number+K,M,G|audit-size 128K
-|audit-num|archived audit log number|2|Integer|audit-num 2
+|audit-num|archived audit log number|2|Integer, 0 means turn off the log|audit-num 2
 |conf-file|additional conf file|None|File path|conf-file /etc/smartdns/smartdns.more.conf
 |server|Upstream UDP DNS server|None|Repeatable <br>`[ip][:port]`: Server IP, port optional. <br>`[-blacklist-ip]`: The "-blacklist-ip" parameter is to filtering IPs which is configured by "blacklist-ip". <br>`[-whitelist-ip]`: whitelist-ip parameter specifies that only the IP range configured in whitelist-ip is accepted. <br>`[-group [group] ...]`: The group to which the DNS server belongs, such as office, foreign, use with nameserver. <br>`[-exclude-default-group]`: Exclude DNS servers from the default group| server 8.8.8.8:53 -blacklist-ip
 |server-tcp|Upstream TCP DNS server|None|Repeatable <br>`[ip][:port]`: Server IP, port optional. <br>`[-blacklist-ip]`: The "-blacklist-ip" parameter is to filtering IPs which is configured by "blacklist-ip". <br>`[-whitelist-ip]`: whitelist-ip parameter specifies that only the IP range configured in whitelist-ip is accepted. <br>`[-group [group] ...]`: The group to which the DNS server belongs, such as office, foreign, use with nameserver. <br>`[-exclude-default-group]`: Exclude DNS servers from the default group| server-tcp 8.8.8.8:53
