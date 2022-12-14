@@ -104,14 +104,14 @@ extern void tlog_set_logfile(const char *logfile);
 /* enalbe log to screen */
 extern void tlog_setlogscreen(int enable);
 
-/* output log to screen only */
-extern void tlog_setlogscreen_only(int enable);
-
 /* enalbe early log to screen */
 extern void tlog_set_early_printf(int enable);
 
 /* Get log level in string */
 extern const char *tlog_get_level_string(tlog_level level);
+
+/* set max log count */
+extern void tlog_set_maxlog_count(int count);
 
 /*
 Function: Initialize log module
@@ -187,9 +187,6 @@ extern int tlog_vprintf(tlog_log *log, const char *format, va_list ap);
 /* enalbe log to screen */
 extern void tlog_logscreen(tlog_log *log, int enable);
 
-/* enalbe log to screen only*/
-extern void tlog_logscreen_only(tlog_log *log, int enable);
-
 /* register output callback */
 typedef int (*tlog_output_func)(struct tlog_log *log, const char *buff, int bufflen);
 extern int tlog_reg_output_func(tlog_log *log, tlog_output_func output);
@@ -205,6 +202,9 @@ extern int tlog_localtime(struct tlog_time *tm);
 
 /* set max line size */
 extern void tlog_set_maxline_size(struct tlog_log *log, int size);
+
+/* set max log count */
+extern void tlog_logcount(struct tlog_log *log, int count);
 
 /*
 Function: set log file and archive permission

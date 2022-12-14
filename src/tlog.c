@@ -79,9 +79,9 @@ struct tlog_log {
     int zip_pid;
     int multi_log;
     int logscreen;
-    int no_write_log;
     int segment_log;
     int max_line_size;
+    int print_errmsg;
 
     tlog_output_func output_func;
     void *private_data;
@@ -315,6 +315,19 @@ void tlog_set_maxline_size(struct tlog_log *log, int size)
     log->max_line_size = size;
 }
 
+void tlog_logcount(struct tlog_log *log, int count)
+{
+    if (log == NULL) {
+        return;
+    }
+
+    if (count < 0) {
+        count = 0;
+    }
+
+    log->logcount = count;
+}
+
 void tlog_set_permission(struct tlog_log *log, unsigned int file, unsigned int archive)
 {
     log->file_perm = file;
@@ -503,6 +516,10 @@ static int _tlog_vprintf(struct tlog_log *log, vprint_callback print_callback, v
 
     if (log->buff == NULL) {
         return -1;
+    }
+
+    if (unlikely(log->logcount <= 0 && log->logscreen == 0) ) {
+        return 0;
     }
 
     if (_tlog_need_drop(log) == 0) {
@@ -1130,7 +1147,7 @@ static int _tlog_write(struct tlog_log *log, const char *buff, int bufflen)
         unused = write(STDOUT_FILENO, buff, bufflen);
     }
 
-    if (log->no_write_log) {
+    if (log->logcount <= 0) {
         return 0;
     }
 
@@ -1153,7 +1170,6 @@ static int _tlog_write(struct tlog_log *log, const char *buff, int bufflen)
 
     if (log->fd <= 0) {
         /* open a new log file to write */
-        static int print_errmsg = 1;
         time_t now;
 
         time(&now);
@@ -1164,14 +1180,15 @@ static int _tlog_write(struct tlog_log *log, const char *buff, int bufflen)
 
         char logfile[PATH_MAX * 2];
         if (_tlog_mkdir(log->logdir) != 0) {
-            if (print_errmsg == 0) {
+            if (log->print_errmsg == 0) {
                 return -1;
             }
-            print_errmsg = 0;
+            log->print_errmsg = 0;
             fprintf(stderr, "create log dir %s failed, %s\n", log->logdir, strerror(errno));
             if (errno == EACCES && log->logscreen == 0) {
                 fprintf(stderr, "no permission to write log file, output log to console\n");
-                tlog_logscreen_only(log, 1);
+                tlog_logscreen(log, 1);
+                tlog_logcount(log, 0);
             }
             return -1;
         }
@@ -1179,17 +1196,17 @@ static int _tlog_write(struct tlog_log *log, const char *buff, int bufflen)
         log->filesize = 0;
         log->fd = open(logfile, O_APPEND | O_CREAT | O_WRONLY | O_CLOEXEC, log->file_perm);
         if (log->fd < 0) {
-            if (print_errmsg == 0) {
+            if (log->print_errmsg == 0) {
                 return -1;
             }
 
             fprintf(stderr, "open log file %s failed, %s\n", logfile, strerror(errno));
-            print_errmsg = 0;
+            log->print_errmsg = 0;
             return -1;
         }
 
         log->last_try = 0;
-        print_errmsg = 1;
+        log->print_errmsg = 1;
         /* get log file size */
         log->filesize = lseek(log->fd, 0, SEEK_END);
     }
@@ -1577,6 +1594,11 @@ const char *tlog_get_level_string(tlog_level level)
     return tlog_level_str[level];
 }
 
+void tlog_set_maxlog_count(int count)
+{
+    tlog_logcount(tlog.root, count);
+}
+
 static void _tlog_log_setlogscreen(struct tlog_log *log, int enable)
 {
     if (log == NULL) {
@@ -1586,24 +1608,9 @@ static void _tlog_log_setlogscreen(struct tlog_log *log, int enable)
     log->logscreen = (enable != 0) ? 1 : 0;
 }
 
-static void _tlog_log_setlogscreen_only(struct tlog_log *log, int enable)
-{
-    if (log == NULL) {
-        return;
-    }
-
-    log->logscreen = (enable != 0) ? 1 : 0;
-    log->no_write_log = (enable != 0) ? 1 : 0;
-}
-
 void tlog_setlogscreen(int enable)
 {
     _tlog_log_setlogscreen(tlog.root, enable);
-}
-
-void tlog_setlogscreen_only(int enable)
-{
-    _tlog_log_setlogscreen_only(tlog.root, enable);
 }
 
 int tlog_write_log(char *buff, int bufflen)
@@ -1622,15 +1629,6 @@ void tlog_logscreen(tlog_log *log, int enable)
     }
 
     _tlog_log_setlogscreen(log, enable);
-}
-
-void tlog_logscreen_only(tlog_log *log, int enable)
-{
-    if (log == NULL) {
-        return;
-    }
-
-    _tlog_log_setlogscreen_only(log, enable);
 }
 
 int tlog_reg_output_func(tlog_log *log, tlog_output_func output)
@@ -1704,12 +1702,13 @@ tlog_log *tlog_open(const char *logfile, int maxlogsize, int maxlogcount, int bu
     log->dropped = 0;
     log->buffsize = (buffsize > 0) ? buffsize : TLOG_BUFF_SIZE;
     log->logsize = (maxlogsize >= 0) ? maxlogsize : TLOG_LOG_SIZE;
-    log->logcount = (maxlogcount > 0) ? maxlogcount : TLOG_LOG_COUNT;
+    log->logcount = (maxlogcount <= 0) ? 0 : maxlogcount;
     log->fd = -1;
     log->filesize = 0;
     log->zip_pid = -1;
     log->is_exit = 0;
     log->fail = 0;
+    log->print_errmsg = 1;
     log->waiters = 0;
     log->block = ((flag & TLOG_NONBLOCK) == 0) ? 1 : 0;
     log->nocompress = ((flag & TLOG_NOCOMPRESS) == 0) ? 0 : 1;

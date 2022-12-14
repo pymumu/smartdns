@@ -1468,7 +1468,8 @@ int dns_packet_debug(const char *packet_file)
 	struct _dns_read_packet_info *info = NULL;
 	char buff[DNS_PACKSIZE];
 
-	tlog_setlogscreen_only(1);
+	tlog_set_maxlog_count(0);
+	tlog_setlogscreen(1);;
 	tlog_setlevel(TLOG_DEBUG);
 
 	info = _dns_read_packet_file(packet_file);
