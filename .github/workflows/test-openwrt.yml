@@ -67,9 +67,9 @@ jobs:
           #- arch: arm_cortex-a9_neon
           #  sdk_url_path: https://downloads.openwrt.org/snapshots/targets/imx6/generic
           #  sdk_name: -sdk-imx6_
-          - arch: arm_cortex-a9_vfpv3
-            sdk_url_path: https://downloads.openwrt.org/releases/19.07.2/targets/mvebu/cortexa9
-            sdk_name: -sdk-19.07.2-mvebu-cortexa9_
+          #- arch: arm_cortex-a9_vfpv3
+          #  sdk_url_path: https://downloads.openwrt.org/releases/19.07.2/targets/mvebu/cortexa9
+          #  sdk_name: -sdk-19.07.2-mvebu-cortexa9_
           - arch: arm_cortex-a9_vfpv3-d16
             sdk_url_path: https://downloads.openwrt.org/snapshots/targets/mvebu/cortexa9
             sdk_name: -sdk-mvebu-cortexa9_
@@ -79,9 +79,9 @@ jobs:
           - arch: arm_mpcore
             sdk_url_path: https://downloads.openwrt.org/snapshots/targets/oxnas/ox820
             sdk_name: -sdk-oxnas-ox820_
-          - arch: arm_mpcore_vfp
-            sdk_url_path: https://downloads.openwrt.org/releases/19.07.7/targets/cns3xxx/generic
-            sdk_name: -sdk-19.07.7-cns3xxx_
+          #- arch: arm_mpcore_vfp
+          #  sdk_url_path: https://downloads.openwrt.org/releases/19.07.7/targets/cns3xxx/generic
+          #  sdk_name: -sdk-19.07.7-cns3xxx_
           - arch: arm_xscale
             sdk_url_path: https://downloads.openwrt.org/snapshots/targets/kirkwood/generic
             sdk_name: -sdk-kirkwood_
