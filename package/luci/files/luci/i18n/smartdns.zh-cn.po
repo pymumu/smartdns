@@ -385,6 +385,9 @@ msgstr ""
 "配置特定域名返回特定的IP地址，域名查询将不到上游服务器请求，直接返回配置的IP"
 "地址，可用于广告屏蔽。"
 
+msgid "Report bugs"
+msgstr "报告BUG"
+
 msgid "TCP Server"
 msgstr "TCP服务器"
 

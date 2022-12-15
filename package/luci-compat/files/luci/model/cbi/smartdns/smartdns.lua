@@ -554,6 +554,14 @@ o.write = function()
 	luci.http.redirect("https://pymumu.github.io/smartdns")
 end
 
+o = s:option(Button, "report")
+o.title = translate("Report bugs")
+o.inputtitle = translate("Report bugs")
+o.inputstyle = "apply"
+o.write = function()
+	luci.http.redirect("https://github.com/pymumu/smartdns/issues")
+end
+
 o = s:option(Button, "Donate")
 o.title = translate("Donate to smartdns")
 o.inputtitle = translate("Donate")
