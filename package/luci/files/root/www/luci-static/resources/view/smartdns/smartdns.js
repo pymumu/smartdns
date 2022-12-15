@@ -734,6 +734,14 @@ return view.extend({
 			window.open("https://pymumu.github.io/smartdns", '_blank');
 		};
 
+		o = s.option(form.Button, "report");
+		o.title = _("Report bugs");
+		o.inputtitle = _("Report bugs");
+		o.inputstyle = "apply";
+		o.onclick = function () {
+			window.open("https://github.com/pymumu/smartdns/issues", '_blank');
+		};
+
 		o = s.option(form.Button, "Donate");
 		o.title = _("Donate to smartdns");
 		o.inputtitle = _("Donate");
