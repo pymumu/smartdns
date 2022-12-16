@@ -19,6 +19,12 @@ msgstr "自动设置Dnsmasq"
 msgid "Automatically set as upstream of dnsmasq when port changes."
 msgstr "端口更改时自动设为 dnsmasq 的上游。"
 
+msgid "Block domain type"
+msgstr "屏蔽域名类型"
+
+msgid "Block domain type."
+msgstr "屏蔽域名类型。"
+
 msgid "Cache Size"
 msgstr "缓存大小"
 
@@ -32,6 +38,9 @@ msgstr "配置需要从指定域名服务器结果过滤的IP黑名单。"
 
 msgid "Configure block domain list."
 msgstr "配置屏蔽域名列表"
+
+msgid "Configure domain rule list."
+msgstr "配置域名规则列表"
 
 msgid "Configure forwarding domain name list."
 msgstr "配置分流域名列表"
@@ -86,6 +95,12 @@ msgstr "域名列表"
 
 msgid "Domain List File"
 msgstr "域名列表文件"
+
+msgid "Domain Rule List"
+msgstr "域名规则列表"
+
+msgid "Domain Rule Name"
+msgstr "域名规则名称"
 
 msgid "Domain Rules"
 msgstr "域名规则"
@@ -253,6 +268,9 @@ msgstr "未运行"
 msgid "No check certificate"
 msgstr "停用证书校验"
 
+msgid "None"
+msgstr "无"
+
 msgid "Query DNS through specific dns server group, such as office, home."
 msgstr "使用指定服务器组查询，比如office, home。"
 
@@ -264,6 +282,9 @@ msgstr "回应的域名TTL最大值"
 
 msgid "Reply maximum TTL for all domain result."
 msgstr "设置返回给客户端的域名TTL最大值。"
+
+msgid "Report bugs"
+msgstr "报告BUG"
 
 msgid "Resolve Local Hostnames"
 msgstr "解析本地主机名"
@@ -294,6 +315,9 @@ msgstr "服务器名称"
 
 msgid "Set Specific domain ip address."
 msgstr "设置指定域名的IP地址。"
+
+msgid "Set Specific domain rule list."
+msgstr "设置指定域名的规则列表。"
 
 msgid "Set Specific ip blacklist."
 msgstr "设置指定的 IP 黑名单列表。"
@@ -384,9 +408,6 @@ msgid ""
 msgstr ""
 "配置特定域名返回特定的IP地址，域名查询将不到上游服务器请求，直接返回配置的IP"
 "地址，可用于广告屏蔽。"
-
-msgid "Report bugs"
-msgstr "报告BUG"
 
 msgid "TCP Server"
 msgstr "TCP服务器"
