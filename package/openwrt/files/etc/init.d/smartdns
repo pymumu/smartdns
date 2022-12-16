@@ -300,6 +300,42 @@ load_domain_rules()
 	conf_append "domain-rules" "/domain-set:${domain_set_name}-block-list/ --address #"
 }
 
+load_domain_rule_list()
+{
+	local section="$1"
+	local domain_set_args=""
+	local domain_set_name="$section"
+
+	config_get_bool enabled "$section" "enabled" "0"
+	[ "$enabled" != "1" ] && return
+
+	config_get server_group "$section" "server_group" ""
+	[ ! -z "$server_group" ] && domain_set_args="$domain_set_args -nameserver $server_group"
+
+	config_get block_domain_type "$section" "block_domain_type" ""
+	[ "$block_domain_type" = "all" ] && domain_set_args="$domain_set_args -address #"
+	[ "$block_domain_type" = "ipv4" ] && domain_set_args="$domain_set_args -address #4"
+	[ "$block_domain_type" = "ipv6" ] && domain_set_args="$domain_set_args -address #6"
+
+	config_get_bool no_speed_check "$section" "no_speed_check" "0"
+	[ "$no_speed_check" = "1" ] && domain_set_args="$domain_set_args -speed-check-mode none"
+
+	config_get_bool force_aaaa_soa "$section" "force_aaaa_soa" "0"
+	[ "$force_aaaa_soa" = "1" ] && domain_set_args="$domain_set_args -address #6"
+
+	config_get ipset_name "$section" "ipset_name" ""
+	[ ! -z "$ipset_name" ] && domain_set_args="$domain_set_args -ipset $ipset_name"
+
+	config_get ipset_name "$section" "nftset_name" ""
+	[ ! -z "$nftset_name" ] && domain_set_args="$domain_set_args -nftset '$nftset_name'"
+
+	config_get domain_list_file "$section" "domain_list_file" ""
+	[ -z "$domain_list_file" ] && return
+
+	conf_append "domain-set" "-name domain-rule-list-${domain_set_name} -file '$domain_list_file'"
+	conf_append "domain-rules" "/domain-set:domain-rule-list-${domain_set_name}/ $domain_set_args"	
+}
+
 load_second_server()
 {
 	local section="$1"
@@ -530,6 +566,8 @@ load_service()
 	config_list_foreach "$section" "conf_files" conf_append_conf_files
 
 	config_foreach load_domain_rules "domain-rule"
+
+	config_foreach load_domain_rule_list "domain-rule-list"
 
 	{
 		echo "conf-file $ADDRESS_CONF"

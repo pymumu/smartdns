@@ -155,19 +155,19 @@ return view.extend({
 		o.datatype = "port";
 		o.rempty = false;
 
+		///////////////////////////////////////
+		// advanced settings;
+		///////////////////////////////////////
 		// Enable TCP server;
-		o = s.taboption("settings", form.Flag, "tcp_server", _("TCP Server"), _("Enable TCP DNS Server"));
+		o = s.taboption("advanced", form.Flag, "tcp_server", _("TCP Server"), _("Enable TCP DNS Server"));
 		o.rmempty = false;
 		o.default = o.enabled;
 
 		// Support IPV6;
-		o = s.taboption("settings", form.Flag, "ipv6_server", _("IPV6 Server"), _("Enable IPV6 DNS Server"));
+		o = s.taboption("advanced", form.Flag, "ipv6_server", _("IPV6 Server"), _("Enable IPV6 DNS Server"));
 		o.rmempty = false;
 		o.default = o.enabled;
 
-		///////////////////////////////////////
-		// advanced settings;
-		///////////////////////////////////////
 		// Support DualStack ip selection;
 		o = s.taboption("advanced", form.Flag, "dualstack_ip_selection", _("Dual-stack IP Selection"),
 			_("Enable IP selection between IPV4 and IPV6"));
@@ -334,7 +334,6 @@ return view.extend({
 		o.rmempty = true
 		o.datatype = "file"
 		o.rempty = true
-		o.editable = true
 		o.root_directory = "/etc/smartdns/conf.d"
 
 		o = s.taboption("files", form.FileUpload, "upload_list_file", _("Upload Domain List File"),
@@ -342,7 +341,6 @@ return view.extend({
 		o.rmempty = true
 		o.datatype = "file"
 		o.rempty = true
-		o.editable = true
 		o.root_directory = "/etc/smartdns/domain-set"
 
 		o = s.taboption('files', form.DummyValue, "_update", _("Update Files"));
@@ -562,6 +560,7 @@ return view.extend({
 
 		s.tab("forwarding", _('DNS Forwarding Setting'));
 		s.tab("block", _("DNS Block Setting"));
+		s.tab("domain-rule-list", _("Domain Rule List"), _("Set Specific domain rule list."));
 		s.tab("domain-address", _("Domain Address"), _("Set Specific domain ip address."));
 		s.tab("blackip-list", _("IP Blacklist"), _("Set Specific ip blacklist."));
 
@@ -679,6 +678,104 @@ return view.extend({
 				return fs.write('/etc/smartdns/domain-block.list', formvalue.trim().replace(/\r\n/g, '\n') + '\n');
 			});
 		};
+
+		///////////////////////////////////////
+		// domain rule list;
+		///////////////////////////////////////
+		o = s.taboption('domain-rule-list', form.SectionValue, '__domain-rule-list__', form.GridSection, 'domain-rule-list', _('Domain Rule List'),
+			_('Configure domain rule list.'));
+
+		ss = o.subsection;
+
+		ss.addremove = true;
+		ss.anonymous = true;
+		ss.sortable = true;
+
+		// enable flag;
+		so = ss.option(form.Flag, "enabled", _("Enable"), _("Enable"));
+		so.rmempty = false;
+		so.default = so.enabled;
+		so.editable = true;
+
+		// name;
+		so = ss.option(form.Value, "name", _("Domain Rule Name"), _("Domain Rule Name"));
+
+		so = ss.option(form.Value, "server_group", _("Server Group"), _("DNS Server group belongs to, such as office, home."))
+		so.rmempty = true
+		so.placeholder = "default"
+		so.datatype = "hostname"
+		so.rempty = true
+		for (const groupname of groupnames) {
+			so.value(groupname);
+		}
+		so.validate = function (section_id, value) {
+			if (value == "") {
+				return true;
+			}
+
+			var val = uci.sections('smartdns', 'server');
+			for (var i = 0; i < val.length; i++) {
+				if (value == val[i].server_group) {
+					return true;
+				}
+			}
+
+			return _('Server Group %s not exists').format(value);
+
+		}
+
+		so = ss.option(form.FileUpload, "domain_list_file", _("Domain List File"),
+			_("Upload domain list file, or configure auto download from Download File Setting page."));
+		so.rmempty = true
+		so.datatype = "file"
+		so.rempty = true
+		so.root_directory = "/etc/smartdns/domain-set"
+
+		so = ss.option(form.ListValue, "block_domain_type", _("Block domain type"), _("Block domain type."));
+		so.rmempty = true;
+		so.value("none", _("None"));
+		so.value("all", "IPv4/IPv6");
+		so.value("ipv4", "IPv4");
+		so.value("ipv6", "IPv6");
+		so.modalonly = true;
+
+		so = ss.option(form.Flag, "no_speed_check", _("Skip Speed Check"),
+			_("Do not check speed."));
+		so.rmempty = true;
+		so.default = so.disabled;
+		so.modalonly = true;
+
+		so = ss.option(form.Flag, "force_aaaa_soa", _("Force AAAA SOA"), _("Force AAAA SOA."));
+		so.rmempty = true;
+		so.default = so.disabled;
+		so.modalonly = true;
+
+
+		so = ss.option(form.Value, "ipset_name", _("IPset Name"), _("IPset name."));
+		so.rmempty = true;
+		so.datatype = "hostname";
+		so.rempty = true;
+		so.modalonly = true;
+
+		so = ss.option(form.Value, "nftset_name", _("NFTset Name"), _("NFTset name, format: [#[4|6]:[family#table#set]]"));
+		so.rmempty = true;
+		so.datatype = "string";
+		so.rempty = true;
+		so.modalonly = true;
+		so.validate = function (section_id, value) {
+			if (value == "") {
+				return true;
+			}
+
+			var nftset = value.split(",")
+			for (var i = 0; i < nftset.length; i++) {
+				if (!nftset[i].match(/#[4|6]:[a-zA-Z0-9\-_]+#[a-zA-Z0-9\-_]+#[a-zA-Z0-9\-_]+$/)) {
+					return _("NFTset name format error, format: [#[4|6]:[family#table#set]]");
+				}
+			}
+
+			return true;
+		}
 
 		///////////////////////////////////////
 		// IP Blacklist;

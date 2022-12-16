@@ -56,7 +56,7 @@ o.datatype    = "port"
 o.rempty      = false
 
 ---- Enable TCP server
-o = s:taboption("settings", Flag, "tcp_server", translate("TCP Server"), translate("Enable TCP DNS Server"))
+o = s:taboption("advanced", Flag, "tcp_server", translate("TCP Server"), translate("Enable TCP DNS Server"))
 o.rmempty     = false
 o.default     = o.enabled
 o.cfgvalue    = function(...)
@@ -64,7 +64,7 @@ o.cfgvalue    = function(...)
 end
 
 ---- Support IPV6
-o = s:taboption("settings", Flag, "ipv6_server", translate("IPV6 Server"), translate("Enable IPV6 DNS Server"))
+o = s:taboption("advanced", Flag, "ipv6_server", translate("IPV6 Server"), translate("Enable IPV6 DNS Server"))
 o.rmempty     = false
 o.default     = o.enabled
 o.cfgvalue    = function(...)
