@@ -55,6 +55,52 @@ o.default     = 53
 o.datatype    = "port"
 o.rempty      = false
 
+---- Speed check mode;
+o = s:taboption("advanced", Value, "speed_check_mode", translate("Speed Check Mode"), translate("Smartdns speed check mode."));
+o.rmempty = true;
+o.placeholder = "default";
+o.default = o.enabled;
+o:value("ping,tcp:80,tcp:443");
+o:value("ping,tcp:443,tcp:80");
+o:value("tcp:80,tcp:443,ping");
+o:value("tcp:443,tcp:80,ping");
+o:value("none", translate("None"));
+function o.validate (section_id, value) 
+    if value == "" then
+        return value
+    end
+
+    if value == nil then
+        return nil, translate("Speed check mode is invalid.")
+    end
+
+    if value == "none" then
+        return value
+    end
+
+    local mode = value:split(",");
+    for _, v in ipairs(mode) do repeat
+        if v == "ping" then
+            break
+        end
+
+        if v == nil then
+            return nil, translate("Speed check mode is invalid.")
+        end
+        
+        local port = v:split(":");
+        if "tcp" == port[1] then
+            if tonumber(port[2]) then
+                break
+            end
+        end
+        
+        return nil, translate("Speed check mode is invalid.")
+    until true end
+
+    return value
+end
+
 ---- Enable TCP server
 o = s:taboption("advanced", Flag, "tcp_server", translate("TCP Server"), translate("Enable TCP DNS Server"))
 o.rmempty     = false
@@ -337,12 +383,19 @@ o.datatype = "hostname"
 o.rempty = true
 uci:foreach("smartdns", "server", function(section)
     local server_group = section.server_group
+    if server_group == nil then
+        return
+    end
     o:value(server_group);
 end)
 
 function o.validate (section_id, value) 
-    if (value == "") then
+    if value == "" then
         return value
+    end
+
+    if value == nil then
+        return nil, translate('Server Group not exists')
     end
 
     local exists = false
@@ -357,7 +410,7 @@ function o.validate (section_id, value)
         end
     end)
 
-    if (exists == false) then
+    if exists == false then
         return nil, translate('Server Group not exists')
     end
 
@@ -517,7 +570,11 @@ o.rmempty = false
 o.datatype = 'string'
 function o.validate(self, value, section)
     if value == "" then
-        return nil
+        return nil, translate("URL format error, format: http:// or https://")
+    end
+
+    if value == nil then
+        return nil, translate("URL format error, format: http:// or https://")
     end
 
     if value.find(value, "http://") then

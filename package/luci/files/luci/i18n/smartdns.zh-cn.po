@@ -75,6 +75,9 @@ msgstr "协议类型"
 msgid "DNS domain result cache size"
 msgstr "缓存DNS的结果，缓存大小，配置零则不缓存"
 
+msgid "default"
+msgstr "默认"
+
 msgid "Description"
 msgstr "描述"
 
@@ -265,6 +268,9 @@ msgstr "NFTSet名称，格式：[#[4|6]:[family#table#set]]"
 msgid "NOT RUNNING"
 msgstr "未运行"
 
+msgid "No"
+msgstr "否"
+
 msgid "No check certificate"
 msgstr "停用证书校验"
 
@@ -401,6 +407,12 @@ msgstr ""
 msgid "Smartdns server name"
 msgstr "SmartDNS的服务器名称，默认为smartdns，留空为主机名"
 
+msgid "Smartdns speed check mode."
+msgstr "SmartDNS测速模式。"
+
+msgid "Speed Check Mode"
+msgstr "测速模式"
+
 msgid ""
 "Specify an IP address to return for any host in the given domains, Queries "
 "in the domains are never forwarded and always replied to with the specified "
@@ -509,3 +521,6 @@ msgstr "类型"
 
 msgid "udp"
 msgstr "udp"
+
+msgid "Yes"
+msgstr "是"
