@@ -62,6 +62,9 @@ struct tlog_time {
 /* enable log to screen */
 #define TLOG_SCREEN (1 << 4)
 
+/* enable log to file */
+#define TLOG_FILE (1 << 5)
+
 /* enable suppport fork process */
 #define TLOG_SUPPORT_FORK (1 << 5)
 
@@ -103,6 +106,9 @@ extern void tlog_set_logfile(const char *logfile);
 
 /* enalbe log to screen */
 extern void tlog_setlogscreen(int enable);
+
+/* enalbe log to file (unused)  */
+extern void tlog_setlogtofile(int enable);
 
 /* enalbe early log to screen */
 extern void tlog_set_early_printf(int enable);
@@ -186,6 +192,9 @@ extern int tlog_vprintf(tlog_log *log, const char *format, va_list ap);
 
 /* enalbe log to screen */
 extern void tlog_logscreen(tlog_log *log, int enable);
+
+/* enalbe log to file */
+extern void tlog_logtofile(tlog_log *log, int enable);
 
 /* register output callback */
 typedef int (*tlog_output_func)(struct tlog_log *log, const char *buff, int bufflen);

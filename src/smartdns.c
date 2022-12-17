@@ -359,6 +359,7 @@ static int _smartdns_init(void)
 	}
 
 	tlog_setlogscreen(verbose_screen);
+	tlog_setlogtofile(dns_conf_log_enable);
 	tlog_setlevel(dns_conf_log_level);
 
 	tlog(TLOG_NOTICE, "smartdns starting...(Copyright (C) Nick Peng <pymumu@gmail.com>, build: %s %s)", __DATE__,
