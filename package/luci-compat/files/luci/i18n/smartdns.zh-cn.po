@@ -369,6 +369,15 @@ msgstr ""
 msgid "Smartdns server name"
 msgstr "SmartDNS的服务器名称，默认为smartdns，留空为主机名"
 
+msgid "Speed check mode is invalid."
+msgstr "测速模式无效。"
+
+msgid "Speed Check Mode"
+msgstr "测速模式"
+
+msgid "Smartdns speed check mode. "
+msgstr "SmartDns测速模式设置。"
+
 msgid ""
 "Specify an IP address to return for any host in the given domains, Queries "
 "in the domains are never forwarded and always replied to with the specified "

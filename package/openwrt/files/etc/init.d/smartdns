@@ -278,7 +278,7 @@ load_domain_rules()
 	config_get ipset_name "$section" "ipset_name" ""
 	[ ! -z "$ipset_name" ] && domain_set_args="$domain_set_args -ipset $ipset_name"
 
-	config_get ipset_name "$section" "nftset_name" ""
+	config_get nftset_name "$section" "nftset_name" ""
 	[ ! -z "$nftset_name" ] && domain_set_args="$domain_set_args -nftset '$nftset_name'"
 
 	config_get forwarding_domain_set_file "$section" "forwarding_domain_set_file" ""
@@ -317,8 +317,12 @@ load_domain_rule_list()
 	[ "$block_domain_type" = "ipv4" ] && domain_set_args="$domain_set_args -address #4"
 	[ "$block_domain_type" = "ipv6" ] && domain_set_args="$domain_set_args -address #6"
 
-	config_get_bool no_speed_check "$section" "no_speed_check" "0"
-	[ "$no_speed_check" = "1" ] && domain_set_args="$domain_set_args -speed-check-mode none"
+	config_get speed_check_mode "$section" "speed_check_mode" ""
+	[ ! -z "$speed_check_mode" ] && domain_set_args="$domain_set_args -speed-check-mode $speed_check_mode"
+
+	config_get dualstack_ip_selection "$section" "dualstack_ip_selection" ""
+	[ "$dualstack_ip_selection" = "no" ] && domain_set_args="$domain_set_args -dualstack-ip-selection no"
+	[ "$dualstack_ip_selection" = "yes" ] && domain_set_args="$domain_set_args -dualstack-ip-selection yes"
 
 	config_get_bool force_aaaa_soa "$section" "force_aaaa_soa" "0"
 	[ "$force_aaaa_soa" = "1" ] && domain_set_args="$domain_set_args -address #6"
@@ -326,7 +330,7 @@ load_domain_rule_list()
 	config_get ipset_name "$section" "ipset_name" ""
 	[ ! -z "$ipset_name" ] && domain_set_args="$domain_set_args -ipset $ipset_name"
 
-	config_get ipset_name "$section" "nftset_name" ""
+	config_get nftset_name "$section" "nftset_name" ""
 	[ ! -z "$nftset_name" ] && domain_set_args="$domain_set_args -nftset '$nftset_name'"
 
 	config_get domain_list_file "$section" "domain_list_file" ""
@@ -428,6 +432,9 @@ load_service()
 	config_get port "$section" "port" "53"
 	config_get ipv6_server "$section" "ipv6_server" "1"
 	config_get tcp_server "$section" "tcp_server" "1"
+
+	config_get speed_check_mode "$section" "speed_check_mode" ""
+	[ ! -z "$speed_check_mode" ] && conf_append "speed-check-mode" "$speed_check_mode"
 
 	config_get dualstack_ip_selection "$section" "dualstack_ip_selection" "0"
 	[ "$dualstack_ip_selection" = "0" ] && conf_append "dualstack-ip-selection" "no"

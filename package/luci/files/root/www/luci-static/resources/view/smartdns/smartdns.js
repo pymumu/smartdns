@@ -158,6 +158,46 @@ return view.extend({
 		///////////////////////////////////////
 		// advanced settings;
 		///////////////////////////////////////
+		// Speed check mode;
+		o = s.taboption("advanced", form.Value, "speed_check_mode", _("Speed Check Mode"), _("Smartdns speed check mode."));
+		o.rmempty = true;
+		o.placeholder = "default";
+		o.value("", _("default"));
+		o.value("ping,tcp:80,tcp:443");
+		o.value("ping,tcp:443,tcp:80");
+		o.value("tcp:80,tcp:443,ping");
+		o.value("tcp:443,tcp:80,ping");
+		o.value("none", _("None"));
+		o.validate = function (section_id, value) {
+			if (value == "") {
+				return true;
+			}
+
+			if (value == "none") {
+				return true;
+			}
+
+			var check_mode = value.split(",")
+			for (var i = 0; i < check_mode.length; i++) {
+				if (check_mode[i] == "ping") {
+					continue;
+				}
+
+				if (check_mode[i].indexOf("tcp:") == 0) {
+					var port = check_mode[i].split(":")[1];
+					if (port == "") {
+						return _("TCP port is empty");
+					}
+
+					continue;
+				}
+
+				return _("Speed check mode is invalid.");
+			}
+
+			return true;
+		}
+
 		// Enable TCP server;
 		o = s.taboption("advanced", form.Flag, "tcp_server", _("TCP Server"), _("Enable TCP DNS Server"));
 		o.rmempty = false;
@@ -726,7 +766,7 @@ return view.extend({
 
 		so = ss.option(form.FileUpload, "domain_list_file", _("Domain List File"),
 			_("Upload domain list file, or configure auto download from Download File Setting page."));
-		so.rmempty = true
+		so.rmempty = false
 		so.datatype = "file"
 		so.rempty = true
 		so.root_directory = "/etc/smartdns/domain-set"
@@ -739,11 +779,55 @@ return view.extend({
 		so.value("ipv6", "IPv6");
 		so.modalonly = true;
 
-		so = ss.option(form.Flag, "no_speed_check", _("Skip Speed Check"),
-			_("Do not check speed."));
+		// Support DualStack ip selection;
+		so = ss.option(form.ListValue, "dualstack_ip_selection", _("Dual-stack IP Selection"),
+			_("Enable IP selection between IPV4 and IPV6"));
 		so.rmempty = true;
-		so.default = so.disabled;
+		so.default = "default";
 		so.modalonly = true;
+		so.value("", _("default"));
+		so.value("yes", _("Yes"));
+		so.value("no", _("No"));
+
+		so = ss.option(form.Value, "speed_check_mode", _("Speed Check Mode"), _("Smartdns speed check mode."));
+		so.rmempty = true;
+		so.placeholder = "default";
+		so.modalonly = true;
+		so.value("", _("default"));
+		so.value("ping,tcp:80,tcp:443");
+		so.value("ping,tcp:443,tcp:80");
+		so.value("tcp:80,tcp:443,ping");
+		so.value("tcp:443,tcp:80,ping");
+		so.value("none", _("None"));
+		so.validate = function (section_id, value) {
+			if (value == "") {
+				return true;
+			}
+
+			if (value == "none") {
+				return true;
+			}
+
+			var check_mode = value.split(",")
+			for (var i = 0; i < check_mode.length; i++) {
+				if (check_mode[i] == "ping") {
+					continue;
+				}
+
+				if (check_mode[i].indexOf("tcp:") == 0) {
+					var port = check_mode[i].split(":")[1];
+					if (port == "") {
+						return _("TCP port is empty");
+					}
+
+					continue;
+				}
+
+				return _("Speed check mode is invalid.");
+			}
+
+			return true;
+		}
 
 		so = ss.option(form.Flag, "force_aaaa_soa", _("Force AAAA SOA"), _("Force AAAA SOA."));
 		so.rmempty = true;
