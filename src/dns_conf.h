@@ -344,6 +344,7 @@ extern int dns_conf_serve_expired_reply_ttl;
 extern struct dns_servers dns_conf_servers[DNS_MAX_SERVERS];
 extern int dns_conf_server_num;
 
+extern int dns_conf_log_enable;
 extern int dns_conf_log_level;
 extern char dns_conf_log_file[DNS_MAX_PATH];
 extern size_t dns_conf_log_size;

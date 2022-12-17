@@ -486,14 +486,15 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 |rr-ttl-reply-max|Domain name Minimum Reply TTL|Remote query result|number greater than 0|rr-ttl-reply-max 60
 |rr-ttl-max|Domain name Maximum TTL|Remote query result|number greater than 0|rr-ttl-max 600
 |max-reply-ip-num|Maximum number of IPs returned to the client|8|number of IPs, 1~16 |max-reply-ip-num 1
+|log-enable|dns log enable|yes|[yes\|no]|log-enable no
 |log-level|log level|error|fatal,error,warn,notice,info,debug|log-level error
 |log-file|log path|/var/log/smartdns/smartdns.log|File Pah|log-file /var/log/smartdns/smartdns.log
 |log-size|log size|128K|number+K,M,G|log-size 128K
-|log-num|archived log number|2 for openwrt, 8 for other system|Integer, 0 means turn off the log|log-num 2
+|log-num|archived log number|2 for openwrt, 8 for other system|Integer|log-num 2
 |audit-enable|audit log enable|no|[yes\|no]|audit-enable yes
 |audit-file|audit log file|/var/log/smartdns/smartdns-audit.log|File Path|audit-file /var/log/smartdns/smartdns-audit.log
 |audit-size|audit log size|128K|number+K,M,G|audit-size 128K
-|audit-num|archived audit log number|2|Integer, 0 means turn off the log|audit-num 2
+|audit-num|archived audit log number|2|Integer|audit-num 2
 |conf-file|additional conf file|None|File path|conf-file /etc/smartdns/smartdns.more.conf
 |server|Upstream UDP DNS server|None|Repeatable <br>`[ip][:port]`: Server IP, port optional. <br>`[-blacklist-ip]`: The "-blacklist-ip" parameter is to filtering IPs which is configured by "blacklist-ip". <br>`[-whitelist-ip]`: whitelist-ip parameter specifies that only the IP range configured in whitelist-ip is accepted. <br>`[-group [group] ...]`: The group to which the DNS server belongs, such as office, foreign, use with nameserver. <br>`[-exclude-default-group]`: Exclude DNS servers from the default group| server 8.8.8.8:53 -blacklist-ip
 |server-tcp|Upstream TCP DNS server|None|Repeatable <br>`[ip][:port]`: Server IP, port optional. <br>`[-blacklist-ip]`: The "-blacklist-ip" parameter is to filtering IPs which is configured by "blacklist-ip". <br>`[-whitelist-ip]`: whitelist-ip parameter specifies that only the IP range configured in whitelist-ip is accepted. <br>`[-group [group] ...]`: The group to which the DNS server belongs, such as office, foreign, use with nameserver. <br>`[-exclude-default-group]`: Exclude DNS servers from the default group| server-tcp 8.8.8.8:53

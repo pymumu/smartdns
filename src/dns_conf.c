@@ -101,6 +101,7 @@ struct dns_domain_check_orders dns_conf_check_orders = {
 static int dns_has_cap_ping = 0;
 
 /* logging */
+int dns_conf_log_enable = 1;
 int dns_conf_log_level = TLOG_ERROR;
 char dns_conf_log_file[DNS_MAX_PATH];
 size_t dns_conf_log_size = 1024 * 1024;
@@ -2396,6 +2397,7 @@ static struct config_item _config_item[] = {
 	CONF_YESNO("dualstack-ip-selection", &dns_conf_dualstack_ip_selection),
 	CONF_YESNO("dualstack-ip-allow-force-AAAA", &dns_conf_dualstack_ip_allow_force_AAAA),
 	CONF_INT("dualstack-ip-selection-threshold", &dns_conf_dualstack_ip_selection_threshold, 0, 1000),
+	CONF_YESNO("log-enable", &dns_conf_log_enable),
 	CONF_CUSTOM("log-level", _config_log_level, NULL),
 	CONF_STRING("log-file", (char *)dns_conf_log_file, DNS_MAX_PATH),
 	CONF_SIZE("log-size", &dns_conf_log_size, 0, 1024 * 1024 * 1024),
