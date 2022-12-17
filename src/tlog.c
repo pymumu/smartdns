@@ -317,19 +317,6 @@ void tlog_set_maxline_size(struct tlog_log *log, int size)
     log->max_line_size = size;
 }
 
-void tlog_logcount(struct tlog_log *log, int count)
-{
-    if (log == NULL) {
-        return;
-    }
-
-    if (count < 0) {
-        count = 0;
-    }
-
-    log->logcount = count;
-}
-
 void tlog_set_permission(struct tlog_log *log, unsigned int file, unsigned int archive)
 {
     log->file_perm = file;
@@ -1606,11 +1593,6 @@ const char *tlog_get_level_string(tlog_level level)
     }
 
     return tlog_level_str[level];
-}
-
-void tlog_set_maxlog_count(int count)
-{
-    tlog_logcount(tlog.root, count);
 }
 
 static void _tlog_log_setlogscreen(struct tlog_log *log, int enable)

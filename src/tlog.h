@@ -116,9 +116,6 @@ extern void tlog_set_early_printf(int enable);
 /* Get log level in string */
 extern const char *tlog_get_level_string(tlog_level level);
 
-/* set max log count */
-extern void tlog_set_maxlog_count(int count);
-
 /*
 Function: Initialize log module
 logfile: log file.
@@ -211,9 +208,6 @@ extern int tlog_localtime(struct tlog_time *tm);
 
 /* set max line size */
 extern void tlog_set_maxline_size(struct tlog_log *log, int size);
-
-/* set max log count */
-extern void tlog_logcount(struct tlog_log *log, int count);
 
 /*
 Function: set log file and archive permission
