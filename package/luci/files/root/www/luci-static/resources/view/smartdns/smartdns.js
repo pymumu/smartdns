@@ -664,6 +664,13 @@ return view.extend({
 			return true;
 		}
 
+		// other args
+		o = s.taboption("forwarding", form.Value, "addition_flag", _("Additional Rule Flag"),
+			_("Additional Flags for rules, read help on domain-rule for more information."))
+		o.default = ""
+		o.rempty = true
+		o.modalonly = true;
+
 		o = s.taboption("forwarding", form.FileUpload, "forwarding_domain_set_file", _("Domain List File"),
 			_("Upload domain list file, or configure auto download from Download File Setting page."));
 		o.rmempty = true
@@ -860,6 +867,13 @@ return view.extend({
 
 			return true;
 		}
+
+		// other args
+		so = ss.option(form.Value, "addition_flag", _("Additional Rule Flag"),
+			_("Additional Flags for rules, read help on domain-rule for more information."))
+		so.default = ""
+		so.rempty = true
+		so.modalonly = true;
 
 		///////////////////////////////////////
 		// IP Blacklist;

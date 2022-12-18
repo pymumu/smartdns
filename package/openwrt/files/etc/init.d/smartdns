@@ -281,6 +281,9 @@ load_domain_rules()
 	config_get nftset_name "$section" "nftset_name" ""
 	[ ! -z "$nftset_name" ] && domain_set_args="$domain_set_args -nftset '$nftset_name'"
 
+	config_get addition_flag "$section" "addition_flag" ""
+	[ ! -z "$addition_flag" ] && domain_set_args="$domain_set_args $addition_flag"
+
 	config_get forwarding_domain_set_file "$section" "forwarding_domain_set_file" ""
 	[ ! -z "$forwarding_domain_set_file" ] && {
 		conf_append "domain-set" "-name ${domain_set_name}-forwarding-file -file '$forwarding_domain_set_file'"
@@ -335,6 +338,9 @@ load_domain_rule_list()
 
 	config_get domain_list_file "$section" "domain_list_file" ""
 	[ -z "$domain_list_file" ] && return
+
+	config_get addition_flag "$section" "addition_flag" ""
+	[ ! -z "$addition_flag" ] && domain_set_args="$domain_set_args $addition_flag"
 
 	conf_append "domain-set" "-name domain-rule-list-${domain_set_name} -file '$domain_list_file'"
 	conf_append "domain-rules" "/domain-set:domain-rule-list-${domain_set_name}/ $domain_set_args"	
