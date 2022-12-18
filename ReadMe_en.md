@@ -203,6 +203,18 @@ https://github.com/pymumu/smartdns/releases
     vi /etc/smartdns/smartdns.conf
     ```
 
+    `smartdns.conf` example:
+    ```
+    # set listen port
+    bind []:53 
+    # set upstream servers
+    server 1.1.1.1
+    server-tls 8.8.8.8
+    # set domain rules
+    address /example.com/1.2.3.4
+    domain-rule /example.com/ -address 1.2.3.4
+    ```
+
 1. Start Service
 
     ```shell
@@ -363,6 +375,18 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
     ```shell
     vi /opt/etc/smartdns/smartdns.conf
     ```
+    
+    `smartdns.conf` example:
+    ```
+    # set listen port
+    bind []:53 
+    # set upstream servers
+    server 1.1.1.1
+    server-tls 8.8.8.8
+    # set domain rules
+    address /example.com/1.2.3.4
+    domain-rule /example.com/ -address 1.2.3.4
+    ```
 
     It can also be modified from Network Neighborhood. From the neighbor sharing directory `sda1` you can't see the `asusware.mipsbig` directory, but you can directly enter `asusware.mipsbig\etc\init.d` in `File Manager` to modify it.
 
@@ -390,6 +414,18 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 
     ```shell
     Vi /opt/etc/smartdns/smartdns.conf
+    ```
+
+    `smartdns.conf` example:
+    ```
+    # set listen port
+    bind []:53 
+    # set upstream servers
+    server 1.1.1.1
+    server-tls 8.8.8.8
+    # set domain rules
+    address /example.com/1.2.3.4
+    domain-rule /example.com/ -address 1.2.3.4
     ```
 
     Note: if you need to support IPV6, you can set the worke-mode to `2`, this will disable the DNS service of dnsmasq, and smartdns run as the primary DNS server. Change `SMARTDNS_WORKMODE` in the file `/opt/etc/smartdns/smartdns-opt.conf` to 2.
@@ -447,6 +483,18 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
     In general, you only need to add `server [IP]:port`, `server-tcp [IP]:port` configuration items.  
     Configure as many upstream DNS servers as possible, including servers at home and abroad. Please refer to the `Configuration Parameters` section for configuration parameters.  
 
+    `smartdns.conf` example:
+    ```
+    # set listen port
+    bind []:53 
+    # set upstream servers
+    server 1.1.1.1
+    server-tls 8.8.8.8
+    # set domain rules
+    address /example.com/1.2.3.4
+    domain-rule /example.com/ -address 1.2.3.4
+    ```
+    
 1. Start Service
 
     Double-click `reload.bat` in the `D:\smartdns\package\windows` directory for reload.
