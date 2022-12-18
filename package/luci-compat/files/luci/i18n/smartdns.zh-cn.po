@@ -2,6 +2,12 @@
 msgid "Additional Args for upstream dns servers"
 msgstr "额外的上游 DNS 服务器参数"
 
+msgid "Additional Rule Flag"
+msgstr "额外规则标识"
+
+msgid "Additional Flags for rules, read help on domain-rule for more information."
+msgstr "额外的规则标识，具体参考domain-rule的帮助说明。"
+
 msgid "Additional Server Args"
 msgstr "额外的服务器参数"
 

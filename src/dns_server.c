@@ -236,6 +236,7 @@ struct dns_request {
 	int dualstack_selection_ping_time;
 	int dualstack_selection_has_ip;
 	struct dns_request *dualstack_request;
+	int no_serve_expired;
 
 	pthread_mutex_t ip_map_lock;
 
@@ -1070,17 +1071,17 @@ static int _dns_server_request_update_cache(struct dns_request *request, dns_typ
 
 	if (request->prefetch) {
 		if (request->prefetch_expired_domain == 0) {
-			if (dns_cache_replace(&cache_key, ttl, speed, cache_data) != 0) {
+			if (dns_cache_replace(&cache_key, ttl, speed, request->no_serve_expired, cache_data) != 0) {
 				goto errout;
 			}
 		} else {
-			if (dns_cache_replace_inactive(&cache_key, ttl, speed, cache_data) != 0) {
+			if (dns_cache_replace_inactive(&cache_key, ttl, speed, request->no_serve_expired, cache_data) != 0) {
 				goto errout;
 			}
 		}
 	} else {
 		/* insert result to cache */
-		if (dns_cache_insert(&cache_key, ttl, speed, cache_data) != 0) {
+		if (dns_cache_insert(&cache_key, ttl, speed, request->no_serve_expired, cache_data) != 0) {
 			goto errout;
 		}
 	}
@@ -1218,17 +1219,17 @@ static int _dns_cache_cname_packet(struct dns_server_post_context *context)
 
 	if (request->prefetch) {
 		if (request->prefetch_expired_domain == 0) {
-			if (dns_cache_replace(&cache_key, ttl, speed, cache_packet) != 0) {
+			if (dns_cache_replace(&cache_key, ttl, speed, request->no_serve_expired, cache_packet) != 0) {
 				goto errout;
 			}
 		} else {
-			if (dns_cache_replace_inactive(&cache_key, ttl, speed, cache_packet) != 0) {
+			if (dns_cache_replace_inactive(&cache_key, ttl, speed, request->no_serve_expired, cache_packet) != 0) {
 				goto errout;
 			}
 		}
 	} else {
 		/* insert result to cache */
-		if (dns_cache_insert(&cache_key, ttl, speed, cache_packet) != 0) {
+		if (dns_cache_insert(&cache_key, ttl, speed, request->no_serve_expired, cache_packet) != 0) {
 			goto errout;
 		}
 	}
@@ -1260,12 +1261,12 @@ static int _dns_cache_packet(struct dns_server_post_context *context)
 	cache_key.query_flag = request->server_flags;
 
 	if (request->prefetch) {
-		if (dns_cache_replace(&cache_key, context->reply_ttl, -1, cache_packet) != 0) {
+		if (dns_cache_replace(&cache_key, context->reply_ttl, -1, request->no_serve_expired, cache_packet) != 0) {
 			goto errout;
 		}
 	} else {
 		/* insert result to cache */
-		if (dns_cache_insert(&cache_key, context->reply_ttl, -1, cache_packet) != 0) {
+		if (dns_cache_insert(&cache_key, context->reply_ttl, -1, request->no_serve_expired, cache_packet) != 0) {
 			goto errout;
 		}
 	}
@@ -3603,6 +3604,10 @@ static int _dns_server_pre_process_rule_flags(struct dns_request *request)
 	}
 
 	flags = rule_flag->flags;
+	if (flags & DOMAIN_FLAG_NO_SERVE_EXPIRED) {
+		request->no_serve_expired = 1;
+	}
+
 	if (flags & DOMAIN_FLAG_ADDR_IGN) {
 		/* ignore this domain */
 		goto out;
@@ -3934,6 +3939,10 @@ reply_cache:
 		if (dns_cache_get_ttl(dns_cache) > 0) {
 			ret = _dns_server_process_cache_packet(request, dns_cache);
 		}
+		goto out;
+	}
+
+	if (dns_cache_get_ttl(dns_cache) <= 0 && request->no_serve_expired == 1) {
 		goto out;
 	}
 

@@ -448,6 +448,12 @@ function o.validate(self, value)
     return nil, translate("NFTset name format error, format: [#[4|6]:[family#table#set]]")
 end
 
+---- other args
+o = s:taboption("forwarding", Value, "addition_flag", translate("Additional Rule Flag"), translate("Additional Flags for rules, read help on domain-rule for more information."))
+o.default = ""
+o.rempty = true
+o.modalonly = true;
+
 o = s:taboption("forwarding", FileUpload, "forwarding_domain_set_file", translate("Domain List File"),
     translate("Upload domain list file, or configure auto download from Download File Setting page."))
 o.rmempty = true

@@ -1842,6 +1842,11 @@ errout:
 	return -1;
 }
 
+static int _conf_domain_rule_no_serve_expired(const char *domain)
+{
+	return _config_domain_rule_flag_set(domain, DOMAIN_FLAG_NO_SERVE_EXPIRED, 0);
+}
+
 static int _conf_domain_rules(void *data, int argc, char *argv[])
 {
 	int opt = 0;
@@ -1856,6 +1861,7 @@ static int _conf_domain_rules(void *data, int argc, char *argv[])
 		{"nftset", required_argument, NULL, 't'},
 		{"nameserver", required_argument, NULL, 'n'},
 		{"dualstack-ip-selection", required_argument, NULL, 'd'},
+		{"no-serve-expired", no_argument, NULL, 254},
 		{NULL, no_argument, NULL, 0}
 	};
 	/* clang-format on */
@@ -1947,6 +1953,14 @@ static int _conf_domain_rules(void *data, int argc, char *argv[])
 
 			if (_conf_domain_rule_nftset(domain, nftsetname) != 0) {
 				tlog(TLOG_ERROR, "add nftset rule failed.");
+				goto errout;
+			}
+
+			break;
+		}
+		case 254: {
+			if (_conf_domain_rule_no_serve_expired(domain) != 0) {
+				tlog(TLOG_ERROR, "set no-serve-expired rule failed.");
 				goto errout;
 			}
 

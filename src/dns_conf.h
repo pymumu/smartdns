@@ -97,6 +97,7 @@ typedef enum {
 #define DOMAIN_FLAG_NFTSET_INET_IGN (1 << 12)
 #define DOMAIN_FLAG_NFTSET_IP_IGN (1 << 13)
 #define DOMAIN_FLAG_NFTSET_IP6_IGN (1 << 14)
+#define DOMAIN_FLAG_NO_SERVE_EXPIRED (1 << 15)
 
 #define SERVER_FLAG_EXCLUDE_DEFAULT (1 << 0)
 
