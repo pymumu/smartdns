@@ -112,7 +112,7 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
    支持域名后缀匹配模式，简化过滤配置，过滤 20 万条记录时间 < 1ms。
 
 6. **域名分流**  
-   支持域名分流，不同类型的域名向不同的 DNS 服务器查询。
+   支持域名分流，不同类型的域名向不同的 DNS 服务器查询，支持iptable和nftable更好的分流。
 
 7. **Windows / Linux 多平台支持**  
    支持标准 Linux 系统（树莓派）、OpenWrt 系统各种固件和华硕路由器原生固件。同时还支持 WSL（Windows Subsystem for Linux，适用于 Linux 的 Windows 子系统）。
@@ -186,43 +186,55 @@ entware|ipkg update<br>ipkg install smartdns|软件源路径：https://bin.entwa
 
 1. 安装
    
-   下载配套安装包，并上传到 Linux 系统中。 
-   
-   标准 Linux 系统（X86 / X86_64）请执行如下命令安装：
-   
-   ```shell
-   $ tar zxf smartdns.1.yyyy.MM.dd-REL.x86_64-linux-all.tar.gz
-   $ cd smartdns
-   $ chmod +x ./install
-   $ ./install -i
-   ```
-   
-   树莓派或其他 Debian 系系统（ARM / ARM64）请执行如下命令安装：
-   
-   ```shell
-   # dpkg -i smartdns.1.yyyy.MM.dd-REL.arm-debian-all.deb
-   ```
+    下载配套安装包，并上传到 Linux 系统中。 
+
+    标准 Linux 系统（X86 / X86_64）请执行如下命令安装：
+
+    ```shell
+    $ tar zxf smartdns.1.yyyy.MM.dd-REL.x86_64-linux-all.tar.gz
+    $ cd smartdns
+    $ chmod +x ./install
+    $ ./install -i
+    ```
+
+    树莓派或其他 Debian 系系统（ARM / ARM64）请执行如下命令安装：
+
+    ```shell
+    # dpkg -i smartdns.1.yyyy.MM.dd-REL.arm-debian-all.deb
+    ```
 
 2. 修改配置
    
     安装完成后，可配置 SmartDNS 的上游服务器信息。
-   
+
     一般情况下，只需要增加 `server `[`IP`]`:port` 和 `server-tcp `[`IP`]`:port` 配置项。
-   
+
     请尽可能配置多个上游 DNS 服务器，包括国内外的服务器。
-   
+
     具体配置参数请参考[配置文件说明](#配置文件说明)。  
    
-   ```shell
-   # vi /etc/smartdns/smartdns.conf
-   ```
+    ```shell
+    # vi /etc/smartdns/smartdns.conf
+    ```
+
+    `/etc/smartdns/smartdns.conf`配置包含如下基本内容：
+    ```
+    # 指定监听的端口号
+    bind []:53 
+    # 指定上游服务器
+    server 1.1.1.1
+    server-tls 8.8.8.8
+    # 指定域名规则
+    address /example.com/1.2.3.4
+    domain-rule /example.com/ -address 1.2.3.4
+    ```
 
 3. 启动服务
    
-   ```shell
-   # systemctl enable smartdns
-   # systemctl start smartdns
-   ```
+    ```shell
+    # systemctl enable smartdns
+    # systemctl start smartdns
+    ```
 
 4. 将 DNS 请求转发到 SmartDNS 解析
    
@@ -390,6 +402,18 @@ entware|ipkg update<br>ipkg install smartdns|软件源路径：https://bin.entwa
    ```shell
    # vi /opt/etc/smartdns/smartdns.conf
    ```
+
+    `/opt/etc/smartdns/smartdns.conf`配置包含如下基本内容：
+    ```
+    # 指定监听的端口号
+    bind []:53 
+    # 指定上游服务器
+    server 1.1.1.1
+    server-tls 8.8.8.8
+    # 指定域名规则
+    address /example.com/1.2.3.4
+    domain-rule /example.com/ -address 1.2.3.4
+    ```
    
    也可以通过网上邻居修改，网上邻居共享目录 `sda1` 看不到 `asusware.mipsbig` 目录，但可以直接在`文件管理器`中输入 `asusware.mipsbig\etc\init.d` 访问
    
@@ -418,6 +442,18 @@ entware|ipkg update<br>ipkg install smartdns|软件源路径：https://bin.entwa
    ```shell
    # vi /opt/etc/smartdns/smartdns.conf
    ```
+
+   `/opt/etc/smartdns/smartdns.conf`配置包含如下基本内容：
+    ```
+    # 指定监听的端口号
+    bind []:53 
+    # 指定上游服务器
+    server 1.1.1.1
+    server-tls 8.8.8.8
+    # 指定域名规则
+    address /example.com/1.2.3.4
+    domain-rule /example.com/ -address 1.2.3.4
+    ```
    
     另外，如需支持 IPv6，可设置工作模式为 `2`，将 DNSmasq 的 DNS 服务禁用，设置 SmartDNS 为主用 DNS 服务器。将文件 `/opt/etc/smartdns/smartdns-opt.conf` 中的 `SMARTDNS_WORKMODE` 的值修改为 `2`
    
@@ -480,6 +516,17 @@ entware|ipkg update<br>ipkg install smartdns|软件源路径：https://bin.entwa
     尽可能配置多个上游DNS服务器，包括国内外的服务器。
    
     具体配置请参考[配置文件说明](#配置文件说明)。
+     `smartdns.conf` 配置包含如下基本内容：
+    ```
+    # 指定监听的端口号
+    bind []:53 
+    # 指定上游服务器
+    server 1.1.1.1
+    server-tls 8.8.8.8
+    # 指定域名规则
+    address /example.com/1.2.3.4
+    domain-rule /example.com/ -address 1.2.3.4
+    ```
 
 4. 重新加载配置
    
@@ -507,6 +554,7 @@ entware|ipkg update<br>ipkg install smartdns|软件源路径：https://bin.entwa
    Non-authoritative answer:
    smartdns        name = smartdns.
    ```
+
 
 ## 配置文件说明
 
