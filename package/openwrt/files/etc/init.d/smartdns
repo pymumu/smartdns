@@ -183,6 +183,7 @@ load_server()
 	config_get check_edns "$section" "check_edns" "0"
 	config_get spki_pin "$section" "spki_pin" ""
 	config_get addition_arg "$section" "addition_arg" ""
+	config_get set_mark "$section" "set_mark" ""
 
 	[ "$enabled" = "0" ] && return
 
@@ -214,6 +215,7 @@ load_server()
 	[ "$blacklist_ip" = "0" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -blacklist-ip"
 	[ "$check_edns" = "0" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -check-edns"
 	[ -z "$spki_pin" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -spki-pin $spki_pin"
+	[ -z "$set_mark" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -set-mark $set_mark"
 
 	if [ -z "$port" ]; then
 		DNS_ADDRESS="$ip"
