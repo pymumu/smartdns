@@ -256,6 +256,12 @@ msgstr "下载文件列表"
 msgid "Local Port"
 msgstr "本地端口"
 
+msgid "Marking Packets"
+msgstr "数据包标记"
+
+msgid "Set mark on packets."
+msgstr "设置数据包标记。"
+
 msgid "Maximum TTL for all domain result."
 msgstr "所有域名的最大 TTL 值。"
 

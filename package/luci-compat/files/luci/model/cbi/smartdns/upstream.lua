@@ -127,6 +127,12 @@ o.rempty      = true
 o:depends("type", "tls")
 o:depends("type", "https")
 
+---- mark
+o = s:option(Value, "set_mark", translate("Marking Packets"), translate("Set mark on packets."))
+o.default     = ""
+o.rempty      = true
+o.datatype    = "uinteger"
+
 ---- other args
 o = s:option(Value, "addition_arg", translate("Additional Server Args"), translate("Additional Args for upstream dns servers"))
 o.default     = ""

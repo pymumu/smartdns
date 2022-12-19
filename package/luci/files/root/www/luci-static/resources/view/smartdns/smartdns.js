@@ -584,6 +584,14 @@ return view.extend({
 		o.depends("type", "tls")
 		o.depends("type", "https")
 
+		// mark
+		o = s.taboption("advanced", form.Value, "set_mark", _("Marking Packets"),
+			_("Set mark on packets."))
+		o.default = ""
+		o.rempty = true
+		o.datatype = "uinteger"
+		o.modalonly = true;
+		
 		// other args
 		o = s.taboption("advanced", form.Value, "addition_arg", _("Additional Server Args"),
 			_("Additional Args for upstream dns servers"))

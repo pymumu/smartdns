@@ -370,6 +370,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 		{"tls-host-verify", required_argument, NULL, 'V' }, /* verify tls hostname */
 		{"group", required_argument, NULL, 'g'}, /* add to group */
 		{"exclude-default-group", no_argument, NULL, 'E'}, /* ecluse this from default group */
+		{"set-mark", required_argument, NULL, 254}, /* set mark */
 		{NULL, no_argument, NULL, 0}
 	};
 	/* clang-format on */
@@ -390,6 +391,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 	server->hostname[0] = '\0';
 	server->httphost[0] = '\0';
 	server->tls_host_verify[0] = '\0';
+	server->set_mark = -1;
 
 	if (type == DNS_SERVER_HTTPS) {
 		if (parse_uri(ip, NULL, server->server, &port, server->path) != 0) {
@@ -467,6 +469,10 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 			server->skip_check_cert = 1;
 			break;
 		}
+		case 254: {
+			server->set_mark = atoll(optarg);
+			break;
+		}
 		default:
 			break;
 		}
@@ -533,7 +539,7 @@ static void _config_address_destroy(radix_node_t *node, void *cbctx)
 	node->data = NULL;
 }
 
-static int _config_domain_set_rule_add_ext(char *set_name, enum domain_rule type, void *rule, unsigned int flags,
+static int _config_domain_set_rule_add_ext(const char *set_name, enum domain_rule type, void *rule, unsigned int flags,
 										   int is_clear_flag)
 {
 	struct dns_domain_set_rule *set_rule = NULL;
@@ -587,7 +593,7 @@ errout:
 	return -1;
 }
 
-static int _config_domian_set_rule_flags(char *set_name, unsigned int flags, int is_clear_flag)
+static int _config_domian_set_rule_flags(const char *set_name, unsigned int flags, int is_clear_flag)
 {
 	return _config_domain_set_rule_add_ext(set_name, DOMAIN_RULE_FLAGS, NULL, flags, is_clear_flag);
 }
@@ -664,7 +670,7 @@ errout:
 	return -1;
 }
 
-static int _config_domain_rule_flag_set(char *domain, unsigned int flag, unsigned int is_clear)
+static int _config_domain_rule_flag_set(const char *domain, unsigned int flag, unsigned int is_clear)
 {
 	struct dns_domain_rule *domain_rule = NULL;
 	struct dns_domain_rule *old_domain_rule = NULL;
