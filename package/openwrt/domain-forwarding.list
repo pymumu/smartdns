@@ -1,0 +1,4 @@
+# domain forwarding list, one domain name per line.
+# example: forwarding a.com, and b.com
+# a.com
+# b.com

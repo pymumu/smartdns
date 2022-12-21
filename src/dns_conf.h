@@ -97,6 +97,7 @@ typedef enum {
 #define DOMAIN_FLAG_NFTSET_INET_IGN (1 << 12)
 #define DOMAIN_FLAG_NFTSET_IP_IGN (1 << 13)
 #define DOMAIN_FLAG_NFTSET_IP6_IGN (1 << 14)
+#define DOMAIN_FLAG_NO_SERVE_EXPIRED (1 << 15)
 
 #define SERVER_FLAG_EXCLUDE_DEFAULT (1 << 0)
 
@@ -230,6 +231,7 @@ struct dns_servers {
 	unsigned int server_flag;
 	int ttl;
 	dns_server_type_t type;
+	long long set_mark;
 	char skip_check_cert;
 	char spki[DNS_MAX_SPKI_LEN];
 	char hostname[DNS_MAX_CNAME_LEN];

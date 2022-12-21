@@ -269,6 +269,7 @@ static int _smartdns_add_servers(void)
 		flags.type = dns_conf_servers[i].type;
 		flags.server_flag = dns_conf_servers[i].server_flag;
 		flags.result_flag = dns_conf_servers[i].result_flag;
+		flags.set_mark = dns_conf_servers[i].set_mark;
 		ret = dns_client_add_server(dns_conf_servers[i].server, dns_conf_servers[i].port, dns_conf_servers[i].type,
 									&flags);
 		if (ret != 0) {

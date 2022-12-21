@@ -19,6 +19,8 @@ require ("luci.http")
 require ("luci.dispatcher")
 require ("nixio.fs")
 
+local uci = require "luci.model.uci".cursor()
+
 m = Map("smartdns")
 m.title	= translate("SmartDNS Server")
 m.description = translate("SmartDNS is a local high-performance DNS server, supports finding fastest IP, supports ad filtering, and supports avoiding DNS poisoning.")
@@ -30,6 +32,7 @@ s = m:section(TypedSection, "smartdns", translate("Settings"), translate("Genera
 s.anonymous = true
 
 s:tab("settings", translate("General Settings"))
+s:tab("advanced", translate('Advanced Settings'))
 s:tab("seconddns", translate("Second Server Settings"))
 s:tab("custom", translate("Custom Settings"))
 
@@ -52,8 +55,54 @@ o.default     = 53
 o.datatype    = "port"
 o.rempty      = false
 
+---- Speed check mode;
+o = s:taboption("advanced", Value, "speed_check_mode", translate("Speed Check Mode"), translate("Smartdns speed check mode."));
+o.rmempty = true;
+o.placeholder = "default";
+o.default = o.enabled;
+o:value("ping,tcp:80,tcp:443");
+o:value("ping,tcp:443,tcp:80");
+o:value("tcp:80,tcp:443,ping");
+o:value("tcp:443,tcp:80,ping");
+o:value("none", translate("None"));
+function o.validate (section_id, value) 
+    if value == "" then
+        return value
+    end
+
+    if value == nil then
+        return nil, translate("Speed check mode is invalid.")
+    end
+
+    if value == "none" then
+        return value
+    end
+
+    local mode = value:split(",");
+    for _, v in ipairs(mode) do repeat
+        if v == "ping" then
+            break
+        end
+
+        if v == nil then
+            return nil, translate("Speed check mode is invalid.")
+        end
+        
+        local port = v:split(":");
+        if "tcp" == port[1] then
+            if tonumber(port[2]) then
+                break
+            end
+        end
+        
+        return nil, translate("Speed check mode is invalid.")
+    until true end
+
+    return value
+end
+
 ---- Enable TCP server
-o = s:taboption("settings", Flag, "tcp_server", translate("TCP Server"), translate("Enable TCP DNS Server"))
+o = s:taboption("advanced", Flag, "tcp_server", translate("TCP Server"), translate("Enable TCP DNS Server"))
 o.rmempty     = false
 o.default     = o.enabled
 o.cfgvalue    = function(...)
@@ -61,7 +110,7 @@ o.cfgvalue    = function(...)
 end
 
 ---- Support IPV6
-o = s:taboption("settings", Flag, "ipv6_server", translate("IPV6 Server"), translate("Enable IPV6 DNS Server"))
+o = s:taboption("advanced", Flag, "ipv6_server", translate("IPV6 Server"), translate("Enable IPV6 DNS Server"))
 o.rmempty     = false
 o.default     = o.enabled
 o.cfgvalue    = function(...)
@@ -69,7 +118,7 @@ o.cfgvalue    = function(...)
 end
 
 ---- Support DualStack ip selection
-o = s:taboption("settings", Flag, "dualstack_ip_selection", translate("Dual-stack IP Selection"), translate("Enable IP selection between IPV4 and IPV6"))
+o = s:taboption("advanced", Flag, "dualstack_ip_selection", translate("Dual-stack IP Selection"), translate("Enable IP selection between IPV4 and IPV6"))
 o.rmempty     = false
 o.default     = o.enabled
 o.cfgvalue    = function(...)
@@ -77,7 +126,7 @@ o.cfgvalue    = function(...)
 end
 
 ---- Domain prefetch load 
-o = s:taboption("settings", Flag, "prefetch_domain", translate("Domain prefetch"), translate("Enable domain prefetch, accelerate domain response speed."))
+o = s:taboption("advanced", Flag, "prefetch_domain", translate("Domain prefetch"), translate("Enable domain prefetch, accelerate domain response speed."))
 o.rmempty     = false
 o.default     = o.disabled
 o.cfgvalue    = function(...)
@@ -85,7 +134,7 @@ o.cfgvalue    = function(...)
 end
 
 ---- Domain Serve expired
-o = s:taboption("settings", Flag, "serve_expired", translate("Serve expired"), 
+o = s:taboption("advanced", Flag, "serve_expired", translate("Serve expired"), 
 	translate("Attempts to serve old responses from cache with a TTL of 0 in the response without waiting for the actual resolution to finish."))
 o.rmempty     = false
 o.default     = o.enabled
@@ -94,11 +143,11 @@ o.cfgvalue    = function(...)
 end
 
 ---- cache-size
-o = s:taboption("settings", Value, "cache_size", translate("Cache Size"), translate("DNS domain result cache size"))
+o = s:taboption("advanced", Value, "cache_size", translate("Cache Size"), translate("DNS domain result cache size"))
 o.rempty      = true
 
 -- cache-size
-o = s:taboption("settings", Flag, "resolve_local_hostnames", translate("Resolve Local Hostnames"), translate("Resolve local hostnames by reading Dnsmasq lease file."));
+o = s:taboption("advanced", Flag, "resolve_local_hostnames", translate("Resolve Local Hostnames"), translate("Resolve local hostnames by reading Dnsmasq lease file."))
 o.rmempty     = false
 o.default     = o.enabled
 o.cfgvalue    = function(...)
@@ -106,7 +155,7 @@ o.cfgvalue    = function(...)
 end
 
 -- Automatically Set Dnsmasq
-o = s:taboption("settings", Flag, "auto_set_dnsmasq", translate("Automatically Set Dnsmasq"), translate("Automatically set as upstream of dnsmasq when port changes."));
+o = s:taboption("advanced", Flag, "auto_set_dnsmasq", translate("Automatically Set Dnsmasq"), translate("Automatically set as upstream of dnsmasq when port changes."))
 o.rmempty     = false
 o.default     = o.enabled
 o.cfgvalue    = function(...)
@@ -114,7 +163,7 @@ o.cfgvalue    = function(...)
 end
 
 -- Force AAAA SOA
-o = s:taboption("settings", Flag, "force_aaaa_soa", translate("Force AAAA SOA"), translate("Force AAAA SOA."));
+o = s:taboption("advanced", Flag, "force_aaaa_soa", translate("Force AAAA SOA"), translate("Force AAAA SOA."))
 o.rmempty     = false
 o.default     = o.enabled
 o.cfgvalue    = function(...)
@@ -122,7 +171,7 @@ o.cfgvalue    = function(...)
 end
 
 -- Force HTTPS SOA
-o = s:taboption("settings", Flag, "force_https_soa", translate("Force HTTPS SOA"), translate("Force HTTPS SOA."));
+o = s:taboption("advanced", Flag, "force_https_soa", translate("Force HTTPS SOA"), translate("Force HTTPS SOA."))
 o.rmempty     = false
 o.default     = o.enabled
 o.cfgvalue    = function(...)
@@ -130,23 +179,34 @@ o.cfgvalue    = function(...)
 end
 
 ---- rr-ttl
-o = s:taboption("settings", Value, "rr_ttl", translate("Domain TTL"), translate("TTL for all domain result."))
+o = s:taboption("advanced", Value, "rr_ttl", translate("Domain TTL"), translate("TTL for all domain result."))
 o.rempty      = true
 
 ---- rr-ttl-min
-o = s:taboption("settings", Value, "rr_ttl_min", translate("Domain TTL Min"), translate("Minimum TTL for all domain result."))
+o = s:taboption("advanced", Value, "rr_ttl_min", translate("Domain TTL Min"), translate("Minimum TTL for all domain result."))
 o.rempty      = true
 o.placeholder = "600"
 o.default     = 600
 o.optional    = true
 
 ---- rr-ttl-max
-o = s:taboption("settings", Value, "rr_ttl_max", translate("Domain TTL Max"), translate("Maximum TTL for all domain result."))
+o = s:taboption("advanced", Value, "rr_ttl_max", translate("Domain TTL Max"), translate("Maximum TTL for all domain result."))
 o.rempty      = true
 
 ---- rr-ttl-reply-max
-o = s:taboption("settings", Value, "rr_ttl_reply_max", translate("Reply Domain TTL Max"), translate("Reply maximum TTL for all domain result."))
+o = s:taboption("advanced", Value, "rr_ttl_reply_max", translate("Reply Domain TTL Max"), translate("Reply maximum TTL for all domain result."))
 o.rempty      = true
+
+o = s:taboption("advanced", DynamicList, "conf_files", translate("Include Config Files<br>/etc/smartdns/conf.d"),
+    translate("Include other config files from /etc/smartdns/conf.d or custom path, can be downloaded from the download page."));
+uci:foreach("smartdns", "download-file", function(section)
+    local filetype = section.type
+    if (filetype ~= 'config') then
+        return
+    end
+
+    o:value(section.name);
+end)
 
 ---- second dns server
 ---- Eanble
@@ -305,11 +365,135 @@ o:value("https", translate("https"))
 o.default     = "udp"
 o.rempty      = false
 
-s = m:section(TypedSection, "smartdns", translate("Advanced Settings"), translate("Advanced Settings"));
-s.anonymous = true;
+---- domain rules;
+s = m:section(TypedSection, "domain-rule", translate("Domain Rules"), translate("Domain Rules Settings"))
+s.anonymous = true
+s.nodescriptions = true
 
-s:tab("domain-address", translate("Domain Address"), translate("Set Specific domain ip address."));
-s:tab("blackip-list", translate("IP Blacklist"), translate("Set Specific ip blacklist."));
+s:tab("forwarding", translate('DNS Forwarding Setting'))
+s:tab("block", translate("DNS Block Setting"))
+s:tab("domain-address", translate("Domain Address"), translate("Set Specific domain ip address."))
+s:tab("blackip-list", translate("IP Blacklist"), translate("Set Specific ip blacklist."))
+
+---- domain forwarding;
+o = s:taboption("forwarding", Value, "server_group", translate("Server Group"), translate("DNS Server group belongs to, such as office, home."))
+o.rmempty = true
+o.placeholder = "default"
+o.datatype = "hostname"
+o.rempty = true
+uci:foreach("smartdns", "server", function(section)
+    local server_group = section.server_group
+    if server_group == nil then
+        return
+    end
+    o:value(server_group);
+end)
+
+function o.validate (section_id, value) 
+    if value == "" then
+        return value
+    end
+
+    if value == nil then
+        return nil, translate('Server Group not exists')
+    end
+
+    local exists = false
+    uci:foreach("smartdns", "server", function(section)
+        local server_group = section.server_group
+        if (exists == true) then
+            return
+        end
+
+        if (value == server_group) then
+            exists = true
+        end
+    end)
+
+    if exists == false then
+        return nil, translate('Server Group not exists')
+    end
+
+    return value;
+
+end
+
+o = s:taboption("forwarding", Flag, "no_speed_check", translate("Skip Speed Check"),
+    translate("Do not check speed."))
+o.rmempty = false
+o.default = o.disabled
+
+o = s:taboption("forwarding", Flag, "force_aaaa_soa", translate("Force AAAA SOA"), translate("Force AAAA SOA."))
+o.rmempty = false
+o.default = o.disabled
+
+o = s:taboption("forwarding", Value, "ipset_name", translate("IPset Name"), translate("IPset name."))
+o.rmempty = true
+o.datatype = "hostname"
+o.rempty = true
+
+o = s:taboption("forwarding", Value, "nftset_name", translate("NFTset Name"), translate("NFTset name, format: [#[4|6]:[family#table#set]]"))
+o.rmempty = true
+o.datatype = "string"
+o.rempty = true
+function o.validate(self, value) 
+    if (value == "") then
+        return value
+    end
+
+    if (value:match("#[4|6]:[a-zA-Z0-9%-_]+#[a-zA-Z0-9%-_]+#[a-zA-Z0-9%-_]+$")) then
+        return value
+    end
+
+    return nil, translate("NFTset name format error, format: [#[4|6]:[family#table#set]]")
+end
+
+---- other args
+o = s:taboption("forwarding", Value, "addition_flag", translate("Additional Rule Flag"), translate("Additional Flags for rules, read help on domain-rule for more information."))
+o.default = ""
+o.rempty = true
+o.modalonly = true;
+
+o = s:taboption("forwarding", FileUpload, "forwarding_domain_set_file", translate("Domain List File"),
+    translate("Upload domain list file, or configure auto download from Download File Setting page."))
+o.rmempty = true
+o.datatype = "file"
+o.rempty = true
+o.editable = true
+o.root_directory = "/etc/smartdns/domain-set"
+
+o = s:taboption("forwarding", TextValue, "domain_forwarding_list",
+    translate("Domain List"), translate("Configure forwarding domain name list."))
+o.rows = 10
+o.cols = 64
+o.monospace = true
+function o.cfgvalue(self, section)
+	return nixio.fs.readfile("/etc/smartdns/domain-forwarding.list")
+end
+function o.write(self, section, value)
+	value = value:gsub("\r\n?", "\n")
+	nixio.fs.writefile("/etc/smartdns/domain-forwarding.list", value)
+end
+
+---- domain block;
+o = s:taboption("block", FileUpload, "block_domain_set_file", translate("Domain List File"), translate("Upload domain list file."))
+o.rmempty = true
+o.datatype = "file"
+o.rempty = true
+o.editable = true
+o.root_directory = "/etc/smartdns/domain-set"
+
+o = s:taboption("block", TextValue, "domain_block_list",
+    translate("Domain List"), translate("Configure block domain list."))
+o.rows = 10
+o.cols = 64
+function o.cfgvalue(self, section)
+	return nixio.fs.readfile("/etc/smartdns/domain-block.list")
+end
+function o.write(self, section, value)
+	value = value:gsub("\r\n?", "\n")
+	nixio.fs.writefile("/etc/smartdns/domain-block.list", value)
+end
 
 -- Doman addresss
 addr = s:taboption("domain-address", Value, "address",
@@ -345,6 +529,81 @@ function addr.write(self, section, value)
 	nixio.fs.writefile("/etc/smartdns/blacklist-ip.conf", value)
 end
 
+s = m:section(TypedSection, "smartdns", translate("Download Files Setting"), translate("Download domain list files for domain-rule and include config files, please refresh the page after download to take effect."))
+s.anonymous = true
+
+---- download Files Settings
+o = s:option(Flag, "enable_auto_update", translate("Enable Auto Update"), translate("Enable daily auto update."))
+o.rmempty = false
+o.default = o.disabled
+o.rempty = true
+
+o = s:option(FileUpload, "upload_conf_file", translate("Upload Config File"),
+    translate("Upload smartdns config file to /etc/smartdns/conf.d"))
+o.rmempty = true
+o.datatype = "file"
+o.rempty = true
+o.editable = true
+o.root_directory = "/etc/smartdns/conf.d"
+
+o = s:option(FileUpload, "upload_list_file", translate("Upload Domain List File"),
+    translate("Upload domain list file to /etc/smartdns/domain-set"))
+o.rmempty = true
+o.datatype = "file"
+o.rempty = true
+o.editable = true
+o.root_directory = "/etc/smartdns/domain-set"
+
+o = s:option(Button, "_updateate")
+o.title = translate("Update Files")
+o.inputtitle = translate("update domain list files")
+o.inputstyle = "apply"
+o.write = function()
+	luci.sys.call("/etc/init.d/smartdns updatefiles >/dev/null 2>&1")
+end
+
+s = m:section(TypedSection, "download-file", translate("Download Files"), translate("List of files to download."))
+s.anonymous = true
+s.addremove = true
+s.template = "cbi/tblsection"
+
+o = s:option(Value, 'name', translate('File Name'), translate('File Name'))
+o.rmempty = false
+o.datatype = 'string'
+
+o = s:option(Value, 'url', translate('URL'), translate('URL'))
+o.rmempty = false
+o.datatype = 'string'
+function o.validate(self, value, section)
+    if value == "" then
+        return nil, translate("URL format error, format: http:// or https://")
+    end
+
+    if value == nil then
+        return nil, translate("URL format error, format: http:// or https://")
+    end
+
+    if value.find(value, "http://") then
+        return value
+    end
+
+    if value.find(value, "https://") then
+        return value
+    end
+
+    return nil, translate("URL format error, format: http:// or https://")
+end
+
+o = s:option(ListValue, "type", translate("type"), translate("File Type"))
+o:value("list", translate("domain list (/etc/smartdns/domain-set)"))
+o:value("config", translate("smartdns config (/etc/smartdns/conf.d)"))
+o.default = "list"
+o.rempty = false
+
+o = s:option(Value, 'desc', translate('Description'), translate('Description'))
+o.rmempty = true
+o.datatype = 'string'
+
 -- Technical Support
 s = m:section(TypedSection, "smartdns", translate("Technical Support"), 
 	translate("If you like this software, please buy me a cup of coffee."))
@@ -358,12 +617,28 @@ o.write = function()
 	luci.http.redirect("https://pymumu.github.io/smartdns")
 end
 
+o = s:option(Button, "report")
+o.title = translate("Report bugs")
+o.inputtitle = translate("Report bugs")
+o.inputstyle = "apply"
+o.write = function()
+	luci.http.redirect("https://github.com/pymumu/smartdns/issues")
+end
+
 o = s:option(Button, "Donate")
 o.title = translate("Donate to smartdns")
 o.inputtitle = translate("Donate")
 o.inputstyle = "apply"
 o.write = function()
 	luci.http.redirect("https://pymumu.github.io/smartdns/#donate")
+end
+
+o = s:option(Button, "Restart")
+o.title = translate("Restart smartdns")
+o.inputtitle = translate("Restart")
+o.inputstyle = "apply"
+o.write = function()
+	luci.sys.call("/etc/init.d/smartdns restart >/dev/null 2>&1")
 end
 
 return m
