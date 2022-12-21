@@ -24,6 +24,7 @@ CFLAGS =-O2 -g -Wall -Wstrict-prototypes -fno-omit-frame-pointer -Wstrict-aliasi
 endif
 override CFLAGS +=-Iinclude
 override CFLAGS += -DBASE_FILE_NAME='"$(notdir $<)"'
+override CFLAGS += $(EXTRA_CFLAGS)
 ifdef VER
 override CFLAGS += -DSMARTDNS_VERION='"$(VER)"'
 endif
