@@ -93,6 +93,7 @@ struct dns_server_info {
 	int port;
 	/* server type */
 	dns_server_type_t type;
+	long long so_mark;
 
 	/* client socket */
 	int fd;
@@ -1045,6 +1046,7 @@ static int _dns_client_server_add(char *server_ip, char *server_host, int port, 
 	server_info->ttl_range = 0;
 	server_info->skip_check_cert = skip_check_cert;
 	server_info->prohibit = 0;
+	server_info->so_mark = flags->set_mark;
 	pthread_mutex_init(&server_info->lock, NULL);
 	memcpy(&server_info->flags, flags, sizeof(server_info->flags));
 
@@ -1694,6 +1696,13 @@ static int _dns_client_create_socket_udp(struct dns_server_info *server_info)
 		return -1;
 	}
 
+	if (server_info->so_mark >= 0) {
+		unsigned int so_mark = server_info->so_mark;
+		if (setsockopt(fd, SOL_SOCKET, SO_MARK, &so_mark, sizeof(so_mark)) != 0) {
+			tlog(TLOG_DEBUG, "set socket mark failed, %s", strerror(errno));
+		}
+	}
+
 	setsockopt(server_info->fd, IPPROTO_IP, IP_RECVTTL, &on, sizeof(on));
 	setsockopt(server_info->fd, SOL_IP, IP_TTL, &val, sizeof(val));
 	setsockopt(server_info->fd, SOL_SOCKET, SO_PRIORITY, &priority, sizeof(priority));
@@ -1734,6 +1743,13 @@ static int _DNS_client_create_socket_tcp(struct dns_server_info *server_info)
 	if (set_fd_nonblock(fd, 1) != 0) {
 		tlog(TLOG_ERROR, "set socket non block failed, %s", strerror(errno));
 		goto errout;
+	}
+
+	if (server_info->so_mark >= 0) {
+		unsigned int so_mark = server_info->so_mark;
+		if (setsockopt(fd, SOL_SOCKET, SO_MARK, &so_mark, sizeof(so_mark)) != 0) {
+			tlog(TLOG_DEBUG, "set socket mark failed, %s", strerror(errno));
+		}
 	}
 
 	/* enable tcp fast open */
@@ -1816,6 +1832,13 @@ static int _DNS_client_create_socket_tls(struct dns_server_info *server_info, ch
 	if (set_fd_nonblock(fd, 1) != 0) {
 		tlog(TLOG_ERROR, "set socket non block failed, %s", strerror(errno));
 		goto errout;
+	}
+
+	if (server_info->so_mark >= 0) {
+		unsigned int so_mark = server_info->so_mark;
+		if (setsockopt(fd, SOL_SOCKET, SO_MARK, &so_mark, sizeof(so_mark)) != 0) {
+			tlog(TLOG_DEBUG, "set socket mark failed, %s", strerror(errno));
+		}
 	}
 
 	if (setsockopt(fd, IPPROTO_TCP, TCP_FASTOPEN_CONNECT, &yes, sizeof(yes)) != 0) {

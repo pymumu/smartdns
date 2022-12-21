@@ -118,6 +118,9 @@ From the comparison, smartdns found the fastest IP address to visit www.baidu.co
 8. **High performance, low resource consumption**  
    Multi-threaded asynchronous IO mode, cache cache query results.
 
+9. **DNS domain forwarding**
+   Support DNS forwarding, ipset and nftables.
+
 ## Architecture
 
 ![Architecture](doc/architecture.png)
@@ -164,7 +167,7 @@ Download the matching version of the SmartDNS installation package. The correspo
 
 * The released packages are statically compiled. If you need a small size package, please compile it yourself or obtain it from the openwrt / entware repository.
 
-* **Please download from the Release page: [Download here](https://github.com/pymu/smartdns/releases)**
+* **Please download from the Release page: [Download here](https://github.com/pymumu/smartdns/releases)**
 
 ```shell
 https://github.com/pymumu/smartdns/releases
@@ -201,6 +204,18 @@ https://github.com/pymumu/smartdns/releases
 
     ```shell
     vi /etc/smartdns/smartdns.conf
+    ```
+
+    `smartdns.conf` example:
+    ```
+    # set listen port
+    bind []:53 
+    # set upstream servers
+    server 1.1.1.1
+    server-tls 8.8.8.8
+    # set domain rules
+    address /example.com/1.2.3.4
+    domain-rule /example.com/ -address 1.2.3.4
     ```
 
 1. Start Service
@@ -363,6 +378,18 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
     ```shell
     vi /opt/etc/smartdns/smartdns.conf
     ```
+    
+    `smartdns.conf` example:
+    ```
+    # set listen port
+    bind []:53 
+    # set upstream servers
+    server 1.1.1.1
+    server-tls 8.8.8.8
+    # set domain rules
+    address /example.com/1.2.3.4
+    domain-rule /example.com/ -address 1.2.3.4
+    ```
 
     It can also be modified from Network Neighborhood. From the neighbor sharing directory `sda1` you can't see the `asusware.mipsbig` directory, but you can directly enter `asusware.mipsbig\etc\init.d` in `File Manager` to modify it.
 
@@ -390,6 +417,18 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 
     ```shell
     Vi /opt/etc/smartdns/smartdns.conf
+    ```
+
+    `smartdns.conf` example:
+    ```
+    # set listen port
+    bind []:53 
+    # set upstream servers
+    server 1.1.1.1
+    server-tls 8.8.8.8
+    # set domain rules
+    address /example.com/1.2.3.4
+    domain-rule /example.com/ -address 1.2.3.4
     ```
 
     Note: if you need to support IPV6, you can set the worke-mode to `2`, this will disable the DNS service of dnsmasq, and smartdns run as the primary DNS server. Change `SMARTDNS_WORKMODE` in the file `/opt/etc/smartdns/smartdns-opt.conf` to 2.
@@ -447,6 +486,18 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
     In general, you only need to add `server [IP]:port`, `server-tcp [IP]:port` configuration items.  
     Configure as many upstream DNS servers as possible, including servers at home and abroad. Please refer to the `Configuration Parameters` section for configuration parameters.  
 
+    `smartdns.conf` example:
+    ```
+    # set listen port
+    bind []:53 
+    # set upstream servers
+    server 1.1.1.1
+    server-tls 8.8.8.8
+    # set domain rules
+    address /example.com/1.2.3.4
+    domain-rule /example.com/ -address 1.2.3.4
+    ```
+    
 1. Start Service
 
     Double-click `reload.bat` in the `D:\smartdns\package\windows` directory for reload.
@@ -495,10 +546,10 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 |audit-size|audit log size|128K|number+K,M,G|audit-size 128K
 |audit-num|archived audit log number|2|Integer, 0 means turn off the log|audit-num 2
 |conf-file|additional conf file|None|File path|conf-file /etc/smartdns/smartdns.more.conf
-|server|Upstream UDP DNS server|None|Repeatable <br>`[ip][:port]`: Server IP, port optional. <br>`[-blacklist-ip]`: The "-blacklist-ip" parameter is to filtering IPs which is configured by "blacklist-ip". <br>`[-whitelist-ip]`: whitelist-ip parameter specifies that only the IP range configured in whitelist-ip is accepted. <br>`[-group [group] ...]`: The group to which the DNS server belongs, such as office, foreign, use with nameserver. <br>`[-exclude-default-group]`: Exclude DNS servers from the default group| server 8.8.8.8:53 -blacklist-ip
-|server-tcp|Upstream TCP DNS server|None|Repeatable <br>`[ip][:port]`: Server IP, port optional. <br>`[-blacklist-ip]`: The "-blacklist-ip" parameter is to filtering IPs which is configured by "blacklist-ip". <br>`[-whitelist-ip]`: whitelist-ip parameter specifies that only the IP range configured in whitelist-ip is accepted. <br>`[-group [group] ...]`: The group to which the DNS server belongs, such as office, foreign, use with nameserver. <br>`[-exclude-default-group]`: Exclude DNS servers from the default group| server-tcp 8.8.8.8:53
-|server-tls|Upstream TLS DNS server|None|Repeatable <br>`[ip][:port]`: Server IP, port optional. <br>`[-spki-pin [sha256-pin]]`: TLS verify SPKI value, a base64 encoded SHA256 hash<br>`[-host-name]`:TLS Server name. `-` to disable SNI name.<br>`[-tls-host-verify]`: TLS cert hostname to verify. <br>`-no-check-certificate:`: No check certificate. <br>`[-blacklist-ip]`: The "-blacklist-ip" parameter is to filtering IPs which is configured by "blacklist-ip". <br>`[-whitelist-ip]`: whitelist-ip parameter specifies that only the IP range configured in whitelist-ip is accepted. <br>`[-group [group] ...]`: The group to which the DNS server belongs, such as office, foreign, use with nameserver. <br>`[-exclude-default-group]`: Exclude DNS servers from the default group| server-tls 8.8.8.8:853
-|server-https|Upstream HTTPS DNS server|None|Repeatable <br>`https://[host][:port]/path`: Server IP, port optional. <br>`[-spki-pin [sha256-pin]]`: TLS verify SPKI value, a base64 encoded SHA256 hash<br>`[-host-name]`:TLS Server name<br>`[-http-host]`：http header host. <br>`[-tls-host-verify]`: TLS cert hostname to verify. <br>`-no-check-certificate:`: No check certificate. <br>`[-blacklist-ip]`: The "-blacklist-ip" parameter is to filtering IPs which is configured by "blacklist-ip". <br>`[-whitelist-ip]`: whitelist-ip parameter specifies that only the IP range configured in whitelist-ip is accepted. <br>`[-group [group] ...]`: The group to which the DNS server belongs, such as office, foreign, use with nameserver. <br>`[-exclude-default-group]`: Exclude DNS servers from the default group| server-https https://cloudflare-dns.com/dns-query
+|server|Upstream UDP DNS server|None|Repeatable <br>`[ip][:port]`: Server IP, port optional. <br>`[-blacklist-ip]`: The "-blacklist-ip" parameter is to filtering IPs which is configured by "blacklist-ip". <br>`[-whitelist-ip]`: whitelist-ip parameter specifies that only the IP range configured in whitelist-ip is accepted. <br>`[-group [group] ...]`: The group to which the DNS server belongs, such as office, foreign, use with nameserver. <br>`[-exclude-default-group]`: Exclude DNS servers from the default group. <br>`[-set-mark]`：set mark on packets | server 8.8.8.8:53 -blacklist-ip
+|server-tcp|Upstream TCP DNS server|None|Repeatable <br>`[ip][:port]`: Server IP, port optional. <br>`[-blacklist-ip]`: The "-blacklist-ip" parameter is to filtering IPs which is configured by "blacklist-ip". <br>`[-whitelist-ip]`: whitelist-ip parameter specifies that only the IP range configured in whitelist-ip is accepted. <br>`[-group [group] ...]`: The group to which the DNS server belongs, such as office, foreign, use with nameserver. <br>`[-exclude-default-group]`: Exclude DNS servers from the default group <br>`[-set-mark]`：set mark on packets | server-tcp 8.8.8.8:53
+|server-tls|Upstream TLS DNS server|None|Repeatable <br>`[ip][:port]`: Server IP, port optional. <br>`[-spki-pin [sha256-pin]]`: TLS verify SPKI value, a base64 encoded SHA256 hash<br>`[-host-name]`:TLS Server name. `-` to disable SNI name.<br>`[-tls-host-verify]`: TLS cert hostname to verify. <br>`-no-check-certificate:`: No check certificate. <br>`[-blacklist-ip]`: The "-blacklist-ip" parameter is to filtering IPs which is configured by "blacklist-ip". <br>`[-whitelist-ip]`: whitelist-ip parameter specifies that only the IP range configured in whitelist-ip is accepted. <br>`[-group [group] ...]`: The group to which the DNS server belongs, such as office, foreign, use with nameserver. <br>`[-exclude-default-group]`: Exclude DNS servers from the default group <br> `[-set-mark]`：set mark on packets | server-tls 8.8.8.8:853
+|server-https|Upstream HTTPS DNS server|None|Repeatable <br>`https://[host][:port]/path`: Server IP, port optional. <br>`[-spki-pin [sha256-pin]]`: TLS verify SPKI value, a base64 encoded SHA256 hash<br>`[-host-name]`:TLS Server name<br>`[-http-host]`：http header host. <br>`[-tls-host-verify]`: TLS cert hostname to verify. <br>`-no-check-certificate:`: No check certificate. <br>`[-blacklist-ip]`: The "-blacklist-ip" parameter is to filtering IPs which is configured by "blacklist-ip". <br>`[-whitelist-ip]`: whitelist-ip parameter specifies that only the IP range configured in whitelist-ip is accepted. <br>`[-group [group] ...]`: The group to which the DNS server belongs, such as office, foreign, use with nameserver. <br>`[-exclude-default-group]`: Exclude DNS servers from the default group <br> `[-set-mark]`：set mark on packets | server-https https://cloudflare-dns.com/dns-query
 |speed-check-mode|Speed ​​mode|None|[ping\|tcp:[80]\|none]|speed-check-mode ping,tcp:80,tcp:443
 |response-mode|First query response mode|first-ping|Mode: [fisrt-ping\|fastest-ip\|fastest-response]<br> [first-ping]: The fastest dns + ping response mode, DNS query delay + ping delay is the shortest;<br>[fastest-ip]: The fastest IP address mode, return the fastest ip address, may take some time to test speed. <br>[fastest-response]: The fastest response DNS result mode, the DNS query waiting time is the shortest. | response-mode first-ping |
 |address|Domain IP address|None|address /domain/[ip\|-\|-4\|-6\|#\|#4\|#6], `-` for ignore, `#` for return SOA, `4` for IPV4, `6` for IPV6| address /www.example.com/1.2.3.4
@@ -508,7 +559,7 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 |nftset|Domain nftset|None|nftset /domain/[#4\|#6\|-]:[family#nftable#nftset\|-][,#[4\|6]:[family#nftable#nftset\|-]]], `-` to ignore; the valid families are inet and ip for ipv4 addresses while the valid ones are inet and ip6 for ipv6 addresses; due to the limitation of nft, two types of addresses have to be stored in two sets|nftset /www.example.com/#4:inet#mytab#dns4,#6:-
 |nftset-timeout|nftset timeout enable|no|[yes\|no]|nftset-timeout yes
 |nftset-debug|nftset debug enable|no|[yes\|no]|nftset-debug yes
-|domain-rules|set domain rules|None|domain-rules /domain/ [-rules...]<br>[-c\|-speed-check-mode]: set speed check mode，same as parameter speed-check-mode<br>[-a\|-address]: same as  parameter `address` <br>[-n\|-nameserver]: same as parameter `nameserver`<br>[-p\|-ipset]: same as parameter `nftset`<br>[-t\|-nftset]: same as parameter `nftset`<br>[-d\|-dualstack-ip-selection]: same as parameter `dualstack-ip-selection`|domain-rules /www.example.com/ -speed-check-mode none
+|domain-rules|set domain rules|None|domain-rules /domain/ [-rules...]<br>[-c\|-speed-check-mode]: set speed check mode，same as parameter speed-check-mode<br>[-a\|-address]: same as  parameter `address` <br>[-n\|-nameserver]: same as parameter `nameserver`<br>[-p\|-ipset]: same as parameter `nftset`<br>[-t\|-nftset]: same as parameter `nftset`<br>[-d\|-dualstack-ip-selection]: same as parameter `dualstack-ip-selection`<br>  [-no-serve-expired]：disable serve expired|domain-rules /www.example.com/ -speed-check-mode none
 | domain-set | collection of domains|None| domain-set [options...]<br>[-n\|-name]：name of set <br>[-t\|-type] [list]: set type, only support list, one domain per line <br>[-f\|-file]：file path of domain set<br> used with address, nameserver, ipset, nftset, example: /domain-set:[name]/ | domain-set -name set -type list -file /path/to/list <br> address /domain-set:set/1.2.4.8 |
 |bogus-nxdomain|bogus IP address|None|[IP/subnet], Repeatable| bogus-nxdomain 1.2.3.4/16
 |ignore-ip|ignore ip address|None|[ip/subnet], Repeatable| ignore-ip 1.2.3.4/16

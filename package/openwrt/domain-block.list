@@ -1,0 +1,4 @@
+# domain block list, one domain name per line.
+# example: block a.com, and b.com
+# a.com
+# b.com

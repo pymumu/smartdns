@@ -122,7 +122,7 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
    支持域名后缀匹配模式，简化过滤配置，过滤 20 万条记录时间 < 1ms。
 
 6. **域名分流**  
-   支持域名分流，不同类型的域名向不同的 DNS 服务器查询。
+   支持域名分流，不同类型的域名向不同的 DNS 服务器查询，支持iptable和nftable更好的分流。
 
 7. **Windows / Linux 多平台支持**  
    支持标准 Linux 系统（树莓派）、OpenWrt 系统各种固件和华硕路由器原生固件。同时还支持 WSL（Windows Subsystem for Linux，适用于 Linux 的 Windows 子系统）。
@@ -196,43 +196,55 @@ entware|ipkg update<br>ipkg install smartdns|软件源路径：https://bin.entwa
 
 1. 安装
    
-   下载配套安装包，并上传到 Linux 系统中。 
-   
-   标准 Linux 系统（X86 / X86_64）请执行如下命令安装：
-   
-   ```shell
-   $ tar zxf smartdns.1.yyyy.MM.dd-REL.x86_64-linux-all.tar.gz
-   $ cd smartdns
-   $ chmod +x ./install
-   $ ./install -i
-   ```
-   
-   树莓派或其他 Debian 系系统（ARM / ARM64）请执行如下命令安装：
-   
-   ```shell
-   # dpkg -i smartdns.1.yyyy.MM.dd-REL.arm-debian-all.deb
-   ```
+    下载配套安装包，并上传到 Linux 系统中。 
+
+    标准 Linux 系统（X86 / X86_64）请执行如下命令安装：
+
+    ```shell
+    $ tar zxf smartdns.1.yyyy.MM.dd-REL.x86_64-linux-all.tar.gz
+    $ cd smartdns
+    $ chmod +x ./install
+    $ ./install -i
+    ```
+
+    树莓派或其他 Debian 系系统（ARM / ARM64）请执行如下命令安装：
+
+    ```shell
+    # dpkg -i smartdns.1.yyyy.MM.dd-REL.arm-debian-all.deb
+    ```
 
 2. 修改配置
    
     安装完成后，可配置 SmartDNS 的上游服务器信息。
-   
+
     一般情况下，只需要增加 `server `[`IP`]`:port` 和 `server-tcp `[`IP`]`:port` 配置项。
-   
+
     请尽可能配置多个上游 DNS 服务器，包括国内外的服务器。
-   
+
     具体配置参数请参考[配置文件说明](#配置文件说明)。  
    
-   ```shell
-   # vi /etc/smartdns/smartdns.conf
-   ```
+    ```shell
+    # vi /etc/smartdns/smartdns.conf
+    ```
+
+    `/etc/smartdns/smartdns.conf`配置包含如下基本内容：
+    ```
+    # 指定监听的端口号
+    bind []:53 
+    # 指定上游服务器
+    server 1.1.1.1
+    server-tls 8.8.8.8
+    # 指定域名规则
+    address /example.com/1.2.3.4
+    domain-rule /example.com/ -address 1.2.3.4
+    ```
 
 3. 启动服务
    
-   ```shell
-   # systemctl enable smartdns
-   # systemctl start smartdns
-   ```
+    ```shell
+    # systemctl enable smartdns
+    # systemctl start smartdns
+    ```
 
 4. 将 DNS 请求转发到 SmartDNS 解析
    
@@ -400,6 +412,18 @@ entware|ipkg update<br>ipkg install smartdns|软件源路径：https://bin.entwa
    ```shell
    # vi /opt/etc/smartdns/smartdns.conf
    ```
+
+    `/opt/etc/smartdns/smartdns.conf`配置包含如下基本内容：
+    ```
+    # 指定监听的端口号
+    bind []:53 
+    # 指定上游服务器
+    server 1.1.1.1
+    server-tls 8.8.8.8
+    # 指定域名规则
+    address /example.com/1.2.3.4
+    domain-rule /example.com/ -address 1.2.3.4
+    ```
    
    也可以通过网上邻居修改，网上邻居共享目录 `sda1` 看不到 `asusware.mipsbig` 目录，但可以直接在`文件管理器`中输入 `asusware.mipsbig\etc\init.d` 访问
    
@@ -428,6 +452,18 @@ entware|ipkg update<br>ipkg install smartdns|软件源路径：https://bin.entwa
    ```shell
    # vi /opt/etc/smartdns/smartdns.conf
    ```
+
+   `/opt/etc/smartdns/smartdns.conf`配置包含如下基本内容：
+    ```
+    # 指定监听的端口号
+    bind []:53 
+    # 指定上游服务器
+    server 1.1.1.1
+    server-tls 8.8.8.8
+    # 指定域名规则
+    address /example.com/1.2.3.4
+    domain-rule /example.com/ -address 1.2.3.4
+    ```
    
     另外，如需支持 IPv6，可设置工作模式为 `2`，将 DNSmasq 的 DNS 服务禁用，设置 SmartDNS 为主用 DNS 服务器。将文件 `/opt/etc/smartdns/smartdns-opt.conf` 中的 `SMARTDNS_WORKMODE` 的值修改为 `2`
    
@@ -490,6 +526,17 @@ entware|ipkg update<br>ipkg install smartdns|软件源路径：https://bin.entwa
     尽可能配置多个上游DNS服务器，包括国内外的服务器。
    
     具体配置请参考[配置文件说明](#配置文件说明)。
+     `smartdns.conf` 配置包含如下基本内容：
+    ```
+    # 指定监听的端口号
+    bind []:53 
+    # 指定上游服务器
+    server 1.1.1.1
+    server-tls 8.8.8.8
+    # 指定域名规则
+    address /example.com/1.2.3.4
+    domain-rule /example.com/ -address 1.2.3.4
+    ```
 
 4. 重新加载配置
    
@@ -517,6 +564,7 @@ entware|ipkg update<br>ipkg install smartdns|软件源路径：https://bin.entwa
    Non-authoritative answer:
    smartdns        name = smartdns.
    ```
+
 
 ## 配置文件说明
 
@@ -546,10 +594,10 @@ entware|ipkg update<br>ipkg install smartdns|软件源路径：https://bin.entwa
 | audit-size | 审计大小 | 128K | 数字 + K、M 或 G | audit-size 128K |
 | audit-num | 审计归档个数 | 2 | 大于等于 0 的数字 | audit-num 2 |
 | conf-file | 附加配置文件 | 无 | 合法路径字符串 | conf-file /etc/smartdns/smartdns.more.conf |
-| server | 上游 UDP DNS | 无 | 可重复。<br>[ip][:port]：服务器 IP:端口（可选）<br>[-blacklist-ip]：配置 IP 过滤结果。<br>[-whitelist-ip]：指定仅接受参数中配置的 IP 范围<br>[-group [group] ...]：DNS 服务器所属组，比如 office 和 foreign，和 nameserver 配套使用<br>[-exclude-default-group]：将 DNS 服务器从默认组中排除 | server 8.8.8.8:53 -blacklist-ip -group g1 |
-| server-tcp | 上游 TCP DNS | 无 | 可重复。<br>[ip][:port]：服务器 IP:端口（可选）<br>[-blacklist-ip]：配置 IP 过滤结果<br>[-whitelist-ip]：指定仅接受参数中配置的 IP 范围。<br>[-group [group] ...]：DNS 服务器所属组，比如 office 和 foreign，和 nameserver 配套使用<br>[-exclude-default-group]：将 DNS 服务器从默认组中排除  | server-tcp 8.8.8.8:53 |
-| server-tls | 上游 TLS DNS | 无 | 可重复。<br>[ip][:port]：服务器 IP:端口（可选)<br>[-spki-pin [sha256-pin]]：TLS 合法性校验 SPKI 值，base64 编码的 sha256 SPKI pin 值<br>[-host-name]：TLS SNI 名称, 名称设置为-，表示停用SNI名称<br>[-tls-host-verify]：TLS 证书主机名校验<br> [-no-check-certificate]：跳过证书校验<br>[-blacklist-ip]：配置 IP 过滤结果<br>[-whitelist-ip]：仅接受参数中配置的 IP 范围<br>[-group [group] ...]：DNS 服务器所属组，比如 office 和 foreign，和 nameserver 配套使用<br>[-exclude-default-group]：将 DNS 服务器从默认组中排除 | server-tls 8.8.8.8:853 |
-| server-https | 上游 HTTPS DNS | 无 | 可重复。<br>https://[host][:port]/path：服务器 IP:端口（可选）<br>[-spki-pin [sha256-pin]]：TLS 合法性校验 SPKI 值，base64 编码的 sha256 SPKI pin 值<br>[-host-name]：TLS SNI 名称<br>[-http-host]：http 协议头主机名<br>[-tls-host-verify]：TLS 证书主机名校验<br> [-no-check-certificate]：跳过证书校验<br>[-blacklist-ip]：配置 IP 过滤结果<br>[-whitelist-ip]：仅接受参数中配置的 IP 范围。<br>[-group [group] ...]：DNS 服务器所属组，比如 office 和 foreign，和 nameserver 配套使用<br>[-exclude-default-group]：将 DNS 服务器从默认组中排除 | server-https https://cloudflare-dns.com/dns-query |
+| server | 上游 UDP DNS | 无 | 可重复。<br>[ip][:port]：服务器 IP:端口（可选）<br>[-blacklist-ip]：配置 IP 过滤结果。<br>[-whitelist-ip]：指定仅接受参数中配置的 IP 范围<br>[-group [group] ...]：DNS 服务器所属组，比如 office 和 foreign，和 nameserver 配套使用<br>[-exclude-default-group]：将 DNS 服务器从默认组中排除。<br>[-set-mark]：设置数据包标记so-mark| server 8.8.8.8:53 -blacklist-ip -group g1 |
+| server-tcp | 上游 TCP DNS | 无 | 可重复。<br>[ip][:port]：服务器 IP:端口（可选）<br>[-blacklist-ip]：配置 IP 过滤结果<br>[-whitelist-ip]：指定仅接受参数中配置的 IP 范围。<br>[-group [group] ...]：DNS 服务器所属组，比如 office 和 foreign，和 nameserver 配套使用<br>[-exclude-default-group]：将 DNS 服务器从默认组中排除。<br>[-set-mark]：设置数据包标记so-mark | server-tcp 8.8.8.8:53 |
+| server-tls | 上游 TLS DNS | 无 | 可重复。<br>[ip][:port]：服务器 IP:端口（可选)<br>[-spki-pin [sha256-pin]]：TLS 合法性校验 SPKI 值，base64 编码的 sha256 SPKI pin 值<br>[-host-name]：TLS SNI 名称, 名称设置为-，表示停用SNI名称<br>[-tls-host-verify]：TLS 证书主机名校验<br> [-no-check-certificate]：跳过证书校验<br>[-blacklist-ip]：配置 IP 过滤结果<br>[-whitelist-ip]：仅接受参数中配置的 IP 范围<br>[-group [group] ...]：DNS 服务器所属组，比如 office 和 foreign，和 nameserver 配套使用<br>[-exclude-default-group]：将 DNS 服务器从默认组中排除。<br>[-set-mark]：设置数据包标记so-mark | server-tls 8.8.8.8:853 |
+| server-https | 上游 HTTPS DNS | 无 | 可重复。<br>https://[host][:port]/path：服务器 IP:端口（可选）<br>[-spki-pin [sha256-pin]]：TLS 合法性校验 SPKI 值，base64 编码的 sha256 SPKI pin 值<br>[-host-name]：TLS SNI 名称<br>[-http-host]：http 协议头主机名<br>[-tls-host-verify]：TLS 证书主机名校验<br> [-no-check-certificate]：跳过证书校验<br>[-blacklist-ip]：配置 IP 过滤结果<br>[-whitelist-ip]：仅接受参数中配置的 IP 范围。<br>[-group [group] ...]：DNS 服务器所属组，比如 office 和 foreign，和 nameserver 配套使用<br>[-exclude-default-group]：将 DNS 服务器从默认组中排除。<br>[-set-mark]：设置数据包标记so-mark | server-https https://cloudflare-dns.com/dns-query |
 | speed-check-mode | 测速模式选择 | 无 | [ping\|tcp:[80]\|none] | speed-check-mode ping,tcp:80,tcp:443 |
 | response-mode | 首次查询响应模式 | first-ping |模式：[fisrt-ping\|fastest-ip\|fastest-response]<br> [first-ping]: 最快ping响应地址模式，DNS上游最快查询时延+ping时延最短，查询等待与链接体验最佳;<br>[fastest-ip]: 最快IP地址模式，查询到的所有IP地址中ping最短的IP。需等待IP测速; <br>[fastest-response]: 最快响应的DNS结果，DNS查询等待时间最短，返回的IP地址可能不是最快。| response-mode first-ping |
 | address | 指定域名 IP 地址 | 无 | address /domain/[ip\|-\|-4\|-6\|#\|#4\|#6] <br>- 表示忽略 <br># 表示返回 SOA <br>4 表示 IPv4 <br>6 表示 IPv6 | address /www.example.com/1.2.3.4 |
@@ -559,7 +607,7 @@ entware|ipkg update<br>ipkg install smartdns|软件源路径：https://bin.entwa
 | nftset | 域名 nftset | 无 | nftset /domain/[#4\|#6\|-]:[family#nftable#nftset\|-][,#[4\|6]:[family#nftable#nftset\|-]]]，-表示忽略；ipv4 地址的 family 只支持 inet 和 ip；ipv6 地址的 family 只支持 inet 和 ip6；由于 nft 限制，两种地址只能分开存放于两个 set 中。| nftset /www.example.com/#4:inet#mytab#dns4,#6:- |
 | nftset-timeout | 设置 nftset 超时功能启用  | no | [yes\|no] | nftset-timeout yes |
 | nftset-debug | 设置 nftset 调试功能启用  | no | [yes\|no] | nftset-debug yes |
-| domain-rules | 设置域名规则 | 无 | domain-rules /domain/ [-rules...]<br>[-c\|-speed-check-mode]：测速模式，参考 speed-check-mode 配置<br>[-a\|-address]：参考 address 配置<br>[-n\|-nameserver]：参考 nameserver 配置<br>[-p\|-ipset]：参考ipset配置<br>[-t\|-nftset]：参考nftset配置<br>[-d\|-dualstack-ip-selection]：参考 dualstack-ip-selection  | domain-rules /www.example.com/ -speed-check-mode none |
+| domain-rules | 设置域名规则 | 无 | domain-rules /domain/ [-rules...]<br>[-c\|-speed-check-mode]：测速模式，参考 speed-check-mode 配置<br>[-a\|-address]：参考 address 配置<br>[-n\|-nameserver]：参考 nameserver 配置<br>[-p\|-ipset]：参考ipset配置<br>[-t\|-nftset]：参考nftset配置<br>[-d\|-dualstack-ip-selection]：参考 dualstack-ip-selection<br> [-no-serve-expired]：禁用过期缓存 | domain-rules /www.example.com/ -speed-check-mode none |
 | domain-set | 设置域名集合 | 无 | domain-set [options...]<br>[-n\|-name]：域名集合名称 <br>[-t\|-type]：域名集合类型，当前仅支持list，格式为域名列表，一行一个域名。<br>[-f\|-file]：域名集合文件路径。<br> 选项需要配合address, nameserver, ipset, nftset等需要指定域名的地方使用，使用方式为 /domain-set:[name]/| domain-set -name set -type list -file /path/to/list <br> address /domain-set:set/1.2.4.8 |
 | bogus-nxdomain | 假冒 IP 地址过滤 | 无 | [ip/subnet]，可重复 | bogus-nxdomain 1.2.3.4/16 |
 | ignore-ip | 忽略 IP 地址 | 无 | [ip/subnet]，可重复 | ignore-ip 1.2.3.4/16 |

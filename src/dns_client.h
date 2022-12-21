@@ -111,6 +111,7 @@ struct client_dns_server_flags {
 	dns_server_type_t type;
 	unsigned int server_flag;
 	unsigned int result_flag;
+	long long set_mark;
 
 	union {
 		struct client_dns_server_flag_udp udp;
