@@ -5532,6 +5532,10 @@ static int _dns_server_audit_init(void)
 		return -1;
 	}
 
+	if (dns_conf_audit_file_mode > 0) {
+		tlog_set_permission(dns_audit, dns_conf_audit_file_mode, dns_conf_audit_file_mode);
+	}
+
 	return 0;
 }
 

@@ -87,6 +87,27 @@ int conf_int(const char *item, void *data, int argc, char *argv[])
 	return 0;
 }
 
+int conf_int_base(const char *item, void *data, int argc, char *argv[])
+{
+	struct config_item_int_base *item_int = data;
+	int value = 0;
+	if (argc < 2) {
+		return -1;
+	}
+
+	value = strtol(argv[1], NULL, item_int->base);
+
+	if (value < item_int->min) {
+		value = item_int->min;
+	} else if (value > item_int->max) {
+		value = item_int->max;
+	}
+
+	*(item_int->data) = value;
+
+	return 0;
+}
+
 int conf_string(const char *item, void *data, int argc, char *argv[])
 {
 	struct config_item_string *item_string = data;
