@@ -90,6 +90,7 @@ struct tlog_log {
     time_t last_waitpid;
     mode_t file_perm;
     mode_t archive_perm;
+    int mode_changed;
 
     int waiters;
     int is_exit;
@@ -332,6 +333,7 @@ void tlog_set_permission(struct tlog_log *log, unsigned int file, unsigned int a
 {
     log->file_perm = file;
     log->archive_perm = archive;
+    log->mode_changed = 1;
 }
 
 int tlog_localtime(struct tlog_time *tm)
@@ -1203,6 +1205,10 @@ static int _tlog_write(struct tlog_log *log, const char *buff, int bufflen)
             fprintf(stderr, "open log file %s failed, %s\n", logfile, strerror(errno));
             log->print_errmsg = 0;
             return -1;
+        }
+
+        if (log->mode_changed != 0) {
+            fchmod(log->fd, log->file_perm);
         }
 
         log->last_try = 0;

@@ -49,6 +49,13 @@ struct config_item_int {
 	int max;
 };
 
+struct config_item_int_base {
+	int *data;
+	int min;
+	int max;
+	int base;
+};
+
 struct config_item_string {
 	char *data;
 	size_t size;
@@ -79,6 +86,13 @@ struct config_enum {
 		key, conf_int, &(struct config_item_int)                                                                       \
 		{                                                                                                              \
 			.data = value, .min = min_value, .max = max_value                                                          \
+		}                                                                                                              \
+	}
+#define CONF_INT_BASE(key, value, min_value, max_value, base_value)                                                    \
+	{                                                                                                                  \
+		key, conf_int_base, &(struct config_item_int_base)                                                             \
+		{                                                                                                              \
+			.data = value, .min = min_value, .max = max_value, .base = base_value                                      \
 		}                                                                                                              \
 	}
 #define CONF_STRING(key, value, len_value)                                                                             \
@@ -130,6 +144,8 @@ struct config_enum {
 extern int conf_custom(const char *item, void *data, int argc, char *argv[]);
 
 extern int conf_int(const char *item, void *data, int argc, char *argv[]);
+
+extern int conf_int_base(const char *item, void *data, int argc, char *argv[]);
 
 extern int conf_string(const char *item, void *data, int argc, char *argv[]);
 
