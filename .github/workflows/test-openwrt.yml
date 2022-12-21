@@ -118,9 +118,9 @@ jobs:
           - arch: powerpc_464fp
             sdk_url_path: https://downloads.openwrt.org/snapshots/targets/apm821xx/nand
             sdk_name: -sdk-apm821xx-nand_
-          - arch: powerpc_8540         
-            sdk_url_path: https://downloads.openwrt.org/snapshots/targets/mpc85xx/generic
-            sdk_name: -sdk-mpc85xx-generic_
+          #- arch: powerpc_8540         
+          #  sdk_url_path: https://downloads.openwrt.org/snapshots/targets/mpc85xx/generic
+          #  sdk_name: -sdk-mpc85xx-generic_
           # - arch: arc_arc700
           #   sdk_url_path: https://downloads.openwrt.org/snapshots/targets/arc770/generic
           #   sdk_name: -sdk-arc770-generic_
