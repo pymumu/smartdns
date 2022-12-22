@@ -1688,6 +1688,11 @@ static int _dns_client_create_socket_udp(struct dns_server_info *server_info)
 	server_info->fd = fd;
 	server_info->status = DNS_SERVER_STATUS_CONNECTIONLESS;
 
+	if (connect(fd, &server_info->addr, server_info->ai_addrlen) != 0) {
+		tlog(TLOG_ERROR, "connect failed, %s", strerror(errno));
+		goto errout;
+	}
+
 	memset(&event, 0, sizeof(event));
 	event.events = EPOLLIN;
 	event.data.ptr = server_info;
@@ -2674,7 +2679,7 @@ static int _dns_client_send_udp(struct dns_server_info *server_info, void *packe
 		return -1;
 	}
 
-	send_len = sendto(server_info->fd, packet, len, 0, &server_info->addr, server_info->ai_addrlen);
+	send_len = sendto(server_info->fd, packet, len, 0, NULL, 0);
 	if (send_len != len) {
 		return -1;
 	}
