@@ -203,6 +203,7 @@ entware|ipkg update<br>ipkg install smartdns|软件源路径：https://bin.entwa
     # dpkg -i smartdns.1.yyyy.MM.dd-REL.arm-debian-all.deb
     ```
 
+    **注意**对于Ubuntu系统`systemd-resolve`会占用TCP53和UDP53端口。你需要手动解决端口占用问题或者修改smartdns监听端口。日志文件在`/var/log/smartdns/smartdns.log`
 2. 修改配置
    
     安装完成后，可配置 SmartDNS 的上游服务器信息。
