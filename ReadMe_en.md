@@ -195,6 +195,10 @@ https://github.com/pymumu/smartdns/releases
     chmod +x ./install
     ./install -i
     ```
+    **For Ubuntu system:**
+    * `systemd-resolve` occupies TCP53 and UDP53 ports. You need to manually resolve the port occupancy problem or modify the SmartDNS listening port
+
+    * Log files in `/var/log/smartdns/smartdns.log`
 
 1. Configuration
 
