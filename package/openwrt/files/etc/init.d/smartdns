@@ -429,6 +429,9 @@ load_service()
 	mkdir -p $SMARTDNS_VAR_CONF_DIR
 	rm -f $SMARTDNS_CONF_TMP
 
+	mkdir -p $SMARTDNS_CONF_DOWNLOAD_DIR
+	mkdir -p $SMARTDNS_DOMAIN_LIST_DOWNLOAD_DIR
+
 	config_get_bool enabled "$section" "enabled" '0'
 
 	config_get server_name "$section" "server_name" ""
