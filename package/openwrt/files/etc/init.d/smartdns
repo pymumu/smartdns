@@ -655,6 +655,33 @@ download_file() {
 	fi
 }
 
+check_and_add_entry() {
+	local docommit=0
+	uci -q get smartdns.@smartdns[0] >/dev/null
+	if [ $? -ne 0 ]; then
+		uci -q add smartdns smartdns >/dev/null
+		docommit=1
+	fi
+	
+	uci -q get smartdns.@domain-rule[0] >/dev/null
+	if [ $? -ne 0 ]; then
+		uci -q add smartdns domain-rule >/dev/null
+		docommit=1
+	fi
+
+	if [ "$docommit" = "1" ]; then
+		uci -q commit smartdns >/dev/null
+	fi
+
+	if [ ! -d "$SMARTDNS_DOMAIN_LIST_DOWNLOAD_DIR" ]; then
+		mkdir -p "$SMARTDNS_DOMAIN_LIST_DOWNLOAD_DIR"
+	fi
+
+	if [ ! -d "$SMARTDNS_CONF_DOWNLOAD_DIR" ]; then
+		mkdir -p "$SMARTDNS_CONF_DOWNLOAD_DIR"
+	fi
+}
+
 updatefiles() {
 	config_load "smartdns"
 	config_foreach download_file "download-file"
@@ -669,6 +696,7 @@ service_stopped()
 
 start_service()
 {
+	check_and_add_entry
 	config_load "smartdns"
 	config_foreach load_service "smartdns"
 }
