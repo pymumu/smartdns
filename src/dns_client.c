@@ -1685,11 +1685,16 @@ static int _dns_client_create_socket_udp(struct dns_server_info *server_info)
 		goto errout;
 	}
 
+	if (set_fd_nonblock(fd, 1) != 0) {
+		tlog(TLOG_ERROR, "set socket non block failed, %s", strerror(errno));
+		goto errout;
+	}
+
 	server_info->fd = fd;
 	server_info->status = DNS_SERVER_STATUS_CONNECTIONLESS;
 
 	if (connect(fd, &server_info->addr, server_info->ai_addrlen) != 0) {
-		tlog(TLOG_ERROR, "connect failed, %s", strerror(errno));
+		tlog(TLOG_WARN, "connect %s failed, %s", server_info->ip, strerror(errno));
 		goto errout;
 	}
 
@@ -1977,8 +1982,17 @@ static int _dns_client_process_udp(struct dns_server_info *server_info, struct e
 
 	len = recvmsg(server_info->fd, &msg, MSG_DONTWAIT);
 	if (len < 0) {
-		tlog(TLOG_ERROR, "recvfrom failed, %s\n", strerror(errno));
-		return -1;
+		if (errno == EAGAIN || errno == EWOULDBLOCK) {
+			return 0;
+		}
+
+		if (errno == ECONNREFUSED) {
+			tlog(TLOG_DEBUG, "recvfrom %s failed, %s\n", server_info->ip, strerror(errno));
+			goto errout;
+		}
+
+		tlog(TLOG_ERROR, "recvfrom %s failed, %s\n", server_info->ip, strerror(errno));
+		goto errout;
 	}
 	from_len = msg.msg_namelen;
 
@@ -2009,6 +2023,15 @@ static int _dns_client_process_udp(struct dns_server_info *server_info, struct e
 	}
 
 	return 0;
+
+errout:
+	pthread_mutex_lock(&client.server_list_lock);
+	server_info->recv_buff.len = 0;
+	server_info->send_buff.len = 0;
+	_dns_client_close_socket(server_info);
+	pthread_mutex_unlock(&client.server_list_lock);
+
+	return -1;
 }
 
 static int _dns_client_socket_ssl_send(struct dns_server_info *server, const void *buf, int num)

@@ -521,7 +521,7 @@ static int _fast_ping_sendping_v6(struct ping_host_struct *ping_host)
 				 ping_host->addr_len);
 	if (len < 0 || len != sizeof(struct fast_ping_packet)) {
 		int err = errno;
-		if (errno == ENETUNREACH || errno == EINVAL || errno == EADDRNOTAVAIL) {
+		if (errno == ENETUNREACH || errno == EINVAL || errno == EADDRNOTAVAIL || errno == EHOSTUNREACH) {
 			goto errout;
 		}
 
@@ -668,7 +668,7 @@ static int _fast_ping_sendping_tcp(struct ping_host_struct *ping_host)
 	if (connect(fd, &ping_host->addr, ping_host->addr_len) != 0) {
 		if (errno != EINPROGRESS) {
 			char ping_host_name[PING_MAX_HOSTLEN];
-			if (errno == ENETUNREACH || errno == EINVAL || errno == EADDRNOTAVAIL) {
+			if (errno == ENETUNREACH || errno == EINVAL || errno == EADDRNOTAVAIL || errno == EHOSTUNREACH) {
 				goto errout;
 			}
 
