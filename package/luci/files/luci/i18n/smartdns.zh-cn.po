@@ -25,11 +25,11 @@ msgstr "自动设置Dnsmasq"
 msgid "Automatically set as upstream of dnsmasq when port changes."
 msgstr "端口更改时自动设为 dnsmasq 的上游。"
 
-msgid "Block domain type"
-msgstr "屏蔽域名类型"
+msgid "Block domain"
+msgstr "屏蔽域名"
 
-msgid "Block domain type."
-msgstr "屏蔽域名类型。"
+msgid "Block domain."
+msgstr "屏蔽域名。"
 
 msgid "Cache Size"
 msgstr "缓存大小"

@@ -786,7 +786,7 @@ return view.extend({
 		so.rempty = true
 		so.root_directory = "/etc/smartdns/domain-set"
 
-		so = ss.option(form.ListValue, "block_domain_type", _("Block domain type"), _("Block domain type."));
+		so = ss.option(form.ListValue, "block_domain_type", _("Block domain"), _("Block domain."));
 		so.rmempty = true;
 		so.value("none", _("None"));
 		so.value("all", "IPv4/IPv6");
