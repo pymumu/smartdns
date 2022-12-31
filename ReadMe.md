@@ -214,7 +214,7 @@ entware|ipkg update<br>ipkg install smartdns|软件源路径：https://bin.entwa
     ```
 
     **对于Ubuntu系统：**
-    * `systemd-resolve`会占用TCP53和UDP53端口。你需要手动解决端口占用问题或者修改smartdns监听端口
+    * `systemd-resolved`会占用TCP53和UDP53端口。你需要手动解决端口占用问题或者修改smartdns监听端口
 
     * 日志文件在`/var/log/smartdns/smartdns.log`
 2. 修改配置
