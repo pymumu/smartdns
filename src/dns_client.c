@@ -1694,8 +1694,15 @@ static int _dns_client_create_socket_udp(struct dns_server_info *server_info)
 	server_info->status = DNS_SERVER_STATUS_CONNECTIONLESS;
 
 	if (connect(fd, &server_info->addr, server_info->ai_addrlen) != 0) {
-		tlog(TLOG_WARN, "connect %s failed, %s", server_info->ip, strerror(errno));
-		goto errout;
+		if (errno == ENETUNREACH || errno == EHOSTUNREACH || errno == ECONNREFUSED) {
+			tlog(TLOG_WARN, "connect %s failed, %s", server_info->ip, strerror(errno));
+			goto errout;
+		}
+
+		if (errno != EINPROGRESS) {
+			tlog(TLOG_ERROR, "connect %s failed, %s", server_info->ip, strerror(errno));
+			goto errout;
+		}
 	}
 
 	memset(&event, 0, sizeof(event));
@@ -1775,7 +1782,7 @@ static int _DNS_client_create_socket_tcp(struct dns_server_info *server_info)
 	set_sock_keepalive(fd, 15, 3, 4);
 
 	if (connect(fd, &server_info->addr, server_info->ai_addrlen) != 0) {
-		if (errno == ENETUNREACH) {
+		if (errno == ENETUNREACH || errno == EHOSTUNREACH) {
 			tlog(TLOG_DEBUG, "connect %s failed, %s", server_info->ip, strerror(errno));
 			goto errout;
 		}
@@ -1864,7 +1871,7 @@ static int _DNS_client_create_socket_tls(struct dns_server_info *server_info, ch
 	setsockopt(fd, IPPROTO_IP, IP_TOS, &ip_tos, sizeof(ip_tos));
 
 	if (connect(fd, &server_info->addr, server_info->ai_addrlen) != 0) {
-		if (errno == ENETUNREACH) {
+		if (errno == ENETUNREACH || errno == EHOSTUNREACH) {
 			tlog(TLOG_DEBUG, "connect %s failed, %s", server_info->ip, strerror(errno));
 			goto errout;
 		}
