@@ -429,7 +429,7 @@ msgid "Update Files"
 msgstr "更新文件"
 
 msgid "Upload Config File"
-msgstr "上传域名列表文件"
+msgstr "上传配置文件"
 
 msgid "Upload Domain List File"
 msgstr "上传域名列表文件"
