@@ -2308,16 +2308,17 @@ static int _dns_client_process_tcp(struct dns_server_info *server_info, struct e
 		len = _dns_client_socket_recv(server_info);
 		if (len < 0) {
 			/* no data to recv, try again */
-			if (errno == EAGAIN) {
+			if (errno == EAGAIN || errno == EWOULDBLOCK) {
 				return 0;
 			}
 
-			/* FOR GFW */
-			if (errno == ECONNRESET) {
+			if (errno == ECONNRESET || errno == ENETUNREACH || errno == EHOSTUNREACH) {
+				tlog(TLOG_DEBUG, "recv failed, server %s:%d, %s\n", server_info->ip, server_info->port,
+					 strerror(errno));
 				goto errout;
 			}
 
-			if (errno == ETIMEDOUT) {
+			if (errno == ETIMEDOUT || errno == ECONNREFUSED) {
 				tlog(TLOG_INFO, "recv failed, server %s:%d, %s\n", server_info->ip, server_info->port, strerror(errno));
 				goto errout;
 			}
