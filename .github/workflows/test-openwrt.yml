@@ -24,7 +24,7 @@ jobs:
           #获取当前版本号
           pre_version=$(cat version_control/VERSION | grep "PREFEX" | sed 's/PREFEX=\(.*\)/\1/')
           cur_version=$(cat version_control/VERSION | grep "CUR_VERS" | sed 's/CUR_VERS=\(.*\)/\1/')
-          echo "::set-output name=CUR_VERSION::$pre_version$cur_version"
+          echo "CUR_VERSION=$pre_version$cur_version" >> $GITHUB_OUTPUT
           
   release:
     name: Build for ${{ matrix.arch }}
@@ -75,7 +75,7 @@ jobs:
             sdk_name: -sdk-mvebu-cortexa9_
           - arch: arm_fa526
             sdk_url_path: https://downloads.openwrt.org/snapshots/targets/gemini/generic
-            sdk_name: -sdk-gemini_
+            sdk_name: -sdk-gemini-generic_
           - arch: arm_mpcore
             sdk_url_path: https://downloads.openwrt.org/snapshots/targets/oxnas/ox820
             sdk_name: -sdk-oxnas-ox820_
@@ -84,7 +84,7 @@ jobs:
           #  sdk_name: -sdk-19.07.7-cns3xxx_
           - arch: arm_xscale
             sdk_url_path: https://downloads.openwrt.org/snapshots/targets/kirkwood/generic
-            sdk_name: -sdk-kirkwood_
+            sdk_name: -sdk-kirkwood-generic_
           - arch: i386_pentium
             sdk_url_path: https://downloads.openwrt.org/snapshots/targets/x86/legacy
             sdk_name: -sdk-x86-legacy_
@@ -99,7 +99,7 @@ jobs:
             sdk_name: -sdk-ramips-mt7620_
           - arch: mipsel_24kc_24kf
             sdk_url_path: https://downloads.openwrt.org/snapshots/targets/pistachio/generic
-            sdk_name: -sdk-pistachio_
+            sdk_name: -sdk-pistachio-generic_
           - arch: mipsel_74kc
             sdk_url_path: https://downloads.openwrt.org/snapshots/targets/bcm47xx/mips74k
             sdk_name: -sdk-bcm47xx-mips74k_
@@ -138,17 +138,17 @@ jobs:
       CACHE_DIR: ~/cache
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Setup Cache
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: ${{ env.CACHE_DIR }}
           key: ${{ runner.os }}:openwrt-v2ray:${{ env.ARCH }}:release:cache:${{ github.run_number }}
           restore-keys: |
             ${{ runner.os }}:openwrt-v2ray:${{ env.ARCH }}:cache:
       - name: Setup CCache
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: ~/.ccache
           key: ${{ runner.os }}:openwrt-v2ray:${{ env.ARCH }}:release:ccache:${{ github.run_number }}
@@ -185,11 +185,11 @@ jobs:
       - name: Generate release tag
         id: tag
         run: |
-          echo "::set-output name=release_tag::${{needs.get-version.outputs.CUR_VERSION}}-OpenWrt"
+          echo "release_tag=${{needs.get-version.outputs.CUR_VERSION}}-OpenWrt" >> $GITHUB_OUTPUT
           touch release.txt
           echo "同步更新上游代码" >> release.txt
           echo ${{ github.sha }} >> Release.txt
-          echo "::set-output name=status::success"
+          echo "status=success" >> $GITHUB_OUTPUT
       - name: Upload firmware to release
         uses: softprops/action-gh-release@v1
         if: steps.tag.outputs.status == 'success'

@@ -21,7 +21,7 @@ jobs:
           #获取当前版本号
           pre_version=$(cat version_control/VERSION | grep "PREFEX" | sed 's/PREFEX=\(.*\)/\1/')
           cur_version=$(cat version_control/VERSION | grep "CUR_VERS" | sed 's/CUR_VERS=\(.*\)/\1/')
-          echo "::set-output name=CUR_VERSION::$pre_version$cur_version"
+          echo "CUR_VERSION=$pre_version$cur_version" >> $GITHUB_OUTPUT
       - uses: actions/checkout@v3
       - uses: docker/setup-qemu-action@v2
         with:

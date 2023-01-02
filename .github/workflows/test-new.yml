@@ -29,7 +29,7 @@ jobs:
           #获取当前版本号
           pre_version=$(cat version_control/VERSION | grep "PREFEX" | sed 's/PREFEX=\(.*\)/\1/')
           cur_version=$(cat version_control/VERSION | grep "CUR_VERS" | sed 's/CUR_VERS=\(.*\)/\1/')
-          echo "::set-output name=CUR_VERSION::$pre_version$cur_version"
+          echo "CUR_VERSION=$pre_version$cur_version" >> $GITHUB_OUTPUT
 
   build:
     needs: get-version
@@ -112,11 +112,11 @@ jobs:
       - name: Generate release tag
         id: tag
         run: |
-          echo "::set-output name=release_tag::${{needs.get-version.outputs.CUR_VERSION}}"
+          echo "release_tag=${{needs.get-version.outputs.CUR_VERSION}}" >> $GITHUB_OUTPUT
           touch release.txt
           echo "同步更新上游代码" >> release.txt
           echo ${{ github.sha }} >> Release.txt
-          echo "::set-output name=status::success"
+          echo "status=success" >> $GITHUB_OUTPUT
       - name: Upload firmware to release
         uses: softprops/action-gh-release@v1
         if: steps.tag.outputs.status == 'success'
@@ -158,11 +158,11 @@ jobs:
       - name: Generate release tag
         id: tag
         run: |
-          echo "::set-output name=release_tag::${{needs.get-version.outputs.CUR_VERSION}}"
+          echo "release_tag=${{needs.get-version.outputs.CUR_VERSION}}" >> $GITHUB_OUTPUT
           touch release.txt
           echo "同步更新上游代码" >> release.txt
           echo ${{ github.sha }} >> Release.txt
-          echo "::set-output name=status::success"
+          echo "status=success" >> $GITHUB_OUTPUT
       - name: Upload firmware to release
         uses: softprops/action-gh-release@v1
         if: steps.tag.outputs.status == 'success'
