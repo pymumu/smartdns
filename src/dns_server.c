@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2020 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2023 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -805,7 +805,7 @@ static int _dns_add_rrs(struct dns_server_post_context *context)
 	}
 
 	if (request->rcode != DNS_RC_NOERROR) {
-		tlog(TLOG_INFO, "result %s, qtype: %d, rtcode: %d", domain, context->qtype, request->rcode);
+		tlog(TLOG_INFO, "result: %s, qtype: %d, rtcode: %d", domain, context->qtype, request->rcode);
 	}
 
 	return ret;

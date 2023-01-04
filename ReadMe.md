@@ -103,7 +103,7 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
    支持从域名所属 IP 地址列表中查找到访问速度最快的 IP 地址，并返回给客户端，提高网络访问速度。
 
 3. **支持多种查询协议**  
-   支持 UDP、TCP、DOT 和 DOH 查询，以及非 53 端口查询。
+   支持 UDP、TCP、DOT 和 DOH 查询，以及非 53 端口查询；支持通过socks5，HTTP代理查询。
 
 4. **特定域名 IP 地址指定**  
    支持指定域名的 IP 地址，达到广告过滤效果、避免恶意网站的效果。
@@ -590,10 +590,12 @@ entware|ipkg update<br>ipkg install smartdns|软件源路径：https://bin.entwa
 | audit-num | 审计归档个数 | 2 | 大于等于 0 的数字 | audit-num 2 |
 | audit-file-mode | 审计归档文件权限 | 0640 | 文件权限 | log-file-mode 644 |
 | conf-file | 附加配置文件 | 无 | 合法路径字符串 | conf-file /etc/smartdns/smartdns.more.conf |
-| server | 上游 UDP DNS | 无 | 可重复。<br>[ip][:port]：服务器 IP:端口（可选）<br>[-blacklist-ip]：配置 IP 过滤结果。<br>[-whitelist-ip]：指定仅接受参数中配置的 IP 范围<br>[-group [group] ...]：DNS 服务器所属组，比如 office 和 foreign，和 nameserver 配套使用<br>[-exclude-default-group]：将 DNS 服务器从默认组中排除。<br>[-set-mark]：设置数据包标记so-mark| server 8.8.8.8:53 -blacklist-ip -group g1 |
-| server-tcp | 上游 TCP DNS | 无 | 可重复。<br>[ip][:port]：服务器 IP:端口（可选）<br>[-blacklist-ip]：配置 IP 过滤结果<br>[-whitelist-ip]：指定仅接受参数中配置的 IP 范围。<br>[-group [group] ...]：DNS 服务器所属组，比如 office 和 foreign，和 nameserver 配套使用<br>[-exclude-default-group]：将 DNS 服务器从默认组中排除。<br>[-set-mark]：设置数据包标记so-mark | server-tcp 8.8.8.8:53 |
-| server-tls | 上游 TLS DNS | 无 | 可重复。<br>[ip][:port]：服务器 IP:端口（可选)<br>[-spki-pin [sha256-pin]]：TLS 合法性校验 SPKI 值，base64 编码的 sha256 SPKI pin 值<br>[-host-name]：TLS SNI 名称, 名称设置为-，表示停用SNI名称<br>[-tls-host-verify]：TLS 证书主机名校验<br> [-no-check-certificate]：跳过证书校验<br>[-blacklist-ip]：配置 IP 过滤结果<br>[-whitelist-ip]：仅接受参数中配置的 IP 范围<br>[-group [group] ...]：DNS 服务器所属组，比如 office 和 foreign，和 nameserver 配套使用<br>[-exclude-default-group]：将 DNS 服务器从默认组中排除。<br>[-set-mark]：设置数据包标记so-mark | server-tls 8.8.8.8:853 |
-| server-https | 上游 HTTPS DNS | 无 | 可重复。<br>https://[host][:port]/path：服务器 IP:端口（可选）<br>[-spki-pin [sha256-pin]]：TLS 合法性校验 SPKI 值，base64 编码的 sha256 SPKI pin 值<br>[-host-name]：TLS SNI 名称<br>[-http-host]：http 协议头主机名<br>[-tls-host-verify]：TLS 证书主机名校验<br> [-no-check-certificate]：跳过证书校验<br>[-blacklist-ip]：配置 IP 过滤结果<br>[-whitelist-ip]：仅接受参数中配置的 IP 范围。<br>[-group [group] ...]：DNS 服务器所属组，比如 office 和 foreign，和 nameserver 配套使用<br>[-exclude-default-group]：将 DNS 服务器从默认组中排除。<br>[-set-mark]：设置数据包标记so-mark | server-https https://cloudflare-dns.com/dns-query |
+| server | 上游 UDP DNS | 无 | 可重复。<br>[ip][:port]：服务器 IP:端口（可选）<br>[-blacklist-ip]：配置 IP 过滤结果。<br>[-whitelist-ip]：指定仅接受参数中配置的 IP 范围<br>[-group [group] ...]：DNS 服务器所属组，比如 office 和 foreign，和 nameserver 配套使用<br>[-exclude-default-group]：将 DNS 服务器从默认组中排除。<br>[-set-mark mark]：设置数据包标记so-mark。<br>[-proxy name]：设置代理服务器。 | server 8.8.8.8:53 -blacklist-ip -group g1 -proxy proxy|
+| server-tcp | 上游 TCP DNS | 无 | 可重复。<br>[ip][:port]：服务器 IP:端口（可选）<br>[-blacklist-ip]：配置 IP 过滤结果<br>[-whitelist-ip]：指定仅接受参数中配置的 IP 范围。<br>[-group [group] ...]：DNS 服务器所属组，比如 office 和 foreign，和 nameserver 配套使用<br>[-exclude-default-group]：将 DNS 服务器从默认组中排除。<br>[-set-mark mark]：设置数据包标记so-mark。<br>[-proxy name]：设置代理服务器。 | server-tcp 8.8.8.8:53 |
+| server-tls | 上游 TLS DNS | 无 | 可重复。<br>[ip][:port]：服务器 IP:端口（可选)<br>[-spki-pin [sha256-pin]]：TLS 合法性校验 SPKI 值，base64 编码的 sha256 SPKI pin 值<br>[-host-name]：TLS SNI 名称, 名称设置为-，表示停用SNI名称<br>[-tls-host-verify]：TLS 证书主机名校验<br> [-no-check-certificate]：跳过证书校验<br>[-blacklist-ip]：配置 IP 过滤结果<br>[-whitelist-ip]：仅接受参数中配置的 IP 范围<br>[-group [group] ...]：DNS 服务器所属组，比如 office 和 foreign，和 nameserver 配套使用<br>[-exclude-default-group]：将 DNS 服务器从默认组中排除。<br>[-set-mark mark]：设置数据包标记so-mark。<br>[-proxy name]：设置代理服务器。 | server-tls 8.8.8.8:853 |
+| server-https | 上游 HTTPS DNS | 无 | 可重复。<br>https://[host][:port]/path：服务器 IP:端口（可选）<br>[-spki-pin [sha256-pin]]：TLS 合法性校验 SPKI 值，base64 编码的 sha256 SPKI pin 值<br>[-host-name]：TLS SNI 名称<br>[-http-host]：http 协议头主机名<br>[-tls-host-verify]：TLS 证书主机名校验<br> [-no-check-certificate]：跳过证书校验<br>[-blacklist-ip]：配置 IP 过滤结果<br>[-whitelist-ip]：仅接受参数中配置的 IP 范围。<br>[-group [group] ...]：DNS 服务器所属组，比如 office 和 foreign，和 nameserver 配套使用<br>[-exclude-default-group]：将 DNS 服务器从默认组中排除。<br>[-set-mark]：设置数据包标记so-mark。<br>[-proxy name]：设置代理服务器。 | server-https https://cloudflare-dns.com/dns-query |
+| proxy-socks5 | socks5代理服务器 | 无 | 可重复。proxy-socks5 ip:port <br>[-name]: 代理服务器名称。<br>[-u\|-user]：用户名。<br>[-p\|-password]：密码。|proxy-socks5 1.2.3.4:1080 -name proxy|
+| proxy-http | http代理服务器 | 无 | 可重复。proxy-http ip:port <br>[-name]: 代理服务器名称。<br>[-u\|-user]：用户名。<br>[-p\|-password]：密码。|proxy-http 1.2.3.4:1080 -name proxy|
 | speed-check-mode | 测速模式选择 | 无 | [ping\|tcp:[80]\|none] | speed-check-mode ping,tcp:80,tcp:443 |
 | response-mode | 首次查询响应模式 | first-ping |模式：[fisrt-ping\|fastest-ip\|fastest-response]<br> [first-ping]: 最快ping响应地址模式，DNS上游最快查询时延+ping时延最短，查询等待与链接体验最佳;<br>[fastest-ip]: 最快IP地址模式，查询到的所有IP地址中ping最短的IP。需等待IP测速; <br>[fastest-response]: 最快响应的DNS结果，DNS查询等待时间最短，返回的IP地址可能不是最快。| response-mode first-ping |
 | address | 指定域名 IP 地址 | 无 | address /domain/[ip\|-\|-4\|-6\|#\|#4\|#6] <br>- 表示忽略 <br># 表示返回 SOA <br>4 表示 IPv4 <br>6 表示 IPv6 | address /www.example.com/1.2.3.4 |

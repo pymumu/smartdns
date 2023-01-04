@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2020 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2023 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -27,6 +27,7 @@
 #include "hash.h"
 #include "hashtable.h"
 #include "list.h"
+#include "proxy.h"
 #include "radix.h"
 
 #ifdef __cpluscplus
@@ -41,8 +42,13 @@ extern "C" {
 #define DNS_MAX_NFTSET_FAMILYLEN 8
 #define DNS_MAX_NFTSET_NAMELEN 256
 #define DNS_GROUP_NAME_LEN 32
+
+#define PROXY_NAME_LEN 32
+#define PROXY_MAX_SERVERS 128
+
 #define DNS_NAX_GROUP_NUMBER 16
 #define DNS_MAX_IPLEN 64
+#define DNS_PROXY_MAX_LEN 128
 #define DNS_CONF_USRNAME_LEN 32
 #define DNS_MAX_SPKI_LEN 64
 #define DNS_MAX_URL_LEN 256
@@ -224,6 +230,17 @@ struct dns_hosts_table {
 extern struct dns_hosts_table dns_hosts_table;
 extern int dns_hosts_record_num;
 
+struct dns_proxy_names {
+	struct hlist_node node;
+	char proxy_name[PROXY_NAME_LEN];
+	struct list_head server_list;
+};
+
+struct dns_proxy_table {
+	DECLARE_HASHTABLE(proxy, 4);
+};
+extern struct dns_proxy_table dns_proxy_table;
+
 struct dns_servers {
 	char server[DNS_MAX_IPLEN];
 	unsigned short port;
@@ -238,6 +255,21 @@ struct dns_servers {
 	char httphost[DNS_MAX_CNAME_LEN];
 	char tls_host_verify[DNS_MAX_CNAME_LEN];
 	char path[DNS_MAX_URL_LEN];
+	char proxyname[PROXY_NAME_LEN];
+};
+
+struct dns_proxy_servers {
+	struct list_head list;
+	char server[DNS_MAX_IPLEN];
+	proxy_type_t type;
+	unsigned short port;
+	unsigned int server_flag;
+	char username[DNS_PROXY_MAX_LEN];
+	char password[DNS_PROXY_MAX_LEN];
+
+	int socks5;
+	int https;
+	int use_domain;
 };
 
 /* ip address lists of domain */
@@ -346,11 +378,15 @@ extern int dns_conf_serve_expired_reply_ttl;
 extern struct dns_servers dns_conf_servers[DNS_MAX_SERVERS];
 extern int dns_conf_server_num;
 
+/* proxy servers */
+extern struct dns_proxy_servers dns_conf_proxy_servers[PROXY_MAX_SERVERS];
+extern int dns_conf_proxy_server_num;
+
 extern int dns_conf_log_level;
 extern char dns_conf_log_file[DNS_MAX_PATH];
 extern size_t dns_conf_log_size;
 extern int dns_conf_log_num;
-extern int dns_conf_log_file_mode;;
+extern int dns_conf_log_file_mode;
 
 extern char dns_conf_ca_file[DNS_MAX_PATH];
 extern char dns_conf_ca_path[DNS_MAX_PATH];
@@ -414,6 +450,8 @@ void dns_server_load_exit(void);
 int dns_server_load_conf(const char *file);
 
 int dns_server_check_update_hosts(void);
+
+struct dns_proxy_names *dns_server_get_proxy_nams(const char *proxyname);
 
 extern int config_addtional_file(void *data, int argc, char *argv[]);
 #ifdef __cpluscplus
