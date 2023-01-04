@@ -26,6 +26,7 @@
 #include "hashtable.h"
 #include "http_parse.h"
 #include "list.h"
+#include "proxy.h"
 #include "tlog.h"
 #include "util.h"
 #include <arpa/inet.h>
@@ -91,6 +92,7 @@ struct dns_server_info {
 
 	char ip[DNS_HOSTNAME_LEN];
 	int port;
+	char proxy_name[DNS_HOSTNAME_LEN];
 	/* server type */
 	dns_server_type_t type;
 	long long so_mark;
@@ -103,6 +105,9 @@ struct dns_server_info {
 	int ssl_write_len;
 	SSL_CTX *ssl_ctx;
 	SSL_SESSION *ssl_session;
+
+	struct proxy_conn *proxy;
+
 	pthread_mutex_t lock;
 	char skip_check_cert;
 	dns_server_status status;
@@ -253,6 +258,8 @@ static atomic_t dns_client_sid = ATOMIC_INIT(0);
 static LIST_HEAD(pending_servers);
 static pthread_mutex_t pending_server_mutex = PTHREAD_MUTEX_INITIALIZER;
 static int dns_client_has_bootstrap_dns = 0;
+
+static int _dns_client_send_udp(struct dns_server_info *server_info, void *packet, int len);
 
 static ssize_t _ssl_read(struct dns_server_info *server, void *buff, int num)
 {
@@ -1047,6 +1054,7 @@ static int _dns_client_server_add(char *server_ip, char *server_host, int port, 
 	server_info->skip_check_cert = skip_check_cert;
 	server_info->prohibit = 0;
 	server_info->so_mark = flags->set_mark;
+	safe_strncpy(server_info->proxy_name, flags->proxyname, sizeof(server_info->proxy_name));
 	pthread_mutex_init(&server_info->lock, NULL);
 	memcpy(&server_info->flags, flags, sizeof(server_info->flags));
 
@@ -1141,7 +1149,13 @@ static void _dns_client_close_socket(struct dns_server_info *server_info)
 
 	/* remove fd from epoll */
 	epoll_ctl(client.epoll_fd, EPOLL_CTL_DEL, server_info->fd, NULL);
-	close(server_info->fd);
+
+	if (server_info->proxy) {
+		proxy_conn_free(server_info->proxy);
+		server_info->proxy = NULL;
+	} else {
+		close(server_info->fd);
+	}
 
 	server_info->fd = -1;
 	server_info->status = DNS_SERVER_STATUS_DISCONNECTED;
@@ -1670,6 +1684,69 @@ static int _dns_client_recv(struct dns_server_info *server_info, unsigned char *
 	return 0;
 }
 
+static int _dns_client_create_socket_udp_proxy(struct dns_server_info *server_info)
+{
+	struct proxy_conn *proxy = NULL;
+	int fd = -1;
+	struct epoll_event event;
+	int ret = -1;
+
+	proxy = proxy_conn_new(server_info->proxy_name, server_info->ip, server_info->port, 1);
+	if (proxy == NULL) {
+		tlog(TLOG_ERROR, "create proxy failed, %s", server_info->ip);
+		goto errout;
+	}
+
+	fd = proxy_conn_get_fd(proxy);
+	if (fd < 0) {
+		tlog(TLOG_ERROR, "get proxy fd failed, %s", server_info->ip);
+		goto errout;
+	}
+
+	if (server_info->so_mark >= 0) {
+		unsigned int so_mark = server_info->so_mark;
+		if (setsockopt(fd, SOL_SOCKET, SO_MARK, &so_mark, sizeof(so_mark)) != 0) {
+			tlog(TLOG_DEBUG, "set socket mark failed, %s", strerror(errno));
+		}
+	}
+
+	set_fd_nonblock(fd, 1);
+	set_sock_keepalive(fd, 15, 3, 4);
+
+	ret = proxy_conn_connect(proxy);
+	if (ret != 0) {
+		if (errno == ENETUNREACH) {
+			tlog(TLOG_DEBUG, "connect %s failed, %s", server_info->ip, strerror(errno));
+			goto errout;
+		}
+
+		if (errno != EINPROGRESS) {
+			tlog(TLOG_ERROR, "connect %s failed, %s", server_info->ip, strerror(errno));
+			goto errout;
+		}
+	}
+
+	server_info->fd = fd;
+	server_info->status = DNS_SERVER_STATUS_CONNECTING;
+	server_info->proxy = proxy;
+
+	memset(&event, 0, sizeof(event));
+	event.events = EPOLLIN | EPOLLOUT;
+	event.data.ptr = server_info;
+	if (epoll_ctl(client.epoll_fd, EPOLL_CTL_ADD, fd, &event) != 0) {
+		tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
+		return -1;
+	}
+
+	return 0;
+errout:
+	if (proxy) {
+		proxy_conn_free(proxy);
+	}
+
+	return -1;
+}
+
 static int _dns_client_create_socket_udp(struct dns_server_info *server_info)
 {
 	int fd = 0;
@@ -1678,6 +1755,10 @@ static int _dns_client_create_socket_udp(struct dns_server_info *server_info)
 	const int val = 255;
 	const int priority = SOCKET_PRIORITY;
 	const int ip_tos = SOCKET_IP_TOS;
+
+	if (server_info->proxy_name[0] != '\0') {
+		return _dns_client_create_socket_udp_proxy(server_info);
+	}
 
 	fd = socket(server_info->ai_family, SOCK_DGRAM, 0);
 	if (fd < 0) {
@@ -1750,8 +1831,20 @@ static int _DNS_client_create_socket_tcp(struct dns_server_info *server_info)
 	int yes = 1;
 	const int priority = SOCKET_PRIORITY;
 	const int ip_tos = SOCKET_IP_TOS;
+	struct proxy_conn *proxy = NULL;
+	int ret = 0;
 
-	fd = socket(server_info->ai_family, SOCK_STREAM, 0);
+	if (server_info->proxy_name[0] != '\0') {
+		proxy = proxy_conn_new(server_info->proxy_name, server_info->ip, server_info->port, 0);
+		if (proxy == NULL) {
+			tlog(TLOG_ERROR, "create proxy failed, %s", server_info->ip);
+			goto errout;
+		}
+		fd = proxy_conn_get_fd(proxy);
+	} else {
+		fd = socket(server_info->ai_family, SOCK_STREAM, 0);
+	}
+
 	if (fd < 0) {
 		tlog(TLOG_ERROR, "create socket failed, %s", strerror(errno));
 		goto errout;
@@ -1781,8 +1874,14 @@ static int _DNS_client_create_socket_tcp(struct dns_server_info *server_info)
 	setsockopt(fd, IPPROTO_TCP, TCP_THIN_LINEAR_TIMEOUTS, &yes, sizeof(yes));
 	set_sock_keepalive(fd, 15, 3, 4);
 
-	if (connect(fd, &server_info->addr, server_info->ai_addrlen) != 0) {
-		if (errno == ENETUNREACH || errno == EHOSTUNREACH) {
+	if (proxy) {
+		ret = proxy_conn_connect(proxy);
+	} else {
+		ret = connect(fd, &server_info->addr, server_info->ai_addrlen);
+	}
+
+	if (ret != 0) {
+		if (errno == ENETUNREACH || errno == EHOSTUNREACH || errno == ECONNREFUSED) {
 			tlog(TLOG_DEBUG, "connect %s failed, %s", server_info->ip, strerror(errno));
 			goto errout;
 		}
@@ -1795,6 +1894,7 @@ static int _DNS_client_create_socket_tcp(struct dns_server_info *server_info)
 
 	server_info->fd = fd;
 	server_info->status = DNS_SERVER_STATUS_CONNECTING;
+	server_info->proxy = proxy;
 
 	memset(&event, 0, sizeof(event));
 	event.events = EPOLLIN | EPOLLOUT;
@@ -1814,9 +1914,14 @@ errout:
 
 	server_info->status = DNS_SERVER_STATUS_INIT;
 
-	if (fd > 0) {
+	if (fd > 0 && proxy == NULL) {
 		close(fd);
 	}
+
+	if (proxy) {
+		proxy_conn_free(proxy);
+	}
+
 	return -1;
 }
 
@@ -1825,13 +1930,27 @@ static int _DNS_client_create_socket_tls(struct dns_server_info *server_info, ch
 	int fd = 0;
 	struct epoll_event event;
 	SSL *ssl = NULL;
+	struct proxy_conn *proxy = NULL;
+
 	int yes = 1;
 	const int priority = SOCKET_PRIORITY;
 	const int ip_tos = SOCKET_IP_TOS;
+	int ret = -1;
 
 	if (server_info->ssl_ctx == NULL) {
 		tlog(TLOG_ERROR, "create ssl ctx failed, %s", server_info->ip);
 		goto errout;
+	}
+
+	if (server_info->proxy_name[0] != '\0') {
+		proxy = proxy_conn_new(server_info->proxy_name, server_info->ip, server_info->port, 0);
+		if (proxy == NULL) {
+			tlog(TLOG_ERROR, "create proxy failed, %s", server_info->ip);
+			goto errout;
+		}
+		fd = proxy_conn_get_fd(proxy);
+	} else {
+		fd = socket(server_info->ai_family, SOCK_STREAM, 0);
 	}
 
 	ssl = SSL_new(server_info->ssl_ctx);
@@ -1840,7 +1959,6 @@ static int _DNS_client_create_socket_tls(struct dns_server_info *server_info, ch
 		goto errout;
 	}
 
-	fd = socket(server_info->ai_family, SOCK_STREAM, 0);
 	if (fd < 0) {
 		tlog(TLOG_ERROR, "create socket failed, %s", strerror(errno));
 		goto errout;
@@ -1870,8 +1988,14 @@ static int _DNS_client_create_socket_tls(struct dns_server_info *server_info, ch
 	setsockopt(fd, SOL_SOCKET, SO_PRIORITY, &priority, sizeof(priority));
 	setsockopt(fd, IPPROTO_IP, IP_TOS, &ip_tos, sizeof(ip_tos));
 
-	if (connect(fd, &server_info->addr, server_info->ai_addrlen) != 0) {
-		if (errno == ENETUNREACH || errno == EHOSTUNREACH) {
+	if (proxy) {
+		ret = proxy_conn_connect(proxy);
+	} else {
+		ret = connect(fd, &server_info->addr, server_info->ai_addrlen);
+	}
+
+	if (ret != 0) {
+		if (errno == ENETUNREACH || errno == EHOSTUNREACH || errno == ECONNREFUSED) {
 			tlog(TLOG_DEBUG, "connect %s failed, %s", server_info->ip, strerror(errno));
 			goto errout;
 		}
@@ -1902,6 +2026,7 @@ static int _DNS_client_create_socket_tls(struct dns_server_info *server_info, ch
 	server_info->ssl = ssl;
 	server_info->ssl_write_len = -1;
 	server_info->status = DNS_SERVER_STATUS_CONNECTING;
+	server_info->proxy = proxy;
 
 	memset(&event, 0, sizeof(event));
 	event.events = EPOLLIN | EPOLLOUT;
@@ -1925,12 +2050,16 @@ errout:
 
 	server_info->status = DNS_SERVER_STATUS_INIT;
 
-	if (fd > 0) {
+	if (fd > 0 && proxy == NULL) {
 		close(fd);
 	}
 
 	if (ssl) {
 		SSL_free(ssl);
+	}
+
+	if (proxy) {
+		proxy_conn_free(proxy);
 	}
 
 	return -1;
@@ -1964,6 +2093,103 @@ static int _dns_client_create_socket(struct dns_server_info *server_info)
 	return 0;
 }
 
+static int _dns_client_process_send_udp_buffer(struct dns_server_info *server_info, struct epoll_event *event,
+											   unsigned long now)
+{
+	int send_len = 0;
+	if (server_info->send_buff.len <= 0 || server_info->status != DNS_SERVER_STATUS_CONNECTED) {
+		return 0;
+	}
+
+	while (server_info->send_buff.len - send_len > 0) {
+		int ret = 0;
+		int packet_len = 0;
+		packet_len = *(int *)(server_info->send_buff.data + send_len);
+		send_len += sizeof(packet_len);
+		if (packet_len > server_info->send_buff.len - 1) {
+			goto errout;
+		}
+
+		ret = _dns_client_send_udp(server_info, server_info->send_buff.data + send_len, packet_len);
+		if (ret < 0) {
+			tlog(TLOG_ERROR, "sendto failed, %s", strerror(errno));
+			goto errout;
+		}
+		send_len += packet_len;
+	}
+
+	server_info->send_buff.len -= send_len;
+	if (server_info->send_buff.len < 0) {
+		server_info->send_buff.len = 0;
+	}
+
+	return 0;
+
+errout:
+	pthread_mutex_lock(&client.server_list_lock);
+	server_info->recv_buff.len = 0;
+	server_info->send_buff.len = 0;
+	_dns_client_close_socket(server_info);
+	pthread_mutex_unlock(&client.server_list_lock);
+	return -1;
+}
+
+static int _dns_client_process_udp_proxy(struct dns_server_info *server_info, struct epoll_event *event,
+										 unsigned long now)
+{
+	struct sockaddr_storage from;
+	socklen_t from_len = sizeof(from);
+	char from_host[DNS_MAX_CNAME_LEN];
+	unsigned char inpacket[DNS_IN_PACKSIZE];
+	int len = 0;
+	int ret = 0;
+
+	_dns_client_process_send_udp_buffer(server_info, event, now);
+
+	if (!(event->events & EPOLLIN)) {
+		return 0;
+	}
+
+	len = proxy_conn_recvfrom(server_info->proxy, inpacket, sizeof(inpacket), 0, (struct sockaddr *)&from, &from_len);
+	if (len < 0) {
+		tlog(TLOG_ERROR, "recvfrom failed, %s\n", strerror(errno));
+		goto errout;
+	} else if (len == 0) {
+		pthread_mutex_lock(&client.server_list_lock);
+		_dns_client_close_socket(server_info);
+		server_info->recv_buff.len = 0;
+		if (server_info->send_buff.len > 0) {
+			/* still remain request data, reconnect and send*/
+			ret = _dns_client_create_socket(server_info);
+		} else {
+			ret = 0;
+		}
+		pthread_mutex_unlock(&client.server_list_lock);
+		tlog(TLOG_DEBUG, "peer close, %s", server_info->ip);
+		return ret;
+	}
+
+	tlog(TLOG_DEBUG, "recv udp packet from %s, len: %d",
+		 gethost_by_addr(from_host, sizeof(from_host), (struct sockaddr *)&from), len);
+
+	/* update recv time */
+	time(&server_info->last_recv);
+
+	/* processing dns packet */
+	if (_dns_client_recv(server_info, inpacket, len, (struct sockaddr *)&from, from_len) != 0) {
+		return -1;
+	}
+
+	return 0;
+errout:
+	pthread_mutex_lock(&client.server_list_lock);
+	server_info->recv_buff.len = 0;
+	server_info->send_buff.len = 0;
+	_dns_client_close_socket(server_info);
+	pthread_mutex_unlock(&client.server_list_lock);
+	return -1;
+}
+
 static int _dns_client_process_udp(struct dns_server_info *server_info, struct epoll_event *event, unsigned long now)
 {
 	int len = 0;
@@ -1976,6 +2202,10 @@ static int _dns_client_process_udp(struct dns_server_info *server_info, struct e
 	char ans_data[4096];
 	int ttl = 0;
 	struct cmsghdr *cmsg = NULL;
+
+	if (server_info->proxy) {
+		return _dns_client_process_udp_proxy(server_info, event, now);
+	}
 
 	memset(&msg, 0, sizeof(msg));
 	iov.iov_base = (char *)inpacket;
@@ -2685,8 +2915,82 @@ errout:
 	return -1;
 }
 
+static int _dns_proxy_handshake(struct dns_server_info *server_info, struct epoll_event *event, unsigned long now)
+{
+	struct epoll_event fd_event;
+	proxy_handshake_state ret = proxy_conn_handshake(server_info->proxy);
+	int fd = server_info->fd;
+	int retval = -1;
+	int epoll_op = EPOLL_CTL_MOD;
+
+	if (ret == PROXY_HANDSHAKE_OK) {
+		return 0;
+	}
+
+	if (ret == PROXY_HANDSHAKE_ERR) {
+		goto errout;
+	}
+
+	memset(&fd_event, 0, sizeof(fd_event));
+	if (ret == PROXY_HANDSHAKE_CONNECTED) {
+		fd_event.events = EPOLLIN;
+		if (server_info->type == DNS_SERVER_UDP) {
+			server_info->status = DNS_SERVER_STATUS_CONNECTED;
+			epoll_ctl(client.epoll_fd, EPOLL_CTL_DEL, fd, NULL);
+			event->events = 0;
+			fd = proxy_conn_get_udpfd(server_info->proxy);
+			if (fd < 0) {
+				tlog(TLOG_ERROR, "get udp fd failed");
+				goto errout;
+			}
+
+			set_fd_nonblock(fd, 1);
+			if (server_info->so_mark >= 0) {
+				unsigned int so_mark = server_info->so_mark;
+				if (setsockopt(fd, SOL_SOCKET, SO_MARK, &so_mark, sizeof(so_mark)) != 0) {
+					tlog(TLOG_DEBUG, "set socket mark failed, %s", strerror(errno));
+				}
+			}
+			server_info->fd = fd;
+			epoll_op = EPOLL_CTL_ADD;
+		} else {
+			fd_event.events |= EPOLLOUT;
+		}
+		retval = 0;
+	}
+
+	if (ret == PROXY_HANDSHAKE_WANT_READ) {
+		fd_event.events = EPOLLIN;
+	} else if (ret == PROXY_HANDSHAKE_WANT_WRITE) {
+		fd_event.events = EPOLLOUT | EPOLLIN;
+	}
+
+	fd_event.data.ptr = server_info;
+	if (epoll_ctl(client.epoll_fd, epoll_op, fd, &fd_event) != 0) {
+		tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
+		goto errout;
+	}
+
+	return retval;
+
+errout:
+	pthread_mutex_lock(&client.server_list_lock);
+	server_info->recv_buff.len = 0;
+	server_info->send_buff.len = 0;
+	_dns_client_close_socket(server_info);
+	pthread_mutex_unlock(&client.server_list_lock);
+	return -1;
+}
+
 static int _dns_client_process(struct dns_server_info *server_info, struct epoll_event *event, unsigned long now)
 {
+	if (server_info->proxy) {
+		int ret = _dns_proxy_handshake(server_info, event, now);
+		if (ret != 0) {
+			return ret;
+		}
+	}
+
 	if (server_info->type == DNS_SERVER_UDP) {
 		/* receive from udp */
 		return _dns_client_process_udp(server_info, event, now);
@@ -2703,19 +3007,68 @@ static int _dns_client_process(struct dns_server_info *server_info, struct epoll
 	return 0;
 }
 
+static int _dns_client_copy_data_to_buffer(struct dns_server_info *server_info, void *packet, int len)
+{
+	if (DNS_TCP_BUFFER - server_info->send_buff.len < len) {
+		errno = ENOMEM;
+		return -1;
+	}
+
+	memcpy(server_info->send_buff.data + server_info->send_buff.len, packet, len);
+	server_info->send_buff.len += len;
+
+	return 0;
+}
+
 static int _dns_client_send_udp(struct dns_server_info *server_info, void *packet, int len)
 {
 	int send_len = 0;
+	const struct sockaddr *addr = &server_info->addr;
+	socklen_t addrlen = server_info->ai_addrlen;
+	int ret = 0;
+
 	if (server_info->fd <= 0) {
 		return -1;
 	}
 
+	if (server_info->proxy) {
+		if (server_info->status != DNS_SERVER_STATUS_CONNECTED) {
+			/*set packet len*/
+			_dns_client_copy_data_to_buffer(server_info, &len, sizeof(len));
+			return _dns_client_copy_data_to_buffer(server_info, packet, len);
+		}
+
+		send_len = proxy_conn_sendto(server_info->proxy, packet, len, 0, addr, addrlen);
+		if (send_len != len) {
+			_dns_client_close_socket(server_info);
+			server_info->recv_buff.len = 0;
+			if (server_info->send_buff.len > 0) {
+				/* still remain request data, reconnect and send*/
+				ret = _dns_client_create_socket(server_info);
+			} else {
+				ret = 0;
+			}
+
+			if (ret != 0) {
+				return -1;
+			}
+
+			_dns_client_copy_data_to_buffer(server_info, &len, sizeof(len));
+			return _dns_client_copy_data_to_buffer(server_info, packet, len);
+		}
+
+		return 0;
+	}
+
 	send_len = sendto(server_info->fd, packet, len, 0, NULL, 0);
 	if (send_len != len) {
-		return -1;
+		goto errout;
 	}
 
 	return 0;
+
+errout:
+	return -1;
 }
 
 static int _dns_client_send_data_to_buffer(struct dns_server_info *server_info, void *packet, int len)

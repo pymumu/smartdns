@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2020 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2023 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -677,6 +677,24 @@ int SSL_base64_decode(const char *in, unsigned char *out)
 	/* Subtract padding bytes from |outlen| */
 	while (in[--inlen] == '=') {
 		--outlen;
+	}
+
+	return outlen;
+errout:
+	return -1;
+}
+
+int SSL_base64_encode(const void *in, int in_len, char *out)
+{
+	int outlen = 0;
+
+	if (in_len == 0) {
+		return 0;
+	}
+
+	outlen = EVP_EncodeBlock((unsigned char *)out, in, in_len);
+	if (outlen < 0) {
+		goto errout;
 	}
 
 	return outlen;
@@ -1469,7 +1487,7 @@ int dns_packet_debug(const char *packet_file)
 	char buff[DNS_PACKSIZE];
 
 	tlog_set_maxlog_count(0);
-	tlog_setlogscreen(1);;
+	tlog_setlogscreen(1);
 	tlog_setlevel(TLOG_DEBUG);
 
 	info = _dns_read_packet_file(packet_file);

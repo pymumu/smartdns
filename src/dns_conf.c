@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2020 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2023 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -52,6 +52,7 @@ struct dns_domain_set_name_table dns_domain_set_name_table;
 
 /* dns groups */
 struct dns_group_table dns_group_table;
+struct dns_proxy_table dns_proxy_table;
 
 struct dns_ptr_table dns_ptr_table;
 
@@ -99,6 +100,10 @@ struct dns_domain_check_orders dns_conf_check_orders = {
 		},
 };
 static int dns_has_cap_ping = 0;
+
+/* proxy servers */
+struct dns_proxy_servers dns_conf_proxy_servers[PROXY_MAX_SERVERS];
+int dns_conf_proxy_server_num;
 
 /* logging */
 int dns_conf_log_level = TLOG_ERROR;
@@ -345,6 +350,101 @@ static void _config_group_table_destroy(void)
 	}
 }
 
+struct dns_proxy_names *dns_server_get_proxy_nams(const char *proxyname)
+{
+	uint32_t key = 0;
+	struct dns_proxy_names *proxy = NULL;
+
+	key = hash_string(proxyname);
+	hash_for_each_possible(dns_proxy_table.proxy, proxy, node, key)
+	{
+		if (strncmp(proxy->proxy_name, proxyname, DNS_MAX_IPLEN) == 0) {
+			return proxy;
+		}
+	}
+
+	return NULL;
+}
+
+/* create and get dns server group */
+static struct dns_proxy_names *_dns_conf_get_proxy(const char *proxy_name)
+{
+	uint32_t key = 0;
+	struct dns_proxy_names *proxy = NULL;
+
+	key = hash_string(proxy_name);
+	hash_for_each_possible(dns_proxy_table.proxy, proxy, node, key)
+	{
+		if (strncmp(proxy->proxy_name, proxy_name, DNS_MAX_IPLEN) == 0) {
+			return proxy;
+		}
+	}
+
+	proxy = malloc(sizeof(*proxy));
+	if (proxy == NULL) {
+		goto errout;
+	}
+
+	memset(proxy, 0, sizeof(*proxy));
+	safe_strncpy(proxy->proxy_name, proxy_name, PROXY_NAME_LEN);
+	hash_add(dns_proxy_table.proxy, &proxy->node, key);
+	INIT_LIST_HEAD(&proxy->server_list);
+
+	return proxy;
+errout:
+	if (proxy) {
+		free(proxy);
+	}
+
+	return NULL;
+}
+
+static int _dns_conf_proxy_servers_add(const char *proxy_name, struct dns_proxy_servers *server)
+{
+	struct dns_proxy_names *proxy = NULL;
+
+	proxy = _dns_conf_get_proxy(proxy_name);
+	if (proxy == NULL) {
+		return -1;
+	}
+
+	list_add_tail(&server->list, &proxy->server_list);
+
+	return 0;
+}
+
+static const char *_dns_conf_get_proxy_name(const char *proxy_name)
+{
+	struct dns_proxy_names *proxy = NULL;
+
+	proxy = _dns_conf_get_proxy(proxy_name);
+	if (proxy == NULL) {
+		return NULL;
+	}
+
+	return proxy->proxy_name;
+}
+
+static void _config_proxy_table_destroy(void)
+{
+	struct dns_proxy_names *proxy = NULL;
+	struct hlist_node *tmp = NULL;
+	unsigned int i;
+	struct dns_proxy_servers *server = NULL;
+	struct dns_proxy_servers *server_tmp = NULL;
+
+	hash_for_each_safe(dns_proxy_table.proxy, i, tmp, proxy, node)
+	{
+		hlist_del_init(&proxy->node);
+		list_for_each_entry_safe(server, server_tmp, &proxy->server_list, list)
+		{
+			list_del(&server->list);
+			free(server);
+		}
+		free(proxy);
+	}
+}
+
 static int _config_server(int argc, char *argv[], dns_server_type_t type, int default_port)
 {
 	int index = dns_conf_server_num;
@@ -371,6 +471,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 		{"no-check-certificate", no_argument, NULL, 'N'}, /* do not check certificate */
 		{"tls-host-verify", required_argument, NULL, 'V' }, /* verify tls hostname */
 		{"group", required_argument, NULL, 'g'}, /* add to group */
+		{"proxy", required_argument, NULL, 'P'}, /* proxy server */
 		{"exclude-default-group", no_argument, NULL, 'E'}, /* ecluse this from default group */
 		{"set-mark", required_argument, NULL, 254}, /* set mark */
 		{NULL, no_argument, NULL, 0}
@@ -393,6 +494,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 	server->hostname[0] = '\0';
 	server->httphost[0] = '\0';
 	server->tls_host_verify[0] = '\0';
+	server->proxyname[0] = '\0';
 	server->set_mark = -1;
 
 	if (type == DNS_SERVER_HTTPS) {
@@ -461,6 +563,14 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 		}
 		case 'p': {
 			safe_strncpy(server->spki, optarg, DNS_MAX_SPKI_LEN);
+			break;
+		}
+		case 'P': {
+			if (_dns_conf_get_proxy_name(optarg) == NULL) {
+				tlog(TLOG_ERROR, "add proxy server failed.");
+				goto errout;
+			}
+			safe_strncpy(server->proxyname, optarg, PROXY_NAME_LEN);
 			break;
 		}
 		case 'V': {
@@ -1489,6 +1599,141 @@ errout:
 	return 0;
 }
 
+static int _config_proxy_server(int argc, char *argv[], struct dns_proxy_servers **pserver, proxy_type_t type)
+{
+	int index = dns_conf_proxy_server_num;
+	struct dns_proxy_servers *server = NULL;
+	char *servers_name = NULL;
+	int port = -1;
+	char *ip = NULL;
+	int opt = 0;
+	unsigned int server_flag = 0;
+	int use_domain = 0;
+
+	/* clang-format off */
+	static struct option long_options[] = {
+		{"name", required_argument, NULL, 'n'}, 
+		{"use-domain", no_argument, NULL, 'd'},
+		{"user", required_argument, NULL, 'u'},
+		{"password", required_argument, NULL, 'p'},
+		{NULL, no_argument, NULL, 0}
+	};
+	/* clang-format on */
+	if (argc <= 1) {
+		tlog(TLOG_ERROR, "invalid parameter.");
+		return -1;
+	}
+
+	ip = argv[1];
+	if (index >= PROXY_MAX_SERVERS) {
+		tlog(TLOG_WARN, "exceeds max server number, %s", ip);
+		return 0;
+	}
+
+	server = malloc(sizeof(*server));
+	if (server == NULL) {
+		tlog(TLOG_WARN, "malloc memory failed.");
+		return -1;
+	}
+	memset(server, 0, sizeof(*server));
+
+	/* process extra options */
+	optind = 1;
+	while (1) {
+		opt = getopt_long_only(argc, argv, "n:du:p:", long_options, NULL);
+		if (opt == -1) {
+			break;
+		}
+
+		switch (opt) {
+		case 'n': {
+			servers_name = optarg;
+			break;
+		}
+		case 'd': {
+			use_domain = 1;
+			break;
+		}
+		case 'u': {
+			safe_strncpy(server->username, optarg, sizeof(server->username));
+			break;
+		}
+		case 'p': {
+			safe_strncpy(server->password, optarg, sizeof(server->password));
+			break;
+		}
+		default:
+			break;
+		}
+	}
+
+	ip = argv[optind];
+	if (ip) {
+		/* parse ip, port from ip */
+		if (parse_ip(ip, server->server, &port) != 0) {
+			return -1;
+		}
+
+		/* if port is not defined, set port to default 53 */
+		if (port == PORT_NOT_DEFINED) {
+			port = 443;
+		}
+	} else {
+		goto errout;
+	}
+
+	if (servers_name == NULL) {
+		tlog(TLOG_ERROR, "please set name");
+		goto errout;
+	}
+
+	if (_dns_conf_proxy_servers_add(servers_name, server) != 0) {
+		tlog(TLOG_ERROR, "add group failed.");
+		goto errout;
+	}
+
+	/* add new server */
+	server->type = type;
+	server->port = port;
+	server->server_flag = server_flag;
+	server->use_domain = use_domain;
+	dns_conf_proxy_server_num++;
+	tlog(TLOG_DEBUG, "add proxy server %s, flag: %X", ip, server_flag);
+
+	if (pserver) {
+		*pserver = server;
+	}
+
+	return 0;
+
+errout:
+	if (server) {
+		free(server);
+	}
+
+	return -1;
+}
+
+static int _config_proxy_socks5(void *data, int argc, char *argv[])
+{
+	struct dns_proxy_servers *server = NULL;
+	int ret = _config_proxy_server(argc, argv, &server, PROXY_SOCKS5);
+	if (ret == 0) {
+		server->socks5 = 1;
+	}
+	return ret;
+}
+
+static int _config_proxy_http(void *data, int argc, char *argv[])
+{
+	struct dns_proxy_servers *server = NULL;
+	int ret = _config_proxy_server(argc, argv, &server, PROXY_HTTP);
+	if (ret == 0) {
+		server->https = 1;
+	}
+	return ret;
+}
+
 static radix_node_t *_create_addr_node(char *addr)
 {
 	radix_node_t *node = NULL;
@@ -2400,6 +2645,8 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("server-https", _config_server_https, NULL),
 	CONF_CUSTOM("nameserver", _config_nameserver, NULL),
 	CONF_CUSTOM("address", _config_address, NULL),
+	CONF_CUSTOM("proxy-socks5", _config_proxy_socks5, NULL),
+	CONF_CUSTOM("proxy-http", _config_proxy_http, NULL),
 	CONF_YESNO("ipset-timeout", &dns_conf_ipset_timeout_enable),
 	CONF_CUSTOM("ipset", _config_ipset, NULL),
 	CONF_YESNO("nftset-timeout", &dns_conf_nftset_timeout_enable),
@@ -2635,6 +2882,7 @@ void dns_server_load_exit(void)
 	_config_ptr_table_destroy();
 	_config_host_table_destroy();
 	_config_qtype_soa_table_destroy();
+	_config_proxy_table_destroy();
 }
 
 static int _dns_conf_speed_check_mode_verify(void)
