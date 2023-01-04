@@ -80,8 +80,8 @@ struct dns_query_options {
 };
 
 /* query domain */
-int dns_client_query(const char *domain, int qtype, dns_client_callback callback, void *user_ptr, const char *group_name,
-					 struct dns_query_options *options);
+int dns_client_query(const char *domain, int qtype, dns_client_callback callback, void *user_ptr,
+					 const char *group_name, struct dns_query_options *options);
 
 void dns_client_exit(void);
 
@@ -102,6 +102,7 @@ struct client_dns_server_flag_https {
 	int spi_len;
 	char hostname[DNS_MAX_CNAME_LEN];
 	char httphost[DNS_MAX_CNAME_LEN];
+	char proxyname[DNS_MAX_CNAME_LEN];
 	char path[DNS_MAX_CNAME_LEN];
 	char tls_host_verify[DNS_MAX_CNAME_LEN];
 	char skip_check_cert;
@@ -112,7 +113,7 @@ struct client_dns_server_flags {
 	unsigned int server_flag;
 	unsigned int result_flag;
 	long long set_mark;
-
+	char proxyname[DNS_MAX_CNAME_LEN];
 	union {
 		struct client_dns_server_flag_udp udp;
 		struct client_dns_server_flag_tls tls;

@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2020 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2023 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -270,6 +270,7 @@ static int _smartdns_add_servers(void)
 		flags.server_flag = dns_conf_servers[i].server_flag;
 		flags.result_flag = dns_conf_servers[i].result_flag;
 		flags.set_mark = dns_conf_servers[i].set_mark;
+		safe_strncpy(flags.proxyname, dns_conf_servers[i].proxyname, sizeof(flags.proxyname));
 		ret = dns_client_add_server(dns_conf_servers[i].server, dns_conf_servers[i].port, dns_conf_servers[i].type,
 									&flags);
 		if (ret != 0) {
@@ -296,6 +297,33 @@ static int _smartdns_add_servers(void)
 				tlog(TLOG_ERROR, "add server %s to group %s failed", server->server, group->group_name);
 				return -1;
 			}
+		}
+	}
+
+	return 0;
+}
+
+static int _proxy_add_servers(void)
+{
+	unsigned long i = 0;
+	struct hlist_node *tmp = NULL;
+	struct dns_proxy_names *proxy = NULL;
+	struct dns_proxy_servers *server = NULL;
+	struct dns_proxy_servers *server_tmp = NULL;
+
+	hash_for_each_safe(dns_proxy_table.proxy, i, tmp, proxy, node)
+	{
+		list_for_each_entry_safe(server, server_tmp, &proxy->server_list, list)
+		{
+			struct proxy_info info;
+			memset(&info, 0, sizeof(info));
+			info.type = server->type;
+			info.port = server->port;
+			safe_strncpy(info.server, server->server, PROXY_MAX_IPLEN);
+			safe_strncpy(info.username, server->username, PROXY_MAX_NAMELEN);
+			safe_strncpy(info.password, server->password, PROXY_MAX_NAMELEN);
+			info.use_domain = server->use_domain;
+			proxy_add(proxy->proxy_name, &info);
 		}
 	}
 
@@ -386,6 +414,17 @@ static int _smartdns_init(void)
 		goto errout;
 	}
 
+	ret = proxy_init();
+	if (ret != 0) {
+		tlog(TLOG_ERROR, "start proxy failed.\n");
+		goto errout;
+	}
+
+	ret = _proxy_add_servers();
+	if (ret != 0) {
+		tlog(TLOG_ERROR, "add proxy servers failed.");
+	}
+
 	ret = dns_server_init();
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "start dns server failed.\n");
@@ -397,6 +436,7 @@ static int _smartdns_init(void)
 		tlog(TLOG_ERROR, "start dns client failed.\n");
 		goto errout;
 	}
+
 	ret = _smartdns_add_servers();
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "add servers failed.");
@@ -423,6 +463,7 @@ static void _smartdns_exit(void)
 {
 	tlog(TLOG_INFO, "smartdns exit...");
 	dns_client_exit();
+	proxy_exit();
 	fast_ping_exit();
 	dns_server_exit();
 	_smartdns_destroy_ssl();
