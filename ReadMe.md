@@ -1,15 +1,5 @@
 # SmartDNS
 
-[![fetch upstream](https://github.com/PikuZheng/smartdns/actions/workflows/fetch%20upstream.yml/badge.svg)](https://github.com/PikuZheng/smartdns/actions/workflows/fetch%20upstream.yml)
-[![Test Build](https://github.com/PikuZheng/smartdns/actions/workflows/test.yml/badge.svg)](https://github.com/PikuZheng/smartdns/actions/workflows/test.yml)
-[![Test Build Openwrt](https://github.com/PikuZheng/smartdns/actions/workflows/test-openwrt.yml/badge.svg)](https://github.com/PikuZheng/smartdns/actions/workflows/test-openwrt.yml)
-[![Docker Image CI](https://github.com/PikuZheng/smartdns/actions/workflows/deploy-docker.yml/badge.svg)](https://github.com/PikuZheng/smartdns/actions/workflows/deploy-docker.yml)
-
-[![latest version](https://img.shields.io/docker/v/pikuzheng/smartdns?sort=date&display_name=tag&color=blue&logo=github&label=最新编译版本)](https://github.com/PikuZheng/smartdns/releases)
-[![upstream latest version](https://img.shields.io/github/v/release/pymumu/smartdns?display_name=tag&color=blue&logo=github&label=上游最新版本)](https://github.com/pymumu/smartdns/releases)
-[![upstream latest update](https://img.shields.io/github/last-commit/pymumu/smartdns?color=blue&logo=github&label=最后更新)](https://github.com/pymumu/smartdns/releases)
-[![download count](https://img.shields.io/github/downloads/PikuZheng/smartdns/total?color=blue&logo=github&label=%E4%B8%8B%E8%BD%BD%E8%AE%A1%E9%87%8F)](https://github.com/PikuZheng/smartdns/releases)
-
 **[English](ReadMe_en.md)**
 
 ![SmartDNS](doc/smartdns-banner.png)
@@ -604,8 +594,8 @@ entware|ipkg update<br>ipkg install smartdns|软件源路径：https://bin.entwa
 | server-tcp | 上游 TCP DNS | 无 | 可重复。<br>[ip][:port]：服务器 IP:端口（可选）<br>[-blacklist-ip]：配置 IP 过滤结果<br>[-whitelist-ip]：指定仅接受参数中配置的 IP 范围。<br>[-group [group] ...]：DNS 服务器所属组，比如 office 和 foreign，和 nameserver 配套使用<br>[-exclude-default-group]：将 DNS 服务器从默认组中排除。<br>[-set-mark mark]：设置数据包标记so-mark。<br>[-proxy name]：设置代理服务器。 | server-tcp 8.8.8.8:53 |
 | server-tls | 上游 TLS DNS | 无 | 可重复。<br>[ip][:port]：服务器 IP:端口（可选)<br>[-spki-pin [sha256-pin]]：TLS 合法性校验 SPKI 值，base64 编码的 sha256 SPKI pin 值<br>[-host-name]：TLS SNI 名称, 名称设置为-，表示停用SNI名称<br>[-tls-host-verify]：TLS 证书主机名校验<br> [-no-check-certificate]：跳过证书校验<br>[-blacklist-ip]：配置 IP 过滤结果<br>[-whitelist-ip]：仅接受参数中配置的 IP 范围<br>[-group [group] ...]：DNS 服务器所属组，比如 office 和 foreign，和 nameserver 配套使用<br>[-exclude-default-group]：将 DNS 服务器从默认组中排除。<br>[-set-mark mark]：设置数据包标记so-mark。<br>[-proxy name]：设置代理服务器。 | server-tls 8.8.8.8:853 |
 | server-https | 上游 HTTPS DNS | 无 | 可重复。<br>https://[host][:port]/path：服务器 IP:端口（可选）<br>[-spki-pin [sha256-pin]]：TLS 合法性校验 SPKI 值，base64 编码的 sha256 SPKI pin 值<br>[-host-name]：TLS SNI 名称<br>[-http-host]：http 协议头主机名<br>[-tls-host-verify]：TLS 证书主机名校验<br> [-no-check-certificate]：跳过证书校验<br>[-blacklist-ip]：配置 IP 过滤结果<br>[-whitelist-ip]：仅接受参数中配置的 IP 范围。<br>[-group [group] ...]：DNS 服务器所属组，比如 office 和 foreign，和 nameserver 配套使用<br>[-exclude-default-group]：将 DNS 服务器从默认组中排除。<br>[-set-mark]：设置数据包标记so-mark。<br>[-proxy name]：设置代理服务器。 | server-https https://cloudflare-dns.com/dns-query |
-| proxy-socks5 | socks5代理服务器 | 无 | 可重复。proxy-socks5 ip:port <br>[-name]: 代理服务器名称。<br>[-u|-user]：用户名。<br>[-p|-password]：密码。|proxy-socks5 1.2.3.4:1080 -name proxy|
-| proxy-http | http代理服务器 | 无 | 可重复。proxy-http ip:port <br>[-name]: 代理服务器名称。<br>[-u|-user]：用户名。<br>[-p|-password]：密码。|proxy-http 1.2.3.4:1080 -name proxy|
+| proxy-socks5 | socks5代理服务器 | 无 | 可重复。proxy-socks5 ip:port <br>[-name]: 代理服务器名称。<br>[-u\|-user]：用户名。<br>[-p\|-password]：密码。|proxy-socks5 1.2.3.4:1080 -name proxy|
+| proxy-http | http代理服务器 | 无 | 可重复。proxy-http ip:port <br>[-name]: 代理服务器名称。<br>[-u\|-user]：用户名。<br>[-p\|-password]：密码。|proxy-http 1.2.3.4:1080 -name proxy|
 | speed-check-mode | 测速模式选择 | 无 | [ping\|tcp:[80]\|none] | speed-check-mode ping,tcp:80,tcp:443 |
 | response-mode | 首次查询响应模式 | first-ping |模式：[fisrt-ping\|fastest-ip\|fastest-response]<br> [first-ping]: 最快ping响应地址模式，DNS上游最快查询时延+ping时延最短，查询等待与链接体验最佳;<br>[fastest-ip]: 最快IP地址模式，查询到的所有IP地址中ping最短的IP。需等待IP测速; <br>[fastest-response]: 最快响应的DNS结果，DNS查询等待时间最短，返回的IP地址可能不是最快。| response-mode first-ping |
 | address | 指定域名 IP 地址 | 无 | address /domain/[ip\|-\|-4\|-6\|#\|#4\|#6] <br>- 表示忽略 <br># 表示返回 SOA <br>4 表示 IPv4 <br>6 表示 IPv6 | address /www.example.com/1.2.3.4 |
