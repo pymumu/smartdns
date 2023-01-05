@@ -567,8 +567,8 @@ entware|ipkg update<br>ipkg install smartdns|软件源路径：https://bin.entwa
 | 键名 | 功能说明 | 默认值 | 可用值/要求 | 举例 |
 | :--- | :--- | :--- | :--- | :--- |
 | server-name | DNS 服务器名称 | 操作系统主机名 / smartdns | 符合主机名规格的字符串 | server-name smartdns |
-| bind | DNS 监听端口号  | [::]:53 | 可绑定多个端口。<br>IP:PORT: 服务器 IP:端口号<br>[-group]: 请求时使用的 DNS 服务器组<br>[-no-rule-addr]：跳过 address 规则<br>[-no-rule-nameserver]：跳过 Nameserver 规则<br>[-no-rule-ipset]：跳过 ipset 和 nftset 规则<br>[-no-rule-soa]：跳过 SOA(#) 规则<br>[-no-dualstack-selection]：停用双栈测速<br>[-no-speed-check]：停用测速<br>[-no-cache]：停止缓存 | bind :53 |
-| bind-tcp | DNS TCP 监听端口号 | [::]:53 | 可绑定多个端口。<br>IP:PORT: 服务器 IP:端口号<br>[-group]: 请求时使用的 DNS 服务器组<br>[-no-rule-addr]：跳过 address 规则<br>[-no-rule-nameserver]：跳过 nameserver 规则<br>[-no-rule-ipset]：跳过 ipset 和 nftset 规则。<br>[-no-rule-soa]：跳过 SOA(#) 规则<br>[-no-dualstack-selection]：停用双栈测速<br>[-no-speed-check]：停用测速<br>[-no-cache]：停止缓存 | bind-tcp :53 |
+| bind | DNS 监听端口号  | [::]:53 | 可绑定多个端口。<br>IP:PORT@DEVICE: 服务器 IP:端口号@设备名<br>[-group]: 请求时使用的 DNS 服务器组<br>[-no-rule-addr]：跳过 address 规则<br>[-no-rule-nameserver]：跳过 Nameserver 规则<br>[-no-rule-ipset]：跳过 ipset 和 nftset 规则<br>[-no-rule-soa]：跳过 SOA(#) 规则<br>[-no-dualstack-selection]：停用双栈测速<br>[-no-speed-check]：停用测速<br>[-no-cache]：停止缓存 | bind :53@eth0 |
+| bind-tcp | DNS TCP 监听端口号 | [::]:53 | 可绑定多个端口。<br>IP:PORT@DEVICE: 服务器 IP:端口号@设备名<br>[-group]: 请求时使用的 DNS 服务器组<br>[-no-rule-addr]：跳过 address 规则<br>[-no-rule-nameserver]：跳过 nameserver 规则<br>[-no-rule-ipset]：跳过 ipset 和 nftset 规则。<br>[-no-rule-soa]：跳过 SOA(#) 规则<br>[-no-dualstack-selection]：停用双栈测速<br>[-no-speed-check]：停用测速<br>[-no-cache]：停止缓存 | bind-tcp :53 |
 | cache-size | 域名结果缓存个数 | 512 | 大于等于 0 的数字 | cache-size 512 |
 | cache-persist | 是否持久化缓存 | 自动。<br>当 cache-file 所在的位置有超过 128 MB 的可用空间时启用，否则禁用。 | [yes\|no] | cache-persist yes |
 | cache-file | 缓存持久化文件路径 | /tmp/smartdns.cache | 合法路径字符串 | cache-file /tmp/smartdns.cache |

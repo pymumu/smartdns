@@ -34,6 +34,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <ifaddrs.h>
+#include <net/if.h>
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
 #include <pthread.h>
@@ -42,6 +43,7 @@
 #include <string.h>
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
+#include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 
@@ -5333,14 +5335,19 @@ static int _dns_create_socket(const char *host_ip, int type)
 	struct addrinfo *gai = NULL;
 	char port_str[8];
 	char ip[MAX_IP_LEN];
+	char host_ip_device[MAX_IP_LEN * 2];
 	int port = 0;
 	char *host = NULL;
 	int optval = 1;
 	int yes = 1;
 	const int priority = SOCKET_PRIORITY;
 	const int ip_tos = SOCKET_IP_TOS;
+	const char *ifname = NULL;
 
-	if (parse_ip(host_ip, ip, &port) == 0) {
+	safe_strncpy(host_ip_device, host_ip, sizeof(host_ip_device));
+	ifname = strstr(host_ip_device, "@");
+
+	if (parse_ip(host_ip_device, ip, &port) == 0) {
 		host = ip;
 	}
 
@@ -5374,6 +5381,17 @@ static int _dns_create_socket(const char *host_ip, int type)
 	}
 	setsockopt(fd, SOL_SOCKET, SO_PRIORITY, &priority, sizeof(priority));
 	setsockopt(fd, IPPROTO_IP, IP_TOS, &ip_tos, sizeof(ip_tos));
+
+	if (ifname != NULL) {
+		struct ifreq ifr;
+		memset(&ifr, 0, sizeof(struct ifreq));
+		safe_strncpy(ifr.ifr_name, ifname + 1, sizeof(ifr.ifr_name));
+		ioctl(fd, SIOCGIFINDEX, &ifr);
+		if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, (void *)&ifr, sizeof(struct ifreq)) < 0) {
+			tlog(TLOG_ERROR, "bind socket to device %s faild, %s\n", ifr.ifr_name, strerror(errno));
+			goto errout;
+		}
+	}
 
 	if (bind(fd, gai->ai_addr, gai->ai_addrlen) != 0) {
 		tlog(TLOG_ERROR, "bind service %s failed, %s\n", host_ip, strerror(errno));
