@@ -208,6 +208,17 @@ return view.extend({
 		o.rmempty = false;
 		o.default = o.enabled;
 
+		// bind to device;
+		o = s.taboption("advanced", form.Flag, "bind_device", _("Bind Device"), _("Listen only on the specified interfaces."));
+		o.rmempty = false;
+		o.default = o.enabled;
+
+		// bind device name;
+		o = s.taboption("advanced", form.Value, "bind_device_name", _("Bind Device Name"), _("Name of device name listen on."));
+		o.placeholder = "default";
+		o.rempty = true;
+		o.datatype = "string";
+
 		// Support DualStack ip selection;
 		o = s.taboption("advanced", form.Flag, "dualstack_ip_selection", _("Dual-stack IP Selection"),
 			_("Enable IP selection between IPV4 and IPV6"));

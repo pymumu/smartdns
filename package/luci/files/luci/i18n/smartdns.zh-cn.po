@@ -25,6 +25,12 @@ msgstr "自动设置Dnsmasq"
 msgid "Automatically set as upstream of dnsmasq when port changes."
 msgstr "端口更改时自动设为 dnsmasq 的上游。"
 
+msgid "Bind Device"
+msgstr "绑定到设备"
+
+msgid "Bind Device Name"
+msgstr "绑定的设备名称"
+
 msgid "Block domain"
 msgstr "屏蔽域名"
 
@@ -253,6 +259,9 @@ msgstr ""
 msgid "List of files to download."
 msgstr "下载文件列表"
 
+msgid "Listen only on the specified interfaces."
+msgstr "监听在指定的设备上，避免非网络的DNS查询请求。"
+
 msgid "Local Port"
 msgstr "本地端口"
 
@@ -267,6 +276,9 @@ msgstr "所有域名的最大 TTL 值。"
 
 msgid "Minimum TTL for all domain result."
 msgstr "所有域名的最小 TTL 值。"
+
+msgid "Name of device name listen on."
+msgstr "绑定的设备名称。"
 
 msgid "NFTset Name"
 msgstr "NFTSet名称"

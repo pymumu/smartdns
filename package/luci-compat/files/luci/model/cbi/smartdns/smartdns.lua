@@ -117,6 +117,20 @@ o.cfgvalue    = function(...)
     return Flag.cfgvalue(...) or "1"
 end
 
+---- bind to device;
+o = s:taboption("advanced", Flag, "bind_device", translate("Bind Device"), translate("Listen only on the specified interfaces."))
+o.rmempty     = false
+o.default     = o.enabled
+o.cfgvalue    = function(...)
+    return Flag.cfgvalue(...) or "1"
+end
+
+---- bind device name;
+o = s:taboption("advanced", Value, "bind_device_name", translate("Bind Device Name"), translate("Name of device name listen on."))
+o.placeholder = "default"
+o.rempty      = true
+o.datatype    = "string"
+
 ---- Support DualStack ip selection
 o = s:taboption("advanced", Flag, "dualstack_ip_selection", translate("Dual-stack IP Selection"), translate("Enable IP selection between IPV4 and IPV6"))
 o.rmempty     = false
