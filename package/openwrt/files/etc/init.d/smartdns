@@ -353,6 +353,7 @@ load_second_server()
 	local section="$1"
 	local ARGS=""
 	local ADDR=""
+	local device=""
 
 	config_get_bool seconddns_enabled "$section" "seconddns_enabled" "0"
 	[ "$seconddns_enabled" = "0" ] && return
@@ -386,6 +387,10 @@ load_second_server()
 	config_get_bool seconddns_force_aaaa_soa "$section" "seconddns_force_aaaa_soa" "0"
 	[ "$seconddns_force_aaaa_soa" = "1" ] && ARGS="$ARGS -force-aaaa-soa"
 
+	config_get_bool bind_device "$section" "bind_device" "0"
+	config_get bind_device_name "$section" "bind_device_name" "${lan_device}"
+	[ ! -z "$bind_device_name" ] && [ "$bind_device" = "1" ] && device="@${bind_device_name}"
+
 	config_get ipv6_server "$section" "ipv6_server" "1"
 	if [ "$ipv6_server" = "1" ]; then
 		ADDR="[::]"
@@ -393,9 +398,11 @@ load_second_server()
 		ADDR=""
 	fi
 
-	conf_append "bind" "$ADDR:$seconddns_port $ARGS"
+	conf_append "bind" "$ADDR:$seconddns_port$device $ARGS"
+	[ ! -z "$device" ] && conf_append "bind" "$ADDR:$seconddns_port@lo $ARGS"
 	config_get_bool "seconddns_tcp_server" "$section" "seconddns_tcp_server" "1"
-	[ "$seconddns_tcp_server" = "1" ] && conf_append "bind-tcp" "$ADDR:$seconddns_port $ARGS"
+	[ "$seconddns_tcp_server" = "1" ] && conf_append "bind-tcp" "$ADDR:$seconddns_port$device $ARGS"
+	[ "$seconddns_tcp_server" = "1" ] && [ ! -z "$device" ] && conf_append "bind-tcp" "$ADDR:$seconddns_port@lo $ARGS"
 }
 
 conf_append_conf_files()
@@ -417,9 +424,12 @@ load_service()
 {
 	local section="$1"
 	args=""
+	local device=""
 	dnsmasq_lease_file="$(uci -q get dhcp.@dnsmasq[0].leasefile)"
 	dnsmasq_port="$(uci -q get dhcp.@dnsmasq[0].port)"
 	resolve_file="$(uci -q get dhcp.@dnsmasq[0].resolvfile)"
+	lan_device="$(uci -q get network.lan.device)"
+
 	[ -z "$dnsmasq_lease_file" ] && dnsmasq_lease_file="/tmp/dhcp.leases"
 	[ -z "$dnsmasq_port" ] && dnsmasq_port="53"
 	[ -z "$resolve_file" ] && resolve_file="/tmp/resolv.conf.d/resolv.conf.auto"
@@ -493,6 +503,10 @@ load_service()
 
 	config_get_bool enable_auto_update "$section" "enable_auto_update" "0"
 	[ "$enable_auto_update" = "1" ] && enable_auto_update || disable_auto_update
+
+	config_get_bool bind_device "$section" "bind_device" "0"
+	config_get bind_device_name "$section" "bind_device_name" "${lan_device}"
+	[ ! -z "$bind_device_name" ] && [ "$bind_device" = "1" ] && device="@${bind_device_name}"
 	
 	config_get redirect "$section" "redirect" ""
 	config_get old_port "$section" "old_port" "0"
@@ -561,16 +575,20 @@ load_service()
 	}
 
 	if [ "$ipv6_server" = "1" ]; then
-		conf_append "bind" "[::]:$port"
+		conf_append "bind" "[::]:$port$device"
+		[ ! -z "$device" ] && conf_append "bind" "[::]:$port@lo"
 	else
-		conf_append "bind" ":$port"
+		conf_append "bind" ":$port$device"
+		[ ! -z "$device" ] && conf_append "bind" ":$port@lo"
 	fi
 
 	[ "$tcp_server" = "1" ] && {
 		if [ "$ipv6_server" = "1" ]; then
-			conf_append "bind-tcp" "[::]:$port"
+			conf_append "bind-tcp" "[::]:$port$device"
+			[ ! -z "$device" ] && conf_append "bind-tcp" "[::]:$port@lo"
 		else
-			conf_append "bind-tcp" ":$port"
+			conf_append "bind-tcp" ":$port$device"
+			[ ! -z "$device" ] && conf_append "bind-tcp" ":$port@lo"
 		fi
 	}
 
