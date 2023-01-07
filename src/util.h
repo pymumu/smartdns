@@ -69,6 +69,10 @@ int check_is_ipaddr(const char *ip);
 
 int parse_uri(char *value, char *scheme, char *host, int *port, char *path);
 
+int parse_uri_ext(char *value, char *scheme, char *user, char *password, char *host, int *port, char *path);
+
+void urldecode(char *dst, const char *src);
+
 int set_fd_nonblock(int fd, int nonblock);
 
 char *reverse_string(char *output, const char *input, int len, int to_lower_case);

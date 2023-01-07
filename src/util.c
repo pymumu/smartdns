@@ -24,6 +24,7 @@
 #include "tlog.h"
 #include "util.h"
 #include <arpa/inet.h>
+#include <ctype.h>
 #include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -390,10 +391,53 @@ int check_is_ipaddr(const char *ip)
 
 int parse_uri(char *value, char *scheme, char *host, int *port, char *path)
 {
+	return parse_uri_ext(value, scheme, NULL, NULL, host, port, path);
+}
+
+void urldecode(char *dst, const char *src)
+{
+	char a, b;
+	while (*src) {
+		if ((*src == '%') && ((a = src[1]) && (b = src[2])) && (isxdigit(a) && isxdigit(b))) {
+			if (a >= 'a') {
+				a -= 'a' - 'A';
+			}
+
+			if (a >= 'A') {
+				a -= ('A' - 10);
+			} else {
+				a -= '0';
+			}
+
+			if (b >= 'a') {
+				b -= 'a' - 'A';
+			}
+
+			if (b >= 'A') {
+				b -= ('A' - 10);
+			} else {
+				b -= '0';
+			}
+			*dst++ = 16 * a + b;
+			src += 3;
+		} else if (*src == '+') {
+			*dst++ = ' ';
+			src++;
+		} else {
+			*dst++ = *src++;
+		}
+	}
+	*dst++ = '\0';
+}
+
+int parse_uri_ext(char *value, char *scheme, char *user, char *password, char *host, int *port, char *path)
+{
 	char *scheme_end = NULL;
 	int field_len = 0;
 	char *process_ptr = value;
-	char host_name[PATH_MAX];
+	char user_pass_host_part[PATH_MAX];
+	char *user_password = NULL;
+	char *host_part = NULL;
 
 	char *host_end = NULL;
 
@@ -413,24 +457,44 @@ int parse_uri(char *value, char *scheme, char *host, int *port, char *path)
 
 	host_end = strstr(process_ptr, "/");
 	if (host_end == NULL) {
-		return parse_ip(process_ptr, host, port);
+		host_end = process_ptr + strlen(process_ptr);
 	};
 
 	field_len = host_end - process_ptr;
-	if (field_len >= (int)sizeof(host_name)) {
+	if (field_len >= (int)sizeof(user_pass_host_part)) {
 		return -1;
 	}
-	memcpy(host_name, process_ptr, field_len);
-	host_name[field_len] = 0;
+	memcpy(user_pass_host_part, process_ptr, field_len);
+	user_pass_host_part[field_len] = 0;
 
-	if (parse_ip(host_name, host, port) != 0) {
+	host_part = strstr(user_pass_host_part, "@");
+	if (host_part != NULL) {
+		*host_part = '\0';
+		host_part = host_part + 1;
+		user_password = user_pass_host_part;
+		char *sep = strstr(user_password, ":");
+		if (sep != NULL) {
+			*sep = '\0';
+			sep = sep + 1;
+			if (password) {
+				urldecode(password, sep);
+			}
+		}
+		if (user) {
+			urldecode(user, user_password);
+		}
+	} else {
+		host_part = user_pass_host_part;
+	}
+
+	if (host != NULL && parse_ip(host_part, host, port) != 0) {
 		return -1;
 	}
 
 	process_ptr += field_len;
 
 	if (path) {
-		strncpy(path, process_ptr, PATH_MAX);
+		strcpy(path, process_ptr);
 	}
 	return 0;
 }

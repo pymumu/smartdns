@@ -101,10 +101,6 @@ struct dns_domain_check_orders dns_conf_check_orders = {
 };
 static int dns_has_cap_ping = 0;
 
-/* proxy servers */
-struct dns_proxy_servers dns_conf_proxy_servers[PROXY_MAX_SERVERS];
-int dns_conf_proxy_server_num;
-
 /* logging */
 int dns_conf_log_level = TLOG_ERROR;
 char dns_conf_log_file[DNS_MAX_PATH];
@@ -451,6 +447,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 	struct dns_servers *server = NULL;
 	int port = -1;
 	char *ip = NULL;
+	char scheme[DNS_MAX_CNAME_LEN] = {0};
 	int opt = 0;
 	unsigned int result_flag = 0;
 	unsigned int server_flag = 0;
@@ -497,19 +494,34 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 	server->proxyname[0] = '\0';
 	server->set_mark = -1;
 
-	if (type == DNS_SERVER_HTTPS) {
-		if (parse_uri(ip, NULL, server->server, &port, server->path) != 0) {
+	if (parse_uri(ip, scheme, server->server, &port, server->path) != 0) {
+		return -1;
+	}
+
+	if (scheme[0] != '\0') {
+		if (strcasecmp(scheme, "https") == 0) {
+			type = DNS_SERVER_HTTPS;
+			default_port = DEFAULT_DNS_HTTPS_PORT;
+		} else if (strcasecmp(scheme, "tls") == 0) {
+			type = DNS_SERVER_TLS;
+			default_port = DEFAULT_DNS_TLS_PORT;
+		} else if (strcasecmp(scheme, "tcp") == 0) {
+			type = DNS_SERVER_TCP;
+			default_port = DEFAULT_DNS_PORT;
+		} else if (strcasecmp(scheme, "udp") == 0) {
+			type = DNS_SERVER_UDP;
+			default_port = DEFAULT_DNS_PORT;
+		} else {
+			tlog(TLOG_ERROR, "invalid scheme: %s", scheme);
 			return -1;
 		}
+	}
+
+	if (type == DNS_SERVER_HTTPS) {
 		safe_strncpy(server->hostname, server->server, sizeof(server->hostname));
 		safe_strncpy(server->httphost, server->server, sizeof(server->httphost));
 		if (server->path[0] == 0) {
 			safe_strncpy(server->path, "/", sizeof(server->path));
-		}
-	} else {
-		/* parse ip, port from ip */
-		if (parse_ip(ip, server->server, &port) != 0) {
-			return -1;
 		}
 	}
 
@@ -1599,34 +1611,27 @@ errout:
 	return 0;
 }
 
-static int _config_proxy_server(int argc, char *argv[], struct dns_proxy_servers **pserver, proxy_type_t type)
+static int _config_proxy_server(void *data, int argc, char *argv[])
 {
-	int index = dns_conf_proxy_server_num;
-	struct dns_proxy_servers *server = NULL;
 	char *servers_name = NULL;
-	int port = -1;
+	struct dns_proxy_servers *server = NULL;
+	proxy_type_t type = PROXY_TYPE_END;
+
 	char *ip = NULL;
 	int opt = 0;
-	unsigned int server_flag = 0;
 	int use_domain = 0;
+	char scheme[DNS_MAX_CNAME_LEN] = {0};
+	int port = PORT_NOT_DEFINED;
 
 	/* clang-format off */
 	static struct option long_options[] = {
 		{"name", required_argument, NULL, 'n'}, 
 		{"use-domain", no_argument, NULL, 'd'},
-		{"user", required_argument, NULL, 'u'},
-		{"password", required_argument, NULL, 'p'},
 		{NULL, no_argument, NULL, 0}
 	};
 	/* clang-format on */
-	if (argc <= 1) {
-		tlog(TLOG_ERROR, "invalid parameter.");
-		return -1;
-	}
 
-	ip = argv[1];
-	if (index >= PROXY_MAX_SERVERS) {
-		tlog(TLOG_WARN, "exceeds max server number, %s", ip);
+	if (argc <= 1) {
 		return 0;
 	}
 
@@ -1637,10 +1642,15 @@ static int _config_proxy_server(int argc, char *argv[], struct dns_proxy_servers
 	}
 	memset(server, 0, sizeof(*server));
 
+	ip = argv[1];
+	if (parse_uri_ext(ip, scheme, server->username, server->password, server->server, &port, NULL) != 0) {
+		return -1;
+	}
+
 	/* process extra options */
 	optind = 1;
 	while (1) {
-		opt = getopt_long_only(argc, argv, "n:du:p:", long_options, NULL);
+		opt = getopt_long_only(argc, argv, "n:d", long_options, NULL);
 		if (opt == -1) {
 			break;
 		}
@@ -1654,32 +1664,26 @@ static int _config_proxy_server(int argc, char *argv[], struct dns_proxy_servers
 			use_domain = 1;
 			break;
 		}
-		case 'u': {
-			safe_strncpy(server->username, optarg, sizeof(server->username));
-			break;
-		}
-		case 'p': {
-			safe_strncpy(server->password, optarg, sizeof(server->password));
-			break;
-		}
 		default:
 			break;
 		}
 	}
 
-	ip = argv[optind];
-	if (ip) {
-		/* parse ip, port from ip */
-		if (parse_ip(ip, server->server, &port) != 0) {
-			return -1;
+	if (strcasecmp(scheme, "socks5") == 0) {
+		if (port == PORT_NOT_DEFINED) {
+			port = 1080;
 		}
 
-		/* if port is not defined, set port to default 53 */
+		type = PROXY_SOCKS5;
+	} else if (strcasecmp(scheme, "http") == 0) {
 		if (port == PORT_NOT_DEFINED) {
-			port = 443;
+			port = 3128;
 		}
+
+		type = PROXY_HTTP;
 	} else {
-		goto errout;
+		tlog(TLOG_ERROR, "invalid scheme %s", scheme);
+		return -1;
 	}
 
 	if (servers_name == NULL) {
@@ -1695,14 +1699,8 @@ static int _config_proxy_server(int argc, char *argv[], struct dns_proxy_servers
 	/* add new server */
 	server->type = type;
 	server->port = port;
-	server->server_flag = server_flag;
 	server->use_domain = use_domain;
-	dns_conf_proxy_server_num++;
-	tlog(TLOG_DEBUG, "add proxy server %s, flag: %X", ip, server_flag);
-
-	if (pserver) {
-		*pserver = server;
-	}
+	tlog(TLOG_DEBUG, "add proxy server %s", ip);
 
 	return 0;
 
@@ -1712,26 +1710,6 @@ errout:
 	}
 
 	return -1;
-}
-
-static int _config_proxy_socks5(void *data, int argc, char *argv[])
-{
-	struct dns_proxy_servers *server = NULL;
-	int ret = _config_proxy_server(argc, argv, &server, PROXY_SOCKS5);
-	if (ret == 0) {
-		server->socks5 = 1;
-	}
-	return ret;
-}
-
-static int _config_proxy_http(void *data, int argc, char *argv[])
-{
-	struct dns_proxy_servers *server = NULL;
-	int ret = _config_proxy_server(argc, argv, &server, PROXY_HTTP);
-	if (ret == 0) {
-		server->https = 1;
-	}
-	return ret;
 }
 
 static radix_node_t *_create_addr_node(char *addr)
@@ -2645,8 +2623,7 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("server-https", _config_server_https, NULL),
 	CONF_CUSTOM("nameserver", _config_nameserver, NULL),
 	CONF_CUSTOM("address", _config_address, NULL),
-	CONF_CUSTOM("proxy-socks5", _config_proxy_socks5, NULL),
-	CONF_CUSTOM("proxy-http", _config_proxy_http, NULL),
+	CONF_CUSTOM("proxy-server", _config_proxy_server, NULL),
 	CONF_YESNO("ipset-timeout", &dns_conf_ipset_timeout_enable),
 	CONF_CUSTOM("ipset", _config_ipset, NULL),
 	CONF_YESNO("nftset-timeout", &dns_conf_nftset_timeout_enable),
