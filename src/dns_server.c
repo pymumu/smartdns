@@ -5349,6 +5349,10 @@ static int _dns_create_socket(const char *host_ip, int type)
 
 	safe_strncpy(host_ip_device, host_ip, sizeof(host_ip_device));
 	ifname = strstr(host_ip_device, "@");
+	if (ifname) {
+		*(char *)ifname = '\0';
+		ifname++;
+	}
 
 	if (parse_ip(host_ip_device, ip, &port) == 0) {
 		host = ip;
@@ -5388,7 +5392,7 @@ static int _dns_create_socket(const char *host_ip, int type)
 	if (ifname != NULL) {
 		struct ifreq ifr;
 		memset(&ifr, 0, sizeof(struct ifreq));
-		safe_strncpy(ifr.ifr_name, ifname + 1, sizeof(ifr.ifr_name));
+		safe_strncpy(ifr.ifr_name, ifname, sizeof(ifr.ifr_name));
 		ioctl(fd, SIOCGIFINDEX, &ifr);
 		if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, (void *)&ifr, sizeof(struct ifreq)) < 0) {
 			tlog(TLOG_ERROR, "bind socket to device %s faild, %s\n", ifr.ifr_name, strerror(errno));
