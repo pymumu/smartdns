@@ -260,7 +260,7 @@ msgid "List of files to download."
 msgstr "下载文件列表"
 
 msgid "Listen only on the specified interfaces."
-msgstr "监听在指定的设备上，避免非网络的DNS查询请求。"
+msgstr "监听在指定的设备上，避免非本地网络的DNS查询请求。"
 
 msgid "Local Port"
 msgstr "本地端口"

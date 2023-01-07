@@ -348,6 +348,40 @@ load_domain_rule_list()
 	conf_append "domain-rules" "/domain-set:domain-rule-list-${domain_set_name}/ $domain_set_args"	
 }
 
+conf_append_bind()
+{
+	local ADDR=""
+	local port="$1"
+	local devices="$2"
+	local tcp_server="$3"
+	local ipv6_server="$4"
+	local ARGS="$5"
+
+	if [ "$ipv6_server" = "1" ]; then
+		ADDR="[::]"
+	else
+		ADDR=""
+	fi
+
+	devices=$(echo "$devices" | sed 's/,/ /g')
+	[ ! -z "$devices" ] && devices="$devices lo"
+	[ -z "$devices" ] && devices="-"
+
+	for device in $devices; do
+		device="@$device"
+		[ "$device" = "@-" ] && device=""
+		conf_append "bind" "$ADDR:$port$device $ARGS"
+	done
+
+	[ "$tcp_server" = "1" ] && {
+		for device in $devices; do
+			device="@$device"
+			[ "$device" = "@-" ] && device=""
+			conf_append "bind-tcp" "$ADDR:$port$device $ARGS"
+		done
+	}
+}
+
 load_second_server()
 {
 	local section="$1"
@@ -389,20 +423,12 @@ load_second_server()
 
 	config_get_bool bind_device "$section" "bind_device" "0"
 	config_get bind_device_name "$section" "bind_device_name" "${lan_device}"
-	[ ! -z "$bind_device_name" ] && [ "$bind_device" = "1" ] && device="@${bind_device_name}"
+	[ ! -z "$bind_device_name" ] && [ "$bind_device" = "1" ] && device="${bind_device_name}"
 
-	config_get ipv6_server "$section" "ipv6_server" "1"
-	if [ "$ipv6_server" = "1" ]; then
-		ADDR="[::]"
-	else
-		ADDR=""
-	fi
-
-	conf_append "bind" "$ADDR:$seconddns_port$device $ARGS"
-	[ ! -z "$device" ] && conf_append "bind" "$ADDR:$seconddns_port@lo $ARGS"
 	config_get_bool "seconddns_tcp_server" "$section" "seconddns_tcp_server" "1"
-	[ "$seconddns_tcp_server" = "1" ] && conf_append "bind-tcp" "$ADDR:$seconddns_port$device $ARGS"
-	[ "$seconddns_tcp_server" = "1" ] && [ ! -z "$device" ] && conf_append "bind-tcp" "$ADDR:$seconddns_port@lo $ARGS"
+	config_get ipv6_server "$section" "ipv6_server" "1"
+
+	conf_append_bind "$seconddns_port" "$device" "$seconddns_tcp_server" "$ipv6_server" "$ARGS"
 }
 
 conf_append_conf_files()
@@ -506,7 +532,7 @@ load_service()
 
 	config_get_bool bind_device "$section" "bind_device" "0"
 	config_get bind_device_name "$section" "bind_device_name" "${lan_device}"
-	[ ! -z "$bind_device_name" ] && [ "$bind_device" = "1" ] && device="@${bind_device_name}"
+	[ ! -z "$bind_device_name" ] && [ "$bind_device" = "1" ] && device="${bind_device_name}"
 	
 	config_get redirect "$section" "redirect" ""
 	config_get old_port "$section" "old_port" "0"
@@ -574,23 +600,7 @@ load_service()
 		[ "$auto_set_dnsmasq" = "0" ] && [ "$old_auto_set_dnsmasq" = "1" ] && stop_forward_dnsmasq "$old_port" "0"
 	}
 
-	if [ "$ipv6_server" = "1" ]; then
-		conf_append "bind" "[::]:$port$device"
-		[ ! -z "$device" ] && conf_append "bind" "[::]:$port@lo"
-	else
-		conf_append "bind" ":$port$device"
-		[ ! -z "$device" ] && conf_append "bind" ":$port@lo"
-	fi
-
-	[ "$tcp_server" = "1" ] && {
-		if [ "$ipv6_server" = "1" ]; then
-			conf_append "bind-tcp" "[::]:$port$device"
-			[ ! -z "$device" ] && conf_append "bind-tcp" "[::]:$port@lo"
-		else
-			conf_append "bind-tcp" ":$port$device"
-			[ ! -z "$device" ] && conf_append "bind-tcp" ":$port@lo"
-		fi
-	}
+	conf_append_bind "$port" "$device" "$tcp_server" "$ipv6_server" "$ARGS"
 
 	load_second_server $section
 
