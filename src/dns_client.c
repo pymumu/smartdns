@@ -1715,7 +1715,7 @@ static int _dns_client_create_socket_udp_proxy(struct dns_server_info *server_in
 
 	ret = proxy_conn_connect(proxy);
 	if (ret != 0) {
-		if (errno == ENETUNREACH) {
+		if (errno == ENETUNREACH || errno == EHOSTUNREACH || errno == EPERM || errno == EACCES) {
 			tlog(TLOG_DEBUG, "connect %s failed, %s", server_info->ip, strerror(errno));
 			goto errout;
 		}

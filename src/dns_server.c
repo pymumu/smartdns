@@ -327,7 +327,6 @@ static int _dns_server_epoll_ctl(struct dns_server_conn_head *head, int op, uint
 	event.data.ptr = head;
 
 	if (epoll_ctl(server.epoll_fd, op, head->fd, &event) != 0) {
-		tlog(TLOG_ERROR, "epoll ctl failed, fd = %d, %s", head->fd, strerror(errno));
 		return -1;
 	}
 
@@ -1002,7 +1001,7 @@ static int _dns_server_reply_udp(struct dns_request *request, struct dns_server_
 use_send:
 	send_len = sendto(udpserver->head.fd, inpacket, inpacket_len, 0, &request->addr, request->addr_len);
 	if (send_len != inpacket_len) {
-		tlog(TLOG_ERROR, "send failed, %s", strerror(errno));
+		tlog(TLOG_DEBUG, "send failed, %s", strerror(errno));
 		return -1;
 	}
 
@@ -4775,6 +4774,10 @@ static int _dns_server_tcp_recv(struct dns_server_conn_tcp_client *tcpclient)
 			if (errno == EAGAIN) {
 				return RECV_ERROR_AGAIN;
 			}
+			
+			if (errno == ECONNRESET) {
+				return RECV_ERROR_CLOSE;
+			}
 
 			tlog(TLOG_ERROR, "recv failed, %s\n", strerror(errno));
 			return RECV_ERROR_FAIL;
@@ -4916,7 +4919,7 @@ static int _dns_server_process_tcp(struct dns_server_conn_tcp_client *dnsserver,
 			if (ret == RECV_ERROR_CLOSE) {
 				return 0;
 			}
-			tlog(TLOG_ERROR, "process tcp request failed.");
+			tlog(TLOG_DEBUG, "process tcp request failed.");
 			return RECV_ERROR_FAIL;
 		}
 	}
@@ -4924,7 +4927,7 @@ static int _dns_server_process_tcp(struct dns_server_conn_tcp_client *dnsserver,
 	if (event->events & EPOLLOUT) {
 		if (_dns_server_tcp_send(dnsserver) != 0) {
 			_dns_server_client_close(&dnsserver->head);
-			tlog(TLOG_ERROR, "send tcp failed.");
+			tlog(TLOG_DEBUG, "send tcp failed.");
 			return RECV_ERROR_FAIL;
 		}
 	}
@@ -4948,7 +4951,7 @@ static int _dns_server_process(struct dns_server_conn_head *conn, struct epoll_e
 		ret = _dns_server_process_tcp(tcpclient, event, now);
 		if (ret != 0) {
 			char name[DNS_MAX_CNAME_LEN];
-			tlog(TLOG_ERROR, "process TCP packet from %s failed.",
+			tlog(TLOG_DEBUG, "process TCP packet from %s failed.",
 				 gethost_by_addr(name, sizeof(name), (struct sockaddr *)&tcpclient->addr));
 		}
 	} else if (conn->type == DNS_CONN_TYPE_TLS_SERVER) {
