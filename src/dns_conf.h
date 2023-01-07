@@ -263,12 +263,8 @@ struct dns_proxy_servers {
 	char server[DNS_MAX_IPLEN];
 	proxy_type_t type;
 	unsigned short port;
-	unsigned int server_flag;
 	char username[DNS_PROXY_MAX_LEN];
 	char password[DNS_PROXY_MAX_LEN];
-
-	int socks5;
-	int https;
 	int use_domain;
 };
 
