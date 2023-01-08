@@ -1693,7 +1693,7 @@ static int _dns_client_create_socket_udp_proxy(struct dns_server_info *server_in
 
 	proxy = proxy_conn_new(server_info->proxy_name, server_info->ip, server_info->port, 1);
 	if (proxy == NULL) {
-		tlog(TLOG_ERROR, "create proxy failed, %s", server_info->ip);
+		tlog(TLOG_ERROR, "create proxy failed, %s, proxy: %s", server_info->ip, server_info->proxy_name);
 		goto errout;
 	}
 
@@ -1837,7 +1837,7 @@ static int _DNS_client_create_socket_tcp(struct dns_server_info *server_info)
 	if (server_info->proxy_name[0] != '\0') {
 		proxy = proxy_conn_new(server_info->proxy_name, server_info->ip, server_info->port, 0);
 		if (proxy == NULL) {
-			tlog(TLOG_ERROR, "create proxy failed, %s", server_info->ip);
+			tlog(TLOG_ERROR, "create proxy failed, %s, proxy: %s", server_info->ip, server_info->proxy_name);
 			goto errout;
 		}
 		fd = proxy_conn_get_fd(proxy);
@@ -1945,7 +1945,7 @@ static int _DNS_client_create_socket_tls(struct dns_server_info *server_info, ch
 	if (server_info->proxy_name[0] != '\0') {
 		proxy = proxy_conn_new(server_info->proxy_name, server_info->ip, server_info->port, 0);
 		if (proxy == NULL) {
-			tlog(TLOG_ERROR, "create proxy failed, %s", server_info->ip);
+			tlog(TLOG_ERROR, "create proxy failed, %s, proxy: %s", server_info->ip, server_info->proxy_name);
 			goto errout;
 		}
 		fd = proxy_conn_get_fd(proxy);

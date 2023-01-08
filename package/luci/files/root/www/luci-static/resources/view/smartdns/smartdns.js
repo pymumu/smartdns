@@ -132,6 +132,7 @@ return view.extend({
 		s.tab("advanced", _('Advanced Settings'));
 		s.tab("seconddns", _("Second Server Settings"));
 		s.tab("files", _("Download Files Setting"), _("Download domain list files for domain-rule and include config files, please refresh the page after download to take effect."));
+		s.tab("proxy", _("Proxy Server Settings"));
 		s.tab("custom", _("Custom Settings"));
 
 		///////////////////////////////////////
@@ -445,6 +446,23 @@ return view.extend({
 		so.datatype = 'string';
 
 		///////////////////////////////////////
+		// Proxy server settings;
+		///////////////////////////////////////
+		o = s.taboption("proxy", form.Value, "proxy_server", _("Proxy Server"), _("Proxy Server URL, format: [socks5|http]://user:pass@ip:port."));
+		o.datatype = 'string';
+		o.validate = function (section_id, value) {
+			if (value == "") {
+				return true;
+			}
+
+			if (!value.match(/^(socks5|http):\/\//)) {
+				return _("Proxy server URL format error, format: [socks5|http]://user:pass@ip:port.");
+			}
+
+			return true;
+		}
+
+		///////////////////////////////////////
 		// custom settings;
 		///////////////////////////////////////
 		o = s.taboption("custom", form.TextValue, "custom_conf",
@@ -602,6 +620,32 @@ return view.extend({
 		o.rempty = true
 		o.datatype = "uinteger"
 		o.modalonly = true;
+
+		// use proxy
+		o = s.taboption("advanced", form.Flag, "use_proxy", _("Use Proxy"),
+			_("Use proxy to connect to upstream DNS server."))
+		o.default = o.disabled
+		o.modalonly = true;
+		o.optional = true;
+		o.rempty = true;
+		o.validate = function(section_id, value) {
+			var flag = this.formvalue(section_id);
+			if (flag == "0") {
+				return true;
+			}
+
+			var proxy_server = uci.sections("smartdns", "smartdns")[0].proxy_server;
+			var server_type = this.section.formvalue(section_id, "type");
+			if (proxy_server == "" || proxy_server == undefined) {
+				return _("Please set proxy server first.");
+			}
+
+			if (server_type == "udp" && !proxy_server.match(/^(socks5):\/\//)) {
+				return _("Only socks5 proxy support udp server.");
+			}
+
+			return true;
+		}
 		
 		// other args
 		o = s.taboption("advanced", form.Value, "addition_arg", _("Additional Server Args"),

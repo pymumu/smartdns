@@ -184,6 +184,7 @@ load_server()
 	config_get spki_pin "$section" "spki_pin" ""
 	config_get addition_arg "$section" "addition_arg" ""
 	config_get set_mark "$section" "set_mark" ""
+	config_get_bool use_proxy "$section" "use_proxy" "0"
 
 	[ "$enabled" = "0" ] && return
 
@@ -216,6 +217,7 @@ load_server()
 	[ "$check_edns" = "0" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -check-edns"
 	[ -z "$spki_pin" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -spki-pin $spki_pin"
 	[ -z "$set_mark" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -set-mark $set_mark"
+	[ "$use_proxy" = "0" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -proxy default-proxy"
 
 	if [ -z "$port" ]; then
 		DNS_ADDRESS="$ip"
@@ -533,6 +535,9 @@ load_service()
 	config_get_bool bind_device "$section" "bind_device" "0"
 	config_get bind_device_name "$section" "bind_device_name" "${lan_device}"
 	[ ! -z "$bind_device_name" ] && [ "$bind_device" = "1" ] && device="${bind_device_name}"
+
+	config_get proxy_server "$section" "proxy_server" ""
+	[ -z "$proxy_server" ] || conf_append "proxy-server" "$proxy_server -name default-proxy"
 	
 	config_get redirect "$section" "redirect" ""
 	config_get old_port "$section" "old_port" "0"
