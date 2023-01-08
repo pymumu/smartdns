@@ -269,6 +269,21 @@ msgstr "未运行"
 msgid "No check certificate"
 msgstr "停用证书校验"
 
+msgid "Please set proxy server first."
+msgstr "请先设置代理服务器。"
+
+msgid "Proxy Server"
+msgstr "代理服务器"
+
+msgid "Proxy Server URL, format: [socks5|http]://user:pass@ip:port."
+msgstr "代理服务器地址，格式：[socks5|http]://user:pass@ip:port。"
+
+msgid "Proxy server URL format error, format: [socks5|http]://user:pass@ip:port."
+msgstr "代理服务器地址格式错误，格式：[socks5|http]://user:pass@ip:port。"
+
+msgid "Proxy Server Settings"
+msgstr "代理服务器设置"
+
 msgid "Query DNS through specific dns server group, such as office, home."
 msgstr "使用指定服务器组查询，比如office, home。"
 
@@ -430,6 +445,12 @@ msgstr "设置所有域名的 TTL 值。"
 
 msgid "Technical Support"
 msgstr "技术支持"
+
+msgid "Use Proxy"
+msgstr "使用代理"
+
+msgid "Use proxy to connect to upstream DNS server."
+msgstr "使用代理连接上游DNS服务器。"
 
 msgid "URL"
 msgstr "URL"

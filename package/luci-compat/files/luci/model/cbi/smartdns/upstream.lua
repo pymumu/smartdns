@@ -133,6 +133,23 @@ o.default     = ""
 o.rempty      = true
 o.datatype    = "uinteger"
 
+---- use proxy
+o = s:option(Flag, "use_proxy", translate("Use Proxy"), translate("Use proxy to connect to upstream DNS server."))
+o.rmempty     = true
+o.default     = o.disabled
+o.cfgvalue    = function(...)
+    return Flag.cfgvalue(...) or "0"
+end
+function o.validate(self, value, section)
+    if value == "1" then
+        local proxy = m.uci:get_first("smartdns", "smartdns", "proxy_server")
+        if proxy == nil or proxy == "" then
+            return nil, translate("Please set proxy server first.")
+        end
+    end
+    return value
+end
+
 ---- other args
 o = s:option(Value, "addition_arg", translate("Additional Server Args"), translate("Additional Args for upstream dns servers"))
 o.default     = ""

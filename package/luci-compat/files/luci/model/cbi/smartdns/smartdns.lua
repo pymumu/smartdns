@@ -34,6 +34,7 @@ s.anonymous = true
 s:tab("settings", translate("General Settings"))
 s:tab("advanced", translate('Advanced Settings'))
 s:tab("seconddns", translate("Second Server Settings"))
+s:tab("proxy", translate("Proxy Server Settings"))
 s:tab("custom", translate("Custom Settings"))
 
 ---- Eanble
@@ -310,6 +311,21 @@ o.rmempty     = false
 o.default     = o.disabled
 o.cfgvalue    = function(...)
     return Flag.cfgvalue(...) or "0"
+end
+
+----- Proxy server settings
+o = s:taboption("proxy", Value, "proxy_server", translate("Proxy Server"), translate("Proxy Server URL, format: [socks5|http]://user:pass@ip:port."));
+o.datatype = 'string';
+function o.validate(self, value)
+    if (value == "") then
+        return true
+    end
+
+    if (not value:match("^http://") and not value:match("^socks5://")) then
+        return nil, translate("Proxy server URL format error, format: [socks5|http]://user:pass@ip:port.")
+    end
+
+    return value
 end
 
 ----- custom settings
