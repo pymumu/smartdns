@@ -4811,7 +4811,7 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn_tcp_client
 		request_len = ntohs(*((unsigned short *)(request_data)));
 
 		if (request_len >= sizeof(tcpclient->recvbuff.buf)) {
-			tlog(TLOG_ERROR, "request length is invalid.");
+			tlog(TLOG_DEBUG, "request length is invalid.");
 			return RECV_ERROR_FAIL;
 		}
 
@@ -4864,7 +4864,7 @@ static int _dns_server_tcp_process_requests(struct dns_server_conn_tcp_client *t
 		request_ret = _dns_server_tcp_process_one_request(tcpclient);
 		if (request_ret < 0) {
 			/* failed */
-			tlog(TLOG_ERROR, "process one request failed.");
+			tlog(TLOG_DEBUG, "process one request failed.");
 			return RECV_ERROR_FAIL;
 		}
 

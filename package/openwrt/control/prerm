@@ -19,4 +19,6 @@
 default_prerm $0 $@
 rm /var/etc/smartdns.conf -f
 rm /var/etc/smartdns/smartdns.conf -f
+rm /var/log/smartdns/ -fr
+rm /etc/smartdns/smartdns.cache -f
 exit 0

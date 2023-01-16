@@ -380,6 +380,7 @@ static int _smartdns_init(void)
 {
 	int ret = 0;
 	const char *logfile = _smartdns_log_path();
+	int i = 0;
 
 	ret = tlog_init(logfile, dns_conf_log_size, dns_conf_log_num, 0, 0);
 	if (ret != 0) {
@@ -401,11 +402,19 @@ static int _smartdns_init(void)
 		goto errout;
 	}
 
-	if (dns_conf_server_num <= 0) {
-		if (_smartdns_load_from_resolv() != 0) {
-			tlog(TLOG_ERROR, "load dns from resolv failed.");
-			goto errout;
+	for (i = 0; i < 60 && dns_conf_server_num <= 0; i++) {
+		ret = _smartdns_load_from_resolv();
+		if (ret == 0) {
+			continue;
 		}
+
+		tlog(TLOG_DEBUG, "load dns from resolv failed, retry after 1s, retry times %d.", i + 1);
+		sleep(1);
+	}
+
+	if (dns_conf_server_num <= 0) {
+		tlog(TLOG_ERROR, "no dns server found, exit...");
+		goto errout;
 	}
 
 	ret = fast_ping_init();

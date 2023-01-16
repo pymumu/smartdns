@@ -16,6 +16,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 START=19
+STOP=82
 NAME=smartdns
 USE_PROCD=1
 SERVICE_USE_PID=1
@@ -535,6 +536,19 @@ load_service()
 	config_get_bool bind_device "$section" "bind_device" "0"
 	config_get bind_device_name "$section" "bind_device_name" "${lan_device}"
 	[ ! -z "$bind_device_name" ] && [ "$bind_device" = "1" ] && device="${bind_device_name}"
+
+	config_get cache_file "$section" "cache_file" "$SMARTDNS_CONF_DIR/smartdns.cache"
+
+	config_get_bool cache_persist "$section" "cache_persist" "0"
+	[ "$cache_persist" = "1" ] && {
+		conf_append "cache-persist" "yes"
+		conf_append "cache-file" "$cache_file"
+	}
+
+	[ "$cache_persist" = "0" ] && {
+		conf_append "cache-persist" "no"
+		[ -f "$cache_file" ] && rm -f "$cache_file"
+	}
 
 	config_get proxy_server "$section" "proxy_server" ""
 	[ -z "$proxy_server" ] || conf_append "proxy-server" "$proxy_server -name default-proxy"
