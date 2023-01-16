@@ -47,10 +47,13 @@ define Package/smartdns/conffiles
 /etc/smartdns/address.conf
 /etc/smartdns/blacklist-ip.conf
 /etc/smartdns/custom.conf
+/etc/smartdns/domain-block.list
+/etc/smartdns/domain-forwarding.list
 endef
 
 define Package/smartdns/install
 	$(INSTALL_DIR) $(1)/usr/sbin $(1)/etc/config $(1)/etc/init.d $(1)/etc/smartdns
+	$(INSTALL_DIR) $(1)/etc/smartdns/conf.d $(1)/etc/smartdns/domain-set
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/src/smartdns $(1)/usr/sbin/smartdns
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/package/openwrt/files/etc/init.d/smartdns $(1)/etc/init.d/smartdns
 	$(INSTALL_CONF) $(PKG_BUILD_DIR)/package/openwrt/address.conf $(1)/etc/smartdns/address.conf

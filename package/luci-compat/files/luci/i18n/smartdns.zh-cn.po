@@ -31,6 +31,9 @@ msgstr "绑定到设备"
 msgid "Bind Device Name"
 msgstr "绑定的设备名称"
 
+msgid "Cache Persist"
+msgstr "持久化缓存"
+
 msgid "Cache Size"
 msgstr "缓存大小"
 
@@ -501,6 +504,9 @@ msgid ""
 msgstr ""
 "用于校验 TLS 服务器的有效性，数值为 Base64 编码的 SPKI 指纹，留空表示不验证 "
 "TLS 的合法性。"
+
+msgid "Write cache to disk on exit and load on startup."
+msgstr "退出时保存cache到磁盘，启动时加载。"
 
 msgid "domain list (/etc/smartdns/domain-set)"
 msgstr "域名列表（/etc/smartdns/domain-set）"
