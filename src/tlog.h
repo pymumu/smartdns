@@ -52,7 +52,7 @@ struct tlog_time {
 
 /*
  multiwrite: enable multi process write mode.
-            NOTICE: maxlogsize in all prcesses must be same when enable this mode.
+            NOTICE: maxlogsize in all processes must be same when enable this mode.
  */
 #define TLOG_MULTI_WRITE (1 << 2)
 
@@ -62,7 +62,7 @@ struct tlog_time {
 /* enable log to screen */
 #define TLOG_SCREEN (1 << 4)
 
-/* enable suppport fork process */
+/* enable support fork process */
 #define TLOG_SUPPORT_FORK (1 << 5)
 
 struct tlog_loginfo {
@@ -101,10 +101,10 @@ extern tlog_level tlog_getlevel(void);
 /* set log file */
 extern void tlog_set_logfile(const char *logfile);
 
-/* enalbe log to screen */
+/* enable log to screen */
 extern void tlog_setlogscreen(int enable);
 
-/* enalbe early log to screen */
+/* enable early log to screen */
 extern void tlog_set_early_printf(int enable);
 
 /* Get log level in string */
@@ -184,7 +184,7 @@ va_list: args list
 */
 extern int tlog_vprintf(tlog_log *log, const char *format, va_list ap);
 
-/* enalbe log to screen */
+/* enable log to screen */
 extern void tlog_logscreen(tlog_log *log, int enable);
 
 /* register output callback */

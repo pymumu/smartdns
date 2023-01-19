@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2020 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2023 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -38,11 +38,11 @@ var pollAdded = false;
 function getServiceStatus() {
 	return L.resolveDefault(callServiceList(conf), {})
 		.then(function (res) {
-			var isrunning = false;
+			var is_running = false;
 			try {
-				isrunning = res[conf]['instances']['smartdns']['running'];
+				is_running = res[conf]['instances']['smartdns']['running'];
 			} catch (e) { }
-			return isrunning;
+			return is_running;
 		});
 }
 
@@ -73,7 +73,7 @@ function smartdnsRenderStatus(res) {
 		uci.unload('dhcp');
 		uci.load('dhcp');
 		if (dnsmasqServer == undefined || dnsmasqServer.indexOf(matchLine) < 0) {
-			renderHTML += "<br /><span style=\"color:red;font-weight:bold\">" + _("Dnsmasq Forwared To Smartdns Failure") + "</span>";
+			renderHTML += "<br /><span style=\"color:red;font-weight:bold\">" + _("Dnsmasq Forwarded To Smartdns Failure") + "</span>";
 		}
 	}
 
@@ -90,7 +90,7 @@ return view.extend({
 	render: function (stats) {
 		var m, s, o;
 		var ss, so;
-		var servers, downlfiles;
+		var servers, download_files;
 
 		m = new form.Map('smartdns', _('SmartDNS'));
 		m.title = _("SmartDNS Server");
@@ -290,25 +290,25 @@ return view.extend({
 		o.rempty = true;
 
 		// include config
-		downlfiles = uci.sections('smartdns', 'download-file');
+		download_files = uci.sections('smartdns', 'download-file');
 		o = s.taboption("advanced", form.DynamicList, "conf_files", _("Include Config Files<br>/etc/smartdns/conf.d"),
 			_("Include other config files from /etc/smartdns/conf.d or custom path, can be downloaded from the download page."));
-		for (var i = 0; i < downlfiles.length; i++) {
-			if (downlfiles[i].type == undefined) {
+		for (var i = 0; i < download_files.length; i++) {
+			if (download_files[i].type == undefined) {
 				continue;
 			}
 
-			if (downlfiles[i].type != 'config') {
+			if (download_files[i].type != 'config') {
 				continue
 			}
 
-			o.value(downlfiles[i].name);
+			o.value(download_files[i].name);
 		}
 
 		///////////////////////////////////////
 		// second dns server;
 		///////////////////////////////////////
-		// Eanble;
+		// Enable;
 		o = s.taboption("seconddns", form.Flag, "seconddns_enabled", _("Enable"),
 			_("Enable or disable second DNS server."));
 		o.default = o.disabled;

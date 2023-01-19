@@ -148,7 +148,7 @@ static void _help(void)
 		"  -p [pid]      pid file path, '-' means don't create pid file.\n"
 		"  -S            ignore segment fault signal.\n"
 		"  -x            verbose screen.\n"
-		"  -v            dispaly version.\n"
+		"  -v            display version.\n"
 		"  -h            show this help message.\n"
 
 		"Online help: http://pymumu.github.io/smartdns\n"

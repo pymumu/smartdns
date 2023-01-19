@@ -1,6 +1,6 @@
 #!/bin/sh /etc/rc.common
 #
-# Copyright (C) 2018-2020 Ruilin Peng (Nick) <pymumu@gmail.com>.
+# Copyright (C) 2018-2023 Ruilin Peng (Nick) <pymumu@gmail.com>.
 #
 # smartdns is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -239,12 +239,12 @@ restart_crond()
 disable_auto_update()
 {
 	local no_restart="$1"
-	grep "/etc/init.d/smartdns" /etc/crontabs/root 1>/dev/null 2>&1
+	grep "/etc/init.d/smartdns updatefiles" /etc/crontabs/root 1>/dev/null 2>&1
 	if [ $? -ne 0 ]; then
 		return 
 	fi
 
-	sed -i '\@/etc/init.d/smartdns@d' /etc/crontabs/root
+	sed -i '\@/etc/init.d/smartdns updatefiles@d' /etc/crontabs/root
 
 	if [ "$no_restart" = "1" ]; then
 		return
@@ -621,7 +621,7 @@ load_service()
 
 	conf_append_bind "$port" "$device" "$tcp_server" "$ipv6_server" "$ARGS"
 
-	load_second_server $section
+	load_second_server "$section"
 
 	config_foreach load_server "server"
 

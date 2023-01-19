@@ -109,7 +109,7 @@ unsigned long get_tick_count(void)
 	return (ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
 }
 
-char *gethost_by_addr(char *host, int maxsize, struct sockaddr *addr)
+char *get_host_by_addr(char *host, int maxsize, struct sockaddr *addr)
 {
 	struct sockaddr_storage *addr_store = (struct sockaddr_storage *)addr;
 	host[0] = 0;
@@ -173,7 +173,7 @@ errout:
 	return -1;
 }
 
-int getsocknet_inet(int fd, struct sockaddr *addr, socklen_t *addr_len)
+int getsocket_inet(int fd, struct sockaddr *addr, socklen_t *addr_len)
 {
 	struct sockaddr_storage addr_store;
 	socklen_t addr_store_len = sizeof(addr_store);
@@ -602,7 +602,7 @@ static int _ipset_support_timeout(void)
 	return -1;
 }
 
-static int _ipset_operate(const char *ipsetname, const unsigned char addr[], int addr_len, unsigned long timeout,
+static int _ipset_operate(const char *ipset_name, const unsigned char addr[], int addr_len, unsigned long timeout,
 						  int operate)
 {
 	struct nlmsghdr *netlink_head = NULL;
@@ -633,7 +633,7 @@ static int _ipset_operate(const char *ipsetname, const unsigned char addr[], int
 		return -1;
 	}
 
-	if (strlen(ipsetname) >= IPSET_MAXNAMELEN) {
+	if (strlen(ipset_name) >= IPSET_MAXNAMELEN) {
 		errno = ENAMETOOLONG;
 		return -1;
 	}
@@ -653,7 +653,7 @@ static int _ipset_operate(const char *ipsetname, const unsigned char addr[], int
 
 	proto = IPSET_PROTOCOL;
 	_ipset_add_attr(netlink_head, IPSET_ATTR_PROTOCOL, sizeof(proto), &proto);
-	_ipset_add_attr(netlink_head, IPSET_ATTR_SETNAME, strlen(ipsetname) + 1, ipsetname);
+	_ipset_add_attr(netlink_head, IPSET_ATTR_SETNAME, strlen(ipset_name) + 1, ipset_name);
 
 	nested[0] = (struct ipset_netlink_attr *)(buffer + NETLINK_ALIGN(netlink_head->nlmsg_len));
 	netlink_head->nlmsg_len += NETLINK_ALIGN(sizeof(struct ipset_netlink_attr));
@@ -692,14 +692,14 @@ static int _ipset_operate(const char *ipsetname, const unsigned char addr[], int
 	return rc;
 }
 
-int ipset_add(const char *ipsetname, const unsigned char addr[], int addr_len, unsigned long timeout)
+int ipset_add(const char *ipset_name, const unsigned char addr[], int addr_len, unsigned long timeout)
 {
-	return _ipset_operate(ipsetname, addr, addr_len, timeout, IPSET_ADD);
+	return _ipset_operate(ipset_name, addr, addr_len, timeout, IPSET_ADD);
 }
 
-int ipset_del(const char *ipsetname, const unsigned char addr[], int addr_len)
+int ipset_del(const char *ipset_name, const unsigned char addr[], int addr_len)
 {
-	return _ipset_operate(ipsetname, addr, addr_len, 0, IPSET_DEL);
+	return _ipset_operate(ipset_name, addr, addr_len, 0, IPSET_DEL);
 }
 
 unsigned char *SSL_SHA256(const unsigned char *d, size_t n, unsigned char *md)
@@ -894,7 +894,7 @@ static int parse_extensions(const char *, size_t, char *, const char **);
 static int parse_server_name_extension(const char *, size_t, char *, const char **);
 
 /* Parse a TLS packet for the Server Name Indication extension in the client
- * hello handshake, returning the first servername found (pointer to static
+ * hello handshake, returning the first server name found (pointer to static
  * array)
  *
  * Returns:
@@ -1023,7 +1023,7 @@ static int parse_extensions(const char *data, size_t data_len, char *hostname, c
 		/* Check if it's a server name extension */
 		if (data[pos] == 0x00 && data[pos + 1] == 0x00) {
 			/* There can be only one extension of each type, so we break
-			 * our state and move p to beinnging of the extension here */
+			 * our state and move p to beginning of the extension here */
 			if (pos + 4 + len > data_len) {
 				return -5;
 			}
@@ -1276,27 +1276,27 @@ int dns_packet_save(const char *dir, const char *type, const char *from, const v
 
 	struct tm *ptm;
 	struct tm tm;
-	struct timeval tmval;
+	struct timeval tm_val;
 	struct stat sb;
 
 	if (stat(dir, &sb) != 0) {
 		mkdir(dir, 0750);
 	}
 
-	if (gettimeofday(&tmval, NULL) != 0) {
+	if (gettimeofday(&tm_val, NULL) != 0) {
 		return -1;
 	}
 
-	ptm = localtime_r(&tmval.tv_sec, &tm);
+	ptm = localtime_r(&tm_val.tv_sec, &tm);
 	if (ptm == NULL) {
 		return -1;
 	}
 
-	ret = snprintf(time_s, sizeof(time_s) - 1, "%.4d-%.2d-%.2d %.2d:%.2d:%.2d.%.3d", ptm->tm_year + 1900,
-				   ptm->tm_mon + 1, ptm->tm_mday, ptm->tm_hour, ptm->tm_min, ptm->tm_sec, (int)(tmval.tv_usec / 1000));
-	ret = snprintf(filename, sizeof(filename) - 1, "%s/%s-%.4d%.2d%.2d-%.2d%.2d%.2d%.1d.packet", dir, type,
-				   ptm->tm_year + 1900, ptm->tm_mon + 1, ptm->tm_mday, ptm->tm_hour, ptm->tm_min, ptm->tm_sec,
-				   (int)(tmval.tv_usec / 100000));
+	snprintf(time_s, sizeof(time_s) - 1, "%.4d-%.2d-%.2d %.2d:%.2d:%.2d.%.3d", ptm->tm_year + 1900, ptm->tm_mon + 1,
+			 ptm->tm_mday, ptm->tm_hour, ptm->tm_min, ptm->tm_sec, (int)(tm_val.tv_usec / 1000));
+	snprintf(filename, sizeof(filename) - 1, "%s/%s-%.4d%.2d%.2d-%.2d%.2d%.2d%.1d.packet", dir, type,
+			 ptm->tm_year + 1900, ptm->tm_mon + 1, ptm->tm_mday, ptm->tm_hour, ptm->tm_min, ptm->tm_sec,
+			 (int)(tm_val.tv_usec / 100000));
 
 	data = malloc(PACKET_BUF_SIZE);
 	if (data == NULL) {

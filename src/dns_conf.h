@@ -49,7 +49,7 @@ extern "C" {
 #define DNS_NAX_GROUP_NUMBER 16
 #define DNS_MAX_IPLEN 64
 #define DNS_PROXY_MAX_LEN 128
-#define DNS_CONF_USRNAME_LEN 32
+#define DNS_CONF_USERNAME_LEN 32
 #define DNS_MAX_SPKI_LEN 64
 #define DNS_MAX_URL_LEN 256
 #define DNS_MAX_PATH 1024
@@ -120,7 +120,6 @@ typedef enum {
 struct dns_rule {
 	atomic_t refcnt;
 	enum domain_rule rule;
-	char rule_data[];
 };
 
 struct dns_rule_flags {
@@ -332,7 +331,7 @@ struct dns_domain_set_rule {
 struct dns_domain_set_rule_list {
 	struct hlist_node node;
 	char domain_set[DNS_MAX_CNAME_LEN];
-	struct list_head domain_ruls_list;
+	struct list_head domain_rule_list;
 };
 
 struct dns_domain_set_rule_table {
@@ -430,7 +429,7 @@ extern int dns_conf_local_ttl;
 
 extern int dns_conf_force_no_cname;
 
-extern char dns_conf_user[DNS_CONF_USRNAME_LEN];
+extern char dns_conf_user[DNS_CONF_USERNAME_LEN];
 
 extern struct dns_edns_client_subnet dns_conf_ipv4_ecs;
 extern struct dns_edns_client_subnet dns_conf_ipv6_ecs;
@@ -449,7 +448,7 @@ int dns_server_check_update_hosts(void);
 
 struct dns_proxy_names *dns_server_get_proxy_nams(const char *proxyname);
 
-extern int config_addtional_file(void *data, int argc, char *argv[]);
+extern int config_additional_file(void *data, int argc, char *argv[]);
 #ifdef __cpluscplus
 }
 #endif
