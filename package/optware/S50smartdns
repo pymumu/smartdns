@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# Copyright (C) 2018-2020 Ruilin Peng (Nick) <pymumu@gmail.com>.
+# Copyright (C) 2018-2023 Ruilin Peng (Nick) <pymumu@gmail.com>.
 #
 # smartdns is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -29,7 +29,7 @@ SMARTDNS_OPT=/opt/etc/smartdns/smartdns-opt.conf
 SMARTDNS_WORKMODE="1"
 
 if [ -f "$SMARTDNS_OPT" ]; then
-. $SMARTDNS_OPT
+. "$SMARTDNS_OPT"
 fi
 
 
@@ -37,7 +37,7 @@ set_iptable()
 {
 	local redirect_tcp
 
-	redirect_tcp=0;
+	redirect_tcp=0
 
 	grep ^bind-tcp $SMARTDNS_CONF > /dev/null 2>&1
 	if [ $? -eq 0 ]; then
@@ -155,7 +155,7 @@ add_dhcp_options6()
 		SERVER_TAG="$(echo "$DHCP_OPTION" | awk -F= '{print $2}' | awk -F, '{print $1}')"
 		LOCAL_SERVER_IP="$IP"
 
-		grep "dhcp-option *= *$SERVER_TAG, *6 *, *$LOCAL_SERVER_IP" $CONF_FILE 1>/dev/null 2>&1
+		grep "dhcp-option *= *$SERVER_TAG, *6 *, *$LOCAL_SERVER_IP" "$CONF_FILE" 1>/dev/null 2>&1
 		if [ $? -eq 0 ]; then
 			continue
 		fi
@@ -182,7 +182,7 @@ clear_dhcp_options6()
 		SERVER_TAG="$(echo "$DHCP_OPTION" | awk -F= '{print $2}' | awk -F, '{print $1}')"
 		LOCAL_SERVER_IP="$IP"
 
-		grep "dhcp-option *= *$SERVER_TAG, *6 *, *$LOCAL_SERVER_IP" $CONF_FILE 1>/dev/null 2>&1
+		grep "dhcp-option *= *$SERVER_TAG, *6 *, *$LOCAL_SERVER_IP" "$CONF_FILE" 1>/dev/null 2>&1
 		if [ $? -ne 0 ]; then
 			continue
 		fi
@@ -201,7 +201,7 @@ set_dnsmasq_conf()
 	local CONF_FILE=$1
 	local DHCP_OPTIONS=""
 
-	add_dhcp_options6 $CONF_FILE
+	add_dhcp_options6 "$CONF_FILE"
 
 	grep "^port *=0" "$CONF_FILE" > /dev/null 2>&1
 	if [ $? -ne 0 ]; then
@@ -340,7 +340,7 @@ case "$1" in
 
 	set_smartdns_port
 	get_tz
-	$SMARTDNS_BIN -c $SMARTDNS_CONF -p $SMARTDNS_PID
+	$SMARTDNS_BIN -c "$SMARTDNS_CONF" -p $SMARTDNS_PID
 	if [ $? -ne 0 ]; then
 		clear_rule
 	fi
@@ -368,7 +368,7 @@ case "$1" in
 	fi
 
 	kill -15 "$pid" 2>/dev/null
-	SLEEP=`which usleep`
+	SLEEP=$(which usleep 2>/dev/null)
 	SLEEPTIME=200000
 	if [ -z "$SLEEP" ]; then
 		SLEEP="sleep"

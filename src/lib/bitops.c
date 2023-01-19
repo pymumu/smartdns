@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2020 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2023 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,7 +24,7 @@
  * find_next_and_bit. The differences are:
  *  - The "invert" argument, which is XORed with each fetched word before
  *    searching it for one bits.
- *  - The optional "addr2", which is anded with "addr1" if present.
+ *  - The optional "addr2", which is addr2 with "addr1" if present.
  */
 static inline unsigned long _find_next_bit(const unsigned long *addr1,
 		const unsigned long *addr2, unsigned long nbits,

@@ -1,6 +1,6 @@
 /*
  * tinylog
- * Copyright (C) 2018-2020 Nick Peng <pymumu@gmail.com>
+ * Copyright (C) 2018-2023 Nick Peng <pymumu@gmail.com>
  * https://github.com/pymumu/tinylog
  */
 #ifndef _GNU_SOURCE
@@ -442,7 +442,7 @@ static int _tlog_root_log_buffer(char *buff, int maxlen, void *userptr, const ch
         log_len++;
     }
 
-    if (tlog.root->segment_log) {
+    if (tlog.root->segment_log && log_head != NULL) {
         if (len + 1 < maxlen - 1) {
             *(buff + len) = '\0';
             len++;
@@ -920,14 +920,14 @@ static void _tlog_wait_pid(struct tlog_log *log, int wait_hang)
     log->zip_pid = -1;
     char gzip_file[PATH_MAX * 2];
 
-    /* rename ziped file */
+    /* rename zipped file */
     snprintf(gzip_file, sizeof(gzip_file), "%s/%s.pending.gz", log->logdir, log->logname);
     if (_tlog_rename_logfile(log, gzip_file) != 0) {
         _tlog_log_unlock(log);
         return;
     }
 
-    /* remove oldes file */
+    /* remove oldest file */
     _tlog_remove_oldlog(log);
     _tlog_log_unlock(log);
 }
@@ -1090,7 +1090,7 @@ static int _tlog_archive_log_nocompress(struct tlog_log *log)
         goto errout;
     }
 
-    /* remove oldes file */
+    /* remove oldest file */
     _tlog_remove_oldlog(log);
     _tlog_log_unlock(log);
 
@@ -1437,7 +1437,7 @@ static void _tlog_work_write(struct tlog_log *log, int log_len, int log_extlen, 
     if (log_dropped > 0) {
         /* if there is dropped log, record dropped log number */
         char dropmsg[TLOG_TMP_LEN];
-        snprintf(dropmsg, sizeof(dropmsg), "[Totoal Dropped %d Messages]\n", log_dropped);
+        snprintf(dropmsg, sizeof(dropmsg), "[Total Dropped %d Messages]\n", log_dropped);
         log->output_func(log, dropmsg, strnlen(dropmsg, sizeof(dropmsg)));
     }
 }
@@ -1845,7 +1845,7 @@ int tlog_init(const char *logfile, int maxlogsize, int maxlogcount, int buffsize
     struct tlog_log *log = NULL;
 
     if (tlog_format != NULL) {
-        fprintf(stderr, "tlog already initilized.\n");
+        fprintf(stderr, "tlog already initialized.\n");
         return -1;
     }
 

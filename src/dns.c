@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2020 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2023 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -889,7 +889,7 @@ int dns_add_SOA(struct dns_packet *packet, dns_rr_type type, const char *domain,
 	/*| mname        |
 	 *| rname        |
 	 *| serial       |
-	 *| refersh      |
+	 *| refresh      |
 	 *| retry        |
 	 *| expire       |
 	 *| minimum      |
@@ -926,7 +926,7 @@ int dns_get_SOA(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, struct
 	/*| mname        |
 	 *| rname        |
 	 *| serial       |
-	 *| refersh      |
+	 *| refresh      |
 	 *| retry        |
 	 *| expire       |
 	 *| minimum      |
@@ -1017,7 +1017,7 @@ int dns_get_OPT_ECS(struct dns_rrs *rrs, unsigned short *opt_code, unsigned shor
 	return 0;
 }
 
-int dns_add_OPT_TCP_KEEYALIVE(struct dns_packet *packet, unsigned short timeout)
+int dns_add_OPT_TCP_KEEPALIVE(struct dns_packet *packet, unsigned short timeout)
 {
 	unsigned short timeout_net = htons(timeout);
 	int data_len = 0;
@@ -1029,7 +1029,7 @@ int dns_add_OPT_TCP_KEEYALIVE(struct dns_packet *packet, unsigned short timeout)
 	return _dns_add_opt_RAW(packet, DNS_OPT_T_TCP_KEEPALIVE, &timeout_net, data_len);
 }
 
-int dns_get_OPT_TCP_KEEYALIVE(struct dns_rrs *rrs, unsigned short *opt_code, unsigned short *opt_len,
+int dns_get_OPT_TCP_KEEPALIVE(struct dns_rrs *rrs, unsigned short *opt_code, unsigned short *opt_len,
 							  unsigned short *timeout)
 {
 	unsigned char opt_data[DNS_MAX_OPT_LEN];
@@ -1528,7 +1528,7 @@ static int _dns_encode_CNAME(struct dns_context *context, struct dns_rrs *rrs)
 		return -1;
 	}
 
-	/* when code domain, len must plus 1, because of length at the begining */
+	/* when code domain, len must plus 1, because of length at the beginning */
 	rr_len = 1;
 	ret = _dns_encode_rr_head(context, domain, qtype, qclass, ttl, rr_len, &rr_len_ptr);
 	if (ret < 0) {
@@ -1815,7 +1815,7 @@ static int _dns_decode_opt(struct dns_context *context, dns_rr_type type, unsign
 {
 	unsigned short opt_code = 0;
 	unsigned short opt_len = 0;
-	unsigned short ercode = (ttl >> 16) & 0xFFFF;
+	unsigned short errcode = (ttl >> 16) & 0xFFFF;
 	unsigned short ever = (ttl)&0xFFFF;
 	unsigned char *start = context->ptr;
 	struct dns_packet *packet = context->packet;
@@ -1858,7 +1858,7 @@ static int _dns_decode_opt(struct dns_context *context, dns_rr_type type, unsign
 		return -1;
 	}
 
-	if (ercode != 0) {
+	if (errcode != 0) {
 		tlog(TLOG_ERROR, "extend rcode invalid.");
 		return -1;
 	}

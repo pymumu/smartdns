@@ -96,7 +96,7 @@ msgstr "默认"
 msgid "Description"
 msgstr "描述"
 
-msgid "Dnsmasq Forwared To Smartdns Failure"
+msgid "Dnsmasq Forwarded To Smartdns Failure"
 msgstr "重定向dnsmasq到smartdns失败"
 
 msgid "Do not check certificate."

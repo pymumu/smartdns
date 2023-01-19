@@ -55,11 +55,11 @@ void bug_ext(const char *file, int line, const char *func, const char *errfmt, .
 
 unsigned long get_tick_count(void);
 
-char *gethost_by_addr(char *host, int maxsize, struct sockaddr *addr);
+char *get_host_by_addr(char *host, int maxsize, struct sockaddr *addr);
 
 int getaddr_by_host(const char *host, struct sockaddr *addr, socklen_t *addr_len);
 
-int getsocknet_inet(int fd, struct sockaddr *addr, socklen_t *addr_len);
+int getsocket_inet(int fd, struct sockaddr *addr, socklen_t *addr_len);
 
 int fill_sockaddr_by_ip(unsigned char *ip, int ip_len, int port, struct sockaddr *addr, socklen_t *addr_len);
 
@@ -81,9 +81,9 @@ char *to_lower_case(char *output, const char *input, int len);
 
 void print_stack(void);
 
-int ipset_add(const char *ipsetname, const unsigned char addr[], int addr_len, unsigned long timeout);
+int ipset_add(const char *ipset_name, const unsigned char addr[], int addr_len, unsigned long timeout);
 
-int ipset_del(const char *ipsetname, const unsigned char addr[], int addr_len);
+int ipset_del(const char *ipset_name, const unsigned char addr[], int addr_len);
 
 void SSL_CRYPTO_thread_setup(void);
 
@@ -98,7 +98,7 @@ int SSL_base64_encode(const void *in, int in_len, char *out);
 int create_pid_file(const char *pid_file);
 
 /* Parse a TLS packet for the Server Name Indication extension in the client
- * hello handshake, returning the first servername found (pointer to static
+ * hello handshake, returning the first server name found (pointer to static
  * array)
  *
  * Returns:

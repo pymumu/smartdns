@@ -144,7 +144,7 @@ int dns_conf_ipset_timeout_enable;
 int dns_conf_nftset_timeout_enable;
 int dns_conf_nftset_debug_enable;
 
-char dns_conf_user[DNS_CONF_USRNAME_LEN];
+char dns_conf_user[DNS_CONF_USERNAME_LEN];
 
 int dns_save_fail_packet;
 char dns_save_fail_packet_dir[DNS_MAX_PATH];
@@ -216,7 +216,7 @@ static void _dns_rule_put(struct dns_rule *rule)
 	}
 }
 
-static int _get_domain(char *value, char *domain, int max_dmain_size, char **ptr_after_domain)
+static int _get_domain(char *value, char *domain, int max_domain_size, char **ptr_after_domain)
 {
 	char *begin = NULL;
 	char *end = NULL;
@@ -246,7 +246,7 @@ static int _get_domain(char *value, char *domain, int max_dmain_size, char **ptr
 
 	/* Get domain */
 	len = end - begin;
-	if (len >= max_dmain_size) {
+	if (len >= max_domain_size) {
 		tlog(TLOG_ERROR, "domain name %s too long", value);
 		goto errout;
 	}
@@ -469,7 +469,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 		{"tls-host-verify", required_argument, NULL, 'V' }, /* verify tls hostname */
 		{"group", required_argument, NULL, 'g'}, /* add to group */
 		{"proxy", required_argument, NULL, 'P'}, /* proxy server */
-		{"exclude-default-group", no_argument, NULL, 'E'}, /* ecluse this from default group */
+		{"exclude-default-group", no_argument, NULL, 'E'}, /* exclude this from default group */
 		{"set-mark", required_argument, NULL, 254}, /* set mark */
 		{NULL, no_argument, NULL, 0}
 	};
@@ -703,12 +703,12 @@ static int _config_domain_set_rule_add_ext(const char *set_name, enum domain_rul
 			goto errout;
 		}
 		memset(set_rule_list, 0, sizeof(struct dns_domain_set_rule_list));
-		INIT_LIST_HEAD(&set_rule_list->domain_ruls_list);
+		INIT_LIST_HEAD(&set_rule_list->domain_rule_list);
 		safe_strncpy(set_rule_list->domain_set, set_name, DNS_MAX_CNAME_LEN);
 		hash_add(dns_domain_set_rule_table.rule_list, &set_rule_list->node, key);
 	}
 
-	list_add_tail(&set_rule->list, &set_rule_list->domain_ruls_list);
+	list_add_tail(&set_rule->list, &set_rule_list->domain_rule_list);
 	return 0;
 errout:
 	if (set_rule) {
@@ -717,7 +717,7 @@ errout:
 	return -1;
 }
 
-static int _config_domian_set_rule_flags(const char *set_name, unsigned int flags, int is_clear_flag)
+static int _config_domain_set_rule_flags(const char *set_name, unsigned int flags, int is_clear_flag)
 {
 	return _config_domain_set_rule_add_ext(set_name, DOMAIN_RULE_FLAGS, NULL, flags, is_clear_flag);
 }
@@ -790,7 +790,7 @@ errout:
 		free(add_domain_rule);
 	}
 
-	tlog(TLOG_ERROR, "add doamin %s rule failed", domain);
+	tlog(TLOG_ERROR, "add domain %s rule failed", domain);
 	return -1;
 }
 
@@ -805,7 +805,7 @@ static int _config_domain_rule_flag_set(const char *domain, unsigned int flag, u
 	int len = 0;
 
 	if (strncmp(domain, "domain-set:", sizeof("domain-set:") - 1) == 0) {
-		return _config_domian_set_rule_flags(domain + sizeof("domain-set:") - 1, flag, is_clear);
+		return _config_domain_set_rule_flags(domain + sizeof("domain-set:") - 1, flag, is_clear);
 	}
 
 	len = strlen(domain);
@@ -858,7 +858,7 @@ errout:
 		free(add_domain_rule);
 	}
 
-	tlog(TLOG_ERROR, "add doamin %s rule failed", domain);
+	tlog(TLOG_ERROR, "add domain %s rule failed", domain);
 	return 0;
 }
 
@@ -959,6 +959,7 @@ static int _conf_domain_rule_ipset(char *domain, const char *ipsetname)
 			goto errout;
 		}
 		_dns_rule_put(&ipset_rule->head);
+		ipset_rule = NULL;
 	}
 
 	goto clear;
@@ -1853,7 +1854,7 @@ static void _config_domain_set_rule_table_destroy(void)
 	hash_for_each_safe(dns_domain_set_rule_table.rule_list, i, tmp, set_rule_list, node)
 	{
 		hlist_del_init(&set_rule_list->node);
-		list_for_each_entry_safe(set_rule, tmp1, &set_rule_list->domain_ruls_list, list)
+		list_for_each_entry_safe(set_rule, tmp1, &set_rule_list->domain_rule_list, list)
 		{
 			list_del(&set_rule->list);
 			if (set_rule->rule) {
@@ -2678,7 +2679,7 @@ static struct config_item _config_item[] = {
 	CONF_YESNO("debug-save-fail-packet", &dns_save_fail_packet),
 	CONF_STRING("resolv-file", (char *)&dns_resolv_file, sizeof(dns_resolv_file)),
 	CONF_STRING("debug-save-fail-packet-dir", (char *)&dns_save_fail_packet_dir, sizeof(dns_save_fail_packet_dir)),
-	CONF_CUSTOM("conf-file", config_addtional_file, NULL),
+	CONF_CUSTOM("conf-file", config_additional_file, NULL),
 	CONF_END(),
 };
 
@@ -2699,7 +2700,7 @@ static int _conf_printf(const char *file, int lineno, int ret)
 	return 0;
 }
 
-int config_addtional_file(void *data, int argc, char *argv[])
+int config_additional_file(void *data, int argc, char *argv[])
 {
 	char *conf_file = NULL;
 	char file_path[DNS_MAX_PATH];
@@ -2763,7 +2764,7 @@ static int _update_domain_set_from_list(const char *file, struct dns_domain_set_
 			continue;
 		}
 
-		list_for_each_entry(set_rule, &set_rule_list->domain_ruls_list, list)
+		list_for_each_entry(set_rule, &set_rule_list->domain_rule_list, list)
 		{
 			if (set_rule->type == DOMAIN_RULE_FLAGS) {
 				ret = _config_domain_rule_flag_set(domain, set_rule->flags, set_rule->is_clear_flag);
@@ -2900,7 +2901,7 @@ static int _dns_ping_cap_check(void)
 	has_ping = has_unprivileged_ping();
 	if (has_ping == 0) {
 		if (errno == EACCES && has_raw_cap == 0) {
-			tlog(TLOG_WARN, "unpriviledged ping is disabled, please enable by setting net.ipv4.ping_group_range");
+			tlog(TLOG_WARN, "unprivileged ping is disabled, please enable by setting net.ipv4.ping_group_range");
 		}
 	}
 

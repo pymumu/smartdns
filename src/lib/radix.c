@@ -436,8 +436,10 @@ radix_node_t
 
 		node->parent = new_node;
 	} else {
-		if ((glue = malloc(sizeof(*glue))) == NULL)
+		if ((glue = malloc(sizeof(*glue))) == NULL) {
+			free(new_node);
 			return (NULL);
+		}
 		memset(glue, '\0', sizeof(*glue));
 		glue->bit = differ_bit;
 		glue->prefix = NULL;

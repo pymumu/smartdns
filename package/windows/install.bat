@@ -12,7 +12,7 @@ IF NOT %ERRORLEVEL% == 0 (
 
 copy %CURR_PATH%\wsl-run.vbs "%STARTUP_PATH%/"
 IF NOT %ERRORLEVEL% == 0 (
-  echo Install startupt script failed.
+  echo Install startup script failed.
   pause
   exit 1
 )

@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2020 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2023 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -199,7 +199,7 @@ struct dns_client {
 	struct dns_client_ecs ecs_ipv4;
 	struct dns_client_ecs ecs_ipv6;
 
-	/* query doman hash table, key: sid + domain */
+	/* query domain hash table, key: sid + domain */
 	pthread_mutex_t domain_map_lock;
 	DECLARE_HASHTABLE(domain_map, 6);
 	DECLARE_HASHTABLE(group, 4);
@@ -632,7 +632,7 @@ errout:
 
 /* add server to group */
 static int _dns_client_add_to_group_pending(const char *group_name, char *server_ip, int port,
-											dns_server_type_t server_type, int ispending)
+											dns_server_type_t server_type, int is_pending)
 {
 	struct dns_server_info *server_info = NULL;
 
@@ -642,7 +642,7 @@ static int _dns_client_add_to_group_pending(const char *group_name, char *server
 
 	server_info = _dns_client_get_server(server_ip, port, server_type);
 	if (server_info == NULL) {
-		if (ispending == 0) {
+		if (is_pending == 0) {
 			tlog(TLOG_ERROR, "add server %s:%d to group %s failed", server_ip, port, group_name);
 			return -1;
 		}
@@ -1345,7 +1345,7 @@ errout:
 }
 
 static int _dns_client_add_server_pending(char *server_ip, char *server_host, int port, dns_server_type_t server_type,
-										  struct client_dns_server_flags *flags, int ispending)
+										  struct client_dns_server_flags *flags, int is_pending)
 {
 	int ret = 0;
 
@@ -1354,7 +1354,7 @@ static int _dns_client_add_server_pending(char *server_ip, char *server_host, in
 		return -1;
 	}
 
-	if (check_is_ipaddr(server_ip) && ispending) {
+	if (check_is_ipaddr(server_ip) && is_pending) {
 		ret = _dns_client_server_pending(server_ip, port, server_type, flags);
 		if (ret == 0) {
 			tlog(TLOG_INFO, "add pending server %s", server_ip);
@@ -1414,7 +1414,7 @@ static void _dns_client_query_release(struct dns_query_struct *query)
 
 	/* notify caller query end */
 	if (query->callback) {
-		tlog(TLOG_DEBUG, "result: %s, qtype: %d, hasresult: %d, id %d", query->domain, query->qtype, query->has_result,
+		tlog(TLOG_DEBUG, "result: %s, qtype: %d, has-result: %d, id %d", query->domain, query->qtype, query->has_result,
 			 query->sid);
 		query->callback(query->domain, DNS_QUERY_END, NULL, NULL, NULL, 0, query->user_ptr);
 	}
@@ -1611,7 +1611,7 @@ static int _dns_client_recv(struct dns_server_info *server_info, unsigned char *
 	if (len != 0) {
 		char host_name[DNS_MAX_CNAME_LEN];
 		tlog(TLOG_INFO, "decode failed, packet len = %d, tc = %d, id = %d, from = %s\n", inpacket_len, packet->head.tc,
-			 packet->head.id, gethost_by_addr(host_name, sizeof(host_name), from));
+			 packet->head.id, get_host_by_addr(host_name, sizeof(host_name), from));
 		if (dns_save_fail_packet) {
 			dns_packet_save(dns_save_fail_packet_dir, "client", host_name, inpacket, inpacket_len);
 		}
@@ -1806,7 +1806,7 @@ static int _dns_client_create_socket_udp(struct dns_server_info *server_info)
 	setsockopt(server_info->fd, SOL_SOCKET, SO_PRIORITY, &priority, sizeof(priority));
 	setsockopt(server_info->fd, IPPROTO_IP, IP_TOS, &ip_tos, sizeof(ip_tos));
 	if (server_info->ai_family == AF_INET6) {
-		/* for recving ip ttl value */
+		/* for receiving ip ttl value */
 		setsockopt(server_info->fd, IPPROTO_IPV6, IPV6_RECVHOPLIMIT, &on, sizeof(on));
 		setsockopt(server_info->fd, IPPROTO_IPV6, IPV6_2292HOPLIMIT, &on, sizeof(on));
 		setsockopt(server_info->fd, IPPROTO_IPV6, IPV6_HOPLIMIT, &on, sizeof(on));
@@ -2170,7 +2170,7 @@ static int _dns_client_process_udp_proxy(struct dns_server_info *server_info, st
 	}
 
 	tlog(TLOG_DEBUG, "recv udp packet from %s, len: %d",
-		 gethost_by_addr(from_host, sizeof(from_host), (struct sockaddr *)&from), len);
+		 get_host_by_addr(from_host, sizeof(from_host), (struct sockaddr *)&from), len);
 
 	/* update recv time */
 	time(&server_info->last_recv);
@@ -2249,7 +2249,7 @@ static int _dns_client_process_udp(struct dns_server_info *server_info, struct e
 	}
 
 	tlog(TLOG_DEBUG, "recv udp packet from %s, len: %d, ttl: %d",
-		 gethost_by_addr(from_host, sizeof(from_host), (struct sockaddr *)&from), len, ttl);
+		 get_host_by_addr(from_host, sizeof(from_host), (struct sockaddr *)&from), len, ttl);
 
 	/* update recv time */
 	time(&server_info->last_recv);
@@ -2483,7 +2483,7 @@ static int _dns_client_process_tcp_buff(struct dns_server_info *server_info)
 			}
 
 			if (len > server_info->recv_buff.len - 2) {
-				/* len is not expceded, wait and recv */
+				/* len is not expected, wait and recv */
 				ret = 0;
 				goto out;
 			}
@@ -2619,7 +2619,7 @@ static int _dns_client_process_tcp(struct dns_server_info *server_info, struct e
 			return 0;
 		}
 
-		/* clear epllout event */
+		/* clear epollout event */
 		struct epoll_event mod_event;
 		memset(&mod_event, 0, sizeof(mod_event));
 		mod_event.events = EPOLLIN;
@@ -2998,7 +2998,7 @@ static int _dns_client_process(struct dns_server_info *server_info, struct epoll
 		/* receive from tcp */
 		return _dns_client_process_tcp(server_info, event, now);
 	} else if (server_info->type == DNS_SERVER_TLS || server_info->type == DNS_SERVER_HTTPS) {
-		/* recive from tls */
+		/* receive from tls */
 		return _dns_client_process_tls(server_info, event, now);
 	} else {
 		return -1;
@@ -3291,7 +3291,7 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 				send_err = errno;
 				break;
 			default:
-				/* unsupport query type */
+				/* unsupported query type */
 				ret = -1;
 				break;
 			}
@@ -3344,7 +3344,7 @@ static int _dns_client_dns_add_ecs(struct dns_query_struct *query, struct dns_pa
 	return dns_add_OPT_ECS(packet, &query->ecs.ecs);
 }
 
-static int _dns_client_send_query(struct dns_query_struct *query, const char *doamin)
+static int _dns_client_send_query(struct dns_query_struct *query, const char *domain)
 {
 	unsigned char packet_buff[DNS_PACKSIZE];
 	unsigned char inpacket[DNS_IN_PACKSIZE];
@@ -3368,13 +3368,13 @@ static int _dns_client_send_query(struct dns_query_struct *query, const char *do
 	}
 
 	/* add question */
-	if (dns_add_domain(packet, doamin, query->qtype, DNS_C_IN) != 0) {
+	if (dns_add_domain(packet, domain, query->qtype, DNS_C_IN) != 0) {
 		tlog(TLOG_ERROR, "add domain to packet failed.");
 		return -1;
 	}
 
 	dns_set_OPT_payload_size(packet, DNS_IN_PACKSIZE);
-	/* dns_add_OPT_TCP_KEEYALIVE(packet, 600); */
+	/* dns_add_OPT_TCP_KEEPALIVE(packet, 600); */
 	if (_dns_client_dns_add_ecs(query, packet) != 0) {
 		tlog(TLOG_ERROR, "add ecs failed.");
 		return -1;
@@ -3667,8 +3667,8 @@ static void _dns_client_remove_all_pending_servers(void)
 	list_for_each_entry_safe(pending, tmp, &remove_list, retry_list)
 	{
 		list_del_init(&pending->retry_list);
-		_dns_client_server_pending_release(pending);
 		_dns_client_server_pending_remove(pending);
+		_dns_client_server_pending_release(pending);
 	}
 }
 
@@ -3676,14 +3676,14 @@ static void _dns_client_add_pending_servers(void)
 {
 	struct dns_server_pending *pending = NULL;
 	struct dns_server_pending *tmp = NULL;
-	static int dely = 0;
+	static int delay = 0;
 	LIST_HEAD(retry_list);
 
 	/* add pending server after 3 seconds */
-	if (++dely < 3) {
+	if (++delay < 3) {
 		return;
 	}
-	dely = 0;
+	delay = 0;
 
 	pthread_mutex_lock(&pending_server_mutex);
 	if (list_empty(&pending_servers)) {
@@ -4011,7 +4011,7 @@ void dns_client_exit(void)
 		client.tid = 0;
 	}
 
-	/* free all resouces */
+	/* free all resources */
 	_dns_client_remove_all_pending_servers();
 	_dns_client_server_remove_all();
 	_dns_client_query_remove_all();
