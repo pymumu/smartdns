@@ -180,6 +180,15 @@ msgstr "文件类型"
 msgid "Filtering IP with blacklist"
 msgstr "使用IP黑名单过滤"
 
+msgid "First Ping"
+msgstr "最快PING"
+
+msgid "Fastest IP"
+msgstr "最快IP"
+
+msgid "Fastest Response"
+msgstr "最快响应"
+
 msgid "Force AAAA SOA"
 msgstr "停用IPV6地址解析"
 
@@ -311,6 +320,9 @@ msgstr "重启"
 msgid "Restart smartdns"
 msgstr "重启服务"
 
+msgid "Response Mode"
+msgstr "响应模式"
+
 msgid "Second Server Settings"
 msgstr "第二DNS服务器"
 
@@ -419,6 +431,14 @@ msgstr "测速模式"
 
 msgid "Smartdns speed check mode. "
 msgstr "SmartDns测速模式设置。"
+
+msgid ""
+"Smartdns response mode, First Ping: return the first ping IP, "
+"Fastest IP: return the fastest IP, Fastest Response: return the fastest "
+"DNS response."
+msgstr ""
+"SmartDNS响应模式，最快PING： 返回最早有ping结果的IP，速度适中；最快IP： "
+"返回最快IP，查询请求可能延长； 最快响应：返回最快响应的结果。查询请求时间短。"
 
 msgid ""
 "Specify an IP address to return for any host in the given domains, Queries "

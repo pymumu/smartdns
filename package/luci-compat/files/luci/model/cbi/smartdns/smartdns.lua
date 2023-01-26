@@ -102,6 +102,16 @@ function o.validate (section_id, value)
     return value
 end
 
+---- response mode;
+o = s:taboption("advanced", ListValue, "response_mode", translate("Response Mode"), 
+    translate("Smartdns response mode, First Ping: return the first ping IP, Fastest IP: return the fastest IP, Fastest Response: return the fastest DNS response."))
+o.rmempty     = true
+o.placeholder = "default"
+o:value("", translate("default"))
+o:value("first-ping", translate("First Ping"))
+o:value("fastest-ip", translate("Fastest IP"))
+o:value("fastest-response", translate("Fastest Response"))
+
 ---- Enable TCP server
 o = s:taboption("advanced", Flag, "tcp_server", translate("TCP Server"), translate("Enable TCP DNS Server"))
 o.rmempty     = false

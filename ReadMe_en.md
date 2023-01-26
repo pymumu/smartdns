@@ -749,7 +749,7 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
     ...
     ````
 
-1. How to use ipset and nftset
+1. How to use ipset and nftset?  
     Similar to Dnsmasq, smartdns supports ipset and nftset, and can transparently forward specific domain names through TPROXY. The comparison of transparent forwarding and tool modes is as follows:
 
     1. Tools: iptable, nftable

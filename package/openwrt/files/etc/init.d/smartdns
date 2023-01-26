@@ -530,6 +530,9 @@ load_service()
 	config_get log_file "$section" "log_file" ""
 	[ -z "$log_file" ] || conf_append "log-file" "$log_file"
 
+	config_get response_mode "$section" "response_mode" ""
+	[ -z "$response_mode" ] || conf_append "response-mode" "$response_mode"
+
 	config_get_bool enable_auto_update "$section" "enable_auto_update" "0"
 	[ "$enable_auto_update" = "1" ] && enable_auto_update || disable_auto_update
 
