@@ -499,7 +499,8 @@ static proxy_handshake_state _proxy_handshake_socks5(struct proxy_conn *proxy_co
 		buff[3] = PROXY_SOCKS5_AUTH_USER_PASS;
 		len = send(proxy_conn->fd, buff, 4, MSG_NOSIGNAL);
 		if (len != 4) {
-			tlog(TLOG_ERROR, "init socks5 failed, %s", strerror(errno));
+			tlog(TLOG_ERROR, "connect socks5 server %s failed, %s", proxy_conn->server_info->proxy_name,
+				 strerror(errno));
 			return PROXY_HANDSHAKE_ERR;
 		}
 
@@ -514,7 +515,8 @@ static proxy_handshake_state _proxy_handshake_socks5(struct proxy_conn *proxy_co
 				return PROXY_HANDSHAKE_WANT_READ;
 			}
 
-			tlog(TLOG_ERROR, "recv socks5 init ack failed, %s", strerror(errno));
+			tlog(TLOG_ERROR, "recv socks5 init ack from %s failed, %s", proxy_conn->server_info->proxy_name,
+				 strerror(errno));
 			return PROXY_HANDSHAKE_ERR;
 		}
 
@@ -524,23 +526,24 @@ static proxy_handshake_state _proxy_handshake_socks5(struct proxy_conn *proxy_co
 		}
 
 		if (proxy_conn->buffer.len > 2) {
-			tlog(TLOG_ERROR, "recv socks5 init ack failed");
+			tlog(TLOG_ERROR, "recv socks5 init ack from %s failed", proxy_conn->server_info->proxy_name);
 			return PROXY_HANDSHAKE_ERR;
 		}
 
 		proxy_conn->buffer.len = 0;
 
 		if (proxy_conn->buffer.buffer[0] != PROXY_SOCKS5_VERSION) {
-			tlog(TLOG_ERROR, "server not support socks5");
+			tlog(TLOG_ERROR, "server %s not support socks5", proxy_conn->server_info->proxy_name);
 			return PROXY_HANDSHAKE_ERR;
 		}
 
 		if ((unsigned char)proxy_conn->buffer.buffer[1] == PROXY_SOCKS5_AUTH_NONE) {
-			tlog(TLOG_ERROR, "server not support auth methods");
+			tlog(TLOG_ERROR, "server %s not support auth methods", proxy_conn->server_info->proxy_name);
 			return PROXY_HANDSHAKE_ERR;
 		}
 
-		tlog(TLOG_INFO, "server select auth method is %d", proxy_conn->buffer.buffer[1]);
+		tlog(TLOG_INFO, "server %s select auth method is %d", proxy_conn->server_info->proxy_name,
+			 proxy_conn->buffer.buffer[1]);
 		if (proxy_conn->buffer.buffer[1] == PROXY_SOCKS5_AUTH_USER_PASS) {
 			return _proxy_handshake_socks5_send_auth(proxy_conn);
 		}
@@ -549,7 +552,8 @@ static proxy_handshake_state _proxy_handshake_socks5(struct proxy_conn *proxy_co
 			return _proxy_handshake_socks5_reply_connect_addr(proxy_conn);
 		}
 
-		tlog(TLOG_ERROR, "server select invalid auth method %d", proxy_conn->buffer.buffer[1]);
+		tlog(TLOG_ERROR, "server %s select invalid auth method %d", proxy_conn->server_info->proxy_name,
+			 proxy_conn->buffer.buffer[1]);
 		return PROXY_HANDSHAKE_ERR;
 		break;
 	case PROXY_CONN_AUTH_ACK:
@@ -560,7 +564,8 @@ static proxy_handshake_state _proxy_handshake_socks5(struct proxy_conn *proxy_co
 				return PROXY_HANDSHAKE_WANT_READ;
 			}
 
-			tlog(TLOG_ERROR, "recv socks5 auth ack failed, %s", strerror(errno));
+			tlog(TLOG_ERROR, "recv socks5 auth ack from %s failed, %s", proxy_conn->server_info->proxy_name,
+				 strerror(errno));
 			return PROXY_HANDSHAKE_ERR;
 		}
 
@@ -570,23 +575,24 @@ static proxy_handshake_state _proxy_handshake_socks5(struct proxy_conn *proxy_co
 		}
 
 		if (proxy_conn->buffer.len != 2) {
-			tlog(TLOG_ERROR, "recv socks5 auth ack failed");
+			tlog(TLOG_ERROR, "recv socks5 auth ack from %s failed", proxy_conn->server_info->proxy_name);
 			return PROXY_HANDSHAKE_ERR;
 		}
 
 		proxy_conn->buffer.len = 0;
 
 		if (proxy_conn->buffer.buffer[0] != 0x1) {
-			tlog(TLOG_ERROR, "server not support socks5");
+			tlog(TLOG_ERROR, "server %s not support socks5", proxy_conn->server_info->proxy_name);
 			return PROXY_HANDSHAKE_ERR;
 		}
 
 		if (proxy_conn->buffer.buffer[1] != 0x0) {
-			tlog(TLOG_ERROR, "server auth failed, incorrect user or password, code: %d", proxy_conn->buffer.buffer[1]);
+			tlog(TLOG_ERROR, "server %s auth failed, incorrect user or password, code: %d",
+				 proxy_conn->server_info->proxy_name, proxy_conn->buffer.buffer[1]);
 			return PROXY_HANDSHAKE_ERR;
 		}
 
-		tlog(TLOG_INFO, "server auth success");
+		tlog(TLOG_INFO, "server %s auth success", proxy_conn->server_info->proxy_name);
 		proxy_conn->state = PROXY_CONN_CONNECTING;
 		return _proxy_handshake_socks5_reply_connect_addr(proxy_conn);
 	case PROXY_CONN_CONNECTING: {
@@ -603,7 +609,13 @@ static proxy_handshake_state _proxy_handshake_socks5(struct proxy_conn *proxy_co
 				return PROXY_HANDSHAKE_WANT_READ;
 			}
 
-			tlog(TLOG_ERROR, "recv socks5 connect ack failed, %s", strerror(errno));
+			if (len == 0) {
+				tlog(TLOG_ERROR, "server %s closed connection", proxy_conn->server_info->proxy_name);
+			} else {
+				tlog(TLOG_ERROR, "recv socks5 connect ack from %s failed, %s", proxy_conn->server_info->proxy_name,
+					 strerror(errno));
+			}
+
 			return PROXY_HANDSHAKE_ERR;
 		}
 
@@ -614,16 +626,18 @@ static proxy_handshake_state _proxy_handshake_socks5(struct proxy_conn *proxy_co
 		recv_buff = proxy_conn->buffer.buffer;
 
 		if (recv_buff[0] != PROXY_SOCKS5_VERSION) {
-			tlog(TLOG_ERROR, "server not support socks5");
+			tlog(TLOG_ERROR, "server %s not support socks5", proxy_conn->server_info->proxy_name);
 			return PROXY_HANDSHAKE_ERR;
 		}
 
 		if (recv_buff[1] != 0) {
 			if ((unsigned char)recv_buff[1] <=
 				(sizeof(proxy_socks5_status_code) / sizeof(proxy_socks5_status_code[0]))) {
-				tlog(TLOG_ERROR, "server reply failed, error-code: %s", proxy_socks5_status_code[(int)recv_buff[1]]);
+				tlog(TLOG_ERROR, "server %s reply failed, error-code: %s", proxy_conn->server_info->proxy_name,
+					 proxy_socks5_status_code[(int)recv_buff[1]]);
 			} else {
-				tlog(TLOG_ERROR, "server reply failed, error-code: %x", recv_buff[1]);
+				tlog(TLOG_ERROR, "server %s reply failed, error-code: %x", proxy_conn->server_info->proxy_name,
+					 recv_buff[1]);
 			}
 			return PROXY_HANDSHAKE_ERR;
 		}
@@ -647,7 +661,8 @@ static proxy_handshake_state _proxy_handshake_socks5(struct proxy_conn *proxy_co
 				use_dest_ip = 1;
 			}
 
-			tlog(TLOG_DEBUG, "proxy dest: %d.%d.%d.%d:%d\n", addr[0], addr[1], addr[2], addr[3], port);
+			tlog(TLOG_DEBUG, "server %s proxy dest: %d.%d.%d.%d:%d\n", proxy_conn->server_info->proxy_name, addr[0],
+				 addr[1], addr[2], addr[3], port);
 		} break;
 		case PROXY_SOCKS5_TYPE_IPV6: {
 			struct sockaddr_in6 *addr_in6 = NULL;
@@ -670,10 +685,10 @@ static proxy_handshake_state _proxy_handshake_socks5(struct proxy_conn *proxy_co
 				use_dest_ip = 1;
 			}
 
-			tlog(TLOG_DEBUG, "proxy dest: [%x:%x:%x:%x:%x:%x:%x:%x]:%d\n", ntohs(*((short *)addr)),
-				 ntohs(*((short *)(addr + 2))), ntohs(*((short *)(addr + 4))), ntohs(*((short *)(addr + 6))),
-				 ntohs(*((short *)(addr + 8))), ntohs(*((short *)(addr + 10))), ntohs(*((short *)(addr + 12))),
-				 ntohs(*((short *)(addr + 14))), port);
+			tlog(TLOG_DEBUG, "server %s proxy dest: [%x:%x:%x:%x:%x:%x:%x:%x]:%d\n",
+				 proxy_conn->server_info->proxy_name, ntohs(*((short *)addr)), ntohs(*((short *)(addr + 2))),
+				 ntohs(*((short *)(addr + 4))), ntohs(*((short *)(addr + 6))), ntohs(*((short *)(addr + 8))),
+				 ntohs(*((short *)(addr + 10))), ntohs(*((short *)(addr + 12))), ntohs(*((short *)(addr + 14))), port);
 		} break;
 		default:
 			return PROXY_HANDSHAKE_ERR;
@@ -705,11 +720,11 @@ static proxy_handshake_state _proxy_handshake_socks5(struct proxy_conn *proxy_co
 		}
 
 		proxy_conn->state = PROXY_CONN_CONNECTED;
-		tlog(TLOG_INFO, "connected to socks proxy server.");
+		tlog(TLOG_INFO, "success connect to socks5 proxy server %s", proxy_conn->server_info->proxy_name);
 		return PROXY_HANDSHAKE_CONNECTED;
 	} break;
 	default:
-		tlog(TLOG_ERROR, "client socks status %d is invalid", proxy_conn->state);
+		tlog(TLOG_ERROR, "client socks5 status %d is invalid", proxy_conn->state);
 		return PROXY_HANDSHAKE_ERR;
 	}
 
@@ -766,7 +781,8 @@ static int _proxy_handshake_http(struct proxy_conn *proxy_conn)
 
 		len = send(proxy_conn->fd, buff, msglen, MSG_NOSIGNAL);
 		if (len != msglen) {
-			tlog(TLOG_ERROR, "init https failed, len: %d, %s", len, strerror(errno));
+			tlog(TLOG_ERROR, "connect to https proxy server %s failed, %s", proxy_conn->server_info->proxy_name,
+				 strerror(errno));
 			goto out;
 		}
 
@@ -783,10 +799,14 @@ static int _proxy_handshake_http(struct proxy_conn *proxy_conn)
 		len = recv(proxy_conn->fd, proxy_conn->buffer.buffer + proxy_conn->buffer.len,
 				   sizeof(proxy_conn->buffer.buffer), 0);
 		if (len <= 0) {
+			if (errno == EAGAIN || errno == EWOULDBLOCK) {
+				return PROXY_HANDSHAKE_WANT_READ;
+			}
+			
 			if (len == 0) {
-				tlog(TLOG_ERROR, "remote server closed.");
+				tlog(TLOG_ERROR, "remote server %s closed.", proxy_conn->server_info->proxy_name);
 			} else {
-				tlog(TLOG_ERROR, "recv failed, %s", strerror(errno));
+				tlog(TLOG_ERROR, "recv from %s failed, %s", proxy_conn->server_info->proxy_name, strerror(errno));
 			}
 			goto out;
 		}
@@ -799,13 +819,14 @@ static int _proxy_handshake_http(struct proxy_conn *proxy_conn)
 				goto out;
 			}
 
-			tlog(TLOG_DEBUG, "remote server not supported.");
+			tlog(TLOG_DEBUG, "remote server %s not supported.", proxy_conn->server_info->proxy_name);
 			goto out;
 		}
 
 		if (http_head_get_httpcode(http_head) != 200) {
-			tlog(TLOG_WARN, "http server query failed, server return http code : %d, %s",
-				 http_head_get_httpcode(http_head), http_head_get_httpcode_msg(http_head));
+			tlog(TLOG_WARN, "http server %s query failed, server return http code : %d, %s",
+				 proxy_conn->server_info->proxy_name, http_head_get_httpcode(http_head),
+				 http_head_get_httpcode_msg(http_head));
 			goto out;
 		}
 
@@ -817,7 +838,7 @@ static int _proxy_handshake_http(struct proxy_conn *proxy_conn)
 		if (proxy_conn->buffer.len < 0) {
 			proxy_conn->buffer.len = 0;
 		}
-		tlog(TLOG_INFO, "connected to http proxy server.");
+		tlog(TLOG_INFO, "success connect to http proxy server %s", proxy_conn->server_info->proxy_name);
 		proxy_conn->state = PROXY_CONN_CONNECTED;
 		ret = PROXY_HANDSHAKE_CONNECTED;
 		goto out;
