@@ -3765,9 +3765,13 @@ static void _dns_client_add_pending_servers(void)
 		if (dns_client_has_bootstrap_dns == 0) {
 			if (_dns_client_add_pendings(pending, pending->host) != 0) {
 				pthread_mutex_unlock(&pending_server_mutex);
-				tlog(TLOG_ERROR, "add pending DNS server %s failed", pending->host);
-				exit(1);
-				return;
+				tlog(TLOG_INFO, "add pending DNS server %s from resolv.conf failed, retry %d...", pending->host,
+					 pending->retry_cnt - 1);
+				if (pending->retry_cnt - 1 > DNS_PENDING_SERVER_RETRY) {
+					tlog(TLOG_WARN, "add pending DNS server %s from resolv.conf failed, exit...", pending->host);
+					exit(1);
+				}
+				continue;
 			}
 
 			_dns_client_server_pending_release(pending);
