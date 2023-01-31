@@ -569,7 +569,7 @@ static int _fast_ping_sendping_v4(struct ping_host_struct *ping_host)
 	len = sendto(ping.fd_icmp, packet, sizeof(struct fast_ping_packet), 0, &ping_host->addr, ping_host->addr_len);
 	if (len < 0 || len != sizeof(struct fast_ping_packet)) {
 		int err = errno;
-		if (errno == ENETUNREACH || errno == EINVAL || errno == EADDRNOTAVAIL) {
+		if (errno == ENETUNREACH || errno == EINVAL || errno == EADDRNOTAVAIL || errno == EPERM || errno == EACCES) {
 			goto errout;
 		}
 		char ping_host_name[PING_MAX_HOSTLEN];
@@ -621,7 +621,7 @@ static int _fast_ping_sendping_udp(struct ping_host_struct *ping_host)
 	len = sendto(fd, &dns_head, sizeof(dns_head), 0, &ping_host->addr, ping_host->addr_len);
 	if (len < 0 || len != sizeof(dns_head)) {
 		int err = errno;
-		if (errno == ENETUNREACH || errno == EINVAL || errno == EADDRNOTAVAIL) {
+		if (errno == ENETUNREACH || errno == EINVAL || errno == EADDRNOTAVAIL || errno == EPERM || errno == EACCES) {
 			goto errout;
 		}
 		char ping_host_name[PING_MAX_HOSTLEN];
@@ -672,7 +672,7 @@ static int _fast_ping_sendping_tcp(struct ping_host_struct *ping_host)
 				goto errout;
 			}
 
-			if (errno == EACCES) {
+			if (errno == EACCES || errno == EPERM) {
 				if (bool_print_log == 0) {
 					goto errout;
 				}
