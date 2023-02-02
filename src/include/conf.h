@@ -21,7 +21,7 @@
 
 #include <unistd.h>
 
-#define MAX_LINE_LEN 1024
+#define MAX_LINE_LEN 8192
 #define MAX_KEY_LEN 64
 #define CONF_INT_MAX (~(1 << 31))
 #define CONF_INT_MIN (1 << 31)

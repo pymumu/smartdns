@@ -299,7 +299,7 @@ static int load_conf_printf(const char *file, int lineno, int ret)
 static int load_conf_file(const char *file, struct config_item *items, conf_error_handler handler)
 {
 	FILE *fp = NULL;
-	char line[MAX_LINE_LEN];
+	char line[MAX_LINE_LEN + MAX_KEY_LEN];
 	char key[MAX_KEY_LEN];
 	char value[MAX_LINE_LEN];
 	int filed_num = 0;
@@ -309,6 +309,8 @@ static int load_conf_file(const char *file, struct config_item *items, conf_erro
 	int ret = 0;
 	int call_ret = 0;
 	int line_no = 0;
+	int line_len = 0;
+	int read_len = 0;
 
 	if (handler == NULL) {
 		handler = load_conf_printf;
@@ -320,9 +322,17 @@ static int load_conf_file(const char *file, struct config_item *items, conf_erro
 	}
 
 	line_no = 0;
-	while (fgets(line, MAX_LINE_LEN, fp)) {
+	while (fgets(line + line_len, MAX_LINE_LEN - line_len, fp)) {
 		line_no++;
-		filed_num = sscanf(line, "%63s %1023[^\r\n]s", key, value);
+		read_len = strnlen(line + line_len, sizeof(line));
+		if (read_len >= 2 && *(line + line_len + read_len - 2) == '\\') {
+			line_len += read_len - 2;
+			line[line_len] = '\0';
+			continue;
+		}
+		line_len = 0;
+
+		filed_num = sscanf(line, "%63s %8192[^\r\n]s", key, value);
 		if (filed_num <= 0) {
 			continue;
 		}

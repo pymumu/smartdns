@@ -45,7 +45,6 @@
 #include <sys/types.h>
 #include <ucontext.h>
 
-#define MAX_LINE_LEN 1024
 #define MAX_KEY_LEN 64
 #define SMARTDNS_PID_FILE "/var/run/smartdns.pid"
 #define TMP_BUFF_LEN_32 32
