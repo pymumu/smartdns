@@ -3862,10 +3862,12 @@ static void *_dns_client_work(void *arg)
 				sleep_time = 0;
 			}
 		}
-		last = now;
 
 		if (now >= expect_time) {
-			_dns_client_period_run();
+			if (last != now) {
+				_dns_client_period_run();
+			}
+
 			sleep_time = sleep - (now - expect_time);
 			if (sleep_time < 0) {
 				sleep_time = 0;
@@ -3873,6 +3875,7 @@ static void *_dns_client_work(void *arg)
 			}
 			expect_time += sleep;
 		}
+		last = now;
 
 		pthread_mutex_lock(&client.domain_map_lock);
 		if (list_empty(&client.dns_request_list) && atomic_read(&client.run_period) == 0) {
