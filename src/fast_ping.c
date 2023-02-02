@@ -1780,10 +1780,11 @@ static void *_fast_ping_work(void *arg)
 				sleep_time = 0;
 			}
 		}
-		last = now;
 
 		if (now >= expect_time) {
-			_fast_ping_period_run();
+			if (last != now) {
+				_fast_ping_period_run();
+			}
 			sleep_time = sleep - (now - expect_time);
 			if (sleep_time < 0) {
 				sleep_time = 0;
@@ -1791,6 +1792,7 @@ static void *_fast_ping_work(void *arg)
 			}
 			expect_time += sleep;
 		}
+		last = now;
 
 		pthread_mutex_lock(&ping.map_lock);
 		if (hash_empty(ping.addrmap)) {

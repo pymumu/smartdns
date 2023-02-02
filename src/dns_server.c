@@ -5137,7 +5137,7 @@ static void _dns_server_period_run(unsigned int msec)
 	struct dns_request *tmp = NULL;
 	LIST_HEAD(check_list);
 
-	if (msec % 10 == 0) {
+	if ((msec % 10) == 0) {
 		_dns_server_period_run_second();
 	}
 
@@ -5227,11 +5227,12 @@ int dns_server_run(void)
 			expect_time -= cnt * sleep;
 			sleep_time -= cnt * sleep;
 		}
-		last = now;
 
 		if (now >= expect_time) {
 			msec++;
-			_dns_server_period_run(msec);
+			if (last != now) {
+				_dns_server_period_run(msec);
+			}
 			sleep_time = sleep - (now - expect_time);
 			if (sleep_time < 0) {
 				sleep_time = 0;
@@ -5250,6 +5251,7 @@ int dns_server_run(void)
 			pthread_mutex_unlock(&server.request_list_lock);
 			expect_time += sleep;
 		}
+		last = now;
 
 		num = epoll_wait(server.epoll_fd, events, DNS_MAX_EVENTS, sleep_time);
 		if (num < 0) {
