@@ -42,12 +42,12 @@
 #include <netinet/tcp.h>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
+#include <openssl/rand.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/epoll.h>
-#include <sys/random.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -3524,7 +3524,7 @@ int dns_client_query(const char *domain, int qtype, dns_client_callback callback
 	query->qtype = qtype;
 	query->send_tick = 0;
 	query->has_result = 0;
-	if (getrandom(&query->sid, sizeof(query->sid), GRND_NONBLOCK) != sizeof(query->sid)) {
+	if (RAND_bytes((unsigned char *)&query->sid, sizeof(query->sid)) != 1) {
 		query->sid = random();
 	}
 	query->server_group = _dns_client_get_dnsserver_group(group_name);

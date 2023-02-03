@@ -387,6 +387,11 @@ static int _dns_server_is_return_soa(struct dns_request *request)
 	unsigned int flags = 0;
 
 	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_RULE_SOA) == 0) {
+		/* when both has no rule SOA and force AAAA soa, foce AAAA soa has high priority */
+		if (request->qtype == DNS_T_AAAA && _dns_server_has_bind_flag(request, BIND_FLAG_FORCE_AAAA_SOA) == 0) {
+			return 1;
+		}
+
 		return 0;
 	}
 
@@ -4774,7 +4779,7 @@ static int _dns_server_tcp_recv(struct dns_server_conn_tcp_client *tcpclient)
 			if (errno == EAGAIN) {
 				return RECV_ERROR_AGAIN;
 			}
-			
+
 			if (errno == ECONNRESET) {
 				return RECV_ERROR_CLOSE;
 			}
