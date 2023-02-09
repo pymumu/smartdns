@@ -55,6 +55,8 @@ void bug_ext(const char *file, int line, const char *func, const char *errfmt, .
 
 unsigned long get_tick_count(void);
 
+char *dir_name(char *path);
+
 char *get_host_by_addr(char *host, int maxsize, struct sockaddr *addr);
 
 int getaddr_by_host(const char *host, struct sockaddr *addr, socklen_t *addr_len);

@@ -542,7 +542,7 @@ static int _smartdns_create_logdir(void)
 	int gid = 0;
 	char logdir[PATH_MAX] = {0};
 	safe_strncpy(logdir, _smartdns_log_path(), PATH_MAX);
-	dirname(logdir);
+	dir_name(logdir);
 
 	if (access(logdir, F_OK) == 0) {
 		return 0;

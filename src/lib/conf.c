@@ -32,6 +32,16 @@ const char *conf_get_conf_file(void)
 	return current_conf_file;
 }
 
+static char *get_dir_name(char *path)
+{
+	if (strstr(path, "/") == NULL) {
+		strncpy(path, "./", PATH_MAX);
+		return path;
+	}
+
+	return dirname(path);
+}
+
 const char *conf_get_conf_fullpath(const char *path, char *fullpath, size_t path_len)
 {
 	char file_path_dir[PATH_MAX];
@@ -47,7 +57,7 @@ const char *conf_get_conf_fullpath(const char *path, char *fullpath, size_t path
 
 	strncpy(file_path_dir, conf_get_conf_file(), PATH_MAX - 1);
 	file_path_dir[PATH_MAX - 1] = 0;
-	dirname(file_path_dir);
+	get_dir_name(file_path_dir);
 	if (file_path_dir[0] == '\0') {
 		strncpy(fullpath, path, path_len);
 		return fullpath;

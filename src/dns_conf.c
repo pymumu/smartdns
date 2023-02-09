@@ -2957,7 +2957,7 @@ int config_additional_file(void *data, int argc, char *argv[])
 	conf_file = argv[1];
 	if (conf_file[0] != '/') {
 		safe_strncpy(file_path_dir, conf_get_conf_file(), DNS_MAX_PATH);
-		dirname(file_path_dir);
+		dir_name(file_path_dir);
 		if (strncmp(file_path_dir, conf_get_conf_file(), sizeof(file_path_dir)) == 0) {
 			if (snprintf(file_path, DNS_MAX_PATH, "%s", conf_file) < 0) {
 				return -1;
