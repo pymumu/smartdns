@@ -112,7 +112,7 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
    支持域名后缀匹配模式，简化过滤配置，过滤 20 万条记录时间 < 1ms。
 
 1. **域名分流**  
-   支持域名分流，不同类型的域名向不同的 DNS 服务器查询，支持iptable和nftable更好的分流。
+   支持域名分流，不同类型的域名向不同的 DNS 服务器查询，支持iptable和nftable更好的分流；支持测速失败的情况下设置域名结果到对应ipset和nftset集合。
 
 1. **Windows / Linux 多平台支持**  
    支持标准 Linux 系统（树莓派）、OpenWrt 系统各种固件和华硕路由器原生固件。同时还支持 WSL（Windows Subsystem for Linux，适用于 Linux 的 Windows 子系统）。
@@ -603,10 +603,12 @@ entware|ipkg update<br />ipkg install smartdns|软件源路径：<https://bin.en
 | response-mode | 首次查询响应模式 | first-ping |模式：[first-ping\|fastest-ip\|fastest-response]<br /> [first-ping]: 最快ping响应地址模式，DNS上游最快查询时延+ping时延最短，查询等待与链接体验最佳;<br />[fastest-ip]: 最快IP地址模式，查询到的所有IP地址中ping最短的IP。需等待IP测速; <br />[fastest-response]: 最快响应的DNS结果，DNS查询等待时间最短，返回的IP地址可能不是最快。| response-mode first-ping |
 | address | 指定域名 IP 地址 | 无 | address /domain/[ip\|-\|-4\|-6\|#\|#4\|#6] <br />- 表示忽略 <br /># 表示返回 SOA <br />4 表示 IPv4 <br />6 表示 IPv6 | address /www.example.com/1.2.3.4 |
 | nameserver | 指定域名使用 server 组解析 | 无 | nameserver /domain/[group\|-], group 为组名，- 表示忽略此规则，配套 server 中的 -group 参数使用 | nameserver /www.example.com/office |
-| ipset | 域名 ipset | 无 | ipset /domain/[ipset\|-\|#[4\|6]:[ipset\|-][,#[4\|6]:[ipset\|-]]]，-表示忽略 | ipset /www.example.com/#4:dns4,#6:- |
+| ipset | 域名 ipset | 无 | ipset /domain/[ipset\|-\|#[4\|6]:[ipset\|-][,#[4\|6]:[ipset\|-]]]，-表示忽略 | ipset /www.example.com/#4:dns4,#6:- <br />ipset /www.example.com/dns |
 | ipset-timeout | 设置 ipset 超时功能启用  | no | [yes\|no] | ipset-timeout yes |
-| nftset | 域名 nftset | 无 | nftset /domain/[#4\|#6\|-]:[family#nftable#nftset\|-][,#[4\|6]:[family#nftable#nftset\|-]]]，-表示忽略；ipv4 地址的 family 只支持 inet 和 ip；ipv6 地址的 family 只支持 inet 和 ip6；由于 nft 限制，两种地址只能分开存放于两个 set 中。| nftset /www.example.com/#4:inet#tab#dns4,#6:- |
+| ipset-no-speed | 当测速失败时，将域名结果设置到ipset集合中 | 无 | ipset \| #[4\|6]:ipset | ipset-no-speed #4:ipset4,#6:ipse6 <br /> ipset-no-speed ipset|
+| nftset | 域名 nftset | 无 | nftset /domain/[#4\|#6\|-]:[family#nftable#nftset\|-][,#[4\|6]:[family#nftable#nftset\|-]]]，<br />-表示忽略；<br />ipv4 地址的 family 只支持 inet 和 ip；<br />ipv6 地址的 family 只支持 inet 和 ip6；<br />由于 nft 限制，两种地址只能分开存放于两个 set 中。| nftset /www.example.com/#4:inet#tab#dns4,#6:- |
 | nftset-timeout | 设置 nftset 超时功能启用  | no | [yes\|no] | nftset-timeout yes |
+| nftset-no-speed | 当测速失败时，将域名结果设置到nftset集合中 | 无 | nftset-no-speed [#4\|#6]:[family#nftable#nftset][,#[4\|6]:[family#nftable#nftset]]] <br />ipv4 地址的 family 只支持 inet 和 ip <br />ipv6 地址的 family 只支持 inet 和 ip6 <br />由于 nft 限制，两种地址只能分开存放于两个 set 中。| nftset-no-speed #4:inet#tab#set4|
 | nftset-debug | 设置 nftset 调试功能启用  | no | [yes\|no] | nftset-debug yes |
 | domain-rules | 设置域名规则 | 无 | domain-rules /domain/ [-rules...]<br />[-c\|-speed-check-mode]：测速模式，参考 speed-check-mode 配置<br />[-a\|-address]：参考 address 配置<br />[-n\|-nameserver]：参考 nameserver 配置<br />[-p\|-ipset]：参考ipset配置<br />[-t\|-nftset]：参考nftset配置<br />[-d\|-dualstack-ip-selection]：参考 dualstack-ip-selection<br /> [-no-serve-expired]：禁用过期缓存<br />[-delete]：删除对应的规则 | domain-rules /www.example.com/ -speed-check-mode none |
 | domain-set | 设置域名集合 | 无 | domain-set [options...]<br />[-n\|-name]：域名集合名称 <br />[-t\|-type]：域名集合类型，当前仅支持list，格式为域名列表，一行一个域名。<br />[-f\|-file]：域名集合文件路径。<br /> 选项需要配合address, nameserver, ipset, nftset等需要指定域名的地方使用，使用方式为 /domain-set:[name]/| domain-set -name set -type list -file /path/to/list <br /> address /domain-set:set/1.2.4.8 |
@@ -868,7 +870,8 @@ entware|ipkg update<br />ipkg install smartdns|软件源路径：<https://bin.en
     
 
     1. 额外说明  
-      为保证DNS查询结果的位置亲和性，可以使用smartdns的`server`代理参数，将对应域名的查询请求，通过代理查询，使结果位置更好。如：
+      
+        - 为保证DNS查询结果的位置亲和性，可以使用smartdns的`server`代理参数，将对应域名的查询请求，通过代理查询，使结果位置更好。如：
 
         ```shell
         # 增加DNS上游，并设置通过名称为proxy的代理查询，查询组为pass
@@ -877,6 +880,12 @@ entware|ipkg update<br />ipkg install smartdns|软件源路径：<https://bin.en
         proxy-server socks5://user:name@1.2.3.4 -name proxy
         # 设置域名规则，对匹配的域名使用代理查询结果，并将结果设置到ipset中。
         domain-rules /example.com/ -ipset proxy -c none -address #6 -nameserver pass
+        ```
+
+        - 如需要配合测速自动完成ipset的设置，可增加如下配置参数
+
+        ```shell
+        ipset-no-speed proxy
         ```
 
     如果使用openwrt的luci界面，可以直接在界面配置相关的域名分流规则。

@@ -148,6 +148,14 @@ struct dns_ipset_rule {
 	const char *ipsetname;
 };
 
+struct dns_ipset_names {
+	char ipv4_enable;
+	char ipv6_enable;
+	struct dns_ipset_rule ipv4;
+	struct dns_ipset_rule ipv6;
+};
+extern struct dns_ipset_names dns_conf_ipset_no_speed;
+
 struct dns_nftset_name {
 	struct hlist_node node;
 	char nftfamilyname[DNS_MAX_NFTSET_FAMILYLEN];
@@ -161,6 +169,16 @@ struct dns_nftset_rule {
 	const char *nfttablename;
 	const char *nftsetname;
 };
+
+struct dns_nftset_names {
+	char inet_enable;
+	char ip_enable;
+	char ip6_enable;
+	struct dns_nftset_rule inet;
+	struct dns_nftset_rule ip;
+	struct dns_nftset_rule ip6;
+};
+extern struct dns_nftset_names dns_conf_nftset_no_speed;
 
 struct dns_domain_rule {
 	struct dns_rule head;

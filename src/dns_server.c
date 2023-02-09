@@ -1428,6 +1428,7 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 	struct dns_nftset_rule *nftset_ip = NULL;
 	struct dns_nftset_rule *nftset_ip6 = NULL;
 	struct dns_rule_flags *rule_flags = NULL;
+	int check_no_speed_rule = 0;
 
 	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_RULE_IPSET) == 0) {
 		return 0;
@@ -1441,6 +1442,10 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 		return 0;
 	}
 
+	if (request->ping_time < 0 && request->has_ip > 0 && request->passthrough == 0) {
+		check_no_speed_rule = 1;
+	}
+
 	/* check ipset rule */
 	rule_flags = _dns_server_get_dns_rule(request, DOMAIN_RULE_FLAGS);
 	if (!rule_flags || (rule_flags->flags & DOMAIN_FLAG_IPSET_IGN) == 0) {
@@ -1449,18 +1454,30 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 
 	if (!rule_flags || (rule_flags->flags & DOMAIN_FLAG_IPSET_IPV4_IGN) == 0) {
 		ipset_rule_v4 = _dns_server_get_dns_rule(request, DOMAIN_RULE_IPSET_IPV4);
+		if (ipset_rule == NULL && check_no_speed_rule && dns_conf_ipset_no_speed.ipv4_enable) {
+			ipset_rule_v4 = &dns_conf_ipset_no_speed.ipv4;
+		}
 	}
 
 	if (!rule_flags || (rule_flags->flags & DOMAIN_FLAG_IPSET_IPV6_IGN) == 0) {
 		ipset_rule_v6 = _dns_server_get_dns_rule(request, DOMAIN_RULE_IPSET_IPV6);
+		if (ipset_rule_v6 == NULL && check_no_speed_rule && dns_conf_ipset_no_speed.ipv6_enable) {
+			ipset_rule_v6 = &dns_conf_ipset_no_speed.ipv6;
+		}
 	}
 
 	if (!rule_flags || (rule_flags->flags & DOMAIN_FLAG_NFTSET_IP_IGN) == 0) {
 		nftset_ip = _dns_server_get_dns_rule(request, DOMAIN_RULE_NFTSET_IP);
+		if (nftset_ip == NULL && check_no_speed_rule && dns_conf_nftset_no_speed.ip_enable) {
+			nftset_ip = &dns_conf_nftset_no_speed.ip;
+		}
 	}
 
 	if (!rule_flags || (rule_flags->flags & DOMAIN_FLAG_NFTSET_IP6_IGN) == 0) {
 		nftset_ip6 = _dns_server_get_dns_rule(request, DOMAIN_RULE_NFTSET_IP6);
+		if (nftset_ip6 == NULL && check_no_speed_rule && dns_conf_nftset_no_speed.ip6_enable) {
+			nftset_ip6 = &dns_conf_nftset_no_speed.ip6;
+		}
 	}
 
 	if (!(ipset_rule || ipset_rule_v4 || ipset_rule_v6 || nftset_ip || nftset_ip6)) {
@@ -3006,6 +3023,7 @@ static void _dns_server_query_end(struct dns_request *request)
 	/* Not need to wait check result if only has one ip address */
 	if (ip_num == 1 && request_wait == 1) {
 		if (request->dualstack_selection_query == 1) {
+			_dns_server_request_complete(request);
 			goto out;
 		}
 

@@ -29,6 +29,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
+#include <libgen.h>
 #include <linux/capability.h>
 #include <linux/limits.h>
 #include <linux/netlink.h>
@@ -107,6 +108,16 @@ unsigned long get_tick_count(void)
 	clock_gettime(CLOCK_MONOTONIC, &ts);
 
 	return (ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
+}
+
+char *dir_name(char *path)
+{
+	if (strstr(path, "/") == NULL) {
+		safe_strncpy(path, "./", PATH_MAX);
+		return path;
+	}
+
+	return dirname(path);
 }
 
 char *get_host_by_addr(char *host, int maxsize, struct sockaddr *addr)
