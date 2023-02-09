@@ -140,7 +140,9 @@ int dns_conf_local_ttl;
 int dns_conf_force_AAAA_SOA;
 int dns_conf_force_no_cname;
 int dns_conf_ipset_timeout_enable;
+struct dns_ipset_names dns_conf_ipset_no_speed;
 int dns_conf_nftset_timeout_enable;
+struct dns_nftset_names dns_conf_nftset_no_speed;
 int dns_conf_nftset_debug_enable;
 
 char dns_conf_user[DNS_CONF_USERNAME_LEN];
@@ -1076,6 +1078,78 @@ errout:
 	return 0;
 }
 
+static int _config_ipset_no_speed(void *data, int argc, char *argv[])
+{
+	char *ipsetname = argv[1];
+	char *copied_name = NULL;
+	const char *ipset = NULL;
+	struct dns_ipset_rule *ipset_rule_array[2] = {NULL, NULL};
+	char *ipset_rule_enable_array[2] = {NULL, NULL};
+	int ipset_num = 0;
+
+	if (argc <= 1) {
+		goto errout;
+	}
+
+	copied_name = strdup(ipsetname);
+
+	if (copied_name == NULL) {
+		goto errout;
+	}
+
+	for (char *tok = strtok(copied_name, ","); tok && ipset_num <= 2; tok = strtok(NULL, ",")) {
+		if (tok[0] == '#') {
+			if (strncmp(tok, "#6:", 3U) == 0) {
+				ipset_rule_array[ipset_num] = &dns_conf_ipset_no_speed.ipv6;
+				ipset_rule_enable_array[ipset_num] = &dns_conf_ipset_no_speed.ipv6_enable;
+				ipset_num++;
+			} else if (strncmp(tok, "#4:", 3U) == 0) {
+				ipset_rule_array[ipset_num] = &dns_conf_ipset_no_speed.ipv4;
+				ipset_rule_enable_array[ipset_num] = &dns_conf_ipset_no_speed.ipv4_enable;
+				ipset_num++;
+			} else {
+				goto errout;
+			}
+			tok += 3;
+		}
+
+		if (ipset_num == 0) {
+			ipset_rule_array[1] = &dns_conf_ipset_no_speed.ipv6;
+			ipset_rule_enable_array[1] = &dns_conf_ipset_no_speed.ipv6_enable;
+			ipset_rule_array[0] = &dns_conf_ipset_no_speed.ipv4;
+			ipset_rule_enable_array[0] = &dns_conf_ipset_no_speed.ipv4_enable;
+			ipset_num = 2;
+		}
+
+		if (strncmp(tok, "-", 1) == 0) {
+			continue;
+		}
+
+		/* new ipset domain */
+		ipset = _dns_conf_get_ipset(tok);
+		if (ipset == NULL) {
+			goto errout;
+		}
+
+		for (int i = 0; i < ipset_num; i++) {
+			ipset_rule_array[i]->ipsetname = ipset;
+			*ipset_rule_enable_array[i] = 1;
+		}
+
+		ipset_num = 0;
+	}
+
+	free(copied_name);
+	return 0;
+errout:
+	if (copied_name) {
+		free(copied_name);
+	}
+
+	tlog(TLOG_ERROR, "add ipset-no-speed %s failed", ipsetname);
+	return 0;
+}
+
 static void _config_nftset_table_destroy(void)
 {
 	struct dns_nftset_name *nftset = NULL;
@@ -1187,7 +1261,7 @@ static int _conf_domain_rule_nftset(char *domain, const char *nftsetname)
 			goto errout;
 		}
 
-		/* new ipset domain */
+		/* new nftset domain */
 		nftset = _dns_conf_get_nftable(family, tablename, setname);
 		if (nftset == NULL) {
 			goto errout;
@@ -1241,6 +1315,105 @@ static int _config_nftset(void *data, int argc, char *argv[])
 	return _conf_domain_rule_nftset(domain, value);
 errout:
 	tlog(TLOG_ERROR, "add nftset %s failed", value);
+	return 0;
+}
+
+static int _config_nftset_no_speed(void *data, int argc, char *argv[])
+{
+	const struct dns_nftset_name *nftset = NULL;
+	char *copied_name = NULL;
+	char *nftsetname = argv[1];
+	int nftset_num = 0;
+	char *setname = NULL;
+	char *tablename = NULL;
+	char *family = NULL;
+	struct dns_nftset_rule *nftset_rule_array[2] = {NULL, NULL};
+	char *nftset_rule_enable_array[2] = {NULL, NULL};
+
+	if (argc <= 1) {
+		goto errout;
+	}
+
+	copied_name = strdup(nftsetname);
+
+	if (copied_name == NULL) {
+		goto errout;
+	}
+
+	for (char *tok = strtok(copied_name, ","); tok && nftset_num <=2 ; tok = strtok(NULL, ",")) {
+		char *saveptr = NULL;
+		char *tok_set = NULL;
+
+		if (strncmp(tok, "#4:", 3U) == 0) {
+			dns_conf_nftset_no_speed.ip_enable = 1;
+			nftset_rule_array[nftset_num] = &dns_conf_nftset_no_speed.ip;
+			nftset_rule_enable_array[nftset_num] = &dns_conf_nftset_no_speed.ip_enable;
+			nftset_num++;
+		} else if (strncmp(tok, "#6:", 3U) == 0) {
+			nftset_rule_enable_array[nftset_num] = &dns_conf_nftset_no_speed.ip6_enable;
+			nftset_rule_array[nftset_num] = &dns_conf_nftset_no_speed.ip6;
+			nftset_num++;
+		} else if (strncmp(tok, "-", 2U) == 0) {
+			continue;
+			continue;
+		} else {
+			goto errout;
+		}
+
+		tok_set = tok + 3;
+
+		if (nftset_num == 0) {
+			nftset_rule_array[0] = &dns_conf_nftset_no_speed.ip;
+			nftset_rule_enable_array[0] = &dns_conf_nftset_no_speed.ip_enable;
+			nftset_rule_array[1] = &dns_conf_nftset_no_speed.ip6;
+			nftset_rule_enable_array[1] = &dns_conf_nftset_no_speed.ip6_enable;
+			nftset_num = 2;
+		}
+
+		if (strncmp(tok_set, "-", 2U) == 0) {
+			continue;
+		}
+
+		family = strtok_r(tok_set, "#", &saveptr);
+		if (family == NULL) {
+			goto errout;
+		}
+
+		tablename = strtok_r(NULL, "#", &saveptr);
+		if (tablename == NULL) {
+			goto errout;
+		}
+
+		setname = strtok_r(NULL, "#", &saveptr);
+		if (setname == NULL) {
+			goto errout;
+		}
+
+		/* new nftset domain */
+		nftset = _dns_conf_get_nftable(family, tablename, setname);
+		if (nftset == NULL) {
+			goto errout;
+		}
+
+		for (int i = 0; i < nftset_num; i++) {
+			nftset_rule_array[i]->familyname = nftset->nftfamilyname;
+			nftset_rule_array[i]->nfttablename = nftset->nfttablename;
+			nftset_rule_array[i]->nftsetname = nftset->nftsetname;
+			*nftset_rule_enable_array[i] = 1;
+		}
+
+		nftset_num = 0;
+	}
+
+	goto clear;
+
+errout:
+	tlog(TLOG_ERROR, "add nftset %s failed", nftsetname);
+clear:
+	if (copied_name) {
+		free(copied_name);
+	}
+
 	return 0;
 }
 
@@ -2696,9 +2869,11 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("proxy-server", _config_proxy_server, NULL),
 	CONF_YESNO("ipset-timeout", &dns_conf_ipset_timeout_enable),
 	CONF_CUSTOM("ipset", _config_ipset, NULL),
+	CONF_CUSTOM("ipset-no-speed", _config_ipset_no_speed, NULL),
 	CONF_YESNO("nftset-timeout", &dns_conf_nftset_timeout_enable),
 	CONF_YESNO("nftset-debug", &dns_conf_nftset_debug_enable),
 	CONF_CUSTOM("nftset", _config_nftset, NULL),
+	CONF_CUSTOM("nftset-no-speed", _config_nftset_no_speed, NULL),
 	CONF_CUSTOM("speed-check-mode", _config_speed_check_mode, NULL),
 	CONF_INT("tcp-idle-time", &dns_conf_tcp_idle_time, 0, 3600),
 	CONF_INT("cache-size", &dns_conf_cachesize, 0, CONF_INT_MAX),

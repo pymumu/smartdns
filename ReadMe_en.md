@@ -119,7 +119,7 @@ From the comparison, smartdns found the fastest IP address to visit www.baidu.co
    Multi-threaded asynchronous IO mode, cache cache query results.
 
 1. **DNS domain forwarding**
-   Support DNS forwarding, ipset and nftables.
+   Support DNS forwarding, ipset and nftables. Support setting the domain result to ipset and nftset set when speed check fails.
 
 ## Architecture
 
@@ -568,8 +568,10 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 |nameserver|To query domain with specific server group|None|nameserver /domain/[group\|-], `group` is the group name, `-` means ignore this rule, use the `-group` parameter in the related server|nameserver /www.example.com/office
 |ipset|Domain IPSet|None|ipset /domain/[ipset\|-\|#[4\|6]:[ipset\|-][,#[4\|6]:[ipset\|-]]], `-` for ignore|ipset /www.example.com/#4:dns4,#6:-
 |ipset-timeout|ipset timeout enable|no|[yes\|no]|ipset-timeout yes
-|nftset|Domain nftset|None|nftset /domain/[#4\|#6\|-]:[family#nftable#nftset\|-][,#[4\|6]:[family#nftable#nftset\|-]]], `-` to ignore; the valid families are inet and ip for ipv4 addresses while the valid ones are inet and ip6 for ipv6 addresses; due to the limitation of nft, two types of addresses have to be stored in two sets|nftset /www.example.com/#4:inet#tab#dns4,#6:-
+|ipset-no-speed|When speed check fails, set the ip address of the domain name to the ipset | None | ipset \| #[4\|6]:ipset | ipset-no-speed #4:ipset4,#6:ipse6 <br /> ipset-no-speed ipset|
+|nftset|Domain nftset|None|nftset /domain/[#4\|#6\|-]:[family#nftable#nftset\|-][,#[4\|6]:[family#nftable#nftset\|-]]]<br /> `-` to ignore<br />the valid families are inet and ip for ipv4 addresses while the valid ones are inet and ip6 for ipv6 addresses <br />due to the limitation of nftable <br />two types of addresses have to be stored in two sets|nftset /www.example.com/#4:inet#tab#dns4,#6:-
 |nftset-timeout|nftset timeout enable|no|[yes\|no]|nftset-timeout yes
+|nftset-no-speed|When speed check fails, set the ip address of the domain name to the nftset | None | nftset-no-speed [#4\|#6]:[family#nftable#nftset][,#[4\|6]:[family#nftable#nftset]]] <br />the valid families are inet and ip for ipv4 addresses while the valid ones are inet and ip6 for ipv6 addresses <br />due to the limitation of nftable <br />two types of addresses have to be stored in two sets| nftset-no-speed #4:inet#tab#set4|
 |nftset-debug|nftset debug enable|no|[yes\|no]|nftset-debug yes
 |domain-rules|set domain rules|None|domain-rules /domain/ [-rules...]<br />[-c\|-speed-check-mode]: set speed check mode，same as parameter speed-check-mode<br />[-a\|-address]: same as  parameter `address` <br />[-n\|-nameserver]: same as parameter `nameserver`<br />[-p\|-ipset]: same as parameter `nftset`<br />[-t\|-nftset]: same as parameter `nftset`<br />[-d\|-dualstack-ip-selection]: same as parameter `dualstack-ip-selection`<br />  [-no-serve-expired]：disable serve expired<br />[-delete]：delete rule|domain-rules /www.example.com/ -speed-check-mode none
 | domain-set | collection of domains|None| domain-set [options...]<br />[-n\|-name]：name of set <br />[-t\|-type] [list]: set type, only support list, one domain per line <br />[-f\|-file]：file path of domain set<br /> used with address, nameserver, ipset, nftset, example: /domain-set:[name]/ | domain-set -name set -type list -file /path/to/list <br /> address /domain-set:set/1.2.4.8 |
