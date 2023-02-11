@@ -152,6 +152,8 @@ struct dns_server_pending {
 	unsigned int has_v6;
 	unsigned int query_v4;
 	unsigned int query_v6;
+	unsigned int has_soa;
+
 	/* server type */
 	dns_server_type_t type;
 	int retry_cnt;
@@ -3614,6 +3616,10 @@ static int _dns_client_pending_server_resolve(const char *domain, dns_rtcode_t r
 	struct dns_server_pending *pending = user_ptr;
 	int ret = 0;
 
+	if (rtcode == DNS_RC_NXDOMAIN) {
+		pending->has_soa = 1;
+	}
+
 	if (addr_type == DNS_T_A) {
 		pending->ping_time_v4 = -1;
 		if (rtcode == DNS_RC_NOERROR) {
@@ -3746,6 +3752,12 @@ static void _dns_client_add_pending_servers(void)
 			dnsserver_ip = pending->ipv4;
 		} else if (pending->has_v6) {
 			dnsserver_ip = pending->ipv6;
+		}
+
+		if (pending->has_soa) {
+			tlog(TLOG_WARN, "add pending DNS server %s failed, no such host.", pending->host);
+			_dns_client_server_pending_remove(pending);
+			continue;
 		}
 
 		if (dnsserver_ip && dnsserver_ip[0]) {
