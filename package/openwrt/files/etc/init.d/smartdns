@@ -169,6 +169,7 @@ load_server()
 	local section="$1"
 	local ADDITIONAL_ARGS=""
 	local DNS_ADDRESS=""
+	local IS_URI="0"
 
 	config_get_bool enabled "$section" "enabled" "1"
 	config_get port "$section" "port" ""
@@ -202,7 +203,9 @@ load_server()
 		SERVER="server-https"
 	fi
 
-	if echo "$ip" | grep ":" | grep -q -v "https://" >/dev/null 2>&1; then
+	if echo "$ip" | grep "://" >/dev/null 2>&1; then
+		IS_URI="1"
+	elif echo "$ip" | grep ":"; then
 		if ! echo "$ip" | grep -q "\\[" >/dev/null 2>&1; then
 			ip="[$ip]"
 		fi
@@ -220,13 +223,11 @@ load_server()
 	[ -z "$set_mark" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -set-mark $set_mark"
 	[ "$use_proxy" = "0" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -proxy default-proxy"
 
-	if [ -z "$port" ]; then
+	if [ -z "$port" ] || [ "$IS_URI" = "1" ]; then
 		DNS_ADDRESS="$ip"
 	else
 		DNS_ADDRESS="$ip:$port"
 	fi
-
-	[ "$type" = "https" ] && DNS_ADDRESS="$ip"
 
 	conf_append "$SERVER" "$DNS_ADDRESS $ADDITIONAL_ARGS $addition_arg"
 }
