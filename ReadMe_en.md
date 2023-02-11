@@ -565,6 +565,7 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 |speed-check-mode|Speed ​​mode|None|[ping\|tcp:[80]\|none]|speed-check-mode ping,tcp:80,tcp:443
 |response-mode|First query response mode|first-ping|Mode: [first-ping\|fastest-ip\|fastest-response]<br /> [first-ping]: The fastest dns + ping response mode, DNS query delay + ping delay is the shortest;<br />[fastest-ip]: The fastest IP address mode, return the fastest ip address, may take some time to test speed. <br />[fastest-response]: The fastest response DNS result mode, the DNS query waiting time is the shortest. | response-mode first-ping |
 |address|Domain IP address|None|address /domain/[ip\|-\|-4\|-6\|#\|#4\|#6], `-` for ignore, `#` for return SOA, `4` for IPV4, `6` for IPV6| address /www.example.com/1.2.3.4
+|cname|set cname to domain| None | cname /domain/target <br />- for ignore <br />set cname to domain. | cname /www.example.com/cdn.example.com |
 |nameserver|To query domain with specific server group|None|nameserver /domain/[group\|-], `group` is the group name, `-` means ignore this rule, use the `-group` parameter in the related server|nameserver /www.example.com/office
 |ipset|Domain IPSet|None|ipset /domain/[ipset\|-\|#[4\|6]:[ipset\|-][,#[4\|6]:[ipset\|-]]], `-` for ignore|ipset /www.example.com/#4:dns4,#6:-
 |ipset-timeout|ipset timeout enable|no|[yes\|no]|ipset-timeout yes

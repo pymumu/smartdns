@@ -191,6 +191,9 @@ static void *_new_dns_rule(enum domain_rule domain_rule)
 	case DOMAIN_RULE_CHECKSPEED:
 		size = sizeof(struct dns_domain_check_orders);
 		break;
+	case DOMAIN_RULE_CNAME:
+		size = sizeof(struct dns_cname_rule);
+		break;
 	default:
 		return NULL;
 	}
@@ -1547,6 +1550,64 @@ errout:
 	return 0;
 }
 
+static int _conf_domain_rule_cname(const char *domain, const char *cname)
+{
+	struct dns_cname_rule *cname_rule = NULL;
+	enum domain_rule type = DOMAIN_RULE_CNAME;
+
+	cname_rule = _new_dns_rule(type);
+	if (cname_rule == NULL) {
+		goto errout;
+	}
+
+	/* ignore this domain */
+	if (*cname == '-') {
+		if (_config_domain_rule_flag_set(domain, DOMAIN_FLAG_CNAME_IGN, 0) != 0) {
+			goto errout;
+		}
+
+		return 0;
+	}
+
+	safe_strncpy(cname_rule->cname, cname, DNS_MAX_CONF_CNAME_LEN);
+
+	if (_config_domain_rule_add(domain, type, cname_rule) != 0) {
+		goto errout;
+	}
+	_dns_rule_put(&cname_rule->head);
+	cname_rule = NULL;
+
+	return 0;
+
+errout:
+	tlog(TLOG_ERROR, "add cname %s:%s failed", domain, cname);
+
+	if (cname_rule) {
+		_dns_rule_put(&cname_rule->head);
+	}
+
+	return 0;
+}
+
+static int _config_cname(void *data, int argc, char *argv[])
+{
+	char *value = argv[1];
+	char domain[DNS_MAX_CONF_CNAME_LEN];
+
+	if (argc <= 1) {
+		goto errout;
+	}
+
+	if (_get_domain(value, domain, DNS_MAX_CONF_CNAME_LEN, &value) != 0) {
+		goto errout;
+	}
+
+	return _conf_domain_rule_cname(domain, value);
+errout:
+	tlog(TLOG_ERROR, "add cname %s:%s failed", domain, value);
+	return 0;
+}
+
 static void _config_speed_check_mode_clear(struct dns_domain_check_orders *check_orders)
 {
 	memset(check_orders->orders, 0, sizeof(check_orders->orders));
@@ -2326,6 +2387,7 @@ static int _conf_domain_rules(void *data, int argc, char *argv[])
 		{"nftset", required_argument, NULL, 't'},
 		{"nameserver", required_argument, NULL, 'n'},
 		{"dualstack-ip-selection", required_argument, NULL, 'd'},
+		{"cname", required_argument, NULL, 'A'},
 		{"no-serve-expired", no_argument, NULL, 254},
 		{"delete", no_argument, NULL, 255},
 		{NULL, no_argument, NULL, 0}
@@ -2344,7 +2406,7 @@ static int _conf_domain_rules(void *data, int argc, char *argv[])
 	/* process extra options */
 	optind = 1;
 	while (1) {
-		opt = getopt_long_only(argc, argv, "c:a:p:t:n:d:", long_options, NULL);
+		opt = getopt_long_only(argc, argv, "c:a:p:t:n:d:A:", long_options, NULL);
 		if (opt == -1) {
 			break;
 		}
@@ -2397,6 +2459,16 @@ static int _conf_domain_rules(void *data, int argc, char *argv[])
 
 			if (_conf_domain_rule_nameserver(domain, nameserver_group) != 0) {
 				tlog(TLOG_ERROR, "add nameserver rule failed.");
+				goto errout;
+			}
+
+			break;
+		}
+		case 'A': {
+			const char *cname = optarg;
+
+			if (_conf_domain_rule_cname(domain, cname) != 0) {
+				tlog(TLOG_ERROR, "add cname rule failed.");
 				goto errout;
 			}
 
@@ -2866,6 +2938,7 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("server-https", _config_server_https, NULL),
 	CONF_CUSTOM("nameserver", _config_nameserver, NULL),
 	CONF_CUSTOM("address", _config_address, NULL),
+	CONF_CUSTOM("cname", _config_cname, NULL),
 	CONF_CUSTOM("proxy-server", _config_proxy_server, NULL),
 	CONF_YESNO("ipset-timeout", &dns_conf_ipset_timeout_enable),
 	CONF_CUSTOM("ipset", _config_ipset, NULL),

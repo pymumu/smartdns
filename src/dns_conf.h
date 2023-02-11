@@ -74,6 +74,7 @@ enum domain_rule {
 	DOMAIN_RULE_NFTSET_IP6,
 	DOMAIN_RULE_NAMESERVER,
 	DOMAIN_RULE_CHECKSPEED,
+	DOMAIN_RULE_CNAME,
 	DOMAIN_RULE_MAX,
 };
 
@@ -104,6 +105,7 @@ typedef enum {
 #define DOMAIN_FLAG_NFTSET_IP_IGN (1 << 13)
 #define DOMAIN_FLAG_NFTSET_IP6_IGN (1 << 14)
 #define DOMAIN_FLAG_NO_SERVE_EXPIRED (1 << 15)
+#define DOMAIN_FLAG_CNAME_IGN (1 << 16)
 
 #define SERVER_FLAG_EXCLUDE_DEFAULT (1 << 0)
 
@@ -116,6 +118,7 @@ typedef enum {
 #define BIND_FLAG_NO_CACHE (1 << 6)
 #define BIND_FLAG_NO_DUALSTACK_SELECTION (1 << 7)
 #define BIND_FLAG_FORCE_AAAA_SOA (1 << 8)
+#define BIND_FLAG_NO_RULE_CNAME (1 << 9)
 
 struct dns_rule {
 	atomic_t refcnt;
@@ -155,6 +158,11 @@ struct dns_ipset_names {
 	struct dns_ipset_rule ipv6;
 };
 extern struct dns_ipset_names dns_conf_ipset_no_speed;
+
+struct dns_cname_rule {
+	struct dns_rule head;
+	char cname[DNS_MAX_CNAME_LEN];
+};
 
 struct dns_nftset_name {
 	struct hlist_node node;
