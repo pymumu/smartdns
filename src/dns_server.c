@@ -1588,6 +1588,7 @@ static int _dns_result_child_post(struct dns_server_post_context *context)
 		parent_context.reply_ttl = context->reply_ttl;
 		parent_context.skip_notify_count = context->skip_notify_count;
 		parent_context.select_all_best_ip = 1;
+		parent_context.no_release_parent = context->no_release_parent;
 
 		_dns_request_post(&parent_context);
 		ret = _dns_server_reply_all_pending_list(parent_request, &parent_context);

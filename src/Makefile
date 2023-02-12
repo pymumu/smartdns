@@ -20,7 +20,12 @@ OBJS=smartdns.o fast_ping.o dns_client.o dns_server.o dns.o util.o tlog.o dns_co
 
 # cflags
 ifndef CFLAGS
-CFLAGS =-g -Wall -Wstrict-prototypes -fno-omit-frame-pointer -Wstrict-aliasing -funwind-tables -Wmissing-prototypes -Wshadow -Wextra -Wno-unused-parameter -Wno-implicit-fallthrough
+ ifdef DEBUG
+  CFLAGS = -g
+ else
+  CFLAGS = -O2 -g 
+ endif
+CFLAGS +=-Wall -Wstrict-prototypes -fno-omit-frame-pointer -Wstrict-aliasing -funwind-tables -Wmissing-prototypes -Wshadow -Wextra -Wno-unused-parameter -Wno-implicit-fallthrough
 endif
 override CFLAGS +=-Iinclude
 override CFLAGS += -DBASE_FILE_NAME='"$(notdir $<)"'
@@ -34,9 +39,9 @@ override CXXFLAGS +=-Iinclude
 
 # ldflags
 ifeq ($(STATIC), yes)
-override LDFLAGS += -lssl -lcrypto -Wl,--whole-archive -lpthread -Wl,--no-whole-archive -ldl -static
+ override LDFLAGS += -lssl -lcrypto -Wl,--whole-archive -lpthread -Wl,--no-whole-archive -ldl -static
 else
-override LDFLAGS += -lssl -lcrypto -lpthread -ldl
+ override LDFLAGS += -lssl -lcrypto -lpthread -ldl
 endif
 
 .PHONY: all clean
