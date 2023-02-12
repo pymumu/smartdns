@@ -1588,6 +1588,7 @@ static int _dns_result_child_post(struct dns_server_post_context *context)
 		parent_context.reply_ttl = context->reply_ttl;
 		parent_context.skip_notify_count = context->skip_notify_count;
 		parent_context.select_all_best_ip = 1;
+		parent_context.no_release_parent = context->no_release_parent;
 
 		_dns_request_post(&parent_context);
 		ret = _dns_server_reply_all_pending_list(parent_request, &parent_context);
@@ -1721,13 +1722,13 @@ static int _dns_server_reply_all_pending_list(struct dns_request *request, struc
 		struct dns_server_post_context context_pending;
 		_dns_server_post_context_init_from(&context_pending, req, context->packet, context->inpacket,
 										   context->inpacket_len);
-		_dns_server_get_answer(&context_pending);
 		req->dualstack_selection = request->dualstack_selection;
 		req->dualstack_selection_query = request->dualstack_selection_query;
 		req->dualstack_selection_force_soa = request->dualstack_selection_force_soa;
 		req->dualstack_selection_has_ip = request->dualstack_selection_has_ip;
 		req->dualstack_selection_ping_time = request->dualstack_selection_ping_time;
 		req->ping_time = request->ping_time;
+		_dns_server_get_answer(&context_pending);
 
 		context_pending.do_cache = 0;
 		context_pending.do_audit = context->do_audit;
@@ -1735,6 +1736,7 @@ static int _dns_server_reply_all_pending_list(struct dns_request *request, struc
 		context_pending.do_force_soa = context->do_force_soa;
 		context_pending.do_ipset = 0;
 		context_pending.reply_ttl = request->ip_ttl;
+		context_pending.no_release_parent = context->no_release_parent;
 		_dns_server_reply_passthrough(&context_pending);
 
 		req->request_pending_list = NULL;
