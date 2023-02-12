@@ -1305,7 +1305,7 @@ static int _dns_result_callback_nxdomain(struct dns_request *request)
 		return 0;
 	}
 
-	return request->result_callback(request->domain, DNS_RC_NXDOMAIN, request->qtype, ip, ping_time, request->user_ptr);
+	return request->result_callback(request->domain, request->rcode, request->qtype, ip, ping_time, request->user_ptr);
 }
 
 static int _dns_result_callback(struct dns_server_post_context *context)
