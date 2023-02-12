@@ -211,6 +211,31 @@ o.cfgvalue    = function(...)
     return Flag.cfgvalue(...) or "1"
 end
 
+---- Ipset no speed.
+o = s:taboption("advanced", Value, "ipset_no_speed", translate("No Speed IPset Name"), 
+    translate("Ipset name, Add domain result to ipset when speed check fails."));
+o.rmempty = true;
+o.datatype = "hostname";
+o.rempty = true;
+
+---- NFTset no speed.
+o = s:taboption("advanced", Value, "nftset_no_speed", translate("No Speed NFTset Name"), 
+    translate("Nftset name, Add domain result to nftset when speed check fails, format: [#[4|6]:[family#table#set]]"));
+o.rmempty    = true;
+o.datatype   = "string";
+o.rempty     = true;
+function o.validate(self, value) 
+    if (value == "") then
+        return value
+    end
+
+    if (value:match("#[4|6]:[a-zA-Z0-9%-_]+#[a-zA-Z0-9%-_]+#[a-zA-Z0-9%-_]+$")) then
+        return value
+    end
+
+    return nil, translate("NFTset name format error, format: [#[4|6]:[family#table#set]]")
+end
+
 ---- rr-ttl
 o = s:taboption("advanced", Value, "rr_ttl", translate("Domain TTL"), translate("TTL for all domain result."))
 o.rempty      = true

@@ -277,6 +277,48 @@ return view.extend({
 		o.rmempty = false;
 		o.default = o.enabled;
 
+		// Ipset no speed.
+		o = s.taboption("advanced", form.Value, "ipset_no_speed", _("No Speed IPset Name"), 
+			_("Ipset name, Add domain result to ipset when speed check fails."));
+		o.rmempty = true;
+		o.datatype = "string";
+		o.rempty = true;
+		o.validate = function (section_id, value) {
+			if (value == "") {
+				return true;
+			}
+
+			var ipset = value.split(",")
+			for (var i = 0; i < ipset.length; i++) {
+				if (!ipset[i].match(/^(#[4|6]:)?[a-zA-Z0-9\-_]+$/)) {
+					return _("ipset name format error, format: [#[4|6]:]ipsetname");
+				}
+			}
+
+			return true;
+		}
+
+		// NFTset no speed.
+		o = s.taboption("advanced", form.Value, "nftset_no_speed", _("No Speed NFTset Name"), 
+			_("Nftset name, Add domain result to nftset when speed check fails, format: [#[4|6]:[family#table#set]]"));
+		o.rmempty = true;
+		o.datatype = "string";
+		o.rempty = true;
+		o.validate = function (section_id, value) {
+			if (value == "") {
+				return true;
+			}
+
+			var nftset = value.split(",")
+			for (var i = 0; i < nftset.length; i++) {
+				if (!nftset[i].match(/^#[4|6]:[a-zA-Z0-9\-_]+#[a-zA-Z0-9\-_]+#[a-zA-Z0-9\-_]+$/)) {
+					return _("NFTset name format error, format: [#[4|6]:[family#table#set]]");
+				}
+			}
+
+			return true;
+		}
+
 		// rr-ttl;
 		o = s.taboption("advanced", form.Value, "rr_ttl", _("Domain TTL"), _("TTL for all domain result."));
 		o.rempty = true;
@@ -720,8 +762,22 @@ return view.extend({
 
 		o = s.taboption("forwarding", form.Value, "ipset_name", _("IPset Name"), _("IPset name."));
 		o.rmempty = true;
-		o.datatype = "hostname";
+		o.datatype = "string";
 		o.rempty = true;
+		o.validate = function (section_id, value) {
+			if (value == "") {
+				return true;
+			}
+
+			var ipset = value.split(",")
+			for (var i = 0; i < ipset.length; i++) {
+				if (!ipset[i].match(/^(#[4|6]:)?[a-zA-Z0-9\-_]+$/)) {
+					return _("ipset name format error, format: [#[4|6]:]ipsetname");
+				}
+			}
+
+			return true;
+		}
 
 		o = s.taboption("forwarding", form.Value, "nftset_name", _("NFTset Name"), _("NFTset name, format: [#[4|6]:[family#table#set]]"));
 		o.rmempty = true;
@@ -734,7 +790,7 @@ return view.extend({
 
 			var nftset = value.split(",")
 			for (var i = 0; i < nftset.length; i++) {
-				if (!nftset[i].match(/#[4|6]:[a-zA-Z0-9\-_]+#[a-zA-Z0-9\-_]+#[a-zA-Z0-9\-_]+$/)) {
+				if (!nftset[i].match(/^#[4|6]:[a-zA-Z0-9\-_]+#[a-zA-Z0-9\-_]+#[a-zA-Z0-9\-_]+$/)) {
 					return _("NFTset name format error, format: [#[4|6]:[family#table#set]]");
 				}
 			}
