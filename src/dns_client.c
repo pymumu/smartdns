@@ -3625,6 +3625,7 @@ static int _dns_client_pending_server_resolve(const char *domain, dns_rtcode_t r
 		if (rtcode == DNS_RC_NOERROR) {
 			pending->has_v4 = 1;
 			pending->ping_time_v4 = ping_time;
+			pending->has_soa = 0;
 			safe_strncpy(pending->ipv4, ip, DNS_HOSTNAME_LEN);
 		}
 	} else if (addr_type == DNS_T_AAAA) {
@@ -3632,6 +3633,7 @@ static int _dns_client_pending_server_resolve(const char *domain, dns_rtcode_t r
 		if (rtcode == DNS_RC_NOERROR) {
 			pending->has_v6 = 1;
 			pending->ping_time_v6 = ping_time;
+			pending->has_soa = 0;
 			safe_strncpy(pending->ipv6, ip, DNS_HOSTNAME_LEN);
 		}
 	} else {
@@ -3754,12 +3756,6 @@ static void _dns_client_add_pending_servers(void)
 			dnsserver_ip = pending->ipv6;
 		}
 
-		if (pending->has_soa) {
-			tlog(TLOG_WARN, "add pending DNS server %s failed, no such host.", pending->host);
-			_dns_client_server_pending_remove(pending);
-			continue;
-		}
-
 		if (dnsserver_ip && dnsserver_ip[0]) {
 			if (_dns_client_add_pendings(pending, dnsserver_ip) == 0) {
 				add_success = 1;
@@ -3768,6 +3764,12 @@ static void _dns_client_add_pending_servers(void)
 
 		pending->retry_cnt++;
 		if (pending->retry_cnt == 1) {
+			continue;
+		}
+
+		if (pending->has_soa && dnsserver_ip == NULL) {
+			tlog(TLOG_WARN, "add pending DNS server %s failed, no such host.", pending->host);
+			_dns_client_server_pending_remove(pending);
 			continue;
 		}
 
