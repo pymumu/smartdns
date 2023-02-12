@@ -255,6 +255,12 @@ msgstr "IPset名称"
 msgid "IPset name."
 msgstr "IPSet名称。"
 
+msgid "Ipset name, Add domain result to ipset when speed check fails."
+msgstr "IPset名称，当测速失败时，将查询到的结果添加到对应的IPSet集合中。"
+
+msgid "ipset name format error, format: [#[4|6]:]ipsetname"
+msgstr "IPset名称格式错误，格式：[#[4|6]:]ipsetname"
+
 msgid "If you like this software, please buy me a cup of coffee."
 msgstr "如果本软件对你有帮助，请给作者加个蛋。"
 
@@ -265,7 +271,7 @@ msgid ""
 "Include other config files from /etc/smartdns/conf.d or custom path, can be "
 "downloaded from the download page."
 msgstr ""
-"包含配置文件，路径为/etc/smartdns/conf.d，或自定义配置文件路径，可以从下载页"
+"包含配置文件，路径为/etc/smartdns/conf.d，或自定义配置文件路径，可以从下载页配置自动下载。"
 "面配置自动下载。"
 
 msgid "List of files to download."
@@ -300,6 +306,15 @@ msgstr "NFTSet名称格式错误，格式：[#[4|6]:[family#table#set]]"
 
 msgid "NFTset name, format: [#[4|6]:[family#table#set]]"
 msgstr "NFTSet名称，格式：[#[4|6]:[family#table#set]]"
+
+msgid "Nftset name, Add domain result to nftset when speed check fails, format: [#[4|6]:[family#table#set]]"
+msgstr "NFTset名称，当测速失败时，将查询到的结果添加到对应的NFTSet集合中。"
+
+msgid "No Speed IPset Name"
+msgstr "无速度时IPSet名称"
+
+msgid "No Speed NFTset Name"
+msgstr "无速度时NFTSet名称"
 
 msgid "NOT RUNNING"
 msgstr "未运行"

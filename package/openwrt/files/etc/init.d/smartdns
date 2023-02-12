@@ -507,6 +507,12 @@ load_service()
 
 	config_get auto_set_dnsmasq "$section" "auto_set_dnsmasq" "1"
 
+	config_get ipset_no_speed "$section" "ipset_no_speed" ""
+	[ -z "$ipset_no_speed" ] || conf_append "ipset-no-speed" "$ipset_no_speed"
+
+	config_get nftset_no_speed "$section" "nftset_no_speed" ""
+	[ -z "$nftset_no_speed" ] || conf_append "nftset-no-speed" "$nftset_no_speed"
+
 	config_get rr_ttl "$section" "rr_ttl" ""
 	[ -z "$rr_ttl" ] || conf_append "rr-ttl" "$rr_ttl"
 
