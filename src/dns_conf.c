@@ -194,6 +194,9 @@ static void *_new_dns_rule(enum domain_rule domain_rule)
 	case DOMAIN_RULE_CNAME:
 		size = sizeof(struct dns_cname_rule);
 		break;
+	case DOMAIN_RULE_TTL:
+		size = sizeof(struct dns_ttl_rule);
+		break;
 	default:
 		return NULL;
 	}
@@ -2363,6 +2366,39 @@ errout:
 	return -1;
 }
 
+static int _conf_domain_rule_rr_ttl(const char *domain, int ttl, int ttl_min, int ttl_max)
+{
+	struct dns_ttl_rule *rr_ttl = NULL;
+
+	if (ttl < 0 || ttl_min < 0 || ttl_max < 0) {
+		tlog(TLOG_ERROR, "invalid ttl value.");
+		goto errout;
+	}
+
+	rr_ttl = _new_dns_rule(DOMAIN_RULE_TTL);
+	if (rr_ttl == NULL) {
+		goto errout;
+	}
+
+	rr_ttl->ttl = ttl;
+	rr_ttl->ttl_min = ttl_min;
+	rr_ttl->ttl_max = ttl_max;
+
+	if (_config_domain_rule_add(domain, DOMAIN_RULE_TTL, rr_ttl) != 0) {
+		goto errout;
+	}
+
+	_dns_rule_put(&rr_ttl->head);
+
+	return 0;
+errout:
+	if (rr_ttl != NULL) {
+		_dns_rule_put(&rr_ttl->head);
+	}
+
+	return -1;
+}
+
 static int _conf_domain_rule_no_serve_expired(const char *domain)
 {
 	return _config_domain_rule_flag_set(domain, DOMAIN_FLAG_NO_SERVE_EXPIRED, 0);
@@ -2378,6 +2414,9 @@ static int _conf_domain_rules(void *data, int argc, char *argv[])
 	int opt = 0;
 	char domain[DNS_MAX_CONF_CNAME_LEN];
 	char *value = argv[1];
+	int rr_ttl = 0;
+	int rr_ttl_min = 0;
+	int rr_ttl_max = 0;
 
 	/* clang-format off */
 	static struct option long_options[] = {
@@ -2388,6 +2427,9 @@ static int _conf_domain_rules(void *data, int argc, char *argv[])
 		{"nameserver", required_argument, NULL, 'n'},
 		{"dualstack-ip-selection", required_argument, NULL, 'd'},
 		{"cname", required_argument, NULL, 'A'},
+		{"rr-ttl", required_argument, NULL, 251},
+		{"rr-ttl-min", required_argument, NULL, 252},
+		{"rr-ttl-max", required_argument, NULL, 253},
 		{"no-serve-expired", no_argument, NULL, 254},
 		{"delete", no_argument, NULL, 255},
 		{NULL, no_argument, NULL, 0}
@@ -2496,6 +2538,18 @@ static int _conf_domain_rules(void *data, int argc, char *argv[])
 
 			break;
 		}
+		case 251: {
+			rr_ttl = atoi(optarg);
+			break;
+		}
+		case 252: {
+			rr_ttl_min = atoi(optarg);
+			break;
+		}
+		case 253: {
+			rr_ttl_max = atoi(optarg);
+			break;
+		}
 		case 254: {
 			if (_conf_domain_rule_no_serve_expired(domain) != 0) {
 				tlog(TLOG_ERROR, "set no-serve-expired rule failed.");
@@ -2514,6 +2568,13 @@ static int _conf_domain_rules(void *data, int argc, char *argv[])
 		}
 		default:
 			break;
+		}
+	}
+
+	if (rr_ttl > 0 || rr_ttl_min > 0 || rr_ttl_max > 0) {
+		if (_conf_domain_rule_rr_ttl(domain, rr_ttl, rr_ttl_min, rr_ttl_max) != 0) {
+			tlog(TLOG_ERROR, "set rr-ttl rule failed.");
+			goto errout;
 		}
 	}
 

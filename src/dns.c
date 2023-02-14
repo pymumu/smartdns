@@ -42,6 +42,8 @@
 		(void)(expr);                                                                                                  \
 	} while (0)
 
+#define member_size(type, member) sizeof(((type *)0)->member)
+
 /* read short and move pointer */
 static unsigned short _dns_read_short(unsigned char **buffer)
 {
@@ -111,7 +113,7 @@ static int _dns_get_domain_from_packet(unsigned char *packet, int packet_size, u
 
 	/*[len]string[len]string...[0]0 */
 	while (1) {
-		if (ptr >= packet + packet_size || ptr < packet || output_len >= size - 1 || ptr_jump > 4) {
+		if (ptr >= packet + packet_size || ptr < packet || output_len >= size - 1 || ptr_jump > 32) {
 			return -1;
 		}
 
@@ -1639,12 +1641,12 @@ static int _dns_encode_SOA(struct dns_context *context, struct dns_rrs *rrs)
 	return 0;
 }
 
-static int _dns_decode_opt_ecs(struct dns_context *context, struct dns_opt_ecs *ecs)
+static int _dns_decode_opt_ecs(struct dns_context *context, struct dns_opt_ecs *ecs, int opt_len)
 {
 	// TODO
 
 	int len = 0;
-	if (_dns_left_len(context) < 4) {
+	if (opt_len < 4) {
 		return -1;
 	}
 
@@ -1668,25 +1670,24 @@ static int _dns_decode_opt_ecs(struct dns_context *context, struct dns_opt_ecs *
 	return 0;
 }
 
-static int _dns_decode_opt_cookie(struct dns_context *context, struct dns_opt_cookie *cookie)
+static int _dns_decode_opt_cookie(struct dns_context *context, struct dns_opt_cookie *cookie, int opt_len)
 {
 	// TODO
-	int len = _dns_left_len(context);
-	if (len < 8) {
+	if (opt_len < (int)member_size(struct dns_opt_cookie, client_cookie)) {
 		return -1;
 	}
 
-	len = 8;
+	int len = 8;
 	memcpy(cookie->client_cookie, context->ptr, len);
 	context->ptr += len;
 
-	len = _dns_left_len(context);
-	if (len == 0) {
+	opt_len -= len;
+	if (opt_len <= 0) {
 		cookie->server_cookie_len = 0;
 		return 0;
 	}
 
-	if (len < 8) {
+	if (opt_len < (int)member_size(struct dns_opt_cookie, server_cookie)) {
 		return -1;
 	}
 
@@ -1881,7 +1882,7 @@ static int _dns_decode_opt(struct dns_context *context, dns_rr_type type, unsign
 		switch (opt_code) {
 		case DNS_OPT_T_ECS: {
 			struct dns_opt_ecs ecs;
-			ret = _dns_decode_opt_ecs(context, &ecs);
+			ret = _dns_decode_opt_ecs(context, &ecs, opt_len);
 			if (ret != 0) {
 				tlog(TLOG_ERROR, "decode ecs failed.");
 				return -1;
@@ -1895,7 +1896,7 @@ static int _dns_decode_opt(struct dns_context *context, dns_rr_type type, unsign
 		} break;
 		case DNS_OPT_T_COOKIE: {
 			struct dns_opt_cookie cookie;
-			ret = _dns_decode_opt_cookie(context, &cookie);
+			ret = _dns_decode_opt_cookie(context, &cookie, opt_len);
 			if (ret != 0) {
 				tlog(TLOG_ERROR, "decode cookie failed.");
 				return -1;
@@ -2252,6 +2253,16 @@ static int _dns_encode_qd(struct dns_context *context, struct dns_rrs *rrs)
 	ret = _dns_encode_qr_head(context, domain, qtype, qclass);
 	if (ret < 0) {
 		return -1;
+	}
+
+	if (domain[0] == '-') {
+		/* for google and cloudflare */
+		unsigned char *ptr = context->ptr - 7;
+		memcpy(ptr, "\xC0\x12", 2);
+		ptr += 2;
+		_dns_write_short(&ptr, qtype);
+		_dns_write_short(&ptr, qclass);
+		context->ptr = ptr;
 	}
 
 	return 0;
