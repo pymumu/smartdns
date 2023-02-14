@@ -290,6 +290,7 @@ static int _dns_server_reply_passthrough(struct dns_server_post_context *context
 static int _dns_server_do_query(struct dns_request *request, int skip_notify_event);
 static int _dns_request_post(struct dns_server_post_context *context);
 static int _dns_server_reply_all_pending_list(struct dns_request *request, struct dns_server_post_context *context);
+static void *_dns_server_get_dns_rule(struct dns_request *request, enum domain_rule rule);
 
 static void _dns_server_wakeup_thread(void)
 {
@@ -313,17 +314,37 @@ static int _dns_server_has_bind_flag(struct dns_request *request, uint32_t flag)
 	return -1;
 }
 
-static int _dns_server_get_conf_ttl(int ttl)
+static int _dns_server_get_conf_ttl(struct dns_request *request, int ttl)
 {
-	if (dns_conf_rr_ttl > 0) {
-		return dns_conf_rr_ttl;
+	int rr_ttl = dns_conf_rr_ttl;
+	int rr_ttl_min = dns_conf_rr_ttl_min;
+	int rr_ttl_max = dns_conf_rr_ttl_max;
+
+	struct dns_ttl_rule *ttl_rule = _dns_server_get_dns_rule(request, DOMAIN_RULE_TTL);
+	if (ttl_rule != NULL) {
+		if (ttl_rule->ttl > 0) {
+			rr_ttl = ttl_rule->ttl;
+		}
+
+		if (ttl_rule->ttl_min > 0) {
+			rr_ttl_min = ttl_rule->ttl_min;
+		}
+
+		if (ttl_rule->ttl_max > 0) {
+			rr_ttl_max = ttl_rule->ttl_max;
+		}
 	}
 
-	if (dns_conf_rr_ttl_max > 0 && ttl > dns_conf_rr_ttl_max) {
-		ttl = dns_conf_rr_ttl_max;
-	} else if (dns_conf_rr_ttl_min > 0 && ttl < dns_conf_rr_ttl_min) {
-		ttl = dns_conf_rr_ttl_min;
+	if (rr_ttl > 0) {
+		return rr_ttl;
 	}
+
+	if (rr_ttl_min > 0 && ttl > rr_ttl_min) {
+		ttl = rr_ttl_min;
+	} else if (rr_ttl_max > 0 && ttl < rr_ttl_max) {
+		ttl = rr_ttl_max;
+	}
+
 	return ttl;
 }
 
@@ -1058,13 +1079,13 @@ static int _dns_server_request_update_cache(struct dns_request *request, dns_typ
 	if (cache_ttl > 0) {
 		ttl = cache_ttl;
 	} else {
-		ttl = _dns_server_get_conf_ttl(request->ip_ttl);
+		ttl = _dns_server_get_conf_ttl(request, request->ip_ttl);
 	}
 	speed = request->ping_time;
 
 	if (has_soa) {
 		if (request->dualstack_selection && request->has_ip && request->qtype == DNS_T_AAAA) {
-			ttl = _dns_server_get_conf_ttl(request->ip_ttl);
+			ttl = _dns_server_get_conf_ttl(request, request->ip_ttl);
 		} else {
 			ttl = dns_conf_rr_ttl;
 			if (ttl == 0) {
@@ -1220,7 +1241,7 @@ static int _dns_cache_cname_packet(struct dns_server_post_context *context)
 		return -1;
 	}
 
-	ttl = _dns_server_get_conf_ttl(request->ip_ttl);
+	ttl = _dns_server_get_conf_ttl(request, request->ip_ttl);
 	speed = request->ping_time;
 
 	tlog(TLOG_DEBUG, "Cache CNAME: %s, qtype: %d, speed: %d", request->cname, request->qtype, speed);
@@ -2573,14 +2594,14 @@ static int _dns_server_process_answer_A(struct dns_rrs *rrs, struct dns_request 
 	if (request->has_ip == 0) {
 		request->has_ip = 1;
 		memcpy(request->ip_addr, addr, DNS_RR_A_LEN);
-		request->ip_ttl = _dns_server_get_conf_ttl(ttl);
+		request->ip_ttl = _dns_server_get_conf_ttl(request, ttl);
 		if (cname[0] != 0 && request->has_cname == 0 && dns_conf_force_no_cname == 0) {
 			request->has_cname = 1;
 			safe_strncpy(request->cname, cname, DNS_MAX_CNAME_LEN);
 		}
 	} else {
 		if (ttl < request->ip_ttl) {
-			request->ip_ttl = _dns_server_get_conf_ttl(ttl);
+			request->ip_ttl = _dns_server_get_conf_ttl(request, ttl);
 		}
 	}
 
@@ -2650,14 +2671,14 @@ static int _dns_server_process_answer_AAAA(struct dns_rrs *rrs, struct dns_reque
 	if (request->has_ip == 0) {
 		request->has_ip = 1;
 		memcpy(request->ip_addr, addr, DNS_RR_AAAA_LEN);
-		request->ip_ttl = _dns_server_get_conf_ttl(ttl);
+		request->ip_ttl = _dns_server_get_conf_ttl(request, ttl);
 		if (cname[0] != 0 && request->has_cname == 0 && dns_conf_force_no_cname == 0) {
 			request->has_cname = 1;
 			safe_strncpy(request->cname, cname, DNS_MAX_CNAME_LEN);
 		}
 	} else {
 		if (ttl < request->ip_ttl) {
-			request->ip_ttl = _dns_server_get_conf_ttl(ttl);
+			request->ip_ttl = _dns_server_get_conf_ttl(request, ttl);
 		}
 	}
 
@@ -2752,7 +2773,7 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 					continue;
 				}
 				safe_strncpy(cname, domain_cname, DNS_MAX_CNAME_LEN);
-				request->ttl_cname = _dns_server_get_conf_ttl(ttl);
+				request->ttl_cname = _dns_server_get_conf_ttl(request, ttl);
 				tlog(TLOG_DEBUG, "name: %s ttl: %d cname: %s\n", name, ttl, cname);
 			} break;
 			case DNS_T_SOA: {
@@ -2960,7 +2981,7 @@ static int _dns_server_get_answer(struct dns_server_post_context *context)
 
 				memcpy(request->ip_addr, addr, DNS_RR_A_LEN);
 				/* add this ip to request */
-				request->ip_ttl = _dns_server_get_conf_ttl(ttl);
+				request->ip_ttl = _dns_server_get_conf_ttl(request, ttl);
 				request->has_ip = 1;
 				request->rcode = packet->head.rcode;
 			} break;
@@ -2990,7 +3011,7 @@ static int _dns_server_get_answer(struct dns_server_post_context *context)
 				}
 
 				memcpy(request->ip_addr, addr, DNS_RR_AAAA_LEN);
-				request->ip_ttl = _dns_server_get_conf_ttl(ttl);
+				request->ip_ttl = _dns_server_get_conf_ttl(request, ttl);
 				request->has_ip = 1;
 				request->rcode = packet->head.rcode;
 			} break;
@@ -3015,7 +3036,7 @@ static int _dns_server_get_answer(struct dns_server_post_context *context)
 				}
 
 				safe_strncpy(request->cname, cname, DNS_MAX_CNAME_LEN);
-				request->ttl_cname = _dns_server_get_conf_ttl(ttl);
+				request->ttl_cname = _dns_server_get_conf_ttl(request, ttl);
 				request->has_cname = 1;
 			} break;
 			case DNS_T_SOA: {
@@ -3188,7 +3209,7 @@ static int dns_server_resolve_callback(const char *domain, dns_result_type rtype
 				return 0;
 			}
 
-			ttl = _dns_server_get_conf_ttl(ttl);
+			ttl = _dns_server_get_conf_ttl(request, ttl);
 			if (ttl > dns_conf_rr_ttl_reply_max && dns_conf_rr_ttl_reply_max > 0) {
 				ttl = dns_conf_rr_ttl_reply_max;
 			}

@@ -75,6 +75,7 @@ enum domain_rule {
 	DOMAIN_RULE_NAMESERVER,
 	DOMAIN_RULE_CHECKSPEED,
 	DOMAIN_RULE_CNAME,
+	DOMAIN_RULE_TTL,
 	DOMAIN_RULE_MAX,
 };
 
@@ -162,6 +163,13 @@ extern struct dns_ipset_names dns_conf_ipset_no_speed;
 struct dns_cname_rule {
 	struct dns_rule head;
 	char cname[DNS_MAX_CNAME_LEN];
+};
+
+struct dns_ttl_rule {
+	struct dns_rule head;
+	int ttl;
+	int ttl_max;
+	int ttl_min;
 };
 
 struct dns_nftset_name {
