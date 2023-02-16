@@ -56,6 +56,14 @@ o.default     = 53
 o.datatype    = "port"
 o.rempty      = false
 
+-- Automatically Set Dnsmasq
+o = s:taboption("settings", Flag, "auto_set_dnsmasq", translate("Automatically Set Dnsmasq"), translate("Automatically set as upstream of dnsmasq when port changes."))
+o.rmempty     = false
+o.default     = o.enabled
+o.cfgvalue    = function(...)
+    return Flag.cfgvalue(...) or "0"
+end
+
 ---- Speed check mode;
 o = s:taboption("advanced", Value, "speed_check_mode", translate("Speed Check Mode"), translate("Smartdns speed check mode."));
 o.rmempty = true;
@@ -185,14 +193,6 @@ o.rmempty     = false
 o.default     = o.enabled
 o.cfgvalue    = function(...)
     return Flag.cfgvalue(...) or "1"
-end
-
--- Automatically Set Dnsmasq
-o = s:taboption("advanced", Flag, "auto_set_dnsmasq", translate("Automatically Set Dnsmasq"), translate("Automatically set as upstream of dnsmasq when port changes."))
-o.rmempty     = false
-o.default     = o.enabled
-o.cfgvalue    = function(...)
-    return Flag.cfgvalue(...) or "0"
 end
 
 -- Force AAAA SOA
