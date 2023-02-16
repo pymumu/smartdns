@@ -155,6 +155,11 @@ return view.extend({
 		o.default = 53;
 		o.datatype = "port";
 		o.rempty = false;
+		
+		// auto-conf-dnsmasq;
+		o = s.taboption("settings", form.Flag, "auto_set_dnsmasq", _("Automatically Set Dnsmasq"), _("Automatically set as upstream of dnsmasq when port changes."));
+		o.rmempty = false;
+		o.default = o.enabled;
 
 		///////////////////////////////////////
 		// advanced settings;
@@ -259,11 +264,6 @@ return view.extend({
 
 		// cache-size;
 		o = s.taboption("advanced", form.Flag, "resolve_local_hostnames", _("Resolve Local Hostnames"), _("Resolve local hostnames by reading Dnsmasq lease file."));
-		o.rmempty = false;
-		o.default = o.enabled;
-
-		// auto-conf-dnsmasq;
-		o = s.taboption("advanced", form.Flag, "auto_set_dnsmasq", _("Automatically Set Dnsmasq"), _("Automatically set as upstream of dnsmasq when port changes."));
 		o.rmempty = false;
 		o.default = o.enabled;
 
