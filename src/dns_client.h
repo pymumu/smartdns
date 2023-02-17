@@ -113,6 +113,7 @@ struct client_dns_server_flags {
 	unsigned int server_flag;
 	unsigned int result_flag;
 	long long set_mark;
+	int drop_packet_latency_ms;
 	char proxyname[DNS_MAX_CNAME_LEN];
 	union {
 		struct client_dns_server_flag_udp udp;

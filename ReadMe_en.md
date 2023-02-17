@@ -115,6 +115,9 @@ From the comparison, smartdns found the fastest IP address to visit www.baidu.co
 1. **Support IPV4, IPV6 dual stack**  
    Support IPV4, IPV6 network, support query A, AAAA record, dual-stack IP selection, and filter IPV6 AAAA record.
 
+1. **DNS64**  
+   Support DNS64 translation.
+
 1. **High performance, low resource consumption**  
    Multi-threaded asynchronous IO mode, cache cache query results.
 
@@ -167,11 +170,13 @@ Download the matching version of the SmartDNS installation package. The correspo
 
 - The released packages are statically compiled. If you need a small size package, please compile it yourself or obtain it from the openwrt / entware repository.
 
-- **Please download from the Release page: [Download here](https://github.com/pymumu/smartdns/releases)**
+- **Please download from the Release page: [Download here](https://github.com/pymumu/smartdns/releases)**   
+
 
 ```shell
 https://github.com/pymumu/smartdns/releases
 ```
+- For MacOS, Windows, you can try rust version of smartdns: [SmartDNS-rs](https://github.com/mokeyish/smartdns-rs)
 
 - For the installation procedure, please refer to the following sections.
 
@@ -566,6 +571,7 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 |response-mode|First query response mode|first-ping|Mode: [first-ping\|fastest-ip\|fastest-response]<br /> [first-ping]: The fastest dns + ping response mode, DNS query delay + ping delay is the shortest;<br />[fastest-ip]: The fastest IP address mode, return the fastest ip address, may take some time to test speed. <br />[fastest-response]: The fastest response DNS result mode, the DNS query waiting time is the shortest. | response-mode first-ping |
 |address|Domain IP address|None|address /domain/[ip\|-\|-4\|-6\|#\|#4\|#6], `-` for ignore, `#` for return SOA, `4` for IPV4, `6` for IPV6| address /www.example.com/1.2.3.4
 |cname|set cname to domain| None | cname /domain/target <br />- for ignore <br />set cname to domain. | cname /www.example.com/cdn.example.com |
+|dns64|dns64 translation | None | dns64 ip-prefix/mask <br /> ipv6 prefix and mask. | dns64 64:ff9b::/96 |
 |nameserver|To query domain with specific server group|None|nameserver /domain/[group\|-], `group` is the group name, `-` means ignore this rule, use the `-group` parameter in the related server|nameserver /www.example.com/office
 |ipset|Domain IPSet|None|ipset /domain/[ipset\|-\|#[4\|6]:[ipset\|-][,#[4\|6]:[ipset\|-]]], `-` for ignore|ipset /www.example.com/#4:dns4,#6:-
 |ipset-timeout|ipset timeout enable|no|[yes\|no]|ipset-timeout yes

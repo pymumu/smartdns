@@ -282,6 +282,7 @@ struct dns_servers {
 	int ttl;
 	dns_server_type_t type;
 	long long set_mark;
+	unsigned int drop_packet_latency_ms;
 	char skip_check_cert;
 	char spki[DNS_MAX_SPKI_LEN];
 	char hostname[DNS_MAX_CNAME_LEN];
@@ -392,6 +393,13 @@ struct dns_set_rule_flags_callback_args {
 	unsigned int flags;
 	int is_clear_flag;
 };
+
+struct dns_dns64 {
+	unsigned char prefix[DNS_RR_AAAA_LEN];
+	uint32_t prefix_len;
+};
+
+extern struct dns_dns64 dns_conf_dns_dns64;
 
 extern struct dns_bind_ip dns_conf_bind_ip[DNS_MAX_BIND_IP];
 extern int dns_conf_bind_ip_num;

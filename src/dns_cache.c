@@ -329,7 +329,7 @@ static void _dns_cache_remove_by_domain(struct dns_cache_key *cache_key)
 			continue;
 		}
 
-		if (strncmp(dns_cache->info.dns_group_name, cache_key->dns_group_name, DNS_MAX_CNAME_LEN) != 0) {
+		if (strncmp(dns_cache->info.dns_group_name, cache_key->dns_group_name, DNS_GROUP_NAME_LEN) != 0) {
 			continue;
 		}
 
@@ -408,6 +408,7 @@ int dns_cache_insert(struct dns_cache_key *cache_key, int ttl, int speed, int no
 		ttl = DNS_CACHE_TTL_MIN;
 	}
 
+	memset(&info, 0, sizeof(info));
 	info.hitnum = 3;
 	safe_strncpy(info.domain, cache_key->domain, DNS_MAX_CNAME_LEN);
 	info.qtype = cache_key->qtype;

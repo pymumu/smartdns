@@ -61,6 +61,9 @@ static time_t dns_conf_dnsmasq_lease_file_time;
 struct dns_hosts_table dns_hosts_table;
 int dns_hosts_record_num;
 
+/* DNS64 */
+struct dns_dns64 dns_conf_dns_dns64;
+
 /* server ip/port  */
 struct dns_bind_ip dns_conf_bind_ip[DNS_MAX_BIND_IP];
 int dns_conf_bind_ip_num = 0;
@@ -459,6 +462,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 	unsigned int result_flag = 0;
 	unsigned int server_flag = 0;
 	unsigned char *spki = NULL;
+	int drop_packet_latency_ms = 0;
 
 	int ttl = 0;
 	/* clang-format off */
@@ -469,6 +473,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 		/* experimental feature */
 		{"check-edns", no_argument, NULL, 'e'},   /* check edns */
 #endif 
+		{"drop-packet-latency", required_argument, NULL, 'D'},
 		{"spki-pin", required_argument, NULL, 'p'}, /* check SPKI pin */
 		{"host-name", required_argument, NULL, 'h'}, /* host name */
 		{"http-host", required_argument, NULL, 'H'}, /* http host */
@@ -500,6 +505,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 	server->tls_host_verify[0] = '\0';
 	server->proxyname[0] = '\0';
 	server->set_mark = -1;
+	server->drop_packet_latency_ms = drop_packet_latency_ms;
 
 	if (parse_uri(ip, scheme, server->server, &port, server->path) != 0) {
 		return -1;
@@ -569,6 +575,10 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 			safe_strncpy(server->httphost, optarg, DNS_MAX_CNAME_LEN);
 			break;
 		}
+		case 'D': {
+			drop_packet_latency_ms = atoi(optarg);
+			break;
+		}
 		case 'E': {
 			server_flag |= SERVER_FLAG_EXCLUDE_DEFAULT;
 			break;
@@ -615,6 +625,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 	server->result_flag = result_flag;
 	server->server_flag = server_flag;
 	server->ttl = ttl;
+	server->drop_packet_latency_ms = drop_packet_latency_ms;
 	dns_conf_server_num++;
 	tlog(TLOG_DEBUG, "add server %s, flag: %X, ttl: %d", ip, result_flag, ttl);
 
@@ -1688,6 +1699,43 @@ static int _config_speed_check_mode(void *data, int argc, char *argv[])
 
 	safe_strncpy(mode, argv[1], sizeof(mode));
 	return _config_speed_check_mode_parser(&dns_conf_check_orders, mode);
+}
+
+static int _config_dns64(void *data, int argc, char *argv[])
+{
+	prefix_t prefix;
+	char *subnet = NULL;
+	const char *errmsg = NULL;
+	void *p = NULL;
+
+	if (argc <= 1) {
+		return -1;
+	}
+
+	subnet = argv[1];
+
+	p = prefix_pton(subnet, -1, &prefix, &errmsg);
+	if (p == NULL) {
+		goto errout;
+	}
+
+	if (prefix.family != AF_INET6) {
+		tlog(TLOG_ERROR, "dns64 subnet %s is not ipv6", subnet);
+		goto errout;
+	}
+
+	if (prefix.bitlen <= 0 || prefix.bitlen > 96) {
+		tlog(TLOG_ERROR, "dns64 subnet %s is not valid", subnet);
+		goto errout;
+	}
+
+	memcpy(&dns_conf_dns_dns64.prefix, &prefix.add.sin6.s6_addr, sizeof(dns_conf_dns_dns64.prefix));
+	dns_conf_dns_dns64.prefix_len = prefix.bitlen;
+
+	return 0;
+
+errout:
+	return -1;
 }
 
 static int _config_bind_ip(int argc, char *argv[], DNS_BIND_TYPE type)
@@ -3021,6 +3069,7 @@ static struct config_item _config_item[] = {
 	CONF_YESNO("dualstack-ip-selection", &dns_conf_dualstack_ip_selection),
 	CONF_YESNO("dualstack-ip-allow-force-AAAA", &dns_conf_dualstack_ip_allow_force_AAAA),
 	CONF_INT("dualstack-ip-selection-threshold", &dns_conf_dualstack_ip_selection_threshold, 0, 1000),
+	CONF_CUSTOM("dns64", _config_dns64, NULL),
 	CONF_CUSTOM("log-level", _config_log_level, NULL),
 	CONF_STRING("log-file", (char *)dns_conf_log_file, DNS_MAX_PATH),
 	CONF_SIZE("log-size", &dns_conf_log_size, 0, 1024 * 1024 * 1024),

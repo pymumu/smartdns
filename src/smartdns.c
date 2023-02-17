@@ -269,6 +269,7 @@ static int _smartdns_add_servers(void)
 		flags.server_flag = dns_conf_servers[i].server_flag;
 		flags.result_flag = dns_conf_servers[i].result_flag;
 		flags.set_mark = dns_conf_servers[i].set_mark;
+		flags.drop_packet_latency_ms = dns_conf_servers[i].drop_packet_latency_ms;
 		safe_strncpy(flags.proxyname, dns_conf_servers[i].proxyname, sizeof(flags.proxyname));
 		ret = dns_client_add_server(dns_conf_servers[i].server, dns_conf_servers[i].port, dns_conf_servers[i].type,
 									&flags);
