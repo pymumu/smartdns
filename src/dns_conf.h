@@ -393,6 +393,13 @@ struct dns_set_rule_flags_callback_args {
 	int is_clear_flag;
 };
 
+struct dns_dns64 {
+	unsigned char prefix[DNS_RR_AAAA_LEN];
+	uint32_t prefix_len;
+};
+
+extern struct dns_dns64 dns_conf_dns_dns64;
+
 extern struct dns_bind_ip dns_conf_bind_ip[DNS_MAX_BIND_IP];
 extern int dns_conf_bind_ip_num;
 

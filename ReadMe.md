@@ -120,6 +120,9 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 1. **支持 IPv4、IPv6 双栈**  
    支持 IPv4 和 IPV 6网络，支持查询 A 和 AAAA 记录，支持双栈 IP 速度优化，并支持完全禁用 IPv6 AAAA 解析。
 
+1. **支持DNS64**  
+   支持DNS64转换。
+
 1. **高性能、占用资源少**  
    多线程异步 IO 模式，cache 缓存查询结果。
 
@@ -603,6 +606,7 @@ entware|ipkg update<br />ipkg install smartdns|软件源路径：<https://bin.en
 | response-mode | 首次查询响应模式 | first-ping |模式：[first-ping\|fastest-ip\|fastest-response]<br /> [first-ping]: 最快ping响应地址模式，DNS上游最快查询时延+ping时延最短，查询等待与链接体验最佳;<br />[fastest-ip]: 最快IP地址模式，查询到的所有IP地址中ping最短的IP。需等待IP测速; <br />[fastest-response]: 最快响应的DNS结果，DNS查询等待时间最短，返回的IP地址可能不是最快。| response-mode first-ping |
 | address | 指定域名 IP 地址 | 无 | address /domain/[ip\|-\|-4\|-6\|#\|#4\|#6] <br />- 表示忽略 <br /># 表示返回 SOA <br />4 表示 IPv4 <br />6 表示 IPv6 | address /www.example.com/1.2.3.4 |
 | cname | 指定域名别名 | 无 | cname /domain/target <br />- 表示忽略 <br />指定对应域名的cname | cname /www.example.com/cdn.example.com |
+| dns64 | DNS64转换 | 无 | dns64 ip-prefix/mask <br /> ipv6前缀和掩码 | dns64 64:ff9b::/96 |
 | nameserver | 指定域名使用 server 组解析 | 无 | nameserver /domain/[group\|-], group 为组名，- 表示忽略此规则，配套 server 中的 -group 参数使用 | nameserver /www.example.com/office |
 | ipset | 域名 ipset | 无 | ipset /domain/[ipset\|-\|#[4\|6]:[ipset\|-][,#[4\|6]:[ipset\|-]]]，-表示忽略 | ipset /www.example.com/#4:dns4,#6:- <br />ipset /www.example.com/dns |
 | ipset-timeout | 设置 ipset 超时功能启用  | no | [yes\|no] | ipset-timeout yes |
