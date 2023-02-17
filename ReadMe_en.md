@@ -170,11 +170,13 @@ Download the matching version of the SmartDNS installation package. The correspo
 
 - The released packages are statically compiled. If you need a small size package, please compile it yourself or obtain it from the openwrt / entware repository.
 
-- **Please download from the Release page: [Download here](https://github.com/pymumu/smartdns/releases)**
+- **Please download from the Release page: [Download here](https://github.com/pymumu/smartdns/releases)**   
+
 
 ```shell
 https://github.com/pymumu/smartdns/releases
 ```
+- For MacOS, Windows, you can try rust version of smartdns: [SmartDNS-rs](https://github.com/mokeyish/smartdns-rs)
 
 - For the installation procedure, please refer to the following sections.
 

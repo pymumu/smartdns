@@ -173,13 +173,15 @@ entware|ipkg update<br />ipkg install smartdns|软件源路径：<https://bin.en
 | OpenWrt LuCI | luci-app-smartdns.1.yyyy.MM.dd-REL.all.ipk | OpenWrt 管理界面 |
 | OpenWrt LuCI | luci-app-smartdns.1.yyyy.MM.dd-REL.all-luci-compat-all.ipk | OpenWrt 管理界面、OpenWrt 18.xx 及之前版本 |
 
-**[前往 Release 页面下载](https://github.com/pymumu/smartdns/releases)。**
+**[前往 Release 页面下载](https://github.com/pymumu/smartdns/releases)。**  
 
 **请注意：**
 
 - Release 释出的软件包采取静态编译，无外部依赖，但体积大。若需要小体积软件包，请自行编译或从 OpenWrt / Entware 仓库获取。
 
 - 静态编译的软件包未强制判断 CPU 架构，安装不正确的软件包将会导致服务无法启动，请确保正确安装对应的版本。
+
+- MacOS，Windows可获取Rust语言实现的Smartdns: [SmartDNS-rs](https://github.com/mokeyish/smartdns-rs)。 
 
 ## 安装和使用
 
