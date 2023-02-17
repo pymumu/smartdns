@@ -4077,7 +4077,8 @@ _dns_server_process_dns64_callback(struct dns_request *request, struct dns_reque
 			pthread_mutex_unlock(&child_request->ip_map_lock);
 			return DNS_CHILD_POST_FAIL;
 		}
-
+		memset(new_addr_map, 0, sizeof(struct dns_ip_address));
+		
 		new_addr_map->addr_type = DNS_T_AAAA;
 		addr_len = DNS_RR_AAAA_LEN;
 		memcpy(new_addr_map->ip_addr, dns_conf_dns_dns64.prefix, 16);

@@ -408,6 +408,7 @@ int dns_cache_insert(struct dns_cache_key *cache_key, int ttl, int speed, int no
 		ttl = DNS_CACHE_TTL_MIN;
 	}
 
+	memset(&info, 0, sizeof(info));
 	info.hitnum = 3;
 	safe_strncpy(info.domain, cache_key->domain, DNS_MAX_CNAME_LEN);
 	info.qtype = cache_key->qtype;
