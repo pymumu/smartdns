@@ -329,7 +329,7 @@ static void _dns_cache_remove_by_domain(struct dns_cache_key *cache_key)
 			continue;
 		}
 
-		if (strncmp(dns_cache->info.dns_group_name, cache_key->dns_group_name, DNS_MAX_CNAME_LEN) != 0) {
+		if (strncmp(dns_cache->info.dns_group_name, cache_key->dns_group_name, DNS_GROUP_NAME_LEN) != 0) {
 			continue;
 		}
 

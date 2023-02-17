@@ -462,6 +462,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 	unsigned int result_flag = 0;
 	unsigned int server_flag = 0;
 	unsigned char *spki = NULL;
+	int drop_packet_latency_ms = 0;
 
 	int ttl = 0;
 	/* clang-format off */
@@ -472,6 +473,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 		/* experimental feature */
 		{"check-edns", no_argument, NULL, 'e'},   /* check edns */
 #endif 
+		{"drop-packet-latency", required_argument, NULL, 'D'},
 		{"spki-pin", required_argument, NULL, 'p'}, /* check SPKI pin */
 		{"host-name", required_argument, NULL, 'h'}, /* host name */
 		{"http-host", required_argument, NULL, 'H'}, /* http host */
@@ -503,6 +505,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 	server->tls_host_verify[0] = '\0';
 	server->proxyname[0] = '\0';
 	server->set_mark = -1;
+	server->drop_packet_latency_ms = drop_packet_latency_ms;
 
 	if (parse_uri(ip, scheme, server->server, &port, server->path) != 0) {
 		return -1;
@@ -572,6 +575,10 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 			safe_strncpy(server->httphost, optarg, DNS_MAX_CNAME_LEN);
 			break;
 		}
+		case 'D': {
+			drop_packet_latency_ms = atoi(optarg);
+			break;
+		}
 		case 'E': {
 			server_flag |= SERVER_FLAG_EXCLUDE_DEFAULT;
 			break;
@@ -618,6 +625,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 	server->result_flag = result_flag;
 	server->server_flag = server_flag;
 	server->ttl = ttl;
+	server->drop_packet_latency_ms = drop_packet_latency_ms;
 	dns_conf_server_num++;
 	tlog(TLOG_DEBUG, "add server %s, flag: %X, ttl: %d", ip, result_flag, ttl);
 

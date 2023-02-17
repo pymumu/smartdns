@@ -282,6 +282,7 @@ struct dns_servers {
 	int ttl;
 	dns_server_type_t type;
 	long long set_mark;
+	unsigned int drop_packet_latency_ms;
 	char skip_check_cert;
 	char spki[DNS_MAX_SPKI_LEN];
 	char hostname[DNS_MAX_CNAME_LEN];

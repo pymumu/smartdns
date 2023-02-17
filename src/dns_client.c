@@ -97,6 +97,7 @@ struct dns_server_info {
 	/* server type */
 	dns_server_type_t type;
 	long long so_mark;
+	int drop_packet_latency_ms;
 
 	/* client socket */
 	int fd;
@@ -118,6 +119,7 @@ struct dns_server_info {
 
 	time_t last_send;
 	time_t last_recv;
+	unsigned long send_tick;
 	int prohibit;
 
 	/* server addr info */
@@ -1056,6 +1058,7 @@ static int _dns_client_server_add(char *server_ip, char *server_host, int port, 
 	server_info->skip_check_cert = skip_check_cert;
 	server_info->prohibit = 0;
 	server_info->so_mark = flags->set_mark;
+	server_info->drop_packet_latency_ms = flags->drop_packet_latency_ms;
 	safe_strncpy(server_info->proxy_name, flags->proxyname, sizeof(server_info->proxy_name));
 	pthread_mutex_init(&server_info->lock, NULL);
 	memcpy(&server_info->flags, flags, sizeof(server_info->flags));
@@ -2261,6 +2264,11 @@ static int _dns_client_process_udp(struct dns_server_info *server_info, struct e
 	/* update recv time */
 	time(&server_info->last_recv);
 
+	int latency = get_tick_count() - server_info->send_tick;
+	if (latency < server_info->drop_packet_latency_ms) {
+		return 0;
+	}
+
 	/* processing dns packet */
 	if (_dns_client_recv(server_info, inpacket, len, (struct sockaddr *)&from, from_len) != 0) {
 		return -1;
@@ -3326,6 +3334,7 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 				continue;
 			}
 			time(&server_info->last_send);
+			server_info->send_tick = get_tick_count();
 		}
 		pthread_mutex_unlock(&client.server_list_lock);
 
