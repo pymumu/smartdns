@@ -346,9 +346,9 @@ static int _dns_server_get_conf_ttl(struct dns_request *request, int ttl)
 		return rr_ttl;
 	}
 
-	if (rr_ttl_max > 0 && ttl > rr_ttl_max) {
+	if (rr_ttl_max > 0 && ttl >= rr_ttl_max) {
 		ttl = rr_ttl_max;
-	} else if (rr_ttl_min > 0 && ttl < rr_ttl_min) {
+	} else if (rr_ttl_min > 0 && ttl <= rr_ttl_min) {
 		ttl = rr_ttl_min;
 	}
 
