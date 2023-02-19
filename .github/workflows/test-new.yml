@@ -57,7 +57,7 @@ jobs:
           tar -zxvf openssl.tar.gz --strip-components 1 -C openssl
 
           cat >> docker-build.sh << EOF
-          apk add perl make coreutils tar pkgconfig dpkg
+          apk add perl make coreutils tar pkgconfig dpkg binutils
           cd /workdir/openssl
           if [ "$GOARCH" == "mipsel" ] || [ "$GOARCH" == "mips" ] ;then
             ./Configure no-tests linux-mips32
