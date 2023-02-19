@@ -78,11 +78,13 @@ jobs:
           ./package/build-pkg.sh --platform linux --arch all --filearch $GOARCH-linux --static --outputdir /workdir/build
           ./package/build-pkg.sh --platform openwrt --arch all --filearch $GOARCH-openwrt --static --outputdir /workdir/build
           ./package/build-pkg.sh --platform optware --arch all --filearch $GOARCH-optware --static --outputdir /workdir/build
+          cp ./src/smartdns /workdir/build/smartdns-$GOARCH -a
           patch -p0 src/Makefile Makefile.patch
           ./package/build-pkg.sh --platform debian --arch all --filearch $GOARCH-debian-edns --static --outputdir /workdir/build
           ./package/build-pkg.sh --platform linux --arch all --filearch $GOARCH-linux-edns --static --outputdir /workdir/build
           ./package/build-pkg.sh --platform openwrt --arch all --filearch $GOARCH-openwrt-edns --static --outputdir /workdir/build
           ./package/build-pkg.sh --platform optware --arch all --filearch $GOARCH-optware-edns --static --outputdir /workdir/build
+          cp ./src/smartdns /workdir/build/smartdns-$GOARCH-edns -a
           EOF
 
           cat >> Makefile.patch << EOF
@@ -104,10 +106,10 @@ jobs:
             docker run -i --rm -v ${{ github.workspace }}:/workdir muslcc/x86_64:$GOARCH-linux-musl sh /workdir/docker-build.sh
           fi
 
-      - name: Upload To Artifact
-        uses: actions/upload-artifact@v2
-        with:
-          path: ${{ github.workspace }}/build/
+#      - name: Upload To Artifact
+#        uses: actions/upload-artifact@v2
+#        with:
+#          path: ${{ github.workspace }}/build/
 
       - name: Generate release tag
         id: tag
