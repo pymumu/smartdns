@@ -41,13 +41,14 @@
 #include <netinet/ip_icmp.h>
 #include <netinet/tcp.h>
 #include <openssl/err.h>
-#include <openssl/ssl.h>
 #include <openssl/rand.h>
+#include <openssl/ssl.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/epoll.h>
+#include <sys/eventfd.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -196,7 +197,6 @@ struct dns_client {
 
 	/* query list */
 	struct list_head dns_request_list;
-	pthread_cond_t run_cond;
 	atomic_t run_period;
 	atomic_t dns_server_num;
 
@@ -208,6 +208,8 @@ struct dns_client {
 	pthread_mutex_t domain_map_lock;
 	DECLARE_HASHTABLE(domain_map, 6);
 	DECLARE_HASHTABLE(group, 4);
+
+	int fd_wakeup;
 };
 
 /* dns replied server info */
@@ -264,6 +266,8 @@ static pthread_mutex_t pending_server_mutex = PTHREAD_MUTEX_INITIALIZER;
 static int dns_client_has_bootstrap_dns = 0;
 
 static int _dns_client_send_udp(struct dns_server_info *server_info, void *packet, int len);
+static void _dns_client_clear_wakeup_event(void);
+static void _dns_client_do_wakeup_event(void);
 
 static ssize_t _ssl_read(struct dns_server_info *server, void *buff, int num)
 {
@@ -1337,9 +1341,8 @@ static int _dns_client_server_pending(char *server_ip, int port, dns_server_type
 	atomic_set(&client.run_period, 1);
 	pthread_mutex_unlock(&pending_server_mutex);
 
-	pthread_mutex_lock(&client.domain_map_lock);
-	pthread_cond_signal(&client.run_cond);
-	pthread_mutex_unlock(&client.domain_map_lock);
+	_dns_client_do_wakeup_event();
+
 	return 0;
 errout:
 	if (pending) {
@@ -1514,7 +1517,7 @@ static void _dns_client_check_tcp(void)
 		}
 
 		if (server_info->status == DNS_SERVER_STATUS_CONNECTING) {
-			if (server_info->last_send + DNS_TCP_CONNECT_TIMEOUT < now) {
+			if (server_info->last_recv + DNS_TCP_CONNECT_TIMEOUT < now) {
 				tlog(TLOG_DEBUG, "server %s connect timeout.", server_info->ip);
 				_dns_client_close_socket(server_info);
 			}
@@ -3569,7 +3572,7 @@ int dns_client_query(const char *domain, int qtype, dns_client_callback callback
 	pthread_mutex_lock(&client.domain_map_lock);
 	if (hash_hashed(&query->domain_node)) {
 		if (list_empty(&client.dns_request_list)) {
-			pthread_cond_signal(&client.run_cond);
+			_dns_client_do_wakeup_event();
 		}
 
 		list_add_tail(&query->dns_request_list, &client.dns_request_list);
@@ -3818,15 +3821,12 @@ static void _dns_client_period_run_second(void)
 	_dns_client_add_pending_servers();
 }
 
-static void _dns_client_period_run(void)
+static void _dns_client_period_run(unsigned int msec)
 {
 	struct dns_query_struct *query = NULL;
 	struct dns_query_struct *tmp = NULL;
-	static unsigned int msec = 0;
-	msec++;
 
 	LIST_HEAD(check_list);
-
 	unsigned long now = get_tick_count();
 
 	/* get query which timed out to check list */
@@ -3869,9 +3869,11 @@ static void *_dns_client_work(void *arg)
 	int i = 0;
 	unsigned long now = {0};
 	unsigned long last = {0};
+	unsigned int msec = 0;
 	unsigned int sleep = 100;
 	int sleep_time = 0;
 	unsigned long expect_time = 0;
+	int unused __attribute__((unused));
 
 	sleep_time = sleep;
 	now = get_tick_count() - sleep;
@@ -3884,11 +3886,17 @@ static void *_dns_client_work(void *arg)
 			if (sleep_time <= 0) {
 				sleep_time = 0;
 			}
+
+			int cnt = sleep_time / sleep;
+			msec -= cnt;
+			expect_time -= cnt * sleep;
+			sleep_time -= cnt * sleep;
 		}
 
 		if (now >= expect_time) {
+			msec++;
 			if (last != now) {
-				_dns_client_period_run();
+				_dns_client_period_run(msec);
 			}
 
 			sleep_time = sleep - (now - expect_time);
@@ -3896,18 +3904,20 @@ static void *_dns_client_work(void *arg)
 				sleep_time = 0;
 				expect_time = now;
 			}
+
+			/* When client is idle, the sleep time is 1000ms, to reduce CPU usage */
+			pthread_mutex_lock(&client.domain_map_lock);
+			if (list_empty(&client.dns_request_list)) {
+				int cnt = 10 - (msec % 10) - 1;
+				sleep_time += sleep * cnt;
+				msec += cnt;
+				/* sleep to next second */
+				expect_time += sleep * cnt;
+			}
+			pthread_mutex_unlock(&client.domain_map_lock);
 			expect_time += sleep;
 		}
 		last = now;
-
-		pthread_mutex_lock(&client.domain_map_lock);
-		if (list_empty(&client.dns_request_list) && atomic_read(&client.run_period) == 0) {
-			pthread_cond_wait(&client.run_cond, &client.domain_map_lock);
-			expect_time = get_tick_count();
-			pthread_mutex_unlock(&client.domain_map_lock);
-			continue;
-		}
-		pthread_mutex_unlock(&client.domain_map_lock);
 
 		num = epoll_wait(client.epoll_fd, events, DNS_MAX_EVENTS, sleep_time);
 		if (num < 0) {
@@ -3918,6 +3928,11 @@ static void *_dns_client_work(void *arg)
 		for (i = 0; i < num; i++) {
 			struct epoll_event *event = &events[i];
 			struct dns_server_info *server_info = (struct dns_server_info *)event->data.ptr;
+			if (event->data.fd == client.fd_wakeup) {
+				_dns_client_clear_wakeup_event();
+				continue;
+			}
+
 			if (server_info == NULL) {
 				tlog(TLOG_WARN, "server info is invalid.");
 				continue;
@@ -3971,10 +3986,71 @@ int dns_client_set_ecs(char *ip, int subnet)
 	return 0;
 }
 
+static int _dns_client_create_wakeup_event(void)
+{
+	int fd_wakeup = -1;
+
+	fd_wakeup = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+	if (fd_wakeup < 0) {
+		tlog(TLOG_ERROR, "create eventfd failed, %s\n", strerror(errno));
+		goto errout;
+	}
+
+	struct epoll_event event;
+	memset(&event, 0, sizeof(event));
+	event.events = EPOLLIN;
+	event.data.fd = fd_wakeup;
+	if (epoll_ctl(client.epoll_fd, EPOLL_CTL_ADD, fd_wakeup, &event) < 0) {
+		tlog(TLOG_ERROR, "add eventfd to epoll failed, %s\n", strerror(errno));
+		goto errout;
+	}
+
+	return fd_wakeup;
+
+errout:
+	if (fd_wakeup > 0) {
+		close(fd_wakeup);
+	}
+
+	return -1;
+}
+
+static void _dns_client_close_wakeup_event(void)
+{
+	if (client.fd_wakeup > 0) {
+		close(client.fd_wakeup);
+		client.fd_wakeup = -1;
+	}
+}
+
+static void _dns_client_clear_wakeup_event(void)
+{
+	uint64_t val = 0;
+	int unused __attribute__((unused));
+
+	if (client.fd_wakeup <= 0) {
+		return;
+	}
+
+	unused = read(client.fd_wakeup, &val, sizeof(val));
+}
+
+static void _dns_client_do_wakeup_event(void)
+{
+	uint64_t val = 1;
+	int unused __attribute__((unused));
+	if (client.fd_wakeup <= 0) {
+		return;
+	}
+
+	unused = write(client.fd_wakeup, &val, sizeof(val));
+}
+
 int dns_client_init(void)
 {
 	pthread_attr_t attr;
 	int epollfd = -1;
+	int fd_wakeup = -1;
 	int ret = 0;
 
 	if (client.epoll_fd > 0) {
@@ -4002,8 +4078,6 @@ int dns_client_init(void)
 	hash_init(client.group);
 	INIT_LIST_HEAD(&client.dns_request_list);
 
-	pthread_cond_init(&client.run_cond, NULL);
-
 	if (dns_client_add_group(DNS_SERVER_GROUP_DEFAULT) != 0) {
 		tlog(TLOG_ERROR, "add default server group failed.");
 		goto errout;
@@ -4020,6 +4094,14 @@ int dns_client_init(void)
 		goto errout;
 	}
 
+	fd_wakeup = _dns_client_create_wakeup_event();
+	if (fd_wakeup < 0) {
+		tlog(TLOG_ERROR, "create wakeup event failed, %s\n", strerror(errno));
+		goto errout;
+	}
+
+	client.fd_wakeup = fd_wakeup;
+
 	return 0;
 errout:
 	if (client.tid) {
@@ -4029,13 +4111,16 @@ errout:
 		client.tid = 0;
 	}
 
-	if (epollfd) {
+	if (epollfd > 0) {
 		close(epollfd);
+	}
+
+	if (fd_wakeup > 0) {
+		close(fd_wakeup);
 	}
 
 	pthread_mutex_destroy(&client.server_list_lock);
 	pthread_mutex_destroy(&client.domain_map_lock);
-	pthread_cond_destroy(&client.run_cond);
 
 	return -1;
 }
@@ -4045,14 +4130,13 @@ void dns_client_exit(void)
 	if (client.tid) {
 		void *ret = NULL;
 		atomic_set(&client.run, 0);
-		pthread_mutex_lock(&client.domain_map_lock);
-		pthread_cond_signal(&client.run_cond);
-		pthread_mutex_unlock(&client.domain_map_lock);
+		_dns_client_do_wakeup_event();
 		pthread_join(client.tid, &ret);
 		client.tid = 0;
 	}
 
 	/* free all resources */
+	_dns_client_close_wakeup_event();
 	_dns_client_remove_all_pending_servers();
 	_dns_client_server_remove_all();
 	_dns_client_query_remove_all();
@@ -4060,7 +4144,6 @@ void dns_client_exit(void)
 
 	pthread_mutex_destroy(&client.server_list_lock);
 	pthread_mutex_destroy(&client.domain_map_lock);
-	pthread_cond_destroy(&client.run_cond);
 	if (client.ssl_ctx) {
 		SSL_CTX_free(client.ssl_ctx);
 		client.ssl_ctx = NULL;

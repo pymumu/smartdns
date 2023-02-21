@@ -2948,6 +2948,12 @@ static int _dns_server_passthrough_rule_check(struct dns_request *request, const
 				dns_get_CNAME(rrs, name, DNS_MAX_CNAME_LEN, &ttl, cname, DNS_MAX_CNAME_LEN);
 			} break;
 			default:
+				if (ttl == 0) {
+					/* Get TTL */
+					char tmpname[DNS_MAX_CNAME_LEN];
+					char tmpbuf[DNS_MAX_CNAME_LEN];		
+					dns_get_CNAME(rrs, tmpname, DNS_MAX_CNAME_LEN, &ttl, tmpbuf, DNS_MAX_CNAME_LEN);
+				}
 				break;
 			}
 		}

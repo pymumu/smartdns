@@ -110,6 +110,7 @@ struct tlog {
     tlog_log_output_func output_func;
     struct tlog_log *wait_on_log;
     int is_wait;
+    char gzip_cmd[PATH_MAX];
 };
 
 struct tlog_segment_log_head {
@@ -520,7 +521,7 @@ static int _tlog_vprintf(struct tlog_log *log, vprint_callback print_callback, v
         return -1;
     }
 
-    if (unlikely(log->logcount <= 0 && log->logscreen == 0) ) {
+    if (unlikely(log->logcount <= 0 && log->logscreen == 0)) {
         return 0;
     }
 
@@ -1018,7 +1019,6 @@ errout:
 static int _tlog_archive_log_compressed(struct tlog_log *log)
 {
     char gzip_file[TLOG_BUFF_LEN];
-    char gzip_cmd[PATH_MAX * 2];
     char log_file[TLOG_BUFF_LEN];
     char pending_file[TLOG_BUFF_LEN];
 
@@ -1046,12 +1046,11 @@ static int _tlog_archive_log_compressed(struct tlog_log *log)
     }
 
     /* start gzip process to compress log file */
-    snprintf(gzip_cmd, sizeof(gzip_cmd), "gzip -1 %s", pending_file);
     if (log->zip_pid <= 0) {
         int pid = vfork();
         if (pid == 0) {
             _tlog_close_all_fd();
-            execl("/bin/sh", "sh", "-c", gzip_cmd, NULL);
+            execl(tlog.gzip_cmd, "-1", pending_file, NULL);
             _exit(1);
         } else if (pid < 0) {
             goto errout;
@@ -1363,12 +1362,26 @@ static struct tlog_log *_tlog_wait_log_locked(struct tlog_log *last_log)
     int ret = 0;
     struct timespec tm;
     struct tlog_log *log = NULL;
+    struct tlog_log *next = NULL;
+    int need_wait_pid = 0;
+
+    for (next = tlog.log; next != NULL; next = next->next) {
+        if (next->zip_pid > 0) {
+            need_wait_pid = 1;
+            break;
+        }
+    }
 
     clock_gettime(CLOCK_REALTIME, &tm);
     tm.tv_sec += 2;
     tlog.is_wait = 1;
     tlog.wait_on_log = last_log;
-    ret = pthread_cond_timedwait(&tlog.cond, &tlog.lock, &tm);
+    if (need_wait_pid != 0) {
+        ret = pthread_cond_timedwait(&tlog.cond, &tlog.lock, &tm);
+    } else {
+        ret = pthread_cond_wait(&tlog.cond, &tlog.lock);
+    }
+
     tlog.is_wait = 0;
     tlog.wait_on_log = NULL;
     errno = ret;
@@ -1676,6 +1689,15 @@ int tlog_setlevel(tlog_level level)
     return 0;
 }
 
+int tlog_log_enabled(tlog_level level)
+{
+    if (level >= TLOG_END) {
+        return 0;
+    }
+
+    return (tlog_set_level >= level) ? 1 : 0;
+}
+
 tlog_level tlog_getlevel(void)
 {
     return tlog_set_level;
@@ -1684,6 +1706,35 @@ tlog_level tlog_getlevel(void)
 void tlog_set_logfile(const char *logfile)
 {
     tlog_rename_logfile(tlog.root, logfile);
+}
+
+static void _tlog_get_gzip_cmd_path(void)
+{
+    char *copy_path = NULL;
+    char gzip_cmd_path[PATH_MAX];
+    const char *env_path = getenv("PATH");
+    char *save_ptr = NULL;
+
+    if (env_path == NULL) {
+        env_path = "/bin:/usr/bin:/usr/local/bin";
+    }
+
+    copy_path = strdup(env_path);
+    if (copy_path == NULL) {
+        return;
+    }
+
+    for (char *tok = strtok_r(copy_path, ":", &save_ptr); tok; tok = strtok_r(NULL, ":", &save_ptr)) {
+        snprintf(gzip_cmd_path, sizeof(gzip_cmd_path), "%s/gzip", tok);
+        if (access(gzip_cmd_path, X_OK) != 0) {
+            continue;
+        }
+        
+        snprintf(tlog.gzip_cmd, sizeof(tlog.gzip_cmd), "%s", gzip_cmd_path);
+        break;
+    }
+
+    free(copy_path);
 }
 
 tlog_log *tlog_open(const char *logfile, int maxlogsize, int maxlogcount, int buffsize, unsigned int flag)
@@ -1725,6 +1776,10 @@ tlog_log *tlog_open(const char *logfile, int maxlogsize, int maxlogcount, int bu
     log->output_func = _tlog_write;
     log->file_perm = S_IRUSR | S_IWUSR | S_IRGRP;
     log->archive_perm = S_IRUSR | S_IRGRP;
+
+    if (log->nocompress == 0 && tlog.gzip_cmd[0] == '\0') {
+        log->nocompress = 1;
+    }
 
     tlog_rename_logfile(log, logfile);
     if (log->nocompress) {
@@ -1859,6 +1914,7 @@ int tlog_init(const char *logfile, int maxlogsize, int maxlogcount, int buffsize
     memset(&tlog, 0, sizeof(tlog));
     tlog.is_wait = 0;
 
+    _tlog_get_gzip_cmd_path();
     pthread_attr_init(&attr);
     pthread_cond_init(&tlog.cond, NULL);
     pthread_mutex_init(&tlog.lock, NULL);
@@ -1870,6 +1926,10 @@ int tlog_init(const char *logfile, int maxlogsize, int maxlogcount, int buffsize
         goto errout;
     }
     tlog_reg_output_func(log, _tlog_root_write_log);
+
+    if ((flag & TLOG_NOCOMPRESS) == 0 && tlog.gzip_cmd[0] == '\0') {
+        fprintf(stderr, "can not find gzip command, disable compress.\n");
+    }
 
     tlog.root = log;
     ret = pthread_create(&tlog.tid, &attr, _tlog_work, NULL);
