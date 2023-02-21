@@ -343,28 +343,28 @@ case "$1" in
 	$SMARTDNS_BIN -c "$SMARTDNS_CONF" -p $SMARTDNS_PID
 	if [ $? -ne 0 ]; then
 		clear_rule
+		exit 1
 	fi
 	;;
 	status)
 	pid="$(cat $SMARTDNS_PID |head -n 1 2>/dev/null)"
 	if [ -z "$pid" ]; then
 		echo "smartdns not running."
-		return 0
+		exit 0
 	fi
 
 	if [ -d "/proc/$pid" ]; then
-		echo "smartdns running"
-		return 0;
+		echo "smartdns is running"
+		exit 0
 	fi
 	echo "smartdns not running."
-	return 0;
+	exit 0
 	;;
 	stop)
-	clear_rule
 	pid="$(cat "$SMARTDNS_PID" | head -n 1 2>/dev/null)"
 	if [ -z "$pid" ]; then
 		echo "smartdns not running."
-		return 0
+		exit 0
 	fi
 
 	kill -15 "$pid" 2>/dev/null
@@ -379,17 +379,17 @@ case "$1" in
 	do
 		pid="$(cat "$SMARTDNS_PID" | head -n 1 2>/dev/null)"
 		if [ -z "$pid" ]; then
-			return 0
+			break
 		fi
 
 		if [ ! -d "/proc/$pid" ]; then
-			return 0
+			break
 		fi
 
 		stat="$(cat /proc/${pid}/stat | awk '{print $3}' 2>/dev/null)"
 		if [ "$stat" = "Z" ]; then
 			$SLEEP $SLEEPTIME
-			return 0
+			break
 		fi
 
 		$SLEEP $SLEEPTIME 2>/dev/null
@@ -397,10 +397,14 @@ case "$1" in
 	done
 
 	kill -9 "$pid" 2>/dev/null
+	clear_rule
+	exit 0
 	;;
 	restart)
 	$0 stop
 	$0 start
+	;;
+	reload)
 	;;
 	enable)
 	nvram set apps_state_enable=2
