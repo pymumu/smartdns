@@ -34,6 +34,7 @@ s.anonymous = true
 s:tab("settings", translate("General Settings"))
 s:tab("advanced", translate('Advanced Settings'))
 s:tab("seconddns", translate("Second Server Settings"))
+s:tab("dns64", translate("DNS64 Server Settings"))
 s:tab("proxy", translate("Proxy Server Settings"))
 s:tab("custom", translate("Custom Settings"))
 
@@ -370,6 +371,12 @@ function o.validate(self, value)
 
     return value
 end
+
+----- dns64 server settings
+o = s:taboption("dns64", Value, "dns64", translate("DNS64"));
+o.placeholder = "64:ff9b::/96"
+o.datatype = 'ip6addr'
+o.rmempty = true
 
 ----- custom settings
 custom = s:taboption("custom", Value, "Custom Settings",

@@ -121,7 +121,7 @@ From the comparison, smartdns found the fastest IP address to visit www.baidu.co
 1. **High performance, low resource consumption**  
    Multi-threaded asynchronous IO mode, cache cache query results.
 
-1. **DNS domain forwarding**
+1. **DNS domain forwarding**  
    Support DNS forwarding, ipset and nftables. Support setting the domain result to ipset and nftset set when speed check fails.
 
 ## Architecture

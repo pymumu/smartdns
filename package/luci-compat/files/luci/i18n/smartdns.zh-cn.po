@@ -82,6 +82,9 @@ msgstr "协议类型"
 msgid "DNS domain result cache size"
 msgstr "缓存DNS的结果，缓存大小，配置零则不缓存"
 
+msgid "DNS64 Server Settings"
+msgstr "DNS64服务器配置"
+
 msgid "Description"
 msgstr "描述"
 

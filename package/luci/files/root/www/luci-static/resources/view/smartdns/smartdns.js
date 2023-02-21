@@ -131,6 +131,7 @@ return view.extend({
 		s.tab("settings", _("General Settings"));
 		s.tab("advanced", _('Advanced Settings'));
 		s.tab("seconddns", _("Second Server Settings"));
+		s.tab("dns64", _("DNS64 Server Settings"));
 		s.tab("files", _("Download Files Setting"), _("Download domain list files for domain-rule and include config files, please refresh the page after download to take effect."));
 		s.tab("proxy", _("Proxy Server Settings"));
 		s.tab("custom", _("Custom Settings"));
@@ -429,6 +430,14 @@ return view.extend({
 		o = s.taboption("seconddns", form.Flag, "seconddns_force_aaaa_soa", _("Force AAAA SOA"), _("Force AAAA SOA."));
 		o.rmempty = false;
 		o.default = o.disabled;
+
+		///////////////////////////////////////
+		// DNS64 Settings
+		///////////////////////////////////////
+		o = s.taboption("dns64", form.Value, "dns64", _("DNS64"));
+		o.placeholder = "64:ff9b::/96";
+		o.datatype = "ip6addr";
+		o.rempty = true;
 
 		///////////////////////////////////////
 		// download Files Settings
