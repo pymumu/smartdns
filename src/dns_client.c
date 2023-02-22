@@ -447,7 +447,7 @@ errout:
 }
 
 /* check whether server exists */
-static int _dns_client_server_exist(const char *server_ip, int port, dns_server_type_t server_type)
+static int _dns_client_server_exist(const char *server_ip, int port, dns_server_type_t server_type, struct client_dns_server_flags *flags)
 {
 	struct dns_server_info *server_info = NULL;
 	struct dns_server_info *tmp = NULL;
@@ -455,6 +455,10 @@ static int _dns_client_server_exist(const char *server_ip, int port, dns_server_
 	list_for_each_entry_safe(server_info, tmp, &client.dns_server_list, list)
 	{
 		if (server_info->port != port || server_info->type != server_type) {
+			continue;
+		}
+
+		if (memcmp(&server_info->flags, flags, sizeof(*flags)) == 0) {
 			continue;
 		}
 
@@ -1029,7 +1033,7 @@ static int _dns_client_server_add(char *server_ip, char *server_host, int port, 
 	}
 
 	/* if server exist, return */
-	if (_dns_client_server_exist(server_ip, port, server_type) == 0) {
+	if (_dns_client_server_exist(server_ip, port, server_type, flags) == 0) {
 		return 0;
 	}
 
