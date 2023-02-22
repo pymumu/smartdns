@@ -1050,7 +1050,7 @@ static int _tlog_archive_log_compressed(struct tlog_log *log)
         int pid = vfork();
         if (pid == 0) {
             _tlog_close_all_fd();
-            execl(tlog.gzip_cmd, "-1", pending_file, NULL);
+            execl(tlog.gzip_cmd, tlog.gzip_cmd, "-1", pending_file, NULL);
             _exit(1);
         } else if (pid < 0) {
             goto errout;
