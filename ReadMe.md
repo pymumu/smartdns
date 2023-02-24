@@ -172,6 +172,8 @@ entware|ipkg update<br />ipkg install smartdns|软件源路径：<https://bin.en
 | OpenWrt（ARM） | smartdns.1.yyyy.MM.dd-REL.arm-openwrt-all.ipk | ARM 小端架构的 OpenWrt 系统 |
 | OpenWrt LuCI | luci-app-smartdns.1.yyyy.MM.dd-REL.all.ipk | OpenWrt 管理界面 |
 | OpenWrt LuCI | luci-app-smartdns.1.yyyy.MM.dd-REL.all-luci-compat-all.ipk | OpenWrt 管理界面、OpenWrt 18.xx 及之前版本 |
+| Windows | smartdns-rs https://github.com/mokeyish/smartdns-rs | Rust版本SmartDNS | [Rust版本SmartDNS](https://github.com/mokeyish/smartdns-rs) |
+| MacOS | smartdns-rs https://github.com/mokeyish/smartdns-rs | Rust版本SmartDNS |
 
 **[前往 Release 页面下载](https://github.com/pymumu/smartdns/releases)。**  
 
@@ -180,8 +182,6 @@ entware|ipkg update<br />ipkg install smartdns|软件源路径：<https://bin.en
 - Release 释出的软件包采取静态编译，无外部依赖，但体积大。若需要小体积软件包，请自行编译或从 OpenWrt / Entware 仓库获取。
 
 - 静态编译的软件包未强制判断 CPU 架构，安装不正确的软件包将会导致服务无法启动，请确保正确安装对应的版本。
-
-- MacOS，Windows可获取Rust语言实现的Smartdns: [SmartDNS-rs](https://github.com/mokeyish/smartdns-rs)。 
 
 ## 安装和使用
 
@@ -612,7 +612,7 @@ entware|ipkg update<br />ipkg install smartdns|软件源路径：<https://bin.en
 | nameserver | 指定域名使用 server 组解析 | 无 | nameserver /domain/[group\|-], group 为组名，- 表示忽略此规则，配套 server 中的 -group 参数使用 | nameserver /www.example.com/office |
 | ipset | 域名 ipset | 无 | ipset /domain/[ipset\|-\|#[4\|6]:[ipset\|-][,#[4\|6]:[ipset\|-]]]，-表示忽略 | ipset /www.example.com/#4:dns4,#6:- <br />ipset /www.example.com/dns |
 | ipset-timeout | 设置 ipset 超时功能启用  | no | [yes\|no] | ipset-timeout yes |
-| ipset-no-speed | 当测速失败时，将域名结果设置到ipset集合中 | 无 | ipset \| #[4\|6]:ipset | ipset-no-speed #4:ipset4,#6:ipse6 <br /> ipset-no-speed ipset|
+| ipset-no-speed | 当测速失败时，将域名结果设置到ipset集合中 | 无 | ipset \| #[4\|6]:ipset | ipset-no-speed #4:ipset4,#6:ipset6 <br /> ipset-no-speed ipset|
 | nftset | 域名 nftset | 无 | nftset /domain/[#4\|#6\|-]:[family#nftable#nftset\|-][,#[4\|6]:[family#nftable#nftset\|-]]]，<br />-表示忽略；<br />ipv4 地址的 family 只支持 inet 和 ip；<br />ipv6 地址的 family 只支持 inet 和 ip6；<br />由于 nft 限制，两种地址只能分开存放于两个 set 中。| nftset /www.example.com/#4:inet#tab#dns4,#6:- |
 | nftset-timeout | 设置 nftset 超时功能启用  | no | [yes\|no] | nftset-timeout yes |
 | nftset-no-speed | 当测速失败时，将域名结果设置到nftset集合中 | 无 | nftset-no-speed [#4\|#6]:[family#nftable#nftset][,#[4\|6]:[family#nftable#nftset]]] <br />ipv4 地址的 family 只支持 inet 和 ip <br />ipv6 地址的 family 只支持 inet 和 ip6 <br />由于 nft 限制，两种地址只能分开存放于两个 set 中。| nftset-no-speed #4:inet#tab#set4|

@@ -23,7 +23,7 @@ ifndef CFLAGS
  ifdef DEBUG
   CFLAGS = -g
  else
-  CFLAGS = -O2 -g 
+  CFLAGS = -O2
  endif
 CFLAGS +=-Wall -Wstrict-prototypes -fno-omit-frame-pointer -Wstrict-aliasing -funwind-tables -Wmissing-prototypes -Wshadow -Wextra -Wno-unused-parameter -Wno-implicit-fallthrough
 endif
