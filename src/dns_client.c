@@ -3280,6 +3280,9 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 					continue;
 				}
 				server_info->prohibit = 0;
+				if (now - 60 > server_info->last_send) {
+					_dns_client_close_socket(server_info);
+				}
 			}
 			total_server++;
 			tlog(TLOG_DEBUG, "send query to server %s", server_info->ip);
@@ -3291,6 +3294,7 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 			}
 
 			atomic_inc(&query->dns_request_sent);
+			errno = 0;
 			switch (server_info->type) {
 			case DNS_SERVER_UDP:
 				/* udp query */
