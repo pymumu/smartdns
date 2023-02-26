@@ -132,7 +132,7 @@ struct dns_conf_address_rule dns_conf_address_rule;
 /* dual-stack selection */
 int dns_conf_dualstack_ip_selection = 1;
 int dns_conf_dualstack_ip_allow_force_AAAA;
-int dns_conf_dualstack_ip_selection_threshold = 15;
+int dns_conf_dualstack_ip_selection_threshold = 10;
 
 /* TTL */
 int dns_conf_rr_ttl;

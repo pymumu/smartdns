@@ -631,7 +631,7 @@ entware|ipkg update<br />ipkg install smartdns|软件源路径：<https://bin.en
 | serve-expired-ttl | 过期缓存服务最长超时时间 | 0 | 秒，0 表示停用超时，大于 0 表示指定的超时的秒数 | serve-expired-ttl 0 |
 | serve-expired-reply-ttl | 回应的过期缓存 TTL | 5 | 秒，0 表示停用超时，大于 0 表示指定的超时的秒数 | serve-expired-reply-ttl 30 |
 | dualstack-ip-selection | 双栈 IP 优选 | yes | [yes\|no] | dualstack-ip-selection yes |
-| dualstack-ip-selection-threshold | 双栈 IP 优选阈值 | 15ms | 单位为毫秒（ms） | dualstack-ip-selection-threshold [0-1000] |
+| dualstack-ip-selection-threshold | 双栈 IP 优选阈值 | 10ms | 单位为毫秒（ms） | dualstack-ip-selection-threshold [0-1000] |
 | user | 进程运行用户 | root | user [username] | user nobody |
 | ca-file | 证书文件 | /etc/ssl/<br />certs/ca-certificates.crt | 合法路径字符串 | ca-file /etc/ssl/certs/ca-certificates.crt |
 | ca-path | 证书文件路径 | /etc/ssl/certs | 合法路径字符串 | ca-path /etc/ssl/certs |

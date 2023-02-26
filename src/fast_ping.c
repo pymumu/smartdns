@@ -329,10 +329,6 @@ static struct addrinfo *_fast_ping_getaddr(const char *host, const char *port, i
 	struct addrinfo hints;
 	struct addrinfo *result = NULL;
 	int errcode = 0;
-	
-	if (host == NULL || port == NULL) {
-		goto errout;
-	}
 
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = AF_UNSPEC;
@@ -340,7 +336,8 @@ static struct addrinfo *_fast_ping_getaddr(const char *host, const char *port, i
 	hints.ai_protocol = protocol;
 	errcode = getaddrinfo(host, port, &hints, &result);
 	if (errcode != 0) {
-		tlog(TLOG_ERROR, "get addr info failed. host:%s, port: %s, error %s\n", host, port, gai_strerror(errcode));
+		tlog(TLOG_ERROR, "get addr info failed. host:%s, port: %s, error %s\n", host != NULL ? host : "",
+			 port != NULL ? port : "", gai_strerror(errcode));
 		goto errout;
 	}
 
