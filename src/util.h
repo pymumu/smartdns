@@ -97,6 +97,8 @@ int SSL_base64_decode(const char *in, unsigned char *out);
 
 int SSL_base64_encode(const void *in, int in_len, char *out);
 
+int generate_cert_key(const char *key_path, const char *cert_path, const char *san, int days);
+
 int create_pid_file(const char *pid_file);
 
 /* Parse a TLS packet for the Server Name Indication extension in the client

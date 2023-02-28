@@ -159,7 +159,7 @@ extern int conf_enum(const char *item, void *data, int argc, char *argv[]);
  * Example:
  *  int num = 0;
  *
- *  struct config_item itmes [] = {
+ *  struct config_item items [] = {
  *       CONF_INT("CONF_NUM", &num, -1, 10),
  *       CONF_END();
  *  }

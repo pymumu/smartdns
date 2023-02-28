@@ -68,6 +68,10 @@ struct dns_dns64 dns_conf_dns_dns64;
 struct dns_bind_ip dns_conf_bind_ip[DNS_MAX_BIND_IP];
 int dns_conf_bind_ip_num = 0;
 int dns_conf_tcp_idle_time = 120;
+char dns_conf_bind_ca_file[DNS_MAX_PATH];
+char dns_conf_bind_ca_key_file[DNS_MAX_PATH];
+char dns_conf_bind_ca_key_pass[DNS_MAX_PATH];
+char dns_conf_need_cert = 0;
 
 int dns_conf_max_reply_ip_num = DNS_MAX_REPLY_IP_NUM;
 
@@ -1357,7 +1361,7 @@ static int _config_nftset_no_speed(void *data, int argc, char *argv[])
 		goto errout;
 	}
 
-	for (char *tok = strtok(copied_name, ","); tok && nftset_num <=2 ; tok = strtok(NULL, ",")) {
+	for (char *tok = strtok(copied_name, ","); tok && nftset_num <= 2; tok = strtok(NULL, ",")) {
 		char *saveptr = NULL;
 		char *tok_set = NULL;
 
@@ -1853,6 +1857,14 @@ static int _config_bind_ip(int argc, char *argv[], DNS_BIND_TYPE type)
 	bind_ip->flags = server_flag;
 	bind_ip->group = group;
 	dns_conf_bind_ip_num++;
+	if (bind_ip->type == DNS_BIND_TYPE_TLS) {
+		if (bind_ip->ssl_cert_file == NULL || bind_ip->ssl_cert_key_file == NULL) {
+			bind_ip->ssl_cert_file = dns_conf_bind_ca_file;
+			bind_ip->ssl_cert_key_file = dns_conf_bind_ca_key_file;
+			bind_ip->ssl_cert_key_pass = dns_conf_bind_ca_key_pass;
+			dns_conf_need_cert = 1;
+		}
+	}
 	tlog(TLOG_DEBUG, "bind ip %s, type: %d, flag: %X", ip, type, server_flag);
 
 	return 0;
@@ -1869,6 +1881,23 @@ static int _config_bind_ip_udp(void *data, int argc, char *argv[])
 static int _config_bind_ip_tcp(void *data, int argc, char *argv[])
 {
 	return _config_bind_ip(argc, argv, DNS_BIND_TYPE_TCP);
+}
+
+static int _config_bind_ip_tls(void *data, int argc, char *argv[])
+{
+	return _config_bind_ip(argc, argv, DNS_BIND_TYPE_TLS);
+}
+
+static int _config_option_parser_filepath(void *data, int argc, char *argv[])
+{
+	if (argc <= 1) {
+		tlog(TLOG_ERROR, "invalid parameter.");
+		return -1;
+	}
+
+	conf_get_conf_fullpath(argv[1], data, DNS_MAX_PATH);
+
+	return 0;
 }
 
 static int _config_server_udp(void *data, int argc, char *argv[])
@@ -3041,6 +3070,10 @@ static struct config_item _config_item[] = {
 	CONF_YESNO("resolv-hostname", &dns_conf_resolv_hostname),
 	CONF_CUSTOM("bind", _config_bind_ip_udp, NULL),
 	CONF_CUSTOM("bind-tcp", _config_bind_ip_tcp, NULL),
+	CONF_CUSTOM("bind-tls", _config_bind_ip_tls, NULL),
+	CONF_CUSTOM("bind-cert-file", _config_option_parser_filepath, &dns_conf_bind_ca_file),
+	CONF_CUSTOM("bind-cert-key-file", _config_option_parser_filepath, &dns_conf_bind_ca_key_file),
+	CONF_STRING("bind-cert-key-pass", dns_conf_bind_ca_key_pass, DNS_MAX_PATH),
 	CONF_CUSTOM("server", _config_server_udp, NULL),
 	CONF_CUSTOM("server-tcp", _config_server_tcp, NULL),
 	CONF_CUSTOM("server-tls", _config_server_tls, NULL),
@@ -3071,13 +3104,13 @@ static struct config_item _config_item[] = {
 	CONF_INT("dualstack-ip-selection-threshold", &dns_conf_dualstack_ip_selection_threshold, 0, 1000),
 	CONF_CUSTOM("dns64", _config_dns64, NULL),
 	CONF_CUSTOM("log-level", _config_log_level, NULL),
-	CONF_STRING("log-file", (char *)dns_conf_log_file, DNS_MAX_PATH),
+	CONF_CUSTOM("log-file", _config_option_parser_filepath, (char *)dns_conf_log_file),
 	CONF_SIZE("log-size", &dns_conf_log_size, 0, 1024 * 1024 * 1024),
 	CONF_INT("log-num", &dns_conf_log_num, 0, 1024),
 	CONF_INT_BASE("log-file-mode", &dns_conf_log_file_mode, 0, 511, 8),
 	CONF_YESNO("audit-enable", &dns_conf_audit_enable),
 	CONF_YESNO("audit-SOA", &dns_conf_audit_log_SOA),
-	CONF_STRING("audit-file", (char *)&dns_conf_audit_file, DNS_MAX_PATH),
+	CONF_CUSTOM("audit-file", _config_option_parser_filepath, (char *)&dns_conf_audit_file),
 	CONF_INT_BASE("audit-file-mode", &dns_conf_audit_file_mode, 0, 511, 8),
 	CONF_SIZE("audit-size", &dns_conf_audit_size, 0, 1024 * 1024 * 1024),
 	CONF_INT("audit-num", &dns_conf_audit_num, 0, 1024),
@@ -3264,6 +3297,31 @@ errout:
 	return -1;
 }
 
+static int _check_and_create_cert(void)
+{
+	if (dns_conf_need_cert == 0) {
+		return 0;
+	}
+
+	if (dns_conf_bind_ca_file[0] != 0 && dns_conf_bind_ca_key_file[0] != 0) {
+		return -1;
+	}
+
+	conf_get_conf_fullpath("smartdns-cert.pem", dns_conf_bind_ca_file, sizeof(dns_conf_bind_ca_file));
+	conf_get_conf_fullpath("smartdns-key.pem", dns_conf_bind_ca_key_file, sizeof(dns_conf_bind_ca_key_file));
+	if (access(dns_conf_bind_ca_file, F_OK) == 0 && access(dns_conf_bind_ca_key_file, F_OK) == 0) {
+		return 0;
+	}
+
+	tlog(TLOG_INFO, "Generate default ssl cert and key file.");
+	if (generate_cert_key(dns_conf_bind_ca_key_file, dns_conf_bind_ca_file, NULL, 365 * 3) != 0) {
+		tlog(TLOG_WARN, "Generate default ssl cert and key file failed.");
+		return -1;
+	}
+
+	return 0;
+}
+
 static int _dns_conf_load_post(void)
 {
 	_config_setup_smartdns_domain();
@@ -3289,16 +3347,26 @@ static int _dns_conf_load_post(void)
 
 	_config_domain_set_name_table_destroy();
 
+	_check_and_create_cert();
+
 	return 0;
 }
 
 int dns_server_load_conf(const char *file)
 {
 	int ret = 0;
-	_dns_conf_load_pre();
+	ret = _dns_conf_load_pre();
+	if (ret != 0) {
+		return ret;
+	}
+
 	openlog("smartdns", LOG_CONS | LOG_NDELAY, LOG_LOCAL1);
 	ret = load_conf(file, _config_item, _conf_printf);
 	closelog();
-	_dns_conf_load_post();
+	if (ret != 0) {
+		return ret;
+	}
+
+	ret = _dns_conf_load_post();
 	return ret;
 }

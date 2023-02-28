@@ -101,7 +101,7 @@ From the comparison, smartdns found the fastest IP address to visit www.baidu.co
    Supports finding the fastest access IP address from the IP address list of the domain name and returning it to the client to avoid DNS pollution and improve network access speed.
 
 1. **Support for multiple query protocols**  
-   Support UDP, TCP, DOT(DNS over TLS), DOH(DNS over HTTPS) queries, and non-53 port queries, effectively avoiding DNS pollution and protect privacy, and support query DNS over socks5, http proxy.
+   Support UDP, TCP, DOT(DNS over TLS), DOH(DNS over HTTPS) queries and service, and non-53 port queries, effectively avoiding DNS pollution and protect privacy, and support query DNS over socks5, http proxy.
 
 1. **Domain IP address specification**  
    Support configuring IP address of specific domain to achieve the effect of advertising filtering, and avoid malicious websites.
@@ -542,6 +542,10 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 |server-name|DNS name|host name/smartdns|any string like hostname|server-name smartdns
 |bind|DNS listening port number|[::]:53|Support binding multiple ports<br />`IP:PORT@DEVICE`: server IP, port number, and device. <br />`[-group]`: The DNS server group used when requesting. <br />`[-no-rule-addr]`: Skip the address rule. <br />`[-no-rule-nameserver]`: Skip the Nameserver rule. <br />`[-no-rule-ipset]`: Skip the Ipset or nftset rules. <br />`[-no-rule-soa]`: Skip address SOA(#) rules.<br />`[-no-dualstack-selection]`: Disable dualstack ip selection.<br />`[-no-speed-check]`: Disable speed measurement. <br />`[-no-cache]`: stop caching |bind :53@eth0
 |bind-tcp|TCP mode DNS listening port number|[::]:53|Support binding multiple ports<br />`IP:PORT@DEVICE`: server IP, port number and device. <br />`[-group]`: The DNS server group used when requesting. <br />`[-no-rule-addr]`: Skip the address rule. <br />`[-no-rule-nameserver]`: Skip the Nameserver rule. <br />`[-no-rule-ipset]`: Skip the ipset or nftset rules. <br />`[-no-rule-soa]`: Skip address SOA(#) rules.<br />`[-no-dualstack-selection]`: Disable dualstack ip selection.<br />`[-no-speed-check]`: Disable speed measurement. <br />`[-no-cache]`: stop caching |bind-tcp :53
+|bind-tls|DOT mode DNS listening port number|[::]:853|Support binding multiple ports<br />`IP:PORT@DEVICE`: server IP, port number and device. <br />`[-group]`: The DNS server group used when requesting. <br />`[-no-rule-addr]`: Skip the address rule. <br />`[-no-rule-nameserver]`: Skip the Nameserver rule. <br />`[-no-rule-ipset]`: Skip the ipset or nftset rules. <br />`[-no-rule-soa]`: Skip address SOA(#) rules.<br />`[-no-dualstack-selection]`: Disable dualstack ip selection.<br />`[-no-speed-check]`: Disable speed measurement. <br />`[-no-cache]`: stop caching |bind-tcp :853
+|bind-cert-file|SSL Certificate file path|smartdns-cert.pem|path| bind-cert-file cert.pem |
+|bind-cert-key-file|SSL Certificate key file path|none|smartdns-key.pem| bind-cert-key-file key.pem |
+|bind-cert-key-pass|SSL Certificate key file password|none|string| bind-cert-key-pass password |
 |cache-size|Domain name result cache number|512|integer|cache-size 512
 |cache-persist|enable persist cache|Auto: Enabled if the location of `cache-file` has more than 128MB of free space.|[yes\|no]|cache-persist yes
 |cache-file|cache persist file|/tmp/<br />smartdns.cache|path|cache-file /tmp/smartdns.cache
@@ -573,6 +577,7 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 |address|Domain IP address|None|address /domain/[ip\|-\|-4\|-6\|#\|#4\|#6], `-` for ignore, `#` for return SOA, `4` for IPV4, `6` for IPV6| address /www.example.com/1.2.3.4
 |cname|set cname to domain| None | cname /domain/target <br />- for ignore <br />set cname to domain. | cname /www.example.com/cdn.example.com |
 |dns64|dns64 translation | None | dns64 ip-prefix/mask <br /> ipv6 prefix and mask. | dns64 64:ff9b::/96 |
+|edns-client-subnet| DNS ECS | None |edns-client-subnet ip-prefix/mask <br /> set EDNS client subnet | ip-prefix/mask 1.2.3.4/23 |
 |nameserver|To query domain with specific server group|None|nameserver /domain/[group\|-], `group` is the group name, `-` means ignore this rule, use the `-group` parameter in the related server|nameserver /www.example.com/office
 |ipset|Domain IPSet|None|ipset /domain/[ipset\|-\|#[4\|6]:[ipset\|-][,#[4\|6]:[ipset\|-]]], `-` for ignore|ipset /www.example.com/#4:dns4,#6:-
 |ipset-timeout|ipset timeout enable|no|[yes\|no]|ipset-timeout yes

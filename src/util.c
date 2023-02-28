@@ -828,6 +828,123 @@ errout:
 	return -1;
 }
 
+int generate_cert_key(const char *key_path, const char *cert_path, const char *san, int days)
+{
+	int ret = -1;
+#if (OPENSSL_VERSION_NUMBER <= 0x30000000L)
+	RSA *rsa = NULL;
+	BIGNUM *bn = NULL;
+#endif
+	X509_EXTENSION *cert_ext = NULL;
+	BIO *cert_file = NULL;
+	BIO *key_file = NULL;
+	X509 *cert = NULL;
+	EVP_PKEY *pkey = NULL;
+	const int RSA_KEY_LENGTH = 2048;
+
+	if (key_path == NULL || cert_path == NULL) {
+		return ret;
+	}
+
+	key_file = BIO_new_file(key_path, "wb");
+	cert_file = BIO_new_file(cert_path, "wb");
+	cert = X509_new();
+#if (OPENSSL_VERSION_NUMBER >= 0x30000000L)
+	pkey = EVP_RSA_gen(RSA_KEY_LENGTH);
+#else
+	bn = BN_new();
+	rsa = RSA_new();
+	pkey = EVP_PKEY_new();
+	if (rsa == NULL || pkey == NULL || bn == NULL) {
+		goto out;
+	}
+
+	EVP_PKEY_assign(pkey, EVP_PKEY_RSA, rsa);
+	BN_set_word(bn, RSA_F4);
+	if (RSA_generate_key_ex(rsa, RSA_KEY_LENGTH, bn, NULL) != 1) {
+		goto out;
+	}
+#endif
+
+	if (key_file == NULL || cert_file == NULL || cert == NULL || pkey == NULL) {
+		goto out;
+	}
+
+	ASN1_INTEGER_set(X509_get_serialNumber(cert), 1);           // serial number
+	X509_gmtime_adj(X509_get_notBefore(cert), 0);               // now
+	X509_gmtime_adj(X509_get_notAfter(cert), days * 24 * 3600); // accepts secs
+
+	X509_set_pubkey(cert, pkey);
+
+	X509_NAME *name = X509_get_subject_name(cert);
+
+	const unsigned char *country = (unsigned char *)"smartdns";
+	const unsigned char *company = (unsigned char *)"smartdns";
+	const unsigned char *common_name = (unsigned char *)"smartdns";
+
+	X509_NAME_add_entry_by_txt(name, "C", MBSTRING_ASC, country, -1, -1, 0);
+	X509_NAME_add_entry_by_txt(name, "O", MBSTRING_ASC, company, -1, -1, 0);
+	X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC, common_name, -1, -1, 0);
+
+	if (san != NULL) {
+		cert_ext = X509V3_EXT_conf_nid(NULL, NULL, NID_subject_alt_name, san);
+		if (cert_ext == NULL) {
+			goto out;
+		}
+		X509_add_ext(cert, cert_ext, -1);
+	}
+
+	X509_set_issuer_name(cert, name);
+	X509_sign(cert, pkey, EVP_sha256());
+
+	ret = PEM_write_bio_PrivateKey(key_file, pkey, NULL, NULL, 0, NULL, NULL);
+	if (ret != 1) {
+		goto out;
+	}
+
+	ret = PEM_write_bio_X509(cert_file, cert);
+	if (ret != 1) {
+		goto out;
+	}
+
+	chmod(key_path, S_IRUSR);
+	chmod(cert_path, S_IRUSR);
+
+	ret = 0;
+out:
+	if (cert_ext) {
+		X509_EXTENSION_free(cert_ext);
+	}
+
+	if (pkey) {
+		EVP_PKEY_free(pkey);
+	}
+
+#if (OPENSSL_VERSION_NUMBER <= 0x30000000L)
+	if (rsa && pkey == NULL) {
+		RSA_free(rsa);
+	}
+
+	if (bn) {
+		BN_free(bn);
+	}
+#endif
+
+	if (cert_file) {
+		BIO_free_all(cert_file);
+	}
+
+	if (key_file) {
+		BIO_free_all(key_file);
+	}
+
+	if (cert) {
+		X509_free(cert);
+	}
+
+	return ret;
+}
+
 #if OPENSSL_API_COMPAT < 0x10100000
 #define THREAD_STACK_SIZE (16 * 1024)
 static pthread_mutex_t *lock_cs;

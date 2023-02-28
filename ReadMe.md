@@ -103,7 +103,7 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
    支持从域名所属 IP 地址列表中查找到访问速度最快的 IP 地址，并返回给客户端，提高网络访问速度。
 
 1. **支持多种查询协议**  
-   支持 UDP、TCP、DOT 和 DOH 查询，以及非 53 端口查询；支持通过socks5，HTTP代理查询。
+   支持 UDP、TCP、DOT 和 DOH 查询及服务，以及非 53 端口查询；支持通过socks5，HTTP代理查询;
 
 1. **特定域名 IP 地址指定**  
    支持指定域名的 IP 地址，达到广告过滤效果、避免恶意网站的效果。
@@ -578,6 +578,10 @@ entware|ipkg update<br />ipkg install smartdns|软件源路径：<https://bin.en
 | server-name | DNS 服务器名称 | 操作系统主机名 / smartdns | 符合主机名规格的字符串 | server-name smartdns |
 | bind | DNS 监听端口号  | [::]:53 | 可绑定多个端口。<br />IP:PORT@DEVICE: 服务器 IP:端口号@设备名<br />[-group]: 请求时使用的 DNS 服务器组<br />[-no-rule-addr]：跳过 address 规则<br />[-no-rule-nameserver]：跳过 Nameserver 规则<br />[-no-rule-ipset]：跳过 ipset 和 nftset 规则<br />[-no-rule-soa]：跳过 SOA(#) 规则<br />[-no-dualstack-selection]：停用双栈测速<br />[-no-speed-check]：停用测速<br />[-no-cache]：停止缓存 | bind :53@eth0 |
 | bind-tcp | DNS TCP 监听端口号 | [::]:53 | 可绑定多个端口。<br />IP:PORT@DEVICE: 服务器 IP:端口号@设备名<br />[-group]: 请求时使用的 DNS 服务器组<br />[-no-rule-addr]：跳过 address 规则<br />[-no-rule-nameserver]：跳过 nameserver 规则<br />[-no-rule-ipset]：跳过 ipset 和 nftset 规则。<br />[-no-rule-soa]：跳过 SOA(#) 规则<br />[-no-dualstack-selection]：停用双栈测速<br />[-no-speed-check]：停用测速<br />[-no-cache]：停止缓存 | bind-tcp :53 |
+| bind-tls | DNS Over TLS 监听端口号 | [::]:853 | 可绑定多个端口。<br />IP:PORT@DEVICE: 服务器 IP:端口号@设备名<br />[-group]: 请求时使用的 DNS 服务器组<br />[-no-rule-addr]：跳过 address 规则<br />[-no-rule-nameserver]：跳过 nameserver 规则<br />[-no-rule-ipset]：跳过 ipset 和 nftset 规则。<br />[-no-rule-soa]：跳过 SOA(#) 规则<br />[-no-dualstack-selection]：停用双栈测速<br />[-no-speed-check]：停用测速<br />[-no-cache]：停止缓存 | bind-tls :853 |
+| bind-cert-file | SSL证书文件路径 | smartdns-cert.pem | 合法路径字符串 | bind-cert-file cert.pem |
+| bind-cert-key-file | SSL证书KEY文件路径 | smartdns-key.pem | 合法路径字符串 | bind-cert-key-file key.pem |
+| bind-cert-key-pass | SSL证书KEY文件密码 | 无 | 字符串 | bind-cert-key-pass password |
 | cache-size | 域名结果缓存个数 | 512 | 大于等于 0 的数字 | cache-size 512 |
 | cache-persist | 是否持久化缓存 | 自动。<br />当 cache-file 所在的位置有超过 128 MB 的可用空间时启用，否则禁用。 | [yes\|no] | cache-persist yes |
 | cache-file | 缓存持久化文件路径 | /tmp/<br />smartdns.cache | 合法路径字符串 | cache-file /tmp/smartdns.cache |
@@ -609,6 +613,7 @@ entware|ipkg update<br />ipkg install smartdns|软件源路径：<https://bin.en
 | address | 指定域名 IP 地址 | 无 | address /domain/[ip\|-\|-4\|-6\|#\|#4\|#6] <br />- 表示忽略 <br /># 表示返回 SOA <br />4 表示 IPv4 <br />6 表示 IPv6 | address /www.example.com/1.2.3.4 |
 | cname | 指定域名别名 | 无 | cname /domain/target <br />- 表示忽略 <br />指定对应域名的cname | cname /www.example.com/cdn.example.com |
 | dns64 | DNS64转换 | 无 | dns64 ip-prefix/mask <br /> ipv6前缀和掩码 | dns64 64:ff9b::/96 |
+| edns-client-subnet | DNS ECS | 无 | edns-client-subnet ip-prefix/mask <br /> 指定EDNS客户端子网 | ip-prefix/mask 1.2.3.4/23 |
 | nameserver | 指定域名使用 server 组解析 | 无 | nameserver /domain/[group\|-], group 为组名，- 表示忽略此规则，配套 server 中的 -group 参数使用 | nameserver /www.example.com/office |
 | ipset | 域名 ipset | 无 | ipset /domain/[ipset\|-\|#[4\|6]:[ipset\|-][,#[4\|6]:[ipset\|-]]]，-表示忽略 | ipset /www.example.com/#4:dns4,#6:- <br />ipset /www.example.com/dns |
 | ipset-timeout | 设置 ipset 超时功能启用  | no | [yes\|no] | ipset-timeout yes |

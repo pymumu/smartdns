@@ -83,6 +83,7 @@ typedef enum {
 	DNS_BIND_TYPE_UDP,
 	DNS_BIND_TYPE_TCP,
 	DNS_BIND_TYPE_TLS,
+	DNS_BIND_TYPE_HTTPS,
 } DNS_BIND_TYPE;
 
 typedef enum {
@@ -344,6 +345,9 @@ struct dns_bind_ip {
 	DNS_BIND_TYPE type;
 	uint32_t flags;
 	char ip[DNS_MAX_IPLEN];
+	const char *ssl_cert_file;
+	const char *ssl_cert_key_file;
+	const char *ssl_cert_key_pass;
 	const char *group;
 };
 
@@ -405,6 +409,10 @@ extern struct dns_dns64 dns_conf_dns_dns64;
 
 extern struct dns_bind_ip dns_conf_bind_ip[DNS_MAX_BIND_IP];
 extern int dns_conf_bind_ip_num;
+
+extern char dns_conf_bind_ca_file[DNS_MAX_PATH];
+extern char dns_conf_bind_ca_key_file[DNS_MAX_PATH];
+extern char dns_conf_bind_ca_key_pass[DNS_MAX_PATH];
 
 extern int dns_conf_tcp_idle_time;
 extern int dns_conf_cachesize;
