@@ -2186,6 +2186,11 @@ static int _dns_client_process_udp_proxy(struct dns_server_info *server_info, st
 		return ret;
 	}
 
+	int latency = get_tick_count() - server_info->send_tick;
+	if (latency < server_info->drop_packet_latency_ms) {
+		return 0;
+	}
+
 	tlog(TLOG_DEBUG, "recv udp packet from %s, len: %d",
 		 get_host_by_addr(from_host, sizeof(from_host), (struct sockaddr *)&from), len);
 

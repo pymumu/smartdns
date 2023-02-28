@@ -260,6 +260,7 @@ struct dns_request {
 	DECLARE_HASHTABLE(ip_map, 4);
 
 	struct dns_domain_rule domain_rule;
+	int skip_domain_rule;
 	struct dns_domain_check_orders *check_order_list;
 	int check_order;
 
@@ -298,6 +299,7 @@ static int _dns_server_do_query(struct dns_request *request, int skip_notify_eve
 static int _dns_request_post(struct dns_server_post_context *context);
 static int _dns_server_reply_all_pending_list(struct dns_request *request, struct dns_server_post_context *context);
 static void *_dns_server_get_dns_rule(struct dns_request *request, enum domain_rule rule);
+static const char *_dns_server_get_request_groupname(struct dns_request *request);
 
 static void _dns_server_wakeup_thread(void)
 {
@@ -386,6 +388,23 @@ static int _dns_server_is_dns_rule_extract_match(struct dns_request *request, en
 	}
 
 	return request->domain_rule.is_sub_rule[rule] == 0;
+}
+
+static int _dns_server_is_dns64_request(struct dns_request *request)
+{
+	if (request->qtype != DNS_T_AAAA) {
+		return 0;
+	}
+
+	if (request->dualstack_selection_query == 1) {
+		return 0;
+	}
+
+	if (dns_conf_dns_dns64.prefix_len <= 0) {
+		return 0;
+	}
+
+	return 1;
 }
 
 static void _dns_server_set_dualstack_selection(struct dns_request *request)
@@ -1769,7 +1788,7 @@ static int _dns_server_reply_all_pending_list(struct dns_request *request, struc
 		context_pending.do_force_soa = context->do_force_soa;
 		context_pending.do_ipset = 0;
 		context_pending.reply_ttl = request->ip_ttl;
-		context_pending.no_release_parent = context->no_release_parent;
+		context_pending.no_release_parent = 0;
 		_dns_server_reply_passthrough(&context_pending);
 
 		req->request_pending_list = NULL;
@@ -2786,9 +2805,14 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 				}
 				safe_strncpy(cname, domain_cname, DNS_MAX_CNAME_LEN);
 				request->ttl_cname = _dns_server_get_conf_ttl(request, ttl);
-				tlog(TLOG_DEBUG, "name: %s ttl: %d cname: %s\n", name, ttl, cname);
+				tlog(TLOG_DEBUG, "name: %s ttl: %d cname: %s\n", domain_name, ttl, cname);
 			} break;
 			case DNS_T_SOA: {
+				/* if DNS64 enabled, skip check SOA. */
+				if (_dns_server_is_dns64_request(request)) {
+					break;
+				}
+
 				request->has_soa = 1;
 				if (request->rcode != DNS_RC_NOERROR) {
 					request->rcode = packet->head.rcode;
@@ -2799,11 +2823,6 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 					 "%d, minimum: %d",
 					 domain, request->qtype, request->soa.mname, request->soa.rname, request->soa.serial,
 					 request->soa.refresh, request->soa.retry, request->soa.expire, request->soa.minimum);
-
-				/* if DNS64 enabled, skip check SOA. */
-				if (request->qtype == DNS_T_AAAA && dns_conf_dns_dns64.prefix_len > 0) {
-					break;
-				}
 
 				int soa_num = atomic_inc_return(&request->soa_num);
 				if ((soa_num >= (dns_server_num() / 3) + 1 || soa_num > 4) && atomic_read(&request->ip_map_num) <= 0) {
@@ -2951,7 +2970,7 @@ static int _dns_server_passthrough_rule_check(struct dns_request *request, const
 				if (ttl == 0) {
 					/* Get TTL */
 					char tmpname[DNS_MAX_CNAME_LEN];
-					char tmpbuf[DNS_MAX_CNAME_LEN];		
+					char tmpbuf[DNS_MAX_CNAME_LEN];
 					dns_get_CNAME(rrs, tmpname, DNS_MAX_CNAME_LEN, &ttl, tmpbuf, DNS_MAX_CNAME_LEN);
 				}
 				break;
@@ -3139,7 +3158,12 @@ static void _dns_server_query_end(struct dns_request *request)
 	/* Not need to wait check result if only has one ip address */
 	if (ip_num == 1 && request_wait == 1) {
 		if (request->dualstack_selection_query == 1) {
-			_dns_server_request_complete(request);
+			if ((dns_conf_ipset_no_speed.ipv4_enable || dns_conf_nftset_no_speed.ip6_enable ||
+				 dns_conf_ipset_no_speed.ipv6_enable || dns_conf_nftset_no_speed.ip6_enable) &&
+				dns_conf_dns_dns64.prefix_len == 0) {
+				/* if speed check fail enabled, we need reply quickly, otherwise wait for ping result.*/
+				_dns_server_request_complete(request);
+			}
 			goto out;
 		}
 
@@ -3696,6 +3720,10 @@ static void _dns_server_get_domain_rule(struct dns_request *request)
 	struct rule_walk_args walk_args;
 	int i = 0;
 
+	if (request->skip_domain_rule != 0) {
+		return;
+	}
+
 	memset(&walk_args, 0, sizeof(walk_args));
 	walk_args.args = request;
 
@@ -3730,6 +3758,8 @@ static void _dns_server_get_domain_rule(struct dns_request *request)
 		matched_key[matched_key_len] = 0;
 		_dns_server_log_rule(request->domain, i, matched_key, matched_key_len);
 	}
+
+	request->skip_domain_rule = 1;
 }
 
 static int _dns_server_pre_process_rule_flags(struct dns_request *request)
@@ -3846,8 +3876,8 @@ errout:
 	return -1;
 }
 
-static struct dns_request *_dns_server_new_child_request(struct dns_request *request,
-														 child_request_callback child_callback)
+static struct dns_request *_dns_server_new_child_request(struct dns_request *request, const char *domain,
+														 dns_type_t qtype, child_request_callback child_callback)
 {
 	struct dns_request *child_request = NULL;
 
@@ -3859,10 +3889,14 @@ static struct dns_request *_dns_server_new_child_request(struct dns_request *req
 
 	child_request->server_flags = request->server_flags;
 	safe_strncpy(child_request->dns_group_name, request->dns_group_name, sizeof(request->dns_group_name));
+	safe_strncpy(child_request->domain, domain, sizeof(child_request->domain));
 	child_request->prefetch = request->prefetch;
 	child_request->prefetch_expired_domain = request->prefetch_expired_domain;
 	child_request->child_callback = child_callback;
 	child_request->parent_request = request;
+	child_request->qtype = qtype;
+	child_request->qclass = request->qclass;
+
 	if (request->has_ecs) {
 		memcpy(&child_request->ecs, &request->ecs, sizeof(child_request->ecs));
 		child_request->has_ecs = request->has_ecs;
@@ -3870,6 +3904,7 @@ static struct dns_request *_dns_server_new_child_request(struct dns_request *req
 	_dns_server_request_get(request);
 	/* reference count is 1 hold by parent request */
 	request->child_request = child_request;
+	_dns_server_get_domain_rule(child_request);
 	return child_request;
 errout:
 	if (child_request) {
@@ -3952,7 +3987,11 @@ static DNS_CHILD_POST_RESULT _dns_server_process_cname_callback(struct dns_reque
 																struct dns_request *child_request, int is_first_resp)
 {
 	_dns_server_request_copy(request, child_request);
-	safe_strncpy(request->cname, child_request->domain, sizeof(request->cname));
+	if (child_request->rcode == DNS_RC_NOERROR) {
+		safe_strncpy(request->cname, child_request->domain, sizeof(request->cname));
+		request->has_cname = 1;
+		request->ttl_cname = child_request->ip_ttl;
+	}
 
 	return DNS_CHILD_POST_SUCCESS;
 }
@@ -3960,6 +3999,7 @@ static DNS_CHILD_POST_RESULT _dns_server_process_cname_callback(struct dns_reque
 static int _dns_server_process_cname(struct dns_request *request)
 {
 	struct dns_cname_rule *cname = NULL;
+	const char *child_group_name = NULL;
 	int ret = 0;
 	struct dns_rule_flags *rule_flag = NULL;
 
@@ -3987,15 +4027,18 @@ static int _dns_server_process_cname(struct dns_request *request)
 
 	tlog(TLOG_INFO, "query %s with cname %s", request->domain, cname->cname);
 
-	struct dns_request *child_request = _dns_server_new_child_request(request, _dns_server_process_cname_callback);
+	struct dns_request *child_request =
+		_dns_server_new_child_request(request, cname->cname, request->qtype, _dns_server_process_cname_callback);
 	if (child_request == NULL) {
 		tlog(TLOG_ERROR, "malloc failed.\n");
 		return -1;
 	}
 
-	child_request->qtype = request->qtype;
-	child_request->qclass = request->qclass;
-	safe_strncpy(child_request->domain, cname->cname, sizeof(child_request->cname));
+	child_group_name = _dns_server_get_request_groupname(child_request);
+	if (child_group_name) {
+		/* reset dns group and setup child request domain group again when do query.*/
+		child_request->dns_group_name[0] = '\0';
+	}
 
 	request->request_wait++;
 	ret = _dns_server_do_query(child_request, 0);
@@ -4035,6 +4078,12 @@ _dns_server_process_dns64_callback(struct dns_request *request, struct dns_reque
 
 	if (child_request->qtype != DNS_T_A) {
 		return DNS_CHILD_POST_FAIL;
+	}
+
+	if (child_request->has_cname == 1) {
+		safe_strncpy(request->cname, child_request->cname, sizeof(request->cname));
+		request->has_cname = 1;
+		request->ttl_cname = child_request->ttl_cname;
 	}
 
 	if (child_request->has_ip == 0) {
@@ -4084,7 +4133,7 @@ _dns_server_process_dns64_callback(struct dns_request *request, struct dns_reque
 			return DNS_CHILD_POST_FAIL;
 		}
 		memset(new_addr_map, 0, sizeof(struct dns_ip_address));
-		
+
 		new_addr_map->addr_type = DNS_T_AAAA;
 		addr_len = DNS_RR_AAAA_LEN;
 		memcpy(new_addr_map->ip_addr, dns_conf_dns_dns64.prefix, 16);
@@ -4108,26 +4157,18 @@ _dns_server_process_dns64_callback(struct dns_request *request, struct dns_reque
 
 static int _dns_server_process_dns64(struct dns_request *request)
 {
-	if (request->qtype != DNS_T_AAAA) {
-		return 0;
-	}
-
-	if (dns_conf_dns_dns64.prefix_len <= 0) {
-		/* no dns64 prefix, no need to do dns64 */
+	if (_dns_server_is_dns64_request(request) == 0) {
 		return 0;
 	}
 
 	tlog(TLOG_DEBUG, "query %s with dns64", request->domain);
 
-	struct dns_request *child_request = _dns_server_new_child_request(request, _dns_server_process_dns64_callback);
+	struct dns_request *child_request =
+		_dns_server_new_child_request(request, request->domain, DNS_T_A, _dns_server_process_dns64_callback);
 	if (child_request == NULL) {
 		tlog(TLOG_ERROR, "malloc failed.\n");
 		return -1;
 	}
-
-	child_request->qtype = DNS_T_A;
-	child_request->qclass = request->qclass;
-	safe_strncpy(child_request->domain, request->domain, sizeof(child_request->domain));
 
 	request->request_wait++;
 	int ret = _dns_server_do_query(child_request, 0);
@@ -4305,7 +4346,6 @@ static int _dns_server_process_cache_data(struct dns_request *request, struct dn
 		if (ret != 0) {
 			goto out;
 		}
-
 		break;
 	default:
 		goto out;
@@ -4705,7 +4745,7 @@ static int _dns_server_query_dualstack(struct dns_request *request)
 {
 	int ret = -1;
 	struct dns_request *request_dualstack = NULL;
-	int qtype = request->qtype;
+	dns_type_t qtype = request->qtype;
 
 	if (request->dualstack_selection == 0) {
 		return 0;
