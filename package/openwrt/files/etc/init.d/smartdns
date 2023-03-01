@@ -1,6 +1,6 @@
 #!/bin/sh /etc/rc.common
 #
-# Copyright (C) 2018-2020 Ruilin Peng (Nick) <pymumu@gmail.com>.
+# Copyright (C) 2018-2023 Ruilin Peng (Nick) <pymumu@gmail.com>.
 #
 # smartdns is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -16,6 +16,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 START=19
+STOP=82
 NAME=smartdns
 USE_PROCD=1
 SERVICE_USE_PID=1
@@ -23,12 +24,16 @@ SERVICE_WRITE_PID=1
 SERVICE_DAEMONIZE=1
 SERVICE_PID_FILE="/var/run/smartdns.pid"
 SMARTDNS_CONF_DIR="/etc/smartdns"
+SMARTDNS_CONF_DOWNLOAD_DIR="$SMARTDNS_CONF_DIR/conf.d"
+SMARTDNS_DOMAIN_LIST_DOWNLOAD_DIR="$SMARTDNS_CONF_DIR/domain-set"
 SMARTDNS_VAR_CONF_DIR="/var/etc/smartdns"
 SMARTDNS_CONF="$SMARTDNS_VAR_CONF_DIR/smartdns.conf"
 ADDRESS_CONF="$SMARTDNS_CONF_DIR/address.conf"
 BLACKLIST_IP_CONF="$SMARTDNS_CONF_DIR/blacklist-ip.conf"
 CUSTOM_CONF="$SMARTDNS_CONF_DIR/custom.conf"
 SMARTDNS_CONF_TMP="${SMARTDNS_CONF}.tmp"
+EXTRA_COMMANDS="updatefiles"
+EXTRA_HELP="        updatefiles      Update files"
 COREDUMP="0"
 RESPAWN="1"
 DO_RELOAD="0"
@@ -164,6 +169,7 @@ load_server()
 	local section="$1"
 	local ADDITIONAL_ARGS=""
 	local DNS_ADDRESS=""
+	local IS_URI="0"
 
 	config_get_bool enabled "$section" "enabled" "1"
 	config_get port "$section" "port" ""
@@ -174,10 +180,13 @@ load_server()
 	config_get host_name "$section" "host_name" ""
 	config_get http_host "$section" "http_host" ""
 	config_get server_group "$section" "server_group" ""
+	config_get_bool exclude_default_group "$section" "exclude_default_group" "0"
 	config_get blacklist_ip "$section" "blacklist_ip" "0"
 	config_get check_edns "$section" "check_edns" "0"
 	config_get spki_pin "$section" "spki_pin" ""
 	config_get addition_arg "$section" "addition_arg" ""
+	config_get set_mark "$section" "set_mark" ""
+	config_get_bool use_proxy "$section" "use_proxy" "0"
 
 	[ "$enabled" = "0" ] && return
 
@@ -194,7 +203,9 @@ load_server()
 		SERVER="server-https"
 	fi
 
-	if echo "$ip" | grep ":" | grep -q -v "https://" >/dev/null 2>&1; then
+	if echo "$ip" | grep "://" >/dev/null 2>&1; then
+		IS_URI="1"
+	elif echo "$ip" | grep ":"; then
 		if ! echo "$ip" | grep -q "\\[" >/dev/null 2>&1; then
 			ip="[$ip]"
 		fi
@@ -205,19 +216,174 @@ load_server()
 	[ -z "$host_name" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -host-name $host_name"
 	[ -z "$http_host" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -http-host $http_host"
 	[ -z "$server_group" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -group $server_group"
+	[ "$exclude_default_group" = "0" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -exclude-default-group"
 	[ "$blacklist_ip" = "0" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -blacklist-ip"
 	[ "$check_edns" = "0" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -check-edns"
 	[ -z "$spki_pin" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -spki-pin $spki_pin"
+	[ -z "$set_mark" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -set-mark $set_mark"
+	[ "$use_proxy" = "0" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -proxy default-proxy"
 
-	if [ -z "$port" ]; then
+	if [ -z "$port" ] || [ "$IS_URI" = "1" ]; then
 		DNS_ADDRESS="$ip"
 	else
 		DNS_ADDRESS="$ip:$port"
 	fi
 
-	[ "$type" = "https" ] && DNS_ADDRESS="$ip"
-
 	conf_append "$SERVER" "$DNS_ADDRESS $ADDITIONAL_ARGS $addition_arg"
+}
+
+restart_crond()
+{
+	/etc/init.d/cron restart >/dev/null 2>&1
+}
+
+disable_auto_update()
+{
+	local no_restart="$1"
+	grep "/etc/init.d/smartdns updatefiles" /etc/crontabs/root 1>/dev/null 2>&1
+	if [ $? -ne 0 ]; then
+		return 
+	fi
+
+	sed -i '\@/etc/init.d/smartdns updatefiles@d' /etc/crontabs/root
+
+	if [ "$no_restart" = "1" ]; then
+		return
+	fi
+
+	restart_crond
+}
+
+enable_auto_update()
+{
+	grep "0 5 * * * /etc/init.d/smartdns updatefiles" /etc/crontabs/root 2>/dev/null
+	if [ $? -eq 0 ]; then
+		return 
+	fi
+
+	disable_auto_update 1
+	echo "0 5 * * * /etc/init.d/smartdns updatefiles" >> /etc/crontabs/root
+	restart_crond
+}
+
+load_domain_rules()
+{
+	local section="$1"
+	local domain_set_args=""
+	local domain_set_name="domain"
+
+	config_get server_group "$section" "server_group" ""
+	[ ! -z "$server_group" ] && domain_set_args="$domain_set_args -nameserver $server_group"
+
+	config_get_bool no_speed_check "$section" "no_speed_check" "0"
+	[ "$no_speed_check" = "1" ] && domain_set_args="$domain_set_args -speed-check-mode none"
+
+	config_get_bool force_aaaa_soa "$section" "force_aaaa_soa" "0"
+	[ "$force_aaaa_soa" = "1" ] && domain_set_args="$domain_set_args -address #6"
+
+	config_get ipset_name "$section" "ipset_name" ""
+	[ ! -z "$ipset_name" ] && domain_set_args="$domain_set_args -ipset $ipset_name"
+
+	config_get nftset_name "$section" "nftset_name" ""
+	[ ! -z "$nftset_name" ] && domain_set_args="$domain_set_args -nftset '$nftset_name'"
+
+	config_get addition_flag "$section" "addition_flag" ""
+	[ ! -z "$addition_flag" ] && domain_set_args="$domain_set_args $addition_flag"
+
+	config_get forwarding_domain_set_file "$section" "forwarding_domain_set_file" ""
+	[ ! -z "$forwarding_domain_set_file" ] && {
+		conf_append "domain-set" "-name ${domain_set_name}-forwarding-file -file '$forwarding_domain_set_file'"
+		conf_append "domain-rules" "/domain-set:${domain_set_name}-forwarding-file/ $domain_set_args"
+	}
+
+	conf_append "domain-set" "-name ${domain_set_name}-forwarding-list -file /etc/smartdns/domain-forwarding.list"
+	conf_append "domain-rules" "/domain-set:${domain_set_name}-forwarding-list/ $domain_set_args"
+
+	config_get block_domain_set_file "$section" "block_domain_set_file"
+	[ ! -z "$block_domain_set_file" ] && {
+		conf_append "domain-set" "-name ${domain_set_name}-block-file -file '$block_domain_set_file'"
+		conf_append "domain-rules" "/domain-set:${domain_set_name}-block-file/ -group block"
+	}
+
+	conf_append "domain-set" "-name ${domain_set_name}-block-list -file /etc/smartdns/domain-block.list"
+	conf_append "domain-rules" "/domain-set:${domain_set_name}-block-list/ --address #"
+}
+
+load_domain_rule_list()
+{
+	local section="$1"
+	local domain_set_args=""
+	local domain_set_name="$section"
+
+	config_get_bool enabled "$section" "enabled" "0"
+	[ "$enabled" != "1" ] && return
+
+	config_get server_group "$section" "server_group" ""
+	[ ! -z "$server_group" ] && domain_set_args="$domain_set_args -nameserver $server_group"
+
+	config_get block_domain_type "$section" "block_domain_type" ""
+	[ "$block_domain_type" = "all" ] && domain_set_args="$domain_set_args -address #"
+	[ "$block_domain_type" = "ipv4" ] && domain_set_args="$domain_set_args -address #4"
+	[ "$block_domain_type" = "ipv6" ] && domain_set_args="$domain_set_args -address #6"
+
+	config_get speed_check_mode "$section" "speed_check_mode" ""
+	[ ! -z "$speed_check_mode" ] && domain_set_args="$domain_set_args -speed-check-mode $speed_check_mode"
+
+	config_get dualstack_ip_selection "$section" "dualstack_ip_selection" ""
+	[ "$dualstack_ip_selection" = "no" ] && domain_set_args="$domain_set_args -dualstack-ip-selection no"
+	[ "$dualstack_ip_selection" = "yes" ] && domain_set_args="$domain_set_args -dualstack-ip-selection yes"
+
+	config_get_bool force_aaaa_soa "$section" "force_aaaa_soa" "0"
+	[ "$force_aaaa_soa" = "1" ] && domain_set_args="$domain_set_args -address #6"
+
+	config_get ipset_name "$section" "ipset_name" ""
+	[ ! -z "$ipset_name" ] && domain_set_args="$domain_set_args -ipset $ipset_name"
+
+	config_get nftset_name "$section" "nftset_name" ""
+	[ ! -z "$nftset_name" ] && domain_set_args="$domain_set_args -nftset '$nftset_name'"
+
+	config_get domain_list_file "$section" "domain_list_file" ""
+	[ -z "$domain_list_file" ] && return
+
+	config_get addition_flag "$section" "addition_flag" ""
+	[ ! -z "$addition_flag" ] && domain_set_args="$domain_set_args $addition_flag"
+
+	conf_append "domain-set" "-name domain-rule-list-${domain_set_name} -file '$domain_list_file'"
+	conf_append "domain-rules" "/domain-set:domain-rule-list-${domain_set_name}/ $domain_set_args"	
+}
+
+conf_append_bind()
+{
+	local ADDR=""
+	local port="$1"
+	local devices="$2"
+	local tcp_server="$3"
+	local ipv6_server="$4"
+	local ARGS="$5"
+
+	if [ "$ipv6_server" = "1" ]; then
+		ADDR="[::]"
+	else
+		ADDR=""
+	fi
+
+	devices=$(echo "$devices" | sed 's/,/ /g')
+	[ ! -z "$devices" ] && devices="$devices lo"
+	[ -z "$devices" ] && devices="-"
+
+	for device in $devices; do
+		device="@$device"
+		[ "$device" = "@-" ] && device=""
+		conf_append "bind" "$ADDR:$port$device $ARGS"
+	done
+
+	[ "$tcp_server" = "1" ] && {
+		for device in $devices; do
+			device="@$device"
+			[ "$device" = "@-" ] && device=""
+			conf_append "bind-tcp" "$ADDR:$port$device $ARGS"
+		done
+	}
 }
 
 load_second_server()
@@ -225,6 +391,7 @@ load_second_server()
 	local section="$1"
 	local ARGS=""
 	local ADDR=""
+	local device=""
 
 	config_get_bool seconddns_enabled "$section" "seconddns_enabled" "0"
 	[ "$seconddns_enabled" = "0" ] && return
@@ -258,25 +425,41 @@ load_second_server()
 	config_get_bool seconddns_force_aaaa_soa "$section" "seconddns_force_aaaa_soa" "0"
 	[ "$seconddns_force_aaaa_soa" = "1" ] && ARGS="$ARGS -force-aaaa-soa"
 
+	config_get_bool bind_device "$section" "bind_device" "0"
+	config_get bind_device_name "$section" "bind_device_name" "${lan_device}"
+	[ ! -z "$bind_device_name" ] && [ "$bind_device" = "1" ] && device="${bind_device_name}"
+
+	config_get_bool "seconddns_tcp_server" "$section" "seconddns_tcp_server" "1"
 	config_get ipv6_server "$section" "ipv6_server" "1"
-	if [ "$ipv6_server" = "1" ]; then
-		ADDR="[::]"
-	else
-		ADDR=""
+
+	conf_append_bind "$seconddns_port" "$device" "$seconddns_tcp_server" "$ipv6_server" "$ARGS"
+}
+
+conf_append_conf_files()
+{
+	local conf_file="$1"
+
+	if [ "$1" != "${1#/}" ]; then
+		fullpath="$1"
+	else 
+		fullpath="$SMARTDNS_CONF_DOWNLOAD_DIR/$conf_file"
 	fi
 
-	conf_append "bind" "$ADDR:$seconddns_port $ARGS"
-	config_get_bool "seconddns_tcp_server" "$section" "seconddns_tcp_server" "1"
-	[ "$seconddns_tcp_server" = "1" ] && conf_append "bind-tcp" "$ADDR:$seconddns_port $ARGS"
+	[ -f "$fullpath" ] && {
+		conf_append "conf-file" "'$fullpath'"
+	}
 }
 
 load_service()
 {
 	local section="$1"
 	args=""
+	local device=""
 	dnsmasq_lease_file="$(uci -q get dhcp.@dnsmasq[0].leasefile)"
 	dnsmasq_port="$(uci -q get dhcp.@dnsmasq[0].port)"
 	resolve_file="$(uci -q get dhcp.@dnsmasq[0].resolvfile)"
+	lan_device="$(uci -q get network.lan.device)"
+
 	[ -z "$dnsmasq_lease_file" ] && dnsmasq_lease_file="/tmp/dhcp.leases"
 	[ -z "$dnsmasq_port" ] && dnsmasq_port="53"
 	[ -z "$resolve_file" ] && resolve_file="/tmp/resolv.conf.d/resolv.conf.auto"
@@ -297,6 +480,10 @@ load_service()
 	config_get port "$section" "port" "53"
 	config_get ipv6_server "$section" "ipv6_server" "1"
 	config_get tcp_server "$section" "tcp_server" "1"
+	config_get server_flags "$section" "server_flags" ""
+
+	config_get speed_check_mode "$section" "speed_check_mode" ""
+	[ ! -z "$speed_check_mode" ] && conf_append "speed-check-mode" "$speed_check_mode"
 
 	config_get dualstack_ip_selection "$section" "dualstack_ip_selection" "0"
 	[ "$dualstack_ip_selection" = "0" ] && conf_append "dualstack-ip-selection" "no"
@@ -321,6 +508,12 @@ load_service()
 
 	config_get auto_set_dnsmasq "$section" "auto_set_dnsmasq" "1"
 
+	config_get ipset_no_speed "$section" "ipset_no_speed" ""
+	[ -z "$ipset_no_speed" ] || conf_append "ipset-no-speed" "$ipset_no_speed"
+
+	config_get nftset_no_speed "$section" "nftset_no_speed" ""
+	[ -z "$nftset_no_speed" ] || conf_append "nftset-no-speed" "$nftset_no_speed"
+
 	config_get rr_ttl "$section" "rr_ttl" ""
 	[ -z "$rr_ttl" ] || conf_append "rr-ttl" "$rr_ttl"
 
@@ -344,6 +537,35 @@ load_service()
 
 	config_get log_file "$section" "log_file" ""
 	[ -z "$log_file" ] || conf_append "log-file" "$log_file"
+
+	config_get response_mode "$section" "response_mode" ""
+	[ -z "$response_mode" ] || conf_append "response-mode" "$response_mode"
+
+	config_get_bool enable_auto_update "$section" "enable_auto_update" "0"
+	[ "$enable_auto_update" = "1" ] && enable_auto_update || disable_auto_update
+
+	config_get_bool bind_device "$section" "bind_device" "0"
+	config_get bind_device_name "$section" "bind_device_name" "${lan_device}"
+	[ ! -z "$bind_device_name" ] && [ "$bind_device" = "1" ] && device="${bind_device_name}"
+
+	config_get cache_file "$section" "cache_file" "$SMARTDNS_CONF_DIR/smartdns.cache"
+
+	config_get_bool cache_persist "$section" "cache_persist" "0"
+	[ "$cache_persist" = "1" ] && {
+		conf_append "cache-persist" "yes"
+		conf_append "cache-file" "$cache_file"
+	}
+
+	[ "$cache_persist" = "0" ] && {
+		conf_append "cache-persist" "no"
+		[ -f "$cache_file" ] && rm -f "$cache_file"
+	}
+
+	config_get proxy_server "$section" "proxy_server" ""
+	[ -z "$proxy_server" ] || conf_append "proxy-server" "$proxy_server -name default-proxy"
+	
+	config_get dns64 "$section" "dns64" ""
+	[ -z "$dns64" ] || conf_append "dns64" "$dns64"
 
 	config_get redirect "$section" "redirect" ""
 	config_get old_port "$section" "old_port" "0"
@@ -390,6 +612,7 @@ load_service()
 		[ "$old_enabled" = "0" ] && return 1
 		[ "$old_port" = "53" ] && stop_main_dns "0"
 		[ "$old_port" != "53" ] && [ "$old_auto_set_dnsmasq" = "1" ] && stop_forward_dnsmasq "$old_port" "0"
+		disable_auto_update
 		return 1
 	}
 
@@ -410,23 +633,17 @@ load_service()
 		[ "$auto_set_dnsmasq" = "0" ] && [ "$old_auto_set_dnsmasq" = "1" ] && stop_forward_dnsmasq "$old_port" "0"
 	}
 
-	if [ "$ipv6_server" = "1" ]; then
-		conf_append "bind" "[::]:$port"
-	else
-		conf_append "bind" ":$port"
-	fi
+	conf_append_bind "$port" "$device" "$tcp_server" "$ipv6_server" "$server_flags"
 
-	[ "$tcp_server" = "1" ] && {
-		if [ "$ipv6_server" = "1" ]; then
-			conf_append "bind-tcp" "[::]:$port"
-		else
-			conf_append "bind-tcp" ":$port"
-		fi
-	}
-
-	load_second_server $section
+	load_second_server "$section"
 
 	config_foreach load_server "server"
+
+	config_list_foreach "$section" "conf_files" conf_append_conf_files
+
+	config_foreach load_domain_rules "domain-rule"
+
+	config_foreach load_domain_rule_list "domain-rule-list"
 
 	{
 		echo "conf-file $ADDRESS_CONF"
@@ -473,6 +690,65 @@ unload_service()
 	}
 }
 
+download_file() {
+	local section="$1"
+
+	config_get url "$section" "url" ""
+	config_get name "$section" "name" ""
+	config_get filetype "$section" "type" ""
+
+	[ -z "$url" ] && return 0
+	[ -z "$name" ] && return 0
+	[ -z "$filetype" ] && return 0
+
+	echo "download $filetype file $name from $url"
+	wget --timeout 120 -q -O "/tmp/$name" "$url"
+	if [ $? -ne 0 ]; then
+		echo "download file $name failed"
+		return 1
+	fi
+
+	echo "download file $name success"
+	if [ "$filetype" = "list" ]; then
+		mv "/tmp/$name" "$SMARTDNS_DOMAIN_LIST_DOWNLOAD_DIR/$name"	
+	elif [ "$filetype" = "config" ]; then
+		mv "/tmp/$name" "$SMARTDNS_CONF_DOWNLOAD_DIR/$name"	
+	fi
+}
+
+check_and_add_entry() {
+	local docommit=0
+	uci -q get smartdns.@smartdns[0] >/dev/null
+	if [ $? -ne 0 ]; then
+		uci -q add smartdns smartdns >/dev/null
+		docommit=1
+	fi
+	
+	uci -q get smartdns.@domain-rule[0] >/dev/null
+	if [ $? -ne 0 ]; then
+		uci -q add smartdns domain-rule >/dev/null
+		docommit=1
+	fi
+
+	if [ "$docommit" = "1" ]; then
+		uci -q commit smartdns >/dev/null
+	fi
+
+	if [ ! -d "$SMARTDNS_DOMAIN_LIST_DOWNLOAD_DIR" ]; then
+		mkdir -p "$SMARTDNS_DOMAIN_LIST_DOWNLOAD_DIR"
+	fi
+
+	if [ ! -d "$SMARTDNS_CONF_DOWNLOAD_DIR" ]; then
+		mkdir -p "$SMARTDNS_CONF_DOWNLOAD_DIR"
+	fi
+}
+
+updatefiles() {
+	config_load "smartdns"
+	config_foreach download_file "download-file"
+	reload_service
+}
+
 service_stopped()
 {
 	config_load "smartdns"
@@ -481,6 +757,7 @@ service_stopped()
 
 start_service()
 {
+	check_and_add_entry
 	config_load "smartdns"
 	config_foreach load_service "smartdns"
 }

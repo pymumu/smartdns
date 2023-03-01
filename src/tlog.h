@@ -52,7 +52,7 @@ struct tlog_time {
 
 /*
  multiwrite: enable multi process write mode.
-            NOTICE: maxlogsize in all prcesses must be same when enable this mode.
+            NOTICE: maxlogsize in all processes must be same when enable this mode.
  */
 #define TLOG_MULTI_WRITE (1 << 2)
 
@@ -82,9 +82,9 @@ level: Current log Levels
 format: Log formats
 */
 #ifndef BASE_FILE_NAME
-#define BASE_FILE_NAME                                                     \
-  (__builtin_strrchr(__FILE__, '/') ? __builtin_strrchr(__FILE__, '/') + 1 \
-                                    : __FILE__)
+#define BASE_FILE_NAME                                                       \
+    (__builtin_strrchr(__FILE__, '/') ? __builtin_strrchr(__FILE__, '/') + 1 \
+                                      : __FILE__)
 #endif
 #define tlog(level, format, ...) tlog_ext(level, BASE_FILE_NAME, __LINE__, __func__, NULL, format, ##__VA_ARGS__)
 
@@ -98,19 +98,22 @@ extern int tlog_write_log(char *buff, int bufflen);
 /* set log level */
 extern int tlog_setlevel(tlog_level level);
 
+/* is log level enabled*/
+extern int tlog_log_enabled(tlog_level level);
+
 /* get log level */
 extern tlog_level tlog_getlevel(void);
 
 /* set log file */
 extern void tlog_set_logfile(const char *logfile);
 
-/* enalbe log to screen */
+/* enable log to screen */
 extern void tlog_setlogscreen(int enable);
 
-/* enalbe log to file (unused)  */
+/* enable log to file (unused)  */
 extern void tlog_setlogtofile(int enable);
 
-/* enalbe early log to screen */
+/* enable early log to screen */
 extern void tlog_set_early_printf(int enable);
 
 /* Get log level in string */
@@ -140,7 +143,7 @@ read _tlog_format for example.
 typedef int (*tlog_format_func)(char *buff, int maxlen, struct tlog_loginfo *info, void *userptr, const char *format, va_list ap);
 extern int tlog_reg_format_func(tlog_format_func func);
 
-/* register log output callback 
+/* register log output callback
  Note: info is invalid when flag TLOG_SEGMENT is not set.
  */
 typedef int (*tlog_log_output_func)(struct tlog_loginfo *info, const char *buff, int bufflen, void *private_data);
@@ -187,7 +190,7 @@ va_list: args list
 */
 extern int tlog_vprintf(tlog_log *log, const char *format, va_list ap);
 
-/* enalbe log to screen */
+/* enable log to screen */
 extern void tlog_logscreen(tlog_log *log, int enable);
 
 /* enalbe log to file */
@@ -216,7 +219,7 @@ file: log file permission, default is 640
 archive: archive file permission, default is 440
 */
 
-extern void tlog_set_permission(struct  tlog_log *log, mode_t file, mode_t archive);
+extern void tlog_set_permission(struct tlog_log *log, mode_t file, mode_t archive);
 
 #ifdef __cplusplus
 class Tlog {

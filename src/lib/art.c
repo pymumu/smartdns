@@ -1090,7 +1090,7 @@ void art_substring_walk(const art_tree *t, const unsigned char *str, int str_len
             // Check if the expanded path matches
             if (!str_prefix_matches((art_leaf*)n, str, str_len)) {
                 found = (art_leaf*)n;
-				stop_search = func(found->key, found->key_len, found->key_len != (uint32_t)str_len, found->value, arg);
+				func(found->key, found->key_len, found->key_len != (uint32_t)str_len, found->value, arg);
 			}
             break;
         }

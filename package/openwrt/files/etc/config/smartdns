@@ -1,3 +1,4 @@
 config 'smartdns'
 	option 'enabled' '0'
 	
+config 'domain-rule'

@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# Copyright (C) 2018-2020 Ruilin Peng (Nick) <pymumu@gmail.com>.
+# Copyright (C) 2018-2023 Ruilin Peng (Nick) <pymumu@gmail.com>.
 #
 # smartdns is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -23,6 +23,8 @@ SMARTDNS_CONF=$SMARTDNS_DIR/etc/smartdns/smartdns.conf
 ADDRESS_CONF=$CURR_DIR/address.conf
 BLACKLIST_IP_CONF=$CURR_DIR/blacklist-ip.conf
 CUSTOM_CONF=$CURR_DIR/custom.conf
+DOMAIN_BLOCK_LIST=$CURR_DIR/domain-block.list
+DOMAIN_FORWARDING_LIST=$CURR_DIR/domain-forwarding.list
 
 showhelp()
 {
@@ -45,11 +47,15 @@ build()
 	mkdir $ROOT/root/usr/sbin -p
 	mkdir $ROOT/root/etc/init.d -p
 	mkdir $ROOT/root/etc/smartdns/ -p
+	mkdir $ROOT/root/etc/smartdns/domain-set/ -p 
+	mkdir $ROOT/root/etc/smartdns/conf.d/ -p 
 
 	cp $SMARTDNS_CONF  $ROOT/root/etc/smartdns/
 	cp $ADDRESS_CONF $ROOT/root/etc/smartdns/
 	cp $BLACKLIST_IP_CONF $ROOT/root/etc/smartdns/
 	cp $CUSTOM_CONF $ROOT/root/etc/smartdns/
+	cp $DOMAIN_BLOCK_LIST $ROOT/root/etc/smartdns/
+	cp $DOMAIN_FORWARDING_LIST $ROOT/root/etc/smartdns/
 	cp $CURR_DIR/files/etc $ROOT/root/ -af
 	cp $SMARTDNS_BIN $ROOT/root/usr/sbin
 	if [ $? -ne 0 ]; then

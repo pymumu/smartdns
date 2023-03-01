@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2022 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2023 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -89,7 +89,9 @@ static int _nftset_addattr(struct nlmsghdr *n, int maxlen, __u16 type, const voi
 
 	void *rta_data = RTA_DATA(attr);
 
-	memcpy(rta_data, data, alen);
+	if ((data != NULL) && (alen > 0)) {
+		memcpy(rta_data, data, alen);
+	}
 	memset((uint8_t *)rta_data + alen, 0, RTA_ALIGN(len) - len);
 
 	n->nlmsg_len = newlen;
@@ -202,7 +204,6 @@ static int _nftset_socket_request(void *msg, int msg_len, void *ret_msg, int ret
 	int ret = -1;
 	struct pollfd pfds;
 	int do_recv = 0;
-	int last_errno = 0;
 	int len = 0;
 
 	if (_nftset_socket_init() != 0) {
@@ -260,10 +261,6 @@ static int _nftset_socket_request(void *msg, int msg_len, void *ret_msg, int ret
 				break;
 			}
 
-			if (errno == EAGAIN && last_errno != 0) {
-				errno = last_errno;
-			}
-
 			return -1;
 		}
 
@@ -275,7 +272,6 @@ static int _nftset_socket_request(void *msg, int msg_len, void *ret_msg, int ret
 			struct nlmsgerr *err = (struct nlmsgerr *)NLMSG_DATA(nlh);
 			if (err->error != 0) {
 				errno = -err->error;
-				last_errno = errno;
 				return -1;
 			}
 

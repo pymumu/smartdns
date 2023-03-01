@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# Copyright (C) 2018-2020 Ruilin Peng (Nick) <pymumu@gmail.com>.
+# Copyright (C) 2018-2023 Ruilin Peng (Nick) <pymumu@gmail.com>.
 #
 # smartdns is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -17,6 +17,9 @@
 
 . ${IPKG_INSTROOT}/lib/functions.sh
 default_prerm $0 $@
+/etc/init.d/smartdns disable
 rm /var/etc/smartdns.conf -f
 rm /var/etc/smartdns/smartdns.conf -f
+rm /var/log/smartdns/ -fr
+rm /etc/smartdns/smartdns.cache -f
 exit 0

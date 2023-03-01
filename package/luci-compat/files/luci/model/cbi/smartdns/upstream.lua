@@ -1,5 +1,5 @@
 --
--- Copyright (C) 2018-2020 Ruilin Peng (Nick) <pymumu@gmail.com>.
+-- Copyright (C) 2018-2023 Ruilin Peng (Nick) <pymumu@gmail.com>.
 --
 -- smartdns is free software: you can redistribute it and/or modify
 -- it under the terms of the GNU General Public License as published by
@@ -62,6 +62,13 @@ o.placeholder = "default"
 o.datatype    = "hostname"
 o.rempty      = true
 
+---- exclude default group
+o = s:option(Flag, "exclude_default_group", translate("Exclude Default Group"), translate("Exclude DNS Server from default group."))
+o.rmempty = false
+o.default = o.disabled
+o.editable = true
+o.modalonly = true
+
 ---- blacklist_ip
 o = s:option(Flag, "blacklist_ip", translate("IP Blacklist Filtering"), translate("Filtering IP with blacklist"))
 o.rmempty     = false
@@ -119,6 +126,29 @@ o.datatype    = "string"
 o.rempty      = true
 o:depends("type", "tls")
 o:depends("type", "https")
+
+---- mark
+o = s:option(Value, "set_mark", translate("Marking Packets"), translate("Set mark on packets."))
+o.default     = ""
+o.rempty      = true
+o.datatype    = "uinteger"
+
+---- use proxy
+o = s:option(Flag, "use_proxy", translate("Use Proxy"), translate("Use proxy to connect to upstream DNS server."))
+o.rmempty     = true
+o.default     = o.disabled
+o.cfgvalue    = function(...)
+    return Flag.cfgvalue(...) or "0"
+end
+function o.validate(self, value, section)
+    if value == "1" then
+        local proxy = m.uci:get_first("smartdns", "smartdns", "proxy_server")
+        if proxy == nil or proxy == "" then
+            return nil, translate("Please set proxy server first.")
+        end
+    end
+    return value
+end
 
 ---- other args
 o = s:option(Value, "addition_arg", translate("Additional Server Args"), translate("Additional Args for upstream dns servers"))

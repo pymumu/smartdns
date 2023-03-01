@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2020 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2023 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -32,6 +32,16 @@ const char *conf_get_conf_file(void)
 	return current_conf_file;
 }
 
+static char *get_dir_name(char *path)
+{
+	if (strstr(path, "/") == NULL) {
+		strncpy(path, "./", PATH_MAX);
+		return path;
+	}
+
+	return dirname(path);
+}
+
 const char *conf_get_conf_fullpath(const char *path, char *fullpath, size_t path_len)
 {
 	char file_path_dir[PATH_MAX];
@@ -47,7 +57,7 @@ const char *conf_get_conf_fullpath(const char *path, char *fullpath, size_t path
 
 	strncpy(file_path_dir, conf_get_conf_file(), PATH_MAX - 1);
 	file_path_dir[PATH_MAX - 1] = 0;
-	dirname(file_path_dir);
+	get_dir_name(file_path_dir);
 	if (file_path_dir[0] == '\0') {
 		strncpy(fullpath, path, path_len);
 		return fullpath;
@@ -75,6 +85,27 @@ int conf_int(const char *item, void *data, int argc, char *argv[])
 	}
 
 	value = atoi(argv[1]);
+
+	if (value < item_int->min) {
+		value = item_int->min;
+	} else if (value > item_int->max) {
+		value = item_int->max;
+	}
+
+	*(item_int->data) = value;
+
+	return 0;
+}
+
+int conf_int_base(const char *item, void *data, int argc, char *argv[])
+{
+	struct config_item_int_base *item_int = data;
+	int value = 0;
+	if (argc < 2) {
+		return -1;
+	}
+
+	value = strtol(argv[1], NULL, item_int->base);
 
 	if (value < item_int->min) {
 		value = item_int->min;
@@ -219,8 +250,8 @@ static int conf_parse_args(char *key, char *value, int *argc, char **argv)
 			continue;
 		}
 
-		if (*ptr == '"' && start == NULL) {
-			sep_flag = '"';
+		if ((*ptr == '"' || *ptr == '\'') && start == NULL) {
+			sep_flag = *ptr;
 			start = NULL;
 		}
 
@@ -278,7 +309,7 @@ static int load_conf_printf(const char *file, int lineno, int ret)
 static int load_conf_file(const char *file, struct config_item *items, conf_error_handler handler)
 {
 	FILE *fp = NULL;
-	char line[MAX_LINE_LEN];
+	char line[MAX_LINE_LEN + MAX_KEY_LEN];
 	char key[MAX_KEY_LEN];
 	char value[MAX_LINE_LEN];
 	int filed_num = 0;
@@ -288,6 +319,8 @@ static int load_conf_file(const char *file, struct config_item *items, conf_erro
 	int ret = 0;
 	int call_ret = 0;
 	int line_no = 0;
+	int line_len = 0;
+	int read_len = 0;
 
 	if (handler == NULL) {
 		handler = load_conf_printf;
@@ -299,9 +332,17 @@ static int load_conf_file(const char *file, struct config_item *items, conf_erro
 	}
 
 	line_no = 0;
-	while (fgets(line, MAX_LINE_LEN, fp)) {
+	while (fgets(line + line_len, MAX_LINE_LEN - line_len, fp)) {
 		line_no++;
-		filed_num = sscanf(line, "%63s %1023[^\r\n]s", key, value);
+		read_len = strnlen(line + line_len, sizeof(line));
+		if (read_len >= 2 && *(line + line_len + read_len - 2) == '\\') {
+			line_len += read_len - 2;
+			line[line_len] = '\0';
+			continue;
+		}
+		line_len = 0;
+
+		filed_num = sscanf(line, "%63s %8192[^\r\n]s", key, value);
 		if (filed_num <= 0) {
 			continue;
 		}

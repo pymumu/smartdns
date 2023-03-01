@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2020 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2023 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -87,6 +87,7 @@ struct dns_cache_info {
 	int ttl;
 	int hitnum;
 	int speed;
+	int no_inactive;
 	int hitnum_update_add;
 	time_t insert_time;
 	time_t replace_time;
@@ -135,11 +136,11 @@ struct dns_cache_data *dns_cache_new_data_packet(void *packet, size_t packet_len
 
 int dns_cache_init(int size, int enable_inactive, int inactive_list_expired);
 
-int dns_cache_replace(struct dns_cache_key *key, int ttl, int speed, struct dns_cache_data *cache_data);
+int dns_cache_replace(struct dns_cache_key *key, int ttl, int speed, int no_inactive, struct dns_cache_data *cache_data);
 
-int dns_cache_replace_inactive(struct dns_cache_key *key, int ttl, int speed, struct dns_cache_data *cache_data);
+int dns_cache_replace_inactive(struct dns_cache_key *key, int ttl, int speed, int no_inactive, struct dns_cache_data *cache_data);
 
-int dns_cache_insert(struct dns_cache_key *key, int ttl, int speed, struct dns_cache_data *cache_data);
+int dns_cache_insert(struct dns_cache_key *key, int ttl, int speed, int no_inactive, struct dns_cache_data *cache_data);
 
 struct dns_cache *dns_cache_lookup(struct dns_cache_key *key);
 

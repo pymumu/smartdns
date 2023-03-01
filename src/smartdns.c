@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2020 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2023 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -45,7 +45,6 @@
 #include <sys/types.h>
 #include <ucontext.h>
 
-#define MAX_LINE_LEN 1024
 #define MAX_KEY_LEN 64
 #define SMARTDNS_PID_FILE "/var/run/smartdns.pid"
 #define TMP_BUFF_LEN_32 32
@@ -148,7 +147,7 @@ static void _help(void)
 		"  -p [pid]      pid file path, '-' means don't create pid file.\n"
 		"  -S            ignore segment fault signal.\n"
 		"  -x            verbose screen.\n"
-		"  -v            dispaly version.\n"
+		"  -v            display version.\n"
 		"  -h            show this help message.\n"
 
 		"Online help: http://pymumu.github.io/smartdns\n"
@@ -177,7 +176,7 @@ static int _smartdns_load_from_resolv(void)
 {
 	FILE *fp = NULL;
 	char line[MAX_LINE_LEN];
-	char key[MAX_KEY_LEN];
+	char key[MAX_KEY_LEN] = {0};
 	char value[MAX_LINE_LEN];
 	char ns_ip[DNS_MAX_IPLEN];
 	int port = PORT_NOT_DEFINED;
@@ -269,6 +268,9 @@ static int _smartdns_add_servers(void)
 		flags.type = dns_conf_servers[i].type;
 		flags.server_flag = dns_conf_servers[i].server_flag;
 		flags.result_flag = dns_conf_servers[i].result_flag;
+		flags.set_mark = dns_conf_servers[i].set_mark;
+		flags.drop_packet_latency_ms = dns_conf_servers[i].drop_packet_latency_ms;
+		safe_strncpy(flags.proxyname, dns_conf_servers[i].proxyname, sizeof(flags.proxyname));
 		ret = dns_client_add_server(dns_conf_servers[i].server, dns_conf_servers[i].port, dns_conf_servers[i].type,
 									&flags);
 		if (ret != 0) {
@@ -295,6 +297,33 @@ static int _smartdns_add_servers(void)
 				tlog(TLOG_ERROR, "add server %s to group %s failed", server->server, group->group_name);
 				return -1;
 			}
+		}
+	}
+
+	return 0;
+}
+
+static int _proxy_add_servers(void)
+{
+	unsigned long i = 0;
+	struct hlist_node *tmp = NULL;
+	struct dns_proxy_names *proxy = NULL;
+	struct dns_proxy_servers *server = NULL;
+	struct dns_proxy_servers *server_tmp = NULL;
+
+	hash_for_each_safe(dns_proxy_table.proxy, i, tmp, proxy, node)
+	{
+		list_for_each_entry_safe(server, server_tmp, &proxy->server_list, list)
+		{
+			struct proxy_info info;
+			memset(&info, 0, sizeof(info));
+			info.type = server->type;
+			info.port = server->port;
+			safe_strncpy(info.server, server->server, PROXY_MAX_IPLEN);
+			safe_strncpy(info.username, server->username, PROXY_MAX_NAMELEN);
+			safe_strncpy(info.password, server->password, PROXY_MAX_NAMELEN);
+			info.use_domain = server->use_domain;
+			proxy_add(proxy->proxy_name, &info);
 		}
 	}
 
@@ -351,6 +380,7 @@ static int _smartdns_init(void)
 {
 	int ret = 0;
 	const char *logfile = _smartdns_log_path();
+	int i = 0;
 
 	ret = tlog_init(logfile, dns_conf_log_size, dns_conf_log_num, 0, 0);
 	if (ret != 0) {
@@ -361,6 +391,9 @@ static int _smartdns_init(void)
 	tlog_setlogscreen(verbose_screen);
 	tlog_setlogtofile(dns_conf_log_enable);
 	tlog_setlevel(dns_conf_log_level);
+	if (dns_conf_log_file_mode > 0) {
+		tlog_set_permission(tlog_get_root(), dns_conf_log_file_mode, dns_conf_log_file_mode);
+	}
 
 	tlog(TLOG_NOTICE, "smartdns starting...(Copyright (C) Nick Peng <pymumu@gmail.com>, build: %s %s)", __DATE__,
 		 __TIME__);
@@ -370,17 +403,36 @@ static int _smartdns_init(void)
 		goto errout;
 	}
 
-	if (dns_conf_server_num <= 0) {
-		if (_smartdns_load_from_resolv() != 0) {
-			tlog(TLOG_ERROR, "load dns from resolv failed.");
-			goto errout;
+	for (i = 0; i < 60 && dns_conf_server_num <= 0; i++) {
+		ret = _smartdns_load_from_resolv();
+		if (ret == 0) {
+			continue;
 		}
+
+		tlog(TLOG_DEBUG, "load dns from resolv failed, retry after 1s, retry times %d.", i + 1);
+		sleep(1);
+	}
+
+	if (dns_conf_server_num <= 0) {
+		tlog(TLOG_ERROR, "no dns server found, exit...");
+		goto errout;
 	}
 
 	ret = fast_ping_init();
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "start ping failed.\n");
 		goto errout;
+	}
+
+	ret = proxy_init();
+	if (ret != 0) {
+		tlog(TLOG_ERROR, "start proxy failed.\n");
+		goto errout;
+	}
+
+	ret = _proxy_add_servers();
+	if (ret != 0) {
+		tlog(TLOG_ERROR, "add proxy servers failed.");
 	}
 
 	ret = dns_server_init();
@@ -394,6 +446,7 @@ static int _smartdns_init(void)
 		tlog(TLOG_ERROR, "start dns client failed.\n");
 		goto errout;
 	}
+
 	ret = _smartdns_add_servers();
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "add servers failed.");
@@ -420,6 +473,7 @@ static void _smartdns_exit(void)
 {
 	tlog(TLOG_INFO, "smartdns exit...");
 	dns_client_exit();
+	proxy_exit();
 	fast_ping_exit();
 	dns_server_exit();
 	_smartdns_destroy_ssl();
@@ -490,7 +544,7 @@ static int _smartdns_create_logdir(void)
 	int gid = 0;
 	char logdir[PATH_MAX] = {0};
 	safe_strncpy(logdir, _smartdns_log_path(), PATH_MAX);
-	dirname(logdir);
+	dir_name(logdir);
 
 	if (access(logdir, F_OK) == 0) {
 		return 0;

@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2020 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2023 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -245,7 +245,7 @@ struct dns_cache_data *dns_cache_new_data_packet(void *packet, size_t packet_len
 	return (struct dns_cache_data *)cache_packet;
 }
 
-static int _dns_cache_replace(struct dns_cache_key *cache_key, int ttl, int speed, int inactive,
+static int _dns_cache_replace(struct dns_cache_key *cache_key, int ttl, int speed, int no_inactive, int inactive,
 							  struct dns_cache_data *cache_data)
 {
 	struct dns_cache *dns_cache = NULL;
@@ -258,7 +258,7 @@ static int _dns_cache_replace(struct dns_cache_key *cache_key, int ttl, int spee
 	/* lookup existing cache */
 	dns_cache = dns_cache_lookup(cache_key);
 	if (dns_cache == NULL) {
-		return dns_cache_insert(cache_key, ttl, speed, cache_data);
+		return dns_cache_insert(cache_key, ttl, speed, no_inactive, cache_data);
 	}
 
 	if (ttl < DNS_CACHE_TTL_MIN) {
@@ -273,6 +273,7 @@ static int _dns_cache_replace(struct dns_cache_key *cache_key, int ttl, int spee
 	dns_cache->info.query_flag = cache_key->query_flag;
 	dns_cache->info.ttl = ttl;
 	dns_cache->info.speed = speed;
+	dns_cache->info.no_inactive = no_inactive;
 	old_cache_data = dns_cache->cache_data;
 	dns_cache->cache_data = cache_data;
 	list_del_init(&dns_cache->list);
@@ -293,14 +294,14 @@ static int _dns_cache_replace(struct dns_cache_key *cache_key, int ttl, int spee
 	return 0;
 }
 
-int dns_cache_replace(struct dns_cache_key *cache_key, int ttl, int speed, struct dns_cache_data *cache_data)
+int dns_cache_replace(struct dns_cache_key *cache_key, int ttl, int speed, int no_inactive, struct dns_cache_data *cache_data)
 {
-	return _dns_cache_replace(cache_key, ttl, speed, 0, cache_data);
+	return _dns_cache_replace(cache_key, ttl, speed, no_inactive, 0, cache_data);
 }
 
-int dns_cache_replace_inactive(struct dns_cache_key *cache_key, int ttl, int speed, struct dns_cache_data *cache_data)
+int dns_cache_replace_inactive(struct dns_cache_key *cache_key, int ttl, int speed, int no_inactive, struct dns_cache_data *cache_data)
 {
-	return _dns_cache_replace(cache_key, ttl, speed, 1, cache_data);
+	return _dns_cache_replace(cache_key, ttl, speed, no_inactive, 1, cache_data);
 }
 
 static void _dns_cache_remove_by_domain(struct dns_cache_key *cache_key)
@@ -328,7 +329,7 @@ static void _dns_cache_remove_by_domain(struct dns_cache_key *cache_key)
 			continue;
 		}
 
-		if (strncmp(dns_cache->info.dns_group_name, cache_key->dns_group_name, DNS_MAX_CNAME_LEN) != 0) {
+		if (strncmp(dns_cache->info.dns_group_name, cache_key->dns_group_name, DNS_GROUP_NAME_LEN) != 0) {
 			continue;
 		}
 
@@ -390,7 +391,7 @@ errout:
 	return -1;
 }
 
-int dns_cache_insert(struct dns_cache_key *cache_key, int ttl, int speed, struct dns_cache_data *cache_data)
+int dns_cache_insert(struct dns_cache_key *cache_key, int ttl, int speed, int no_inactive, struct dns_cache_data *cache_data)
 {
 	struct dns_cache_info info;
 
@@ -407,6 +408,7 @@ int dns_cache_insert(struct dns_cache_key *cache_key, int ttl, int speed, struct
 		ttl = DNS_CACHE_TTL_MIN;
 	}
 
+	memset(&info, 0, sizeof(info));
 	info.hitnum = 3;
 	safe_strncpy(info.domain, cache_key->domain, DNS_MAX_CNAME_LEN);
 	info.qtype = cache_key->qtype;
@@ -415,6 +417,7 @@ int dns_cache_insert(struct dns_cache_key *cache_key, int ttl, int speed, struct
 	info.ttl = ttl;
 	info.hitnum_update_add = DNS_CACHE_HITNUM_STEP;
 	info.speed = speed;
+	info.no_inactive = no_inactive;
 	time(&info.insert_time);
 	time(&info.replace_time);
 
@@ -663,7 +666,7 @@ void dns_cache_invalidate(dns_cache_callback precallback, int ttl_pre, unsigned 
 		}
 
 		if (ttl < 0) {
-			if (dns_cache_head.enable_inactive) {
+			if (dns_cache_head.enable_inactive && dns_cache->info.no_inactive == 0) {
 				_dns_cache_move_inactive(dns_cache);
 			} else {
 				_dns_cache_remove(dns_cache);

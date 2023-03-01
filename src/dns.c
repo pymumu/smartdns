@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2020 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2023 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -41,6 +41,8 @@
 	do {                                                                                                               \
 		(void)(expr);                                                                                                  \
 	} while (0)
+
+#define member_size(type, member) sizeof(((type *)0)->member)
 
 /* read short and move pointer */
 static unsigned short _dns_read_short(unsigned char **buffer)
@@ -111,7 +113,7 @@ static int _dns_get_domain_from_packet(unsigned char *packet, int packet_size, u
 
 	/*[len]string[len]string...[0]0 */
 	while (1) {
-		if (ptr >= packet + packet_size || ptr < packet || output_len >= size - 1 || ptr_jump > 4) {
+		if (ptr >= packet + packet_size || ptr < packet || output_len >= size - 1 || ptr_jump > 32) {
 			return -1;
 		}
 
@@ -889,7 +891,7 @@ int dns_add_SOA(struct dns_packet *packet, dns_rr_type type, const char *domain,
 	/*| mname        |
 	 *| rname        |
 	 *| serial       |
-	 *| refersh      |
+	 *| refresh      |
 	 *| retry        |
 	 *| expire       |
 	 *| minimum      |
@@ -926,7 +928,7 @@ int dns_get_SOA(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, struct
 	/*| mname        |
 	 *| rname        |
 	 *| serial       |
-	 *| refersh      |
+	 *| refresh      |
 	 *| retry        |
 	 *| expire       |
 	 *| minimum      |
@@ -1017,7 +1019,7 @@ int dns_get_OPT_ECS(struct dns_rrs *rrs, unsigned short *opt_code, unsigned shor
 	return 0;
 }
 
-int dns_add_OPT_TCP_KEEYALIVE(struct dns_packet *packet, unsigned short timeout)
+int dns_add_OPT_TCP_KEEPALIVE(struct dns_packet *packet, unsigned short timeout)
 {
 	unsigned short timeout_net = htons(timeout);
 	int data_len = 0;
@@ -1029,7 +1031,7 @@ int dns_add_OPT_TCP_KEEYALIVE(struct dns_packet *packet, unsigned short timeout)
 	return _dns_add_opt_RAW(packet, DNS_OPT_T_TCP_KEEPALIVE, &timeout_net, data_len);
 }
 
-int dns_get_OPT_TCP_KEEYALIVE(struct dns_rrs *rrs, unsigned short *opt_code, unsigned short *opt_len,
+int dns_get_OPT_TCP_KEEPALIVE(struct dns_rrs *rrs, unsigned short *opt_code, unsigned short *opt_len,
 							  unsigned short *timeout)
 {
 	unsigned char opt_data[DNS_MAX_OPT_LEN];
@@ -1528,7 +1530,7 @@ static int _dns_encode_CNAME(struct dns_context *context, struct dns_rrs *rrs)
 		return -1;
 	}
 
-	/* when code domain, len must plus 1, because of length at the begining */
+	/* when code domain, len must plus 1, because of length at the beginning */
 	rr_len = 1;
 	ret = _dns_encode_rr_head(context, domain, qtype, qclass, ttl, rr_len, &rr_len_ptr);
 	if (ret < 0) {
@@ -1639,12 +1641,12 @@ static int _dns_encode_SOA(struct dns_context *context, struct dns_rrs *rrs)
 	return 0;
 }
 
-static int _dns_decode_opt_ecs(struct dns_context *context, struct dns_opt_ecs *ecs)
+static int _dns_decode_opt_ecs(struct dns_context *context, struct dns_opt_ecs *ecs, int opt_len)
 {
 	// TODO
 
 	int len = 0;
-	if (_dns_left_len(context) < 4) {
+	if (opt_len < 4) {
 		return -1;
 	}
 
@@ -1668,25 +1670,24 @@ static int _dns_decode_opt_ecs(struct dns_context *context, struct dns_opt_ecs *
 	return 0;
 }
 
-static int _dns_decode_opt_cookie(struct dns_context *context, struct dns_opt_cookie *cookie)
+static int _dns_decode_opt_cookie(struct dns_context *context, struct dns_opt_cookie *cookie, int opt_len)
 {
 	// TODO
-	int len = _dns_left_len(context);
-	if (len < 8) {
+	if (opt_len < (int)member_size(struct dns_opt_cookie, client_cookie)) {
 		return -1;
 	}
 
-	len = 8;
+	int len = 8;
 	memcpy(cookie->client_cookie, context->ptr, len);
 	context->ptr += len;
 
-	len = _dns_left_len(context);
-	if (len == 0) {
+	opt_len -= len;
+	if (opt_len <= 0) {
 		cookie->server_cookie_len = 0;
 		return 0;
 	}
 
-	if (len < 8) {
+	if (opt_len < (int)member_size(struct dns_opt_cookie, server_cookie)) {
 		return -1;
 	}
 
@@ -1815,7 +1816,7 @@ static int _dns_decode_opt(struct dns_context *context, dns_rr_type type, unsign
 {
 	unsigned short opt_code = 0;
 	unsigned short opt_len = 0;
-	unsigned short ercode = (ttl >> 16) & 0xFFFF;
+	unsigned short errcode = (ttl >> 16) & 0xFFFF;
 	unsigned short ever = (ttl)&0xFFFF;
 	unsigned char *start = context->ptr;
 	struct dns_packet *packet = context->packet;
@@ -1858,7 +1859,7 @@ static int _dns_decode_opt(struct dns_context *context, dns_rr_type type, unsign
 		return -1;
 	}
 
-	if (ercode != 0) {
+	if (errcode != 0) {
 		tlog(TLOG_ERROR, "extend rcode invalid.");
 		return -1;
 	}
@@ -1881,7 +1882,7 @@ static int _dns_decode_opt(struct dns_context *context, dns_rr_type type, unsign
 		switch (opt_code) {
 		case DNS_OPT_T_ECS: {
 			struct dns_opt_ecs ecs;
-			ret = _dns_decode_opt_ecs(context, &ecs);
+			ret = _dns_decode_opt_ecs(context, &ecs, opt_len);
 			if (ret != 0) {
 				tlog(TLOG_ERROR, "decode ecs failed.");
 				return -1;
@@ -1895,7 +1896,7 @@ static int _dns_decode_opt(struct dns_context *context, dns_rr_type type, unsign
 		} break;
 		case DNS_OPT_T_COOKIE: {
 			struct dns_opt_cookie cookie;
-			ret = _dns_decode_opt_cookie(context, &cookie);
+			ret = _dns_decode_opt_cookie(context, &cookie, opt_len);
 			if (ret != 0) {
 				tlog(TLOG_ERROR, "decode cookie failed.");
 				return -1;
@@ -2252,6 +2253,16 @@ static int _dns_encode_qd(struct dns_context *context, struct dns_rrs *rrs)
 	ret = _dns_encode_qr_head(context, domain, qtype, qclass);
 	if (ret < 0) {
 		return -1;
+	}
+
+	if (domain[0] == '-') {
+		/* for google and cloudflare */
+		unsigned char *ptr = context->ptr - 7;
+		memcpy(ptr, "\xC0\x12", 2);
+		ptr += 2;
+		_dns_write_short(&ptr, qtype);
+		_dns_write_short(&ptr, qclass);
+		context->ptr = ptr;
 	}
 
 	return 0;

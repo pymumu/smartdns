@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2020 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2023 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -80,8 +80,8 @@ struct dns_query_options {
 };
 
 /* query domain */
-int dns_client_query(const char *domain, int qtype, dns_client_callback callback, void *user_ptr, const char *group_name,
-					 struct dns_query_options *options);
+int dns_client_query(const char *domain, int qtype, dns_client_callback callback, void *user_ptr,
+					 const char *group_name, struct dns_query_options *options);
 
 void dns_client_exit(void);
 
@@ -102,6 +102,7 @@ struct client_dns_server_flag_https {
 	int spi_len;
 	char hostname[DNS_MAX_CNAME_LEN];
 	char httphost[DNS_MAX_CNAME_LEN];
+	char proxyname[DNS_MAX_CNAME_LEN];
 	char path[DNS_MAX_CNAME_LEN];
 	char tls_host_verify[DNS_MAX_CNAME_LEN];
 	char skip_check_cert;
@@ -111,7 +112,9 @@ struct client_dns_server_flags {
 	dns_server_type_t type;
 	unsigned int server_flag;
 	unsigned int result_flag;
-
+	long long set_mark;
+	int drop_packet_latency_ms;
+	char proxyname[DNS_MAX_CNAME_LEN];
 	union {
 		struct client_dns_server_flag_udp udp;
 		struct client_dns_server_flag_tls tls;

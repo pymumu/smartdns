@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# Copyright (C) 2018-2020 Ruilin Peng (Nick) <pymumu@gmail.com>.
+# Copyright (C) 2018-2023 Ruilin Peng (Nick) <pymumu@gmail.com>.
 #
 # smartdns is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -93,7 +93,7 @@ case $1 in
 			exit 1
 		fi
 		echo "smartdns server is running."
-		status=$?
+		status=0
 		;;
 	*)
 		echo "Usage: $0 {start|stop|restart|status}"

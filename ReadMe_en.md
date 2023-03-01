@@ -97,35 +97,41 @@ From the comparison, smartdns found the fastest IP address to visit www.baidu.co
 1. **Multiple upstream DNS servers**  
    Support configuring multiple upstream DNS servers and query at the same time.the query will not be affected, Even if there is a DNS server exception.  
 
-2. **Return the fastest IP address**  
+1. **Return the fastest IP address**  
    Supports finding the fastest access IP address from the IP address list of the domain name and returning it to the client to avoid DNS pollution and improve network access speed.
 
-3. **Support for multiple query protocols**  
-   Support UDP, TCP, DOT(DNS over TLS), DOH(DNS over HTTPS) queries, and non-53 port queries, effectively avoiding DNS pollution and protect privacy.
+1. **Support for multiple query protocols**  
+   Support UDP, TCP, DOT(DNS over TLS), DOH(DNS over HTTPS) queries, and non-53 port queries, effectively avoiding DNS pollution and protect privacy, and support query DNS over socks5, http proxy.
 
-4. **Domain IP address specification**  
+1. **Domain IP address specification**  
    Support configuring IP address of specific domain to achieve the effect of advertising filtering, and avoid malicious websites.
 
-5. **Domain name high performance rule filtering**  
+1. **Domain name high performance rule filtering**  
    Support domain name suffix matching mode, simplify filtering configuration, filter 200,000 recording and take time <1ms.
 
-6. **Linux/Windows multi-platform support**  
+1. **Linux/Windows multi-platform support**  
    Support standard Linux system (Raspberry Pi), openwrt system various firmware, ASUS router native firmware. Support Windows 10 WSL (Windows Subsystem for Linux).
 
-7. **Support IPV4, IPV6 dual stack**  
-   Support IPV4, IPV6 network, support query A, AAAA record, dual-stack IP selection, and disale IPV6 AAAA record.
+1. **Support IPV4, IPV6 dual stack**  
+   Support IPV4, IPV6 network, support query A, AAAA record, dual-stack IP selection, and filter IPV6 AAAA record.
 
-8. **High performance, low resource consumption**  
+1. **DNS64**  
+   Support DNS64 translation.
+
+1. **High performance, low resource consumption**  
    Multi-threaded asynchronous IO mode, cache cache query results.
+
+1. **DNS domain forwarding**  
+   Support DNS forwarding, ipset and nftables. Support setting the domain result to ipset and nftset set when speed check fails.
 
 ## Architecture
 
 ![Architecture](doc/architecture.png)
 
 1. SmartDNS receives DNS query requests from local network devices, such as PCs and mobile phone query requests.
-2. SmartDNS sends query requests to multiple upstream DNS servers, using standard UDP queries, non-standard port UDP queries, and TCP queries.
-3. The upstream DNS server returns a list of Server IP addresses corresponding to the domain name. SmartDNS detects the fastest Server IP with local network access.
-4. Return the fastest accessed Server IP to the local client.
+1. SmartDNS sends query requests to multiple upstream DNS servers, using standard UDP queries, non-standard port UDP queries, and TCP queries.
+1. The upstream DNS server returns a list of Server IP addresses corresponding to the domain name. SmartDNS detects the fastest Server IP with local network access.
+1. Return the fastest accessed Server IP to the local client.
 
 ## Usage
 
@@ -135,10 +141,10 @@ smartdns can already be installed using system package management tools.
 
 System|Installation|Instructions|
 --|--|--
-openwrt|opkg update<br>opkg install luci-app-smartdns<br>opkg install smartdns|systems after 22.03. Software source: https://downloads.openwrt.org/releases/
-ddwrt|latest firmware. goto services page abd enable SmartDNS Resolver. |Demo: https://forum.dd-wrt.com/demo/Services.html
+openwrt|opkg update<br />opkg install luci-app-smartdns<br />opkg install smartdns|systems after 22.03. Software source: <https://downloads.openwrt.org/releases/>
+ddwrt|latest firmware. goto services page abd enable SmartDNS Resolver. |Demo: <https://forum.dd-wrt.com/demo/Services.html>
 debian|apt-get install smartdns|
-entware|ipkg update<br>ipkg install smartdns|Software source: https://bin.entware.net/
+entware|ipkg update<br />ipkg install smartdns|Software source: <https://bin.entware.net/>
 
 ### Download the package
 
@@ -161,16 +167,19 @@ Download the matching version of the SmartDNS installation package. The correspo
 |openwrt|smartdns.xxxxxxxx.arm-openwrt-all.ipk|Support the arm architecture for openwrt。
 |openwrt LUCI|luci-app-smartdns.xxxxxxxxx.all.ipk|Openwrt management interface.
 |openwrt LUCI|luci-app-smartdns.xxxxxxxxx.all-luci-compat-all|Compat Openwrt management interface for early openwrt.
+|Windows|smartdns-rs https://github.com/mokeyish/smartdns-rs| Rust Version SmartDNS |
+|MacOS|smartdns-rs https://github.com/mokeyish/smartdns-rs| Rust Version SmartDNS |
 
-* The released packages are statically compiled. If you need a small size package, please compile it yourself or obtain it from the openwrt / entware repository.
+- The released packages are statically compiled. If you need a small size package, please compile it yourself or obtain it from the openwrt / entware repository.
 
-* **Please download from the Release page: [Download here](https://github.com/pymu/smartdns/releases)**
+- **Please download from the Release page: [Download here](https://github.com/pymumu/smartdns/releases)**   
+
 
 ```shell
 https://github.com/pymumu/smartdns/releases
 ```
 
-* For the installation procedure, please refer to the following sections.
+- For the installation procedure, please refer to the following sections.
 
 ### Standard Linux system installation/Raspberry Pi, X86_64 system
 
@@ -193,6 +202,11 @@ https://github.com/pymumu/smartdns/releases
     ./install -i
     ```
 
+    **For Ubuntu system:**
+    - `systemd-resolved` occupies TCP53 and UDP53 ports. You need to manually resolve the port occupancy problem or modify the SmartDNS listening port
+
+    - Log files in `/var/log/smartdns/smartdns.log`
+
 1. Configuration
 
     After the installation is complete, you can configure the upstream server to  smartdns. Refer to the `Configuration Parameters` for specific configuration parameters.  
@@ -201,6 +215,19 @@ https://github.com/pymumu/smartdns/releases
 
     ```shell
     vi /etc/smartdns/smartdns.conf
+    ```
+
+    `smartdns.conf` example:
+
+    ```shell
+    # set listen port
+    bind []:53 
+    # set upstream servers
+    server 1.1.1.1
+    server-tls 8.8.8.8
+    # set domain rules
+    address /example.com/1.2.3.4
+    domain-rule /example.com/ -address 1.2.3.4
     ```
 
 1. Start Service
@@ -213,8 +240,8 @@ https://github.com/pymumu/smartdns/releases
 1. Forwarding DNS request to SmartDNS
 
     Modify the DNS server of the local router and configure the DNS server as SmartDNS.
-    * Log in to the router on the local network and configure the Raspberry Pi to assign a static IP address.
-    * Modify the WAN port or DHCP DNS to the Raspberry Pi IP address.
+    - Log in to the router on the local network and configure the Raspberry Pi to assign a static IP address.
+    - Modify the WAN port or DHCP DNS to the Raspberry Pi IP address.
     Note:
     I. Each router configuration method is different. Please search Baidu for related configuration methods.
     II. some routers may not support configuring custom DNS server. in this case, please modify the PC's, mobile phone's DNS server to the ip of Raspberry Pi.
@@ -246,26 +273,26 @@ https://github.com/pymumu/smartdns/releases
     opkg install luci-app-smartdns.xxxxxxxx.xxxx.all.ipk
     ```
 
-    * Note: For versions before openwrt 19.07, please install `luci-app-smartdns.xxxxxxxxx.all-luci-compat-all` package.
+    - Note: For versions before openwrt 19.07, please install `luci-app-smartdns.xxxxxxxxx.all-luci-compat-all` package.
 
 1. Configuration
 
     Log in to the openwrt management page and open `Services`->`SmartDNS` to configure SmartDNS.
-    * Add upstream DNS server configuration to `Upstream Servers`. It is recommended to configure multiple DNS servers at home and abroad.
-    * Specify the IP address of a specific domain name in `Domain Address`, which can be used for ad blocking.
+    - Add upstream DNS server configuration to `Upstream Servers`. It is recommended to configure multiple DNS servers at home and abroad.
+    - Specify the IP address of a specific domain name in `Domain Address`, which can be used for ad blocking.
 
 1. Start Service
 
    There are two ways to use the SmartDNS service, `one is directly as the primary DNS service`, `the other is as the upstream of dnsmasq`.  
    By default, SmartDNS uses the first method. You can choose according to your needs in the following two ways.
 
-1. Method 1: SmartDNS as primary DNS Server 
+1. Method 1: SmartDNS as primary DNS Server
 
-    * **Enable SmartDNS as primary DNS Server**
+    - **Enable SmartDNS as primary DNS Server**
 
         Log in to the router, click on `Services`->`SmartDNS`->`port`, input port `53`, smartdns will run as primary DNS Server.
 
-    * **Check if the service is configured successfully**
+    - **Check if the service is configured successfully**
 
         Query domain name with `nslookup -querytype=ptr smartdns`
         See if the `name` item in the command result is displayed as `smartdns` or `hostname`, such as `smartdns`
@@ -285,8 +312,8 @@ https://github.com/pymumu/smartdns/releases
 
 1. Note
 
-   * When the port of smartdns is 53, it will automatically take over dnsmasq as the primary dns. When configuring other ports, dnsmasq is re-enabled as primary dns.
-   * If an exception occurs during this process, you can use the following command to restore dnsmasq as the primary DNS
+   - When the port of smartdns is 53, it will automatically take over dnsmasq as the primary dns. When configuring other ports, dnsmasq is re-enabled as primary dns.
+   - If an exception occurs during this process, you can use the following command to restore dnsmasq as the primary DNS
 
    ```shell
    uci delete dhcp.@dnsmasq[0].port
@@ -309,7 +336,7 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
     Log in to the management interface, click `System Management`-> Click `System Settings` and configure `Enable SSH` to `Lan Only`.  
     The SSH login username and password are the same as the management interface.
 
-1. Insstall `Download Master`
+1. Install `Download Master`
 
     In the management interface, click `USB related application`-> click `Download Master` to download.  
     After the download is complete, enable `Download Master`. If you do not need the download function, you can uninstall `Download Master` here, but make sure that Download Master is enabled before uninstalling.  
@@ -364,6 +391,19 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
     vi /opt/etc/smartdns/smartdns.conf
     ```
 
+    `smartdns.conf` example:
+
+    ```shell
+    # set listen port
+    bind []:53 
+    # set upstream servers
+    server 1.1.1.1
+    server-tls 8.8.8.8
+    # set domain rules
+    address /example.com/1.2.3.4
+    domain-rule /example.com/ -address 1.2.3.4
+    ```
+
     It can also be modified from Network Neighborhood. From the neighbor sharing directory `sda1` you can't see the `asusware.mipsbig` directory, but you can directly enter `asusware.mipsbig\etc\init.d` in `File Manager` to modify it.
 
     ```shell
@@ -380,7 +420,7 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 
 1. Install SmartDNS
 
-    Upload the software to `/tmp` directory of the router using winscp, and run the flollowing command to install.
+    Upload the software to `/tmp` directory of the router using winscp, and run the following command to install.
 
     ```shell
     ipkg install smartdns.xxxxxxx.mipsbig.ipk
@@ -392,7 +432,20 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
     Vi /opt/etc/smartdns/smartdns.conf
     ```
 
-    Note: if you need to support IPV6, you can set the worke-mode to `2`, this will disable the DNS service of dnsmasq, and smartdns run as the primary DNS server. Change `SMARTDNS_WORKMODE` in the file `/opt/etc/smartdns/smartdns-opt.conf` to 2.
+    `smartdns.conf` example:
+
+    ```shell
+    # set listen port
+    bind []:53 
+    # set upstream servers
+    server 1.1.1.1
+    server-tls 8.8.8.8
+    # set domain rules
+    address /example.com/1.2.3.4
+    domain-rule /example.com/ -address 1.2.3.4
+    ```
+
+    Note: if you need to support IPV6, you can set the work-mode to `2`, this will disable the DNS service of dnsmasq, and smartdns run as the primary DNS server. Change `SMARTDNS_WORKMODE` in the file `/opt/etc/smartdns/smartdns-opt.conf` to `2`.
 
     ```shell
     SMARTDNS_WORKMODE="2"
@@ -412,7 +465,7 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
     smartdns        name = smartdns.
     ```
 
-    Note: If the service does not start automatically, you need to set optwre/entware to start automatically. For details, see the optware/entware documentation.
+    Note: If the service does not start automatically, you need to set optware/entware to start automatically. For details, see the optware/entware documentation.
 
 ### Windows 10 WSL Installation/WSL ubuntu
 
@@ -424,7 +477,7 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 
 1. Install smartdns
 
-    download install package `smartdns.xxxxxxxx.x86_64-linux-all.tar.gz`，and unzip to the `D:\` directory, after decompression, the directory is as follows: 
+    download install package `smartdns.xxxxxxxx.x86_64-linux-all.tar.gz`, and unzip to the `D:\` directory, after decompression, the directory is as follows:
 
     ```shell
     D:\SMARTDNS
@@ -446,6 +499,19 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
     Edit `smartdns.conf` configuration file in `D:\smartdns\etc\smartdns` directory, you can configure the upstream server to  smartdns. Refer to the `Configuration Parameters` for specific configuration parameters.  
     In general, you only need to add `server [IP]:port`, `server-tcp [IP]:port` configuration items.  
     Configure as many upstream DNS servers as possible, including servers at home and abroad. Please refer to the `Configuration Parameters` section for configuration parameters.  
+
+    `smartdns.conf` example:
+
+    ```shell
+    # set listen port
+    bind []:53 
+    # set upstream servers
+    server 1.1.1.1
+    server-tls 8.8.8.8
+    # set domain rules
+    address /example.com/1.2.3.4
+    domain-rule /example.com/ -address 1.2.3.4
+    ```
 
 1. Start Service
 
@@ -473,12 +539,12 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 
 |parameter|Parameter function|Default value|Value type|Example|
 |--|--|--|--|--|
-|server-name|DNS name|host name/smartdns|any string like hosname|server-name smartdns
-|bind|DNS listening port number|[::]:53|Support binding multiple ports<br>`IP:PORT`: server IP, port number. <br>`[-group]`: The DNS server group used when requesting. <br>`[-no-rule-addr]`: Skip the address rule. <br>`[-no-rule-nameserver]`: Skip the Nameserver rule. <br>`[-no-rule-ipset]`: Skip the Ipset or nftset rules. <br>`[-no-rule-soa]`: Skip address SOA(#) rules.<br>`[-no-dualstack-selection]`: Disable dualstack ip selection.<br>`[-no-speed-check]`: Disable speed measurement. <br>`[-no-cache]`: stop caching |bind :53
-|bind-tcp|TCP mode DNS listening port number|[::]:53|Support binding multiple ports<br>`IP:PORT`: server IP, port number. <br>`[-group]`: The DNS server group used when requesting. <br>`[-no-rule-addr]`: Skip the address rule. <br>`[-no-rule-nameserver]`: Skip the Nameserver rule. <br>`[-no-rule-ipset]`: Skip the Ipset or nftset rules. <br>`[-no-rule-soa]`: Skip address SOA(#) rules.<br>`[-no-dualstack-selection]`: Disable dualstack ip selection.<br>`[-no-speed-check]`: Disable speed measurement. <br>`[-no-cache]`: stop caching |bind-tcp :53
+|server-name|DNS name|host name/smartdns|any string like hostname|server-name smartdns
+|bind|DNS listening port number|[::]:53|Support binding multiple ports<br />`IP:PORT@DEVICE`: server IP, port number, and device. <br />`[-group]`: The DNS server group used when requesting. <br />`[-no-rule-addr]`: Skip the address rule. <br />`[-no-rule-nameserver]`: Skip the Nameserver rule. <br />`[-no-rule-ipset]`: Skip the Ipset or nftset rules. <br />`[-no-rule-soa]`: Skip address SOA(#) rules.<br />`[-no-dualstack-selection]`: Disable dualstack ip selection.<br />`[-no-speed-check]`: Disable speed measurement. <br />`[-no-cache]`: stop caching |bind :53@eth0
+|bind-tcp|TCP mode DNS listening port number|[::]:53|Support binding multiple ports<br />`IP:PORT@DEVICE`: server IP, port number and device. <br />`[-group]`: The DNS server group used when requesting. <br />`[-no-rule-addr]`: Skip the address rule. <br />`[-no-rule-nameserver]`: Skip the Nameserver rule. <br />`[-no-rule-ipset]`: Skip the ipset or nftset rules. <br />`[-no-rule-soa]`: Skip address SOA(#) rules.<br />`[-no-dualstack-selection]`: Disable dualstack ip selection.<br />`[-no-speed-check]`: Disable speed measurement. <br />`[-no-cache]`: stop caching |bind-tcp :53
 |cache-size|Domain name result cache number|512|integer|cache-size 512
 |cache-persist|enable persist cache|Auto: Enabled if the location of `cache-file` has more than 128MB of free space.|[yes\|no]|cache-persist yes
-|cache-file|cache persist file|/tmp/smartdns.cache|路径|cache-file /tmp/smartdns.cache
+|cache-file|cache persist file|/tmp/<br />smartdns.cache|path|cache-file /tmp/smartdns.cache
 |tcp-idle-time|TCP connection idle timeout|120|integer|tcp-idle-time 120
 |rr-ttl|Domain name TTL|Remote query result|number greater than 0|rr-ttl 600
 |rr-ttl-min|Domain name Minimum TTL|Remote query result|number greater than 0|rr-ttl-min 60
@@ -488,70 +554,77 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 |max-reply-ip-num|Maximum number of IPs returned to the client|8|number of IPs, 1~16 |max-reply-ip-num 1
 |log-enable|dns log enable|yes|[yes\|no]|log-enable no
 |log-level|log level|error|fatal,error,warn,notice,info,debug|log-level error
-|log-file|log path|/var/log/smartdns/smartdns.log|File Pah|log-file /var/log/smartdns/smartdns.log
+|log-file|log path|/var/log/<br />smartdns/<br />smartdns.log|File Pah|log-file /var/log/smartdns/smartdns.log
 |log-size|log size|128K|number+K,M,G|log-size 128K
 |log-num|archived log number|2 for openwrt, 8 for other system|Integer|log-num 2
+|log-file-mode|archived log file mode|0640|Integer|log-file-mode 644
 |audit-enable|audit log enable|no|[yes\|no]|audit-enable yes
-|audit-file|audit log file|/var/log/smartdns/smartdns-audit.log|File Path|audit-file /var/log/smartdns/smartdns-audit.log
+|audit-file|audit log file|/var/log/<br />smartdns/<br />smartdns-audit.log|File Path|audit-file /var/log/smartdns/smartdns-audit.log
 |audit-size|audit log size|128K|number+K,M,G|audit-size 128K
 |audit-num|archived audit log number|2|Integer|audit-num 2
+|audit-file-mode|archived audit log file mode|0640|Integer|audit-file-mode 644
 |conf-file|additional conf file|None|File path|conf-file /etc/smartdns/smartdns.more.conf
-|server|Upstream UDP DNS server|None|Repeatable <br>`[ip][:port]`: Server IP, port optional. <br>`[-blacklist-ip]`: The "-blacklist-ip" parameter is to filtering IPs which is configured by "blacklist-ip". <br>`[-whitelist-ip]`: whitelist-ip parameter specifies that only the IP range configured in whitelist-ip is accepted. <br>`[-group [group] ...]`: The group to which the DNS server belongs, such as office, foreign, use with nameserver. <br>`[-exclude-default-group]`: Exclude DNS servers from the default group| server 8.8.8.8:53 -blacklist-ip
-|server-tcp|Upstream TCP DNS server|None|Repeatable <br>`[ip][:port]`: Server IP, port optional. <br>`[-blacklist-ip]`: The "-blacklist-ip" parameter is to filtering IPs which is configured by "blacklist-ip". <br>`[-whitelist-ip]`: whitelist-ip parameter specifies that only the IP range configured in whitelist-ip is accepted. <br>`[-group [group] ...]`: The group to which the DNS server belongs, such as office, foreign, use with nameserver. <br>`[-exclude-default-group]`: Exclude DNS servers from the default group| server-tcp 8.8.8.8:53
-|server-tls|Upstream TLS DNS server|None|Repeatable <br>`[ip][:port]`: Server IP, port optional. <br>`[-spki-pin [sha256-pin]]`: TLS verify SPKI value, a base64 encoded SHA256 hash<br>`[-host-name]`:TLS Server name. `-` to disable SNI name.<br>`[-tls-host-verify]`: TLS cert hostname to verify. <br>`-no-check-certificate:`: No check certificate. <br>`[-blacklist-ip]`: The "-blacklist-ip" parameter is to filtering IPs which is configured by "blacklist-ip". <br>`[-whitelist-ip]`: whitelist-ip parameter specifies that only the IP range configured in whitelist-ip is accepted. <br>`[-group [group] ...]`: The group to which the DNS server belongs, such as office, foreign, use with nameserver. <br>`[-exclude-default-group]`: Exclude DNS servers from the default group| server-tls 8.8.8.8:853
-|server-https|Upstream HTTPS DNS server|None|Repeatable <br>`https://[host][:port]/path`: Server IP, port optional. <br>`[-spki-pin [sha256-pin]]`: TLS verify SPKI value, a base64 encoded SHA256 hash<br>`[-host-name]`:TLS Server name<br>`[-http-host]`：http header host. <br>`[-tls-host-verify]`: TLS cert hostname to verify. <br>`-no-check-certificate:`: No check certificate. <br>`[-blacklist-ip]`: The "-blacklist-ip" parameter is to filtering IPs which is configured by "blacklist-ip". <br>`[-whitelist-ip]`: whitelist-ip parameter specifies that only the IP range configured in whitelist-ip is accepted. <br>`[-group [group] ...]`: The group to which the DNS server belongs, such as office, foreign, use with nameserver. <br>`[-exclude-default-group]`: Exclude DNS servers from the default group| server-https https://cloudflare-dns.com/dns-query
+|server|Upstream UDP DNS server|None|Repeatable <br />`[ip][:port]\|URL`: Server IP, port optional OR URL. <br />`[-blacklist-ip]`: The "-blacklist-ip" parameter is to filtering IPs which is configured by "blacklist-ip". <br />`[-whitelist-ip]`: whitelist-ip parameter specifies that only the IP range configured in whitelist-ip is accepted. <br />`[-group [group] ...]`: The group to which the DNS server belongs, such as office, foreign, use with nameserver. <br />`[-exclude-default-group]`: Exclude DNS servers from the default group. <br />`[-set-mark mark]`: set mark on packets <br /> `[-proxy name]`: set proxy server| server 8.8.8.8:53 -blacklist-ip<br />server tls://8.8.8.8
+|server-tcp|Upstream TCP DNS server|None|Repeatable <br />`[ip][:port]`: Server IP, port optional. <br />`[-blacklist-ip]`: The "-blacklist-ip" parameter is to filtering IPs which is configured by "blacklist-ip". <br />`[-whitelist-ip]`: whitelist-ip parameter specifies that only the IP range configured in whitelist-ip is accepted. <br />`[-group [group] ...]`: The group to which the DNS server belongs, such as office, foreign, use with nameserver. <br />`[-exclude-default-group]`: Exclude DNS servers from the default group <br />`[-set-mark mark]`: set mark on packets <br /> `[-proxy name]`: set proxy server| server-tcp 8.8.8.8:53
+|server-tls|Upstream TLS DNS server|None|Repeatable <br />`[ip][:port]`: Server IP, port optional. <br />`[-spki-pin [sha256-pin]]`: TLS verify SPKI value, a base64 encoded SHA256 hash<br />`[-host-name]`:TLS Server name. `-` to disable SNI name.<br />`[-tls-host-verify]`: TLS cert hostname to verify. <br />`-no-check-certificate:`: No check certificate. <br />`[-blacklist-ip]`: The "-blacklist-ip" parameter is to filtering IPs which is configured by "blacklist-ip". <br />`[-whitelist-ip]`: whitelist-ip parameter specifies that only the IP range configured in whitelist-ip is accepted. <br />`[-group [group] ...]`: The group to which the DNS server belongs, such as office, foreign, use with nameserver. <br />`[-exclude-default-group]`: Exclude DNS servers from the default group <br /> `[-set-mark mark]`: set mark on packets <br /> `[-proxy name]`: set proxy server| server-tls 8.8.8.8:853
+|server-https|Upstream HTTPS DNS server|None|Repeatable <br />`https://[host][:port]/path`: Server IP, port optional. <br />`[-spki-pin [sha256-pin]]`: TLS verify SPKI value, a base64 encoded SHA256 hash<br />`[-host-name]`:TLS Server name<br />`[-http-host]`: http header host. <br />`[-tls-host-verify]`: TLS cert hostname to verify. <br />`-no-check-certificate:`: No check certificate. <br />`[-blacklist-ip]`: The "-blacklist-ip" parameter is to filtering IPs which is configured by "blacklist-ip". <br />`[-whitelist-ip]`: whitelist-ip parameter specifies that only the IP range configured in whitelist-ip is accepted. <br />`[-group [group] ...]`: The group to which the DNS server belongs, such as office, foreign, use with nameserver. <br />`[-exclude-default-group]`: Exclude DNS servers from the default group <br /> `[-set-mark mark]`: set mark on packets <br /> `[-proxy name]`: set proxy server| server-https <https://cloudflare-dns.com/dns-query>
+|proxy-server| proxy server | None | Repeatable. <br />`proxy-server URL` <br />[URL]: `[socks5\|http]://[username:password@]host:port`<br />[-name]:  proxy server name. |proxy-server socks5://user:pass@1.2.3.4:1080 -name proxy|
 |speed-check-mode|Speed ​​mode|None|[ping\|tcp:[80]\|none]|speed-check-mode ping,tcp:80,tcp:443
-|response-mode|First query response mode|first-ping|Mode: [fisrt-ping\|fastest-ip\|fastest-response]<br> [first-ping]: The fastest dns + ping response mode, DNS query delay + ping delay is the shortest;<br>[fastest-ip]: The fastest IP address mode, return the fastest ip address, may take some time to test speed. <br>[fastest-response]: The fastest response DNS result mode, the DNS query waiting time is the shortest. | response-mode first-ping |
+|response-mode|First query response mode|first-ping|Mode: [first-ping\|fastest-ip\|fastest-response]<br /> [first-ping]: The fastest dns + ping response mode, DNS query delay + ping delay is the shortest;<br />[fastest-ip]: The fastest IP address mode, return the fastest ip address, may take some time to test speed. <br />[fastest-response]: The fastest response DNS result mode, the DNS query waiting time is the shortest. | response-mode first-ping |
 |address|Domain IP address|None|address /domain/[ip\|-\|-4\|-6\|#\|#4\|#6], `-` for ignore, `#` for return SOA, `4` for IPV4, `6` for IPV6| address /www.example.com/1.2.3.4
+|cname|set cname to domain| None | cname /domain/target <br />- for ignore <br />set cname to domain. | cname /www.example.com/cdn.example.com |
+|dns64|dns64 translation | None | dns64 ip-prefix/mask <br /> ipv6 prefix and mask. | dns64 64:ff9b::/96 |
 |nameserver|To query domain with specific server group|None|nameserver /domain/[group\|-], `group` is the group name, `-` means ignore this rule, use the `-group` parameter in the related server|nameserver /www.example.com/office
 |ipset|Domain IPSet|None|ipset /domain/[ipset\|-\|#[4\|6]:[ipset\|-][,#[4\|6]:[ipset\|-]]], `-` for ignore|ipset /www.example.com/#4:dns4,#6:-
 |ipset-timeout|ipset timeout enable|no|[yes\|no]|ipset-timeout yes
-|nftset|Domain nftset|None|nftset /domain/[#4\|#6\|-]:[family#nftable#nftset\|-][,#[4\|6]:[family#nftable#nftset\|-]]], `-` to ignore; the valid families are inet and ip for ipv4 addresses while the valid ones are inet and ip6 for ipv6 addresses; due to the limitation of nft, two types of addresses have to be stored in two sets|nftset /www.example.com/#4:inet#mytab#dns4,#6:-
+|ipset-no-speed|When speed check fails, set the ip address of the domain name to the ipset | None | ipset \| #[4\|6]:ipset | ipset-no-speed #4:ipset4,#6:ipset6 <br /> ipset-no-speed ipset|
+|nftset|Domain nftset|None|nftset /domain/[#4\|#6\|-]:[family#nftable#nftset\|-][,#[4\|6]:[family#nftable#nftset\|-]]]<br /> `-` to ignore<br />the valid families are inet and ip for ipv4 addresses while the valid ones are inet and ip6 for ipv6 addresses <br />due to the limitation of nftable <br />two types of addresses have to be stored in two sets|nftset /www.example.com/#4:inet#tab#dns4,#6:-
 |nftset-timeout|nftset timeout enable|no|[yes\|no]|nftset-timeout yes
+|nftset-no-speed|When speed check fails, set the ip address of the domain name to the nftset | None | nftset-no-speed [#4\|#6]:[family#nftable#nftset][,#[4\|6]:[family#nftable#nftset]]] <br />the valid families are inet and ip for ipv4 addresses while the valid ones are inet and ip6 for ipv6 addresses <br />due to the limitation of nftable <br />two types of addresses have to be stored in two sets| nftset-no-speed #4:inet#tab#set4|
 |nftset-debug|nftset debug enable|no|[yes\|no]|nftset-debug yes
-|domain-rules|set domain rules|None|domain-rules /domain/ [-rules...]<br>[-c\|-speed-check-mode]: set speed check mode，same as parameter speed-check-mode<br>[-a\|-address]: same as  parameter `address` <br>[-n\|-nameserver]: same as parameter `nameserver`<br>[-p\|-ipset]: same as parameter `nftset`<br>[-t\|-nftset]: same as parameter `nftset`<br>[-d\|-dualstack-ip-selection]: same as parameter `dualstack-ip-selection`|domain-rules /www.example.com/ -speed-check-mode none
-| domain-set | collection of domains|None| domain-set [options...]<br>[-n\|-name]：name of set <br>[-t\|-type] [list]: set type, only support list, one domain per line <br>[-f\|-file]：file path of domain set<br> used with address, nameserver, ipset, nftset, example: /domain-set:[name]/ | domain-set -name set -type list -file /path/to/list <br> address /domain-set:set/1.2.4.8 |
+|domain-rules|set domain rules|None|domain-rules /domain/ [-rules...]<br />[-c\|-speed-check-mode]: set speed check mode, same as parameter speed-check-mode<br />[-a\|-address]: same as  parameter `address` <br />[-n\|-nameserver]: same as parameter `nameserver`<br />[-p\|-ipset]: same as parameter `nftset`<br />[-t\|-nftset]: same as parameter `nftset`<br />[-d\|-dualstack-ip-selection]: same as parameter `dualstack-ip-selection`<br />  [-no-serve-expired]: disable serve expired<br />[-rr-ttl\|-rr-ttl-min\|-rr-ttl-max]: same as parameter: rr-ttl, rr-ttl-min, rr-ttl-max<br />[-delete]: delete rule|domain-rules /www.example.com/ -speed-check-mode none
+| domain-set | collection of domains|None| domain-set [options...]<br />[-n\|-name]: name of set <br />[-t\|-type] [list]: set type, only support list, one domain per line <br />[-f\|-file]: file path of domain set<br /> used with address, nameserver, ipset, nftset, example: /domain-set:[name]/ | domain-set -name set -type list -file /path/to/list <br /> address /domain-set:set/1.2.4.8 |
 |bogus-nxdomain|bogus IP address|None|[IP/subnet], Repeatable| bogus-nxdomain 1.2.3.4/16
 |ignore-ip|ignore ip address|None|[ip/subnet], Repeatable| ignore-ip 1.2.3.4/16
-|whitelist-ip|ip whitelist|None|[ip/subnet], Repeatable，When the filtering server responds IPs in the IP whitelist, only result in whitelist will be accepted| whitelist-ip 1.2.3.4/16
-|blacklist-ip|ip blacklist|None|[ip/subnet], Repeatable，When the filtering server responds IPs in the IP blacklist, The result will be discarded directly| blacklist-ip 1.2.3.4/16
+|whitelist-ip|ip whitelist|None|[ip/subnet], Repeatable, When the filtering server responds IPs in the IP whitelist, only result in whitelist will be accepted| whitelist-ip 1.2.3.4/16
+|blacklist-ip|ip blacklist|None|[ip/subnet], Repeatable, When the filtering server responds IPs in the IP blacklist, The result will be discarded directly| blacklist-ip 1.2.3.4/16
 |force-AAAA-SOA|force AAAA query return SOA|no|[yes\|no]|force-AAAA-SOA yes
-|force-qtype-SOA|force specific qtype return SOA|qtype id|[qtypeid | ...]|force-qtype-SOA 65 28
+|force-qtype-SOA|force specific qtype return SOA|qtype id|[qtypeid \| ...]|force-qtype-SOA 65 28
 |prefetch-domain|domain prefetch feature|no|[yes\|no]|prefetch-domain yes
 |dnsmasq-lease-file|Support reading dnsmasq dhcp file to resolve local hostname|None|dnsmasq dhcp lease file| dnsmasq-lease-file /var/lib/misc/dnsmasq.leases
 |serve-expired|Cache serve expired feature|yes|[yes\|no], Attempts to serve old responses from cache with a TTL of 0 in the response without waiting for the actual resolution to finish.|serve-expired yes
-|serve-expired-ttl|Cache serve expired limite TTL|0|second，0：disable，> 0  seconds after expiration|serve-expired-ttl 0
-|serve-expired-reply-ttl|TTL value to use when replying with expired data|5|second，0：disable，> 0  seconds after expiration|serve-expired-reply-ttl 30
+|serve-expired-ttl|Cache serve expired limit TTL|0|second, 0: disable, > 0  seconds after expiration|serve-expired-ttl 0
+|serve-expired-reply-ttl|TTL value to use when replying with expired data|5|second, 0: disable, > 0  seconds after expiration|serve-expired-reply-ttl 30
 |dualstack-ip-selection|Dualstack ip selection|yes|[yes\|no]|dualstack-ip-selection yes
-|dualstack-ip-selection-threshold|Dualstack ip select threadhold|15ms|millisecond|dualstack-ip-selection-threshold [0-1000]
+|dualstack-ip-selection-threshold|Dualstack ip select thresholds|10ms|millisecond|dualstack-ip-selection-threshold [0-1000]
 |user|run as user|root|user [username]|user nobody
-|ca-file|certificate file|/etc/ssl/certs/ca-certificates.crt|path|ca-file /etc/ssl/certs/ca-certificates.crt
+|ca-file|certificate file|/etc/ssl/certs/<br />ca-certificates.crt|path|ca-file /etc/ssl/certs/ca-certificates.crt
 |ca-path|certificates path|/etc/ssl/certs|path|ca-path /etc/ssl/certs
 
 ## FAQ
 
 1. What is the difference between SmartDNS and DNSMASQ?  
     Smartdns is not designed to replace DNSMASQ. The main function of Smartdns is focused on DNS resolution enhancement, the difference are:  
-    * Multiple upstream server concurrent requests, after the results are measured, return the best results;
-    * `address`, `ipset` domain name matching uses efficient algorithms, query matching is faster and more efficient, and router devices are still efficient.
-    * Domain name matching supports ignoring specific domain names, and can be individually matched to IPv4, IPV6, and supports diversified customization.
-    * Enhance the ad blocking feature, return SOA record, this block ads better;
-    * IPV4, IPV6 dual stack IP optimization mechanism, in the case of dual network, choose the fastest network.
-    * Supports the latest TLS, HTTPS protocol and provides secure DNS query capabilities.
-    * DNS anti-poison mechanism, and a variety of mechanisms to avoid DNS pollution.
-    * ECS support, the query results are better and more accurate.
-    * IP blacklist support, ignoring the blacklist IP to make domain name queries better and more accurate.
-    * Domain name pre-fetch, more faster to access popular websites.
-    * Domain name TTL can be specified to make access faster.
-    * Cache mechanism to make access faster.
-    * Asynchronous log, audit log mechanism, does not affect DNS query performance while recording information.
-    * Domain group mechanism, specific domain names use specific upstream server group queries to avoid privacy leakage.
-    * The second DNS supports customizing more behavior.
+    - Multiple upstream server concurrent requests, after the results are measured, return the best results;
+    - `address`, `ipset` domain name matching uses efficient algorithms, query matching is faster and more efficient, and router devices are still efficient.
+    - Domain name matching supports ignoring specific domain names, and can be individually matched to IPv4, IPV6, and supports diversified customization.
+    - Enhance the ad blocking feature, return SOA record, this block ads better;
+    - IPV4, IPV6 dual stack IP optimization mechanism, in the case of dual network, choose the fastest network.
+    - Supports the latest TLS, HTTPS protocol and provides secure DNS query capabilities.
+    - DNS anti-poison mechanism, and a variety of mechanisms to avoid DNS pollution.
+    - ECS support, the query results are better and more accurate.
+    - IP blacklist support, ignoring the blacklist IP to make domain name queries better and more accurate.
+    - Domain name pre-fetch, more faster to access popular websites.
+    - Domain name TTL can be specified to make access faster.
+    - Cache mechanism to make access faster.
+    - Asynchronous log, audit log mechanism, does not affect DNS query performance while recording information.
+    - Domain group mechanism, specific domain names use specific upstream server group queries to avoid privacy leakage.
+    - The second DNS supports customizing more behavior.
 
 1. What is the best practices for upstream server configuration?  
     Smartdns has a speed measurement mechanism. When configuring an upstream server, it is recommended to configure multiple upstream DNS servers, including servers in different regions, but the total number is recommended to be around 10. Recommended configuration
-    * Carrier DNS.
-    * Public DNS, such as `8.8.8.8`, `8.8.4.4`, `1.1.1.1`.
+    - Carrier DNS.
+    - Public DNS, such as `8.8.8.8`, `8.8.4.4`, `1.1.1.1`.
 
     For specific domain names, if there is a pollution, you can enable the anti-pollution mechanism.
 
@@ -560,27 +633,27 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 
 1. How to avoid DNS privacy leaks  
     By default, smartdns will send requests to all configured DNS servers. If the upstream DNS servers record DNS logs, it will result in a DNS privacy leak. To avoid privacy leaks, try the following steps:
-    * Use trusted DNS servers.
-    * Use TLS servers.
-    * Set up an upstream DNS server group.
+    - Use trusted DNS servers.
+    - Use TLS servers.
+    - Set up an upstream DNS server group.
 
 1. How to block ads  
     Smartdns has a high-performance domain name matching algorithm. It is very efficient to filter advertisements by domain name. To block ads, you only need to configure records like the following configure. For example, if you block `*.ad.com`, configure as follows:
 
-    ```sh
+    ```shell
     Address /ad.com/#
     ```
 
     The suffix mode of the domain name, filtering *.ad.com, `#` means returning SOA record. If you want to only block IPV4 or IPV6 separately, add a number after `#`, such as `#4` is for IPV4 blocking. If you want to ignore some specific subdomains, you can configure it as follows. e.g., if you ignore `pass.ad.com`, you can configure it as follows:
 
-    ```sh
+    ```shell
     Address /pass.ad.com/-
     ```
 
 1. DNS query diversion  
     In some cases, some domain names need to be queried using a specific DNS server to do DNS diversion. such as.
 
-    ```sh
+    ```shell
     .home -> 192.168.1.1
     .office -> 10.0.0.1
     ```
@@ -590,7 +663,7 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
     Other domain names are resolved using the default mode.
     The diversion configuration for this case is as follows:
 
-    ```sh
+    ```shell
     # Upstream configuration, use -group to specify the group name, and -exclude-default-group to exclude the server from the default group.
     Server 192.168.1.1 -group home -exclude-default-group
     Server 10.0.0.1 -group office -exclude-default-group
@@ -603,7 +676,7 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 
     You can use the above configuration to implement DNS resolution and offload. If you need to implement traffic distribution on the requesting port, you can configure the second DNS server. The bind configuration is added. The group parameter specifies the traffic distribution name.
 
-    ```sh
+    ```shell
     Bind :7053 -group office
     Bind :8053 -group home
     ```
@@ -611,28 +684,28 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 1. How to use the IPV4, IPV6 dual stack IP optimization feature  
     At present, IPV6 network is not as fast as IPV4 in some cases. In order to get a better experience in the dual-stack network, SmartDNS provides a dual-stack IP optimization mechanism, the same domain name, and the speed of IPV4. Far faster than IPV6, then SmartDNS will block the resolution of IPV6, let the PC use IPV4, the feature is enabled by `dualstack-ip-selection yes`, `dualstack-ip-selection-threshold [time]` is for threshold. if you want to disable IPV6 AAAA record complete, please try `force-AAAA-SOA yes`.
 
-1. How to improve cache performace  
+1. How to improve cache performance  
     Smartdns provides a domain name caching mechanism to cache the queried domain name, and the caching time is in accordance with the DNS TTL specification. To increase the cache hit rate, the following configuration can be taken:
-    * Increase the number of cache records appropriately  
+    - Increase the number of cache records appropriately  
     Set the number of cache records by `cache-size`.
     In the case of a query with a high pressure environment and a machine with a large memory, it can be appropriately adjusted.
 
-    * Set the minimum TTL value as appropriate  
+    - Set the minimum TTL value as appropriate  
     Set the minimum DNS TTL time to a appropriate value by `rr-ttl-min` to extend the cache time.
     It is recommended that the timeout period be set to 10 to 30 minutes to avoid then invalid domain names when domain ip changes.
 
-    * Enable domain pre-acquisition  
+    - Enable domain pre-acquisition  
     Enable pre-fetching of domain names with `prefetch-domain yes` to improve query hit rate.
     by default, Smartdns will send domain query request again before cache expire, and cache the result for the next query. Frequently accessed domain names will continue to be cached. This feature will consume more CPU when idle.
 
-    * Cache serve expired feature  
+    - Cache serve expired feature  
     Enable cache serve expired feature with `serve-expired yes` to improve the cache hit rate and reduce the CPU consumption.
     This feature will return TTL = 0 to the client after the TTL timeout, and send a new query request again at the same time, and cache the new results for later query.
 
 1. How does the second DNS customize more behavior?  
     The second DNS can be used as the upstream of other DNS servers to provide more query behaviors. Bind configuration support can bind multiple ports. Different ports can be set with different flags to implement different functions, such as
 
-    ```sh
+    ```shell
     # Binding 6053 port, request for port 6053 will be configured with the upstream query of the office group, and the result will not be measured. The address configuration address is ignored.
     bind [::]:6053 -no-speed-check -group office -no-rule-addr
     ```
@@ -640,61 +713,97 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 1. How to get SPKI of DOT  
     The SPKI can be obtained from the page published by the DNS service provider. If it is not published, it can be obtained by the following command, replace IP with your own IP.
 
-    ```sh
+    ```shell
     echo | openssl s_client -connect '1.0.0.1:853' 2>/dev/null | openssl x509 -pubkey -noout | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | openssl enc -base64
     ```
 
-1. How to solve the problem of slow DNS resolution in iOS system?    
+1. How to solve the problem of slow DNS resolution in iOS system?
     Since iOS14, Apple has supported the resolution of DNS HTTPS (TYPE65) records. This function is used for solving problems related to HTTPS connections, but it is still a draft, and it will cause some functions such as adblocking fail. It is recommended to disable it through the following configuration.
 
-    ```sh
+    ```shell
     force-qtype-SOA 65
     ```
 
 1. How to resolve localhost ip by hostname?  
     smartdns can cooperate with the dhcp server of DNSMASQ to support the resolution of local host name to IP address. You can configure smartdns to read the lease file of dnsmasq and support the resolution. The specific configuration parameters are as follows, (note that the DNSMASQ lease file may be different for each system and needs to be configured according to the actual situation)
 
-    ```sh
+    ```shell
     dnsmasq-lease-file /var/lib/misc/dnsmasq.leases
     ```
 
     After the configuration is complete, you can directly use the host name to connect to the local machine. But need to pay attention:
 
-    * Windows system uses mDNS to resolve addresses by default. If you need to use smartdns to resolve addresses under Windows, you need to add `.` after the host name, indicating that DNS resolution is used. Such as `ping smartdns.`
+    - Windows system uses mDNS to resolve addresses by default. If you need to use smartdns to resolve addresses under Windows, you need to add `.` after the host name, indicating that DNS resolution is used. Such as `ping smartdns.`
 
 1. How to use the domain set?  
     To facilitate configuring domain names by set, for configurations with /domain/, you can specify a domain name set for easy maintenance. The specific method is:
-    
-    * Use `domain-set` configuration domain set file:
-    
-    ````sh
+
+    - Use `domain-set` configuration domain set file:
+
+    ````shell
     domain-set -name ad -file /etc/smartdns/ad-list.conf
     ````
 
     The format of ad-list.conf is one domain per line:
-    
-    ````
+
+    ```shell
     ad.com
     site.com
-    ````
+    ```
 
-    * To use the domain set, you only need to configure `/domain/` to `/domain-set:[collection name]/`, such as:
+    - To use the domain set, you only need to configure `/domain/` to `/domain-set:[collection name]/`, such as:
 
-    ````sh
+    ````shell
     address /domain-set:ad/#
     domain-rules /domain-set:ad/ -a #
     nameserver /domain-set:ad/server
     ...
     ````
 
-1. More questions    
+1. How to use ipset and nftset?  
+    Similar to Dnsmasq, smartdns supports ipset and nftset, and can transparently forward specific domain names through TPROXY. The comparison of transparent forwarding and tool modes is as follows:
+
+    1. Tools: iptable, nftable
+
+        iptable: a mature routing rule configuration tool.
+        nftable: A more powerful rule configuration tool that is becoming mainstream.
+
+    1. Mode: TPROXY, REDIRECT
+
+        TPROXY: supports UDP and TCP forwarding, and the configuration is a little complicated.
+        REDIRECT: only supports TCP, easy to configure.
+
+    Here we only take the configuration of the most commonly used iptable/REDIRECT with ipset as an example. The specific forwarding configuration is as follows:
+
+    - Set the list of domain names that need to be transparently forwarded in smartdns.conf, for example, `example.com` needs to be transparently forwarded. Then use the ipset option and set the ipset rule of `example.com` to `proxy`.
+
+    ```shell
+    # set rules
+    # -ipset proxy: The matching domain name is set to ipset:proxy.
+    # -c none: Disable speed check.
+    # -address #6: Filter IPV6 record.
+    domain-rules /example.com/ -ipset proxy -c none -address #6
+    ```
+
+    - Execute shell commands, set iptable rules, and transparently forward matching domain name requests. The rules are as follows:
+
+    ```shell
+    # create ipset
+    ipset create proxy hash:net
+    # Set forwarding rules to forward matching requests to port 1081 of this machine
+    iptables -t nat -I PREROUTING -p tcp -m set --match-set proxy dst -j REDIRECT --to-ports 1081
+    ```
+
+    - Open the forwarding program of REDIRECT mode on port 1081 of this machine.
+
+1. More questions  
     More questions, please read issue: [https://github.com/pymumu/smartdns/issues](https://github.com/pymumu/smartdns/issues)
 
 ## Compile
 
-smartdns contains scripts for compiling packages, supports compiling luci, debian, openwrt, opare installation packages, and can execute `package/build-pkg.sh` compilation.
+smartdns contains scripts for compiling packages, supports compiling luci, debian, openwrt, optware installation packages, and can execute `package/build-pkg.sh` compilation.
 
-## [Donate](#Donate)  
+## [Donate](#donate)  
 
 If you feel that this project is helpful to you, please donate to us so that the project can continue to develop and be more perfect.
 

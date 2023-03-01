@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2020 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2023 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -63,8 +63,8 @@ struct ping_dns_head {
 	unsigned short flag;
 	unsigned short qdcount;
 	unsigned short ancount;
-	unsigned short aucount;
-	unsigned short adcount;
+	unsigned short nscount;
+	unsigned short nrcount;
 	char qd_name;
 	unsigned short q_qtype;
 	unsigned short q_qclass;
@@ -171,7 +171,7 @@ static int bool_print_log = 1;
 
 static void _fast_ping_host_put(struct ping_host_struct *ping_host);
 
-static void _fast_ping_wakup_thread(void)
+static void _fast_ping_wakeup_thread(void)
 {
 	uint64_t u = 1;
 	int unused __attribute__((unused));
@@ -336,7 +336,8 @@ static struct addrinfo *_fast_ping_getaddr(const char *host, const char *port, i
 	hints.ai_protocol = protocol;
 	errcode = getaddrinfo(host, port, &hints, &result);
 	if (errcode != 0) {
-		tlog(TLOG_ERROR, "get addr info failed. host:%s, port: %s, error %s\n", host, port, gai_strerror(errcode));
+		tlog(TLOG_ERROR, "get addr info failed. host:%s, port: %s, error %s\n", host != NULL ? host : "",
+			 port != NULL ? port : "", gai_strerror(errcode));
 		goto errout;
 	}
 
@@ -521,11 +522,11 @@ static int _fast_ping_sendping_v6(struct ping_host_struct *ping_host)
 				 ping_host->addr_len);
 	if (len < 0 || len != sizeof(struct fast_ping_packet)) {
 		int err = errno;
-		if (errno == ENETUNREACH || errno == EINVAL || errno == EADDRNOTAVAIL) {
+		if (errno == ENETUNREACH || errno == EINVAL || errno == EADDRNOTAVAIL || errno == EHOSTUNREACH) {
 			goto errout;
 		}
 
-		if (errno == EACCES) {
+		if (errno == EACCES || errno == EPERM) {
 			if (bool_print_log == 0) {
 				goto errout;
 			}
@@ -534,7 +535,7 @@ static int _fast_ping_sendping_v6(struct ping_host_struct *ping_host)
 
 		char ping_host_name[PING_MAX_HOSTLEN];
 		tlog(TLOG_ERROR, "sendto %s, id %d, %s",
-			 gethost_by_addr(ping_host_name, sizeof(ping_host_name), (struct sockaddr *)&ping_host->addr),
+			 get_host_by_addr(ping_host_name, sizeof(ping_host_name), (struct sockaddr *)&ping_host->addr),
 			 ping_host->sid, strerror(err));
 		goto errout;
 	}
@@ -569,12 +570,12 @@ static int _fast_ping_sendping_v4(struct ping_host_struct *ping_host)
 	len = sendto(ping.fd_icmp, packet, sizeof(struct fast_ping_packet), 0, &ping_host->addr, ping_host->addr_len);
 	if (len < 0 || len != sizeof(struct fast_ping_packet)) {
 		int err = errno;
-		if (errno == ENETUNREACH || errno == EINVAL || errno == EADDRNOTAVAIL) {
+		if (errno == ENETUNREACH || errno == EINVAL || errno == EADDRNOTAVAIL || errno == EPERM || errno == EACCES) {
 			goto errout;
 		}
 		char ping_host_name[PING_MAX_HOSTLEN];
 		tlog(TLOG_ERROR, "sendto %s, id %d, %s",
-			 gethost_by_addr(ping_host_name, sizeof(ping_host_name), (struct sockaddr *)&ping_host->addr),
+			 get_host_by_addr(ping_host_name, sizeof(ping_host_name), (struct sockaddr *)&ping_host->addr),
 			 ping_host->sid, strerror(err));
 		goto errout;
 	}
@@ -621,12 +622,12 @@ static int _fast_ping_sendping_udp(struct ping_host_struct *ping_host)
 	len = sendto(fd, &dns_head, sizeof(dns_head), 0, &ping_host->addr, ping_host->addr_len);
 	if (len < 0 || len != sizeof(dns_head)) {
 		int err = errno;
-		if (errno == ENETUNREACH || errno == EINVAL || errno == EADDRNOTAVAIL) {
+		if (errno == ENETUNREACH || errno == EINVAL || errno == EADDRNOTAVAIL || errno == EPERM || errno == EACCES) {
 			goto errout;
 		}
 		char ping_host_name[PING_MAX_HOSTLEN];
 		tlog(TLOG_ERROR, "sendto %s, id %d, %s",
-			 gethost_by_addr(ping_host_name, sizeof(ping_host_name), (struct sockaddr *)&ping_host->addr),
+			 get_host_by_addr(ping_host_name, sizeof(ping_host_name), (struct sockaddr *)&ping_host->addr),
 			 ping_host->sid, strerror(err));
 		goto errout;
 	}
@@ -668,11 +669,11 @@ static int _fast_ping_sendping_tcp(struct ping_host_struct *ping_host)
 	if (connect(fd, &ping_host->addr, ping_host->addr_len) != 0) {
 		if (errno != EINPROGRESS) {
 			char ping_host_name[PING_MAX_HOSTLEN];
-			if (errno == ENETUNREACH || errno == EINVAL || errno == EADDRNOTAVAIL) {
+			if (errno == ENETUNREACH || errno == EINVAL || errno == EADDRNOTAVAIL || errno == EHOSTUNREACH) {
 				goto errout;
 			}
 
-			if (errno == EACCES) {
+			if (errno == EACCES || errno == EPERM) {
 				if (bool_print_log == 0) {
 					goto errout;
 				}
@@ -680,7 +681,7 @@ static int _fast_ping_sendping_tcp(struct ping_host_struct *ping_host)
 			}
 
 			tlog(TLOG_ERROR, "connect %s, id %d, %s",
-				 gethost_by_addr(ping_host_name, sizeof(ping_host_name), (struct sockaddr *)&ping_host->addr),
+				 get_host_by_addr(ping_host_name, sizeof(ping_host_name), (struct sockaddr *)&ping_host->addr),
 				 ping_host->sid, strerror(errno));
 			goto errout;
 		}
@@ -1205,7 +1206,7 @@ struct ping_host_struct *fast_ping_start(PING_TYPE type, const char *host, int c
 	pthread_mutex_lock(&ping.map_lock);
 	_fast_ping_host_get(ping_host);
 	if (hash_empty(ping.addrmap)) {
-		_fast_ping_wakup_thread();
+		_fast_ping_wakeup_thread();
 	}
 	hash_add(ping.addrmap, &ping_host->addr_node, addrkey);
 	ping_host->run = 1;
@@ -1326,7 +1327,7 @@ static struct fast_ping_packet *_fast_ping_icmp_packet(struct ping_host_struct *
 
 	if (ping.no_unprivileged_ping) {
 		if (ip->ip_p != IPPROTO_ICMP) {
-			tlog(TLOG_ERROR, "ip type faild, %d:%d", ip->ip_p, IPPROTO_ICMP);
+			tlog(TLOG_ERROR, "ip type failed, %d:%d", ip->ip_p, IPPROTO_ICMP);
 			return NULL;
 		}
 
@@ -1407,7 +1408,7 @@ static int _fast_ping_process_icmp(struct ping_host_struct *ping_host, struct ti
 		}
 
 		tlog(TLOG_DEBUG, "recv ping packet from %s failed.",
-			 gethost_by_addr(name, sizeof(name), (struct sockaddr *)&from));
+			 get_host_by_addr(name, sizeof(name), (struct sockaddr *)&from));
 		goto errout;
 	}
 
@@ -1780,10 +1781,11 @@ static void *_fast_ping_work(void *arg)
 				sleep_time = 0;
 			}
 		}
-		last = now;
 
 		if (now >= expect_time) {
-			_fast_ping_period_run();
+			if (last != now) {
+				_fast_ping_period_run();
+			}
 			sleep_time = sleep - (now - expect_time);
 			if (sleep_time < 0) {
 				sleep_time = 0;
@@ -1791,6 +1793,7 @@ static void *_fast_ping_work(void *arg)
 			}
 			expect_time += sleep;
 		}
+		last = now;
 
 		pthread_mutex_lock(&ping.map_lock);
 		if (hash_empty(ping.addrmap)) {
@@ -1899,7 +1902,7 @@ int fast_ping_init(void)
 
 	ret = pthread_create(&ping.notify_tid, &attr, _fast_ping_notify_worker, NULL);
 	if (ret != 0) {
-		tlog(TLOG_ERROR, "create ping notifyer work thread failed, %s\n", strerror(ret));
+		tlog(TLOG_ERROR, "create ping notifier work thread failed, %s\n", strerror(ret));
 		goto errout;
 	}
 
@@ -1923,7 +1926,7 @@ errout:
 	if (ping.tid) {
 		void *retval = NULL;
 		atomic_set(&ping.run, 0);
-		_fast_ping_wakup_thread();
+		_fast_ping_wakeup_thread();
 		pthread_join(ping.tid, &retval);
 		ping.tid = 0;
 	}
@@ -1982,7 +1985,7 @@ void fast_ping_exit(void)
 	if (ping.tid) {
 		void *ret = NULL;
 		atomic_set(&ping.run, 0);
-		_fast_ping_wakup_thread();
+		_fast_ping_wakeup_thread();
 		pthread_join(ping.tid, &ret);
 		ping.tid = 0;
 	}

@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2020 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2023 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -81,7 +81,7 @@ typedef enum dns_opt_code {
 } dns_opt_code_t;
 
 /* https://datatracker.ietf.org/doc/draft-ietf-dnsop-svcb-https/11/ */
-typedef enum dns_htts_svcparam {
+typedef enum dns_https_svcparam {
 	DNS_HTTPS_T_MANDATORY = 0,
 	DNS_HTTPS_T_ALPN = 1,
 	DNS_HTTPS_T_NO_DEFAULT_ALPN = 2,
@@ -90,7 +90,7 @@ typedef enum dns_htts_svcparam {
 	DNS_HTTPS_T_ECH = 5,
 	DNS_HTTPS_T_IPV6HINT = 6,
 	DNS_HTTPS_T_ALL = 255
-} dns_htts_svcparam_t;
+} dns_https_svcparam_t;
 
 typedef enum dns_opcode {
 	DNS_OP_QUERY = 0,
@@ -129,7 +129,7 @@ struct dns_head {
 	unsigned short qdcount; /* number of question entries */
 	unsigned short ancount; /* number of answer entries */
 	unsigned short nscount; /* number of authority entries */
-	unsigned short nrcount; /* number of addititional resource entries */
+	unsigned short nrcount; /* number of additional resource entries */
 } __attribute__((packed, aligned(2)));
 
 #define DNS_PACKET_DICT_SIZE 16
@@ -143,7 +143,7 @@ struct dns_packet_dict {
 	struct dns_packet_dict_item names[DNS_PACKET_DICT_SIZE];
 };
 
-/* packet haed */
+/* packet head */
 struct dns_packet {
 	struct dns_head head;
 	unsigned short questions;
@@ -272,8 +272,8 @@ int dns_get_OPT_payload_size(struct dns_packet *packet);
 int dns_add_OPT_ECS(struct dns_packet *packet, struct dns_opt_ecs *ecs);
 int dns_get_OPT_ECS(struct dns_rrs *rrs, unsigned short *opt_code, unsigned short *opt_len, struct dns_opt_ecs *ecs);
 
-int dns_add_OPT_TCP_KEEYALIVE(struct dns_packet *packet, unsigned short timeout);
-int dns_get_OPT_TCP_KEEYALIVE(struct dns_rrs *rrs, unsigned short *opt_code, unsigned short *opt_len,
+int dns_add_OPT_TCP_KEEPALIVE(struct dns_packet *packet, unsigned short timeout);
+int dns_get_OPT_TCP_KEEPALIVE(struct dns_rrs *rrs, unsigned short *opt_code, unsigned short *opt_len,
 							  unsigned short *timeout);
 
 int dns_add_HTTPS_start(struct dns_rr_nested *svcparam_buffer, struct dns_packet *packet,

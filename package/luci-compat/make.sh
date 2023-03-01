@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# Copyright (C) 2018-2020 Ruilin Peng (Nick) <pymumu@gmail.com>.
+# Copyright (C) 2018-2023 Ruilin Peng (Nick) <pymumu@gmail.com>.
 #
 # smartdns is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -54,6 +54,7 @@ build()
 	build_tool
 	mkdir $ROOT/root/usr/lib/lua/ -p
 	cp $ROOT/files/luci $ROOT/root/usr/lib/lua/ -af
+	cp $ROOT/files/usr $ROOT/root/ -af
 	
 	#Generate Language
 	$PO2LMO $ROOT/files/luci/i18n/smartdns.zh-cn.po $ROOT/root/usr/lib/lua/luci/i18n/smartdns.zh-cn.lmo
