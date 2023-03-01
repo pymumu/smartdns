@@ -335,17 +335,29 @@ static int _dns_server_get_conf_ttl(struct dns_request *request, int ttl)
 			rr_ttl = ttl_rule->ttl;
 		}
 
+		/* make domain rule ttl high priority */
 		if (ttl_rule->ttl_min > 0) {
 			rr_ttl_min = ttl_rule->ttl_min;
+			if (dns_conf_rr_ttl_max <= rr_ttl_min) {
+				rr_ttl_max = rr_ttl_min;
+			}
 		}
 
 		if (ttl_rule->ttl_max > 0) {
 			rr_ttl_max = ttl_rule->ttl_max;
+			if (dns_conf_rr_ttl_min >= rr_ttl_max) {
+				rr_ttl_min = rr_ttl_max;
+			}
 		}
 	}
 
 	if (rr_ttl > 0) {
 		return rr_ttl;
+	}
+
+	/* make rr_ttl_min first priority */
+	if (rr_ttl_max < rr_ttl_min) {
+		rr_ttl_max = rr_ttl_min;
 	}
 
 	if (rr_ttl_max > 0 && ttl >= rr_ttl_max) {
