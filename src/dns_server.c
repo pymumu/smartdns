@@ -238,6 +238,7 @@ struct dns_request {
 
 	/* send original raw packet to server/client like proxy */
 	int passthrough;
+
 	int request_wait;
 	int prefetch;
 	int prefetch_expired_domain;
@@ -265,6 +266,9 @@ struct dns_request {
 	int check_order;
 
 	struct dns_request_pending_list *request_pending_list;
+
+	int no_select_possible_ip;
+	int no_cache_cname;
 };
 
 /* dns server data */
@@ -294,6 +298,7 @@ static int _dns_server_get_answer(struct dns_server_post_context *context);
 static void _dns_server_request_get(struct dns_request *request);
 static void _dns_server_request_release(struct dns_request *request);
 static void _dns_server_request_release_complete(struct dns_request *request, int do_complete);
+static int _dns_server_request_complete(struct dns_request *request);
 static int _dns_server_reply_passthrough(struct dns_server_post_context *context);
 static int _dns_server_do_query(struct dns_request *request, int skip_notify_event);
 static int _dns_request_post(struct dns_server_post_context *context);
@@ -310,7 +315,6 @@ static void _dns_server_wakeup_thread(void)
 
 static int _dns_server_forward_request(unsigned char *inpacket, int inpacket_len)
 {
-	tlog(TLOG_DEBUG, "forward request.\n");
 	return -1;
 }
 
@@ -338,14 +342,14 @@ static int _dns_server_get_conf_ttl(struct dns_request *request, int ttl)
 		/* make domain rule ttl high priority */
 		if (ttl_rule->ttl_min > 0) {
 			rr_ttl_min = ttl_rule->ttl_min;
-			if (dns_conf_rr_ttl_max <= rr_ttl_min) {
+			if (dns_conf_rr_ttl_max <= rr_ttl_min && dns_conf_rr_ttl_max > 0) {
 				rr_ttl_max = rr_ttl_min;
 			}
 		}
 
 		if (ttl_rule->ttl_max > 0) {
 			rr_ttl_max = ttl_rule->ttl_max;
-			if (dns_conf_rr_ttl_min >= rr_ttl_max) {
+			if (dns_conf_rr_ttl_min >= rr_ttl_max && dns_conf_rr_ttl_min > 0 && ttl_rule->ttl_min <= 0) {
 				rr_ttl_min = rr_ttl_max;
 			}
 		}
@@ -356,7 +360,7 @@ static int _dns_server_get_conf_ttl(struct dns_request *request, int ttl)
 	}
 
 	/* make rr_ttl_min first priority */
-	if (rr_ttl_max < rr_ttl_min) {
+	if (rr_ttl_max < rr_ttl_min && rr_ttl_max > 0) {
 		rr_ttl_max = rr_ttl_min;
 	}
 
@@ -1190,7 +1194,7 @@ static int _dns_cache_cname_packet(struct dns_server_post_context *context)
 
 	struct dns_request *request = context->request;
 
-	if (request->has_cname == 0) {
+	if (request->has_cname == 0 || request->no_cache_cname == 1) {
 		return 0;
 	}
 
@@ -1646,6 +1650,7 @@ static int _dns_result_child_post(struct dns_server_post_context *context)
 		parent_context.do_audit = context->do_audit;
 		parent_context.do_reply = context->do_reply;
 		parent_context.reply_ttl = context->reply_ttl;
+		parent_context.cache_ttl = context->cache_ttl;
 		parent_context.skip_notify_count = context->skip_notify_count;
 		parent_context.select_all_best_ip = 1;
 		parent_context.no_release_parent = context->no_release_parent;
@@ -1655,7 +1660,7 @@ static int _dns_result_child_post(struct dns_server_post_context *context)
 	}
 
 	if (context->no_release_parent == 0) {
-		tlog(TLOG_INFO, "query %s with child %s done", parent_request->domain, request->domain);
+		tlog(TLOG_DEBUG, "query %s with child %s done", parent_request->domain, request->domain);
 		request->parent_request = NULL;
 		parent_request->request_wait--;
 		_dns_server_request_release(parent_request);
@@ -1746,7 +1751,7 @@ static int _dns_server_reply_SOA(int rcode, struct dns_request *request)
 {
 	/* return SOA record */
 	request->rcode = rcode;
-	if (request->ip_ttl == 0) {
+	if (request->ip_ttl <= 0) {
 		request->ip_ttl = DNS_SERVER_SOA_TTL;
 	}
 
@@ -1814,6 +1819,34 @@ static int _dns_server_reply_all_pending_list(struct dns_request *request, struc
 	return ret;
 }
 
+static void _dns_server_check_complete_dualstack(struct dns_request *request, struct dns_request *dualstack_request)
+{
+	if (dualstack_request == NULL || request == NULL) {
+		return;
+	}
+
+	if (dualstack_request->qtype == DNS_T_A && dns_conf_dualstack_ip_allow_force_AAAA == 0) {
+		return;
+	}
+
+	if (dualstack_request->ping_time > 0) {
+		return;
+	}
+
+	if (dualstack_request->dualstack_selection_query == 1) {
+		return;
+	}
+
+	if (request->ping_time <= (dns_conf_dualstack_ip_selection_threshold * 10) ) {
+		return;
+	}
+
+	dualstack_request->dualstack_selection_has_ip = request->has_ip;
+	dualstack_request->dualstack_selection_ping_time = request->ping_time;
+	dualstack_request->dualstack_selection_force_soa = 1;
+	_dns_server_request_complete(dualstack_request);
+}
+
 static int _dns_server_force_dualstack(struct dns_request *request)
 {
 	/* for dualstack request as first pending request, check if need to choose another request*/
@@ -1822,6 +1855,8 @@ static int _dns_server_force_dualstack(struct dns_request *request)
 		request->dualstack_selection_has_ip = dualstack_request->has_ip;
 		request->dualstack_selection_ping_time = dualstack_request->ping_time;
 		request->dualstack_selection = 1;
+		/* if another request still waiting for ping, force complete another request */
+		_dns_server_check_complete_dualstack(request, dualstack_request);
 	}
 
 	if (request->dualstack_selection_ping_time < 0 || request->dualstack_selection == 0) {
@@ -2040,6 +2075,10 @@ static void _dns_server_select_possible_ipaddress(struct dns_request *request)
 		return;
 	}
 
+	if (request->no_select_possible_ip != 0) {
+		return;
+	}
+
 	if (request->ping_time > 0) {
 		return;
 	}
@@ -2079,14 +2118,14 @@ static void _dns_server_select_possible_ipaddress(struct dns_request *request)
 	switch (request->qtype) {
 	case DNS_T_A: {
 		memcpy(request->ip_addr, selected_addr_map->ip_addr, DNS_RR_A_LEN);
-		request->ip_ttl = DNS_SERVER_TMOUT_TTL;
+		request->ip_ttl = dns_conf_rr_ttl_min > 0 ? dns_conf_rr_ttl_min : DNS_SERVER_TMOUT_TTL;
 		tlog(TLOG_DEBUG, "possible result: %s, rcode: %d,  hitnum: %d, %d.%d.%d.%d", request->domain, request->rcode,
 			 selected_addr_map->hitnum, request->ip_addr[0], request->ip_addr[1], request->ip_addr[2],
 			 request->ip_addr[3]);
 	} break;
 	case DNS_T_AAAA: {
 		memcpy(request->ip_addr, selected_addr_map->ip_addr, DNS_RR_AAAA_LEN);
-		request->ip_ttl = DNS_SERVER_TMOUT_TTL;
+		request->ip_ttl = dns_conf_rr_ttl_min > 0 ? dns_conf_rr_ttl_min : DNS_SERVER_TMOUT_TTL;
 		tlog(TLOG_DEBUG,
 			 "possible result: %s, rcode: %d,  hitnum: %d, "
 			 "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x",
@@ -3999,10 +4038,26 @@ static DNS_CHILD_POST_RESULT _dns_server_process_cname_callback(struct dns_reque
 																struct dns_request *child_request, int is_first_resp)
 {
 	_dns_server_request_copy(request, child_request);
-	if (child_request->rcode == DNS_RC_NOERROR) {
+	if (child_request->rcode == DNS_RC_NOERROR && dns_conf_force_no_cname == 0) {
 		safe_strncpy(request->cname, child_request->domain, sizeof(request->cname));
 		request->has_cname = 1;
 		request->ttl_cname = child_request->ip_ttl;
+	}
+
+	request->no_select_possible_ip = 1;
+	request->no_cache_cname = 1;
+
+	/* copy child rules to parent */
+	for (int i = 0; i < DOMAIN_RULE_MAX; i++) {
+		if (request->domain_rule.rules[i] != NULL) {
+			continue;
+		}
+
+		if (child_request->domain_rule.rules[i] == NULL) {
+			continue;
+		}
+
+		request->domain_rule.rules[i] = child_request->domain_rule.rules[i];
 	}
 
 	return DNS_CHILD_POST_SUCCESS;
@@ -4243,10 +4298,6 @@ static int _dns_server_get_expired_ttl_reply(struct dns_cache *dns_cache)
 {
 	int ttl = dns_cache_get_ttl(dns_cache);
 	if (ttl > 0) {
-		if (dns_conf_rr_ttl_reply_max > 0 && ttl > dns_conf_rr_ttl_reply_max) {
-			ttl = dns_conf_rr_ttl_reply_max;
-		}
-
 		return ttl;
 	}
 
@@ -4424,6 +4475,7 @@ static int _dns_server_process_cache(struct dns_request *request)
 				tlog(TLOG_DEBUG, "cache result: %s, qtype: %d, force %s preferred, id: %d, time1: %d, time2: %d",
 					 request->domain, request->qtype, request->qtype == DNS_T_AAAA ? "IPv4" : "IPv6", request->id,
 					 dns_cache->info.speed, dualstack_dns_cache->info.speed);
+				request->ip_ttl = _dns_server_get_expired_ttl_reply(dualstack_dns_cache);
 				ret = _dns_server_reply_SOA(DNS_RC_NOERROR, request);
 				goto out_update_cache;
 			}
