@@ -630,6 +630,7 @@ entware|ipkg update<br />ipkg install smartdns|软件源路径：<https://bin.en
 | serve-expired | 过期缓存服务功能 | yes | [yes\|no]，开启此功能后，如果有请求时尝试回应 TTL 为 0 的过期记录，并发查询记录，以避免查询等待 |
 | serve-expired-ttl | 过期缓存服务最长超时时间 | 0 | 秒，0 表示停用超时，大于 0 表示指定的超时的秒数 | serve-expired-ttl 0 |
 | serve-expired-reply-ttl | 回应的过期缓存 TTL | 5 | 秒，0 表示停用超时，大于 0 表示指定的超时的秒数 | serve-expired-reply-ttl 30 |
+| serve-expired-prefetch-time | 过期缓存预查询时间 | 28800 | 秒，到达对应超时时间后预查询时间 | serve-expired-prefetch-time 86400 |
 | dualstack-ip-selection | 双栈 IP 优选 | yes | [yes\|no] | dualstack-ip-selection yes |
 | dualstack-ip-selection-threshold | 双栈 IP 优选阈值 | 10ms | 单位为毫秒（ms） | dualstack-ip-selection-threshold [0-1000] |
 | user | 进程运行用户 | root | user [username] | user nobody |
