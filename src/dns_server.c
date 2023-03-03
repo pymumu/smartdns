@@ -1131,7 +1131,7 @@ static int _dns_server_request_update_cache(struct dns_request *request, dns_typ
 		} else {
 			ttl = dns_conf_rr_ttl;
 			if (ttl == 0) {
-				ttl = DNS_SERVER_TMOUT_TTL;
+				ttl = _dns_server_get_conf_ttl(request, request->ip_ttl);
 			}
 		}
 
@@ -1837,7 +1837,7 @@ static void _dns_server_check_complete_dualstack(struct dns_request *request, st
 		return;
 	}
 
-	if (request->ping_time <= (dns_conf_dualstack_ip_selection_threshold * 10) ) {
+	if (request->ping_time <= (dns_conf_dualstack_ip_selection_threshold * 10)) {
 		return;
 	}
 
@@ -1858,7 +1858,7 @@ static int _dns_server_force_dualstack(struct dns_request *request)
 		/* if another request still waiting for ping, force complete another request */
 		_dns_server_check_complete_dualstack(request, dualstack_request);
 	}
-
+ 
 	if (request->dualstack_selection_ping_time < 0 || request->dualstack_selection == 0) {
 		return -1;
 	}
@@ -3113,7 +3113,7 @@ static int _dns_server_get_answer(struct dns_server_post_context *context)
 				char cname[DNS_MAX_CNAME_LEN];
 				char name[DNS_MAX_CNAME_LEN] = {0};
 				dns_get_CNAME(rrs, name, DNS_MAX_CNAME_LEN, &ttl, cname, DNS_MAX_CNAME_LEN);
-				tlog(TLOG_DEBUG, "NS: %s ttl: %d cname: %s\n", name, ttl, cname);
+				tlog(TLOG_DEBUG, "NS: %s, ttl: %d, cname: %s\n", name, ttl, cname);
 			} break;
 			case DNS_T_CNAME: {
 				char cname[DNS_MAX_CNAME_LEN];
@@ -3123,7 +3123,7 @@ static int _dns_server_get_answer(struct dns_server_post_context *context)
 				}
 
 				dns_get_CNAME(rrs, name, DNS_MAX_CNAME_LEN, &ttl, cname, DNS_MAX_CNAME_LEN);
-				tlog(TLOG_DEBUG, "name: %s ttl: %d cname: %s\n", name, ttl, cname);
+				tlog(TLOG_DEBUG, "name: %s, ttl: %d, cname: %s\n", name, ttl, cname);
 				if (strncmp(name, request->domain, DNS_MAX_CNAME_LEN - 1) != 0 &&
 					strncmp(name, request->cname, DNS_MAX_CNAME_LEN - 1) != 0) {
 					continue;
@@ -3762,7 +3762,7 @@ static int _dns_server_get_rules(unsigned char *key, uint32_t key_len, int is_su
 	return 0;
 }
 
-static void _dns_server_get_domain_rule(struct dns_request *request)
+static void _dns_server_get_domain_rule_by_domain(struct dns_request *request, const char *domain, int out_log)
 {
 	int domain_len = 0;
 	char domain_key[DNS_MAX_CNAME_LEN];
@@ -3779,8 +3779,8 @@ static void _dns_server_get_domain_rule(struct dns_request *request)
 	walk_args.args = request;
 
 	/* reverse domain string */
-	domain_len = strlen(request->domain);
-	reverse_string(domain_key, request->domain, domain_len, 1);
+	domain_len = strlen(domain);
+	reverse_string(domain_key, domain, domain_len, 1);
 	domain_key[domain_len] = '.';
 	domain_len++;
 	domain_key[domain_len] = 0;
@@ -3807,10 +3807,17 @@ static void _dns_server_get_domain_rule(struct dns_request *request)
 
 		matched_key_len--;
 		matched_key[matched_key_len] = 0;
-		_dns_server_log_rule(request->domain, i, matched_key, matched_key_len);
+		if (out_log != 0) {
+			_dns_server_log_rule(request->domain, i, matched_key, matched_key_len);
+		}
 	}
 
 	request->skip_domain_rule = 1;
+}
+
+static void _dns_server_get_domain_rule(struct dns_request *request)
+{
+	_dns_server_get_domain_rule_by_domain(request, request->domain, 1);
 }
 
 static int _dns_server_pre_process_rule_flags(struct dns_request *request)
@@ -3977,7 +3984,7 @@ static int _dns_server_request_copy(struct dns_request *request, struct dns_requ
 
 	if (from->has_ip) {
 		request->has_ip = 1;
-		request->ip_ttl = from->ip_ttl;
+		request->ip_ttl = _dns_server_get_conf_ttl(request, from->ip_ttl);
 		request->ping_time = from->ping_time;
 		memcpy(request->ip_addr, from->ip_addr, sizeof(request->ip_addr));
 	}
@@ -4038,29 +4045,51 @@ static DNS_CHILD_POST_RESULT _dns_server_process_cname_callback(struct dns_reque
 																struct dns_request *child_request, int is_first_resp)
 {
 	_dns_server_request_copy(request, child_request);
-	if (child_request->rcode == DNS_RC_NOERROR && dns_conf_force_no_cname == 0) {
+	if (child_request->rcode == DNS_RC_NOERROR && dns_conf_force_no_cname == 0 && child_request->has_soa == 0) {
 		safe_strncpy(request->cname, child_request->domain, sizeof(request->cname));
 		request->has_cname = 1;
-		request->ttl_cname = child_request->ip_ttl;
-	}
-
-	request->no_select_possible_ip = 1;
-	request->no_cache_cname = 1;
-
-	/* copy child rules to parent */
-	for (int i = 0; i < DOMAIN_RULE_MAX; i++) {
-		if (request->domain_rule.rules[i] != NULL) {
-			continue;
-		}
-
-		if (child_request->domain_rule.rules[i] == NULL) {
-			continue;
-		}
-
-		request->domain_rule.rules[i] = child_request->domain_rule.rules[i];
+		request->ttl_cname = _dns_server_get_conf_ttl(request, child_request->ip_ttl);
 	}
 
 	return DNS_CHILD_POST_SUCCESS;
+}
+
+static int _dns_server_process_cname_pre(struct dns_request *request)
+{
+	struct dns_cname_rule *cname = NULL;
+	struct dns_rule_flags *rule_flag = NULL;
+	struct dns_domain_rule domain_rule;
+
+	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_RULE_CNAME) == 0) {
+		return 0;
+	}
+
+	/* get domain rule flag */
+	rule_flag = _dns_server_get_dns_rule(request, DOMAIN_RULE_FLAGS);
+	if (rule_flag != NULL) {
+		if (rule_flag->flags & DOMAIN_FLAG_CNAME_IGN) {
+			return 0;
+		}
+	}
+
+	cname = _dns_server_get_dns_rule(request, DOMAIN_RULE_CNAME);
+	if (cname == NULL) {
+		return 0;
+	}
+
+	request->skip_domain_rule = 0;
+	/* copy child rules */
+	memcpy(&domain_rule, &request->domain_rule, sizeof(domain_rule));
+	memset(&request->domain_rule, 0, sizeof(request->domain_rule));
+	_dns_server_get_domain_rule_by_domain(request, cname->cname, 0);
+	request->domain_rule.rules[DOMAIN_RULE_CNAME] = domain_rule.rules[DOMAIN_RULE_CNAME];
+	request->domain_rule.is_sub_rule[DOMAIN_RULE_CNAME] = domain_rule.is_sub_rule[DOMAIN_RULE_CNAME];
+
+	request->no_select_possible_ip = 1;
+	request->no_cache_cname = 1;
+	safe_strncpy(request->cname, cname->cname, sizeof(request->cname));
+
+	return 0;
 }
 
 static int _dns_server_process_cname(struct dns_request *request)
@@ -4080,11 +4109,6 @@ static int _dns_server_process_cname(struct dns_request *request)
 		if (rule_flag->flags & DOMAIN_FLAG_CNAME_IGN) {
 			return 0;
 		}
-	}
-
-	/* cname /domain/ rule */
-	if (request->domain_rule.rules[DOMAIN_RULE_CNAME] == NULL) {
-		return 0;
 	}
 
 	cname = _dns_server_get_dns_rule(request, DOMAIN_RULE_CNAME);
@@ -4461,9 +4485,13 @@ static int _dns_server_process_cache(struct dns_request *request)
 
 		cache_key.qtype = dualstack_qtype;
 		dualstack_dns_cache = dns_cache_lookup(&cache_key);
+		if (dualstack_dns_cache == NULL && request->cname[0] != '\0') {
+			cache_key.domain = request->cname;
+			dualstack_dns_cache = dns_cache_lookup(&cache_key);
+		}
+
 		if (dualstack_dns_cache && dns_cache_is_soa(dualstack_dns_cache) == 0 &&
 			(dualstack_dns_cache->info.speed > 0)) {
-
 			if (dns_cache_is_soa(dns_cache)) {
 				ret = _dns_server_process_cache_packet(request, dns_cache);
 				goto out_update_cache;
@@ -4883,6 +4911,10 @@ static int _dns_server_do_query(struct dns_request *request, int skip_notify_eve
 			group_name = dns_group;
 		}
 		safe_strncpy(request->dns_group_name, group_name, DNS_GROUP_NAME_LEN);
+	}
+
+	if (_dns_server_process_cname_pre(request) != 0) {
+		goto errout;
 	}
 
 	_dns_server_set_dualstack_selection(request);

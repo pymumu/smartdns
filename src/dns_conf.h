@@ -85,10 +85,12 @@ typedef enum {
 	DNS_BIND_TYPE_TLS,
 } DNS_BIND_TYPE;
 
-#define DOMAIN_CHECK_NONE 0
-#define DOMAIN_CHECK_ICMP 1
-#define DOMAIN_CHECK_TCP 2
-#define DOMAIN_CHECK_NUM 3
+typedef enum {
+	DOMAIN_CHECK_NONE = 0,
+	DOMAIN_CHECK_ICMP = 1,
+	DOMAIN_CHECK_TCP = 2,
+	DOMAIN_CHECK_NUM = 3,
+} DOMAIN_CHECK_TYPE;
 
 #define DOMAIN_FLAG_ADDR_SOA (1 << 0)
 #define DOMAIN_FLAG_ADDR_IPV4_SOA (1 << 1)
@@ -215,7 +217,7 @@ struct dns_server_groups {
 };
 
 struct dns_domain_check_order {
-	char type;
+	DOMAIN_CHECK_TYPE type;
 	unsigned short tcp_port;
 };
 

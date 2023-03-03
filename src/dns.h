@@ -198,7 +198,7 @@ struct dns_opt_ecs {
 	unsigned char addr[DNS_RR_AAAA_LEN];
 } __attribute__((packed));
 
-/* OPT COOLIE */
+/* OPT COOKIE */
 struct dns_opt_cookie {
 	char server_cookie_len;
 	unsigned char client_cookie[8];

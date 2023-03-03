@@ -1687,13 +1687,13 @@ static int _dns_decode_opt_cookie(struct dns_context *context, struct dns_opt_co
 		return 0;
 	}
 
-	if (opt_len < (int)member_size(struct dns_opt_cookie, server_cookie)) {
+	if (opt_len < 8 || opt_len > (int)member_size(struct dns_opt_cookie, server_cookie)) {
 		return -1;
 	}
 
-	memcpy(cookie->server_cookie, context->ptr, len);
-	cookie->server_cookie_len = len;
-	context->ptr += len;
+	memcpy(cookie->server_cookie, context->ptr, opt_len);
+	cookie->server_cookie_len = opt_len;
+	context->ptr += opt_len;
 
 	tlog(TLOG_DEBUG, "OPT COOKIE");
 	return 0;
@@ -1860,8 +1860,8 @@ static int _dns_decode_opt(struct dns_context *context, dns_rr_type type, unsign
 	}
 
 	if (errcode != 0) {
-		tlog(TLOG_ERROR, "extend rcode invalid.");
-		return -1;
+		tlog(TLOG_DEBUG, "extend rcode invalid, %d", errcode);
+		return 0;
 	}
 
 	while (context->ptr - start < rr_len) {
