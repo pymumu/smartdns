@@ -52,6 +52,7 @@
 #define DNS_SERVER_TMOUT_TTL (5 * 60)
 #define DNS_SERVER_FAIL_TTL (60)
 #define DNS_SERVER_SOA_TTL (30)
+#define DNS_SERVER_ADDR_TTL (60)
 #define DNS_CONN_BUFF_SIZE 4096
 #define DNS_REQUEST_MAX_TIMEOUT 950
 #define DNS_PING_TIMEOUT (DNS_REQUEST_MAX_TIMEOUT)
@@ -3888,6 +3889,34 @@ soa:
 	return 0;
 }
 
+static int _dns_server_get_local_ttl(struct dns_request *request)
+{
+	struct dns_ttl_rule *ttl_rule;
+
+	/* get domain rule flag */
+	ttl_rule = _dns_server_get_dns_rule(request, DOMAIN_RULE_TTL);
+	if (ttl_rule != NULL) {
+		if (ttl_rule->ttl > 0) {
+			return ttl_rule->ttl;
+		}
+	}
+
+	if (dns_conf_local_ttl > 0) {
+		return dns_conf_local_ttl;
+	}
+
+	if (dns_conf_rr_ttl > 0) {
+		return dns_conf_rr_ttl;
+	}
+
+	if (dns_conf_rr_ttl_min > 0) {
+		return dns_conf_rr_ttl_min;
+	}
+
+	return DNS_SERVER_ADDR_TTL;
+}
+
+
 static int _dns_server_process_address(struct dns_request *request)
 {
 	struct dns_rule_address_IPV4 *address_ipv4 = NULL;
@@ -3919,7 +3948,7 @@ static int _dns_server_process_address(struct dns_request *request)
 	}
 
 	request->rcode = DNS_RC_NOERROR;
-	request->ip_ttl = dns_conf_local_ttl;
+	request->ip_ttl = _dns_server_get_local_ttl(request);
 	request->has_ip = 1;
 
 	struct dns_server_post_context context;

@@ -3283,10 +3283,6 @@ static int _dns_conf_load_post(void)
 		dns_conf_rr_ttl_max = dns_conf_rr_ttl_min;
 	}
 
-	if (dns_conf_local_ttl == 0) {
-		dns_conf_local_ttl = dns_conf_rr_ttl_min;
-	}
-
 	if (dns_resolv_file[0] == '\0') {
 		safe_strncpy(dns_resolv_file, DNS_RESOLV_FILE, sizeof(dns_resolv_file));
 	}
