@@ -1943,7 +1943,8 @@ static int _dns_server_request_complete_with_all_IPs(struct dns_request *request
 out:
 	if (dns_conf_rr_ttl_reply_max > 0) {
 		if (ttl > dns_conf_rr_ttl_reply_max) {
-			ttl = dns_conf_rr_ttl_reply_max;
+			ttl %= dns_conf_rr_ttl_reply_max;
+			ttl += 1;
 		}
 	}
 
@@ -3312,7 +3313,8 @@ static int dns_server_resolve_callback(const char *domain, dns_result_type rtype
 
 			ttl = _dns_server_get_conf_ttl(request, ttl);
 			if (ttl > dns_conf_rr_ttl_reply_max && dns_conf_rr_ttl_reply_max > 0) {
-				ttl = dns_conf_rr_ttl_reply_max;
+				ttl %= dns_conf_rr_ttl_reply_max;
+				ttl += 1;
 			}
 
 			_dns_server_post_context_init_from(&context, request, packet, inpacket, inpacket_len);
@@ -4439,6 +4441,10 @@ static int _dns_server_process_cache_packet(struct dns_request *request, struct 
 	context.do_audit = 1;
 	context.do_reply = 1;
 	context.reply_ttl = _dns_server_get_expired_ttl_reply(dns_cache);
+	if (dns_conf_rr_ttl_reply_max > 0 && context.reply_ttl > dns_conf_rr_ttl_reply_max) {
+		context.reply_ttl %= dns_conf_rr_ttl_reply_max;
+		context.reply_ttl += 1;
+	}
 
 	return _dns_server_reply_passthrough(&context);
 }
