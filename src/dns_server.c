@@ -1674,6 +1674,40 @@ static int _dns_result_child_post(struct dns_server_post_context *context)
 	return 0;
 }
 
+static int _dns_request_update_ttl(struct dns_server_post_context *context)
+{
+	int ttl = context->reply_ttl;
+	struct dns_request *request = context->request;
+
+	if (dns_conf_rr_ttl_reply_max > 0) {
+		if (request->ip_ttl > dns_conf_rr_ttl_reply_max && ttl == 0) {
+			ttl = request->ip_ttl;
+		}
+
+		if (ttl > dns_conf_rr_ttl_reply_max) {
+			ttl %= dns_conf_rr_ttl_reply_max;
+			
+		}
+
+		if (ttl == 0) {
+			ttl = dns_conf_rr_ttl_reply_max;
+		}
+	}
+
+	if (ttl > 0) {
+		struct dns_update_param param;
+		param.id = request->id;
+		param.cname_ttl = ttl;
+		param.ip_ttl = ttl;
+		if (dns_packet_update(context->inpacket, context->inpacket_len, &param) != 0) {
+			tlog(TLOG_ERROR, "update packet info failed.");
+			return -1;
+		}
+	}
+
+	return 0;
+}
+
 static int _dns_request_post(struct dns_server_post_context *context)
 {
 	struct dns_request *request = context->request;
@@ -1728,15 +1762,10 @@ static int _dns_request_post(struct dns_server_post_context *context)
 		return 0;
 	}
 
-	if (context->reply_ttl > 0) {
-		struct dns_update_param param;
-		param.id = request->id;
-		param.cname_ttl = context->reply_ttl;
-		param.ip_ttl = context->reply_ttl;
-		if (dns_packet_update(context->inpacket, context->inpacket_len, &param) != 0) {
-			tlog(TLOG_ERROR, "update packet info failed.");
-			return -1;
-		}
+	ret = _dns_request_update_ttl(context);
+	if (ret != 0) {
+		tlog(TLOG_ERROR, "update packet ttl failed.");
+		return -1;
 	}
 
 	ret = _dns_reply_inpacket(request, context->inpacket, context->inpacket_len);
@@ -1859,7 +1888,7 @@ static int _dns_server_force_dualstack(struct dns_request *request)
 		/* if another request still waiting for ping, force complete another request */
 		_dns_server_check_complete_dualstack(request, dualstack_request);
 	}
- 
+
 	if (request->dualstack_selection_ping_time < 0 || request->dualstack_selection == 0) {
 		return -1;
 	}
@@ -1941,13 +1970,6 @@ static int _dns_server_request_complete_with_all_IPs(struct dns_request *request
 	}
 
 out:
-	if (dns_conf_rr_ttl_reply_max > 0) {
-		if (ttl > dns_conf_rr_ttl_reply_max) {
-			ttl %= dns_conf_rr_ttl_reply_max;
-			ttl += 1;
-		}
-	}
-
 	reply_ttl = ttl;
 	if (request->passthrough == 0 && dns_conf_cachesize > 0 &&
 		request->check_order_list->orders[0].type != DOMAIN_CHECK_NONE) {
@@ -3182,11 +3204,9 @@ static int _dns_server_reply_passthrough(struct dns_server_post_context *context
 
 	if (request->conn && context->do_reply == 1) {
 		/* When passthrough, modify the id to be the id of the client request. */
-		struct dns_update_param param;
-		param.id = request->id;
-		param.ip_ttl = context->reply_ttl;
-		if (dns_packet_update(context->inpacket, context->inpacket_len, &param) != 0) {
-			tlog(TLOG_ERROR, "update cache info failed.");
+		int ret = _dns_request_update_ttl(context);
+		if (ret != 0) {
+			tlog(TLOG_ERROR, "update packet ttl failed.");
 			return -1;
 		}
 		_dns_reply_inpacket(request, context->inpacket, context->inpacket_len);
@@ -3312,11 +3332,6 @@ static int dns_server_resolve_callback(const char *domain, dns_result_type rtype
 			}
 
 			ttl = _dns_server_get_conf_ttl(request, ttl);
-			if (ttl > dns_conf_rr_ttl_reply_max && dns_conf_rr_ttl_reply_max > 0) {
-				ttl %= dns_conf_rr_ttl_reply_max;
-				ttl += 1;
-			}
-
 			_dns_server_post_context_init_from(&context, request, packet, inpacket, inpacket_len);
 			context.do_cache = 1;
 			context.do_audit = 1;
@@ -3918,7 +3933,6 @@ static int _dns_server_get_local_ttl(struct dns_request *request)
 	return DNS_SERVER_ADDR_TTL;
 }
 
-
 static int _dns_server_process_address(struct dns_request *request)
 {
 	struct dns_rule_address_IPV4 *address_ipv4 = NULL;
@@ -4441,11 +4455,6 @@ static int _dns_server_process_cache_packet(struct dns_request *request, struct 
 	context.do_audit = 1;
 	context.do_reply = 1;
 	context.reply_ttl = _dns_server_get_expired_ttl_reply(dns_cache);
-	if (dns_conf_rr_ttl_reply_max > 0 && context.reply_ttl > dns_conf_rr_ttl_reply_max) {
-		context.reply_ttl %= dns_conf_rr_ttl_reply_max;
-		context.reply_ttl += 1;
-	}
-
 	return _dns_server_reply_passthrough(&context);
 }
 
