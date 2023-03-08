@@ -321,6 +321,7 @@ static int load_conf_file(const char *file, struct config_item *items, conf_erro
 	int line_no = 0;
 	int line_len = 0;
 	int read_len = 0;
+	const char *last_file = NULL;
 
 	if (handler == NULL) {
 		handler = load_conf_printf;
@@ -374,6 +375,7 @@ static int load_conf_file(const char *file, struct config_item *items, conf_erro
 
 			conf_getopt_reset();
 			/* call item function */
+			last_file = current_conf_file;
 			current_conf_file = file;
 			call_ret = items[i].item_func(items[i].item, items[i].data, argc, argv);
 			ret = handler(file, line_no, call_ret);
@@ -383,6 +385,9 @@ static int load_conf_file(const char *file, struct config_item *items, conf_erro
 			}
 
 			conf_getopt_reset();
+			if (last_file) {
+				current_conf_file = last_file;
+			}
 
 			break;
 		}
