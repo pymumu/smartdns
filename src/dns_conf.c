@@ -3297,31 +3297,6 @@ errout:
 	return -1;
 }
 
-static int _check_and_create_cert(void)
-{
-	if (dns_conf_need_cert == 0) {
-		return 0;
-	}
-
-	if (dns_conf_bind_ca_file[0] != 0 && dns_conf_bind_ca_key_file[0] != 0) {
-		return -1;
-	}
-
-	conf_get_conf_fullpath("smartdns-cert.pem", dns_conf_bind_ca_file, sizeof(dns_conf_bind_ca_file));
-	conf_get_conf_fullpath("smartdns-key.pem", dns_conf_bind_ca_key_file, sizeof(dns_conf_bind_ca_key_file));
-	if (access(dns_conf_bind_ca_file, F_OK) == 0 && access(dns_conf_bind_ca_key_file, F_OK) == 0) {
-		return 0;
-	}
-
-	tlog(TLOG_INFO, "Generate default ssl cert and key file.");
-	if (generate_cert_key(dns_conf_bind_ca_key_file, dns_conf_bind_ca_file, NULL, 365 * 3) != 0) {
-		tlog(TLOG_WARN, "Generate default ssl cert and key file failed.");
-		return -1;
-	}
-
-	return 0;
-}
-
 static int _dns_conf_load_post(void)
 {
 	_config_setup_smartdns_domain();
@@ -3346,8 +3321,6 @@ static int _dns_conf_load_post(void)
 	}
 
 	_config_domain_set_name_table_destroy();
-
-	_check_and_create_cert();
 
 	return 0;
 }

@@ -37,6 +37,7 @@
 #include <netinet/tcp.h>
 #include <openssl/crypto.h>
 #include <openssl/ssl.h>
+#include <openssl/x509v3.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdlib.h>

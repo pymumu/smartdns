@@ -214,6 +214,7 @@ static int _smartdns_load_from_resolv(void)
 		safe_strncpy(dns_conf_servers[dns_conf_server_num].server, ns_ip, DNS_MAX_IPLEN);
 		dns_conf_servers[dns_conf_server_num].port = port;
 		dns_conf_servers[dns_conf_server_num].type = DNS_SERVER_UDP;
+		dns_conf_servers[dns_conf_server_num].set_mark = -1;
 		dns_conf_server_num++;
 		ret = 0;
 	}
@@ -342,6 +343,42 @@ static int _smartdns_set_ecs_ip(void)
 	}
 
 	return ret;
+}
+
+static int _smartdns_create_cert(void)
+{
+	int uid = 0;
+	int gid = 0;
+
+	if (dns_conf_need_cert == 0) {
+		return 0;
+	}
+
+	if (dns_conf_bind_ca_file[0] != 0 && dns_conf_bind_ca_key_file[0] != 0) {
+		return -1;
+	}
+
+	conf_get_conf_fullpath("smartdns-cert.pem", dns_conf_bind_ca_file, sizeof(dns_conf_bind_ca_file));
+	conf_get_conf_fullpath("smartdns-key.pem", dns_conf_bind_ca_key_file, sizeof(dns_conf_bind_ca_key_file));
+	if (access(dns_conf_bind_ca_file, F_OK) == 0 && access(dns_conf_bind_ca_key_file, F_OK) == 0) {
+		return 0;
+	}
+
+	if (generate_cert_key(dns_conf_bind_ca_key_file, dns_conf_bind_ca_file, NULL, 365 * 3) != 0) {
+		tlog(TLOG_WARN, "Generate default ssl cert and key file failed. %s", strerror(errno));
+		return -1;
+	}
+
+	int unused __attribute__((unused)) = 0;
+
+	if (get_uid_gid(&uid, &gid) != 0) {
+		return -1;
+	}
+
+	unused = chown(dns_conf_bind_ca_file, uid, gid);
+	unused = chown(dns_conf_bind_ca_key_file, uid, gid);
+
+	return 0;
 }
 
 static int _smartdns_init_ssl(void)
@@ -581,6 +618,11 @@ static int _smartdns_init_pre(void)
 	_smartdns_create_logdir();
 
 	_set_rlimit();
+
+	if (_smartdns_create_cert() != 0) {
+		tlog(TLOG_ERROR, "create cert failed.");
+		return -1;
+	}
 
 	return 0;
 }

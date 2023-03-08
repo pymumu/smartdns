@@ -413,6 +413,7 @@ extern int dns_conf_bind_ip_num;
 extern char dns_conf_bind_ca_file[DNS_MAX_PATH];
 extern char dns_conf_bind_ca_key_file[DNS_MAX_PATH];
 extern char dns_conf_bind_ca_key_pass[DNS_MAX_PATH];
+extern char dns_conf_need_cert;
 
 extern int dns_conf_tcp_idle_time;
 extern int dns_conf_cachesize;
