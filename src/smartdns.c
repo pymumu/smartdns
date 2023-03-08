@@ -224,6 +224,47 @@ static int _smartdns_load_from_resolv(void)
 	return ret;
 }
 
+static int _smartdns_prepare_server_flags(struct client_dns_server_flags *flags, struct dns_servers *server)
+{
+	memset(flags, 0, sizeof(*flags));
+	switch (server->type) {
+	case DNS_SERVER_UDP: {
+		struct client_dns_server_flag_udp *flag_udp = &flags->udp;
+		flag_udp->ttl = server->ttl;
+	} break;
+	case DNS_SERVER_HTTPS: {
+		struct client_dns_server_flag_https *flag_http = &flags->https;
+		flag_http->spi_len = dns_client_spki_decode(server->spki, (unsigned char *)flag_http->spki);
+		safe_strncpy(flag_http->hostname, server->hostname, sizeof(flag_http->hostname));
+		safe_strncpy(flag_http->path, server->path, sizeof(flag_http->path));
+		safe_strncpy(flag_http->httphost, server->httphost, sizeof(flag_http->httphost));
+		safe_strncpy(flag_http->tls_host_verify, server->tls_host_verify, sizeof(flag_http->tls_host_verify));
+		flag_http->skip_check_cert = server->skip_check_cert;
+	} break;
+	case DNS_SERVER_TLS: {
+		struct client_dns_server_flag_tls *flag_tls = &flags->tls;
+		flag_tls->spi_len = dns_client_spki_decode(server->spki, (unsigned char *)flag_tls->spki);
+		safe_strncpy(flag_tls->hostname, server->hostname, sizeof(flag_tls->hostname));
+		safe_strncpy(flag_tls->tls_host_verify, server->tls_host_verify, sizeof(flag_tls->tls_host_verify));
+		flag_tls->skip_check_cert = server->skip_check_cert;
+
+	} break;
+	case DNS_SERVER_TCP:
+		break;
+	default:
+		return -1;
+		break;
+	}
+
+	flags->type = server->type;
+	flags->server_flag = server->server_flag;
+	flags->result_flag = server->result_flag;
+	flags->set_mark = server->set_mark;
+	flags->drop_packet_latency_ms = server->drop_packet_latency_ms;
+	safe_strncpy(flags->proxyname, server->proxyname, sizeof(flags->proxyname));
+	return 0;
+}
+
 static int _smartdns_add_servers(void)
 {
 	unsigned long i = 0;
@@ -234,44 +275,12 @@ static int _smartdns_add_servers(void)
 	struct client_dns_server_flags flags;
 
 	for (i = 0; i < (unsigned int)dns_conf_server_num; i++) {
-		memset(&flags, 0, sizeof(flags));
-		switch (dns_conf_servers[i].type) {
-		case DNS_SERVER_UDP: {
-			struct client_dns_server_flag_udp *flag_udp = &flags.udp;
-			flag_udp->ttl = dns_conf_servers[i].ttl;
-		} break;
-		case DNS_SERVER_HTTPS: {
-			struct client_dns_server_flag_https *flag_http = &flags.https;
-			flag_http->spi_len = dns_client_spki_decode(dns_conf_servers[i].spki, (unsigned char *)flag_http->spki);
-			safe_strncpy(flag_http->hostname, dns_conf_servers[i].hostname, sizeof(flag_http->hostname));
-			safe_strncpy(flag_http->path, dns_conf_servers[i].path, sizeof(flag_http->path));
-			safe_strncpy(flag_http->httphost, dns_conf_servers[i].httphost, sizeof(flag_http->httphost));
-			safe_strncpy(flag_http->tls_host_verify, dns_conf_servers[i].tls_host_verify,
-						 sizeof(flag_http->tls_host_verify));
-			flag_http->skip_check_cert = dns_conf_servers[i].skip_check_cert;
-		} break;
-		case DNS_SERVER_TLS: {
-			struct client_dns_server_flag_tls *flag_tls = &flags.tls;
-			flag_tls->spi_len = dns_client_spki_decode(dns_conf_servers[i].spki, (unsigned char *)flag_tls->spki);
-			safe_strncpy(flag_tls->hostname, dns_conf_servers[i].hostname, sizeof(flag_tls->hostname));
-			safe_strncpy(flag_tls->tls_host_verify, dns_conf_servers[i].tls_host_verify,
-						 sizeof(flag_tls->tls_host_verify));
-			flag_tls->skip_check_cert = dns_conf_servers[i].skip_check_cert;
-
-		} break;
-		case DNS_SERVER_TCP:
-			break;
-		default:
+		if (_smartdns_prepare_server_flags(&flags, &dns_conf_servers[i]) != 0) {
+			tlog(TLOG_ERROR, "prepare server flags failed, %s:%d", dns_conf_servers[i].server,
+				 dns_conf_servers[i].port);
 			return -1;
-			break;
 		}
 
-		flags.type = dns_conf_servers[i].type;
-		flags.server_flag = dns_conf_servers[i].server_flag;
-		flags.result_flag = dns_conf_servers[i].result_flag;
-		flags.set_mark = dns_conf_servers[i].set_mark;
-		flags.drop_packet_latency_ms = dns_conf_servers[i].drop_packet_latency_ms;
-		safe_strncpy(flags.proxyname, dns_conf_servers[i].proxyname, sizeof(flags.proxyname));
 		ret = dns_client_add_server(dns_conf_servers[i].server, dns_conf_servers[i].port, dns_conf_servers[i].type,
 									&flags);
 		if (ret != 0) {
@@ -293,7 +302,14 @@ static int _smartdns_add_servers(void)
 			if (server == NULL) {
 				continue;
 			}
-			ret = dns_client_add_to_group(group->group_name, server->server, server->port, server->type);
+
+			if (_smartdns_prepare_server_flags(&flags, server) != 0) {
+				tlog(TLOG_ERROR, "prepare server flags failed, %s:%d", server->server,
+					 server->port);
+				return -1;
+			}
+
+			ret = dns_client_add_to_group(group->group_name, server->server, server->port, server->type, &flags);
 			if (ret != 0) {
 				tlog(TLOG_ERROR, "add server %s to group %s failed", server->server, group->group_name);
 				return -1;

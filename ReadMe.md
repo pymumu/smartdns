@@ -603,10 +603,10 @@ entware|ipkg update<br />ipkg install smartdns|软件源路径：<https://bin.en
 | audit-num | 审计归档个数 | 2 | 大于等于 0 的数字 | audit-num 2 |
 | audit-file-mode | 审计归档文件权限 | 0640 | 文件权限 | log-file-mode 644 |
 | conf-file | 附加配置文件 | 无 | 合法路径字符串 | conf-file /etc/smartdns/smartdns.more.conf |
-| server | 上游 UDP DNS | 无 | 可重复。<br />[ip][:port]\|URL：服务器 IP:端口（可选）或 URL <br />[-blacklist-ip]：配置 IP 过滤结果。<br />[-whitelist-ip]：指定仅接受参数中配置的 IP 范围<br />[-group [group] ...]：DNS 服务器所属组，比如 office 和 foreign，和 nameserver 配套使用<br />[-exclude-default-group]：将 DNS 服务器从默认组中排除。<br />[-set-mark mark]：设置数据包标记so-mark。<br />[-proxy name]：设置代理服务器。 | server 8.8.8.8:53 -blacklist-ip -group g1 -proxy proxy<br /> server tls://8.8.8.8|
-| server-tcp | 上游 TCP DNS | 无 | 可重复。<br />[ip][:port]：服务器 IP:端口（可选）<br />[-blacklist-ip]：配置 IP 过滤结果<br />[-whitelist-ip]：指定仅接受参数中配置的 IP 范围。<br />[-group [group] ...]：DNS 服务器所属组，比如 office 和 foreign，和 nameserver 配套使用<br />[-exclude-default-group]：将 DNS 服务器从默认组中排除。<br />[-set-mark mark]：设置数据包标记so-mark。<br />[-proxy name]：设置代理服务器。 | server-tcp 8.8.8.8:53 |
-| server-tls | 上游 TLS DNS | 无 | 可重复。<br />[ip][:port]：服务器 IP:端口（可选)<br />[-spki-pin [sha256-pin]]：TLS 合法性校验 SPKI 值，base64 编码的 sha256 SPKI pin 值<br />[-host-name]：TLS SNI 名称, 名称设置为-，表示停用SNI名称<br />[-tls-host-verify]：TLS 证书主机名校验<br /> [-no-check-certificate]：跳过证书校验<br />[-blacklist-ip]：配置 IP 过滤结果<br />[-whitelist-ip]：仅接受参数中配置的 IP 范围<br />[-group [group] ...]：DNS 服务器所属组，比如 office 和 foreign，和 nameserver 配套使用<br />[-exclude-default-group]：将 DNS 服务器从默认组中排除。<br />[-set-mark mark]：设置数据包标记so-mark。<br />[-proxy name]：设置代理服务器。 | server-tls 8.8.8.8:853 |
-| server-https | 上游 HTTPS DNS | 无 | 可重复。<br /><https://[host>][:port]/path：服务器 IP:端口（可选）<br />[-spki-pin [sha256-pin]]：TLS 合法性校验 SPKI 值，base64 编码的 sha256 SPKI pin 值<br />[-host-name]：TLS SNI 名称<br />[-http-host]：http 协议头主机名<br />[-tls-host-verify]：TLS 证书主机名校验<br /> [-no-check-certificate]：跳过证书校验<br />[-blacklist-ip]：配置 IP 过滤结果<br />[-whitelist-ip]：仅接受参数中配置的 IP 范围。<br />[-group [group] ...]：DNS 服务器所属组，比如 office 和 foreign，和 nameserver 配套使用<br />[-exclude-default-group]：将 DNS 服务器从默认组中排除。<br />[-set-mark]：设置数据包标记so-mark。<br />[-proxy name]：设置代理服务器。 | server-https <https://cloudflare-dns.com/dns-query> |
+| server | 上游 UDP DNS | 无 | 可重复。<br />[ip][:port]\|URL：服务器 IP:端口（可选）或 URL <br />[-blacklist-ip]：配置 IP 过滤结果。<br />[-whitelist-ip]：指定仅接受参数中配置的 IP 范围<br />[-group [group] ...]：DNS 服务器所属组，比如 office 和 foreign，和 nameserver 配套使用<br />[-exclude-default-group]：将 DNS 服务器从默认组中排除。<br />[-set-mark mark]：设置数据包标记so-mark。<br />[-proxy name]：设置代理服务器。 <br />[-bootstrap-dns]：标记此服务器为bootstrap服务器。| server 8.8.8.8:53 -blacklist-ip -group g1 -proxy proxy<br /> server tls://8.8.8.8|
+| server-tcp | 上游 TCP DNS | 无 | 可重复。<br />[ip][:port]：服务器 IP:端口（可选）<br />[-blacklist-ip]：配置 IP 过滤结果<br />[-whitelist-ip]：指定仅接受参数中配置的 IP 范围。<br />[-group [group] ...]：DNS 服务器所属组，比如 office 和 foreign，和 nameserver 配套使用<br />[-exclude-default-group]：将 DNS 服务器从默认组中排除。<br />[-set-mark mark]：设置数据包标记so-mark。<br />[-proxy name]：设置代理服务器。 <br />[-bootstrap-dns]：标记此服务器为bootstrap服务器。| server-tcp 8.8.8.8:53 |
+| server-tls | 上游 TLS DNS | 无 | 可重复。<br />[ip][:port]：服务器 IP:端口（可选)<br />[-spki-pin [sha256-pin]]：TLS 合法性校验 SPKI 值，base64 编码的 sha256 SPKI pin 值<br />[-host-name]：TLS SNI 名称, 名称设置为-，表示停用SNI名称<br />[-tls-host-verify]：TLS 证书主机名校验<br /> [-no-check-certificate]：跳过证书校验<br />[-blacklist-ip]：配置 IP 过滤结果<br />[-whitelist-ip]：仅接受参数中配置的 IP 范围<br />[-group [group] ...]：DNS 服务器所属组，比如 office 和 foreign，和 nameserver 配套使用<br />[-exclude-default-group]：将 DNS 服务器从默认组中排除。<br />[-set-mark mark]：设置数据包标记so-mark。<br />[-proxy name]：设置代理服务器。 <br />[-bootstrap-dns]：标记此服务器为bootstrap服务器。| server-tls 8.8.8.8:853 |
+| server-https | 上游 HTTPS DNS | 无 | 可重复。<br /><https://[host>][:port]/path：服务器 IP:端口（可选）<br />[-spki-pin [sha256-pin]]：TLS 合法性校验 SPKI 值，base64 编码的 sha256 SPKI pin 值<br />[-host-name]：TLS SNI 名称<br />[-http-host]：http 协议头主机名<br />[-tls-host-verify]：TLS 证书主机名校验<br /> [-no-check-certificate]：跳过证书校验<br />[-blacklist-ip]：配置 IP 过滤结果<br />[-whitelist-ip]：仅接受参数中配置的 IP 范围。<br />[-group [group] ...]：DNS 服务器所属组，比如 office 和 foreign，和 nameserver 配套使用<br />[-exclude-default-group]：将 DNS 服务器从默认组中排除。<br />[-set-mark]：设置数据包标记so-mark。<br />[-proxy name]：设置代理服务器。 <br />[-bootstrap-dns]：标记此服务器为bootstrap服务器。| server-https <https://cloudflare-dns.com/dns-query> |
 | proxy-server | 代理服务器 | 无 | 可重复。<br />proxy-server URL <br />[URL]: [socks5\|http]://[username:password@]host:port<br />[-name]: 代理服务器名称。 |proxy-server socks5://user:pass@1.2.3.4:1080 -name proxy|
 | speed-check-mode | 测速模式选择 | 无 | [ping\|tcp:[80]\|none] | speed-check-mode ping,tcp:80,tcp:443 |
 | response-mode | 首次查询响应模式 | first-ping |模式：[first-ping\|fastest-ip\|fastest-response]<br /> [first-ping]: 最快ping响应地址模式，DNS上游最快查询时延+ping时延最短，查询等待与链接体验最佳;<br />[fastest-ip]: 最快IP地址模式，查询到的所有IP地址中ping最短的IP。需等待IP测速; <br />[fastest-response]: 最快响应的DNS结果，DNS查询等待时间最短，返回的IP地址可能不是最快。| response-mode first-ping |
@@ -769,6 +769,7 @@ entware|ipkg update<br />ipkg install smartdns|软件源路径：<https://bin.en
    ```
 
 1. DoT 的 SPKI 如何获取？
+
     SPKI 可以通过 DNS 服务商发布的页面获取，如果没有发布，可以通过如下命令获取，其中将对应IP地址更换为要获取 SPKI 的 IP 地址。
 
     ```shell
@@ -776,6 +777,7 @@ entware|ipkg update<br />ipkg install smartdns|软件源路径：<https://bin.en
     ```
 
 1. iOS系统解析缓慢问题怎么解决？  
+
     IOS14开始，苹果支持了DNS HTTPS(TYPE65)记录的解析，此功能用于快速DNS查询和解决HTTPS链接相关的问题，但当前还是草案，另外会导致广告屏蔽等功能失效，建议通过如下配置关闭TYPE65记录查询。
 
     ```shell
@@ -783,6 +785,7 @@ entware|ipkg update<br />ipkg install smartdns|软件源路径：<https://bin.en
     ```
 
 1. 如何解析本地主机名称？  
+
     smartdns可以配合DNSMASQ的dhcp lease文件支持本地主机名->IP地址的解析，可以配置smartdns读取dnsmasq的lease文件，并支持解析。具体配置参数如下，（注意，DNSMASQ lease文件每个系统可能不一样，需要按实际情况配置）
 
     ```shell
@@ -794,6 +797,7 @@ entware|ipkg update<br />ipkg install smartdns|软件源路径：<https://bin.en
     - Windows系统默认使用mDNS解析地址，如需要在windows下用使用smartdns解析，则需要在主机名后面增加`.`，表示使用DNS解析。如`ping smartdns.`
 
 1. 域名集合如何使用？  
+
     为方便按集合配置域名，对于有/domain/的配置，可以指定域名集合，方便维护。具体方法为：
 
     - 使用`domain-set`配置集合文件，如
@@ -819,6 +823,7 @@ entware|ipkg update<br />ipkg install smartdns|软件源路径：<https://bin.en
     ```
 
 1. 如何使用ipset和nftset  
+
     和Dnsmasq类似，smartdns支持ipset和nftset，可以将特定的域名通过TPROXY进行透明转发，透明转发涉工具模式对比如下：
 
     1. 工具：iptable，nftable
@@ -834,7 +839,7 @@ entware|ipkg update<br />ipkg install smartdns|软件源路径：<https://bin.en
 
     1. 配置REDIRECT或TPROXY转发规则
 
-        - 在smartdns.conf中设置需要透明转发的域名列表，比如要将`example.com`进行透明转发。则使用ipset选项，设置`example.com`的ipset规则为`proxy`。
+        在smartdns.conf中设置需要透明转发的域名列表，比如要将`example.com`进行透明转发。则使用ipset选项，设置`example.com`的ipset规则为`proxy`。
 
         ```shell
         # 设置规则
@@ -902,6 +907,29 @@ entware|ipkg update<br />ipkg install smartdns|软件源路径：<https://bin.en
         ```
 
     如果使用openwrt的luci界面，可以直接在界面配置相关的域名分流规则。
+
+1. BootStrap DNS  
+
+    对于域名类的上游服务器，SmartDNS会使用其他IP地址类的服务器进行解析，所以一般情况下无需配置BootStrap DNS，但如果有特殊需求，需要指定BootStrap DNS。则可以通过如下方式配置：
+    
+    1. nameserver指定上游服务器  
+    
+        使用nameserver参数指定特定域名使用指定DNS解析。
+        
+        ```
+        server dns.server # 此服务器将使用1.2.3.4解析。
+        server 1.2.3.4 -group bootstrap
+        nameserver /dns.server/bootstrap
+        ```
+
+    1. 对所有服务器指定bootstrap DNS。  
+
+        使用`-bootstrap-dns`参数，指定特定的server为bootstrap DNS。  
+
+        ```
+        server 1.2.3.4 -bootstrap-dns
+        server dns.server
+        ```
 
 1. 更多问题  
     如有更多问题，请查阅或提交issue: [https://github.com/pymumu/smartdns/issues](https://github.com/pymumu/smartdns/issues)

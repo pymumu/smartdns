@@ -447,7 +447,8 @@ errout:
 }
 
 /* check whether server exists */
-static int _dns_client_server_exist(const char *server_ip, int port, dns_server_type_t server_type, struct client_dns_server_flags *flags)
+static int _dns_client_server_exist(const char *server_ip, int port, dns_server_type_t server_type,
+									struct client_dns_server_flags *flags)
 {
 	struct dns_server_info *server_info = NULL;
 	struct dns_server_info *tmp = NULL;
@@ -458,7 +459,7 @@ static int _dns_client_server_exist(const char *server_ip, int port, dns_server_
 			continue;
 		}
 
-		if (memcmp(&server_info->flags, flags, sizeof(*flags)) == 0) {
+		if (memcmp(&server_info->flags, flags, sizeof(*flags)) != 0) {
 			continue;
 		}
 
@@ -489,7 +490,8 @@ static void _dns_client_server_update_ttl(struct ping_host_struct *ping_host, co
 }
 
 /* get server control block by ip and port, type */
-static struct dns_server_info *_dns_client_get_server(char *server_ip, int port, dns_server_type_t server_type)
+static struct dns_server_info *_dns_client_get_server(char *server_ip, int port, dns_server_type_t server_type,
+													  struct client_dns_server_flags *flags)
 {
 	struct dns_server_info *server_info = NULL;
 	struct dns_server_info *tmp = NULL;
@@ -507,6 +509,10 @@ static struct dns_server_info *_dns_client_get_server(char *server_ip, int port,
 		}
 
 		if (strncmp(server_info->ip, server_ip, DNS_HOSTNAME_LEN) != 0) {
+			continue;
+		}
+
+		if (memcmp(&server_info->flags, flags, sizeof(*flags)) != 0) {
 			continue;
 		}
 
@@ -596,7 +602,7 @@ errout:
 }
 
 static int _dns_client_add_to_pending_group(const char *group_name, char *server_ip, int port,
-											dns_server_type_t server_type)
+											dns_server_type_t server_type, struct client_dns_server_flags *flags)
 {
 	struct dns_server_pending *item = NULL;
 	struct dns_server_pending *tmp = NULL;
@@ -610,6 +616,10 @@ static int _dns_client_add_to_pending_group(const char *group_name, char *server
 	pthread_mutex_lock(&pending_server_mutex);
 	list_for_each_entry_safe(item, tmp, &pending_servers, list)
 	{
+		if (memcmp(&item->flags, flags, sizeof(*flags)) != 0) {
+			continue;
+		}
+
 		if (strncmp(item->host, server_ip, DNS_HOSTNAME_LEN) == 0 && item->port == port && item->type == server_type) {
 			pending = item;
 			break;
@@ -644,7 +654,8 @@ errout:
 
 /* add server to group */
 static int _dns_client_add_to_group_pending(const char *group_name, char *server_ip, int port,
-											dns_server_type_t server_type, int is_pending)
+											dns_server_type_t server_type, struct client_dns_server_flags *flags,
+											int is_pending)
 {
 	struct dns_server_info *server_info = NULL;
 
@@ -652,21 +663,22 @@ static int _dns_client_add_to_group_pending(const char *group_name, char *server
 		return -1;
 	}
 
-	server_info = _dns_client_get_server(server_ip, port, server_type);
+	server_info = _dns_client_get_server(server_ip, port, server_type, flags);
 	if (server_info == NULL) {
 		if (is_pending == 0) {
 			tlog(TLOG_ERROR, "add server %s:%d to group %s failed", server_ip, port, group_name);
 			return -1;
 		}
-		return _dns_client_add_to_pending_group(group_name, server_ip, port, server_type);
+		return _dns_client_add_to_pending_group(group_name, server_ip, port, server_type, flags);
 	}
 
 	return _dns_client_add_to_group(group_name, server_info);
 }
 
-int dns_client_add_to_group(const char *group_name, char *server_ip, int port, dns_server_type_t server_type)
+int dns_client_add_to_group(const char *group_name, char *server_ip, int port, dns_server_type_t server_type,
+							struct client_dns_server_flags *flags)
 {
-	return _dns_client_add_to_group_pending(group_name, server_ip, port, server_type, 1);
+	return _dns_client_add_to_group_pending(group_name, server_ip, port, server_type, flags, 1);
 }
 
 /* free group member */
@@ -709,12 +721,13 @@ static int _dns_client_remove_server_from_groups(struct dns_server_info *server_
 	return 0;
 }
 
-int dns_client_remove_from_group(const char *group_name, char *server_ip, int port, dns_server_type_t server_type)
+int dns_client_remove_from_group(const char *group_name, char *server_ip, int port, dns_server_type_t server_type,
+								 struct client_dns_server_flags *flags)
 {
 	struct dns_server_info *server_info = NULL;
 	struct dns_server_group *group = NULL;
 
-	server_info = _dns_client_get_server(server_ip, port, server_type);
+	server_info = _dns_client_get_server(server_ip, port, server_type, flags);
 	if (server_info == NULL) {
 		return -1;
 	}
@@ -3680,7 +3693,8 @@ static int _dns_client_add_pendings(struct dns_server_pending *pending, char *ip
 
 	list_for_each_entry_safe(group, tmp, &pending->group_list, list)
 	{
-		if (_dns_client_add_to_group_pending(group->group_name, ip, pending->port, pending->type, 0) != 0) {
+		if (_dns_client_add_to_group_pending(group->group_name, ip, pending->port, pending->type, &pending->flags, 0) !=
+			0) {
 			tlog(TLOG_WARN, "add server to group failed, skip add.");
 		}
 

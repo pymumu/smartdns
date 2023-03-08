@@ -133,9 +133,11 @@ int dns_client_remove_server(char *server_ip, int port, dns_server_type_t server
 
 int dns_client_add_group(const char *group_name);
 
-int dns_client_add_to_group(const char *group_name, char *server_ip, int port, dns_server_type_t server_type);
+int dns_client_add_to_group(const char *group_name, char *server_ip, int port, dns_server_type_t server_type,
+							struct client_dns_server_flags *flags);
 
-int dns_client_remove_from_group(const char *group_name, char *server_ip, int port, dns_server_type_t server_type);
+int dns_client_remove_from_group(const char *group_name, char *server_ip, int port, dns_server_type_t server_type,
+								 struct client_dns_server_flags *flags);
 
 int dns_client_remove_group(const char *group_name);
 

@@ -567,10 +567,10 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 |audit-num|archived audit log number|2|Integer, 0 means turn off the log|audit-num 2
 |audit-file-mode|archived audit log file mode|0640|Integer|audit-file-mode 644
 |conf-file|additional conf file|None|File path|conf-file /etc/smartdns/smartdns.more.conf
-|server|Upstream UDP DNS server|None|Repeatable <br />`[ip][:port]\|URL`: Server IP, port optional OR URL. <br />`[-blacklist-ip]`: The "-blacklist-ip" parameter is to filtering IPs which is configured by "blacklist-ip". <br />`[-whitelist-ip]`: whitelist-ip parameter specifies that only the IP range configured in whitelist-ip is accepted. <br />`[-group [group] ...]`: The group to which the DNS server belongs, such as office, foreign, use with nameserver. <br />`[-exclude-default-group]`: Exclude DNS servers from the default group. <br />`[-set-mark mark]`: set mark on packets <br /> `[-proxy name]`: set proxy server| server 8.8.8.8:53 -blacklist-ip<br />server tls://8.8.8.8
-|server-tcp|Upstream TCP DNS server|None|Repeatable <br />`[ip][:port]`: Server IP, port optional. <br />`[-blacklist-ip]`: The "-blacklist-ip" parameter is to filtering IPs which is configured by "blacklist-ip". <br />`[-whitelist-ip]`: whitelist-ip parameter specifies that only the IP range configured in whitelist-ip is accepted. <br />`[-group [group] ...]`: The group to which the DNS server belongs, such as office, foreign, use with nameserver. <br />`[-exclude-default-group]`: Exclude DNS servers from the default group <br />`[-set-mark mark]`: set mark on packets <br /> `[-proxy name]`: set proxy server| server-tcp 8.8.8.8:53
-|server-tls|Upstream TLS DNS server|None|Repeatable <br />`[ip][:port]`: Server IP, port optional. <br />`[-spki-pin [sha256-pin]]`: TLS verify SPKI value, a base64 encoded SHA256 hash<br />`[-host-name]`:TLS Server name. `-` to disable SNI name.<br />`[-tls-host-verify]`: TLS cert hostname to verify. <br />`-no-check-certificate:`: No check certificate. <br />`[-blacklist-ip]`: The "-blacklist-ip" parameter is to filtering IPs which is configured by "blacklist-ip". <br />`[-whitelist-ip]`: whitelist-ip parameter specifies that only the IP range configured in whitelist-ip is accepted. <br />`[-group [group] ...]`: The group to which the DNS server belongs, such as office, foreign, use with nameserver. <br />`[-exclude-default-group]`: Exclude DNS servers from the default group <br /> `[-set-mark mark]`: set mark on packets <br /> `[-proxy name]`: set proxy server| server-tls 8.8.8.8:853
-|server-https|Upstream HTTPS DNS server|None|Repeatable <br />`https://[host][:port]/path`: Server IP, port optional. <br />`[-spki-pin [sha256-pin]]`: TLS verify SPKI value, a base64 encoded SHA256 hash<br />`[-host-name]`:TLS Server name<br />`[-http-host]`: http header host. <br />`[-tls-host-verify]`: TLS cert hostname to verify. <br />`-no-check-certificate:`: No check certificate. <br />`[-blacklist-ip]`: The "-blacklist-ip" parameter is to filtering IPs which is configured by "blacklist-ip". <br />`[-whitelist-ip]`: whitelist-ip parameter specifies that only the IP range configured in whitelist-ip is accepted. <br />`[-group [group] ...]`: The group to which the DNS server belongs, such as office, foreign, use with nameserver. <br />`[-exclude-default-group]`: Exclude DNS servers from the default group <br /> `[-set-mark mark]`: set mark on packets <br /> `[-proxy name]`: set proxy server| server-https <https://cloudflare-dns.com/dns-query>
+|server|Upstream UDP DNS server|None|Repeatable <br />`[ip][:port]\|URL`: Server IP, port optional OR URL. <br />`[-blacklist-ip]`: The "-blacklist-ip" parameter is to filtering IPs which is configured by "blacklist-ip". <br />`[-whitelist-ip]`: whitelist-ip parameter specifies that only the IP range configured in whitelist-ip is accepted. <br />`[-group [group] ...]`: The group to which the DNS server belongs, such as office, foreign, use with nameserver. <br />`[-exclude-default-group]`: Exclude DNS servers from the default group. <br />`[-set-mark mark]`: set mark on packets <br /> `[-proxy name]`: set proxy server <br /> `[-bootstrap-dns]`: set as bootstrap dns server | server 8.8.8.8:53 -blacklist-ip<br />server tls://8.8.8.8
+|server-tcp|Upstream TCP DNS server|None|Repeatable <br />`[ip][:port]`: Server IP, port optional. <br />`[-blacklist-ip]`: The "-blacklist-ip" parameter is to filtering IPs which is configured by "blacklist-ip". <br />`[-whitelist-ip]`: whitelist-ip parameter specifies that only the IP range configured in whitelist-ip is accepted. <br />`[-group [group] ...]`: The group to which the DNS server belongs, such as office, foreign, use with nameserver. <br />`[-exclude-default-group]`: Exclude DNS servers from the default group <br />`[-set-mark mark]`: set mark on packets <br /> `[-proxy name]`: set proxy server <br /> `[-bootstrap-dns]`: set as bootstrap dns server | server-tcp 8.8.8.8:53
+|server-tls|Upstream TLS DNS server|None|Repeatable <br />`[ip][:port]`: Server IP, port optional. <br />`[-spki-pin [sha256-pin]]`: TLS verify SPKI value, a base64 encoded SHA256 hash<br />`[-host-name]`:TLS Server name. `-` to disable SNI name.<br />`[-tls-host-verify]`: TLS cert hostname to verify. <br />`-no-check-certificate:`: No check certificate. <br />`[-blacklist-ip]`: The "-blacklist-ip" parameter is to filtering IPs which is configured by "blacklist-ip". <br />`[-whitelist-ip]`: whitelist-ip parameter specifies that only the IP range configured in whitelist-ip is accepted. <br />`[-group [group] ...]`: The group to which the DNS server belongs, such as office, foreign, use with nameserver. <br />`[-exclude-default-group]`: Exclude DNS servers from the default group <br /> `[-set-mark mark]`: set mark on packets <br /> `[-proxy name]`: set proxy server <br /> `[-bootstrap-dns]`: set as bootstrap dns server | server-tls 8.8.8.8:853
+|server-https|Upstream HTTPS DNS server|None|Repeatable <br />`https://[host][:port]/path`: Server IP, port optional. <br />`[-spki-pin [sha256-pin]]`: TLS verify SPKI value, a base64 encoded SHA256 hash<br />`[-host-name]`:TLS Server name<br />`[-http-host]`: http header host. <br />`[-tls-host-verify]`: TLS cert hostname to verify. <br />`-no-check-certificate:`: No check certificate. <br />`[-blacklist-ip]`: The "-blacklist-ip" parameter is to filtering IPs which is configured by "blacklist-ip". <br />`[-whitelist-ip]`: whitelist-ip parameter specifies that only the IP range configured in whitelist-ip is accepted. <br />`[-group [group] ...]`: The group to which the DNS server belongs, such as office, foreign, use with nameserver. <br />`[-exclude-default-group]`: Exclude DNS servers from the default group <br /> `[-set-mark mark]`: set mark on packets <br /> `[-proxy name]`: set proxy server <br /> `[-bootstrap-dns]`: set as bootstrap dns server | server-https <https://cloudflare-dns.com/dns-query>
 |proxy-server| proxy server | None | Repeatable. <br />`proxy-server URL` <br />[URL]: `[socks5\|http]://[username:password@]host:port`<br />[-name]:  proxy server name. |proxy-server socks5://user:pass@1.2.3.4:1080 -name proxy|
 |speed-check-mode|Speed ​​mode|None|[ping\|tcp:[80]\|none]|speed-check-mode ping,tcp:80,tcp:443
 |response-mode|First query response mode|first-ping|Mode: [first-ping\|fastest-ip\|fastest-response]<br /> [first-ping]: The fastest dns + ping response mode, DNS query delay + ping delay is the shortest;<br />[fastest-ip]: The fastest IP address mode, return the fastest ip address, may take some time to test speed. <br />[fastest-response]: The fastest response DNS result mode, the DNS query waiting time is the shortest. | response-mode first-ping |
@@ -609,6 +609,7 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 ## FAQ
 
 1. What is the difference between SmartDNS and DNSMASQ?  
+
     Smartdns is not designed to replace DNSMASQ. The main function of Smartdns is focused on DNS resolution enhancement, the difference are:  
     - Multiple upstream server concurrent requests, after the results are measured, return the best results;
     - `address`, `ipset` domain name matching uses efficient algorithms, query matching is faster and more efficient, and router devices are still efficient.
@@ -627,6 +628,7 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
     - The second DNS supports customizing more behavior.
 
 1. What is the best practices for upstream server configuration?  
+
     Smartdns has a speed measurement mechanism. When configuring an upstream server, it is recommended to configure multiple upstream DNS servers, including servers in different regions, but the total number is recommended to be around 10. Recommended configuration
     - Carrier DNS.
     - Public DNS, such as `8.8.8.8`, `8.8.4.4`, `1.1.1.1`.
@@ -634,15 +636,18 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
     For specific domain names, if there is a pollution, you can enable the anti-pollution mechanism.
 
 1. How to enable the audit log  
+
     The audit log records the domain name requested by the client. The record information includes the request time, the request IP address, the request domain name, and the request type. If you want to enable the audit log, configure `audit-enable yes` in the configuration file, `audit-size`, `Audit-file`, `audit-num` configure the audit log file size, the audit log file path, and the number of audit log files. The audit log file will be compressed to save space.
 
 1. How to avoid DNS privacy leaks  
+
     By default, smartdns will send requests to all configured DNS servers. If the upstream DNS servers record DNS logs, it will result in a DNS privacy leak. To avoid privacy leaks, try the following steps:
     - Use trusted DNS servers.
     - Use TLS servers.
     - Set up an upstream DNS server group.
 
 1. How to block ads  
+
     Smartdns has a high-performance domain name matching algorithm. It is very efficient to filter advertisements by domain name. To block ads, you only need to configure records like the following configure. For example, if you block `*.ad.com`, configure as follows:
 
     ```shell
@@ -656,6 +661,7 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
     ```
 
 1. DNS query diversion  
+
     In some cases, some domain names need to be queried using a specific DNS server to do DNS diversion. such as.
 
     ```shell
@@ -687,9 +693,11 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
     ```
 
 1. How to use the IPV4, IPV6 dual stack IP optimization feature  
+
     At present, IPV6 network is not as fast as IPV4 in some cases. In order to get a better experience in the dual-stack network, SmartDNS provides a dual-stack IP optimization mechanism, the same domain name, and the speed of IPV4. Far faster than IPV6, then SmartDNS will block the resolution of IPV6, let the PC use IPV4, the feature is enabled by `dualstack-ip-selection yes`, `dualstack-ip-selection-threshold [time]` is for threshold. if you want to disable IPV6 AAAA record complete, please try `force-AAAA-SOA yes`.
 
 1. How to improve cache performance  
+
     Smartdns provides a domain name caching mechanism to cache the queried domain name, and the caching time is in accordance with the DNS TTL specification. To increase the cache hit rate, the following configuration can be taken:
     - Increase the number of cache records appropriately  
     Set the number of cache records by `cache-size`.
@@ -708,6 +716,7 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
     This feature will return TTL = 0 to the client after the TTL timeout, and send a new query request again at the same time, and cache the new results for later query.
 
 1. How does the second DNS customize more behavior?  
+
     The second DNS can be used as the upstream of other DNS servers to provide more query behaviors. Bind configuration support can bind multiple ports. Different ports can be set with different flags to implement different functions, such as
 
     ```shell
@@ -716,6 +725,7 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
     ```
 
 1. How to get SPKI of DOT  
+
     The SPKI can be obtained from the page published by the DNS service provider. If it is not published, it can be obtained by the following command, replace IP with your own IP.
 
     ```shell
@@ -723,6 +733,7 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
     ```
 
 1. How to solve the problem of slow DNS resolution in iOS system?
+
     Since iOS14, Apple has supported the resolution of DNS HTTPS (TYPE65) records. This function is used for solving problems related to HTTPS connections, but it is still a draft, and it will cause some functions such as adblocking fail. It is recommended to disable it through the following configuration.
 
     ```shell
@@ -730,6 +741,7 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
     ```
 
 1. How to resolve localhost ip by hostname?  
+
     smartdns can cooperate with the dhcp server of DNSMASQ to support the resolution of local host name to IP address. You can configure smartdns to read the lease file of dnsmasq and support the resolution. The specific configuration parameters are as follows, (note that the DNSMASQ lease file may be different for each system and needs to be configured according to the actual situation)
 
     ```shell
@@ -741,6 +753,7 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
     - Windows system uses mDNS to resolve addresses by default. If you need to use smartdns to resolve addresses under Windows, you need to add `.` after the host name, indicating that DNS resolution is used. Such as `ping smartdns.`
 
 1. How to use the domain set?  
+
     To facilitate configuring domain names by set, for configurations with /domain/, you can specify a domain name set for easy maintenance. The specific method is:
 
     - Use `domain-set` configuration domain set file:
@@ -766,6 +779,7 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
     ````
 
 1. How to use ipset and nftset?  
+
     Similar to Dnsmasq, smartdns supports ipset and nftset, and can transparently forward specific domain names through TPROXY. The comparison of transparent forwarding and tool modes is as follows:
 
     1. Tools: iptable, nftable
@@ -801,6 +815,29 @@ Note: Merlin firmware is derived from ASUS firmware and can theoretically be use
 
     - Open the forwarding program of REDIRECT mode on port 1081 of this machine.
 
+1. Bootstrap DNS  
+
+    For upstream servers with domain name, smartdns will use servers with IP address types for resolution, so there is no need to configure bootstrap DNS, but if there are special needs, you can specify bootstrap DNS . The steps are as follows:
+    
+    1. nameserver server upstream server  
+    
+        use nameserver set upstream server for domain name  
+        
+        ```
+        server dns.server # this domain name will be resolved by 1.2.3.4
+        server 1.2.3.4 -group bootstrap-dns
+        nameserver /dns.server/bootstrap-dns
+        ```
+
+    1. Set bootstrap DNS server  
+
+        use `-bootstrap-dns` option to set server as bootstrap DNS.
+
+        ```
+        server 1.2.3.4 -bootstrap-dns
+        server dns.server
+        ```
+    
 1. More questions  
     More questions, please read issue: [https://github.com/pymumu/smartdns/issues](https://github.com/pymumu/smartdns/issues)
 

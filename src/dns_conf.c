@@ -96,6 +96,7 @@ struct dns_servers dns_conf_servers[DNS_MAX_SERVERS];
 char dns_conf_server_name[DNS_MAX_SERVER_NAME_LEN];
 int dns_conf_server_num;
 int dns_conf_resolv_hostname = 1;
+char dns_conf_exist_bootstrap_dns;
 
 struct dns_domain_check_orders dns_conf_check_orders = {
 	.orders =
@@ -163,6 +164,8 @@ struct dns_edns_client_subnet dns_conf_ipv4_ecs;
 struct dns_edns_client_subnet dns_conf_ipv6_ecs;
 
 char dns_conf_sni_proxy_ip[DNS_MAX_IPLEN];
+
+static int _conf_domain_rule_nameserver(char *domain, const char *group_name);
 
 static void *_new_dns_rule(enum domain_rule domain_rule)
 {
@@ -467,6 +470,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 	unsigned int server_flag = 0;
 	unsigned char *spki = NULL;
 	int drop_packet_latency_ms = 0;
+	int is_bootstrap_dns = 0;
 
 	int ttl = 0;
 	/* clang-format off */
@@ -487,6 +491,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 		{"proxy", required_argument, NULL, 'P'}, /* proxy server */
 		{"exclude-default-group", no_argument, NULL, 'E'}, /* exclude this from default group */
 		{"set-mark", required_argument, NULL, 254}, /* set mark */
+		{"bootstrap-dns", no_argument, NULL, 255}, /* set as bootstrap dns */
 		{NULL, no_argument, NULL, 0}
 	};
 	/* clang-format on */
@@ -618,6 +623,10 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 			server->set_mark = atoll(optarg);
 			break;
 		}
+		case 255: {
+			is_bootstrap_dns = 1;
+			break;
+		}
 		default:
 			break;
 		}
@@ -633,6 +642,12 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 	dns_conf_server_num++;
 	tlog(TLOG_DEBUG, "add server %s, flag: %X, ttl: %d", ip, result_flag, ttl);
 
+	if (is_bootstrap_dns) {
+		server->server_flag |= SERVER_FLAG_EXCLUDE_DEFAULT;
+		_dns_conf_get_group_set("bootstrap-dns", server);
+		dns_conf_exist_bootstrap_dns = 1;
+	}
+
 	return 0;
 
 errout:
@@ -641,6 +656,26 @@ errout:
 	}
 
 	return -1;
+}
+
+static int _config_update_bootstrap_dns_rule(void)
+{
+	struct dns_servers *server = NULL;
+
+	if (dns_conf_exist_bootstrap_dns == 0) {
+		return 0;
+	}
+
+	for (int i = 0; i < dns_conf_server_num; i++) {
+		server = &dns_conf_servers[i];
+		if (check_is_ipaddr(server->server) == 0) {
+			continue;
+		}
+
+		_conf_domain_rule_nameserver(server->server, "bootstrap-dns");
+	}
+
+	return 0;
 }
 
 static int _config_domain_rule_free(struct dns_domain_rule *domain_rule)
@@ -3297,6 +3332,7 @@ errout:
 	return -1;
 }
 
+
 static int _dns_conf_load_post(void)
 {
 	_config_setup_smartdns_domain();
@@ -3321,6 +3357,8 @@ static int _dns_conf_load_post(void)
 	}
 
 	_config_domain_set_name_table_destroy();
+
+	_config_update_bootstrap_dns_rule();
 
 	return 0;
 }
