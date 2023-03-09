@@ -467,7 +467,7 @@ static void _dns_server_set_dualstack_selection(struct dns_request *request)
 {
 	struct dns_rule_flags *rule_flag = NULL;
 
-	if (request->dualstack_selection_query || request->prefetch_expired_domain == 1) {
+	if (request->dualstack_selection_query || request->prefetch_expired_domain == 1 || is_ipv6_ready == 0) {
 		request->dualstack_selection = 0;
 		return;
 	}

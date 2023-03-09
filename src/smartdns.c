@@ -388,7 +388,7 @@ static int _smartdns_create_cert(void)
 	int unused __attribute__((unused)) = 0;
 
 	if (get_uid_gid(&uid, &gid) != 0) {
-		return -1;
+		return 0;
 	}
 
 	unused = chown(dns_conf_bind_ca_file, uid, gid);
