@@ -371,7 +371,7 @@ static int _smartdns_create_cert(void)
 	}
 
 	if (dns_conf_bind_ca_file[0] != 0 && dns_conf_bind_ca_key_file[0] != 0) {
-		return -1;
+		return 0;
 	}
 
 	conf_get_conf_fullpath("smartdns-cert.pem", dns_conf_bind_ca_file, sizeof(dns_conf_bind_ca_file));
