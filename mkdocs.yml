@@ -1,0 +1,76 @@
+site_name: SmartDNS
+site_description: SmartDNS
+site_author: pymumu
+repo_name: 'pymumu/smartdns'
+repo_url: 'https://github.com/pymumu/smartdns'
+
+# Copyright
+copyright: "Copyright &copy; Nick Peng"
+
+theme:
+  name: material
+  logo: assets/smartdns.png
+  feature:
+    tabs: true
+  favicon: 'assets/smartdns.png'
+  language: 'zh'
+  include_sidebar: false
+  palette:
+    - scheme: default
+      primary: 'green'
+      accent: 'green'
+      toggle:
+        icon: material/brightness-7 
+        name: Switch to dark mode
+    - scheme: slate
+      primary: 'dark green'
+      accent: 'dark green'
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.path
+    - navigation.prune
+    - navigation.instant
+    - navigation.indexes
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - toc.follow
+    - content.code.copy
+
+plugins:
+  - search
+
+extra_css:
+  - stylesheets/extra.css
+
+extra:
+  alternate:
+    - name: 中文
+      link: ./
+      lang: zh
+    - name: English
+      link: en/ 
+      lang: en
+
+markdown_extensions:
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.superfences
+
+
+nav:
+  - 首页: 'index.md'
+  - 下载: 'download.md'
+  - 安装: 
+    - 标准Linux系统 / 树莓派: 'install/linux.md'
+    - OpenWrt: 'install/openwrt.md'
+    - 华硕固件 / 梅林固件: 'install/asus.md'
+    - EntWare: 'install/entware.md'
+    - WSL: 'install/wsl.md'
+  - 配置选项: 'configuration.md'
+  - 编译: 'compile.md'
+  - 常见问题: 'faq.md'
+  - 捐赠: 'donate.md'

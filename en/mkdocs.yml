@@ -1,0 +1,76 @@
+site_name: SmartDNS
+site_description: SmartDNS
+site_author: pymumu
+repo_name: 'pymumu/smartdns'
+repo_url: 'https://github.com/pymumu/smartdns'
+
+# Copyright
+copyright: "Copyright &copy; Nick Peng"
+
+theme:
+  name: material
+  logo: assets/smartdns.png
+  feature:
+    tabs: true
+  favicon: 'assets/smartdns.png'
+  language: 'en'
+  include_sidebar: false
+  palette:
+    - scheme: default
+      primary: 'green'
+      accent: 'green'
+      toggle:
+        icon: material/brightness-7 
+        name: Switch to dark mode
+    - scheme: slate
+      primary: 'dark green'
+      accent: 'dark green'
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.path
+    - navigation.prune
+    - navigation.instant
+    - navigation.indexes
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - toc.follow
+    - content.code.copy
+
+plugins:
+  - search
+
+extra_css:
+  - stylesheets/extra.css
+
+extra:
+  alternate:
+    - name: 中文
+      link: ./ ..
+      lang: zh
+    - name: English
+      link: ./ 
+      lang: en
+
+markdown_extensions:
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.superfences
+
+
+nav:
+  - Home: 'index.md'
+  - Download: 'download.md'
+  - Installation: 
+    - Linux: 'install/linux.md'
+    - OpenWrt: 'install/openwrt.md'
+    - ASUS firmware / Merlin firmware: 'install/asus.md'
+    - EntWare: 'install/entware.md'
+    - WSL: 'install/wsl.md'
+  - Configurations: 'configuration.md'
+  - Compile: 'compile.md'
+  - FAQ: 'faq.md'
+  - Donate: 'donate.md'
