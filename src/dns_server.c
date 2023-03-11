@@ -346,6 +346,11 @@ static void *_dns_server_get_dns_rule(struct dns_request *request, enum domain_r
 static const char *_dns_server_get_request_groupname(struct dns_request *request);
 static int _dns_server_tcp_socket_send(struct dns_server_conn_tcp_client *tcp_client, void *data, int data_len);
 
+int dns_is_ipv6_ready(void)
+{
+	return is_ipv6_ready;
+}
+
 static void _dns_server_wakeup_thread(void)
 {
 	uint64_t u = 1;

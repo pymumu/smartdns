@@ -35,6 +35,8 @@ struct dns_server_query_option {
 	struct dns_query_ecs_ip ecs_ip;
 };
 
+int dns_is_ipv6_ready(void);
+
 int dns_server_init(void);
 
 int dns_server_run(void);
