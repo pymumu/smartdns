@@ -43,15 +43,15 @@ smartdns可以通过指定对应域名返回SOA用于广告屏蔽。
 
 1. 下载配置文件到`/etc/smartdns`目录
 
-```shell
-wget https://github.com/privacy-protection-tools/anti-AD/blob/master/anti-ad-smartdns.conf -o /etc/smartdns/anti-ad-smartdns.conf
-```
+    ```shell
+    wget https://github.com/privacy-protection-tools/anti-AD/blob/master/anti-ad-smartdns.conf -o /etc/smartdns/anti-ad-smartdns.conf
+    ```
 
 1. 修改/etc/smartdns/smartdns.conf文件，包含上述配置文件
 
-```shell
-conf-file /etc/smartdns/anti-ad-smartdns.conf
-```
+    ```shell
+    conf-file /etc/smartdns/anti-ad-smartdns.conf
+    ```
 
 ## 广告列表
 

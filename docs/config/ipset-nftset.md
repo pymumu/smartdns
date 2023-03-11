@@ -16,58 +16,58 @@ hide:
 
 1. 基本配置
 
-通过如下参数可以配置指定域名的IPSet规则
+    通过如下参数可以配置指定域名的IPSet规则
 
-```shell
-nftset /domain/[#4:ip#table#set,#6:ipv6#table#setv6]
-```
+    ```shell
+    nftset /domain/[#4:ip#table#set,#6:ipv6#table#setv6]
+    ```
 
 1. 超时
 
-SmartDNS设置IPSet，支持设置是否启用超时功能，这样可以避免IPSet中过多IP地址，网关性能下降。启用方式为
+    SmartDNS设置IPSet，支持设置是否启用超时功能，这样可以避免IPSet中过多IP地址，网关性能下降。启用方式为
 
-```shell
-nftset-timeout yes
-```
+    ```shell
+    nftset-timeout yes
+    ```
 
 1. 测速失败后，自动添加到IPSet
 
-SmartDNS可以将测速失败的IP地址，加入IPSet，再由相关IP规则转发
+    SmartDNS可以将测速失败的IP地址，加入IPSet，再由相关IP规则转发
 
-```shell
-nftset-no-speed ipsetname
-```
+    ```shell
+    nftset-no-speed ipsetname
+    ```
 
 1. DEBUG调试
 
-如需要Debug调试，可以开启nftset的调试功能。
+    如需要Debug调试，可以开启nftset的调试功能。
 
-```shell
-nftset-debug yes
-```
+    ```shell
+    nftset-debug yes
+    ```
 
 ## nftset配置
 
 1. 基本配置
 
-通过如下参数可以配置指定域名的NFTSet规则
+    通过如下参数可以配置指定域名的NFTSet规则
 
-```shell
-ipset /domain/ipset
-```
+    ```shell
+    ipset /domain/ipset
+    ```
 
 1. 超时
 
-SmartDNS设置IPSet，支持设置是否启用超时功能，这样可以避免NFTSet中过多IP地址，网关性能下降。启用方式为
+    SmartDNS设置IPSet，支持设置是否启用超时功能，这样可以避免NFTSet中过多IP地址，网关性能下降。启用方式为
 
-```shell
-ipset-timeout yes
-```
+    ```shell
+    ipset-timeout yes
+    ```
 
 1. 测速失败后，自动添加到IPSet
 
-SmartDNS可以将测速失败的IP地址，加入IPSet，再由相关IP规则转发
+    SmartDNS可以将测速失败的IP地址，加入IPSet，再由相关IP规则转发
 
-```shell
-ipset-no-speed ipsetname
-```
+    ```shell
+    ipset-no-speed ipsetname
+    ```

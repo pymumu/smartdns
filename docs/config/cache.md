@@ -46,58 +46,56 @@ smartdns过期缓存处理流程
 
 %%{init: {'theme':'forest'}}%%
 sequenceDiagram
-    autonumber
     participant client as 客户端
     participant smartdns as SmartDNS
     participant Server as 上游DNS服务器
     client->>smartdns: DNS查询
-    alt 域名不在缓存中
-        smartdns->>+Server: 上游查询DNS
-        Server-->>-smartdns: 返回查询结果
-        smartdns->smartdns: 测速，并缓存结果
-        smartdns->client: 返回结果
-    else 域名在过期缓存中
-        rect rgb(160, 250, 140)
-        smartdns->smartdns: 域名在缓存中，且已经过期。
-        smartdns->client: 返回结果过期的域名结果，TTL为3
-        smartdns->>+Server: 上游查询DNS
-        Server->-smartdns: 返回查询结果
-        smartdns->smartdns: 测速，并缓存结果
-        client->smartdns: 3s后客户端再次查询，获取最佳结果。
-        end
-    end
+    smartdns->>smartdns: 域名在缓存中，且已经过期。
+    smartdns->>client: 返回结果过期的域名结果，TTL为3
+    smartdns->>+Server: 上游查询DNS
+    Server->>-smartdns: 返回查询结果
+    smartdns->>smartdns: 测速，并缓存结果
+    client->>smartdns: 3s后客户端再次查询，获取最佳结果。
 
 ```
+
+通过上述序列图可以看到，当缓存过期时，smartdns仍然将过期的IP地址发给客户端，这样客户端就能很快的进行连接服务器，这种机制的前提是服务器IP地址没有变化。
+
+现实中，大部分情况下，修改域名IP地址后，是不会立即生效到千家万户的，因为一般IP变化域名后，全球域名系统刷新完成最长可能要72小时。  
+即时出现过期缓存中的IP地址，故障失效，smartdns返回给客户端过期IP的TTL只有3s，那么3s后，客户端就会重新使用新的IP，表现在客户端程序中，可能就是要刷新页面重试一次。  
+并且，针对实现场景，smartdns可以设置预获取来尽量避免此问题发生。
+
+所以，主要场景下开启过期缓存是比较好的实践。
 
 ## 配置步骤
 
 1. 开启过期缓存
 
-  ```shell
-  serve-expired yes
-  ```
+    ```shell
+    serve-expired yes
+    ```
 
 1. 配置过期缓存超时时间
 
-  此时间表示过期缓存多长时间未访问，则从缓存中释放。
+    此时间表示过期缓存多长时间未访问，则从缓存中释放。
 
-  ```shell
-  serve-expired-ttl 259200
-  ```
+    ```shell
+    serve-expired-ttl 259200
+    ```
 
 1. 配置过期缓存响应TTL
 
-  此时间表示当缓存中域名TTL超时时，返回给客户端的TTL时间，让客户端在下列TTL时间后再次查询。
+    此时间表示当缓存中域名TTL超时时，返回给客户端的TTL时间，让客户端在下列TTL时间后再次查询。
 
-  ```shell
-  serve-expired-reply-ttl 3
-  ```
+    ```shell
+    serve-expired-reply-ttl 3
+    ```
 
 1. 过期缓存预获取时间
 
-  此时间表示，过期缓存在多长时间未访问，主动进行预先获取，以避免IP无效；开启过期缓存后，prefetch的功能将和未开启不同。
+    此时间表示，过期缓存在多长时间未访问，主动进行预先获取，以避免IP无效；开启过期缓存后，prefetch的功能将和未开启不同。
 
-  ```shell
-  prefetch-domain yes
-  serve-expired-prefetch-time 21600
-  ```
+    ```shell
+    prefetch-domain yes
+    serve-expired-prefetch-time 21600
+    ```

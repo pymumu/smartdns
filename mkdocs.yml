@@ -9,6 +9,8 @@ copyright: "Copyright &copy; Nick Peng"
 
 theme:
   name: material
+  icon:
+    repo: fontawesome/brands/github 
   logo: assets/smartdns.png
   feature:
     tabs: true
@@ -20,13 +22,13 @@ theme:
       primary: 'green'
       accent: 'green'
       toggle:
-        icon: material/brightness-7 
+        icon: material/weather-sunny
         name: Switch to dark mode
     - scheme: slate
-      primary: 'dark green'
-      accent: 'dark green'
+      primary: 'dark'
+      accent: 'dark'
       toggle:
-        icon: material/brightness-4
+        icon: material/weather-night
         name: Switch to light mode
   features:
     - navigation.path
@@ -74,7 +76,7 @@ nav:
     - 华硕固件 / 梅林固件: 'install/asus.md'
     - EntWare: 'install/entware.md'
     - WSL: 'install/wsl.md'
-  - 配置示例:
+  - 配置指导:
     - 屏蔽广告: 'config/ad-block.md'
     - DNS分流: 'config/domain-forwarding.md'
     - 工作模式: 'config/work-mode.md'
@@ -87,9 +89,9 @@ nav:
     - 双栈优选: 'config/dualstack.md'
     - 禁用IPV6: 'config/block-ipv6.md'
     - DNS64: 'config/dns64.md'
+    - cname别名查询: 'config/cname.md'
     - 安全相关: 'config/security.md'
     - 黑名单分流请求: 'config/forwarding-with-ipset.md'
-    - cname别名查询: 'config/cname.md'
   - 配置选项: 'configuration.md'
   - 编译: 'compile.md'
   - 常见问题: 'faq.md'

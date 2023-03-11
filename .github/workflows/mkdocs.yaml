@@ -42,6 +42,12 @@ jobs:
             cd /root
             mkdocs build
             mv /root/en/site /root/site/en
+            # patch 404 page, remove absolute path
+            sed 's@="/@="@g' -i /root/site/404.html
+            sed 's@="/@="@g' -i /root/site/en/404.html
+            # patch language change url
+            find /root/site -name "*.htm*" -print0 |  xargs -0 sed -i 's/href=" .."/href=".."/g'
+            find /root/site -name "*.htm*" -print0 |  xargs -0 sed -i 's@/ .."@/.."@g'
       - name: Setup Pages
         uses: actions/configure-pages@v3
       - name: Upload artifact

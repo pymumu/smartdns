@@ -9,6 +9,8 @@ copyright: "Copyright &copy; Nick Peng"
 
 theme:
   name: material
+  icon:
+    repo: fontawesome/brands/github 
   logo: assets/smartdns.png
   feature:
     tabs: true
@@ -20,13 +22,13 @@ theme:
       primary: 'green'
       accent: 'green'
       toggle:
-        icon: material/brightness-7 
+        icon: material/weather-sunny
         name: Switch to dark mode
     - scheme: slate
-      primary: 'dark green'
-      accent: 'dark green'
+      primary: 'dark'
+      accent: 'dark'
       toggle:
-        icon: material/brightness-4
+        icon: material/weather-night
         name: Switch to light mode
   features:
     - navigation.path
