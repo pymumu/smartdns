@@ -34,11 +34,13 @@ hide:
 | log-size | 日志大小 | 128K | 数字 + K、M 或 G | log-size 128K |
 | log-num | 日志归档个数 | openwrt为2， 其他系统为8 | 大于等于 0 的数字，0表示禁用日志 | log-num 2 |
 | log-file-mode | 日志归档文件权限 | 0640 | 文件权限 | log-file-mode 644 |
+| log-console | 是否输出日志到控制台 | no | [yes\|no] | log-console yes |
 | audit-enable | 设置审计启用 | no | [yes\|no] | audit-enable yes |
 | audit-file | 审计文件路径 | /var/log/<br />smartdns/<br />smartdns-audit.log | 合法路径字符串 | audit-file /var/log/smartdns/smartdns-audit.log |
 | audit-size | 审计大小 | 128K | 数字 + K、M 或 G | audit-size 128K |
 | audit-num | 审计归档个数 | 2 | 大于等于 0 的数字 | audit-num 2 |
 | audit-file-mode | 审计归档文件权限 | 0640 | 文件权限 | log-file-mode 644 |
+| audit-console | 是否输出审计日志到控制台 | no | [yes\|no] | audit-console yes |
 | conf-file | 附加配置文件 | 无 | 合法路径字符串 | conf-file /etc/smartdns/smartdns.more.conf |
 | server | 上游 UDP DNS | 无 | 可重复。<br />[ip][:port]\|URL：服务器 IP:端口（可选）或 URL <br />[-blacklist-ip]：配置 IP 过滤结果。<br />[-whitelist-ip]：指定仅接受参数中配置的 IP 范围<br />[-group [group] ...]：DNS 服务器所属组，比如 office 和 foreign，和 nameserver 配套使用<br />[-exclude-default-group]：将 DNS 服务器从默认组中排除。<br />[-set-mark mark]：设置数据包标记so-mark。<br />[-proxy name]：设置代理服务器。 <br />[-bootstrap-dns]：标记此服务器为bootstrap服务器。| server 8.8.8.8:53 -blacklist-ip -group g1 -proxy proxy<br /> server tls://8.8.8.8|
 | server-tcp | 上游 TCP DNS | 无 | 可重复。<br />[ip][:port]：服务器 IP:端口（可选）<br />[-blacklist-ip]：配置 IP 过滤结果<br />[-whitelist-ip]：指定仅接受参数中配置的 IP 范围。<br />[-group [group] ...]：DNS 服务器所属组，比如 office 和 foreign，和 nameserver 配套使用<br />[-exclude-default-group]：将 DNS 服务器从默认组中排除。<br />[-set-mark mark]：设置数据包标记so-mark。<br />[-proxy name]：设置代理服务器。 <br />[-bootstrap-dns]：标记此服务器为bootstrap服务器。| server-tcp 8.8.8.8:53 |

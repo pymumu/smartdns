@@ -1,5 +1,6 @@
 site
 en/site
-
+src
+test
 .vscode
 .DS_Store
