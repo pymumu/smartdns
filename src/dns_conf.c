@@ -114,6 +114,7 @@ char dns_conf_log_file[DNS_MAX_PATH];
 size_t dns_conf_log_size = 1024 * 1024;
 int dns_conf_log_num = 8;
 int dns_conf_log_file_mode;
+int dns_conf_log_console;
 
 /* CA file */
 char dns_conf_ca_file[DNS_MAX_PATH];
@@ -129,6 +130,7 @@ char dns_conf_audit_file[DNS_MAX_PATH];
 size_t dns_conf_audit_size = 1024 * 1024;
 int dns_conf_audit_num = 2;
 int dns_conf_audit_file_mode;
+int dns_conf_audit_console;
 
 /* address rules */
 art_tree dns_conf_domain_rule;
@@ -3142,6 +3144,7 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("log-file", _config_option_parser_filepath, (char *)dns_conf_log_file),
 	CONF_SIZE("log-size", &dns_conf_log_size, 0, 1024 * 1024 * 1024),
 	CONF_INT("log-num", &dns_conf_log_num, 0, 1024),
+	CONF_YESNO("log-console", &dns_conf_log_console),
 	CONF_INT_BASE("log-file-mode", &dns_conf_log_file_mode, 0, 511, 8),
 	CONF_YESNO("audit-enable", &dns_conf_audit_enable),
 	CONF_YESNO("audit-SOA", &dns_conf_audit_log_SOA),
@@ -3149,6 +3152,7 @@ static struct config_item _config_item[] = {
 	CONF_INT_BASE("audit-file-mode", &dns_conf_audit_file_mode, 0, 511, 8),
 	CONF_SIZE("audit-size", &dns_conf_audit_size, 0, 1024 * 1024 * 1024),
 	CONF_INT("audit-num", &dns_conf_audit_num, 0, 1024),
+	CONF_YESNO("audit-console", &dns_conf_audit_console),
 	CONF_INT("rr-ttl", &dns_conf_rr_ttl, 0, CONF_INT_MAX),
 	CONF_INT("rr-ttl-min", &dns_conf_rr_ttl_min, 0, CONF_INT_MAX),
 	CONF_INT("rr-ttl-max", &dns_conf_rr_ttl_max, 0, CONF_INT_MAX),

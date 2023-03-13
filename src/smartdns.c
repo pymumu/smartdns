@@ -441,7 +441,10 @@ static int _smartdns_init(void)
 		goto errout;
 	}
 
-	tlog_setlogscreen(verbose_screen);
+	if (verbose_screen != 0 || dns_conf_log_console != 0) {
+		tlog_setlogscreen(1);
+	}
+
 	tlog_setlevel(dns_conf_log_level);
 	if (dns_conf_log_file_mode > 0) {
 		tlog_set_permission(tlog_get_root(), dns_conf_log_file_mode, dns_conf_log_file_mode);

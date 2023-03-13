@@ -434,6 +434,7 @@ extern char dns_conf_log_file[DNS_MAX_PATH];
 extern size_t dns_conf_log_size;
 extern int dns_conf_log_num;
 extern int dns_conf_log_file_mode;
+extern int dns_conf_log_console;
 
 extern char dns_conf_ca_file[DNS_MAX_PATH];
 extern char dns_conf_ca_path[DNS_MAX_PATH];
@@ -452,6 +453,7 @@ extern char dns_conf_audit_file[DNS_MAX_PATH];
 extern size_t dns_conf_audit_size;
 extern int dns_conf_audit_num;
 extern int dns_conf_audit_file_mode;
+extern int dns_conf_audit_console;
 
 extern char dns_conf_server_name[DNS_MAX_SERVER_NAME_LEN];
 extern art_tree dns_conf_domain_rule;
