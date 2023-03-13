@@ -13,5 +13,14 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+    - name: prepare
+      run: |
+        sudo apt update
+        sudo apt install libgtest-dev
     - name: make
-      run: make
+      run: |
+        make all -j4
+        make clean
+    - name: test
+      run: |
+        make -C test test -j8

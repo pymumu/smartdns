@@ -19,6 +19,10 @@
 #ifndef _DNS_HEAD_H
 #define _DNS_HEAD_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif /*__cplusplus */
+
 #define DNS_RR_A_LEN 4
 #define DNS_RR_AAAA_LEN 16
 #define DNS_MAX_CNAME_LEN 256
@@ -310,4 +314,7 @@ struct dns_update_param {
 
 int dns_packet_update(unsigned char *data, int size, struct dns_update_param *param);
 
+#ifdef __cplusplus
+}
+#endif /*__cplusplus */
 #endif

@@ -1,5 +1,7 @@
 .vscode
 *.o
+*.pem
 .DS_Store
 *.swp.
 systemd/smartdns.service
+test.bin

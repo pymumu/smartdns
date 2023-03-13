@@ -401,7 +401,7 @@ int check_is_ipaddr(const char *ip)
 	return -1;
 }
 
-int parse_uri(char *value, char *scheme, char *host, int *port, char *path)
+int parse_uri(const char *value, char *scheme, char *host, int *port, char *path)
 {
 	return parse_uri_ext(value, scheme, NULL, NULL, host, port, path);
 }
@@ -442,16 +442,16 @@ void urldecode(char *dst, const char *src)
 	*dst++ = '\0';
 }
 
-int parse_uri_ext(char *value, char *scheme, char *user, char *password, char *host, int *port, char *path)
+int parse_uri_ext(const char *value, char *scheme, char *user, char *password, char *host, int *port, char *path)
 {
 	char *scheme_end = NULL;
 	int field_len = 0;
-	char *process_ptr = value;
+	const char *process_ptr = value;
 	char user_pass_host_part[PATH_MAX];
 	char *user_password = NULL;
 	char *host_part = NULL;
 
-	char *host_end = NULL;
+	const char *host_end = NULL;
 
 	scheme_end = strstr(value, "://");
 	if (scheme_end) {
