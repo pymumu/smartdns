@@ -1244,10 +1244,6 @@ int dns_get_domain(struct dns_rrs *rrs, char *domain, int maxsize, int *qtype, i
 {
 	struct dns_context context;
 
-	if (rrs->type != DNS_T_CNAME) {
-		return -1;
-	}
-
 	_dns_init_context_by_rrs(rrs, &context);
 	return _dns_get_qr_head(&context, domain, maxsize, qtype, qclass);
 }

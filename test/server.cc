@@ -21,6 +21,7 @@
 #include "util.h"
 #include <arpa/inet.h>
 #include <fcntl.h>
+#include <fstream>
 #include <netinet/in.h>
 #include <poll.h>
 #include <signal.h>
@@ -30,7 +31,6 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <vector>
-#include <fstream>
 
 namespace smartdns
 {
@@ -87,13 +87,15 @@ void MockServer::Run()
 			struct sockaddr_storage from;
 			socklen_t addrlen = sizeof(from);
 			unsigned char in_buff[4096];
+			int query_id = 0;
 			int len = recvfrom(fd_, in_buff, sizeof(in_buff), 0, (struct sockaddr *)&from, &addrlen);
 			if (len < 0) {
 				continue;
 			}
 
 			char packet_buff[4096];
-			unsigned char out_buff[4096];
+			unsigned char response_data_buff[4096];
+			unsigned char response_packet_buff[4096];
 			memset(packet_buff, 0, sizeof(packet_buff));
 			struct dns_packet *packet = (struct dns_packet *)packet_buff;
 			struct ServerRequestContext request;
@@ -102,6 +104,7 @@ void MockServer::Run()
 			int ret = dns_decode(packet, sizeof(packet_buff), in_buff, len);
 			if (ret == 0) {
 				request.packet = packet;
+				query_id = packet->head.id;
 				if (packet->head.qr == DNS_QR_QUERY) {
 					struct dns_rrs *rrs = NULL;
 					int rr_count = 0;
@@ -126,27 +129,26 @@ void MockServer::Run()
 			request.fromlen = addrlen;
 			request.request_data = in_buff;
 			request.request_data_len = len;
-			request.response_data = out_buff;
+			request.response_packet = (struct dns_packet *)response_packet_buff;
+			request.response_data = response_data_buff;
 			request.response_data_len = 0;
-			request.response_data_max_len = sizeof(out_buff);
+			request.response_data_max_len = sizeof(response_data_buff);
+
+			struct dns_head head;
+			memset(&head, 0, sizeof(head));
+			head.id = query_id;
+			head.qr = DNS_QR_ANSWER;
+			head.opcode = DNS_OP_QUERY;
+			head.aa = 0;
+			head.rd = 0;
+			head.ra = 1;
+			head.rcode = DNS_RC_SERVFAIL;
+			dns_packet_init(request.response_packet, sizeof(response_packet_buff), &head);
 
 			auto callback_ret = callback_(&request);
-			if (callback_ret == false) {
-				unsigned char out_packet_buff[4096];
-				struct dns_packet *out_packet = (struct dns_packet *)out_packet_buff;
-				struct dns_head head;
-				memset(&head, 0, sizeof(head));
-				head.id = packet->head.id;
-				head.qr = DNS_QR_ANSWER;
-				head.opcode = DNS_OP_QUERY;
-				head.aa = 0;
-				head.rd = 1;
-				head.ra = 0;
-				head.rcode = DNS_RC_SERVFAIL;
-
-				dns_packet_init(out_packet, sizeof(out_packet_buff), &head);
+			if (callback_ret == false || request.response_data_len == 0) {
 				request.response_data_len =
-					dns_encode(request.response_data, request.response_data_max_len, out_packet);
+					dns_encode(request.response_data, request.response_data_max_len, request.response_packet);
 			}
 
 			sendto(fd_, request.response_data, request.response_data_len, MSG_NOSIGNAL, (struct sockaddr *)&from,
@@ -255,7 +257,8 @@ bool Server::Start(const std::string &conf, enum CONF_TYPE type)
 		if (fd < 0) {
 			return false;
 		}
-		Defer {
+		Defer
+		{
 			close(fd);
 		};
 

@@ -6110,6 +6110,23 @@ static void _dns_server_tcp_idle_check(void)
 	}
 }
 
+#ifdef TEST
+static void _dns_server_check_need_exit(void)
+{
+	static int parent_pid = 0;
+	if (parent_pid == 0) {
+		parent_pid = getppid();
+	}
+
+	if (parent_pid != getppid()) {
+		tlog(TLOG_WARN, "parent process exit, exit too.");
+		dns_server_stop();
+	}
+}
+#else
+#define _dns_server_check_need_exit()
+#endif
+
 static void _dns_server_period_run_second(void)
 {
 	static unsigned int sec = 0;
@@ -6152,6 +6169,7 @@ static void _dns_server_period_run_second(void)
 	}
 
 	_dns_server_tcp_idle_check();
+	_dns_server_check_need_exit();
 
 	if (sec % IPV6_READY_CHECK_TIME == 0 && is_ipv6_ready == 0) {
 		_dns_server_check_ipv6_ready();
@@ -6811,6 +6829,8 @@ int dns_server_init(void)
 	pthread_attr_t attr;
 	int epollfd = -1;
 	int ret = -1;
+
+	_dns_server_check_need_exit();
 
 	if (server.epoll_fd > 0) {
 		return -1;

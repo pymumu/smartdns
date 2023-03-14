@@ -32,3 +32,19 @@ cache-persist no)""");
 	EXPECT_EQ(client.GetStatus(), "NOERROR");
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
 }
+
+TEST(server, DISABLED_TLSCN)
+{
+	smartdns::Server server;
+
+	server.Start(R"""(bind [::]:60053
+server tls://1.0.0.1:853 
+log-num 0
+log-console yes
+log-level debug
+cache-persist no)""");
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("www.example.com", 60053));
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+}
+

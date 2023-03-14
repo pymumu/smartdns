@@ -745,11 +745,10 @@ int main(int argc, char *argv[])
 		goto errout;
 	}
 
-	atexit(_smartdns_exit);
 	smartdns_test_notify(1);
-
-	return _smartdns_run();
-
+	ret = _smartdns_run();
+	_smartdns_exit();
+	return ret;
 errout:
 	smartdns_test_notify(2);
 	return 1;

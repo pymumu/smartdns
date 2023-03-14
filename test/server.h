@@ -60,6 +60,7 @@ struct ServerRequestContext {
 	uint8_t *request_data;
 	int request_data_len;
 	uint8_t *response_data;
+    struct dns_packet *response_packet;
 	int response_data_max_len;
 	int response_data_len;
 };

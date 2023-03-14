@@ -224,11 +224,16 @@ bool Client::ParserRecord(const std::string &record_str, std::vector<DNSRecord> 
 {
 	DNSRecord r;
 
-	if (r.Parser(record_str) == false) {
-		return false;
+	std::vector<std::string> lines = StringSplit(record_str, '\n');
+
+	for (auto &line : lines) {
+		if (r.Parser(line) == false) {
+			return false;
+		}
+
+		record.push_back(r);
 	}
 
-	record.push_back(r);
 	return true;
 }
 
@@ -272,21 +277,29 @@ bool Client::ParserResult()
 		flags_ = match[1];
 	}
 
-	std::regex reg_question(";; QUESTION SECTION:\n.(.*\n)+?\n");
+	std::regex reg_question(";; QUESTION SECTION:\\n((?:.|\\n|\\r\\n)+?)\\n{2,}",
+							std::regex::ECMAScript | std::regex::optimize);
 	if (std::regex_search(result_, match, reg_question)) {
 		if (ParserRecord(match[1], records_query_) == false) {
 			return false;
 		}
 	}
 
-	std::regex reg_answer(";; ANSWER SECTION:\n(.*)\n");
+	std::regex reg_answer(";; ANSWER SECTION:\\n((?:.|\\n|\\r\\n)+?)\\n{2,}",
+						  std::regex::ECMAScript | std::regex::optimize);
 	if (std::regex_search(result_, match, reg_answer)) {
 		if (ParserRecord(match[1], records_answer_) == false) {
 			return false;
 		}
+
+		if (answer_num_ != records_answer_.size()) {
+			std::cout << "DIG FAILED: Num Not Match\n" << result_ << std::endl;
+			return false;
+		}
 	}
 
-	std::regex reg_addition(";; ADDITIONAL SECTION:\n(.*)\n");
+	std::regex reg_addition(";; ADDITIONAL SECTION:\\n((?:.|\\n|\\r\\n)+?)\\n{2,}",
+							std::regex::ECMAScript | std::regex::optimize);
 	if (std::regex_search(result_, match, reg_answer)) {
 		if (ParserRecord(match[1], records_additional_) == false) {
 			return false;
