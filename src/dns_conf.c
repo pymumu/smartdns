@@ -634,6 +634,11 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 		}
 	}
 
+	/* if server is domain name, then verify domain */
+	if (server->tls_host_verify[0] == '\0' && check_is_ipaddr(server->server) != 0) {
+		safe_strncpy(server->tls_host_verify, server->server, DNS_MAX_CNAME_LEN);
+	}
+
 	/* add new server */
 	server->type = type;
 	server->port = port;

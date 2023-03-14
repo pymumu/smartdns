@@ -1622,9 +1622,10 @@ static int _dns_client_recv(struct dns_server_info *server_info, unsigned char *
 {
 	int len = 0;
 	int i = 0;
+	int j = 0;
 	int qtype = 0;
 	int qclass = 0;
-	char domain[DNS_MAX_CNAME_LEN];
+	char domain[DNS_MAX_CNAME_LEN] = {0};
 	int rr_count = 0;
 	struct dns_rrs *rrs = NULL;
 	unsigned char packet_buff[DNS_PACKSIZE];
@@ -1662,10 +1663,13 @@ static int _dns_client_recv(struct dns_server_info *server_info, unsigned char *
 		 dns_get_OPT_payload_size(packet));
 
 	/* get question */
-	rrs = dns_get_rrs_start(packet, DNS_RRS_QD, &rr_count);
-	for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
-		dns_get_domain(rrs, domain, DNS_MAX_CNAME_LEN, &qtype, &qclass);
-		tlog(TLOG_DEBUG, "domain: %s qtype: %d  qclass: %d\n", domain, qtype, qclass);
+	for (j = 0; j < DNS_RRS_END && domain[0] == '\0'; j++) {
+		rrs = dns_get_rrs_start(packet, (dns_rr_type)j, &rr_count);
+		for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
+			dns_get_domain(rrs, domain, DNS_MAX_CNAME_LEN, &qtype, &qclass);
+			tlog(TLOG_DEBUG, "domain: %s qtype: %d  qclass: %d\n", domain, qtype, qclass);
+			break;
+		}
 	}
 
 	if (dns_get_OPT_payload_size(packet) > 0) {
@@ -2741,6 +2745,61 @@ errout:
 	return -1;
 }
 
+static int _dns_client_verify_common_name(struct dns_server_info *server_info, X509 *cert, char *peer_CN)
+{
+	char *tls_host_verify = NULL;
+	GENERAL_NAMES *alt_names = NULL;
+	int i = 0;
+
+	/* check tls host */
+	tls_host_verify = _dns_client_server_get_tls_host_verify(server_info);
+	if (tls_host_verify == NULL) {
+		return 0;
+	}
+
+	if (tls_host_verify) {
+		if (_dns_client_tls_matchName(tls_host_verify, peer_CN, strnlen(peer_CN, DNS_MAX_CNAME_LEN)) == 0) {
+			return 0;
+		}
+	}
+
+	alt_names = X509_get_ext_d2i(cert, NID_subject_alt_name, NULL, NULL);
+	if (alt_names == NULL) {
+		goto errout;
+	}
+
+	/* found subject alt name */
+	for (i = 0; i < sk_GENERAL_NAME_num(alt_names); i++) {
+		GENERAL_NAME *name = sk_GENERAL_NAME_value(alt_names, i);
+		if (name == NULL) {
+			continue;
+		}
+		switch (name->type) {
+		case GEN_DNS:
+			ASN1_IA5STRING *dns = name->d.dNSName;
+			if (dns == NULL) {
+				continue;
+			}
+
+			tlog(TLOG_DEBUG, "peer SAN: %s", dns->data);
+			if (_dns_client_tls_matchName(tls_host_verify, (char *)dns->data, dns->length) == 0) {
+				tlog(TLOG_INFO, "peer SAN match: %s", dns->data);
+				return 0;
+			}
+			break;
+		case GEN_IPADD:
+			break;
+		default:
+			break;
+		}
+	}
+
+errout:
+	tlog(TLOG_WARN, "server %s CN is invalid, peer CN: %s, expect CN: %s", server_info->ip, peer_CN, tls_host_verify);
+	server_info->prohibit = 1;
+	return -1;
+}
+
 static int _dns_client_tls_verify(struct dns_server_info *server_info)
 {
 	X509 *cert = NULL;
@@ -2754,7 +2813,7 @@ static int _dns_client_tls_verify(struct dns_server_info *server_info)
 	unsigned char *key_sha256 = NULL;
 	char *spki = NULL;
 	int spki_len = 0;
-	char *tls_host_verify = NULL;
+
 	if (server_info->ssl == NULL) {
 		return -1;
 	}
@@ -2773,7 +2832,8 @@ static int _dns_client_tls_verify(struct dns_server_info *server_info)
 			pthread_mutex_unlock(&server_info->lock);
 			peer_CN[0] = '\0';
 			_dns_client_tls_get_cert_CN(cert, peer_CN, sizeof(peer_CN));
-			tlog(TLOG_WARN, "peer server %s certificate verify failed, ret = %ld", server_info->ip, res);
+			tlog(TLOG_WARN, "peer server %s certificate verify failed, %s", server_info->ip,
+				 X509_verify_cert_error_string(res));
 			tlog(TLOG_WARN, "peer CN: %s", peer_CN);
 			goto errout;
 		}
@@ -2786,14 +2846,9 @@ static int _dns_client_tls_verify(struct dns_server_info *server_info)
 	}
 
 	tlog(TLOG_DEBUG, "peer CN: %s", peer_CN);
-	/* check tls host */
-	tls_host_verify = _dns_client_server_get_tls_host_verify(server_info);
-	if (tls_host_verify) {
-		if (_dns_client_tls_matchName(tls_host_verify, peer_CN, strnlen(peer_CN, DNS_MAX_CNAME_LEN)) != 0) {
-			tlog(TLOG_INFO, "server %s CN is invalid, peer CN: %s, expect CN: %s", server_info->ip, peer_CN,
-				 tls_host_verify);
-			goto errout;
-		}
+
+	if (_dns_client_verify_common_name(server_info, cert, peer_CN) != 0) {
+		goto errout;
 	}
 
 	pubkey = X509_get_X509_PUBKEY(cert);
