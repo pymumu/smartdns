@@ -40,8 +40,8 @@ entware|ipkg update<br />ipkg install smartdns|软件源路径：<https://bin.en
 | OpenWrt（ARM） | smartdns.1.yyyy.MM.dd-REL.arm-openwrt-all.ipk | ARM 小端架构的 OpenWrt 系统 |
 | OpenWrt LuCI | luci-app-smartdns.1.yyyy.MM.dd-REL.all.ipk | OpenWrt 管理界面 |
 | OpenWrt LuCI | luci-app-smartdns.1.yyyy.MM.dd-REL.all-luci-compat-all.ipk | OpenWrt 管理界面、OpenWrt 18.xx 及之前版本 |
-| Windows | smartdns-rs https://github.com/mokeyish/smartdns-rs | Rust版本SmartDNS | [Rust版本SmartDNS](https://github.com/mokeyish/smartdns-rs) |
-| MacOS | smartdns-rs https://github.com/mokeyish/smartdns-rs | Rust版本SmartDNS |
+| Windows | smartdns-rs [https://github.com/mokeyish/smartdns-rs](https://github.com/mokeyish/smartdns-rs) | Rust版本SmartDNS | [Rust版本SmartDNS](https://github.com/mokeyish/smartdns-rs) |
+| MacOS | smartdns-rs [https://github.com/mokeyish/smartdns-rs](https://github.com/mokeyish/smartdns-rs) | Rust版本SmartDNS |
 
 **[前往 Release 页面下载](https://github.com/pymumu/smartdns/releases)。**  
 
