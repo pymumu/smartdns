@@ -21,9 +21,9 @@
 
 #include <netdb.h>
 #include <sys/time.h>
-#ifdef __cpluscplus
+#ifdef __cplusplus
 extern "C" {
-#endif
+#endif /*__cplusplus */
 
 typedef enum {
 	PING_TYPE_ICMP = 1,
@@ -54,8 +54,8 @@ int fast_ping_init(void);
 
 void fast_ping_exit(void);
 
-#ifdef __cpluscplus
+#ifdef __cplusplus
 }
-#endif
+#endif /*__cplusplus */
 
 #endif // !FAST_PING_H

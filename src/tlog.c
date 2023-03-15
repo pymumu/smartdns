@@ -628,30 +628,40 @@ int tlog_printf(struct tlog_log *log, const char *format, ...)
     return len;
 }
 
-static int _tlog_early_print(const char *format, va_list ap)
+static int _tlog_early_print(tlog_level level, const char *file, int line, const char *func, const char *format, va_list ap)
 {
     char log_buf[TLOG_MAX_LINE_LEN];
     size_t len = 0;
     size_t out_len = 0;
+    struct tlog_time cur_time;
     int unused __attribute__((unused));
 
     if (tlog_disable_early_print) {
         return 0;
     }
 
-    len = vsnprintf(log_buf, sizeof(log_buf), format, ap);
+    if (_tlog_gettime(&cur_time) != 0) {
+        return -1;
+    }
+
+    len = snprintf(log_buf, sizeof(log_buf), "[%.4d-%.2d-%.2d %.2d:%.2d:%.2d,%.3d][%5s][%17s:%-4d] ",
+            cur_time.year, cur_time.mon, cur_time.mday, cur_time.hour, cur_time.min, cur_time.sec, cur_time.usec / 1000,
+            tlog_get_level_string(level), file, line);
     out_len = len;
+    len = vsnprintf(log_buf + out_len, sizeof(log_buf) - out_len - 1, format, ap);
+    out_len += len;
     if (len <= 0) {
         return -1;
-    } else if (len >= sizeof(log_buf)) {
-        out_len = sizeof(log_buf);
+    } else if (len >= sizeof(log_buf) - 1) {
+        out_len = sizeof(log_buf) - 1;
+    }
+
+    if (log_buf[out_len - 1] != '\n') {
+        log_buf[out_len] = '\n';
+        out_len++;
     }
 
     unused = write(STDOUT_FILENO, log_buf, out_len);
-    if (log_buf[out_len - 1] != '\n') {
-        unused = write(STDOUT_FILENO, "\n", 1);
-    }
-
     return len;
 }
 
@@ -664,7 +674,7 @@ int tlog_vext(tlog_level level, const char *file, int line, const char *func, vo
     }
 
     if (tlog.root == NULL) {
-        return _tlog_early_print(format, ap);
+        return _tlog_early_print(level, file, line, func, format, ap);
     }
 
     if (unlikely(tlog.root->logsize <= 0)) {

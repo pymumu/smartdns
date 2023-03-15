@@ -3,7 +3,7 @@
 #include "server.h"
 #include "gtest/gtest.h"
 
-TEST(server, mock)
+TEST(MockServer, query_fail)
 {
 	smartdns::MockServer server;
 	smartdns::Client client;

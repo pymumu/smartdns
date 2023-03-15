@@ -38,7 +38,11 @@
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
 #include <openssl/err.h>
+#include <openssl/evp.h>
+#include <openssl/pem.h>
+#include <openssl/rsa.h>
 #include <openssl/ssl.h>
+#include <openssl/x509.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -48,10 +52,6 @@
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/types.h>
-#include <openssl/evp.h>
-#include <openssl/rsa.h>
-#include <openssl/pem.h>
-#include <openssl/x509.h>
 
 #define DNS_MAX_EVENTS 256
 #define IPV6_READY_CHECK_TIME 180
@@ -370,6 +370,21 @@ static int _dns_server_has_bind_flag(struct dns_request *request, uint32_t flag)
 	}
 
 	return -1;
+}
+
+static int _dns_server_get_reply_ttl(struct dns_request *request, int ttl)
+{
+	int reply_ttl = ttl;
+
+	if ((request->passthrough == 0 || request->passthrough == 2) && dns_conf_cachesize > 0 &&
+		request->check_order_list->orders[0].type != DOMAIN_CHECK_NONE) {
+		reply_ttl = dns_conf_serve_expired_reply_ttl;
+		if (reply_ttl < 2) {
+			reply_ttl = 2;
+		}
+	}
+
+	return reply_ttl;
 }
 
 static int _dns_server_get_conf_ttl(struct dns_request *request, int ttl)
@@ -1745,7 +1760,6 @@ static int _dns_request_update_ttl(struct dns_server_post_context *context)
 
 		if (ttl > dns_conf_rr_ttl_reply_max) {
 			ttl %= dns_conf_rr_ttl_reply_max;
-			
 		}
 
 		if (ttl == 0) {
@@ -1770,6 +1784,7 @@ static int _dns_request_update_ttl(struct dns_server_post_context *context)
 static int _dns_request_post(struct dns_server_post_context *context)
 {
 	struct dns_request *request = context->request;
+	char clientip[DNS_MAX_CNAME_LEN] = {0};
 	int ret = 0;
 
 	tlog(TLOG_DEBUG, "reply %s qtype: %d, rcode: %d, reply: %d", request->domain, request->qtype,
@@ -1826,6 +1841,10 @@ static int _dns_request_post(struct dns_server_post_context *context)
 		tlog(TLOG_ERROR, "update packet ttl failed.");
 		return -1;
 	}
+
+	tlog(TLOG_INFO, "reply %s to %s, qtype: %d, id: %d, group: %s", request->domain,
+		 get_host_by_addr(clientip, sizeof(clientip), (struct sockaddr *)&request->addr), request->qtype, request->id,
+		 request->dns_group_name[0] != '\0' ? request->dns_group_name : "default");
 
 	ret = _dns_reply_inpacket(request, context->inpacket, context->inpacket_len);
 	if (ret != 0) {
@@ -1983,7 +2002,7 @@ static int _dns_server_force_dualstack(struct dns_request *request)
 static int _dns_server_request_complete_with_all_IPs(struct dns_request *request, int with_all_ips)
 {
 	int ttl = 0;
-	int reply_ttl = 0;
+	struct dns_server_post_context context;
 
 	if (request->rcode == DNS_RC_SERVFAIL || request->rcode == DNS_RC_NXDOMAIN) {
 		ttl = DNS_SERVER_FAIL_TTL;
@@ -2029,23 +2048,13 @@ static int _dns_server_request_complete_with_all_IPs(struct dns_request *request
 	}
 
 out:
-	reply_ttl = ttl;
-	if (request->passthrough == 0 && dns_conf_cachesize > 0 &&
-		request->check_order_list->orders[0].type != DOMAIN_CHECK_NONE) {
-		reply_ttl = dns_conf_serve_expired_reply_ttl;
-		if (reply_ttl < 2) {
-			reply_ttl = 2;
-		}
-	}
-
-	struct dns_server_post_context context;
 	_dns_server_post_context_init(&context, request);
 	context.do_cache = 1;
 	context.do_ipset = 1;
 	context.do_force_soa = request->dualstack_selection_force_soa;
 	context.do_audit = 1;
 	context.do_reply = 1;
-	context.reply_ttl = reply_ttl;
+	context.reply_ttl = _dns_server_get_reply_ttl(request, ttl);
 	context.skip_notify_count = 1;
 	context.select_all_best_ip = with_all_ips;
 	context.no_release_parent = 1;
@@ -3042,8 +3051,7 @@ static int _dns_server_passthrough_rule_check(struct dns_request *request, const
 				/* Ad blocking result */
 				if (addr[0] == 0 || addr[0] == 127) {
 					/* If half of the servers return the same result, then ignore this address */
-					if (atomic_inc_return(&request->adblock) <= (dns_server_num() / 2 + dns_server_num() % 2)) {
-						request->rcode = DNS_RC_NOERROR;
+					if (atomic_read(&request->adblock) <= (dns_server_num() / 2 + dns_server_num() % 2)) {
 						_dns_server_request_release(request);
 						return 0;
 					}
@@ -3087,8 +3095,7 @@ static int _dns_server_passthrough_rule_check(struct dns_request *request, const
 				/* Ad blocking result */
 				if (_dns_server_is_adblock_ipv6(addr) == 0) {
 					/* If half of the servers return the same result, then ignore this address */
-					if (atomic_inc_return(&request->adblock) <= (dns_server_num() / 2 + dns_server_num() % 2)) {
-						request->rcode = DNS_RC_NOERROR;
+					if (atomic_read(&request->adblock) <= (dns_server_num() / 2 + dns_server_num() % 2)) {
 						_dns_server_request_release(request);
 						return 0;
 					}
@@ -3262,6 +3269,8 @@ static int _dns_server_reply_passthrough(struct dns_server_post_context *context
 	_dns_result_child_post(context);
 
 	if (request->conn && context->do_reply == 1) {
+		char clientip[DNS_MAX_CNAME_LEN] = {0};
+
 		/* When passthrough, modify the id to be the id of the client request. */
 		int ret = _dns_request_update_ttl(context);
 		if (ret != 0) {
@@ -3269,6 +3278,10 @@ static int _dns_server_reply_passthrough(struct dns_server_post_context *context
 			return -1;
 		}
 		_dns_reply_inpacket(request, context->inpacket, context->inpacket_len);
+
+		tlog(TLOG_INFO, "reply %s to %s, qtype: %d, id: %d, group: %s", request->domain,
+			 get_host_by_addr(clientip, sizeof(clientip), (struct sockaddr *)&request->addr), request->qtype,
+			 request->id, request->dns_group_name[0] != '\0' ? request->dns_group_name : "default");
 	}
 
 	return _dns_server_reply_all_pending_list(request, context);
@@ -3379,7 +3392,7 @@ static int dns_server_resolve_callback(const char *domain, dns_result_type rtype
 	}
 
 	if (rtype == DNS_QUERY_RESULT) {
-		tlog(TLOG_DEBUG, "query result from server %s: %d, type: %d", dns_client_get_server_ip(server_info),
+		tlog(TLOG_DEBUG, "query result from server %s:%d, type: %d", dns_client_get_server_ip(server_info),
 			 dns_client_get_server_port(server_info), dns_client_get_server_type(server_info));
 
 		if (request->passthrough == 1 && atomic_read(&request->notified) == 0) {
@@ -3411,8 +3424,8 @@ static int dns_server_resolve_callback(const char *domain, dns_result_type rtype
 				context.do_audit = 1;
 				context.do_reply = 1;
 				context.do_ipset = 1;
-				context.reply_ttl = 2;
-				context.cache_ttl = 2;
+				context.reply_ttl = _dns_server_get_reply_ttl(request, ttl);
+				context.cache_ttl = _dns_server_get_conf_ttl(request, ttl);
 				context.no_check_add_ip = 1;
 				_dns_server_reply_passthrough(&context);
 				request->cname[0] = 0;
@@ -5225,7 +5238,7 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 		goto errout;
 	}
 
-	tlog(TLOG_INFO, "query server %s from %s, qtype: %d\n", request->domain, name, request->qtype);
+	tlog(TLOG_INFO, "query %s from %s, qtype: %d, id: %d\n", request->domain, name, request->qtype, request->id);
 
 	ret = _dns_server_do_query(request, 1);
 	if (ret != 0) {

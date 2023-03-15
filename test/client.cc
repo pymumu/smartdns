@@ -110,6 +110,8 @@ Client::Client() {}
 
 bool Client::Query(const std::string &dig_cmds, int port, const std::string &ip)
 {
+	Clear();
+
 	std::string cmd = "dig ";
 	if (port > 0) {
 		cmd += "-p " + std::to_string(port);
@@ -140,6 +142,7 @@ bool Client::Query(const std::string &dig_cmds, int port, const std::string &ip)
 
 	if (ParserResult() == false) {
 		Clear();
+		return false;
 	}
 
 	return true;
