@@ -43,6 +43,7 @@
 #include <openssl/err.h>
 #include <openssl/rand.h>
 #include <openssl/ssl.h>
+#include <openssl/x509v3.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -2775,7 +2776,7 @@ static int _dns_client_verify_common_name(struct dns_server_info *server_info, X
 			continue;
 		}
 		switch (name->type) {
-		case GEN_DNS:
+		case GEN_DNS: {
 			ASN1_IA5STRING *dns = name->d.dNSName;
 			if (dns == NULL) {
 				continue;
@@ -2786,7 +2787,7 @@ static int _dns_client_verify_common_name(struct dns_server_info *server_info, X
 				tlog(TLOG_INFO, "peer SAN match: %s", dns->data);
 				return 0;
 			}
-			break;
+		} break;
 		case GEN_IPADD:
 			break;
 		default:
