@@ -1894,6 +1894,7 @@ int fast_ping_init(void)
 	ping.ident = (getpid() & 0XFFFF);
 	atomic_set(&ping.run, 1);
 
+	ping.epoll_fd = epollfd;
 	ret = pthread_create(&ping.tid, &attr, _fast_ping_work, NULL);
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "create ping work thread failed, %s\n", strerror(ret));
@@ -1906,7 +1907,6 @@ int fast_ping_init(void)
 		goto errout;
 	}
 
-	ping.epoll_fd = epollfd;
 	ret = _fast_ping_init_wakeup_event();
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "init wakeup event failed, %s\n", strerror(errno));
@@ -1933,6 +1933,7 @@ errout:
 
 	if (epollfd > 0) {
 		close(epollfd);
+		ping.epoll_fd = -1;
 	}
 
 	if (ping.event_fd) {

@@ -14,7 +14,7 @@ TEST(DiscardBlockIP, first_ping)
         unsigned char addr[4] = {0, 0, 0, 0};
 		dns_add_A(request->response_packet, DNS_RRS_AN, request->domain.c_str(), 611, addr);
 		request->response_packet->head.rcode = DNS_RC_NOERROR;
-		return true;
+		return smartdns::SERVER_REQUEST_OK;
 	});
 
     server_upstream2.Start("udp://0.0.0.0:62053", [](struct smartdns::ServerRequestContext *request) {
@@ -22,7 +22,7 @@ TEST(DiscardBlockIP, first_ping)
         usleep(20000);
 		dns_add_A(request->response_packet, DNS_RRS_AN, request->domain.c_str(), 611, addr);
 		request->response_packet->head.rcode = DNS_RC_NOERROR;
-		return true;
+		return smartdns::SERVER_REQUEST_OK;
 	});
 
 	server.Start(R"""(bind [::]:60053
@@ -51,7 +51,7 @@ TEST(DiscardBlockIP, first_response)
         unsigned char addr[4] = {0, 0, 0, 0};
 		dns_add_A(request->response_packet, DNS_RRS_AN, request->domain.c_str(), 611, addr);
 		request->response_packet->head.rcode = DNS_RC_NOERROR;
-		return true;
+		return smartdns::SERVER_REQUEST_OK;
 	});
 
     server_upstream2.Start("udp://0.0.0.0:62053", [](struct smartdns::ServerRequestContext *request) {
@@ -59,7 +59,7 @@ TEST(DiscardBlockIP, first_response)
         usleep(20000);
 		dns_add_A(request->response_packet, DNS_RRS_AN, request->domain.c_str(), 611, addr);
 		request->response_packet->head.rcode = DNS_RC_NOERROR;
-		return true;
+		return smartdns::SERVER_REQUEST_OK;
 	});
 
 	server.Start(R"""(bind [::]:60053

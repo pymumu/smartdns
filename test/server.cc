@@ -142,19 +142,70 @@ void MockServer::Run()
 			head.aa = 0;
 			head.rd = 0;
 			head.ra = 1;
-			head.rcode = DNS_RC_SERVFAIL;
+			head.rcode = DNS_RC_NOERROR;
 			dns_packet_init(request.response_packet, sizeof(response_packet_buff), &head);
 
 			auto callback_ret = callback_(&request);
-			if (callback_ret == false || request.response_data_len == 0) {
+			if (callback_ret == SERVER_REQUEST_ERROR) {
+				dns_packet_init(request.response_packet, sizeof(response_packet_buff), &head);
+				request.response_packet->head.rcode = DNS_RC_SERVFAIL;
+				dns_add_domain(request.response_packet, request.domain.c_str(), request.qtype, request.qclass);
 				request.response_data_len =
 					dns_encode(request.response_data, request.response_data_max_len, request.response_packet);
+			} else if (request.response_data_len == 0) {
+				if (callback_ret == SERVER_REQUEST_OK) {
+					request.response_data_len =
+						dns_encode(request.response_data, request.response_data_max_len, request.response_packet);
+				} else if (callback_ret == SERVER_REQUEST_SOA) {
+					struct dns_soa soa;
+					memset(&soa, 0, sizeof(soa));
+					strncpy(soa.mname, "ns1.example.com", sizeof(soa.mname));
+					strncpy(soa.rname, "hostmaster.example.com", sizeof(soa.rname));
+					soa.serial = 1;
+					soa.refresh = 3600;
+					soa.retry = 600;
+					soa.expire = 86400;
+					soa.minimum = 3600;
+					dns_packet_init(request.response_packet, sizeof(response_packet_buff), &head);
+					dns_add_domain(request.response_packet, request.domain.c_str(), request.qtype, request.qclass);
+					request.response_packet->head.rcode = DNS_RC_NXDOMAIN;
+					dns_add_SOA(request.response_packet, DNS_RRS_AN, request.domain.c_str(), 1, &soa);
+					request.response_data_len =
+						dns_encode(request.response_data, request.response_data_max_len, request.response_packet);
+				}
 			}
 
 			sendto(fd_, request.response_data, request.response_data_len, MSG_NOSIGNAL, (struct sockaddr *)&from,
 				   addrlen);
 		}
 	}
+}
+
+bool MockServer::AddIP(struct ServerRequestContext *request, const std::string &domain, const std::string &ip, int ttl)
+{
+	struct sockaddr_storage addr;
+	socklen_t addrlen = sizeof(addr);
+	memset(&addr, 0, sizeof(addr));
+
+	if (GetAddr(ip, "53", SOCK_DGRAM, IPPROTO_UDP, &addr, &addrlen)) {
+		if (addr.ss_family == AF_INET) {
+			struct sockaddr_in *addr4 = (struct sockaddr_in *)&addr;
+			dns_add_A(request->response_packet, DNS_RRS_AN, domain.c_str(), ttl,
+					  (unsigned char *)&addr4->sin_addr.s_addr);
+		} else if (addr.ss_family == AF_INET6) {
+			struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)&addr;
+			if (IN6_IS_ADDR_V4MAPPED(&addr6->sin6_addr)) {
+				dns_add_A(request->response_packet, DNS_RRS_AN, domain.c_str(), ttl,
+						  (unsigned char *)&addr6->sin6_addr.s6_addr[12]);
+				return true;
+			}
+			dns_add_AAAA(request->response_packet, DNS_RRS_AN, domain.c_str(), ttl,
+						 (unsigned char *)&addr6->sin6_addr.s6_addr);
+		}
+		return true;
+	}
+
+	return false;
 }
 
 bool MockServer::GetAddr(const std::string &host, const std::string port, int type, int protocol,

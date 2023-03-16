@@ -12,7 +12,7 @@ TEST(server, cname)
     server_upstream.Start("udp://0.0.0.0:61053", [](struct smartdns::ServerRequestContext *request) {
         std::string domain = request->domain;
         if (request->domain.length() == 0) {
-            return false;
+            return smartdns::SERVER_REQUEST_ERROR;
         }
 
         if (request->qtype == DNS_T_A) {
@@ -22,13 +22,13 @@ TEST(server, cname)
             unsigned char addr[16] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
             dns_add_AAAA(request->response_packet, DNS_RRS_AN, domain.c_str(), 61, addr);
         } else {
-            return false;
+            return smartdns::SERVER_REQUEST_ERROR;
         }
 
         EXPECT_EQ(domain, "e.com");
 
         request->response_packet->head.rcode = DNS_RC_NOERROR;
-        return true;
+        return smartdns::SERVER_REQUEST_OK;
     });
 
 	server.Start(R"""(bind [::]:60053

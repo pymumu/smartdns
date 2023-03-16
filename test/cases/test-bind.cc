@@ -35,15 +35,15 @@ cache-persist no)""");
 
 TEST(Bind, udp_tcp)
 {
-    smartdns::MockServer server_upstream;
+	smartdns::MockServer server_upstream;
 	smartdns::MockServer server_upstream2;
 	smartdns::Server server;
 
 	server_upstream.Start("udp://0.0.0.0:61053", [](struct smartdns::ServerRequestContext *request) {
-        unsigned char addr[4] = {1, 2, 3, 4};
+		unsigned char addr[4] = {1, 2, 3, 4};
 		dns_add_A(request->response_packet, DNS_RRS_AN, request->domain.c_str(), 611, addr);
 		request->response_packet->head.rcode = DNS_RC_NOERROR;
-		return true;
+		return smartdns::SERVER_REQUEST_OK;
 	});
 
 	server.Start(R"""(
@@ -59,15 +59,46 @@ cache-persist no)""");
 	std::cout << client.GetResult() << std::endl;
 	ASSERT_EQ(client.GetAnswerNum(), 1);
 	EXPECT_EQ(client.GetStatus(), "NOERROR");
-    EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 3);
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 3);
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
 
 	ASSERT_TRUE(client.Query("a.com", 60053));
 	std::cout << client.GetResult() << std::endl;
 	ASSERT_EQ(client.GetAnswerNum(), 1);
 	EXPECT_EQ(client.GetStatus(), "NOERROR");
-    EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 611);
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 611);
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
-
 }
 
+TEST(Bind, self)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::Server server;
+
+	server_upstream.Start("udp://0.0.0.0:62053", [](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype == DNS_T_A) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4");
+			return smartdns::SERVER_REQUEST_OK;
+		}
+		return smartdns::SERVER_REQUEST_SOA;
+	});
+
+	server.Start(R"""(
+bind [::]:60053 -group self
+server 127.0.0.1:61053 -group self
+bind [::]:61053 -group upstream  
+server 127.0.0.1:62053 -group upstream
+log-num 0
+log-console yes
+log-level info
+cache-persist no)""");
+	smartdns::Client client;
+
+	ASSERT_TRUE(client.Query("a.com", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_LT(client.GetQueryTime(), 100);
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 3);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+}
