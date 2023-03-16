@@ -3328,7 +3328,7 @@ static int dns_server_dualstack_callback(const char *domain, dns_rtcode_t rtcode
 										 unsigned int ping_time, void *user_ptr)
 {
 	struct dns_request *request = (struct dns_request *)user_ptr;
-	tlog(TLOG_DEBUG, "dualstack result: domain: %s, ip: %s, type: %d, ping: %d", domain, ip, addr_type, ping_time);
+	tlog(TLOG_DEBUG, "dualstack result: domain: %s, ip: %s, type: %d, ping: %d, rcode: %d", domain, ip, addr_type, ping_time, rtcode);
 	if (request == NULL) {
 		return -1;
 	}
@@ -6658,7 +6658,7 @@ static int _dns_server_socket_tls(struct dns_bind_ip *bind_ip, DNS_CONN_TYPE con
 	SSL_CTX_set_default_passwd_cb_userdata(ssl_ctx, bind_ip);
 
 	/* Set the key and cert */
-	if (ssl_cert_file[0] != '\0' && SSL_CTX_use_certificate_file(ssl_ctx, ssl_cert_file, SSL_FILETYPE_PEM) <= 0) {
+	if (ssl_cert_file[0] != '\0' && SSL_CTX_use_certificate_chain_file(ssl_ctx, ssl_cert_file) <= 0) {
 		tlog(TLOG_ERROR, "load cert %s failed, %s", ssl_cert_file, ERR_error_string(ERR_get_error(), NULL));
 		goto errout;
 	}
