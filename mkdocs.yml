@@ -84,7 +84,7 @@ nav:
     - 双栈优选: 'config/dualstack.md'
     - 禁用IPV6: 'config/block-ipv6.md'
     - DNS分流: 'config/domain-forwarding.md'
-    - 工作模式: 'config/work-mode.md'
+    - 测速模式: 'config/check-speed-mode.md'
     - 安全相关: 'config/security.md'
     - 解析本地主机名: 'config/resolv-dnsmasq-lease.md'
     - Bootstrap DNS: 'config/bootstrap-dns.md'

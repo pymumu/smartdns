@@ -3,7 +3,7 @@ hide:
   - toc
 ---
 
-# 工作模式
+# 测速模式
 
 smartdns可修改测速模式，和数据响应模式。这两种模式影响查询的性能和效果。
 
@@ -12,7 +12,7 @@ smartdns可修改测速模式，和数据响应模式。这两种模式影响查
 |测速模式|speed-check-mode|smartdns速度检测模式
 |响应模式|response-mode|结果回应模式|
 
-## 测速模式
+## 速度检测模式
 
 SmartDNS提供了两种测速模式，分别是ping和tcp。smartdns默认使用三次测速。第一次为ping，第二次为tcp的80端口，第三次为tcp的443端口，可通过speed-check-mode修改测速模式
 
