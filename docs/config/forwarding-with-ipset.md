@@ -141,42 +141,153 @@ flowchart
     ipset create public hash:net
     ```
 
+1. SmartDNS中配置规则
+
+    ```shell
+    ipset /example.com/public
+    ```
+
 1. 设置透明转发规则：
 
     Linux透明转发分为TPROXY和REDIRECT两种模式，这两种模式使用上有如下区别，可按需求选择配置。
 
-    1. 模式：TPROXY，REDIRECT
+    模式：TPROXY，REDIRECT
 
-        TPROXY：支持UDP，TCP的转发，配置稍复杂。  
-        REDIRECT：仅支持TCP，配置简单。
+    TPROXY：支持UDP，TCP的转发，配置稍复杂。  
+    REDIRECT：仅支持TCP，配置简单。
 
-    1. 方式一：仅TCP转发
+    1. 方式一：仅TCP转发（容易）
 
-    ```shell
-    # 设置转发规则，将匹配的请求转发到本机的1081端口
-    iptables -t nat -I PREROUTING -p tcp -m set --match-set public dst -j REDIRECT --to-ports 1081
-    ```
+        * 设置规则
+
+            ```shell
+            # 设置转发规则，将匹配的请求转发到本机的1081端口
+            iptables -t nat -I PREROUTING -p tcp -m set --match-set public dst -j REDIRECT --to-ports 1081
+            ```
+
+        * 启用转发程序
+
+            本机1081端口开启REDIRECT模式的转发程序。
+
+        * 删除规则：
+
+            ```shell
+            iptables -t nat -D PREROUTING -p tcp -m set --match-set public dst -j REDIRECT --to-ports 1081
+            ```
 
     1. 方式二：TCP/UDP TPROXY转发
   
         执行shell命令，设置iptable规则，将匹配的域名TCP/UDP请求进行TPROXY方式透明转发，规则参考如下：
+
+        * 设置规则
+
+            ```shell
+            # 设置路由规则
+            ip rule add fwmark 1104 lookup 1104
+            ip route add local 0.0.0.0/0 dev lo table 1104
+
+            # 设置转发规则，UDP，TCP方式的TPROXY转发，将数据转发到本机的1081端口
+            iptables -t mangle -N SMARTDNS
+            iptables -t mangle -A SMARTDNS -p tcp -m set --match-set public dst -j TPROXY --on-ip 127.0.0.1 --on-port 1081 --tproxy-mark 1104
+            iptables -t mangle -A SMARTDNS -p udp -m set --match-set public dst -j TPROXY --on-ip 127.0.0.1 --on-port 1081 --tproxy-mark 1104
+            iptables -t mangle -A SMARTDNS -j ACCEPT
+            iptables -t mangle -A PREROUTING -j SMARTDNS
+            ```
+
+        * 启用转发程序
+
+            本机1081端口开启TPROXY模式的转发程序。
+
+        * 删除规则：
+
+            ```shell
+            ip rule del fwmark 1104
+            iptables -t mangle -D PREROUTING -j SMARTDNS
+            iptables -t mangle -F SMARTDNS
+            iptables -t mangle -X SMARTDNS
+            ```
+
+## NFTSET以及透明转发规则配置
+
+1. 方式一：仅TCP转发 （容易）
+
+    1. 创建nftable的nftset集合，集合名称为`#4:ip#nat:public_set`
+
+        ```shell
+        nft add set ip nat public_set { type ipv4_addr\; flags interval\; auto-merge\; }
+        ```
+
+    1. 设置REDIRECT转发规则
+
+        ```shell
+        nft add rule ip nat PREROUTING meta l4proto tcp ip daddr @public_set redirect to :1081
+        ```
+
+    1. smartdns中配置nftable规则
+
+        ```shell
+        nftset /example.com/#4:ip:nat:public_set
+        ```
+
+    1. 启用转发程序
+
+         本机1081端口开启REDIRECT模式的转发程序。
+
+    1. 注意可以单独创建一张转发表，方便管理，如下，创建smartdns表，nftset名称为`#4:ip#smartdns#public`
+
+        ```shell
+        # 创建smartdns表
+        nft add table ip smartdns
+        # 创建NFTSET集合
+        nft add set ip smartdns public { type ipv4_addr\; flags interval\; auto-merge\; }
+        # 设置转发规则
+        nft add chain ip smartdns prerouting { type nat hook prerouting priority dstnat + 1\; }
+        nft add rule ip smartdns prerouting meta l4proto tcp ip daddr @public redirect to :1081
+        ```
+
+        ```shell
+        # 删除表格
+        nft delete table ip smartdns
+        ```
+
+1. 方式二：TPROXY模式转发TCP和UDP
+
+    1. 配置规则
 
         ```shell
         # 设置路由规则
         ip rule add fwmark 1104 lookup 1104
         ip route add local 0.0.0.0/0 dev lo table 1104
 
-        # 设置转发规则，UDP，TCP方式的TPROXY转发，将数据转发到本机的1081端口
-        iptables -t mangle -N SMARTDNS
-        iptables -t mangle -A SMARTDNS -p tcp -m set --match-set public dst -j TPROXY --on-ip 127.0.0.1 --on-port 1081 --tproxy-mark 1104
-        iptables -t mangle -A SMARTDNS -p udp -m set --match-set public dst -j TPROXY --on-ip 127.0.0.1 --on-port 1081 --tproxy-mark 1104
-        iptables -t mangle -A SMARTDNS -j ACCEPT
-        iptables -t mangle -A PREROUTING -j SMARTDNS
+        # 创建smartdns表
+        nft add table ip smartdns
+        # 创建NFTSET集合
+        nft add set ip smartdns public { type ipv4_addr\; flags interval\; auto-merge\; }
+        # 设置转发规则
+        nft add chain ip smartdns prerouting { type filter hook prerouting priority 0\; }
+        nft add rule ip smartdns prerouting meta l4proto tcp ip daddr @public tproxy to :1081 mark set 1104
+        nft add rule ip smartdns prerouting meta l4proto udp ip daddr @public tproxy to :1081 mark set 1104
         ```
 
-## 本机1081端口启用转发程序
+        ```shell
+        # 查询规则
+        nft list table ip smartdns
+        ```
 
-本机下载安装TPROXY模式的转发程序，并启用1081端口的数据转发服务。
+        ```shell
+        # 删除已有规则
+        nft delete table ip smartdns
+        ```
+
+    1. smartdns配置nftset
+
+        ```shell
+        nftset /example.com/#4:ip#smartdns:public
+        ```
+
+    1. 启用转发程序
+
+         本机1081端口开启TPROXY模式的转发程序。
 
 ## 额外说明
 
