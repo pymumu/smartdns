@@ -16,7 +16,7 @@ jobs:
     - name: prepare
       run: |
         sudo apt update
-        sudo apt install libgtest-dev
+        sudo apt install libgtest-dev dnsperf
     - name: make
       run: |
         make all -j4

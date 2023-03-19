@@ -21,11 +21,23 @@
 #include "include/utils.h"
 #include "server.h"
 #include "gtest/gtest.h"
+#include <fstream>
 
-TEST(server, cname)
+class Perf : public ::testing::Test
+{
+  protected:
+	virtual void SetUp() {}
+	virtual void TearDown() {}
+};
+
+TEST(Perf, no_speed_check)
 {
 	smartdns::MockServer server_upstream;
 	smartdns::Server server;
+	if (smartdns::IsCommandExists("dnsperf") == false) {
+		printf("dnsperf not found, skip test, please install dnsperf first.\n");
+		GTEST_SKIP();
+	}
 
 	server_upstream.Start("udp://0.0.0.0:61053", [](struct smartdns::ServerRequestContext *request) {
 		std::string domain = request->domain;
@@ -43,28 +55,45 @@ TEST(server, cname)
 			return smartdns::SERVER_REQUEST_ERROR;
 		}
 
-		EXPECT_EQ(domain, "e.com");
-
 		request->response_packet->head.rcode = DNS_RC_NOERROR;
 		return smartdns::SERVER_REQUEST_OK;
 	});
 
 	server.Start(R"""(bind [::]:60053
-cname /a.com/b.com
-cname /b.com/c.com
-cname /c.com/d.com
-cname /d.com/e.com
 server 127.0.0.1:61053
 log-num 0
 log-console yes
-log-level debug
+speed-check-mode none
+log-level error
 cache-persist no)""");
-	smartdns::Client client;
-	ASSERT_TRUE(client.Query("a.com", 60053));
-	std::cout << client.GetResult() << std::endl;
-	ASSERT_EQ(client.GetAnswerNum(), 2);
-	EXPECT_EQ(client.GetStatus(), "NOERROR");
-	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
-	EXPECT_EQ(client.GetAnswer()[0].GetData(), "b.com.");
-	EXPECT_EQ(client.GetAnswer()[1].GetData(), "1.2.3.4");
+	std::string file = "/tmp/smartdns-perftest-domain.list" + smartdns::GenerateRandomString(5);
+	std::string cmd = "dnsperf -p 60053";
+	cmd += " -d ";
+	cmd += file;
+	std::ofstream ofs(file);
+	ASSERT_TRUE(ofs.is_open());
+	Defer
+	{
+		ofs.close();
+		unlink(file.c_str());
+	};
+
+	for (int i = 0; i < 100000; i++) {
+		std::string domain = smartdns::GenerateRandomString(10);
+		domain += ".";
+		domain += smartdns::GenerateRandomString(3);
+
+		if (random() % 2 == 0) {
+			domain += " A";
+		} else {
+			domain += " AAAA";
+		}
+
+		domain += "\n";
+
+		ofs.write(domain.c_str(), domain.length());
+		ofs.flush();
+	}
+
+	system(cmd.c_str());
 }

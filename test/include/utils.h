@@ -20,6 +20,7 @@
 #define _SMARTDNS_TEST_UTILS_
 
 #include <functional>
+#include <string>
 
 namespace smartdns
 {
@@ -54,6 +55,10 @@ class DeferGuard
 #define SMARTDNS_CONCAT_(a, b) a##b
 #define SMARTDNS_CONCAT(a, b) SMARTDNS_CONCAT_(a, b)
 #define Defer ::smartdns::DeferGuard SMARTDNS_CONCAT(__defer__, __LINE__) = [&]()
+
+bool IsCommandExists(const std::string &cmd);
+
+std::string GenerateRandomString(int len);
 
 } // namespace smartdns
 #endif // _SMARTDNS_TEST_UTILS_

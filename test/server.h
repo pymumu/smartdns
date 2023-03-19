@@ -22,9 +22,9 @@
 #include "dns.h"
 #include <functional>
 #include <string>
-#include <unistd.h>
 #include <sys/socket.h>
 #include <thread>
+#include <unistd.h>
 
 namespace smartdns
 {
@@ -60,7 +60,7 @@ struct ServerRequestContext {
 	uint8_t *request_data;
 	int request_data_len;
 	uint8_t *response_data;
-    struct dns_packet *response_packet;
+	struct dns_packet *response_packet;
 	int response_data_max_len;
 	int response_data_len;
 };
@@ -83,13 +83,14 @@ class MockServer
 	void Stop();
 	bool IsRunning();
 
-	static bool AddIP(struct ServerRequestContext *request, const std::string &domain, const std::string &ip, int ttl = 60);
+	static bool AddIP(struct ServerRequestContext *request, const std::string &domain, const std::string &ip,
+					  int ttl = 60);
 
   private:
 	void Run();
 
-	static bool GetAddr(const std::string &host, const std::string port, int type, int protocol, struct sockaddr_storage *addr,
-				 socklen_t *addrlen);
+	static bool GetAddr(const std::string &host, const std::string port, int type, int protocol,
+						struct sockaddr_storage *addr, socklen_t *addrlen);
 	int fd_;
 	std::thread thread_;
 	bool run_;
