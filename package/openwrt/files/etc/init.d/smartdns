@@ -296,8 +296,11 @@ load_domain_rules()
 		conf_append "domain-rules" "/domain-set:${domain_set_name}-forwarding-file/ $domain_set_args"
 	}
 
-	conf_append "domain-set" "-name ${domain_set_name}-forwarding-list -file /etc/smartdns/domain-forwarding.list"
-	conf_append "domain-rules" "/domain-set:${domain_set_name}-forwarding-list/ $domain_set_args"
+	config_get domain_forwarding_list "$section" "domain_forwarding_list" ""
+	[ ! -z "$domain_forwarding_list" ] && {
+		conf_append "domain-set" "-name ${domain_set_name}-forwarding-list -file /etc/smartdns/domain-forwarding.list"
+		conf_append "domain-rules" "/domain-set:${domain_set_name}-forwarding-list/ $domain_set_args"
+	}
 
 	config_get block_domain_set_file "$section" "block_domain_set_file"
 	[ ! -z "$block_domain_set_file" ] && {
