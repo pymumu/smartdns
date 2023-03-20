@@ -125,10 +125,10 @@ bool Client::Query(const std::string &dig_cmds, int port, const std::string &ip)
 
 	cmd += " " + dig_cmds;
 	cmd += " +tries=1";
-	FILE *fp = NULL;
+	FILE *fp = nullptr;
 
 	fp = popen(cmd.c_str(), "r");
-	if (fp == NULL) {
+	if (fp == nullptr) {
 		return false;
 	}
 

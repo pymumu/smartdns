@@ -3337,6 +3337,7 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 	int send_err = 0;
 	int i = 0;
 	int total_server = 0;
+	int send_count = 0;
 
 	query->send_tick = get_tick_count();
 
@@ -3368,6 +3369,7 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 			}
 
 			atomic_inc(&query->dns_request_sent);
+			send_count++;
 			errno = 0;
 			switch (server_info->type) {
 			case DNS_SERVER_UDP:
@@ -3402,6 +3404,7 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 						 server_info->type);
 					_dns_client_close_socket(server_info);
 					atomic_dec(&query->dns_request_sent);
+					send_count--;
 					continue;
 				}
 
@@ -3416,6 +3419,7 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 				}
 
 				atomic_dec(&query->dns_request_sent);
+				send_count--;
 				continue;
 			}
 			time(&server_info->last_send);
@@ -3423,12 +3427,12 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 		}
 		pthread_mutex_unlock(&client.server_list_lock);
 
-		if (atomic_read(&query->dns_request_sent) > 0) {
+		if (send_count > 0) {
 			break;
 		}
 	}
 
-	if (atomic_read(&query->dns_request_sent) <= 0) {
+	if (send_count <= 0) {
 		tlog(TLOG_WARN, "Send query to upstream server failed, total server number %d", total_server);
 		return -1;
 	}
@@ -3590,12 +3594,60 @@ static int _dns_client_query_parser_options(struct dns_query_struct *query, stru
 	return 0;
 }
 
+static int _dns_client_add_hashmap(struct dns_query_struct *query)
+{
+	uint32_t key = 0;
+	struct hlist_node *tmp = NULL;
+	struct dns_query_struct *query_check = NULL;
+	int is_exists = 0;
+	int loop = 0;
+
+	while (loop ++ <= 32) {
+		if (RAND_bytes((unsigned char *)&query->sid, sizeof(query->sid)) != 1) {
+			query->sid = random();
+		}
+
+		key = hash_string(query->domain);
+		key = jhash(&query->sid, sizeof(query->sid), key);
+		key = jhash(&query->qtype, sizeof(query->qtype), key);
+		is_exists = 0;
+		pthread_mutex_lock(&client.domain_map_lock);
+		hash_for_each_possible_safe(client.domain_map, query_check, tmp, domain_node, key)
+		{
+			if (query->sid != query_check->sid) {
+				continue;
+			}
+
+			if (query->qtype != query_check->qtype) {
+				continue;
+			}
+
+			if (strncmp(query_check->domain, query->domain, DNS_MAX_CNAME_LEN) != 0) {
+				continue;
+			}
+
+			is_exists = 1;
+			break;
+		}
+
+		if (is_exists == 1) {
+			pthread_mutex_unlock(&client.domain_map_lock);
+			continue;
+		}
+		
+		hash_add(client.domain_map, &query->domain_node, key);
+		pthread_mutex_unlock(&client.domain_map_lock);
+		break;
+	}
+
+	return 0;
+}
+
 int dns_client_query(const char *domain, int qtype, dns_client_callback callback, void *user_ptr,
 					 const char *group_name, struct dns_query_options *options)
 {
 	struct dns_query_struct *query = NULL;
 	int ret = 0;
-	uint32_t key = 0;
 	int unused __attribute__((unused));
 
 	if (domain == NULL) {
@@ -3620,9 +3672,6 @@ int dns_client_query(const char *domain, int qtype, dns_client_callback callback
 	query->qtype = qtype;
 	query->send_tick = 0;
 	query->has_result = 0;
-	if (RAND_bytes((unsigned char *)&query->sid, sizeof(query->sid)) != 1) {
-		query->sid = random();
-	}
 	query->server_group = _dns_client_get_dnsserver_group(group_name);
 	if (query->server_group == NULL) {
 		tlog(TLOG_ERROR, "get dns server group %s failed.", group_name);
@@ -3636,12 +3685,10 @@ int dns_client_query(const char *domain, int qtype, dns_client_callback callback
 
 	_dns_client_query_get(query);
 	/* add query to hashtable */
-	key = hash_string(domain);
-	key = jhash(&query->sid, sizeof(query->sid), key);
-	key = jhash(&query->qtype, sizeof(query->qtype), key);
-	pthread_mutex_lock(&client.domain_map_lock);
-	hash_add(client.domain_map, &query->domain_node, key);
-	pthread_mutex_unlock(&client.domain_map_lock);
+	if (_dns_client_add_hashmap(query) != 0) {
+		tlog(TLOG_ERROR, "add query to hash map failed.");
+		goto errout;
+	}
 
 	/* send query */
 	_dns_client_query_get(query);

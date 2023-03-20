@@ -50,7 +50,7 @@ void ping_result_callback(struct ping_host_struct *ping_host, const char *host, 
 	*count = 1;
 }
 
-TEST_F(Ping, DISABLED_icmp)
+TEST_F(Ping, icmp)
 {
 	struct ping_host_struct *ping_host;
 	int count = 0;
@@ -61,7 +61,7 @@ TEST_F(Ping, DISABLED_icmp)
 	EXPECT_EQ(count, 1);
 }
 
-TEST_F(Ping, DISABLED_tcp)
+TEST_F(Ping, tcp)
 {
 	struct ping_host_struct *ping_host;
 	int count = 0;

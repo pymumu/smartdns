@@ -1748,7 +1748,7 @@ static int _dns_result_child_post(struct dns_server_post_context *context)
 	return 0;
 }
 
-static int _dns_request_update_ttl(struct dns_server_post_context *context)
+static int _dns_request_update_id_ttl(struct dns_server_post_context *context)
 {
 	int ttl = context->reply_ttl;
 	struct dns_request *request = context->request;
@@ -1767,15 +1767,20 @@ static int _dns_request_update_ttl(struct dns_server_post_context *context)
 		}
 	}
 
-	if (ttl > 0) {
-		struct dns_update_param param;
-		param.id = request->id;
-		param.cname_ttl = ttl;
-		param.ip_ttl = ttl;
-		if (dns_packet_update(context->inpacket, context->inpacket_len, &param) != 0) {
-			tlog(TLOG_ERROR, "update packet info failed.");
-			return -1;
+	if (ttl == 0) {
+		ttl = request->ip_ttl;
+		if (ttl == 0) {
+			ttl = _dns_server_get_conf_ttl(request, ttl);
 		}
+	}
+
+	struct dns_update_param param;
+	param.id = request->id;
+	param.cname_ttl = ttl;
+	param.ip_ttl = ttl;
+	if (dns_packet_update(context->inpacket, context->inpacket_len, &param) != 0) {
+		tlog(TLOG_ERROR, "update packet info failed.");
+		return -1;
 	}
 
 	return 0;
@@ -1836,7 +1841,7 @@ static int _dns_request_post(struct dns_server_post_context *context)
 		return 0;
 	}
 
-	ret = _dns_request_update_ttl(context);
+	ret = _dns_request_update_id_ttl(context);
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "update packet ttl failed.");
 		return -1;
@@ -2765,7 +2770,7 @@ static int _dns_server_process_answer_A(struct dns_rrs *rrs, struct dns_request 
 		return -2;
 	}
 
-	if (request->has_ip == 0) {
+	if (atomic_read(&request->ip_map_num) == 0) {
 		request->has_ip = 1;
 		memcpy(request->ip_addr, addr, DNS_RR_A_LEN);
 		request->ip_ttl = _dns_server_get_conf_ttl(request, ttl);
@@ -2842,7 +2847,7 @@ static int _dns_server_process_answer_AAAA(struct dns_rrs *rrs, struct dns_reque
 		return -2;
 	}
 
-	if (request->has_ip == 0) {
+	if (atomic_read(&request->ip_map_num) == 0) {
 		request->has_ip = 1;
 		memcpy(request->ip_addr, addr, DNS_RR_AAAA_LEN);
 		request->ip_ttl = _dns_server_get_conf_ttl(request, ttl);
@@ -3113,6 +3118,9 @@ static int _dns_server_passthrough_rule_check(struct dns_request *request, const
 					char tmpname[DNS_MAX_CNAME_LEN];
 					char tmpbuf[DNS_MAX_CNAME_LEN];
 					dns_get_CNAME(rrs, tmpname, DNS_MAX_CNAME_LEN, &ttl, tmpbuf, DNS_MAX_CNAME_LEN);
+					if (request->ip_ttl == 0) {
+						request->ip_ttl = ttl;
+					}
 				}
 				break;
 			}
@@ -3272,7 +3280,7 @@ static int _dns_server_reply_passthrough(struct dns_server_post_context *context
 		char clientip[DNS_MAX_CNAME_LEN] = {0};
 
 		/* When passthrough, modify the id to be the id of the client request. */
-		int ret = _dns_request_update_ttl(context);
+		int ret = _dns_request_update_id_ttl(context);
 		if (ret != 0) {
 			tlog(TLOG_ERROR, "update packet ttl failed.");
 			return -1;
@@ -3294,14 +3302,12 @@ static void _dns_server_query_end(struct dns_request *request)
 
 	pthread_mutex_lock(&request->ip_map_lock);
 	ip_num = atomic_read(&request->ip_map_num);
-	/* if adblock ip address exist */
-	ip_num += atomic_read(&request->adblock) == 0 ? 0 : 1;
 	request_wait = request->request_wait;
 	request->request_wait--;
 	pthread_mutex_unlock(&request->ip_map_lock);
 
 	/* Not need to wait check result if only has one ip address */
-	if (ip_num == 1 && request_wait == 1) {
+	if (ip_num <= 1 && request_wait == 1) {
 		if (request->dualstack_selection_query == 1) {
 			if ((dns_conf_ipset_no_speed.ipv4_enable || dns_conf_nftset_no_speed.ip6_enable ||
 				 dns_conf_ipset_no_speed.ipv6_enable || dns_conf_nftset_no_speed.ip6_enable) &&
@@ -3328,7 +3334,8 @@ static int dns_server_dualstack_callback(const char *domain, dns_rtcode_t rtcode
 										 unsigned int ping_time, void *user_ptr)
 {
 	struct dns_request *request = (struct dns_request *)user_ptr;
-	tlog(TLOG_DEBUG, "dualstack result: domain: %s, ip: %s, type: %d, ping: %d, rcode: %d", domain, ip, addr_type, ping_time, rtcode);
+	tlog(TLOG_DEBUG, "dualstack result: domain: %s, ip: %s, type: %d, ping: %d, rcode: %d", domain, ip, addr_type,
+		 ping_time, rtcode);
 	if (request == NULL) {
 		return -1;
 	}
@@ -3426,6 +3433,7 @@ static int dns_server_resolve_callback(const char *domain, dns_result_type rtype
 				context.do_ipset = 1;
 				context.reply_ttl = _dns_server_get_reply_ttl(request, ttl);
 				context.cache_ttl = _dns_server_get_conf_ttl(request, ttl);
+				request->ip_ttl = context.cache_ttl;
 				context.no_check_add_ip = 1;
 				_dns_server_reply_passthrough(&context);
 				request->cname[0] = 0;
@@ -5341,7 +5349,8 @@ errout:
 	return ret;
 }
 
-static int _dns_server_process_udp(struct dns_server_conn_udp *udpconn, struct epoll_event *event, unsigned long now)
+static int _dns_server_process_udp_one(struct dns_server_conn_udp *udpconn, struct epoll_event *event,
+									   unsigned long now)
 {
 	int len = 0;
 	unsigned char inpacket[DNS_IN_PACKSIZE];
@@ -5366,6 +5375,9 @@ static int _dns_server_process_udp(struct dns_server_conn_udp *udpconn, struct e
 
 	len = recvmsg(udpconn->head.fd, &msg, MSG_DONTWAIT);
 	if (len < 0) {
+		if (errno == EAGAIN || errno == EWOULDBLOCK) {
+			return -2;
+		}
 		tlog(TLOG_ERROR, "recvfrom failed, %s\n", strerror(errno));
 		return -1;
 	}
@@ -5384,6 +5396,25 @@ static int _dns_server_process_udp(struct dns_server_conn_udp *udpconn, struct e
 	}
 
 	return _dns_server_recv(&udpconn->head, inpacket, len, &local, local_len, &from, from_len);
+}
+
+static int _dns_server_process_udp(struct dns_server_conn_udp *udpconn, struct epoll_event *event, unsigned long now)
+{
+	int count = 0;
+	while (count < 32) {
+		int ret = _dns_server_process_udp_one(udpconn, event, now);
+		if (ret != 0) {
+			if (ret == -2) {
+				return 0;
+			}
+
+			return ret;
+		}
+
+		count++;
+	}
+
+	return 0;
 }
 
 static void _dns_server_client_touch(struct dns_server_conn_head *conn)

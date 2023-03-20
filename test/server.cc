@@ -106,7 +106,7 @@ void MockServer::Run()
 				request.packet = packet;
 				query_id = packet->head.id;
 				if (packet->head.qr == DNS_QR_QUERY) {
-					struct dns_rrs *rrs = NULL;
+					struct dns_rrs *rrs = nullptr;
 					int rr_count = 0;
 					int qtype = 0;
 					int qclass = 0;
@@ -213,7 +213,7 @@ bool MockServer::GetAddr(const std::string &host, const std::string port, int ty
 
 {
 	struct addrinfo hints;
-	struct addrinfo *result = NULL;
+	struct addrinfo *result = nullptr;
 
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = AF_UNSPEC;
@@ -231,7 +231,8 @@ errout:
 	if (result) {
 		freeaddrinfo(result);
 	}
-	return NULL;
+
+	return false;
 }
 
 bool MockServer::Start(const std::string &url, ServerRequest callback)
@@ -378,7 +379,7 @@ void Server::Stop(bool graceful)
 		}
 	}
 
-	waitpid(pid_, NULL, 0);
+	waitpid(pid_, nullptr, 0);
 
 	pid_ = 0;
 	if (clean_conf_file_ == true) {
@@ -394,7 +395,7 @@ bool Server::IsRunning()
 		return false;
 	}
 
-	if (waitpid(pid_, NULL, WNOHANG) == 0) {
+	if (waitpid(pid_, nullptr, WNOHANG) == 0) {
 		return true;
 	}
 

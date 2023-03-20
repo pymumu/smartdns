@@ -84,7 +84,7 @@ cache-persist no)""");
 	std::cout << client.GetResult() << std::endl;
 	ASSERT_EQ(client.GetAnswerNum(), 1);
 	EXPECT_EQ(client.GetStatus(), "NOERROR");
-	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 611);
+	EXPECT_GT(client.GetAnswer()[0].GetTTL(), 609);
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
 }
 

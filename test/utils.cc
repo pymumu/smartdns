@@ -9,17 +9,17 @@ namespace smartdns
 
 bool IsCommandExists(const std::string &cmd)
 {
-	char *copy_path = NULL;
+	char *copy_path = nullptr;
 	char cmd_path[4096];
 	const char *env_path = getenv("PATH");
-	char *save_ptr = NULL;
+	char *save_ptr = nullptr;
 
-	if (env_path == NULL) {
+	if (env_path == nullptr) {
 		env_path = "/bin:/usr/bin:/usr/local/bin";
 	}
 
 	copy_path = strdup(env_path);
-	if (copy_path == NULL) {
+	if (copy_path == nullptr) {
 		return false;
 	}
 
@@ -28,7 +28,7 @@ bool IsCommandExists(const std::string &cmd)
 		free(copy_path);
 	};
 
-	for (char *tok = strtok_r(copy_path, ":", &save_ptr); tok; tok = strtok_r(NULL, ":", &save_ptr)) {
+	for (char *tok = strtok_r(copy_path, ":", &save_ptr); tok; tok = strtok_r(nullptr, ":", &save_ptr)) {
 		snprintf(cmd_path, sizeof(cmd_path), "%s/%s", tok, cmd.c_str());
 		if (access(cmd_path, X_OK) != 0) {
 			continue;
