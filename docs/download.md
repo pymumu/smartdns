@@ -18,6 +18,7 @@ openwrt|opkg update<br />opkg install luci-app-smartdns<br />opkg install smartd
 ddwrt|官方最新固件service页面->SmartDNS Resolver->启用。|选择界面参考：<https://forum.dd-wrt.com/demo/Services.html>
 debian|apt-get install smartdns|
 entware|ipkg update<br />ipkg install smartdns|软件源路径：<https://bin.entware.net/>
+MacOS|brew update<br />brew install smartdns|软件源路径(Rust 移植版)：<https://github.com/mokeyish/smartdns-rs/releases/>
 
 ## 手工下载安装
 
