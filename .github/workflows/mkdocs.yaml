@@ -40,10 +40,10 @@ jobs:
             cd /root/en
             mkdocs build
             cd /root
-            mkdocs build
+            SITE_URL=${{ vars.SITE_URL }} mkdocs build
             mv /root/en/site /root/site/en
             # patch 404 page, remove absolute path
-            sed 's@="/@="@g' -i /root/site/404.html
+            [ -z "${{ vars.SITE_URL }}" ] && sed 's@="/@="@g' -i /root/site/404.html
             sed 's@="/@="@g' -i /root/site/en/404.html
             # patch language change url
             find /root/site -name "*.htm*" -print0 |  xargs -0 sed -i 's/href=" .."/href=".."/g'

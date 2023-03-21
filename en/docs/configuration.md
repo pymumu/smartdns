@@ -15,7 +15,7 @@ hide:
 |bind-cert-file|SSL Certificate file path|smartdns-cert.pem|path| bind-cert-file cert.pem |
 |bind-cert-key-file|SSL Certificate key file path|none|smartdns-key.pem| bind-cert-key-file key.pem |
 |bind-cert-key-pass|SSL Certificate key file password|none|string| bind-cert-key-pass password |
-|cache-size|Domain name result cache number|512|integer|cache-size 512
+|cache-size|Domain name result cache number|Auto: Set cache site by memory size. |integer|cache-size 512
 |cache-persist|enable persist cache|Auto: Enabled if the location of `cache-file` has more than 128MB of free space.|[yes\|no]|cache-persist yes
 |cache-file|cache persist file|/tmp/<br />smartdns.cache|path|cache-file /tmp/smartdns.cache
 |tcp-idle-time|TCP connection idle timeout|120|integer|tcp-idle-time 120

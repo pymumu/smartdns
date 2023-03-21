@@ -1,6 +1,7 @@
 site_name: SmartDNS
 site_description: SmartDNS
 site_author: pymumu
+site_url: !ENV SITE_URL
 repo_name: 'pymumu/smartdns'
 repo_url: 'https://github.com/pymumu/smartdns'
 
