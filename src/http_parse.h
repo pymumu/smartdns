@@ -19,7 +19,7 @@
 #ifndef HTTP_PARSER_H
 #define HTTP_PARSER_H
 
-#ifdef __cpluscplus
+#ifdef __cplusplus
 extern "C" {
 #endif
 
@@ -80,7 +80,7 @@ int http_head_parse(struct http_head *http_head, const char *data, int data_len)
 
 void http_head_destroy(struct http_head *http_head);
 
-#ifdef __cpluscplus
+#ifdef __cplusplus
 }
 #endif
 

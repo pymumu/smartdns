@@ -558,13 +558,9 @@ static struct dns_server_group *_dns_client_get_dnsserver_group(const char *grou
 
 	if (group == NULL) {
 		group = client.default_group;
-		tlog(TLOG_DEBUG, "send query to group %s", DNS_SERVER_GROUP_DEFAULT);
 	} else {
 		if (list_empty(&group->head)) {
 			group = client.default_group;
-			tlog(TLOG_DEBUG, "send query to group %s", DNS_SERVER_GROUP_DEFAULT);
-		} else {
-			tlog(TLOG_DEBUG, "send query to group %s", group_name);
 		}
 	}
 
@@ -3602,7 +3598,7 @@ static int _dns_client_add_hashmap(struct dns_query_struct *query)
 	int is_exists = 0;
 	int loop = 0;
 
-	while (loop ++ <= 32) {
+	while (loop++ <= 32) {
 		if (RAND_bytes((unsigned char *)&query->sid, sizeof(query->sid)) != 1) {
 			query->sid = random();
 		}
@@ -3634,7 +3630,7 @@ static int _dns_client_add_hashmap(struct dns_query_struct *query)
 			pthread_mutex_unlock(&client.domain_map_lock);
 			continue;
 		}
-		
+
 		hash_add(client.domain_map, &query->domain_node, key);
 		pthread_mutex_unlock(&client.domain_map_lock);
 		break;
@@ -3708,7 +3704,7 @@ int dns_client_query(const char *domain, int qtype, dns_client_callback callback
 	}
 	pthread_mutex_unlock(&client.domain_map_lock);
 
-	tlog(TLOG_INFO, "send request %s, qtype %d, id %d\n", domain, qtype, query->sid);
+	tlog(TLOG_INFO, "request: %s, qtype: %d, id: %d, group: %s", domain, qtype, query->sid, query->server_group->group_name);
 	_dns_client_query_release(query);
 
 	return 0;

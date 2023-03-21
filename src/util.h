@@ -118,6 +118,8 @@ int parse_tls_header(const char *data, size_t data_len, char *hostname, const ch
 
 void get_compiled_time(struct tm *tm);
 
+unsigned long get_system_mem_size(void);
+
 int is_numeric(const char *str);
 
 int has_network_raw_cap(void);

@@ -17,6 +17,7 @@
  */
 
 #include "server.h"
+#include "dns_server.h"
 #include "include/utils.h"
 #include "util.h"
 #include <arpa/inet.h>
@@ -282,10 +283,18 @@ bool MockServer::Start(const std::string &url, ServerRequest callback)
 	return true;
 }
 
-Server::Server() {}
+Server::Server() {
+	mode_ = Server::CREATE_MODE_FORK;
+}
+
+Server::Server(enum Server::CREATE_MODE mode)
+{
+	mode_ = mode;
+}
 
 bool Server::Start(const std::string &conf, enum CONF_TYPE type)
 {
+	pid_t pid = 0;
 	int fds[2];
 	std::string conf_file;
 
@@ -339,19 +348,35 @@ bool Server::Start(const std::string &conf, enum CONF_TYPE type)
 		return false;
 	}
 
-	pid_t pid = fork();
-	if (pid == 0) {
-		std::vector<std::string> args = {
-			"smartdns", "-f", "-x", "-c", conf_file, "-p", "-",
-		};
-		char *argv[args.size() + 1];
-		for (size_t i = 0; i < args.size(); i++) {
-			argv[i] = (char *)args[i].c_str();
-		}
+	if (mode_ == CREATE_MODE_FORK) {
+		pid = fork();
+		if (pid == 0) {
+			std::vector<std::string> args = {
+				"smartdns", "-f", "-x", "-c", conf_file, "-p", "-",
+			};
+			char *argv[args.size() + 1];
+			for (size_t i = 0; i < args.size(); i++) {
+				argv[i] = (char *)args[i].c_str();
+			}
 
-		smartdns_main(args.size(), argv, fds[1]);
-		_exit(1);
-	} else if (pid < 0) {
+			smartdns_main(args.size(), argv, fds[1]);
+			_exit(1);
+		} else if (pid < 0) {
+			return false;
+		}
+	} else if (mode_ == CREATE_MODE_THREAD) {
+		thread_ = std::thread([&]() {
+			std::vector<std::string> args = {
+				"smartdns", "-f", "-x", "-c", conf_file_, "-p", "-",
+			};
+			char *argv[args.size() + 1];
+			for (size_t i = 0; i < args.size(); i++) {
+				argv[i] = (char *)args[i].c_str();
+			}
+
+			smartdns_main(args.size(), argv, fds[1]);
+		});
+	} else {
 		return false;
 	}
 
@@ -361,7 +386,13 @@ bool Server::Start(const std::string &conf, enum CONF_TYPE type)
 
 	int ret = poll(pfd, 1, 10000);
 	if (ret == 0) {
-		kill(pid, SIGKILL);
+		if (thread_.joinable()) {
+			thread_.join();
+		}
+
+		if (pid > 0) {
+			kill(pid, SIGKILL);
+		}
 		return false;
 	}
 
@@ -371,6 +402,11 @@ bool Server::Start(const std::string &conf, enum CONF_TYPE type)
 
 void Server::Stop(bool graceful)
 {
+	if (thread_.joinable()) {
+		dns_server_stop();
+		thread_.join();
+	}
+
 	if (pid_ > 0) {
 		if (graceful) {
 			kill(pid_, SIGTERM);

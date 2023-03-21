@@ -30,7 +30,7 @@
 #include "proxy.h"
 #include "radix.h"
 
-#ifdef __cpluscplus
+#ifdef __cplusplus
 extern "C" {
 #endif
 
@@ -503,7 +503,7 @@ int dns_server_check_update_hosts(void);
 struct dns_proxy_names *dns_server_get_proxy_nams(const char *proxyname);
 
 extern int config_additional_file(void *data, int argc, char *argv[]);
-#ifdef __cpluscplus
+#ifdef __cplusplus
 }
 #endif
 #endif // !_DNS_CONF

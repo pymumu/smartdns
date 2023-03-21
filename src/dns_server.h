@@ -23,7 +23,7 @@
 #include <stdint.h>
 #include "dns_client.h"
 
-#ifdef __cpluscplus
+#ifdef __cplusplus
 extern "C" {
 #endif
 
@@ -55,7 +55,7 @@ typedef int (*dns_result_callback)(const char *domain, dns_rtcode_t rtcode, dns_
 int dns_server_query(const char *domain, int qtype, struct dns_server_query_option *server_query_option,
 					 dns_result_callback callback, void *user_ptr);
 
-#ifdef __cpluscplus
+#ifdef __cplusplus
 }
 #endif
 #endif

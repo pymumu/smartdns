@@ -36,7 +36,12 @@ class Server
 		CONF_TYPE_STRING,
 		CONF_TYPE_FILE,
 	};
+	enum CREATE_MODE {
+		CREATE_MODE_FORK,
+		CREATE_MODE_THREAD,
+	};
 	Server();
+	Server(enum CREATE_MODE mode);
 	virtual ~Server();
 
 	bool Start(const std::string &conf, enum CONF_TYPE type = CONF_TYPE_STRING);
@@ -45,9 +50,11 @@ class Server
 
   private:
 	pid_t pid_;
+	std::thread thread_;
 	int fd_;
 	std::string conf_file_;
 	bool clean_conf_file_{false};
+	enum CREATE_MODE mode_;
 };
 
 struct ServerRequestContext {

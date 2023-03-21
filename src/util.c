@@ -50,6 +50,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <unwind.h>
+#include <sys/sysinfo.h>
 
 #define TMP_BUFF_LEN_32 32
 
@@ -1223,6 +1224,16 @@ void get_compiled_time(struct tm *tm)
 	tm->tm_hour = hour;
 	tm->tm_min = min;
 	tm->tm_sec = sec;
+}
+
+unsigned long get_system_mem_size(void)
+{
+	struct sysinfo memInfo;
+    sysinfo (&memInfo);
+    long long totalMem = memInfo.totalram;
+    totalMem *= memInfo.mem_unit;
+
+	return totalMem;
 }
 
 int is_numeric(const char *str)

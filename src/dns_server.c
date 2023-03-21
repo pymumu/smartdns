@@ -1847,9 +1847,10 @@ static int _dns_request_post(struct dns_server_post_context *context)
 		return -1;
 	}
 
-	tlog(TLOG_INFO, "reply %s to %s, qtype: %d, id: %d, group: %s", request->domain,
+	tlog(TLOG_INFO, "result: %s, client: %s, qtype: %d, id: %d, group: %s, time: %lums", request->domain,
 		 get_host_by_addr(clientip, sizeof(clientip), (struct sockaddr *)&request->addr), request->qtype, request->id,
-		 request->dns_group_name[0] != '\0' ? request->dns_group_name : "default");
+		 request->dns_group_name[0] != '\0' ? request->dns_group_name : "default",
+		 get_tick_count() - request->send_tick);
 
 	ret = _dns_reply_inpacket(request, context->inpacket, context->inpacket_len);
 	if (ret != 0) {
@@ -3287,9 +3288,10 @@ static int _dns_server_reply_passthrough(struct dns_server_post_context *context
 		}
 		_dns_reply_inpacket(request, context->inpacket, context->inpacket_len);
 
-		tlog(TLOG_INFO, "reply %s to %s, qtype: %d, id: %d, group: %s", request->domain,
+		tlog(TLOG_INFO, "result: %s, client: %s, qtype: %d, id: %d, group: %s, time: %lums", request->domain,
 			 get_host_by_addr(clientip, sizeof(clientip), (struct sockaddr *)&request->addr), request->qtype,
-			 request->id, request->dns_group_name[0] != '\0' ? request->dns_group_name : "default");
+			 request->id, request->dns_group_name[0] != '\0' ? request->dns_group_name : "default",
+			 get_tick_count() - request->send_tick);
 	}
 
 	return _dns_server_reply_all_pending_list(request, context);
@@ -5246,7 +5248,7 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 		goto errout;
 	}
 
-	tlog(TLOG_INFO, "query %s from %s, qtype: %d, id: %d\n", request->domain, name, request->qtype, request->id);
+	tlog(TLOG_DEBUG, "query %s from %s, qtype: %d, id: %d\n", request->domain, name, request->qtype, request->id);
 
 	ret = _dns_server_do_query(request, 1);
 	if (ret != 0) {

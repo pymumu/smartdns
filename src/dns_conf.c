@@ -30,7 +30,6 @@
 #include <syslog.h>
 #include <unistd.h>
 
-#define DEFAULT_DNS_CACHE_SIZE 512
 #define DNS_MAX_REPLY_IP_NUM 8
 #define DNS_RESOLV_FILE "/etc/resolv.conf"
 
@@ -84,7 +83,7 @@ static struct config_enum_list dns_conf_response_mode_enum[] = {
 enum response_mode_type dns_conf_response_mode;
 
 /* cache */
-int dns_conf_cachesize = DEFAULT_DNS_CACHE_SIZE;
+int dns_conf_cachesize = -1;
 int dns_conf_prefetch = 0;
 int dns_conf_serve_expired = 1;
 int dns_conf_serve_expired_ttl = 24 * 3600; /* 1 day */
@@ -3134,7 +3133,7 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("speed-check-mode", _config_speed_check_mode, NULL),
 	CONF_INT("tcp-idle-time", &dns_conf_tcp_idle_time, 0, 3600),
 	CONF_INT("cache-size", &dns_conf_cachesize, 0, CONF_INT_MAX),
-	CONF_STRING("cache-file", (char *)&dns_conf_cache_file, DNS_MAX_PATH),
+	CONF_CUSTOM("cache-file", _config_option_parser_filepath, (char *)&dns_conf_cache_file),
 	CONF_YESNO("cache-persist", &dns_conf_cache_persist),
 	CONF_YESNO("prefetch-domain", &dns_conf_prefetch),
 	CONF_YESNO("serve-expired", &dns_conf_serve_expired),
@@ -3341,11 +3340,36 @@ errout:
 	return -1;
 }
 
+static void _dns_conf_auto_set_cache_size(void)
+{
+	uint64_t memsize = get_system_mem_size();
+	if (dns_conf_cachesize >= 0) {
+		return;
+	}
+
+	if (memsize <= 16 * 1024 * 1024) {
+		dns_conf_cachesize = 2048; /* 1MB memory */
+	} else if (memsize <= 32 * 1024 * 1024) {
+		dns_conf_cachesize = 8192; /* 4MB memory*/
+	} else if (memsize <= 64 * 1024 * 1024) {
+		dns_conf_cachesize = 16384; /* 8MB memory*/
+	} else if (memsize <= 128 * 1024 * 1024) {
+		dns_conf_cachesize = 32768; /* 16MB memory*/
+	} else if (memsize <= 256 * 1024 * 1024) {
+		dns_conf_cachesize = 65536; /* 32MB memory*/
+	} else if (memsize <= 512 * 1024 * 1024) {
+		dns_conf_cachesize = 131072; /* 64MB memory*/
+	} else {
+		dns_conf_cachesize = 262144; /* 128MB memory*/
+	}
+}
 
 static int _dns_conf_load_post(void)
 {
 	_config_setup_smartdns_domain();
 	_dns_conf_speed_check_mode_verify();
+
+	_dns_conf_auto_set_cache_size();
 
 	if (dns_conf_cachesize == 0 && dns_conf_response_mode == DNS_RESPONSE_MODE_FASTEST_RESPONSE) {
 		dns_conf_response_mode = DNS_RESPONSE_MODE_FASTEST_IP;

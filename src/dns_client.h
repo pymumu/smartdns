@@ -21,7 +21,7 @@
 
 #include "dns.h"
 
-#ifdef __cpluscplus
+#ifdef __cplusplus
 extern "C" {
 #endif
 
@@ -143,7 +143,7 @@ int dns_client_remove_group(const char *group_name);
 
 int dns_server_num(void);
 
-#ifdef __cpluscplus
+#ifdef __cplusplus
 }
 #endif
 #endif

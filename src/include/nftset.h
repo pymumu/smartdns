@@ -19,7 +19,7 @@
 #ifndef _NFTSET_H
 #define _NFTSET_H
 
-#ifdef __cpluscplus
+#ifdef __cplusplus
 extern "C" {
 #endif
 
@@ -29,7 +29,7 @@ int nftset_add(const char *familyname, const char *tablename, const char *setnam
 int nftset_del(const char *familyname, const char *tablename, const char *setname, const unsigned char addr[],
 			   int addr_len);
 
-#ifdef __cpluscplus
+#ifdef __cplusplus
 }
 #endif
 

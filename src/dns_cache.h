@@ -28,7 +28,7 @@
 #include <stdlib.h>
 #include <time.h>
 
-#ifdef __cpluscplus
+#ifdef __cplusplus
 extern "C" {
 #endif
 
@@ -180,7 +180,7 @@ int dns_cache_load(const char *file);
 
 int dns_cache_save(const char *file);
 
-#ifdef __cpluscplus
+#ifdef __cplusplus
 }
 #endif
 #endif // !_SMARTDNS_CACHE_H
