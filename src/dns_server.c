@@ -304,10 +304,13 @@ struct dns_request {
 	struct dns_domain_check_orders *check_order_list;
 	int check_order;
 
+	enum response_mode_type response_mode;
+
 	struct dns_request_pending_list *request_pending_list;
 
 	int no_select_possible_ip;
 	int no_cache_cname;
+	int no_cache;
 };
 
 /* dns server data */
@@ -1269,7 +1272,7 @@ static int _dns_cache_cname_packet(struct dns_server_post_context *context)
 
 	struct dns_request *request = context->request;
 
-	if (request->has_cname == 0 || request->no_cache_cname == 1) {
+	if (request->has_cname == 0 || request->no_cache_cname == 1 || request->no_cache == 1) {
 		return 0;
 	}
 
@@ -1514,7 +1517,7 @@ static int _dns_cache_reply_packet(struct dns_server_post_context *context)
 {
 	struct dns_request *request = context->request;
 	int has_soa = request->has_soa;
-	if (context->do_cache == 0 || _dns_server_has_bind_flag(request, BIND_FLAG_NO_CACHE) == 0) {
+	if (context->do_cache == 0 || request->no_cache == 1) {
 		return 0;
 	}
 
@@ -2433,6 +2436,7 @@ static struct dns_request *_dns_server_new_request(void)
 	request->qclass = DNS_C_IN;
 	request->result_callback = NULL;
 	request->check_order_list = &dns_conf_check_orders;
+	request->response_mode = dns_conf_response_mode;
 	INIT_LIST_HEAD(&request->list);
 	INIT_LIST_HEAD(&request->pending_list);
 	INIT_LIST_HEAD(&request->check_list);
@@ -2585,7 +2589,7 @@ out:
 	}
 
 	/* Get first ping result */
-	if (dns_conf_response_mode == DNS_RESPONSE_MODE_FIRST_PING_IP && last_rtt == -1 && request->ping_time > 0) {
+	if (request->response_mode == DNS_RESPONSE_MODE_FIRST_PING_IP && last_rtt == -1 && request->ping_time > 0) {
 		may_complete = 1;
 	}
 
@@ -3422,7 +3426,7 @@ static int dns_server_resolve_callback(const char *domain, dns_result_type rtype
 			return _dns_server_reply_passthrough(&context);
 		}
 
-		if (request->prefetch == 0 && dns_conf_response_mode == DNS_RESPONSE_MODE_FASTEST_RESPONSE &&
+		if (request->prefetch == 0 && request->response_mode == DNS_RESPONSE_MODE_FASTEST_RESPONSE &&
 			atomic_read(&request->notified) == 0) {
 			struct dns_server_post_context context;
 			int ttl = 0;
@@ -3936,6 +3940,10 @@ static int _dns_server_pre_process_rule_flags(struct dns_request *request)
 		request->no_serve_expired = 1;
 	}
 
+	if ((flags & DOMAIN_FLAG_NO_CACHE) || (_dns_server_has_bind_flag(request, BIND_FLAG_NO_CACHE) == 0)) {
+		request->no_cache = 1;
+	}
+
 	if (flags & DOMAIN_FLAG_ADDR_IGN) {
 		/* ignore this domain */
 		goto out;
@@ -4432,17 +4440,22 @@ static int _dns_server_qtype_soa(struct dns_request *request)
 	return -1;
 }
 
-static void _dns_server_process_speed_check_rule(struct dns_request *request)
+static void _dns_server_process_speed_rule(struct dns_request *request)
 {
 	struct dns_domain_check_orders *check_order = NULL;
+	struct dns_response_mode_rule *response_mode = NULL;
 
-	/* get domain rule flag */
+	/* get speed check mode */
 	check_order = _dns_server_get_dns_rule(request, DOMAIN_RULE_CHECKSPEED);
-	if (check_order == NULL) {
-		return;
+	if (check_order != NULL) {
+		request->check_order_list = check_order;
 	}
 
-	request->check_order_list = check_order;
+	/* get response mode */
+	response_mode = _dns_server_get_dns_rule(request, DOMAIN_RULE_RESPONSE_MODE);
+	if (response_mode != NULL) {
+		request->response_mode = response_mode->mode;
+	}
 }
 
 static int _dns_server_get_expired_ttl_reply(struct dns_cache *dns_cache)
@@ -5073,7 +5086,7 @@ static int _dns_server_do_query(struct dns_request *request, int skip_notify_eve
 	}
 
 	/* process speed check rule */
-	_dns_server_process_speed_check_rule(request);
+	_dns_server_process_speed_rule(request);
 
 	/* check and set passthrough */
 	_dns_server_check_set_passthrough(request);

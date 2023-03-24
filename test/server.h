@@ -20,6 +20,7 @@
 #define _SMARTDNS_SERVER_
 
 #include "dns.h"
+#include "include/utils.h"
 #include <functional>
 #include <string>
 #include <sys/socket.h>
@@ -53,7 +54,8 @@ class Server
 	std::thread thread_;
 	int fd_;
 	std::string conf_file_;
-	bool clean_conf_file_{false};
+	TempFile conf_temp_file_;
+
 	enum CREATE_MODE mode_;
 };
 

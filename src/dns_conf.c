@@ -202,6 +202,9 @@ static void *_new_dns_rule(enum domain_rule domain_rule)
 	case DOMAIN_RULE_CHECKSPEED:
 		size = sizeof(struct dns_domain_check_orders);
 		break;
+	case DOMAIN_RULE_RESPONSE_MODE:
+		size = sizeof(struct dns_response_mode_rule);
+		break;
 	case DOMAIN_RULE_CNAME:
 		size = sizeof(struct dns_cname_rule);
 		break;
@@ -2388,6 +2391,38 @@ errout:
 	return 0;
 }
 
+static int _conf_domain_rule_response_mode(char *domain, const char *mode)
+{
+	enum response_mode_type response_mode_type = DNS_RESPONSE_MODE_FIRST_PING_IP;
+	struct dns_response_mode_rule *response_mode = NULL;
+
+	for (int i = 0; dns_conf_response_mode_enum[i].name != NULL; i++) {
+		if (strcmp(mode, dns_conf_response_mode_enum[i].name) == 0) {
+			response_mode_type = dns_conf_response_mode_enum[i].id;
+			break;
+		}
+	}
+
+	response_mode = _new_dns_rule(DOMAIN_RULE_RESPONSE_MODE);
+	if (response_mode == NULL) {
+		goto errout;
+	}
+	response_mode->mode = response_mode_type;
+
+	if (_config_domain_rule_add(domain, DOMAIN_RULE_RESPONSE_MODE, response_mode) != 0) {
+		goto errout;
+	}
+
+	_dns_rule_put(&response_mode->head);
+	return 0;
+errout:
+	if (response_mode) {
+		_dns_rule_put(&response_mode->head);
+	}
+
+	return 0;
+}
+
 static int _conf_domain_set(void *data, int argc, char *argv[])
 {
 	int opt = 0;
@@ -2527,6 +2562,11 @@ static int _conf_domain_rule_delete(const char *domain)
 	return _config_domain_rule_delete(domain);
 }
 
+static int _conf_domain_rule_no_cache(const char *domain)
+{
+	return _config_domain_rule_flag_set(domain, DOMAIN_FLAG_NO_CACHE, 0);
+}
+
 static int _conf_domain_rules(void *data, int argc, char *argv[])
 {
 	int opt = 0;
@@ -2539,6 +2579,7 @@ static int _conf_domain_rules(void *data, int argc, char *argv[])
 	/* clang-format off */
 	static struct option long_options[] = {
 		{"speed-check-mode", required_argument, NULL, 'c'},
+		{"response-mode", required_argument, NULL, 'r'},
 		{"address", required_argument, NULL, 'a'},
 		{"ipset", required_argument, NULL, 'p'},
 		{"nftset", required_argument, NULL, 't'},
@@ -2550,6 +2591,7 @@ static int _conf_domain_rules(void *data, int argc, char *argv[])
 		{"rr-ttl-max", required_argument, NULL, 253},
 		{"no-serve-expired", no_argument, NULL, 254},
 		{"delete", no_argument, NULL, 255},
+		{"no-cache", no_argument, NULL, 256},
 		{NULL, no_argument, NULL, 0}
 	};
 	/* clang-format on */
@@ -2566,7 +2608,7 @@ static int _conf_domain_rules(void *data, int argc, char *argv[])
 	/* process extra options */
 	optind = 1;
 	while (1) {
-		opt = getopt_long_only(argc, argv, "c:a:p:t:n:d:A:", long_options, NULL);
+		opt = getopt_long_only(argc, argv, "c:a:p:t:n:d:A:r:", long_options, NULL);
 		if (opt == -1) {
 			break;
 		}
@@ -2580,6 +2622,19 @@ static int _conf_domain_rules(void *data, int argc, char *argv[])
 
 			if (_conf_domain_rule_speed_check(domain, check_mode) != 0) {
 				tlog(TLOG_ERROR, "add check-speed-rule rule failed.");
+				goto errout;
+			}
+
+			break;
+		}
+		case 'r': {
+			const char *response_mode = optarg;
+			if (response_mode == NULL) {
+				goto errout;
+			}
+
+			if (_conf_domain_rule_response_mode(domain, response_mode) != 0) {
+				tlog(TLOG_ERROR, "add response-mode rule failed.");
 				goto errout;
 			}
 
@@ -2683,6 +2738,14 @@ static int _conf_domain_rules(void *data, int argc, char *argv[])
 			}
 
 			return 0;
+		}
+		case 256: {
+			if (_conf_domain_rule_no_cache(domain) != 0) {
+				tlog(TLOG_ERROR, "set no-cache rule failed.");
+				goto errout;
+			}
+
+			break;
 		}
 		default:
 			break;

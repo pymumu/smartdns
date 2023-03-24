@@ -74,6 +74,7 @@ enum domain_rule {
 	DOMAIN_RULE_NFTSET_IP6,
 	DOMAIN_RULE_NAMESERVER,
 	DOMAIN_RULE_CHECKSPEED,
+	DOMAIN_RULE_RESPONSE_MODE,
 	DOMAIN_RULE_CNAME,
 	DOMAIN_RULE_TTL,
 	DOMAIN_RULE_MAX,
@@ -110,6 +111,7 @@ typedef enum {
 #define DOMAIN_FLAG_NFTSET_IP6_IGN (1 << 14)
 #define DOMAIN_FLAG_NO_SERVE_EXPIRED (1 << 15)
 #define DOMAIN_FLAG_CNAME_IGN (1 << 16)
+#define DOMAIN_FLAG_NO_CACHE (1 << 17)
 
 #define SERVER_FLAG_EXCLUDE_DEFAULT (1 << 0)
 
@@ -123,6 +125,12 @@ typedef enum {
 #define BIND_FLAG_NO_DUALSTACK_SELECTION (1 << 7)
 #define BIND_FLAG_FORCE_AAAA_SOA (1 << 8)
 #define BIND_FLAG_NO_RULE_CNAME (1 << 9)
+
+enum response_mode_type {
+	DNS_RESPONSE_MODE_FIRST_PING_IP = 0,
+	DNS_RESPONSE_MODE_FASTEST_IP,
+	DNS_RESPONSE_MODE_FASTEST_RESPONSE,
+};
 
 struct dns_rule {
 	atomic_t refcnt;
@@ -225,6 +233,11 @@ struct dns_domain_check_order {
 struct dns_domain_check_orders {
 	struct dns_rule head;
 	struct dns_domain_check_order orders[DOMAIN_CHECK_NUM];
+};
+
+struct dns_response_mode_rule {
+	struct dns_rule head;
+	enum response_mode_type mode;
 };
 
 struct dns_group_table {
@@ -464,11 +477,6 @@ extern int dns_conf_dualstack_ip_allow_force_AAAA;
 extern int dns_conf_dualstack_ip_selection_threshold;
 
 extern int dns_conf_max_reply_ip_num;
-enum response_mode_type {
-	DNS_RESPONSE_MODE_FIRST_PING_IP = 0,
-	DNS_RESPONSE_MODE_FASTEST_IP,
-	DNS_RESPONSE_MODE_FASTEST_RESPONSE,
-};
 extern enum response_mode_type dns_conf_response_mode;
 
 extern int dns_conf_rr_ttl;

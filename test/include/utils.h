@@ -19,8 +19,10 @@
 #ifndef _SMARTDNS_TEST_UTILS_
 #define _SMARTDNS_TEST_UTILS_
 
+#include <fstream>
 #include <functional>
 #include <string>
+#include <vector>
 
 namespace smartdns
 {
@@ -56,9 +58,54 @@ class DeferGuard
 #define SMARTDNS_CONCAT(a, b) SMARTDNS_CONCAT_(a, b)
 #define Defer ::smartdns::DeferGuard SMARTDNS_CONCAT(__defer__, __LINE__) = [&]()
 
+class TempFile
+{
+  public:
+	TempFile();
+	TempFile(const std::string &line);
+	virtual ~TempFile();
+
+	bool Write(const std::string &line);
+
+	std::string GetPath();
+
+	void SetPattern(const std::string &pattern);
+
+  private:
+	bool NewTempFile();
+	std::string path_;
+	std::ofstream ofs_;
+	std::string pattern_;
+};
+
+class Commander
+{
+  public:
+	Commander();
+	virtual ~Commander();
+
+	bool Run(const std::vector<std::string> &cmds);
+
+	bool Run(const std::string &cmd);
+
+	void Kill();
+
+	void Terminate();
+
+	int ExitCode();
+
+	int GetPid();
+
+  private:
+	pid_t pid_{-1};
+	int exit_code_ = {-1};
+};
+
 bool IsCommandExists(const std::string &cmd);
 
 std::string GenerateRandomString(int len);
+
+int ParserArg(const std::string &cmd, std::vector<std::string> &args);
 
 } // namespace smartdns
 #endif // _SMARTDNS_TEST_UTILS_

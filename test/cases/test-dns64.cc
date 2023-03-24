@@ -20,42 +20,46 @@
 #include "dns.h"
 #include "include/utils.h"
 #include "server.h"
+#include "util.h"
 #include "gtest/gtest.h"
+#include <fstream>
 
-TEST(server, cname)
+class DNS64 : public ::testing::Test
+{
+  protected:
+	virtual void SetUp() {}
+	virtual void TearDown() {}
+};
+
+TEST_F(DNS64, no_dualstack)
 {
 	smartdns::MockServer server_upstream;
 	smartdns::Server server;
+	std::map<int, int> qid_map;
 
-	server_upstream.Start("udp://0.0.0.0:61053", [](struct smartdns::ServerRequestContext *request) {
-		if (request->qtype != DNS_T_A) {
-			return smartdns::SERVER_REQUEST_SOA;
+	server_upstream.Start("udp://0.0.0.0:61053", [&](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype == DNS_T_A) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4");
+			return smartdns::SERVER_REQUEST_OK;
 		}
-
-		unsigned char addr[4] = {1, 2, 3, 4};
-		dns_add_A(request->response_packet, DNS_RRS_AN, request->domain.c_str(), 611, addr);
-		EXPECT_EQ(request->domain, "e.com");
-
-		request->response_packet->head.rcode = DNS_RC_NOERROR;
-		return smartdns::SERVER_REQUEST_OK;
+		return smartdns::SERVER_REQUEST_SOA;
 	});
 
 	server.Start(R"""(bind [::]:60053
-cname /a.com/b.com
-cname /b.com/c.com
-cname /c.com/d.com
-cname /d.com/e.com
 server 127.0.0.1:61053
 log-num 0
+dns64 64:ff9b::/96
 log-console yes
+dualstack-ip-selection no
 log-level debug
 cache-persist no)""");
 	smartdns::Client client;
-	ASSERT_TRUE(client.Query("a.com", 60053));
+	ASSERT_TRUE(client.Query("a.com AAAA", 60053));
 	std::cout << client.GetResult() << std::endl;
-	ASSERT_EQ(client.GetAnswerNum(), 2);
+	ASSERT_EQ(client.GetAnswerNum(), 1);
 	EXPECT_EQ(client.GetStatus(), "NOERROR");
 	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
-	EXPECT_EQ(client.GetAnswer()[0].GetData(), "b.com.");
-	EXPECT_EQ(client.GetAnswer()[1].GetData(), "1.2.3.4");
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 3);
+	EXPECT_EQ(client.GetAnswer()[0].GetType(), "AAAA");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "64:ff9b::102:304");
 }

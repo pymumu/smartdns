@@ -283,7 +283,8 @@ bool MockServer::Start(const std::string &url, ServerRequest callback)
 	return true;
 }
 
-Server::Server() {
+Server::Server()
+{
 	mode_ = Server::CREATE_MODE_FORK;
 }
 
@@ -312,26 +313,9 @@ bool Server::Start(const std::string &conf, enum CONF_TYPE type)
 	};
 
 	if (type == CONF_TYPE_STRING) {
-		char filename[128];
-		strncpy(filename, "/tmp/smartdns_conf.XXXXXX", sizeof(filename));
-		int fd = mkstemp(filename);
-		if (fd < 0) {
-			return false;
-		}
-		Defer
-		{
-			close(fd);
-		};
-
-		std::ofstream ofs(filename);
-		if (ofs.is_open() == false) {
-			return false;
-		}
-		ofs.write(conf.data(), conf.size());
-		ofs.flush();
-		ofs.close();
-		conf_file = filename;
-		clean_conf_file_ = true;
+		conf_temp_file_.SetPattern("/tmp/smartdns_conf.XXXXXX");
+		conf_temp_file_.Write(conf);
+		conf_file = conf_temp_file_.GetPath();
 	} else if (type == CONF_TYPE_FILE) {
 		conf_file = conf;
 	} else {
@@ -418,11 +402,6 @@ void Server::Stop(bool graceful)
 	waitpid(pid_, nullptr, 0);
 
 	pid_ = 0;
-	if (clean_conf_file_ == true) {
-		unlink(conf_file_.c_str());
-		conf_file_.clear();
-		clean_conf_file_ = false;
-	}
 }
 
 bool Server::IsRunning()

@@ -255,6 +255,11 @@ bool Client::ParserResult()
 		answer_num_ = std::stoi(match[1]);
 	}
 
+	std::regex reg_authority_num(", AUTHORITY: ([0-9]+),");
+	if (std::regex_search(result_, match, reg_authority_num)) {
+		records_authority_num_ = std::stoi(match[1]);
+	}
+
 	std::regex reg_status(", status: ([A-Z]+),");
 	if (std::regex_search(result_, match, reg_status)) {
 		status_ = match[1];
@@ -296,6 +301,19 @@ bool Client::ParserResult()
 		}
 
 		if (answer_num_ != records_answer_.size()) {
+			std::cout << "DIG FAILED: Num Not Match\n" << result_ << std::endl;
+			return false;
+		}
+	}
+
+	std::regex reg_authority(";; AUTHORITY SECTION:\\n((?:.|\\n|\\r\\n)+?)\\n{2,}",
+							 std::regex::ECMAScript | std::regex::optimize);
+	if (std::regex_search(result_, match, reg_authority)) {
+		if (ParserRecord(match[1], records_authority_) == false) {
+			return false;
+		}
+
+		if (records_authority_num_ != records_authority_.size()) {
 			std::cout << "DIG FAILED: Num Not Match\n" << result_ << std::endl;
 			return false;
 		}
