@@ -21,6 +21,7 @@ cache-file /path/to/cache/file
 
   1. smartdns默认自动根据磁盘空间是否启用缓存。
   1. 缓存文件只有在进程正常退出的时候才会保存供下次使用。
+  1. 缓存大小cache-size一般情况无需设置，smartdns会根据系统内存情况自动设置。
 
 ## 缓存预获取
 
@@ -32,7 +33,7 @@ prefetch-domain yes
 
 注意：
 
-  1. 此功能将会导致smaratdns消耗更多的CPU。
+  1. 此功能将会导致smartdns消耗更多的CPU。
 
 ## 过期缓存
 
@@ -98,4 +99,12 @@ sequenceDiagram
     ```shell
     prefetch-domain yes
     serve-expired-prefetch-time 21600
+    ```
+
+## 关闭特定域名的缓存
+
+1. 某些情况下，可能需要关闭特定域名的缓存，比如DDNS。可以使用下面的配置关闭。
+
+    ```shell
+    domain-rules /example.com/ -no-cache
     ```

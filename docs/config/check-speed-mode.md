@@ -61,3 +61,12 @@ Smartdns支持通过`response-mode`设置首次请求响应模式，这三中模
 |最快响应的DNS模式|fastest-response|短|可能最差|DNS查询等待时间最短。
 
 对于开启了缓存功能后，缓存后的数据，无论使用哪种方式，其结果时最佳的，所以不建议关闭缓存。
+
+## 对指定域名设置返回模式
+
+ 1. 某些情况下，可能需要设置特定域名的响应模式，以提高上网体验，可以配置下面参数
+
+    ```shell
+    domain-rules /example.com/ -r first-ping
+    domain-rules /example.com/ -response-mode fastest-response
+    ```
