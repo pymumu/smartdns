@@ -18,7 +18,9 @@
 
 #include "server.h"
 #include "dns_server.h"
+#include "fast_ping.h"
 #include "include/utils.h"
+#include "smartdns.h"
 #include "util.h"
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -35,8 +37,6 @@
 
 namespace smartdns
 {
-
-extern "C" int smartdns_main(int argc, char *argv[], int fd_notify);
 
 MockServer::MockServer() {}
 
@@ -293,6 +293,34 @@ Server::Server(enum Server::CREATE_MODE mode)
 	mode_ = mode;
 }
 
+void Server::MockPing(PING_TYPE type, const std::string &host, int ttl, float time)
+{
+	struct MockPingIP ping_ip;
+	ping_ip.type = type;
+	ping_ip.host = host;
+	ping_ip.ttl = ttl;
+	ping_ip.time = time;
+	mock_ping_ips_.push_back(ping_ip);
+}
+
+void Server::StartPost(void *arg)
+{
+	Server *server = (Server *)arg;
+	bool has_ipv6 = false;
+	for (auto &it : server->mock_ping_ips_) {
+		if (has_ipv6 == false && check_is_ipv6(it.host.c_str()) == 0) {
+			has_ipv6 = true;
+		}
+
+		fast_ping_fake_ip_add(it.type, it.host.c_str(), it.ttl, it.time);
+	}
+
+	if (has_ipv6 == true) {
+		fast_ping_fake_ip_add(PING_TYPE_ICMP, "2001::", 64, 10);
+		dns_server_check_ipv6_ready();
+	}
+}
+
 bool Server::Start(const std::string &conf, enum CONF_TYPE type)
 {
 	pid_t pid = 0;
@@ -343,6 +371,7 @@ bool Server::Start(const std::string &conf, enum CONF_TYPE type)
 				argv[i] = (char *)args[i].c_str();
 			}
 
+			smartdns_reg_post_func(Server::StartPost, this);
 			smartdns_main(args.size(), argv, fds[1]);
 			_exit(1);
 		} else if (pid < 0) {
@@ -358,7 +387,9 @@ bool Server::Start(const std::string &conf, enum CONF_TYPE type)
 				argv[i] = (char *)args[i].c_str();
 			}
 
+			smartdns_reg_post_func(Server::StartPost, this);
 			smartdns_main(args.size(), argv, fds[1]);
+			smartdns_reg_post_func(nullptr, nullptr);
 		});
 	} else {
 		return false;

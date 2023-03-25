@@ -3704,7 +3704,8 @@ int dns_client_query(const char *domain, int qtype, dns_client_callback callback
 	}
 	pthread_mutex_unlock(&client.domain_map_lock);
 
-	tlog(TLOG_INFO, "request: %s, qtype: %d, id: %d, group: %s", domain, qtype, query->sid, query->server_group->group_name);
+	tlog(TLOG_INFO, "request: %s, qtype: %d, id: %d, group: %s", domain, qtype, query->sid,
+		 query->server_group->group_name);
 	_dns_client_query_release(query);
 
 	return 0;
@@ -3829,13 +3830,18 @@ static void _dns_client_remove_all_pending_servers(void)
 
 static void _dns_client_add_pending_servers(void)
 {
+#ifdef TEST
+	const int delay_value = 1;
+#else
+	const int delay_value = 3;
+#endif
 	struct dns_server_pending *pending = NULL;
 	struct dns_server_pending *tmp = NULL;
-	static int delay = 0;
+	static int delay = delay_value;
 	LIST_HEAD(retry_list);
 
 	/* add pending server after 3 seconds */
-	if (++delay < 3) {
+	if (++delay < delay_value) {
 		return;
 	}
 	delay = 0;

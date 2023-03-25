@@ -22,44 +22,57 @@
 #include "server.h"
 #include "gtest/gtest.h"
 
-class Cname : public ::testing::Test
+class QtypeSOA : public ::testing::Test
 {
   protected:
 	virtual void SetUp() {}
 	virtual void TearDown() {}
 };
 
-TEST_F(Cname, cname)
+TEST_F(QtypeSOA, AAAA_HTTPS)
 {
 	smartdns::MockServer server_upstream;
 	smartdns::Server server;
 
 	server_upstream.Start("udp://0.0.0.0:61053", [](struct smartdns::ServerRequestContext *request) {
-		if (request->qtype != DNS_T_A) {
-			return smartdns::SERVER_REQUEST_SOA;
+		if (request->qtype == DNS_T_A) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4");
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "5.6.7.8");
+			return smartdns::SERVER_REQUEST_OK;
+		} else if (request->qtype == DNS_T_AAAA) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "2001:db8::1");
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "2001:db8::2");
+			return smartdns::SERVER_REQUEST_OK;
 		}
-
-		smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4", 611);
-		EXPECT_EQ(request->domain, "e.com");
-		return smartdns::SERVER_REQUEST_OK;
+		return smartdns::SERVER_REQUEST_SOA;
 	});
 
 	server.Start(R"""(bind [::]:60053
-cname /a.com/b.com
-cname /b.com/c.com
-cname /c.com/d.com
-cname /d.com/e.com
 server 127.0.0.1:61053
 log-num 0
 log-console yes
 log-level debug
+force-qtype-SOA 28 65
 cache-persist no)""");
 	smartdns::Client client;
-	ASSERT_TRUE(client.Query("a.com", 60053));
+	ASSERT_TRUE(client.Query("a.com AAAA", 60053));
 	std::cout << client.GetResult() << std::endl;
-	ASSERT_EQ(client.GetAnswerNum(), 2);
+	ASSERT_EQ(client.GetAuthorityNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAuthority()[0].GetName(), "a.com");
+	EXPECT_EQ(client.GetAuthority()[0].GetTTL(), 30);
+	EXPECT_EQ(client.GetAuthority()[0].GetType(), "SOA");
+
+	ASSERT_TRUE(client.Query("a.com -t HTTPS", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAuthorityNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAuthority()[0].GetName(), "a.com");
+	EXPECT_EQ(client.GetAuthority()[0].GetTTL(), 30);
+	EXPECT_EQ(client.GetAuthority()[0].GetType(), "SOA");
+
+	ASSERT_TRUE(client.Query("a.com A", 60053));
+	ASSERT_EQ(client.GetAnswerNum(), 1);
 	EXPECT_EQ(client.GetStatus(), "NOERROR");
 	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
-	EXPECT_EQ(client.GetAnswer()[0].GetData(), "b.com.");
-	EXPECT_EQ(client.GetAnswer()[1].GetData(), "1.2.3.4");
 }

@@ -844,9 +844,12 @@ static int _dns_rrs_add_all_best_ip(struct dns_server_post_context *context)
 				continue;
 			}
 
-			int ttl_range = request->ping_time + request->ping_time / 10;
-			if ((ttl_range < addr_map->ping_time) && addr_map->ping_time >= 100 && ignore_speed == 0) {
-				continue;
+			/* if ping time is larger than 5ms, check again. */
+			if (addr_map->ping_time - request->ping_time >= 50) {
+				int ttl_range = request->ping_time + request->ping_time / 10 + 5;
+				if ((ttl_range < addr_map->ping_time) && addr_map->ping_time >= 100 && ignore_speed == 0) {
+					continue;
+				}
 			}
 
 			context->ip_num++;
@@ -4700,7 +4703,7 @@ out:
 	return ret;
 }
 
-static void _dns_server_check_ipv6_ready(void)
+void dns_server_check_ipv6_ready(void)
 {
 	static int do_get_conf = 0;
 	static int is_icmp_check_set;
@@ -6231,7 +6234,7 @@ static void _dns_server_period_run_second(void)
 	_dns_server_check_need_exit();
 
 	if (sec % IPV6_READY_CHECK_TIME == 0 && is_ipv6_ready == 0) {
-		_dns_server_check_ipv6_ready();
+		dns_server_check_ipv6_ready();
 	}
 
 	if (sec % 60 == 0) {
@@ -6931,7 +6934,7 @@ int dns_server_init(void)
 		goto errout;
 	}
 
-	_dns_server_check_ipv6_ready();
+	dns_server_check_ipv6_ready();
 	tlog(TLOG_INFO, "%s",
 		 (is_ipv6_ready) ? "IPV6 is ready, enable IPV6 features" : "IPV6 is not ready, disable IPV6 features");
 

@@ -69,6 +69,10 @@ int parse_ip(const char *value, char *ip, int *port);
 
 int check_is_ipaddr(const char *ip);
 
+int check_is_ipv4(const char *ip);
+
+int check_is_ipv6(const char *ip);
+
 int parse_uri(const char *value, char *scheme, char *host, int *port, char *path);
 
 int parse_uri_ext(const char *value, char *scheme, char *user, char *password, char *host, int *port, char *path);

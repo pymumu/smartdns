@@ -71,6 +71,8 @@ class Client
 
 	int GetAnswerNum();
 
+	int GetAuthorityNum();
+
 	std::string GetStatus();
 
 	std::string GetServer();
@@ -90,7 +92,7 @@ class Client
 	bool ParserRecord(const std::string &record_str, std::vector<DNSRecord> &record);
 	std::string result_;
 	int answer_num_{0};
-	int records_authority_num_{0};
+	int authority_num_{0};
 	std::string status_;
 	std::string server_;
 	int query_time_{0};

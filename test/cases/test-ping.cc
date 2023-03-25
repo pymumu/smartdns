@@ -71,3 +71,27 @@ TEST_F(Ping, tcp)
 	fast_ping_stop(ping_host);
 	EXPECT_EQ(count, 1);
 }
+
+void fake_ping_result_callback(struct ping_host_struct *ping_host, const char *host, FAST_PING_RESULT result,
+							   struct sockaddr *addr, socklen_t addr_len, int seqno, int ttl, struct timeval *tv,
+							   int error, void *userptr)
+{
+	if (result == PING_RESULT_RESPONSE) {
+		int *count = (int *)userptr;
+		double rtt = tv->tv_sec * 1000.0 + tv->tv_usec / 1000.0;
+		tlog(TLOG_INFO, "from %15s: seq=%d ttl=%d time=%.3f\n", host, seqno, ttl, rtt);
+		*count = (int)rtt;
+	}
+}
+
+TEST_F(Ping, fake_icmp)
+{
+	struct ping_host_struct *ping_host;
+	int count = 0;
+	fast_ping_fake_ip_add(PING_TYPE_ICMP, "1.2.3.4", 60, 5);
+	ping_host = fast_ping_start(PING_TYPE_ICMP, "1.2.3.4", 1, 1000, 200, fake_ping_result_callback, &count);
+	ASSERT_NE(ping_host, nullptr);
+	usleep(100000);
+	fast_ping_stop(ping_host);
+	EXPECT_GE(count, 5);
+}

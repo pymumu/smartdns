@@ -21,6 +21,11 @@
 #include "include/utils.h"
 #include "server.h"
 #include "gtest/gtest.h"
+#include <fstream>
+
+/* clang-format off */
+#include "dns_cache.h"
+/* clang-format on */
 
 class Cache : public ::testing::Test
 {
@@ -227,4 +232,57 @@ cache-persist no)""");
 	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
 	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 3);
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+}
+
+TEST_F(Cache, save_file)
+{
+	smartdns::MockServer server_upstream;
+	auto cache_file = "/tmp/smartdns_cache." + smartdns::GenerateRandomString(10);
+	std::string conf = R"""(
+bind [::]:60053@lo
+server 127.0.0.1:62053
+log-num 0
+log-console yes
+log-level debug
+cache-persist yes
+dualstack-ip-selection no
+)""";
+
+	conf += "cache-file " + cache_file;
+	Defer
+	{
+		unlink(cache_file.c_str());
+	};
+
+	server_upstream.Start("udp://0.0.0.0:62053", [](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype == DNS_T_A) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4");
+			return smartdns::SERVER_REQUEST_OK;
+		}
+		return smartdns::SERVER_REQUEST_SOA;
+	});
+	{
+		smartdns::Server server;
+		server.Start(conf);
+		smartdns::Client client;
+
+		ASSERT_TRUE(client.Query("a.com", 60053));
+		std::cout << client.GetResult() << std::endl;
+		ASSERT_EQ(client.GetAnswerNum(), 1);
+		EXPECT_EQ(client.GetStatus(), "NOERROR");
+		EXPECT_LT(client.GetQueryTime(), 100);
+		EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 3);
+		EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+		server.Stop();
+		usleep(200 * 1000);
+	}
+
+	ASSERT_EQ(access(cache_file.c_str(), F_OK), 0);
+
+	std::fstream fs(cache_file, std::ios::in);
+	struct dns_cache_file head;
+	memset(&head, 0, sizeof(head));
+	fs.read((char *)&head, sizeof(head));
+	EXPECT_EQ(head.magic, MAGIC_NUMBER);
+	EXPECT_EQ(head.cache_number, 1);
 }

@@ -61,7 +61,7 @@ cache-persist no)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com A", 60053));
 	std::cout << client.GetResult() << std::endl;
-	ASSERT_EQ(client.GetAnswerNum(), 0);
+	ASSERT_EQ(client.GetAuthorityNum(), 1);
 	EXPECT_EQ(client.GetStatus(), "NOERROR");
 	EXPECT_EQ(client.GetAuthority()[0].GetName(), "a.com");
 	EXPECT_EQ(client.GetAuthority()[0].GetTTL(), 30);

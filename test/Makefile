@@ -20,6 +20,7 @@ CFLAGS += -DTEST
 CFLAGS += -g -Wall -Wstrict-prototypes -fno-omit-frame-pointer -Wstrict-aliasing -funwind-tables -Wmissing-prototypes -Wshadow -Wextra -Wno-unused-parameter -Wno-implicit-fallthrough
 
 CXXFLAGS += -g
+CXXFLAGS += -DTEST
 CXXFLAGS += -I./ -I../src -I../src/include
 
 SMARTDNS_OBJS = lib/rbtree.o lib/art.o lib/bitops.o lib/radix.o lib/conf.o lib/nftset.o

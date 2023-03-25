@@ -20,12 +20,14 @@
 #define _SMARTDNS_SERVER_
 
 #include "dns.h"
+#include "fast_ping.h"
 #include "include/utils.h"
 #include <functional>
 #include <string>
 #include <sys/socket.h>
 #include <thread>
 #include <unistd.h>
+#include <vector>
 
 namespace smartdns
 {
@@ -33,6 +35,12 @@ namespace smartdns
 class Server
 {
   public:
+	struct MockPingIP {
+		PING_TYPE type;
+		std::string host;
+		int ttl;
+		float time;
+	};
 	enum CONF_TYPE {
 		CONF_TYPE_STRING,
 		CONF_TYPE_FILE,
@@ -45,17 +53,19 @@ class Server
 	Server(enum CREATE_MODE mode);
 	virtual ~Server();
 
+	void MockPing(PING_TYPE type, const std::string &host, int ttl, float time);
 	bool Start(const std::string &conf, enum CONF_TYPE type = CONF_TYPE_STRING);
 	void Stop(bool graceful = true);
 	bool IsRunning();
 
   private:
+	static void StartPost(void *arg);
 	pid_t pid_;
 	std::thread thread_;
 	int fd_;
 	std::string conf_file_;
 	TempFile conf_temp_file_;
-
+	std::vector<MockPingIP> mock_ping_ips_;
 	enum CREATE_MODE mode_;
 };
 
@@ -100,10 +110,10 @@ class MockServer
 
 	static bool GetAddr(const std::string &host, const std::string port, int type, int protocol,
 						struct sockaddr_storage *addr, socklen_t *addrlen);
-	int fd_;
+	int fd_{0};
 	std::thread thread_;
-	bool run_;
-	ServerRequest callback_;
+	bool run_{false};
+	ServerRequest callback_{nullptr};
 };
 
 } // namespace smartdns

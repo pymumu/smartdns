@@ -37,6 +37,8 @@ struct dns_server_query_option {
 
 int dns_is_ipv6_ready(void);
 
+void dns_server_check_ipv6_ready(void);
+
 int dns_server_init(void);
 
 int dns_server_run(void);

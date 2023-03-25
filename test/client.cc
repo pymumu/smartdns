@@ -173,6 +173,11 @@ int Client::GetAnswerNum()
 	return answer_num_;
 }
 
+int Client::GetAuthorityNum()
+{
+	return authority_num_;
+}
+
 std::string Client::GetStatus()
 {
 	return status_;
@@ -257,7 +262,7 @@ bool Client::ParserResult()
 
 	std::regex reg_authority_num(", AUTHORITY: ([0-9]+),");
 	if (std::regex_search(result_, match, reg_authority_num)) {
-		records_authority_num_ = std::stoi(match[1]);
+		authority_num_ = std::stoi(match[1]);
 	}
 
 	std::regex reg_status(", status: ([A-Z]+),");
@@ -313,7 +318,7 @@ bool Client::ParserResult()
 			return false;
 		}
 
-		if (records_authority_num_ != records_authority_.size()) {
+		if (authority_num_ != records_authority_.size()) {
 			std::cout << "DIG FAILED: Num Not Match\n" << result_ << std::endl;
 			return false;
 		}

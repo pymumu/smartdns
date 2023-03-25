@@ -189,3 +189,146 @@ cache-persist no)""");
 	EXPECT_EQ(client.GetAnswer()[0].GetName(), "b.com");
 	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 600);
 }
+
+TEST_F(SpeedCheck, fastest_ip)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::Server server;
+
+	server_upstream.Start("udp://0.0.0.0:61053", [&](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype == DNS_T_A) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4");
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "5.6.7.8");
+			return smartdns::SERVER_REQUEST_OK;
+		}
+		return smartdns::SERVER_REQUEST_SOA;
+	});
+
+	server.MockPing(PING_TYPE_ICMP, "1.2.3.4", 60, 100);
+	server.MockPing(PING_TYPE_ICMP, "5.6.7.8", 60, 110);
+
+	server.Start(R"""(bind [::]:60053
+server 127.0.0.1:61053
+log-num 0
+log-console yes
+speed-check-mode ping
+dualstack-ip-selection no
+log-level debug
+cache-persist no)""");
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("b.com", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_LT(client.GetQueryTime(), 200);
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "b.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 3);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+
+	usleep(220 * 1000);
+	ASSERT_TRUE(client.Query("b.com", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 2);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_LT(client.GetQueryTime(), 20);
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "b.com");
+	EXPECT_GT(client.GetAnswer()[0].GetTTL(), 597);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+	EXPECT_EQ(client.GetAnswer()[1].GetData(), "5.6.7.8");
+}
+
+TEST_F(SpeedCheck, unreach_best_ipv4)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::MockServer server_upstream2;
+	smartdns::Server server;
+
+	server_upstream.Start("udp://0.0.0.0:61053", [&](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype == DNS_T_A) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4");
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "5.6.7.8");
+			return smartdns::SERVER_REQUEST_OK;
+		}
+		return smartdns::SERVER_REQUEST_SOA;
+	});
+
+	server_upstream2.Start("udp://0.0.0.0:62053", [&](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype == DNS_T_A) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4");
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "9.10.11.12");
+			return smartdns::SERVER_REQUEST_OK;
+		}
+		return smartdns::SERVER_REQUEST_SOA;
+	});
+
+	server.MockPing(PING_TYPE_ICMP, "1.2.3.4", 60, 10000);
+	server.MockPing(PING_TYPE_ICMP, "5.6.7.8", 60, 10000);
+	server.MockPing(PING_TYPE_ICMP, "9.10.11.12", 60, 10000);
+
+	server.Start(R"""(bind [::]:60053
+server 127.0.0.1:61053
+server 127.0.0.1:62053
+log-num 0
+log-console yes
+speed-check-mode ping
+dualstack-ip-selection no
+log-level debug
+cache-persist no)""");
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("a.com", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_LT(client.GetQueryTime(), 1200);
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
+	EXPECT_GT(client.GetAnswer()[0].GetTTL(), 597);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+}
+
+TEST_F(SpeedCheck, unreach_best_ipv6)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::MockServer server_upstream2;
+	smartdns::Server server;
+
+	server_upstream.Start("udp://0.0.0.0:61053", [&](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype == DNS_T_AAAA) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "2001:db8::1");
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "2001:db8::2");
+			return smartdns::SERVER_REQUEST_OK;
+		}
+		return smartdns::SERVER_REQUEST_SOA;
+	});
+
+	server_upstream2.Start("udp://0.0.0.0:62053", [&](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype == DNS_T_AAAA) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "2001:db8::2");
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "2001:db8::3");
+			return smartdns::SERVER_REQUEST_OK;
+		}
+		return smartdns::SERVER_REQUEST_SOA;
+	});
+
+	server.MockPing(PING_TYPE_ICMP, "2001:db8::1", 60, 10000);
+	server.MockPing(PING_TYPE_ICMP, "2001:db8::2", 60, 10000);
+	server.MockPing(PING_TYPE_ICMP, "2001:db8::3", 60, 10000);
+
+	server.Start(R"""(bind [::]:60053
+server 127.0.0.1:61053
+server 127.0.0.1:62053
+log-num 0
+log-console yes
+speed-check-mode ping
+dualstack-ip-selection no
+log-level debug
+cache-persist no)""");
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("a.com AAAA", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_LT(client.GetQueryTime(), 1200);
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
+	EXPECT_GT(client.GetAnswer()[0].GetTTL(), 597);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "2001:db8::2");
+}

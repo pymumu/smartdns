@@ -161,3 +161,34 @@ cache-persist no)""");
 	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 3);
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
 }
+
+TEST(Bind, device)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::Server server;
+
+	server_upstream.Start("udp://0.0.0.0:62053", [](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype == DNS_T_A) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4");
+			return smartdns::SERVER_REQUEST_OK;
+		}
+		return smartdns::SERVER_REQUEST_SOA;
+	});
+
+	server.Start(R"""(
+bind [::]:60053@lo
+server 127.0.0.1:62053
+log-num 0
+log-console yes
+log-level info
+cache-persist no)""");
+	smartdns::Client client;
+
+	ASSERT_TRUE(client.Query("a.com", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_LT(client.GetQueryTime(), 100);
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 3);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+}

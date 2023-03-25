@@ -47,6 +47,10 @@ typedef void (*fast_ping_result)(struct ping_host_struct *ping_host, const char 
 struct ping_host_struct *fast_ping_start(PING_TYPE type, const char *host, int count, int interval, int timeout,
 										 fast_ping_result ping_callback, void *userptr);
 
+int fast_ping_fake_ip_add(PING_TYPE type, const char *host, int ttl, float time);
+
+int fast_ping_fake_ip_remove(PING_TYPE type, const char *host);
+
 /* stop ping */
 int fast_ping_stop(struct ping_host_struct *ping_host);
 

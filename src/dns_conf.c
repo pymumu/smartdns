@@ -3336,6 +3336,8 @@ void dns_server_load_exit(void)
 	_config_host_table_destroy();
 	_config_qtype_soa_table_destroy();
 	_config_proxy_table_destroy();
+
+	dns_conf_server_num = 0;
 }
 
 static int _dns_conf_speed_check_mode_verify(void)

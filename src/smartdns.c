@@ -17,6 +17,7 @@
  */
 
 #define _GNU_SOURCE
+#include "smartdns.h"
 #include "art.h"
 #include "atomic.h"
 #include "dns_client.h"
@@ -304,8 +305,7 @@ static int _smartdns_add_servers(void)
 			}
 
 			if (_smartdns_prepare_server_flags(&flags, server) != 0) {
-				tlog(TLOG_ERROR, "prepare server flags failed, %s:%d", server->server,
-					 server->port);
+				tlog(TLOG_ERROR, "prepare server flags failed, %s:%d", server->server, server->port);
 				return -1;
 			}
 
@@ -647,16 +647,31 @@ static int _smartdns_init_pre(void)
 }
 
 #ifdef TEST
+
+static smartdns_post_func _smartdns_post = NULL;
+static void *_smartdns_post_arg = NULL;
+
+int smartdns_reg_post_func(smartdns_post_func func, void *arg)
+{
+	_smartdns_post = func;
+	_smartdns_post_arg = arg;
+	return 0;
+}
+
 #define smartdns_test_notify(retval) smartdns_test_notify_func(fd_notify, retval)
-static void smartdns_test_notify_func(int fd_notify, uint64_t retval) {
+static void smartdns_test_notify_func(int fd_notify, uint64_t retval)
+{
 	/* notify parent kickoff */
 	if (fd_notify > 0) {
 		write(fd_notify, &retval, sizeof(retval));
 	}
+
+	if (_smartdns_post != NULL) {
+		_smartdns_post(_smartdns_post_arg);
+	}
 }
 
-int smartdns_main(int argc, char *argv[], int fd_notify);
-int smartdns_main(int argc, char *argv[], int fd_notify) 
+int smartdns_main(int argc, char *argv[], int fd_notify)
 #else
 #define smartdns_test_notify(retval)
 int main(int argc, char *argv[])

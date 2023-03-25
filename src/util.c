@@ -310,7 +310,7 @@ int parse_ip(const char *value, char *ip, int *port)
 	return 0;
 }
 
-static int _check_is_ipv4(const char *ip)
+int check_is_ipv4(const char *ip)
 {
 	const char *ptr = ip;
 	char c = 0;
@@ -344,7 +344,8 @@ static int _check_is_ipv4(const char *ip)
 
 	return 0;
 }
-static int _check_is_ipv6(const char *ip)
+
+int check_is_ipv6(const char *ip)
 {
 	const char *ptr = ip;
 	char c = 0;
@@ -394,10 +395,10 @@ int check_is_ipaddr(const char *ip)
 {
 	if (strstr(ip, ".")) {
 		/* IPV4 */
-		return _check_is_ipv4(ip);
+		return check_is_ipv4(ip);
 	} else if (strstr(ip, ":")) {
 		/* IPV6 */
-		return _check_is_ipv6(ip);
+		return check_is_ipv6(ip);
 	}
 	return -1;
 }
