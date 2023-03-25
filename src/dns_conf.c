@@ -86,7 +86,7 @@ enum response_mode_type dns_conf_response_mode;
 int dns_conf_cachesize = -1;
 int dns_conf_prefetch = 0;
 int dns_conf_serve_expired = 1;
-int dns_conf_serve_expired_ttl = 24 * 3600; /* 1 day */
+int dns_conf_serve_expired_ttl = 24 * 3600 * 3; /* 3 days */
 int dns_conf_serve_expired_prefetch_time;
 int dns_conf_serve_expired_reply_ttl = 3;
 
