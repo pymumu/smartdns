@@ -61,6 +61,11 @@ markdown_extensions:
   - pymdownx.mark
   - pymdownx.smartsymbols
   - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
 
 
 nav:
@@ -72,6 +77,24 @@ nav:
     - ASUS firmware / Merlin firmware: 'install/asus.md'
     - EntWare: 'install/entware.md'
     - WSL: 'install/wsl.md'
+  - Configuration Guides:
+    - Basic Configuration: 'config/basic-config.md'
+    - Server Configuration: 'config/server-config.md'
+    - Cache Settings: 'config/cache.md'
+    - Ad Blocking: 'config/ad-block.md'
+    - Dual Stack Optimization: 'config/dualstack.md'
+    - Disable IPV6: 'config/block-ipv6.md'
+    - Domain Forwarding: 'config/domain-forwarding.md'
+    - Check Speed Mode: 'config/check-speed-mode.md'
+    - Security Related: 'config/security.md'
+    - Resolve Local Hostname: 'config/resolv-dnsmasq-lease.md'
+    - Bootstrap DNS: 'config/bootstrap-dns.md'
+    - CNAME Alias Query: 'config/cname.md'
+    - Domain Set: 'config/domain-set.md'
+    - IPSet and NFTSet: 'config/ipset-nftset.md'
+    - Query through Proxy: 'config/proxy.md'
+    - DNS64: 'config/dns64.md'
+    - Forwarding with IPSet: 'config/forwarding-with-ipset.md'
   - Configurations: 'configuration.md'
   - Compile: 'compile.md'
   - FAQ: 'faq.md'
