@@ -94,6 +94,7 @@ nav:
     - IPSet and NFTSet: 'config/ipset-nftset.md'
     - Query through Proxy: 'config/proxy.md'
     - DNS64: 'config/dns64.md'
+    - IP Rule: 'config/ip-rule.md'
     - Forwarding with IPSet: 'config/forwarding-with-ipset.md'
   - Configurations: 'configuration.md'
   - Compile: 'compile.md'

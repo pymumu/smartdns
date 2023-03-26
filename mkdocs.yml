@@ -94,6 +94,7 @@ nav:
     - IPSet和NFTSet: 'config/ipset-nftset.md'
     - 通过代理查询: 'config/proxy.md'
     - DNS64: 'config/dns64.md'
+    - IP规则: 'config/ip-rule.md'
     - 白名单分流请求: 'config/forwarding-with-ipset.md'
   - 配置选项: 'configuration.md'
   - 编译: 'compile.md'
