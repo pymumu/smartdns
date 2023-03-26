@@ -1860,7 +1860,7 @@ static int _dns_request_post(struct dns_server_post_context *context)
 
 	ret = _dns_reply_inpacket(request, context->inpacket, context->inpacket_len);
 	if (ret != 0) {
-		tlog(TLOG_WARN, "reply raw packet to client failed.");
+		tlog(TLOG_DEBUG, "reply raw packet to client failed.");
 		return -1;
 	}
 
@@ -6402,7 +6402,7 @@ int dns_server_run(void)
 			}
 
 			if (_dns_server_process(conn_head, event, now) != 0) {
-				tlog(TLOG_WARN, "dns server process failed.");
+				tlog(TLOG_DEBUG, "dns server process failed.");
 			}
 		}
 	}
