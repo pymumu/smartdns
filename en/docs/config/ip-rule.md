@@ -25,6 +25,8 @@ whitelist-ip 192.168.1.1/24
 
 ## Blacklist IP addresses
 
+To restrict the return of IP addresses from a certain upstream and discard IP within a specified range, a blacklist can be set up as follows:
+
 ```shell
 server -blacklist-ip
 blacklist-ip 192.168.1.1/24

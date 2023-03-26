@@ -25,6 +25,8 @@ whitelist-ip 192.168.1.1/24
 
 ## 黑名单IP地址
 
+如下想对某个上游限制其返回的IP地址，将指定范围的IP丢弃，则可设置黑名单如下：
+
 ```shell
 server -blacklist-ip
 blacklist-ip 192.168.1.1/24
