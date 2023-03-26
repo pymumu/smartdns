@@ -516,14 +516,14 @@ static void _dns_server_set_dualstack_selection(struct dns_request *request)
 	request->dualstack_selection = dns_conf_dualstack_ip_selection;
 }
 
-static int _dns_server_is_return_soa(struct dns_request *request)
+static int _dns_server_is_return_soa_qtype(struct dns_request *request, dns_type_t qtype)
 {
 	struct dns_rule_flags *rule_flag = NULL;
 	unsigned int flags = 0;
 
 	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_RULE_SOA) == 0) {
 		/* when both has no rule SOA and force AAAA soa, force AAAA soa has high priority */
-		if (request->qtype == DNS_T_AAAA && _dns_server_has_bind_flag(request, BIND_FLAG_FORCE_AAAA_SOA) == 0) {
+		if (qtype == DNS_T_AAAA && _dns_server_has_bind_flag(request, BIND_FLAG_FORCE_AAAA_SOA) == 0) {
 			return 1;
 		}
 
@@ -542,7 +542,7 @@ static int _dns_server_is_return_soa(struct dns_request *request)
 			return 0;
 		}
 
-		switch (request->qtype) {
+		switch (qtype) {
 		case DNS_T_A:
 			if (flags & DOMAIN_FLAG_ADDR_IPV4_SOA) {
 				return 1;
@@ -568,13 +568,18 @@ static int _dns_server_is_return_soa(struct dns_request *request)
 		}
 	}
 
-	if (request->qtype == DNS_T_AAAA) {
+	if (qtype == DNS_T_AAAA) {
 		if (_dns_server_has_bind_flag(request, BIND_FLAG_FORCE_AAAA_SOA) == 0 || dns_conf_force_AAAA_SOA == 1) {
 			return 1;
 		}
 	}
 
 	return 0;
+}
+
+static int _dns_server_is_return_soa(struct dns_request *request)
+{
+	return _dns_server_is_return_soa_qtype(request, request->qtype);
 }
 
 static void _dns_server_post_context_init(struct dns_server_post_context *context, struct dns_request *request)
@@ -2687,6 +2692,9 @@ static int _dns_server_ip_rule_check(struct dns_request *request, unsigned char 
 	/* bogus-nxdomain */
 	rule = node->data;
 	if (rule->bogus) {
+		request->rcode = DNS_RC_NXDOMAIN;
+		request->has_soa = 1;
+		_dns_server_setup_soa(request);
 		goto match;
 	}
 
@@ -3931,10 +3939,14 @@ static int _dns_server_pre_process_rule_flags(struct dns_request *request)
 {
 	struct dns_rule_flags *rule_flag = NULL;
 	unsigned int flags = 0;
+	int rcode = DNS_RC_NOERROR;
 
 	/* get domain rule flag */
 	rule_flag = _dns_server_get_dns_rule(request, DOMAIN_RULE_FLAGS);
 	if (rule_flag == NULL) {
+		if (_dns_server_is_return_soa(request)) {
+			goto soa;
+		}
 		goto out;
 	}
 
@@ -3952,10 +3964,6 @@ static int _dns_server_pre_process_rule_flags(struct dns_request *request)
 		goto out;
 	}
 
-	if (_dns_server_is_return_soa(request)) {
-		goto soa;
-	}
-
 	/* return specific type of address */
 	switch (request->qtype) {
 	case DNS_T_A:
@@ -3966,6 +3974,9 @@ static int _dns_server_pre_process_rule_flags(struct dns_request *request)
 
 		if (_dns_server_is_return_soa(request)) {
 			/* return SOA for A request */
+			if (_dns_server_is_return_soa_qtype(request, DNS_T_AAAA)) {
+				rcode = DNS_RC_NXDOMAIN;
+			}
 			goto soa;
 		}
 		break;
@@ -3977,6 +3988,9 @@ static int _dns_server_pre_process_rule_flags(struct dns_request *request)
 
 		if (_dns_server_is_return_soa(request)) {
 			/* return SOA for A request */
+			if (_dns_server_is_return_soa_qtype(request, DNS_T_A)) {
+				rcode = DNS_RC_NXDOMAIN;
+			}
 			goto soa;
 		}
 
@@ -3990,12 +4004,16 @@ static int _dns_server_pre_process_rule_flags(struct dns_request *request)
 		break;
 	}
 
+	if (_dns_server_is_return_soa(request)) {
+		goto soa;
+	}
+
 out:
 	return -1;
 
 soa:
 	/* return SOA */
-	_dns_server_reply_SOA(DNS_RC_NOERROR, request);
+	_dns_server_reply_SOA(rcode, request);
 	return 0;
 }
 
@@ -4842,11 +4860,6 @@ static int _dns_server_process_special_query(struct dns_request *request)
 	case DNS_T_A:
 		break;
 	case DNS_T_AAAA:
-		/* force return SOA */
-		if (_dns_server_is_return_soa(request)) {
-			_dns_server_reply_SOA(DNS_RC_NOERROR, request);
-			goto clean_exit;
-		}
 
 		break;
 	default:
