@@ -63,7 +63,7 @@ The community provides regularly updated ad-blocking list files for SmartDNS. Yo
 
 For non-SmartDNS data, simple shell commands can convert it.
 
-### `hosts` Format
+### hosts Format
 
 The following command converts the `/path/to/hosts/file` file (replace the path with your actual file) to the format supported by SmartDNS:
 
@@ -71,7 +71,7 @@ The following command converts the `/path/to/hosts/file` file (replace the path 
 cat /path/to/hosts/file | grep -v "^#" | awk '{print "address /"$2"/#"}' > anti-ad-smartdns.conf
 ```
 
-### `dnsmasq` Format
+### dnsmasq Format
 
 The dnsmasq format is similar to SmartDNS, but not compatible. You can convert it using the following command:
 

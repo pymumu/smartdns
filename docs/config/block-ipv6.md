@@ -19,15 +19,21 @@ hide:
     address /example.com/#6
     ```
 
+1. 方法三：如需禁用特定查询端口的IPV6查询（比如第二DNS），可以配置如下
+
+    ```shell
+    bind :53 -force-aaaa-soa 
+    ```
+
 ## 其他查询请求的禁用
 
-smartdns支持对其他查询请求的禁用，对应参数为force-qtype-SOA
+1. smartdns支持对其他查询请求的禁用，对应参数为force-qtype-SOA
 
-```shell
-force-qtype-SOA 28
-```
+    ```shell
+    force-qtype-SOA 28
+    ```
 
-force-qtype-SOA参数后为DNS的类型。具体的类型，可以查询[IANA说明](https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-4)
+    force-qtype-SOA参数后为DNS的类型。具体的类型，可以查询[IANA说明](https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-4)
 
 ## 附加说明
 

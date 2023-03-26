@@ -19,15 +19,21 @@ Currently, IPV6 has entered thousands of households. However, in some cases, IPV
     address /example.com/#6
     ```
 
+1. Method 3: If you need to disable IPV6 queries for a specific query port (such as the second DNS), you can configure it as follows:
+
+    ```shell
+    bind :53 -force-aaaa-soa
+    ```
+
 ## Disable Other Query Requests
 
-Smartdns supports disabling other query requests, and the corresponding parameter is `force-qtype-SOA`.
+1. Smartdns supports disabling other query requests, and the corresponding parameter is `force-qtype-SOA`.
 
-```shell
-force-qtype-SOA 28
-```
+    ```shell
+    force-qtype-SOA 28
+    ```
 
-After force-qtype-SOA parameter is the type of DNS. The specific types can be queried from the IANA Explanation.
+    After force-qtype-SOA parameter is the type of DNS. The specific types can be queried from the IANA Explanation.
 
 ## Additional Notes
 

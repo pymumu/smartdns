@@ -73,3 +73,26 @@ smartdns目前提供了UDP, TCP, DOT三种服务端模式。
     ```shell
     tcp-idle-time 120
     ```
+
+## 第二DNS服务
+
+bind-*参数除了支持基本的启用服务外，还支持更多的附加特性，可以作为特殊因为的第二DNS服务器使用。对应的可以启用的功能为：
+
+1. 配置样例：
+
+    ```shell
+    bind :53 -no-rule-addr -no-speed-check -no-cache
+    ```
+
+1. 参数介绍：
+
+    |参数|功能|
+    |---|---|
+    |-no-rule-addr|跳过 address 规则|
+    |-no-rule-nameserver|跳过 Nameserver 规则|
+    |-no-rule-ipset|跳过 ipset 和 nftset 规则|
+    |-no-rule-soa|跳过 SOA(#) 规则|
+    |-no-dualstack-selection|停用双栈测速|
+    |-no-speed-check|停用测速|
+    |-no-cache|停止缓存|
+    |-force-aaaa-soa|禁用IPV6查询|

@@ -72,3 +72,26 @@ Currently, smartdns provides three server modes: UDP, TCP, and DOT.
     ```shell
     tcp-idle-time 120
     ```
+
+## Second DNS Server
+
+In addition to supporting basic service, the `bind-*` parameter also supports more additional features, which can be used as a special second DNS server for specific needs. The corresponding functions that can be enabled are:
+
+1. Configuration example:
+
+    ```shell
+    bind :53 -no-rule-addr -no-speed-check -no-cache
+    ```
+
+1. Parameter introduction:
+
+   | Parameter | Function                                  |
+   | --------- | ---------------------------------------- |
+   | `-no-rule-addr` | Skip address rules                  |
+   | `-no-rule-nameserver` | Skip Nameserver rules           |
+   | `-no-rule-ipset` | Skip ipset and nftset rules         |
+   | `-no-rule-soa` | Skip SOA(#) rules                      |
+   | `-no-dualstack-selection` | Disable dual-stack speed test |
+   | `-no-speed-check` | Disable speed test                       |
+   | `-no-cache` | Stop caching                               |
+   | `-force-aaaa-soa` | Disable IPV6 queries                |
