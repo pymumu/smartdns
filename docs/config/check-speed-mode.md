@@ -33,7 +33,7 @@ SmartDNS提供了两种测速模式，分别是ping和tcp。smartdns默认使用
 1. 单域名测速模式配置
 
     ```shell
-    domain-rule /example.com/ -speed-check-mode ping,tcp:80,tcp:443
+    domain-rules /example.com/ -speed-check-mode ping,tcp:80,tcp:443
     ```
 
 1. 对应端口查询时关闭测速
@@ -47,7 +47,7 @@ SmartDNS提供了两种测速模式，分别是ping和tcp。smartdns默认使用
     如果分流的域名通过转发程序转发，则考虑关闭转发域名的测速功能，避免测速和出口不一致导致的体验反作用，关闭特定域名的测速方式如下：
 
     ```shell
-    domain-rule /example.com/ -speed-check-mode none
+    domain-rules /example.com/ -speed-check-mode none
     ```
 
 ## 响应模式配置

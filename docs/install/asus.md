@@ -88,7 +88,7 @@ server 1.1.1.1
 server-tls 8.8.8.8
 # 指定域名规则
 address /example.com/1.2.3.4
-domain-rule /example.com/ -address 1.2.3.4
+domain-rules /example.com/ -address 1.2.3.4
 ```
 
 - 也可以通过网上邻居修改，网上邻居共享目录 `sda1` 看不到 `asusware.mipsbig` 目录，但可以直接在`文件管理器`中输入 `asusware.mipsbig\etc\init.d` 访问

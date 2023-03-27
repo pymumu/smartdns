@@ -81,7 +81,7 @@ server 1.1.1.1
 server-tls 8.8.8.8
 # set domain rules
 address /example.com/1.2.3.4
-domain-rule /example.com/ -address 1.2.3.4
+domain-rules /example.com/ -address 1.2.3.4
 ```
 
 It can also be modified from Network Neighborhood. From the neighbor sharing directory `sda1` you can't see the `asusware.mipsbig` directory, but you can directly enter `asusware.mipsbig\etc\init.d` in `File Manager` to modify it.

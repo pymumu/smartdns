@@ -44,7 +44,7 @@ server 1.1.1.1
 server-tls 8.8.8.8
 # 指定域名规则
 address /example.com/1.2.3.4
-domain-rule /example.com/ -address 1.2.3.4
+domain-rules /example.com/ -address 1.2.3.4
 ```
 
 ## 重新加载配置

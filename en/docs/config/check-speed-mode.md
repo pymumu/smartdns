@@ -33,7 +33,7 @@ SmartDNS provides two speed test modes, namely ping and tcp. Smartdns defaults t
 1. Single domain speed test mode configuration
 
     ```shell
-    domain-rule /example.com/ -speed-check-mode ping,tcp:80,tcp:443
+    domain-rules /example.com/ -speed-check-mode ping,tcp:80,tcp:443
     ```
 
 1. Turn off speed test when querying corresponding ports
@@ -47,7 +47,7 @@ SmartDNS provides two speed test modes, namely ping and tcp. Smartdns defaults t
     If the domain names that need to be routed are forwarded through forwarding programs, consider turning off the speed test function of the forwarding domain name to avoid the reverse effect caused by inconsistent speed tests and exports, and close the speed test of specific domain names as follows:
 
     ```shell
-    domain-rule /example.com/ -speed-check-mode none
+    domain-rules /example.com/ -speed-check-mode none
     ```
 
 ## Response mode configuration
