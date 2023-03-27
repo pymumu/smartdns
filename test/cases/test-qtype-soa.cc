@@ -52,7 +52,7 @@ server 127.0.0.1:61053
 log-num 0
 log-console yes
 log-level debug
-force-qtype-SOA 28 65
+force-qtype-SOA 28,65
 cache-persist no)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com AAAA", 60053));
@@ -75,6 +75,80 @@ cache-persist no)""");
 	ASSERT_EQ(client.GetAnswerNum(), 1);
 	EXPECT_EQ(client.GetStatus(), "NOERROR");
 	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
+}
+
+TEST_F(QtypeSOA, AAAA_Except)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::Server server;
+
+	server_upstream.Start("udp://0.0.0.0:61053", [](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype == DNS_T_A) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4");
+			return smartdns::SERVER_REQUEST_OK;
+		} else if (request->qtype == DNS_T_AAAA) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "2001:db8::1");
+			return smartdns::SERVER_REQUEST_OK;
+		}
+		return smartdns::SERVER_REQUEST_SOA;
+	});
+
+	server.Start(R"""(bind [::]:60053
+server 127.0.0.1:61053
+log-num 0
+log-console yes
+log-level debug
+dualstack-ip-selection no
+force-qtype-SOA 28
+address /a.com/-
+cache-persist no)""");
+	smartdns::Client client;
+
+	ASSERT_TRUE(client.Query("a.com AAAA", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 3);
+	EXPECT_EQ(client.GetAnswer()[0].GetType(), "AAAA");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "2001:db8::1");
+}
+
+TEST_F(QtypeSOA, force_AAAA_SOA_Except)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::Server server;
+
+	server_upstream.Start("udp://0.0.0.0:61053", [](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype == DNS_T_A) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4");
+			return smartdns::SERVER_REQUEST_OK;
+		} else if (request->qtype == DNS_T_AAAA) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "2001:db8::1");
+			return smartdns::SERVER_REQUEST_OK;
+		}
+		return smartdns::SERVER_REQUEST_SOA;
+	});
+
+	server.Start(R"""(bind [::]:60053
+server 127.0.0.1:61053
+log-num 0
+log-console yes
+log-level debug
+dualstack-ip-selection no
+force-AAAA-SOA yes
+address /a.com/-
+cache-persist no)""");
+	smartdns::Client client;
+
+	ASSERT_TRUE(client.Query("a.com AAAA", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 3);
+	EXPECT_EQ(client.GetAnswer()[0].GetType(), "AAAA");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "2001:db8::1");
 }
 
 TEST_F(QtypeSOA, force_AAAA_SOA)

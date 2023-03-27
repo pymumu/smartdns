@@ -2227,19 +2227,23 @@ static int _config_qtype_soa(void *data, int argc, char *argv[])
 	}
 
 	for (i = 1; i < argc; i++) {
-		soa_list = malloc(sizeof(*soa_list));
-		if (soa_list == NULL) {
-			tlog(TLOG_ERROR, "cannot malloc memory");
-			return -1;
-		}
+		char sub_arg[1024];
+		safe_strncpy(sub_arg, argv[i], sizeof(sub_arg));
+		for (char *tok = strtok(sub_arg, ","); tok; tok = strtok(NULL, ",")) {
+			soa_list = malloc(sizeof(*soa_list));
+			if (soa_list == NULL) {
+				tlog(TLOG_ERROR, "cannot malloc memory");
+				return -1;
+			}
 
-		memset(soa_list, 0, sizeof(*soa_list));
-		soa_list->qtypeid = atol(argv[i]);
-		if (soa_list->qtypeid == DNS_T_AAAA) {
-			dns_conf_force_AAAA_SOA = 1;
+			memset(soa_list, 0, sizeof(*soa_list));
+			soa_list->qtypeid = atol(tok);
+			if (soa_list->qtypeid == DNS_T_AAAA) {
+				dns_conf_force_AAAA_SOA = 1;
+			}
+			uint32_t key = hash_32_generic(soa_list->qtypeid, 32);
+			hash_add(dns_qtype_soa_table.qtype, &soa_list->node, key);
 		}
-		uint32_t key = hash_32_generic(soa_list->qtypeid, 32);
-		hash_add(dns_qtype_soa_table.qtype, &soa_list->node, key);
 	}
 
 	return 0;

@@ -3961,7 +3961,7 @@ static int _dns_server_pre_process_rule_flags(struct dns_request *request)
 
 	if (flags & DOMAIN_FLAG_ADDR_IGN) {
 		/* ignore this domain */
-		goto out;
+		goto skip_soa_out;
 	}
 
 	/* return specific type of address */
@@ -3969,7 +3969,7 @@ static int _dns_server_pre_process_rule_flags(struct dns_request *request)
 	case DNS_T_A:
 		if (flags & DOMAIN_FLAG_ADDR_IPV4_IGN) {
 			/* ignore this domain for A request */
-			goto out;
+			goto skip_soa_out;
 		}
 
 		if (_dns_server_is_return_soa(request)) {
@@ -3983,7 +3983,7 @@ static int _dns_server_pre_process_rule_flags(struct dns_request *request)
 	case DNS_T_AAAA:
 		if (flags & DOMAIN_FLAG_ADDR_IPV6_IGN) {
 			/* ignore this domain for A request */
-			goto out;
+			goto skip_soa_out;
 		}
 
 		if (_dns_server_is_return_soa(request)) {
@@ -4007,7 +4007,8 @@ static int _dns_server_pre_process_rule_flags(struct dns_request *request)
 	if (_dns_server_is_return_soa(request)) {
 		goto soa;
 	}
-
+skip_soa_out:
+	request->skip_qtype_soa = 1;
 out:
 	return -1;
 
