@@ -25,6 +25,15 @@ Currently, IPV6 has entered thousands of households. However, in some cases, IPV
     bind :53 -force-aaaa-soa
     ```
 
+1. Exception configuration:
+
+    If you disable AAAA is enabled, you can add exceptions with following options:
+
+    ```shell
+    address /example.com/-
+    address /example.com/-6
+    ```
+
 ## Disable Other Query Requests
 
 1. Smartdns supports disabling other query requests, and the corresponding parameter is `force-qtype-SOA`.

@@ -25,6 +25,15 @@ hide:
     bind :53 -force-aaaa-soa 
     ```
 
+1. 例外配置：
+
+    在开启禁用AAAA记录时，如果需要特定的例外域名，可以通过下面方式添加例外
+
+    ```shell
+    address /example.com/-
+    address /example.com/-6
+    ```
+
 ## 其他查询请求的禁用
 
 1. smartdns支持对其他查询请求的禁用，对应参数为force-qtype-SOA
