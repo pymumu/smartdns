@@ -123,6 +123,7 @@ struct dns_server_info {
 	time_t last_recv;
 	unsigned long send_tick;
 	int prohibit;
+	int is_already_prohibit;
 
 	/* server addr info */
 	unsigned short ai_family;
@@ -200,6 +201,7 @@ struct dns_client {
 	struct list_head dns_request_list;
 	atomic_t run_period;
 	atomic_t dns_server_num;
+	atomic_t dns_server_prohibit_num;
 
 	/* ECS */
 	struct dns_client_ecs ecs_ipv4;
@@ -1411,6 +1413,11 @@ int dns_client_remove_server(char *server_ip, int port, dns_server_type_t server
 int dns_server_num(void)
 {
 	return atomic_read(&client.dns_server_num);
+}
+
+int dns_server_alive_num(void)
+{
+	return atomic_read(&client.dns_server_num) - atomic_read(&client.dns_server_prohibit_num);
 }
 
 static void _dns_client_query_get(struct dns_query_struct *query)
@@ -3338,6 +3345,7 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 	query->send_tick = get_tick_count();
 
 	/* send query to all dns servers */
+	atomic_inc(&query->dns_request_sent);
 	for (i = 0; i < 2; i++) {
 		total_server = 0;
 		pthread_mutex_lock(&client.server_list_lock);
@@ -3345,12 +3353,19 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 		{
 			server_info = group_member->server;
 			if (server_info->prohibit) {
+				if (server_info->is_already_prohibit == 0) {
+					server_info->is_already_prohibit = 1;
+					atomic_inc(&client.dns_server_prohibit_num);
+				}
+	
 				time_t now = 0;
 				time(&now);
 				if ((now - 60 < server_info->last_send) && (now - 5 > server_info->last_recv)) {
 					continue;
 				}
 				server_info->prohibit = 0;
+				server_info->is_already_prohibit = 0;
+				atomic_dec(&client.dns_server_prohibit_num);
 				if (now - 60 > server_info->last_send) {
 					_dns_client_close_socket(server_info);
 				}
@@ -3426,6 +3441,11 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 		if (send_count > 0) {
 			break;
 		}
+	}
+
+	int num  = atomic_dec_return(&query->dns_request_sent);
+	if (num == 0) {
+		_dns_client_query_remove(query);
 	}
 
 	if (send_count <= 0) {
@@ -4194,6 +4214,7 @@ int dns_client_init(void)
 	memset(&client, 0, sizeof(client));
 	pthread_attr_init(&attr);
 	atomic_set(&client.dns_server_num, 0);
+	atomic_set(&client.dns_server_prohibit_num, 0);
 	atomic_set(&client.run_period, 0);
 
 	epollfd = epoll_create1(EPOLL_CLOEXEC);

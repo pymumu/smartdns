@@ -36,7 +36,8 @@ extern "C" {
 #define DNS_CACHE_VERSION_LEN 32
 #define DNS_CACHE_GROUP_NAME_LEN 32
 #define MAGIC_NUMBER 0x6548634163536e44
-#define MAGIC_CACHE_DATA 0x44615461
+#define MAGIC_CACHE_DATA 0x61546144
+#define MAGIC_RECORD 0x64526352
 
 enum CACHE_TYPE {
 	CACHE_TYPE_NONE,
@@ -47,12 +48,14 @@ enum CACHE_TYPE {
 enum CACHE_RECORD_TYPE {
 	CACHE_RECORD_TYPE_ACTIVE,
 	CACHE_RECORD_TYPE_INACTIVE,
+	CACHE_RECORD_TYPE_END,
 };
 
 struct dns_cache_data_head {
 	enum CACHE_TYPE cache_type;
 	int is_soa;
 	ssize_t size;
+	uint32_t magic;
 };
 
 struct dns_cache_data {
@@ -89,6 +92,7 @@ struct dns_cache_info {
 	int speed;
 	int no_inactive;
 	int hitnum_update_add;
+	int is_visited;
 	time_t insert_time;
 	time_t replace_time;
 };
@@ -136,9 +140,11 @@ struct dns_cache_data *dns_cache_new_data_packet(void *packet, size_t packet_len
 
 int dns_cache_init(int size, int enable_inactive, int inactive_list_expired);
 
-int dns_cache_replace(struct dns_cache_key *key, int ttl, int speed, int no_inactive, struct dns_cache_data *cache_data);
+int dns_cache_replace(struct dns_cache_key *key, int ttl, int speed, int no_inactive,
+					  struct dns_cache_data *cache_data);
 
-int dns_cache_replace_inactive(struct dns_cache_key *key, int ttl, int speed, int no_inactive, struct dns_cache_data *cache_data);
+int dns_cache_replace_inactive(struct dns_cache_key *key, int ttl, int speed, int no_inactive,
+							   struct dns_cache_data *cache_data);
 
 int dns_cache_insert(struct dns_cache_key *key, int ttl, int speed, int no_inactive, struct dns_cache_data *cache_data);
 
@@ -151,6 +157,8 @@ void dns_cache_get(struct dns_cache *dns_cache);
 void dns_cache_release(struct dns_cache *dns_cache);
 
 int dns_cache_hitnum_dec_get(struct dns_cache *dns_cache);
+
+int dns_cache_is_visited(struct dns_cache *dns_cache);
 
 void dns_cache_update(struct dns_cache *dns_cache);
 
@@ -165,7 +173,7 @@ int dns_cache_get_cname_ttl(struct dns_cache *dns_cache);
 
 int dns_cache_is_soa(struct dns_cache *dns_cache);
 
-struct dns_cache_data *dns_cache_new_data(void);
+struct dns_cache_data *dns_cache_new_data_addr(void);
 
 struct dns_cache_data *dns_cache_get_data(struct dns_cache *dns_cache);
 
@@ -179,6 +187,8 @@ void dns_cache_destroy(void);
 int dns_cache_load(const char *file);
 
 int dns_cache_save(const char *file);
+
+const char *dns_cache_file_version(void);
 
 #ifdef __cplusplus
 }

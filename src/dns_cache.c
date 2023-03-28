@@ -147,7 +147,7 @@ void dns_cache_data_free(struct dns_cache_data *data)
 	free(data);
 }
 
-struct dns_cache_data *dns_cache_new_data(void)
+struct dns_cache_data *dns_cache_new_data_addr(void)
 {
 	struct dns_cache_addr *cache_addr = malloc(sizeof(struct dns_cache_addr));
 	memset(cache_addr, 0, sizeof(struct dns_cache_addr));
@@ -157,6 +157,7 @@ struct dns_cache_data *dns_cache_new_data(void)
 
 	cache_addr->head.cache_type = CACHE_TYPE_NONE;
 	cache_addr->head.size = sizeof(struct dns_cache_addr) - sizeof(struct dns_cache_data_head);
+	cache_addr->head.magic = MAGIC_CACHE_DATA;
 
 	return (struct dns_cache_data *)cache_addr;
 }
@@ -241,6 +242,7 @@ struct dns_cache_data *dns_cache_new_data_packet(void *packet, size_t packet_len
 
 	cache_packet->head.cache_type = CACHE_TYPE_PACKET;
 	cache_packet->head.size = packet_len;
+	cache_packet->head.magic = MAGIC_CACHE_DATA;
 
 	return (struct dns_cache_data *)cache_packet;
 }
@@ -274,6 +276,7 @@ static int _dns_cache_replace(struct dns_cache_key *cache_key, int ttl, int spee
 	dns_cache->info.ttl = ttl;
 	dns_cache->info.speed = speed;
 	dns_cache->info.no_inactive = no_inactive;
+	dns_cache->info.is_visited = 1;
 	old_cache_data = dns_cache->cache_data;
 	dns_cache->cache_data = cache_data;
 	list_del_init(&dns_cache->list);
@@ -294,12 +297,14 @@ static int _dns_cache_replace(struct dns_cache_key *cache_key, int ttl, int spee
 	return 0;
 }
 
-int dns_cache_replace(struct dns_cache_key *cache_key, int ttl, int speed, int no_inactive, struct dns_cache_data *cache_data)
+int dns_cache_replace(struct dns_cache_key *cache_key, int ttl, int speed, int no_inactive,
+					  struct dns_cache_data *cache_data)
 {
 	return _dns_cache_replace(cache_key, ttl, speed, no_inactive, 0, cache_data);
 }
 
-int dns_cache_replace_inactive(struct dns_cache_key *cache_key, int ttl, int speed, int no_inactive, struct dns_cache_data *cache_data)
+int dns_cache_replace_inactive(struct dns_cache_key *cache_key, int ttl, int speed, int no_inactive,
+							   struct dns_cache_data *cache_data)
 {
 	return _dns_cache_replace(cache_key, ttl, speed, no_inactive, 1, cache_data);
 }
@@ -391,7 +396,8 @@ errout:
 	return -1;
 }
 
-int dns_cache_insert(struct dns_cache_key *cache_key, int ttl, int speed, int no_inactive, struct dns_cache_data *cache_data)
+int dns_cache_insert(struct dns_cache_key *cache_key, int ttl, int speed, int no_inactive,
+					 struct dns_cache_data *cache_data)
 {
 	struct dns_cache_info info;
 
@@ -418,6 +424,7 @@ int dns_cache_insert(struct dns_cache_key *cache_key, int ttl, int speed, int no
 	info.hitnum_update_add = DNS_CACHE_HITNUM_STEP;
 	info.speed = speed;
 	info.no_inactive = no_inactive;
+	info.is_visited = 1;
 	time(&info.insert_time);
 	time(&info.replace_time);
 
@@ -541,6 +548,11 @@ struct dns_cache_data *dns_cache_get_data(struct dns_cache *dns_cache)
 	return dns_cache->cache_data;
 }
 
+int dns_cache_is_visited(struct dns_cache *dns_cache)
+{
+	return dns_cache->info.is_visited;
+}
+
 void dns_cache_delete(struct dns_cache *dns_cache)
 {
 	pthread_mutex_lock(&dns_cache_head.lock);
@@ -574,6 +586,7 @@ void dns_cache_update(struct dns_cache *dns_cache)
 		if (dns_cache->info.hitnum_update_add < DNS_CACHE_HITNUM_STEP_MAX) {
 			dns_cache->info.hitnum_update_add++;
 		}
+		dns_cache->info.is_visited = 1;
 	}
 	pthread_mutex_unlock(&dns_cache_head.lock);
 }
@@ -707,20 +720,28 @@ static int _dns_cache_read_record(int fd, uint32_t cache_number)
 			goto errout;
 		}
 
-		if (cache_record.magic != MAGIC_CACHE_DATA) {
+		if (cache_record.magic != MAGIC_RECORD) {
 			tlog(TLOG_ERROR, "magic is invalid.");
 			goto errout;
 		}
 
 		if (cache_record.type == CACHE_RECORD_TYPE_ACTIVE) {
 			head = &dns_cache_head.cache_list;
-		} else {
+		} else if (cache_record.type == CACHE_RECORD_TYPE_INACTIVE) {
 			head = &dns_cache_head.inactive_list;
+		} else {
+			tlog(TLOG_ERROR, "read cache record type is invalid.");
+			goto errout;
 		}
 
 		ret = read(fd, &data_head, sizeof(data_head));
 		if (ret != sizeof(data_head)) {
 			tlog(TLOG_ERROR, "read data head failed, %s", strerror(errno));
+			goto errout;
+		}
+
+		if (data_head.magic != MAGIC_CACHE_DATA) {
+			tlog(TLOG_ERROR, "data magic is invalid.");
 			goto errout;
 		}
 
@@ -739,6 +760,15 @@ static int _dns_cache_read_record(int fd, uint32_t cache_number)
 		ret = read(fd, cache_data->data, data_head.size);
 		if (ret != data_head.size) {
 			tlog(TLOG_ERROR, "read cache data failed, %s", strerror(errno));
+			goto errout;
+		}
+
+		/* set cache unvisited, so that when refreshing ipset/nftset, reload ipset list by restarting smartdns */
+		cache_record.info.is_visited = 0;
+		cache_record.info.domain[DNS_MAX_CNAME_LEN - 1] = '\0';
+		cache_record.info.dns_group_name[DNS_GROUP_NAME_LEN - 1] = '\0';
+		if (cache_record.type >= CACHE_RECORD_TYPE_END) {
+			tlog(TLOG_ERROR, "read cache record type is invalid.");
 			goto errout;
 		}
 
@@ -786,7 +816,7 @@ int dns_cache_load(const char *file)
 		goto errout;
 	}
 
-	if (strncmp(cache_file.version, __TIMESTAMP__, DNS_CACHE_VERSION_LEN - 1) != 0) {
+	if (strncmp(cache_file.version, dns_cache_file_version(), DNS_CACHE_VERSION_LEN) != 0) {
 		tlog(TLOG_WARN, "cache version is different, skip load cache.");
 		goto errout;
 	}
@@ -815,7 +845,7 @@ static int _dns_cache_write_record(int fd, uint32_t *cache_number, enum CACHE_RE
 	pthread_mutex_lock(&dns_cache_head.lock);
 	list_for_each_entry_safe_reverse(dns_cache, tmp, head, list)
 	{
-		cache_record.magic = MAGIC_CACHE_DATA;
+		cache_record.magic = MAGIC_RECORD;
 		cache_record.type = type;
 		memcpy(&cache_record.info, &dns_cache->info, sizeof(struct dns_cache_info));
 		ssize_t ret = write(fd, &cache_record, sizeof(cache_record));
@@ -871,7 +901,7 @@ int dns_cache_save(const char *file)
 	struct dns_cache_file cache_file;
 	memset(&cache_file, 0, sizeof(cache_file));
 	cache_file.magic = MAGIC_NUMBER;
-	safe_strncpy(cache_file.version, __TIMESTAMP__, DNS_CACHE_VERSION_LEN);
+	safe_strncpy(cache_file.version, dns_cache_file_version(), DNS_CACHE_VERSION_LEN);
 	cache_file.cache_number = 0;
 
 	if (lseek(fd, sizeof(cache_file), SEEK_SET) < 0) {
@@ -925,4 +955,10 @@ void dns_cache_destroy(void)
 	pthread_mutex_unlock(&dns_cache_head.lock);
 
 	pthread_mutex_destroy(&dns_cache_head.lock);
+}
+
+const char *dns_cache_file_version(void)
+{
+	const char *version = "cache ver 1.0";
+	return version;
 }

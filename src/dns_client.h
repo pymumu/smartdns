@@ -141,6 +141,8 @@ int dns_client_remove_from_group(const char *group_name, char *server_ip, int po
 
 int dns_client_remove_group(const char *group_name);
 
+int dns_server_alive_num(void);
+
 int dns_server_num(void);
 
 #ifdef __cplusplus

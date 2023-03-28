@@ -21,7 +21,10 @@
 #include "include/utils.h"
 #include "server.h"
 #include "gtest/gtest.h"
+#include <fcntl.h>
 #include <fstream>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 /* clang-format off */
 #include "dns_cache.h"
@@ -285,4 +288,78 @@ dualstack-ip-selection no
 	fs.read((char *)&head, sizeof(head));
 	EXPECT_EQ(head.magic, MAGIC_NUMBER);
 	EXPECT_EQ(head.cache_number, 1);
+}
+
+TEST_F(Cache, corrupt_file)
+{
+	smartdns::MockServer server_upstream;
+	auto cache_file = "/tmp/smartdns_cache." + smartdns::GenerateRandomString(10);
+	std::string conf = R"""(
+bind [::]:60053@lo
+server 127.0.0.1:62053
+log-num 0
+log-console yes
+log-level debug
+dualstack-ip-selection no
+cache-persist yes
+)""";
+
+	conf += "cache-file " + cache_file;
+	Defer
+	{
+		unlink(cache_file.c_str());
+	};
+
+	server_upstream.Start("udp://0.0.0.0:62053", [](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype == DNS_T_A) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4");
+			return smartdns::SERVER_REQUEST_OK;
+		}
+		return smartdns::SERVER_REQUEST_SOA;
+	});
+	{
+		smartdns::Server server;
+		server.Start(conf);
+		smartdns::Client client;
+
+		ASSERT_TRUE(client.Query("a.com", 60053));
+		std::cout << client.GetResult() << std::endl;
+		ASSERT_EQ(client.GetAnswerNum(), 1);
+		EXPECT_EQ(client.GetStatus(), "NOERROR");
+		EXPECT_LT(client.GetQueryTime(), 100);
+		EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 3);
+		EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+		server.Stop();
+		usleep(200 * 1000);
+	}
+
+	ASSERT_EQ(access(cache_file.c_str(), F_OK), 0);
+
+	int fd = open(cache_file.c_str(), O_RDWR);
+	ASSERT_NE(fd, -1);
+	srandom(time(NULL));
+	off_t file_size = lseek(fd, 0, SEEK_END);
+	off_t offset = random() % (file_size - 300);
+	std::cout << "try make corrupt at " << offset << ", file size: " << file_size << std::endl;
+	lseek(fd, offset, SEEK_SET);
+	for (int i = 0; i < 300; i++) {
+		unsigned char c = random() % 256;
+		write(fd, &c, 1);
+	}
+	close(fd);
+	{
+		smartdns::Server server;
+		server.Start(conf);
+		smartdns::Client client;
+
+		ASSERT_TRUE(client.Query("a.com", 60053));
+		std::cout << client.GetResult() << std::endl;
+		ASSERT_EQ(client.GetAnswerNum(), 1);
+		EXPECT_EQ(client.GetStatus(), "NOERROR");
+		EXPECT_LT(client.GetQueryTime(), 100);
+		EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 3);
+		EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+		server.Stop();
+		usleep(200 * 1000);
+	}
 }

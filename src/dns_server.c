@@ -1576,6 +1576,7 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 	struct dns_request *request = context->request;
 	char name[DNS_MAX_CNAME_LEN] = {0};
 	int rr_count = 0;
+	int timeout_value = 0;
 	int i = 0;
 	int j = 0;
 	struct dns_rrs *rrs = NULL;
@@ -1642,6 +1643,11 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 		return 0;
 	}
 
+	timeout_value = request->ip_ttl * 3;
+	if (timeout_value == 0) {
+		timeout_value = _dns_server_get_conf_ttl(request, 0) * 3;
+	}
+
 	for (j = 1; j < DNS_RRS_END; j++) {
 		rrs = dns_get_rrs_start(context->packet, j, &rr_count);
 		for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(context->packet, rrs)) {
@@ -1659,7 +1665,7 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 					/* add IPV4 to ipset */
 					tlog(TLOG_DEBUG, "IPSET-MATCH: domain: %s, ipset: %s, IP: %d.%d.%d.%d", request->domain,
 						 rule->ipsetname, addr[0], addr[1], addr[2], addr[3]);
-					ipset_add(rule->ipsetname, addr, DNS_RR_A_LEN, request->ip_ttl * 2);
+					ipset_add(rule->ipsetname, addr, DNS_RR_A_LEN, timeout_value);
 				}
 
 				if (nftset_ip != NULL) {
@@ -1668,7 +1674,7 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 						 nftset_ip->familyname, nftset_ip->nfttablename, nftset_ip->nftsetname, addr[0], addr[1],
 						 addr[2], addr[3]);
 					nftset_add(nftset_ip->familyname, nftset_ip->nfttablename, nftset_ip->nftsetname, addr,
-							   DNS_RR_A_LEN, request->ip_ttl * 2);
+							   DNS_RR_A_LEN, timeout_value);
 				}
 			} break;
 			case DNS_T_AAAA: {
@@ -1687,7 +1693,7 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 						 request->domain, rule->ipsetname, addr[0], addr[1], addr[2], addr[3], addr[4], addr[5],
 						 addr[6], addr[7], addr[8], addr[9], addr[10], addr[11], addr[12], addr[13], addr[14],
 						 addr[15]);
-					ipset_add(rule->ipsetname, addr, DNS_RR_AAAA_LEN, request->ip_ttl * 2);
+					ipset_add(rule->ipsetname, addr, DNS_RR_AAAA_LEN, timeout_value);
 				}
 
 				if (nftset_ip6 != NULL) {
@@ -1699,7 +1705,7 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 						 addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr[6], addr[7], addr[8], addr[9],
 						 addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
 					nftset_add(nftset_ip6->familyname, nftset_ip6->nfttablename, nftset_ip6->nftsetname, addr,
-							   DNS_RR_AAAA_LEN, request->ip_ttl * 2);
+							   DNS_RR_AAAA_LEN, timeout_value);
 				}
 			} break;
 			default:
@@ -2803,7 +2809,7 @@ static int _dns_server_process_answer_A(struct dns_rrs *rrs, struct dns_request 
 	/* Ad blocking result */
 	if (addr[0] == 0 || addr[0] == 127) {
 		/* If half of the servers return the same result, then ignore this address */
-		if (atomic_inc_return(&request->adblock) <= (dns_server_num() / 2 + dns_server_num() % 2)) {
+		if (atomic_inc_return(&request->adblock) <= (dns_server_alive_num() / 2 + dns_server_alive_num() % 2)) {
 			request->rcode = DNS_RC_NOERROR;
 			_dns_server_request_release(request);
 			return -1;
@@ -2880,7 +2886,7 @@ static int _dns_server_process_answer_AAAA(struct dns_rrs *rrs, struct dns_reque
 	/* Ad blocking result */
 	if (_dns_server_is_adblock_ipv6(addr) == 0) {
 		/* If half of the servers return the same result, then ignore this address */
-		if (atomic_inc_return(&request->adblock) <= (dns_server_num() / 2 + dns_server_num() % 2)) {
+		if (atomic_inc_return(&request->adblock) <= (dns_server_alive_num() / 2 + dns_server_alive_num() % 2)) {
 			request->rcode = DNS_RC_NOERROR;
 			_dns_server_request_release(request);
 			return -1;
@@ -2989,7 +2995,8 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 					 request->soa.refresh, request->soa.retry, request->soa.expire, request->soa.minimum);
 
 				int soa_num = atomic_inc_return(&request->soa_num);
-				if ((soa_num >= (dns_server_num() / 3) + 1 || soa_num > 4) && atomic_read(&request->ip_map_num) <= 0) {
+				if ((soa_num >= (dns_server_alive_num() / 3) + 1 || soa_num > 4) &&
+					atomic_read(&request->ip_map_num) <= 0) {
 					request->ip_ttl = ttl;
 					_dns_server_request_complete(request);
 				}
@@ -3072,7 +3079,7 @@ static int _dns_server_passthrough_rule_check(struct dns_request *request, const
 				/* Ad blocking result */
 				if (addr[0] == 0 || addr[0] == 127) {
 					/* If half of the servers return the same result, then ignore this address */
-					if (atomic_read(&request->adblock) <= (dns_server_num() / 2 + dns_server_num() % 2)) {
+					if (atomic_read(&request->adblock) <= (dns_server_alive_num() / 2 + dns_server_alive_num() % 2)) {
 						_dns_server_request_release(request);
 						return 0;
 					}
@@ -3116,7 +3123,7 @@ static int _dns_server_passthrough_rule_check(struct dns_request *request, const
 				/* Ad blocking result */
 				if (_dns_server_is_adblock_ipv6(addr) == 0) {
 					/* If half of the servers return the same result, then ignore this address */
-					if (atomic_read(&request->adblock) <= (dns_server_num() / 2 + dns_server_num() % 2)) {
+					if (atomic_read(&request->adblock) <= (dns_server_alive_num() / 2 + dns_server_alive_num() % 2)) {
 						_dns_server_request_release(request);
 						return 0;
 					}
@@ -3384,7 +3391,7 @@ static void _dns_server_passthrough_may_complete(struct dns_request *request)
 		addr = request->ip_addr;
 		if (addr[0] == 0 || addr[0] == 127) {
 			/* If half of the servers return the same result, then ignore this address */
-			if (atomic_read(&request->adblock) <= (dns_server_num() / 2 + dns_server_num() % 2)) {
+			if (atomic_read(&request->adblock) <= (dns_server_alive_num() / 2 + dns_server_alive_num() % 2)) {
 				return;
 			}
 		}
@@ -3394,7 +3401,7 @@ static void _dns_server_passthrough_may_complete(struct dns_request *request)
 		addr = request->ip_addr;
 		if (_dns_server_is_adblock_ipv6(addr) == 0) {
 			/* If half of the servers return the same result, then ignore this address */
-			if (atomic_read(&request->adblock) <= (dns_server_num() / 2 + dns_server_num() % 2)) {
+			if (atomic_read(&request->adblock) <= (dns_server_alive_num() / 2 + dns_server_alive_num() % 2)) {
 				return;
 			}
 		}
@@ -4549,6 +4556,10 @@ static int _dns_server_process_cache_packet(struct dns_request *request, struct 
 
 	if (cache_packet->head.cache_type != CACHE_TYPE_PACKET) {
 		return -1;
+	}
+
+	if (dns_cache_is_visited(dns_cache) == 0) {
+		do_ipset = 1;
 	}
 
 	if (dns_cache->info.qtype != request->qtype) {

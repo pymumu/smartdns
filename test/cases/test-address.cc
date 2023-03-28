@@ -35,7 +35,6 @@ TEST_F(Address, soa)
 {
 	smartdns::MockServer server_upstream;
 	smartdns::Server server;
-	std::map<int, int> qid_map;
 
 	server_upstream.Start("udp://0.0.0.0:61053", [&](struct smartdns::ServerRequestContext *request) {
 		if (request->qtype == DNS_T_A) {
@@ -122,7 +121,6 @@ TEST_F(Address, ip)
 {
 	smartdns::MockServer server_upstream;
 	smartdns::Server server;
-	std::map<int, int> qid_map;
 
 	server_upstream.Start("udp://0.0.0.0:61053", [&](struct smartdns::ServerRequestContext *request) {
 		if (request->qtype == DNS_T_A) {

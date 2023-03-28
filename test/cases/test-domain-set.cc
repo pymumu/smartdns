@@ -35,7 +35,6 @@ TEST_F(DomainSet, set_add)
 {
 	smartdns::MockServer server_upstream;
 	smartdns::Server server;
-	std::map<int, int> qid_map;
 	smartdns::TempFile file_set;
 	std::vector<std::string> domain_list;
 	int count = 16;

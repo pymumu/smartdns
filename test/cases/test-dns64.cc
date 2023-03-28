@@ -35,7 +35,6 @@ TEST_F(DNS64, no_dualstack)
 {
 	smartdns::MockServer server_upstream;
 	smartdns::Server server;
-	std::map<int, int> qid_map;
 
 	server_upstream.Start("udp://0.0.0.0:61053", [&](struct smartdns::ServerRequestContext *request) {
 		if (request->qtype == DNS_T_A) {
