@@ -3444,7 +3444,7 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 	}
 
 	int num  = atomic_dec_return(&query->dns_request_sent);
-	if (num == 0) {
+	if (num == 0 && send_count > 0) {
 		_dns_client_query_remove(query);
 	}
 
