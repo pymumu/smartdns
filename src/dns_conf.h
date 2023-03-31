@@ -249,6 +249,8 @@ struct dns_ptr {
 	struct hlist_node node;
 	char ptr_domain[DNS_MAX_PTR_LEN];
 	char hostname[DNS_MAX_CNAME_LEN];
+	char is_dynamic;
+	char is_soa;
 };
 
 struct dns_ptr_table {
@@ -266,7 +268,8 @@ struct dns_hosts {
 	char domain[DNS_MAX_CNAME_LEN];
 	dns_hosts_type host_type;
 	int dns_type;
-	int is_soa;
+	char is_soa;
+	char is_dynamic;
 	union {
 		unsigned char ipv4_addr[DNS_RR_A_LEN];
 		unsigned char ipv6_addr[DNS_RR_AAAA_LEN];

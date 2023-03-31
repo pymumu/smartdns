@@ -140,6 +140,8 @@ int dns_conf_dualstack_ip_selection = 1;
 int dns_conf_dualstack_ip_allow_force_AAAA;
 int dns_conf_dualstack_ip_selection_threshold = 10;
 
+int dns_conf_expand_ptr_from_address = 0;
+
 /* TTL */
 int dns_conf_rr_ttl;
 int dns_conf_rr_ttl_reply_max;
@@ -167,6 +169,7 @@ struct dns_edns_client_subnet dns_conf_ipv6_ecs;
 char dns_conf_sni_proxy_ip[DNS_MAX_IPLEN];
 
 static int _conf_domain_rule_nameserver(char *domain, const char *group_name);
+static int _conf_ptr_add(const char *hostname, const char *ip, int is_dynamic);
 
 static void *_new_dns_rule(enum domain_rule domain_rule)
 {
@@ -1575,6 +1578,11 @@ static int _conf_domain_rule_address(char *domain, const char *domain_address)
 		default:
 			goto errout;
 		}
+
+		/* add PTR */
+		if (dns_conf_expand_ptr_from_address == 1 && _conf_ptr_add(domain, ip, 0) != 0) {
+			goto errout;
+		}
 	}
 
 	/* add domain to ART-tree */
@@ -2790,6 +2798,7 @@ static struct dns_ptr *_dns_conf_get_ptr(const char *ptr_domain)
 
 	safe_strncpy(ptr->ptr_domain, ptr_domain, DNS_MAX_PTR_LEN);
 	hash_add(dns_ptr_table.ptr, &ptr->node, key);
+	ptr->is_soa = 1;
 
 	return ptr;
 errout:
@@ -2800,7 +2809,7 @@ errout:
 	return NULL;
 }
 
-static int _conf_ptr_add(const char *hostname, const char *ip)
+static int _conf_ptr_add(const char *hostname, const char *ip, int is_dynamic)
 {
 	struct dns_ptr *ptr = NULL;
 	struct sockaddr_storage addr;
@@ -2852,6 +2861,13 @@ static int _conf_ptr_add(const char *hostname, const char *ip)
 		goto errout;
 	}
 
+	if (is_dynamic == 1 && ptr->is_soa == 0 && ptr->is_dynamic == 0) {
+		/* already set fix PTR, skip */
+		return 0;
+	}
+
+	ptr->is_dynamic = is_dynamic;
+	ptr->is_soa = 0;
 	safe_strncpy(ptr->hostname, hostname, DNS_MAX_CNAME_LEN);
 
 	return 0;
@@ -2860,7 +2876,7 @@ errout:
 	return -1;
 }
 
-static void _config_ptr_table_destroy(void)
+static void _config_ptr_table_destroy(int only_dynamic)
 {
 	struct dns_ptr *ptr = NULL;
 	struct hlist_node *tmp = NULL;
@@ -2868,6 +2884,10 @@ static void _config_ptr_table_destroy(void)
 
 	hash_for_each_safe(dns_ptr_table.ptr, i, tmp, ptr, node)
 	{
+		if (only_dynamic != 0 && ptr->is_dynamic == 0) {
+			continue;
+		}
+
 		hlist_del_init(&ptr->node);
 		free(ptr);
 	}
@@ -2912,7 +2932,7 @@ errout:
 	return NULL;
 }
 
-static int _conf_host_add(const char *hostname, const char *ip, dns_hosts_type host_type)
+static int _conf_host_add(const char *hostname, const char *ip, dns_hosts_type host_type, int is_dynamic)
 {
 	struct dns_hosts *host = NULL;
 	struct dns_hosts *host_other __attribute__((unused));
@@ -2952,9 +2972,14 @@ static int _conf_host_add(const char *hostname, const char *ip, dns_hosts_type h
 		goto errout;
 	}
 
+	if (is_dynamic == 1 && host->is_soa == 0 && host->is_dynamic == 0) {
+		/* already set fixed PTR, skip */
+		return 0;
+	}
+
 	/* add this to return SOA when addr is not exist */
 	host_other = _dns_conf_get_hosts(hostname, dns_type_other);
-
+	host->is_dynamic = is_dynamic;
 	host->host_type = host_type;
 
 	switch (addr.ss_family) {
@@ -3013,12 +3038,12 @@ static int _conf_dhcp_lease_dnsmasq_add(const char *file)
 			continue;
 		}
 
-		ret = _conf_host_add(hostname, ip, DNS_HOST_TYPE_DNSMASQ);
+		ret = _conf_host_add(hostname, ip, DNS_HOST_TYPE_DNSMASQ, 1);
 		if (ret != 0) {
 			tlog(TLOG_WARN, "add host %s/%s at %d failed", hostname, ip, line_no);
 		}
 
-		ret = _conf_ptr_add(hostname, ip);
+		ret = _conf_ptr_add(hostname, ip, 1);
 		if (ret != 0) {
 			tlog(TLOG_WARN, "add ptr %s/%s at %d failed.", hostname, ip, line_no);
 		}
@@ -3055,7 +3080,7 @@ static int _conf_hosts_file(void *data, int argc, char *argv[])
 	return 0;
 }
 
-static void _config_host_table_destroy(void)
+static void _config_host_table_destroy(int only_dynamic)
 {
 	struct dns_hosts *host = NULL;
 	struct hlist_node *tmp = NULL;
@@ -3063,6 +3088,10 @@ static void _config_host_table_destroy(void)
 
 	hash_for_each_safe(dns_hosts_table.hosts, i, tmp, host, node)
 	{
+		if (only_dynamic != 0 && host->is_dynamic == 0) {
+			continue;
+		}
+
 		hlist_del_init(&host->node);
 		free(host);
 	}
@@ -3093,8 +3122,8 @@ int dns_server_check_update_hosts(void)
 		return -1;
 	}
 
-	_config_ptr_table_destroy();
-	_config_host_table_destroy();
+	_config_ptr_table_destroy(1);
+	_config_host_table_destroy(1);
 
 	if (_conf_dhcp_lease_dnsmasq_add(dns_conf_dnsmasq_lease_file) != 0) {
 		return -1;
@@ -3187,6 +3216,7 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("server-tls", _config_server_tls, NULL),
 	CONF_CUSTOM("server-https", _config_server_https, NULL),
 	CONF_CUSTOM("nameserver", _config_nameserver, NULL),
+	CONF_YESNO("expand-ptr-from-address", &dns_conf_expand_ptr_from_address),
 	CONF_CUSTOM("address", _config_address, NULL),
 	CONF_CUSTOM("cname", _config_cname, NULL),
 	CONF_CUSTOM("proxy-server", _config_proxy_server, NULL),
@@ -3336,8 +3366,8 @@ void dns_server_load_exit(void)
 	_config_ipset_table_destroy();
 	_config_nftset_table_destroy();
 	_config_group_table_destroy();
-	_config_ptr_table_destroy();
-	_config_host_table_destroy();
+	_config_ptr_table_destroy(0);
+	_config_host_table_destroy(0);
 	_config_qtype_soa_table_destroy();
 	_config_proxy_table_destroy();
 

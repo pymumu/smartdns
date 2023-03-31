@@ -49,7 +49,18 @@ DNSRecord::~DNSRecord() {}
 
 bool DNSRecord::Parser(const std::string &line)
 {
-	std::vector<std::string> fields = StringSplit(line, '\t');
+	std::vector<std::string> fields_first = StringSplit(line, '\t');
+	std::vector<std::string> fields;
+
+	for (const auto &f : fields_first) {
+		std::vector<std::string> fields_second = StringSplit(f, ' ');
+		for (const auto &s : fields_second) {
+			if (s.length() > 0) {
+				fields.push_back(s);
+			}
+		}
+	}
+
 	if (fields.size() < 3) {
 		std::cerr << "Invalid DNS record: " << line << ", size: " << fields.size() << std::endl;
 		return false;
