@@ -9,7 +9,7 @@ hide:
 
 ## 配置步骤
 
-1. 使用`cname /a.com/b.com`配置代理服务器
+1. 使用`cname /a.com/b.com`配置别名。
 
     ```shell
     cname /a.com/b.com

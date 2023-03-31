@@ -89,6 +89,7 @@ nav:
     - Security Related: 'config/security.md'
     - Resolve Local Hostname: 'config/resolv-dnsmasq-lease.md'
     - Bootstrap DNS: 'config/bootstrap-dns.md'
+    - Domain Address: 'config/domain-address.md'
     - CNAME Alias Query: 'config/cname.md'
     - Domain Set: 'config/domain-set.md'
     - IPSet and NFTSet: 'config/ipset-nftset.md'

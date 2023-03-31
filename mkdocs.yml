@@ -89,6 +89,7 @@ nav:
     - 安全相关: 'config/security.md'
     - 解析本地主机名: 'config/resolv-dnsmasq-lease.md'
     - Bootstrap DNS: 'config/bootstrap-dns.md'
+    - 域名地址: 'config/domain-address.md'
     - cname别名查询: 'config/cname.md'
     - 域名集合: 'config/domain-set.md'
     - IPSet和NFTSet: 'config/ipset-nftset.md'
