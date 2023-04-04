@@ -21,7 +21,7 @@ OBJS=smartdns.o fast_ping.o dns_client.o dns_server.o dns.o util.o tlog.o dns_co
 # cflags
 ifndef CFLAGS
  ifdef DEBUG
-  CFLAGS = -g
+  CFLAGS = -g -DDEBUG
  else
   CFLAGS = -O2
  endif

@@ -849,7 +849,7 @@ int dns_get_A(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, unsigned
 	return _dns_get_RAW(rrs, domain, maxsize, ttl, addr, &len);
 }
 
-int dns_add_PTR(struct dns_packet *packet, dns_rr_type type, const char *domain, int ttl, char *cname)
+int dns_add_PTR(struct dns_packet *packet, dns_rr_type type, const char *domain, int ttl, const char *cname)
 {
 	int rr_len = strnlen(cname, DNS_MAX_CNAME_LEN) + 1;
 	return _dns_add_RAW(packet, type, DNS_T_PTR, domain, ttl, cname, rr_len);
@@ -1862,7 +1862,7 @@ static int _dns_decode_opt(struct dns_context *context, dns_rr_type type, unsign
 
 	while (context->ptr - start < rr_len) {
 		if (_dns_left_len(context) < 4) {
-			tlog(TLOG_WARN, "data length is invalid, %d:%d", _dns_left_len(context),
+			tlog(TLOG_DEBUG, "data length is invalid, %d:%d", _dns_left_len(context),
 				 (int)(context->ptr - context->data));
 			return -1;
 		}
@@ -1870,7 +1870,7 @@ static int _dns_decode_opt(struct dns_context *context, dns_rr_type type, unsign
 		opt_len = _dns_read_short(&context->ptr);
 
 		if (_dns_left_len(context) < opt_len) {
-			tlog(TLOG_ERROR, "read opt data failed, opt_code = %d, opt_len = %d", opt_code, opt_len);
+			tlog(TLOG_DEBUG, "read opt data failed, opt_code = %d, opt_len = %d", opt_code, opt_len);
 			return -1;
 		}
 

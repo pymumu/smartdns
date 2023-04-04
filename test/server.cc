@@ -243,6 +243,7 @@ bool MockServer::Start(const std::string &url, ServerRequest callback)
 	int port;
 	char c_path[256];
 	int fd;
+	int yes = 1;
 	struct sockaddr_storage addr;
 	socklen_t addrlen;
 
@@ -270,6 +271,9 @@ bool MockServer::Start(const std::string &url, ServerRequest callback)
 	if (fd < 0) {
 		return false;
 	}
+
+	setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+	setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &yes, sizeof(yes));
 
 	if (bind(fd, (struct sockaddr *)&addr, addrlen) != 0) {
 		close(fd);

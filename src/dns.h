@@ -257,7 +257,7 @@ int dns_add_A(struct dns_packet *packet, dns_rr_type type, const char *domain, i
 			  unsigned char addr[DNS_RR_A_LEN]);
 int dns_get_A(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, unsigned char addr[DNS_RR_A_LEN]);
 
-int dns_add_PTR(struct dns_packet *packet, dns_rr_type type, const char *domain, int ttl, char *cname);
+int dns_add_PTR(struct dns_packet *packet, dns_rr_type type, const char *domain, int ttl, const char *cname);
 int dns_get_PTR(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, char *cname, int cname_size);
 
 int dns_add_AAAA(struct dns_packet *packet, dns_rr_type type, const char *domain, int ttl,

@@ -20,6 +20,11 @@
 #include "include/utils.h"
 #include "server.h"
 #include "gtest/gtest.h"
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <openssl/rand.h>
+#include <sys/socket.h>
 
 TEST(Bind, tls)
 {
@@ -182,6 +187,61 @@ log-num 0
 log-console yes
 log-level info
 cache-persist no)""");
+	smartdns::Client client;
+
+	ASSERT_TRUE(client.Query("a.com", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_LT(client.GetQueryTime(), 100);
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 3);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+}
+
+TEST(Bind, malformed_packet)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::Server server;
+
+	server_upstream.Start("udp://0.0.0.0:62053", [](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype == DNS_T_A) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4");
+			return smartdns::SERVER_REQUEST_OK;
+		}
+		return smartdns::SERVER_REQUEST_SOA;
+	});
+
+	server.Start(R"""(
+bind [::]:60053@lo
+server 127.0.0.1:62053
+log-num 0
+log-console yes
+log-level info
+cache-persist no)""");
+
+	int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+	ASSERT_NE(sockfd, -1);
+	Defer
+	{
+		close(sockfd);
+	};
+
+	struct sockaddr_in server_addr;
+	server_addr.sin_family = AF_INET;
+	server_addr.sin_port = htons(60053);
+	server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+
+	for (int i = 0; i < 100000; i++) {
+		char buf[4096];
+		int len = random() % 4096;
+		if (len <= 0) {
+			len = 1;
+		}
+
+		RAND_bytes((unsigned char *)buf, len);
+		sendto(sockfd, buf, len, 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
+	}
+
 	smartdns::Client client;
 
 	ASSERT_TRUE(client.Query("a.com", 60053));

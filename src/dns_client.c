@@ -1814,7 +1814,7 @@ static int _dns_client_create_socket_udp(struct dns_server_info *server_info)
 
 	if (connect(fd, &server_info->addr, server_info->ai_addrlen) != 0) {
 		if (errno == ENETUNREACH || errno == EHOSTUNREACH || errno == ECONNREFUSED) {
-			tlog(TLOG_WARN, "connect %s failed, %s", server_info->ip, strerror(errno));
+			tlog(TLOG_INFO, "connect %s failed, %s", server_info->ip, strerror(errno));
 			goto errout;
 		}
 
@@ -3375,6 +3375,7 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 			if (server_info->fd <= 0) {
 				ret = _dns_client_create_socket(server_info);
 				if (ret != 0) {
+					server_info->prohibit = 1;
 					continue;
 				}
 			}
