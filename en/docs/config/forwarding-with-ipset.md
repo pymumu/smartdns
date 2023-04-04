@@ -59,10 +59,10 @@ flowchart
 
 ## SmartDNS forward configuration
 
-In the above process diagram, SmartDNS forward data needs to be set as follows
+1. In the above process diagram, SmartDNS forward data needs to be set as follows
 
-* The internal domain obtains IP by querying the internal DNS server, and measures the speed of IP to return the fastest IP address to the client.
-* The external domain queries from the external server, does not measure the speed, and adds the IP address to the IPSet/NFTSet for data forwarding.
+    * The internal domain obtains IP by querying the internal DNS server, and measures the speed of IP to return the fastest IP address to the client.
+    * The external domain queries from the external server, does not measure the speed, and adds the IP address to the IPSet/NFTSet for data forwarding.
 
 1. Basic configuration
 
@@ -102,7 +102,7 @@ In the above process diagram, SmartDNS forward data needs to be set as follows
 
 1. Configure domain name policy
 
-    Configure blacklist domain names, use the `public` server group for domain names in the list, turn off speed measurement, turn off IPV6, and join IPSET.
+    Configure whitelist domain names, use the `public` server group for domain names in the list, turn off speed measurement, turn off IPV6, and join IPSET.
 
     ```shell
     # Add domain name list, format one domain name per line
@@ -213,7 +213,7 @@ To cooperate with smartdns to complete the forwarding of external requests, it i
 
 1. Method 1: TCP forwarding only (easier)
 
-    1. Create nftable's nftset collection, collection name is `#4:ip#nat:public_set`
+    1. Create nftable's nftset collection, collection name is `#4:ip#nat#public_set`
 
        ```shell
        nft add set ip nat public_set { type ipv4_addr\; flags interval\; auto-merge\; }
@@ -228,7 +228,7 @@ To cooperate with smartdns to complete the forwarding of external requests, it i
     1. Configure nftable rules in smartdns
 
        ```shell
-       nftset /example.com/#4:ip:nat:public_set
+       nftset /example.com/#4:ip#nat#public_set
        ```
 
     1. Enable forwarding program
@@ -284,7 +284,7 @@ To cooperate with smartdns to complete the forwarding of external requests, it i
     1. Configure nftset in smartdns
 
         ```shell
-        nftset /example.com/#4:ip#smartdns:public
+        nftset /example.com/#4:ip#smartdns#public
         ```
 
     1. Enable forwarding program

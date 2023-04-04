@@ -59,9 +59,10 @@ flowchart
 
 ## SmartDNS分流配置
 
-在上述流程图中，SmartDNS分流数据，需要做如下设置
-  * 内部域名从内部DNS服务器查询，并对IP进行测速，将最快IP地址返回客户端。
-  * 外部域名从外部服务器查询，不进行测速，将IP地址放入IPSet/NFTSet中供数据转发。
+1. 在上述流程图中，SmartDNS分流数据，需要做如下设置
+
+    * 内部域名从内部DNS服务器查询，并对IP进行测速，将最快IP地址返回客户端。
+    * 外部域名从外部服务器查询，不进行测速，将IP地址放入IPSet/NFTSet中供数据转发。
 
 1. 基本配置
 
@@ -101,7 +102,7 @@ flowchart
 
 1. 配置域名规则
 
-    配置黑名单域名，对名单中的域名走public服务器组，并关闭测速，关闭IPV6，加入IPSET。
+    配置白名单域名，对名单中的域名走public服务器组，并关闭测速，关闭IPV6，加入IPSET。
 
     ```shell
     # 添加域名列表，格式为一行一个域名
@@ -211,7 +212,7 @@ flowchart
 
 1. 方式一：仅TCP转发 （容易）
 
-    1. 创建nftable的nftset集合，集合名称为`#4:ip#nat:public_set`
+    1. 创建nftable的nftset集合，集合名称为`#4:ip#nat#public_set`
 
         ```shell
         nft add set ip nat public_set { type ipv4_addr\; flags interval\; auto-merge\; }
@@ -226,7 +227,7 @@ flowchart
     1. smartdns中配置nftable规则
 
         ```shell
-        nftset /example.com/#4:ip:nat:public_set
+        nftset /example.com/#4:ip#nat#public_set
         ```
 
     1. 启用转发程序
@@ -282,7 +283,7 @@ flowchart
     1. smartdns配置nftset
 
         ```shell
-        nftset /example.com/#4:ip#smartdns:public
+        nftset /example.com/#4:ip#smartdns#public
         ```
 
     1. 启用转发程序
