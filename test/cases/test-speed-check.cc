@@ -235,7 +235,7 @@ TEST_F(SpeedCheck, tcp_faster_than_ping)
 		return smartdns::SERVER_REQUEST_SOA;
 	});
 
-	server.MockPing(PING_TYPE_ICMP, "1.2.3.4", 60, 300);
+	server.MockPing(PING_TYPE_ICMP, "1.2.3.4", 60, 350);
 	server.MockPing(PING_TYPE_TCP, "5.6.7.8:80", 60, 10);
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
