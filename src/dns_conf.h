@@ -293,6 +293,12 @@ struct dns_proxy_table {
 };
 extern struct dns_proxy_table dns_proxy_table;
 
+struct dns_edns_client_subnet {
+	int enable;
+	char ip[DNS_MAX_IPLEN];
+	int subnet;
+};
+
 struct dns_servers {
 	char server[DNS_MAX_IPLEN];
 	unsigned short port;
@@ -309,6 +315,8 @@ struct dns_servers {
 	char tls_host_verify[DNS_MAX_CNAME_LEN];
 	char path[DNS_MAX_URL_LEN];
 	char proxyname[PROXY_NAME_LEN];
+	struct dns_edns_client_subnet ipv4_ecs;
+	struct dns_edns_client_subnet ipv6_ecs;
 };
 
 struct dns_proxy_servers {
@@ -344,12 +352,6 @@ struct dns_ip_address_rule {
 	unsigned int whitelist : 1;
 	unsigned int bogus : 1;
 	unsigned int ip_ignore : 1;
-};
-
-struct dns_edns_client_subnet {
-	int enable;
-	char ip[DNS_MAX_IPLEN];
-	int subnet;
 };
 
 struct dns_conf_address_rule {

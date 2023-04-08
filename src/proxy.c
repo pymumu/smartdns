@@ -802,7 +802,7 @@ static int _proxy_handshake_http(struct proxy_conn *proxy_conn)
 			if (errno == EAGAIN || errno == EWOULDBLOCK) {
 				return PROXY_HANDSHAKE_WANT_READ;
 			}
-			
+
 			if (len == 0) {
 				tlog(TLOG_ERROR, "remote server %s closed.", proxy_conn->server_info->proxy_name);
 			} else {

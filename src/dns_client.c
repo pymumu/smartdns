@@ -136,6 +136,10 @@ struct dns_server_info {
 	};
 
 	struct client_dns_server_flags flags;
+
+	/* ECS */
+	struct dns_client_ecs ecs_ipv4;
+	struct dns_client_ecs ecs_ipv6;
 };
 
 struct dns_server_pending_group {
@@ -271,6 +275,8 @@ static int dns_client_has_bootstrap_dns = 0;
 static int _dns_client_send_udp(struct dns_server_info *server_info, void *packet, int len);
 static void _dns_client_clear_wakeup_event(void);
 static void _dns_client_do_wakeup_event(void);
+static int _dns_client_setup_ecs(char *ip, int subnet, struct dns_client_ecs *ecs_ipv4,
+								 struct dns_client_ecs *ecs_ipv6);
 
 static ssize_t _ssl_read(struct dns_server_info *server, void *buff, int num)
 {
@@ -988,6 +994,25 @@ errout:
 	return NULL;
 }
 
+static int _dns_client_server_add_ecs(struct dns_server_info *server_info, struct client_dns_server_flags *flags)
+{
+	int ret = 0;
+
+	if (flags == NULL) {
+		return 0;
+	}
+
+	if (flags->ipv4_ecs.enable) {
+		ret = _dns_client_setup_ecs(flags->ipv4_ecs.ip, flags->ipv4_ecs.subnet, &server_info->ecs_ipv4, NULL);
+	}
+
+	if (flags->ipv6_ecs.enable) {
+		ret |= _dns_client_setup_ecs(flags->ipv6_ecs.ip, flags->ipv6_ecs.subnet, NULL, &server_info->ecs_ipv6);
+	}
+
+	return ret;
+}
+
 /* add dns server information */
 static int _dns_client_server_add(char *server_ip, char *server_host, int port, dns_server_type_t server_type,
 								  struct client_dns_server_flags *flags)
@@ -1083,10 +1108,15 @@ static int _dns_client_server_add(char *server_ip, char *server_host, int port, 
 	pthread_mutex_init(&server_info->lock, NULL);
 	memcpy(&server_info->flags, flags, sizeof(server_info->flags));
 
+	if (_dns_client_server_add_ecs(server_info, flags) != 0) {
+		tlog(TLOG_ERROR, "add %s ecs failed.", server_ip);
+		goto errout;
+	}
+
 	/* exclude this server from default group */
 	if ((server_info->flags.server_flag & SERVER_FLAG_EXCLUDE_DEFAULT) == 0) {
 		if (_dns_client_add_to_group(DNS_SERVER_GROUP_DEFAULT, server_info) != 0) {
-			tlog(TLOG_ERROR, "add server to default group failed.");
+			tlog(TLOG_ERROR, "add server %s to default group failed.", server_ip);
 			goto errout;
 		}
 	}
@@ -3331,6 +3361,80 @@ static int _dns_client_send_https(struct dns_server_info *server_info, void *pac
 	return 0;
 }
 
+static int _dns_client_setup_server_packet(struct dns_server_info *server_info, struct dns_query_struct *query,
+										   void *default_packet, int default_packet_len,
+										   unsigned char *packet_data_buffer, void **packet_data, int *packet_data_len)
+{
+	unsigned char packet_buff[DNS_PACKSIZE];
+	struct dns_packet *packet = (struct dns_packet *)packet_buff;
+	struct dns_head head;
+	int encode_len = 0;
+
+	*packet_data = default_packet;
+	*packet_data_len = default_packet_len;
+
+	if (query->qtype != DNS_T_AAAA && query->qtype != DNS_T_A) {
+		/* no need to encode packet */
+		return 0;
+	}
+
+	if (server_info->ecs_ipv4.enable == false && query->qtype == DNS_T_A) {
+		/* no need to encode packet */
+		return 0;
+	}
+
+	if (server_info->ecs_ipv6.enable == false && query->qtype == DNS_T_AAAA) {
+		/* no need to encode packet */
+		return 0;
+	}
+
+	/* init dns packet head */
+	memset(&head, 0, sizeof(head));
+	head.id = query->sid;
+	head.qr = DNS_QR_QUERY;
+	head.opcode = DNS_OP_QUERY;
+	head.aa = 0;
+	head.rd = 1;
+	head.ra = 0;
+	head.rcode = 0;
+
+	if (dns_packet_init(packet, DNS_PACKSIZE, &head) != 0) {
+		tlog(TLOG_ERROR, "init packet failed.");
+		return -1;
+	}
+
+	/* add question */
+	if (dns_add_domain(packet, query->domain, query->qtype, DNS_C_IN) != 0) {
+		tlog(TLOG_ERROR, "add domain to packet failed.");
+		return -1;
+	}
+
+	dns_set_OPT_payload_size(packet, DNS_IN_PACKSIZE);
+	/* dns_add_OPT_TCP_KEEPALIVE(packet, 600); */
+	if (query->qtype == DNS_T_A && server_info->ecs_ipv4.enable) {
+		dns_add_OPT_ECS(packet, &server_info->ecs_ipv4.ecs);
+	} else if (query->qtype == DNS_T_AAAA && server_info->ecs_ipv6.enable) {
+		dns_add_OPT_ECS(packet, &server_info->ecs_ipv6.ecs);
+	}
+
+	/* encode packet */
+	encode_len = dns_encode(packet_data_buffer, DNS_IN_PACKSIZE, packet);
+	if (encode_len <= 0) {
+		tlog(TLOG_ERROR, "encode query failed.");
+		return -1;
+	}
+
+	if (encode_len > DNS_IN_PACKSIZE) {
+		BUG("size is invalid.");
+		return -1;
+	}
+
+	*packet_data = packet_data_buffer;
+	*packet_data_len = encode_len;
+
+	return 0;
+}
+
 static int _dns_client_send_packet(struct dns_query_struct *query, void *packet, int len)
 {
 	struct dns_server_info *server_info = NULL;
@@ -3341,6 +3445,9 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 	int i = 0;
 	int total_server = 0;
 	int send_count = 0;
+	void *packet_data = NULL;
+	int packet_data_len = 0;
+	unsigned char packet_data_buffer[DNS_IN_PACKSIZE];
 
 	query->send_tick = get_tick_count();
 
@@ -3357,7 +3464,7 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 					server_info->is_already_prohibit = 1;
 					atomic_inc(&client.dns_server_prohibit_num);
 				}
-	
+
 				time_t now = 0;
 				time(&now);
 				if ((now - 60 < server_info->last_send) && (now - 5 > server_info->last_recv)) {
@@ -3380,28 +3487,33 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 				}
 			}
 
+			if (_dns_client_setup_server_packet(server_info, query, packet, len, packet_data_buffer, &packet_data,
+												&packet_data_len) != 0) {
+				continue;
+			}
+
 			atomic_inc(&query->dns_request_sent);
 			send_count++;
 			errno = 0;
 			switch (server_info->type) {
 			case DNS_SERVER_UDP:
 				/* udp query */
-				ret = _dns_client_send_udp(server_info, packet, len);
+				ret = _dns_client_send_udp(server_info, packet_data, packet_data_len);
 				send_err = errno;
 				break;
 			case DNS_SERVER_TCP:
 				/* tcp query */
-				ret = _dns_client_send_tcp(server_info, packet, len);
+				ret = _dns_client_send_tcp(server_info, packet_data, packet_data_len);
 				send_err = errno;
 				break;
 			case DNS_SERVER_TLS:
 				/* tls query */
-				ret = _dns_client_send_tls(server_info, packet, len);
+				ret = _dns_client_send_tls(server_info, packet_data, packet_data_len);
 				send_err = errno;
 				break;
 			case DNS_SERVER_HTTPS:
 				/* https query */
-				ret = _dns_client_send_https(server_info, packet, len);
+				ret = _dns_client_send_https(server_info, packet_data, packet_data_len);
 				send_err = errno;
 				break;
 			default:
@@ -3444,7 +3556,7 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 		}
 	}
 
-	int num  = atomic_dec_return(&query->dns_request_sent);
+	int num = atomic_dec_return(&query->dns_request_sent);
 	if (num == 0 && send_count > 0) {
 		_dns_client_query_remove(query);
 	}
@@ -3466,7 +3578,7 @@ static int _dns_client_dns_add_ecs(struct dns_query_struct *query, struct dns_pa
 	return dns_add_OPT_ECS(packet, &query->ecs.ecs);
 }
 
-static int _dns_client_send_query(struct dns_query_struct *query, const char *domain)
+static int _dns_client_send_query(struct dns_query_struct *query)
 {
 	unsigned char packet_buff[DNS_PACKSIZE];
 	unsigned char inpacket[DNS_IN_PACKSIZE];
@@ -3490,7 +3602,7 @@ static int _dns_client_send_query(struct dns_query_struct *query, const char *do
 	}
 
 	/* add question */
-	if (dns_add_domain(packet, domain, query->qtype, DNS_C_IN) != 0) {
+	if (dns_add_domain(packet, query->domain, query->qtype, DNS_C_IN) != 0) {
 		tlog(TLOG_ERROR, "add domain to packet failed.");
 		return -1;
 	}
@@ -3709,7 +3821,7 @@ int dns_client_query(const char *domain, int qtype, dns_client_callback callback
 
 	/* send query */
 	_dns_client_query_get(query);
-	ret = _dns_client_send_query(query, domain);
+	ret = _dns_client_send_query(query);
 	if (ret != 0) {
 		_dns_client_query_release(query);
 		goto errout_del_list;
@@ -4005,7 +4117,7 @@ static void _dns_client_period_run(unsigned int msec)
 			}
 		} else {
 			tlog(TLOG_INFO, "retry query %s, type: %d, id: %d", query->domain, query->qtype, query->sid);
-			_dns_client_send_query(query, query->domain);
+			_dns_client_send_query(query);
 		}
 		_dns_client_query_release(query);
 	}
@@ -4101,42 +4213,49 @@ static void *_dns_client_work(void *arg)
 	return NULL;
 }
 
-int dns_client_set_ecs(char *ip, int subnet)
+static int _dns_client_setup_ecs(char *ip, int subnet, struct dns_client_ecs *ecs_ipv4, struct dns_client_ecs *ecs_ipv6)
 {
 	struct sockaddr_storage addr;
 	socklen_t addr_len = sizeof(addr);
-	getaddr_by_host(ip, (struct sockaddr *)&addr, &addr_len);
+	if (getaddr_by_host(ip, (struct sockaddr *)&addr, &addr_len) != 0) {
+		return -1;
+	}
 
 	switch (addr.ss_family) {
 	case AF_INET: {
 		struct sockaddr_in *addr_in = NULL;
 		addr_in = (struct sockaddr_in *)&addr;
-		memcpy(&client.ecs_ipv4.ecs.addr, &addr_in->sin_addr.s_addr, 4);
-		client.ecs_ipv4.ecs.source_prefix = subnet;
-		client.ecs_ipv4.ecs.scope_prefix = 0;
-		client.ecs_ipv4.ecs.family = DNS_OPT_ECS_FAMILY_IPV4;
-		client.ecs_ipv4.enable = 1;
+		memcpy(&ecs_ipv4->ecs.addr, &addr_in->sin_addr.s_addr, 4);
+		ecs_ipv4->ecs.source_prefix = subnet;
+		ecs_ipv4->ecs.scope_prefix = 0;
+		ecs_ipv4->ecs.family = DNS_OPT_ECS_FAMILY_IPV4;
+		ecs_ipv4->enable = 1;
 	} break;
 	case AF_INET6: {
 		struct sockaddr_in6 *addr_in6 = NULL;
 		addr_in6 = (struct sockaddr_in6 *)&addr;
 		if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
-			client.ecs_ipv4.ecs.source_prefix = subnet;
-			client.ecs_ipv4.ecs.scope_prefix = 0;
-			client.ecs_ipv4.ecs.family = DNS_OPT_ECS_FAMILY_IPV4;
-			client.ecs_ipv4.enable = 1;
+			ecs_ipv4->ecs.source_prefix = subnet;
+			ecs_ipv4->ecs.scope_prefix = 0;
+			ecs_ipv4->ecs.family = DNS_OPT_ECS_FAMILY_IPV4;
+			ecs_ipv4->enable = 1;
 		} else {
-			memcpy(&client.ecs_ipv6.ecs.addr, addr_in6->sin6_addr.s6_addr, 16);
-			client.ecs_ipv6.ecs.source_prefix = subnet;
-			client.ecs_ipv6.ecs.scope_prefix = 0;
-			client.ecs_ipv6.ecs.family = DNS_ADDR_FAMILY_IPV6;
-			client.ecs_ipv6.enable = 1;
+			memcpy(&ecs_ipv6->ecs.addr, addr_in6->sin6_addr.s6_addr, 16);
+			ecs_ipv6->ecs.source_prefix = subnet;
+			ecs_ipv6->ecs.scope_prefix = 0;
+			ecs_ipv6->ecs.family = DNS_ADDR_FAMILY_IPV6;
+			ecs_ipv6->enable = 1;
 		}
 	} break;
 	default:
 		return -1;
 	}
 	return 0;
+}
+
+int dns_client_set_ecs(char *ip, int subnet)
+{
+	return _dns_client_setup_ecs(ip, subnet, &client.ecs_ipv4, &client.ecs_ipv6);
 }
 
 static int _dns_client_create_wakeup_event(void)

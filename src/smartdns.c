@@ -263,6 +263,18 @@ static int _smartdns_prepare_server_flags(struct client_dns_server_flags *flags,
 	flags->set_mark = server->set_mark;
 	flags->drop_packet_latency_ms = server->drop_packet_latency_ms;
 	safe_strncpy(flags->proxyname, server->proxyname, sizeof(flags->proxyname));
+	if (server->ipv4_ecs.enable) {
+		flags->ipv4_ecs.enable = 1;
+		safe_strncpy(flags->ipv4_ecs.ip, server->ipv4_ecs.ip, sizeof(flags->ipv4_ecs.ip));
+		flags->ipv4_ecs.subnet = server->ipv4_ecs.subnet;
+	}
+
+	if (server->ipv6_ecs.enable) {
+		flags->ipv6_ecs.enable = 1;
+		safe_strncpy(flags->ipv6_ecs.ip, server->ipv6_ecs.ip, sizeof(flags->ipv6_ecs.ip));
+		flags->ipv6_ecs.subnet = server->ipv6_ecs.subnet;
+	}
+
 	return 0;
 }
 

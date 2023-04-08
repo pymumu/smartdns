@@ -108,6 +108,12 @@ struct client_dns_server_flag_https {
 	char skip_check_cert;
 };
 
+struct client_dns_server_flag_ecs {
+	int enable;
+	char ip[DNS_MAX_CNAME_LEN];
+	int subnet;
+};
+
 struct client_dns_server_flags {
 	dns_server_type_t type;
 	unsigned int server_flag;
@@ -115,6 +121,9 @@ struct client_dns_server_flags {
 	long long set_mark;
 	int drop_packet_latency_ms;
 	char proxyname[DNS_MAX_CNAME_LEN];
+	struct client_dns_server_flag_ecs ipv4_ecs;
+	struct client_dns_server_flag_ecs ipv6_ecs;
+
 	union {
 		struct client_dns_server_flag_udp udp;
 		struct client_dns_server_flag_tls tls;

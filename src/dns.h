@@ -280,17 +280,14 @@ int dns_add_OPT_TCP_KEEPALIVE(struct dns_packet *packet, unsigned short timeout)
 int dns_get_OPT_TCP_KEEPALIVE(struct dns_rrs *rrs, unsigned short *opt_code, unsigned short *opt_len,
 							  unsigned short *timeout);
 
-int dns_add_HTTPS_start(struct dns_rr_nested *svcparam_buffer, struct dns_packet *packet,
-										  dns_rr_type type, const char *domain, int ttl, int priority,
-										  const char *target);
+int dns_add_HTTPS_start(struct dns_rr_nested *svcparam_buffer, struct dns_packet *packet, dns_rr_type type,
+						const char *domain, int ttl, int priority, const char *target);
 int dns_HTTPS_add_raw(struct dns_rr_nested *svcparam, unsigned short key, unsigned char *value, unsigned short len);
 int dns_HTTPS_add_port(struct dns_rr_nested *svcparam, unsigned short port);
 int dns_HTTPS_add_alpn(struct dns_rr_nested *svcparam, const char *alpn);
 int dns_HTTPS_add_no_default_alpn(struct dns_rr_nested *svcparam);
-int dns_HTTPS_add_ipv4hint(struct dns_rr_nested *svcparam, unsigned char addr[][DNS_RR_A_LEN],
-											 int addr_num);
-int dns_HTTPS_add_ipv6hint(struct dns_rr_nested *svcparam, unsigned char addr[][DNS_RR_AAAA_LEN],
-											 int addr_num);
+int dns_HTTPS_add_ipv4hint(struct dns_rr_nested *svcparam, unsigned char addr[][DNS_RR_A_LEN], int addr_num);
+int dns_HTTPS_add_ipv6hint(struct dns_rr_nested *svcparam, unsigned char addr[][DNS_RR_AAAA_LEN], int addr_num);
 int dns_HTTPS_add_ech(struct dns_rr_nested *svcparam, void *ech, int ech_len);
 int dns_add_HTTPS_end(struct dns_rr_nested *svcparam);
 

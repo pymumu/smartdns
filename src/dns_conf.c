@@ -170,6 +170,8 @@ char dns_conf_sni_proxy_ip[DNS_MAX_IPLEN];
 
 static int _conf_domain_rule_nameserver(char *domain, const char *group_name);
 static int _conf_ptr_add(const char *hostname, const char *ip, int is_dynamic);
+static int _conf_client_subnet(char *subnet, struct dns_edns_client_subnet *ipv4_ecs,
+							   struct dns_edns_client_subnet *ipv6_ecs);
 
 static void *_new_dns_rule(enum domain_rule domain_rule)
 {
@@ -499,6 +501,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 		{"exclude-default-group", no_argument, NULL, 'E'}, /* exclude this from default group */
 		{"set-mark", required_argument, NULL, 254}, /* set mark */
 		{"bootstrap-dns", no_argument, NULL, 255}, /* set as bootstrap dns */
+		{"subnet", required_argument, NULL, 256}, /* set subnet */
 		{NULL, no_argument, NULL, 0}
 	};
 	/* clang-format on */
@@ -632,6 +635,10 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 		}
 		case 255: {
 			is_bootstrap_dns = 1;
+			break;
+		}
+		case 256: {
+			_conf_client_subnet(optarg, &server->ipv4_ecs, &server->ipv6_ecs);
 			break;
 		}
 		default:
@@ -2327,54 +2334,68 @@ static int _conf_whitelist_ip(void *data, int argc, char *argv[])
 	return _config_iplist_rule(argv[1], ADDRESS_RULE_WHITELIST);
 }
 
-static int _conf_edns_client_subnet(void *data, int argc, char *argv[])
+static int _conf_client_subnet(char *subnet, struct dns_edns_client_subnet *ipv4_ecs,
+							   struct dns_edns_client_subnet *ipv6_ecs)
 {
 	char *slash = NULL;
-	char *value = NULL;
-	int subnet = 0;
+	int subnet_len = 0;
 	struct dns_edns_client_subnet *ecs = NULL;
 	struct sockaddr_storage addr;
 	socklen_t addr_len = sizeof(addr);
+	char str_subnet[128];
 
-	if (argc <= 1) {
+	if (subnet == NULL) {
 		return -1;
 	}
 
-	value = argv[1];
-
-	slash = strstr(value, "/");
+	safe_strncpy(str_subnet, subnet, sizeof(str_subnet));
+	slash = strstr(str_subnet, "/");
 	if (slash) {
 		*slash = 0;
 		slash++;
-		subnet = atoi(slash);
-		if (subnet < 0 || subnet > 128) {
+		subnet_len = atoi(slash);
+		if (subnet_len < 0 || subnet_len > 128) {
 			return -1;
 		}
 	}
 
-	if (getaddr_by_host(value, (struct sockaddr *)&addr, &addr_len) != 0) {
+	if (getaddr_by_host(str_subnet, (struct sockaddr *)&addr, &addr_len) != 0) {
 		goto errout;
 	}
 
 	switch (addr.ss_family) {
 	case AF_INET:
-		ecs = &dns_conf_ipv4_ecs;
+		ecs = ipv4_ecs;
 		break;
 	case AF_INET6:
-		ecs = &dns_conf_ipv6_ecs;
+		ecs = ipv6_ecs;
 		break;
 	default:
 		goto errout;
 	}
 
-	safe_strncpy(ecs->ip, value, DNS_MAX_IPLEN);
-	ecs->subnet = subnet;
+	if (ecs == NULL) {
+		return 0;
+	}
+
+	safe_strncpy(ecs->ip, str_subnet, DNS_MAX_IPLEN);
+	ecs->subnet = subnet_len;
 	ecs->enable = 1;
 
 	return 0;
 
 errout:
 	return -1;
+}
+
+static int _conf_edns_client_subnet(void *data, int argc, char *argv[])
+{
+
+	if (argc <= 1) {
+		return -1;
+	}
+
+	return _conf_client_subnet(argv[1], &dns_conf_ipv4_ecs, &dns_conf_ipv6_ecs);
 }
 
 static int _conf_domain_rule_speed_check(char *domain, const char *mode)

@@ -20,8 +20,8 @@
 #define _SMART_DNS_SERVER_H
 
 #include "dns.h"
-#include <stdint.h>
 #include "dns_client.h"
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {

@@ -5152,7 +5152,7 @@ static int _dns_server_do_query(struct dns_request *request, int skip_notify_eve
 		0) {
 		request->request_wait--;
 		_dns_server_request_release(request);
-		tlog(TLOG_WARN, "send dns request failed.");
+		tlog(TLOG_DEBUG, "send dns request failed.");
 		goto errout;
 	}
 
@@ -5345,7 +5345,7 @@ static int _dns_server_prefetch_request(char *domain, dns_type_t qtype, int expi
 	_dns_server_request_set_enable_prefetch(request, expired_domain);
 	ret = _dns_server_do_query(request, 0);
 	if (ret != 0) {
-		tlog(TLOG_WARN, "do query %s failed.\n", request->domain);
+		tlog(TLOG_DEBUG, "prefetch do query %s failed.\n", request->domain);
 		goto errout;
 	}
 
