@@ -3393,6 +3393,19 @@ void dns_server_load_exit(void)
 	_config_proxy_table_destroy();
 
 	dns_conf_server_num = 0;
+	dns_conf_bind_ip_num = 0;
+}
+
+static int _config_add_default_server_if_needed(void)
+{
+	if (dns_conf_bind_ip_num > 0) {
+		return 0;
+	}
+
+	/* add default server */
+	char *argv[] = {"bind", "[::]:53", 0};
+	int argc = sizeof(argv) / sizeof(char *) - 1;
+	return _config_bind_ip(argc, argv, DNS_BIND_TYPE_UDP);
 }
 
 static int _dns_conf_speed_check_mode_verify(void)
@@ -3512,6 +3525,8 @@ static int _dns_conf_load_post(void)
 	_config_domain_set_name_table_destroy();
 
 	_config_update_bootstrap_dns_rule();
+
+	_config_add_default_server_if_needed();
 
 	return 0;
 }

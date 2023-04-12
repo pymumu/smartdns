@@ -5293,7 +5293,7 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 
 	ret = _dns_server_do_query(request, 1);
 	if (ret != 0) {
-		tlog(TLOG_WARN, "do query %s failed.\n", request->domain);
+		tlog(TLOG_DEBUG, "do query %s failed.\n", request->domain);
 		goto errout;
 	}
 	_dns_server_request_release_complete(request, 0);
@@ -6168,7 +6168,7 @@ static void _dns_server_prefetch_expired_domain(struct dns_cache *dns_cache)
 	server_query_option.ecs_enable_flag = 0;
 
 	if (_dns_server_prefetch_request(dns_cache->info.domain, dns_cache->info.qtype, 1, &server_query_option) != 0) {
-		tlog(TLOG_WARN, "prefetch domain %s, qtype %d, failed.", dns_cache->info.domain, dns_cache->info.qtype);
+		tlog(TLOG_DEBUG, "prefetch domain %s, qtype %d, failed.", dns_cache->info.domain, dns_cache->info.qtype);
 	}
 }
 

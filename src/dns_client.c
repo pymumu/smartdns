@@ -3562,7 +3562,13 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 	}
 
 	if (send_count <= 0) {
-		tlog(TLOG_WARN, "Send query to upstream server failed, total server number %d", total_server);
+		static time_t lastlog = 0;
+		time_t now = 0;
+		time(&now);
+		if (now - lastlog > 120) {
+			lastlog = now;
+			tlog(TLOG_WARN, "Send query %s to upstream server failed, total server number %d", query->domain, total_server);
+		}
 		return -1;
 	}
 
