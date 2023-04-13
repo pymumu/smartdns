@@ -1843,7 +1843,8 @@ static int _dns_client_create_socket_udp(struct dns_server_info *server_info)
 	server_info->status = DNS_SERVER_STATUS_CONNECTIONLESS;
 
 	if (connect(fd, &server_info->addr, server_info->ai_addrlen) != 0) {
-		if (errno == ENETUNREACH || errno == EHOSTUNREACH || errno == ECONNREFUSED) {
+		if (errno == ENETUNREACH || errno == EHOSTUNREACH || errno == ECONNREFUSED || errno == EPERM ||
+			errno == EACCES) {
 			tlog(TLOG_INFO, "connect %s failed, %s", server_info->ip, strerror(errno));
 			goto errout;
 		}
@@ -3567,7 +3568,8 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 		time(&now);
 		if (now - lastlog > 120) {
 			lastlog = now;
-			tlog(TLOG_WARN, "Send query %s to upstream server failed, total server number %d", query->domain, total_server);
+			tlog(TLOG_WARN, "Send query %s to upstream server failed, total server number %d", query->domain,
+				 total_server);
 		}
 		return -1;
 	}

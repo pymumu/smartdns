@@ -189,6 +189,39 @@ int conf_size(const char *item, void *data, int argc, char *argv[])
 	return 0;
 }
 
+int conf_ssize(const char *item, void *data, int argc, char *argv[])
+{
+	int base = 1;
+	ssize_t size = 0;
+	int num = 0;
+	struct config_item_ssize *item_size = data;
+	char *value = argv[1];
+
+	if (strstr(value, "k") || strstr(value, "K")) {
+		base = 1024;
+	} else if (strstr(value, "m") || strstr(value, "M")) {
+		base = 1024 * 1024;
+	} else if (strstr(value, "g") || strstr(value, "G")) {
+		base = 1024 * 1024 * 1024;
+	}
+
+	num = atoi(value);
+	if (num < 0) {
+		return -1;
+	}
+
+	size = num * base;
+	if (size > item_size->max) {
+		size = item_size->max;
+	} else if (size < item_size->min) {
+		size = item_size->min;
+	}
+
+	*(item_size->data) = size;
+
+	return 0;
+}
+
 int conf_enum(const char *item, void *data, int argc, char *argv[])
 {
 	struct config_enum *item_enum = data;

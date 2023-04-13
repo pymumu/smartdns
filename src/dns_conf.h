@@ -434,7 +434,7 @@ extern char dns_conf_bind_ca_key_pass[DNS_MAX_PATH];
 extern char dns_conf_need_cert;
 
 extern int dns_conf_tcp_idle_time;
-extern int dns_conf_cachesize;
+extern ssize_t dns_conf_cachesize;
 extern int dns_conf_prefetch;
 extern int dns_conf_serve_expired;
 extern int dns_conf_serve_expired_ttl;
