@@ -2297,7 +2297,7 @@ static int _dns_client_process_udp(struct dns_server_info *server_info, struct e
 			return 0;
 		}
 
-		if (errno == ECONNREFUSED) {
+		if (errno == ECONNREFUSED || errno == ENETUNREACH || errno == EHOSTUNREACH) {
 			tlog(TLOG_DEBUG, "recvfrom %s failed, %s\n", server_info->ip, strerror(errno));
 			goto errout;
 		}
@@ -3568,7 +3568,7 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 		time(&now);
 		if (now - lastlog > 120) {
 			lastlog = now;
-			tlog(TLOG_WARN, "Send query %s to upstream server failed, total server number %d", query->domain,
+			tlog(TLOG_WARN, "send query %s to upstream server failed, total server number %d", query->domain,
 				 total_server);
 		}
 		return -1;

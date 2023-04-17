@@ -311,6 +311,8 @@ struct dns_request {
 	int no_select_possible_ip;
 	int no_cache_cname;
 	int no_cache;
+
+	int has_cname_loop;
 };
 
 /* dns server data */
@@ -4228,6 +4230,10 @@ static int _dns_server_process_cname_pre(struct dns_request *request)
 		return 0;
 	}
 
+	if (request->has_cname_loop == 1) {
+		return 0;
+	}
+
 	/* get domain rule flag */
 	rule_flag = _dns_server_get_dns_rule(request, DOMAIN_RULE_FLAGS);
 	if (rule_flag != NULL) {
@@ -4267,6 +4273,10 @@ static int _dns_server_process_cname(struct dns_request *request)
 		return 0;
 	}
 
+	if (request->has_cname_loop == 1) {
+		return 0;
+	}
+
 	/* get domain rule flag */
 	rule_flag = _dns_server_get_dns_rule(request, DOMAIN_RULE_FLAGS);
 	if (rule_flag != NULL) {
@@ -4287,6 +4297,33 @@ static int _dns_server_process_cname(struct dns_request *request)
 	if (child_request == NULL) {
 		tlog(TLOG_ERROR, "malloc failed.\n");
 		return -1;
+	}
+
+	/* check cname rule loop */
+	struct dns_request *check_request = child_request->parent_request;
+	struct dns_cname_rule *child_cname = _dns_server_get_dns_rule(child_request, DOMAIN_RULE_CNAME);
+
+	/* sub domain rule*/
+	if (child_cname != NULL && strncmp(child_request->domain, child_cname->cname, DNS_MAX_CNAME_LEN) == 0) {
+		child_request->domain_rule.rules[DOMAIN_RULE_CNAME] = NULL;
+		child_request->has_cname_loop = 1;
+	}
+
+	/* loop rule */
+	while (check_request != NULL && child_cname != NULL) {
+		struct dns_cname_rule *check_cname = _dns_server_get_dns_rule(check_request, DOMAIN_RULE_CNAME);
+		if (check_cname == NULL) {
+			break;
+		}
+
+		if (strstr(child_request->domain, check_request->domain) != NULL &&
+			check_request != child_request->parent_request) {
+			child_request->domain_rule.rules[DOMAIN_RULE_CNAME] = NULL;
+			child_request->has_cname_loop = 1;
+			break;
+		}
+
+		check_request = check_request->parent_request;
 	}
 
 	child_group_name = _dns_server_get_request_groupname(child_request);
@@ -5029,6 +5066,7 @@ static int _dns_server_query_dualstack(struct dns_request *request)
 	safe_strncpy(request_dualstack->domain, request->domain, sizeof(request->domain));
 	request_dualstack->qtype = qtype;
 	request_dualstack->dualstack_selection_query = 1;
+	request_dualstack->has_cname_loop = request->has_cname_loop;
 	request_dualstack->prefetch = request->prefetch;
 	request_dualstack->prefetch_expired_domain = request->prefetch_expired_domain;
 	_dns_server_request_get(request);
