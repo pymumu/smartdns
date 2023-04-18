@@ -9,7 +9,7 @@ DNS64 is used to support accessing IPV4 websites in a pure IPV6 network, smartdn
 
 ## Configuration Steps
 
-1. Use `dns64 ip/mask` to configure alias name.
+1. Use `dns64 ip/mask` to configure dns64 prefix.
 
     ```shell
     dns64 64:ff9b::/96

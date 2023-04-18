@@ -41,12 +41,12 @@ smartdns目前提供了UDP, TCP, DOT三种服务端模式。
 
 ## DOT服务端
 
-1. 通过`bind-tcp`参数配置，配置例子如下：
+1. 通过`bind-tls`参数配置，配置例子如下：
 
     ```shell
-    bind-tcp 0.0.0.0:53@eth0
-    bind-tcp [::]:53@eth0
-    bind-tcp :53@eth0
+    bind-tls 0.0.0.0:53@eth0
+    bind-tls [::]:53@eth0
+    bind-tls :53@eth0
 
     ```
 
