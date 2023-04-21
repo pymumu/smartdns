@@ -2,11 +2,12 @@
 msgid "Additional Args for upstream dns servers"
 msgstr "额外的上游 DNS 服务器参数"
 
+msgid ""
+"Additional Flags for rules, read help on domain-rule for more information."
+msgstr "额外的规则标识，具体参考domain-rule的帮助说明。"
+
 msgid "Additional Rule Flag"
 msgstr "额外规则标识"
-
-msgid "Additional Flags for rules, read help on domain-rule for more information."
-msgstr "额外的规则标识，具体参考domain-rule的帮助说明。"
 
 msgid "Additional Server Args"
 msgstr "额外的服务器参数"
@@ -23,7 +24,7 @@ msgid "Automatically Set Dnsmasq"
 msgstr "自动设置Dnsmasq"
 
 msgid "Automatically set as upstream of dnsmasq when port changes."
-msgstr "自动设置为Dnsmasq的上游服务器"
+msgstr "端口更改时自动设为 dnsmasq 的上游。"
 
 msgid "Bind Device"
 msgstr "绑定到设备"
@@ -31,13 +32,19 @@ msgstr "绑定到设备"
 msgid "Bind Device Name"
 msgstr "绑定的设备名称"
 
+msgid "Block domain"
+msgstr "屏蔽域名"
+
+msgid "Block domain."
+msgstr "屏蔽域名。"
+
 msgid "Cache Persist"
 msgstr "持久化缓存"
 
 msgid "Cache Size"
 msgstr "缓存大小"
 
-msgid "Collecting data..."
+msgid "Collecting data ..."
 msgstr "正在收集数据..."
 
 msgid ""
@@ -47,6 +54,9 @@ msgstr "配置需要从指定域名服务器结果过滤的IP黑名单。"
 
 msgid "Configure block domain list."
 msgstr "配置屏蔽域名列表"
+
+msgid "Configure domain rule list."
+msgstr "配置域名规则列表"
 
 msgid "Configure forwarding domain name list."
 msgstr "配置分流域名列表"
@@ -63,12 +73,11 @@ msgstr "域名分流设置"
 msgid "DNS Server Name"
 msgstr "DNS服务器名称"
 
-msgid "DNS Server group belongs to, such as office, home."
-msgstr "配置归属服务器组，例如office, home"
+msgid "DNS Server group"
+msgstr "服务器组"
 
-msgid ""
-"DNS Server group belongs to, used with nameserver, such as office, home."
-msgstr "DNS服务器所属组， 配合nameserver使用，例如：office，home。"
+msgid "DNS Server group belongs to, such as office, home."
+msgstr "设置服务器组，例如office，home"
 
 msgid "DNS Server ip"
 msgstr "DNS服务器IP"
@@ -80,13 +89,22 @@ msgid "DNS Server type"
 msgstr "协议类型"
 
 msgid "DNS domain result cache size"
-msgstr "缓存DNS的结果，缓存大小，配置零则不缓存"
+msgstr "缓存DNS的结果，缓存大小，配置零则不缓存。"
+
+msgid "DNS64"
+msgstr "DNS64"
 
 msgid "DNS64 Server Settings"
 msgstr "DNS64服务器配置"
 
+msgid "default"
+msgstr "默认"
+
 msgid "Description"
 msgstr "描述"
+
+msgid "Dnsmasq Forwarded To Smartdns Failure"
+msgstr "重定向dnsmasq到smartdns失败"
 
 msgid "Do not check certificate."
 msgstr "不校验证书的合法性。"
@@ -102,6 +120,12 @@ msgstr "域名列表"
 
 msgid "Domain List File"
 msgstr "域名列表文件"
+
+msgid "Domain Rule List"
+msgstr "域名规则列表"
+
+msgid "Domain Rule Name"
+msgstr "域名规则名称"
 
 msgid "Domain Rules"
 msgstr "域名规则"
@@ -136,7 +160,8 @@ msgstr "下载文件设置"
 msgid ""
 "Download domain list files for domain-rule and include config files, please "
 "refresh the page after download to take effect."
-msgstr "下载域名文件列表，下载后刷新页面生效"
+msgstr ""
+"下载域名规则所需要的域名列表文件和smartdns配置文件，下载完成后刷新页面。"
 
 msgid "Dual-stack IP Selection"
 msgstr "双栈IP优选"
@@ -148,16 +173,16 @@ msgid "Enable Auto Update"
 msgstr "启用自动更新"
 
 msgid "Enable IP selection between IPV4 and IPV6"
-msgstr "启用 IPV4 和 IPV6 间的 IP 优选策略"
+msgstr "启用 IPV4 和 IPV6 间的 IP 优选策略。"
 
 msgid "Enable IPV6 DNS Server"
-msgstr "启用IPV6服务器"
+msgstr "启用IPV6服务器。"
 
 msgid "Enable TCP DNS Server"
-msgstr "启用TCP服务器"
+msgstr "启用TCP服务器。"
 
 msgid "Enable daily auto update."
-msgstr "启用每日自动更新。"
+msgstr "启用每日自动更新"
 
 msgid "Enable domain prefetch, accelerate domain response speed."
 msgstr "启用域名预加载，加速域名响应速度。"
@@ -169,10 +194,16 @@ msgid "Enable or disable smartdns server"
 msgstr "启用或禁用SmartDNS服务"
 
 msgid "Exclude DNS Server from default group."
-msgstr "从default默认服务器组中排除"
+msgstr "从default默认服务器组中排除。"
 
 msgid "Exclude Default Group"
-msgstr "从默认服务器组排除"
+msgstr "从默认组中排除"
+
+msgid "Fastest IP"
+msgstr "最快IP"
+
+msgid "Fastest Response"
+msgstr "最快响应"
 
 msgid "File Name"
 msgstr "文件名"
@@ -185,12 +216,6 @@ msgstr "使用IP黑名单过滤"
 
 msgid "First Ping"
 msgstr "最快PING"
-
-msgid "Fastest IP"
-msgstr "最快IP"
-
-msgid "Fastest Response"
-msgstr "最快响应"
 
 msgid "Force AAAA SOA"
 msgstr "停用IPV6地址解析"
@@ -216,6 +241,9 @@ msgid ""
 msgstr ""
 "当smartdns异常时生成coredump文件，coredump文件在/tmp/smartdns.xxx.core."
 
+msgid "Grant access to LuCI app smartdns"
+msgstr "授予访问 LuCI 应用 smartdns 的权限"
+
 msgid "HTTP Host"
 msgstr "HTTP主机"
 
@@ -229,30 +257,29 @@ msgid "IPV6 Server"
 msgstr "IPV6服务器"
 
 msgid "IPset Name"
-msgstr "IPSet名称"
+msgstr "IPset名称"
 
 msgid "IPset name."
-msgstr "IPSet名称。"
-
-msgid "Ipset name, Add domain result to ipset when speed check fails."
-msgstr "IPset名称，当测速失败时，将查询到的结果添加到对应的IPSet集合中。"
-
-msgid "ipset name format error, format: [#[4|6]:]ipsetname"
-msgstr "IPset名称格式错误，格式：[#[4|6]:]ipsetname"
+msgstr "IPset名称。"
 
 msgid "If you like this software, please buy me a cup of coffee."
 msgstr "如果本软件对你有帮助，请给作者加个蛋。"
 
 msgid "Include Config Files<br>/etc/smartdns/conf.d"
-msgstr "包含配置文件"
+msgstr "包含配置文件<br>/etc/smartdns/conf.d"
 
 msgid ""
 "Include other config files from /etc/smartdns/conf.d or custom path, can be "
 "downloaded from the download page."
-msgstr "包含配置文件，路径为/etc/smartdns/conf.d，或自定义配置文件路径，可以从下载页配置自动下载。"
+msgstr ""
+"包含配置文件，路径为/etc/smartdns/conf.d，或自定义配置文件路径，可以从下载页"
+"配置自动下载。面配置自动下载。"
+
+msgid "Ipset name, Add domain result to ipset when speed check fails."
+msgstr "IPset名称，当测速失败时，将查询到的结果添加到对应的IPSet集合中。"
 
 msgid "List of files to download."
-msgstr "下载的文件列表。"
+msgstr "下载文件列表。"
 
 msgid "Listen only on the specified interfaces."
 msgstr "监听在指定的设备上，避免非本地网络的DNS查询请求。"
@@ -263,17 +290,11 @@ msgstr "本地端口"
 msgid "Marking Packets"
 msgstr "数据包标记"
 
-msgid "Set mark on packets."
-msgstr "设置数据包标记。"
-
 msgid "Maximum TTL for all domain result."
 msgstr "所有域名的最大 TTL 值。"
 
 msgid "Minimum TTL for all domain result."
 msgstr "所有域名的最小 TTL 值。"
-
-msgid "Name of device name listen on."
-msgstr "绑定的设备名称。"
 
 msgid "NFTset Name"
 msgstr "NFTSet名称"
@@ -284,8 +305,19 @@ msgstr "NFTSet名称格式错误，格式：[#[4|6]:[family#table#set]]"
 msgid "NFTset name, format: [#[4|6]:[family#table#set]]"
 msgstr "NFTSet名称，格式：[#[4|6]:[family#table#set]]"
 
-msgid "Nftset name, Add domain result to nftset when speed check fails, format: [#[4|6]:[family#table#set]]"
+msgid "NOT RUNNING"
+msgstr "未运行"
+
+msgid "Name of device name listen on."
+msgstr "绑定的设备名称。"
+
+msgid ""
+"Nftset name, Add domain result to nftset when speed check fails, format: "
+"[#[4|6]:[family#table#set]]"
 msgstr "NFTset名称，当测速失败时，将查询到的结果添加到对应的NFTSet集合中。"
+
+msgid "No"
+msgstr "否"
 
 msgid "No Speed IPset Name"
 msgstr "无速度时IPSet名称"
@@ -293,11 +325,14 @@ msgstr "无速度时IPSet名称"
 msgid "No Speed NFTset Name"
 msgstr "无速度时NFTSet名称"
 
-msgid "NOT RUNNING"
-msgstr "未运行"
-
 msgid "No check certificate"
 msgstr "停用证书校验"
+
+msgid "None"
+msgstr "无"
+
+msgid "Only socks5 proxy support udp server."
+msgstr "仅SOCKS5代理支持UDP服务器。"
 
 msgid "Please set proxy server first."
 msgstr "请先设置代理服务器。"
@@ -305,14 +340,15 @@ msgstr "请先设置代理服务器。"
 msgid "Proxy Server"
 msgstr "代理服务器"
 
+msgid "Proxy Server Settings"
+msgstr "代理服务器设置"
+
 msgid "Proxy Server URL, format: [socks5|http]://user:pass@ip:port."
 msgstr "代理服务器地址，格式：[socks5|http]://user:pass@ip:port。"
 
-msgid "Proxy server URL format error, format: [socks5|http]://user:pass@ip:port."
+msgid ""
+"Proxy server URL format error, format: [socks5|http]://user:pass@ip:port."
 msgstr "代理服务器地址格式错误，格式：[socks5|http]://user:pass@ip:port。"
-
-msgid "Proxy Server Settings"
-msgstr "代理服务器设置"
 
 msgid "Query DNS through specific dns server group, such as office, home."
 msgstr "使用指定服务器组查询，比如office, home。"
@@ -326,20 +362,23 @@ msgstr "回应的域名TTL最大值"
 msgid "Reply maximum TTL for all domain result."
 msgstr "设置返回给客户端的域名TTL最大值。"
 
+msgid "Report bugs"
+msgstr "报告BUG"
+
 msgid "Resolve Local Hostnames"
 msgstr "解析本地主机名"
 
 msgid "Resolve local hostnames by reading Dnsmasq lease file."
 msgstr "读取Dnsmasq的租约文件解析本地主机名。"
 
+msgid "Response Mode"
+msgstr "响应模式"
+
 msgid "Restart"
 msgstr "重启"
 
-msgid "Restart smartdns"
+msgid "Restart Service"
 msgstr "重启服务"
-
-msgid "Response Mode"
-msgstr "响应模式"
 
 msgid "Second Server Settings"
 msgstr "第二DNS服务器"
@@ -350,8 +389,8 @@ msgstr "缓存过期服务"
 msgid "Server Group"
 msgstr "服务器组"
 
-msgid "Server Group not exists"
-msgstr "服务器组不存在"
+msgid "Server Group %s not exists"
+msgstr "服务器组%s不存在"
 
 msgid "Server Name"
 msgstr "服务器名称"
@@ -359,19 +398,25 @@ msgstr "服务器名称"
 msgid "Set Specific domain ip address."
 msgstr "设置指定域名的IP地址。"
 
+msgid "Set Specific domain rule list."
+msgstr "设置指定域名的规则列表。"
+
 msgid "Set Specific ip blacklist."
 msgstr "设置指定的 IP 黑名单列表。"
 
 msgid "Set TLS hostname to verify."
 msgstr "设置校验TLS主机名。"
 
+msgid "Set mark on packets."
+msgstr "设置数据包标记。"
+
 msgid ""
 "Set the HTTP host used for the query. Use this parameter when the host of "
 "the URL address is an IP address."
 msgstr "设置查询时使用的HTTP主机，当URL地址的host是IP地址时，使用此参数。"
 
-msgid "Sets the server name indication for query."
-msgstr "设置查询时使用的服务器SNI名称。"
+msgid "Sets the server name indication for query. '-' for disable SNI name."
+msgstr "设置服务器SNI名称，‘-’表示禁用SNI名称。"
 
 msgid "Settings"
 msgstr "设置"
@@ -438,25 +483,18 @@ msgid ""
 msgstr ""
 "SmartDNS本地服务端口，当端口号设置为53时，smartdns将会自动配置为主dns。"
 
+msgid ""
+"Smartdns response mode, First Ping: return the first ping IP, Fastest IP: "
+"return the fastest IP, Fastest Response: return the fastest DNS response."
+msgstr ""
+"SmartDNS响应模式，最快PING： 返回最早有ping结果的IP，速度适中；最快IP： 返回"
+"最快IP，查询请求可能延长； 最快响应：返回最快响应的结果，查询请求时间短。"
+
 msgid "Smartdns server name"
 msgstr "SmartDNS的服务器名称，默认为smartdns，留空为主机名"
 
-msgid "Speed check mode is invalid."
-msgstr "测速模式无效。"
-
-msgid "Speed Check Mode"
-msgstr "测速模式"
-
-msgid "Smartdns speed check mode. "
-msgstr "SmartDns测速模式设置。"
-
-msgid ""
-"Smartdns response mode, First Ping: return the first ping IP, "
-"Fastest IP: return the fastest IP, Fastest Response: return the fastest "
-"DNS response."
-msgstr ""
-"SmartDNS响应模式，最快PING： 返回最早有ping结果的IP，速度适中；最快IP： "
-"返回最快IP，查询请求可能延长； 最快响应：返回最快响应的结果。查询请求时间短。"
+msgid "Smartdns speed check mode."
+msgstr "SmartDNS测速模式。"
 
 msgid ""
 "Specify an IP address to return for any host in the given domains, Queries "
@@ -466,11 +504,17 @@ msgstr ""
 "配置特定域名返回特定的IP地址，域名查询将不到上游服务器请求，直接返回配置的IP"
 "地址，可用于广告屏蔽。"
 
-msgid "Report bugs"
-msgstr "报告BUG"
+msgid "Speed Check Mode"
+msgstr "测速模式"
+
+msgid "Speed check mode is invalid."
+msgstr "测速模式无效。"
 
 msgid "TCP Server"
 msgstr "TCP服务器"
+
+msgid "TCP port is empty"
+msgstr "TCP端口号为空"
 
 msgid "TLS Hostname Verify"
 msgstr "校验TLS主机名"
@@ -487,17 +531,14 @@ msgstr "设置所有域名的 TTL 值。"
 msgid "Technical Support"
 msgstr "技术支持"
 
-msgid "Use Proxy"
-msgstr "使用代理"
-
-msgid "Use proxy to connect to upstream DNS server."
-msgstr "使用代理连接上游DNS服务器。"
-
 msgid "URL"
 msgstr "URL"
 
 msgid "URL format error, format: http:// or https://"
 msgstr "URL格式错误，格式：http://或https://"
+
+msgid "Update"
+msgstr "更新"
 
 msgid "Update Files"
 msgstr "更新文件"
@@ -509,7 +550,7 @@ msgid "Upload Domain List File"
 msgstr "上传域名列表文件"
 
 msgid "Upload domain list file to /etc/smartdns/domain-set"
-msgstr "上传域名列表文件到/etc/smartdns/domain-set目录"
+msgstr "上传域名列表文件到/etc/smartdns/domain-set"
 
 msgid ""
 "Upload domain list file, or configure auto download from Download File "
@@ -517,13 +558,10 @@ msgid ""
 msgstr "上传域名列表文件，或在下载文件设置页面设置自动下载。"
 
 msgid "Upload domain list file."
-msgstr "上传域名列表文件。"
+msgstr "上传域名列表文件"
 
 msgid "Upload smartdns config file to /etc/smartdns/conf.d"
-msgstr "上传配置文件到/etc/smartdns/conf.d目录"
-
-msgid "Upstream DNS Server Configuration"
-msgstr "上游服务器配置"
+msgstr "上传配置文件到/etc/smartdns/conf.d"
 
 msgid "Upstream Servers"
 msgstr "上游服务器"
@@ -534,6 +572,12 @@ msgid ""
 msgstr ""
 "上游 DNS 服务器，支持 UDP，TCP 协议。请配置多个上游 DNS 服务器，包括多个国内"
 "外服务器。"
+
+msgid "Use Proxy"
+msgstr "使用代理"
+
+msgid "Use proxy to connect to upstream DNS server."
+msgstr "使用代理连接上游DNS服务器。"
 
 msgid ""
 "Used to verify the validity of the TLS server, The value is Base64 encoded "
@@ -546,6 +590,12 @@ msgstr ""
 msgid "Write cache to disk on exit and load on startup."
 msgstr "退出时保存cache到磁盘，启动时加载。"
 
+msgid "Yes"
+msgstr "是"
+
+msgid "default"
+msgstr "默认"
+
 msgid "domain list (/etc/smartdns/domain-set)"
 msgstr "域名列表（/etc/smartdns/domain-set）"
 
@@ -555,6 +605,9 @@ msgstr "https"
 msgid "ip"
 msgstr "ip"
 
+msgid "ipset name format error, format: [#[4|6]:]ipsetname"
+msgstr "IPset名称格式错误，格式：[#[4|6]:]ipsetname"
+
 msgid "open website"
 msgstr "打开网站"
 
@@ -562,7 +615,7 @@ msgid "port"
 msgstr "端口"
 
 msgid "smartdns config (/etc/smartdns/conf.d)"
-msgstr "配置文件（/etc/smartdns/conf.d）"
+msgstr "smartdns 配置文件（/etc/smartdns/conf.d）"
 
 msgid "smartdns custom settings"
 msgstr "smartdns 自定义设置，具体配置参数参考指导"
@@ -578,6 +631,3 @@ msgstr "类型"
 
 msgid "udp"
 msgstr "udp"
-
-msgid "update domain list files"
-msgstr "更新列表文件"

@@ -347,6 +347,7 @@ load_domain_rule_list()
 
 	config_get addition_flag "$section" "addition_flag" ""
 	[ ! -z "$addition_flag" ] && domain_set_args="$domain_set_args $addition_flag"
+	[ -z "$domain_set_args" ] && return
 
 	conf_append "domain-set" "-name domain-rule-list-${domain_set_name} -file '$domain_list_file'"
 	conf_append "domain-rules" "/domain-set:domain-rule-list-${domain_set_name}/ $domain_set_args"	

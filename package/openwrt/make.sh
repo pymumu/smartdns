@@ -74,6 +74,10 @@ build()
 		echo "Installed-Size: $INST_SIZE" >> $ROOT/control/control
 	fi
 
+	if [ "$STATIC" = "yes" ]; then
+		sed -i "s/Depends:.*/Depends: libc/" $ROOT/control/control
+	fi
+
 	cd $ROOT/control
 	chmod +x *
 	tar zcf ../control.tar.gz --owner=0 --group=0 ./

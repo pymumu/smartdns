@@ -1,6 +1,6 @@
 Package: luci-app-smartdns
 Version: git-18.201.27126-7bf0367-1
-Depends: libc, smartdns, luci-compat
+Depends: libc, smartdns
 Source: feeds/luci/applications/luci-app-smartdns
 Section: luci
 Architecture: all

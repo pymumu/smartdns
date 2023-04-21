@@ -70,6 +70,7 @@ o = s:taboption("advanced", Value, "speed_check_mode", translate("Speed Check Mo
 o.rmempty = true;
 o.placeholder = "default";
 o.default = o.enabled;
+o:value("", translate("default"))
 o:value("ping,tcp:80,tcp:443");
 o:value("ping,tcp:443,tcp:80");
 o:value("tcp:80,tcp:443,ping");
@@ -636,7 +637,7 @@ o.root_directory = "/etc/smartdns/domain-set"
 
 o = s:option(Button, "_updateate")
 o.title = translate("Update Files")
-o.inputtitle = translate("update domain list files")
+o.inputtitle = translate("Update Files")
 o.inputstyle = "apply"
 o.write = function()
 	luci.sys.call("/etc/init.d/smartdns updatefiles >/dev/null 2>&1")
