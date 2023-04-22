@@ -1601,10 +1601,11 @@ static int _dns_debug_display(struct dns_packet *packet)
 				char target[DNS_MAX_CNAME_LEN] = {0};
 				struct dns_https_param *p = NULL;
 				int priority = 0;
+				int ret = 0;
 
-				p = dns_get_HTTPS_svcparm_start(rrs, name, DNS_MAX_CNAME_LEN, &ttl, &priority, target,
+				ret = dns_get_HTTPS_svcparm_start(rrs, &p, name, DNS_MAX_CNAME_LEN, &ttl, &priority, target,
 												DNS_MAX_CNAME_LEN);
-				if (p == NULL) {
+				if (ret != 0) {
 					printf("get HTTPS svcparm failed\n");
 					break;
 				}
@@ -1617,7 +1618,23 @@ static int _dns_debug_display(struct dns_packet *packet)
 						printf("  HTTPS: mandatory: %s\n", p->value);
 					} break;
 					case DNS_HTTPS_T_ALPN: {
-						printf("  HTTPS: alpn: %s\n", p->value);
+						char alph[64] = {0};
+						int total_alph_len = 0;
+						char *ptr = (char *)p->value;
+						do {
+							int alphlen = *ptr;
+							memcpy(alph + total_alph_len, ptr + 1, alphlen);
+							total_alph_len += alphlen;
+							ptr += alphlen + 1;
+							alph[total_alph_len] = ',';
+							total_alph_len++;
+							alph[total_alph_len] = ' ';
+							total_alph_len++;
+						} while (ptr - (char *)p->value < p->len);
+						if (total_alph_len > 2) {
+							alph[total_alph_len - 2] = '\0';
+						}
+						printf("  HTTPS: alpn: %s\n", alph);
 					} break;
 					case DNS_HTTPS_T_NO_DEFAULT_ALPN: {
 						printf("  HTTPS: no_default_alpn: %s\n", p->value);
