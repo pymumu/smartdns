@@ -789,7 +789,7 @@ int create_pid_file(const char *pid_file)
 	/*  create pid file, and lock this file */
 	fd = open(pid_file, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
 	if (fd == -1) {
-		fprintf(stderr, "create pid file failed, %s\n", strerror(errno));
+		fprintf(stderr, "create pid file %s failed, %s\n", pid_file, strerror(errno));
 		return -1;
 	}
 

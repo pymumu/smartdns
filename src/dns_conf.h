@@ -459,6 +459,7 @@ extern char dns_conf_ca_path[DNS_MAX_PATH];
 
 extern char dns_conf_cache_file[DNS_MAX_PATH];
 extern int dns_conf_cache_persist;
+extern int dns_conf_cache_checkpoint_time;
 
 extern struct dns_domain_check_orders dns_conf_check_orders;
 

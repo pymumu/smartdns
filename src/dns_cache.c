@@ -886,11 +886,19 @@ static int _dns_cache_write_records(int fd, uint32_t *cache_number)
 	return 0;
 }
 
-int dns_cache_save(const char *file)
+int dns_cache_save(const char *file, int check_lock)
 {
 	int fd = -1;
 	uint32_t cache_number = 0;
 	tlog(TLOG_DEBUG, "write cache file %s", file);
+
+	/* check lock */
+	if (check_lock == 1) {
+		if (pthread_mutex_trylock(&dns_cache_head.lock) != 0) {
+			return -1;
+		}
+		pthread_mutex_unlock(&dns_cache_head.lock);
+	}
 
 	fd = open(file, O_TRUNC | O_CREAT | O_WRONLY, 0640);
 	if (fd < 0) {

@@ -186,7 +186,7 @@ void dns_cache_destroy(void);
 
 int dns_cache_load(const char *file);
 
-int dns_cache_save(const char *file);
+int dns_cache_save(const char *file, int check_lock);
 
 const char *dns_cache_file_version(void);
 

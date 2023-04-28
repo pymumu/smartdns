@@ -121,6 +121,7 @@ char dns_conf_ca_path[DNS_MAX_PATH];
 
 char dns_conf_cache_file[DNS_MAX_PATH];
 int dns_conf_cache_persist = 2;
+int dns_conf_cache_checkpoint_time;
 
 /* auditing */
 int dns_conf_audit_enable = 0;
@@ -3253,6 +3254,7 @@ static struct config_item _config_item[] = {
 	CONF_SSIZE("cache-size", &dns_conf_cachesize, 0, CONF_INT_MAX),
 	CONF_CUSTOM("cache-file", _config_option_parser_filepath, (char *)&dns_conf_cache_file),
 	CONF_YESNO("cache-persist", &dns_conf_cache_persist),
+	CONF_INT("cache-checkpoint-time", &dns_conf_cache_checkpoint_time, 0, 3600 * 24 * 7),
 	CONF_YESNO("prefetch-domain", &dns_conf_prefetch),
 	CONF_YESNO("serve-expired", &dns_conf_serve_expired),
 	CONF_INT("serve-expired-ttl", &dns_conf_serve_expired_ttl, 0, CONF_INT_MAX),
