@@ -22,7 +22,11 @@ USE_PROCD=1
 SERVICE_USE_PID=1
 SERVICE_WRITE_PID=1
 SERVICE_DAEMONIZE=1
-SERVICE_PID_FILE="/var/run/smartdns.pid"
+SERVICE_PID_FILE="/run/smartdns.pid"
+if [ ! -d "/run" ]; then
+	SERVICE_PID_FILE="/var/run/smartdns.pid"
+fi
+
 SMARTDNS_CONF_DIR="/etc/smartdns"
 SMARTDNS_CONF_DOWNLOAD_DIR="$SMARTDNS_CONF_DIR/conf.d"
 SMARTDNS_DOMAIN_LIST_DOWNLOAD_DIR="$SMARTDNS_CONF_DIR/domain-set"

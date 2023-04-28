@@ -28,7 +28,10 @@ PATH=/sbin:/bin:/usr/sbin:/usr/bin
 
 . /etc/default/smartdns
 SMARTDNS=/usr/sbin/smartdns
-PIDFILE=/var/run/smartdns.pid
+PIDFILE=/run/smartdns.pid
+if [ ! -d "/run" ]; then
+	PIDFILE=/var/run/smartdns.pid
+fi
 
 test -x $SMARTDNS || exit 5
 

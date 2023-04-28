@@ -32,7 +32,7 @@ RUN cd /build/smartdns && \
     \
     ( cd package && tar -xvf *.tar.gz && chmod a+x smartdns/etc/init.d/smartdns ) && \
     \
-    mkdir -p /release/var/log /release/var/run && \
+    mkdir -p /release/var/log /release/run && \
     cp package/smartdns/etc /release/ -a && \
     cp package/smartdns/usr /release/ -a && \
     cd / && rm -rf /build

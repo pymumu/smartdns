@@ -47,7 +47,8 @@
 #include <ucontext.h>
 
 #define MAX_KEY_LEN 64
-#define SMARTDNS_PID_FILE "/var/run/smartdns.pid"
+#define SMARTDNS_PID_FILE "/run/smartdns.pid"
+#define SMARTDNS_LEGACY_PID_FILE "/var/run/smartdns.pid"
 #define TMP_BUFF_LEN_32 32
 
 static int verbose_screen;
@@ -696,9 +697,15 @@ int main(int argc, char *argv[])
 	char pid_file[MAX_LINE_LEN];
 	int signal_ignore = 0;
 	sigset_t empty_sigblock;
+	struct stat sb;
 
 	safe_strncpy(config_file, SMARTDNS_CONF_FILE, MAX_LINE_LEN);
-	safe_strncpy(pid_file, SMARTDNS_PID_FILE, MAX_LINE_LEN);
+
+	if (stat("/run", &sb) == 0 && S_ISDIR(sb.st_mode)) {
+		safe_strncpy(pid_file, SMARTDNS_PID_FILE, MAX_LINE_LEN);
+	} else {
+		safe_strncpy(pid_file, SMARTDNS_LEGACY_PID_FILE, MAX_LINE_LEN);
+	}
 
 	/* patch for Asus router:  unblock all signal*/
 	sigemptyset(&empty_sigblock);

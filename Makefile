@@ -18,7 +18,7 @@ DESTDIR :=
 PREFIX := /usr
 SBINDIR := $(PREFIX)/sbin
 SYSCONFDIR := /etc
-RUNSTATEDIR := /var/run
+RUNSTATEDIR := /run
 SYSTEMDSYSTEMUNITDIR := $(shell ${PKG_CONFIG} --variable=systemdsystemunitdir systemd)
 SMARTDNS_SYSTEMD = systemd/smartdns.service
 
