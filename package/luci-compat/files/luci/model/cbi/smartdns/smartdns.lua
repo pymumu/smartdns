@@ -358,6 +358,27 @@ o.cfgvalue    = function(...)
     return Flag.cfgvalue(...) or "0"
 end
 
+o = s:taboption("seconddns", Value, "seconddns_ipset_name", translate("IPset Name"), translate("IPset name."))
+o.rmempty = true
+o.datatype = "hostname"
+o.rempty = true
+
+o = s:taboption("seconddns", Value, "seconddns_nftset_name", translate("NFTset Name"), translate("NFTset name, format: [#[4|6]:[family#table#set]]"))
+o.rmempty = true
+o.datatype = "string"
+o.rempty = true
+function o.validate(self, value) 
+    if (value == "") then
+        return value
+    end
+
+    if (value:match("#[4|6]:[a-zA-Z0-9%-_]+#[a-zA-Z0-9%-_]+#[a-zA-Z0-9%-_]+$")) then
+        return value
+    end
+
+    return nil, translate("NFTset name format error, format: [#[4|6]:[family#table#set]]")
+end
+
 ----- Proxy server settings
 o = s:taboption("proxy", Value, "proxy_server", translate("Proxy Server"), translate("Proxy Server URL, format: [socks5|http]://user:pass@ip:port."));
 o.datatype = 'string';

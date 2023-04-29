@@ -115,6 +115,7 @@ struct dns_server_conn_head {
 	atomic_t refcnt;
 	const char *dns_group;
 	uint32_t server_flags;
+	struct nftset_ipset_rules *ipset_nftset_rule;
 };
 
 struct dns_server_post_context {
@@ -381,6 +382,34 @@ static int _dns_server_has_bind_flag(struct dns_request *request, uint32_t flag)
 	}
 
 	return -1;
+}
+
+static void *_dns_server_get_bind_ipset_nftset_rule(struct dns_request *request, enum domain_rule type)
+{
+	if (request->conn == NULL) {
+		return NULL;
+	}
+
+	if (request->conn->ipset_nftset_rule == NULL) {
+		return NULL;
+	}
+
+	switch (type) {
+	case DOMAIN_RULE_IPSET:
+		return request->conn->ipset_nftset_rule->ipset;
+	case DOMAIN_RULE_IPSET_IPV4:
+		return request->conn->ipset_nftset_rule->ipset_ip;
+	case DOMAIN_RULE_IPSET_IPV6:
+		return request->conn->ipset_nftset_rule->ipset_ip6;
+	case DOMAIN_RULE_NFTSET_IP:
+		return request->conn->ipset_nftset_rule->nftset_ip;
+	case DOMAIN_RULE_NFTSET_IP6:
+		return request->conn->ipset_nftset_rule->nftset_ip6;
+	default:
+		break;
+	}
+
+	return NULL;
 }
 
 static int _dns_server_get_reply_ttl(struct dns_request *request, int ttl)
@@ -1617,10 +1646,17 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 	rule_flags = _dns_server_get_dns_rule(request, DOMAIN_RULE_FLAGS);
 	if (!rule_flags || (rule_flags->flags & DOMAIN_FLAG_IPSET_IGN) == 0) {
 		ipset_rule = _dns_server_get_dns_rule(request, DOMAIN_RULE_IPSET);
+		if (ipset_rule == NULL) {
+			ipset_rule = _dns_server_get_bind_ipset_nftset_rule(request, DOMAIN_RULE_IPSET);
+		}
 	}
 
 	if (!rule_flags || (rule_flags->flags & DOMAIN_FLAG_IPSET_IPV4_IGN) == 0) {
 		ipset_rule_v4 = _dns_server_get_dns_rule(request, DOMAIN_RULE_IPSET_IPV4);
+		if (ipset_rule_v4 == NULL) {
+			ipset_rule_v4 = _dns_server_get_bind_ipset_nftset_rule(request, DOMAIN_RULE_IPSET_IPV4);
+		}
+
 		if (ipset_rule == NULL && check_no_speed_rule && dns_conf_ipset_no_speed.ipv4_enable) {
 			ipset_rule_v4 = &dns_conf_ipset_no_speed.ipv4;
 		}
@@ -1628,6 +1664,10 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 
 	if (!rule_flags || (rule_flags->flags & DOMAIN_FLAG_IPSET_IPV6_IGN) == 0) {
 		ipset_rule_v6 = _dns_server_get_dns_rule(request, DOMAIN_RULE_IPSET_IPV6);
+		if (ipset_rule_v6 == NULL) {
+			ipset_rule_v6 = _dns_server_get_bind_ipset_nftset_rule(request, DOMAIN_RULE_IPSET_IPV6);
+		}
+
 		if (ipset_rule_v6 == NULL && check_no_speed_rule && dns_conf_ipset_no_speed.ipv6_enable) {
 			ipset_rule_v6 = &dns_conf_ipset_no_speed.ipv6;
 		}
@@ -1635,6 +1675,10 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 
 	if (!rule_flags || (rule_flags->flags & DOMAIN_FLAG_NFTSET_IP_IGN) == 0) {
 		nftset_ip = _dns_server_get_dns_rule(request, DOMAIN_RULE_NFTSET_IP);
+		if (nftset_ip == NULL) {
+			nftset_ip = _dns_server_get_bind_ipset_nftset_rule(request, DOMAIN_RULE_NFTSET_IP);
+		}
+
 		if (nftset_ip == NULL && check_no_speed_rule && dns_conf_nftset_no_speed.ip_enable) {
 			nftset_ip = &dns_conf_nftset_no_speed.ip;
 		}
@@ -1642,6 +1686,11 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 
 	if (!rule_flags || (rule_flags->flags & DOMAIN_FLAG_NFTSET_IP6_IGN) == 0) {
 		nftset_ip6 = _dns_server_get_dns_rule(request, DOMAIN_RULE_NFTSET_IP6);
+
+		if (nftset_ip6 == NULL) {
+			nftset_ip6 = _dns_server_get_bind_ipset_nftset_rule(request, DOMAIN_RULE_NFTSET_IP6);
+		}
+
 		if (nftset_ip6 == NULL && check_no_speed_rule && dns_conf_nftset_no_speed.ip6_enable) {
 			nftset_ip6 = &dns_conf_nftset_no_speed.ip6;
 		}
@@ -5549,6 +5598,8 @@ static int _dns_server_tcp_accept(struct dns_server_conn_tcp_server *tcpserver, 
 	tcpclient->head.type = DNS_CONN_TYPE_TCP_CLIENT;
 	tcpclient->head.server_flags = tcpserver->head.server_flags;
 	tcpclient->head.dns_group = tcpserver->head.dns_group;
+	tcpclient->head.ipset_nftset_rule = tcpserver->head.ipset_nftset_rule;
+
 	atomic_set(&tcpclient->head.refcnt, 0);
 	memcpy(&tcpclient->addr, &addr, addr_len);
 	tcpclient->addr_len = addr_len;
@@ -5985,6 +6036,8 @@ static int _dns_server_tls_accept(struct dns_server_conn_tls_server *tls_server,
 	tls_client->head.type = DNS_CONN_TYPE_TLS_CLIENT;
 	tls_client->head.server_flags = tls_server->head.server_flags;
 	tls_client->head.dns_group = tls_server->head.dns_group;
+	tls_client->head.ipset_nftset_rule = tls_server->head.ipset_nftset_rule;
+
 	atomic_set(&tls_client->head.refcnt, 0);
 	memcpy(&tls_client->addr, &addr, addr_len);
 	tls_client->addr_len = addr_len;
@@ -6688,6 +6741,7 @@ static int _dns_server_set_flags(struct dns_server_conn_head *head, struct dns_b
 	time(&head->last_request_time);
 	head->server_flags = bind_ip->flags;
 	head->dns_group = bind_ip->group;
+	head->ipset_nftset_rule = &bind_ip->nftset_ipset_rule;
 	atomic_set(&head->refcnt, 0);
 	list_add(&head->list, &server.conn_list);
 

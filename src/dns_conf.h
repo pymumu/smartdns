@@ -125,6 +125,7 @@ typedef enum {
 #define BIND_FLAG_NO_DUALSTACK_SELECTION (1 << 7)
 #define BIND_FLAG_FORCE_AAAA_SOA (1 << 8)
 #define BIND_FLAG_NO_RULE_CNAME (1 << 9)
+#define BIND_FLAG_NO_RULE_NFTSET (1 << 10)
 
 enum response_mode_type {
 	DNS_RESPONSE_MODE_FIRST_PING_IP = 0,
@@ -359,6 +360,14 @@ struct dns_conf_address_rule {
 	radix_tree_t *ipv6;
 };
 
+struct nftset_ipset_rules {
+	struct dns_ipset_rule *ipset;
+	struct dns_ipset_rule *ipset_ip;
+	struct dns_ipset_rule *ipset_ip6;
+	struct dns_nftset_rule *nftset_ip;
+	struct dns_nftset_rule *nftset_ip6;
+};
+
 struct dns_bind_ip {
 	DNS_BIND_TYPE type;
 	uint32_t flags;
@@ -367,6 +376,7 @@ struct dns_bind_ip {
 	const char *ssl_cert_key_file;
 	const char *ssl_cert_key_pass;
 	const char *group;
+	struct nftset_ipset_rules nftset_ipset_rule;
 };
 
 struct dns_qtype_soa_list {

@@ -300,8 +300,10 @@ load_domain_rules()
 		conf_append "domain-rules" "/domain-set:${domain_set_name}-forwarding-file/ $domain_set_args"
 	}
 
-	conf_append "domain-set" "-name ${domain_set_name}-forwarding-list -file /etc/smartdns/domain-forwarding.list"
-	conf_append "domain-rules" "/domain-set:${domain_set_name}-forwarding-list/ $domain_set_args"
+	[ ! -z "$domain_set_args" ] && {
+		conf_append "domain-set" "-name ${domain_set_name}-forwarding-list -file /etc/smartdns/domain-forwarding.list"
+		conf_append "domain-rules" "/domain-set:${domain_set_name}-forwarding-list/ $domain_set_args"
+	}
 
 	config_get block_domain_set_file "$section" "block_domain_set_file"
 	[ ! -z "$block_domain_set_file" ] && {
@@ -429,6 +431,12 @@ load_second_server()
 
 	config_get_bool seconddns_force_aaaa_soa "$section" "seconddns_force_aaaa_soa" "0"
 	[ "$seconddns_force_aaaa_soa" = "1" ] && ARGS="$ARGS -force-aaaa-soa"
+
+	config_get seconddns_ipset_name "$section" "seconddns_ipset_name" ""
+	[ -z "$seconddns_ipset_name" ] || ARGS="$ARGS -ipset $seconddns_ipset_name"
+
+	config_get seconddns_nftset_name "$section" "seconddns_nftset_name" ""
+	[ -z "$seconddns_nftset_name" ] || ARGS="$ARGS -nftset $seconddns_nftset_name"
 
 	config_get_bool bind_device "$section" "bind_device" "0"
 	config_get bind_device_name "$section" "bind_device_name" "${lan_device}"

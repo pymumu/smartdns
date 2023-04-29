@@ -1356,6 +1356,7 @@ static int _conf_domain_rule_nftset(char *domain, const char *nftsetname)
 			goto errout;
 		}
 		_dns_rule_put(&nftset_rule->head);
+		nftset_rule = NULL;
 	}
 
 	goto clear;
@@ -1802,6 +1803,143 @@ errout:
 	return -1;
 }
 
+static int _config_bind_ip_parser_nftset(struct dns_bind_ip *bind_ip, unsigned int *server_flag, const char *nftsetname)
+{
+	struct dns_nftset_rule *nftset_rule = NULL;
+	struct dns_nftset_rule **bind_nftset_rule = NULL;
+	const struct dns_nftset_name *nftset_name = NULL;
+	enum domain_rule type = DOMAIN_RULE_MAX;
+
+	char *setname = NULL;
+	char *tablename = NULL;
+	char *family = NULL;
+	char copied_name[DNS_MAX_NFTSET_NAMELEN + 1];
+
+	safe_strncpy(copied_name, nftsetname, DNS_MAX_NFTSET_NAMELEN);
+	for (char *tok = strtok(copied_name, ","); tok; tok = strtok(NULL, ",")) {
+		char *saveptr = NULL;
+		char *tok_set = NULL;
+
+		if (strncmp(tok, "#4:", 3U) == 0) {
+			bind_nftset_rule = &bind_ip->nftset_ipset_rule.nftset_ip;
+			type = DOMAIN_RULE_NFTSET_IP;
+		} else if (strncmp(tok, "#6:", 3U) == 0) {
+			bind_nftset_rule = &bind_ip->nftset_ipset_rule.nftset_ip6;
+			type = DOMAIN_RULE_NFTSET_IP6;
+		} else if (strncmp(tok, "-", 2U) == 0) {
+			continue;
+		} else {
+			return -1;
+		}
+
+		tok_set = tok + 3;
+
+		if (strncmp(tok_set, "-", 2U) == 0) {
+			*server_flag |= BIND_FLAG_NO_RULE_NFTSET;
+			continue;
+		}
+
+		family = strtok_r(tok_set, "#", &saveptr);
+		if (family == NULL) {
+			return -1;
+		}
+
+		tablename = strtok_r(NULL, "#", &saveptr);
+		if (tablename == NULL) {
+			return -1;
+		}
+
+		setname = strtok_r(NULL, "#", &saveptr);
+		if (setname == NULL) {
+			return -1;
+		}
+
+		/* new nftset domain */
+		nftset_name = _dns_conf_get_nftable(family, tablename, setname);
+		if (nftset_name == NULL) {
+			return -1;
+		}
+
+		nftset_rule = _new_dns_rule(type);
+		if (nftset_rule == NULL) {
+			return -1;
+		}
+
+		nftset_rule->nfttablename = nftset_name->nfttablename;
+		nftset_rule->nftsetname = nftset_name->nftsetname;
+		nftset_rule->familyname = nftset_name->nftfamilyname;
+		/* reference is 1 here */
+		*bind_nftset_rule = nftset_rule;
+
+		nftset_rule = NULL;
+	}
+
+	return 0;
+}
+
+static int _config_bind_ip_parser_ipset(struct dns_bind_ip *bind_ip, unsigned int *server_flag, const char *ipsetname)
+{
+	struct dns_ipset_rule **bind_ipset_rule = NULL;
+	struct dns_ipset_rule *ipset_rule = NULL;
+	const char *ipset = NULL;
+	enum domain_rule type = DOMAIN_RULE_MAX;
+
+	char copied_name[DNS_MAX_NFTSET_NAMELEN + 1];
+
+	safe_strncpy(copied_name, ipsetname, DNS_MAX_NFTSET_NAMELEN);
+
+	for (char *tok = strtok(copied_name, ","); tok; tok = strtok(NULL, ",")) {
+		if (tok[0] == '#') {
+			if (strncmp(tok, "#6:", 3U) == 0) {
+				bind_ipset_rule = &bind_ip->nftset_ipset_rule.ipset_ip6;
+				type = DOMAIN_RULE_IPSET_IPV6;
+			} else if (strncmp(tok, "#4:", 3U) == 0) {
+				bind_ipset_rule = &bind_ip->nftset_ipset_rule.ipset_ip;
+				type = DOMAIN_RULE_IPSET_IPV4;
+			} else {
+				goto errout;
+			}
+			tok += 3;
+		} else {
+			type = DOMAIN_RULE_IPSET;
+			bind_ipset_rule = &bind_ip->nftset_ipset_rule.ipset;
+		}
+
+		if (strncmp(tok, "-", 1) == 0) {
+			*server_flag |= BIND_FLAG_NO_RULE_IPSET;
+			continue;
+		}
+
+		if (bind_ipset_rule == NULL) {
+			continue;
+		}
+
+		/* new ipset domain */
+		ipset = _dns_conf_get_ipset(tok);
+		if (ipset == NULL) {
+			goto errout;
+		}
+
+		ipset_rule = _new_dns_rule(type);
+		if (ipset_rule == NULL) {
+			goto errout;
+		}
+
+		ipset_rule->ipsetname = ipset;
+		/* reference is 1 here */
+		*bind_ipset_rule = ipset_rule;
+		ipset_rule = NULL;
+	}
+
+	return 0;
+errout:
+	if (ipset_rule) {
+		_dns_rule_put(&ipset_rule->head);
+	}
+
+	return -1;
+}
+
 static int _config_bind_ip(int argc, char *argv[], DNS_BIND_TYPE type)
 {
 	int index = dns_conf_bind_ip_num;
@@ -1825,6 +1963,8 @@ static int _config_bind_ip(int argc, char *argv[], DNS_BIND_TYPE type)
 		{"no-cache", no_argument, NULL, 'C'},  
 		{"no-dualstack-selection", no_argument, NULL, 'D'},
 		{"force-aaaa-soa", no_argument, NULL, 'F'},
+		{"ipset", required_argument, NULL, 255},
+		{"nftset", required_argument, NULL, 256},
 		{NULL, no_argument, NULL, 0}
 	};
 	/* clang-format on */
@@ -1906,6 +2046,14 @@ static int _config_bind_ip(int argc, char *argv[], DNS_BIND_TYPE type)
 		}
 		case 'F': {
 			server_flag |= BIND_FLAG_FORCE_AAAA_SOA;
+			break;
+		}
+		case 255: {
+			_config_bind_ip_parser_ipset(bind_ip, &server_flag, optarg);
+			break;
+		}
+		case 256: {
+			_config_bind_ip_parser_nftset(bind_ip, &server_flag, optarg);
 			break;
 		}
 		default:
@@ -3381,6 +3529,35 @@ static int _dns_server_load_conf_init(void)
 	return 0;
 }
 
+static void dns_server_bind_destroy(void)
+{
+	for (int i = 0; i < dns_conf_bind_ip_num; i++) {
+		struct dns_bind_ip *bind_ip = &dns_conf_bind_ip[i];
+
+		if (bind_ip->nftset_ipset_rule.ipset) {
+			_dns_rule_put(&bind_ip->nftset_ipset_rule.ipset->head);
+		}
+
+		if (bind_ip->nftset_ipset_rule.ipset_ip) {
+			_dns_rule_put(&bind_ip->nftset_ipset_rule.ipset_ip->head);
+		}
+
+		if (bind_ip->nftset_ipset_rule.ipset_ip6) {
+			_dns_rule_put(&bind_ip->nftset_ipset_rule.ipset_ip6->head);
+		}
+
+		if (bind_ip->nftset_ipset_rule.nftset_ip) {
+			_dns_rule_put(&bind_ip->nftset_ipset_rule.nftset_ip->head);
+		}
+
+		if (bind_ip->nftset_ipset_rule.nftset_ip6) {
+			_dns_rule_put(&bind_ip->nftset_ipset_rule.nftset_ip6->head);
+		}
+	}
+	memset(dns_conf_bind_ip, 0, sizeof(dns_conf_bind_ip));
+	dns_conf_bind_ip_num = 0;
+}
+
 void dns_server_load_exit(void)
 {
 	_config_domain_destroy();
@@ -3395,7 +3572,7 @@ void dns_server_load_exit(void)
 	_config_proxy_table_destroy();
 
 	dns_conf_server_num = 0;
-	dns_conf_bind_ip_num = 0;
+	dns_server_bind_destroy();
 }
 
 static int _config_add_default_server_if_needed(void)
