@@ -71,3 +71,16 @@ hide:
     ```shell
     ipset-no-speed ipsetname
     ```
+
+## 对特定的服务端口设置ipset和nftset
+
+smartdns的bind参数，支持设置ipset和nftset，当设置了ipset和nftset的端口接收到请求后，将对此端口的查询请求设置ipset和nftset。
+
+通过如下配置，可以将对于端口的查询请求，全部设置到ipset中，比如将第二DNS的所有查询结果，放入ipset。
+
+```shell
+bind [::]:6053 -ipset [ipset] -nftset [nftset]
+```
+
+  * -ipset：参数选项参考ipset选项。
+  * -nftset：选项参考nftset。

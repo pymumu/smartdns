@@ -71,3 +71,16 @@ Like Dnsmasq, smartdns supports ipset and nftset, which can use TPROXY to transp
     ```shell
     ipset-no-speed ipsetname
     ```
+
+## Set ipset and nftset for specific service ports
+
+The bind parameter of smartdns supports setting ipset and nftset. When the port with ipset and nftset set receives a request, it will set ipset and nftset for the query request of this port.
+
+Through the following configuration, all query requests for ports can be set into ipset, for example, all query results of the second DNS can be put into ipset.
+
+```shell
+bind [::]:6053 -ipset [ipset] -nftset [nftset]
+```
+
+  * -ipset: Refer to ipset options for parameter options.
+  * -nftset: options refer to nftset.
