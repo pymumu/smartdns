@@ -57,7 +57,8 @@ smartdns可以通过指定对应域名返回SOA用于广告屏蔽。
 
 |项目|说明|配置文件|
 |--|--|--|
-|[anti-AD](https://anti-ad.net/)||https://anti-ad.net/anti-ad-for-smartdns.conf|
+|[anti-AD](https://anti-ad.net/)|Anti Advertising for smartdns|https://anti-ad.net/anti-ad-for-smartdns.conf|
+|[adrules](https://adrules.top/)|AdRules SmartDNS List|https://adrules.top/smart-dns.conf |
 
 ## 非smartdns列表
 

@@ -58,6 +58,7 @@ The community provides regularly updated ad-blocking list files for SmartDNS. Yo
 | Project | Description | Configuration File |
 | -- | -- | --
 | [anti-AD](https://anti-ad.net/) | Anti Advertising for smartdns | https://anti-ad.net/anti-ad-for-smartdns.conf |
+| [adrules](https://adrules.top/) | AdRules SmartDNS List | https://adrules.top/smart-dns.conf |
 
 ## Non-SmartDNS List Format
 
