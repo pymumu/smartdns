@@ -63,6 +63,7 @@ extern "C" {
 #define SMARTDNS_CACHE_FILE "/var/cache/smartdns/smartdns.cache"
 #define SMARTDNS_TMP_CACHE_FILE "/tmp/smartdns.cache"
 #define SMARTDNS_DEBUG_DIR "/tmp/smartdns"
+#define DNS_RESOLV_FILE "/etc/resolv.conf"
 
 enum domain_rule {
 	DOMAIN_RULE_FLAGS = 0,

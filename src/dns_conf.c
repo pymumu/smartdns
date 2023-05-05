@@ -31,7 +31,6 @@
 #include <unistd.h>
 
 #define DNS_MAX_REPLY_IP_NUM 8
-#define DNS_RESOLV_FILE "/etc/resolv.conf"
 
 /* ipset */
 struct dns_ipset_table {

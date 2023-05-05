@@ -176,7 +176,7 @@ static void _show_version(void)
 	printf("smartdns %s\n", str_ver);
 }
 
-static int _smartdns_load_from_resolv(void)
+static int _smartdns_load_from_resolv_file(const char *resolv_file)
 {
 	FILE *fp = NULL;
 	char line[MAX_LINE_LEN];
@@ -189,9 +189,9 @@ static int _smartdns_load_from_resolv(void)
 	int filed_num = 0;
 	int line_num = 0;
 
-	fp = fopen(dns_resolv_file, "r");
+	fp = fopen(resolv_file, "r");
 	if (fp == NULL) {
-		tlog(TLOG_ERROR, "open %s failed, %s", dns_resolv_file, strerror(errno));
+		tlog(TLOG_ERROR, "open %s failed, %s", resolv_file, strerror(errno));
 		return -1;
 	}
 
@@ -226,6 +226,16 @@ static int _smartdns_load_from_resolv(void)
 	fclose(fp);
 
 	return ret;
+}
+
+static int _smartdns_load_from_resolv(void)
+{
+	return _smartdns_load_from_resolv_file(dns_resolv_file);
+}
+
+static int _smartdns_load_from_default_resolv(void)
+{
+	return _smartdns_load_from_resolv_file(DNS_RESOLV_FILE);
 }
 
 static int _smartdns_prepare_server_flags(struct client_dns_server_flags *flags, struct dns_servers *server)
@@ -473,10 +483,18 @@ static int _smartdns_init(void)
 		goto errout;
 	}
 
-	for (i = 0; i < 60 && dns_conf_server_num <= 0; i++) {
+	for (i = 0; i < 180 && dns_conf_server_num <= 0; i++) {
 		ret = _smartdns_load_from_resolv();
 		if (ret == 0) {
 			continue;
+		}
+
+		/* try load from default resolv.conf file */
+		if (i > 30 && strncmp(dns_resolv_file, DNS_RESOLV_FILE, MAX_LINE_LEN) != 0) {
+			ret = _smartdns_load_from_default_resolv();
+			if (ret == 0) {
+				continue;
+			}
 		}
 
 		tlog(TLOG_DEBUG, "load dns from resolv failed, retry after 1s, retry times %d.", i + 1);
