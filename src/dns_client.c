@@ -56,7 +56,7 @@
 #include <unistd.h>
 
 #define DNS_MAX_HOSTNAME 256
-#define DNS_MAX_EVENTS 64
+#define DNS_MAX_EVENTS 256
 #define DNS_HOSTNAME_LEN 128
 #define DNS_TCP_BUFFER (32 * 1024)
 #define DNS_TCP_IDLE_TIMEOUT (60 * 10)

@@ -56,7 +56,7 @@ o.default     = "udp"
 o.rempty      = false
 
 ---- server group
-o = s:option(Value, "server_group", translate("Server Group"), translate("DNS Server group belongs to, used with nameserver, such as office, home."))
+o = s:option(Value, "server_group", translate("Server Group"), translate("DNS Server group belongs to, such as office, home."))
 o.rmempty     = true
 o.placeholder = "default"
 o.datatype    = "hostname"
@@ -64,14 +64,14 @@ o.rempty      = true
 
 ---- exclude default group
 o = s:option(Flag, "exclude_default_group", translate("Exclude Default Group"), translate("Exclude DNS Server from default group."))
-o.rmempty = false
+o.rmempty = true
 o.default = o.disabled
 o.editable = true
 o.modalonly = true
 
 ---- blacklist_ip
 o = s:option(Flag, "blacklist_ip", translate("IP Blacklist Filtering"), translate("Filtering IP with blacklist"))
-o.rmempty     = false
+o.rmempty     = true
 o.default     = o.disabled
 o.cfgvalue    = function(...)
     return Flag.cfgvalue(...) or "0"
@@ -87,7 +87,7 @@ o:depends("type", "https")
 
 ---- certificate verify
 o = s:option(Flag, "no_check_certificate", translate("No check certificate"), translate("Do not check certificate."))
-o.rmempty     = false
+o.rmempty     = true
 o.default     = o.disabled
 o.cfgvalue    = function(...)
     return Flag.cfgvalue(...) or "0"
@@ -154,6 +154,5 @@ end
 o = s:option(Value, "addition_arg", translate("Additional Server Args"), translate("Additional Args for upstream dns servers"))
 o.default     = ""
 o.rempty      = true
-o.optional    = true
 
 return m

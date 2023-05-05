@@ -1122,6 +1122,11 @@ static int _dns_server_reply_tcp(struct dns_request *request, struct dns_server_
 	unsigned char inpacket_data[DNS_IN_PACKSIZE];
 	unsigned char *inpacket = inpacket_data;
 
+	if (len > sizeof(inpacket_data) - 2) {
+		tlog(TLOG_ERROR, "packet size is invalid.");
+		return -1;
+	}
+
 	/* TCP query format
 	 * | len (short) | dns query data |
 	 */
@@ -6361,6 +6366,7 @@ static void _dns_server_save_cache_to_file(void)
 			close(i);
 		}
 
+		tlog_setlevel(TLOG_OFF);
 		_dns_server_cache_save(1);
 		_exit(0);
 	} else if (pid < 0) {

@@ -245,7 +245,7 @@ return view.extend({
 		// Domain prefetch load ;
 		o = s.taboption("advanced", form.Flag, "prefetch_domain", _("Domain prefetch"),
 			_("Enable domain prefetch, accelerate domain response speed."));
-		o.rmempty = false;
+		o.rmempty = true;
 		o.default = o.disabled;
 
 		// Domain Serve expired
@@ -270,7 +270,7 @@ return view.extend({
 
 		// Force AAAA SOA
 		o = s.taboption("advanced", form.Flag, "force_aaaa_soa", _("Force AAAA SOA"), _("Force AAAA SOA."));
-		o.rmempty = false;
+		o.rmempty = true;
 		o.default = o.disabled;
 
 		// Force HTTPS SOA
@@ -342,6 +342,12 @@ return view.extend({
 			_("Reply maximum TTL for all domain result."));
 		o.rempty = true;
 
+		// other args
+		o = s.taboption("advanced", form.Value, "server_flags", _("Additional Server Args"), 
+			_("Additional server args, refer to the help description of the bind option."))
+		o.default = ""
+		o.rempty = true
+
 		// include config
 		download_files = uci.sections('smartdns', 'download-file');
 		o = s.taboption("advanced", form.DynamicList, "conf_files", _("Include Config Files<br>/etc/smartdns/conf.d"),
@@ -365,7 +371,7 @@ return view.extend({
 		o = s.taboption("seconddns", form.Flag, "seconddns_enabled", _("Enable"),
 			_("Enable or disable second DNS server."));
 		o.default = o.disabled;
-		o.rempty = false;
+		o.rempty = true;
 
 		// Port;
 		o = s.taboption("seconddns", form.Value, "seconddns_port", _("Local Port"), _("Smartdns local server port"));
@@ -389,46 +395,46 @@ return view.extend({
 
 		o = s.taboption("seconddns", form.Flag, "seconddns_no_speed_check", _("Skip Speed Check"),
 			_("Do not check speed."));
-		o.rmempty = false;
+		o.rmempty = true;
 		o.default = o.disabled;
 
 		// skip address rules;
 		o = s.taboption("seconddns", form.Flag, "seconddns_no_rule_addr", _("Skip Address Rules"),
 			_("Skip address rules."));
-		o.rmempty = false;
+		o.rmempty = true;
 		o.default = o.disabled;
 
 		// skip name server rules;
 		o = s.taboption("seconddns", form.Flag, "seconddns_no_rule_nameserver", _("Skip Nameserver Rule"),
 			_("Skip nameserver rules."));
-		o.rmempty = false;
+		o.rmempty = true;
 		o.default = o.disabled;
 
 		// skip ipset rules;
 		o = s.taboption("seconddns", form.Flag, "seconddns_no_rule_ipset", _("Skip Ipset Rule"),
 			_("Skip ipset rules."));
-		o.rmempty = false;
+		o.rmempty = true;
 		o.default = o.disabled;
 
 		// skip soa address rule;
 		o = s.taboption("seconddns", form.Flag, "seconddns_no_rule_soa", _("Skip SOA Address Rule"),
 			_("Skip SOA address rules."));
-		o.rmempty = false;
+		o.rmempty = true;
 		o.default = o.disabled;
 
 		o = s.taboption("seconddns", form.Flag, "seconddns_no_dualstack_selection", _("Skip Dualstack Selection"),
 			_("Skip Dualstack Selection."));
-		o.rmempty = false;
+		o.rmempty = true;
 		o.default = o.disabled;
 
 		// skip cache;
 		o = s.taboption("seconddns", form.Flag, "seconddns_no_cache", _("Skip Cache"), _("Skip Cache."));
-		o.rmempty = false;
+		o.rmempty = true;
 		o.default = o.disabled;
 
 		// Force AAAA SOA
 		o = s.taboption("seconddns", form.Flag, "seconddns_force_aaaa_soa", _("Force AAAA SOA"), _("Force AAAA SOA."));
-		o.rmempty = false;
+		o.rmempty = true;
 		o.default = o.disabled;
 
 		o = s.taboption("seconddns", form.Value, "seconddns_ipset_name", _("IPset Name"), _("IPset name."));
@@ -469,6 +475,12 @@ return view.extend({
 			return true;
 		}
 
+		// other args
+		o = s.taboption("seconddns", form.Value, "seconddns_server_flags", _("Additional Server Args"), 
+			_("Additional server args, refer to the help description of the bind option."))
+		o.default = ""
+		o.rempty = true
+
 		///////////////////////////////////////
 		// DNS64 Settings
 		///////////////////////////////////////
@@ -481,7 +493,7 @@ return view.extend({
 		// download Files Settings
 		///////////////////////////////////////
 		o = s.taboption("files", form.Flag, "enable_auto_update", _("Enable Auto Update"), _("Enable daily auto update."));
-		o.rmempty = false;
+		o.rmempty = true;
 		o.default = o.disabled;
 		o.rempty = true;
 
@@ -521,11 +533,11 @@ return view.extend({
 		ss.sortable = true;
 
 		so = ss.option(form.Value, 'name', _('File Name'), _('File Name'));
-		so.rmempty = false;
+		so.rmempty = true;
 		so.datatype = 'file';
 
 		so = ss.option(form.Value, 'url', _('URL'), _('URL'));
-		so.rmempty = false;
+		so.rmempty = true;
 		so.datatype = 'string';
 		so.validate = function (section_id, value) {
 			if (value == "") {
@@ -586,8 +598,32 @@ return view.extend({
 
 		o = s.taboption("custom", form.Flag, "coredump", _("Generate Coredump"),
 			_("Generate Coredump file when smartdns crash, coredump file is located at /tmp/smartdns.xxx.core."));
-		o.rmempty = false;
+		o.rmempty = true;
 		o.default = o.disabled;
+
+		o = s.taboption("custom", form.Value, "log_size", _("Log Size"));
+		o.rmempty = true;
+		o.placeholder = "default";
+
+		o = s.taboption("custom", form.ListValue, "log_level", _("Log Level"));
+		o.rmempty = true;
+		o.placeholder = "default";
+		o.value("", _("default"));
+		o.value("debug");
+		o.value("info");
+		o.value("notice");
+		o.value("warn");
+		o.value("error");
+		o.value("fatal");
+		o.value("off");
+
+		o = s.taboption("custom", form.Value, "log_num", _("Log Number"));
+		o.rmempty = true;
+		o.placeholder = "default";
+
+		o = s.taboption("custom", form.Value, "log_file", _("Log File"))
+		o.rmempty = true
+		o.placeholder = "/var/log/smartdns/smartdns.log"
 
 		////////////////
 		// Upstream servers;
@@ -656,7 +692,7 @@ return view.extend({
 
 		// Advanced Options
 		o = s.taboption("advanced", form.Flag, "exclude_default_group", _("Exclude Default Group"), _("Exclude DNS Server from default group."))
-		o.rmempty = false;
+		o.rmempty = true;
 		o.default = o.disabled;
 		o.editable = true;
 		o.modalonly = true;
@@ -664,7 +700,7 @@ return view.extend({
 		// blacklist_ip
 		o = s.taboption("advanced", form.Flag, "blacklist_ip", _("IP Blacklist Filtering"),
 			_("Filtering IP with blacklist"))
-		o.rmempty = false
+		o.rmempty = true
 		o.default = o.disabled
 		o.modalonly = true;
 
@@ -681,7 +717,7 @@ return view.extend({
 		// certificate verify
 		o = s.taboption("advanced", form.Flag, "no_check_certificate", _("No check certificate"),
 			_("Do not check certificate."))
-		o.rmempty = false
+		o.rmempty = true
 		o.default = o.disabled
 		o.modalonly = true;
 		o.depends("type", "tls")
@@ -800,11 +836,11 @@ return view.extend({
 
 		o = s.taboption("forwarding", form.Flag, "no_speed_check", _("Skip Speed Check"),
 			_("Do not check speed."));
-		o.rmempty = false;
+		o.rmempty = true;
 		o.default = o.disabled;
 
 		o = s.taboption("forwarding", form.Flag, "force_aaaa_soa", _("Force AAAA SOA"), _("Force AAAA SOA."));
-		o.rmempty = false;
+		o.rmempty = true;
 		o.default = o.disabled;
 
 		o = s.taboption("forwarding", form.Value, "ipset_name", _("IPset Name"), _("IPset name."));
@@ -954,7 +990,7 @@ return view.extend({
 
 		so = ss.option(form.FileUpload, "domain_list_file", _("Domain List File"),
 			_("Upload domain list file, or configure auto download from Download File Setting page."));
-		so.rmempty = false
+		so.rmempty = true
 		so.datatype = "file"
 		so.rempty = true
 		so.root_directory = "/etc/smartdns/domain-set"

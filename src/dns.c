@@ -913,6 +913,11 @@ int dns_add_SOA(struct dns_packet *packet, dns_rr_type type, const char *domain,
 	unsigned char data[sizeof(*soa)];
 	unsigned char *ptr = data;
 	int len = 0;
+
+	if (soa == NULL || domain == NULL || packet == NULL) {
+		return -1;
+	}
+
 	safe_strncpy((char *)ptr, soa->mname, DNS_MAX_CNAME_LEN);
 	ptr += strnlen(soa->mname, DNS_MAX_CNAME_LEN - 1) + 1;
 	safe_strncpy((char *)ptr, soa->rname, DNS_MAX_CNAME_LEN);

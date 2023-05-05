@@ -26,7 +26,8 @@ typedef enum {
     TLOG_WARN = 3,
     TLOG_ERROR = 4,
     TLOG_FATAL = 5,
-    TLOG_END = 6
+    TLOG_OFF = 6,
+    TLOG_END = 7
 } tlog_level;
 
 struct tlog_time {

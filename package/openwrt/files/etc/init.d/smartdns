@@ -445,6 +445,9 @@ load_second_server()
 	config_get_bool "seconddns_tcp_server" "$section" "seconddns_tcp_server" "1"
 	config_get ipv6_server "$section" "ipv6_server" "1"
 
+	config_get seconddns_server_flags "$section" "seconddns_server_flags" ""
+	[ -z "$seconddns_server_flags" ] || ARGS="$ARGS $seconddns_server_flags"
+
 	conf_append_bind "$seconddns_port" "$device" "$seconddns_tcp_server" "$ipv6_server" "$ARGS"
 }
 

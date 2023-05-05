@@ -12,6 +12,9 @@ msgstr "额外规则标识"
 msgid "Additional Server Args"
 msgstr "额外的服务器参数"
 
+msgid "Additional server args, refer to the help description of the bind option."
+msgstr "额外的服务器参数，参考bind选项的帮助说明。"
+
 msgid "Advanced Settings"
 msgstr "高级设置"
 
@@ -286,6 +289,18 @@ msgstr "监听在指定的设备上，避免非本地网络的DNS查询请求。
 
 msgid "Local Port"
 msgstr "本地端口"
+
+msgid "Log Size"
+msgstr "日志大小"
+
+msgid "Log Level"
+msgstr "日志级别"
+
+msgid "Log Number"
+msgstr "日志数量"
+
+msgid "Log File"
+msgstr "日志文件路径"
 
 msgid "Marking Packets"
 msgstr "数据包标记"

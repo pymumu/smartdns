@@ -542,7 +542,7 @@ static proxy_handshake_state _proxy_handshake_socks5(struct proxy_conn *proxy_co
 			return PROXY_HANDSHAKE_ERR;
 		}
 
-		tlog(TLOG_INFO, "server %s select auth method is %d", proxy_conn->server_info->proxy_name,
+		tlog(TLOG_DEBUG, "server %s select auth method is %d", proxy_conn->server_info->proxy_name,
 			 proxy_conn->buffer.buffer[1]);
 		if (proxy_conn->buffer.buffer[1] == PROXY_SOCKS5_AUTH_USER_PASS) {
 			return _proxy_handshake_socks5_send_auth(proxy_conn);
@@ -592,7 +592,7 @@ static proxy_handshake_state _proxy_handshake_socks5(struct proxy_conn *proxy_co
 			return PROXY_HANDSHAKE_ERR;
 		}
 
-		tlog(TLOG_INFO, "server %s auth success", proxy_conn->server_info->proxy_name);
+		tlog(TLOG_DEBUG, "server %s auth success", proxy_conn->server_info->proxy_name);
 		proxy_conn->state = PROXY_CONN_CONNECTING;
 		return _proxy_handshake_socks5_reply_connect_addr(proxy_conn);
 	case PROXY_CONN_CONNECTING: {
@@ -720,7 +720,7 @@ static proxy_handshake_state _proxy_handshake_socks5(struct proxy_conn *proxy_co
 		}
 
 		proxy_conn->state = PROXY_CONN_CONNECTED;
-		tlog(TLOG_INFO, "success connect to socks5 proxy server %s", proxy_conn->server_info->proxy_name);
+		tlog(TLOG_DEBUG, "success connect to socks5 proxy server %s", proxy_conn->server_info->proxy_name);
 		return PROXY_HANDSHAKE_CONNECTED;
 	} break;
 	default:
@@ -838,7 +838,7 @@ static int _proxy_handshake_http(struct proxy_conn *proxy_conn)
 		if (proxy_conn->buffer.len < 0) {
 			proxy_conn->buffer.len = 0;
 		}
-		tlog(TLOG_INFO, "success connect to http proxy server %s", proxy_conn->server_info->proxy_name);
+		tlog(TLOG_DEBUG, "success connect to http proxy server %s", proxy_conn->server_info->proxy_name);
 		proxy_conn->state = PROXY_CONN_CONNECTED;
 		ret = PROXY_HANDSHAKE_CONNECTED;
 		goto out;
@@ -926,6 +926,11 @@ int proxy_conn_sendto(struct proxy_conn *proxy_conn, const void *buf, size_t len
 		buffer_len += 19;
 		break;
 	default:
+		return -1;
+	}
+
+	if (sizeof(buffer) - buffer_len <= len) {
+		errno = ENOSPC;
 		return -1;
 	}
 
