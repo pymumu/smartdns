@@ -7005,11 +7005,7 @@ static int _dns_server_cache_init(void)
 		return -1;
 	}
 
-	char *dns_cache_file = SMARTDNS_CACHE_FILE;
-	if (dns_conf_cache_file[0] != 0) {
-		dns_cache_file = dns_conf_cache_file;
-	}
-
+	const char *dns_cache_file = dns_conf_get_cache_dir();
 	if (dns_conf_cache_persist == 2) {
 		uint64_t freespace = get_free_space(dns_cache_file);
 		if (freespace >= CACHE_AUTO_ENABLE_SIZE) {
@@ -7032,10 +7028,7 @@ static int _dns_server_cache_init(void)
 
 static int _dns_server_cache_save(int check_lock)
 {
-	char *dns_cache_file = SMARTDNS_CACHE_FILE;
-	if (dns_conf_cache_file[0] != 0) {
-		dns_cache_file = dns_conf_cache_file;
-	}
+	const char *dns_cache_file = dns_conf_get_cache_dir();
 
 	if (dns_conf_cache_persist == 0 || dns_conf_cachesize <= 0) {
 		if (access(dns_cache_file, F_OK) == 0) {

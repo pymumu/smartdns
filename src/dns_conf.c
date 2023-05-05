@@ -3509,6 +3509,15 @@ int config_additional_file(void *data, int argc, char *argv[])
 	return load_conf(file_path, _config_item, _conf_printf);
 }
 
+const char *dns_conf_get_cache_dir(void)
+{
+	if (dns_conf_cache_file[0] == '\0') {
+		return SMARTDNS_CACHE_FILE;
+	}
+
+	return dns_conf_cache_file;
+}
+
 static int _dns_server_load_conf_init(void)
 {
 	dns_conf_address_rule.ipv4 = New_Radix();
