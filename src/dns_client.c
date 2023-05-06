@@ -3537,7 +3537,7 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 					 server_info->type);
 				time_t now = 0;
 				time(&now);
-				if (now - 5 > server_info->last_recv || send_err != ENOMEM) {
+				if (now - 10 > server_info->last_recv || send_err != ENOMEM) {
 					server_info->prohibit = 1;
 					tlog(TLOG_INFO, "server %s not alive, prohibit", server_info->ip);
 					_dns_client_shutdown_socket(server_info);
