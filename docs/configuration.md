@@ -30,7 +30,7 @@ hide:
 | rr-ttl-reply-max | 允许返回给客户端的最大 TTL 值 | 远程查询结果 | 大于 0 的数字 | rr-ttl-reply-max 60 |
 | local-ttl | 本地HOST，address的TTL值 | rr-ttl-min | 大于 0 的数字 | local-ttl  60 |
 | max-reply-ip-num | 允许返回给客户的最大IP数量 | IP数量 | 大于 0 的数字 | max-reply-ip-num 1 |
-| log-level | 设置日志级别 | error | fatal、error、warn、notice、info 或 debug | log-level error |
+| log-level | 设置日志级别 | error | off、fatal、error、warn、notice、info 或 debug | log-level error |
 | log-file | 日志文件路径 | /var/log/<br />smartdns/<br />smartdns.log | 合法路径字符串 | log-file /var/log/smartdns/smartdns.log |
 | log-size | 日志大小 | 128K | 数字 + K、M 或 G | log-size 128K |
 | log-num | 日志归档个数 | openwrt为2， 其他系统为8 | 大于等于 0 的数字，0表示禁用日志 | log-num 2 |

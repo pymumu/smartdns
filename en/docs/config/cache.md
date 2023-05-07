@@ -43,7 +43,6 @@ The specific principle of optimistic caching can refer to (RFC 8767) (https://ww
 
 The process for SmartDNS to handle expired cache is as follows:
 
-
 ```mermaid
 
 %%{init: {'theme':'forest'}}%%
@@ -106,4 +105,12 @@ Therefore, it is a good practice to enable expired cache in the main scenario.
 
     ```shell
     domain-rules /example.com/ -no-cache
+    ```
+
+## Set cache save interval
+
+1. To avoid losing the cache due to system or process restart, you can configure SmartDNS to periodically save the cache file.
+
+    ```shell
+    cache-checkpoint-time 86400  
     ```

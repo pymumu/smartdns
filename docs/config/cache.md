@@ -64,9 +64,12 @@ sequenceDiagram
 
 现实中，大部分情况下，修改域名IP地址后，是不会立即生效到千家万户的，因为一般IP变化域名后，全球域名系统刷新完成最长可能要72小时。  
 即时出现过期缓存中的IP地址，故障失效，smartdns返回给客户端过期IP的TTL只有3s，那么3s后，客户端就会重新使用新的IP，表现在客户端程序中，可能就是要刷新页面重试一次。  
-并且，针对实现场景，smartdns可以设置预获取来尽量避免此问题发生。
+并且，针对实现场景，smartdns可以设置预获取`prefetch-domain yes`来尽量避免此问题发生。
 
 所以，主要场景下开启过期缓存是比较好的实践。
+
+注意：`prefetch-domain yes`功能，在开启过期缓存功能的情况下，行为和未开启有差别，开启过期缓存的情况下，仅当域名要从缓存中过期时，才进行预读取，而不是TTL超时获取。
+所以，开启了过期缓存的情况下，推荐开启域名预获取功能。
 
 ## 配置步骤
 
@@ -107,4 +110,12 @@ sequenceDiagram
 
     ```shell
     domain-rules /example.com/ -no-cache
+    ```
+
+## 设置cache定时保存
+
+1. 为避免cache因为系统或进程复位丢失，可以设置smartdns周期保存cache文件。
+
+    ```shell
+    cache-checkpoint-time 86400
     ```
