@@ -77,7 +77,6 @@ TEST_F(Cname, subdomain1)
 		if (request->domain == "s.a.com") {
 			smartdns::MockServer::AddIP(request, request->domain.c_str(), "4.5.6.7", 700);
 			return smartdns::SERVER_REQUEST_OK;
-
 		}
 
 		smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4", 611);
@@ -114,7 +113,6 @@ TEST_F(Cname, subdomain2)
 		if (request->domain == "a.s.a.com") {
 			smartdns::MockServer::AddIP(request, request->domain.c_str(), "4.5.6.7", 700);
 			return smartdns::SERVER_REQUEST_OK;
-
 		}
 
 		smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4", 611);
@@ -139,7 +137,6 @@ cache-persist no)""");
 	EXPECT_EQ(client.GetAnswer()[1].GetData(), "4.5.6.7");
 }
 
-
 TEST_F(Cname, loop)
 {
 	smartdns::MockServer server_upstream;
@@ -153,7 +150,6 @@ TEST_F(Cname, loop)
 		if (request->domain == "s.a.com") {
 			smartdns::MockServer::AddIP(request, request->domain.c_str(), "4.5.6.7", 700);
 			return smartdns::SERVER_REQUEST_OK;
-
 		}
 
 		smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4", 611);

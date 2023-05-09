@@ -53,8 +53,8 @@ TEST_F(IPRule, white_list)
 		return smartdns::SERVER_REQUEST_OK;
 	});
 
-    /* this ip will be discard, but is reachable */
-    server.MockPing(PING_TYPE_ICMP, "1.2.3.4", 60, 10);
+	/* this ip will be discard, but is reachable */
+	server.MockPing(PING_TYPE_ICMP, "1.2.3.4", 60, 10);
 
 	server.Start(R"""(bind [::]:60053
 server udp://127.0.0.1:61053 -whitelist-ip
@@ -97,8 +97,8 @@ TEST_F(IPRule, black_list)
 		return smartdns::SERVER_REQUEST_OK;
 	});
 
-    /* this ip will be discard, but is reachable */
-    server.MockPing(PING_TYPE_ICMP, "4.5.6.7", 60, 10);
+	/* this ip will be discard, but is reachable */
+	server.MockPing(PING_TYPE_ICMP, "4.5.6.7", 60, 10);
 
 	server.Start(R"""(bind [::]:60053
 server udp://127.0.0.1:61053 -blacklist-ip
@@ -134,10 +134,10 @@ TEST_F(IPRule, ignore_ip)
 		return smartdns::SERVER_REQUEST_OK;
 	});
 
-    /* this ip will be discard, but is reachable */
-    server.MockPing(PING_TYPE_ICMP, "1.2.3.4", 60, 10);
-    server.MockPing(PING_TYPE_ICMP, "4.5.6.7", 60, 90);
-    server.MockPing(PING_TYPE_ICMP, "7.8.9.10", 60, 40);
+	/* this ip will be discard, but is reachable */
+	server.MockPing(PING_TYPE_ICMP, "1.2.3.4", 60, 10);
+	server.MockPing(PING_TYPE_ICMP, "4.5.6.7", 60, 90);
+	server.MockPing(PING_TYPE_ICMP, "7.8.9.10", 60, 40);
 
 	server.Start(R"""(bind [::]:60053
 server udp://127.0.0.1:61053 -blacklist-ip

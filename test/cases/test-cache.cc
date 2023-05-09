@@ -127,6 +127,16 @@ cache-persist no)""");
 	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
 	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 5);
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+
+	sleep(1);
+
+	ASSERT_TRUE(client.Query("a.com", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 5);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
 }
 
 TEST_F(Cache, max_reply_ttl_expired)

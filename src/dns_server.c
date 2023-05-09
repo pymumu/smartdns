@@ -1838,7 +1838,7 @@ static int _dns_request_update_id_ttl(struct dns_server_post_context *context)
 		}
 
 		if (ttl > dns_conf_rr_ttl_reply_max) {
-			ttl %= dns_conf_rr_ttl_reply_max;
+			ttl = dns_conf_rr_ttl_reply_max;
 		}
 
 		if (ttl == 0) {

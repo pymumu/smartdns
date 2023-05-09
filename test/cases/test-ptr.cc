@@ -42,11 +42,11 @@ TEST_F(Ptr, query)
 			return smartdns::SERVER_REQUEST_OK;
 		}
 
-        if (request->qtype == DNS_T_PTR) {
-            dns_add_PTR(request->response_packet, DNS_RRS_AN, request->domain.c_str(), 30, "my-hostname");
-            request->response_packet->head.rcode = DNS_RC_NOERROR;
-            return smartdns::SERVER_REQUEST_OK;
-        }
+		if (request->qtype == DNS_T_PTR) {
+			dns_add_PTR(request->response_packet, DNS_RRS_AN, request->domain.c_str(), 30, "my-hostname");
+			request->response_packet->head.rcode = DNS_RC_NOERROR;
+			return smartdns::SERVER_REQUEST_OK;
+		}
 
 		return smartdns::SERVER_REQUEST_SOA;
 	});
@@ -127,11 +127,11 @@ TEST_F(Ptr, smartdns)
 			return smartdns::SERVER_REQUEST_OK;
 		}
 
-        if (request->qtype == DNS_T_PTR) {
-            dns_add_PTR(request->response_packet, DNS_RRS_AN, request->domain.c_str(), 30, "my-hostname");
-            request->response_packet->head.rcode = DNS_RC_NOERROR;
-            return smartdns::SERVER_REQUEST_OK;
-        }
+		if (request->qtype == DNS_T_PTR) {
+			dns_add_PTR(request->response_packet, DNS_RRS_AN, request->domain.c_str(), 30, "my-hostname");
+			request->response_packet->head.rcode = DNS_RC_NOERROR;
+			return smartdns::SERVER_REQUEST_OK;
+		}
 
 		return smartdns::SERVER_REQUEST_SOA;
 	});

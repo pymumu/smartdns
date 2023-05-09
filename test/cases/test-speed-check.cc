@@ -220,7 +220,6 @@ cache-persist no)""");
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "5.6.7.8");
 }
 
-
 TEST_F(SpeedCheck, tcp_faster_than_ping)
 {
 	smartdns::MockServer server_upstream;

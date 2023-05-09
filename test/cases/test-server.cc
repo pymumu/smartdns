@@ -44,7 +44,7 @@ TEST_F(Server, all_unreach)
 		return smartdns::SERVER_REQUEST_OK;
 	});
 
-    server.MockPing(PING_TYPE_ICMP, "2001::", 128, 10000);
+	server.MockPing(PING_TYPE_ICMP, "2001::", 128, 10000);
 	server.Start(R"""(bind [::]:60053
 bind-tcp [::]:60053
 server tls://255.255.255.255
@@ -58,11 +58,11 @@ cache-persist no)""");
 	ASSERT_TRUE(client.Query("a.com", 60053));
 	std::cout << client.GetResult() << std::endl;
 	EXPECT_EQ(client.GetStatus(), "SERVFAIL");
-    EXPECT_EQ(client.GetAnswerNum(), 0);
+	EXPECT_EQ(client.GetAnswerNum(), 0);
 
-    /* server should not crash */
-    ASSERT_TRUE(client.Query("a.com +tcp", 60053));
+	/* server should not crash */
+	ASSERT_TRUE(client.Query("a.com +tcp", 60053));
 	std::cout << client.GetResult() << std::endl;
 	EXPECT_EQ(client.GetStatus(), "SERVFAIL");
-    EXPECT_EQ(client.GetAnswerNum(), 0);
+	EXPECT_EQ(client.GetAnswerNum(), 0);
 }
