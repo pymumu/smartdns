@@ -17,7 +17,7 @@ hide:
 |bind-cert-key-pass|SSL Certificate key file password|none|string| bind-cert-key-pass password |
 |cache-size|Domain name result cache number|Auto: Set cache site by memory size. |integer|cache-size 512
 |cache-persist|enable persist cache|Auto: Enabled if the location of `cache-file` has more than 128MB of free space.|[yes\|no]|cache-persist yes
-|cache-file|cache persist file|/tmp/<br />smartdns.cache|path|cache-file /tmp/smartdns.cache
+|cache-file|cache persist file|/var/cache/<br />smartdns.cache|path|cache-file /tmp/smartdns.cache
 |cache-checkpoint-time| cache persist time | 0 | 0 or greater than 120, 0: disable， other: persis time in seconds | cache-checkpoint-time 0
 |tcp-idle-time|TCP connection idle timeout|120|integer|tcp-idle-time 120
 |rr-ttl|Domain name TTL|Remote query result|number greater than 0|rr-ttl 600

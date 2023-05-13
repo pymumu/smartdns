@@ -21,7 +21,7 @@ hide:
 | bind-cert-key-pass | SSL证书KEY文件密码 | 无 | 字符串 | bind-cert-key-pass password |
 | cache-size | 域名结果缓存个数 | 自动，根据系统内存自动调整大小 | 大于等于 0 的数字 | cache-size 512 |
 | cache-persist | 是否持久化缓存 | 自动。<br />当 cache-file 所在的位置有超过 128 MB 的可用空间时启用，否则禁用。 | [yes\|no] | cache-persist yes |
-| cache-file | 缓存持久化文件路径 | /tmp/<br />smartdns.cache | 合法路径字符串 | cache-file /tmp/smartdns.cache |
+| cache-file | 缓存持久化文件路径 | /var/cache/<br />smartdns.cache | 合法路径字符串 | cache-file /tmp/smartdns.cache |
 | cache-checkpoint-time | 缓存持久化时间 | 0 | 0 或 大于120的数字, 0表示禁用周期持久化， 其他值表示定期持久化的时间。 | cache-checkpoint-time 0
 | tcp-idle-time | TCP 链接空闲超时时间 | 120 | 大于等于 0 的数字 | tcp-idle-time 120 |
 | rr-ttl | 域名结果 TTL | 远程查询结果 | 大于 0 的数字 | rr-ttl 600 |
