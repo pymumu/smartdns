@@ -97,6 +97,7 @@ nav:
     - DNS64: 'config/dns64.md'
     - IP Rule: 'config/ip-rule.md'
     - Forwarding with IPSet: 'config/forwarding-with-ipset.md'
+    - Edns Client Subnet: 'config/edns-client-subnet.md'
   - Configurations: 'configuration.md'
   - Compile: 'compile.md'
   - FAQ: 'faq.md'

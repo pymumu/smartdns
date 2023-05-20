@@ -116,6 +116,14 @@ SmartDNS在早期版本，只会返回一个IP地址，这一个IP地址速度�
 
 值得注意的是，上述机制，是在开启了缓存的情况下，如果缓存未开启，则仍然返回最快的一个地址。
 
+## DDNS处理
+
+SMARTDNS默认启用了过期缓存，当使用DDNS时，有可能造成IP地址变化后，访问失败的情况下，可以通过如下方式，关闭对应DDNS域名的过期缓存。
+
+```shell
+domain-rules /ddns.com/ --no-serve-expired
+```
+
 ## 更多问题
 
 如有更多问题，请查阅或提交issue: [https://github.com/pymumu/smartdns/issues](https://github.com/pymumu/smartdns/issues)
