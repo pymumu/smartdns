@@ -347,6 +347,7 @@ static int load_conf_file(const char *file, struct config_item *items, conf_erro
 	char value[MAX_LINE_LEN];
 	int filed_num = 0;
 	int i = 0;
+	int last_item_index = -1;
 	int argc = 0;
 	char *argv[1024];
 	int ret = 0;
@@ -392,13 +393,21 @@ static int load_conf_file(const char *file, struct config_item *items, conf_erro
 			goto errout;
 		}
 
-		for (i = 0;; i++) {
+		for (i = last_item_index;; i++) {
+			if (i < 0) {
+				continue;
+			}
+
 			if (items[i].item == NULL) {
 				handler(file, line_no, CONF_RET_NOENT);
 				break;
 			}
 
 			if (strncmp(items[i].item, key, MAX_KEY_LEN) != 0) {
+				if (last_item_index >= 0) {
+					i = -1;
+					last_item_index = -1;
+				}
 				continue;
 			}
 
@@ -422,6 +431,7 @@ static int load_conf_file(const char *file, struct config_item *items, conf_erro
 				current_conf_file = last_file;
 			}
 
+			last_item_index = i;
 			break;
 		}
 	}
