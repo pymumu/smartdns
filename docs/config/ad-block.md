@@ -37,6 +37,25 @@ smartdns可以通过指定对应域名返回SOA用于广告屏蔽。
     address /sub.example.com/-
     ```
 
+## 使用域名集合
+
+对于单个域名屏蔽，可以方便使用address参数屏蔽，对于较多的域名，可通过域名集合屏蔽，更加方便管理广告域名列表。
+
+```shell
+domain-set -name ad -file /path/to/adblock.list
+address /domain-set:ad/#
+
+```
+
+adlobck.list的内容为每行一个域名。
+
+```shell
+a.com
+b.com
+...
+
+```
+
 ## 使用社区已有smartdns广告过滤列表
 
 社区针对smartdns提供了每日更新的广告列表文件，可以直接使用这些广告列表文件，smartdns可以通过conf-file选项包含广告屏蔽文件。另外在使用这些广告列表文件时，可以定期下载更新文件，并重启smartdns生效。

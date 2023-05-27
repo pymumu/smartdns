@@ -37,6 +37,25 @@ Note: If you're using OpenWrt with LuCI, please refer to OpenWrt's domain blocki
     address /sub.example.com/-
     ```
 
+## Usage of Domain Set
+
+For a single domain name blocking, you can conveniently use the address parameter to block it. For more domain names, you can block it through the domain-set, which is more convenient to manage the list of advertising domain names.
+
+Use `domain-set` to configure the collection file, such as:
+
+```shell
+domain-set -name ad -file /path/to/adblock.list
+address /domain-set:ad/#
+```
+
+The format of `adblock.list` is one domain per line, such as:
+
+```shell
+a.com
+b.com
+...
+```
+
 ## Using Community SmartDNS Ad-Blocking Lists
 
 The community provides regularly updated ad-blocking list files for SmartDNS. You can directly use these ad-blocking list files, and add them to SmartDNS as an option with `conf-file`. Additionally, you can download and update these files periodically, then restart SmartDNS to take effect.
