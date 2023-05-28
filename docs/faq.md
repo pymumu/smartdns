@@ -124,6 +124,12 @@ SMARTDNS默认启用了过期缓存，当使用DDNS时，有可能造成IP地址
 domain-rules /ddns.com/ --no-serve-expired
 ```
 
+另外一个推荐的方法是使用本地网络的地址，因为DDNS指向的设备一般在本地局域网，通过本地网络访问服务器没必要用外网IP，而是可以直接使用本地IP。
+
+```shell
+address /ddns.com/192.168.1.1
+```
+
 ## 更多问题
 
 如有更多问题，请查阅或提交issue: [https://github.com/pymumu/smartdns/issues](https://github.com/pymumu/smartdns/issues)
