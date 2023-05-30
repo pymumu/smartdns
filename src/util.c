@@ -25,6 +25,7 @@
 #include "util.h"
 #include <arpa/inet.h>
 #include <ctype.h>
+#include <dirent.h>
 #include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -38,11 +39,13 @@
 #include <openssl/crypto.h>
 #include <openssl/ssl.h>
 #include <openssl/x509v3.h>
+#include <poll.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/prctl.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <sys/sysinfo.h>
@@ -806,7 +809,11 @@ int create_pid_file(const char *pid_file)
 	}
 
 	if (lockf(fd, F_TLOCK, 0) < 0) {
-		fprintf(stderr, "Server is already running.\n");
+		memset(buff, 0, TMP_BUFF_LEN_32);
+		if (read(fd, buff, TMP_BUFF_LEN_32) <= 0) {
+			buff[0] = '\0';
+		}
+		fprintf(stderr, "Server is already running, pid is %s", buff);
 		goto errout;
 	}
 
@@ -829,6 +836,27 @@ errout:
 		close(fd);
 	}
 	return -1;
+}
+
+int full_path(char *normalized_path, int normalized_path_len, const char *path)
+{
+	const char *p = path;
+
+	if (path == NULL || normalized_path == NULL) {
+		return -1;
+	}
+
+	while (*p == ' ') {
+		p++;
+	}
+
+	if (*p == '\0' || *p == '/') {
+		return -1;
+	}
+
+	char buf[PATH_MAX];
+	snprintf(normalized_path, normalized_path_len, "%s/%s", getcwd(buf, sizeof(buf)), path);
+	return 0;
 }
 
 int generate_cert_key(const char *key_path, const char *cert_path, const char *san, int days)
@@ -1479,6 +1507,156 @@ out:
 	return ret;
 }
 
+static void _close_all_fd_by_res(void)
+{
+	struct rlimit lim;
+	int maxfd = 0;
+	int i = 0;
+
+	getrlimit(RLIMIT_NOFILE, &lim);
+
+	maxfd = lim.rlim_cur;
+	if (maxfd > 4096) {
+		maxfd = 4096;
+	}
+
+	for (i = 3; i < maxfd; i++) {
+		close(i);
+	}
+}
+
+void close_all_fd(int keepfd)
+{
+	DIR *dirp;
+	int dir_fd = -1;
+	struct dirent *dentp;
+
+	dirp = opendir("/proc/self/fd");
+	if (dirp == NULL) {
+		goto errout;
+	}
+
+	dir_fd = dirfd(dirp);
+
+	while ((dentp = readdir(dirp)) != NULL) {
+		int fd = atol(dentp->d_name);
+		if (fd < 0) {
+			continue;
+		}
+
+		if (fd == dir_fd || fd == STDIN_FILENO || fd == STDOUT_FILENO || fd == STDERR_FILENO || fd == keepfd) {
+			continue;
+		}
+		close(fd);
+	}
+
+	closedir(dirp);
+	return;
+errout:
+	if (dirp) {
+		closedir(dirp);
+	}
+	_close_all_fd_by_res();
+	return;
+}
+
+int daemon_kickoff(int fd, int status)
+{
+	if (fd <= 0) {
+		return -1;
+	}
+
+	int ret = write(fd, &status, sizeof(status));
+	if (ret != sizeof(status)) {
+		return -1;
+	}
+
+	int fd_null = open("/dev/null", O_RDWR);
+	if (fd_null < 0) {
+		fprintf(stderr, "open /dev/null failed, %s\n", strerror(errno));
+		return -1;
+	}
+
+	dup2(fd_null, STDIN_FILENO);
+	dup2(fd_null, STDOUT_FILENO);
+	dup2(fd_null, STDERR_FILENO);
+
+	if (fd_null > 2) {
+		close(fd_null);
+	}
+
+	close(fd);
+
+	return 0;
+}
+
+int run_daemon()
+{
+	pid_t pid = 0;
+	int fds[2] = {0};
+
+	if (pipe(fds) != 0) {
+		fprintf(stderr, "run daemon process failed, pipe failed, %s\n", strerror(errno));
+		return -1;
+	}
+
+	pid = fork();
+	if (pid < 0) {
+		fprintf(stderr, "run daemon process failed, fork failed, %s\n", strerror(errno));
+		close(fds[0]);
+		close(fds[1]);
+		return -1;
+	} else if (pid > 0) {
+		struct pollfd pfd;
+		int ret = 0;
+		int status = 0;
+
+		close(fds[1]);
+
+		pfd.fd = fds[0];
+		pfd.events = POLLIN;
+		pfd.revents = 0;
+
+		ret = poll(&pfd, 1, 1000);
+		if (ret <= 0) {
+			fprintf(stderr, "run daemon process failed, wait child timeout\n");
+			goto errout;
+		}
+
+		if (!(pfd.revents & POLLIN)) {
+			goto errout;
+		}
+
+		ret = read(fds[0], &status, sizeof(status));
+		if (ret != sizeof(status)) {
+			goto errout;
+		}
+
+		return status;
+	}
+
+	setsid();
+
+	pid = fork();
+	if (pid < 0) {
+		fprintf(stderr, "double fork failed, %s\n", strerror(errno));
+		_exit(1);
+	} else if (pid > 0) {
+		_exit(0);
+	}
+
+	umask(0);
+	if (chdir("/") != 0) {
+		goto errout;
+	}
+	close(fds[0]);
+	return fds[1];
+
+errout:
+	kill(pid, SIGKILL);
+	return -1;
+}
+
 #ifdef DEBUG
 struct _dns_read_packet_info {
 	int data_len;
@@ -1604,7 +1782,7 @@ static int _dns_debug_display(struct dns_packet *packet)
 				int ret = 0;
 
 				ret = dns_get_HTTPS_svcparm_start(rrs, &p, name, DNS_MAX_CNAME_LEN, &ttl, &priority, target,
-												DNS_MAX_CNAME_LEN);
+												  DNS_MAX_CNAME_LEN);
 				if (ret != 0) {
 					printf("get HTTPS svcparm failed\n");
 					break;

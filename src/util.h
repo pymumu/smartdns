@@ -105,6 +105,8 @@ int generate_cert_key(const char *key_path, const char *cert_path, const char *s
 
 int create_pid_file(const char *pid_file);
 
+int full_path(char *normalized_path, int normalized_path_len, const char *path);
+
 /* Parse a TLS packet for the Server Name Indication extension in the client
  * hello handshake, returning the first server name found (pointer to static
  * array)
@@ -137,6 +139,12 @@ int set_sock_lingertime(int fd, int time);
 uint64_t get_free_space(const char *path);
 
 void print_stack(void);
+
+void close_all_fd(int keepfd);
+
+int run_daemon(void);
+
+int daemon_kickoff(int fd, int status);
 
 int write_file(const char *filename, void *data, int data_len);
 

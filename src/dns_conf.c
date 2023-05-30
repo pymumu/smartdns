@@ -763,7 +763,7 @@ static int _config_domain_rule_each_from_list(const char *file, domain_set_rule_
 	line_no = 0;
 	while (fgets(line, MAX_LINE_LEN, fp)) {
 		line_no++;
-		filed_num = sscanf(line, "%256s", domain);
+		filed_num = sscanf(line, "%255s", domain);
 		if (filed_num <= 0) {
 			continue;
 		}
@@ -3198,7 +3198,7 @@ static int _conf_dhcp_lease_dnsmasq_add(const char *file)
 	line_no = 0;
 	while (fgets(line, MAX_LINE_LEN, fp)) {
 		line_no++;
-		filed_num = sscanf(line, "%*s %*s %64s %256s %*s", ip, hostname);
+		filed_num = sscanf(line, "%*s %*s %63s %255s %*s", ip, hostname);
 		if (filed_num <= 0) {
 			continue;
 		}
