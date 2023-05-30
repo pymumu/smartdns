@@ -139,7 +139,7 @@ steps:
 read _tlog_format for example.
 */
 typedef int (*tlog_format_func)(char *buff, int maxlen, struct tlog_loginfo *info, void *userptr, const char *format, va_list ap);
-extern int tlog_reg_format_func(tlog_format_func func);
+extern int tlog_reg_format_func(tlog_format_func callback);
 
 /* register log output callback
  Note: info is invalid when flag TLOG_SEGMENT is not set.

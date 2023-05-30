@@ -726,7 +726,7 @@ static int _fast_ping_sendping_v6(struct ping_host_struct *ping_host)
 
 	len = sendto(ping.fd_icmp6, &ping_host->packet, sizeof(struct fast_ping_packet), 0, &ping_host->addr,
 				 ping_host->addr_len);
-	if (len < 0 || len != sizeof(struct fast_ping_packet)) {
+	if (len != sizeof(struct fast_ping_packet)) {
 		int err = errno;
 		if (errno == ENETUNREACH || errno == EINVAL || errno == EADDRNOTAVAIL || errno == EHOSTUNREACH) {
 			goto errout;
@@ -806,7 +806,7 @@ static int _fast_ping_sendping_v4(struct ping_host_struct *ping_host)
 	icmp->icmp_cksum = _fast_ping_checksum((void *)packet, sizeof(struct fast_ping_packet));
 
 	len = sendto(ping.fd_icmp, packet, sizeof(struct fast_ping_packet), 0, &ping_host->addr, ping_host->addr_len);
-	if (len < 0 || len != sizeof(struct fast_ping_packet)) {
+	if (len != sizeof(struct fast_ping_packet)) {
 		int err = errno;
 		if (errno == ENETUNREACH || errno == EINVAL || errno == EADDRNOTAVAIL || errno == EPERM || errno == EACCES) {
 			goto errout;
@@ -858,7 +858,7 @@ static int _fast_ping_sendping_udp(struct ping_host_struct *ping_host)
 
 	gettimeofday(&ping_host->last, NULL);
 	len = sendto(fd, &dns_head, sizeof(dns_head), 0, &ping_host->addr, ping_host->addr_len);
-	if (len < 0 || len != sizeof(dns_head)) {
+	if (len != sizeof(dns_head)) {
 		int err = errno;
 		if (errno == ENETUNREACH || errno == EINVAL || errno == EADDRNOTAVAIL || errno == EPERM || errno == EACCES) {
 			goto errout;

@@ -3395,7 +3395,7 @@ static void _dns_server_query_end(struct dns_request *request)
 	/* Not need to wait check result if only has one ip address */
 	if (ip_num <= 1 && request_wait == 1) {
 		if (request->dualstack_selection_query == 1) {
-			if ((dns_conf_ipset_no_speed.ipv4_enable || dns_conf_nftset_no_speed.ip6_enable ||
+			if ((dns_conf_ipset_no_speed.ipv4_enable || dns_conf_nftset_no_speed.ip_enable ||
 				 dns_conf_ipset_no_speed.ipv6_enable || dns_conf_nftset_no_speed.ip6_enable) &&
 				dns_conf_dns_dns64.prefix_len == 0) {
 				/* if speed check fail enabled, we need reply quickly, otherwise wait for ping result.*/

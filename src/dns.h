@@ -302,7 +302,7 @@ int dns_add_HTTPS_end(struct dns_rr_nested *svcparam);
 
 int dns_get_HTTPS_svcparm_start(struct dns_rrs *rrs, struct dns_https_param **https_param, char *domain, int maxsize,
 								int *ttl, int *priority, char *target, int target_size);
-struct dns_https_param *dns_get_HTTPS_svcparm_next(struct dns_rrs *rrs, struct dns_https_param *parm);
+struct dns_https_param *dns_get_HTTPS_svcparm_next(struct dns_rrs *rrs, struct dns_https_param *param);
 
 /*
  * Packet operation

@@ -187,7 +187,7 @@ static int _tlog_mkdir(const char *path)
         return 0;
     }
 
-    while (*path == ' ' && *path != '\0') {
+    while (*path == ' ') {
         path++;
     }
 
