@@ -37,9 +37,16 @@ RUN cd /build/smartdns && \
     cp package/smartdns/usr /release/ -a && \
     cd / && rm -rf /build
 
-FROM busybox:latest
-COPY --from=smartdns-builder /release/ /
+# use alpine 
+FROM alpine:latest
+# timezone
+ENV TZ=Asia/Shanghai
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories && apk add --upgrade --no-cache --virtual=.build-dependencies tzdata && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone 
+# copy release
+COPY --from=smartdns-builder /release/   /
+# expose serice port
 EXPOSE 53/udp
+# expose config path
 VOLUME "/etc/smartdns/"
 
 CMD ["/usr/sbin/smartdns", "-f", "-x"]
