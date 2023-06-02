@@ -2247,7 +2247,6 @@ static int _dns_client_process_udp_proxy(struct dns_server_info *server_info, st
 		return 0;
 	}
 
-
 	/* update recv time */
 	time(&server_info->last_recv);
 
@@ -3892,31 +3891,30 @@ static void _dns_client_check_servers(void)
 	pthread_mutex_unlock(&client.server_list_lock);
 }
 
-static int _dns_client_pending_server_resolve(const char *domain, dns_rtcode_t rtcode, dns_type_t addr_type, char *ip,
-											  unsigned int ping_time, void *user_ptr)
+static int _dns_client_pending_server_resolve(const struct dns_result *result, void *user_ptr)
 {
 	struct dns_server_pending *pending = user_ptr;
 	int ret = 0;
 
-	if (rtcode == DNS_RC_NXDOMAIN) {
+	if (result->rtcode == DNS_RC_NXDOMAIN) {
 		pending->has_soa = 1;
 	}
 
-	if (addr_type == DNS_T_A) {
+	if (result->addr_type == DNS_T_A) {
 		pending->ping_time_v4 = -1;
-		if (rtcode == DNS_RC_NOERROR) {
+		if (result->rtcode == DNS_RC_NOERROR) {
 			pending->has_v4 = 1;
-			pending->ping_time_v4 = ping_time;
+			pending->ping_time_v4 = result->ping_time;
 			pending->has_soa = 0;
-			safe_strncpy(pending->ipv4, ip, DNS_HOSTNAME_LEN);
+			safe_strncpy(pending->ipv4, result->ip, DNS_HOSTNAME_LEN);
 		}
-	} else if (addr_type == DNS_T_AAAA) {
+	} else if (result->addr_type == DNS_T_AAAA) {
 		pending->ping_time_v6 = -1;
-		if (rtcode == DNS_RC_NOERROR) {
+		if (result->rtcode == DNS_RC_NOERROR) {
 			pending->has_v6 = 1;
-			pending->ping_time_v6 = ping_time;
+			pending->ping_time_v6 = result->ping_time;
 			pending->has_soa = 0;
-			safe_strncpy(pending->ipv6, ip, DNS_HOSTNAME_LEN);
+			safe_strncpy(pending->ipv6, result->ip, DNS_HOSTNAME_LEN);
 		}
 	} else {
 		ret = -1;

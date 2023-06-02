@@ -128,6 +128,7 @@ struct dns_server_post_context {
 	struct dns_request *request;
 	struct dns_packet *packet;
 	int ip_num;
+	const unsigned char *ip_addr[MAX_IP_NUM];
 	dns_type_t qtype;
 	int do_cache;
 	int do_reply;
@@ -284,7 +285,7 @@ struct dns_request {
 	int request_wait;
 	int prefetch;
 	int prefetch_expired_domain;
-
+	
 	int dualstack_selection;
 	int dualstack_selection_force_soa;
 	int dualstack_selection_query;
@@ -894,6 +895,7 @@ static int _dns_rrs_add_all_best_ip(struct dns_server_post_context *context)
 				}
 			}
 
+			context->ip_addr[context->ip_num] = addr_map->ip_addr;
 			context->ip_num++;
 			if (addr_map->addr_type == DNS_T_A) {
 				ret |= dns_add_A(context->packet, DNS_RRS_AN, domain, request->ip_ttl, addr_map->ip_addr);
@@ -947,6 +949,7 @@ static int _dns_add_rrs(struct dns_server_post_context *context)
 
 	/* add A record */
 	if (request->has_ip && context->do_force_soa == 0) {
+		context->ip_addr[0] = request->ip_addr;
 		context->ip_num++;
 		if (context->qtype == DNS_T_A) {
 			ret |= dns_add_A(context->packet, DNS_RRS_AN, domain, request->ip_ttl, request->ip_addr);
@@ -1496,11 +1499,21 @@ static int _dns_result_callback_nxdomain(struct dns_request *request)
 		return 0;
 	}
 
-	return request->result_callback(request->domain, request->rcode, request->qtype, ip, ping_time, request->user_ptr);
+	struct dns_result result;
+	result.domain = request->domain;
+	result.rtcode = request->rcode;
+	result.addr_type = request->qtype;
+	result.ip = ip;
+	result.ping_time = ping_time;
+	memset(&result.ip_addr, 0, sizeof(result.ip_addr));
+	result.ip_num = 0;
+
+	return request->result_callback(&result, request->user_ptr);
 }
 
 static int _dns_result_callback(struct dns_server_post_context *context)
 {
+	struct dns_result result;
 	char ip[DNS_MAX_CNAME_LEN];
 	unsigned int ping_time = -1;
 	struct dns_request *request = context->request;
@@ -1522,20 +1535,29 @@ static int _dns_result_callback(struct dns_server_post_context *context)
 	}
 
 	ip[0] = 0;
+	memset(&result, 0, sizeof(result));
 	ping_time = request->ping_time;
-	if (request->qtype == DNS_T_A) {
+	result.domain = request->domain;
+	result.rtcode = request->rcode;
+	result.addr_type = request->qtype;
+	result.ip = ip;
+	result.ping_time = ping_time;
+	result.ip_num = 0;
+	for (int i = 0; i < context->ip_num && i < MAX_IP_NUM; i++) {
+		result.ip_addr[i] = context->ip_addr[i];
+		result.ip_num++;
+	}
 
+	if (request->qtype == DNS_T_A) {
 		sprintf(ip, "%d.%d.%d.%d", request->ip_addr[0], request->ip_addr[1], request->ip_addr[2], request->ip_addr[3]);
-		return request->result_callback(request->domain, request->rcode, request->qtype, ip, ping_time,
-										request->user_ptr);
+		return request->result_callback(&result, request->user_ptr);
 	} else if (request->qtype == DNS_T_AAAA) {
 		sprintf(ip, "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", request->ip_addr[0],
 				request->ip_addr[1], request->ip_addr[2], request->ip_addr[3], request->ip_addr[4], request->ip_addr[5],
 				request->ip_addr[6], request->ip_addr[7], request->ip_addr[8], request->ip_addr[9],
 				request->ip_addr[10], request->ip_addr[11], request->ip_addr[12], request->ip_addr[13],
 				request->ip_addr[14], request->ip_addr[15]);
-		return request->result_callback(request->domain, request->rcode, request->qtype, ip, ping_time,
-										request->user_ptr);
+		return request->result_callback(&result, request->user_ptr);
 	}
 
 	_dns_result_callback_nxdomain(request);
@@ -2154,7 +2176,7 @@ static int _dns_server_request_complete(struct dns_request *request)
 }
 
 static int _dns_ip_address_check_add(struct dns_request *request, char *cname, unsigned char *addr,
-									 dns_type_t addr_type, int ping_time)
+									 dns_type_t addr_type, int ping_time, struct dns_ip_address **out_addr_map)
 {
 	uint32_t key = 0;
 	struct dns_ip_address *addr_map = NULL;
@@ -2212,6 +2234,10 @@ static int _dns_ip_address_check_add(struct dns_request *request, char *cname, u
 
 	hash_add(request->ip_map, &addr_map->node, key);
 	pthread_mutex_unlock(&request->ip_map_lock);
+
+	if (out_addr_map != NULL) {
+		*out_addr_map = addr_map;
+	}
 
 	return 0;
 }
@@ -2879,7 +2905,7 @@ static int _dns_server_process_answer_A(struct dns_rrs *rrs, struct dns_request 
 	}
 
 	/* add this ip to request */
-	if (_dns_ip_address_check_add(request, cname, addr, DNS_T_A, 0) != 0) {
+	if (_dns_ip_address_check_add(request, cname, addr, DNS_T_A, 0, NULL) != 0) {
 		_dns_server_request_release(request);
 		return -1;
 	}
@@ -2956,7 +2982,7 @@ static int _dns_server_process_answer_AAAA(struct dns_rrs *rrs, struct dns_reque
 	}
 
 	/* add this ip to request */
-	if (_dns_ip_address_check_add(request, cname, addr, DNS_T_AAAA, 0) != 0) {
+	if (_dns_ip_address_check_add(request, cname, addr, DNS_T_AAAA, 0, NULL) != 0) {
 		_dns_server_request_release(request);
 		return -1;
 	}
@@ -3233,6 +3259,7 @@ static int _dns_server_get_answer(struct dns_server_post_context *context)
 			case DNS_T_A: {
 				unsigned char addr[4];
 				char name[DNS_MAX_CNAME_LEN] = {0};
+				struct dns_ip_address *addr_map = NULL;
 
 				if (request->qtype != DNS_T_A) {
 					continue;
@@ -3247,10 +3274,11 @@ static int _dns_server_get_answer(struct dns_server_post_context *context)
 				}
 
 				if (context->no_check_add_ip == 0 &&
-					_dns_ip_address_check_add(request, name, addr, DNS_T_A, request->ping_time) != 0) {
+					_dns_ip_address_check_add(request, name, addr, DNS_T_A, request->ping_time, &addr_map) != 0) {
 					continue;
 				}
 
+				context->ip_addr[context->ip_num] = addr_map->ip_addr;
 				context->ip_num++;
 				if (request->has_ip == 1) {
 					continue;
@@ -3265,6 +3293,7 @@ static int _dns_server_get_answer(struct dns_server_post_context *context)
 			case DNS_T_AAAA: {
 				unsigned char addr[16];
 				char name[DNS_MAX_CNAME_LEN] = {0};
+				struct dns_ip_address *addr_map = NULL;
 
 				if (request->qtype != DNS_T_AAAA) {
 					/* ignore non-matched query type */
@@ -3278,10 +3307,11 @@ static int _dns_server_get_answer(struct dns_server_post_context *context)
 				}
 
 				if (context->no_check_add_ip == 0 &&
-					_dns_ip_address_check_add(request, name, addr, DNS_T_AAAA, request->ping_time) != 0) {
+					_dns_ip_address_check_add(request, name, addr, DNS_T_AAAA, request->ping_time, &addr_map) != 0) {
 					continue;
 				}
 
+				context->ip_addr[context->ip_num] = addr_map->ip_addr;
 				context->ip_num++;
 				if (request->has_ip == 1) {
 					continue;
@@ -3416,21 +3446,20 @@ out:
 	_dns_server_request_release(request);
 }
 
-static int dns_server_dualstack_callback(const char *domain, dns_rtcode_t rtcode, dns_type_t addr_type, char *ip,
-										 unsigned int ping_time, void *user_ptr)
+static int dns_server_dualstack_callback(const struct dns_result *result, void *user_ptr)
 {
 	struct dns_request *request = (struct dns_request *)user_ptr;
-	tlog(TLOG_DEBUG, "dualstack result: domain: %s, ip: %s, type: %d, ping: %d, rcode: %d", domain, ip, addr_type,
-		 ping_time, rtcode);
+	tlog(TLOG_DEBUG, "dualstack result: domain: %s, ip: %s, type: %d, ping: %d, rcode: %d", result->domain, result->ip,
+		 result->addr_type, result->ping_time, result->rtcode);
 	if (request == NULL) {
 		return -1;
 	}
 
-	if (rtcode == DNS_RC_NOERROR && ip[0] != 0) {
+	if (result->rtcode == DNS_RC_NOERROR && result->ip[0] != 0) {
 		request->dualstack_selection_has_ip = 1;
 	}
 
-	request->dualstack_selection_ping_time = ping_time;
+	request->dualstack_selection_ping_time = result->ping_time;
 
 	_dns_server_query_end(request);
 
@@ -6650,7 +6679,7 @@ static int _dns_create_socket(const char *host_ip, int type)
 {
 	int fd = -1;
 	struct addrinfo *gai = NULL;
-	char port_str[8];
+	char port_str[16];
 	char ip[MAX_IP_LEN];
 	char host_ip_device[MAX_IP_LEN * 2];
 	int port = 0;
