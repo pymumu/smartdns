@@ -16,6 +16,32 @@ Like Dnsmasq, smartdns supports ipset and nftset, which can use TPROXY to transp
 
 1. Basic configuration
 
+    The following parameters can be used to configure NFTSet rules for specified domain names.
+
+    ```shell
+    ipset /domain/ipset
+    ```
+
+1. Timeout
+
+    SmartDNS sets IPSet to support enabling timeout function, which can avoid too many IP addresses in NFTSet and reduce gateway performance.
+
+    ```shell
+    ipset-timeout yes
+    ```
+
+1. Automatically add to IPSet after speed measurement fails
+
+    SmartDNS can add IP addresses that fail the speed measurement to IPSet, and then forward them through related IP rules.
+
+    ```shell
+    ipset-no-speed ipsetname
+    ```
+
+## nftset configuration
+
+1. Basic configuration
+
     The following parameters can be used to configure IPSet rules for specified domain names.
 
     ```shell
@@ -46,32 +72,6 @@ Like Dnsmasq, smartdns supports ipset and nftset, which can use TPROXY to transp
     nftset-debug yes
     ```
 
-## nftset configuration
-
-1. Basic configuration
-
-    The following parameters can be used to configure NFTSet rules for specified domain names.
-
-    ```shell
-    ipset /domain/ipset
-    ```
-
-1. Timeout
-
-    SmartDNS sets IPSet to support enabling timeout function, which can avoid too many IP addresses in NFTSet and reduce gateway performance.
-
-    ```shell
-    ipset-timeout yes
-    ```
-
-1. Automatically add to IPSet after speed measurement fails
-
-    SmartDNS can add IP addresses that fail the speed measurement to IPSet, and then forward them through related IP rules.
-
-    ```shell
-    ipset-no-speed ipsetname
-    ```
-
 ## Set ipset and nftset for specific service ports
 
 The bind parameter of smartdns supports setting ipset and nftset. When the port with ipset and nftset set receives a request, it will set ipset and nftset for the query request of this port.
@@ -82,5 +82,5 @@ Through the following configuration, all query requests for ports can be set int
 bind [::]:6053 -ipset [ipset] -nftset [nftset]
 ```
 
-  * -ipset: Refer to ipset options for parameter options.
-  * -nftset: options refer to nftset.
+* -ipset: Refer to ipset options for parameter options.
+* -nftset: options refer to nftset.

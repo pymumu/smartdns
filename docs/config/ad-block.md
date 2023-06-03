@@ -5,7 +5,7 @@ hide:
 
 # 广告屏蔽
 
-smartdns可以通过指定对应域名返回SOA用于广告屏蔽。
+smartdns可以通过address选项来屏蔽广告。
 
 注意：openwrt有luci的方式，请参考openwrt屏蔽域名配置方法。
 
@@ -63,7 +63,7 @@ b.com
 1. 下载配置文件到`/etc/smartdns`目录
 
     ```shell
-    wget https://github.com/privacy-protection-tools/anti-AD/blob/master/anti-ad-smartdns.conf -o /etc/smartdns/anti-ad-smartdns.conf
+    wget https://anti-ad.net/anti-ad-for-smartdns.conf -O /etc/smartdns/anti-ad-smartdns.conf
     ```
 
 1. 修改/etc/smartdns/smartdns.conf文件，包含上述配置文件
@@ -78,6 +78,7 @@ b.com
 |--|--|--|
 |[anti-AD](https://anti-ad.net/)|Anti Advertising for smartdns|https://anti-ad.net/anti-ad-for-smartdns.conf|
 |[adrules](https://adrules.top/)|AdRules SmartDNS List|https://adrules.top/smart-dns.conf |
+|[neodevhost](https://github.com/neodevpro/neodevhost/)|AdRules SmartDNS List|https://raw.githubusercontent.com/neodevpro/neodevhost/master/lite_smartdns.conf |
 
 ## 非smartdns列表
 

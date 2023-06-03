@@ -5,7 +5,8 @@ hide:
 
 # Bootstrap DNS
 
-对于域名类的上游服务器，SmartDNS会使用其他IP地址类的服务器进行解析，所以一般情况下无需配置BootStrap DNS，但如果有特殊需求，需要指定BootStrap DNS，则可以通过如下方式配置：
+BootStrap DNS一般用于自启动的域名解析，如对于域名类的上游服务器，此时用于自启动解析域名的DNS称之为BootStrap DNS。  
+默认情况下，SmartDNS会使用其他IP地址类的服务器进行解析，所以只要确保有至少一个IP地址类型的DNS上游即可自动解析后续的域名类上游服务器；但某些时候，需要指定一组DNS专门用于bootstrap域名解析，此时可通过如下方式配置：
 
 1. 方法一：对所有服务器指定bootstrap DNS  
 
@@ -27,4 +28,3 @@ hide:
     # 此服务器将使用1.2.3.4解析
     server dns.server
     ```
-

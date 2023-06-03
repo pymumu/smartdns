@@ -60,7 +60,7 @@ SmartDNS supports setting the first request response mode through `response-mode
 | Fastest IP address mode | fastest-ip | Long | Best | The IP address with the shortest ping among all queried IP addresses. The longest DNS query time and the shortest IP link. (Previous mode)
 | Fastest response DNS mode | fastest-response | Short | Possibly worst | Shortest DNS query waiting time.
 
-For cached data after enabling cache function, the results are best regardless of which method is used, so it is not recommended to disable cache.
+For cached data after the cache function is turned on, no matter which mode is used, smartdns will save the best result in the cache, so it is not recommended to close the cache.
 
 ## Set return mode for specified domain name
 

@@ -63,7 +63,7 @@ The community provides regularly updated ad-blocking list files for SmartDNS. Yo
 1. Download the configuration file to the `/etc/smartdns` directory:
 
     ```shell
-    wget https://github.com/privacy-protection-tools/anti-AD/blob/master/anti-ad-smartdns.conf -o /etc/smartdns/anti-ad-smartdns.conf
+    wget https://anti-ad.net/anti-ad-for-smartdns.conf -O /etc/smartdns/anti-ad-smartdns.conf
     ```
 
 1. Modify the `/etc/smartdns/smartdns.conf` file to include the above configuration file:
