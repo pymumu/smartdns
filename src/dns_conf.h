@@ -57,6 +57,8 @@ extern "C" {
 #define DEFAULT_DNS_TLS_PORT 853
 #define DEFAULT_DNS_HTTPS_PORT 443
 #define DNS_MAX_CONF_CNAME_LEN 256
+#define MAX_QTYPE_NUM 65535
+
 #define SMARTDNS_CONF_FILE "/etc/smartdns/smartdns.conf"
 #define SMARTDNS_LOG_FILE "/var/log/smartdns/smartdns.log"
 #define SMARTDNS_AUDIT_FILE "/var/log/smartdns/smartdns-audit.log"
@@ -381,15 +383,7 @@ struct dns_bind_ip {
 	struct nftset_ipset_rules nftset_ipset_rule;
 };
 
-struct dns_qtype_soa_list {
-	struct hlist_node node;
-	uint32_t qtypeid;
-};
-
-struct dns_qtype_soa_table {
-	DECLARE_HASHTABLE(qtype, 8);
-};
-extern struct dns_qtype_soa_table dns_qtype_soa_table;
+extern uint8_t *dns_qtype_soa_table;
 
 struct dns_domain_set_rule {
 	struct list_head list;

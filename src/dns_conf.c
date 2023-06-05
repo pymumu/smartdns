@@ -43,7 +43,7 @@ struct dns_nftset_table {
 };
 static struct dns_nftset_table dns_nftset_table;
 
-struct dns_qtype_soa_table dns_qtype_soa_table;
+uint8_t *dns_qtype_soa_table;
 
 struct dns_domain_set_name_table dns_domain_set_name_table;
 
@@ -2382,8 +2382,8 @@ static int _config_iplist_rule(char *subnet, enum address_rule rule)
 
 static int _config_qtype_soa(void *data, int argc, char *argv[])
 {
-	struct dns_qtype_soa_list *soa_list = NULL;
 	int i = 0;
+	int j = 0;
 
 	if (argc <= 1) {
 		return -1;
@@ -2393,19 +2393,31 @@ static int _config_qtype_soa(void *data, int argc, char *argv[])
 		char sub_arg[1024];
 		safe_strncpy(sub_arg, argv[i], sizeof(sub_arg));
 		for (char *tok = strtok(sub_arg, ","); tok; tok = strtok(NULL, ",")) {
-			soa_list = malloc(sizeof(*soa_list));
-			if (soa_list == NULL) {
-				tlog(TLOG_ERROR, "cannot malloc memory");
-				return -1;
+			char *dash = strstr(tok, "-");
+			if (dash != NULL) {
+				*dash = '\0';
 			}
 
-			memset(soa_list, 0, sizeof(*soa_list));
-			soa_list->qtypeid = atol(tok);
-			if (soa_list->qtypeid == DNS_T_AAAA) {
-				dns_conf_force_AAAA_SOA = 1;
+			long start = atol(tok);
+			long end = start;
+
+			if (start > MAX_QTYPE_NUM || start < 0) {
+				tlog(TLOG_ERROR, "invalid qtype %ld", start);
+				continue;
 			}
-			uint32_t key = hash_32_generic(soa_list->qtypeid, 32);
-			hash_add(dns_qtype_soa_table.qtype, &soa_list->node, key);
+
+			if (dash != NULL && *(dash + 1) != '\0') {
+				end = atol(dash + 1);
+				if (end > MAX_QTYPE_NUM) {
+					end = MAX_QTYPE_NUM;
+				}
+			}
+
+			for (j = start; j <= end; j++) {
+				int offset = j / 8;
+				int bit = j % 8;
+				dns_qtype_soa_table[offset] |= (1 << bit);
+			}
 		}
 	}
 
@@ -2414,14 +2426,9 @@ static int _config_qtype_soa(void *data, int argc, char *argv[])
 
 static void _config_qtype_soa_table_destroy(void)
 {
-	struct dns_qtype_soa_list *soa_list = NULL;
-	struct hlist_node *tmp = NULL;
-	unsigned long i = 0;
-
-	hash_for_each_safe(dns_qtype_soa_table.qtype, i, tmp, soa_list, node)
-	{
-		hlist_del_init(&soa_list->node);
-		free(soa_list);
+	if (dns_qtype_soa_table) {
+		free(dns_qtype_soa_table);
+		dns_qtype_soa_table = NULL;
 	}
 }
 
@@ -3530,7 +3537,12 @@ static int _dns_server_load_conf_init(void)
 
 	hash_init(dns_ipset_table.ipset);
 	hash_init(dns_nftset_table.nftset);
-	hash_init(dns_qtype_soa_table.qtype);
+	dns_qtype_soa_table = malloc(MAX_QTYPE_NUM / 8 + 1);
+	if (dns_qtype_soa_table == NULL) {
+		tlog(TLOG_WARN, "malloc qtype soa table failed.");
+		return -1;
+	}
+	memset(dns_qtype_soa_table, 0, MAX_QTYPE_NUM / 8 + 1);
 	hash_init(dns_group_table.group);
 	hash_init(dns_hosts_table.hosts);
 	hash_init(dns_ptr_table.ptr);

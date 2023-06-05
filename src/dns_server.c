@@ -285,7 +285,7 @@ struct dns_request {
 	int request_wait;
 	int prefetch;
 	int prefetch_expired_domain;
-	
+
 	int dualstack_selection;
 	int dualstack_selection_force_soa;
 	int dualstack_selection_query;
@@ -4574,25 +4574,21 @@ errout:
 
 static int _dns_server_qtype_soa(struct dns_request *request)
 {
-	struct dns_qtype_soa_list *soa_list = NULL;
-
-	if (request->skip_qtype_soa) {
+	if (request->skip_qtype_soa || dns_qtype_soa_table == NULL) {
 		return -1;
 	}
 
-	uint32_t key = hash_32_generic(request->qtype, 32);
-	hash_for_each_possible(dns_qtype_soa_table.qtype, soa_list, node, key)
-	{
-		if (request->qtype != soa_list->qtypeid) {
-			continue;
+	if (request->qtype >= 0 && request->qtype <= MAX_QTYPE_NUM) {
+		int offset = request->qtype / 8;
+		int bit = request->qtype % 8;
+		if ((dns_qtype_soa_table[offset] & (1 << bit)) == 0) {
+			return -1;
 		}
-
-		_dns_server_reply_SOA(DNS_RC_NOERROR, request);
-		tlog(TLOG_DEBUG, "force qtype %d soa", request->qtype);
-		return 0;
 	}
 
-	return -1;
+	_dns_server_reply_SOA(DNS_RC_NOERROR, request);
+	tlog(TLOG_DEBUG, "force qtype %d soa", request->qtype);
+	return 0;
 }
 
 static void _dns_server_process_speed_rule(struct dns_request *request)
