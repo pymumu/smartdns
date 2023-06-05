@@ -70,7 +70,7 @@ hide:
 | whitelist-ip | 白名单 IP 地址 | 无 | [ip/subnet]，可重复 | whitelist-ip 1.2.3.4/16 |
 | blacklist-ip | 黑名单 IP 地址 | 无 | [ip/subnet]，可重复 | blacklist-ip 1.2.3.4/16 |
 | force-AAAA-SOA | 强制 AAAA 地址返回 SOA | no | [yes\|no] | force-AAAA-SOA yes |
-| force-qtype-SOA | 强制指定 qtype 返回 SOA | qtype id | [qtypeid\|...] | force-qtype-SOA 65 28
+| force-qtype-SOA | 强制指定 qtype 返回 SOA | qtype id | [qtypeid\|idstart-idend\|...] | force-qtype-SOA 65 28 128-256
 | prefetch-domain | 域名预先获取功能 | no | [yes\|no] | prefetch-domain yes |
 | dnsmasq-lease-file | 支持读取dnsmasq dhcp文件解析本地主机名功能 | 无 | dnsmasq dhcp lease文件路径 | dnsmasq-lease-file /var/lib/misc/dnsmasq.leases |
 | serve-expired | 过期缓存服务功能 | yes | [yes\|no]，开启此功能后，如果有请求时尝试回应 TTL 为 0 的过期记录，并发查询记录，以避免查询等待 |

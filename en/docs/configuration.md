@@ -66,7 +66,7 @@ hide:
 |whitelist-ip|ip whitelist|None|[ip/subnet], Repeatable, When the filtering server responds IPs in the IP whitelist, only result in whitelist will be accepted| whitelist-ip 1.2.3.4/16
 |blacklist-ip|ip blacklist|None|[ip/subnet], Repeatable, When the filtering server responds IPs in the IP blacklist, The result will be discarded directly| blacklist-ip 1.2.3.4/16
 |force-AAAA-SOA|force AAAA query return SOA|no|[yes\|no]|force-AAAA-SOA yes
-|force-qtype-SOA|force specific qtype return SOA|qtype id|[qtypeid \| ...]|force-qtype-SOA 65 28
+|force-qtype-SOA|force specific qtype return SOA|qtype id|[qtypeid \| idstart-id-end \| ...]|force-qtype-SOA 65 28 128-256
 |prefetch-domain|domain prefetch feature|no|[yes\|no]|prefetch-domain yes
 |dnsmasq-lease-file|Support reading dnsmasq dhcp file to resolve local hostname|None|dnsmasq dhcp lease file| dnsmasq-lease-file /var/lib/misc/dnsmasq.leases
 |serve-expired|Cache serve expired feature|yes|[yes\|no], Attempts to serve old responses from cache with a TTL of 0 in the response without waiting for the actual resolution to finish.|serve-expired yes
