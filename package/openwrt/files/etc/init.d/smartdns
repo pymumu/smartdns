@@ -308,7 +308,7 @@ load_domain_rules()
 	config_get block_domain_set_file "$section" "block_domain_set_file"
 	[ ! -z "$block_domain_set_file" ] && {
 		conf_append "domain-set" "-name ${domain_set_name}-block-file -file '$block_domain_set_file'"
-		conf_append "domain-rules" "/domain-set:${domain_set_name}-block-file/ -group block"
+		conf_append "domain-rules" "/domain-set:${domain_set_name}-block-file/ --address #"
 	}
 
 	conf_append "domain-set" "-name ${domain_set_name}-block-list -file /etc/smartdns/domain-block.list"
