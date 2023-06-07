@@ -1489,28 +1489,6 @@ errout:
 	return -1;
 }
 
-static int _dns_result_callback_nxdomain(struct dns_request *request)
-{
-	char ip[DNS_MAX_CNAME_LEN];
-	unsigned int ping_time = -1;
-
-	ip[0] = 0;
-	if (request->result_callback == NULL) {
-		return 0;
-	}
-
-	struct dns_result result;
-	result.domain = request->domain;
-	result.rtcode = request->rcode;
-	result.addr_type = request->qtype;
-	result.ip = ip;
-	result.ping_time = ping_time;
-	memset(&result.ip_addr, 0, sizeof(result.ip_addr));
-	result.ip_num = 0;
-
-	return request->result_callback(&result, request->user_ptr);
-}
-
 static int _dns_result_callback(struct dns_server_post_context *context)
 {
 	struct dns_result result;
@@ -1526,14 +1504,6 @@ static int _dns_result_callback(struct dns_server_post_context *context)
 		return 0;
 	}
 
-	if (request->has_soa || context->do_force_soa || context->ip_num == 0) {
-		goto out;
-	}
-
-	if (request->has_ip == 0) {
-		goto out;
-	}
-
 	ip[0] = 0;
 	memset(&result, 0, sizeof(result));
 	ping_time = request->ping_time;
@@ -1541,32 +1511,29 @@ static int _dns_result_callback(struct dns_server_post_context *context)
 	result.rtcode = request->rcode;
 	result.addr_type = request->qtype;
 	result.ip = ip;
+	result.has_soa = request->has_soa | context->do_force_soa;
 	result.ping_time = ping_time;
 	result.ip_num = 0;
-	for (int i = 0; i < context->ip_num && i < MAX_IP_NUM; i++) {
-		result.ip_addr[i] = context->ip_addr[i];
-		result.ip_num++;
+
+	if (request->has_ip != 0 && context->do_force_soa == 0) {
+		for (int i = 0; i < context->ip_num && i < MAX_IP_NUM; i++) {
+			result.ip_addr[i] = context->ip_addr[i];
+			result.ip_num++;
+		}
+
+		if (request->qtype == DNS_T_A) {
+			sprintf(ip, "%d.%d.%d.%d", request->ip_addr[0], request->ip_addr[1], request->ip_addr[2],
+					request->ip_addr[3]);
+		} else if (request->qtype == DNS_T_AAAA) {
+			sprintf(ip, "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", request->ip_addr[0],
+					request->ip_addr[1], request->ip_addr[2], request->ip_addr[3], request->ip_addr[4],
+					request->ip_addr[5], request->ip_addr[6], request->ip_addr[7], request->ip_addr[8],
+					request->ip_addr[9], request->ip_addr[10], request->ip_addr[11], request->ip_addr[12],
+					request->ip_addr[13], request->ip_addr[14], request->ip_addr[15]);
+		}
 	}
 
-	if (request->qtype == DNS_T_A) {
-		sprintf(ip, "%d.%d.%d.%d", request->ip_addr[0], request->ip_addr[1], request->ip_addr[2], request->ip_addr[3]);
-		return request->result_callback(&result, request->user_ptr);
-	} else if (request->qtype == DNS_T_AAAA) {
-		sprintf(ip, "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", request->ip_addr[0],
-				request->ip_addr[1], request->ip_addr[2], request->ip_addr[3], request->ip_addr[4], request->ip_addr[5],
-				request->ip_addr[6], request->ip_addr[7], request->ip_addr[8], request->ip_addr[9],
-				request->ip_addr[10], request->ip_addr[11], request->ip_addr[12], request->ip_addr[13],
-				request->ip_addr[14], request->ip_addr[15]);
-		return request->result_callback(&result, request->user_ptr);
-	}
-
-	_dns_result_callback_nxdomain(request);
-
-	return 0;
-out:
-
-	_dns_result_callback_nxdomain(request);
-	return 0;
+	return request->result_callback(&result, request->user_ptr);
 }
 
 static int _dns_cache_specify_packet(struct dns_server_post_context *context)

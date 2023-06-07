@@ -2820,7 +2820,7 @@ static int _dns_client_verify_common_name(struct dns_server_info *server_info, X
 
 			tlog(TLOG_DEBUG, "peer SAN: %s", dns->data);
 			if (_dns_client_tls_matchName(tls_host_verify, (char *)dns->data, dns->length) == 0) {
-				tlog(TLOG_INFO, "peer SAN match: %s", dns->data);
+				tlog(TLOG_DEBUG, "peer SAN match: %s", dns->data);
 				return 0;
 			}
 		} break;
@@ -3896,13 +3896,13 @@ static int _dns_client_pending_server_resolve(const struct dns_result *result, v
 	struct dns_server_pending *pending = user_ptr;
 	int ret = 0;
 
-	if (result->rtcode == DNS_RC_NXDOMAIN) {
+	if (result->rtcode == DNS_RC_NXDOMAIN || result->ip_num == 0 || result->has_soa == 1) {
 		pending->has_soa = 1;
 	}
 
 	if (result->addr_type == DNS_T_A) {
 		pending->ping_time_v4 = -1;
-		if (result->rtcode == DNS_RC_NOERROR) {
+		if (result->rtcode == DNS_RC_NOERROR && result->ip_num > 0) {
 			pending->has_v4 = 1;
 			pending->ping_time_v4 = result->ping_time;
 			pending->has_soa = 0;
@@ -3910,7 +3910,7 @@ static int _dns_client_pending_server_resolve(const struct dns_result *result, v
 		}
 	} else if (result->addr_type == DNS_T_AAAA) {
 		pending->ping_time_v6 = -1;
-		if (result->rtcode == DNS_RC_NOERROR) {
+		if (result->rtcode == DNS_RC_NOERROR && result->ip_num > 0) {
 			pending->has_v6 = 1;
 			pending->ping_time_v6 = result->ping_time;
 			pending->has_soa = 0;

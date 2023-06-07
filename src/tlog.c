@@ -748,7 +748,7 @@ static int _tlog_list_dir(const char *path, list_callback callback, void *userpt
 
     dir = opendir(path);
     if (dir == NULL) {
-        fprintf(stderr, "open directory failed, %s\n", strerror(errno));
+        fprintf(stderr, "tlog: open directory failed, %s\n", strerror(errno));
         goto errout;
     }
 
@@ -859,7 +859,7 @@ static int _tlog_remove_oldlog(struct tlog_log *log)
 
     /* get total log file number */
     if (_tlog_list_dir(log->logdir, _tlog_count_log_callback, &count_log) != 0) {
-        fprintf(stderr, "get log file count failed.\n");
+        fprintf(stderr, "tlog: get log file count failed.\n");
         return -1;
     }
 
@@ -896,7 +896,7 @@ static int _tlog_log_lock(struct tlog_log *log)
     snprintf(lock_file, sizeof(lock_file), "%s/%s.lock", log->logdir, log->logname);
     fd = open(lock_file, O_RDWR | O_CREAT | O_CLOEXEC, S_IRUSR | S_IWUSR);
     if (fd == -1) {
-        fprintf(stderr, "create pid file failed, %s", strerror(errno));
+        fprintf(stderr, "tlog: create lock file failed, %s", strerror(errno));
         return -1;
     }
 
@@ -1061,8 +1061,14 @@ static int _tlog_archive_log_compressed(struct tlog_log *log)
         if (pid == 0) {
             _tlog_close_all_fd();
             execl(tlog.gzip_cmd, tlog.gzip_cmd, "-1", pending_file, NULL);
+            fprintf(stderr, "tlog: execl gzip failed, no compress\n");
+            log->nocompress = 1;
             _exit(1);
         } else if (pid < 0) {
+            if (errno == EPERM || errno == EACCES) {
+                fprintf(stderr, "tlog: vfork failed, errno: %d, no compress\n", errno);
+                log->nocompress = 1;
+            }
             goto errout;
         }
         log->zip_pid = pid;
@@ -1195,9 +1201,9 @@ static int _tlog_write(struct tlog_log *log, const char *buff, int bufflen)
                 return -1;
             }
             log->print_errmsg = 0;
-            fprintf(stderr, "create log dir %s failed, %s\n", log->logdir, strerror(errno));
+            fprintf(stderr, "tlog: create log dir %s failed, %s\n", log->logdir, strerror(errno));
             if (errno == EACCES && log->logscreen == 0) {
-                fprintf(stderr, "no permission to write log file, output log to console\n");
+                fprintf(stderr, "tlog: no permission to write log file, output log to console\n");
                 tlog_logscreen(log, 1);
                 tlog_logcount(log, 0);
             }
@@ -1211,7 +1217,7 @@ static int _tlog_write(struct tlog_log *log, const char *buff, int bufflen)
                 return -1;
             }
 
-            fprintf(stderr, "open log file %s failed, %s\n", logfile, strerror(errno));
+            fprintf(stderr, "tlog: open log file %s failed, %s\n", logfile, strerror(errno));
             log->print_errmsg = 0;
             return -1;
         }
@@ -1752,13 +1758,13 @@ tlog_log *tlog_open(const char *logfile, int maxlogsize, int maxlogcount, int bu
     struct tlog_log *log = NULL;
 
     if (tlog.run == 0) {
-        fprintf(stderr, "tlog is not initialized.");
+        fprintf(stderr, "tlog: tlog is not initialized.\n");
         return NULL;
     }
 
     log = (struct tlog_log *)malloc(sizeof(*log));
     if (log == NULL) {
-        fprintf(stderr, "malloc log failed.");
+        fprintf(stderr, "tlog: malloc log failed.\n");
         return NULL;
     }
 
@@ -1800,7 +1806,7 @@ tlog_log *tlog_open(const char *logfile, int maxlogsize, int maxlogcount, int bu
 
     log->buff = (char *)malloc(log->buffsize);
     if (log->buff == NULL) {
-        fprintf(stderr, "malloc log buffer failed, %s\n", strerror(errno));
+        fprintf(stderr, "tlog: malloc log buffer failed, %s\n", strerror(errno));
         goto errout;
     }
 
@@ -1888,7 +1894,7 @@ static void tlog_fork_child(void)
     pthread_attr_init(&attr);
     int ret = pthread_create(&tlog.tid, &attr, _tlog_work, NULL);
     if (ret != 0) {
-        fprintf(stderr, "create tlog work thread failed, %s\n", strerror(errno));
+        fprintf(stderr, "tlog: create tlog work thread failed, %s\n", strerror(errno));
         goto errout;
     }
 
@@ -1910,12 +1916,12 @@ int tlog_init(const char *logfile, int maxlogsize, int maxlogcount, int buffsize
     struct tlog_log *log = NULL;
 
     if (tlog_format != NULL) {
-        fprintf(stderr, "tlog already initialized.\n");
+        fprintf(stderr, "tlog: already initialized.\n");
         return -1;
     }
 
     if (buffsize > 0 && buffsize < TLOG_MAX_LINE_SIZE_SET * 2) {
-        fprintf(stderr, "buffer size is invalid.\n");
+        fprintf(stderr, "tlog: buffer size is invalid.\n");
         return -1;
     }
 
@@ -1932,19 +1938,19 @@ int tlog_init(const char *logfile, int maxlogsize, int maxlogcount, int buffsize
 
     log = tlog_open(logfile, maxlogsize, maxlogcount, buffsize, flag);
     if (log == NULL) {
-        fprintf(stderr, "init tlog root failed.\n");
+        fprintf(stderr, "tlog: init tlog root failed.\n");
         goto errout;
     }
     tlog_reg_output_func(log, _tlog_root_write_log);
 
     if ((flag & TLOG_NOCOMPRESS) == 0 && tlog.gzip_cmd[0] == '\0') {
-        fprintf(stderr, "can not find gzip command, disable compress.\n");
+        fprintf(stderr, "tlog: can not find gzip command, disable compress.\n");
     }
 
     tlog.root = log;
     ret = pthread_create(&tlog.tid, &attr, _tlog_work, NULL);
     if (ret != 0) {
-        fprintf(stderr, "create tlog work thread failed, %s\n", strerror(errno));
+        fprintf(stderr, "tlog: create tlog work thread failed, %s\n", strerror(errno));
         goto errout;
     }
 

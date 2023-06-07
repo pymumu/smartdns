@@ -58,6 +58,7 @@ struct dns_result {
 	const char *ip;
 	const unsigned char *ip_addr[MAX_IP_NUM];
 	int ip_num;
+	int has_soa;
 	unsigned int ping_time;
 };
 
