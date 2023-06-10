@@ -330,7 +330,7 @@ void tlog_logcount(struct tlog_log *log, int count)
     log->logcount = count;
 }
 
-void tlog_set_permission(struct tlog_log *log, unsigned int file, unsigned int archive)
+void tlog_set_permission(struct tlog_log *log, mode_t file, mode_t archive)
 {
     log->file_perm = file;
     log->archive_perm = archive;
