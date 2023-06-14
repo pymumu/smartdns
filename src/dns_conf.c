@@ -30,7 +30,7 @@
 #include <syslog.h>
 #include <unistd.h>
 
-#define DNS_MAX_REPLY_IP_NUM 8
+#define TMP_BUFF_LEN 1024
 
 /* ipset */
 struct dns_ipset_table {
@@ -173,7 +173,7 @@ static int _conf_ptr_add(const char *hostname, const char *ip, int is_dynamic);
 static int _conf_client_subnet(char *subnet, struct dns_edns_client_subnet *ipv4_ecs,
 							   struct dns_edns_client_subnet *ipv6_ecs);
 
-static void *_new_dns_rule(enum domain_rule domain_rule)
+static void *_new_dns_rule_ext(enum domain_rule domain_rule, int ext_size)
 {
 	struct dns_rule *rule;
 	int size = 0;
@@ -220,6 +220,7 @@ static void *_new_dns_rule(enum domain_rule domain_rule)
 		return NULL;
 	}
 
+	size += ext_size;
 	rule = malloc(size);
 	if (!rule) {
 		return NULL;
@@ -228,6 +229,11 @@ static void *_new_dns_rule(enum domain_rule domain_rule)
 	rule->rule = domain_rule;
 	atomic_set(&rule->refcnt, 1);
 	return rule;
+}
+
+static void *_new_dns_rule(enum domain_rule domain_rule)
+{
+	return _new_dns_rule_ext(domain_rule, 0);
 }
 
 static void _dns_rule_get(struct dns_rule *rule)
@@ -1498,50 +1504,75 @@ static int _conf_domain_rule_address(char *domain, const char *domain_address)
 	struct dns_rule_address_IPV4 *address_ipv4 = NULL;
 	struct dns_rule_address_IPV6 *address_ipv6 = NULL;
 	struct dns_rule *address = NULL;
+
 	char ip[MAX_IP_LEN];
 	int port = 0;
 	struct sockaddr_storage addr;
 	socklen_t addr_len = sizeof(addr);
-	enum domain_rule type = 0;
 	unsigned int flag = 0;
+	char *ptr = NULL;
+	char *field = NULL;
+	char tmpbuff[TMP_BUFF_LEN] = {0};
 
-	if (*(domain_address) == '#') {
-		if (strncmp(domain_address, "#4", sizeof("#4")) == 0) {
-			flag = DOMAIN_FLAG_ADDR_IPV4_SOA;
-		} else if (strncmp(domain_address, "#6", sizeof("#6")) == 0) {
-			flag = DOMAIN_FLAG_ADDR_IPV6_SOA;
-		} else if (strncmp(domain_address, "#", sizeof("#")) == 0) {
-			flag = DOMAIN_FLAG_ADDR_SOA;
-		} else {
-			goto errout;
+	char ipv6_addr[DNS_MAX_REPLY_IP_NUM][DNS_RR_AAAA_LEN];
+	int ipv6_num = 0;
+	char ipv4_addr[DNS_MAX_REPLY_IP_NUM][DNS_RR_A_LEN];
+	int ipv4_num = 0;
+
+	safe_strncpy(tmpbuff, domain_address, sizeof(tmpbuff));
+
+	ptr = tmpbuff;
+
+	do {
+		field = ptr;
+		ptr = strstr(ptr, ",");
+
+		if (field == NULL) {
+			break;
 		}
 
-		/* add SOA rule */
-		if (_config_domain_rule_flag_set(domain, flag, 0) != 0) {
-			goto errout;
+		if (ptr) {
+			*ptr = 0;
 		}
 
-		return 0;
-	} else if (*(domain_address) == '-') {
-		if (strncmp(domain_address, "-4", sizeof("-4")) == 0) {
-			flag = DOMAIN_FLAG_ADDR_IPV4_IGN;
-		} else if (strncmp(domain_address, "-6", sizeof("-6")) == 0) {
-			flag = DOMAIN_FLAG_ADDR_IPV6_IGN;
-		} else if (strncmp(domain_address, "-", sizeof("-")) == 0) {
-			flag = DOMAIN_FLAG_ADDR_IGN;
-		} else {
-			goto errout;
+		if (*(field) == '#') {
+			if (strncmp(field, "#4", sizeof("#4")) == 0) {
+				flag = DOMAIN_FLAG_ADDR_IPV4_SOA;
+			} else if (strncmp(field, "#6", sizeof("#6")) == 0) {
+				flag = DOMAIN_FLAG_ADDR_IPV6_SOA;
+			} else if (strncmp(field, "#", sizeof("#")) == 0) {
+				flag = DOMAIN_FLAG_ADDR_SOA;
+			} else {
+				goto errout;
+			}
+
+			/* add SOA rule */
+			if (_config_domain_rule_flag_set(domain, flag, 0) != 0) {
+				goto errout;
+			}
+
+			continue;
+		} else if (*(field) == '-') {
+			if (strncmp(field, "-4", sizeof("-4")) == 0) {
+				flag = DOMAIN_FLAG_ADDR_IPV4_IGN;
+			} else if (strncmp(field, "-6", sizeof("-6")) == 0) {
+				flag = DOMAIN_FLAG_ADDR_IPV6_IGN;
+			} else if (strncmp(field, "-", sizeof("-")) == 0) {
+				flag = DOMAIN_FLAG_ADDR_IGN;
+			} else {
+				goto errout;
+			}
+
+			/* ignore rule */
+			if (_config_domain_rule_flag_set(domain, flag, 0) != 0) {
+				goto errout;
+			}
+
+			continue;
 		}
 
-		/* ignore rule */
-		if (_config_domain_rule_flag_set(domain, flag, 0) != 0) {
-			goto errout;
-		}
-
-		return 0;
-	} else {
 		/* set address to domain */
-		if (parse_ip(domain_address, ip, &port) != 0) {
+		if (parse_ip(field, ip, &port) != 0) {
 			goto errout;
 		}
 
@@ -1552,53 +1583,74 @@ static int _conf_domain_rule_address(char *domain, const char *domain_address)
 		switch (addr.ss_family) {
 		case AF_INET: {
 			struct sockaddr_in *addr_in = NULL;
-			address_ipv4 = _new_dns_rule(DOMAIN_RULE_ADDRESS_IPV4);
-			if (address_ipv4 == NULL) {
-				goto errout;
-			}
-
 			addr_in = (struct sockaddr_in *)&addr;
-			memcpy(address_ipv4->ipv4_addr, &addr_in->sin_addr.s_addr, 4);
-			type = DOMAIN_RULE_ADDRESS_IPV4;
-			address = (struct dns_rule *)address_ipv4;
+			memcpy(ipv4_addr[ipv4_num], &addr_in->sin_addr.s_addr, DNS_RR_A_LEN);
+			ipv4_num++;
 		} break;
 		case AF_INET6: {
 			struct sockaddr_in6 *addr_in6 = NULL;
 			addr_in6 = (struct sockaddr_in6 *)&addr;
 			if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
-				address_ipv4 = _new_dns_rule(DOMAIN_RULE_ADDRESS_IPV4);
-				if (address_ipv4 == NULL) {
-					goto errout;
-				}
-				memcpy(address_ipv4->ipv4_addr, addr_in6->sin6_addr.s6_addr + 12, 4);
-				type = DOMAIN_RULE_ADDRESS_IPV4;
-				address = (struct dns_rule *)address_ipv4;
+				memcpy(ipv4_addr[ipv4_num], addr_in6->sin6_addr.s6_addr + 12, DNS_RR_A_LEN);
+				ipv4_num++;
 			} else {
 				address_ipv6 = _new_dns_rule(DOMAIN_RULE_ADDRESS_IPV6);
 				if (address_ipv6 == NULL) {
 					goto errout;
 				}
-				memcpy(address_ipv6->ipv6_addr, addr_in6->sin6_addr.s6_addr, 16);
-				type = DOMAIN_RULE_ADDRESS_IPV6;
-				address = (struct dns_rule *)address_ipv6;
+				memcpy(ipv6_addr[ipv6_num], addr_in6->sin6_addr.s6_addr, DNS_RR_AAAA_LEN);
+				ipv6_num++;
 			}
 		} break;
 		default:
-			goto errout;
+			ip[0] = '\0';
+			break;
 		}
 
 		/* add PTR */
-		if (dns_conf_expand_ptr_from_address == 1 && _conf_ptr_add(domain, ip, 0) != 0) {
+		if (dns_conf_expand_ptr_from_address == 1 && ip[0] != '\0' && _conf_ptr_add(domain, ip, 0) != 0) {
 			goto errout;
 		}
+
+		if (ptr) {
+			ptr++;
+		}
+	} while (ptr);
+
+	if (ipv4_num > 0) {
+		address_ipv4 = _new_dns_rule_ext(DOMAIN_RULE_ADDRESS_IPV4, ipv4_num * DNS_RR_A_LEN);
+		if (address_ipv4 == NULL) {
+			goto errout;
+		}
+
+		memcpy(address_ipv4->ipv4_addr, ipv4_addr[0], ipv4_num * DNS_RR_A_LEN);
+		address_ipv4->addr_num = ipv4_num;
+		address = (struct dns_rule *)address_ipv4;
+
+		if (_config_domain_rule_add(domain, DOMAIN_RULE_ADDRESS_IPV4, address) != 0) {
+			goto errout;
+		}
+
+		_dns_rule_put(address);
 	}
 
-	/* add domain to ART-tree */
-	if (_config_domain_rule_add(domain, type, address) != 0) {
-		goto errout;
+	if (ipv6_num > 0) {
+		address_ipv6 = _new_dns_rule_ext(DOMAIN_RULE_ADDRESS_IPV6, ipv6_num * DNS_RR_AAAA_LEN);
+		if (address_ipv6 == NULL) {
+			goto errout;
+		}
+
+		memcpy(address_ipv6->ipv6_addr, ipv6_addr[0], ipv6_num * DNS_RR_AAAA_LEN);
+		address_ipv6->addr_num = ipv6_num;
+		address = (struct dns_rule *)address_ipv6;
+
+		if (_config_domain_rule_add(domain, DOMAIN_RULE_ADDRESS_IPV6, address) != 0) {
+			goto errout;
+		}
+
+		_dns_rule_put(address);
 	}
 
-	_dns_rule_put(address);
 	return 0;
 errout:
 	if (address) {

@@ -58,6 +58,7 @@ extern "C" {
 #define DEFAULT_DNS_HTTPS_PORT 443
 #define DNS_MAX_CONF_CNAME_LEN 256
 #define MAX_QTYPE_NUM 65535
+#define DNS_MAX_REPLY_IP_NUM 8
 
 #define SMARTDNS_CONF_FILE "/etc/smartdns/smartdns.conf"
 #define SMARTDNS_LOG_FILE "/var/log/smartdns/smartdns.log"
@@ -150,12 +151,14 @@ struct dns_rule_flags {
 
 struct dns_rule_address_IPV4 {
 	struct dns_rule head;
-	unsigned char ipv4_addr[DNS_RR_A_LEN];
+	char addr_num;
+	unsigned char ipv4_addr[][DNS_RR_A_LEN];
 };
 
 struct dns_rule_address_IPV6 {
 	struct dns_rule head;
-	unsigned char ipv6_addr[DNS_RR_AAAA_LEN];
+	char addr_num;
+	unsigned char ipv6_addr[][DNS_RR_AAAA_LEN];
 };
 
 struct dns_ipset_name {

@@ -161,3 +161,94 @@ cache-persist no)""");
 	EXPECT_EQ(client.GetAnswer()[0].GetType(), "AAAA");
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "64:ff9b::1010:1010");
 }
+
+TEST_F(Address, multiaddress)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::Server server;
+
+	server_upstream.Start("udp://0.0.0.0:61053", [&](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype == DNS_T_A) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4", 700);
+			return smartdns::SERVER_REQUEST_OK;
+		} else if (request->qtype == DNS_T_AAAA) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "64:ff9b::102:304", 700);
+			return smartdns::SERVER_REQUEST_OK;
+		}
+		return smartdns::SERVER_REQUEST_SOA;
+	});
+
+	server.Start(R"""(bind [::]:60053
+server 127.0.0.1:61053
+log-num 0
+log-console yes
+log-level debug
+speed-check-mode none
+address /a.com/10.10.10.10,11.11.11.11,22.22.22.22
+address /a.com/64:ff9b::1010:1010,64:ff9b::1111:1111,64:ff9b::2222:2222
+cache-persist no)""");
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("a.com A", 60053));
+	std::cout << client.GetResult() << std::endl;
+	std::map<std::string, smartdns::DNSRecord *> result;
+
+	ASSERT_EQ(client.GetAnswerNum(), 3);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	auto answers = client.GetAnswer();
+	for (int i = 0; i < client.GetAnswerNum(); i++) {
+		result[client.GetAnswer()[i].GetData()] = &answers[i];
+	}
+
+	ASSERT_NE(result.find("10.10.10.10"), result.end());
+	auto check_result = result["10.10.10.10"];
+	EXPECT_EQ(check_result->GetName(), "a.com");
+	EXPECT_EQ(check_result->GetTTL(), 600);
+	EXPECT_EQ(check_result->GetType(), "A");
+	EXPECT_EQ(check_result->GetData(), "10.10.10.10");
+
+	ASSERT_NE(result.find("11.11.11.11"), result.end());
+	check_result = result["11.11.11.11"];
+	EXPECT_EQ(check_result->GetName(), "a.com");
+	EXPECT_EQ(check_result->GetTTL(), 600);
+	EXPECT_EQ(check_result->GetType(), "A");
+	EXPECT_EQ(check_result->GetData(), "11.11.11.11");
+
+	ASSERT_NE(result.find("22.22.22.22"), result.end());
+	check_result = result["22.22.22.22"];
+	EXPECT_EQ(check_result->GetName(), "a.com");
+	EXPECT_EQ(check_result->GetTTL(), 600);
+	EXPECT_EQ(check_result->GetType(), "A");
+	EXPECT_EQ(check_result->GetData(), "22.22.22.22");
+
+	result.clear();
+
+	ASSERT_TRUE(client.Query("a.com AAAA", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 3);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	answers = client.GetAnswer();
+	for (int i = 0; i < client.GetAnswerNum(); i++) {
+		result[client.GetAnswer()[i].GetData()] = &answers[i];
+	}
+
+	ASSERT_NE(result.find("64:ff9b::1010:1010"), result.end());
+	check_result = result["64:ff9b::1010:1010"];
+	EXPECT_EQ(check_result->GetName(), "a.com");
+	EXPECT_EQ(check_result->GetTTL(), 600);
+	EXPECT_EQ(check_result->GetType(), "AAAA");
+	EXPECT_EQ(check_result->GetData(), "64:ff9b::1010:1010");
+
+	ASSERT_NE(result.find("64:ff9b::1111:1111"), result.end());
+	check_result = result["64:ff9b::1111:1111"];
+	EXPECT_EQ(check_result->GetName(), "a.com");
+	EXPECT_EQ(check_result->GetTTL(), 600);
+	EXPECT_EQ(check_result->GetType(), "AAAA");
+	EXPECT_EQ(check_result->GetData(), "64:ff9b::1111:1111");
+
+	ASSERT_NE(result.find("64:ff9b::2222:2222"), result.end());
+	check_result = result["64:ff9b::2222:2222"];
+	EXPECT_EQ(check_result->GetName(), "a.com");
+	EXPECT_EQ(check_result->GetTTL(), 600);
+	EXPECT_EQ(check_result->GetType(), "AAAA");
+	EXPECT_EQ(check_result->GetData(), "64:ff9b::2222:2222");
+}

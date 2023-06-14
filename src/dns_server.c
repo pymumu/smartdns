@@ -4110,10 +4110,35 @@ static int _dns_server_get_local_ttl(struct dns_request *request)
 	return DNS_SERVER_ADDR_TTL;
 }
 
+static int _dns_server_address_generate_order(int orders[], int order_num, int max_order_count)
+{
+	int i = 0;
+	int j = 0;
+	int k = 0;
+	for (i = 0; i < order_num && i < max_order_count; i++) {
+		orders[i] = i;
+	}
+
+	for (i = 0; i < order_num && max_order_count; i++) {
+		k = rand() % order_num;
+		j = rand() % order_num;
+		if (j == k) {
+			continue;
+		}
+
+		int temp = orders[j];
+		orders[j] = orders[k];
+		orders[k] = temp;
+	}
+
+	return 0;
+}
+
 static int _dns_server_process_address(struct dns_request *request)
 {
 	struct dns_rule_address_IPV4 *address_ipv4 = NULL;
 	struct dns_rule_address_IPV6 *address_ipv6 = NULL;
+	int orders[DNS_MAX_REPLY_IP_NUM];
 
 	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_RULE_ADDR) == 0) {
 		goto errout;
@@ -4126,14 +4151,39 @@ static int _dns_server_process_address(struct dns_request *request)
 			goto errout;
 		}
 		address_ipv4 = _dns_server_get_dns_rule(request, DOMAIN_RULE_ADDRESS_IPV4);
-		memcpy(request->ip_addr, address_ipv4->ipv4_addr, DNS_RR_A_LEN);
+		if (address_ipv4 == NULL) {
+			goto errout;
+		}
+		_dns_server_address_generate_order(orders, address_ipv4->addr_num, DNS_MAX_REPLY_IP_NUM);
+
+		memcpy(request->ip_addr, address_ipv4->ipv4_addr[orders[0]], DNS_RR_A_LEN);
+		for (int i = 1; i < address_ipv4->addr_num; i++) {
+			int index = orders[i];
+			if (index >= address_ipv4->addr_num) {
+				continue;
+			}
+			_dns_ip_address_check_add(request, request->cname, address_ipv4->ipv4_addr[index], DNS_T_A, 1, NULL);
+		}
 		break;
 	case DNS_T_AAAA:
 		if (request->domain_rule.rules[DOMAIN_RULE_ADDRESS_IPV6] == NULL) {
 			goto errout;
 		}
+
 		address_ipv6 = _dns_server_get_dns_rule(request, DOMAIN_RULE_ADDRESS_IPV6);
-		memcpy(request->ip_addr, address_ipv6->ipv6_addr, DNS_RR_AAAA_LEN);
+		if (address_ipv6 == NULL) {
+			goto errout;
+		}
+		_dns_server_address_generate_order(orders, address_ipv6->addr_num, DNS_MAX_REPLY_IP_NUM);
+
+		memcpy(request->ip_addr, address_ipv6->ipv6_addr[orders[0]], DNS_RR_AAAA_LEN);
+		for (int i = 1; i < address_ipv6->addr_num; i++) {
+			int index = orders[i];
+			if (index >= address_ipv6->addr_num) {
+				continue;
+			}
+			_dns_ip_address_check_add(request, request->cname, address_ipv6->ipv6_addr[index], DNS_T_AAAA, 1, NULL);
+		}
 		break;
 	default:
 		goto errout;
@@ -4149,6 +4199,7 @@ static int _dns_server_process_address(struct dns_request *request)
 	context.do_reply = 1;
 	context.do_audit = 1;
 	context.do_ipset = 1;
+	context.select_all_best_ip = 1;
 	_dns_request_post(&context);
 
 	return 0;
