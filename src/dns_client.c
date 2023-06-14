@@ -3498,6 +3498,8 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 			atomic_inc(&query->dns_request_sent);
 			send_count++;
 			errno = 0;
+			server_info->send_tick = get_tick_count();
+
 			switch (server_info->type) {
 			case DNS_SERVER_UDP:
 				/* udp query */
@@ -3550,7 +3552,6 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 				continue;
 			}
 			time(&server_info->last_send);
-			server_info->send_tick = get_tick_count();
 		}
 		pthread_mutex_unlock(&client.server_list_lock);
 
