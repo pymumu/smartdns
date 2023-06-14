@@ -13,12 +13,13 @@ address除了可以设置屏蔽广告外，还可以指定域名的IP地址。
 
     ```shell
     address /example.com/1.2.3.4
+    address /example.com/4.5.6.7,8.9.10.11,12.13.14.15
     ```
 
     address选项中:
 
     * /domain/为后缀匹配算法，范围包含其子域名。
-    * ip: 可以为IPV6，或IPV4地址
+    * ip: 可以为IPV6，或IPV4地址，可以指定多个IP地址，如果有多个IP地址，查询的时候，将会进行随机排序。
 
 1. 指定IPV6
 

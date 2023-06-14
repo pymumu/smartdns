@@ -13,6 +13,7 @@ In addition to blocking ads, `address` can also be used to specify the IP addres
 
     ```shell
     address /example.com/1.2.3.4
+    address /example.com/4.5.6.7,8.9.10.11,12.13.14.15
     ```
 
     In the `address` option:

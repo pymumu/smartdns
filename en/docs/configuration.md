@@ -47,7 +47,7 @@ hide:
 |speed-check-mode|Speed ​​mode|None|[ping\|tcp:[80]\|none]|speed-check-mode ping,tcp:80,tcp:443
 |response-mode|First query response mode|first-ping|Mode: [first-ping\|fastest-ip\|fastest-response]<br /> [first-ping]: The fastest dns + ping response mode, DNS query delay + ping delay is the shortest;<br />[fastest-ip]: The fastest IP address mode, return the fastest ip address, may take some time to test speed. <br />[fastest-response]: The fastest response DNS result mode, the DNS query waiting time is the shortest. | response-mode first-ping |
 |expand-ptr-from-address| Whether to expand the address record corresponding to PTR record | no | [yes\|no] | expand-ptr-from-address yes |
-|address|Domain IP address|None|address /domain/[ip\|-\|-4\|-6\|#\|#4\|#6], `-` for ignore, `#` for return SOA, `4` for IPV4, `6` for IPV6| address /www.example.com/1.2.3.4
+|address|Domain IP address|None|address /domain/[ip1[,ip2,...]\|-\|-4\|-6\|#\|#4\|#6], `-` for ignore, `#` for return SOA, `4` for IPV4, `6` for IPV6| address /www.example.com/1.2.3.4<br />address /www.example.com/::1 <br />address /example.com/1.2.3.4,5.6.7.8 
 |cname|set cname to domain| None | cname /domain/target <br />- for ignore <br />set cname to domain. | cname /www.example.com/cdn.example.com |
 |dns64|dns64 translation | None | dns64 ip-prefix/mask <br /> ipv6 prefix and mask. | dns64 64:ff9b::/96 |
 |edns-client-subnet| DNS ECS | None |edns-client-subnet ip-prefix/mask <br /> set EDNS client subnet | ip-prefix/mask 1.2.3.4/23 |
