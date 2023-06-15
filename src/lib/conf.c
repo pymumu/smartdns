@@ -26,10 +26,16 @@
 #include <unistd.h>
 
 static const char *current_conf_file = NULL;
+static int current_conf_lineno = 0;
 
 const char *conf_get_conf_file(void)
 {
 	return current_conf_file;
+}
+
+int conf_get_current_lineno(void)
+{
+	return current_conf_lineno;
 }
 
 static char *get_dir_name(char *path)
@@ -355,6 +361,8 @@ static int load_conf_file(const char *file, struct config_item *items, conf_erro
 	int line_no = 0;
 	int line_len = 0;
 	int read_len = 0;
+	int is_last_line_wrap = 0;
+	int current_line_wrap = 0;
 	const char *last_file = NULL;
 
 	if (handler == NULL) {
@@ -368,14 +376,44 @@ static int load_conf_file(const char *file, struct config_item *items, conf_erro
 
 	line_no = 0;
 	while (fgets(line + line_len, MAX_LINE_LEN - line_len, fp)) {
+		current_line_wrap = 0;
 		line_no++;
 		read_len = strnlen(line + line_len, sizeof(line));
 		if (read_len >= 2 && *(line + line_len + read_len - 2) == '\\') {
-			line_len += read_len - 2;
-			line[line_len] = '\0';
-			continue;
+			read_len -= 1;
+			current_line_wrap = 1;
 		}
+
+		/* comment in wrap line, skip */
+		if (is_last_line_wrap && read_len > 0) {
+			if (*(line + line_len) == '#') {
+				continue;
+			}
+		}
+
+		/* trim prefix spaces in wrap line */
+		if ((current_line_wrap == 1 || is_last_line_wrap == 1) && read_len > 0) {
+			is_last_line_wrap = current_line_wrap;
+			read_len -= 1;
+			for (i = 0; i < read_len; i++) {
+				char *ptr = line + line_len + i;
+				if (*ptr == ' ' || *ptr == '\t') {
+					continue;
+				}
+
+				memmove(line + line_len, ptr, read_len - i + 1);
+				line_len += read_len - i;
+				break;
+			}
+
+			line[line_len] = '\0';
+			if (current_line_wrap) {
+				continue;
+			}
+		}
+
 		line_len = 0;
+		is_last_line_wrap = 0;
 
 		filed_num = sscanf(line, "%63s %8191[^\r\n]s", key, value);
 		if (filed_num <= 0) {
@@ -419,6 +457,7 @@ static int load_conf_file(const char *file, struct config_item *items, conf_erro
 			/* call item function */
 			last_file = current_conf_file;
 			current_conf_file = file;
+			current_conf_lineno = line_no;
 			call_ret = items[i].item_func(items[i].item, items[i].data, argc, argv);
 			ret = handler(file, line_no, call_ret);
 			if (ret != 0) {

@@ -1527,7 +1527,7 @@ static int _conf_domain_rule_address(char *domain, const char *domain_address)
 		field = ptr;
 		ptr = strstr(ptr, ",");
 
-		if (field == NULL) {
+		if (field == NULL || *field == '\0') {
 			break;
 		}
 
@@ -1657,7 +1657,8 @@ errout:
 		_dns_rule_put(address);
 	}
 
-	tlog(TLOG_ERROR, "add address %s, %s  failed", domain, domain_address);
+	tlog(TLOG_ERROR, "add address %s, %s at %s:%d failed", domain, domain_address, conf_get_conf_file(),
+		 conf_get_current_lineno());
 	return 0;
 }
 

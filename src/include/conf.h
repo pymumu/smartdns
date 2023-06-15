@@ -189,6 +189,8 @@ int load_conf(const char *file, struct config_item items[], conf_error_handler h
 
 void load_exit(void);
 
+int conf_get_current_lineno(void);
+
 const char *conf_get_conf_file(void);
 
 const char *conf_get_conf_fullpath(const char *path, char *fullpath, size_t path_len);
