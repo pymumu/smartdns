@@ -855,7 +855,7 @@ int main(int argc, char *argv[])
 	}
 
 	if (daemon_ret > 0) {
-		ret = daemon_kickoff(daemon_ret, 0);
+		ret = daemon_kickoff(daemon_ret, 0, dns_conf_log_console | verbose_screen);
 		if (ret != 0) {
 			goto errout;
 		}
@@ -867,7 +867,7 @@ int main(int argc, char *argv[])
 	return ret;
 errout:
 	if (daemon_ret > 0) {
-		daemon_kickoff(daemon_ret, ret);
+		daemon_kickoff(daemon_ret, ret, dns_conf_log_console | verbose_screen);
 	}
 	smartdns_test_notify(2);
 	return 1;

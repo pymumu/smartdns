@@ -1560,7 +1560,7 @@ errout:
 	return;
 }
 
-int daemon_kickoff(int fd, int status)
+int daemon_kickoff(int fd, int status, int no_close)
 {
 	if (fd <= 0) {
 		return -1;
@@ -1571,18 +1571,20 @@ int daemon_kickoff(int fd, int status)
 		return -1;
 	}
 
-	int fd_null = open("/dev/null", O_RDWR);
-	if (fd_null < 0) {
-		fprintf(stderr, "open /dev/null failed, %s\n", strerror(errno));
-		return -1;
-	}
+	if (no_close == 0) {
+		int fd_null = open("/dev/null", O_RDWR);
+		if (fd_null < 0) {
+			fprintf(stderr, "open /dev/null failed, %s\n", strerror(errno));
+			return -1;
+		}
 
-	dup2(fd_null, STDIN_FILENO);
-	dup2(fd_null, STDOUT_FILENO);
-	dup2(fd_null, STDERR_FILENO);
+		dup2(fd_null, STDIN_FILENO);
+		dup2(fd_null, STDOUT_FILENO);
+		dup2(fd_null, STDERR_FILENO);
 
-	if (fd_null > 2) {
-		close(fd_null);
+		if (fd_null > 2) {
+			close(fd_null);
+		}
 	}
 
 	close(fd);
