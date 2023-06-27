@@ -3414,9 +3414,11 @@ static int _dns_client_setup_server_packet(struct dns_server_info *server_info, 
 
 	dns_set_OPT_payload_size(packet, DNS_IN_PACKSIZE);
 	/* dns_add_OPT_TCP_KEEPALIVE(packet, 600); */
-	if (query->qtype == DNS_T_A && server_info->ecs_ipv4.enable) {
+	if ((query->qtype == DNS_T_A && server_info->ecs_ipv4.enable) ||
+		(query->qtype == DNS_T_AAAA && server_info->ecs_ipv6.enable == 0 && server_info->ecs_ipv4.enable)) {
 		dns_add_OPT_ECS(packet, &server_info->ecs_ipv4.ecs);
-	} else if (query->qtype == DNS_T_AAAA && server_info->ecs_ipv6.enable) {
+	} else if ((query->qtype == DNS_T_AAAA && server_info->ecs_ipv6.enable) ||
+			   (query->qtype == DNS_T_A && server_info->ecs_ipv4.enable == 0 && server_info->ecs_ipv6.enable)) {
 		dns_add_OPT_ECS(packet, &server_info->ecs_ipv6.ecs);
 	}
 

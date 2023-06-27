@@ -2562,9 +2562,6 @@ static int _conf_client_subnet(char *subnet, struct dns_edns_client_subnet *ipv4
 		*slash = 0;
 		slash++;
 		subnet_len = atoi(slash);
-		if (subnet_len < 0 || subnet_len > 128) {
-			return -1;
-		}
 	}
 
 	if (getaddr_by_host(str_subnet, (struct sockaddr *)&addr, &addr_len) != 0) {
@@ -2573,9 +2570,23 @@ static int _conf_client_subnet(char *subnet, struct dns_edns_client_subnet *ipv4
 
 	switch (addr.ss_family) {
 	case AF_INET:
+		if (subnet_len < 0 || subnet_len > 32) {
+			return -1;
+		}
+
+		if (subnet_len == 0) {
+			subnet_len = 32;
+		}
 		ecs = ipv4_ecs;
 		break;
 	case AF_INET6:
+		if (subnet_len < 0 || subnet_len > 128) {
+			return -1;
+		}
+
+		if (subnet_len == 0) {
+			subnet_len = 128;
+		}
 		ecs = ipv6_ecs;
 		break;
 	default:
