@@ -1576,6 +1576,7 @@ static int _conf_domain_rule_address(char *domain, const char *domain_address)
 			goto errout;
 		}
 
+		addr_len = sizeof(addr);
 		if (getaddr_by_host(ip, (struct sockaddr *)&addr, &addr_len) != 0) {
 			goto errout;
 		}
@@ -1594,10 +1595,6 @@ static int _conf_domain_rule_address(char *domain, const char *domain_address)
 				memcpy(ipv4_addr[ipv4_num], addr_in6->sin6_addr.s6_addr + 12, DNS_RR_A_LEN);
 				ipv4_num++;
 			} else {
-				address_ipv6 = _new_dns_rule(DOMAIN_RULE_ADDRESS_IPV6);
-				if (address_ipv6 == NULL) {
-					goto errout;
-				}
 				memcpy(ipv6_addr[ipv6_num], addr_in6->sin6_addr.s6_addr, DNS_RR_AAAA_LEN);
 				ipv6_num++;
 			}
