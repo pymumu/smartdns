@@ -119,6 +119,7 @@ typedef enum {
 #define DOMAIN_FLAG_NO_CACHE (1 << 17)
 
 #define SERVER_FLAG_EXCLUDE_DEFAULT (1 << 0)
+#define SERVER_FLAG_HITCHHIKING (1 << 1)
 
 #define BIND_FLAG_NO_RULE_ADDR (1 << 0)
 #define BIND_FLAG_NO_RULE_NAMESERVER (1 << 1)
@@ -217,8 +218,9 @@ extern struct dns_nftset_names dns_conf_nftset_no_speed;
 
 struct dns_domain_rule {
 	struct dns_rule head;
+	unsigned char sub_rule_only : 1;
+	unsigned char root_rule_only : 1;
 	struct dns_rule *rules[DOMAIN_RULE_MAX];
-	int is_sub_rule[DOMAIN_RULE_MAX];
 };
 
 struct dns_nameserver_rule {
@@ -516,6 +518,9 @@ extern char dns_conf_sni_proxy_ip[DNS_MAX_IPLEN];
 extern int dns_save_fail_packet;
 extern char dns_save_fail_packet_dir[DNS_MAX_PATH];
 extern char dns_resolv_file[DNS_MAX_PATH];
+
+extern int dns_no_pidfile;
+extern int dns_no_daemon;
 
 void dns_server_load_exit(void);
 

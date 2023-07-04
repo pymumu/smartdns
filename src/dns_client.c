@@ -3372,6 +3372,8 @@ static int _dns_client_setup_server_packet(struct dns_server_info *server_info, 
 	struct dns_packet *packet = (struct dns_packet *)packet_buff;
 	struct dns_head head;
 	int encode_len = 0;
+	int repack = 0;
+	int hitchhiking = 0;
 
 	*packet_data = default_packet;
 	*packet_data_len = default_packet_len;
@@ -3381,12 +3383,20 @@ static int _dns_client_setup_server_packet(struct dns_server_info *server_info, 
 		return 0;
 	}
 
-	if (server_info->ecs_ipv4.enable == false && query->qtype == DNS_T_A) {
-		/* no need to encode packet */
-		return 0;
+	if (server_info->ecs_ipv4.enable == true && query->qtype == DNS_T_A) {
+		repack = 1;
 	}
 
-	if (server_info->ecs_ipv6.enable == false && query->qtype == DNS_T_AAAA) {
+	if (server_info->ecs_ipv6.enable == true && query->qtype == DNS_T_AAAA) {
+		repack = 1;
+	}
+
+	if ((server_info->flags.server_flag & SERVER_FLAG_HITCHHIKING) != 0) {
+		hitchhiking = 1;
+		repack = 1;
+	}
+
+	if (repack == 0) {
 		/* no need to encode packet */
 		return 0;
 	}
@@ -3403,6 +3413,11 @@ static int _dns_client_setup_server_packet(struct dns_server_info *server_info, 
 
 	if (dns_packet_init(packet, DNS_PACKSIZE, &head) != 0) {
 		tlog(TLOG_ERROR, "init packet failed.");
+		return -1;
+	}
+
+	if (hitchhiking != 0 && dns_add_domain(packet, "-", query->qtype, DNS_C_IN) != 0) {
+		tlog(TLOG_ERROR, "add domain to packet failed.");
 		return -1;
 	}
 

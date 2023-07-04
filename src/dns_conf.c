@@ -161,6 +161,8 @@ char dns_conf_user[DNS_CONF_USERNAME_LEN];
 int dns_save_fail_packet;
 char dns_save_fail_packet_dir[DNS_MAX_PATH];
 char dns_resolv_file[DNS_MAX_PATH];
+int dns_no_pidfile;
+int dns_no_daemon;
 
 /* ECS */
 struct dns_edns_client_subnet dns_conf_ipv4_ecs;
@@ -508,6 +510,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 		{"set-mark", required_argument, NULL, 254}, /* set mark */
 		{"bootstrap-dns", no_argument, NULL, 255}, /* set as bootstrap dns */
 		{"subnet", required_argument, NULL, 256}, /* set subnet */
+		{"hitchhiking", no_argument, NULL, 257}, /* hitchhiking */
 		{NULL, no_argument, NULL, 0}
 	};
 	/* clang-format on */
@@ -646,6 +649,9 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 		case 256: {
 			_conf_client_subnet(optarg, &server->ipv4_ecs, &server->ipv6_ecs);
 			break;
+		}
+		case 257: {
+			server_flag |= SERVER_FLAG_HITCHHIKING;
 		}
 		default:
 			break;
@@ -841,11 +847,18 @@ static int _config_domain_rule_add(const char *domain, enum domain_rule type, vo
 
 	char domain_key[DNS_MAX_CONF_CNAME_LEN];
 	int len = 0;
+	int sub_rule_only = 0;
+	int root_rule_only = 0;
 
 	/* Reverse string, for suffix match */
 	len = strlen(domain);
 	if (len >= (int)sizeof(domain_key)) {
 		tlog(TLOG_ERROR, "domain name %s too long", domain);
+		goto errout;
+	}
+
+	if (len <= 0) {
+		tlog(TLOG_ERROR, "domain name %s too short", domain);
 		goto errout;
 	}
 
@@ -858,8 +871,23 @@ static int _config_domain_rule_add(const char *domain, enum domain_rule type, vo
 	}
 
 	reverse_string(domain_key, domain, len, 1);
-	domain_key[len] = '.';
-	len++;
+	if (domain[0] == '*') {
+		/* prefix wildcard */
+		len--;
+		if (domain[1] == '.') {
+			sub_rule_only = 1;
+		}
+	} else if (domain[0] == '-') {
+		/* root match only */
+		len--;
+		if (domain[1] == '.') {
+			root_rule_only = 1;
+		}
+	} else {
+		/* suffix match */
+		domain_key[len] = '.';
+		len++;
+	}
 	domain_key[len] = 0;
 
 	if (type >= DOMAIN_RULE_MAX) {
@@ -884,6 +912,8 @@ static int _config_domain_rule_add(const char *domain, enum domain_rule type, vo
 	}
 
 	domain_rule->rules[type] = rule;
+	domain_rule->sub_rule_only = sub_rule_only;
+	domain_rule->root_rule_only = root_rule_only;
 	_dns_rule_get(rule);
 
 	/* update domain rule */
@@ -3517,6 +3547,8 @@ static struct config_item _config_item[] = {
 	CONF_STRING("ca-path", (char *)&dns_conf_ca_path, DNS_MAX_PATH),
 	CONF_STRING("user", (char *)&dns_conf_user, sizeof(dns_conf_user)),
 	CONF_YESNO("debug-save-fail-packet", &dns_save_fail_packet),
+	CONF_YESNO("no-pidfile", &dns_no_pidfile),
+	CONF_YESNO("no-daemon", &dns_no_daemon),
 	CONF_STRING("resolv-file", (char *)&dns_resolv_file, sizeof(dns_resolv_file)),
 	CONF_STRING("debug-save-fail-packet-dir", (char *)&dns_save_fail_packet_dir, sizeof(dns_save_fail_packet_dir)),
 	CONF_CUSTOM("conf-file", config_additional_file, NULL),

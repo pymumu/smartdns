@@ -216,6 +216,11 @@ struct dns_request_pending_list {
 	struct hlist_node node;
 };
 
+struct dns_request_domain_rule {
+	struct dns_rule *rules[DOMAIN_RULE_MAX];
+	int is_sub_rule[DOMAIN_RULE_MAX];
+};
+
 typedef DNS_CHILD_POST_RESULT (*child_request_callback)(struct dns_request *request, struct dns_request *child_request,
 														int is_first_resp);
 
@@ -303,7 +308,7 @@ struct dns_request {
 	atomic_t ip_map_num;
 	DECLARE_HASHTABLE(ip_map, 4);
 
-	struct dns_domain_rule domain_rule;
+	struct dns_request_domain_rule domain_rule;
 	int skip_domain_rule;
 	struct dns_domain_check_orders *check_order_list;
 	int check_order;
@@ -710,7 +715,7 @@ static void _dns_server_audit_log(struct dns_server_post_context *context)
 		return;
 	}
 
-	for (j = 1; j < DNS_RRS_END && context->packet; j++) {
+	for (j = 1; j < DNS_RRS_OPT && context->packet; j++) {
 		rrs = dns_get_rrs_start(context->packet, j, &rr_count);
 		for (i = 0; i < rr_count && rrs && left_len > 0; i++, rrs = dns_get_rrs_next(context->packet, rrs)) {
 			switch (rrs->type) {
@@ -1341,7 +1346,7 @@ static int _dns_cache_cname_packet(struct dns_server_post_context *context)
 		return -1;
 	}
 
-	for (j = 1; j < DNS_RRS_END && context->packet; j++) {
+	for (j = 1; j < DNS_RRS_OPT && context->packet; j++) {
 		rrs = dns_get_rrs_start(context->packet, j, &rr_count);
 		for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(context->packet, rrs)) {
 			switch (rrs->type) {
@@ -1699,7 +1704,7 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 		timeout_value = _dns_server_get_conf_ttl(request, 0) * 3;
 	}
 
-	for (j = 1; j < DNS_RRS_END; j++) {
+	for (j = 1; j < DNS_RRS_OPT; j++) {
 		rrs = dns_get_rrs_start(context->packet, j, &rr_count);
 		for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(context->packet, rrs)) {
 			switch (rrs->type) {
@@ -2993,7 +2998,7 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 		request->rcode = packet->head.rcode;
 	}
 
-	for (j = 1; j < DNS_RRS_END; j++) {
+	for (j = 1; j < DNS_RRS_OPT; j++) {
 		rrs = dns_get_rrs_start(packet, j, &rr_count);
 		for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
 			switch (rrs->type) {
@@ -3057,7 +3062,7 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 				}
 			} break;
 			default:
-				tlog(TLOG_DEBUG, "%s, qtype: %d", name, rrs->type);
+				tlog(TLOG_DEBUG, "%s, qtype: %d, rrstype = %d", name, rrs->type, j);
 				break;
 			}
 		}
@@ -3093,7 +3098,7 @@ static int _dns_server_passthrough_rule_check(struct dns_request *request, const
 		request->rcode = packet->head.rcode;
 	}
 
-	for (j = 1; j < DNS_RRS_END; j++) {
+	for (j = 1; j < DNS_RRS_OPT; j++) {
 		rrs = dns_get_rrs_start(packet, j, &rr_count);
 		for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
 			switch (rrs->type) {
@@ -3219,7 +3224,7 @@ static int _dns_server_get_answer(struct dns_server_post_context *context)
 	struct dns_request *request = context->request;
 	struct dns_packet *packet = context->packet;
 
-	for (j = 1; j < DNS_RRS_END; j++) {
+	for (j = 1; j < DNS_RRS_OPT; j++) {
 		rrs = dns_get_rrs_start(packet, j, &rr_count);
 		for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
 			switch (rrs->type) {
@@ -3925,6 +3930,16 @@ static int _dns_server_get_rules(unsigned char *key, uint32_t key_len, int is_su
 		return 0;
 	}
 
+	/* only subkey rule */
+	if (domain_rule->sub_rule_only == 1 && is_subkey == 0) {
+		return 0;
+	}
+
+	/* only root key rule */
+	if (domain_rule->root_rule_only == 1 && is_subkey == 1) {
+		return 0;
+	}
+
 	for (i = 0; i < DOMAIN_RULE_MAX; i++) {
 		if (domain_rule->rules[i] == NULL) {
 			continue;
@@ -4331,7 +4346,7 @@ static int _dns_server_process_cname_pre(struct dns_request *request)
 {
 	struct dns_cname_rule *cname = NULL;
 	struct dns_rule_flags *rule_flag = NULL;
-	struct dns_domain_rule domain_rule;
+	struct dns_request_domain_rule domain_rule;
 
 	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_RULE_CNAME) == 0) {
 		return 0;

@@ -810,7 +810,7 @@ int main(int argc, char *argv[])
 		goto errout;
 	}
 
-	if (is_foreground == 0) {
+	if (is_foreground == 0 && dns_no_daemon == 0) {
 		daemon_ret = run_daemon();
 		if (daemon_ret < 0) {
 			char buff[4096];
@@ -831,7 +831,7 @@ int main(int argc, char *argv[])
 		_reg_signal();
 	}
 
-	if (strncmp(pid_file, "-", 2) != 0 && create_pid_file(pid_file) != 0) {
+	if (strncmp(pid_file, "-", 2) != 0 && dns_no_pidfile == 0 && create_pid_file(pid_file) != 0) {
 		ret = -2;
 		goto errout;
 	}
