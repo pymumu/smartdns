@@ -2839,6 +2839,18 @@ errout:
 	return -1;
 }
 
+static int _conf_ddns_domain(void *data, int argc, char *argv[])
+{
+	if (argc <= 1) {
+		tlog(TLOG_ERROR, "invalid parameter.");
+		return -1;
+	}
+
+	const char *domain = argv[1];
+	_config_domain_rule_flag_set(domain, DOMAIN_FLAG_SMARTDNS_DOMAIN, 0);
+	return 0;
+}
+
 static int _conf_domain_rule_rr_ttl(const char *domain, int ttl, int ttl_min, int ttl_max)
 {
 	struct dns_ttl_rule *rr_ttl = NULL;
@@ -3582,6 +3594,7 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("edns-client-subnet", _conf_edns_client_subnet, NULL),
 	CONF_CUSTOM("domain-rules", _conf_domain_rules, NULL),
 	CONF_CUSTOM("domain-set", _conf_domain_set, NULL),
+	CONF_CUSTOM("ddns-domain", _conf_ddns_domain, NULL),
 	CONF_CUSTOM("dnsmasq-lease-file", _conf_dhcp_lease_dnsmasq_file, NULL),
 	CONF_CUSTOM("hosts-file", _conf_hosts_file, NULL),
 	CONF_STRING("ca-file", (char *)&dns_conf_ca_file, DNS_MAX_PATH),

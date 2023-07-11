@@ -3630,6 +3630,10 @@ static int _dns_server_get_inet_by_addr(struct sockaddr_storage *localaddr, stru
 		break;
 	}
 
+	if (ifa == NULL) {
+		goto errout;
+	}
+
 	freeifaddrs(ifaddr);
 	return 0;
 errout:
@@ -6175,7 +6179,9 @@ static int _dns_server_process_tls(struct dns_server_conn_tls_client *tls_client
 			} else {
 				unsigned long ssl_err = ERR_get_error();
 				int ssl_reason = ERR_GET_REASON(ssl_err);
-				tlog(TLOG_DEBUG, "Handshake with %s failed, error no: %s(%d, %d, %d)\n", "",
+				char name[DNS_MAX_CNAME_LEN];
+				tlog(TLOG_DEBUG, "Handshake with %s failed, error no: %s(%d, %d, %d)\n",
+					 get_host_by_addr(name, sizeof(name), (struct sockaddr *)&tls_client->addr),
 					 ERR_reason_error_string(ssl_err), ret, ssl_ret, ssl_reason);
 				ret = 0;
 				goto errout;
