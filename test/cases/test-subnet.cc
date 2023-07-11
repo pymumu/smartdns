@@ -245,6 +245,148 @@ cache-persist no)""");
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "2001:db8::1");
 }
 
+TEST_F(SubNet, v4_server_subnet_txt)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::Server server;
+
+	server_upstream.Start("udp://0.0.0.0:61053", [&](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype != DNS_T_TXT) {
+			return smartdns::SERVER_REQUEST_SOA;
+		}
+		struct dns_opt_ecs ecs;
+		struct dns_rrs *rrs = NULL;
+		int rr_count = 0;
+		int i = 0;
+		int ret = 0;
+		int has_ecs = 0;
+
+		rr_count = 0;
+		rrs = dns_get_rrs_start(request->packet, DNS_RRS_OPT, &rr_count);
+		if (rr_count <= 0) {
+			return smartdns::SERVER_REQUEST_ERROR;
+		}
+
+		for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(request->packet, rrs)) {
+			memset(&ecs, 0, sizeof(ecs));
+			ret = dns_get_OPT_ECS(rrs, NULL, NULL, &ecs);
+			if (ret != 0) {
+				continue;
+			}
+			has_ecs = 1;
+			break;
+		}
+
+		if (has_ecs == 0) {
+			return smartdns::SERVER_REQUEST_ERROR;
+		}
+
+		if (ecs.family != DNS_OPT_ECS_FAMILY_IPV4) {
+			return smartdns::SERVER_REQUEST_ERROR;
+		}
+
+		if (memcmp(ecs.addr, "\x08\x08\x08\x00", 4) != 0) {
+			return smartdns::SERVER_REQUEST_ERROR;
+		}
+
+		if (ecs.source_prefix != 24) {
+			return smartdns::SERVER_REQUEST_ERROR;
+		}
+
+		dns_add_TXT(request->response_packet, DNS_RRS_AN, request->domain.c_str(), 6, "hello world");
+		return smartdns::SERVER_REQUEST_OK;
+	});
+
+	server.Start(R"""(bind [::]:60053
+server 127.0.0.1:61053 -subnet 8.8.8.8/24
+log-num 0
+log-console yes
+dualstack-ip-selection no
+log-level debug
+rr-ttl-min 0
+cache-persist no)""");
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("a.com TXT", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 6);
+	EXPECT_EQ(client.GetAnswer()[0].GetType(), "TXT");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "\"hello world\"");
+}
+
+TEST_F(SubNet, v6_default_subnet_txt)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::Server server;
+
+	server_upstream.Start("udp://0.0.0.0:61053", [&](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype != DNS_T_TXT) {
+			return smartdns::SERVER_REQUEST_SOA;
+		}
+		struct dns_opt_ecs ecs;
+		struct dns_rrs *rrs = NULL;
+		int rr_count = 0;
+		int i = 0;
+		int ret = 0;
+		int has_ecs = 0;
+
+		rr_count = 0;
+		rrs = dns_get_rrs_start(request->packet, DNS_RRS_OPT, &rr_count);
+		if (rr_count <= 0) {
+			return smartdns::SERVER_REQUEST_ERROR;
+		}
+
+		for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(request->packet, rrs)) {
+			memset(&ecs, 0, sizeof(ecs));
+			ret = dns_get_OPT_ECS(rrs, NULL, NULL, &ecs);
+			if (ret != 0) {
+				continue;
+			}
+			has_ecs = 1;
+			break;
+		}
+		if (has_ecs == 0) {
+			return smartdns::SERVER_REQUEST_ERROR;
+		}
+
+		if (ecs.family != DNS_OPT_ECS_FAMILY_IPV6) {
+			return smartdns::SERVER_REQUEST_ERROR;
+		}
+
+		if (memcmp(ecs.addr, "\xff\xff\xff\xff\xff\xff\xff\xff\x00\x00\x00\x00\x00\x00\x00\x00", 16) != 0) {
+			return smartdns::SERVER_REQUEST_ERROR;
+		}
+
+		if (ecs.source_prefix != 64) {
+			return smartdns::SERVER_REQUEST_ERROR;
+		}
+
+		dns_add_TXT(request->response_packet, DNS_RRS_AN, request->domain.c_str(), 6, "hello world");
+		return smartdns::SERVER_REQUEST_OK;
+	});
+
+	server.Start(R"""(bind [::]:60053
+server 127.0.0.1:61053
+log-num 0
+log-console yes
+dualstack-ip-selection no
+rr-ttl-min 0
+edns-client-subnet ffff:ffff:ffff:ffff:ffff::/64
+log-level debug
+cache-persist no)""");
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("a.com TXT", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 6);
+	EXPECT_EQ(client.GetAnswer()[0].GetType(), "TXT");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "\"hello world\"");
+}
+
 TEST_F(SubNet, per_server)
 {
 	smartdns::MockServer server_upstream1;
