@@ -174,6 +174,8 @@ static int _conf_domain_rule_nameserver(char *domain, const char *group_name);
 static int _conf_ptr_add(const char *hostname, const char *ip, int is_dynamic);
 static int _conf_client_subnet(char *subnet, struct dns_edns_client_subnet *ipv4_ecs,
 							   struct dns_edns_client_subnet *ipv6_ecs);
+static int _conf_domain_rule_address(char *domain, const char *domain_address);
+static struct dns_domain_rule *_config_domain_rule_get(const char *domain);
 
 static void *_new_dns_rule_ext(enum domain_rule domain_rule, int ext_size)
 {
@@ -488,6 +490,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 	unsigned char *spki = NULL;
 	int drop_packet_latency_ms = 0;
 	int is_bootstrap_dns = 0;
+	int is_hostip_set = 0;
 
 	int ttl = 0;
 	/* clang-format off */
@@ -511,6 +514,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 		{"bootstrap-dns", no_argument, NULL, 255}, /* set as bootstrap dns */
 		{"subnet", required_argument, NULL, 256}, /* set subnet */
 		{"hitchhiking", no_argument, NULL, 257}, /* hitchhiking */
+		{"host-ip", required_argument, NULL, 258}, /* host ip */
 		{NULL, no_argument, NULL, 0}
 	};
 	/* clang-format on */
@@ -652,6 +656,14 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 		}
 		case 257: {
 			server_flag |= SERVER_FLAG_HITCHHIKING;
+			break;
+		}
+		case 258: {
+			if (check_is_ipaddr(server->server) != 0) {
+				_conf_domain_rule_address(server->server, optarg);
+				is_hostip_set = 1;
+			}
+			break;
 		}
 		default:
 			break;
@@ -661,6 +673,18 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 	/* if server is domain name, then verify domain */
 	if (server->tls_host_verify[0] == '\0' && check_is_ipaddr(server->server) != 0) {
 		safe_strncpy(server->tls_host_verify, server->server, DNS_MAX_CNAME_LEN);
+	}
+
+	/* update address rules for host-ip */
+	if (is_hostip_set == 1) {
+		struct dns_domain_rule *rule = _config_domain_rule_get(server->server);
+		if (rule) {
+			if (rule->rules[DOMAIN_RULE_ADDRESS_IPV4] != NULL && rule->rules[DOMAIN_RULE_ADDRESS_IPV6] == NULL) {
+				_conf_domain_rule_address(server->server, "#6");
+			} else if (rule->rules[DOMAIN_RULE_ADDRESS_IPV4] == NULL && rule->rules[DOMAIN_RULE_ADDRESS_IPV6] != NULL) {
+				_conf_domain_rule_address(server->server, "#4");
+			}
+		}
 	}
 
 	/* add new server */
@@ -839,6 +863,23 @@ static int _config_domain_rule_add_callback(const char *domain, void *priv)
 	return _config_domain_rule_add(domain, args->type, args->rule);
 }
 
+static struct dns_domain_rule *_config_domain_rule_get(const char *domain)
+{
+	char domain_key[DNS_MAX_CONF_CNAME_LEN];
+	int len = 0;
+
+	if (len >= (int)sizeof(domain_key) - 1) {
+		return NULL;
+	}
+
+	len = strlen(domain);
+	reverse_string(domain_key, domain, len, 1);
+	domain_key[len] = '.';
+	len++;
+	domain_key[len] = 0;
+	return art_search(&dns_conf_domain_rule, (unsigned char *)domain_key, len);
+}
+
 static int _config_domain_rule_add(const char *domain, enum domain_rule type, void *rule)
 {
 	struct dns_domain_rule *domain_rule = NULL;
@@ -852,7 +893,7 @@ static int _config_domain_rule_add(const char *domain, enum domain_rule type, vo
 
 	/* Reverse string, for suffix match */
 	len = strlen(domain);
-	if (len >= (int)sizeof(domain_key)) {
+	if (len >= (int)sizeof(domain_key) - 1) {
 		tlog(TLOG_ERROR, "domain name %s too long", domain);
 		goto errout;
 	}
