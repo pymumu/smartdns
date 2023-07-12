@@ -63,7 +63,7 @@
 #define DNS_TCP_CONNECT_TIMEOUT (5)
 #define DNS_QUERY_TIMEOUT (500)
 #define DNS_QUERY_RETRY (4)
-#define DNS_PENDING_SERVER_RETRY 40
+#define DNS_PENDING_SERVER_RETRY 60
 #define SOCKET_PRIORITY (6)
 #define SOCKET_IP_TOS (IPTOS_LOWDELAY | IPTOS_RELIABILITY)
 
@@ -4035,7 +4035,7 @@ static void _dns_client_add_pending_servers(void)
 			_dns_client_server_pending_get(pending);
 			if (dns_server_query(pending->host, DNS_T_AAAA, 0, _dns_client_pending_server_resolve, pending) != 0) {
 				_dns_client_server_pending_release(pending);
-				pending->query_v4 = 0;
+				pending->query_v6 = 0;
 			}
 		}
 
@@ -4066,7 +4066,7 @@ static void _dns_client_add_pending_servers(void)
 			continue;
 		}
 
-		if (pending->has_soa && dnsserver_ip == NULL) {
+		if (pending->has_soa && dnsserver_ip == NULL && pending->query_v4 && pending->query_v6) {
 			tlog(TLOG_WARN, "add pending DNS server %s failed, no such host.", pending->host);
 			_dns_client_server_pending_remove(pending);
 			continue;
