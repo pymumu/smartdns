@@ -4131,7 +4131,12 @@ static void _dns_client_period_run(unsigned int msec)
 	{
 		/* free timed out query, and notify caller */
 		list_del_init(&query->period_list);
-		_dns_client_check_udp_nat(query);
+
+		/* check udp nat after retrying. */
+		if (atomic_read(&query->retry_count) == 1) {
+			_dns_client_check_udp_nat(query);
+		}
+
 		if (atomic_dec_and_test(&query->retry_count) || (query->has_result != 0)) {
 			_dns_client_query_remove(query);
 			if (query->has_result == 0) {

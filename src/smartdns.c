@@ -460,8 +460,13 @@ static int _smartdns_init(void)
 	const char *logfile = _smartdns_log_path();
 	int i = 0;
 	char logdir[PATH_MAX] = {0};
+	int logbuffersize = 0;
 
-	ret = tlog_init(logfile, dns_conf_log_size, dns_conf_log_num, 0, 0);
+	if (get_system_mem_size() > 1024 * 1024 * 1024) {
+		logbuffersize = 1024 * 1024;
+	}
+
+	ret = tlog_init(logfile, dns_conf_log_size, dns_conf_log_num, logbuffersize, TLOG_NONBLOCK);
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "start tlog failed.\n");
 		goto errout;
