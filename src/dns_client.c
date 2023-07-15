@@ -161,7 +161,8 @@ struct dns_server_pending {
 	unsigned int has_v6;
 	unsigned int query_v4;
 	unsigned int query_v6;
-	unsigned int has_soa;
+	unsigned int has_soa_v4;
+	unsigned int has_soa_v6;
 
 	/* server type */
 	dns_server_type_t type;
@@ -3908,9 +3909,11 @@ static int _dns_client_pending_server_resolve(const struct dns_result *result, v
 {
 	struct dns_server_pending *pending = user_ptr;
 	int ret = 0;
+	int has_soa = 0;
 
-	if (result->rtcode == DNS_RC_NXDOMAIN || result->ip_num == 0 || result->has_soa == 1) {
-		pending->has_soa = 1;
+	if (result->rtcode == DNS_RC_NXDOMAIN || result->has_soa == 1 || result->rtcode == DNS_RC_REFUSED ||
+		(result->rtcode == DNS_RC_NOERROR && result->ip_num == 0)) {
+		has_soa = 1;
 	}
 
 	if (result->addr_type == DNS_T_A) {
@@ -3918,16 +3921,24 @@ static int _dns_client_pending_server_resolve(const struct dns_result *result, v
 		if (result->rtcode == DNS_RC_NOERROR && result->ip_num > 0) {
 			pending->has_v4 = 1;
 			pending->ping_time_v4 = result->ping_time;
-			pending->has_soa = 0;
+			pending->has_soa_v4 = 0;
 			safe_strncpy(pending->ipv4, result->ip, DNS_HOSTNAME_LEN);
+		} else if (has_soa) {
+			pending->has_v4 = 0;
+			pending->ping_time_v4 = -1;
+			pending->has_soa_v4 = 1;
 		}
 	} else if (result->addr_type == DNS_T_AAAA) {
 		pending->ping_time_v6 = -1;
 		if (result->rtcode == DNS_RC_NOERROR && result->ip_num > 0) {
 			pending->has_v6 = 1;
 			pending->ping_time_v6 = result->ping_time;
-			pending->has_soa = 0;
+			pending->has_soa_v6 = 0;
 			safe_strncpy(pending->ipv6, result->ip, DNS_HOSTNAME_LEN);
+		} else if (has_soa) {
+			pending->has_v6 = 0;
+			pending->ping_time_v6 = -1;
+			pending->has_soa_v6 = 1;
 		}
 	} else {
 		ret = -1;
@@ -4066,7 +4077,7 @@ static void _dns_client_add_pending_servers(void)
 			continue;
 		}
 
-		if (pending->has_soa && dnsserver_ip == NULL && pending->query_v4 && pending->query_v6) {
+		if (dnsserver_ip == NULL && pending->has_soa_v4 && pending->has_soa_v6) {
 			tlog(TLOG_WARN, "add pending DNS server %s failed, no such host.", pending->host);
 			_dns_client_server_pending_remove(pending);
 			continue;
@@ -4140,10 +4151,10 @@ static void _dns_client_period_run(unsigned int msec)
 		if (atomic_dec_and_test(&query->retry_count) || (query->has_result != 0)) {
 			_dns_client_query_remove(query);
 			if (query->has_result == 0) {
-				tlog(TLOG_INFO, "retry query %s, type: %d, id: %d failed", query->domain, query->qtype, query->sid);
+				tlog(TLOG_DEBUG, "retry query %s, type: %d, id: %d failed", query->domain, query->qtype, query->sid);
 			}
 		} else {
-			tlog(TLOG_INFO, "retry query %s, type: %d, id: %d", query->domain, query->qtype, query->sid);
+			tlog(TLOG_DEBUG, "retry query %s, type: %d, id: %d", query->domain, query->qtype, query->sid);
 			_dns_client_send_query(query);
 		}
 		_dns_client_query_release(query);

@@ -5537,7 +5537,7 @@ int dns_server_query(const char *domain, int qtype, struct dns_server_query_opti
 	_dns_server_request_set_callback(request, callback, user_ptr);
 	ret = _dns_server_do_query(request, 0);
 	if (ret != 0) {
-		tlog(TLOG_ERROR, "do query %s failed.\n", domain);
+		tlog(TLOG_DEBUG, "do query %s failed.\n", domain);
 		goto errout;
 	}
 
