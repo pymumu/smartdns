@@ -636,6 +636,15 @@ static void _dns_server_post_context_init(struct dns_server_post_context *contex
 	context->request = request;
 }
 
+static void _dns_server_context_add_ip(struct dns_server_post_context *context, const unsigned char *ip_addr)
+{
+	if (context->ip_num < MAX_IP_NUM) {
+		context->ip_addr[context->ip_num] = ip_addr;
+	}
+
+	context->ip_num++;
+}
+
 static void _dns_server_post_context_init_from(struct dns_server_post_context *context, struct dns_request *request,
 											   struct dns_packet *packet, unsigned char *inpacket, int inpacket_len)
 {
@@ -900,8 +909,7 @@ static int _dns_rrs_add_all_best_ip(struct dns_server_post_context *context)
 				}
 			}
 
-			context->ip_addr[context->ip_num] = addr_map->ip_addr;
-			context->ip_num++;
+			_dns_server_context_add_ip(context, addr_map->ip_addr);
 			if (addr_map->addr_type == DNS_T_A) {
 				ret |= dns_add_A(context->packet, DNS_RRS_AN, domain, request->ip_ttl, addr_map->ip_addr);
 			} else if (addr_map->addr_type == DNS_T_AAAA) {
@@ -954,8 +962,7 @@ static int _dns_add_rrs(struct dns_server_post_context *context)
 
 	/* add A record */
 	if (request->has_ip && context->do_force_soa == 0) {
-		context->ip_addr[0] = request->ip_addr;
-		context->ip_num++;
+		_dns_server_context_add_ip(context, request->ip_addr);
 		if (context->qtype == DNS_T_A) {
 			ret |= dns_add_A(context->packet, DNS_RRS_AN, domain, request->ip_ttl, request->ip_addr);
 			tlog(TLOG_DEBUG, "result: %s, rtt: %.1f ms, %d.%d.%d.%d", request->domain, ((float)request->ping_time) / 10,
@@ -3250,8 +3257,7 @@ static int _dns_server_get_answer(struct dns_server_post_context *context)
 					continue;
 				}
 
-				context->ip_addr[context->ip_num] = addr_map->ip_addr;
-				context->ip_num++;
+				_dns_server_context_add_ip(context, addr_map->ip_addr);
 				if (request->has_ip == 1) {
 					continue;
 				}
@@ -3283,8 +3289,7 @@ static int _dns_server_get_answer(struct dns_server_post_context *context)
 					continue;
 				}
 
-				context->ip_addr[context->ip_num] = addr_map->ip_addr;
-				context->ip_num++;
+				_dns_server_context_add_ip(context, addr_map->ip_addr);
 				if (request->has_ip == 1) {
 					continue;
 				}
@@ -3979,6 +3984,10 @@ static void _dns_server_get_domain_rule_by_domain(struct dns_request *request, c
 
 	/* reverse domain string */
 	domain_len = strlen(domain);
+	if (domain_len >= (int)sizeof(domain_key) - 2) {
+		return;
+	}
+
 	reverse_string(domain_key, domain, domain_len, 1);
 	domain_key[domain_len] = '.';
 	domain_len++;

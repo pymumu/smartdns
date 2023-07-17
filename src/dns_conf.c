@@ -868,11 +868,11 @@ static struct dns_domain_rule *_config_domain_rule_get(const char *domain)
 	char domain_key[DNS_MAX_CONF_CNAME_LEN];
 	int len = 0;
 
-	if (len >= (int)sizeof(domain_key) - 1) {
+	len = strlen(domain);
+	if (len >= (int)sizeof(domain_key) - 2) {
 		return NULL;
 	}
 
-	len = strlen(domain);
 	reverse_string(domain_key, domain, len, 1);
 	domain_key[len] = '.';
 	len++;
@@ -893,7 +893,7 @@ static int _config_domain_rule_add(const char *domain, enum domain_rule type, vo
 
 	/* Reverse string, for suffix match */
 	len = strlen(domain);
-	if (len >= (int)sizeof(domain_key) - 1) {
+	if (len >= (int)sizeof(domain_key) - 2) {
 		tlog(TLOG_ERROR, "domain name %s too long", domain);
 		goto errout;
 	}

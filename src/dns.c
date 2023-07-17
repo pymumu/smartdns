@@ -879,6 +879,11 @@ int dns_add_TXT(struct dns_packet *packet, dns_rr_type type, const char *domain,
 {
 	int rr_len = strnlen(text, DNS_MAX_CNAME_LEN);
 	char data[DNS_MAX_CNAME_LEN];
+
+	if (rr_len > DNS_MAX_CNAME_LEN - 2) {
+		return -1;
+	}
+
 	data[0] = rr_len;
 	rr_len++;
 	memcpy(data + 1, text, rr_len);
