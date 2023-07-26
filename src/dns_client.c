@@ -443,8 +443,8 @@ static struct addrinfo *_dns_client_getaddr(const char *host, char *port, int ty
 
 	ret = getaddrinfo(host, port, &hints, &result);
 	if (ret != 0) {
-		tlog(TLOG_ERROR, "get addr info failed. %s\n", gai_strerror(ret));
-		tlog(TLOG_ERROR, "host = %s, port = %s, type = %d, protocol = %d", host, port, type, protocol);
+		tlog(TLOG_WARN, "get addr info failed. %s\n", gai_strerror(ret));
+		tlog(TLOG_WARN, "host = %s, port = %s, type = %d, protocol = %d", host, port, type, protocol);
 		goto errout;
 	}
 
@@ -1403,6 +1403,8 @@ static int _dns_client_add_server_pending(char *server_ip, char *server_host, in
 										  struct client_dns_server_flags *flags, int is_pending)
 {
 	int ret = 0;
+	struct addrinfo *gai = NULL;
+	char server_ip_tmp[DNS_HOSTNAME_LEN] = {0};
 
 	if (server_type >= DNS_SERVER_TYPE_END) {
 		tlog(TLOG_ERROR, "server type is invalid.");
@@ -1415,6 +1417,22 @@ static int _dns_client_add_server_pending(char *server_ip, char *server_host, in
 			tlog(TLOG_INFO, "add pending server %s", server_ip);
 			return 0;
 		}
+	} else if (check_is_ipaddr(server_ip) && is_pending == 0) {
+		gai = _dns_client_getaddr(server_ip, 0, SOCK_STREAM, 0);
+		if (gai == NULL) {
+			return -1;
+		}
+
+		if (get_host_by_addr(server_ip_tmp, sizeof(server_ip_tmp), gai->ai_addr) != NULL) {
+			tlog(TLOG_INFO, "resolve %s to %s.", server_ip, server_ip_tmp);
+			server_ip = server_ip_tmp;
+		} else {
+			tlog(TLOG_INFO, "resolve %s failed.", server_ip);
+			freeaddrinfo(gai);
+			return -1;
+		}
+
+		freeaddrinfo(gai);
 	}
 
 	/* add server */
@@ -1784,13 +1802,8 @@ static int _dns_client_create_socket_udp_proxy(struct dns_server_info *server_in
 
 	ret = proxy_conn_connect(proxy);
 	if (ret != 0) {
-		if (errno == ENETUNREACH || errno == EHOSTUNREACH || errno == EPERM || errno == EACCES) {
-			tlog(TLOG_DEBUG, "connect %s failed, %s", server_info->ip, strerror(errno));
-			goto errout;
-		}
-
 		if (errno != EINPROGRESS) {
-			tlog(TLOG_ERROR, "connect %s failed, %s", server_info->ip, strerror(errno));
+			tlog(TLOG_DEBUG, "connect %s failed, %s", server_info->ip, strerror(errno));
 			goto errout;
 		}
 	}
@@ -1844,14 +1857,8 @@ static int _dns_client_create_socket_udp(struct dns_server_info *server_info)
 	server_info->status = DNS_SERVER_STATUS_CONNECTIONLESS;
 
 	if (connect(fd, &server_info->addr, server_info->ai_addrlen) != 0) {
-		if (errno == ENETUNREACH || errno == EHOSTUNREACH || errno == ECONNREFUSED || errno == EPERM ||
-			errno == EACCES) {
-			tlog(TLOG_INFO, "connect %s failed, %s", server_info->ip, strerror(errno));
-			goto errout;
-		}
-
 		if (errno != EINPROGRESS) {
-			tlog(TLOG_ERROR, "connect %s failed, %s", server_info->ip, strerror(errno));
+			tlog(TLOG_DEBUG, "connect %s failed, %s", server_info->ip, strerror(errno));
 			goto errout;
 		}
 	}
@@ -1951,13 +1958,8 @@ static int _DNS_client_create_socket_tcp(struct dns_server_info *server_info)
 	}
 
 	if (ret != 0) {
-		if (errno == ENETUNREACH || errno == EHOSTUNREACH || errno == ECONNREFUSED) {
-			tlog(TLOG_DEBUG, "connect %s failed, %s", server_info->ip, strerror(errno));
-			goto errout;
-		}
-
 		if (errno != EINPROGRESS) {
-			tlog(TLOG_ERROR, "connect %s failed, %s", server_info->ip, strerror(errno));
+			tlog(TLOG_DEBUG, "connect %s failed, %s", server_info->ip, strerror(errno));
 			goto errout;
 		}
 	}
@@ -2065,13 +2067,8 @@ static int _DNS_client_create_socket_tls(struct dns_server_info *server_info, ch
 	}
 
 	if (ret != 0) {
-		if (errno == ENETUNREACH || errno == EHOSTUNREACH || errno == ECONNREFUSED) {
-			tlog(TLOG_DEBUG, "connect %s failed, %s", server_info->ip, strerror(errno));
-			goto errout;
-		}
-
 		if (errno != EINPROGRESS) {
-			tlog(TLOG_ERROR, "connect %s failed, %s", server_info->ip, strerror(errno));
+			tlog(TLOG_DEBUG, "connect %s failed, %s", server_info->ip, strerror(errno));
 			goto errout;
 		}
 	}
@@ -4032,6 +4029,25 @@ static void _dns_client_add_pending_servers(void)
 		int add_success = 0;
 		char *dnsserver_ip = NULL;
 
+		/* if has no bootstrap DNS, just call getaddrinfo to get address */
+		if (dns_client_has_bootstrap_dns == 0) {
+			list_del_init(&pending->retry_list);
+			_dns_client_server_pending_release(pending);
+			pending->retry_cnt++;
+			if (_dns_client_add_pendings(pending, pending->host) != 0) {
+				pthread_mutex_unlock(&pending_server_mutex);
+				tlog(TLOG_INFO, "add pending DNS server %s from resolv.conf failed, retry %d...", pending->host,
+					 pending->retry_cnt - 1);
+				if (pending->retry_cnt - 1 > DNS_PENDING_SERVER_RETRY) {
+					tlog(TLOG_WARN, "add pending DNS server %s from resolv.conf failed, exit...", pending->host);
+					exit(1);
+				}
+				continue;
+			}
+			_dns_client_server_pending_release(pending);
+			continue;
+		}
+
 		if (pending->query_v4 == 0) {
 			pending->query_v4 = 1;
 			_dns_client_server_pending_get(pending);
@@ -4092,22 +4108,6 @@ static void _dns_client_add_pending_servers(void)
 			tlog(TLOG_INFO, "add pending DNS server %s failed, retry %d...", pending->host, pending->retry_cnt - 1);
 			pending->query_v4 = 0;
 			pending->query_v6 = 0;
-		}
-
-		/* if has no bootstrap DNS, just call getaddrinfo to get address */
-		if (dns_client_has_bootstrap_dns == 0) {
-			if (_dns_client_add_pendings(pending, pending->host) != 0) {
-				pthread_mutex_unlock(&pending_server_mutex);
-				tlog(TLOG_INFO, "add pending DNS server %s from resolv.conf failed, retry %d...", pending->host,
-					 pending->retry_cnt - 1);
-				if (pending->retry_cnt - 1 > DNS_PENDING_SERVER_RETRY) {
-					tlog(TLOG_WARN, "add pending DNS server %s from resolv.conf failed, exit...", pending->host);
-					exit(1);
-				}
-				continue;
-			}
-
-			_dns_client_server_pending_release(pending);
 		}
 	}
 }

@@ -278,6 +278,7 @@ struct dns_request {
 
 	struct dns_soa soa;
 	int has_soa;
+	int force_soa;
 
 	atomic_t notified;
 	atomic_t do_callback;
@@ -2137,7 +2138,7 @@ out:
 	_dns_server_post_context_init(&context, request);
 	context.do_cache = 1;
 	context.do_ipset = 1;
-	context.do_force_soa = request->dualstack_selection_force_soa;
+	context.do_force_soa = request->dualstack_selection_force_soa | request->force_soa;
 	context.do_audit = 1;
 	context.do_reply = 1;
 	context.reply_ttl = _dns_server_get_reply_ttl(request, ttl);
@@ -2360,7 +2361,7 @@ static void _dns_server_complete_with_multi_ipaddress(struct dns_request *reques
 	context.do_log_result = 1;
 	context.select_all_best_ip = 1;
 	context.skip_notify_count = 1;
-	context.do_force_soa = request->dualstack_selection_force_soa;
+	context.do_force_soa = request->dualstack_selection_force_soa | request->force_soa;
 	_dns_request_post(&context);
 	_dns_server_reply_all_pending_list(request, &context);
 }
@@ -2767,8 +2768,9 @@ static int _dns_server_ip_rule_check(struct dns_request *request, unsigned char 
 	if (rule->bogus) {
 		request->rcode = DNS_RC_NXDOMAIN;
 		request->has_soa = 1;
+		request->force_soa = 1;
 		_dns_server_setup_soa(request);
-		goto match;
+		goto nxdomain;
 	}
 
 	/* blacklist-ip */
@@ -2796,6 +2798,8 @@ rule_not_found:
 	return -1;
 skip:
 	return -2;
+nxdomain:
+	return -3;
 match:
 	if (request->rcode == DNS_RC_SERVFAIL) {
 		request->rcode = DNS_RC_NXDOMAIN;
@@ -2853,10 +2857,10 @@ static int _dns_server_process_answer_A(struct dns_rrs *rrs, struct dns_request 
 		/* match */
 		_dns_server_request_release(request);
 		return -1;
-	} else if (ip_check_result == -2) {
-		/* skip */
+	} else if (ip_check_result == -2 || ip_check_result == -3) {
+		/* skip, nxdomain */
 		_dns_server_request_release(request);
-		return -2;
+		return ip_check_result;
 	}
 
 	if (atomic_read(&request->ip_map_num) == 0) {
@@ -2930,10 +2934,10 @@ static int _dns_server_process_answer_AAAA(struct dns_rrs *rrs, struct dns_reque
 		/* match */
 		_dns_server_request_release(request);
 		return -1;
-	} else if (ip_check_result == -2) {
-		/* skip */
+	} else if (ip_check_result == -2 || ip_check_result == -3) {
+		/* skip, nxdomain */
 		_dns_server_request_release(request);
-		return -2;
+		return ip_check_result;
 	}
 
 	if (atomic_read(&request->ip_map_num) == 0) {
@@ -3015,6 +3019,8 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 					break;
 				} else if (ret == -2) {
 					continue;
+				} else if (ret == -3) {
+					return -1;
 				}
 				request->rcode = packet->head.rcode;
 			} break;
@@ -3024,6 +3030,8 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 					break;
 				} else if (ret == -2) {
 					continue;
+				} else if (ret == -3) {
+					return -1;
 				}
 				request->rcode = packet->head.rcode;
 			} break;
@@ -3133,12 +3141,8 @@ static int _dns_server_passthrough_rule_check(struct dns_request *request, const
 
 				/* ip rule check */
 				ip_check_result = _dns_server_ip_rule_check(request, addr, 4, DNS_T_A, result_flag);
-				if (ip_check_result == 0) {
-					/* match */
-					_dns_server_request_release(request);
-					return 0;
-				} else if (ip_check_result == -2) {
-					/* skip */
+				if (ip_check_result == 0 || ip_check_result == -2 || ip_check_result == -3) {
+					/* match, skip, nxdomain */
 					_dns_server_request_release(request);
 					return 0;
 				}
@@ -3177,12 +3181,8 @@ static int _dns_server_passthrough_rule_check(struct dns_request *request, const
 					 addr[9], addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
 
 				ip_check_result = _dns_server_ip_rule_check(request, addr, 16, DNS_T_AAAA, result_flag);
-				if (ip_check_result == 0) {
-					/* match */
-					_dns_server_request_release(request);
-					return 0;
-				} else if (ip_check_result == -2) {
-					/* skip */
+				if (ip_check_result == 0 || ip_check_result == -2 || ip_check_result == -3) {
+					/* match, skip, nxdomain */
 					_dns_server_request_release(request);
 					return 0;
 				}
