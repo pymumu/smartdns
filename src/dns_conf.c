@@ -1656,16 +1656,18 @@ static int _conf_domain_rule_address(char *domain, const char *domain_address)
 		case AF_INET: {
 			struct sockaddr_in *addr_in = NULL;
 			addr_in = (struct sockaddr_in *)&addr;
-			memcpy(ipv4_addr[ipv4_num], &addr_in->sin_addr.s_addr, DNS_RR_A_LEN);
-			ipv4_num++;
+			if (ipv4_num < DNS_MAX_REPLY_IP_NUM) {
+				memcpy(ipv4_addr[ipv4_num], &addr_in->sin_addr.s_addr, DNS_RR_A_LEN);
+				ipv4_num++;
+			}
 		} break;
 		case AF_INET6: {
 			struct sockaddr_in6 *addr_in6 = NULL;
 			addr_in6 = (struct sockaddr_in6 *)&addr;
-			if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
+			if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr) && ipv4_num < DNS_MAX_REPLY_IP_NUM) {
 				memcpy(ipv4_addr[ipv4_num], addr_in6->sin6_addr.s6_addr + 12, DNS_RR_A_LEN);
 				ipv4_num++;
-			} else {
+			} else if (ipv6_num < DNS_MAX_REPLY_IP_NUM) {
 				memcpy(ipv6_addr[ipv6_num], addr_in6->sin6_addr.s6_addr, DNS_RR_AAAA_LEN);
 				ipv6_num++;
 			}
