@@ -2969,9 +2969,7 @@ static int _dns_client_process_tls(struct dns_server_info *server_info, struct e
 	if (server_info->status == DNS_SERVER_STATUS_CONNECTING) {
 		/* do SSL hand shake */
 		ret = _ssl_do_handshake(server_info);
-		if (ret == 0) {
-			goto errout;
-		} else if (ret < 0) {
+		if (ret <= 0) {
 			memset(&fd_event, 0, sizeof(fd_event));
 			ssl_ret = _ssl_get_error(server_info, ret);
 			if (ssl_ret == SSL_ERROR_WANT_READ) {

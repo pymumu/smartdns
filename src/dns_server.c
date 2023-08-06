@@ -6174,9 +6174,7 @@ static int _dns_server_process_tls(struct dns_server_conn_tls_client *tls_client
 	if (tls_client->status == DNS_SERVER_CLIENT_STATUS_CONNECTING) {
 		/* do SSL hand shake */
 		ret = _ssl_do_accept(tls_client);
-		if (ret == 0) {
-			goto errout;
-		} else if (ret < 0) {
+		if (ret <= 0) {
 			memset(&fd_event, 0, sizeof(fd_event));
 			ssl_ret = _ssl_get_error(tls_client, ret);
 			if (ssl_ret == SSL_ERROR_WANT_READ) {
