@@ -27,6 +27,19 @@ address除了可以设置屏蔽广告外，还可以指定域名的IP地址。
     address /example.com/::1
     ```
 
+1. 前缀通配与主域名匹配
+
+    ```shell
+    // 通配
+    *-a.example.com 
+    // 仅匹配子域名
+    *.example.com
+    // 仅匹配主域名
+    -.example.com
+    ```
+
+    注意：* 和 - 仅支持写在域名开头。其他位置的写法均不支持。
+
 ## 自动扩展address对应的PTR记录
 
 如果想扩展上述address对应的PTR记录，可以使用`expand-ptr-from-address`开关开启自动扩展。`expand-ptr-from-address`参数可以重复设置，参数对设置后的`address`生效。

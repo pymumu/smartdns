@@ -37,6 +37,19 @@ Note: If you're using OpenWrt with LuCI, please refer to OpenWrt's domain blocki
     address /sub.example.com/-
     ```
 
+1. The prefix wildcard matches the main domain name
+
+    ```shell
+    // prefix wild card
+    *-a.example.com
+    // only match subdomains
+    *.example.com
+    // only match the main domain name
+    -.example.com
+    ```
+
+    Note: * and - are only supported at the beginning of the domain name. Wording in other locations is not supported.
+
 ## Usage of Domain Set
 
 For a single domain name blocking, you can conveniently use the address parameter to block it. For more domain names, you can block it through the domain-set, which is more convenient to manage the list of advertising domain names.

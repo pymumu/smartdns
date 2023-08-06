@@ -27,6 +27,19 @@ In addition to blocking ads, `address` can also be used to specify the IP addres
     address /example.com/::1
     ```
 
+1. The prefix wildcard matches the main domain name
+
+    ```shell
+    // prefix wild card
+    *-a.example.com
+    // only match subdomains
+    *.example.com
+    // only match the main domain name
+    -.example.com
+    ```
+
+    Note: * and - are only supported at the beginning of the domain name. Wording in other locations is not supported.
+
 ## Automatically Expand PTR Records Corresponding to address
 
 If you want to expand the PTR record corresponding to the above `address`, you can use the `expand-ptr-from-address` switch to turn on automatic expansion. The `expand-ptr-from-address` parameter can be set repeatedly, and the parameter takes effect for the `address` set after it.
