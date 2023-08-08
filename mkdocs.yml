@@ -98,6 +98,7 @@ nav:
     - IP规则: 'config/ip-rule.md'
     - 白名单分流请求: 'config/forwarding-with-ipset.md'
     - EDNS客户端子网: 'config/edns-client-subnet.md'
+    - 更多指导: 'config/more.md'
   - 配置选项: 'configuration.md'
   - 编译: 'compile.md'
   - 常见问题: 'faq.md'
