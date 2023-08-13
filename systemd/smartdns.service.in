@@ -1,6 +1,9 @@
 [Unit]
 Description=SmartDNS Server
-After=network.target 
+After=network.target
+Before=network-online.target
+Before=nss-lookup.target
+Wants=nss-lookup.target
 StartLimitBurst=0
 StartLimitIntervalSec=60
 
@@ -8,7 +11,7 @@ StartLimitIntervalSec=60
 Type=forking
 PIDFile=@RUNSTATEDIR@/smartdns.pid
 EnvironmentFile=@SYSCONFDIR@/default/smartdns
-ExecStart=@SBINDIR@/smartdns -p @RUNSTATEDIR@/smartdns.pid $SMART_DNS_OPTS 
+ExecStart=@SBINDIR@/smartdns -p @RUNSTATEDIR@/smartdns.pid $SMART_DNS_OPTS
 Restart=always
 RestartSec=2
 TimeoutStopSec=15
