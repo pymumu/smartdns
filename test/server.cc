@@ -376,23 +376,21 @@ bool Server::Start(const std::string &conf, enum CONF_TYPE type)
 			}
 
 			smartdns_reg_post_func(Server::StartPost, this);
-			smartdns_main(args.size(), argv, fds[1]);
+			smartdns_main(args.size(), argv, fds[1], 0);
 			_exit(1);
 		} else if (pid < 0) {
 			return false;
 		}
 	} else if (mode_ == CREATE_MODE_THREAD) {
 		thread_ = std::thread([&]() {
-			std::vector<std::string> args = {
-				"smartdns", "-f", "-x", "-c", conf_file_, "-p", "-",
-			};
+			std::vector<std::string> args = {"smartdns", "-f", "-x", "-c", conf_file_, "-p", "-", "-S"};
 			char *argv[args.size() + 1];
 			for (size_t i = 0; i < args.size(); i++) {
 				argv[i] = (char *)args[i].c_str();
 			}
 
 			smartdns_reg_post_func(Server::StartPost, this);
-			smartdns_main(args.size(), argv, fds[1]);
+			smartdns_main(args.size(), argv, fds[1], 1);
 			smartdns_reg_post_func(nullptr, nullptr);
 		});
 	} else {

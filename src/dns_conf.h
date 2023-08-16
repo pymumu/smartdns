@@ -355,6 +355,22 @@ enum address_rule {
 	ADDRESS_RULE_WHITELIST = 2,
 	ADDRESS_RULE_BOGUS = 3,
 	ADDRESS_RULE_IP_IGNORE = 4,
+	ADDRESS_RULE_IP_ALIAS = 5,
+};
+
+struct dns_iplist_ip_address {
+	int addr_len;
+	union {
+		unsigned char ipv4_addr[DNS_RR_A_LEN];
+		unsigned char ipv6_addr[DNS_RR_AAAA_LEN];
+		unsigned char addr[0];
+	};
+};
+
+struct dns_iplist_ip_addresses {
+	atomic_t refcnt;
+	int ipaddr_num;
+	struct dns_iplist_ip_address *ipaddr;
 };
 
 struct dns_ip_address_rule {
@@ -362,6 +378,8 @@ struct dns_ip_address_rule {
 	unsigned int whitelist : 1;
 	unsigned int bogus : 1;
 	unsigned int ip_ignore : 1;
+	unsigned int ip_alias_enable : 1;
+	struct dns_iplist_ip_addresses *ip_alias;
 };
 
 struct dns_conf_address_rule {

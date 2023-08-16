@@ -743,11 +743,15 @@ static void smartdns_test_notify_func(int fd_notify, uint64_t retval)
 	}
 }
 
-#define smartdns_close_allfds() close_all_fd(fd_notify);
-int smartdns_main(int argc, char *argv[], int fd_notify)
+#define smartdns_close_allfds()                                                                                        \
+	if (no_close_allfds == 0) {                                                                                        \
+		close_all_fd(fd_notify);                                                                                       \
+	}
+
+int smartdns_main(int argc, char *argv[], int fd_notify, int no_close_allfds)
 #else
 #define smartdns_test_notify(retval)
-#define smartdns_close_allfds() close_all_fd(-1);
+#define smartdns_close_allfds() close_all_fd(-1)
 int main(int argc, char *argv[])
 #endif
 {

@@ -59,6 +59,11 @@ char *dir_name(char *path);
 
 char *get_host_by_addr(char *host, int maxsize, struct sockaddr *addr);
 
+int generate_random_addr(unsigned char *addr, int addr_len, int mask);
+
+int generate_addr_map(unsigned char *addr_from, unsigned char *addr_to, unsigned char *addr_out, int addr_len,
+					  int mask);
+
 int getaddr_by_host(const char *host, struct sockaddr *addr, socklen_t *addr_len);
 
 int getsocket_inet(int fd, struct sockaddr *addr, socklen_t *addr_len);

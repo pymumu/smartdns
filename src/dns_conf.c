@@ -252,6 +252,38 @@ static void _dns_rule_put(struct dns_rule *rule)
 	}
 }
 
+static struct dns_iplist_ip_addresses *_new_dns_iplist_ip_addresses(void)
+{
+	struct dns_iplist_ip_addresses *iplist;
+
+	iplist = malloc(sizeof(struct dns_iplist_ip_addresses));
+	if (!iplist) {
+		return NULL;
+	}
+	memset(iplist, 0, sizeof(struct dns_iplist_ip_addresses));
+	atomic_set(&iplist->refcnt, 1);
+	return iplist;
+}
+
+static void _dns_iplist_ip_addresses_put(struct dns_iplist_ip_addresses *iplist)
+{
+	if (atomic_dec_and_test(&iplist->refcnt)) {
+		free(iplist);
+	}
+}
+
+static void _dns_iplist_ip_address_add(struct dns_iplist_ip_addresses *iplist, unsigned char addr[], int addr_len)
+{
+	iplist->ipaddr = realloc(iplist->ipaddr, (iplist->ipaddr_num + 1) * sizeof(struct dns_iplist_ip_address));
+	if (iplist->ipaddr == NULL) {
+		return;
+	}
+	memset(&iplist->ipaddr[iplist->ipaddr_num], 0, sizeof(struct dns_iplist_ip_address));
+	iplist->ipaddr[iplist->ipaddr_num].addr_len = addr_len;
+	memcpy(iplist->ipaddr[iplist->ipaddr_num].addr, addr, addr_len);
+	iplist->ipaddr_num++;
+}
+
 static int _get_domain(char *value, char *domain, int max_domain_size, char **ptr_after_domain)
 {
 	char *begin = NULL;
@@ -768,12 +800,19 @@ static void _config_domain_destroy(void)
 
 static void _config_address_destroy(radix_node_t *node, void *cbctx)
 {
+	struct dns_ip_address_rule *address_rule = NULL;
 	if (node == NULL) {
 		return;
 	}
 
 	if (node->data == NULL) {
 		return;
+	}
+
+	address_rule = node->data;
+	if (address_rule->ip_alias) {
+		_dns_iplist_ip_addresses_put(address_rule->ip_alias);
+		address_rule->ip_alias = NULL;
 	}
 
 	free(node->data);
@@ -2461,20 +2500,20 @@ static radix_node_t *_create_addr_node(char *addr)
 	return node;
 }
 
-static int _config_iplist_rule(char *subnet, enum address_rule rule)
+static struct dns_ip_address_rule *_config_iplist_rule(char *subnet, enum address_rule rule)
 {
 	radix_node_t *node = NULL;
 	struct dns_ip_address_rule *ip_rule = NULL;
 
 	node = _create_addr_node(subnet);
 	if (node == NULL) {
-		return -1;
+		return NULL;
 	}
 
 	if (node->data == NULL) {
 		ip_rule = malloc(sizeof(*ip_rule));
 		if (ip_rule == NULL) {
-			return -1;
+			return NULL;
 		}
 
 		node->data = ip_rule;
@@ -2496,11 +2535,15 @@ static int _config_iplist_rule(char *subnet, enum address_rule rule)
 	case ADDRESS_RULE_IP_IGNORE:
 		ip_rule->ip_ignore = 1;
 		break;
+	case ADDRESS_RULE_IP_ALIAS: {
+		ip_rule->ip_alias = _new_dns_iplist_ip_addresses();
+		ip_rule->ip_alias_enable = 1;
+	} break;
 	default:
-		return -1;
+		return NULL;
 	}
 
-	return 0;
+	return ip_rule;
 }
 
 static int _config_qtype_soa(void *data, int argc, char *argv[])
@@ -2582,7 +2625,11 @@ static int _config_blacklist_ip(void *data, int argc, char *argv[])
 		return -1;
 	}
 
-	return _config_iplist_rule(argv[1], ADDRESS_RULE_BLACKLIST);
+	if (_config_iplist_rule(argv[1], ADDRESS_RULE_BLACKLIST) == NULL) {
+		return -1;
+	}
+
+	return 0;
 }
 
 static int _conf_bogus_nxdomain(void *data, int argc, char *argv[])
@@ -2591,7 +2638,11 @@ static int _conf_bogus_nxdomain(void *data, int argc, char *argv[])
 		return -1;
 	}
 
-	return _config_iplist_rule(argv[1], ADDRESS_RULE_BOGUS);
+	if (_config_iplist_rule(argv[1], ADDRESS_RULE_BOGUS) == NULL) {
+		return -1;
+	}
+
+	return 0;
 }
 
 static int _conf_ip_ignore(void *data, int argc, char *argv[])
@@ -2600,7 +2651,11 @@ static int _conf_ip_ignore(void *data, int argc, char *argv[])
 		return -1;
 	}
 
-	return _config_iplist_rule(argv[1], ADDRESS_RULE_IP_IGNORE);
+	if (_config_iplist_rule(argv[1], ADDRESS_RULE_IP_IGNORE) == NULL) {
+		return -1;
+	}
+
+	return 0;
 }
 
 static int _conf_whitelist_ip(void *data, int argc, char *argv[])
@@ -2609,7 +2664,82 @@ static int _conf_whitelist_ip(void *data, int argc, char *argv[])
 		return -1;
 	}
 
-	return _config_iplist_rule(argv[1], ADDRESS_RULE_WHITELIST);
+	if (_config_iplist_rule(argv[1], ADDRESS_RULE_WHITELIST) == NULL) {
+		return -1;
+	}
+
+	return 0;
+}
+
+static int _conf_ip_alias(void *data, int argc, char *argv[])
+{
+	struct dns_ip_address_rule *ip_rule = NULL;
+	struct dns_iplist_ip_addresses *ip_alias = NULL;
+	char *target_ips = NULL;
+
+	if (argc <= 2) {
+		return -1;
+	}
+
+	ip_rule = _config_iplist_rule(argv[1], ADDRESS_RULE_IP_ALIAS);
+	if (ip_rule == NULL) {
+		return -1;
+	}
+
+	ip_alias = ip_rule->ip_alias;
+	if (ip_alias == NULL) {
+		tlog(TLOG_ERROR, "cannot malloc memory");
+		goto errout;
+	}
+
+	target_ips = strdup(argv[2]);
+	if (target_ips == NULL) {
+		goto errout;
+	}
+
+	for (char *tok = strtok(target_ips, ","); tok != NULL; tok = strtok(NULL, ",")) {
+		struct sockaddr_storage addr;
+		socklen_t addr_len;
+		unsigned char *paddr = NULL;
+		int ret = 0;
+
+		ret = getaddr_by_host(tok, (struct sockaddr *)&addr, &addr_len);
+		if (ret != 0) {
+			goto errout;
+		}
+
+		switch (addr.ss_family) {
+		case AF_INET: {
+			struct sockaddr_in *addr_in = NULL;
+			addr_in = (struct sockaddr_in *)&addr;
+			paddr = (unsigned char *)&(addr_in->sin_addr.s_addr);
+			_dns_iplist_ip_address_add(ip_alias, paddr, DNS_RR_A_LEN);
+		} break;
+		case AF_INET6: {
+			struct sockaddr_in6 *addr_in6 = NULL;
+			addr_in6 = (struct sockaddr_in6 *)&addr;
+			if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
+				paddr = addr_in6->sin6_addr.s6_addr + 12;
+				_dns_iplist_ip_address_add(ip_alias, paddr, DNS_RR_A_LEN);
+			} else {
+				paddr = addr_in6->sin6_addr.s6_addr;
+				_dns_iplist_ip_address_add(ip_alias, paddr, DNS_RR_AAAA_LEN);
+			}
+		} break;
+		default:
+			goto errout;
+			break;
+		}
+	}
+
+	free(target_ips);
+	return 0;
+errout:
+	if (target_ips) {
+		free(target_ips);
+	}
+
+	return -1;
 }
 
 static int _conf_client_subnet(char *subnet, struct dns_edns_client_subnet *ipv4_ecs,
@@ -3591,6 +3721,7 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("force-qtype-SOA", _config_qtype_soa, NULL),
 	CONF_CUSTOM("blacklist-ip", _config_blacklist_ip, NULL),
 	CONF_CUSTOM("whitelist-ip", _conf_whitelist_ip, NULL),
+	CONF_CUSTOM("ip-alias", _conf_ip_alias, NULL),
 	CONF_CUSTOM("bogus-nxdomain", _conf_bogus_nxdomain, NULL),
 	CONF_CUSTOM("ignore-ip", _conf_ip_ignore, NULL),
 	CONF_CUSTOM("edns-client-subnet", _conf_edns_client_subnet, NULL),

@@ -29,7 +29,7 @@ typedef void (*smartdns_post_func)(void *arg);
 
 int smartdns_reg_post_func(smartdns_post_func func, void *arg);
 
-int smartdns_main(int argc, char *argv[], int fd_notify);
+int smartdns_main(int argc, char *argv[], int fd_notify, int no_close_allfds);
 
 #endif
 

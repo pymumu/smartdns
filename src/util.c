@@ -156,6 +156,55 @@ errout:
 	return NULL;
 }
 
+int generate_random_addr(unsigned char *addr, int addr_len, int mask)
+{
+	if (mask / 8 > addr_len) {
+		return -1;
+	}
+
+	int offset = mask / 8;
+	int bit = 0;
+
+	for (int i = offset; i < addr_len; i++) {
+		bit = 0xFF;
+		if (i == offset) {
+			bit = ~(0xFF << (8 - mask % 8)) & 0xFF;
+		}
+		addr[i] = jhash(&addr[i], 1, 0) & bit;
+	}
+
+	return 0;
+}
+
+int generate_addr_map(unsigned char *addr_from, unsigned char *addr_to, unsigned char *addr_out, int addr_len, int mask)
+{
+	if ((mask / 8) >= addr_len) {
+		if (mask % 8 != 0) {
+			return -1;
+		}
+	}
+
+	int offset = mask / 8;
+	int bit = mask % 8;
+	for (int i = 0; i < offset; i++) {
+		addr_out[i] = addr_to[i];
+	}
+
+	if (bit != 0) {
+		int mask1 = 0xFF >> bit;
+		int mask2 = (0xFF << (8 - bit)) & 0xFF;
+		addr_out[offset] = addr_from[offset] & mask1;
+		addr_out[offset] |= addr_to[offset] & mask2;
+		offset = offset + 1;
+	}
+
+	for (int i = offset; i < addr_len; i++) {
+		addr_out[i] = addr_from[i];
+	}
+
+	return 0;
+}
+
 int getaddr_by_host(const char *host, struct sockaddr *addr, socklen_t *addr_len)
 {
 	struct addrinfo hints;
