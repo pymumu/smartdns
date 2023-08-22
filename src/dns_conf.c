@@ -2699,7 +2699,7 @@ static int _conf_ip_alias(void *data, int argc, char *argv[])
 
 	for (char *tok = strtok(target_ips, ","); tok != NULL; tok = strtok(NULL, ",")) {
 		struct sockaddr_storage addr;
-		socklen_t addr_len;
+		socklen_t addr_len = sizeof(addr);
 		unsigned char *paddr = NULL;
 		int ret = 0;
 
