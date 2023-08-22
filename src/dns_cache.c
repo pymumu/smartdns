@@ -30,7 +30,7 @@
 #define DNS_CACHE_HITNUM_STEP_MAX 6
 
 struct dns_cache_head {
-	DECLARE_HASHTABLE(cache_hash, 16);
+	struct hash_table cache_hash;
 	struct list_head cache_list;
 	struct list_head inactive_list;
 	atomic_t num;
@@ -44,14 +44,22 @@ static struct dns_cache_head dns_cache_head;
 
 int dns_cache_init(int size, int enable_inactive, int inactive_list_expired)
 {
+	int bits = 0;
 	INIT_LIST_HEAD(&dns_cache_head.cache_list);
 	INIT_LIST_HEAD(&dns_cache_head.inactive_list);
-	hash_init(dns_cache_head.cache_hash);
+
+	bits = ilog2(size) - 1;
+	if (bits >= 20) {
+		bits = 20;
+	} else if (bits < 12) {
+		bits = 12;
+	}
+
+	hash_table_init(dns_cache_head.cache_hash, bits, malloc);
 	atomic_set(&dns_cache_head.num, 0);
 	dns_cache_head.size = size;
 	dns_cache_head.enable_inactive = enable_inactive;
 	dns_cache_head.inactive_list_expired = inactive_list_expired;
-
 	pthread_mutex_init(&dns_cache_head.lock, NULL);
 
 	return 0;
@@ -320,7 +328,7 @@ static void _dns_cache_remove_by_domain(struct dns_cache_key *cache_key)
 	key = jhash(&cache_key->query_flag, sizeof(cache_key->query_flag), key);
 
 	pthread_mutex_lock(&dns_cache_head.lock);
-	hash_for_each_possible(dns_cache_head.cache_hash, dns_cache, node, key)
+	hash_table_for_each_possible(dns_cache_head.cache_hash, dns_cache, node, key)
 	{
 		if (dns_cache->info.qtype != cache_key->qtype) {
 			continue;
@@ -373,7 +381,7 @@ static int _dns_cache_insert(struct dns_cache_info *info, struct dns_cache_data 
 	dns_cache->del_pending = 0;
 	dns_cache->cache_data = cache_data;
 	pthread_mutex_lock(&dns_cache_head.lock);
-	hash_add(dns_cache_head.cache_hash, &dns_cache->node, key);
+	hash_table_add(dns_cache_head.cache_hash, &dns_cache->node, key);
 	list_add_tail(&dns_cache->list, head);
 	INIT_LIST_HEAD(&dns_cache->check_list);
 
@@ -450,7 +458,7 @@ struct dns_cache *dns_cache_lookup(struct dns_cache_key *cache_key)
 	time(&now);
 	/* find cache */
 	pthread_mutex_lock(&dns_cache_head.lock);
-	hash_for_each_possible(dns_cache_head.cache_hash, dns_cache, node, key)
+	hash_table_for_each_possible(dns_cache_head.cache_hash, dns_cache, node, key)
 	{
 		if (dns_cache->info.qtype != cache_key->qtype) {
 			continue;
@@ -963,6 +971,7 @@ void dns_cache_destroy(void)
 	pthread_mutex_unlock(&dns_cache_head.lock);
 
 	pthread_mutex_destroy(&dns_cache_head.lock);
+	hash_table_free(dns_cache_head.cache_hash, free);
 }
 
 const char *dns_cache_file_version(void)

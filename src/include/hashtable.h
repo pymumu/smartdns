@@ -29,6 +29,11 @@
 #define __must_be_array(a)	BUILD_BUG_ON_ZERO(__same_type((a), &(a)[0]))
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]) + __must_be_array(arr))
 
+struct hash_table {
+	struct hlist_head *table;
+	unsigned int size;
+};
+
 #define DEFINE_HASHTABLE(name, bits)						\
 	struct hlist_head name[1 << (bits)] =					\
 			{ [0 ... ((1 << (bits)) - 1)] = HLIST_HEAD_INIT }
@@ -38,6 +43,8 @@
 
 #define HASH_SIZE(name) (ARRAY_SIZE(name))
 #define HASH_BITS(name) ilog2(HASH_SIZE(name))
+#define HASH_TABLE_SIZE(name) (1 << ((name).size))
+#define HASH_TABLE_BITS(name) ((name).size)
 
 /* Use hash_32 when possible to allow for fast 32bit hashing in 64bit kernels. */
 #define hash_min(val, bits)							\
@@ -63,6 +70,16 @@ static inline void __hash_init(struct hlist_head *ht, unsigned int sz)
  */
 #define hash_init(hashtable) __hash_init(hashtable, HASH_SIZE(hashtable))
 
+#define hash_table_init(hashtable, bits, malloc_func)                 \
+	(hashtable).size = bits;                                         \
+	(hashtable).table = malloc_func(sizeof(struct hlist_head) * HASH_TABLE_SIZE((hashtable)));   \
+	__hash_init((hashtable).table, HASH_TABLE_SIZE((hashtable)))
+
+#define hash_table_free(hashtable, free_func)                       \
+	free_func((hashtable).table);                                  \
+	(hashtable).table = NULL;                                      \
+	(hashtable).size = 0;
+
 /**
  * hash_add - add an object to a hashtable
  * @hashtable: hashtable to add to
@@ -71,6 +88,9 @@ static inline void __hash_init(struct hlist_head *ht, unsigned int sz)
  */
 #define hash_add(hashtable, node, key)						\
 	hlist_add_head(node, &hashtable[hash_min(key, HASH_BITS(hashtable))])
+
+#define hash_table_add(hashtable, node, key)						\
+	hlist_add_head(node, &(hashtable).table[hash_min(key, HASH_TABLE_BITS(hashtable))])
 
 /**
  * hash_hashed - check whether an object is in any hashtable
@@ -101,6 +121,8 @@ static inline bool __hash_empty(struct hlist_head *ht, unsigned int sz)
  */
 #define hash_empty(hashtable) __hash_empty(hashtable, HASH_SIZE(hashtable))
 
+#define hash_table_empty(hashtable) __hash_empty((hashtable).table, HASH_TABLE_SIZE(hashtable))
+
 /**
  * hash_del - remove an object from a hashtable
  * @node: &struct hlist_node of the object to remove
@@ -122,6 +144,11 @@ static inline void hash_del(struct hlist_node *node)
 			(bkt)++)\
 		hlist_for_each_entry(obj, &name[bkt], member)
 
+#define hash_table_for_each(name, bkt, obj, member)				\
+	for ((bkt) = 0, obj = NULL; obj == NULL && (bkt) < (HASH_TABLE_SIZE(name));\
+			(bkt)++)\
+		hlist_for_each_entry(obj, &((name).table)[bkt], member)
+
 /**
  * hash_for_each_safe - iterate over a hashtable safe against removal of
  * hash entry
@@ -136,6 +163,11 @@ static inline void hash_del(struct hlist_node *node)
 			(bkt)++)\
 		hlist_for_each_entry_safe(obj, tmp, &name[bkt], member)
 
+#define hash_table_for_each_safe(name, bkt, tmp, obj, member)			\
+	for ((bkt) = 0, obj = NULL; obj == NULL && (bkt) < (HASH_TABLE_SIZE(name));\
+			(bkt)++)\
+		hlist_for_each_entry_safe(obj, tmp, &((name).table)[bkt], member)
+
 /**
  * hash_for_each_possible - iterate over all possible objects hashing to the
  * same bucket
@@ -146,6 +178,9 @@ static inline void hash_del(struct hlist_node *node)
  */
 #define hash_for_each_possible(name, obj, member, key)			\
 	hlist_for_each_entry(obj, &name[hash_min(key, HASH_BITS(name))], member)
+
+#define hash_table_for_each_possible(name, obj, member, key)			\
+	hlist_for_each_entry(obj, &((name).table)[hash_min(key, HASH_TABLE_BITS(name))], member)
 
 /**
  * hash_for_each_possible_safe - iterate over all possible objects hashing to the
@@ -159,5 +194,9 @@ static inline void hash_del(struct hlist_node *node)
 #define hash_for_each_possible_safe(name, obj, tmp, member, key)	\
 	hlist_for_each_entry_safe(obj, tmp,\
 		&name[hash_min(key, HASH_BITS(name))], member)
+
+#define hash_table_for_each_possible_safe(name, obj, tmp, member, key)	\
+	hlist_for_each_entry_safe(obj, tmp,\
+		&((name).table)[hash_min(key, HASH_TABLE_BITS(name))], member)
 
 #endif
