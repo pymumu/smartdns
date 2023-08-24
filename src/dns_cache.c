@@ -129,6 +129,7 @@ static void _dns_cache_move_inactive(struct dns_cache *dns_cache)
 {
 	list_del_init(&dns_cache->list);
 	list_add_tail(&dns_cache->list, &dns_cache_head.inactive_list);
+	time(&dns_cache->info.replace_time);
 }
 
 enum CACHE_TYPE dns_cache_data_type(struct dns_cache_data *cache_data)
@@ -621,13 +622,20 @@ static void _dns_cache_remove_expired_ttl(dns_cache_callback inactive_precallbac
 			continue;
 		}
 
-		ttl = *now - dns_cache->info.replace_time;
-		if (ttl < ttl_inactive_pre || inactive_precallback == NULL) {
+		if (inactive_precallback == NULL) {
+			if (dns_cache_head.inactive_list_expired + ttl > 0) {
+				break;
+			}
 			continue;
 		}
 
+		ttl = *now - dns_cache->info.replace_time;
+		if (ttl < ttl_inactive_pre) {
+			break;
+		}
+
 		if (callback_num >= max_callback_num) {
-			continue;
+			break;
 		}
 
 		if (dns_cache->del_pending == 1) {
