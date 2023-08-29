@@ -3031,6 +3031,11 @@ static int _conf_domain_rule_no_cache(const char *domain)
 	return _config_domain_rule_flag_set(domain, DOMAIN_FLAG_NO_CACHE, 0);
 }
 
+static int _conf_domain_rule_no_ipalias(const char *domain)
+{
+	return _config_domain_rule_flag_set(domain, DOMAIN_FLAG_NO_IPALIAS, 0);
+}
+
 static int _conf_domain_rules(void *data, int argc, char *argv[])
 {
 	int opt = 0;
@@ -3056,6 +3061,7 @@ static int _conf_domain_rules(void *data, int argc, char *argv[])
 		{"no-serve-expired", no_argument, NULL, 254},
 		{"delete", no_argument, NULL, 255},
 		{"no-cache", no_argument, NULL, 256},
+		{"no-ip-alias", no_argument, NULL, 257},
 		{NULL, no_argument, NULL, 0}
 	};
 	/* clang-format on */
@@ -3206,6 +3212,14 @@ static int _conf_domain_rules(void *data, int argc, char *argv[])
 		case 256: {
 			if (_conf_domain_rule_no_cache(domain) != 0) {
 				tlog(TLOG_ERROR, "set no-cache rule failed.");
+				goto errout;
+			}
+
+			break;
+		}
+		case 257: {
+			if (_conf_domain_rule_no_ipalias(domain) != 0) {
+				tlog(TLOG_ERROR, "set no-ipalias rule failed.");
 				goto errout;
 			}
 

@@ -321,6 +321,7 @@ struct dns_request {
 	int no_select_possible_ip;
 	int no_cache_cname;
 	int no_cache;
+	int no_ipalias;
 
 	int has_cname_loop;
 };
@@ -2862,9 +2863,11 @@ static int _dns_server_process_ip_rule(struct dns_request *request, unsigned cha
 	}
 
 	if (rule->ip_alias_enable && alias != NULL) {
-		*alias = rule->ip_alias;
-		if (alias == NULL) {
-			return 0;
+		if (request->no_ipalias == 0) {
+			*alias = rule->ip_alias;
+			if (alias == NULL) {
+				return 0;
+			}
 		}
 
 		/* need process ip alias */
@@ -4135,6 +4138,10 @@ static int _dns_server_pre_process_rule_flags(struct dns_request *request)
 
 	if ((flags & DOMAIN_FLAG_NO_CACHE) || (_dns_server_has_bind_flag(request, BIND_FLAG_NO_CACHE) == 0)) {
 		request->no_cache = 1;
+	}
+
+	if (flags & DOMAIN_FLAG_NO_IPALIAS) {
+		request->no_ipalias = 1;
 	}
 
 	if (flags & DOMAIN_FLAG_ADDR_IGN) {

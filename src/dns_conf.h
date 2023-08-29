@@ -117,6 +117,7 @@ typedef enum {
 #define DOMAIN_FLAG_NO_SERVE_EXPIRED (1 << 15)
 #define DOMAIN_FLAG_CNAME_IGN (1 << 16)
 #define DOMAIN_FLAG_NO_CACHE (1 << 17)
+#define DOMAIN_FLAG_NO_IPALIAS (1 << 18)
 
 #define SERVER_FLAG_EXCLUDE_DEFAULT (1 << 0)
 #define SERVER_FLAG_HITCHHIKING (1 << 1)
