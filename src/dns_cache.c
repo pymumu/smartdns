@@ -354,6 +354,24 @@ static void _dns_cache_remove_by_domain(struct dns_cache_key *cache_key)
 	pthread_mutex_unlock(&dns_cache_head.lock);
 }
 
+static void _dns_cache_insert_sorted(struct dns_cache *dns_cache, struct list_head *head)
+{
+	time_t ttl;
+	struct dns_cache *tmp = NULL;
+
+	/* ascending order */
+	ttl = dns_cache->info.insert_time + dns_cache->info.ttl;
+	list_for_each_entry_reverse(tmp, head, list)
+	{
+		if ((tmp->info.insert_time + tmp->info.ttl) <= ttl) {
+			list_add(&dns_cache->list, &tmp->list);
+			return;
+		}
+	}
+
+	list_add_tail(&dns_cache->list, head);
+}
+
 static int _dns_cache_insert(struct dns_cache_info *info, struct dns_cache_data *cache_data, struct list_head *head)
 {
 	uint32_t key = 0;
@@ -383,7 +401,11 @@ static int _dns_cache_insert(struct dns_cache_info *info, struct dns_cache_data 
 	dns_cache->cache_data = cache_data;
 	pthread_mutex_lock(&dns_cache_head.lock);
 	hash_table_add(dns_cache_head.cache_hash, &dns_cache->node, key);
-	list_add_tail(&dns_cache->list, head);
+	if (head == &dns_cache_head.inactive_list) {
+		list_add_tail(&dns_cache->list, head);
+	} else {
+		_dns_cache_insert_sorted(dns_cache, head);
+	}
 	INIT_LIST_HEAD(&dns_cache->check_list);
 
 	/* Release extra cache, remove oldest cache record */
@@ -683,6 +705,10 @@ void dns_cache_invalidate(dns_cache_callback precallback, int ttl_pre, unsigned 
 	list_for_each_entry_safe(dns_cache, tmp, &dns_cache_head.cache_list, list)
 	{
 		ttl = dns_cache->info.insert_time + dns_cache->info.ttl - now;
+		if (ttl > ttl_pre) {
+			break;
+		}
+
 		if (ttl > 0 && ttl < ttl_pre) {
 			/* If the TTL time is in the pre-timeout range, call callback function */
 			if (precallback && dns_cache->del_pending == 0 && callback_num < max_callback_num) {
@@ -859,7 +885,7 @@ static int _dns_cache_write_record(int fd, uint32_t *cache_number, enum CACHE_RE
 	struct dns_cache_record cache_record;
 
 	pthread_mutex_lock(&dns_cache_head.lock);
-	list_for_each_entry_safe_reverse(dns_cache, tmp, head, list)
+	list_for_each_entry_safe(dns_cache, tmp, head, list)
 	{
 		cache_record.magic = MAGIC_RECORD;
 		cache_record.type = type;
