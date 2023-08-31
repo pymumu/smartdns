@@ -103,8 +103,20 @@ struct ipset_netlink_msg {
 	__be16 res_id;
 };
 
+enum daemon_msg_type {
+	DAEMON_MSG_KICKOFF,
+	DAEMON_MSG_KEEPALIVE,
+	DAEMON_MSG_DAEMON_PID,
+};
+
+struct daemon_msg {
+	enum daemon_msg_type type;
+	int value;
+};
+
 static int ipset_fd;
 static int pidfile_fd;
+static int daemon_fd;
 
 unsigned long get_tick_count(void)
 {
@@ -1609,14 +1621,20 @@ errout:
 	return;
 }
 
-int daemon_kickoff(int fd, int status, int no_close)
+int daemon_kickoff(int status, int no_close)
 {
-	if (fd <= 0) {
+	struct daemon_msg msg;
+
+	if (daemon_fd <= 0) {
 		return -1;
 	}
 
-	int ret = write(fd, &status, sizeof(status));
-	if (ret != sizeof(status)) {
+	msg.type = DAEMON_MSG_KICKOFF;
+	msg.value = status;
+
+	int ret = write(daemon_fd, &msg, sizeof(msg));
+	if (ret != sizeof(msg)) {
+		fprintf(stderr, "notify parent process failed, %s\n", strerror(errno));
 		return -1;
 	}
 
@@ -1636,12 +1654,40 @@ int daemon_kickoff(int fd, int status, int no_close)
 		}
 	}
 
-	close(fd);
+	close(daemon_fd);
+	daemon_fd = -1;
 
 	return 0;
 }
 
-int run_daemon()
+int daemon_keepalive(void)
+{
+	struct daemon_msg msg;
+	static time_t last = 0;
+	time_t now = time(NULL);
+
+	if (daemon_fd <= 0) {
+		return -1;
+	}
+
+	if (now == last) {
+		return 0;
+	}
+
+	last = now;
+
+	msg.type = DAEMON_MSG_KEEPALIVE;
+	msg.value = 0;
+
+	int ret = write(daemon_fd, &msg, sizeof(msg));
+	if (ret != sizeof(msg)) {
+		return -1;
+	}
+
+	return 0;
+}
+
+int daemon_run(void)
 {
 	pid_t pid = 0;
 	int fds[2] = {0};
@@ -1660,7 +1706,6 @@ int run_daemon()
 	} else if (pid > 0) {
 		struct pollfd pfd;
 		int ret = 0;
-		int status = 0;
 
 		close(fds[1]);
 
@@ -1668,22 +1713,35 @@ int run_daemon()
 		pfd.events = POLLIN;
 		pfd.revents = 0;
 
-		ret = poll(&pfd, 1, 1000);
-		if (ret <= 0) {
-			fprintf(stderr, "run daemon process failed, wait child timeout\n");
-			goto errout;
-		}
+		do {
+			ret = poll(&pfd, 1, 3000);
+			if (ret <= 0) {
+				fprintf(stderr, "run daemon process failed, wait child timeout, kill child.\n");
+				goto errout;
+			}
 
-		if (!(pfd.revents & POLLIN)) {
-			goto errout;
-		}
+			if (!(pfd.revents & POLLIN)) {
+				goto errout;
+			}
 
-		ret = read(fds[0], &status, sizeof(status));
-		if (ret != sizeof(status)) {
-			goto errout;
-		}
+			struct daemon_msg msg;
 
-		return status;
+			ret = read(fds[0], &msg, sizeof(msg));
+			if (ret != sizeof(msg)) {
+				goto errout;
+			}
+
+			if (msg.type == DAEMON_MSG_KEEPALIVE) {
+				continue;
+			} else if (msg.type == DAEMON_MSG_DAEMON_PID) {
+				pid = msg.value;
+				continue;
+			} else if (msg.type == DAEMON_MSG_KICKOFF) {
+				return msg.value;
+			} else {
+				goto errout;
+			}
+		} while (true);
 	}
 
 	setsid();
@@ -1693,6 +1751,11 @@ int run_daemon()
 		fprintf(stderr, "double fork failed, %s\n", strerror(errno));
 		_exit(1);
 	} else if (pid > 0) {
+		struct daemon_msg msg;
+		int unused __attribute__((unused));
+		msg.type = DAEMON_MSG_DAEMON_PID;
+		msg.value = pid;
+		unused = write(fds[1], &msg, sizeof(msg));
 		_exit(0);
 	}
 
@@ -1701,8 +1764,9 @@ int run_daemon()
 		goto errout;
 	}
 	close(fds[0]);
-	return fds[1];
 
+	daemon_fd = fds[1];
+	return -2;
 errout:
 	kill(pid, SIGKILL);
 	return -1;

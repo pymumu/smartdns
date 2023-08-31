@@ -147,9 +147,11 @@ void print_stack(void);
 
 void close_all_fd(int keepfd);
 
-int run_daemon(void);
+int daemon_run(void);
 
-int daemon_kickoff(int fd, int status, int no_close);
+int daemon_kickoff(int status, int no_close);
+
+int daemon_keepalive(void);
 
 int write_file(const char *filename, void *data, int data_len);
 

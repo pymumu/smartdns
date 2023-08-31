@@ -188,6 +188,8 @@ int dns_cache_load(const char *file);
 
 int dns_cache_save(const char *file, int check_lock);
 
+int dns_cache_print(const char *file);
+
 const char *dns_cache_file_version(void);
 
 #ifdef __cplusplus

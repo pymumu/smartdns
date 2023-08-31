@@ -20,6 +20,7 @@
 #include "smartdns.h"
 #include "art.h"
 #include "atomic.h"
+#include "dns_cache.h"
 #include "dns_client.h"
 #include "dns_conf.h"
 #include "dns_server.h"
@@ -31,6 +32,7 @@
 #include "util.h"
 #include <errno.h>
 #include <fcntl.h>
+#include <getopt.h>
 #include <libgen.h>
 #include <linux/capability.h>
 #include <openssl/err.h>
@@ -756,14 +758,15 @@ int main(int argc, char *argv[])
 #endif
 {
 	int ret = 0;
-	int is_foreground = 0;
+	int is_run_as_daemon = 1;
 	int opt = 0;
 	char config_file[MAX_LINE_LEN];
 	char pid_file[MAX_LINE_LEN];
 	int signal_ignore = 0;
 	sigset_t empty_sigblock;
 	struct stat sb;
-	int daemon_ret = 0;
+
+	static struct option long_options[] = {{"cache-print", required_argument, 0, 256}};
 
 	safe_strncpy(config_file, SMARTDNS_CONF_FILE, MAX_LINE_LEN);
 
@@ -778,10 +781,10 @@ int main(int argc, char *argv[])
 	sigprocmask(SIG_SETMASK, &empty_sigblock, NULL);
 	smartdns_close_allfds();
 
-	while ((opt = getopt(argc, argv, "fhc:p:SvxN:")) != -1) {
+	while ((opt = getopt_long(argc, argv, "fhc:p:SvxN:", long_options, 0)) != -1) {
 		switch (opt) {
 		case 'f':
-			is_foreground = 1;
+			is_run_as_daemon = 0;
 			break;
 		case 'c':
 			if (full_path(config_file, sizeof(config_file), optarg) != 0) {
@@ -810,6 +813,8 @@ int main(int argc, char *argv[])
 		case 'h':
 			_help();
 			return 1;
+		case 256:
+			return dns_cache_print(optarg);
 		}
 	}
 
@@ -819,20 +824,21 @@ int main(int argc, char *argv[])
 		goto errout;
 	}
 
-	if (is_foreground == 0 && dns_no_daemon == 0) {
-		daemon_ret = run_daemon();
-		if (daemon_ret < 0) {
+	if (dns_no_daemon) {
+		is_run_as_daemon = 0;
+	}
+
+	if (is_run_as_daemon) {
+		int daemon_ret = daemon_run();
+		if (daemon_ret != -2) {
 			char buff[4096];
 			char *log_path = realpath(_smartdns_log_path(), buff);
 
-			if (log_path != NULL && access(log_path, F_OK) == 0 && daemon_ret != -2) {
+			if (log_path != NULL && access(log_path, F_OK) == 0 && daemon_ret != -3 && daemon_ret != 0) {
 				fprintf(stderr, "run daemon failed, please check log at %s\n", log_path);
 			}
-			return 1;
-		}
 
-		if (daemon_ret == 0) {
-			return 0;
+			return daemon_ret;
 		}
 	}
 
@@ -841,7 +847,7 @@ int main(int argc, char *argv[])
 	}
 
 	if (strncmp(pid_file, "-", 2) != 0 && dns_no_pidfile == 0 && create_pid_file(pid_file) != 0) {
-		ret = -2;
+		ret = -3;
 		goto errout;
 	}
 
@@ -863,8 +869,8 @@ int main(int argc, char *argv[])
 		goto errout;
 	}
 
-	if (daemon_ret > 0) {
-		ret = daemon_kickoff(daemon_ret, 0, dns_conf_log_console | verbose_screen);
+	if (is_run_as_daemon) {
+		ret = daemon_kickoff(0, dns_conf_log_console | verbose_screen);
 		if (ret != 0) {
 			goto errout;
 		}
@@ -875,8 +881,8 @@ int main(int argc, char *argv[])
 	_smartdns_exit();
 	return ret;
 errout:
-	if (daemon_ret > 0) {
-		daemon_kickoff(daemon_ret, ret, dns_conf_log_console | verbose_screen);
+	if (is_run_as_daemon) {
+		daemon_kickoff(ret, dns_conf_log_console | verbose_screen);
 	}
 	smartdns_test_notify(2);
 	return 1;
