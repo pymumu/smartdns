@@ -154,3 +154,59 @@ cache-persist no)""");
 	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "7.8.9.10");
 }
+
+TEST_F(IPRule, ignore_ip_set)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::MockServer server_upstream2;
+	smartdns::Server server;
+	std::string file = "/tmp/smartdns_test_ip_set.list" + smartdns::GenerateRandomString(5);
+	std::ofstream ofs(file);
+	ASSERT_TRUE(ofs.is_open());
+	Defer
+	{
+		ofs.close();
+		unlink(file.c_str());
+	};
+
+	server_upstream.Start("udp://0.0.0.0:61053", [](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype != DNS_T_A) {
+			return smartdns::SERVER_REQUEST_SOA;
+		}
+
+		smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4", 611);
+		smartdns::MockServer::AddIP(request, request->domain.c_str(), "4.5.6.7", 611);
+		smartdns::MockServer::AddIP(request, request->domain.c_str(), "7.8.9.10", 611);
+		return smartdns::SERVER_REQUEST_OK;
+	});
+
+	/* this ip will be discard, but is reachable */
+	server.MockPing(PING_TYPE_ICMP, "1.2.3.4", 60, 10);
+	server.MockPing(PING_TYPE_ICMP, "4.5.6.7", 60, 90);
+	server.MockPing(PING_TYPE_ICMP, "7.8.9.10", 60, 40);
+
+	std::string ipset_list = R"""(
+1.2.3.0/24
+4.5.6.0/24
+)""";
+	ofs.write(ipset_list.c_str(), ipset_list.length());
+	ofs.flush();
+
+	server.Start(R"""(bind [::]:60053
+server udp://127.0.0.1:61053 -blacklist-ip
+ip-set -name ip-list -file )""" +
+				 file + R"""(
+ignore-ip ip-set:ip-list
+log-num 0
+speed-check-mode none
+log-console yes
+log-level debug
+cache-persist no)""");
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("a.com", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "7.8.9.10");
+}

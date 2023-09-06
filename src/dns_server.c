@@ -2733,12 +2733,12 @@ static int _dns_server_check_speed(struct dns_request *request, char *ip)
 	return -1;
 }
 
-static struct dns_ip_address_rule *_dns_server_ip_rule_get(struct dns_request *request, unsigned char *addr,
-														   int addr_len, dns_type_t addr_type)
+static struct dns_ip_rules *_dns_server_ip_rule_get(struct dns_request *request, unsigned char *addr, int addr_len,
+													dns_type_t addr_type)
 {
 	prefix_t prefix;
 	radix_node_t *node = NULL;
-	struct dns_ip_address_rule *rule = NULL;
+	struct dns_ip_rules *rule = NULL;
 
 	/* Match IP address rules */
 	if (prefix_from_blob(addr, addr_len, addr_len * 8, &prefix) == NULL) {
@@ -2769,43 +2769,47 @@ static struct dns_ip_address_rule *_dns_server_ip_rule_get(struct dns_request *r
 	return rule;
 }
 
-static int _dns_server_ip_rule_check(struct dns_request *request, struct dns_ip_address_rule *rule, int result_flag)
+static int _dns_server_ip_rule_check(struct dns_request *request, struct dns_ip_rules *ip_rules, int result_flag)
 {
-	if (rule == NULL) {
+	struct ip_rule_flags *rule_flags = NULL;
+	if (ip_rules == NULL) {
 		goto rule_not_found;
 	}
 
-	if (rule->bogus) {
-		request->rcode = DNS_RC_NXDOMAIN;
-		request->has_soa = 1;
-		request->force_soa = 1;
-		_dns_server_setup_soa(request);
-		goto nxdomain;
-	}
+	rule_flags = container_of(ip_rules->rules[IP_RULE_FLAGS], struct ip_rule_flags, head);
+	if (rule_flags != NULL) {
+		if (rule_flags->flags & IP_RULE_FLAG_BOGUS) {
+			request->rcode = DNS_RC_NXDOMAIN;
+			request->has_soa = 1;
+			request->force_soa = 1;
+			_dns_server_setup_soa(request);
+			goto nxdomain;
+		}
 
-	/* blacklist-ip */
-	if (rule->blacklist) {
-		if (result_flag & DNSSERVER_FLAG_BLACKLIST_IP) {
-			goto match;
+		/* blacklist-ip */
+		if (rule_flags->flags & IP_RULE_FLAG_BLACKLIST) {
+			if (result_flag & DNSSERVER_FLAG_BLACKLIST_IP) {
+				goto match;
+			}
+		}
+
+		/* ignore-ip */
+		if (rule_flags->flags & IP_RULE_FLAG_IP_IGNORE) {
+			goto skip;
 		}
 	}
 
-	/* ignore-ip */
-	if (rule->ip_ignore) {
-		goto skip;
-	}
-
-	if (rule->ip_alias_enable) {
+	if (ip_rules->rules[IP_RULE_ALIAS] != NULL) {
 		goto match;
 	}
 
 rule_not_found:
 	if (result_flag & DNSSERVER_FLAG_WHITELIST_IP) {
-		if (rule == NULL) {
+		if (rule_flags == NULL) {
 			goto skip;
 		}
 
-		if (!rule->whitelist) {
+		if (!(rule_flags->flags & IP_RULE_FLAG_WHITELIST)) {
 			goto skip;
 		}
 	}
@@ -2853,18 +2857,19 @@ static int _dns_server_process_ip_alias(struct dns_request *request, struct dns_
 static int _dns_server_process_ip_rule(struct dns_request *request, unsigned char *addr, int addr_len,
 									   dns_type_t addr_type, int result_flag, struct dns_iplist_ip_addresses **alias)
 {
-	struct dns_ip_address_rule *rule = NULL;
+	struct dns_ip_rules *ip_rules = NULL;
 	int ret = 0;
 
-	rule = _dns_server_ip_rule_get(request, addr, addr_len, addr_type);
-	ret = _dns_server_ip_rule_check(request, rule, result_flag);
+	ip_rules = _dns_server_ip_rule_get(request, addr, addr_len, addr_type);
+	ret = _dns_server_ip_rule_check(request, ip_rules, result_flag);
 	if (ret != 0) {
 		return ret;
 	}
 
-	if (rule->ip_alias_enable && alias != NULL) {
+	if (ip_rules->rules[IP_RULE_ALIAS] && alias != NULL) {
 		if (request->no_ipalias == 0) {
-			*alias = rule->ip_alias;
+			struct ip_rule_alias *rule = container_of(ip_rules->rules[IP_RULE_ALIAS], struct ip_rule_alias, head);
+			*alias = &rule->ip_alias;
 			if (alias == NULL) {
 				return 0;
 			}

@@ -363,6 +363,7 @@ static int load_conf_file(const char *file, struct config_item *items, conf_erro
 	int read_len = 0;
 	int is_last_line_wrap = 0;
 	int current_line_wrap = 0;
+	int is_func_found = 0;
 	const char *last_file = NULL;
 
 	if (handler == NULL) {
@@ -431,6 +432,8 @@ static int load_conf_file(const char *file, struct config_item *items, conf_erro
 			goto errout;
 		}
 
+		is_func_found = 0;
+
 		for (i = last_item_index;; i++) {
 			if (i < 0) {
 				continue;
@@ -471,7 +474,12 @@ static int load_conf_file(const char *file, struct config_item *items, conf_erro
 			}
 
 			last_item_index = i;
+			is_func_found = 1;
 			break;
+		}
+
+		if (is_func_found == 0) {
+			handler(file, line_no, CONF_RET_NOENT);
 		}
 	}
 

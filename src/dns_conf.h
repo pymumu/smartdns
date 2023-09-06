@@ -85,6 +85,12 @@ enum domain_rule {
 	DOMAIN_RULE_MAX,
 };
 
+enum ip_rule {
+	IP_RULE_FLAGS = 0,
+	IP_RULE_ALIAS = 1,
+	IP_RULE_MAX,
+};
+
 typedef enum {
 	DNS_BIND_TYPE_UDP,
 	DNS_BIND_TYPE_TCP,
@@ -118,6 +124,11 @@ typedef enum {
 #define DOMAIN_FLAG_CNAME_IGN (1 << 16)
 #define DOMAIN_FLAG_NO_CACHE (1 << 17)
 #define DOMAIN_FLAG_NO_IPALIAS (1 << 18)
+
+#define IP_RULE_FLAG_BLACKLIST (1 << 0)
+#define IP_RULE_FLAG_WHITELIST (1 << 1)
+#define IP_RULE_FLAG_BOGUS (1 << 2)
+#define IP_RULE_FLAG_IP_IGNORE (1 << 3)
 
 #define SERVER_FLAG_EXCLUDE_DEFAULT (1 << 0)
 #define SERVER_FLAG_HITCHHIKING (1 << 1)
@@ -351,14 +362,6 @@ struct dns_bogus_ip_address {
 	};
 };
 
-enum address_rule {
-	ADDRESS_RULE_BLACKLIST = 1,
-	ADDRESS_RULE_WHITELIST = 2,
-	ADDRESS_RULE_BOGUS = 3,
-	ADDRESS_RULE_IP_IGNORE = 4,
-	ADDRESS_RULE_IP_ALIAS = 5,
-};
-
 struct dns_iplist_ip_address {
 	int addr_len;
 	union {
@@ -369,18 +372,8 @@ struct dns_iplist_ip_address {
 };
 
 struct dns_iplist_ip_addresses {
-	atomic_t refcnt;
 	int ipaddr_num;
 	struct dns_iplist_ip_address *ipaddr;
-};
-
-struct dns_ip_address_rule {
-	unsigned int blacklist : 1;
-	unsigned int whitelist : 1;
-	unsigned int bogus : 1;
-	unsigned int ip_ignore : 1;
-	unsigned int ip_alias_enable : 1;
-	struct dns_iplist_ip_addresses *ip_alias;
 };
 
 struct dns_conf_address_rule {
@@ -438,8 +431,48 @@ struct dns_domain_set_name_table {
 };
 extern struct dns_domain_set_name_table dns_domain_set_name_table;
 
+struct dns_ip_rule {
+	atomic_t refcnt;
+	enum ip_rule rule;
+};
+
+enum dns_ip_set_type {
+	DNS_IP_SET_LIST = 0,
+};
+
+struct dns_ip_rules {
+	struct dns_ip_rule *rules[IP_RULE_MAX];
+};
+
+struct ip_rule_flags {
+	struct dns_ip_rule head;
+	unsigned int flags;
+	unsigned int is_flag_set;
+};
+
+struct ip_rule_alias {
+	struct dns_ip_rule head;
+	struct dns_iplist_ip_addresses ip_alias;
+};
+
+struct dns_ip_set_name {
+	struct list_head list;
+	enum dns_ip_set_type type;
+	char file[DNS_MAX_PATH];
+};
+
+struct dns_ip_set_name_list {
+	struct hlist_node node;
+	char name[DNS_MAX_CNAME_LEN];
+	struct list_head set_name_list;
+};
+struct dns_ip_set_name_table {
+	DECLARE_HASHTABLE(names, 4);
+};
+extern struct dns_ip_set_name_table dns_ip_set_name_table;
+
 struct dns_set_rule_add_callback_args {
-	enum domain_rule type;
+	int type;
 	void *rule;
 };
 
