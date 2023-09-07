@@ -2084,6 +2084,7 @@ static int _config_bind_ip(int argc, char *argv[], DNS_BIND_TYPE type)
 		{"no-speed-check", no_argument, NULL, 'S'},  
 		{"no-cache", no_argument, NULL, 'C'},  
 		{"no-dualstack-selection", no_argument, NULL, 'D'},
+		{"no-ip-alias", no_argument, NULL, 'a'},
 		{"force-aaaa-soa", no_argument, NULL, 'F'},
 		{"ipset", required_argument, NULL, 255},
 		{"nftset", required_argument, NULL, 256},
@@ -2136,6 +2137,10 @@ static int _config_bind_ip(int argc, char *argv[], DNS_BIND_TYPE type)
 		}
 		case 'A': {
 			server_flag |= BIND_FLAG_NO_RULE_ADDR;
+			break;
+		}
+		case 'a': {
+			server_flag |= BIND_FLAG_NO_IP_ALIAS;
 			break;
 		}
 		case 'N': {
@@ -2509,6 +2514,7 @@ static void _dns_ip_rule_put(struct dns_ip_rule *rule)
 			struct ip_rule_alias *alias = container_of(rule, struct ip_rule_alias, head);
 			if (alias->ip_alias.ipaddr) {
 				free(alias->ip_alias.ipaddr);
+				alias->ip_alias.ipaddr = NULL;
 				alias->ip_alias.ipaddr_num = 0;
 			}
 		}
@@ -2861,7 +2867,7 @@ static int _config_ip_rules_free(struct dns_ip_rules *ip_rules)
 		return 0;
 	}
 
-	for (i = 0; i < DOMAIN_RULE_MAX; i++) {
+	for (i = 0; i < IP_RULE_MAX; i++) {
 		if (ip_rules->rules[i] == NULL) {
 			continue;
 		}

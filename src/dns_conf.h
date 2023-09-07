@@ -144,6 +144,7 @@ typedef enum {
 #define BIND_FLAG_FORCE_AAAA_SOA (1 << 8)
 #define BIND_FLAG_NO_RULE_CNAME (1 << 9)
 #define BIND_FLAG_NO_RULE_NFTSET (1 << 10)
+#define BIND_FLAG_NO_IP_ALIAS (1 << 11)
 
 enum response_mode_type {
 	DNS_RESPONSE_MODE_FIRST_PING_IP = 0,

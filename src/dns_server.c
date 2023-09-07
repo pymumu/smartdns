@@ -4121,6 +4121,19 @@ static void _dns_server_get_domain_rule(struct dns_request *request)
 	_dns_server_get_domain_rule_by_domain(request, request->domain, 1);
 }
 
+static int _dns_server_pre_process_server_flags(struct dns_request *request)
+{
+	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_CACHE) == 0) {
+		request->no_cache = 1;
+	}
+
+	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_IP_ALIAS) == 0) {
+		request->no_ipalias = 1;
+	}
+
+	return -1;
+}
+
 static int _dns_server_pre_process_rule_flags(struct dns_request *request)
 {
 	struct dns_rule_flags *rule_flag = NULL;
@@ -4141,7 +4154,7 @@ static int _dns_server_pre_process_rule_flags(struct dns_request *request)
 		request->no_serve_expired = 1;
 	}
 
-	if ((flags & DOMAIN_FLAG_NO_CACHE) || (_dns_server_has_bind_flag(request, BIND_FLAG_NO_CACHE) == 0)) {
+	if (flags & DOMAIN_FLAG_NO_CACHE) {
 		request->no_cache = 1;
 	}
 
@@ -5353,6 +5366,10 @@ static int _dns_server_do_query(struct dns_request *request, int skip_notify_eve
 	_dns_server_set_dualstack_selection(request);
 
 	if (_dns_server_process_special_query(request) == 0) {
+		goto clean_exit;
+	}
+
+	if (_dns_server_pre_process_server_flags(request) == 0) {
 		goto clean_exit;
 	}
 
