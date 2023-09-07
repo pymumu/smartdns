@@ -121,8 +121,7 @@ restart_dnsmasq()
 		PID2="$(echo "$CMD" | awk 'NR==2{print $1}')"
 		PID2_PPID="$(grep 'PPid:' /proc/$PID2/status | awk '{print $2}' 2>/dev/null)"
 		if [ "$PID2_PPID" != "$PID1" ]; then
-			echo "find multiple dnsmasq, but not started by the same process"
-			return 1
+			kill -9 "$PID2"
 		fi
 		PID=$PID1
 	else
