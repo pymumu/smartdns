@@ -3961,6 +3961,20 @@ reply_exit:
 	return 0;
 }
 
+static int _dns_server_process_DDR(struct dns_request *request)
+{
+	return _dns_server_reply_SOA(DNS_RC_NOERROR, request);
+}
+
+static int _dns_server_process_srv(struct dns_request *request)
+{
+	if (strncmp("_dns.resolver.arpa", request->domain, DNS_MAX_CNAME_LEN) == 0) {
+		return _dns_server_process_DDR(request);
+	}
+
+	return -1;
+}
+
 static void _dns_server_log_rule(const char *domain, enum domain_rule rule_type, unsigned char *rule_key,
 								 int rule_key_len)
 {
@@ -5140,6 +5154,15 @@ static int _dns_server_process_special_query(struct dns_request *request)
 	case DNS_T_PTR:
 		/* return PTR record */
 		ret = _dns_server_process_ptr(request);
+		if (ret == 0) {
+			goto clean_exit;
+		} else {
+			/* pass to upstream server */
+			request->passthrough = 1;
+		}
+		break;
+	case DNS_T_SVCB:
+		ret = _dns_server_process_srv(request);
 		if (ret == 0) {
 			goto clean_exit;
 		} else {
