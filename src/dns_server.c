@@ -4046,14 +4046,16 @@ static int _dns_server_get_rules(unsigned char *key, uint32_t key_len, int is_su
 		return 0;
 	}
 
-	/* only subkey rule */
-	if (domain_rule->sub_rule_only == 1 && is_subkey == 0) {
-		return 0;
-	}
+	if (domain_rule->sub_rule_only != domain_rule->root_rule_only) {
+		/* only subkey rule */
+		if (domain_rule->sub_rule_only == 1 && is_subkey == 0) {
+			return 0;
+		}
 
-	/* only root key rule */
-	if (domain_rule->root_rule_only == 1 && is_subkey == 1) {
-		return 0;
+		/* only root key rule */
+		if (domain_rule->root_rule_only == 1 && is_subkey == 1) {
+			return 0;
+		}
 	}
 
 	for (i = 0; i < DOMAIN_RULE_MAX; i++) {
