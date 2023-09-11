@@ -917,6 +917,10 @@ static int _config_domain_rule_add(const char *domain, enum domain_rule type, vo
 		len--;
 		if (domain[1] == '.') {
 			sub_rule_only = 1;
+		} else if ((domain[1] == '-') && (domain[2] == '.')) {
+			len--;
+			sub_rule_only = 1;
+			root_rule_only = 1;
 		}
 	} else if (domain[0] == '-') {
 		/* root match only */
