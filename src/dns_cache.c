@@ -40,6 +40,7 @@ struct dns_cache_head {
 	int enable_inactive;
 	int inactive_list_expired;
 	pthread_mutex_t lock;
+	struct dns_cache *last_active_inserted;
 };
 
 typedef int (*dns_cache_read_callback)(struct dns_cache_record *cache_record, struct dns_cache_data *cache_data);
@@ -64,6 +65,7 @@ int dns_cache_init(int size, int enable_inactive, int inactive_list_expired)
 	dns_cache_head.size = size;
 	dns_cache_head.enable_inactive = enable_inactive;
 	dns_cache_head.inactive_list_expired = inactive_list_expired;
+	dns_cache_head.last_active_inserted = NULL;
 	pthread_mutex_init(&dns_cache_head.lock, NULL);
 
 	return 0;
@@ -127,12 +129,21 @@ static void _dns_cache_remove(struct dns_cache *dns_cache)
 	hash_del(&dns_cache->node);
 	list_del_init(&dns_cache->list);
 	dns_cache_release(dns_cache);
+
+	if (dns_cache == dns_cache_head.last_active_inserted) {
+		dns_cache_release(dns_cache_head.last_active_inserted);
+		dns_cache_head.last_active_inserted = NULL;
+	}
 }
 
 static void _dns_cache_move_inactive(struct dns_cache *dns_cache)
 {
 	list_del(&dns_cache->list);
 	list_add_tail(&dns_cache->list, &dns_cache_head.inactive_list);
+	if (dns_cache == dns_cache_head.last_active_inserted) {
+		dns_cache_release(dns_cache_head.last_active_inserted);
+		dns_cache_head.last_active_inserted = NULL;
+	}
 	time(&dns_cache->info.replace_time);
 }
 
@@ -264,18 +275,35 @@ static void _dns_cache_insert_sorted(struct dns_cache *dns_cache, struct list_he
 {
 	time_t ttl;
 	struct dns_cache *tmp = NULL;
+	struct list_head *insert_head = head;
+
+	if (dns_cache_head.last_active_inserted && dns_cache != dns_cache_head.last_active_inserted) {
+		if (dns_cache_head.last_active_inserted->info.ttl == dns_cache->info.ttl) {
+			insert_head = &(dns_cache_head.last_active_inserted->list);
+			goto out;
+		} else if (dns_cache_head.last_active_inserted->info.ttl > dns_cache->info.ttl) {
+			head = &(dns_cache_head.last_active_inserted->list);
+			insert_head = head;
+		}
+	}
 
 	/* ascending order */
 	ttl = dns_cache->info.insert_time + dns_cache->info.ttl;
 	list_for_each_entry_reverse(tmp, head, list)
 	{
 		if ((tmp->info.insert_time + tmp->info.ttl) <= ttl) {
-			list_add(&dns_cache->list, &tmp->list);
-			return;
+			insert_head = &tmp->list;
+			break;
 		}
 	}
 
-	list_add(&dns_cache->list, head);
+out:
+	if (dns_cache_head.last_active_inserted) {
+		dns_cache_release(dns_cache_head.last_active_inserted);
+	}
+	list_add(&dns_cache->list, insert_head);
+	dns_cache_head.last_active_inserted = dns_cache;
+	dns_cache_get(dns_cache);
 }
 
 static int _dns_cache_replace(struct dns_cache_key *cache_key, int ttl, int speed, int no_inactive, int inactive,
@@ -1033,6 +1061,11 @@ void dns_cache_destroy(void)
 {
 	struct dns_cache *dns_cache = NULL;
 	struct dns_cache *tmp = NULL;
+
+	if (dns_cache_head.last_active_inserted) {
+		dns_cache_release(dns_cache_head.last_active_inserted);
+		dns_cache_head.last_active_inserted = NULL;
+	}
 
 	pthread_mutex_lock(&dns_cache_head.lock);
 	list_for_each_entry_safe(dns_cache, tmp, &dns_cache_head.inactive_list, list)
