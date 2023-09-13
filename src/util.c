@@ -188,7 +188,7 @@ int generate_random_addr(unsigned char *addr, int addr_len, int mask)
 	return 0;
 }
 
-int generate_addr_map(unsigned char *addr_from, unsigned char *addr_to, unsigned char *addr_out, int addr_len, int mask)
+int generate_addr_map(const unsigned char *addr_from, const unsigned char *addr_to, unsigned char *addr_out, int addr_len, int mask)
 {
 	if ((mask / 8) >= addr_len) {
 		if (mask % 8 != 0) {

@@ -263,7 +263,6 @@ static int _smartdns_prepare_server_flags(struct client_dns_server_flags *flags,
 		safe_strncpy(flag_tls->hostname, server->hostname, sizeof(flag_tls->hostname));
 		safe_strncpy(flag_tls->tls_host_verify, server->tls_host_verify, sizeof(flag_tls->tls_host_verify));
 		flag_tls->skip_check_cert = server->skip_check_cert;
-
 	} break;
 	case DNS_SERVER_TCP:
 		break;

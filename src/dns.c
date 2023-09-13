@@ -759,8 +759,6 @@ static int _dns_get_opt_RAW(struct dns_rrs *rrs, char *domain, int maxsize, int 
 static int __attribute__((unused)) _dns_add_OPT(struct dns_packet *packet, dns_rr_type type, unsigned short opt_code,
 												unsigned short opt_len, struct dns_opt *opt)
 {
-	// TODO
-
 	int ret = 0;
 	int len = 0;
 	struct dns_context context;
@@ -806,8 +804,6 @@ static int __attribute__((unused)) _dns_add_OPT(struct dns_packet *packet, dns_r
 static int __attribute__((unused)) _dns_get_OPT(struct dns_rrs *rrs, unsigned short *opt_code, unsigned short *opt_len,
 												struct dns_opt *opt, int *opt_maxlen)
 {
-	// TODO
-
 	int qtype = 0;
 	int qclass = 0;
 	int rr_len = 0;
@@ -1708,8 +1704,6 @@ static int _dns_encode_SOA(struct dns_context *context, struct dns_rrs *rrs)
 
 static int _dns_decode_opt_ecs(struct dns_context *context, struct dns_opt_ecs *ecs, int opt_len)
 {
-	// TODO
-
 	int len = 0;
 	if (opt_len < 4) {
 		return -1;
@@ -1737,7 +1731,6 @@ static int _dns_decode_opt_ecs(struct dns_context *context, struct dns_opt_ecs *
 
 static int _dns_decode_opt_cookie(struct dns_context *context, struct dns_opt_cookie *cookie, int opt_len)
 {
-	// TODO
 	if (opt_len < (int)member_size(struct dns_opt_cookie, client_cookie)) {
 		return -1;
 	}

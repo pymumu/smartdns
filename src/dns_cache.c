@@ -969,7 +969,6 @@ errout:
 
 static int _dns_cache_write_records(int fd, uint32_t *cache_number)
 {
-
 	if (_dns_cache_write_record(fd, cache_number, CACHE_RECORD_TYPE_ACTIVE, &dns_cache_head.cache_list) != 0) {
 		return -1;
 	}

@@ -79,7 +79,7 @@ static struct config_enum_list dns_conf_response_mode_enum[] = {
 	{"first-ping", DNS_RESPONSE_MODE_FIRST_PING_IP},
 	{"fastest-ip", DNS_RESPONSE_MODE_FASTEST_IP},
 	{"fastest-response", DNS_RESPONSE_MODE_FASTEST_RESPONSE},
-	{0, 0}};
+	{NULL, 0}};
 
 enum response_mode_type dns_conf_response_mode;
 
@@ -95,8 +95,8 @@ int dns_conf_serve_expired_reply_ttl = 3;
 struct dns_servers dns_conf_servers[DNS_MAX_SERVERS];
 char dns_conf_server_name[DNS_MAX_SERVER_NAME_LEN];
 int dns_conf_server_num;
-int dns_conf_resolv_hostname = 1;
-char dns_conf_exist_bootstrap_dns;
+static int dns_conf_resolv_hostname = 1;
+static char dns_conf_exist_bootstrap_dns;
 
 struct dns_domain_check_orders dns_conf_check_orders = {
 	.orders =
@@ -142,7 +142,7 @@ int dns_conf_dualstack_ip_selection = 1;
 int dns_conf_dualstack_ip_allow_force_AAAA;
 int dns_conf_dualstack_ip_selection_threshold = 10;
 
-int dns_conf_expand_ptr_from_address = 0;
+static int dns_conf_expand_ptr_from_address = 0;
 
 /* TTL */
 int dns_conf_rr_ttl;
@@ -322,7 +322,7 @@ static struct dns_server_groups *_dns_conf_get_group(const char *group_name)
 	key = hash_string(group_name);
 	hash_for_each_possible(dns_group_table.group, group, node, key)
 	{
-		if (strncmp(group->group_name, group_name, DNS_MAX_IPLEN) == 0) {
+		if (strncmp(group->group_name, group_name, DNS_GROUP_NAME_LEN) == 0) {
 			return group;
 		}
 	}
@@ -404,7 +404,7 @@ struct dns_proxy_names *dns_server_get_proxy_nams(const char *proxyname)
 	key = hash_string(proxyname);
 	hash_for_each_possible(dns_proxy_table.proxy, proxy, node, key)
 	{
-		if (strncmp(proxy->proxy_name, proxyname, DNS_MAX_IPLEN) == 0) {
+		if (strncmp(proxy->proxy_name, proxyname, DNS_GROUP_NAME_LEN) == 0) {
 			return proxy;
 		}
 	}
@@ -421,7 +421,7 @@ static struct dns_proxy_names *_dns_conf_get_proxy(const char *proxy_name)
 	key = hash_string(proxy_name);
 	hash_for_each_possible(dns_proxy_table.proxy, proxy, node, key)
 	{
-		if (strncmp(proxy->proxy_name, proxy_name, DNS_MAX_IPLEN) == 0) {
+		if (strncmp(proxy->proxy_name, proxy_name, PROXY_NAME_LEN) == 0) {
 			return proxy;
 		}
 	}
@@ -1870,11 +1870,11 @@ static int _config_speed_check_mode_parser(struct dns_domain_check_orders *check
 
 			return 0;
 		}
+
 		order++;
 		if (ptr) {
 			ptr++;
 		}
-
 	} while (ptr);
 
 	return 0;
@@ -2666,7 +2666,6 @@ errout:
 
 static int _conf_edns_client_subnet(void *data, int argc, char *argv[])
 {
-
 	if (argc <= 1) {
 		return -1;
 	}
@@ -3189,7 +3188,6 @@ static int _conf_ip_rules(void *data, int argc, char *argv[])
 			break;
 		}
 		case 'a': {
-
 			if (_config_ip_alias(ip_cidr, optarg) != 0) {
 				goto errout;
 			}
@@ -4028,7 +4026,8 @@ static void _config_setup_smartdns_domain(void)
 	}
 
 	/* add server name to rule table */
-	if (dns_conf_server_name[0] != '\0' && strncmp(dns_conf_server_name, "smartdns", DNS_MAX_CNAME_LEN - 1) != 0) {
+	if (dns_conf_server_name[0] != '\0' &&
+		strncmp(dns_conf_server_name, "smartdns", DNS_MAX_SERVER_NAME_LEN - 1) != 0) {
 		_config_domain_rule_flag_set(dns_conf_server_name, DOMAIN_FLAG_SMARTDNS_DOMAIN, 0);
 	}
 
@@ -4271,7 +4270,7 @@ static int _config_add_default_server_if_needed(void)
 	}
 
 	/* add default server */
-	char *argv[] = {"bind", "[::]:53", 0};
+	char *argv[] = {"bind", "[::]:53", NULL};
 	int argc = sizeof(argv) / sizeof(char *) - 1;
 	return _config_bind_ip(argc, argv, DNS_BIND_TYPE_UDP);
 }

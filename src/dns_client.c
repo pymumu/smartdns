@@ -1075,7 +1075,7 @@ static int _dns_client_server_add(char *server_ip, char *server_host, int port, 
 		return 0;
 	}
 
-	snprintf(port_s, 8, "%d", port);
+	snprintf(port_s, sizeof(port_s), "%d", port);
 	gai = _dns_client_getaddr(server_ip, port_s, sock_type, 0);
 	if (gai == NULL) {
 		tlog(TLOG_DEBUG, "get address failed, %s:%d", server_ip, port);
@@ -1418,7 +1418,7 @@ static int _dns_client_add_server_pending(char *server_ip, char *server_host, in
 			return 0;
 		}
 	} else if (check_is_ipaddr(server_ip) && is_pending == 0) {
-		gai = _dns_client_getaddr(server_ip, 0, SOCK_STREAM, 0);
+		gai = _dns_client_getaddr(server_ip, NULL, SOCK_STREAM, 0);
 		if (gai == NULL) {
 			return -1;
 		}
@@ -4049,7 +4049,7 @@ static void _dns_client_add_pending_servers(void)
 		if (pending->query_v4 == 0) {
 			pending->query_v4 = 1;
 			_dns_client_server_pending_get(pending);
-			if (dns_server_query(pending->host, DNS_T_A, 0, _dns_client_pending_server_resolve, pending) != 0) {
+			if (dns_server_query(pending->host, DNS_T_A, NULL, _dns_client_pending_server_resolve, pending) != 0) {
 				_dns_client_server_pending_release(pending);
 				pending->query_v4 = 0;
 			}
@@ -4058,7 +4058,7 @@ static void _dns_client_add_pending_servers(void)
 		if (pending->query_v6 == 0) {
 			pending->query_v6 = 1;
 			_dns_client_server_pending_get(pending);
-			if (dns_server_query(pending->host, DNS_T_AAAA, 0, _dns_client_pending_server_resolve, pending) != 0) {
+			if (dns_server_query(pending->host, DNS_T_AAAA, NULL, _dns_client_pending_server_resolve, pending) != 0) {
 				_dns_client_server_pending_release(pending);
 				pending->query_v6 = 0;
 			}

@@ -96,7 +96,7 @@ struct proxy_struct {
 
 static struct proxy_struct proxy;
 
-const char *proxy_socks5_status_code[] = {
+static const char *proxy_socks5_status_code[] = {
 	"success",
 	"general SOCKS server failure",
 	"connection not allowed by ruleset",
@@ -234,7 +234,7 @@ int proxy_remove(const char *proxy_name)
 
 static void _proxy_remove_all(void)
 {
-	struct proxy_server_info *server_info;
+	struct proxy_server_info *server_info = NULL;
 	struct hlist_node *tmp = NULL;
 	unsigned int i = 0;
 
@@ -957,7 +957,7 @@ int proxy_conn_recvfrom(struct proxy_conn *proxy_conn, void *buf, size_t len, in
 		return -1;
 	}
 
-	ret = recvfrom(proxy_conn->udp_fd, buffer, sizeof(buffer), MSG_NOSIGNAL, NULL, 0);
+	ret = recvfrom(proxy_conn->udp_fd, buffer, sizeof(buffer), MSG_NOSIGNAL, NULL, NULL);
 	if (ret <= 0) {
 		return -1;
 	}
@@ -1043,14 +1043,14 @@ int proxy_conn_is_udp(struct proxy_conn *proxy_conn)
 	return proxy_conn->is_udp;
 }
 
-int proxy_init()
+int proxy_init(void)
 {
 	memset(&proxy, 0, sizeof(proxy));
 	hash_init(proxy.proxy_server);
 	return 0;
 }
 
-int proxy_exit()
+int proxy_exit(void)
 {
 	_proxy_remove_all();
 	return 0;

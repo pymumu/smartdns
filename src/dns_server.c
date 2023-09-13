@@ -1536,14 +1536,14 @@ static int _dns_result_callback(struct dns_server_post_context *context)
 		}
 
 		if (request->qtype == DNS_T_A) {
-			sprintf(ip, "%d.%d.%d.%d", request->ip_addr[0], request->ip_addr[1], request->ip_addr[2],
-					request->ip_addr[3]);
+			snprintf(ip, sizeof(ip), "%d.%d.%d.%d", request->ip_addr[0], request->ip_addr[1], request->ip_addr[2],
+					 request->ip_addr[3]);
 		} else if (request->qtype == DNS_T_AAAA) {
-			sprintf(ip, "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", request->ip_addr[0],
-					request->ip_addr[1], request->ip_addr[2], request->ip_addr[3], request->ip_addr[4],
-					request->ip_addr[5], request->ip_addr[6], request->ip_addr[7], request->ip_addr[8],
-					request->ip_addr[9], request->ip_addr[10], request->ip_addr[11], request->ip_addr[12],
-					request->ip_addr[13], request->ip_addr[14], request->ip_addr[15]);
+			snprintf(ip, sizeof(ip), "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x",
+					 request->ip_addr[0], request->ip_addr[1], request->ip_addr[2], request->ip_addr[3],
+					 request->ip_addr[4], request->ip_addr[5], request->ip_addr[6], request->ip_addr[7],
+					 request->ip_addr[8], request->ip_addr[9], request->ip_addr[10], request->ip_addr[11],
+					 request->ip_addr[12], request->ip_addr[13], request->ip_addr[14], request->ip_addr[15]);
 		}
 	}
 
@@ -2975,7 +2975,7 @@ static int _dns_server_process_answer_A(struct dns_rrs *rrs, struct dns_request 
 			return -1;
 		}
 
-		sprintf(ip, "%d.%d.%d.%d", paddr[0], paddr[1], paddr[2], paddr[3]);
+		snprintf(ip, sizeof(ip), "%d.%d.%d.%d", paddr[0], paddr[1], paddr[2], paddr[3]);
 
 		/* start ping */
 		_dns_server_request_get(request);
@@ -3061,7 +3061,7 @@ static int _dns_server_process_answer_AAAA(struct dns_rrs *rrs, struct dns_reque
 			return -1;
 		}
 
-		sprintf(ip, "[%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x]", paddr[0], paddr[1],
+		snprintf(ip, sizeof(ip), "[%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x]", paddr[0], paddr[1],
 				paddr[2], paddr[3], paddr[4], paddr[5], paddr[6], paddr[7], paddr[8], paddr[9], paddr[10], paddr[11],
 				paddr[12], paddr[13], paddr[14], paddr[15]);
 
@@ -3804,7 +3804,7 @@ static int _dns_server_process_ptrs(struct dns_request *request)
 	key = hash_string(request->domain);
 	hash_for_each_possible(dns_ptr_table.ptr, ptr_tmp, node, key)
 	{
-		if (strncmp(ptr_tmp->ptr_domain, request->domain, DNS_MAX_CNAME_LEN) != 0) {
+		if (strncmp(ptr_tmp->ptr_domain, request->domain, DNS_MAX_PTR_LEN) != 0) {
 			continue;
 		}
 
@@ -3828,7 +3828,7 @@ static int _dns_server_process_local_ptr(struct dns_request *request)
 	struct ifaddrs *ifaddr = NULL;
 	struct ifaddrs *ifa = NULL;
 	unsigned char *addr = NULL;
-	char reverse_addr[128] = {0};
+	char reverse_addr[DNS_MAX_CNAME_LEN] = {0};
 	int found = 0;
 
 	if (getifaddrs(&ifaddr) == -1) {
@@ -4269,13 +4269,15 @@ static int _dns_server_address_generate_order(int orders[], int order_num, int m
 	int i = 0;
 	int j = 0;
 	int k = 0;
+	unsigned int seed = time(NULL);
+
 	for (i = 0; i < order_num && i < max_order_count; i++) {
 		orders[i] = i;
 	}
 
 	for (i = 0; i < order_num && max_order_count; i++) {
-		k = rand() % order_num;
-		j = rand() % order_num;
+		k = rand_r(&seed) % order_num;
+		j = rand_r(&seed) % order_num;
 		if (j == k) {
 			continue;
 		}
@@ -6420,8 +6422,8 @@ static int _dns_server_second_ping_check(struct dns_request *request)
 		switch (addr_map->addr_type) {
 		case DNS_T_A: {
 			_dns_server_request_get(request);
-			sprintf(ip, "%d.%d.%d.%d", addr_map->ip_addr[0], addr_map->ip_addr[1], addr_map->ip_addr[2],
-					addr_map->ip_addr[3]);
+			snprintf(ip, sizeof(ip), "%d.%d.%d.%d", addr_map->ip_addr[0], addr_map->ip_addr[1], addr_map->ip_addr[2],
+					 addr_map->ip_addr[3]);
 			ret = _dns_server_check_speed(request, ip);
 			if (ret != 0) {
 				_dns_server_request_release(request);
@@ -6429,11 +6431,11 @@ static int _dns_server_second_ping_check(struct dns_request *request)
 		} break;
 		case DNS_T_AAAA: {
 			_dns_server_request_get(request);
-			sprintf(ip, "[%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x]",
-					addr_map->ip_addr[0], addr_map->ip_addr[1], addr_map->ip_addr[2], addr_map->ip_addr[3],
-					addr_map->ip_addr[4], addr_map->ip_addr[5], addr_map->ip_addr[6], addr_map->ip_addr[7],
-					addr_map->ip_addr[8], addr_map->ip_addr[9], addr_map->ip_addr[10], addr_map->ip_addr[11],
-					addr_map->ip_addr[12], addr_map->ip_addr[13], addr_map->ip_addr[14], addr_map->ip_addr[15]);
+			snprintf(ip, sizeof(ip), "[%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x]",
+					 addr_map->ip_addr[0], addr_map->ip_addr[1], addr_map->ip_addr[2], addr_map->ip_addr[3],
+					 addr_map->ip_addr[4], addr_map->ip_addr[5], addr_map->ip_addr[6], addr_map->ip_addr[7],
+					 addr_map->ip_addr[8], addr_map->ip_addr[9], addr_map->ip_addr[10], addr_map->ip_addr[11],
+					 addr_map->ip_addr[12], addr_map->ip_addr[13], addr_map->ip_addr[14], addr_map->ip_addr[15]);
 			ret = _dns_server_check_speed(request, ip);
 			if (ret != 0) {
 				_dns_server_request_release(request);
