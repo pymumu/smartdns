@@ -765,7 +765,8 @@ int main(int argc, char *argv[])
 	sigset_t empty_sigblock;
 	struct stat sb;
 
-	static struct option long_options[] = {{"cache-print", required_argument, 0, 256}};
+	static struct option long_options[] = {
+		{"cache-print", required_argument, 0, 256}, {"help", no_argument, 0, 'h'}, {NULL, 0, 0, 0}};
 
 	safe_strncpy(config_file, SMARTDNS_CONF_FILE, MAX_LINE_LEN);
 
@@ -811,9 +812,13 @@ int main(int argc, char *argv[])
 #endif
 		case 'h':
 			_help();
-			return 1;
+			return 0;
 		case 256:
 			return dns_cache_print(optarg);
+			break;
+		default:
+			fprintf(stderr, "unknown option, please run %s -h for help.\n", argv[0]);
+			return 1;
 		}
 	}
 
