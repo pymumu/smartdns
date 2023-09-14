@@ -765,7 +765,7 @@ int main(int argc, char *argv[])
 	sigset_t empty_sigblock;
 	struct stat sb;
 
-	static struct option long_options[] = {{"cache-print", required_argument, 0, 256}};
+	static struct option long_options[] = {{"cache-print", required_argument, 0, 256}, {"help", no_argument, 0, 'h'}, {0, 0, 0, 0}};
 
 	safe_strncpy(config_file, SMARTDNS_CONF_FILE, MAX_LINE_LEN);
 
