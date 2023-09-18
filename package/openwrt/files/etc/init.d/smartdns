@@ -260,13 +260,13 @@ disable_auto_update()
 
 enable_auto_update()
 {
-	grep "0 5 * * * /etc/init.d/smartdns updatefiles" /etc/crontabs/root 2>/dev/null
+	grep "$auto_update_min_time $auto_update_day_time * * * /etc/init.d/smartdns updatefiles" /etc/crontabs/root 2>/dev/null
 	if [ $? -eq 0 ]; then
 		return 
 	fi
 
 	disable_auto_update 1
-	echo "0 5 * * * /etc/init.d/smartdns updatefiles" >> /etc/crontabs/root
+	echo "$auto_update_min_time $auto_update_day_time * * * /etc/init.d/smartdns updatefiles" >> /etc/crontabs/root
 	restart_crond
 }
 
@@ -497,6 +497,9 @@ load_service()
 	config_get ipv6_server "$section" "ipv6_server" "1"
 	config_get tcp_server "$section" "tcp_server" "1"
 	config_get server_flags "$section" "server_flags" ""
+
+	config_get auto_update_day_time "$section" "auto_update_day_time" "5"
+	config_get auto_update_min_time "$section" "auto_update_min_time" ""
 
 	config_get speed_check_mode "$section" "speed_check_mode" ""
 	[ ! -z "$speed_check_mode" ] && conf_append "speed-check-mode" "$speed_check_mode"
