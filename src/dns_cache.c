@@ -277,18 +277,17 @@ static void _dns_cache_insert_sorted(struct dns_cache *dns_cache, struct list_he
 	struct dns_cache *tmp = NULL;
 	struct list_head *insert_head = head;
 
+	ttl = dns_cache->info.insert_time + dns_cache->info.ttl;
 	if (dns_cache_head.last_active_inserted && dns_cache != dns_cache_head.last_active_inserted) {
-		if (dns_cache_head.last_active_inserted->info.ttl == dns_cache->info.ttl) {
+		time_t ttl_last =
+			dns_cache_head.last_active_inserted->info.insert_time + dns_cache_head.last_active_inserted->info.ttl;
+		if (ttl == ttl_last) {
 			insert_head = &(dns_cache_head.last_active_inserted->list);
 			goto out;
-		} else if (dns_cache_head.last_active_inserted->info.ttl > dns_cache->info.ttl) {
-			head = &(dns_cache_head.last_active_inserted->list);
-			insert_head = head;
 		}
 	}
 
 	/* ascending order */
-	ttl = dns_cache->info.insert_time + dns_cache->info.ttl;
 	list_for_each_entry_reverse(tmp, head, list)
 	{
 		if ((tmp->info.insert_time + tmp->info.ttl) <= ttl) {
