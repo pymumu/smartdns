@@ -27,7 +27,7 @@
 
 #include "timer_wheel.h"
 
-#define TVR_BITS 8
+#define TVR_BITS 10
 #define TVN_BITS 6
 #define TVR_SIZE (1 << TVR_BITS)
 #define TVN_SIZE (1 << TVN_BITS)
