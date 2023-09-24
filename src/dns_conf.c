@@ -509,26 +509,26 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 	int ttl = 0;
 	/* clang-format off */
 	static struct option long_options[] = {
-		{"blacklist-ip", no_argument, NULL, 'b'}, /* filtering with blacklist-ip */
-		{"whitelist-ip", no_argument, NULL, 'w'}, /* filtering with whitelist-ip */
+		{"drop-packet-latency", required_argument, NULL, 'D'},
+		{"exclude-default-group", no_argument, NULL, 'e'}, /* exclude this from default group */
+		{"group", required_argument, NULL, 'g'}, /* add to group */
+		{"proxy", required_argument, NULL, 'p'}, /* proxy server */
+		{"no-check-certificate", no_argument, NULL, 'k'}, /* do not check certificate */
+		{"bootstrap-dns", no_argument, NULL, 'b'}, /* set as bootstrap dns */
 #ifdef FEATURE_CHECK_EDNS
 		/* experimental feature */
-		{"check-edns", no_argument, NULL, 'e'},   /* check edns */
+		{"check-edns", no_argument, NULL, 251},   /* check edns */
 #endif 
-		{"drop-packet-latency", required_argument, NULL, 'D'},
-		{"spki-pin", required_argument, NULL, 'p'}, /* check SPKI pin */
-		{"host-name", required_argument, NULL, 'h'}, /* host name */
-		{"http-host", required_argument, NULL, 'H'}, /* http host */
-		{"no-check-certificate", no_argument, NULL, 'N'}, /* do not check certificate */
-		{"tls-host-verify", required_argument, NULL, 'V' }, /* verify tls hostname */
-		{"group", required_argument, NULL, 'g'}, /* add to group */
-		{"proxy", required_argument, NULL, 'P'}, /* proxy server */
-		{"exclude-default-group", no_argument, NULL, 'E'}, /* exclude this from default group */
+		{"whitelist-ip", no_argument, NULL, 252}, /* filtering with whitelist-ip */
+		{"blacklist-ip", no_argument, NULL, 253}, /* filtering with blacklist-ip */
 		{"set-mark", required_argument, NULL, 254}, /* set mark */
-		{"bootstrap-dns", no_argument, NULL, 255}, /* set as bootstrap dns */
 		{"subnet", required_argument, NULL, 256}, /* set subnet */
 		{"hitchhiking", no_argument, NULL, 257}, /* hitchhiking */
 		{"host-ip", required_argument, NULL, 258}, /* host ip */
+		{"spki-pin", required_argument, NULL, 259}, /* check SPKI pin */
+		{"host-name", required_argument, NULL, 260}, /* host name */
+		{"http-host", required_argument, NULL, 261}, /* http host */
+		{"tls-host-verify", required_argument, NULL, 262 }, /* verify tls hostname */
 		{NULL, no_argument, NULL, 0}
 	};
 	/* clang-format on */
@@ -592,40 +592,17 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 	/* process extra options */
 	optind = 1;
 	while (1) {
-		opt = getopt_long_only(argc, argv, "", long_options, NULL);
+		opt = getopt_long_only(argc, argv, "D:kg:p:eb", long_options, NULL);
 		if (opt == -1) {
 			break;
 		}
 
 		switch (opt) {
-		case 'b': {
-			result_flag |= DNSSERVER_FLAG_BLACKLIST_IP;
-			break;
-		}
-		case 'w': {
-			result_flag |= DNSSERVER_FLAG_WHITELIST_IP;
-			break;
-		}
-		case 'e': {
-			result_flag |= DNSSERVER_FLAG_CHECK_EDNS;
-			break;
-		}
-		case 'h': {
-			safe_strncpy(server->hostname, optarg, DNS_MAX_CNAME_LEN);
-			if (strncmp(server->hostname, "-", 2) == 0) {
-				server->hostname[0] = '\0';
-			}
-			break;
-		}
-		case 'H': {
-			safe_strncpy(server->httphost, optarg, DNS_MAX_CNAME_LEN);
-			break;
-		}
 		case 'D': {
 			drop_packet_latency_ms = atoi(optarg);
 			break;
 		}
-		case 'E': {
+		case 'e': {
 			server_flag |= SERVER_FLAG_EXCLUDE_DEFAULT;
 			break;
 		}
@@ -637,10 +614,6 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 			break;
 		}
 		case 'p': {
-			safe_strncpy(server->spki, optarg, DNS_MAX_SPKI_LEN);
-			break;
-		}
-		case 'P': {
 			if (_dns_conf_get_proxy_name(optarg) == NULL) {
 				tlog(TLOG_ERROR, "add proxy server failed.");
 				goto errout;
@@ -648,20 +621,29 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 			safe_strncpy(server->proxyname, optarg, PROXY_NAME_LEN);
 			break;
 		}
-		case 'V': {
-			safe_strncpy(server->tls_host_verify, optarg, DNS_MAX_CNAME_LEN);
+
+		case 'k': {
+			server->skip_check_cert = 1;
 			break;
 		}
-		case 'N': {
-			server->skip_check_cert = 1;
+		case 'b': {
+			is_bootstrap_dns = 1;
+			break;
+		}
+		case 251: {
+			result_flag |= DNSSERVER_FLAG_CHECK_EDNS;
+			break;
+		}
+		case 252: {
+			result_flag |= DNSSERVER_FLAG_WHITELIST_IP;
+			break;
+		}
+		case 253: {
+			result_flag |= DNSSERVER_FLAG_BLACKLIST_IP;
 			break;
 		}
 		case 254: {
 			server->set_mark = atoll(optarg);
-			break;
-		}
-		case 255: {
-			is_bootstrap_dns = 1;
 			break;
 		}
 		case 256: {
@@ -677,6 +659,25 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 				_conf_domain_rule_address(server->server, optarg);
 				is_hostip_set = 1;
 			}
+			break;
+		}
+		case 259: {
+			safe_strncpy(server->spki, optarg, DNS_MAX_SPKI_LEN);
+			break;
+		}
+		case 260: {
+			safe_strncpy(server->hostname, optarg, DNS_MAX_CNAME_LEN);
+			if (strncmp(server->hostname, "-", 2) == 0) {
+				server->hostname[0] = '\0';
+			}
+			break;
+		}
+		case 261: {
+			safe_strncpy(server->httphost, optarg, DNS_MAX_CNAME_LEN);
+			break;
+		}
+		case 262: {
+			safe_strncpy(server->tls_host_verify, optarg, DNS_MAX_CNAME_LEN);
 			break;
 		}
 		default:
