@@ -257,7 +257,7 @@ static void dns_cache_expired(struct tw_timer_list *timer, void *data, unsigned 
 	}
 
 	dns_cache->del_pending = 1;
-	dns_timer_mod(&dns_cache->timer, 3);
+	dns_timer_mod(&dns_cache->timer, 5);
 }
 
 static int _dns_cache_replace(struct dns_cache_key *cache_key, int ttl, int speed, int timeout, int update_time,
@@ -283,7 +283,6 @@ static int _dns_cache_replace(struct dns_cache_key *cache_key, int ttl, int spee
 	/* update cache data */
 	pthread_mutex_lock(&dns_cache_head.lock);
 	dns_cache->del_pending = 0;
-	dns_cache->info.ttl = ttl;
 	dns_cache->info.qtype = cache_key->qtype;
 	dns_cache->info.query_flag = cache_key->query_flag;
 	dns_cache->info.ttl = ttl;
@@ -613,6 +612,10 @@ static int _dns_cache_read_to_cache(struct dns_cache_record *cache_record, struc
 	int timeout = info->timeout - passed_time;
 	if (timeout < DNS_CACHE_READ_TIMEOUT * 2) {
 		timeout = DNS_CACHE_READ_TIMEOUT + (rand_r(&seed_tmp) % DNS_CACHE_READ_TIMEOUT);
+	}
+
+	if (timeout > dns_conf_serve_expired_ttl && dns_conf_serve_expired_ttl >= 0) {
+		timeout = dns_conf_serve_expired_ttl;
 	}
 	info->timeout = timeout;
 

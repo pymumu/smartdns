@@ -1253,7 +1253,12 @@ static int _dns_reply_inpacket(struct dns_request *request, unsigned char *inpac
 	return ret;
 }
 
-static int _dns_server_get_cache_timeout(struct dns_request *request, int ttl)
+static inline int _dns_server_expired_cache_ttl(struct dns_cache *cache)
+{
+	return cache->info.insert_time + cache->info.ttl + dns_conf_serve_expired_ttl - time(NULL);
+}
+
+static int _dns_server_get_cache_timeout(struct dns_request *request, struct dns_cache_key *cache_key, int ttl)
 {
 	int timeout = 0;
 	if (dns_conf_prefetch) {
@@ -1266,8 +1271,17 @@ static int _dns_server_get_cache_timeout(struct dns_request *request, int ttl)
 				}
 			}
 
-			if (request->prefetch == 0) {
+			if (request->prefetch_expired_domain == 0) {
 				timeout += ttl;
+			} else if (cache_key != NULL) {
+				struct dns_cache *old_cache = dns_cache_lookup(cache_key);
+				if (old_cache) {
+					time_t next_ttl = _dns_server_expired_cache_ttl(old_cache) - old_cache->info.ttl + ttl;
+					if (next_ttl < timeout) {
+						timeout = next_ttl;
+					}
+					dns_cache_release(old_cache);
+				}
 			}
 		} else {
 			timeout = ttl - 3;
@@ -1277,10 +1291,6 @@ static int _dns_server_get_cache_timeout(struct dns_request *request, int ttl)
 		if (dns_conf_serve_expired) {
 			timeout += dns_conf_serve_expired_ttl;
 		}
-	}
-
-	if (request->prefetch) {
-		timeout -= 1;
 	}
 
 	if (timeout <= 0) {
@@ -1330,13 +1340,14 @@ static int _dns_server_request_update_cache(struct dns_request *request, dns_typ
 	cache_key.query_flag = request->server_flags;
 
 	if (request->prefetch) {
-		if (dns_cache_replace(&cache_key, ttl, speed, _dns_server_get_cache_timeout(request, ttl),
+		if (dns_cache_replace(&cache_key, ttl, speed, _dns_server_get_cache_timeout(request, &cache_key, ttl),
 							  !request->prefetch_expired_domain, cache_data) != 0) {
 			goto errout;
 		}
 	} else {
 		/* insert result to cache */
-		if (dns_cache_insert(&cache_key, ttl, speed, _dns_server_get_cache_timeout(request, ttl), cache_data) != 0) {
+		if (dns_cache_insert(&cache_key, ttl, speed, _dns_server_get_cache_timeout(request, NULL, ttl), cache_data) !=
+			0) {
 			goto errout;
 		}
 	}
@@ -1473,13 +1484,14 @@ static int _dns_cache_cname_packet(struct dns_server_post_context *context)
 	cache_key.query_flag = request->server_flags;
 
 	if (request->prefetch) {
-		if (dns_cache_replace(&cache_key, ttl, speed, _dns_server_get_cache_timeout(request, ttl),
+		if (dns_cache_replace(&cache_key, ttl, speed, _dns_server_get_cache_timeout(request, &cache_key, ttl),
 							  !request->prefetch_expired_domain, cache_packet) != 0) {
 			goto errout;
 		}
 	} else {
 		/* insert result to cache */
-		if (dns_cache_insert(&cache_key, ttl, speed, _dns_server_get_cache_timeout(request, ttl), cache_packet) != 0) {
+		if (dns_cache_insert(&cache_key, ttl, speed, _dns_server_get_cache_timeout(request, NULL, ttl), cache_packet) !=
+			0) {
 			goto errout;
 		}
 	}
@@ -1512,14 +1524,14 @@ static int _dns_cache_packet(struct dns_server_post_context *context)
 
 	if (request->prefetch) {
 		if (dns_cache_replace(&cache_key, context->reply_ttl, -1,
-							  _dns_server_get_cache_timeout(request, context->reply_ttl),
+							  _dns_server_get_cache_timeout(request, &cache_key, context->reply_ttl),
 							  !request->prefetch_expired_domain, cache_packet) != 0) {
 			goto errout;
 		}
 	} else {
 		/* insert result to cache */
 		if (dns_cache_insert(&cache_key, context->reply_ttl, -1,
-							 _dns_server_get_cache_timeout(request, context->reply_ttl), cache_packet) != 0) {
+							 _dns_server_get_cache_timeout(request, NULL, context->reply_ttl), cache_packet) != 0) {
 			goto errout;
 		}
 	}
@@ -6505,14 +6517,14 @@ static int _dns_server_prefetch_domain(struct dns_cache *dns_cache)
 
 static int _dns_server_prefetch_expired_domain(struct dns_cache *dns_cache)
 {
-	time_t ttl = dns_cache->info.insert_time + dns_cache->info.ttl + dns_conf_serve_expired_ttl - time(NULL);
-	if (ttl < 0) {
+	time_t ttl = _dns_server_expired_cache_ttl(dns_cache);
+	if (ttl <= 1) {
 		return -1;
 	}
 
 	/* start prefetch domain */
-	tlog(TLOG_DEBUG, "expired domain, prefetch by cache %s, qtype %d, ttl %d", dns_cache->info.domain,
-		 dns_cache->info.qtype, dns_cache->info.ttl);
+	tlog(TLOG_DEBUG, "expired domain, prefetch by cache %s, qtype %d, ttl %llu", dns_cache->info.domain,
+		 dns_cache->info.qtype, (unsigned long long)ttl);
 
 	struct dns_server_query_option server_query_option;
 	server_query_option.dns_group_name = dns_cache_get_dns_group_name(dns_cache);
