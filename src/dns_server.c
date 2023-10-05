@@ -4233,6 +4233,10 @@ static int _dns_server_pre_process_rule_flags(struct dns_request *request)
 			goto skip_soa_out;
 		}
 
+		if (request->domain_rule.rules[DOMAIN_RULE_ADDRESS_IPV4] != NULL) {
+			goto skip_soa_out;
+		}
+
 		if (_dns_server_is_return_soa(request)) {
 			/* return SOA for A request */
 			if (_dns_server_is_return_soa_qtype(request, DNS_T_AAAA)) {
@@ -4244,6 +4248,10 @@ static int _dns_server_pre_process_rule_flags(struct dns_request *request)
 	case DNS_T_AAAA:
 		if (flags & DOMAIN_FLAG_ADDR_IPV6_IGN) {
 			/* ignore this domain for A request */
+			goto skip_soa_out;
+		}
+
+		if (request->domain_rule.rules[DOMAIN_RULE_ADDRESS_IPV6] != NULL) {
 			goto skip_soa_out;
 		}
 
