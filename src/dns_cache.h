@@ -48,6 +48,7 @@ enum CACHE_TYPE {
 
 struct dns_cache_data_head {
 	enum CACHE_TYPE cache_type;
+	atomic_t ref;
 	int is_soa;
 	ssize_t size;
 	uint32_t magic;
@@ -130,8 +131,6 @@ uint32_t dns_cache_get_query_flag(struct dns_cache *dns_cache);
 
 const char *dns_cache_get_dns_group_name(struct dns_cache *dns_cache);
 
-void dns_cache_data_free(struct dns_cache_data *data);
-
 struct dns_cache_data *dns_cache_new_data_packet(void *packet, size_t packet_len);
 
 typedef int (*dns_cache_callback)(struct dns_cache *dns_cache);
@@ -166,6 +165,10 @@ int dns_cache_is_soa(struct dns_cache *dns_cache);
 struct dns_cache_data *dns_cache_new_data_addr(void);
 
 struct dns_cache_data *dns_cache_get_data(struct dns_cache *dns_cache);
+
+void dns_cache_data_get(struct dns_cache_data *cache_data);
+
+void dns_cache_data_put(struct dns_cache_data *cache_data);
 
 void dns_cache_set_data_addr(struct dns_cache_data *dns_cache, char *cname, int cname_ttl, unsigned char *addr,
 							 int addr_len);
