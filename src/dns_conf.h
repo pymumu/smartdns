@@ -414,7 +414,9 @@ struct dns_domain_set_rule {
 enum dns_domain_set_type {
 	DNS_DOMAIN_SET_LIST = 0,
 	DNS_DOMAIN_SET_GEOSITE = 1,
+	DNS_DOMAIN_SET_GEOSITELIST = 2
 };
+
 
 struct dns_domain_set_name {
 	struct list_head list;

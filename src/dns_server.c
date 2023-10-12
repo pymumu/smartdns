@@ -26,6 +26,7 @@
 #include "dns_client.h"
 #include "dns_conf.h"
 #include "fast_ping.h"
+#include "regexp.h"
 #include "hashtable.h"
 #include "list.h"
 #include "nftset.h"
@@ -99,6 +100,7 @@ struct rule_walk_args {
 	void *args;
 	unsigned char *key[DOMAIN_RULE_MAX];
 	uint32_t key_len[DOMAIN_RULE_MAX];
+	int match;
 };
 
 struct dns_conn_buf {
@@ -1342,9 +1344,9 @@ static int _dns_server_request_update_cache(struct dns_request *request, dns_typ
 	if (request->prefetch) {
 		if (dns_cache_replace(&cache_key, ttl, speed, _dns_server_get_cache_timeout(request, &cache_key, ttl),
 							  !request->prefetch_expired_domain, cache_data) != 0) {
-			goto errout;
-		}
-	} else {
+				goto errout;
+			}
+		} else {
 		/* insert result to cache */
 		if (dns_cache_insert(&cache_key, ttl, speed, _dns_server_get_cache_timeout(request, NULL, ttl), cache_data) !=
 			0) {
@@ -1486,9 +1488,9 @@ static int _dns_cache_cname_packet(struct dns_server_post_context *context)
 	if (request->prefetch) {
 		if (dns_cache_replace(&cache_key, ttl, speed, _dns_server_get_cache_timeout(request, &cache_key, ttl),
 							  !request->prefetch_expired_domain, cache_packet) != 0) {
-			goto errout;
-		}
-	} else {
+				goto errout;
+			}
+		} else {
 		/* insert result to cache */
 		if (dns_cache_insert(&cache_key, ttl, speed, _dns_server_get_cache_timeout(request, NULL, ttl), cache_packet) !=
 			0) {
@@ -1579,7 +1581,7 @@ static int _dns_result_callback(struct dns_server_post_context *context)
 
 		if (request->qtype == DNS_T_A) {
 			snprintf(ip, sizeof(ip), "%d.%d.%d.%d", request->ip_addr[0], request->ip_addr[1], request->ip_addr[2],
-					 request->ip_addr[3]);
+					request->ip_addr[3]);
 		} else if (request->qtype == DNS_T_AAAA) {
 			snprintf(ip, sizeof(ip), "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x",
 					 request->ip_addr[0], request->ip_addr[1], request->ip_addr[2], request->ip_addr[3],
@@ -4088,17 +4090,17 @@ static int _dns_server_get_rules(unsigned char *key, uint32_t key_len, int is_su
 		return 0;
 	}
 
-	if (domain_rule->sub_rule_only != domain_rule->root_rule_only) {
-		/* only subkey rule */
-		if (domain_rule->sub_rule_only == 1 && is_subkey == 0) {
-			return 0;
-		}
-
-		/* only root key rule */
-		if (domain_rule->root_rule_only == 1 && is_subkey == 1) {
-			return 0;
-		}
+if (domain_rule->sub_rule_only != domain_rule->root_rule_only) {
+	/* only subkey rule */
+	if (domain_rule->sub_rule_only == 1 && is_subkey == 0) {
+		return 0;
 	}
+
+	/* only root key rule */
+	if (domain_rule->root_rule_only == 1 && is_subkey == 1) {
+		return 0;
+	}
+}
 
 	for (i = 0; i < DOMAIN_RULE_MAX; i++) {
 		if (domain_rule->rules[i] == NULL) {
@@ -4109,6 +4111,7 @@ static int _dns_server_get_rules(unsigned char *key, uint32_t key_len, int is_su
 		request->domain_rule.is_sub_rule[i] = is_subkey;
 		walk_args->key[i] = key;
 		walk_args->key_len[i] = key_len;
+		walk_args->match = 1;
 	}
 
 	/* update rules by flags */
@@ -4125,6 +4128,7 @@ static void _dns_server_get_domain_rule_by_domain(struct dns_request *request, c
 	unsigned char matched_key[DNS_MAX_CNAME_LEN];
 	struct rule_walk_args walk_args;
 	int i = 0;
+	char regexp[DNS_MAX_REGEXP_LEN];
 
 	if (request->skip_domain_rule != 0) {
 		return;
@@ -4147,6 +4151,25 @@ static void _dns_server_get_domain_rule_by_domain(struct dns_request *request, c
 	/* find domain rule */
 	art_substring_walk(&dns_conf_domain_rule, (unsigned char *)domain_key, domain_len, _dns_server_get_rules,
 					   &walk_args);
+	if (!walk_args.match && has_regexp()) {
+	      memset(&walk_args, 0, sizeof(walk_args));
+	      walk_args.args = request;
+	      
+	      memset(regexp,0,sizeof(regexp));
+	      if (dns_regexp_match(domain, regexp) == 0) {
+	            /* reverse regexp string */
+		     domain_len = strlen(regexp);
+		     reverse_string(domain_key, regexp, domain_len, 1);
+		     domain_key[domain_len] = '.';
+		     domain_len++;
+		     domain_key[domain_len] = 0;
+		
+		     /* find domain rule with regexp */
+		     art_substring_walk(&dns_conf_domain_rule, (unsigned char *)domain_key, domain_len, _dns_server_get_rules, 
+			 					&walk_args);
+		}
+	}
+	
 	if (likely(dns_conf_log_level > TLOG_DEBUG)) {
 		return;
 	}
@@ -4319,7 +4342,7 @@ static int _dns_server_address_generate_order(int orders[], int order_num, int m
 	int i = 0;
 	int j = 0;
 	int k = 0;
-	unsigned int seed = time(NULL);
+unsigned int seed = time(NULL);
 
 	for (i = 0; i < order_num && i < max_order_count; i++) {
 		orders[i] = i;
@@ -4897,9 +4920,9 @@ errout:
 
 static int _dns_server_process_cache_packet(struct dns_request *request, struct dns_cache *dns_cache)
 {
-	int ret = -1;
+int ret = -1;
 	struct dns_cache_packet *cache_packet = (struct dns_cache_packet *)dns_cache_get_data(dns_cache);
-	if (cache_packet == NULL) {
+if (cache_packet == NULL) {
 		goto out;
 	}
 
@@ -5226,7 +5249,7 @@ static int _dns_server_process_special_query(struct dns_request *request)
 			request->passthrough = 1;
 		}
 		break;
-	case DNS_T_SVCB:
+case DNS_T_SVCB:
 		ret = _dns_server_process_srv(request);
 		if (ret == 0) {
 			goto clean_exit;
@@ -6484,7 +6507,7 @@ static int _dns_server_second_ping_check(struct dns_request *request)
 		case DNS_T_A: {
 			_dns_server_request_get(request);
 			snprintf(ip, sizeof(ip), "%d.%d.%d.%d", addr_map->ip_addr[0], addr_map->ip_addr[1], addr_map->ip_addr[2],
-					 addr_map->ip_addr[3]);
+					addr_map->ip_addr[3]);
 			ret = _dns_server_check_speed(request, ip);
 			if (ret != 0) {
 				_dns_server_request_release(request);
@@ -6493,10 +6516,10 @@ static int _dns_server_second_ping_check(struct dns_request *request)
 		case DNS_T_AAAA: {
 			_dns_server_request_get(request);
 			snprintf(ip, sizeof(ip), "[%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x]",
-					 addr_map->ip_addr[0], addr_map->ip_addr[1], addr_map->ip_addr[2], addr_map->ip_addr[3],
-					 addr_map->ip_addr[4], addr_map->ip_addr[5], addr_map->ip_addr[6], addr_map->ip_addr[7],
-					 addr_map->ip_addr[8], addr_map->ip_addr[9], addr_map->ip_addr[10], addr_map->ip_addr[11],
-					 addr_map->ip_addr[12], addr_map->ip_addr[13], addr_map->ip_addr[14], addr_map->ip_addr[15]);
+					addr_map->ip_addr[0], addr_map->ip_addr[1], addr_map->ip_addr[2], addr_map->ip_addr[3],
+					addr_map->ip_addr[4], addr_map->ip_addr[5], addr_map->ip_addr[6], addr_map->ip_addr[7],
+					addr_map->ip_addr[8], addr_map->ip_addr[9], addr_map->ip_addr[10], addr_map->ip_addr[11],
+					addr_map->ip_addr[12], addr_map->ip_addr[13], addr_map->ip_addr[14], addr_map->ip_addr[15]);
 			ret = _dns_server_check_speed(request, ip);
 			if (ret != 0) {
 				_dns_server_request_release(request);
@@ -6528,7 +6551,7 @@ static int _dns_server_prefetch_domain(struct dns_cache *dns_cache)
 	server_query_option.ecs_enable_flag = 0;
 	if (_dns_server_prefetch_request(dns_cache->info.domain, dns_cache->info.qtype, 0, &server_query_option) != 0) {
 		tlog(TLOG_ERROR, "prefetch domain %s, qtype %d, failed.", dns_cache->info.domain, dns_cache->info.qtype);
-		return -1;
+return -1;
 	}
 
 	return 0;
@@ -6536,7 +6559,7 @@ static int _dns_server_prefetch_domain(struct dns_cache *dns_cache)
 
 static int _dns_server_prefetch_expired_domain(struct dns_cache *dns_cache)
 {
-	time_t ttl = _dns_server_expired_cache_ttl(dns_cache);
+time_t ttl = _dns_server_expired_cache_ttl(dns_cache);
 	if (ttl <= 1) {
 		return -1;
 	}
@@ -6552,7 +6575,7 @@ static int _dns_server_prefetch_expired_domain(struct dns_cache *dns_cache)
 
 	if (_dns_server_prefetch_request(dns_cache->info.domain, dns_cache->info.qtype, 1, &server_query_option) != 0) {
 		tlog(TLOG_DEBUG, "prefetch domain %s, qtype %d, failed.", dns_cache->info.domain, dns_cache->info.qtype);
-		return -1;
+	return -1;
 	}
 
 	return 0;

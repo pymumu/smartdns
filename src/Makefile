@@ -16,7 +16,7 @@
 
 BIN=smartdns 
 OBJS_LIB=lib/rbtree.o lib/art.o lib/bitops.o lib/radix.o lib/timer_wheel.o
-OBJS_MAIN=smartdns.o fast_ping.o dns_client.o dns_server.o dns.o util.o tlog.o dns_conf.o dns_cache.o http_parse.o proxy.o timer.o lib/conf.o lib/nftset.o
+OBJS_MAIN=smartdns.o fast_ping.o dns_client.o dns_server.o dns.o util.o tlog.o dns_conf.o dns_cache.o http_parse.o proxy.o timer.o lib/conf.o lib/nftset.o regexp.o
 OBJS=$(OBJS_MAIN) $(OBJS_LIB)
 
 # cflags
@@ -35,14 +35,14 @@ ifdef VER
 override CFLAGS += -DSMARTDNS_VERION='"$(VER)"'
 endif
 
-CXXFLAGS=-O2 -g -Wall -std=c++11 
+CXXFLAGS=-O2 -g -Wall -std=c++11
 override CXXFLAGS +=-Iinclude
 
 # ldflags
 ifeq ($(STATIC), yes)
  override LDFLAGS += -lssl -lcrypto -Wl,--whole-archive -lpthread -Wl,--no-whole-archive -ldl -static
 else
- override LDFLAGS += -lssl -lcrypto -lpthread -ldl
+ override LDFLAGS += -lssl -lcrypto -lpthread -ldl -lcre2
 endif
 
 .PHONY: all clean

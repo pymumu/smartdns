@@ -487,7 +487,7 @@ static int _smartdns_init(void)
 	tlog(TLOG_NOTICE, "smartdns starting...(Copyright (C) Nick Peng <pymumu@gmail.com>, build: %s %s)", __DATE__,
 		 __TIME__);
 
-	if (dns_timer_init() != 0) {
+if (dns_timer_init() != 0) {
 		tlog(TLOG_ERROR, "init timer failed.");
 		goto errout;
 	}
@@ -579,7 +579,7 @@ static void _smartdns_exit(void)
 	fast_ping_exit();
 	dns_server_exit();
 	_smartdns_destroy_ssl();
-	dns_timer_destroy();
+dns_timer_destroy();
 	tlog_exit();
 	dns_server_load_exit();
 }
@@ -822,7 +822,7 @@ int main(int argc, char *argv[])
 			return 0;
 		case 256:
 			return dns_cache_print(optarg);
-			break;
+break;
 		default:
 			fprintf(stderr, "unknown option, please run %s -h for help.\n", argv[0]);
 			return 1;
