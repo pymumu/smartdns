@@ -1462,13 +1462,13 @@ static int _dns_cache_cname_packet(struct dns_server_post_context *context)
 		return -1;
 	}
 
-	cache_packet = dns_cache_new_data_packet(inpacket_buff, inpacket_len);
-	if (cache_packet == NULL) {
+	if (context->qtype != DNS_T_A && context->qtype != DNS_T_AAAA) {
 		return -1;
 	}
 
-	if (context->qtype != DNS_T_A && context->qtype != DNS_T_AAAA) {
-		return -1;
+	cache_packet = dns_cache_new_data_packet(inpacket_buff, inpacket_len);
+	if (cache_packet == NULL) {
+		goto errout;
 	}
 
 	ttl = _dns_server_get_conf_ttl(request, request->ip_ttl);
@@ -1511,7 +1511,7 @@ static int _dns_cache_packet(struct dns_server_post_context *context)
 
 	struct dns_cache_data *cache_packet = dns_cache_new_data_packet(context->inpacket, context->inpacket_len);
 	if (cache_packet == NULL) {
-		return -1;
+		goto errout;
 	}
 
 	/* if doing prefetch, update cache only */
