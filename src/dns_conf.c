@@ -681,6 +681,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 			break;
 		}
 		default:
+			tlog(TLOG_WARN, "invalid server option: %s", argv[optind - 1]);
 			break;
 		}
 	}
@@ -2193,6 +2194,7 @@ static int _config_bind_ip(int argc, char *argv[], DNS_BIND_TYPE type)
 			break;
 		}
 		default:
+			tlog(TLOG_WARN, "invalid bind option: %s", argv[optind - 1]);
 			break;
 		}
 	}
@@ -3199,6 +3201,7 @@ static int _conf_ip_rules(void *data, int argc, char *argv[])
 			break;
 		}
 		default:
+			tlog(TLOG_WARN, "invalid ip-rules option: %s", argv[optind - 1]);
 			break;
 		}
 	}
@@ -3594,6 +3597,7 @@ static int _conf_domain_rules(void *data, int argc, char *argv[])
 			break;
 		}
 		default:
+			tlog(TLOG_WARN, "invalid domain-rules option: %s", argv[optind - 1]);
 			break;
 		}
 	}
