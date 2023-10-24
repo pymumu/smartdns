@@ -42,6 +42,33 @@ COREDUMP="0"
 RESPAWN="1"
 DO_RELOAD="0"
 
+make_dir() {
+	local d
+	for d in "$@"; do
+		if [ ! -d "$d" ]; then
+			mkdir -p "$d" 2>/dev/null || return 1
+		fi
+	done
+
+	return 0
+}
+
+log_dir() {
+	local section="$1"
+
+	config_get log_file "$section" "log_file" ""
+	log_file="${log_file:-"/var/log/smartdns/smartdns.log"}"
+	
+	local log_dir
+	log_dir="$(dirname "${log_file}")"
+
+	[ -s ${log_file} ] || {
+		[ -d "$log_dir" ] || {
+			make_dir "$log_dir" || return 1
+		}
+	}
+}
+
 set_forward_dnsmasq()
 {
 	local PORT="$1"
@@ -170,6 +197,7 @@ get_tz()
 
 load_server()
 {
+	log_dir
 	local section="$1"
 	local ADDITIONAL_ARGS=""
 	local DNS_ADDRESS=""
