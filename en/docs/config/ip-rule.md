@@ -13,6 +13,7 @@ smartdns provides IP address whitelist, blacklist and ignore rules for filtering
 | blacklist-ip | Blacklist IP address | Accept IP addresses outside a specified range |
 | ignore-ip | Ignore IP address | Do not use a specific IP address, or range of IP addresses |
 | bogus-nxdomain | Spoof IP address filtering | Return SOA when the requested result contains a specified IP address |
+| ip-alias |IP Alias|IP Address Mapping，Can be used for CDN acceleration with Anycast IP, such as Cloudflare's CDN. refer to [IP Alias](../config/ip-alias.md)。
 
 ## Whitelist IP addresses
 

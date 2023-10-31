@@ -64,12 +64,15 @@ hide:
 | nftset-timeout | 设置 nftset 超时功能启用  | no | [yes\|no] | nftset-timeout yes |
 | nftset-no-speed | 当测速失败时，将域名结果设置到nftset集合中 | 无 | nftset-no-speed [#4\|#6]:[family#nftable#nftset][,#[4\|6]:[family#nftable#nftset]]] <br />ipv4 地址的 family 只支持 inet 和 ip <br />ipv6 地址的 family 只支持 inet 和 ip6 <br />由于 nft 限制，两种地址只能分开存放于两个 set 中。| nftset-no-speed #4:inet#tab#set4|
 | nftset-debug | 设置 nftset 调试功能启用  | no | [yes\|no] | nftset-debug yes |
-| domain-rules | 设置域名规则 | 无 | domain-rules /domain/ [-rules...]<br />[-c\|-speed-check-mode]：测速模式，参考 speed-check-mode 配置<br />[-a\|-address]：参考 address 配置<br />[-n\|-nameserver]：参考 nameserver 配置<br />[-p\|-ipset]：参考ipset配置<br />[-t\|-nftset]：参考nftset配置<br />[-d\|-dualstack-ip-selection]：参考 dualstack-ip-selection<br /> [-no-serve-expired]：禁用过期缓存<br />[-rr-ttl\|-rr-ttl-min\|-rr-ttl-max]: 参考配置rr-ttl, rr-ttl-min, rr-ttl-max<br />[-no-cache]：不缓存当前域名<br />[-r\|-response-mode]：响应模式，参考 response-mode 配置<br />[-delete]：删除对应的规则 | domain-rules /www.example.com/ -speed-check-mode none |
+| domain-rules | 设置域名规则 | 无 | domain-rules /domain/ [-rules...]<br />[-c\|-speed-check-mode]：测速模式，参考 speed-check-mode 配置<br />[-a\|-address]：参考 address 配置<br />[-n\|-nameserver]：参考 nameserver 配置<br />[-p\|-ipset]：参考ipset配置<br />[-t\|-nftset]：参考nftset配置<br />[-d\|-dualstack-ip-selection]：参考 dualstack-ip-selection<br /> [-no-serve-expired]：禁用过期缓存<br />[-rr-ttl\|-rr-ttl-min\|-rr-ttl-max]: 参考配置rr-ttl, rr-ttl-min, rr-ttl-max<br />[-no-cache]：不缓存当前域名<br />[-r\|-response-mode]：响应模式，参考 response-mode 配置<br />[-delete]：删除对应的规则<br /> [no-ip-alias]: 忽略ip别名规则| domain-rules /www.example.com/ -speed-check-mode none |
 | domain-set | 设置域名集合 | 无 | domain-set [options...]<br />[-n\|-name]：域名集合名称 <br />[-t\|-type]：域名集合类型，当前仅支持list，格式为域名列表，一行一个域名。<br />[-f\|-file]：域名集合文件路径。<br /> 选项需要配合address, nameserver, ipset, nftset等需要指定域名的地方使用，使用方式为 /domain-set:[name]/| domain-set -name set -type list -file /path/to/list <br /> address /domain-set:set/1.2.4.8 |
 | bogus-nxdomain | 假冒 IP 地址过滤 | 无 | [ip/subnet]，可重复 | bogus-nxdomain 1.2.3.4/16 |
 | ignore-ip | 忽略 IP 地址 | 无 | [ip/subnet]，可重复 | ignore-ip 1.2.3.4/16 |
 | whitelist-ip | 白名单 IP 地址 | 无 | [ip/subnet]，可重复 | whitelist-ip 1.2.3.4/16 |
 | blacklist-ip | 黑名单 IP 地址 | 无 | [ip/subnet]，可重复 | blacklist-ip 1.2.3.4/16 |
+| ip-alias | IP 地址别名 | 无 | [ip/subnet] ip1[,[ip2]...]，可重复 | ip-alias 1.2.3.4/16 4.5.6.7|
+| ip-rules | IP 地址规则 | 无 | [ip/subnet] [-rules...]<br /> [-blacklist-ip]: 参考 blacklist-ip <br /> [-whitelist-ip]: 参考 whitelist-ip <br /> [-bogus-nxdomain]: 参考 bogus-nxdomain <br /> [-ignore-ip]: 参考 ignore-ip <br /> [-ip-alias]: 参考 ip-alias <br /> | ip-rules 1.2.3.4/16 -whitelist-ip|
+| ip-set | 设置 IP 地址集合 | 无 | ip-set [options...]<br />[-n\|-name]：IP地址集合名称 <br />[-t\|-type]：IP地址集合类型，当前仅支持list，格式为IP地址列表，一行一个IP地址。<br />[-f\|-file]：IP地址集合文件路径。<br /> 选项需要配合ip-rules, ip-alias等需要指定IP地址的地方使用，使用方式为 ip-set:[name]| ip-set -name set -type list -file /path/to/list <br /> ip-rules ip-set:set -whitelist-ip|
 | force-AAAA-SOA | 强制 AAAA 地址返回 SOA | no | [yes\|no] | force-AAAA-SOA yes |
 | force-qtype-SOA | 强制指定 qtype 返回 SOA | qtype id | [qtypeid\|idstart-idend\|...] | force-qtype-SOA 65 28 128-256
 | prefetch-domain | 域名预先获取功能 | no | [yes\|no] | prefetch-domain yes |

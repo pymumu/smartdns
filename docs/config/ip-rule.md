@@ -9,10 +9,11 @@ smartdns提供了IP地址黑白名单和忽略相关的结果。
 
 |参数|功能|使用场景|
 |---|---|---|
-|whitelist-ip|白名单 IP 地址|接受在指定范围内的IP地址设置
-|blacklist-ip|黑名单 IP 地址|接受在指定范围外的IP地址设置
+|whitelist-ip|白名单 IP 地址|接受在指定范围内的IP地址设置。
+|blacklist-ip|黑名单 IP 地址|接受在指定范围外的IP地址设置。
 |ignore-ip|忽略 IP 地址|不需要某个IP地址，或IP地址段时设置。
-|bogus-nxdomain|假冒 IP 地址过滤|请求结果包含对应IP地址时，返回SOA
+|bogus-nxdomain|假冒 IP 地址过滤|请求结果包含对应IP地址时，返回SOA。
+|ip-alias|IP别名规则|IP地址映射，可用于具备Anycast IP的CDN加速，比如Cloudflare的CDN。参考[IP别名](../config/ip-alias.md)。
 
 ## 白名单IP地址
 

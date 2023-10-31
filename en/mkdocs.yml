@@ -96,6 +96,8 @@ nav:
     - Query through Proxy: 'config/proxy.md'
     - DNS64: 'config/dns64.md'
     - IP Rule: 'config/ip-rule.md'
+    - IP Set: 'config/ip-set.md'
+    - IP Alias: 'config/ip-alias.md'
     - Forwarding with IPSet: 'config/forwarding-with-ipset.md'
     - Edns Client Subnet: 'config/edns-client-subnet.md'
   - Configurations: 'configuration.md'
