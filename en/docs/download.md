@@ -17,6 +17,7 @@ ddwrt|latest firmware. goto services page abd enable SmartDNS Resolver. |Demo: <
 debian|apt-get install smartdns|
 entware|ipkg update<br />ipkg install smartdns|Software source: <https://bin.entware.net/>
 MacOS|brew update<br />brew install smartdns|Software source(Rust port)：<https://github.com/mokeyish/smartdns-rs/releases/>
+docker|docker pull pymumu/smartdns | Docker image：<https://hub.docker.com/r/pymumu/smartdns>
 
 ## Download From Release Page
 

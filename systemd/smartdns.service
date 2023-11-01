@@ -1,0 +1,21 @@
+[Unit]
+Description=SmartDNS Server
+After=network.target
+Before=network-online.target
+Before=nss-lookup.target
+Wants=nss-lookup.target
+StartLimitBurst=0
+StartLimitIntervalSec=60
+
+[Service]
+Type=forking
+PIDFile=/run/smartdns.pid
+EnvironmentFile=/etc/default/smartdns
+ExecStart=/usr/sbin/smartdns -p /run/smartdns.pid $SMART_DNS_OPTS
+Restart=always
+RestartSec=2
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target
+Alias=smartdns.service
