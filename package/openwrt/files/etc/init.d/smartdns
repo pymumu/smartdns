@@ -296,6 +296,7 @@ load_domain_rules()
 
 	config_get forwarding_domain_set_file "$section" "forwarding_domain_set_file" ""
 	[ ! -z "$forwarding_domain_set_file" ] && {
+		[ ! -e "$forwarding_domain_set_file" ] && touch $forwarding_domain_set_file
 		conf_append "domain-set" "-name ${domain_set_name}-forwarding-file -file '$forwarding_domain_set_file'"
 		conf_append "domain-rules" "/domain-set:${domain_set_name}-forwarding-file/ $domain_set_args"
 	}
@@ -307,6 +308,7 @@ load_domain_rules()
 
 	config_get block_domain_set_file "$section" "block_domain_set_file"
 	[ ! -z "$block_domain_set_file" ] && {
+		[ ! -e "$block_domain_set_file" ] && touch $block_domain_set_file
 		conf_append "domain-set" "-name ${domain_set_name}-block-file -file '$block_domain_set_file'"
 		conf_append "domain-rules" "/domain-set:${domain_set_name}-block-file/ --address #"
 	}
@@ -355,6 +357,7 @@ load_domain_rule_list()
 	[ ! -z "$addition_flag" ] && domain_set_args="$domain_set_args $addition_flag"
 	[ -z "$domain_set_args" ] && return
 
+	[ ! -e "$domain_list_file" ] && touch $domain_list_file
 	conf_append "domain-set" "-name domain-rule-list-${domain_set_name} -file '$domain_list_file'"
 	conf_append "domain-rules" "/domain-set:domain-rule-list-${domain_set_name}/ $domain_set_args"	
 }
