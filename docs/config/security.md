@@ -38,3 +38,14 @@ user nobody
 ```shell
 bind-tls [::]:853@eth0
 ```
+
+## 启用审计日志
+
+smartdns可以通过如下配置，启用审计日志，记录DNS查询请求
+
+```
+audit-enable yes
+audit-num 16
+audit-size 16M
+audit-file /var/log/smartdns/smartdns-audit.log
+```

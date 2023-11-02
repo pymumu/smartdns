@@ -38,3 +38,14 @@ Provide services to outside world through a TLS server
 ```shell
 bind-tls [::]:853@eth0
 ```
+
+## Enable Audit Logging
+
+SmartDNS can enable audit logging to record DNS query requests with the following configuration:
+
+```
+audit-enable yes
+audit-num 16
+audit-size 16M
+audit-file /var/log/smartdns/smartdns-audit.log
+```
