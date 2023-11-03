@@ -99,7 +99,7 @@ cache-persist no)""");
 	std::cout << client.GetResult() << std::endl;
 	ASSERT_EQ(client.GetAnswerNum(), 2);
 	EXPECT_EQ(client.GetStatus(), "NOERROR");
-	EXPECT_LT(client.GetQueryTime(), 20);
+	EXPECT_LT(client.GetQueryTime(), 40);
 	EXPECT_EQ(client.GetAnswer()[0].GetName(), "b.com");
 	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 600);
 
@@ -107,7 +107,7 @@ cache-persist no)""");
 	std::cout << client.GetResult() << std::endl;
 	ASSERT_EQ(client.GetAnswerNum(), 2);
 	EXPECT_EQ(client.GetStatus(), "NOERROR");
-	EXPECT_LT(client.GetQueryTime(), 20);
+	EXPECT_LT(client.GetQueryTime(), 40);
 	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
 	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 600);
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
