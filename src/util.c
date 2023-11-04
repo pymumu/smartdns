@@ -188,7 +188,8 @@ int generate_random_addr(unsigned char *addr, int addr_len, int mask)
 	return 0;
 }
 
-int generate_addr_map(const unsigned char *addr_from, const unsigned char *addr_to, unsigned char *addr_out, int addr_len, int mask)
+int generate_addr_map(const unsigned char *addr_from, const unsigned char *addr_to, unsigned char *addr_out,
+					  int addr_len, int mask)
 {
 	if ((mask / 8) >= addr_len) {
 		if (mask % 8 != 0) {
@@ -1476,7 +1477,7 @@ void bug_ext(const char *file, int line, const char *func, const char *errfmt, .
 
 int write_file(const char *filename, void *data, int data_len)
 {
-	int fd = open(filename, O_WRONLY | O_CREAT, 0644);
+	int fd = open(filename, O_WRONLY | O_CREAT | O_EXCL, 0644);
 	if (fd < 0) {
 		return -1;
 	}
@@ -1524,9 +1525,9 @@ int dns_packet_save(const char *dir, const char *type, const char *from, const v
 
 	snprintf(time_s, sizeof(time_s) - 1, "%.4d-%.2d-%.2d %.2d:%.2d:%.2d.%.3d", ptm->tm_year + 1900, ptm->tm_mon + 1,
 			 ptm->tm_mday, ptm->tm_hour, ptm->tm_min, ptm->tm_sec, (int)(tm_val.tv_usec / 1000));
-	snprintf(filename, sizeof(filename) - 1, "%s/%s-%.4d%.2d%.2d-%.2d%.2d%.2d%.1d.packet", dir, type,
+	snprintf(filename, sizeof(filename) - 1, "%s/%s-%.4d%.2d%.2d-%.2d%.2d%.2d%.3d.packet", dir, type,
 			 ptm->tm_year + 1900, ptm->tm_mon + 1, ptm->tm_mday, ptm->tm_hour, ptm->tm_min, ptm->tm_sec,
-			 (int)(tm_val.tv_usec / 100000));
+			 (int)(tm_val.tv_usec / 1000));
 
 	data = malloc(PACKET_BUF_SIZE);
 	if (data == NULL) {

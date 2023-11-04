@@ -40,16 +40,8 @@ extern "C" {
 #define MAGIC_CACHE_DATA 0x61546144
 #define MAGIC_RECORD 0x64526352
 
-enum CACHE_TYPE {
-	CACHE_TYPE_NONE,
-	CACHE_TYPE_ADDR,
-	CACHE_TYPE_PACKET,
-};
-
 struct dns_cache_data_head {
-	enum CACHE_TYPE cache_type;
 	atomic_t ref;
-	int is_soa;
 	ssize_t size;
 	uint32_t magic;
 };
@@ -84,6 +76,7 @@ struct dns_cache_info {
 	char dns_group_name[DNS_GROUP_NAME_LEN];
 	uint32_t query_flag;
 	int ttl;
+	int rcode;
 	int hitnum;
 	int speed;
 	int timeout;
@@ -125,8 +118,6 @@ struct dns_cache_key {
 	uint32_t query_flag;
 };
 
-enum CACHE_TYPE dns_cache_data_type(struct dns_cache_data *cache_data);
-
 uint32_t dns_cache_get_query_flag(struct dns_cache *dns_cache);
 
 const char *dns_cache_get_dns_group_name(struct dns_cache *dns_cache);
@@ -137,10 +128,11 @@ typedef int (*dns_cache_callback)(struct dns_cache *dns_cache);
 
 int dns_cache_init(int size, dns_cache_callback timeout_callback);
 
-int dns_cache_replace(struct dns_cache_key *key, int ttl, int speed, int tiemout, int update_time,
+int dns_cache_replace(struct dns_cache_key *key, int rcode, int ttl, int speed, int timeout, int update_time,
 					  struct dns_cache_data *cache_data);
 
-int dns_cache_insert(struct dns_cache_key *key, int ttl, int speed, int timeout, struct dns_cache_data *cache_data);
+int dns_cache_insert(struct dns_cache_key *key, int rcode, int ttl, int speed, int timeout,
+					 struct dns_cache_data *cache_data);
 
 struct dns_cache *dns_cache_lookup(struct dns_cache_key *key);
 
@@ -158,22 +150,11 @@ void dns_cache_update(struct dns_cache *dns_cache);
 
 int dns_cache_get_ttl(struct dns_cache *dns_cache);
 
-int dns_cache_get_cname_ttl(struct dns_cache *dns_cache);
-
-int dns_cache_is_soa(struct dns_cache *dns_cache);
-
-struct dns_cache_data *dns_cache_new_data_addr(void);
-
 struct dns_cache_data *dns_cache_get_data(struct dns_cache *dns_cache);
 
 void dns_cache_data_get(struct dns_cache_data *cache_data);
 
 void dns_cache_data_put(struct dns_cache_data *cache_data);
-
-void dns_cache_set_data_addr(struct dns_cache_data *dns_cache, char *cname, int cname_ttl, unsigned char *addr,
-							 int addr_len);
-
-void dns_cache_set_data_soa(struct dns_cache_data *dns_cache, char *cname, int cname_ttl);
 
 void dns_cache_destroy(void);
 

@@ -210,3 +210,72 @@ cache-persist no)""");
 	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "7.8.9.10");
 }
+
+TEST_F(IPRule, ip_alias_ip_set)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::MockServer server_upstream2;
+	smartdns::Server server;
+	std::string file = "/tmp/smartdns_test_ip_set.list" + smartdns::GenerateRandomString(5);
+	std::string file_ip = "/tmp/smartdns_test_ip_set_ip.list" + smartdns::GenerateRandomString(5);
+	std::ofstream ofs(file);
+	std::ofstream ofs_ip(file_ip);
+	ASSERT_TRUE(ofs.is_open());
+	ASSERT_TRUE(ofs_ip.is_open());
+	Defer
+	{
+		ofs.close();
+		unlink(file.c_str());
+		ofs_ip.close();
+		unlink(file_ip.c_str());
+	};
+
+	server_upstream.Start("udp://0.0.0.0:61053", [](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype != DNS_T_A) {
+			return smartdns::SERVER_REQUEST_SOA;
+		}
+
+		smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4", 611);
+		smartdns::MockServer::AddIP(request, request->domain.c_str(), "4.5.6.7", 611);
+		smartdns::MockServer::AddIP(request, request->domain.c_str(), "7.8.9.10", 611);
+		return smartdns::SERVER_REQUEST_OK;
+	});
+
+	server.MockPing(PING_TYPE_ICMP, "1.2.3.4", 60, 10);
+	server.MockPing(PING_TYPE_ICMP, "4.5.6.7", 60, 90);
+	server.MockPing(PING_TYPE_ICMP, "7.8.9.10", 60, 40);
+
+	std::string ipset_list = R"""(
+1.2.3.0/24
+4.5.6.0/24
+7.8.9.0/24
+)""";
+	ofs.write(ipset_list.c_str(), ipset_list.length());
+	ofs.flush();
+
+	std::string ipset_list_ip = R"""(
+1.1.1.1
+)""";
+	ofs_ip.write(ipset_list_ip.c_str(), ipset_list_ip.length());
+	ofs_ip.flush();
+
+	server.Start(R"""(bind [::]:60053
+server udp://127.0.0.1:61053 -blacklist-ip
+ip-set -name ip-list -file )""" +
+				 file + R"""(
+ip-set -name ip-list-ip -file )""" +
+				 file_ip + R"""(
+ip-alias ip-set:ip-list ip-set:ip-list-ip
+log-num 0
+speed-check-mode none
+log-console yes
+log-level debug
+cache-persist no)""");
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("a.com", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.1.1.1");
+}

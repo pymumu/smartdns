@@ -795,8 +795,8 @@ static int _config_set_rule_each_from_list(const char *file, set_rule_add_func c
 
 	fp = fopen(file, "r");
 	if (fp == NULL) {
-		tlog(TLOG_WARN, "open file %s error, %s", file, strerror(errno));
-		return 0;
+		tlog(TLOG_ERROR, "open file %s error, %s", file, strerror(errno));
+		return -1;
 	}
 
 	line_no = 0;
@@ -920,7 +920,9 @@ static int _config_domain_rule_set_each(const char *domain_set, set_rule_add_fun
 	{
 		switch (set_name_item->type) {
 		case DNS_DOMAIN_SET_LIST:
-			_config_set_rule_each_from_list(set_name_item->file, callback, priv);
+			if (_config_set_rule_each_from_list(set_name_item->file, callback, priv) != 0) {
+				return -1;
+			}
 			break;
 		case DNS_DOMAIN_SET_GEOSITE:
 			_config_domain_rule_each_from_geosite(set_name_item->file, DNS_DOMAIN_SET_GEOSITE,callback, priv);
@@ -2939,7 +2941,9 @@ static int _config_ip_rule_set_each(const char *ip_set, set_rule_add_func callba
 	{
 		switch (set_name_item->type) {
 		case DNS_IP_SET_LIST:
-			_config_set_rule_each_from_list(set_name_item->file, callback, priv);
+			if (_config_set_rule_each_from_list(set_name_item->file, callback, priv) != 0) {
+				return -1;
+			}
 			break;
 		default:
 			tlog(TLOG_WARN, "ip set %s type %d not support.", set_name_list->name, set_name_item->type);
@@ -3101,10 +3105,58 @@ errout:
 	return -1;
 }
 
+static int _config_ip_rule_alias_add_ip(const char *ip, struct ip_rule_alias *ip_alias)
+{
+	struct sockaddr_storage addr;
+	socklen_t addr_len = sizeof(addr);
+	unsigned char *paddr = NULL;
+	int ret = 0;
+
+	ret = getaddr_by_host(ip, (struct sockaddr *)&addr, &addr_len);
+	if (ret != 0) {
+		tlog(TLOG_ERROR, "ip is invalid: %s", ip);
+		goto errout;
+	}
+
+	switch (addr.ss_family) {
+	case AF_INET: {
+		struct sockaddr_in *addr_in = NULL;
+		addr_in = (struct sockaddr_in *)&addr;
+		paddr = (unsigned char *)&(addr_in->sin_addr.s_addr);
+		_dns_iplist_ip_address_add(&ip_alias->ip_alias, paddr, DNS_RR_A_LEN);
+	} break;
+	case AF_INET6: {
+		struct sockaddr_in6 *addr_in6 = NULL;
+		addr_in6 = (struct sockaddr_in6 *)&addr;
+		if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
+			paddr = addr_in6->sin6_addr.s6_addr + 12;
+			_dns_iplist_ip_address_add(&ip_alias->ip_alias, paddr, DNS_RR_A_LEN);
+		} else {
+			paddr = addr_in6->sin6_addr.s6_addr;
+			_dns_iplist_ip_address_add(&ip_alias->ip_alias, paddr, DNS_RR_AAAA_LEN);
+		}
+	} break;
+	default:
+		goto errout;
+		break;
+	}
+
+	return 0;
+
+errout:
+	return -1;
+}
+
+static int _config_ip_alias_add_ip_callback(const char *ip_cidr, void *priv)
+{
+	return _config_ip_rule_alias_add_ip(ip_cidr, (struct ip_rule_alias *)priv);
+}
+
 static int _config_ip_alias(const char *ip_cidr, const char *ips)
 {
 	struct ip_rule_alias *ip_alias = NULL;
 	char *target_ips = NULL;
+	int ret = 0;
 
 	if (ip_cidr == NULL || ips == NULL) {
 		goto errout;
@@ -3115,43 +3167,21 @@ static int _config_ip_alias(const char *ip_cidr, const char *ips)
 		goto errout;
 	}
 
-	target_ips = strdup(ips);
-	if (target_ips == NULL) {
-		goto errout;
-	}
-
-	for (char *tok = strtok(target_ips, ","); tok != NULL; tok = strtok(NULL, ",")) {
-		struct sockaddr_storage addr;
-		socklen_t addr_len = sizeof(addr);
-		unsigned char *paddr = NULL;
-		int ret = 0;
-
-		ret = getaddr_by_host(tok, (struct sockaddr *)&addr, &addr_len);
-		if (ret != 0) {
+	if (strncmp(ips, "ip-set:", sizeof("ip-set:") - 1) == 0) {
+		if (_config_ip_rule_set_each(ips + sizeof("ip-set:") - 1, _config_ip_alias_add_ip_callback, ip_alias) != 0) {
+			goto errout;
+		}
+	} else {
+		target_ips = strdup(ips);
+		if (target_ips == NULL) {
 			goto errout;
 		}
 
-		switch (addr.ss_family) {
-		case AF_INET: {
-			struct sockaddr_in *addr_in = NULL;
-			addr_in = (struct sockaddr_in *)&addr;
-			paddr = (unsigned char *)&(addr_in->sin_addr.s_addr);
-			_dns_iplist_ip_address_add(&ip_alias->ip_alias, paddr, DNS_RR_A_LEN);
-		} break;
-		case AF_INET6: {
-			struct sockaddr_in6 *addr_in6 = NULL;
-			addr_in6 = (struct sockaddr_in6 *)&addr;
-			if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
-				paddr = addr_in6->sin6_addr.s6_addr + 12;
-				_dns_iplist_ip_address_add(&ip_alias->ip_alias, paddr, DNS_RR_A_LEN);
-			} else {
-				paddr = addr_in6->sin6_addr.s6_addr;
-				_dns_iplist_ip_address_add(&ip_alias->ip_alias, paddr, DNS_RR_AAAA_LEN);
+		for (char *tok = strtok(target_ips, ","); tok != NULL; tok = strtok(NULL, ",")) {
+			ret = _config_ip_rule_alias_add_ip(tok, ip_alias);
+			if (ret != 0) {
+				goto errout;
 			}
-		} break;
-		default:
-			goto errout;
-			break;
 		}
 	}
 
@@ -3160,7 +3190,9 @@ static int _config_ip_alias(const char *ip_cidr, const char *ips)
 	}
 
 	_dns_ip_rule_put(&ip_alias->head);
-	free(target_ips);
+	if (target_ips) {
+		free(target_ips);
+	}
 
 	return 0;
 errout:
@@ -3382,6 +3414,10 @@ static int _conf_ip_set(void *data, int argc, char *argv[])
 errout:
 	if (ip_set) {
 		free(ip_set);
+	}
+
+	if (ip_set_name_list != NULL) {
+		free(ip_set_name_list);
 	}
 	return -1;
 }
