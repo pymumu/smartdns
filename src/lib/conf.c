@@ -440,7 +440,6 @@ static int load_conf_file(const char *file, struct config_item *items, conf_erro
 			}
 
 			if (items[i].item == NULL) {
-				handler(file, line_no, CONF_RET_NOENT);
 				break;
 			}
 

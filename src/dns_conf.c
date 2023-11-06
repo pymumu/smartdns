@@ -4177,6 +4177,11 @@ static int _conf_printf(const char *file, int lineno, int ret)
 		syslog(LOG_NOTICE, "process config file '%s' failed at line %d.", file, lineno);
 		return -1;
 		break;
+	case CONF_RET_NOENT:
+		tlog(TLOG_WARN, "unsupported config at '%s:%d'.", file, lineno);
+		syslog(LOG_NOTICE, "unsupported config at '%s:%d'.", file, lineno);
+		return -1;
+		break;
 	default:
 		break;
 	}
