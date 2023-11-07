@@ -3,7 +3,7 @@ hide:
   - toc
 ---
 
-# Using IP Address Sets
+# Using IP Address Set
 
 To facilitate the configuration of IP addresses according to sets, for configurations that use `ip/subnet`, IP address sets can be specified for easy maintenance. The specific method is as follows:
 
