@@ -1634,6 +1634,9 @@ static int _conf_domain_rule_address(char *domain, const char *domain_address)
 				goto errout;
 			}
 
+			if (ptr) {
+				ptr++;
+			}
 			continue;
 		} else if (*(field) == '-') {
 			if (strncmp(field, "-4", sizeof("-4")) == 0) {
@@ -1651,6 +1654,9 @@ static int _conf_domain_rule_address(char *domain, const char *domain_address)
 				goto errout;
 			}
 
+			if (ptr) {
+				ptr++;
+			}
 			continue;
 		}
 

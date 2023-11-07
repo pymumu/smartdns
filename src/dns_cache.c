@@ -145,7 +145,7 @@ struct dns_cache_data *dns_cache_new_data_packet(void *packet, size_t packet_len
 	return (struct dns_cache_data *)cache_packet;
 }
 
-static void dns_cache_timer_relase(struct tw_timer_list *timer, void *data)
+static void dns_cache_timer_release(struct tw_timer_list *timer, void *data)
 {
 	struct dns_cache *dns_cache = data;
 	dns_cache_release(dns_cache);
@@ -171,8 +171,8 @@ static void dns_cache_expired(struct tw_timer_list *timer, void *data, unsigned 
 	dns_timer_mod(&dns_cache->timer, 5);
 }
 
-static int _dns_cache_replace(struct dns_cache_key *cache_key, int rcode, int ttl, int speed, int timeout, int update_time,
-							  struct dns_cache_data *cache_data)
+static int _dns_cache_replace(struct dns_cache_key *cache_key, int rcode, int ttl, int speed, int timeout,
+							  int update_time, struct dns_cache_data *cache_data)
 {
 	struct dns_cache *dns_cache = NULL;
 	struct dns_cache_data *old_cache_data = NULL;
@@ -184,7 +184,7 @@ static int _dns_cache_replace(struct dns_cache_key *cache_key, int rcode, int tt
 	/* lookup existing cache */
 	dns_cache = dns_cache_lookup(cache_key);
 	if (dns_cache == NULL) {
-		return dns_cache_insert(cache_key, rcode, ttl, speed, timeout, cache_data);
+		return -1;
 	}
 
 	if (ttl < DNS_CACHE_TTL_MIN) {
@@ -290,7 +290,7 @@ static int _dns_cache_insert(struct dns_cache_info *info, struct dns_cache_data 
 	dns_cache->del_pending = 0;
 	dns_cache->cache_data = cache_data;
 	dns_cache->timer.function = dns_cache_expired;
-	dns_cache->timer.del_function = dns_cache_timer_relase;
+	dns_cache->timer.del_function = dns_cache_timer_release;
 	dns_cache->timer.expires = info->timeout;
 	dns_cache->timer.data = dns_cache;
 	pthread_mutex_lock(&dns_cache_head.lock);
@@ -314,7 +314,7 @@ static int _dns_cache_insert(struct dns_cache_info *info, struct dns_cache_data 
 	return 0;
 errout:
 	if (dns_cache) {
-		free(dns_cache);
+		dns_cache_release(dns_cache);
 	}
 
 	return -1;
