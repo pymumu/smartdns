@@ -2887,7 +2887,7 @@ static int _dns_server_process_ip_alias(struct dns_request *request, struct dns_
 {
 	int addr_num = 0;
 
-	if (alias == 0) {
+	if (alias == NULL) {
 		return 0;
 	}
 

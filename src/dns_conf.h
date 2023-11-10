@@ -323,7 +323,7 @@ struct dns_edns_client_subnet {
 };
 
 struct dns_servers {
-	char server[DNS_MAX_IPLEN];
+	char server[DNS_MAX_CNAME_LEN];
 	unsigned short port;
 	unsigned int result_flag;
 	unsigned int server_flag;

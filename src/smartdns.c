@@ -28,9 +28,9 @@
 #include "hashtable.h"
 #include "list.h"
 #include "rbtree.h"
+#include "timer.h"
 #include "tlog.h"
 #include "util.h"
-#include "timer.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <getopt.h>
@@ -157,7 +157,7 @@ static void _help(void)
 		"  -v            display version.\n"
 		"  -h            show this help message.\n"
 
-		"Online help: http://pymumu.github.io/smartdns\n"
+		"Online help: https://pymumu.github.io/smartdns\n"
 		"Copyright (C) Nick Peng <pymumu@gmail.com>\n"
 		;
 	/* clang-format on */
@@ -773,7 +773,7 @@ int main(int argc, char *argv[])
 	struct stat sb;
 
 	static struct option long_options[] = {
-		{"cache-print", required_argument, 0, 256}, {"help", no_argument, 0, 'h'}, {NULL, 0, 0, 0}};
+		{"cache-print", required_argument, NULL, 256}, {"help", no_argument, NULL, 'h'}, {NULL, 0, NULL, 0}};
 
 	safe_strncpy(config_file, SMARTDNS_CONF_FILE, MAX_LINE_LEN);
 
@@ -788,7 +788,7 @@ int main(int argc, char *argv[])
 	sigprocmask(SIG_SETMASK, &empty_sigblock, NULL);
 	smartdns_close_allfds();
 
-	while ((opt = getopt_long(argc, argv, "fhc:p:SvxN:", long_options, 0)) != -1) {
+	while ((opt = getopt_long(argc, argv, "fhc:p:SvxN:", long_options, NULL)) != -1) {
 		switch (opt) {
 		case 'f':
 			is_run_as_daemon = 0;
