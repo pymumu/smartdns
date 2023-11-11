@@ -1148,12 +1148,14 @@ static int _dns_server_reply_http_error(struct dns_server_conn_tcp_client *tcpcl
 	int send_len = 0;
 	int http_len = 0;
 	unsigned char data[DNS_IN_PACKSIZE];
+	int msg_len = strlen(message);
 
 	http_len = snprintf((char *)data, DNS_IN_PACKSIZE,
 						"HTTP/1.1 %d %s\r\n"
+						"Content-Length: %d\r\n"
 						"\r\n"
-						"%s",
-						code, code_msg, message);
+						"%s\r\n",
+						code, code_msg, msg_len + 2, message);
 
 	send_len = _dns_server_tcp_socket_send(tcpclient, data, http_len);
 	if (send_len < 0) {
@@ -1185,7 +1187,7 @@ static int _dns_server_reply_https(struct dns_request *request, struct dns_serve
 
 	http_len = snprintf((char *)inpacket, DNS_IN_PACKSIZE,
 						"HTTP/1.1 200 OK\r\n"
-						"content-type: application/dns-message\r\n"
+						"Content-Type: application/dns-message\r\n"
 						"Content-Length: %d\r\n"
 						"\r\n",
 						len);
@@ -6205,12 +6207,12 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn_tcp_client
 					goto out;
 				}
 
-				tlog(TLOG_DEBUG, "remote server not supported.");
+				tlog(TLOG_DEBUG, "parser http header failed.");
 				goto errout;
 			}
 
 			if (http_head_get_method(http_head) != HTTP_METHOD_POST) {
-				tlog(TLOG_DEBUG, "remote server not supported.");
+				tlog(TLOG_DEBUG, "http method is invalid.");
 				goto errout;
 			}
 
@@ -6224,7 +6226,6 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn_tcp_client
 			request_len = http_head_get_data_len(http_head);
 			if (request_len >= len) {
 				tlog(TLOG_DEBUG, "request length is invalid.");
-
 				goto errout;
 			}
 			request_data = (unsigned char *)http_head_get_data(http_head);
@@ -6232,7 +6233,7 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn_tcp_client
 		} else {
 			if ((total_len - proceed_len) <= (int)sizeof(unsigned short)) {
 				ret = RECV_ERROR_AGAIN;
-				break;
+				goto out;
 			}
 
 			/* Get record length */
@@ -6241,12 +6242,12 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn_tcp_client
 
 			if (request_len >= sizeof(tcpclient->recvbuff.buf)) {
 				tlog(TLOG_DEBUG, "request length is invalid.");
-				return RECV_ERROR_FAIL;
+				goto errout;
 			}
 
 			if (request_len > (total_len - proceed_len - sizeof(unsigned short))) {
 				ret = RECV_ERROR_AGAIN;
-				break;
+				goto out;
 			}
 
 			request_data = (unsigned char *)(tcpclient->recvbuff.buf + proceed_len + sizeof(unsigned short));
@@ -6257,7 +6258,12 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn_tcp_client
 		ret = _dns_server_recv(&tcpclient->head, request_data, request_len, &tcpclient->localaddr,
 							   tcpclient->localaddr_len, &tcpclient->addr, tcpclient->addr_len);
 		if (ret != 0) {
-			return ret;
+			goto errout;
+		}
+
+		if (http_head != NULL) {
+			http_head_destroy(http_head);
+			http_head = NULL;
 		}
 	}
 

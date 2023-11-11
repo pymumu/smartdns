@@ -384,6 +384,10 @@ int http_head_parse(struct http_head *http_head, const char *data, int data_len)
 	if (http_head->head_ok == 0) {
 		for (i = 0; i < data_len; i++, data++) {
 			*(buff_end + i) = *data;
+			if (isprint(*data) == 0 && isspace(*data) == 0) {
+				return -2;
+			}
+
 			if (*data == '\n') {
 				if (http_head->buff_len + i < 2) {
 					continue;

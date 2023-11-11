@@ -717,6 +717,13 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 	server->server_flag = server_flag;
 	server->ttl = ttl;
 	server->drop_packet_latency_ms = drop_packet_latency_ms;
+
+	if (server->type == DNS_SERVER_HTTPS) {
+		if (server->path[0] == 0) {
+			safe_strncpy(server->path, "/", sizeof(server->path));
+		}
+	}
+
 	dns_conf_server_num++;
 	tlog(TLOG_DEBUG, "add server %s, flag: %X, ttl: %d", ip, result_flag, ttl);
 
