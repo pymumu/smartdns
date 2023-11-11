@@ -111,10 +111,10 @@ const char *http_head_get_fields_value(struct http_head *http_head, const char *
 	uint32_t key;
 	struct http_head_fields *filed;
 
-	key = hash_string(name);
+	key = hash_string_case(name);
 	hash_for_each_possible(http_head->field_map, filed, node, key)
 	{
-		if (strncmp(filed->name, name, 128) == 0) {
+		if (strncasecmp(filed->name, name, 128) == 0) {
 			return filed->value;
 		}
 	}
@@ -205,7 +205,7 @@ static int _http_head_add_fields(struct http_head *http_head, char *name, char *
 	fields->value = value;
 
 	list_add_tail(&fields->list, &http_head->field_head.list);
-	key = hash_string(name);
+	key = hash_string_case(name);
 	hash_add(http_head->field_map, &fields->node, key);
 
 	return 0;

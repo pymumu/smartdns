@@ -2218,7 +2218,7 @@ static int _config_bind_ip(int argc, char *argv[], DNS_BIND_TYPE type)
 	bind_ip->flags = server_flag;
 	bind_ip->group = group;
 	dns_conf_bind_ip_num++;
-	if (bind_ip->type == DNS_BIND_TYPE_TLS) {
+	if (bind_ip->type == DNS_BIND_TYPE_TLS || bind_ip->type == DNS_BIND_TYPE_HTTPS) {
 		if (bind_ip->ssl_cert_file == NULL || bind_ip->ssl_cert_key_file == NULL) {
 			bind_ip->ssl_cert_file = dns_conf_bind_ca_file;
 			bind_ip->ssl_cert_key_file = dns_conf_bind_ca_key_file;
@@ -2247,6 +2247,11 @@ static int _config_bind_ip_tcp(void *data, int argc, char *argv[])
 static int _config_bind_ip_tls(void *data, int argc, char *argv[])
 {
 	return _config_bind_ip(argc, argv, DNS_BIND_TYPE_TLS);
+}
+
+static int _config_bind_ip_https(void *data, int argc, char *argv[])
+{
+	return _config_bind_ip(argc, argv, DNS_BIND_TYPE_HTTPS);
 }
 
 static int _config_option_parser_filepath(void *data, int argc, char *argv[])
@@ -4098,6 +4103,7 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("bind", _config_bind_ip_udp, NULL),
 	CONF_CUSTOM("bind-tcp", _config_bind_ip_tcp, NULL),
 	CONF_CUSTOM("bind-tls", _config_bind_ip_tls, NULL),
+	CONF_CUSTOM("bind-https", _config_bind_ip_https, NULL),
 	CONF_CUSTOM("bind-cert-file", _config_option_parser_filepath, &dns_conf_bind_ca_file),
 	CONF_CUSTOM("bind-cert-key-file", _config_option_parser_filepath, &dns_conf_bind_ca_key_file),
 	CONF_STRING("bind-cert-key-pass", dns_conf_bind_ca_key_pass, DNS_MAX_PATH),

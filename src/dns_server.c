@@ -27,6 +27,7 @@
 #include "dns_conf.h"
 #include "fast_ping.h"
 #include "hashtable.h"
+#include "http_parse.h"
 #include "list.h"
 #include "nftset.h"
 #include "tlog.h"
@@ -1101,7 +1102,7 @@ static void _dns_server_conn_release(struct dns_server_conn_head *conn)
 			tls_client->ssl = NULL;
 		}
 		pthread_mutex_destroy(&tls_client->ssl_lock);
-	} else if (conn->type == DNS_CONN_TYPE_TLS_SERVER) {
+	} else if (conn->type == DNS_CONN_TYPE_TLS_SERVER || conn->type == DNS_CONN_TYPE_HTTPS_SERVER) {
 		struct dns_server_conn_tls_server *tls_server = (struct dns_server_conn_tls_server *)conn;
 		if (tls_server->ssl_ctx != NULL) {
 			SSL_CTX_free(tls_server->ssl_ctx);
@@ -1136,6 +1137,71 @@ static int _dns_server_reply_tcp_to_buffer(struct dns_server_conn_tcp_client *tc
 	if (_dns_server_epoll_ctl(&tcpclient->head, EPOLL_CTL_MOD, EPOLLIN | EPOLLOUT) != 0) {
 		tlog(TLOG_ERROR, "epoll ctl failed.");
 		return -1;
+	}
+
+	return 0;
+}
+
+static int _dns_server_reply_http_error(struct dns_server_conn_tcp_client *tcpclient, int code, const char *code_msg,
+										const char *message)
+{
+	int send_len = 0;
+	int http_len = 0;
+	unsigned char data[DNS_IN_PACKSIZE];
+
+	http_len = snprintf((char *)data, DNS_IN_PACKSIZE,
+						"HTTP/1.1 %d %s\r\n"
+						"\r\n"
+						"%s",
+						code, code_msg, message);
+
+	send_len = _dns_server_tcp_socket_send(tcpclient, data, http_len);
+	if (send_len < 0) {
+		if (errno == EAGAIN) {
+			/* save data to buffer, and retry when EPOLLOUT is available */
+			return _dns_server_reply_tcp_to_buffer(tcpclient, data, http_len);
+		}
+		return -1;
+	} else if (send_len < http_len) {
+		/* save remain data to buffer, and retry when EPOLLOUT is available */
+		return _dns_server_reply_tcp_to_buffer(tcpclient, data + send_len, http_len - send_len);
+	}
+
+	return 0;
+}
+
+static int _dns_server_reply_https(struct dns_request *request, struct dns_server_conn_tcp_client *tcpclient,
+								   void *packet, unsigned short len)
+{
+	int send_len = 0;
+	int http_len = 0;
+	unsigned char inpacket_data[DNS_IN_PACKSIZE];
+	unsigned char *inpacket = inpacket_data;
+
+	if (len > sizeof(inpacket_data)) {
+		tlog(TLOG_ERROR, "packet size is invalid.");
+		return -1;
+	}
+
+	http_len = snprintf((char *)inpacket, DNS_IN_PACKSIZE,
+						"HTTP/1.1 200 OK\r\n"
+						"content-type: application/dns-message\r\n"
+						"Content-Length: %d\r\n"
+						"\r\n",
+						len);
+	memcpy(inpacket + http_len, packet, len);
+	http_len += len;
+
+	send_len = _dns_server_tcp_socket_send(tcpclient, inpacket, http_len);
+	if (send_len < 0) {
+		if (errno == EAGAIN) {
+			/* save data to buffer, and retry when EPOLLOUT is available */
+			return _dns_server_reply_tcp_to_buffer(tcpclient, inpacket, http_len);
+		}
+		return -1;
+	} else if (send_len < http_len) {
+		/* save remain data to buffer, and retry when EPOLLOUT is available */
+		return _dns_server_reply_tcp_to_buffer(tcpclient, inpacket + send_len, http_len - send_len);
 	}
 
 	return 0;
@@ -1255,6 +1321,8 @@ static int _dns_reply_inpacket(struct dns_request *request, unsigned char *inpac
 		ret = _dns_server_reply_tcp(request, (struct dns_server_conn_tcp_client *)conn, inpacket, inpacket_len);
 	} else if (conn->type == DNS_CONN_TYPE_TLS_CLIENT) {
 		ret = _dns_server_reply_tcp(request, (struct dns_server_conn_tcp_client *)conn, inpacket, inpacket_len);
+	} else if (conn->type == DNS_CONN_TYPE_HTTPS_CLIENT) {
+		ret = _dns_server_reply_https(request, (struct dns_server_conn_tcp_client *)conn, inpacket, inpacket_len);
 	} else {
 		ret = -1;
 	}
@@ -6112,30 +6180,78 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn_tcp_client
 	int total_len = tcpclient->recvbuff.size;
 	int proceed_len = 0;
 	unsigned char *request_data = NULL;
-	int ret = 0;
+	int ret = RECV_ERROR_FAIL;
+	int len = 0;
+	struct http_head *http_head = NULL;
 
 	/* Handling multiple requests */
 	for (;;) {
-		if ((total_len - proceed_len) <= (int)sizeof(unsigned short)) {
-			ret = RECV_ERROR_AGAIN;
-			break;
+		ret = RECV_ERROR_FAIL;
+		if (tcpclient->head.type == DNS_CONN_TYPE_HTTPS_CLIENT) {
+			if ((total_len - proceed_len) <= 0) {
+				ret = RECV_ERROR_AGAIN;
+				goto out;
+			}
+
+			http_head = http_head_init(4096);
+			if (http_head == NULL) {
+				goto out;
+			}
+
+			len = http_head_parse(http_head, (char *)tcpclient->recvbuff.buf, tcpclient->recvbuff.size);
+			if (len < 0) {
+				if (len == -1) {
+					ret = 0;
+					goto out;
+				}
+
+				tlog(TLOG_DEBUG, "remote server not supported.");
+				goto errout;
+			}
+
+			if (http_head_get_method(http_head) != HTTP_METHOD_POST) {
+				tlog(TLOG_DEBUG, "remote server not supported.");
+				goto errout;
+			}
+
+			const char *content_type = http_head_get_fields_value(http_head, "Content-Type");
+			if (content_type == NULL ||
+				strncmp(content_type, "application/dns-message", sizeof("application/dns-message")) != 0) {
+				tlog(TLOG_DEBUG, "content type not supported, %s", content_type);
+				goto errout;
+			}
+
+			request_len = http_head_get_data_len(http_head);
+			if (request_len >= len) {
+				tlog(TLOG_DEBUG, "request length is invalid.");
+
+				goto errout;
+			}
+			request_data = (unsigned char *)http_head_get_data(http_head);
+			proceed_len += len;
+		} else {
+			if ((total_len - proceed_len) <= (int)sizeof(unsigned short)) {
+				ret = RECV_ERROR_AGAIN;
+				break;
+			}
+
+			/* Get record length */
+			request_data = (unsigned char *)(tcpclient->recvbuff.buf + proceed_len);
+			request_len = ntohs(*((unsigned short *)(request_data)));
+
+			if (request_len >= sizeof(tcpclient->recvbuff.buf)) {
+				tlog(TLOG_DEBUG, "request length is invalid.");
+				return RECV_ERROR_FAIL;
+			}
+
+			if (request_len > (total_len - proceed_len - sizeof(unsigned short))) {
+				ret = RECV_ERROR_AGAIN;
+				break;
+			}
+
+			request_data = (unsigned char *)(tcpclient->recvbuff.buf + proceed_len + sizeof(unsigned short));
+			proceed_len += sizeof(unsigned short) + request_len;
 		}
-
-		/* Get record length */
-		request_data = (unsigned char *)(tcpclient->recvbuff.buf + proceed_len);
-		request_len = ntohs(*((unsigned short *)(request_data)));
-
-		if (request_len >= sizeof(tcpclient->recvbuff.buf)) {
-			tlog(TLOG_DEBUG, "request length is invalid.");
-			return RECV_ERROR_FAIL;
-		}
-
-		if (request_len > (total_len - proceed_len - sizeof(unsigned short))) {
-			ret = RECV_ERROR_AGAIN;
-			break;
-		}
-
-		request_data = (unsigned char *)(tcpclient->recvbuff.buf + proceed_len + sizeof(unsigned short));
 
 		/* process one record */
 		ret = _dns_server_recv(&tcpclient->head, request_data, request_len, &tcpclient->localaddr,
@@ -6143,15 +6259,24 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn_tcp_client
 		if (ret != 0) {
 			return ret;
 		}
-
-		proceed_len += sizeof(unsigned short) + request_len;
 	}
+
+out:
 
 	if (total_len > proceed_len && proceed_len > 0) {
 		memmove(tcpclient->recvbuff.buf, tcpclient->recvbuff.buf + proceed_len, total_len - proceed_len);
 	}
 
 	tcpclient->recvbuff.size -= proceed_len;
+
+errout:
+	if (http_head) {
+		http_head_destroy(http_head);
+	}
+
+	if (ret == RECV_ERROR_FAIL && tcpclient->head.type == DNS_CONN_TYPE_HTTPS_CLIENT) {
+		_dns_server_reply_http_error(tcpclient, 400, "Bad Request", "Bad Request");
+	}
 
 	return ret;
 }
@@ -6273,7 +6398,14 @@ static int _dns_server_tls_accept(struct dns_server_conn_tls_server *tls_server,
 	memset(tls_client, 0, sizeof(*tls_client));
 
 	tls_client->head.fd = fd;
-	tls_client->head.type = DNS_CONN_TYPE_TLS_CLIENT;
+	if (tls_server->head.type == DNS_CONN_TYPE_TLS_SERVER) {
+		tls_client->head.type = DNS_CONN_TYPE_TLS_CLIENT;
+	} else if (tls_server->head.type == DNS_CONN_TYPE_HTTPS_SERVER) {
+		tls_client->head.type = DNS_CONN_TYPE_HTTPS_CLIENT;
+	} else {
+		tlog(TLOG_ERROR, "invalid http server type.");
+		goto errout;
+	}
 	tls_client->head.server_flags = tls_server->head.server_flags;
 	tls_client->head.dns_group = tls_server->head.dns_group;
 	tls_client->head.ipset_nftset_rule = tls_server->head.ipset_nftset_rule;
@@ -6402,10 +6534,10 @@ static int _dns_server_process(struct dns_server_conn_head *conn, struct epoll_e
 			tlog(TLOG_DEBUG, "process TCP packet from %s failed.",
 				 get_host_by_addr(name, sizeof(name), (struct sockaddr *)&tcpclient->addr));
 		}
-	} else if (conn->type == DNS_CONN_TYPE_TLS_SERVER) {
+	} else if (conn->type == DNS_CONN_TYPE_TLS_SERVER || conn->type == DNS_CONN_TYPE_HTTPS_SERVER) {
 		struct dns_server_conn_tls_server *tls_server = (struct dns_server_conn_tls_server *)conn;
 		ret = _dns_server_tls_accept(tls_server, event, now);
-	} else if (conn->type == DNS_CONN_TYPE_TLS_CLIENT) {
+	} else if (conn->type == DNS_CONN_TYPE_TLS_CLIENT || conn->type == DNS_CONN_TYPE_HTTPS_CLIENT) {
 		struct dns_server_conn_tls_client *tls_client = (struct dns_server_conn_tls_client *)conn;
 		ret = _dns_server_process_tls(tls_client, event, now);
 		if (ret != 0) {
