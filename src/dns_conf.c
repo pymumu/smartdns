@@ -722,6 +722,10 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 		if (server->path[0] == 0) {
 			safe_strncpy(server->path, "/", sizeof(server->path));
 		}
+
+		if (server->httphost[0] == '\0') {
+			safe_strncpy(server->httphost, server->server, DNS_MAX_CNAME_LEN);
+		}
 	}
 
 	dns_conf_server_num++;
