@@ -5,7 +5,7 @@ hide:
 
 # 服务端配置
 
-smartdns目前提供了UDP, TCP, DOT三种服务端模式。
+smartdns目前提供了UDP, TCP, DOT, DOH四种服务端模式。
 
 ## UDP服务端
 
@@ -39,14 +39,20 @@ smartdns目前提供了UDP, TCP, DOT三种服务端模式。
     tcp-idle-time 120
     ```
 
-## DOT服务端
+## DOT,DOH服务端
 
-1. 通过`bind-tls`参数配置，配置例子如下：
+1. 通过`bind-tls`, `bind-https`参数配置，配置例子如下：
 
     ```shell
-    bind-tls 0.0.0.0:53@eth0
-    bind-tls [::]:53@eth0
-    bind-tls :53@eth0
+    # DOT 服务器
+    bind-tls 0.0.0.0:853@eth0
+    bind-tls [::]:853@eth0
+    bind-tls :853@eth0
+
+    # DOH 服务器
+    bind-https 0.0.0.0:443@eth0
+    bind-https [::]:443@eth0
+    bind-https :443@eth0
 
     ```
 

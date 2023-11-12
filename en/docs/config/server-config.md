@@ -5,7 +5,7 @@ hide:
 
 # Server Configuration
 
-Currently, smartdns provides three server modes: UDP, TCP, and DOT.
+Currently, smartdns provides three server modes: UDP, TCP, DOH, and DOT.
 
 ## UDP Server
 
@@ -39,15 +39,21 @@ Currently, smartdns provides three server modes: UDP, TCP, and DOT.
     tcp-idle-time 120
     ```
 
-## DOT Server
+## DOT, DOH Server
 
-1. Configure with the `bind-tls` parameter. For example:
+1. Configure with the `bind-tls`, `bind-https` parameter. For example:
 
     ```shell
-    bind-tls 0.0.0.0:53@eth0
-    bind-tls [::]:53@eth0
-    bind-tls :53@eth0
-    ```
+    # DOT server
+    bind-tls 0.0.0.0:853@eth0
+    bind-tls [::]:853@eth0
+    bind-tls :853@eth0
+
+    # DOH server
+    bind-https 0.0.0.0:443@eth0
+    bind-https [::]:443@eth0
+    bind-https :443@eth0
+
 
 1. Set certificate and key files
 
