@@ -34,6 +34,7 @@
 #define TVR_MASK (TVR_SIZE - 1)
 #define TVN_MASK (TVN_SIZE - 1)
 #define INDEX(N) ((base->jiffies >> (TVR_BITS + N * TVN_BITS)) & TVN_MASK)
+#define MAX_TVAL ((unsigned long)((1ULL << (TVR_BITS + 4 * TVN_BITS)) - 1))
 
 struct tvec {
 	struct list_head vec[TVN_SIZE];
@@ -65,7 +66,6 @@ static inline void _tw_add_timer(struct tw_base *base, struct tw_timer_list *tim
 	struct list_head *vec;
 
 	expires = timer->expires;
-
 	idx = expires - base->jiffies;
 
 	if (idx < TVR_SIZE) {
@@ -80,9 +80,13 @@ static inline void _tw_add_timer(struct tw_base *base, struct tw_timer_list *tim
 	} else if (idx < 1 << (TVR_BITS + 3 * TVN_BITS)) {
 		i = (expires >> (TVR_BITS + 2 * TVN_BITS)) & TVN_MASK;
 		vec = base->tv4.vec + i;
-	} else if ((long)idx < 0) {
+	} else if ((signed long)idx < 0) {
 		vec = base->tv1.vec + (base->jiffies & TVR_MASK);
 	} else {
+		if (idx > MAX_TVAL) {
+			idx = MAX_TVAL;
+			expires = idx + base->jiffies;
+		}
 		i = (expires >> (TVR_BITS + 3 * TVN_BITS)) & TVN_MASK;
 		vec = base->tv5.vec + i;
 	}
@@ -305,7 +309,7 @@ static inline void run_timers(struct tw_base *base)
 			}
 
 			pthread_spin_lock(&base->lock);
-			if ( (timer_pending(timer) == 0 && timer->del_function) ) {
+			if ((timer_pending(timer) == 0 && timer->del_function)) {
 				pthread_spin_unlock(&base->lock);
 				timer->del_function(timer, timer->data);
 				pthread_spin_lock(&base->lock);
