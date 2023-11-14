@@ -681,7 +681,10 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 			break;
 		}
 		default:
-			tlog(TLOG_WARN, "invalid server option: %s", argv[optind - 1]);
+			tlog(TLOG_WARN, "unknown server option: %s at '%s:%d'.", argv[optind - 1], conf_get_conf_file(),
+				 conf_get_current_lineno());
+			syslog(LOG_WARNING, "unknown server option: %s at '%s:%d'.", argv[optind - 1], conf_get_conf_file(),
+				 conf_get_current_lineno());
 			break;
 		}
 	}
@@ -2220,7 +2223,10 @@ static int _config_bind_ip(int argc, char *argv[], DNS_BIND_TYPE type)
 			break;
 		}
 		default:
-			tlog(TLOG_WARN, "invalid bind option: %s", argv[optind - 1]);
+			tlog(TLOG_WARN, "unknown bind option: %s at '%s:%d'.", argv[optind - 1], conf_get_conf_file(),
+				 conf_get_current_lineno());
+			syslog(LOG_WARNING, "unknown bind option: %s at '%s:%d'.", argv[optind - 1], conf_get_conf_file(),
+				   conf_get_current_lineno());
 			break;
 		}
 	}
@@ -2835,6 +2841,11 @@ static int _conf_domain_set(void *data, int argc, char *argv[])
 		goto errout;
 	}
 
+	if (access(domain_set->file, F_OK) != 0) {
+		tlog(TLOG_ERROR, "domain set file %s not readable. %s", domain_set->file, strerror(errno));
+		goto errout;
+	}
+
 	key = hash_string(set_name);
 	hash_for_each_possible(dns_domain_set_name_table.names, domain_set_name_list, node, key)
 	{
@@ -3262,7 +3273,10 @@ static int _conf_ip_rules(void *data, int argc, char *argv[])
 			break;
 		}
 		default:
-			tlog(TLOG_WARN, "invalid ip-rules option: %s", argv[optind - 1]);
+			tlog(TLOG_WARN, "unknown ip-rules option: %s at '%s:%d'.", argv[optind - 1], conf_get_conf_file(),
+				 conf_get_current_lineno());
+			syslog(LOG_WARNING, "unknown ip-rules option: %s at '%s:%d'.", argv[optind - 1], conf_get_conf_file(),
+				   conf_get_current_lineno());
 			break;
 		}
 	}
@@ -3330,6 +3344,11 @@ static int _conf_ip_set(void *data, int argc, char *argv[])
 		}
 	}
 	/* clang-format on */
+
+	if (access(ip_set->file, F_OK) != 0) {
+		tlog(TLOG_ERROR, "ip set file %s not readable. %s", ip_set->file, strerror(errno));
+		goto errout;
+	}
 
 	if (set_name[0] == 0 || ip_set->file[0] == 0) {
 		tlog(TLOG_ERROR, "invalid parameter.");
@@ -3662,7 +3681,10 @@ static int _conf_domain_rules(void *data, int argc, char *argv[])
 			break;
 		}
 		default:
-			tlog(TLOG_WARN, "invalid domain-rules option: %s", argv[optind - 1]);
+			tlog(TLOG_WARN, "unknown domain-rules option: %s at '%s:%d'.", argv[optind - 1], conf_get_conf_file(),
+				 conf_get_current_lineno());
+			syslog(LOG_WARNING, "unknown domain-rules option: %s at '%s:%d'.", argv[optind - 1], conf_get_conf_file(),
+				   conf_get_current_lineno());
 			break;
 		}
 	}
@@ -4203,13 +4225,13 @@ static int _conf_printf(const char *file, int lineno, int ret)
 	case CONF_RET_ERR:
 	case CONF_RET_WARN:
 	case CONF_RET_BADCONF:
-		tlog(TLOG_WARN, "process config file '%s' failed at line %d.", file, lineno);
-		syslog(LOG_NOTICE, "process config file '%s' failed at line %d.", file, lineno);
+		tlog(TLOG_WARN, "process config failed at '%s:%d'.", file, lineno);
+		syslog(LOG_WARNING, "process config failed at '%s:%d'.", file, lineno);
 		return -1;
 		break;
 	case CONF_RET_NOENT:
 		tlog(TLOG_WARN, "unsupported config at '%s:%d'.", file, lineno);
-		syslog(LOG_NOTICE, "unsupported config at '%s:%d'.", file, lineno);
+		syslog(LOG_WARNING, "unsupported config at '%s:%d'.", file, lineno);
 		return -1;
 		break;
 	default:
@@ -4247,9 +4269,9 @@ int config_additional_file(void *data, int argc, char *argv[])
 	}
 
 	if (access(file_path, R_OK) != 0) {
-		tlog(TLOG_WARN, "conf file %s is not readable.", file_path);
-		syslog(LOG_NOTICE, "conf file %s is not readable.", file_path);
-		return 0;
+		tlog(TLOG_WARN, "config file '%s' is not readable, %s", conf_file, strerror(errno));
+		syslog(LOG_WARNING, "config file '%s' is not readable, %s", conf_file, strerror(errno));
+		return -1;
 	}
 
 	return load_conf(file_path, _config_item, _conf_printf);
