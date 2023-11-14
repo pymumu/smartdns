@@ -3214,6 +3214,7 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 	int j = 0;
 	struct dns_rrs *rrs = NULL;
 	int ret = 0;
+	int is_skip = 0;
 
 	if (packet->head.rcode != DNS_RC_NOERROR && packet->head.rcode != DNS_RC_NXDOMAIN) {
 		if (request->rcode == DNS_RC_SERVFAIL) {
@@ -3225,11 +3226,6 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 		return -1;
 	}
 
-	request->remote_server_fail = 0;
-	if (request->rcode == DNS_RC_SERVFAIL) {
-		request->rcode = packet->head.rcode;
-	}
-
 	for (j = 1; j < DNS_RRS_OPT; j++) {
 		rrs = dns_get_rrs_start(packet, j, &rr_count);
 		for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
@@ -3239,6 +3235,7 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 				if (ret == -1) {
 					break;
 				} else if (ret == -2) {
+					is_skip = 1;
 					continue;
 				} else if (ret == -3) {
 					return -1;
@@ -3250,6 +3247,7 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 				if (ret == -1) {
 					break;
 				} else if (ret == -2) {
+					is_skip = 1;
 					continue;
 				} else if (ret == -3) {
 					return -1;
@@ -3304,6 +3302,11 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 		}
 	}
 
+	request->remote_server_fail = 0;
+	if (request->rcode == DNS_RC_SERVFAIL && is_skip == 0) {
+		request->rcode = packet->head.rcode;
+	}
+
 	return 0;
 }
 
@@ -3327,11 +3330,6 @@ static int _dns_server_passthrough_rule_check(struct dns_request *request, const
 
 		tlog(TLOG_DEBUG, "inquery failed, %s, rcode = %d, id = %d\n", domain, packet->head.rcode, packet->head.id);
 		return 0;
-	}
-
-	request->remote_server_fail = 0;
-	if (request->rcode == DNS_RC_SERVFAIL) {
-		request->rcode = packet->head.rcode;
 	}
 
 	for (j = 1; j < DNS_RRS_OPT; j++) {
@@ -3436,6 +3434,11 @@ static int _dns_server_passthrough_rule_check(struct dns_request *request, const
 				break;
 			}
 		}
+	}
+
+	request->remote_server_fail = 0;
+	if (request->rcode == DNS_RC_SERVFAIL) {
+		request->rcode = packet->head.rcode;
 	}
 
 	*pttl = ttl;
@@ -7063,6 +7066,8 @@ static int _dns_create_socket(const char *host_ip, int type)
 			tlog(TLOG_ERROR, "set socket opt failed.");
 			goto errout;
 		}
+		/* enable TCP_FASTOPEN */
+		setsockopt(fd, SOL_TCP, TCP_FASTOPEN, &optval, sizeof(optval));
 		setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
 	} else {
 		setsockopt(fd, IPPROTO_IP, IP_PKTINFO, &optval, sizeof(optval));
@@ -7261,7 +7266,7 @@ static int _dns_server_socket_tls(struct dns_bind_ip *bind_ip, DNS_CONN_TYPE con
 	}
 
 	SSL_CTX_set_session_cache_mode(ssl_ctx,
-								   SSL_SESS_CACHE_SERVER | SSL_SESS_CACHE_NO_INTERNAL | SSL_SESS_CACHE_NO_AUTO_CLEAR);
+								   SSL_SESS_CACHE_BOTH | SSL_SESS_CACHE_NO_INTERNAL | SSL_SESS_CACHE_NO_AUTO_CLEAR);
 	SSL_CTX_set_default_passwd_cb(ssl_ctx, _dns_server_socket_tls_ssl_pass_callback);
 	SSL_CTX_set_default_passwd_cb_userdata(ssl_ctx, bind_ip);
 
