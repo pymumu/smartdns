@@ -767,6 +767,7 @@ int main(int argc, char *argv[])
 	int opt = 0;
 	char config_file[MAX_LINE_LEN];
 	char pid_file[MAX_LINE_LEN];
+	int is_pid_file_set = 0;
 	int signal_ignore = 0;
 	sigset_t empty_sigblock;
 	struct stat sb;
@@ -800,6 +801,7 @@ int main(int argc, char *argv[])
 		case 'p':
 			if (strncmp(optarg, "-", 2) == 0 || full_path(pid_file, sizeof(pid_file), optarg) != 0) {
 				snprintf(pid_file, sizeof(pid_file), "%s", optarg);
+				is_pid_file_set = 1;
 			}
 			break;
 		case 'S':
@@ -854,6 +856,16 @@ int main(int argc, char *argv[])
 
 	if (signal_ignore == 0) {
 		_reg_signal();
+	}
+
+	if (is_pid_file_set == 0) {
+		char pid_file_path[MAX_LINE_LEN];
+		safe_strncpy(pid_file_path, pid_file, MAX_LINE_LEN);
+		dir_name(pid_file_path);
+
+		if (access(pid_file_path, W_OK) != 0) {
+			dns_no_pidfile = 1;
+		}
 	}
 
 	if (strncmp(pid_file, "-", 2) != 0 && dns_no_pidfile == 0 && create_pid_file(pid_file) != 0) {
