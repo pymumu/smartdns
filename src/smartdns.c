@@ -830,6 +830,8 @@ int main(int argc, char *argv[])
 		}
 	}
 
+	srand(time(NULL));
+
 	ret = dns_server_load_conf(config_file);
 	if (ret != 0) {
 		fprintf(stderr, "load config failed.\n");

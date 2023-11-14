@@ -6647,8 +6647,9 @@ static int _dns_server_prefetch_expired_domain(struct dns_cache *dns_cache)
 	}
 
 	/* start prefetch domain */
-	tlog(TLOG_DEBUG, "expired domain, prefetch by cache %s, qtype %d, ttl %llu", dns_cache->info.domain,
-		 dns_cache->info.qtype, (unsigned long long)ttl);
+	tlog(TLOG_DEBUG, "expired domain, prefetch by cache %s, qtype %d, ttl %llu, insert time %llu replace time %llu",
+		 dns_cache->info.domain, dns_cache->info.qtype, (unsigned long long)ttl,
+		 (unsigned long long)dns_cache->info.insert_time, (unsigned long long)dns_cache->info.replace_time);
 
 	struct dns_server_query_option server_query_option;
 	server_query_option.dns_group_name = dns_cache_get_dns_group_name(dns_cache);

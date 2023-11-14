@@ -4370,8 +4370,6 @@ int dns_client_init(void)
 		return -1;
 	}
 
-	srandom(time(NULL));
-
 	memset(&client, 0, sizeof(client));
 	pthread_attr_init(&attr);
 	atomic_set(&client.dns_server_num, 0);
