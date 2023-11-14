@@ -573,7 +573,6 @@ static int _smartdns_run(void)
 
 static void _smartdns_exit(void)
 {
-	tlog(TLOG_INFO, "smartdns exit...");
 	dns_client_exit();
 	proxy_exit();
 	fast_ping_exit();
@@ -889,6 +888,7 @@ int main(int argc, char *argv[])
 
 	smartdns_test_notify(1);
 	ret = _smartdns_run();
+	tlog(TLOG_INFO, "smartdns exit...");
 	_smartdns_exit();
 	return ret;
 errout:
@@ -896,5 +896,6 @@ errout:
 		daemon_kickoff(ret, dns_conf_log_console | verbose_screen);
 	}
 	smartdns_test_notify(2);
+	_smartdns_exit();
 	return 1;
 }

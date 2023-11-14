@@ -1065,6 +1065,10 @@ void SSL_CRYPTO_thread_setup(void)
 {
 	int i = 0;
 
+	if (lock_cs != NULL) {
+		return;
+	}
+
 	lock_cs = OPENSSL_malloc(CRYPTO_num_locks() * sizeof(pthread_mutex_t));
 	lock_count = OPENSSL_malloc(CRYPTO_num_locks() * sizeof(long));
 	if (!lock_cs || !lock_count) {
@@ -1094,12 +1098,18 @@ void SSL_CRYPTO_thread_cleanup(void)
 {
 	int i = 0;
 
+	if (lock_cs == NULL) {
+		return;
+	}
+
 	CRYPTO_set_locking_callback(NULL);
 	for (i = 0; i < CRYPTO_num_locks(); i++) {
 		pthread_mutex_destroy(&(lock_cs[i]));
 	}
 	OPENSSL_free(lock_cs);
 	OPENSSL_free(lock_count);
+	lock_cs = NULL;
+	lock_count = NULL;
 }
 #endif
 

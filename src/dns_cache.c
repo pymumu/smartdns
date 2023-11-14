@@ -44,11 +44,16 @@ struct dns_cache_head {
 
 typedef int (*dns_cache_read_callback)(struct dns_cache_record *cache_record, struct dns_cache_data *cache_data);
 
+static int is_cache_init;
 static struct dns_cache_head dns_cache_head;
 
 int dns_cache_init(int size, dns_cache_callback timeout_callback)
 {
 	int bits = 0;
+	if (is_cache_init == 1) {
+		return -1;
+	}
+
 	INIT_LIST_HEAD(&dns_cache_head.cache_list);
 
 	bits = ilog2(size) - 1;
@@ -64,6 +69,7 @@ int dns_cache_init(int size, dns_cache_callback timeout_callback)
 	dns_cache_head.timeout_callback = timeout_callback;
 	pthread_mutex_init(&dns_cache_head.lock, NULL);
 
+	is_cache_init = 1;
 	return 0;
 }
 
@@ -779,15 +785,21 @@ void dns_cache_destroy(void)
 	struct dns_cache *dns_cache = NULL;
 	struct dns_cache *tmp = NULL;
 
+	if (is_cache_init == 0) {
+		return;
+	}
+
 	pthread_mutex_lock(&dns_cache_head.lock);
 	list_for_each_entry_safe(dns_cache, tmp, &dns_cache_head.cache_list, list)
 	{
-		_dns_cache_delete(dns_cache);
+		_dns_cache_remove(dns_cache);
 	}
 	pthread_mutex_unlock(&dns_cache_head.lock);
 
 	pthread_mutex_destroy(&dns_cache_head.lock);
 	hash_table_free(dns_cache_head.cache_hash, free);
+
+	is_cache_init = 0;
 }
 
 const char *dns_cache_file_version(void)

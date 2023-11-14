@@ -1970,6 +1970,7 @@ errout:
     pthread_mutex_destroy(&tlog.lock);
     tlog.run = 0;
     tlog.root = NULL;
+    tlog_format = NULL;
 
     _tlog_close(log, 1);
 
@@ -1978,6 +1979,10 @@ errout:
 
 void tlog_exit(void)
 {
+    if (tlog_format == NULL) {
+        return;
+    }
+
     if (tlog.tid) {
         void *ret = NULL;
         tlog.run = 0;

@@ -348,6 +348,7 @@ struct dns_server {
 	pthread_mutex_t request_pending_lock;
 };
 
+static int is_server_init;
 static struct dns_server server;
 
 static tlog_log *dns_audit;
@@ -7445,13 +7446,12 @@ int dns_server_init(void)
 
 	_dns_server_check_need_exit();
 
-	if (server.epoll_fd > 0) {
+	if (is_server_init == 1) {
 		return -1;
 	}
 
-	if (_dns_server_cache_init() != 0) {
-		tlog(TLOG_ERROR, "init dns cache filed.");
-		goto errout;
+	if (server.epoll_fd > 0) {
+		return -1;
 	}
 
 	if (_dns_server_audit_init() != 0) {
@@ -7495,6 +7495,12 @@ int dns_server_init(void)
 		goto errout;
 	}
 
+	if (_dns_server_cache_init() != 0) {
+		tlog(TLOG_ERROR, "init dns cache filed.");
+		goto errout;
+	}
+
+	is_server_init = 1;
 	return 0;
 errout:
 	atomic_set(&server.run, 0);
@@ -7505,8 +7511,6 @@ errout:
 
 	_dns_server_close_socket();
 	pthread_mutex_destroy(&server.request_list_lock);
-
-	dns_cache_destroy();
 
 	return -1;
 }
@@ -7519,6 +7523,10 @@ void dns_server_stop(void)
 
 void dns_server_exit(void)
 {
+	if (is_server_init == 0) {
+		return;
+	}
+
 	if (server.event_fd > 0) {
 		close(server.event_fd);
 		server.event_fd = -1;
@@ -7534,4 +7542,6 @@ void dns_server_exit(void)
 	_dns_server_request_remove_all();
 	pthread_mutex_destroy(&server.request_list_lock);
 	dns_cache_destroy();
+
+	is_server_init = 0;
 }
