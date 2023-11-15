@@ -1135,8 +1135,12 @@ static int _dns_server_reply_tcp_to_buffer(struct dns_server_conn_tcp_client *tc
 	memcpy(tcpclient->sndbuff.buf + tcpclient->sndbuff.size, packet, len);
 	tcpclient->sndbuff.size += len;
 
+	if (tcpclient->head.fd <= 0) {
+		return -1;
+	}
+
 	if (_dns_server_epoll_ctl(&tcpclient->head, EPOLL_CTL_MOD, EPOLLIN | EPOLLOUT) != 0) {
-		tlog(TLOG_ERROR, "epoll ctl failed.");
+		tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
 		return -1;
 	}
 
