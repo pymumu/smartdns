@@ -2791,7 +2791,7 @@ out:
 	if (request->ping_time > 0) {
 		if (request->ping_time < threshold) {
 			may_complete = 1;
-		} else if (request->ping_time < (int)(get_tick_count() - request->send_tick) * 8) {
+		} else if (request->ping_time < (int)(get_tick_count() - request->send_tick)) {
 			may_complete = 1;
 		}
 	}
