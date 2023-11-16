@@ -738,14 +738,14 @@ static int _dns_add_opt_RAW(struct dns_packet *packet, dns_opt_code_t opt_rrtype
 	struct dns_opt *opt = (struct dns_opt *)opt_data;
 	int len = 0;
 
-	opt->code = DNS_OPT_T_TCP_KEEPALIVE;
+	opt->code = opt_rrtype;
 	opt->length = sizeof(unsigned short);
 
 	memcpy(opt->data, raw, raw_len);
 	len += raw_len;
 	len += sizeof(*opt);
 
-	return _dns_add_RAW(packet, DNS_RRS_OPT, (dns_type_t)DNS_OPT_T_TCP_KEEPALIVE, "", 0, opt_data, len);
+	return _dns_add_RAW(packet, DNS_RRS_OPT, (dns_type_t)opt_rrtype, "", 0, opt_data, len);
 }
 
 static int _dns_get_opt_RAW(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, struct dns_opt *dns_opt,
@@ -1030,7 +1030,7 @@ int dns_add_OPT_ECS(struct dns_packet *packet, struct dns_opt_ecs *ecs)
 	return _dns_add_RAW(packet, DNS_RRS_OPT, (dns_type_t)DNS_OPT_T_ECS, "", 0, opt_data, len);
 }
 
-int dns_get_OPT_ECS(struct dns_rrs *rrs, unsigned short *opt_code, unsigned short *opt_len, struct dns_opt_ecs *ecs)
+int dns_get_OPT_ECS(struct dns_rrs *rrs, struct dns_opt_ecs *ecs)
 {
 	unsigned char opt_data[DNS_MAX_OPT_LEN];
 	char domain[DNS_MAX_CNAME_LEN] = {0};
@@ -1067,16 +1067,16 @@ int dns_add_OPT_TCP_KEEPALIVE(struct dns_packet *packet, unsigned short timeout)
 	return _dns_add_opt_RAW(packet, DNS_OPT_T_TCP_KEEPALIVE, &timeout_net, data_len);
 }
 
-int dns_get_OPT_TCP_KEEPALIVE(struct dns_rrs *rrs, unsigned short *opt_code, unsigned short *opt_len,
-							  unsigned short *timeout)
+int dns_get_OPT_TCP_KEEPALIVE(struct dns_rrs *rrs, unsigned short *timeout)
 {
 	unsigned char opt_data[DNS_MAX_OPT_LEN];
+	char domain[DNS_MAX_CNAME_LEN] = {0};
 	struct dns_opt *opt = (struct dns_opt *)opt_data;
 	int len = DNS_MAX_OPT_LEN;
 	int ttl = 0;
 	unsigned char *data = NULL;
 
-	if (_dns_get_opt_RAW(rrs, NULL, 0, &ttl, opt, &len) != 0) {
+	if (_dns_get_opt_RAW(rrs, domain, DNS_MAX_CNAME_LEN, &ttl, opt, &len) != 0) {
 		return -1;
 	}
 
@@ -1757,6 +1757,23 @@ static int _dns_decode_opt_cookie(struct dns_context *context, struct dns_opt_co
 	return 0;
 }
 
+static int _dns_decode_opt_tcp_keepalive(struct dns_context *context, unsigned short *timeout, int opt_len)
+{
+	if (opt_len == 0) {
+		*timeout = 0;
+		return 0;
+	}
+
+	if (opt_len < (int)sizeof(unsigned short)) {
+		return -1;
+	}
+
+	*timeout = _dns_read_short(&context->ptr);
+
+	tlog(TLOG_DEBUG, "OPT TCP KEEPALIVE %u", *timeout);
+	return 0;
+}
+
 static int _dns_encode_OPT(struct dns_context *context, struct dns_rrs *rrs)
 {
 	int ret = 0;
@@ -1875,7 +1892,7 @@ static int _dns_decode_opt(struct dns_context *context, dns_rr_type type, unsign
 	unsigned short opt_code = 0;
 	unsigned short opt_len = 0;
 	unsigned short errcode = (ttl >> 16) & 0xFFFF;
-	unsigned short ever = (ttl)&0xFFFF;
+	unsigned short ever = (ttl) & 0xFFFF;
 	unsigned char *start = context->ptr;
 	struct dns_packet *packet = context->packet;
 	int ret = 0;
@@ -1957,6 +1974,20 @@ static int _dns_decode_opt(struct dns_context *context, dns_rr_type type, unsign
 			ret = _dns_decode_opt_cookie(context, &cookie, opt_len);
 			if (ret != 0) {
 				tlog(TLOG_ERROR, "decode cookie failed.");
+				return -1;
+			}
+		} break;
+		case DNS_OPT_T_TCP_KEEPALIVE: {
+			unsigned short timeout = 0;
+			ret = _dns_decode_opt_tcp_keepalive(context, &timeout, opt_len);
+			if (ret != 0) {
+				tlog(TLOG_ERROR, "decode tcp keepalive failed.");
+				return -1;
+			}
+
+			ret = dns_add_OPT_TCP_KEEPALIVE(packet, timeout);
+			if (ret != 0) {
+				tlog(TLOG_ERROR, "add tcp keepalive failed.");
 				return -1;
 			}
 		} break;

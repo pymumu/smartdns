@@ -3416,7 +3416,11 @@ static int _dns_client_setup_server_packet(struct dns_server_info *server_info, 
 	}
 
 	dns_set_OPT_payload_size(packet, DNS_IN_PACKSIZE);
-	/* dns_add_OPT_TCP_KEEPALIVE(packet, 600); */
+
+	if (server_info->type != DNS_SERVER_UDP) {
+		dns_add_OPT_TCP_KEEPALIVE(packet, 6000);
+	}
+
 	if ((query->qtype == DNS_T_A && server_info->ecs_ipv4.enable)) {
 		dns_add_OPT_ECS(packet, &server_info->ecs_ipv4.ecs);
 	} else if ((query->qtype == DNS_T_AAAA && server_info->ecs_ipv6.enable)) {
@@ -3628,7 +3632,7 @@ static int _dns_client_send_query(struct dns_query_struct *query)
 	}
 
 	dns_set_OPT_payload_size(packet, DNS_IN_PACKSIZE);
-	/* dns_add_OPT_TCP_KEEPALIVE(packet, 600); */
+	dns_add_OPT_TCP_KEEPALIVE(packet, 1200);
 	if (_dns_client_dns_add_ecs(query, packet) != 0) {
 		tlog(TLOG_ERROR, "add ecs failed.");
 		return -1;

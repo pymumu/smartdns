@@ -181,20 +181,12 @@ struct dns_server_conn_tcp_client {
 	socklen_t localaddr_len;
 	struct sockaddr_storage localaddr;
 
+	int conn_idle_timeout;
 	dns_server_client_status status;
 };
 
 struct dns_server_conn_tls_client {
-	struct dns_server_conn_head head;
-	struct dns_conn_buf recvbuff;
-	struct dns_conn_buf sndbuff;
-	socklen_t addr_len;
-	struct sockaddr_storage addr;
-
-	socklen_t localaddr_len;
-	struct sockaddr_storage localaddr;
-	dns_server_client_status status;
-
+	struct dns_server_conn_tcp_client tcp;
 	SSL *ssl;
 	pthread_mutex_t ssl_lock;
 };
@@ -369,6 +361,7 @@ static int _dns_server_reply_all_pending_list(struct dns_request *request, struc
 static void *_dns_server_get_dns_rule(struct dns_request *request, enum domain_rule rule);
 static const char *_dns_server_get_request_groupname(struct dns_request *request);
 static int _dns_server_tcp_socket_send(struct dns_server_conn_tcp_client *tcp_client, void *data, int data_len);
+static int _dns_server_update_request_connection_timeout(struct dns_server_conn_head *conn, int timeout);
 static int _dns_server_cache_save(int check_lock);
 
 int dns_is_ipv6_ready(void)
@@ -5638,12 +5631,26 @@ static int _dns_server_parser_request(struct dns_request *request, struct dns_pa
 	}
 
 	for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
-		ret = dns_get_OPT_ECS(rrs, NULL, NULL, &request->ecs);
-		if (ret != 0) {
-			continue;
+		switch (rrs->type) {
+		case DNS_OPT_T_TCP_KEEPALIVE: {
+			unsigned short idle_timeout = 0;
+			ret = dns_get_OPT_TCP_KEEPALIVE(rrs, &idle_timeout);
+			if (idle_timeout == 0) {
+				continue;
+			}
+
+			tlog(TLOG_DEBUG, "set tcp connection timeout to %u", idle_timeout);
+			_dns_server_update_request_connection_timeout(request->conn, idle_timeout / 10);
+		} break;
+		case DNS_OPT_T_ECS:
+			ret = dns_get_OPT_ECS(rrs, &request->ecs);
+			if (ret != 0) {
+				continue;
+			}
+			request->has_ecs = 1;
+		default:
+			break;
 		}
-		request->has_ecs = 1;
-		break;
 	}
 
 	return 0;
@@ -5891,6 +5898,33 @@ static int _dns_server_client_close(struct dns_server_conn_head *conn)
 	return 0;
 }
 
+static int _dns_server_update_request_connection_timeout(struct dns_server_conn_head *conn, int timeout)
+{
+	if (conn == NULL) {
+		return -1;
+	}
+
+	if (timeout == 0) {
+		return 0;
+	}
+
+	switch (conn->type) {
+	case DNS_CONN_TYPE_TCP_CLIENT: {
+		struct dns_server_conn_tcp_client *tcpclient = (struct dns_server_conn_tcp_client *)conn;
+		tcpclient->conn_idle_timeout = timeout;
+	} break;
+	case DNS_CONN_TYPE_TLS_CLIENT:
+	case DNS_CONN_TYPE_HTTPS_CLIENT: {
+		struct dns_server_conn_tls_client *tlsclient = (struct dns_server_conn_tls_client *)conn;
+		tlsclient->tcp.conn_idle_timeout = timeout;
+	} break;
+	default:
+		break;
+	}
+
+	return 0;
+}
+
 static int _dns_server_tcp_accept(struct dns_server_conn_tcp_server *tcpserver, struct epoll_event *event,
 								  unsigned long now)
 {
@@ -5917,6 +5951,7 @@ static int _dns_server_tcp_accept(struct dns_server_conn_tcp_server *tcpserver, 
 	tcpclient->head.server_flags = tcpserver->head.server_flags;
 	tcpclient->head.dns_group = tcpserver->head.dns_group;
 	tcpclient->head.ipset_nftset_rule = tcpserver->head.ipset_nftset_rule;
+	tcpclient->conn_idle_timeout = dns_conf_tcp_idle_time;
 
 	atomic_set(&tcpclient->head.refcnt, 0);
 	memcpy(&tcpclient->addr, &addr, addr_len);
@@ -5936,6 +5971,8 @@ static int _dns_server_tcp_accept(struct dns_server_conn_tcp_server *tcpserver, 
 
 	list_add(&tcpclient->head.list, &server.conn_list);
 	_dns_server_conn_get(&tcpclient->head);
+
+	set_sock_keepalive(fd, 15, 3, 4);
 
 	return 0;
 errout:
@@ -6411,30 +6448,31 @@ static int _dns_server_tls_accept(struct dns_server_conn_tls_server *tls_server,
 	}
 	memset(tls_client, 0, sizeof(*tls_client));
 
-	tls_client->head.fd = fd;
+	tls_client->tcp.head.fd = fd;
 	if (tls_server->head.type == DNS_CONN_TYPE_TLS_SERVER) {
-		tls_client->head.type = DNS_CONN_TYPE_TLS_CLIENT;
+		tls_client->tcp.head.type = DNS_CONN_TYPE_TLS_CLIENT;
 	} else if (tls_server->head.type == DNS_CONN_TYPE_HTTPS_SERVER) {
-		tls_client->head.type = DNS_CONN_TYPE_HTTPS_CLIENT;
+		tls_client->tcp.head.type = DNS_CONN_TYPE_HTTPS_CLIENT;
 	} else {
 		tlog(TLOG_ERROR, "invalid http server type.");
 		goto errout;
 	}
-	tls_client->head.server_flags = tls_server->head.server_flags;
-	tls_client->head.dns_group = tls_server->head.dns_group;
-	tls_client->head.ipset_nftset_rule = tls_server->head.ipset_nftset_rule;
+	tls_client->tcp.head.server_flags = tls_server->head.server_flags;
+	tls_client->tcp.head.dns_group = tls_server->head.dns_group;
+	tls_client->tcp.head.ipset_nftset_rule = tls_server->head.ipset_nftset_rule;
+	tls_client->tcp.conn_idle_timeout = dns_conf_tcp_idle_time;
 
-	atomic_set(&tls_client->head.refcnt, 0);
-	memcpy(&tls_client->addr, &addr, addr_len);
-	tls_client->addr_len = addr_len;
-	tls_client->localaddr_len = sizeof(struct sockaddr_storage);
-	if (_dns_server_epoll_ctl(&tls_client->head, EPOLL_CTL_ADD, EPOLLIN) != 0) {
+	atomic_set(&tls_client->tcp.head.refcnt, 0);
+	memcpy(&tls_client->tcp.addr, &addr, addr_len);
+	tls_client->tcp.addr_len = addr_len;
+	tls_client->tcp.localaddr_len = sizeof(struct sockaddr_storage);
+	if (_dns_server_epoll_ctl(&tls_client->tcp.head, EPOLL_CTL_ADD, EPOLLIN) != 0) {
 		tlog(TLOG_ERROR, "epoll ctl failed.");
 		return -1;
 	}
 
-	if (getsocket_inet(tls_client->head.fd, (struct sockaddr *)&tls_client->localaddr, &tls_client->localaddr_len) !=
-		0) {
+	if (getsocket_inet(tls_client->tcp.head.fd, (struct sockaddr *)&tls_client->tcp.localaddr,
+					   &tls_client->tcp.localaddr_len) != 0) {
 		tlog(TLOG_ERROR, "get local addr failed, %s", strerror(errno));
 		goto errout;
 	}
@@ -6451,12 +6489,14 @@ static int _dns_server_tls_accept(struct dns_server_conn_tls_server *tls_server,
 	}
 
 	tls_client->ssl = ssl;
-	tls_client->status = DNS_SERVER_CLIENT_STATUS_CONNECTING;
+	tls_client->tcp.status = DNS_SERVER_CLIENT_STATUS_CONNECTING;
 	pthread_mutex_init(&tls_client->ssl_lock, NULL);
-	_dns_server_client_touch(&tls_client->head);
+	_dns_server_client_touch(&tls_client->tcp.head);
 
-	list_add(&tls_client->head.list, &server.conn_list);
-	_dns_server_conn_get(&tls_client->head);
+	list_add(&tls_client->tcp.head.list, &server.conn_list);
+	_dns_server_conn_get(&tls_client->tcp.head);
+
+	set_sock_keepalive(fd, 15, 3, 4);
 
 	return 0;
 errout:
@@ -6481,7 +6521,7 @@ static int _dns_server_process_tls(struct dns_server_conn_tls_client *tls_client
 	int ssl_ret = 0;
 	struct epoll_event fd_event;
 
-	if (tls_client->status == DNS_SERVER_CLIENT_STATUS_CONNECTING) {
+	if (tls_client->tcp.status == DNS_SERVER_CLIENT_STATUS_CONNECTING) {
 		/* do SSL hand shake */
 		ret = _ssl_do_accept(tls_client);
 		if (ret <= 0) {
@@ -6498,14 +6538,14 @@ static int _dns_server_process_tls(struct dns_server_conn_tls_client *tls_client
 				int ssl_reason = ERR_GET_REASON(ssl_err);
 				char name[DNS_MAX_CNAME_LEN];
 				tlog(TLOG_DEBUG, "Handshake with %s failed, error no: %s(%d, %d, %d)\n",
-					 get_host_by_addr(name, sizeof(name), (struct sockaddr *)&tls_client->addr),
+					 get_host_by_addr(name, sizeof(name), (struct sockaddr *)&tls_client->tcp.addr),
 					 ERR_reason_error_string(ssl_err), ret, ssl_ret, ssl_reason);
 				ret = 0;
 				goto errout;
 			}
 
 			fd_event.data.ptr = tls_client;
-			if (epoll_ctl(server.epoll_fd, EPOLL_CTL_MOD, tls_client->head.fd, &fd_event) != 0) {
+			if (epoll_ctl(server.epoll_fd, EPOLL_CTL_MOD, tls_client->tcp.head.fd, &fd_event) != 0) {
 				tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
 				goto errout;
 			}
@@ -6513,11 +6553,11 @@ static int _dns_server_process_tls(struct dns_server_conn_tls_client *tls_client
 			return 0;
 		}
 
-		tls_client->status = DNS_SERVER_CLIENT_STATUS_CONNECTED;
+		tls_client->tcp.status = DNS_SERVER_CLIENT_STATUS_CONNECTED;
 		memset(&fd_event, 0, sizeof(fd_event));
 		fd_event.events = EPOLLIN | EPOLLOUT;
 		fd_event.data.ptr = tls_client;
-		if (epoll_ctl(server.epoll_fd, EPOLL_CTL_MOD, tls_client->head.fd, &fd_event) != 0) {
+		if (epoll_ctl(server.epoll_fd, EPOLL_CTL_MOD, tls_client->tcp.head.fd, &fd_event) != 0) {
 			tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
 			goto errout;
 		}
@@ -6525,7 +6565,7 @@ static int _dns_server_process_tls(struct dns_server_conn_tls_client *tls_client
 
 	return _dns_server_process_tcp((struct dns_server_conn_tcp_client *)tls_client, event, now);
 errout:
-	_dns_server_client_close(&tls_client->head);
+	_dns_server_client_close(&tls_client->tcp.head);
 	return ret;
 }
 
@@ -6557,7 +6597,7 @@ static int _dns_server_process(struct dns_server_conn_head *conn, struct epoll_e
 		if (ret != 0) {
 			char name[DNS_MAX_CNAME_LEN];
 			tlog(TLOG_DEBUG, "process TLS packet from %s failed.",
-				 get_host_by_addr(name, sizeof(name), (struct sockaddr *)&tls_client->addr));
+				 get_host_by_addr(name, sizeof(name), (struct sockaddr *)&tls_client->tcp.addr));
 		}
 	} else {
 		tlog(TLOG_ERROR, "unsupported dns server type %d", conn->type);
@@ -6692,18 +6732,21 @@ static void _dns_server_tcp_idle_check(void)
 	struct dns_server_conn_head *tmp = NULL;
 	time_t now = 0;
 
-	if (dns_conf_tcp_idle_time <= 0) {
-		return;
-	}
-
 	time(&now);
 	list_for_each_entry_safe(conn, tmp, &server.conn_list, list)
 	{
-		if (conn->type != DNS_CONN_TYPE_TCP_CLIENT && conn->type != DNS_CONN_TYPE_TLS_CLIENT) {
+		if (conn->type != DNS_CONN_TYPE_TCP_CLIENT && conn->type != DNS_CONN_TYPE_TLS_CLIENT &&
+			conn->type != DNS_CONN_TYPE_HTTPS_CLIENT) {
 			continue;
 		}
 
-		if (conn->last_request_time > now - dns_conf_tcp_idle_time) {
+		struct dns_server_conn_tcp_client *tcpclient = (struct dns_server_conn_tcp_client *)conn;
+
+		if (tcpclient->conn_idle_timeout <= 0) {
+			continue;
+		}
+
+		if (conn->last_request_time > now - tcpclient->conn_idle_timeout) {
 			continue;
 		}
 

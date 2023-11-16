@@ -1386,8 +1386,8 @@ int set_sock_keepalive(int fd, int keepidle, int keepinterval, int keepcnt)
 	}
 
 	setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &keepidle, sizeof(keepidle));
-	setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &keepinterval, sizeof(keepinterval));
-	setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &keepcnt, sizeof(keepcnt));
+	setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &keepinterval, sizeof(keepinterval));
+	setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &keepcnt, sizeof(keepcnt));
 
 	return 0;
 }

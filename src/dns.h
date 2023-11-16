@@ -280,11 +280,10 @@ int dns_set_OPT_payload_size(struct dns_packet *packet, int payload_size);
 int dns_get_OPT_payload_size(struct dns_packet *packet);
 
 int dns_add_OPT_ECS(struct dns_packet *packet, struct dns_opt_ecs *ecs);
-int dns_get_OPT_ECS(struct dns_rrs *rrs, unsigned short *opt_code, unsigned short *opt_len, struct dns_opt_ecs *ecs);
+int dns_get_OPT_ECS(struct dns_rrs *rrs, struct dns_opt_ecs *ecs);
 
 int dns_add_OPT_TCP_KEEPALIVE(struct dns_packet *packet, unsigned short timeout);
-int dns_get_OPT_TCP_KEEPALIVE(struct dns_rrs *rrs, unsigned short *opt_code, unsigned short *opt_len,
-							  unsigned short *timeout);
+int dns_get_OPT_TCP_KEEPALIVE(struct dns_rrs *rrs, unsigned short *timeout);
 
 /* the key must be added in orders, or dig will report FORMERR */
 int dns_add_HTTPS_start(struct dns_rr_nested *svcparam_buffer, struct dns_packet *packet, dns_rr_type type,

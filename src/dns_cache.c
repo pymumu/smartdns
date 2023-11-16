@@ -32,6 +32,7 @@
 #define DNS_CACHE_HITNUM_STEP 3
 #define DNS_CACHE_HITNUM_STEP_MAX 6
 #define DNS_CACHE_READ_TIMEOUT 60
+#define EXPIRED_DOMAIN_PREFETCH_TIME (3600 * 8)
 
 struct dns_cache_head {
 	struct hash_table cache_hash;
@@ -508,12 +509,25 @@ static int _dns_cache_read_to_cache(struct dns_cache_record *cache_record, struc
 	struct list_head *head = NULL;
 	head = &dns_cache_head.cache_list;
 	struct dns_cache_info *info = &cache_record->info;
+	int expired_time = 0;
 
 	time_t now = time(NULL);
+	if (now < info->replace_time) {
+		info->replace_time = now;
+	}
+
+	expired_time = dns_conf_serve_expired_prefetch_time;
+	if (expired_time == 0) {
+		expired_time = dns_conf_serve_expired_ttl / 2;
+		if (expired_time == 0 || expired_time > EXPIRED_DOMAIN_PREFETCH_TIME) {
+			expired_time = EXPIRED_DOMAIN_PREFETCH_TIME;
+		}
+	}
+
 	int passed_time = now - info->replace_time;
 	int timeout = info->timeout - passed_time;
-	if ((timeout > dns_conf_serve_expired_ttl + info->ttl) && dns_conf_serve_expired_ttl >= 0) {
-		timeout = dns_conf_serve_expired_ttl + info->ttl;
+	if ((timeout > expired_time + info->ttl) && expired_time >= 0) {
+		timeout = expired_time + info->ttl;
 	}
 
 	if (timeout < DNS_CACHE_READ_TIMEOUT * 2) {

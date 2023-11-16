@@ -55,7 +55,7 @@ TEST_F(SubNet, pass_subnet)
 
 		for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(request->packet, rrs)) {
 			memset(&ecs, 0, sizeof(ecs));
-			ret = dns_get_OPT_ECS(rrs, NULL, NULL, &ecs);
+			ret = dns_get_OPT_ECS(rrs, &ecs);
 			if (ret != 0) {
 				continue;
 			}
@@ -125,7 +125,7 @@ TEST_F(SubNet, conf)
 
 		for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(request->packet, rrs)) {
 			memset(&ecs, 0, sizeof(ecs));
-			ret = dns_get_OPT_ECS(rrs, NULL, NULL, &ecs);
+			ret = dns_get_OPT_ECS(rrs, &ecs);
 			if (ret != 0) {
 				continue;
 			}
@@ -196,7 +196,7 @@ TEST_F(SubNet, conf_v6)
 
 		for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(request->packet, rrs)) {
 			memset(&ecs, 0, sizeof(ecs));
-			ret = dns_get_OPT_ECS(rrs, NULL, NULL, &ecs);
+			ret = dns_get_OPT_ECS(rrs, &ecs);
 			if (ret != 0) {
 				continue;
 			}
@@ -269,7 +269,7 @@ TEST_F(SubNet, v4_server_subnet_txt)
 
 		for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(request->packet, rrs)) {
 			memset(&ecs, 0, sizeof(ecs));
-			ret = dns_get_OPT_ECS(rrs, NULL, NULL, &ecs);
+			ret = dns_get_OPT_ECS(rrs, &ecs);
 			if (ret != 0) {
 				continue;
 			}
@@ -340,7 +340,7 @@ TEST_F(SubNet, v6_default_subnet_txt)
 
 		for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(request->packet, rrs)) {
 			memset(&ecs, 0, sizeof(ecs));
-			ret = dns_get_OPT_ECS(rrs, NULL, NULL, &ecs);
+			ret = dns_get_OPT_ECS(rrs, &ecs);
 			if (ret != 0) {
 				continue;
 			}
@@ -410,7 +410,7 @@ TEST_F(SubNet, per_server)
 
 			for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(request->packet, rrs)) {
 				memset(&ecs, 0, sizeof(ecs));
-				ret = dns_get_OPT_ECS(rrs, NULL, NULL, &ecs);
+				ret = dns_get_OPT_ECS(rrs, &ecs);
 				if (ret != 0) {
 					continue;
 				}
@@ -442,7 +442,7 @@ TEST_F(SubNet, per_server)
 
 			for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(request->packet, rrs)) {
 				memset(&ecs, 0, sizeof(ecs));
-				ret = dns_get_OPT_ECS(rrs, NULL, NULL, &ecs);
+				ret = dns_get_OPT_ECS(rrs, &ecs);
 				if (ret != 0) {
 					continue;
 				}
@@ -479,7 +479,7 @@ TEST_F(SubNet, per_server)
 
 			for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(request->packet, rrs)) {
 				memset(&ecs, 0, sizeof(ecs));
-				ret = dns_get_OPT_ECS(rrs, NULL, NULL, &ecs);
+				ret = dns_get_OPT_ECS(rrs, &ecs);
 				if (ret != 0) {
 					continue;
 				}
@@ -524,7 +524,7 @@ TEST_F(SubNet, per_server)
 
 			for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(request->packet, rrs)) {
 				memset(&ecs, 0, sizeof(ecs));
-				ret = dns_get_OPT_ECS(rrs, NULL, NULL, &ecs);
+				ret = dns_get_OPT_ECS(rrs, &ecs);
 				if (ret != 0) {
 					continue;
 				}
