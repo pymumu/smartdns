@@ -184,8 +184,38 @@ msgstr "启用IPV6服务器。"
 msgid "Enable TCP DNS Server"
 msgstr "启用TCP服务器。"
 
-msgid "Enable daily auto update."
-msgstr "启用每日自动更新"
+msgid "Enable daily (weekly) auto update."
+msgstr "启用每日（每周）自动更新"
+
+msgid "Update time (every day)"
+msgstr "更新时间（每天）"
+
+msgid "Update Time (Every Week)"
+msgstr "更新时间（每周）"
+
+msgid "Every Day"
+msgstr "每天"
+
+msgid "Every Monday"
+msgstr "每周一"
+
+msgid "Every Tuesday"
+msgstr "每周二"
+
+msgid "Every Wednesday"
+msgstr "每周三"
+
+msgid "Every Thursday"
+msgstr "每周四"
+
+msgid "Every Friday"
+msgstr "每周五"
+
+msgid "Every Saturday"
+msgstr "每周六"
+
+msgid "Every Sunday"
+msgstr "每周日"
 
 msgid "Enable domain prefetch, accelerate domain response speed."
 msgstr "启用域名预加载，加速域名响应速度。"
@@ -348,6 +378,9 @@ msgstr "无"
 
 msgid "Only socks5 proxy support udp server."
 msgstr "仅SOCKS5代理支持UDP服务器。"
+
+msgid "Please check the system logs and check if the configuration is valid."
+msgstr "请检查系统日志，并检查配置是否合法。"
 
 msgid "Please set proxy server first."
 msgstr "请先设置代理服务器。"

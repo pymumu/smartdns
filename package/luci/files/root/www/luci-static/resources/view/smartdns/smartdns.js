@@ -58,12 +58,17 @@ function smartdnsRenderStatus(res) {
 
 	var autoSetDnsmasq = uci.get_first('smartdns', 'smartdns', 'auto_set_dnsmasq');
 	var smartdnsPort = uci.get_first('smartdns', 'smartdns', 'port');
+	var smartdnsEnable = uci.get_first('smartdns', 'smartdns', 'enabled');
 	var dnsmasqServer = uci.get_first('dhcp', 'dnsmasq', 'server');
 
 	if (isRunning) {
 		renderHTML += "<span style=\"color:green;font-weight:bold\">SmartDNS - " + _("RUNNING") + "</span>";
 	} else {
 		renderHTML += "<span style=\"color:red;font-weight:bold\">SmartDNS - " + _("NOT RUNNING") + "</span>";
+		if (smartdnsEnable === '1') {
+			renderHTML += "<br /><span style=\"color:red;font-weight:bold\">" + _("Please check the system logs and check if the configuration is valid.");
+			renderHTML += "</span>";
+		}
 		return renderHTML;
 	}
 
@@ -79,7 +84,6 @@ function smartdnsRenderStatus(res) {
 
 	return renderHTML;
 }
-
 return view.extend({
 	load: function () {
 		return Promise.all([
@@ -156,7 +160,7 @@ return view.extend({
 		o.default = 53;
 		o.datatype = "port";
 		o.rempty = false;
-		
+
 		// auto-conf-dnsmasq;
 		o = s.taboption("settings", form.Flag, "auto_set_dnsmasq", _("Automatically Set Dnsmasq"), _("Automatically set as upstream of dnsmasq when port changes."));
 		o.rmempty = false;
@@ -220,6 +224,30 @@ return view.extend({
 		o.rmempty = false;
 		o.default = o.enabled;
 
+		// Enable DOT server;
+		o = s.taboption("advanced", form.Flag, "tls_server", _("DOT Server"), _("Enable DOT DNS Server"));
+		o.rmempty = false;
+		o.default = o.disabled;
+
+		o = s.taboption("advanced", form.Value, "tls_server_port", _("DOT Server Port"), _("Smartdns DOT server port."));
+		o.placeholder = 853;
+		o.default = 853;
+		o.datatype = "port";
+		o.rempty = false;
+		o.depends('tls_server', '1');
+
+		// Enable DOH server;
+		o = s.taboption("advanced", form.Flag, "doh_server", _("DOH Server"), _("Enable DOH DNS Server"));
+		o.rmempty = false;
+		o.default = o.disabled;
+
+		o = s.taboption("advanced", form.Value, "doh_server_port", _("DOH Server Port"), _("Smartdns DOH server port."));
+		o.placeholder = 443;
+		o.default = 443;
+		o.datatype = "port";
+		o.rempty = false;
+		o.depends('https_server', '1');
+
 		// Support IPV6;
 		o = s.taboption("advanced", form.Flag, "ipv6_server", _("IPV6 Server"), _("Enable IPV6 DNS Server"));
 		o.rmempty = false;
@@ -279,7 +307,7 @@ return view.extend({
 		o.default = o.enabled;
 
 		// Ipset no speed.
-		o = s.taboption("advanced", form.Value, "ipset_no_speed", _("No Speed IPset Name"), 
+		o = s.taboption("advanced", form.Value, "ipset_no_speed", _("No Speed IPset Name"),
 			_("Ipset name, Add domain result to ipset when speed check fails."));
 		o.rmempty = true;
 		o.datatype = "string";
@@ -300,7 +328,7 @@ return view.extend({
 		}
 
 		// NFTset no speed.
-		o = s.taboption("advanced", form.Value, "nftset_no_speed", _("No Speed NFTset Name"), 
+		o = s.taboption("advanced", form.Value, "nftset_no_speed", _("No Speed NFTset Name"),
 			_("Nftset name, Add domain result to nftset when speed check fails, format: [#[4|6]:[family#table#set]]"));
 		o.rmempty = true;
 		o.datatype = "string";
@@ -343,7 +371,7 @@ return view.extend({
 		o.rempty = true;
 
 		// other args
-		o = s.taboption("advanced", form.Value, "server_flags", _("Additional Server Args"), 
+		o = s.taboption("advanced", form.Value, "server_flags", _("Additional Server Args"),
 			_("Additional server args, refer to the help description of the bind option."))
 		o.default = ""
 		o.rempty = true
@@ -476,7 +504,7 @@ return view.extend({
 		}
 
 		// other args
-		o = s.taboption("seconddns", form.Value, "seconddns_server_flags", _("Additional Server Args"), 
+		o = s.taboption("seconddns", form.Value, "seconddns_server_flags", _("Additional Server Args"),
 			_("Additional server args, refer to the help description of the bind option."))
 		o.default = ""
 		o.rempty = true
@@ -492,10 +520,28 @@ return view.extend({
 		///////////////////////////////////////
 		// download Files Settings
 		///////////////////////////////////////
-		o = s.taboption("files", form.Flag, "enable_auto_update", _("Enable Auto Update"), _("Enable daily auto update."));
+		o = s.taboption("files", form.Flag, "enable_auto_update", _("Enable Auto Update"), _("Enable daily (weekly) auto update."));
 		o.rmempty = true;
 		o.default = o.disabled;
 		o.rempty = true;
+
+		o = s.taboption("files", form.ListValue, "auto_update_week_time", _("Update Time (Every Week)"));
+		o.value('*', _('Every Day'));
+		o.value('1', _('Every Monday'));
+		o.value('2', _('Every Tuesday'));
+		o.value('3', _('Every Wednesday'));
+		o.value('4', _('Every Thursday'));
+		o.value('5', _('Every Friday'));
+		o.value('6', _('Every Saturday'));
+		o.value('0', _('Every Sunday'));
+		o.default = "*";
+		o.depends('enable_auto_update', '1');
+
+		o = s.taboption('files', form.ListValue, 'auto_update_day_time', _("Update time (every day)"));
+		for (var i = 0; i < 24; i++)
+			o.value(i, i + ':00');
+		o.default = '5';
+		o.depends('enable_auto_update', '1');
 
 		o = s.taboption("files", form.FileUpload, "upload_conf_file", _("Upload Config File"),
 			_("Upload smartdns config file to /etc/smartdns/conf.d"));
