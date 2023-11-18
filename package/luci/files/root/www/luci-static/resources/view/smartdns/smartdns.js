@@ -850,6 +850,7 @@ return view.extend({
 		s.tab("forwarding", _('DNS Forwarding Setting'));
 		s.tab("block", _("DNS Block Setting"));
 		s.tab("domain-rule-list", _("Domain Rule List"), _("Set Specific domain rule list."));
+		s.tab("ip-rule-list", _("IP Rule List"), _("Set Specific ip rule list."));
 		s.tab("domain-address", _("Domain Address"), _("Set Specific domain ip address."));
 		s.tab("blackip-list", _("IP Blacklist"), _("Set Specific ip blacklist."));
 
@@ -1176,6 +1177,72 @@ return view.extend({
 				return fs.write('/etc/smartdns/address.conf', formvalue.trim().replace(/\r\n/g, '\n') + '\n');
 			});
 		};
+
+		///////////////////////////////////////
+		// ip rule list;
+		///////////////////////////////////////
+		o = s.taboption('ip-rule-list', form.SectionValue, '__ip-rule-list__', form.GridSection, 'ip-rule-list', _('IP Rule List'),
+			_('Configure ip rule list.'));
+
+		ss = o.subsection;
+
+		ss.addremove = true;
+		ss.anonymous = true;
+		ss.sortable = true;
+
+		// enable flag;
+		so = ss.option(form.Flag, "enabled", _("Enable"), _("Enable"));
+		so.rmempty = false;
+		so.default = so.enabled;
+		so.editable = true;
+
+		// name;
+		so = ss.option(form.Value, "name", _("IP Rule Name"), _("IP Rule Name"));
+		so.rmempty = true;
+		so.datatype = "string";
+
+		so = ss.option(form.FileUpload, "ip_set_file", _("IP Set File"), _("Upload IP set file."));
+		so.rmempty = true
+		so.datatype = "file"
+		so.modalonly = true;
+		so.root_directory = "/etc/smartdns/ip-set"
+
+		so = ss.option(form.DynamicList, "ip_addr", _("IP Addresses"), _("IP addresses, CIDR format."));
+		so.rmempty = true;
+		so.datatype = "ipaddr"
+		so.modalonly = true;
+
+		so = ss.option(form.Flag, "whitelist_ip", _("Whitelist IP"), _("Whitelist IP Rule, Accept IP addresses within the range."));
+		so.rmempty = true;
+		so.default = so.disabled;
+		so.modalonly = true;
+
+		so = ss.option(form.Flag, "blacklist_ip", _("Blacklist IP"), _("Blacklist IP Rule, Decline IP addresses within the range."));
+		so.rmempty = true;
+		so.default = so.disabled;
+		so.modalonly = true;
+
+		so = ss.option(form.Flag, "ignore_ip", _("Ignore IP"), _("Do not use these IP addresses."));
+		so.rmempty = true;
+		so.default = so.disabled;
+		so.modalonly = true;
+
+		so = ss.option(form.Flag, "bogus_nxdomain", _("Bogus nxdomain"), _("Return SOA when the requested result contains a specified IP address."));
+		so.rmempty = true;
+		so.default = so.disabled;
+		so.modalonly = true;
+
+		so = ss.option(form.DynamicList, "ip_alias", _("IP alias"), _("IP Address Mapping, Can be used for CDN acceleration with Anycast IP, such as Cloudflare's CDN."));
+		so.rmempty = true;
+		so.datatype = 'ipaddr("nomask")';
+		so.modalonly = true;
+
+		// other args
+		so = ss.option(form.Value, "addition_flag", _("Additional Rule Flag"),
+			_("Additional Flags for rules, read help on ip-rule for more information."))
+		so.default = ""
+		so.rempty = true
+		so.modalonly = true;
 
 		////////////////
 		// Support

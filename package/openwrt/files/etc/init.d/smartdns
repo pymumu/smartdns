@@ -362,6 +362,52 @@ load_domain_rule_list()
 	conf_append "domain-rules" "/domain-set:domain-rule-list-${domain_set_name}/ $domain_set_args"	
 }
 
+ip_rule_addr_append()
+{
+	conf_append "ip-rules" "$1 $IP_set_args"
+}
+
+load_IP_rule_list()
+{
+	local section="$1"
+	local IP_set_args=""
+	local IP_set_name="$section"
+
+	config_get_bool enabled "$section" "enabled" "0"
+	[ "$enabled" != "1" ] && return
+
+	config_get ip_set_file "$section" "ip_set_file" ""
+
+	config_get_bool whitelist_ip "$section" "whitelist_ip" "0"
+	[ "$whitelist_ip" = "1" ] && IP_set_args="$IP_set_args -whitelist-ip"
+
+	config_get_bool blacklist_ip "$section" "blacklist_ip" "0"
+	[ "$blacklist_ip" = "1" ] && IP_set_args="$IP_set_args -blacklist-ip"
+
+	config_get_bool ignore_ip "$section" "ignore_ip" "0"
+	[ "$ignore_ip" = "1" ] && IP_set_args="$IP_set_args -ignore-ip"
+
+	config_get_bool bogus_nxdomain "$section" "bogus_nxdomain" "0"
+	[ "$bogus_nxdomain" = "1" ] && IP_set_args="$IP_set_args -bogus-nxdomain"
+
+	config_get ip_alias "$section" "ip_alias" ""
+	[ ! -z "$ip_alias" ] && {
+		ip_alias="$(echo "$ip_alias" | sed 's/ /,/g')"
+		IP_set_args="$IP_set_args -ip-alias $ip_alias"
+	}
+
+	config_get addition_flag "$section" "addition_flag" ""
+	[ ! -z "$addition_flag" ] && IP_set_args="$IP_set_args $addition_flag"
+	[ -z "$IP_set_args" ] && return
+
+	[ ! -z "$ip_set_file" ] && [ -e "$ip_set_file" ] && {
+		conf_append "ip-set" "-name ip-rule-list-file-${section} -file '$ip_set_file'"
+		conf_append "ip-rules" "ip-set:ip-rule-list-file-${section} $IP_set_args"
+	}
+
+	config_list_foreach "$section" "ip_addr" ip_rule_addr_append
+}
+
 conf_append_bind()
 {
 	local ADDR=""
@@ -666,6 +712,8 @@ load_service()
 	config_foreach load_domain_rules "domain-rule"
 
 	config_foreach load_domain_rule_list "domain-rule-list"
+
+	config_foreach load_IP_rule_list "ip-rule-list"
 
 	{
 		echo "conf-file $ADDRESS_CONF"
