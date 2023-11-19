@@ -47,8 +47,8 @@ blacklist-ip 192.168.1.1/24
 方法2：
 
 ```shell
-server -whitelist-ip
-ip-rules 192.168.1.1/24 -whitelist-ip
+server -blacklist-ip
+ip-rules 192.168.1.1/24 -blacklist-ip
 ```
 
 ## 忽略IP地址
@@ -64,8 +64,7 @@ ignore-ip 1.2.3.4
 方法2：
 
 ```shell
-server -whitelist-ip
-ip-rules 192.168.1.1/24 -whitelist-ip
+ip-rules 192.168.1.1/24 -ignore-ip
 ```
 
 ## 假冒IP地址
