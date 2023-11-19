@@ -242,11 +242,31 @@ return view.extend({
 		o.default = o.disabled;
 
 		o = s.taboption("advanced", form.Value, "doh_server_port", _("DOH Server Port"), _("Smartdns DOH server port."));
-		o.placeholder = 443;
-		o.default = 443;
+		o.placeholder = 843;
+		o.default = 843;
 		o.datatype = "port";
 		o.rempty = false;
-		o.depends('https_server', '1');
+		o.depends('doh_server', '1');
+
+		o = s.taboption("advanced", form.Value, "bind_cert", _("Server Cert"), _("Server certificate file path."));
+		o.datatype = "string";
+		o.placeholder = "/var/etc/smartdns/smartdns/smartdns-cert.pem"
+		o.rempty = true;
+		o.depends('tls_server', '1');
+		o.depends('doh_server', '1');
+	
+		o = s.taboption("advanced", form.Value, "bind_cert_key", _("Server Cert Key"), _("Server certificate key file path."));
+		o.datatype = "string";
+		o.placeholder = "/var/etc/smartdns/smartdns/smartdns-key.pem"
+		o.rempty = false;
+		o.depends('tls_server', '1');
+		o.depends('doh_server', '1');
+
+		o = s.taboption("advanced", form.Value, "bind_cert_key_pass", _("Server Cert Key Pass"), _("Server certificate key file password."));
+		o.datatype = "string";
+		o.rempty = false;
+		o.depends('tls_server', '1');
+		o.depends('doh_server', '1');
 
 		// Support IPV6;
 		o = s.taboption("advanced", form.Flag, "ipv6_server", _("IPV6 Server"), _("Enable IPV6 DNS Server"));

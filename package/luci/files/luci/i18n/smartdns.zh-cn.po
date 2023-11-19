@@ -86,6 +86,18 @@ msgstr "自定义设置"
 msgid "Do not use these IP addresses."
 msgstr "忽略这些IP地址"
 
+msgid "DOH Server"
+msgstr "DOH服务器"
+
+msgid "DOH Server Port"
+msgstr "DOH服务器端口"
+
+msgid "DOT Server"
+msgstr "DOT服务器"
+
+msgid "DOT Server Port"
+msgstr "DOT服务器端口"
+
 msgid "DNS Block Setting"
 msgstr "域名屏蔽设置"
 
@@ -205,6 +217,12 @@ msgstr "启用TCP服务器。"
 
 msgid "Enable daily (weekly) auto update."
 msgstr "启用每日（每周）自动更新"
+
+msgid "Enable DOH DNS Server"
+msgstr "启用DOH服务器"
+
+msgid "Enable DOT DNS Server"
+msgstr "启用DOT服务器"
 
 msgid "Update time (every day)"
 msgstr "更新时间（每天）"
@@ -477,6 +495,15 @@ msgstr "重启服务"
 msgid "Second Server Settings"
 msgstr "第二DNS服务器"
 
+msgid "Server certificate file path."
+msgstr "服务器证书文件路径。"
+
+msgid "Server certificate key file path."
+msgstr "服务器证书私钥文件路径。"
+
+msgid "Server certificate key file password."
+msgstr "服务器证书私钥文件密码。"
+
 msgid "Serve expired"
 msgstr "缓存过期服务"
 
@@ -488,6 +515,15 @@ msgstr "服务器组%s不存在"
 
 msgid "Server Name"
 msgstr "服务器名称"
+
+msgid "Server Cert"
+msgstr "服务器证书"
+
+msgid "Server Cert Key"
+msgstr "服务器证书私钥"
+
+msgid "Server Cert Key Pass"
+msgstr "服务器证书私钥密码"
 
 msgid "Set Specific domain ip address."
 msgstr "设置指定域名的IP地址。"
@@ -559,6 +595,12 @@ msgstr "跳过Nameserver规则。"
 
 msgid "SmartDNS"
 msgstr "SmartDNS"
+
+msgid "Smartdns DOH server port."
+msgstr "Smartdns DOH服务器端口号。
+
+msgid "Smartdns DOT server port."
+msgstr "Smartdns DOT服务器端口号。"
 
 msgid "SmartDNS Server"
 msgstr "SmartDNS 服务器"
