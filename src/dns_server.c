@@ -5972,7 +5972,7 @@ static int _dns_server_tcp_accept(struct dns_server_conn_tcp_server *tcpserver, 
 	list_add(&tcpclient->head.list, &server.conn_list);
 	_dns_server_conn_get(&tcpclient->head);
 
-	set_sock_keepalive(fd, 15, 3, 4);
+	set_sock_keepalive(fd, 30, 3, 5);
 
 	return 0;
 errout:
@@ -6206,6 +6206,10 @@ static int _dns_server_tcp_recv(struct dns_server_conn_tcp_client *tcpclient)
 			}
 
 			if (errno == ECONNRESET) {
+				return RECV_ERROR_CLOSE;
+			}
+
+			if (errno == ETIMEDOUT) {
 				return RECV_ERROR_CLOSE;
 			}
 
@@ -6496,7 +6500,7 @@ static int _dns_server_tls_accept(struct dns_server_conn_tls_server *tls_server,
 	list_add(&tls_client->tcp.head.list, &server.conn_list);
 	_dns_server_conn_get(&tls_client->tcp.head);
 
-	set_sock_keepalive(fd, 15, 3, 4);
+	set_sock_keepalive(fd, 30, 3, 5);
 
 	return 0;
 errout:

@@ -1798,7 +1798,7 @@ static int _dns_client_create_socket_udp_proxy(struct dns_server_info *server_in
 	}
 
 	set_fd_nonblock(fd, 1);
-	set_sock_keepalive(fd, 15, 3, 4);
+	set_sock_keepalive(fd, 30, 3, 5);
 
 	ret = proxy_conn_connect(proxy);
 	if (ret != 0) {
@@ -1949,7 +1949,7 @@ static int _DNS_client_create_socket_tcp(struct dns_server_info *server_info)
 	setsockopt(fd, IPPROTO_IP, IP_TOS, &ip_tos, sizeof(ip_tos));
 	setsockopt(fd, IPPROTO_TCP, TCP_THIN_DUPACK, &yes, sizeof(yes));
 	setsockopt(fd, IPPROTO_TCP, TCP_THIN_LINEAR_TIMEOUTS, &yes, sizeof(yes));
-	set_sock_keepalive(fd, 15, 3, 4);
+	set_sock_keepalive(fd, 30, 3, 5);
 
 	if (proxy) {
 		ret = proxy_conn_connect(proxy);
@@ -2056,7 +2056,7 @@ static int _DNS_client_create_socket_tls(struct dns_server_info *server_info, ch
 	setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
 	setsockopt(fd, IPPROTO_TCP, TCP_THIN_DUPACK, &yes, sizeof(yes));
 	setsockopt(fd, IPPROTO_TCP, TCP_THIN_LINEAR_TIMEOUTS, &yes, sizeof(yes));
-	set_sock_keepalive(fd, 15, 3, 4);
+	set_sock_keepalive(fd, 30, 3, 5);
 	setsockopt(fd, SOL_SOCKET, SO_PRIORITY, &priority, sizeof(priority));
 	setsockopt(fd, IPPROTO_IP, IP_TOS, &ip_tos, sizeof(ip_tos));
 
