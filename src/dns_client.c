@@ -3632,7 +3632,7 @@ static int _dns_client_send_query(struct dns_query_struct *query)
 	}
 
 	dns_set_OPT_payload_size(packet, DNS_IN_PACKSIZE);
-	dns_add_OPT_TCP_KEEPALIVE(packet, 1200);
+	/* dns_add_OPT_TCP_KEEPALIVE(packet, 1200); */
 	if (_dns_client_dns_add_ecs(query, packet) != 0) {
 		tlog(TLOG_ERROR, "add ecs failed.");
 		return -1;
