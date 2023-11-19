@@ -47,6 +47,7 @@
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <syslog.h>
 #include <ucontext.h>
 
 #define MAX_KEY_LEN 64
@@ -725,6 +726,51 @@ static int _smartdns_init_pre(void)
 	return 0;
 }
 
+static void _smartdns_early_log(struct tlog_loginfo *loginfo, const char *format, va_list ap)
+{
+	char log_buf[TLOG_MAX_LINE_LEN];
+	int sys_log_level = LOG_INFO;
+
+	if (loginfo->level < TLOG_WARN) {
+		return;
+	}
+
+	int len = vsnprintf(log_buf, sizeof(log_buf), format, ap);
+	if (len <= 0) {
+		return;
+	}
+
+	if (log_buf[len - 1] != '\n') {
+		log_buf[len] = '\n';
+		len++;
+	}
+
+	fprintf(stderr, "%s", log_buf);
+
+	switch (loginfo->level) {
+	case TLOG_ERROR:
+		sys_log_level = LOG_ERR;
+		break;
+	case TLOG_WARN:
+		sys_log_level = LOG_WARNING;
+		break;
+	case TLOG_NOTICE:
+		sys_log_level = LOG_NOTICE;
+		break;
+	case TLOG_INFO:
+		sys_log_level = LOG_INFO;
+		break;
+	case TLOG_DEBUG:
+		sys_log_level = LOG_DEBUG;
+		break;
+	default:
+		sys_log_level = LOG_INFO;
+		break;
+	}
+
+	syslog(sys_log_level, "%s", log_buf);
+}
+
 #ifdef TEST
 
 static smartdns_post_func _smartdns_post = NULL;
@@ -831,6 +877,8 @@ int main(int argc, char *argv[])
 	}
 
 	srand(time(NULL));
+
+	tlog_reg_early_printf_callback(_smartdns_early_log);
 
 	ret = dns_server_load_conf(config_file);
 	if (ret != 0) {

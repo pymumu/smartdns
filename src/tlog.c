@@ -148,6 +148,7 @@ static struct tlog tlog;
 static int tlog_disable_early_print = 0;
 static tlog_level tlog_set_level = TLOG_INFO;
 static tlog_format_func tlog_format;
+static tlog_early_print_func tlog_early_print;
 static unsigned int tlog_localtime_lock = 0;
 
 static const char *tlog_level_str[] = {
@@ -628,7 +629,7 @@ int tlog_printf(struct tlog_log *log, const char *format, ...)
     return len;
 }
 
-static int _tlog_early_print(tlog_level level, const char *file, int line, const char *func, const char *format, va_list ap)
+static int _tlog_early_print(struct tlog_info_inter *info_inter, const char *format, va_list ap)
 {
     char log_buf[TLOG_MAX_LINE_LEN];
     size_t len = 0;
@@ -644,9 +645,14 @@ static int _tlog_early_print(tlog_level level, const char *file, int line, const
         return -1;
     }
 
+    if (tlog_early_print != NULL) {
+        tlog_early_print(&info_inter->info, format, ap);
+        return out_len;
+    }
+
     len = snprintf(log_buf, sizeof(log_buf), "[%.4d-%.2d-%.2d %.2d:%.2d:%.2d,%.3d][%5s][%17s:%-4d] ",
             cur_time.year, cur_time.mon, cur_time.mday, cur_time.hour, cur_time.min, cur_time.sec, cur_time.usec / 1000,
-            tlog_get_level_string(level), file, line);
+            tlog_get_level_string(info_inter->info.level), info_inter->info.file, info_inter->info.line);
     out_len = len;
     len = vsnprintf(log_buf + out_len, sizeof(log_buf) - out_len - 1, format, ap);
     out_len += len;
@@ -662,7 +668,7 @@ static int _tlog_early_print(tlog_level level, const char *file, int line, const
     }
 
     unused = write(STDOUT_FILENO, log_buf, out_len);
-    return len;
+    return out_len;
 }
 
 int tlog_vext(tlog_level level, const char *file, int line, const char *func, void *userptr, const char *format, va_list ap)
@@ -670,14 +676,6 @@ int tlog_vext(tlog_level level, const char *file, int line, const char *func, vo
     struct tlog_info_inter info_inter;
 
     if (level < tlog_set_level) {
-        return 0;
-    }
-
-    if (tlog.root == NULL) {
-        return _tlog_early_print(level, file, line, func, format, ap);
-    }
-
-    if (unlikely(tlog.root->logsize <= 0)) {
         return 0;
     }
 
@@ -692,6 +690,14 @@ int tlog_vext(tlog_level level, const char *file, int line, const char *func, vo
     info_inter.userptr = userptr;
     if (_tlog_gettime(&info_inter.info.time) != 0) {
         return -1;
+    }
+
+    if (tlog.root == NULL) {
+        return _tlog_early_print(&info_inter, format, ap);
+    }
+
+    if (unlikely(tlog.root->logsize <= 0)) {
+        return 0;
     }
 
     return _tlog_vprintf(tlog.root, _tlog_root_log_buffer, &info_inter, format, ap);
@@ -1618,6 +1624,11 @@ static void *_tlog_work(void *arg)
 void tlog_set_early_printf(int enable)
 {
     tlog_disable_early_print = (enable == 0) ? 1 : 0;
+}
+
+void tlog_reg_early_printf_callback(tlog_early_print_func callback)
+{
+    tlog_early_print = callback;
 }
 
 const char *tlog_get_level_string(tlog_level level)

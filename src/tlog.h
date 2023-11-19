@@ -111,6 +111,10 @@ extern void tlog_setlogscreen(int enable);
 /* enable early log to screen */
 extern void tlog_set_early_printf(int enable);
 
+/* set early log callback */
+typedef void (*tlog_early_print_func)(struct tlog_loginfo *loginfo, const char *format, va_list ap);
+extern void tlog_reg_early_printf_callback(tlog_early_print_func callback);
+
 /* Get log level in string */
 extern const char *tlog_get_level_string(tlog_level level);
 
