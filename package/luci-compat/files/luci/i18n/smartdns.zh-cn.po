@@ -67,6 +67,18 @@ msgstr "配置分流域名列表"
 msgid "Custom Settings"
 msgstr "自定义设置"
 
+msgid "DOH Server"
+msgstr "DOH服务器"
+
+msgid "DOH Server Port"
+msgstr "DOH服务器端口"
+
+msgid "DOT Server"
+msgstr "DOT服务器"
+
+msgid "DOT Server Port"
+msgstr "DOT服务器端口"
+
 msgid "DNS Block Setting"
 msgstr "域名屏蔽设置"
 
@@ -184,8 +196,44 @@ msgstr "启用IPV6服务器。"
 msgid "Enable TCP DNS Server"
 msgstr "启用TCP服务器。"
 
-msgid "Enable daily auto update."
-msgstr "启用每日自动更新"
+msgid "Enable daily(week) auto update."
+msgstr "启用每天（每周）自动更新。"
+
+msgid "Enable DOH DNS Server"
+msgstr "启用DOH服务器。"
+
+msgid "Enable DOT DNS Server"
+msgstr "启用DOT服务器。"
+
+msgid "Update Time (Every Week)"
+msgstr "更新时间(每周)"
+
+msgid "Every Day"
+msgstr "每天"
+
+msgid "Every Monday"
+msgstr "每周一"
+
+msgid "Every Tuesday"
+msgstr "每周二"
+
+msgid "Every Wednesday"
+msgstr "每周三"
+
+msgid "Every Thursday"
+msgstr "每周四"
+
+msgid "Every Friday"
+msgstr "每周五"
+
+msgid "Every Saturday"
+msgstr "每周六"
+
+msgid "Every Sunday"
+msgstr "每周日"
+
+msgid "Update Time (Every Day)"
+msgstr "更新时间(每天)"
 
 msgid "Enable domain prefetch, accelerate domain response speed."
 msgstr "启用域名预加载，加速域名响应速度。"
@@ -398,6 +446,15 @@ msgstr "重启服务"
 msgid "Second Server Settings"
 msgstr "第二DNS服务器"
 
+msgid "Server certificate file path."
+msgstr "服务器证书文件路径。"
+
+msgid "Server certificate key file path."
+msgstr "服务器证书私钥文件路径。"
+
+msgid "Server certificate key file password."
+msgstr "服务器证书私钥文件密码。"
+
 msgid "Serve expired"
 msgstr "缓存过期服务"
 
@@ -409,6 +466,15 @@ msgstr "服务器组%s不存在"
 
 msgid "Server Name"
 msgstr "服务器名称"
+
+msgid "Server Cert"
+msgstr "服务器证书"
+
+msgid "Server Cert Key"
+msgstr "服务器证书私钥"
+
+msgid "Server Cert Key Pass"
+msgstr "服务器证书私钥密码"
 
 msgid "Set Specific domain ip address."
 msgstr "设置指定域名的IP地址。"
@@ -477,6 +543,12 @@ msgstr "跳过Nameserver规则。"
 
 msgid "SmartDNS"
 msgstr "SmartDNS"
+
+msgid "Smartdns DOH server port."
+msgstr "Smartdns DOH服务器端口号。
+
+msgid "Smartdns DOT server port."
+msgstr "Smartdns DOT服务器端口号。"
 
 msgid "SmartDNS Server"
 msgstr "SmartDNS 服务器"
