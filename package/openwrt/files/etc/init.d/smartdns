@@ -27,6 +27,8 @@ if [ ! -d "/run" ]; then
 	SERVICE_PID_FILE="/var/run/smartdns.pid"
 fi
 
+SMARTDNS_DEFAULT_FORWARDING_FILE="/etc/smartdns/domain-forwarding.list"
+SMARTDNS_DEFAULT_DOMAIN_BLOCK_FILE="/etc/smartdns/domain-block.list"
 SMARTDNS_CONF_DIR="/etc/smartdns"
 SMARTDNS_CONF_DOWNLOAD_DIR="$SMARTDNS_CONF_DIR/conf.d"
 SMARTDNS_DOMAIN_LIST_DOWNLOAD_DIR="$SMARTDNS_CONF_DIR/domain-set"
@@ -302,7 +304,8 @@ load_domain_rules()
 	}
 
 	[ ! -z "$domain_set_args" ] && {
-		conf_append "domain-set" "-name ${domain_set_name}-forwarding-list -file /etc/smartdns/domain-forwarding.list"
+		[ ! -e "$SMARTDNS_DEFAULT_FORWARDING_FILE" ] && touch $SMARTDNS_DEFAULT_FORWARDING_FILE
+		conf_append "domain-set" "-name ${domain_set_name}-forwarding-list -file $SMARTDNS_DEFAULT_FORWARDING_FILE"
 		conf_append "domain-rules" "/domain-set:${domain_set_name}-forwarding-list/ $domain_set_args"
 	}
 
@@ -313,7 +316,8 @@ load_domain_rules()
 		conf_append "domain-rules" "/domain-set:${domain_set_name}-block-file/ -address #"
 	}
 
-	conf_append "domain-set" "-name ${domain_set_name}-block-list -file /etc/smartdns/domain-block.list"
+	[ ! -e "$SMARTDNS_DEFAULT_DOMAIN_BLOCK_FILE" ] && touch $SMARTDNS_DEFAULT_DOMAIN_BLOCK_FILE
+	conf_append "domain-set" "-name ${domain_set_name}-block-list -file $SMARTDNS_DEFAULT_DOMAIN_BLOCK_FILE"
 	conf_append "domain-rules" "/domain-set:${domain_set_name}-block-list/ -address #"
 }
 
