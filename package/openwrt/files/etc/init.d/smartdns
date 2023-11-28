@@ -543,7 +543,7 @@ load_service()
 	config_get port "$section" "port" "53"
 	config_get ipv6_server "$section" "ipv6_server" "1"
 	config_get tcp_server "$section" "tcp_server" "1"
-	config_get tls_server "$section" "tcp_server" "0"
+	config_get tls_server "$section" "tls_server" "0"
 	config_get tls_server_port "$section" "tls_server_port" "853"
 	config_get doh_server "$section" "doh_server" "0"
 	config_get doh_server_port "$section" "doh_server_port" "843"
