@@ -21,11 +21,15 @@
 
 #include "list.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct tw_base;
 struct tw_timer_list;
 
-typedef void (*tw_func)(struct tw_timer_list *, void *, unsigned long);
-typedef void (*tw_del_func)(struct tw_timer_list *, void *);
+typedef void (*tw_func)(struct tw_base *, struct tw_timer_list *, void *, unsigned long);
+typedef void (*tw_del_func)(struct tw_base *, struct tw_timer_list *, void *);
 
 struct tw_timer_list {
 	void *data;
@@ -47,4 +51,7 @@ int tw_mod_timer_pending(struct tw_base *, struct tw_timer_list *, unsigned long
 
 int tw_mod_timer(struct tw_base *, struct tw_timer_list *, unsigned long);
 
+#ifdef __cplusplus
+}
+#endif
 #endif

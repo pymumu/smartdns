@@ -152,13 +152,13 @@ struct dns_cache_data *dns_cache_new_data_packet(void *packet, size_t packet_len
 	return (struct dns_cache_data *)cache_packet;
 }
 
-static void dns_cache_timer_release(struct tw_timer_list *timer, void *data)
+static void dns_cache_timer_release(struct tw_base *base, struct tw_timer_list *timer, void *data)
 {
 	struct dns_cache *dns_cache = data;
 	dns_cache_release(dns_cache);
 }
 
-static void dns_cache_expired(struct tw_timer_list *timer, void *data, unsigned long timestamp)
+static void dns_cache_expired(struct tw_base *base, struct tw_timer_list *timer, void *data, unsigned long timestamp)
 {
 	struct dns_cache *dns_cache = data;
 

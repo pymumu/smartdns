@@ -94,31 +94,6 @@ static inline void _tw_add_timer(struct tw_base *base, struct tw_timer_list *tim
 	list_add_tail(&timer->entry, vec);
 }
 
-static inline unsigned long _apply_slack(struct tw_base *base, struct tw_timer_list *timer)
-{
-	long delta;
-	unsigned long mask, expires, expires_limit;
-
-	expires = timer->expires;
-
-	delta = expires - base->jiffies;
-	if (delta < 256) {
-		return expires;
-	}
-
-	expires_limit = expires + delta / 256;
-	mask = expires ^ expires_limit;
-	if (mask == 0) {
-		return expires;
-	}
-
-	int bit = fls_long(mask);
-	mask = (1UL << bit) - 1;
-
-	expires_limit = expires_limit & ~(mask);
-	return expires_limit;
-}
-
 static inline void _tw_detach_timer(struct tw_timer_list *timer)
 {
 	struct list_head *entry = &timer->entry;
@@ -184,7 +159,6 @@ void tw_add_timer(struct tw_base *base, struct tw_timer_list *timer)
 	pthread_spin_lock(&base->lock);
 	{
 		timer->expires += base->jiffies;
-		timer->expires = _apply_slack(base, timer);
 		_tw_add_timer(base, timer);
 	}
 	pthread_spin_unlock(&base->lock);
@@ -204,7 +178,7 @@ int tw_del_timer(struct tw_base *base, struct tw_timer_list *timer)
 	pthread_spin_unlock(&base->lock);
 
 	if (ret == 1 && timer->del_function) {
-		timer->del_function(timer, timer->data);
+		timer->del_function(base, timer, timer->data);
 	}
 
 	return ret;
@@ -217,8 +191,6 @@ int tw_mod_timer_pending(struct tw_base *base, struct tw_timer_list *timer, unsi
 	pthread_spin_lock(&base->lock);
 	{
 		timer->expires = expires + base->jiffies;
-		timer->expires = _apply_slack(base, timer);
-
 		ret = __mod_timer(base, timer, 1);
 	}
 	pthread_spin_unlock(&base->lock);
@@ -237,7 +209,6 @@ int tw_mod_timer(struct tw_base *base, struct tw_timer_list *timer, unsigned lon
 		}
 
 		timer->expires = expires + base->jiffies;
-		timer->expires = _apply_slack(base, timer);
 
 		ret = __mod_timer(base, timer, 0);
 	}
@@ -305,13 +276,13 @@ static inline void run_timers(struct tw_base *base)
 			_tw_detach_timer(timer);
 			pthread_spin_unlock(&base->lock);
 			{
-				fn(timer, data, call_time);
+				fn(base, timer, data, call_time);
 			}
 
 			pthread_spin_lock(&base->lock);
 			if ((timer_pending(timer) == 0 && timer->del_function)) {
 				pthread_spin_unlock(&base->lock);
-				timer->del_function(timer, timer->data);
+				timer->del_function(base, timer, timer->data);
 				pthread_spin_lock(&base->lock);
 			}
 		}
