@@ -1012,7 +1012,8 @@ static int _dns_add_rrs(struct dns_server_post_context *context)
 	}
 
 	if (request->rcode != DNS_RC_NOERROR) {
-		tlog(TLOG_INFO, "result: %s, qtype: %d, rtcode: %d", domain, context->qtype, request->rcode);
+		tlog(TLOG_INFO, "result: %s, qtype: %d, rtcode: %d, id: %d", domain, context->qtype, request->rcode,
+			 request->id);
 	}
 
 	return ret;
@@ -1694,6 +1695,16 @@ static int _dns_cache_specify_packet(struct dns_server_post_context *context)
 	return _dns_cache_packet(context);
 }
 
+static int _dns_cache_try_keep_old_cache(struct dns_request *request)
+{
+	struct dns_cache_key cache_key;
+	cache_key.dns_group_name = request->dns_group_name;
+	cache_key.domain = request->domain;
+	cache_key.qtype = request->qtype;
+	cache_key.query_flag = request->server_flags;
+	return dns_cache_update_timer(&cache_key, DNS_SERVER_TMOUT_TTL);
+}
+
 static int _dns_cache_reply_packet(struct dns_server_post_context *context)
 {
 	struct dns_request *request = context->request;
@@ -1707,6 +1718,8 @@ static int _dns_cache_reply_packet(struct dns_server_post_context *context)
 		context->reply_ttl = DNS_SERVER_FAIL_TTL;
 		/* Do not cache record if cannot connect to remote */
 		if (request->remote_server_fail == 0 && context->packet->head.rcode == DNS_RC_SERVFAIL) {
+			/* Try keep old cache if server fail */
+			_dns_cache_try_keep_old_cache(request);
 			return 0;
 		}
 
@@ -3712,8 +3725,9 @@ static int dns_server_resolve_callback(const char *domain, dns_result_type rtype
 	}
 
 	if (rtype == DNS_QUERY_RESULT) {
-		tlog(TLOG_DEBUG, "query result from server %s:%d, type: %d", dns_client_get_server_ip(server_info),
-			 dns_client_get_server_port(server_info), dns_client_get_server_type(server_info));
+		tlog(TLOG_DEBUG, "query result from server %s:%d, type: %d, rcode: %d, id: %d",
+			 dns_client_get_server_ip(server_info), dns_client_get_server_port(server_info),
+			 dns_client_get_server_type(server_info), packet->head.rcode, request->id);
 
 		if (request->passthrough == 1 && atomic_read(&request->notified) == 0) {
 			struct dns_server_post_context context;
@@ -6663,13 +6677,13 @@ static int _dns_server_second_ping_check(struct dns_request *request)
 	return ret;
 }
 
-static int _dns_server_prefetch_domain(struct dns_cache *dns_cache)
+static dns_cache_tmout_action_t _dns_server_prefetch_domain(struct dns_cache *dns_cache)
 {
 	/* If there are still hits, continue pre-fetching */
 	struct dns_server_query_option server_query_option;
 	int hitnum = dns_cache_hitnum_dec_get(dns_cache);
 	if (hitnum <= 0) {
-		return -1;
+		return DNS_CACHE_TMOUT_ACTION_DEL;
 	}
 
 	/* start prefetch domain */
@@ -6681,23 +6695,26 @@ static int _dns_server_prefetch_domain(struct dns_cache *dns_cache)
 	if (_dns_server_prefetch_request(dns_cache->info.domain, dns_cache->info.qtype, &server_query_option,
 									 PREFETCH_FLAGS_NO_DUALSTACK) != 0) {
 		tlog(TLOG_ERROR, "prefetch domain %s, qtype %d, failed.", dns_cache->info.domain, dns_cache->info.qtype);
-		return -1;
+		return DNS_CACHE_TMOUT_ACTION_RETRY;
 	}
 
-	return 0;
+	return DNS_CACHE_TMOUT_ACTION_OK;
 }
 
-static int _dns_server_prefetch_expired_domain(struct dns_cache *dns_cache)
+static dns_cache_tmout_action_t _dns_server_prefetch_expired_domain(struct dns_cache *dns_cache)
 {
 	time_t ttl = _dns_server_expired_cache_ttl(dns_cache);
 	if (ttl <= 1) {
-		return -1;
+		return DNS_CACHE_TMOUT_ACTION_DEL;
 	}
 
 	/* start prefetch domain */
-	tlog(TLOG_DEBUG, "expired domain, prefetch by cache %s, qtype %d, ttl %llu, insert time %llu replace time %llu",
-		 dns_cache->info.domain, dns_cache->info.qtype, (unsigned long long)ttl,
-		 (unsigned long long)dns_cache->info.insert_time, (unsigned long long)dns_cache->info.replace_time);
+	tlog(TLOG_DEBUG,
+		 "expired domain, total %d, prefetch by cache %s, qtype %d, ttl %llu, rcode %d, insert time %llu replace time "
+		 "%llu",
+		 dns_cache_total_num(), dns_cache->info.domain, dns_cache->info.qtype, (unsigned long long)ttl,
+		 dns_cache->info.rcode, (unsigned long long)dns_cache->info.insert_time,
+		 (unsigned long long)dns_cache->info.replace_time);
 
 	struct dns_server_query_option server_query_option;
 	server_query_option.dns_group_name = dns_cache_get_dns_group_name(dns_cache);
@@ -6707,16 +6724,16 @@ static int _dns_server_prefetch_expired_domain(struct dns_cache *dns_cache)
 	if (_dns_server_prefetch_request(dns_cache->info.domain, dns_cache->info.qtype, &server_query_option,
 									 PREFETCH_FLAGS_EXPIRED) != 0) {
 		tlog(TLOG_DEBUG, "prefetch domain %s, qtype %d, failed.", dns_cache->info.domain, dns_cache->info.qtype);
-		return -1;
+		return DNS_CACHE_TMOUT_ACTION_RETRY;
 	}
 
-	return 0;
+	return DNS_CACHE_TMOUT_ACTION_OK;
 }
 
-static int _dns_server_cache_expired(struct dns_cache *dns_cache)
+static dns_cache_tmout_action_t _dns_server_cache_expired(struct dns_cache *dns_cache)
 {
 	if (dns_cache->info.rcode != DNS_RC_NOERROR) {
-		return -1;
+		return DNS_CACHE_TMOUT_ACTION_DEL;
 	}
 
 	if (dns_conf_prefetch == 1 && _dns_cache_is_specify_packet(dns_cache->info.qtype) != 0) {
@@ -6727,7 +6744,7 @@ static int _dns_server_cache_expired(struct dns_cache *dns_cache)
 		}
 	}
 
-	return -1;
+	return DNS_CACHE_TMOUT_ACTION_DEL;
 }
 
 static void _dns_server_tcp_idle_check(void)

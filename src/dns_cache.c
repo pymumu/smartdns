@@ -32,6 +32,7 @@
 #define DNS_CACHE_HITNUM_STEP 3
 #define DNS_CACHE_HITNUM_STEP_MAX 6
 #define DNS_CACHE_READ_TIMEOUT 60
+#define DNS_CACHE_FAIL_TIMEOUT (60 * 5)
 #define EXPIRED_DOMAIN_PREFETCH_TIME (3600 * 8)
 
 struct dns_cache_head {
@@ -168,9 +169,18 @@ static void dns_cache_expired(struct tw_base *base, struct tw_timer_list *timer,
 	}
 
 	if (dns_cache_head.timeout_callback) {
-		if (dns_cache_head.timeout_callback(dns_cache) != 0) {
+		dns_cache_tmout_action_t tmout_act = dns_cache_head.timeout_callback(dns_cache);
+		switch (tmout_act) {
+		case DNS_CACHE_TMOUT_ACTION_OK:
+			break;
+		case DNS_CACHE_TMOUT_ACTION_DEL:
 			dns_cache_release(dns_cache);
 			return;
+		case DNS_CACHE_TMOUT_ACTION_RETRY:
+			dns_timer_mod(&dns_cache->timer, DNS_CACHE_FAIL_TIMEOUT);
+			return;
+		default:
+			break;
 		}
 	}
 
@@ -201,6 +211,7 @@ static int _dns_cache_replace(struct dns_cache_key *cache_key, int rcode, int tt
 	/* update cache data */
 	pthread_mutex_lock(&dns_cache_head.lock);
 	dns_cache->del_pending = 0;
+	dns_cache->info.rcode = rcode;
 	dns_cache->info.qtype = cache_key->qtype;
 	dns_cache->info.query_flag = cache_key->query_flag;
 	dns_cache->info.ttl = ttl;
@@ -364,6 +375,23 @@ int dns_cache_insert(struct dns_cache_key *cache_key, int rcode, int ttl, int sp
 	return _dns_cache_insert(&info, cache_data, &dns_cache_head.cache_list, timeout);
 }
 
+int dns_cache_update_timer(struct dns_cache_key *key, int timeout)
+{
+	struct dns_cache *dns_cache = dns_cache_lookup(key);
+	if (dns_cache == NULL) {
+		return -1;
+	}
+
+	pthread_mutex_lock(&dns_cache_head.lock);
+	dns_timer_mod(&dns_cache->timer, timeout);
+	dns_cache->del_pending = 0;
+	pthread_mutex_unlock(&dns_cache_head.lock);
+
+	dns_cache_release(dns_cache);
+
+	return 0;
+}
+
 struct dns_cache *dns_cache_lookup(struct dns_cache_key *cache_key)
 {
 	uint32_t key = 0;
@@ -464,6 +492,11 @@ void dns_cache_data_put(struct dns_cache_data *cache_data)
 int dns_cache_is_visited(struct dns_cache *dns_cache)
 {
 	return dns_cache->info.is_visited;
+}
+
+int dns_cache_total_num(void)
+{
+	return atomic_read(&dns_cache_head.num);
 }
 
 void dns_cache_delete(struct dns_cache *dns_cache)

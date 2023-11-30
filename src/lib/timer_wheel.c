@@ -158,7 +158,7 @@ void tw_add_timer(struct tw_base *base, struct tw_timer_list *timer)
 
 	pthread_spin_lock(&base->lock);
 	{
-		timer->expires += base->jiffies;
+		timer->expires += base->jiffies - 1;
 		_tw_add_timer(base, timer);
 	}
 	pthread_spin_unlock(&base->lock);
@@ -190,7 +190,7 @@ int tw_mod_timer_pending(struct tw_base *base, struct tw_timer_list *timer, unsi
 
 	pthread_spin_lock(&base->lock);
 	{
-		timer->expires = expires + base->jiffies;
+		timer->expires = expires + base->jiffies - 1;
 		ret = __mod_timer(base, timer, 1);
 	}
 	pthread_spin_unlock(&base->lock);
@@ -208,7 +208,7 @@ int tw_mod_timer(struct tw_base *base, struct tw_timer_list *timer, unsigned lon
 			goto unblock;
 		}
 
-		timer->expires = expires + base->jiffies;
+		timer->expires = expires + base->jiffies - 1;
 
 		ret = __mod_timer(base, timer, 0);
 	}

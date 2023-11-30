@@ -135,7 +135,7 @@ o = s:taboption("advanced", Flag, "tls_server", translate("DOT Server"), transla
 o.rmempty = false
 o.default = o.disabled
 o.cfgvalue    = function(...)
-    return Flag.cfgvalue(...) or "1"
+    return Flag.cfgvalue(...) or "0"
 end
 
 o = s:taboption("advanced", Value, "tls_server_port", translate("DOT Server Port"), translate("Smartdns DOT server port."))
@@ -150,7 +150,7 @@ o = s:taboption("advanced", Flag, "doh_server", translate("DOH Server"), transla
 o.rmempty = false
 o.default = o.disabled
 o.cfgvalue    = function(...)
-    return Flag.cfgvalue(...) or "1"
+    return Flag.cfgvalue(...) or "0"
 end
 
 o = s:taboption("advanced", Value, "doh_server_port", translate("DOH Server Port"), translate("Smartdns DOH server port."))
