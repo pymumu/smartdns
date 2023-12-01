@@ -20,6 +20,7 @@ Like Dnsmasq, smartdns supports ipset and nftset, which can use TPROXY to transp
 
     ```shell
     ipset /domain/ipset
+    ipset /domain/[#4:ipsetv4,#6:ipsetv6]
     ```
 
 1. Timeout

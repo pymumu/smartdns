@@ -20,6 +20,7 @@ hide:
 
     ```shell
     ipset /domain/ipset
+    ipset /domain/[#4:ipsetv4,#6:ipsetv6]
     ```
 
 1. 超时

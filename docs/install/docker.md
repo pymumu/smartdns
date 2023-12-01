@@ -24,3 +24,11 @@ server 1.1.1.1
 ```
 docker run -d --name smartdns --restart=always -p 53:53/udp -v /etc/smartdns:/etc/smartdns pymumu/smartdns:latest
 ```
+
+## 不重启镜像加载配置
+
+对于docker容器，smartdns支持不重启镜像加载配置，当修改完成配置后，进入容器环境，执行下面的命令重新加载配置。
+
+```
+kill -HUP 1
+```

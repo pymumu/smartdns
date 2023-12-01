@@ -83,3 +83,18 @@ hide:
 |user|run as user|root|user [username]|user nobody
 |ca-file|certificate file|/etc/ssl/certs/<br />ca-certificates.crt|path|ca-file /etc/ssl/certs/ca-certificates.crt
 |ca-path|certificates path|/etc/ssl/certs|path|ca-path /etc/ssl/certs
+
+## Command Line Options
+
+The command line options for smartdns are as follows, you can also use `smartdns -h` to view the help.
+
+| Option | Function | Default Value | Description |
+| --- | --- | --- | --- |
+| -f | Run in foreground | None | By default, the program runs as a background daemon. |
+| -c | Configuration file path | /etc/smartdns/smartdns.conf | Path to the configuration file. |
+| -p | PID file | /run/smartdns.pid | Path to the process PID file. |
+| -R | Automatic restart on exception | None | Automatically restart the process on exception. |
+| -S | Generate coredump on crash | None | Generate a coredump file on process crash for debugging purposes. |
+| -x | Log to terminal | None | Output logs to the terminal. |
+| -v | Display version | None | Display the version of smartdns. |
+| -h | Display command line help | None | Display the command line help. |
