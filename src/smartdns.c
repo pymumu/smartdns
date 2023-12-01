@@ -55,6 +55,13 @@
 #define SMARTDNS_PID_FILE "/run/smartdns.pid"
 #define SMARTDNS_LEGACY_PID_FILE "/var/run/smartdns.pid"
 #define TMP_BUFF_LEN_32 32
+#define SMARTDNS_CRASH_CODE 254
+
+typedef enum {
+	SMARTDNS_RUN_MONITOR_OK = 0,
+	SMARTDNS_RUN_MONITOR_ERROR = 1,
+	SMARTDNS_RUN_MONITOR_EXIT = 2,
+} smartdns_run_monitor_ret;
 
 static int verbose_screen;
 
@@ -622,7 +629,7 @@ static void _sig_error_exit(int signo, siginfo_t *siginfo, void *ct)
 		 __DATE__, __TIME__, arch);
 	print_stack();
 	sleep(1);
-	_exit(0);
+	_exit(SMARTDNS_CRASH_CODE);
 }
 
 static int sig_list[] = {SIGSEGV, SIGABRT, SIGBUS, SIGILL, SIGFPE};
@@ -732,20 +739,30 @@ static void _smartdns_early_log(struct tlog_loginfo *loginfo, const char *format
 {
 	char log_buf[TLOG_MAX_LINE_LEN];
 	int sys_log_level = LOG_INFO;
+	int log_buf_maxlen = 0;
 
 	if (loginfo->level < TLOG_WARN) {
 		return;
 	}
 
-	int len = vsnprintf(log_buf, sizeof(log_buf), format, ap);
+	log_buf_maxlen = sizeof(log_buf) - 2;
+	log_buf[log_buf_maxlen] = '\0';
+	int len = vsnprintf(log_buf, log_buf_maxlen, format, ap);
 	if (len <= 0) {
 		return;
+	} else if (len >= log_buf_maxlen) {
+		log_buf[log_buf_maxlen - 2] = '.';
+		log_buf[log_buf_maxlen - 3] = '.';
+		log_buf[log_buf_maxlen - 4] = '.';
+		len = log_buf_maxlen - 1;
 	}
 
 	if (log_buf[len - 1] != '\n') {
 		log_buf[len] = '\n';
 		len++;
 	}
+
+	log_buf[len] = '\0';
 
 	fprintf(stderr, "%s", log_buf);
 
@@ -774,45 +791,93 @@ static void _smartdns_early_log(struct tlog_loginfo *loginfo, const char *format
 }
 
 static int _smartdns_child_pid = 0;
+static int _smartdns_child_restart = 0;
 
-static void _smartdns_run_as_init_sig(int sig)
+static void _smartdns_run_monitor_sig(int sig)
 {
 	if (_smartdns_child_pid > 0) {
+		if (sig == SIGHUP) {
+			_smartdns_child_restart = 1;
+			kill(_smartdns_child_pid, SIGTERM);
+			return;
+		}
 		kill(_smartdns_child_pid, SIGTERM);
-		waitpid(_smartdns_child_pid, NULL, 0);
 	}
+	waitpid(_smartdns_child_pid, NULL, 0);
 
 	_exit(0);
 }
 
-static int _smartdns_run_as_init(int restart_when_crash)
+static smartdns_run_monitor_ret _smartdns_run_monitor(int restart_when_crash, int is_run_as_daemon)
 {
 	pid_t pid;
+	int status;
 
 	if (restart_when_crash == 0) {
-		return 0;
+		return SMARTDNS_RUN_MONITOR_OK;
 	}
 
-	pid = getpid();
-	setpgid(pid, pid);
+	if (is_run_as_daemon) {
+		int daemon_ret = daemon_run();
+		if (daemon_ret != -2) {
+			if (daemon_ret == 0) {
+				return SMARTDNS_RUN_MONITOR_EXIT;
+			}
+
+			return SMARTDNS_RUN_MONITOR_ERROR;
+		}
+	}
+
+	daemon_kickoff(0, 1);
 
 restart:
 	pid = fork();
 	if (pid < 0) {
 		fprintf(stderr, "fork failed, %s\n", strerror(errno));
-		return -1;
+		return SMARTDNS_RUN_MONITOR_ERROR;
 	} else if (pid == 0) {
-		return 0;
+		return SMARTDNS_RUN_MONITOR_OK;
 	}
 
 	_smartdns_child_pid = pid;
 
-	signal(SIGTERM, _smartdns_run_as_init_sig);
-
+	signal(SIGTERM, _smartdns_run_monitor_sig);
+	signal(SIGHUP, _smartdns_run_monitor_sig);
 	while (true) {
-		pid = waitpid(-1, NULL, 0);
+		pid = waitpid(-1, &status, 0);
 		if (pid == _smartdns_child_pid) {
-			goto restart;
+			int need_restart = 0;
+			char signalmsg[64] = {0};
+
+			if (_smartdns_child_restart == 1) {
+				_smartdns_child_restart = 0;
+				goto restart;
+			}
+
+			if (WEXITSTATUS(status) == SMARTDNS_CRASH_CODE) {
+				need_restart = 1;
+			} else if (WEXITSTATUS(status) == 255) {
+				fprintf(stderr, "run daemon failed, please check log.\n");
+			} else if (WIFSIGNALED(status)) {
+				switch (WTERMSIG(status)) {
+				case SIGSEGV:
+				case SIGABRT:
+				case SIGBUS:
+				case SIGILL:
+				case SIGFPE:
+					snprintf(signalmsg, sizeof(signalmsg), " with signal %d", WTERMSIG(status));
+					need_restart = 1;
+					break;
+				default:
+					break;
+				}
+			}
+
+			if (need_restart == 1) {
+				printf("smartdns crashed%s, restart...\n", signalmsg);
+				goto restart;
+			}
+			break;
 		}
 
 		if (pid < 0) {
@@ -820,7 +885,7 @@ restart:
 		}
 	}
 
-	return -1;
+	return SMARTDNS_RUN_MONITOR_ERROR;
 }
 
 #ifdef TEST
@@ -932,7 +997,11 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	if (_smartdns_run_as_init(restart_when_crash) != 0) {
+	smartdns_run_monitor_ret init_ret = _smartdns_run_monitor(restart_when_crash, is_run_as_daemon);
+	if (init_ret != SMARTDNS_RUN_MONITOR_OK) {
+		if (init_ret == SMARTDNS_RUN_MONITOR_EXIT) {
+			return 0;
+		}
 		return 1;
 	}
 
@@ -946,7 +1015,7 @@ int main(int argc, char *argv[])
 		goto errout;
 	}
 
-	if (dns_no_daemon) {
+	if (dns_no_daemon || restart_when_crash) {
 		is_run_as_daemon = 0;
 	}
 
@@ -1006,6 +1075,8 @@ int main(int argc, char *argv[])
 		if (ret != 0) {
 			goto errout;
 		}
+	} else if (dns_conf_log_console == 0 && verbose_screen == 0) {
+		daemon_close_stdfds();
 	}
 
 	smartdns_test_notify(1);
@@ -1019,5 +1090,5 @@ errout:
 	}
 	smartdns_test_notify(2);
 	_smartdns_exit();
-	return 1;
+	return ret;
 }

@@ -1632,6 +1632,23 @@ errout:
 	return;
 }
 
+void daemon_close_stdfds(void)
+{
+	int fd_null = open("/dev/null", O_RDWR);
+	if (fd_null < 0) {
+		fprintf(stderr, "open /dev/null failed, %s\n", strerror(errno));
+		return;
+	}
+
+	dup2(fd_null, STDIN_FILENO);
+	dup2(fd_null, STDOUT_FILENO);
+	dup2(fd_null, STDERR_FILENO);
+
+	if (fd_null > 2) {
+		close(fd_null);
+	}
+}
+
 int daemon_kickoff(int status, int no_close)
 {
 	struct daemon_msg msg;
@@ -1650,19 +1667,7 @@ int daemon_kickoff(int status, int no_close)
 	}
 
 	if (no_close == 0) {
-		int fd_null = open("/dev/null", O_RDWR);
-		if (fd_null < 0) {
-			fprintf(stderr, "open /dev/null failed, %s\n", strerror(errno));
-			return -1;
-		}
-
-		dup2(fd_null, STDIN_FILENO);
-		dup2(fd_null, STDOUT_FILENO);
-		dup2(fd_null, STDERR_FILENO);
-
-		if (fd_null > 2) {
-			close(fd_null);
-		}
+		daemon_close_stdfds();
 	}
 
 	close(daemon_fd);

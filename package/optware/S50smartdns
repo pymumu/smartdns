@@ -340,9 +340,12 @@ case "$1" in
 		exit 1
 	fi
 
+	SMARTDNS_OPTION=""
+	[ "$SMARTDNS_CRASH_RESTART" = "1" ] && SMARTDNS_OPTION="$SMARTDNS_OPTION -R"
+
 	set_smartdns_port
 	get_tz
-	$SMARTDNS_BIN -c "$SMARTDNS_CONF" -p $SMARTDNS_PID
+	$SMARTDNS_BIN -c "$SMARTDNS_CONF" -p $SMARTDNS_PID $SMARTDNS_OPTION
 	if [ $? -ne 0 ]; then
 		clear_rule
 		exit 1

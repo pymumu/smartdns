@@ -153,6 +153,8 @@ int daemon_kickoff(int status, int no_close);
 
 int daemon_keepalive(void);
 
+void daemon_close_stdfds(void);
+
 int write_file(const char *filename, void *data, int data_len);
 
 int dns_packet_save(const char *dir, const char *type, const char *from, const void *packet, int packet_len);

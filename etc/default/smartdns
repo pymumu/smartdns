@@ -2,4 +2,4 @@
 # /etc/init.d/smartdns.
 
 # Options to pass to smartdns
-SMART_DNS_OPTS=
+SMART_DNS_OPTS= -R
