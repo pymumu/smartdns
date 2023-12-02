@@ -98,7 +98,7 @@ smartdns的命令行参数功能如下，也可通过`smartdns -h`来查看帮�
 | -c | 配置文件路径 | /etc/smartdns/smartdns.conf
 | -p | pid文件 | /run/smartdns.pid |  进程pid文件路径
 | -R | 异常自动重启 | 无 | 进程故障时，自动重启进程
-| -S | 生成coredump | 无 ｜ 进程故障时，生成coredump文件，用于调试定位
-| -x | 输入日志到终端 | 无 | 输出日志到终端
+| -S | 生成coredump | 无 | 进程故障时，生成coredump文件，用于调试定位
+| -x | 输出日志到终端 | 无 | 输出日志到终端
 | -v | 显示版本 | 无 |
 | -h | 显示命令行帮助 | 无 | 
