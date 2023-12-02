@@ -473,19 +473,29 @@ static int _smartdns_init(void)
 	int i = 0;
 	char logdir[PATH_MAX] = {0};
 	int logbuffersize = 0;
+	int enable_log_screen = 0;
 
 	if (get_system_mem_size() > 1024 * 1024 * 1024) {
 		logbuffersize = 1024 * 1024;
 	}
 
-	ret = tlog_init(logfile, dns_conf_log_size, dns_conf_log_num, logbuffersize, TLOG_NONBLOCK);
+	safe_strncpy(logdir, _smartdns_log_path(), PATH_MAX);
+	if (verbose_screen != 0 || dns_conf_log_console != 0 || access(dir_name(logdir), W_OK) != 0) {
+		enable_log_screen = 1;
+	}
+
+	unsigned int tlog_flag = TLOG_NONBLOCK;
+	if (isatty(1) && enable_log_screen == 1) {
+		tlog_flag |= TLOG_SCREEN_COLOR;
+	}
+
+	ret = tlog_init(logfile, dns_conf_log_size, dns_conf_log_num, logbuffersize, tlog_flag);
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "start tlog failed.\n");
 		goto errout;
 	}
 
-	safe_strncpy(logdir, _smartdns_log_path(), PATH_MAX);
-	if (verbose_screen != 0 || dns_conf_log_console != 0 || access(dir_name(logdir), W_OK) != 0) {
+	if (enable_log_screen) {
 		tlog_setlogscreen(1);
 	}
 

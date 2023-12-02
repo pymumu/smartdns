@@ -66,6 +66,9 @@ struct tlog_time {
 /* enable support fork process */
 #define TLOG_SUPPORT_FORK (1 << 5)
 
+/* enable output to screen with color */
+#define TLOG_SCREEN_COLOR (1 << 6)
+
 struct tlog_loginfo {
     tlog_level level;
     const char *file;
