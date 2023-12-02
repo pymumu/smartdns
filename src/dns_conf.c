@@ -122,7 +122,7 @@ char dns_conf_ca_path[DNS_MAX_PATH];
 
 char dns_conf_cache_file[DNS_MAX_PATH];
 int dns_conf_cache_persist = 2;
-int dns_conf_cache_checkpoint_time;
+int dns_conf_cache_checkpoint_time = DNS_DEFAULT_CHECKPOINT_TIME;
 
 /* auditing */
 int dns_conf_audit_enable = 0;

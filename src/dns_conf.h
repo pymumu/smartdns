@@ -59,6 +59,7 @@ extern "C" {
 #define DNS_MAX_CONF_CNAME_LEN 256
 #define MAX_QTYPE_NUM 65535
 #define DNS_MAX_REPLY_IP_NUM 8
+#define DNS_DEFAULT_CHECKPOINT_TIME (3600 * 24)
 
 #define SMARTDNS_CONF_FILE "/etc/smartdns/smartdns.conf"
 #define SMARTDNS_LOG_FILE "/var/log/smartdns/smartdns.log"
