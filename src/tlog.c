@@ -1168,10 +1168,10 @@ static int _tlog_write_screen(struct tlog_log *log, struct tlog_loginfo *info, c
         const char *color = NULL;
         switch (info->level) {
         case TLOG_DEBUG:
-            color = "\033[0;30m";
+            color = "\033[0;90m";
             break;
         case TLOG_NOTICE:
-            color = "\033[0;37m";
+            color = "\033[0;97m";
             break;
         case TLOG_WARN:
             color = "\033[0;33m";

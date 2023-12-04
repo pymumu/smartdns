@@ -126,6 +126,10 @@ clear_iptable()
 {
 	local OLD_PORT="$1"
 	local ipv6_server=$2
+
+	which iptables >/dev/null 2>&1
+	[ $? -ne 0 ] && return
+
 	IPS="$(ifconfig | grep "inet addr" | grep -v ":127" | grep "Bcast" | awk '{print $2}' | awk -F : '{print $2}')"
 	for IP in $IPS
 	do

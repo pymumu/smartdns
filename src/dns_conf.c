@@ -23,6 +23,7 @@
 #include "util.h"
 #include <errno.h>
 #include <getopt.h>
+#include <glob.h>
 #include <libgen.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -165,6 +166,12 @@ char dns_save_fail_packet_dir[DNS_MAX_PATH];
 char dns_resolv_file[DNS_MAX_PATH];
 int dns_no_pidfile;
 int dns_no_daemon;
+
+struct hash_table conf_file_table;
+struct conf_file_path {
+	struct hlist_node node;
+	char file[DNS_MAX_PATH];
+};
 
 /* ECS */
 struct dns_edns_client_subnet dns_conf_ipv4_ecs;
@@ -4231,17 +4238,40 @@ static int _conf_printf(const char *file, int lineno, int ret)
 	return 0;
 }
 
-int config_additional_file(void *data, int argc, char *argv[])
+static int conf_file_check_duplicate(const char *conf_file)
 {
-	char *conf_file = NULL;
-	char file_path[DNS_MAX_PATH];
-	char file_path_dir[DNS_MAX_PATH];
+	struct conf_file_path *file = NULL;
+	uint32_t key = 0;
 
-	if (argc < 1) {
+	key = hash_string(conf_file);
+	hash_table_for_each_possible(conf_file_table, file, node, key)
+	{
+		if (strncmp(file->file, conf_file, DNS_MAX_PATH) != 0) {
+			continue;
+		}
+
+		return 0;
+	}
+
+	file = malloc(sizeof(*file));
+	if (file == NULL) {
 		return -1;
 	}
 
-	conf_file = argv[1];
+	safe_strncpy(file->file, conf_file, DNS_MAX_PATH);
+	hash_table_add(conf_file_table, &file->node, key);
+	return -1;
+}
+
+static int conf_additional_file(const char *conf_file)
+{
+	char file_path[DNS_MAX_PATH];
+	char file_path_dir[DNS_MAX_PATH];
+
+	if (conf_file == NULL) {
+		return -1;
+	}
+
 	if (conf_file[0] != '/') {
 		safe_strncpy(file_path_dir, conf_get_conf_file(), DNS_MAX_PATH);
 		dir_name(file_path_dir);
@@ -4259,11 +4289,81 @@ int config_additional_file(void *data, int argc, char *argv[])
 	}
 
 	if (access(file_path, R_OK) != 0) {
-		tlog(TLOG_WARN, "config file '%s' is not readable, %s", conf_file, strerror(errno));
+		tlog(TLOG_ERROR, "config file '%s' is not readable, %s", conf_file, strerror(errno));
 		return -1;
 	}
 
+	if (conf_file_check_duplicate(file_path) == 0) {
+		return 0;
+	}
+
 	return load_conf(file_path, _config_item, _conf_printf);
+}
+
+int config_additional_file(void *data, int argc, char *argv[])
+{
+	const char *conf_pattern = NULL;
+	char file_path[DNS_MAX_PATH];
+	char file_path_dir[DNS_MAX_PATH];
+	glob_t globbuf = {0};
+
+	if (argc < 1) {
+		return -1;
+	}
+
+	conf_pattern = argv[1];
+	if (conf_pattern == NULL) {
+		return -1;
+	}
+
+	if (conf_pattern[0] != '/') {
+		safe_strncpy(file_path_dir, conf_get_conf_file(), DNS_MAX_PATH);
+		dir_name(file_path_dir);
+		if (strncmp(file_path_dir, conf_get_conf_file(), sizeof(file_path_dir)) == 0) {
+			if (snprintf(file_path, DNS_MAX_PATH, "%s", conf_pattern) < 0) {
+				return -1;
+			}
+		} else {
+			if (snprintf(file_path, DNS_MAX_PATH, "%s/%s", file_path_dir, conf_pattern) < 0) {
+				return -1;
+			}
+		}
+	} else {
+		safe_strncpy(file_path, conf_pattern, DNS_MAX_PATH);
+	}
+
+	errno = 0;
+	if (glob(file_path, 0, NULL, &globbuf) != 0) {
+		if (errno == 0) {
+			return 0;
+		}
+
+		tlog(TLOG_ERROR, "open config file '%s' failed, %s", file_path, strerror(errno));
+		return -1;
+	}
+
+	for (size_t i = 0; i != globbuf.gl_pathc; ++i) {
+		const char *file = globbuf.gl_pathv[i];
+		struct stat statbuf;
+
+		if (stat(file, &statbuf) != 0) {
+			continue;
+		}
+
+		if (!S_ISREG(statbuf.st_mode)) {
+			continue;
+		}
+
+		if (conf_additional_file(file) != 0) {
+			tlog(TLOG_ERROR, "load config file '%s' failed.", file);
+			globfree(&globbuf);
+			return -1;
+		}
+	}
+
+	globfree(&globbuf);
+
+	return 0;
 }
 
 const char *dns_conf_get_cache_dir(void)
@@ -4415,6 +4515,21 @@ static int _dns_ping_cap_check(void)
 	return 0;
 }
 
+static void _config_file_hash_table_destroy(void)
+{
+	struct conf_file_path *file = NULL;
+	struct hlist_node *tmp = NULL;
+	int i = 0;
+
+	hash_table_for_each_safe(conf_file_table, i, tmp, file, node)
+	{
+		hlist_del_init(&file->node);
+		free(file);
+	}
+
+	hash_table_free(conf_file_table, free);
+}
+
 static int _dns_conf_load_pre(void)
 {
 	if (_dns_server_load_conf_init() != 0) {
@@ -4424,6 +4539,8 @@ static int _dns_conf_load_pre(void)
 	_dns_ping_cap_check();
 
 	safe_strncpy(dns_save_fail_packet_dir, SMARTDNS_DEBUG_DIR, sizeof(dns_save_fail_packet_dir));
+
+	hash_table_init(conf_file_table, 8, malloc);
 
 	return 0;
 
@@ -4487,6 +4604,8 @@ static int _dns_conf_load_post(void)
 	_config_update_bootstrap_dns_rule();
 
 	_config_add_default_server_if_needed();
+
+	_config_file_hash_table_destroy();
 
 	return 0;
 }
