@@ -17,6 +17,7 @@
  */
 
 #include "dns_conf.h"
+#include "idna.h"
 #include "list.h"
 #include "rbtree.h"
 #include "tlog.h"
@@ -308,8 +309,14 @@ static int _get_domain(char *value, char *domain, int max_domain_size, char **pt
 		goto errout;
 	}
 
-	memcpy(domain, begin, len);
-	domain[len] = '\0';
+	size_t domain_len = max_domain_size;
+	domain_len = utf8_to_punycode(begin, len, domain, domain_len);
+	if (domain_len <= 0) {
+		tlog(TLOG_ERROR, "domain name %s invalid", value);
+		goto errout;
+	}
+
+	domain[domain_len] = '\0';
 
 	if (ptr_after_domain) {
 		*ptr_after_domain = end + 1;

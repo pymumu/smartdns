@@ -1187,7 +1187,7 @@ static int _tlog_write_screen(struct tlog_log *log, struct tlog_loginfo *info, c
         }
 
         if (color != NULL) {
-            fprintf(stdout, "%s%s\e[0m", color, buff);
+            fprintf(stdout, "%s%.*s\033[0m\n", color, bufflen - 2, buff);
         } else {
             fprintf(stdout, "%s", buff);
         }
