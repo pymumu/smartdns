@@ -1703,7 +1703,7 @@ int daemon_keepalive(void)
 	return 0;
 }
 
-int daemon_run(void)
+daemon_ret daemon_run(int *wstatus)
 {
 	pid_t pid = 0;
 	int fds[2] = {0};
@@ -1753,11 +1753,16 @@ int daemon_run(void)
 				pid = msg.value;
 				continue;
 			} else if (msg.type == DAEMON_MSG_KICKOFF) {
-				return msg.value;
+				if (wstatus != NULL) {
+					*wstatus = msg.value;
+				}
+				return DAEMON_RET_PARENT_OK;
 			} else {
 				goto errout;
 			}
 		} while (true);
+
+		return DAEMON_RET_ERR;
 	}
 
 	setsid();
@@ -1782,10 +1787,13 @@ int daemon_run(void)
 	close(fds[0]);
 
 	daemon_fd = fds[1];
-	return -2;
+	return DAEMON_RET_CHILD_OK;
 errout:
 	kill(pid, SIGKILL);
-	return -1;
+	if (wstatus != NULL) {
+		*wstatus = -1;
+	}
+	return DAEMON_RET_ERR;
 }
 
 #ifdef DEBUG

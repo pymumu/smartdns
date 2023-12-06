@@ -828,12 +828,12 @@ static smartdns_run_monitor_ret _smartdns_run_monitor(int restart_when_crash, in
 	}
 
 	if (is_run_as_daemon) {
-		int daemon_ret = daemon_run();
-		if (daemon_ret != -2) {
-			if (daemon_ret == 0) {
-				return SMARTDNS_RUN_MONITOR_EXIT;
-			}
-
+		switch (daemon_run(NULL)) {
+		case DAEMON_RET_CHILD_OK:
+			break;
+		case DAEMON_RET_PARENT_OK:
+			return SMARTDNS_RUN_MONITOR_EXIT;
+		default:
 			return SMARTDNS_RUN_MONITOR_ERROR;
 		}
 	}
@@ -896,6 +896,16 @@ restart:
 	}
 
 	return SMARTDNS_RUN_MONITOR_ERROR;
+}
+
+static void _smartdns_print_error_tip(void)
+{
+	char buff[4096];
+	char *log_path = realpath(_smartdns_log_path(), buff);
+
+	if (log_path != NULL && access(log_path, F_OK) == 0) {
+		fprintf(stderr, "run daemon failed, please check log at %s\n", log_path);
+	}
 }
 
 #ifdef TEST
@@ -1030,16 +1040,21 @@ int main(int argc, char *argv[])
 	}
 
 	if (is_run_as_daemon) {
-		int daemon_ret = daemon_run();
-		if (daemon_ret != -2) {
-			char buff[4096];
-			char *log_path = realpath(_smartdns_log_path(), buff);
-
-			if (log_path != NULL && access(log_path, F_OK) == 0 && daemon_ret != -3 && daemon_ret != 0) {
-				fprintf(stderr, "run daemon failed, please check log at %s\n", log_path);
+		int child_status = -1;
+		switch (daemon_run(&child_status)) {
+		case DAEMON_RET_CHILD_OK:
+			break;
+		case DAEMON_RET_PARENT_OK: {
+			if (child_status != 0 && child_status != -3) {
+				_smartdns_print_error_tip();
 			}
 
-			return daemon_ret;
+			return child_status;
+		} break;
+		case DAEMON_RET_ERR:
+		default:
+			fprintf(stderr, "run daemon failed.\n");
+			goto errout;
 		}
 	}
 
@@ -1097,6 +1112,9 @@ int main(int argc, char *argv[])
 errout:
 	if (is_run_as_daemon) {
 		daemon_kickoff(ret, dns_conf_log_console | verbose_screen);
+	} else {
+		_smartdns_print_error_tip();
+		printf("ret = %d\n", ret);
 	}
 	smartdns_test_notify(2);
 	_smartdns_exit();
