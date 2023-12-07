@@ -276,6 +276,8 @@ struct dns_request {
 	int has_soa;
 	int force_soa;
 
+	struct dns_srv_records *srv_records;
+
 	atomic_t notified;
 	atomic_t do_callback;
 	atomic_t adblock;
@@ -949,6 +951,29 @@ static void _dns_server_setup_soa(struct dns_request *request)
 	soa->minimum = 86400;
 }
 
+static int _dns_server_add_srv(struct dns_server_post_context *context)
+{
+	struct dns_request *request = context->request;
+	struct dns_srv_records *srv_records = request->srv_records;
+	struct dns_srv_record *srv_record = NULL;
+	int ret = 0;
+
+	if (srv_records == NULL) {
+		return 0;
+	}
+
+	list_for_each_entry(srv_record, &srv_records->list, list)
+	{
+		ret = dns_add_SRV(context->packet, DNS_RRS_AN, request->domain, request->ip_ttl, srv_record->priority,
+						  srv_record->weight, srv_record->port, srv_record->host);
+		if (ret != 0) {
+			return -1;
+		}
+	}
+
+	return 0;
+}
+
 static int _dns_add_rrs(struct dns_server_post_context *context)
 {
 	struct dns_request *request = context->request;
@@ -1009,6 +1034,10 @@ static int _dns_add_rrs(struct dns_server_post_context *context)
 
 	if (request->has_ecs) {
 		ret |= dns_add_OPT_ECS(context->packet, &request->ecs);
+	}
+
+	if (request->srv_records != NULL) {
+		ret |= _dns_server_add_srv(context);
 	}
 
 	if (request->rcode != DNS_RC_NOERROR) {
@@ -4160,6 +4189,28 @@ static int _dns_server_process_DDR(struct dns_request *request)
 
 static int _dns_server_process_srv(struct dns_request *request)
 {
+	struct dns_srv_records *srv_records = dns_server_get_srv_record(request->domain);
+	if (srv_records == NULL) {
+		return -1;
+	}
+
+	request->rcode = DNS_RC_NOERROR;
+	request->ip_ttl = _dns_server_get_local_ttl(request);
+	request->srv_records = srv_records;
+
+	struct dns_server_post_context context;
+	_dns_server_post_context_init(&context, request);
+	context.do_audit = 1;
+	context.do_reply = 1;
+	context.do_cache = 0;
+	context.do_force_soa = 0;
+	_dns_request_post(&context);
+
+	return 0;
+}
+
+static int _dns_server_process_svcb(struct dns_request *request)
+{
 	if (strncmp("_dns.resolver.arpa", request->domain, DNS_MAX_CNAME_LEN) == 0) {
 		return _dns_server_process_DDR(request);
 	}
@@ -5268,8 +5319,17 @@ static int _dns_server_process_special_query(struct dns_request *request)
 	switch (request->qtype) {
 	case DNS_T_PTR:
 		break;
-	case DNS_T_SVCB:
+	case DNS_T_SRV:
 		ret = _dns_server_process_srv(request);
+		if (ret == 0) {
+			goto clean_exit;
+		} else {
+			/* pass to upstream server */
+			request->passthrough = 1;
+		}
+		break;
+	case DNS_T_SVCB:
+		ret = _dns_server_process_svcb(request);
 		if (ret == 0) {
 			goto clean_exit;
 		} else {

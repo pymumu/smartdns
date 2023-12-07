@@ -66,6 +66,9 @@ int dns_hosts_record_num;
 /* DNS64 */
 struct dns_dns64 dns_conf_dns_dns64;
 
+/* SRV-HOST */
+struct dns_srv_record_table dns_conf_srv_record_table;
+
 /* server ip/port  */
 struct dns_bind_ip dns_conf_bind_ip[DNS_MAX_BIND_IP];
 int dns_conf_bind_ip_num = 0;
@@ -502,6 +505,26 @@ static void _config_proxy_table_destroy(void)
 			free(server);
 		}
 		free(proxy);
+	}
+}
+
+static void _config_srv_record_table_destroy(void)
+{
+	struct dns_srv_records *srv_records = NULL;
+	struct dns_srv_record *srv_record, *tmp1 = NULL;
+	struct hlist_node *tmp = NULL;
+	unsigned int i;
+
+	hash_for_each_safe(dns_conf_srv_record_table.srv, i, tmp, srv_records, node)
+	{
+		list_for_each_entry_safe(srv_record, tmp1, &srv_records->list, list)
+		{
+			list_del(&srv_record->list);
+			free(srv_record);
+		}
+
+		hlist_del_init(&srv_records->node);
+		free(srv_records);
 	}
 }
 
@@ -1858,6 +1881,122 @@ static int _config_cname(void *data, int argc, char *argv[])
 errout:
 	tlog(TLOG_ERROR, "add cname %s:%s failed", domain, value);
 	return 0;
+}
+
+struct dns_srv_records *dns_server_get_srv_record(const char *domain)
+{
+	uint32_t key = 0;
+
+	key = hash_string(domain);
+	struct dns_srv_records *srv_records = NULL;
+	hash_for_each_possible(dns_conf_srv_record_table.srv, srv_records, node, key)
+	{
+		if (strncmp(srv_records->domain, domain, DNS_MAX_CONF_CNAME_LEN) == 0) {
+			return srv_records;
+		}
+	}
+
+	return NULL;
+}
+
+static int _confg_srv_record_add(const char *domain, const char *host, unsigned short priority, unsigned short weight,
+							   unsigned short port)
+{
+	struct dns_srv_records *srv_records = NULL;
+	struct dns_srv_record *srv_record = NULL;
+	uint32_t key = 0;
+
+	srv_records = dns_server_get_srv_record(domain);
+	if (srv_records == NULL) {
+		srv_records = malloc(sizeof(*srv_records));
+		if (srv_records == NULL) {
+			goto errout;
+		}
+		memset(srv_records, 0, sizeof(*srv_records));
+		safe_strncpy(srv_records->domain, domain, DNS_MAX_CONF_CNAME_LEN);
+		INIT_LIST_HEAD(&srv_records->list);
+		key = hash_string(domain);
+		hash_add(dns_conf_srv_record_table.srv, &srv_records->node, key);
+	}
+
+	srv_record = malloc(sizeof(*srv_record));
+	if (srv_record == NULL) {
+		goto errout;
+	}
+	memset(srv_record, 0, sizeof(*srv_record));
+	safe_strncpy(srv_record->host, host, DNS_MAX_CONF_CNAME_LEN);
+	srv_record->priority = priority;
+	srv_record->weight = weight;
+	srv_record->port = port;
+	list_add_tail(&srv_record->list, &srv_records->list);
+
+	return 0;
+errout:
+	if (srv_record != NULL) {
+		free(srv_record);
+	}
+	return -1;
+}
+
+static int _config_srv_record(void *data, int argc, char *argv[])
+{
+	char *value = NULL;
+	char domain[DNS_MAX_CONF_CNAME_LEN];
+	char buff[DNS_MAX_CONF_CNAME_LEN];
+	char *ptr = NULL;
+	int ret = -1;
+
+	char *host_s;
+	char *priority_s;
+	char *weight_s;
+	char *port_s;
+
+	unsigned short priority = 0;
+	unsigned short weight = 0;
+	unsigned short port = 1;
+
+	if (argc < 2) {
+		goto errout;
+	}
+
+	value = argv[1];
+	if (_get_domain(value, domain, DNS_MAX_CONF_CNAME_LEN, &value) != 0) {
+		goto errout;
+	}
+
+	safe_strncpy(buff, value, sizeof(buff));
+
+	host_s = strtok_r(buff, ",", &ptr);
+	if (host_s == NULL) {
+		host_s = "";
+		goto out;
+	}
+
+	port_s = strtok_r(NULL, ",", &ptr);
+	if (port_s != NULL) {
+		port = atoi(port_s);
+	}
+
+	priority_s = strtok_r(NULL, ",", &ptr);
+	if (priority_s != NULL) {
+		priority = atoi(priority_s);
+	}
+
+	weight_s = strtok_r(NULL, ",", &ptr);
+	if (weight_s != NULL) {
+		weight = atoi(weight_s);
+	}
+out:
+	ret = _confg_srv_record_add(domain, host_s, priority, weight, port);
+	if (ret != 0) {
+		goto errout;
+	}
+
+	return 0;
+
+errout:
+	tlog(TLOG_ERROR, "add srv-record %s:%s failed", domain, value);
+	return -1;
 }
 
 static void _config_speed_check_mode_clear(struct dns_domain_check_orders *check_orders)
@@ -4154,6 +4293,7 @@ static struct config_item _config_item[] = {
 	CONF_YESNO("expand-ptr-from-address", &dns_conf_expand_ptr_from_address),
 	CONF_CUSTOM("address", _config_address, NULL),
 	CONF_CUSTOM("cname", _config_cname, NULL),
+	CONF_CUSTOM("srv-record", _config_srv_record, NULL),
 	CONF_CUSTOM("proxy-server", _config_proxy_server, NULL),
 	CONF_YESNO("ipset-timeout", &dns_conf_ipset_timeout_enable),
 	CONF_CUSTOM("ipset", _config_ipset, NULL),
@@ -4406,6 +4546,7 @@ static int _dns_server_load_conf_init(void)
 	hash_init(dns_ptr_table.ptr);
 	hash_init(dns_domain_set_name_table.names);
 	hash_init(dns_ip_set_name_table.names);
+	hash_init(dns_conf_srv_record_table.srv);
 
 	return 0;
 }
@@ -4456,6 +4597,7 @@ void dns_server_load_exit(void)
 	_config_host_table_destroy(0);
 	_config_qtype_soa_table_destroy();
 	_config_proxy_table_destroy();
+	_config_srv_record_table_destroy();
 
 	dns_conf_server_num = 0;
 	dns_server_bind_destroy();

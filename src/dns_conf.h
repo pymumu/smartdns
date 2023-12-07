@@ -488,6 +488,25 @@ struct dns_dns64 {
 	uint32_t prefix_len;
 };
 
+struct dns_srv_record {
+	struct list_head list;
+	char host[DNS_MAX_CNAME_LEN];
+	unsigned short priority;
+	unsigned short weight;
+	unsigned short port;
+};
+
+struct dns_srv_records {
+	char domain[DNS_MAX_CNAME_LEN];
+	struct hlist_node node;
+	struct list_head list;
+};
+
+struct dns_srv_record_table {
+	DECLARE_HASHTABLE(srv, 4);
+};
+extern struct dns_srv_record_table dns_conf_srv_record_table;
+
 extern struct dns_dns64 dns_conf_dns_dns64;
 
 extern struct dns_bind_ip dns_conf_bind_ip[DNS_MAX_BIND_IP];
@@ -583,6 +602,8 @@ int dns_server_load_conf(const char *file);
 int dns_server_check_update_hosts(void);
 
 struct dns_proxy_names *dns_server_get_proxy_nams(const char *proxyname);
+
+struct dns_srv_records *dns_server_get_srv_record(const char *domain);
 
 extern int config_additional_file(void *data, int argc, char *argv[]);
 

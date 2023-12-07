@@ -1112,7 +1112,7 @@ int main(int argc, char *argv[])
 errout:
 	if (is_run_as_daemon) {
 		daemon_kickoff(ret, dns_conf_log_console | verbose_screen);
-	} else {
+	} else if (dns_conf_log_console == 0 && verbose_screen == 0) {
 		_smartdns_print_error_tip();
 	}
 	smartdns_test_notify(2);
