@@ -50,6 +50,7 @@ hide:
 |expand-ptr-from-address| Whether to expand the address record corresponding to PTR record | no | [yes\|no] | expand-ptr-from-address yes |
 |address|Domain IP address|None|address /[*\|-]domain/[ip1[,ip2,...]\|-\|-4\|-6\|#\|#4\|#6]<br />`-` for ignore <br />`#` for return SOA <br />`4` for IPV4 <br />`6` for IPV6 <br /> `*` at the beginning means wildcard<br />`-` means the main domain name at the beginning<br /> `*` and `-` can only be at the beginning of the domain name, other positions will not take effect.| address /www.example.com/1.2.3.4<br />address /www.example.com/::1 <br />address /example.com/1.2.3.4,5.6.7.8<br /> address /\*-a.example.com/ <br /> address /\*.example.com/ <br > address /-.example.com/
 |cname|set cname to domain| None | cname /domain/target <br />- for ignore <br />set cname to domain. | cname /www.example.com/cdn.example.com |
+|srv-record| add srv record | None | srv-record /domain/[target][,port][,priority][,weight] | srv-record /_vlmcs._tcp/example.com,1688,1,1|
 |ddns-domain|Specifies the DDNS domain name |None|ddns-domain domainin.com, used to resolve the specified domain name to the IP address of the host where smartdns resides. | ddns-domain example.com
 |dns64|dns64 translation | None | dns64 ip-prefix/mask <br /> ipv6 prefix and mask. | dns64 64:ff9b::/96 |
 |edns-client-subnet| DNS ECS | None |edns-client-subnet ip-prefix/mask <br /> set EDNS client subnet | ip-prefix/mask 1.2.3.4/23 |

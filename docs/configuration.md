@@ -54,6 +54,7 @@ hide:
 | expand-ptr-from-address | 是否扩展Address对应的PTR记录 | no | [yes\|no] | expand-ptr-from-address yes |
 | address | 指定域名 IP 地址 | 无 | address /[*\|-.]domain/[ip1[,ip2,...]\|-\|-4\|-6\|#\|#4\|#6] <br />- 表示忽略 <br /># 表示返回 SOA <br />4 表示 IPv4 <br />6 表示 IPv6 <br /> * 开头表示通配<br />- 开头表示主域名<br /> `*` 和 `-` 只能在域名开头，其他位置不生效。| address /www.example.com/1.2.3.4<br />address /www.example.com/::1 <br />address /example.com/1.2.3.4,5.6.7.8 <br /> address /\*-a.example.com/ <br /> address /\*.example.com/ <br > address /-.example.com/|
 | cname | 指定域名别名 | 无 | cname /domain/target <br />- 表示忽略 <br />指定对应域名的cname | cname /www.example.com/cdn.example.com |
+| srv-record | 指定SRV记录 | 无 | srv-record /domain/[target][,port][,priority][,weight] | srv-record /_vlmcs._tcp/example.com,1688,1,1|
 | ddns-domain | 指定DDNS域名 | 无 | ddns-domain doamin.com, 用于将指定的域名解析为smartdns所在主机IP地址。| ddns-domain example.com
 | dns64 | DNS64转换 | 无 | dns64 ip-prefix/mask <br /> ipv6前缀和掩码 | dns64 64:ff9b::/96 |
 | edns-client-subnet | DNS ECS | 无 | edns-client-subnet ip-prefix/mask <br /> 指定EDNS客户端子网 | ip-prefix/mask 1.2.3.4/23 |
