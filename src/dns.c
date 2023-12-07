@@ -1104,6 +1104,60 @@ int dns_get_OPT_TCP_KEEPALIVE(struct dns_rrs *rrs, unsigned short *timeout)
 	return 0;
 }
 
+int dns_add_SRV(struct dns_packet *packet, dns_rr_type type, const char *domain, int ttl, int priority, int weight,
+				int port, const char *target)
+{
+	unsigned char data[DNS_MAX_CNAME_LEN];
+	unsigned char *data_ptr = data;
+
+	int target_len = 0;
+	if (target == NULL) {
+		target = "";
+	}
+
+	target_len = strnlen(target, DNS_MAX_CNAME_LEN) + 1;
+	memcpy(data_ptr, &priority, sizeof(unsigned short));
+	data_ptr += sizeof(unsigned short);
+	memcpy(data_ptr, &weight, sizeof(unsigned short));
+	data_ptr += sizeof(unsigned short);
+	memcpy(data_ptr, &port, sizeof(unsigned short));
+	data_ptr += sizeof(unsigned short);
+	if (data_ptr - data + target_len >= DNS_MAX_CNAME_LEN) {
+		return -1;
+	}
+
+	safe_strncpy((char *)data_ptr, target, target_len);
+	data_ptr += target_len;
+
+	return _dns_add_RAW(packet, type, DNS_T_SRV, domain, ttl, data, data_ptr - data);
+}
+
+int dns_get_SRV(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, unsigned short *priority,
+				unsigned short *weight, unsigned short *port, char *target, int target_size)
+{
+	unsigned char data[DNS_MAX_CNAME_LEN];
+	unsigned char *ptr = data;
+	int len = sizeof(data);
+
+	if (_dns_get_RAW(rrs, domain, maxsize, ttl, data, &len) != 0) {
+		return -1;
+	}
+
+	if (len < 6) {
+		return -1;
+	}
+
+	memcpy(priority, ptr, sizeof(unsigned short));
+	ptr += sizeof(unsigned short);
+	memcpy(weight, ptr, sizeof(unsigned short));
+	ptr += sizeof(unsigned short);
+	memcpy(port, ptr, sizeof(unsigned short));
+	ptr += sizeof(unsigned short);
+	safe_strncpy(target, (char *)ptr, target_size);
+
+	return 0;
+}
+
 int dns_add_HTTPS_start(struct dns_rr_nested *svcparam_buffer, struct dns_packet *packet, dns_rr_type type,
 						const char *domain, int ttl, int priority, const char *target)
 {
@@ -1613,6 +1667,26 @@ static int _dns_encode_CNAME(struct dns_context *context, struct dns_rrs *rrs)
 	return 0;
 }
 
+static int _dns_decode_SRV(struct dns_context *context, unsigned short *priority, unsigned short *weight,
+						   unsigned short *port, char *target, int target_size)
+{
+	int ret = 0;
+
+	if (_dns_left_len(context) < 6) {
+		return -1;
+	}
+
+	*priority = _dns_read_short(&context->ptr);
+	*weight = _dns_read_short(&context->ptr);
+	*port = _dns_read_short(&context->ptr);
+
+	ret = _dns_decode_domain(context, target, target_size);
+	if (ret < 0) {
+		return -1;
+	}
+	return 0;
+}
+
 static int _dns_decode_SOA(struct dns_context *context, struct dns_soa *soa)
 {
 	int ret = 0;
@@ -1698,6 +1772,54 @@ static int _dns_encode_SOA(struct dns_context *context, struct dns_rrs *rrs)
 	data_context.ptr += 4;
 	_dns_write_int(&context->ptr, *(unsigned int *)data_context.ptr);
 	data_context.ptr += 4;
+
+	return 0;
+}
+
+static int _dns_encode_SRV(struct dns_context *context, struct dns_rrs *rrs)
+{
+	int ret = 0;
+	int qtype = 0;
+	int qclass = 0;
+	int ttl = 0;
+	char domain[DNS_MAX_CNAME_LEN];
+	int rr_len = 0;
+	unsigned char *rr_len_ptr = NULL;
+	struct dns_context data_context;
+
+	_dns_init_context_by_rrs(rrs, &data_context);
+	ret = _dns_get_rr_head(&data_context, domain, DNS_MAX_CNAME_LEN, &qtype, &qclass, &ttl, &rr_len);
+	if (ret < 0) {
+		return -1;
+	}
+
+	ret = _dns_encode_rr_head(context, domain, qtype, qclass, ttl, rr_len, &rr_len_ptr);
+	if (ret < 0) {
+		return -1;
+	}
+
+	rr_len = 0;
+
+	if (_dns_left_len(context) < 6) {
+		return -1;
+	}
+
+	_dns_write_short(&context->ptr, *(unsigned short *)data_context.ptr);
+	data_context.ptr += 2;
+	_dns_write_short(&context->ptr, *(unsigned short *)data_context.ptr);
+	data_context.ptr += 2;
+	_dns_write_short(&context->ptr, *(unsigned short *)data_context.ptr);
+	data_context.ptr += 2;
+	rr_len += 6;
+
+	ret = _dns_encode_domain(context, (char *)data_context.ptr);
+	if (ret < 0) {
+		return -1;
+	}
+	rr_len += ret;
+	data_context.ptr += strnlen((char *)(data_context.ptr), DNS_MAX_CNAME_LEN) + 1;
+
+	_dns_write_short(&rr_len_ptr, rr_len);
 
 	return 0;
 }
@@ -2277,6 +2399,24 @@ static int _dns_decode_an(struct dns_context *context, dns_rr_type type)
 			return -1;
 		}
 	} break;
+	case DNS_T_SRV: {
+		unsigned short priority = 0;
+		unsigned short weight = 0;
+		unsigned short port = 0;
+		char target[DNS_MAX_CNAME_LEN];
+
+		ret = _dns_decode_SRV(context, &priority, &weight, &port, target, DNS_MAX_CNAME_LEN);
+		if (ret < 0) {
+			tlog(TLOG_DEBUG, "decode SRV failed, %s", domain);
+			return -1;
+		}
+
+		ret = dns_add_SRV(packet, type, domain, ttl, priority, weight, port, target);
+		if (ret < 0) {
+			tlog(TLOG_DEBUG, "add SRV failed, %s", domain);
+			return -1;
+		}
+	} break;
 	case DNS_T_OPT: {
 		unsigned char *opt_start = context->ptr;
 		ret = _dns_decode_opt(context, type, ttl, rr_len);
@@ -2389,6 +2529,12 @@ static int _dns_encode_an(struct dns_context *context, struct dns_rrs *rrs)
 		break;
 	case DNS_T_SOA:
 		ret = _dns_encode_SOA(context, rrs);
+		if (ret < 0) {
+			return -1;
+		}
+		break;
+	case DNS_T_SRV:
+		ret = _dns_encode_SRV(context, rrs);
 		if (ret < 0) {
 			return -1;
 		}

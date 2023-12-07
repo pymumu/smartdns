@@ -3494,7 +3494,7 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 				}
 			}
 			total_server++;
-			tlog(TLOG_DEBUG, "send query to server %s", server_info->ip);
+			tlog(TLOG_DEBUG, "send query to server %s:%d", server_info->ip, server_info->port);
 			if (server_info->fd <= 0) {
 				ret = _dns_client_create_socket(server_info);
 				if (ret != 0) {

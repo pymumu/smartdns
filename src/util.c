@@ -1913,6 +1913,24 @@ static int _dns_debug_display(struct dns_packet *packet)
 				inet_ntop(AF_INET6, addr, req_host, sizeof(req_host));
 				printf("domain: %s AAAA: %s TTL:%d\n", name, req_host, ttl);
 			} break;
+			case DNS_T_SRV: {
+				unsigned short priority = 0;
+				unsigned short weight = 0;
+				unsigned short port = 0;
+				int ret = 0;
+
+				char name[DNS_MAX_CNAME_LEN] = {0};
+				char target[DNS_MAX_CNAME_LEN];
+
+				ret = dns_get_SRV(rrs, name, DNS_MAX_CNAME_LEN, &ttl, &priority, &weight, &port, target, DNS_MAX_CNAME_LEN);
+				if (ret < 0) {
+					tlog(TLOG_DEBUG, "decode SRV failed, %s", name);
+					return -1;
+				}
+
+				printf("domain: %s SRV: %s TTL: %d priority: %d weight: %d port: %d\n", name, target, ttl, priority,
+					   weight, port);
+			} break;
 			case DNS_T_HTTPS: {
 				char name[DNS_MAX_CNAME_LEN] = {0};
 				char target[DNS_MAX_CNAME_LEN] = {0};

@@ -285,6 +285,11 @@ int dns_get_OPT_ECS(struct dns_rrs *rrs, struct dns_opt_ecs *ecs);
 int dns_add_OPT_TCP_KEEPALIVE(struct dns_packet *packet, unsigned short timeout);
 int dns_get_OPT_TCP_KEEPALIVE(struct dns_rrs *rrs, unsigned short *timeout);
 
+int dns_add_SRV(struct dns_packet *packet, dns_rr_type type, const char *domain, int ttl, int priority, int weight,
+				int port, const char *target);
+int dns_get_SRV(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, unsigned short *priority,
+				unsigned short *weight, unsigned short *port, char *target, int target_size);
+
 /* the key must be added in orders, or dig will report FORMERR */
 int dns_add_HTTPS_start(struct dns_rr_nested *svcparam_buffer, struct dns_packet *packet, dns_rr_type type,
 						const char *domain, int ttl, int priority, const char *target);
