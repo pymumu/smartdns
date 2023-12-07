@@ -1114,7 +1114,6 @@ errout:
 		daemon_kickoff(ret, dns_conf_log_console | verbose_screen);
 	} else {
 		_smartdns_print_error_tip();
-		printf("ret = %d\n", ret);
 	}
 	smartdns_test_notify(2);
 	_smartdns_exit();
