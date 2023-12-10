@@ -7164,8 +7164,14 @@ static struct addrinfo *_dns_server_getaddr(const char *host, const char *port, 
 	hints.ai_socktype = type;
 	hints.ai_protocol = protocol;
 	hints.ai_flags = AI_PASSIVE;
-	if (getaddrinfo(host, port, &hints, &result) != 0) {
-		tlog(TLOG_ERROR, "get addr info failed. %s\n", strerror(errno));
+	const int s = getaddrinfo(host, port, &hints, &result);
+	if (s != 0) {
+		const char *error_str;
+		if (s == EAI_SYSTEM)
+			error_str = strerror(errno);
+		else
+			error_str = gai_strerror(s);
+		tlog(TLOG_ERROR, "get addr info failed. %s.\n", error_str);
 		goto errout;
 	}
 
