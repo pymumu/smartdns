@@ -183,6 +183,7 @@ struct fast_ping_struct {
 	int fake_ip_num;
 };
 
+static int is_fast_ping_init;
 static struct fast_ping_struct ping;
 static atomic_t ping_sid = ATOMIC_INIT(0);
 static int bool_print_log = 1;
@@ -2187,6 +2188,10 @@ int fast_ping_init(void)
 	int ret = 0;
 	bool_print_log = 1;
 
+	if (is_fast_ping_init == 1) {
+		return -1;
+	}
+
 	if (ping.epoll_fd > 0) {
 		return -1;
 	}
@@ -2232,6 +2237,7 @@ int fast_ping_init(void)
 		goto errout;
 	}
 
+	is_fast_ping_init = 1;
 	return 0;
 errout:
 	if (ping.notify_tid) {
@@ -2294,6 +2300,10 @@ static void _fast_ping_close_fds(void)
 
 void fast_ping_exit(void)
 {
+	if (is_fast_ping_init == 0) {
+		return;
+	}
+
 	if (ping.notify_tid) {
 		void *retval = NULL;
 		atomic_set(&ping.run, 0);
@@ -2324,4 +2334,6 @@ void fast_ping_exit(void)
 	pthread_mutex_destroy(&ping.notify_lock);
 	pthread_mutex_destroy(&ping.lock);
 	pthread_mutex_destroy(&ping.map_lock);
+
+	is_fast_ping_init = 0;
 }

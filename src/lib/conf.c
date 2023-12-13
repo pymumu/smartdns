@@ -24,6 +24,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <errno.h>
 
 static const char *current_conf_file = NULL;
 static int current_conf_lineno = 0;
@@ -372,6 +373,7 @@ static int load_conf_file(const char *file, struct config_item *items, conf_erro
 
 	fp = fopen(file, "r");
 	if (fp == NULL) {
+		fprintf(stderr, "open config file '%s' failed, %s\n", file, strerror(errno));
 		return -1;
 	}
 
@@ -440,7 +442,6 @@ static int load_conf_file(const char *file, struct config_item *items, conf_erro
 			}
 
 			if (items[i].item == NULL) {
-				handler(file, line_no, CONF_RET_NOENT);
 				break;
 			}
 

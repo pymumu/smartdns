@@ -34,6 +34,7 @@
 #define TVR_MASK (TVR_SIZE - 1)
 #define TVN_MASK (TVN_SIZE - 1)
 #define INDEX(N) ((base->jiffies >> (TVR_BITS + N * TVN_BITS)) & TVN_MASK)
+#define MAX_TVAL ((unsigned long)((1ULL << (TVR_BITS + 4 * TVN_BITS)) - 1))
 
 struct tvec {
 	struct list_head vec[TVN_SIZE];
@@ -65,7 +66,6 @@ static inline void _tw_add_timer(struct tw_base *base, struct tw_timer_list *tim
 	struct list_head *vec;
 
 	expires = timer->expires;
-
 	idx = expires - base->jiffies;
 
 	if (idx < TVR_SIZE) {
@@ -80,39 +80,18 @@ static inline void _tw_add_timer(struct tw_base *base, struct tw_timer_list *tim
 	} else if (idx < 1 << (TVR_BITS + 3 * TVN_BITS)) {
 		i = (expires >> (TVR_BITS + 2 * TVN_BITS)) & TVN_MASK;
 		vec = base->tv4.vec + i;
-	} else if ((long)idx < 0) {
+	} else if ((signed long)idx < 0) {
 		vec = base->tv1.vec + (base->jiffies & TVR_MASK);
 	} else {
+		if (idx > MAX_TVAL) {
+			idx = MAX_TVAL;
+			expires = idx + base->jiffies;
+		}
 		i = (expires >> (TVR_BITS + 3 * TVN_BITS)) & TVN_MASK;
 		vec = base->tv5.vec + i;
 	}
 
 	list_add_tail(&timer->entry, vec);
-}
-
-static inline unsigned long _apply_slack(struct tw_base *base, struct tw_timer_list *timer)
-{
-	long delta;
-	unsigned long mask, expires, expires_limit;
-
-	expires = timer->expires;
-
-	delta = expires - base->jiffies;
-	if (delta < 256) {
-		return expires;
-	}
-
-	expires_limit = expires + delta / 256;
-	mask = expires ^ expires_limit;
-	if (mask == 0) {
-		return expires;
-	}
-
-	int bit = fls_long(mask);
-	mask = (1UL << bit) - 1;
-
-	expires_limit = expires_limit & ~(mask);
-	return expires_limit;
 }
 
 static inline void _tw_detach_timer(struct tw_timer_list *timer)
@@ -179,8 +158,7 @@ void tw_add_timer(struct tw_base *base, struct tw_timer_list *timer)
 
 	pthread_spin_lock(&base->lock);
 	{
-		timer->expires += base->jiffies;
-		timer->expires = _apply_slack(base, timer);
+		timer->expires += base->jiffies - 1;
 		_tw_add_timer(base, timer);
 	}
 	pthread_spin_unlock(&base->lock);
@@ -200,7 +178,7 @@ int tw_del_timer(struct tw_base *base, struct tw_timer_list *timer)
 	pthread_spin_unlock(&base->lock);
 
 	if (ret == 1 && timer->del_function) {
-		timer->del_function(timer, timer->data);
+		timer->del_function(base, timer, timer->data);
 	}
 
 	return ret;
@@ -212,9 +190,7 @@ int tw_mod_timer_pending(struct tw_base *base, struct tw_timer_list *timer, unsi
 
 	pthread_spin_lock(&base->lock);
 	{
-		timer->expires = expires + base->jiffies;
-		timer->expires = _apply_slack(base, timer);
-
+		timer->expires = expires + base->jiffies - 1;
 		ret = __mod_timer(base, timer, 1);
 	}
 	pthread_spin_unlock(&base->lock);
@@ -232,8 +208,7 @@ int tw_mod_timer(struct tw_base *base, struct tw_timer_list *timer, unsigned lon
 			goto unblock;
 		}
 
-		timer->expires = expires + base->jiffies;
-		timer->expires = _apply_slack(base, timer);
+		timer->expires = expires + base->jiffies - 1;
 
 		ret = __mod_timer(base, timer, 0);
 	}
@@ -301,13 +276,13 @@ static inline void run_timers(struct tw_base *base)
 			_tw_detach_timer(timer);
 			pthread_spin_unlock(&base->lock);
 			{
-				fn(timer, data, call_time);
+				fn(base, timer, data, call_time);
 			}
 
 			pthread_spin_lock(&base->lock);
-			if ( (timer_pending(timer) == 0 && timer->del_function) ) {
+			if ((timer_pending(timer) == 0 && timer->del_function)) {
 				pthread_spin_unlock(&base->lock);
-				timer->del_function(timer, timer->data);
+				timer->del_function(base, timer, timer->data);
 				pthread_spin_lock(&base->lock);
 			}
 		}

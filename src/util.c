@@ -1065,6 +1065,10 @@ void SSL_CRYPTO_thread_setup(void)
 {
 	int i = 0;
 
+	if (lock_cs != NULL) {
+		return;
+	}
+
 	lock_cs = OPENSSL_malloc(CRYPTO_num_locks() * sizeof(pthread_mutex_t));
 	lock_count = OPENSSL_malloc(CRYPTO_num_locks() * sizeof(long));
 	if (!lock_cs || !lock_count) {
@@ -1094,12 +1098,18 @@ void SSL_CRYPTO_thread_cleanup(void)
 {
 	int i = 0;
 
+	if (lock_cs == NULL) {
+		return;
+	}
+
 	CRYPTO_set_locking_callback(NULL);
 	for (i = 0; i < CRYPTO_num_locks(); i++) {
 		pthread_mutex_destroy(&(lock_cs[i]));
 	}
 	OPENSSL_free(lock_cs);
 	OPENSSL_free(lock_count);
+	lock_cs = NULL;
+	lock_count = NULL;
 }
 #endif
 
@@ -1376,8 +1386,8 @@ int set_sock_keepalive(int fd, int keepidle, int keepinterval, int keepcnt)
 	}
 
 	setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &keepidle, sizeof(keepidle));
-	setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &keepinterval, sizeof(keepinterval));
-	setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &keepcnt, sizeof(keepcnt));
+	setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &keepinterval, sizeof(keepinterval));
+	setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &keepcnt, sizeof(keepcnt));
 
 	return 0;
 }
@@ -1622,6 +1632,23 @@ errout:
 	return;
 }
 
+void daemon_close_stdfds(void)
+{
+	int fd_null = open("/dev/null", O_RDWR);
+	if (fd_null < 0) {
+		fprintf(stderr, "open /dev/null failed, %s\n", strerror(errno));
+		return;
+	}
+
+	dup2(fd_null, STDIN_FILENO);
+	dup2(fd_null, STDOUT_FILENO);
+	dup2(fd_null, STDERR_FILENO);
+
+	if (fd_null > 2) {
+		close(fd_null);
+	}
+}
+
 int daemon_kickoff(int status, int no_close)
 {
 	struct daemon_msg msg;
@@ -1640,19 +1667,7 @@ int daemon_kickoff(int status, int no_close)
 	}
 
 	if (no_close == 0) {
-		int fd_null = open("/dev/null", O_RDWR);
-		if (fd_null < 0) {
-			fprintf(stderr, "open /dev/null failed, %s\n", strerror(errno));
-			return -1;
-		}
-
-		dup2(fd_null, STDIN_FILENO);
-		dup2(fd_null, STDOUT_FILENO);
-		dup2(fd_null, STDERR_FILENO);
-
-		if (fd_null > 2) {
-			close(fd_null);
-		}
+		daemon_close_stdfds();
 	}
 
 	close(daemon_fd);
@@ -1688,7 +1703,7 @@ int daemon_keepalive(void)
 	return 0;
 }
 
-int daemon_run(void)
+daemon_ret daemon_run(int *wstatus)
 {
 	pid_t pid = 0;
 	int fds[2] = {0};
@@ -1738,11 +1753,16 @@ int daemon_run(void)
 				pid = msg.value;
 				continue;
 			} else if (msg.type == DAEMON_MSG_KICKOFF) {
-				return msg.value;
+				if (wstatus != NULL) {
+					*wstatus = msg.value;
+				}
+				return DAEMON_RET_PARENT_OK;
 			} else {
 				goto errout;
 			}
 		} while (true);
+
+		return DAEMON_RET_ERR;
 	}
 
 	setsid();
@@ -1767,10 +1787,13 @@ int daemon_run(void)
 	close(fds[0]);
 
 	daemon_fd = fds[1];
-	return -2;
+	return DAEMON_RET_CHILD_OK;
 errout:
 	kill(pid, SIGKILL);
-	return -1;
+	if (wstatus != NULL) {
+		*wstatus = -1;
+	}
+	return DAEMON_RET_ERR;
 }
 
 #ifdef DEBUG
@@ -1889,6 +1912,24 @@ static int _dns_debug_display(struct dns_packet *packet)
 				req_host[0] = '\0';
 				inet_ntop(AF_INET6, addr, req_host, sizeof(req_host));
 				printf("domain: %s AAAA: %s TTL:%d\n", name, req_host, ttl);
+			} break;
+			case DNS_T_SRV: {
+				unsigned short priority = 0;
+				unsigned short weight = 0;
+				unsigned short port = 0;
+				int ret = 0;
+
+				char name[DNS_MAX_CNAME_LEN] = {0};
+				char target[DNS_MAX_CNAME_LEN];
+
+				ret = dns_get_SRV(rrs, name, DNS_MAX_CNAME_LEN, &ttl, &priority, &weight, &port, target, DNS_MAX_CNAME_LEN);
+				if (ret < 0) {
+					tlog(TLOG_DEBUG, "decode SRV failed, %s", name);
+					return -1;
+				}
+
+				printf("domain: %s SRV: %s TTL: %d priority: %d weight: %d port: %d\n", name, target, ttl, priority,
+					   weight, port);
 			} break;
 			case DNS_T_HTTPS: {
 				char name[DNS_MAX_CNAME_LEN] = {0};

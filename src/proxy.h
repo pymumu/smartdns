@@ -56,7 +56,7 @@ struct proxy_conn;
 
 int proxy_init(void);
 
-int proxy_exit(void);
+void proxy_exit(void);
 
 int proxy_add(const char *proxy_name, struct proxy_info *info);
 

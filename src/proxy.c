@@ -95,6 +95,7 @@ struct proxy_struct {
 };
 
 static struct proxy_struct proxy;
+static int is_proxy_init;
 
 static const char *proxy_socks5_status_code[] = {
 	"success",
@@ -1045,13 +1046,24 @@ int proxy_conn_is_udp(struct proxy_conn *proxy_conn)
 
 int proxy_init(void)
 {
+	if (is_proxy_init == 1) {
+		return -1;
+	}
+
 	memset(&proxy, 0, sizeof(proxy));
 	hash_init(proxy.proxy_server);
+	is_proxy_init = 1;
 	return 0;
 }
 
-int proxy_exit(void)
+void proxy_exit(void)
 {
+	if (is_proxy_init == 0) {
+		return;
+	}
 	_proxy_remove_all();
-	return 0;
+
+	is_proxy_init = 0;
+	
+	return ;
 }

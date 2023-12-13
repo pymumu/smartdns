@@ -6,6 +6,10 @@ msgid ""
 "Additional Flags for rules, read help on domain-rule for more information."
 msgstr "额外的规则标识，具体参考domain-rule的帮助说明。"
 
+msgid ""
+"Additional Flags for rules, read help on ip-rule for more information."
+msgstr "额外的规则标识，具体参考ip-rule的帮助说明。"
+
 msgid "Additional Rule Flag"
 msgstr "额外规则标识"
 
@@ -29,11 +33,20 @@ msgstr "自动设置Dnsmasq"
 msgid "Automatically set as upstream of dnsmasq when port changes."
 msgstr "端口更改时自动设为 dnsmasq 的上游。"
 
+msgid "Blacklist IP"
+msgstr "黑名单"
+
+msgid "Blacklist IP Rule, Decline IP addresses within the range."
+msgstr "黑名单规则，拒绝指定范围的IP地址。"
+
 msgid "Bind Device"
 msgstr "绑定到设备"
 
 msgid "Bind Device Name"
 msgstr "绑定的设备名称"
+
+msgid "Bogus nxdomain"
+msgstr "假冒IP"
 
 msgid "Block domain"
 msgstr "屏蔽域名"
@@ -64,8 +77,26 @@ msgstr "配置域名规则列表"
 msgid "Configure forwarding domain name list."
 msgstr "配置分流域名列表"
 
+msgid "Configure ip rule list."
+msgstr "配置IP规则列表"
+
 msgid "Custom Settings"
 msgstr "自定义设置"
+
+msgid "Do not use these IP addresses."
+msgstr "忽略这些IP地址"
+
+msgid "DOH Server"
+msgstr "DOH服务器"
+
+msgid "DOH Server Port"
+msgstr "DOH服务器端口"
+
+msgid "DOT Server"
+msgstr "DOT服务器"
+
+msgid "DOT Server Port"
+msgstr "DOT服务器端口"
 
 msgid "DNS Block Setting"
 msgstr "域名屏蔽设置"
@@ -184,8 +215,44 @@ msgstr "启用IPV6服务器。"
 msgid "Enable TCP DNS Server"
 msgstr "启用TCP服务器。"
 
-msgid "Enable daily auto update."
-msgstr "启用每日自动更新"
+msgid "Enable daily (weekly) auto update."
+msgstr "启用每日（每周）自动更新"
+
+msgid "Enable DOH DNS Server"
+msgstr "启用DOH服务器"
+
+msgid "Enable DOT DNS Server"
+msgstr "启用DOT服务器"
+
+msgid "Update time (every day)"
+msgstr "更新时间（每天）"
+
+msgid "Update Time (Every Week)"
+msgstr "更新时间（每周）"
+
+msgid "Every Day"
+msgstr "每天"
+
+msgid "Every Monday"
+msgstr "每周一"
+
+msgid "Every Tuesday"
+msgstr "每周二"
+
+msgid "Every Wednesday"
+msgstr "每周三"
+
+msgid "Every Thursday"
+msgstr "每周四"
+
+msgid "Every Friday"
+msgstr "每周五"
+
+msgid "Every Saturday"
+msgstr "每周六"
+
+msgid "Every Sunday"
+msgstr "每周日"
 
 msgid "Enable domain prefetch, accelerate domain response speed."
 msgstr "启用域名预加载，加速域名响应速度。"
@@ -258,6 +325,30 @@ msgstr "IP黑名单过滤"
 
 msgid "IPV6 Server"
 msgstr "IPV6服务器"
+
+msgid "IP alias"
+msgstr "IP别名"
+
+msgid "IP Addresses"
+msgstr "IP地址"
+
+msgid "IP Address Mapping, Can be used for CDN acceleration with Anycast IP, such as Cloudflare's CDN."
+msgstr "IP地址映射，可用于支持AnyCast IP的CDN加速，比如Cloudflare的CDN。"
+
+msgid "Ignore IP"
+msgstr "忽略IP"
+
+msgid "IP Rule List"
+msgstr "IP规则列表"
+
+msgid "IP Rule Name"
+msgstr "IP规则名称"
+
+msgid "IP Set File"
+msgstr "IP集合列表文件"
+
+msgid "IP addresses, CIDR format."
+msgstr "IP地址，CIDR格式。"
 
 msgid "IPset Name"
 msgstr "IPset名称"
@@ -349,6 +440,9 @@ msgstr "无"
 msgid "Only socks5 proxy support udp server."
 msgstr "仅SOCKS5代理支持UDP服务器。"
 
+msgid "Please check the system logs and check if the configuration is valid."
+msgstr "请检查系统日志，并检查配置是否合法。"
+
 msgid "Please set proxy server first."
 msgstr "请先设置代理服务器。"
 
@@ -380,6 +474,9 @@ msgstr "设置返回给客户端的域名TTL最大值。"
 msgid "Report bugs"
 msgstr "报告BUG"
 
+msgid "Return SOA when the requested result contains a specified IP address."
+msgstr "当结果包含对应范围的IP时，返回SOA。"
+
 msgid "Resolve Local Hostnames"
 msgstr "解析本地主机名"
 
@@ -398,6 +495,15 @@ msgstr "重启服务"
 msgid "Second Server Settings"
 msgstr "第二DNS服务器"
 
+msgid "Server certificate file path."
+msgstr "服务器证书文件路径。"
+
+msgid "Server certificate key file path."
+msgstr "服务器证书私钥文件路径。"
+
+msgid "Server certificate key file password."
+msgstr "服务器证书私钥文件密码。"
+
 msgid "Serve expired"
 msgstr "缓存过期服务"
 
@@ -410,6 +516,15 @@ msgstr "服务器组%s不存在"
 msgid "Server Name"
 msgstr "服务器名称"
 
+msgid "Server Cert"
+msgstr "服务器证书"
+
+msgid "Server Cert Key"
+msgstr "服务器证书私钥"
+
+msgid "Server Cert Key Pass"
+msgstr "服务器证书私钥密码"
+
 msgid "Set Specific domain ip address."
 msgstr "设置指定域名的IP地址。"
 
@@ -418,6 +533,9 @@ msgstr "设置指定域名的规则列表。"
 
 msgid "Set Specific ip blacklist."
 msgstr "设置指定的 IP 黑名单列表。"
+
+msgid "Set Specific ip rule list."
+msgstr "设置对应IP的规则。"
 
 msgid "Set TLS hostname to verify."
 msgstr "设置校验TLS主机名。"
@@ -477,6 +595,12 @@ msgstr "跳过Nameserver规则。"
 
 msgid "SmartDNS"
 msgstr "SmartDNS"
+
+msgid "Smartdns DOH server port."
+msgstr "Smartdns DOH服务器端口号。
+
+msgid "Smartdns DOT server port."
+msgstr "Smartdns DOT服务器端口号。"
 
 msgid "SmartDNS Server"
 msgstr "SmartDNS 服务器"
@@ -575,6 +699,9 @@ msgstr "上传域名列表文件，或在下载文件设置页面设置自动下
 msgid "Upload domain list file."
 msgstr "上传域名列表文件"
 
+msgid "Upload IP set file."
+msgstr "上传IP集合列表文件。"
+
 msgid "Upload smartdns config file to /etc/smartdns/conf.d"
 msgstr "上传配置文件到/etc/smartdns/conf.d"
 
@@ -601,6 +728,12 @@ msgid ""
 msgstr ""
 "用于校验 TLS 服务器的有效性，数值为 Base64 编码的 SPKI 指纹，留空表示不验证 "
 "TLS 的合法性。"
+
+msgid "Whitelist IP"
+msgstr "白名单"
+
+msgid "Whitelist IP Rule, Accept IP addresses within the range."
+msgstr "白名单规则，接受指定范围的IP地址。"
 
 msgid "Write cache to disk on exit and load on startup."
 msgstr "退出时保存cache到磁盘，启动时加载。"

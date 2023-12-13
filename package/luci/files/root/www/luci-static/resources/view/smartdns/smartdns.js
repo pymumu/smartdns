@@ -58,12 +58,17 @@ function smartdnsRenderStatus(res) {
 
 	var autoSetDnsmasq = uci.get_first('smartdns', 'smartdns', 'auto_set_dnsmasq');
 	var smartdnsPort = uci.get_first('smartdns', 'smartdns', 'port');
+	var smartdnsEnable = uci.get_first('smartdns', 'smartdns', 'enabled');
 	var dnsmasqServer = uci.get_first('dhcp', 'dnsmasq', 'server');
 
 	if (isRunning) {
 		renderHTML += "<span style=\"color:green;font-weight:bold\">SmartDNS - " + _("RUNNING") + "</span>";
 	} else {
 		renderHTML += "<span style=\"color:red;font-weight:bold\">SmartDNS - " + _("NOT RUNNING") + "</span>";
+		if (smartdnsEnable === '1') {
+			renderHTML += "<br /><span style=\"color:red;font-weight:bold\">" + _("Please check the system logs and check if the configuration is valid.");
+			renderHTML += "</span>";
+		}
 		return renderHTML;
 	}
 
@@ -79,7 +84,6 @@ function smartdnsRenderStatus(res) {
 
 	return renderHTML;
 }
-
 return view.extend({
 	load: function () {
 		return Promise.all([
@@ -156,7 +160,7 @@ return view.extend({
 		o.default = 53;
 		o.datatype = "port";
 		o.rempty = false;
-		
+
 		// auto-conf-dnsmasq;
 		o = s.taboption("settings", form.Flag, "auto_set_dnsmasq", _("Automatically Set Dnsmasq"), _("Automatically set as upstream of dnsmasq when port changes."));
 		o.rmempty = false;
@@ -220,6 +224,50 @@ return view.extend({
 		o.rmempty = false;
 		o.default = o.enabled;
 
+		// Enable DOT server;
+		o = s.taboption("advanced", form.Flag, "tls_server", _("DOT Server"), _("Enable DOT DNS Server"));
+		o.rmempty = false;
+		o.default = o.disabled;
+
+		o = s.taboption("advanced", form.Value, "tls_server_port", _("DOT Server Port"), _("Smartdns DOT server port."));
+		o.placeholder = 853;
+		o.default = 853;
+		o.datatype = "port";
+		o.rempty = false;
+		o.depends('tls_server', '1');
+
+		// Enable DOH server;
+		o = s.taboption("advanced", form.Flag, "doh_server", _("DOH Server"), _("Enable DOH DNS Server"));
+		o.rmempty = false;
+		o.default = o.disabled;
+
+		o = s.taboption("advanced", form.Value, "doh_server_port", _("DOH Server Port"), _("Smartdns DOH server port."));
+		o.placeholder = 843;
+		o.default = 843;
+		o.datatype = "port";
+		o.rempty = false;
+		o.depends('doh_server', '1');
+
+		o = s.taboption("advanced", form.Value, "bind_cert", _("Server Cert"), _("Server certificate file path."));
+		o.datatype = "string";
+		o.placeholder = "/var/etc/smartdns/smartdns/smartdns-cert.pem"
+		o.rempty = true;
+		o.depends('tls_server', '1');
+		o.depends('doh_server', '1');
+	
+		o = s.taboption("advanced", form.Value, "bind_cert_key", _("Server Cert Key"), _("Server certificate key file path."));
+		o.datatype = "string";
+		o.placeholder = "/var/etc/smartdns/smartdns/smartdns-key.pem"
+		o.rempty = false;
+		o.depends('tls_server', '1');
+		o.depends('doh_server', '1');
+
+		o = s.taboption("advanced", form.Value, "bind_cert_key_pass", _("Server Cert Key Pass"), _("Server certificate key file password."));
+		o.datatype = "string";
+		o.rempty = false;
+		o.depends('tls_server', '1');
+		o.depends('doh_server', '1');
+
 		// Support IPV6;
 		o = s.taboption("advanced", form.Flag, "ipv6_server", _("IPV6 Server"), _("Enable IPV6 DNS Server"));
 		o.rmempty = false;
@@ -279,7 +327,7 @@ return view.extend({
 		o.default = o.enabled;
 
 		// Ipset no speed.
-		o = s.taboption("advanced", form.Value, "ipset_no_speed", _("No Speed IPset Name"), 
+		o = s.taboption("advanced", form.Value, "ipset_no_speed", _("No Speed IPset Name"),
 			_("Ipset name, Add domain result to ipset when speed check fails."));
 		o.rmempty = true;
 		o.datatype = "string";
@@ -300,7 +348,7 @@ return view.extend({
 		}
 
 		// NFTset no speed.
-		o = s.taboption("advanced", form.Value, "nftset_no_speed", _("No Speed NFTset Name"), 
+		o = s.taboption("advanced", form.Value, "nftset_no_speed", _("No Speed NFTset Name"),
 			_("Nftset name, Add domain result to nftset when speed check fails, format: [#[4|6]:[family#table#set]]"));
 		o.rmempty = true;
 		o.datatype = "string";
@@ -343,7 +391,7 @@ return view.extend({
 		o.rempty = true;
 
 		// other args
-		o = s.taboption("advanced", form.Value, "server_flags", _("Additional Server Args"), 
+		o = s.taboption("advanced", form.Value, "server_flags", _("Additional Server Args"),
 			_("Additional server args, refer to the help description of the bind option."))
 		o.default = ""
 		o.rempty = true
@@ -476,7 +524,7 @@ return view.extend({
 		}
 
 		// other args
-		o = s.taboption("seconddns", form.Value, "seconddns_server_flags", _("Additional Server Args"), 
+		o = s.taboption("seconddns", form.Value, "seconddns_server_flags", _("Additional Server Args"),
 			_("Additional server args, refer to the help description of the bind option."))
 		o.default = ""
 		o.rempty = true
@@ -492,10 +540,28 @@ return view.extend({
 		///////////////////////////////////////
 		// download Files Settings
 		///////////////////////////////////////
-		o = s.taboption("files", form.Flag, "enable_auto_update", _("Enable Auto Update"), _("Enable daily auto update."));
+		o = s.taboption("files", form.Flag, "enable_auto_update", _("Enable Auto Update"), _("Enable daily (weekly) auto update."));
 		o.rmempty = true;
 		o.default = o.disabled;
 		o.rempty = true;
+
+		o = s.taboption("files", form.ListValue, "auto_update_week_time", _("Update Time (Every Week)"));
+		o.value('*', _('Every Day'));
+		o.value('1', _('Every Monday'));
+		o.value('2', _('Every Tuesday'));
+		o.value('3', _('Every Wednesday'));
+		o.value('4', _('Every Thursday'));
+		o.value('5', _('Every Friday'));
+		o.value('6', _('Every Saturday'));
+		o.value('0', _('Every Sunday'));
+		o.default = "*";
+		o.depends('enable_auto_update', '1');
+
+		o = s.taboption('files', form.ListValue, 'auto_update_day_time', _("Update time (every day)"));
+		for (var i = 0; i < 24; i++)
+			o.value(i, i + ':00');
+		o.default = '5';
+		o.depends('enable_auto_update', '1');
 
 		o = s.taboption("files", form.FileUpload, "upload_conf_file", _("Upload Config File"),
 			_("Upload smartdns config file to /etc/smartdns/conf.d"));
@@ -804,6 +870,7 @@ return view.extend({
 		s.tab("forwarding", _('DNS Forwarding Setting'));
 		s.tab("block", _("DNS Block Setting"));
 		s.tab("domain-rule-list", _("Domain Rule List"), _("Set Specific domain rule list."));
+		s.tab("ip-rule-list", _("IP Rule List"), _("Set Specific ip rule list."));
 		s.tab("domain-address", _("Domain Address"), _("Set Specific domain ip address."));
 		s.tab("blackip-list", _("IP Blacklist"), _("Set Specific ip blacklist."));
 
@@ -1130,6 +1197,72 @@ return view.extend({
 				return fs.write('/etc/smartdns/address.conf', formvalue.trim().replace(/\r\n/g, '\n') + '\n');
 			});
 		};
+
+		///////////////////////////////////////
+		// ip rule list;
+		///////////////////////////////////////
+		o = s.taboption('ip-rule-list', form.SectionValue, '__ip-rule-list__', form.GridSection, 'ip-rule-list', _('IP Rule List'),
+			_('Configure ip rule list.'));
+
+		ss = o.subsection;
+
+		ss.addremove = true;
+		ss.anonymous = true;
+		ss.sortable = true;
+
+		// enable flag;
+		so = ss.option(form.Flag, "enabled", _("Enable"), _("Enable"));
+		so.rmempty = false;
+		so.default = so.enabled;
+		so.editable = true;
+
+		// name;
+		so = ss.option(form.Value, "name", _("IP Rule Name"), _("IP Rule Name"));
+		so.rmempty = true;
+		so.datatype = "string";
+
+		so = ss.option(form.FileUpload, "ip_set_file", _("IP Set File"), _("Upload IP set file."));
+		so.rmempty = true
+		so.datatype = "file"
+		so.modalonly = true;
+		so.root_directory = "/etc/smartdns/ip-set"
+
+		so = ss.option(form.DynamicList, "ip_addr", _("IP Addresses"), _("IP addresses, CIDR format."));
+		so.rmempty = true;
+		so.datatype = "ipaddr"
+		so.modalonly = true;
+
+		so = ss.option(form.Flag, "whitelist_ip", _("Whitelist IP"), _("Whitelist IP Rule, Accept IP addresses within the range."));
+		so.rmempty = true;
+		so.default = so.disabled;
+		so.modalonly = true;
+
+		so = ss.option(form.Flag, "blacklist_ip", _("Blacklist IP"), _("Blacklist IP Rule, Decline IP addresses within the range."));
+		so.rmempty = true;
+		so.default = so.disabled;
+		so.modalonly = true;
+
+		so = ss.option(form.Flag, "ignore_ip", _("Ignore IP"), _("Do not use these IP addresses."));
+		so.rmempty = true;
+		so.default = so.disabled;
+		so.modalonly = true;
+
+		so = ss.option(form.Flag, "bogus_nxdomain", _("Bogus nxdomain"), _("Return SOA when the requested result contains a specified IP address."));
+		so.rmempty = true;
+		so.default = so.disabled;
+		so.modalonly = true;
+
+		so = ss.option(form.DynamicList, "ip_alias", _("IP alias"), _("IP Address Mapping, Can be used for CDN acceleration with Anycast IP, such as Cloudflare's CDN."));
+		so.rmempty = true;
+		so.datatype = 'ipaddr("nomask")';
+		so.modalonly = true;
+
+		// other args
+		so = ss.option(form.Value, "addition_flag", _("Additional Rule Flag"),
+			_("Additional Flags for rules, read help on ip-rule for more information."))
+		so.default = ""
+		so.rempty = true
+		so.modalonly = true;
 
 		////////////////
 		// Support

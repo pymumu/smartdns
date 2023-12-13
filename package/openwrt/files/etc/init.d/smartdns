@@ -27,6 +27,8 @@ if [ ! -d "/run" ]; then
 	SERVICE_PID_FILE="/var/run/smartdns.pid"
 fi
 
+SMARTDNS_DEFAULT_FORWARDING_FILE="/etc/smartdns/domain-forwarding.list"
+SMARTDNS_DEFAULT_DOMAIN_BLOCK_FILE="/etc/smartdns/domain-block.list"
 SMARTDNS_CONF_DIR="/etc/smartdns"
 SMARTDNS_CONF_DOWNLOAD_DIR="$SMARTDNS_CONF_DIR/conf.d"
 SMARTDNS_DOMAIN_LIST_DOWNLOAD_DIR="$SMARTDNS_CONF_DIR/domain-set"
@@ -124,6 +126,10 @@ clear_iptable()
 {
 	local OLD_PORT="$1"
 	local ipv6_server=$2
+
+	which iptables >/dev/null 2>&1
+	[ $? -ne 0 ] && return
+
 	IPS="$(ifconfig | grep "inet addr" | grep -v ":127" | grep "Bcast" | awk '{print $2}' | awk -F : '{print $2}')"
 	for IP in $IPS
 	do
@@ -260,13 +266,13 @@ disable_auto_update()
 
 enable_auto_update()
 {
-	grep "0 $auto_update_day_time * * * /etc/init.d/smartdns updatefiles" /etc/crontabs/root 2>/dev/null
+	grep "0 $auto_update_day_time * * $auto_update_week_time /etc/init.d/smartdns updatefiles" /etc/crontabs/root 2>/dev/null
 	if [ $? -eq 0 ]; then
 		return 
 	fi
 
 	disable_auto_update 1
-	echo "0 $auto_update_day_time * * * /etc/init.d/smartdns updatefiles" >> /etc/crontabs/root
+	echo "0 $auto_update_day_time * * $auto_update_week_time /etc/init.d/smartdns updatefiles" >> /etc/crontabs/root
 	restart_crond
 }
 
@@ -302,7 +308,8 @@ load_domain_rules()
 	}
 
 	[ ! -z "$domain_set_args" ] && {
-		conf_append "domain-set" "-name ${domain_set_name}-forwarding-list -file /etc/smartdns/domain-forwarding.list"
+		[ ! -e "$SMARTDNS_DEFAULT_FORWARDING_FILE" ] && touch $SMARTDNS_DEFAULT_FORWARDING_FILE
+		conf_append "domain-set" "-name ${domain_set_name}-forwarding-list -file $SMARTDNS_DEFAULT_FORWARDING_FILE"
 		conf_append "domain-rules" "/domain-set:${domain_set_name}-forwarding-list/ $domain_set_args"
 	}
 
@@ -310,11 +317,12 @@ load_domain_rules()
 	[ ! -z "$block_domain_set_file" ] && {
 		[ ! -e "$block_domain_set_file" ] && touch $block_domain_set_file
 		conf_append "domain-set" "-name ${domain_set_name}-block-file -file '$block_domain_set_file'"
-		conf_append "domain-rules" "/domain-set:${domain_set_name}-block-file/ --address #"
+		conf_append "domain-rules" "/domain-set:${domain_set_name}-block-file/ -address #"
 	}
 
-	conf_append "domain-set" "-name ${domain_set_name}-block-list -file /etc/smartdns/domain-block.list"
-	conf_append "domain-rules" "/domain-set:${domain_set_name}-block-list/ --address #"
+	[ ! -e "$SMARTDNS_DEFAULT_DOMAIN_BLOCK_FILE" ] && touch $SMARTDNS_DEFAULT_DOMAIN_BLOCK_FILE
+	conf_append "domain-set" "-name ${domain_set_name}-block-list -file $SMARTDNS_DEFAULT_DOMAIN_BLOCK_FILE"
+	conf_append "domain-rules" "/domain-set:${domain_set_name}-block-list/ -address #"
 }
 
 load_domain_rule_list()
@@ -362,12 +370,59 @@ load_domain_rule_list()
 	conf_append "domain-rules" "/domain-set:domain-rule-list-${domain_set_name}/ $domain_set_args"	
 }
 
+ip_rule_addr_append()
+{
+	conf_append "ip-rules" "$1 $IP_set_args"
+}
+
+load_IP_rule_list()
+{
+	local section="$1"
+	local IP_set_args=""
+	local IP_set_name="$section"
+
+	config_get_bool enabled "$section" "enabled" "0"
+	[ "$enabled" != "1" ] && return
+
+	config_get ip_set_file "$section" "ip_set_file" ""
+
+	config_get_bool whitelist_ip "$section" "whitelist_ip" "0"
+	[ "$whitelist_ip" = "1" ] && IP_set_args="$IP_set_args -whitelist-ip"
+
+	config_get_bool blacklist_ip "$section" "blacklist_ip" "0"
+	[ "$blacklist_ip" = "1" ] && IP_set_args="$IP_set_args -blacklist-ip"
+
+	config_get_bool ignore_ip "$section" "ignore_ip" "0"
+	[ "$ignore_ip" = "1" ] && IP_set_args="$IP_set_args -ignore-ip"
+
+	config_get_bool bogus_nxdomain "$section" "bogus_nxdomain" "0"
+	[ "$bogus_nxdomain" = "1" ] && IP_set_args="$IP_set_args -bogus-nxdomain"
+
+	config_get ip_alias "$section" "ip_alias" ""
+	[ ! -z "$ip_alias" ] && {
+		ip_alias="$(echo "$ip_alias" | sed 's/ /,/g')"
+		IP_set_args="$IP_set_args -ip-alias $ip_alias"
+	}
+
+	config_get addition_flag "$section" "addition_flag" ""
+	[ ! -z "$addition_flag" ] && IP_set_args="$IP_set_args $addition_flag"
+	[ -z "$IP_set_args" ] && return
+
+	[ ! -z "$ip_set_file" ] && [ -e "$ip_set_file" ] && {
+		conf_append "ip-set" "-name ip-rule-list-file-${section} -file '$ip_set_file'"
+		conf_append "ip-rules" "ip-set:ip-rule-list-file-${section} $IP_set_args"
+	}
+
+	config_list_foreach "$section" "ip_addr" ip_rule_addr_append
+}
+
 conf_append_bind()
 {
 	local ADDR=""
-	local port="$1"
-	local devices="$2"
-	local tcp_server="$3"
+	local bind_type="$1"
+	local port="$2"
+	local devices="$3"
+	local device=""
 	local ipv6_server="$4"
 	local ARGS="$5"
 
@@ -384,16 +439,8 @@ conf_append_bind()
 	for device in $devices; do
 		device="@$device"
 		[ "$device" = "@-" ] && device=""
-		conf_append "bind" "$ADDR:$port$device $ARGS"
+		conf_append "$bind_type" "$ADDR:$port$device $ARGS"
 	done
-
-	[ "$tcp_server" = "1" ] && {
-		for device in $devices; do
-			device="@$device"
-			[ "$device" = "@-" ] && device=""
-			conf_append "bind-tcp" "$ADDR:$port$device $ARGS"
-		done
-	}
 }
 
 load_second_server()
@@ -451,7 +498,8 @@ load_second_server()
 	config_get seconddns_server_flags "$section" "seconddns_server_flags" ""
 	[ -z "$seconddns_server_flags" ] || ARGS="$ARGS $seconddns_server_flags"
 
-	conf_append_bind "$seconddns_port" "$device" "$seconddns_tcp_server" "$ipv6_server" "$ARGS"
+	conf_append_bind "bind" "$seconddns_port" "$device" "$ipv6_server" "$ARGS"
+	[ "$seconddns_tcp_server" = "1" ] && conf_append_bind "bind-tcp" "$seconddns_port" "$device" "$ipv6_server" "$ARGS"
 }
 
 conf_append_conf_files()
@@ -499,8 +547,16 @@ load_service()
 	config_get port "$section" "port" "53"
 	config_get ipv6_server "$section" "ipv6_server" "1"
 	config_get tcp_server "$section" "tcp_server" "1"
+	config_get tls_server "$section" "tls_server" "0"
+	config_get tls_server_port "$section" "tls_server_port" "853"
+	config_get doh_server "$section" "doh_server" "0"
+	config_get doh_server_port "$section" "doh_server_port" "843"
+	config_get bind_cert "$section" "bind_cert" ""
+	config_get bind_cert_key "$section" "bind_cert_key" ""
+	config_get bind_cert_key_pass "$section" "bind_cert_key_pass" ""
 	config_get server_flags "$section" "server_flags" ""
 
+	config_get auto_update_week_time "$section" "auto_update_week_time" "*"
 	config_get auto_update_day_time "$section" "auto_update_day_time" "5"
 
 	config_get speed_check_mode "$section" "speed_check_mode" ""
@@ -654,7 +710,14 @@ load_service()
 		[ "$auto_set_dnsmasq" = "0" ] && [ "$old_auto_set_dnsmasq" = "1" ] && stop_forward_dnsmasq "$old_port" "0"
 	}
 
-	conf_append_bind "$port" "$device" "$tcp_server" "$ipv6_server" "$server_flags"
+	conf_append_bind "bind" "$port" "$device" "$ipv6_server" "$server_flags"
+	[ "$tcp_server" = "1" ] && conf_append_bind "bind-tcp" "$port" "$device" "$ipv6_server" "$server_flags"
+	[ "$tls_server" = "1" ] && conf_append_bind "bind-tls" "$tls_server_port" "$device" "$ipv6_server" "$server_flags"
+	[ "$doh_server" = "1" ] && conf_append_bind "bind-https" "$doh_server_port" "$device" "$ipv6_server" "$server_flags"
+
+	[ ! -z "$bind_cert" ] && conf_append "bind-cert-file" "$bind_cert"
+	[ ! -z "$bind_cert_key" ] && conf_append "bind-cert-key-file" "$bind_cert_key"
+	[ ! -z "$bind_cert_key_pass" ] && conf_append "bind-cert-key-pass" "$bind_cert_key_pass"
 
 	load_second_server "$section"
 
@@ -665,6 +728,8 @@ load_service()
 	config_foreach load_domain_rules "domain-rule"
 
 	config_foreach load_domain_rule_list "domain-rule-list"
+
+	config_foreach load_IP_rule_list "ip-rule-list"
 
 	{
 		echo "conf-file $ADDRESS_CONF"

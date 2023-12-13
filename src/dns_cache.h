@@ -124,7 +124,13 @@ const char *dns_cache_get_dns_group_name(struct dns_cache *dns_cache);
 
 struct dns_cache_data *dns_cache_new_data_packet(void *packet, size_t packet_len);
 
-typedef int (*dns_cache_callback)(struct dns_cache *dns_cache);
+typedef enum DNS_CACHE_TMOUT_ACTION {
+	DNS_CACHE_TMOUT_ACTION_OK = 0,
+	DNS_CACHE_TMOUT_ACTION_DEL = 1,
+	DNS_CACHE_TMOUT_ACTION_RETRY = 2,
+} dns_cache_tmout_action_t;
+
+typedef dns_cache_tmout_action_t (*dns_cache_callback)(struct dns_cache *dns_cache);
 
 int dns_cache_init(int size, dns_cache_callback timeout_callback);
 
@@ -135,6 +141,10 @@ int dns_cache_insert(struct dns_cache_key *key, int rcode, int ttl, int speed, i
 					 struct dns_cache_data *cache_data);
 
 struct dns_cache *dns_cache_lookup(struct dns_cache_key *key);
+
+int dns_cache_total_num(void);
+
+int dns_cache_update_timer(struct dns_cache_key *key, int timeout);
 
 void dns_cache_delete(struct dns_cache *dns_cache);
 

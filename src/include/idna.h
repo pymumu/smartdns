@@ -16,42 +16,17 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef __TIMER_WHEEL_H
-#define __TIMER_WHEEL_H
-
-#include "list.h"
+#ifndef _SMARTDNS_IDNA_H
+#define _SMARTDNS_IDNA_H
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-struct tw_base;
-struct tw_timer_list;
-
-typedef void (*tw_func)(struct tw_base *, struct tw_timer_list *, void *, unsigned long);
-typedef void (*tw_del_func)(struct tw_base *, struct tw_timer_list *, void *);
-
-struct tw_timer_list {
-	void *data;
-	unsigned long expires;
-	tw_func function;
-	tw_del_func del_function;
-	struct list_head entry;
-};
-
-struct tw_base *tw_init_timers(void);
-
-int tw_cleanup_timers(struct tw_base *);
-
-void tw_add_timer(struct tw_base *, struct tw_timer_list *);
-
-int tw_del_timer(struct tw_base *, struct tw_timer_list *);
-
-int tw_mod_timer_pending(struct tw_base *, struct tw_timer_list *, unsigned long);
-
-int tw_mod_timer(struct tw_base *, struct tw_timer_list *, unsigned long);
+int utf8_to_punycode(const char *src, int src_len, char *dst, int dst_len);
 
 #ifdef __cplusplus
 }
 #endif
-#endif
+
+#endif // !_SMARTDNS_IDNA_H

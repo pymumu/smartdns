@@ -147,11 +147,20 @@ void print_stack(void);
 
 void close_all_fd(int keepfd);
 
-int daemon_run(void);
+typedef enum daemon_ret {
+	DAEMON_RET_OK = 0,
+	DAEMON_RET_ERR = -1,
+	DAEMON_RET_CHILD_OK = -2,
+	DAEMON_RET_PARENT_OK = -3,
+} daemon_ret;
+
+daemon_ret daemon_run(int *wstatus);
 
 int daemon_kickoff(int status, int no_close);
 
 int daemon_keepalive(void);
+
+void daemon_close_stdfds(void);
 
 int write_file(const char *filename, void *data, int data_len);
 

@@ -28,9 +28,9 @@
 #include "hashtable.h"
 #include "list.h"
 #include "rbtree.h"
+#include "timer.h"
 #include "tlog.h"
 #include "util.h"
-#include "timer.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <getopt.h>
@@ -47,12 +47,21 @@
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/wait.h>
+#include <syslog.h>
 #include <ucontext.h>
 
 #define MAX_KEY_LEN 64
 #define SMARTDNS_PID_FILE "/run/smartdns.pid"
 #define SMARTDNS_LEGACY_PID_FILE "/var/run/smartdns.pid"
 #define TMP_BUFF_LEN_32 32
+#define SMARTDNS_CRASH_CODE 254
+
+typedef enum {
+	SMARTDNS_RUN_MONITOR_OK = 0,
+	SMARTDNS_RUN_MONITOR_ERROR = 1,
+	SMARTDNS_RUN_MONITOR_EXIT = 2,
+} smartdns_run_monitor_ret;
 
 static int verbose_screen;
 
@@ -152,12 +161,13 @@ static void _help(void)
 		"  -f            run foreground.\n"
 		"  -c [conf]     config file.\n"
 		"  -p [pid]      pid file path, '-' means don't create pid file.\n"
+		"  -R            restart smartdns when crash.\n"
 		"  -S            ignore segment fault signal.\n"
 		"  -x            verbose screen.\n"
 		"  -v            display version.\n"
 		"  -h            show this help message.\n"
 
-		"Online help: http://pymumu.github.io/smartdns\n"
+		"Online help: https://pymumu.github.io/smartdns\n"
 		"Copyright (C) Nick Peng <pymumu@gmail.com>\n"
 		;
 	/* clang-format on */
@@ -463,19 +473,29 @@ static int _smartdns_init(void)
 	int i = 0;
 	char logdir[PATH_MAX] = {0};
 	int logbuffersize = 0;
+	int enable_log_screen = 0;
 
 	if (get_system_mem_size() > 1024 * 1024 * 1024) {
 		logbuffersize = 1024 * 1024;
 	}
 
-	ret = tlog_init(logfile, dns_conf_log_size, dns_conf_log_num, logbuffersize, TLOG_NONBLOCK);
+	safe_strncpy(logdir, _smartdns_log_path(), PATH_MAX);
+	if (verbose_screen != 0 || dns_conf_log_console != 0 || access(dir_name(logdir), W_OK) != 0) {
+		enable_log_screen = 1;
+	}
+
+	unsigned int tlog_flag = TLOG_NONBLOCK;
+	if (isatty(1) && enable_log_screen == 1) {
+		tlog_flag |= TLOG_SCREEN_COLOR;
+	}
+
+	ret = tlog_init(logfile, dns_conf_log_size, dns_conf_log_num, logbuffersize, tlog_flag);
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "start tlog failed.\n");
 		goto errout;
 	}
 
-	safe_strncpy(logdir, _smartdns_log_path(), PATH_MAX);
-	if (verbose_screen != 0 || dns_conf_log_console != 0 || access(dir_name(logdir), W_OK) != 0) {
+	if (enable_log_screen) {
 		tlog_setlogscreen(1);
 	}
 
@@ -487,7 +507,7 @@ static int _smartdns_init(void)
 	tlog(TLOG_NOTICE, "smartdns starting...(Copyright (C) Nick Peng <pymumu@gmail.com>, build: %s %s)", __DATE__,
 		 __TIME__);
 
-if (dns_timer_init() != 0) {
+	if (dns_timer_init() != 0) {
 		tlog(TLOG_ERROR, "init timer failed.");
 		goto errout;
 	}
@@ -573,13 +593,12 @@ static int _smartdns_run(void)
 
 static void _smartdns_exit(void)
 {
-	tlog(TLOG_INFO, "smartdns exit...");
 	dns_client_exit();
 	proxy_exit();
 	fast_ping_exit();
 	dns_server_exit();
 	_smartdns_destroy_ssl();
-dns_timer_destroy();
+	dns_timer_destroy();
 	tlog_exit();
 	dns_server_load_exit();
 }
@@ -620,7 +639,7 @@ static void _sig_error_exit(int signo, siginfo_t *siginfo, void *ct)
 		 __DATE__, __TIME__, arch);
 	print_stack();
 	sleep(1);
-	_exit(0);
+	_exit(SMARTDNS_CRASH_CODE);
 }
 
 static int sig_list[] = {SIGSEGV, SIGABRT, SIGBUS, SIGILL, SIGFPE};
@@ -726,6 +745,169 @@ static int _smartdns_init_pre(void)
 	return 0;
 }
 
+static void _smartdns_early_log(struct tlog_loginfo *loginfo, const char *format, va_list ap)
+{
+	char log_buf[TLOG_MAX_LINE_LEN];
+	int sys_log_level = LOG_INFO;
+	int log_buf_maxlen = 0;
+
+	if (loginfo->level < TLOG_WARN) {
+		return;
+	}
+
+	log_buf_maxlen = sizeof(log_buf) - 2;
+	log_buf[log_buf_maxlen] = '\0';
+	int len = vsnprintf(log_buf, log_buf_maxlen, format, ap);
+	if (len <= 0) {
+		return;
+	} else if (len >= log_buf_maxlen) {
+		log_buf[log_buf_maxlen - 2] = '.';
+		log_buf[log_buf_maxlen - 3] = '.';
+		log_buf[log_buf_maxlen - 4] = '.';
+		len = log_buf_maxlen - 1;
+	}
+
+	if (log_buf[len - 1] != '\n') {
+		log_buf[len] = '\n';
+		len++;
+	}
+
+	log_buf[len] = '\0';
+
+	fprintf(stderr, "%s", log_buf);
+
+	switch (loginfo->level) {
+	case TLOG_ERROR:
+		sys_log_level = LOG_ERR;
+		break;
+	case TLOG_WARN:
+		sys_log_level = LOG_WARNING;
+		break;
+	case TLOG_NOTICE:
+		sys_log_level = LOG_NOTICE;
+		break;
+	case TLOG_INFO:
+		sys_log_level = LOG_INFO;
+		break;
+	case TLOG_DEBUG:
+		sys_log_level = LOG_DEBUG;
+		break;
+	default:
+		sys_log_level = LOG_INFO;
+		break;
+	}
+
+	syslog(sys_log_level, "%s", log_buf);
+}
+
+static int _smartdns_child_pid = 0;
+static int _smartdns_child_restart = 0;
+
+static void _smartdns_run_monitor_sig(int sig)
+{
+	if (_smartdns_child_pid > 0) {
+		if (sig == SIGHUP) {
+			_smartdns_child_restart = 1;
+			kill(_smartdns_child_pid, SIGTERM);
+			return;
+		}
+		kill(_smartdns_child_pid, SIGTERM);
+	}
+	waitpid(_smartdns_child_pid, NULL, 0);
+
+	_exit(0);
+}
+
+static smartdns_run_monitor_ret _smartdns_run_monitor(int restart_when_crash, int is_run_as_daemon)
+{
+	pid_t pid;
+	int status;
+
+	if (restart_when_crash == 0) {
+		return SMARTDNS_RUN_MONITOR_OK;
+	}
+
+	if (is_run_as_daemon) {
+		switch (daemon_run(NULL)) {
+		case DAEMON_RET_CHILD_OK:
+			break;
+		case DAEMON_RET_PARENT_OK:
+			return SMARTDNS_RUN_MONITOR_EXIT;
+		default:
+			return SMARTDNS_RUN_MONITOR_ERROR;
+		}
+	}
+
+	daemon_kickoff(0, 1);
+
+restart:
+	pid = fork();
+	if (pid < 0) {
+		fprintf(stderr, "fork failed, %s\n", strerror(errno));
+		return SMARTDNS_RUN_MONITOR_ERROR;
+	} else if (pid == 0) {
+		return SMARTDNS_RUN_MONITOR_OK;
+	}
+
+	_smartdns_child_pid = pid;
+
+	signal(SIGTERM, _smartdns_run_monitor_sig);
+	signal(SIGHUP, _smartdns_run_monitor_sig);
+	while (true) {
+		pid = waitpid(-1, &status, 0);
+		if (pid == _smartdns_child_pid) {
+			int need_restart = 0;
+			char signalmsg[64] = {0};
+
+			if (_smartdns_child_restart == 1) {
+				_smartdns_child_restart = 0;
+				goto restart;
+			}
+
+			if (WEXITSTATUS(status) == SMARTDNS_CRASH_CODE) {
+				need_restart = 1;
+			} else if (WEXITSTATUS(status) == 255) {
+				fprintf(stderr, "run daemon failed, please check log.\n");
+			} else if (WIFSIGNALED(status)) {
+				switch (WTERMSIG(status)) {
+				case SIGSEGV:
+				case SIGABRT:
+				case SIGBUS:
+				case SIGILL:
+				case SIGFPE:
+					snprintf(signalmsg, sizeof(signalmsg), " with signal %d", WTERMSIG(status));
+					need_restart = 1;
+					break;
+				default:
+					break;
+				}
+			}
+
+			if (need_restart == 1) {
+				printf("smartdns crashed%s, restart...\n", signalmsg);
+				goto restart;
+			}
+			break;
+		}
+
+		if (pid < 0) {
+			sleep(1);
+		}
+	}
+
+	return SMARTDNS_RUN_MONITOR_ERROR;
+}
+
+static void _smartdns_print_error_tip(void)
+{
+	char buff[4096];
+	char *log_path = realpath(_smartdns_log_path(), buff);
+
+	if (log_path != NULL && access(log_path, F_OK) == 0) {
+		fprintf(stderr, "run daemon failed, please check log at %s\n", log_path);
+	}
+}
+
 #ifdef TEST
 
 static smartdns_post_func _smartdns_post = NULL;
@@ -768,12 +950,14 @@ int main(int argc, char *argv[])
 	int opt = 0;
 	char config_file[MAX_LINE_LEN];
 	char pid_file[MAX_LINE_LEN];
+	int is_pid_file_set = 0;
 	int signal_ignore = 0;
+	int restart_when_crash = getpid() == 1 ? 1 : 0;
 	sigset_t empty_sigblock;
 	struct stat sb;
 
 	static struct option long_options[] = {
-		{"cache-print", required_argument, 0, 256}, {"help", no_argument, 0, 'h'}, {NULL, 0, 0, 0}};
+		{"cache-print", required_argument, NULL, 256}, {"help", no_argument, NULL, 'h'}, {NULL, 0, NULL, 0}};
 
 	safe_strncpy(config_file, SMARTDNS_CONF_FILE, MAX_LINE_LEN);
 
@@ -788,7 +972,7 @@ int main(int argc, char *argv[])
 	sigprocmask(SIG_SETMASK, &empty_sigblock, NULL);
 	smartdns_close_allfds();
 
-	while ((opt = getopt_long(argc, argv, "fhc:p:SvxN:", long_options, 0)) != -1) {
+	while ((opt = getopt_long(argc, argv, "fhc:p:SvxN:R", long_options, NULL)) != -1) {
 		switch (opt) {
 		case 'f':
 			is_run_as_daemon = 0;
@@ -801,7 +985,11 @@ int main(int argc, char *argv[])
 		case 'p':
 			if (strncmp(optarg, "-", 2) == 0 || full_path(pid_file, sizeof(pid_file), optarg) != 0) {
 				snprintf(pid_file, sizeof(pid_file), "%s", optarg);
+				is_pid_file_set = 1;
 			}
+			break;
+		case 'R':
+			restart_when_crash = 1;
 			break;
 		case 'S':
 			signal_ignore = 1;
@@ -822,12 +1010,24 @@ int main(int argc, char *argv[])
 			return 0;
 		case 256:
 			return dns_cache_print(optarg);
-break;
+			break;
 		default:
 			fprintf(stderr, "unknown option, please run %s -h for help.\n", argv[0]);
 			return 1;
 		}
 	}
+
+	smartdns_run_monitor_ret init_ret = _smartdns_run_monitor(restart_when_crash, is_run_as_daemon);
+	if (init_ret != SMARTDNS_RUN_MONITOR_OK) {
+		if (init_ret == SMARTDNS_RUN_MONITOR_EXIT) {
+			return 0;
+		}
+		return 1;
+	}
+
+	srand(time(NULL));
+
+	tlog_reg_early_printf_callback(_smartdns_early_log);
 
 	ret = dns_server_load_conf(config_file);
 	if (ret != 0) {
@@ -835,26 +1035,41 @@ break;
 		goto errout;
 	}
 
-	if (dns_no_daemon) {
+	if (dns_no_daemon || restart_when_crash) {
 		is_run_as_daemon = 0;
 	}
 
 	if (is_run_as_daemon) {
-		int daemon_ret = daemon_run();
-		if (daemon_ret != -2) {
-			char buff[4096];
-			char *log_path = realpath(_smartdns_log_path(), buff);
-
-			if (log_path != NULL && access(log_path, F_OK) == 0 && daemon_ret != -3 && daemon_ret != 0) {
-				fprintf(stderr, "run daemon failed, please check log at %s\n", log_path);
+		int child_status = -1;
+		switch (daemon_run(&child_status)) {
+		case DAEMON_RET_CHILD_OK:
+			break;
+		case DAEMON_RET_PARENT_OK: {
+			if (child_status != 0 && child_status != -3) {
+				_smartdns_print_error_tip();
 			}
 
-			return daemon_ret;
+			return child_status;
+		} break;
+		case DAEMON_RET_ERR:
+		default:
+			fprintf(stderr, "run daemon failed.\n");
+			goto errout;
 		}
 	}
 
 	if (signal_ignore == 0) {
 		_reg_signal();
+	}
+
+	if (is_pid_file_set == 0) {
+		char pid_file_path[MAX_LINE_LEN];
+		safe_strncpy(pid_file_path, pid_file, MAX_LINE_LEN);
+		dir_name(pid_file_path);
+
+		if (access(pid_file_path, W_OK) != 0) {
+			dns_no_pidfile = 1;
+		}
 	}
 
 	if (strncmp(pid_file, "-", 2) != 0 && dns_no_pidfile == 0 && create_pid_file(pid_file) != 0) {
@@ -885,16 +1100,22 @@ break;
 		if (ret != 0) {
 			goto errout;
 		}
+	} else if (dns_conf_log_console == 0 && verbose_screen == 0) {
+		daemon_close_stdfds();
 	}
 
 	smartdns_test_notify(1);
 	ret = _smartdns_run();
+	tlog(TLOG_INFO, "smartdns exit...");
 	_smartdns_exit();
 	return ret;
 errout:
 	if (is_run_as_daemon) {
 		daemon_kickoff(ret, dns_conf_log_console | verbose_screen);
+	} else if (dns_conf_log_console == 0 && verbose_screen == 0) {
+		_smartdns_print_error_tip();
 	}
 	smartdns_test_notify(2);
-	return 1;
+	_smartdns_exit();
+	return ret;
 }

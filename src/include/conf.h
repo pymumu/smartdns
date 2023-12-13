@@ -122,9 +122,9 @@ struct config_enum {
 			.data = value, .min = min_value, .max = max_value                                                          \
 		}                                                                                                              \
 	}
-#define CONF_SSIZE(key, value, min_value, max_value)                                                                    \
+#define CONF_SSIZE(key, value, min_value, max_value)                                                                   \
 	{                                                                                                                  \
-		key, conf_ssize, &(struct config_item_ssize)                                                                     \
+		key, conf_ssize, &(struct config_item_ssize)                                                                   \
 		{                                                                                                              \
 			.data = value, .min = min_value, .max = max_value                                                          \
 		}                                                                                                              \

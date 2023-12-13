@@ -37,7 +37,7 @@ test -x $SMARTDNS || exit 5
 
 case $1 in
 	start)
-		$SMARTDNS "$SMART_DNS_OPTS"
+		$SMARTDNS "$SMART_DNS_OPTS" -R
 		while true; do
 			if [ -e "$PIDFILE" ]; then
 				break;
