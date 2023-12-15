@@ -35,6 +35,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <ifaddrs.h>
+#include <math.h>
 #include <net/if.h>
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
@@ -3339,7 +3340,7 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 					 request->soa.refresh, request->soa.retry, request->soa.expire, request->soa.minimum);
 
 				int soa_num = atomic_inc_return(&request->soa_num);
-				if ((soa_num >= (dns_server_alive_num() / 3) + 1 || soa_num > 4) &&
+				if ((soa_num >= ((int)ceil((float)dns_server_alive_num() / 3) + 1) || soa_num > 4) &&
 					atomic_read(&request->ip_map_num) <= 0) {
 					request->ip_ttl = ttl;
 					_dns_server_request_complete(request);
