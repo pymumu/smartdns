@@ -7167,10 +7167,11 @@ static struct addrinfo *_dns_server_getaddr(const char *host, const char *port, 
 	const int s = getaddrinfo(host, port, &hints, &result);
 	if (s != 0) {
 		const char *error_str;
-		if (s == EAI_SYSTEM)
+		if (s == EAI_SYSTEM) {
 			error_str = strerror(errno);
-		else
+		} else {
 			error_str = gai_strerror(s);
+		}
 		tlog(TLOG_ERROR, "get addr info failed. %s.\n", error_str);
 		goto errout;
 	}
