@@ -624,6 +624,16 @@ static int _dns_server_is_return_soa_qtype(struct dns_request *request, dns_type
 		if (_dns_server_has_bind_flag(request, BIND_FLAG_FORCE_AAAA_SOA) == 0 || dns_conf_force_AAAA_SOA == 1) {
 			return 1;
 		}
+
+		if (request->domain_rule.rules[DOMAIN_RULE_ADDRESS_IPV4] != NULL &&
+			request->domain_rule.rules[DOMAIN_RULE_ADDRESS_IPV6] == NULL) {
+			return 1;
+		}
+	} else if (qtype == DNS_T_A) {
+		if (request->domain_rule.rules[DOMAIN_RULE_ADDRESS_IPV6] != NULL &&
+			request->domain_rule.rules[DOMAIN_RULE_ADDRESS_IPV4] == NULL) {
+			return 1;
+		}
 	}
 
 	return 0;
@@ -4440,7 +4450,12 @@ static int _dns_server_pre_process_rule_flags(struct dns_request *request)
 		}
 
 		if (_dns_server_is_return_soa(request)) {
-			/* return SOA for A request */
+			/* if AAAA exists, return SOA with NOERROR*/
+			if (request->domain_rule.rules[DOMAIN_RULE_ADDRESS_IPV6] != NULL) {
+				goto soa;
+			}
+
+			/* if AAAA not exists, return SOA with NXDOMAIN */
 			if (_dns_server_is_return_soa_qtype(request, DNS_T_AAAA)) {
 				rcode = DNS_RC_NXDOMAIN;
 			}
@@ -4458,7 +4473,11 @@ static int _dns_server_pre_process_rule_flags(struct dns_request *request)
 		}
 
 		if (_dns_server_is_return_soa(request)) {
-			/* return SOA for A request */
+			/* if A exists, return SOA with NOERROR*/
+			if (request->domain_rule.rules[DOMAIN_RULE_ADDRESS_IPV4] != NULL) {
+				goto soa;
+			}
+			/* if A not exists, return SOA with NXDOMAIN */
 			if (_dns_server_is_return_soa_qtype(request, DNS_T_A)) {
 				rcode = DNS_RC_NXDOMAIN;
 			}
