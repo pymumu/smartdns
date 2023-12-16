@@ -49,6 +49,7 @@ typedef enum dns_result_type {
 
 #define DNS_QUEY_OPTION_ECS_DNS (1 << 0)
 #define DNS_QUEY_OPTION_ECS_IP (1 << 1)
+#define DNS_QUEY_OPTION_EDNS0_DO (1 << 2)
 
 int dns_client_init(void);
 

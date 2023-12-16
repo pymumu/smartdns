@@ -76,6 +76,7 @@
 
 #define PREFETCH_FLAGS_NO_DUALSTACK (1 << 0)
 #define PREFETCH_FLAGS_EXPIRED (1 << 1)
+#define PREFETCH_FLAGS_NOPREFETCH (1 << 2)
 
 #define RECV_ERROR_AGAIN 1
 #define RECV_ERROR_OK 0
@@ -256,6 +257,7 @@ struct dns_request {
 	struct sockaddr_storage localaddr;
 	int has_ecs;
 	struct dns_opt_ecs ecs;
+	int edns0_do;
 
 	dns_result_callback result_callback;
 	void *user_ptr;
@@ -422,21 +424,6 @@ static void *_dns_server_get_bind_ipset_nftset_rule(struct dns_request *request,
 	return NULL;
 }
 
-static int _dns_server_get_reply_ttl(struct dns_request *request, int ttl)
-{
-	int reply_ttl = ttl;
-
-	if ((request->passthrough == 0 || request->passthrough == 2) && dns_conf_cachesize > 0 &&
-		request->check_order_list->orders[0].type != DOMAIN_CHECK_NONE) {
-		reply_ttl = dns_conf_serve_expired_reply_ttl;
-		if (reply_ttl < 2) {
-			reply_ttl = 2;
-		}
-	}
-
-	return reply_ttl;
-}
-
 static int _dns_server_get_conf_ttl(struct dns_request *request, int ttl)
 {
 	int rr_ttl = dns_conf_rr_ttl;
@@ -481,6 +468,26 @@ static int _dns_server_get_conf_ttl(struct dns_request *request, int ttl)
 	}
 
 	return ttl;
+}
+
+static int _dns_server_get_reply_ttl(struct dns_request *request, int ttl)
+{
+	int reply_ttl = ttl;
+
+	if ((request->passthrough == 0 || request->passthrough == 2) && dns_conf_cachesize > 0 &&
+		request->check_order_list->orders[0].type != DOMAIN_CHECK_NONE) {
+		reply_ttl = dns_conf_serve_expired_reply_ttl;
+		if (reply_ttl < 2) {
+			reply_ttl = 2;
+		}
+	}
+
+	int rr_ttl = _dns_server_get_conf_ttl(request, ttl);
+	if (reply_ttl > rr_ttl) {
+		reply_ttl = rr_ttl;
+	}
+
+	return reply_ttl;
 }
 
 static int _dns_server_epoll_ctl(struct dns_server_conn_head *head, int op, uint32_t events)
@@ -1396,12 +1403,25 @@ static int _dns_cache_is_specify_packet(int qtype)
 static int _dns_server_get_cache_timeout(struct dns_request *request, struct dns_cache_key *cache_key, int ttl)
 {
 	int timeout = 0;
+	int prefetch_time = 0;
 
 	if (request->rcode != DNS_RC_NOERROR) {
 		return ttl + 1;
 	}
 
 	if (dns_conf_prefetch && _dns_cache_is_specify_packet(request->qtype) != 0) {
+		prefetch_time = 1;
+	}
+
+	if ((request->prefetch_flags & PREFETCH_FLAGS_NOPREFETCH)) {
+		prefetch_time = 0;
+	}
+
+	if (request->edns0_do == 1) {
+		prefetch_time = 0;
+	}
+
+	if (prefetch_time == 1) {
 		if (dns_conf_serve_expired) {
 			timeout = dns_conf_serve_expired_prefetch_time;
 			if (timeout == 0) {
@@ -1431,6 +1451,8 @@ static int _dns_server_get_cache_timeout(struct dns_request *request, struct dns
 		if (dns_conf_serve_expired) {
 			timeout += dns_conf_serve_expired_ttl;
 		}
+
+		timeout += 3;
 	}
 
 	if (timeout <= 0) {
@@ -5066,6 +5088,13 @@ static int _dns_server_process_cache_packet(struct dns_request *request, struct 
 		goto out;
 	}
 
+	/* Check if records in cache contain DNSSEC, if not exist, skip cache */
+	if (request->passthrough == 1) {
+		if ((dns_get_OPT_option(context.packet) & DNS_OPT_FLAG_DO) == 0 && request->edns0_do == 1) {
+			goto out;
+		}
+	}
+
 	request->rcode = context.packet->head.rcode;
 	context.do_cache = 0;
 	context.do_ipset = do_ipset;
@@ -5173,6 +5202,7 @@ reply_cache:
 out_update_cache:
 	if (dns_cache_get_ttl(dns_cache) == 0) {
 		struct dns_server_query_option dns_query_options;
+		int prefetch_flags = 0;
 		dns_query_options.server_flags = request->server_flags;
 		dns_query_options.dns_group_name = request->dns_group_name;
 		if (request->conn == NULL) {
@@ -5186,7 +5216,12 @@ out_update_cache:
 			memcpy(&dns_query_options.ecs_dns, &request->ecs, sizeof(dns_query_options.ecs_dns));
 		}
 
-		_dns_server_prefetch_request(request->domain, request->qtype, &dns_query_options, 0);
+		if (request->edns0_do) {
+			dns_query_options.ecs_enable_flag |= DNS_QUEY_OPTION_EDNS0_DO;
+			prefetch_flags |= PREFETCH_FLAGS_NOPREFETCH;
+		}
+
+		_dns_server_prefetch_request(request->domain, request->qtype, &dns_query_options, prefetch_flags);
 	} else {
 		dns_cache_update(dns_cache);
 	}
@@ -5407,7 +5442,8 @@ static void _dns_server_check_set_passthrough(struct dns_request *request)
 		request->dualstack_selection = 0;
 	}
 
-	if (request->passthrough == 1 && (request->qtype == DNS_T_A || request->qtype == DNS_T_AAAA)) {
+	if (request->passthrough == 1 && (request->qtype == DNS_T_A || request->qtype == DNS_T_AAAA) &&
+		request->edns0_do == 0) {
 		request->passthrough = 2;
 	}
 }
@@ -5483,6 +5519,10 @@ static int _dns_server_setup_query_option(struct dns_request *request, struct dn
 	if (request->has_ecs) {
 		memcpy(&options->ecs_dns, &request->ecs, sizeof(options->ecs_dns));
 		options->enable_flag |= DNS_QUEY_OPTION_ECS_DNS;
+	}
+
+	if (request->edns0_do) {
+		options->enable_flag |= DNS_QUEY_OPTION_EDNS0_DO;
 	}
 
 	return 0;
@@ -5718,6 +5758,10 @@ static int _dns_server_parser_request(struct dns_request *request, struct dns_pa
 		goto errout;
 	}
 
+	if ((dns_get_OPT_option(packet) & DNS_OPT_FLAG_DO) && packet->head.ad == 1) {
+		request->edns0_do = 1;
+	}
+
 	/* get request opts */
 	rr_count = 0;
 	rrs = dns_get_rrs_start(packet, DNS_RRS_OPT, &rr_count);
@@ -5834,6 +5878,10 @@ static int _dns_server_setup_server_query_options(struct dns_request *request,
 	if (server_query_option->ecs_enable_flag & DNS_QUEY_OPTION_ECS_DNS) {
 		request->has_ecs = 1;
 		memcpy(&request->ecs, &server_query_option->ecs_dns, sizeof(request->ecs));
+	}
+
+	if (server_query_option->ecs_enable_flag & DNS_QUEY_OPTION_EDNS0_DO) {
+		request->edns0_do = 1;
 	}
 
 	return 0;

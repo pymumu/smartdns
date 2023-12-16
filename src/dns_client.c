@@ -265,6 +265,9 @@ struct dns_query_struct {
 	/* ECS */
 	struct dns_client_ecs ecs;
 
+	/* EDNS0_DO */
+	int edns0_do;
+
 	/* replied hash table */
 	DECLARE_HASHTABLE(replied_map, 4);
 };
@@ -2460,7 +2463,8 @@ static int _dns_client_socket_ssl_recv(struct dns_server_info *server, void *buf
 		}
 #endif
 
-		tlog(TLOG_WARN, "SSL read fail error no: %s(%lx), reason: %d\n", ERR_reason_error_string(ssl_err), ssl_err, ssl_reason);
+		tlog(TLOG_WARN, "SSL read fail error no: %s(%lx), reason: %d\n", ERR_reason_error_string(ssl_err), ssl_err,
+			 ssl_reason);
 		errno = EFAULT;
 		ret = -1;
 		break;
@@ -3430,6 +3434,7 @@ static int _dns_client_setup_server_packet(struct dns_server_info *server_info, 
 	head.aa = 0;
 	head.rd = 1;
 	head.ra = 0;
+	head.ad = query->edns0_do;
 	head.rcode = 0;
 
 	if (dns_packet_init(packet, DNS_PACKSIZE, &head) != 0) {
@@ -3449,6 +3454,9 @@ static int _dns_client_setup_server_packet(struct dns_server_info *server_info, 
 	}
 
 	dns_set_OPT_payload_size(packet, DNS_IN_PACKSIZE);
+	if (query->edns0_do) {
+		dns_set_OPT_option(packet, DNS_OPT_FLAG_DO);
+	}
 
 	if (server_info->type != DNS_SERVER_UDP) {
 		dns_add_OPT_TCP_KEEPALIVE(packet, 6000);
@@ -3651,6 +3659,7 @@ static int _dns_client_send_query(struct dns_query_struct *query)
 	head.aa = 0;
 	head.rd = 1;
 	head.ra = 0;
+	head.ad = query->edns0_do;
 	head.rcode = 0;
 
 	if (dns_packet_init(packet, DNS_PACKSIZE, &head) != 0) {
@@ -3665,6 +3674,9 @@ static int _dns_client_send_query(struct dns_query_struct *query)
 	}
 
 	dns_set_OPT_payload_size(packet, DNS_IN_PACKSIZE);
+	if (query->edns0_do) {
+		dns_set_OPT_option(packet, DNS_OPT_FLAG_DO);
+	}
 	/* dns_add_OPT_TCP_KEEPALIVE(packet, 1200); */
 	if (_dns_client_dns_add_ecs(query, packet) != 0) {
 		tlog(TLOG_ERROR, "add ecs failed.");
@@ -3775,6 +3787,10 @@ static int _dns_client_query_parser_options(struct dns_query_struct *query, stru
 
 	if (query->ecs.enable == 0) {
 		_dns_client_query_setup_default_ecs(query);
+	}
+
+	if (options->enable_flag & DNS_QUEY_OPTION_EDNS0_DO) {
+		query->edns0_do = 1;
 	}
 
 	return 0;
