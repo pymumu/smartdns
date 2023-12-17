@@ -33,6 +33,8 @@ extern "C" {
 #define DNS_MAX_ALPN_LEN 32
 #define DNS_MAX_ECH_LEN 256
 
+#define DNS_OPT_FLAG_DO 0x8000
+
 #define DNS_ADDR_FAMILY_IP 1
 #define DNS_ADDR_FAMILY_IPV6 2
 
@@ -132,6 +134,10 @@ struct dns_head {
 	unsigned char tc;       /* Truncation Flag */
 	unsigned char rd;       /* Recursion Desired */
 	unsigned char ra;       /* Recursion Available */
+	unsigned char z;        /* Reserved for future use.  Must be Zero! */
+	unsigned char ad;       /* Authentic Data Flag */
+	unsigned char cd;       /* Checking Disabled Flag */
+	unsigned char padding;  /* Padding */
 	unsigned short rcode;   /* Response Code */
 	unsigned short qdcount; /* number of question entries */
 	unsigned short ancount; /* number of answer entries */
@@ -160,6 +166,7 @@ struct dns_packet {
 	unsigned short optcount;
 	unsigned short optional;
 	unsigned short payloadsize;
+	unsigned int opt_option;
 	struct dns_packet_dict namedict;
 	int size;
 	int len;
@@ -275,6 +282,9 @@ int dns_get_SOA(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, struct
 
 int dns_add_NS(struct dns_packet *packet, dns_rr_type type, const char *domain, int ttl, const char *cname);
 int dns_get_NS(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, char *cname, int cname_size);
+
+int dns_set_OPT_option(struct dns_packet *packet, unsigned int option);
+unsigned int dns_get_OPT_option(struct dns_packet *packet);
 
 int dns_set_OPT_payload_size(struct dns_packet *packet, int payload_size);
 int dns_get_OPT_payload_size(struct dns_packet *packet);

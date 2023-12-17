@@ -15,8 +15,9 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 BIN=smartdns 
-OBJS_LIB=lib/rbtree.o lib/art.o lib/bitops.o lib/radix.o lib/timer_wheel.o lib/idna.o lib/conf.o lib/nftset.o
-OBJS_MAIN=smartdns.o fast_ping.o dns_client.o dns_server.o dns.o util.o tlog.o dns_conf.o dns_cache.o http_parse.o proxy.o timer.o regexp.o
+OBJS_LIB=$(patsubst %.c,%.o,$(wildcard lib/*.c))
+OBJS_MAIN=$(patsubst %.c,%.o,$(wildcard *.c))
+
 OBJS=$(OBJS_MAIN) $(OBJS_LIB)
 
 # cflags
@@ -26,13 +27,23 @@ ifndef CFLAGS
  else
   CFLAGS = -O2
  endif
-CFLAGS +=-Wall -Wstrict-prototypes -fno-omit-frame-pointer -Wstrict-aliasing -funwind-tables -Wmissing-prototypes -Wshadow -Wextra -Wno-unused-parameter -Wno-implicit-fallthrough
+ CFLAGS +=-Wall -Wstrict-prototypes -fno-omit-frame-pointer -Wstrict-aliasing -funwind-tables -Wmissing-prototypes -Wshadow -Wextra -Wno-unused-parameter -Wno-implicit-fallthrough
 endif
+
 override CFLAGS +=-Iinclude
 override CFLAGS += -DBASE_FILE_NAME='"$(notdir $<)"'
 override CFLAGS += $(EXTRA_CFLAGS)
+
 ifdef VER
-override CFLAGS += -DSMARTDNS_VERION='"$(VER)"'
+ override CFLAGS += -DSMARTDNS_VERION='"$(VER)"'
+else
+ HAS_GIT := $(shell command -v git 2> /dev/null)
+ ifdef HAS_GIT
+  IS_GIT_REPO := $(shell git rev-parse --is-inside-work-tree 2>/dev/null)
+  ifdef IS_GIT_REPO
+   override CFLAGS += -DSMARTDNS_VERION='"$(shell git describe --tags --always --dirty)"'
+  endif
+ endif
 endif
 
 CXXFLAGS=-O2 -g -Wall -std=c++11 

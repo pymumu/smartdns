@@ -34,6 +34,9 @@
 #define TC_MASK 0x0200
 #define RD_MASK 0x0100
 #define RA_MASK 0x0080
+#define Z_MASK 0x0040
+#define AD_MASK 0x0020
+#define CD_MASK 0x0010
 #define RCODE_MASK 0x000F
 #define DNS_RR_END (0XFFFF)
 
@@ -1011,6 +1014,17 @@ int dns_get_OPT_payload_size(struct dns_packet *packet)
 	return packet->payloadsize;
 }
 
+int dns_set_OPT_option(struct dns_packet *packet, unsigned int option)
+{
+	packet->opt_option = option;
+	return 0;
+}
+
+unsigned int dns_get_OPT_option(struct dns_packet *packet)
+{
+	return packet->opt_option;
+}
+
 int dns_add_OPT_ECS(struct dns_packet *packet, struct dns_opt_ecs *ecs)
 {
 	unsigned char opt_data[DNS_MAX_OPT_LEN];
@@ -1402,6 +1416,9 @@ static int _dns_decode_head(struct dns_context *context)
 	head->tc = (fields & TC_MASK) >> 9;
 	head->rd = (fields & RD_MASK) >> 8;
 	head->ra = (fields & RA_MASK) >> 7;
+	head->z = (fields & Z_MASK) >> 6;
+	head->ad = (fields & AD_MASK) >> 5;
+	head->cd = (fields & CD_MASK) >> 4;
 	head->rcode = (fields & RCODE_MASK) >> 0;
 	head->qdcount = _dns_read_short(&context->ptr);
 	head->ancount = _dns_read_short(&context->ptr);
@@ -1429,6 +1446,9 @@ static int _dns_encode_head(struct dns_context *context)
 	fields |= (head->tc << 9) & TC_MASK;
 	fields |= (head->rd << 8) & RD_MASK;
 	fields |= (head->ra << 7) & RA_MASK;
+	fields |= (head->z << 6) & Z_MASK;
+	fields |= (head->ad << 5) & AD_MASK;
+	fields |= (head->cd << 4) & CD_MASK;
 	fields |= (head->rcode << 0) & RCODE_MASK;
 	_dns_write_short(&context->ptr, fields);
 
@@ -1976,7 +1996,7 @@ static int _dns_encode_opts(struct dns_packet *packet, struct dns_context *conte
 	int i = 0;
 	int len = 0;
 	int ret = 0;
-	unsigned int rcode = 0;
+	unsigned int rcode = packet->opt_option;
 	int rr_len = 0;
 	int payloadsize = packet->payloadsize;
 	unsigned char *rr_len_ptr = NULL;
@@ -2429,7 +2449,7 @@ static int _dns_decode_an(struct dns_context *context, dns_rr_type type)
 			tlog(TLOG_DEBUG, "opt length mismatch, %s\n", domain);
 			return -1;
 		}
-
+		dns_set_OPT_option(packet, ttl);
 		dns_set_OPT_payload_size(packet, qclass);
 	} break;
 	case DNS_T_HTTPS: {
@@ -2680,6 +2700,9 @@ int dns_packet_init(struct dns_packet *packet, int size, struct dns_head *head)
 	init_head->tc = head->tc;
 	init_head->rd = head->rd;
 	init_head->ra = head->ra;
+	init_head->z = head->z;
+	init_head->ad = head->ad;
+	init_head->cd = head->cd;
 	init_head->rcode = head->rcode;
 	packet->questions = DNS_RR_END;
 	packet->answers = DNS_RR_END;
