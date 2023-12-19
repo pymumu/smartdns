@@ -134,7 +134,7 @@ cache-persist no)""");
 	EXPECT_EQ(client.GetAnswer()[1].GetData(), "2001:db8::2");
 }
 
-TEST_F(DualStack, ipv6_prefer_must_exist_ipv4)
+TEST_F(DualStack, ipv6_prefer_without_ipv4)
 {
 	smartdns::MockServer server_upstream;
 	smartdns::Server server;
@@ -232,4 +232,55 @@ cache-persist no)""");
 	EXPECT_EQ(client.GetAuthority()[0].GetName(), "a.com");
 	EXPECT_GT(client.GetAuthority()[0].GetTTL(), 597);
 	EXPECT_EQ(client.GetAuthority()[0].GetType(), "SOA");
+}
+
+TEST_F(DualStack, ipv4_no_response)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::Server server;
+
+	server_upstream.Start("udp://0.0.0.0:61053", [&](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype == DNS_T_A) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4");
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "5.6.7.8");
+			return smartdns::SERVER_REQUEST_NO_RESPONSE;
+		} else if (request->qtype == DNS_T_AAAA) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "2001:db8::1");
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "2001:db8::2");
+			return smartdns::SERVER_REQUEST_OK;
+		}
+		return smartdns::SERVER_REQUEST_SOA;
+	});
+
+	server.MockPing(PING_TYPE_ICMP, "1.2.3.4", 60, 10000);
+	server.MockPing(PING_TYPE_ICMP, "5.6.7.8", 60, 10000);
+	server.MockPing(PING_TYPE_ICMP, "2001:db8::1", 60, 100);
+	server.MockPing(PING_TYPE_ICMP, "2001:db8::2", 60, 110);
+
+	server.Start(R"""(bind [::]:60053
+server 127.0.0.1:61053
+log-num 0
+log-console yes
+dualstack-ip-selection yes
+speed-check-mode ping
+log-level debug
+cache-persist no)""");
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("a.com A", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 0);
+	EXPECT_EQ(client.GetStatus(), "SERVFAIL");
+
+	usleep(220 * 1000);
+	ASSERT_TRUE(client.Query("a.com AAAA", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 2);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_LT(client.GetQueryTime(), 20);
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
+	EXPECT_GT(client.GetAnswer()[0].GetTTL(), 590);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "2001:db8::1");
+	EXPECT_EQ(client.GetAnswer()[1].GetName(), "a.com");
+	EXPECT_GT(client.GetAnswer()[1].GetTTL(), 590);
+	EXPECT_EQ(client.GetAnswer()[1].GetData(), "2001:db8::2");
 }

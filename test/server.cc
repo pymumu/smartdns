@@ -153,6 +153,8 @@ void MockServer::Run()
 				dns_add_domain(request.response_packet, request.domain.c_str(), request.qtype, request.qclass);
 				request.response_data_len =
 					dns_encode(request.response_data, request.response_data_max_len, request.response_packet);
+			} else if (callback_ret == SERVER_REQUEST_NO_RESPONSE) {
+				continue;
 			} else if (request.response_data_len == 0) {
 				if (callback_ret == SERVER_REQUEST_OK) {
 					request.response_data_len =

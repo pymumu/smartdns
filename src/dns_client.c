@@ -1674,6 +1674,26 @@ static int _dns_replied_check_add(struct dns_query_struct *dns_query, struct soc
 	return 0;
 }
 
+static void _dns_replied_check_remove(struct dns_query_struct *dns_query, struct sockaddr *addr, socklen_t addr_len)
+{
+	uint32_t key = 0;
+	struct dns_query_replied *replied_map = NULL;
+
+	if (addr_len > sizeof(struct sockaddr_in6)) {
+		return;
+	}
+
+	key = jhash(addr, addr_len, 0);
+	hash_for_each_possible(dns_query->replied_map, replied_map, node, key)
+	{
+		if (memcmp(&replied_map->addr, addr, addr_len) == 0) {
+			hash_del(&replied_map->node);
+			free(replied_map);
+			return;
+		}
+	}
+}
+
 static int _dns_client_recv(struct dns_server_info *server_info, unsigned char *inpacket, int inpacket_len,
 							struct sockaddr *from, socklen_t from_len)
 {
@@ -1761,13 +1781,17 @@ static int _dns_client_recv(struct dns_server_info *server_info, unsigned char *
 	if (query->callback) {
 		ret = query->callback(query->domain, DNS_QUERY_RESULT, server_info, packet, inpacket, inpacket_len,
 							  query->user_ptr);
-		if (request_num == 0 || ret) {
+		if (request_num == 0 && ret == 0) {
 			/* if all server replied, or done, stop query, release resource */
 			_dns_client_query_remove(query);
 		}
 
 		if (ret == 0) {
 			query->has_result = 1;
+		} else {
+			/* remove this result */
+			_dns_replied_check_remove(query, from, from_len);
+			atomic_inc(&query->dns_request_sent);
 		}
 	}
 

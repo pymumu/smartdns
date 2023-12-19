@@ -3288,6 +3288,7 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 	struct dns_rrs *rrs = NULL;
 	int ret = 0;
 	int is_skip = 0;
+	int has_result = 0;
 
 	if (packet->head.rcode != DNS_RC_NOERROR && packet->head.rcode != DNS_RC_NXDOMAIN) {
 		if (request->rcode == DNS_RC_SERVFAIL) {
@@ -3302,6 +3303,7 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 	for (j = 1; j < DNS_RRS_OPT; j++) {
 		rrs = dns_get_rrs_start(packet, j, &rr_count);
 		for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
+			has_result = 1;
 			switch (rrs->type) {
 			case DNS_T_A: {
 				ret = _dns_server_process_answer_A(rrs, request, domain, cname, result_flag);
@@ -3378,6 +3380,12 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 	request->remote_server_fail = 0;
 	if (request->rcode == DNS_RC_SERVFAIL && is_skip == 0) {
 		request->rcode = packet->head.rcode;
+	}
+
+	if (has_result == 0 && request->rcode == DNS_RC_NOERROR) {
+		tlog(TLOG_DEBUG, "no result, %s qtype: %d, rcode: %d, id: %d, retry", domain, request->qtype,
+			 packet->head.rcode, packet->head.id);
+		return -1;
 	}
 
 	return 0;
@@ -3788,9 +3796,9 @@ static int dns_server_resolve_callback(const char *domain, dns_result_type rtype
 	}
 
 	if (rtype == DNS_QUERY_RESULT) {
-		tlog(TLOG_DEBUG, "query result from server %s:%d, type: %d, rcode: %d, id: %d",
+		tlog(TLOG_DEBUG, "query result from server %s:%d, type: %d, domain: %s qtype: %d rcode: %d, id: %d",
 			 dns_client_get_server_ip(server_info), dns_client_get_server_port(server_info),
-			 dns_client_get_server_type(server_info), packet->head.rcode, request->id);
+			 dns_client_get_server_type(server_info), domain, request->qtype, packet->head.rcode, request->id);
 
 		if (request->passthrough == 1 && atomic_read(&request->notified) == 0) {
 			struct dns_server_post_context context;
@@ -3837,9 +3845,9 @@ static int dns_server_resolve_callback(const char *domain, dns_result_type rtype
 			}
 		}
 
-		_dns_server_process_answer(request, domain, packet, result_flag);
+		ret = _dns_server_process_answer(request, domain, packet, result_flag);
 		_dns_server_passthrough_may_complete(request);
-		return 0;
+		return ret;
 	} else if (rtype == DNS_QUERY_ERR) {
 		tlog(TLOG_ERROR, "request failed, %s", domain);
 		return -1;

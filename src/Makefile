@@ -50,9 +50,9 @@ override CXXFLAGS +=-Iinclude
 
 # ldflags
 ifeq ($(STATIC), yes)
- override LDFLAGS += -lssl -lcrypto -Wl,--whole-archive -lpthread -Wl,--no-whole-archive -ldl -static
+ override LDFLAGS += -lssl -lcrypto -Wl,--whole-archive -lpthread -Wl,--no-whole-archive -ldl -lm -static
 else
- override LDFLAGS += -lssl -lcrypto -lpthread -ldl
+ override LDFLAGS += -lssl -lcrypto -lpthread -ldl -lm
 endif
 
 .PHONY: all clean
