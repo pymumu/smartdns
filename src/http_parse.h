@@ -67,6 +67,10 @@ struct http_head_fields *http_head_next_fields(struct http_head_fields *fields);
 
 const char *http_head_get_fields_value(struct http_head *http_head, const char *name);
 
+const char *http_head_fields_get_name(struct http_head_fields *fields);
+
+const char *http_head_fields_get_value(struct http_head_fields *fields);
+
 int http_head_lookup_fields(struct http_head_fields *fields, const char **name, const char **value);
 
 /*

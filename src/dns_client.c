@@ -2614,6 +2614,7 @@ static int _dns_client_process_tcp_buff(struct dns_server_info *server_info)
 				tlog(TLOG_WARN, "http server query from %s:%d failed, server return http code : %d, %s",
 					 server_info->ip, server_info->port, http_head_get_httpcode(http_head),
 					 http_head_get_httpcode_msg(http_head));
+				server_info->prohibit = 1;
 				goto out;
 			}
 
@@ -3529,6 +3530,7 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 	void *packet_data = NULL;
 	int packet_data_len = 0;
 	unsigned char packet_data_buffer[DNS_IN_PACKSIZE];
+	int prohibit_time = 60;
 
 	query->send_tick = get_tick_count();
 
@@ -3536,6 +3538,10 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 	atomic_inc(&query->dns_request_sent);
 	for (i = 0; i < 2; i++) {
 		total_server = 0;
+		if (i == 1) {
+			prohibit_time = 5;
+		}
+
 		pthread_mutex_lock(&client.server_list_lock);
 		list_for_each_entry_safe(group_member, tmp, &query->server_group->head, list)
 		{
@@ -3544,11 +3550,15 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 				if (server_info->is_already_prohibit == 0) {
 					server_info->is_already_prohibit = 1;
 					atomic_inc(&client.dns_server_prohibit_num);
+					time(&server_info->last_send);
+					time(&server_info->last_recv);
+					tlog(TLOG_INFO, "server %s not alive, prohibit", server_info->ip);
+					_dns_client_shutdown_socket(server_info);
 				}
 
 				time_t now = 0;
 				time(&now);
-				if ((now - 60 < server_info->last_send) && (now - 5 > server_info->last_recv)) {
+				if ((now - prohibit_time < server_info->last_send)) {
 					continue;
 				}
 				server_info->prohibit = 0;
@@ -3621,8 +3631,6 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 				time(&now);
 				if (now - 10 > server_info->last_recv || send_err != ENOMEM) {
 					server_info->prohibit = 1;
-					tlog(TLOG_INFO, "server %s not alive, prohibit", server_info->ip);
-					_dns_client_shutdown_socket(server_info);
 				}
 
 				atomic_dec(&query->dns_request_sent);
