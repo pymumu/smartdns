@@ -56,10 +56,7 @@ TEST_F(BootStrap, bootstrap)
 	server.Start(R"""(bind [::]:60053
 server udp://127.0.0.1:62053 -bootstrap-dns
 server udp://example.com:61053
-log-num 0
-log-console yes
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	usleep(2500000);
 	ASSERT_TRUE(client.Query("a.com", 60053));

@@ -346,8 +346,16 @@ bool Server::Start(const std::string &conf, enum CONF_TYPE type)
 		}
 	};
 
+	const char *default_conf = R"""(
+log-num 0
+log-console yes
+log-level debug
+cache-persist no
+)""";
+
 	if (type == CONF_TYPE_STRING) {
 		conf_temp_file_.SetPattern("/tmp/smartdns_conf.XXXXXX");
+		conf_temp_file_.Write(default_conf);
 		conf_temp_file_.Write(conf);
 		conf_file = conf_temp_file_.GetPath();
 	} else if (type == CONF_TYPE_FILE) {

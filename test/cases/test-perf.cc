@@ -61,11 +61,9 @@ TEST_F(Perf, no_speed_check)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
 speed-check-mode none
 log-level error
-cache-persist no)""");
+)""");
 	std::string file = "/tmp/smartdns-perftest-domain.list" + smartdns::GenerateRandomString(5);
 	std::string cmd = "dnsperf -p 60053";
 	cmd += " -d ";

@@ -56,11 +56,8 @@ TEST_F(DualStack, ipv4_prefer)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
 speed-check-mode ping
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com AAAA", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -107,12 +104,9 @@ TEST_F(DualStack, ipv6_prefer_allow_force_AAAA)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
 speed-check-mode ping
 dualstack-ip-allow-force-AAAA yes
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com A", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -159,12 +153,9 @@ TEST_F(DualStack, ipv6_prefer_without_ipv4)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
 speed-check-mode ping
 dualstack-ip-allow-force-AAAA yes
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com A", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -210,11 +201,8 @@ TEST_F(DualStack, ipv6_no_speed)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
 speed-check-mode ping
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com A", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -259,12 +247,9 @@ TEST_F(DualStack, ipv4_no_response)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
 dualstack-ip-selection yes
 speed-check-mode ping
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com A", 60053));
 	std::cout << client.GetResult() << std::endl;

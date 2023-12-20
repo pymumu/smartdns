@@ -60,10 +60,7 @@ TEST_F(IPRule, white_list)
 server udp://127.0.0.1:61053 -whitelist-ip
 server udp://127.0.0.1:62053 -whitelist-ip
 whitelist-ip 4.5.6.7/24
-log-num 0
-log-console yes
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -104,10 +101,7 @@ TEST_F(IPRule, white_list_not_in)
 server udp://127.0.0.1:61053 -whitelist-ip
 server udp://127.0.0.1:62053 -whitelist-ip
 whitelist-ip 4.5.6.7/24
-log-num 0
-log-console yes
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -146,10 +140,7 @@ TEST_F(IPRule, black_list)
 server udp://127.0.0.1:61053 -blacklist-ip
 server udp://127.0.0.1:62053 -blacklist-ip
 blacklist-ip 4.5.6.7/24
-log-num 0
-log-console yes
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -184,10 +175,7 @@ TEST_F(IPRule, ignore_ip)
 	server.Start(R"""(bind [::]:60053
 server udp://127.0.0.1:61053 -blacklist-ip
 ignore-ip 1.2.3.0/24
-log-num 0
-log-console yes
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -239,11 +227,8 @@ server udp://127.0.0.1:61053 -blacklist-ip
 ip-set -name ip-list -file )""" +
 				 file + R"""(
 ignore-ip ip-set:ip-list
-log-num 0
 speed-check-mode none
-log-console yes
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -308,11 +293,8 @@ ip-set -name ip-list -file )""" +
 ip-set -name ip-list-ip -file )""" +
 				 file_ip + R"""(
 ip-alias ip-set:ip-list ip-set:ip-list-ip
-log-num 0
 speed-check-mode none
-log-console yes
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com", 60053));
 	std::cout << client.GetResult() << std::endl;

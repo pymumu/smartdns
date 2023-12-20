@@ -53,11 +53,8 @@ TEST_F(Ptr, query)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
 dualstack-ip-selection no
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("4.3.2.1.in-addr.arpa PTR", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -87,14 +84,11 @@ TEST_F(Ptr, address_expand_ptr)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
-log-level debug
 speed-check-mode none
 expand-ptr-from-address yes
 address /a.com/10.11.12.13
 address /a.com/64:ff9b::1010:1010
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("13.12.11.10.in-addr.arpa PTR", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -139,11 +133,8 @@ TEST_F(Ptr, smartdns)
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
 server-name my-server
-log-num 0
-log-console yes
 dualstack-ip-selection no
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("1.0.0.127.in-addr.arpa PTR", 60053));
 	std::cout << client.GetResult() << std::endl;

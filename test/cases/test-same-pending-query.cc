@@ -68,11 +68,9 @@ TEST_F(SamePending, pending)
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
 cache-size 0
-log-num 0
-log-console yes
 speed-check-mode none
 log-level error
-cache-persist no)""");
+)""");
 
 	std::vector<std::thread> threads;
 	uint64_t tick = get_tick_count();

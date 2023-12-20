@@ -85,11 +85,8 @@ TEST_F(SubNet, pass_subnet)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
 dualstack-ip-selection no
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com A +subnet=8.8.8.8/24", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -155,12 +152,9 @@ TEST_F(SubNet, conf)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
 dualstack-ip-selection no
 edns-client-subnet 8.8.8.8/24
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com A", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -228,12 +222,9 @@ TEST_F(SubNet, conf_v6)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
 dualstack-ip-selection no
 edns-client-subnet ffff:ffff:ffff:ffff:ffff::/64
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com AAAA", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -299,12 +290,9 @@ TEST_F(SubNet, v4_server_subnet_txt)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053 -subnet 8.8.8.8/24
-log-num 0
-log-console yes
 dualstack-ip-selection no
-log-level debug
 rr-ttl-min 0
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com TXT", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -369,13 +357,10 @@ TEST_F(SubNet, v6_default_subnet_txt)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
 dualstack-ip-selection no
 rr-ttl-min 0
 edns-client-subnet ffff:ffff:ffff:ffff:ffff::/64
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com TXT", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -563,11 +548,8 @@ TEST_F(SubNet, per_server)
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:62053 -subnet=8.8.8.8/24 -subnet=ffff:ffff:ffff:ffff:ffff::/64
 server 127.0.0.1:61053
-log-num 0
-log-console yes
 dualstack-ip-selection no
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com A", 60053));
 	std::cout << client.GetResult() << std::endl;

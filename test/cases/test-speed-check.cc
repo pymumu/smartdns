@@ -47,12 +47,9 @@ TEST_F(SpeedCheck, response_mode)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
 response-mode first-ping
 domain-rules /a.com/ -r fastest-response
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("b.com", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -89,11 +86,8 @@ TEST_F(SpeedCheck, none)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
 speed-check-mode none
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("b.com", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -130,11 +124,8 @@ TEST_F(SpeedCheck, domain_rules_none)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
 domain-rules /a.com/ -c none
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("b.com", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -171,11 +162,8 @@ TEST_F(SpeedCheck, only_ping)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
 speed-check-mode ping
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("b.com", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -204,11 +192,8 @@ TEST_F(SpeedCheck, no_ping_fallback_tcp)
 	server.MockPing(PING_TYPE_TCP, "5.6.7.8:80", 60, 100);
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
 speed-check-mode ping,tcp:80
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -238,11 +223,8 @@ TEST_F(SpeedCheck, tcp_faster_than_ping)
 	server.MockPing(PING_TYPE_TCP, "5.6.7.8:80", 60, 10);
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
 speed-check-mode ping,tcp:80
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -273,12 +255,9 @@ TEST_F(SpeedCheck, fastest_ip)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
 speed-check-mode ping
 dualstack-ip-selection no
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("b.com", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -332,12 +311,9 @@ TEST_F(SpeedCheck, unreach_best_ipv4)
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
 server 127.0.0.1:62053
-log-num 0
-log-console yes
 speed-check-mode ping
 dualstack-ip-selection no
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -380,12 +356,9 @@ TEST_F(SpeedCheck, unreach_best_ipv6)
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
 server 127.0.0.1:62053
-log-num 0
-log-console yes
 speed-check-mode ping
 dualstack-ip-selection no
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com AAAA", 60053));
 	std::cout << client.GetResult() << std::endl;

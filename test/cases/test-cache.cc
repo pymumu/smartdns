@@ -65,14 +65,11 @@ TEST_F(Cache, min)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
 cache-size 1
 rr-ttl-min 1
 speed-check-mode none
 response-mode fastest-response
-log-console yes
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -110,15 +107,12 @@ TEST_F(Cache, max_reply_ttl)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
 cache-size 1
 rr-ttl-min 600
 rr-ttl-reply-max 5
 speed-check-mode none
 response-mode fastest-response
-log-console yes
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -166,13 +160,10 @@ TEST_F(Cache, max_reply_ttl_expired)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
 cache-size 1
 rr-ttl-min 600
 rr-ttl-reply-max 6
-log-console yes
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -234,14 +225,10 @@ bind [::]:60153 -group g1
 server 127.0.0.1:61053
 server 127.0.0.1:62053 -group g1 -exclude-default-group
 server 127.0.0.1:63053 -group g2
-log-num 0
 prefetch-domain yes
 rr-ttl-max 2
 serve-expired no
-log-console yes
-log-level debug
-srv-record-selection no
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -303,14 +290,11 @@ TEST_F(Cache, nocache)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
 cache-size 100
 rr-ttl-min 600
 rr-ttl-reply-max 5
-log-console yes
-log-level debug
 domain-rules /a.com/ --no-cache
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -337,9 +321,6 @@ TEST_F(Cache, save_file)
 	std::string conf = R"""(
 bind [::]:60053@lo
 server 127.0.0.1:62053
-log-num 0
-log-console yes
-log-level debug
 cache-persist yes
 dualstack-ip-selection no
 )""";
@@ -390,9 +371,6 @@ TEST_F(Cache, corrupt_file)
 	std::string conf = R"""(
 bind [::]:60053@lo
 server 127.0.0.1:62053
-log-num 0
-log-console yes
-log-level debug
 dualstack-ip-selection no
 cache-persist yes
 )""";
@@ -479,11 +457,8 @@ TEST_F(Cache, cname)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
 cache-size 100
-log-console yes
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com A", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -501,6 +476,6 @@ cache-persist no)""");
 	ASSERT_EQ(client.GetAnswerNum(), 1);
 	EXPECT_EQ(client.GetStatus(), "NOERROR");
 	EXPECT_EQ(client.GetAnswer()[0].GetName(), "cname.a.com");
-	EXPECT_GE(client.GetAnswer()[0].GetTTL(), 3);
+	EXPECT_GE(client.GetAnswer()[0].GetTTL(), 590);
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
 }

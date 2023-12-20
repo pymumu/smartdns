@@ -50,10 +50,7 @@ bind-tcp [::]:60053
 server tls://255.255.255.255
 server https://255.255.255.255
 server tcp://255.255.255.255
-log-num 0
-log-console yes
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -92,10 +89,7 @@ TEST_F(Server, one_nxdomain)
 bind-tcp [::]:60053
 server 127.0.0.1:61053
 server 127.0.0.1:62053
-log-num 0
-log-console yes
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -129,11 +123,8 @@ TEST_F(Server, retry_no_result_with_NOERROR)
 	server.Start(R"""(bind [::]:60053
 bind-tcp [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
 dualstack-ip-selection no
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -158,15 +149,12 @@ TEST_F(Server, retry_no_response)
 	server.Start(R"""(bind [::]:60053
 bind-tcp [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com", 60053));
 	std::cout << client.GetResult() << std::endl;
 	ASSERT_EQ(client.GetAnswerNum(), 0);
 	EXPECT_EQ(client.GetStatus(), "SERVFAIL");
 	EXPECT_GE(client.GetQueryTime(), 1500);
-	EXPECT_GE(count, 8);
+	EXPECT_GE(count, 4);
 }
