@@ -218,6 +218,33 @@ int generate_addr_map(const unsigned char *addr_from, const unsigned char *addr_
 	return 0;
 }
 
+int is_private_addr(const unsigned char *addr, int addr_len)
+{
+	if (addr_len == IPV4_ADDR_LEN) {
+		if (addr[0] == 10) {
+			return 1;
+		}
+
+		if (addr[0] == 172 && addr[1] >= 16 && addr[1] <= 31) {
+			return 1;
+		}
+
+		if (addr[0] == 192 && addr[1] == 168) {
+			return 1;
+		}
+	} else if (addr_len == IPV6_ADDR_LEN) {
+		if (addr[0] == 0xFD) {
+			return 1;
+		}
+
+		if (addr[0] == 0xFE && addr[1] == 0x80) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
 int getaddr_by_host(const char *host, struct sockaddr *addr, socklen_t *addr_len)
 {
 	struct addrinfo hints;

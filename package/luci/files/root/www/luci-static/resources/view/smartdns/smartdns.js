@@ -311,10 +311,15 @@ return view.extend({
 		o.rmempty = false;
 		o.default = o.enabled;
 
-		// cache-size;
+		// resolve local hostname;
 		o = s.taboption("advanced", form.Flag, "resolve_local_hostnames", _("Resolve Local Hostnames"), _("Resolve local hostnames by reading Dnsmasq lease file."));
 		o.rmempty = false;
 		o.default = o.enabled;
+
+		// resolve local network hostname via mDNS;
+		o = s.taboption("advanced", form.Flag, "mdns_lookup", _("mDNS Lookup"), _("Resolve local network hostname via mDNS protocol."));
+		o.rmempty = true;
+		o.default = o.disabled;
 
 		// Force AAAA SOA
 		o = s.taboption("advanced", form.Flag, "force_aaaa_soa", _("Force AAAA SOA"), _("Force AAAA SOA."));

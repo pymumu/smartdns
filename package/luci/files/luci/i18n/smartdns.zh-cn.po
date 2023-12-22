@@ -393,6 +393,9 @@ msgstr "日志数量"
 msgid "Log File"
 msgstr "日志文件路径"
 
+msgid "mDNS Lookup"
+msgstr "mDNS查询"
+
 msgid "Marking Packets"
 msgstr "数据包标记"
 
@@ -482,6 +485,9 @@ msgstr "解析本地主机名"
 
 msgid "Resolve local hostnames by reading Dnsmasq lease file."
 msgstr "读取Dnsmasq的租约文件解析本地主机名。"
+
+msgid "Resolve local network hostname via mDNS protocol."
+msgstr "使用mDNS协议解析本地网络主机名。"
 
 msgid "Response Mode"
 msgstr "响应模式"

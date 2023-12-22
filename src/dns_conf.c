@@ -162,6 +162,7 @@ struct dns_ipset_names dns_conf_ipset_no_speed;
 int dns_conf_nftset_timeout_enable;
 struct dns_nftset_names dns_conf_nftset_no_speed;
 int dns_conf_nftset_debug_enable;
+int dns_conf_mdns_lookup;
 
 char dns_conf_user[DNS_CONF_USERNAME_LEN];
 
@@ -3967,16 +3968,15 @@ static struct dns_hosts *_dns_conf_get_hosts(const char *hostname, int dns_type)
 {
 	uint32_t key = 0;
 	struct dns_hosts *host = NULL;
-	char hostname_lower[DNS_MAX_CNAME_LEN];
 
-	key = hash_string(to_lower_case(hostname_lower, hostname, DNS_MAX_CNAME_LEN));
+	key = hash_string_case(hostname);
 	key = jhash(&dns_type, sizeof(dns_type), key);
 	hash_for_each_possible(dns_hosts_table.hosts, host, node, key)
 	{
 		if (host->dns_type != dns_type) {
 			continue;
 		}
-		if (strncmp(host->domain, hostname_lower, DNS_MAX_CNAME_LEN) != 0) {
+		if (strncasecmp(host->domain, hostname, DNS_MAX_CNAME_LEN) != 0) {
 			continue;
 		}
 
@@ -3988,7 +3988,7 @@ static struct dns_hosts *_dns_conf_get_hosts(const char *hostname, int dns_type)
 		goto errout;
 	}
 
-	safe_strncpy(host->domain, hostname_lower, DNS_MAX_CNAME_LEN);
+	safe_strncpy(host->domain, hostname, DNS_MAX_CNAME_LEN);
 	host->dns_type = dns_type;
 	host->is_soa = 1;
 	hash_add(dns_hosts_table.hosts, &host->node, key);
@@ -4275,6 +4275,15 @@ static void _config_setup_smartdns_domain(void)
 	_config_domain_rule_flag_set("smartdns", DOMAIN_FLAG_SMARTDNS_DOMAIN, 0);
 }
 
+static int _dns_conf_setup_mdns(void)
+{
+	if (dns_conf_mdns_lookup != 1) {
+		return 0;
+	}
+
+	return _conf_domain_rule_nameserver(DNS_SERVER_GROUP_LOCAL, DNS_SERVER_GROUP_MDNS);
+}
+
 static struct config_item _config_item[] = {
 	CONF_STRING("server-name", (char *)dns_conf_server_name, DNS_MAX_SERVER_NAME_LEN),
 	CONF_YESNO("resolv-hostname", &dns_conf_resolv_hostname),
@@ -4289,6 +4298,7 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("server-tcp", _config_server_tcp, NULL),
 	CONF_CUSTOM("server-tls", _config_server_tls, NULL),
 	CONF_CUSTOM("server-https", _config_server_https, NULL),
+	CONF_YESNO("mdns-lookup", &dns_conf_mdns_lookup),
 	CONF_CUSTOM("nameserver", _config_nameserver, NULL),
 	CONF_YESNO("expand-ptr-from-address", &dns_conf_expand_ptr_from_address),
 	CONF_CUSTOM("address", _config_address, NULL),
@@ -4727,6 +4737,8 @@ static int _dns_conf_load_post(void)
 	_dns_conf_speed_check_mode_verify();
 
 	_dns_conf_auto_set_cache_size();
+
+	_dns_conf_setup_mdns();
 
 	if (dns_conf_cachesize == 0 && dns_conf_response_mode == DNS_RESPONSE_MODE_FASTEST_RESPONSE) {
 		dns_conf_response_mode = DNS_RESPONSE_MODE_FASTEST_IP;
