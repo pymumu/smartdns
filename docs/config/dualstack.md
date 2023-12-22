@@ -29,7 +29,7 @@ SmartDNS提供了双栈优选的功能，会自动进行测速，优先让客户
 
 1. 允许纯IPV6地址。
 
-    smartdns默认情况下总是会返回IPV4地址，原因时某些软件不具备IPV6的访问能力，但如果确实需要使用纯IPV6地址，可以设置允许smartdns仅优选IPV6。
+    smartdns默认情况下总是会返回IPV4地址，原因是某些软件不具备IPV6的访问能力，但如果确实需要使用纯IPV6地址，可以设置允许smartdns仅优选IPV6。
 
     ```shell
     dualstack-ip-allow-force-AAAA yes
