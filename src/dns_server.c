@@ -3120,9 +3120,7 @@ static int _dns_server_process_answer_A(struct dns_rrs *rrs, struct dns_request 
 
 	if (request->qtype != DNS_T_A) {
 		/* ignore non-matched query type */
-		if (request->dualstack_selection == 0) {
-			return 0;
-		}
+		return 0;
 	}
 
 	/* get A result */
