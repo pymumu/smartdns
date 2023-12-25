@@ -49,14 +49,11 @@ TEST_F(Address, soa)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
-log-level debug
 speed-check-mode none
 address /a.com/#4
 address /b.com/#6
 address /c.com/#
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com A", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -135,13 +132,10 @@ TEST_F(Address, ip)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
-log-level debug
 speed-check-mode none
 address /a.com/10.10.10.10
 address /a.com/64:ff9b::1010:1010
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com A", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -180,13 +174,10 @@ TEST_F(Address, multiaddress)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
-log-level debug
 speed-check-mode none
 address /a.com/10.10.10.10,11.11.11.11,22.22.22.22
 address /a.com/64:ff9b::1010:1010,64:ff9b::1111:1111,64:ff9b::2222:2222
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com A", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -271,13 +262,10 @@ TEST_F(Address, soa_sub_ip)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
-log-level debug
 speed-check-mode none
 address /a.com/192.168.1.1
 address /com/#
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com A", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -317,12 +305,9 @@ TEST_F(Address, set_ipv4_query_ipv6)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
-log-level debug
 speed-check-mode none
 address /a.com/192.168.1.1
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com A", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -357,12 +342,9 @@ TEST_F(Address, set_ipv6_query_ipv4)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
-log-level debug
 speed-check-mode none
 address /a.com/64:ff9b::1010:1010
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com A", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -397,14 +379,11 @@ TEST_F(Address, set_ipv4_allow_ipv6)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
-log-level debug
 speed-check-mode none
 address /a.com/192.168.1.1
 address /b.a.com/-6
 address /com/#
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com A", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -458,14 +437,11 @@ TEST_F(Address, set_both_ipv4_ipv6)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
-log-level debug
 speed-check-mode none
 address /a.com/192.168.1.1
 address /b.a.com/64:ff9b::1010:1010
 address /com/#
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com A", 60053));
 	std::cout << client.GetResult() << std::endl;

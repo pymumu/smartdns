@@ -50,10 +50,7 @@ cname /b.com/c.com
 cname /c.com/d.com
 cname /d.com/e.com
 server 127.0.0.1:61053
-log-num 0
-log-console yes
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -86,10 +83,7 @@ TEST_F(Cname, subdomain1)
 	server.Start(R"""(bind [::]:60053
 cname /a.com/s.a.com
 server 127.0.0.1:61053
-log-num 0
-log-console yes
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -123,10 +117,7 @@ TEST_F(Cname, subdomain2)
 cname /a.com/s.a.com
 cname /s.a.com/a.s.a.com
 server 127.0.0.1:61053
-log-num 0
-log-console yes
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -160,10 +151,7 @@ TEST_F(Cname, loop)
 cname /a.com/c.a.com
 cname /c.a.com/s.a.com
 server 127.0.0.1:61053
-log-num 0
-log-console yes
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com", 60053));
 	std::cout << client.GetResult() << std::endl;

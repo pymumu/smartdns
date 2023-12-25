@@ -49,12 +49,9 @@ TEST_F(Rule, Match)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
-log-level debug
 speed-check-mode none
 address /a.com/5.6.7.8
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com A", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -102,12 +99,9 @@ TEST_F(Rule, PrefixWildcardMatch)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
-log-level debug
 speed-check-mode none
 address /*a.com/5.6.7.8
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com A", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -164,12 +158,9 @@ TEST_F(Rule, SubDomainMatchOnly)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
-log-level debug
 speed-check-mode none
 address /*.a.com/5.6.7.8
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com A", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -217,12 +208,9 @@ TEST_F(Rule, RootDomainMatchOnly)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
-log-level debug
 speed-check-mode none
 address /-.a.com/5.6.7.8
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com A", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -279,13 +267,10 @@ TEST_F(Rule, AAAA_SOA)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
-log-level debug
 speed-check-mode none
 address /-.a.com/#6
 address /*.b.com/#6
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com AAAA", 60053));
 	std::cout << client.GetResult() << std::endl;

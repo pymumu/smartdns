@@ -54,10 +54,7 @@ TEST_F(DomainRule, bogus_nxdomain)
 	server.Start(R"""(bind [::]:60053
 server udp://127.0.0.1:61053 -blacklist-ip
 bogus-nxdomain 10.0.0.0/8
-log-num 0
-log-console yes
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com", 60053));
 	std::cout << client.GetResult() << std::endl;

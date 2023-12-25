@@ -74,14 +74,11 @@ TEST(IPAlias, map_multiip_nospeed_check)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
-log-level debug
 dualstack-ip-selection no
 speed-check-mode none
 ip-alias 1.2.3.0/24 10.10.10.10,12.12.12.12,13.13.13.13,15.15.15.15
 ip-alias 0102::/16 FFFF::0001,FFFF::0002,FFFF::0003,FFFF::0004
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -148,16 +145,13 @@ TEST(IPAlias, map_single_ip_nospeed_check)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
-log-level debug
 dualstack-ip-selection no
 speed-check-mode none
 ip-alias 1.2.3.4 10.10.10.10
 ip-alias 5.6.7.8/32 11.11.11.11
 ip-alias 0102:0304:0500:: ffff::1
 ip-alias 0506:0708:0900:: ffff::2
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -222,15 +216,12 @@ TEST(IPAlias, mapip_withspeed_check)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
-log-level debug
 dualstack-ip-selection no
 ip-alias 1.2.3.4 10.10.10.10
 ip-alias 5.6.7.8/32 11.11.11.11
 ip-alias 0102::/16 ffff::1
 ip-alias 0506::/16 ffff::2
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -291,16 +282,13 @@ TEST(IPAlias, no_ip_alias)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
-log-level debug
 dualstack-ip-selection no
 ip-alias 1.2.3.4 10.10.10.10
 ip-alias 5.6.7.8/32 11.11.11.11
 ip-alias 0102::/16 ffff::1
 ip-alias 0506::/16 ffff::2
 domain-rules /a.com/ -no-ip-alias
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com", 60053));
 	std::cout << client.GetResult() << std::endl;

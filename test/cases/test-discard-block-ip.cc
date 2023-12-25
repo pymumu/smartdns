@@ -53,10 +53,7 @@ TEST(DiscardBlockIP, first_ping)
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
 server 127.0.0.1:62053
-log-num 0
-log-console yes
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -91,11 +88,8 @@ TEST(DiscardBlockIP, first_response)
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
 server 127.0.0.1:62053
-log-num 0
-log-console yes
-log-level debug
 response-mode fastest-response
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com", 60053));
 	std::cout << client.GetResult() << std::endl;

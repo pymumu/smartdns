@@ -36,17 +36,13 @@ TEST_F(DDNS, smartdns)
 	smartdns::MockServer server_upstream;
 	smartdns::Server server;
 
-	server_upstream.Start("udp://0.0.0.0:61053", [&](struct smartdns::ServerRequestContext *request) {
-		return smartdns::SERVER_REQUEST_SOA;
-	});
+	server_upstream.Start("udp://0.0.0.0:61053",
+						  [&](struct smartdns::ServerRequestContext *request) { return smartdns::SERVER_REQUEST_SOA; });
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
 dualstack-ip-selection no
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("smartdns A", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -72,19 +68,15 @@ TEST_F(DDNS, ddns)
 	smartdns::MockServer server_upstream;
 	smartdns::Server server;
 
-	server_upstream.Start("udp://0.0.0.0:61053", [&](struct smartdns::ServerRequestContext *request) {
-		return smartdns::SERVER_REQUEST_SOA;
-	});
+	server_upstream.Start("udp://0.0.0.0:61053",
+						  [&](struct smartdns::ServerRequestContext *request) { return smartdns::SERVER_REQUEST_SOA; });
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
 ddns-domain test.ddns.com
 ddns-domain test.ddns.org
-log-console yes
 dualstack-ip-selection no
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("test.ddns.com A", 60053));
 	std::cout << client.GetResult() << std::endl;

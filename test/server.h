@@ -87,6 +87,7 @@ struct ServerRequestContext {
 typedef enum {
 	SERVER_REQUEST_OK = 0,
 	SERVER_REQUEST_ERROR,
+	SERVER_REQUEST_NO_RESPONSE,
 	SERVER_REQUEST_SOA,
 } ServerRequestResult;
 

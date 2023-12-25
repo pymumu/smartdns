@@ -282,6 +282,8 @@ struct dns_request {
 	int has_soa;
 	int force_soa;
 
+	int is_mdns_lookup;
+
 	struct dns_srv_records *srv_records;
 
 	atomic_t notified;
@@ -367,6 +369,7 @@ static int _dns_server_do_query(struct dns_request *request, int skip_notify_eve
 static int _dns_request_post(struct dns_server_post_context *context);
 static int _dns_server_reply_all_pending_list(struct dns_request *request, struct dns_server_post_context *context);
 static void *_dns_server_get_dns_rule(struct dns_request *request, enum domain_rule rule);
+static int _dns_server_get_local_ttl(struct dns_request *request);
 static const char *_dns_server_get_request_groupname(struct dns_request *request);
 static int _dns_server_tcp_socket_send(struct dns_server_conn_tcp_client *tcp_client, void *data, int data_len);
 static int _dns_server_update_request_connection_timeout(struct dns_server_conn_head *conn, int timeout);
@@ -763,8 +766,8 @@ static void _dns_server_audit_log(struct dns_server_post_context *context)
 					continue;
 				}
 
-				if (strncmp(name, request->domain, DNS_MAX_CNAME_LEN - 1) != 0 &&
-					strncmp(name, request->cname, DNS_MAX_CNAME_LEN - 1) != 0) {
+				if (strncasecmp(name, request->domain, DNS_MAX_CNAME_LEN - 1) != 0 &&
+					strncasecmp(name, request->cname, DNS_MAX_CNAME_LEN - 1) != 0) {
 					continue;
 				}
 
@@ -784,8 +787,8 @@ static void _dns_server_audit_log(struct dns_server_post_context *context)
 					continue;
 				}
 
-				if (strncmp(name, request->domain, DNS_MAX_CNAME_LEN - 1) != 0 &&
-					strncmp(name, request->cname, DNS_MAX_CNAME_LEN - 1) != 0) {
+				if (strncasecmp(name, request->domain, DNS_MAX_CNAME_LEN - 1) != 0 &&
+					strncasecmp(name, request->cname, DNS_MAX_CNAME_LEN - 1) != 0) {
 					continue;
 				}
 
@@ -1561,7 +1564,7 @@ static int _dns_cache_cname_packet(struct dns_server_post_context *context)
 					continue;
 				}
 
-				if (strncmp(request->cname, name, DNS_MAX_CNAME_LEN - 1) != 0) {
+				if (strncasecmp(request->cname, name, DNS_MAX_CNAME_LEN - 1) != 0) {
 					continue;
 				}
 
@@ -1577,7 +1580,7 @@ static int _dns_cache_cname_packet(struct dns_server_post_context *context)
 					continue;
 				}
 
-				if (strncmp(request->cname, name, DNS_MAX_CNAME_LEN - 1) != 0) {
+				if (strncasecmp(request->cname, name, DNS_MAX_CNAME_LEN - 1) != 0) {
 					continue;
 				}
 
@@ -2772,6 +2775,9 @@ static void _dns_server_ping_result(struct ping_host_struct *ping_host, const ch
 	}
 
 	int rtt = tv->tv_sec * 10000 + tv->tv_usec / 100;
+	if (rtt == 0) {
+		rtt = 1;
+	}
 
 	if (result == PING_RESULT_RESPONSE) {
 		tlog(TLOG_DEBUG, "from %s: seq=%d time=%d, lasttime=%d id=%d", host, seqno, rtt, last_rtt, request->id);
@@ -3116,9 +3122,7 @@ static int _dns_server_process_answer_A(struct dns_rrs *rrs, struct dns_request 
 
 	if (request->qtype != DNS_T_A) {
 		/* ignore non-matched query type */
-		if (request->dualstack_selection == 0) {
-			return 0;
-		}
+		return 0;
 	}
 
 	/* get A result */
@@ -3129,7 +3133,7 @@ static int _dns_server_process_answer_A(struct dns_rrs *rrs, struct dns_request 
 	tlog(TLOG_DEBUG, "domain: %s TTL: %d IP: %d.%d.%d.%d", name, ttl, addr[0], addr[1], addr[2], addr[3]);
 
 	/* if domain is not match */
-	if (strncmp(name, domain, DNS_MAX_CNAME_LEN) != 0 && strncmp(cname, name, DNS_MAX_CNAME_LEN) != 0) {
+	if (strncasecmp(name, domain, DNS_MAX_CNAME_LEN) != 0 && strncasecmp(cname, name, DNS_MAX_CNAME_LEN) != 0) {
 		return -1;
 	}
 
@@ -3216,7 +3220,7 @@ static int _dns_server_process_answer_AAAA(struct dns_rrs *rrs, struct dns_reque
 		 addr[11], addr[12], addr[13], addr[14], addr[15]);
 
 	/* if domain is not match */
-	if (strncmp(name, domain, DNS_MAX_CNAME_LEN) != 0 && strncmp(cname, name, DNS_MAX_CNAME_LEN) != 0) {
+	if (strncasecmp(name, domain, DNS_MAX_CNAME_LEN) != 0 && strncasecmp(cname, name, DNS_MAX_CNAME_LEN) != 0) {
 		return -1;
 	}
 
@@ -3290,6 +3294,7 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 	struct dns_rrs *rrs = NULL;
 	int ret = 0;
 	int is_skip = 0;
+	int has_result = 0;
 
 	if (packet->head.rcode != DNS_RC_NOERROR && packet->head.rcode != DNS_RC_NXDOMAIN) {
 		if (request->rcode == DNS_RC_SERVFAIL) {
@@ -3304,6 +3309,7 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 	for (j = 1; j < DNS_RRS_OPT; j++) {
 		rrs = dns_get_rrs_start(packet, j, &rr_count);
 		for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
+			has_result = 1;
 			switch (rrs->type) {
 			case DNS_T_A: {
 				ret = _dns_server_process_answer_A(rrs, request, domain, cname, result_flag);
@@ -3338,8 +3344,8 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 				char domain_name[DNS_MAX_CNAME_LEN] = {0};
 				char domain_cname[DNS_MAX_CNAME_LEN] = {0};
 				dns_get_CNAME(rrs, domain_name, DNS_MAX_CNAME_LEN, &ttl, domain_cname, DNS_MAX_CNAME_LEN);
-				if (strncmp(domain_name, request->domain, DNS_MAX_CNAME_LEN - 1) != 0 &&
-					strncmp(domain_name, cname, DNS_MAX_CNAME_LEN - 1) != 0) {
+				if (strncasecmp(domain_name, request->domain, DNS_MAX_CNAME_LEN - 1) != 0 &&
+					strncasecmp(domain_name, cname, DNS_MAX_CNAME_LEN - 1) != 0) {
 					continue;
 				}
 				safe_strncpy(cname, domain_cname, DNS_MAX_CNAME_LEN);
@@ -3380,6 +3386,12 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 	request->remote_server_fail = 0;
 	if (request->rcode == DNS_RC_SERVFAIL && is_skip == 0) {
 		request->rcode = packet->head.rcode;
+	}
+
+	if (has_result == 0 && request->rcode == DNS_RC_NOERROR) {
+		tlog(TLOG_DEBUG, "no result, %s qtype: %d, rcode: %d, id: %d, retry", domain, request->qtype,
+			 packet->head.rcode, packet->head.id);
+		return -1;
 	}
 
 	return 0;
@@ -3425,7 +3437,8 @@ static int _dns_server_passthrough_rule_check(struct dns_request *request, const
 				dns_get_A(rrs, name, DNS_MAX_CNAME_LEN, &ttl_tmp, addr);
 
 				/* if domain is not match */
-				if (strncmp(name, domain, DNS_MAX_CNAME_LEN) != 0 && strncmp(cname, name, DNS_MAX_CNAME_LEN) != 0) {
+				if (strncasecmp(name, domain, DNS_MAX_CNAME_LEN) != 0 &&
+					strncasecmp(cname, name, DNS_MAX_CNAME_LEN) != 0) {
 					_dns_server_request_release(request);
 					continue;
 				}
@@ -3464,7 +3477,8 @@ static int _dns_server_passthrough_rule_check(struct dns_request *request, const
 				dns_get_AAAA(rrs, name, DNS_MAX_CNAME_LEN, &ttl_tmp, addr);
 
 				/* if domain is not match */
-				if (strncmp(name, domain, DNS_MAX_CNAME_LEN) != 0 && strncmp(cname, name, DNS_MAX_CNAME_LEN) != 0) {
+				if (strncasecmp(name, domain, DNS_MAX_CNAME_LEN) != 0 &&
+					strncasecmp(cname, name, DNS_MAX_CNAME_LEN) != 0) {
 					_dns_server_request_release(request);
 					continue;
 				}
@@ -3546,8 +3560,8 @@ static int _dns_server_get_answer(struct dns_server_post_context *context)
 				/* get A result */
 				dns_get_A(rrs, name, DNS_MAX_CNAME_LEN, &ttl, addr);
 
-				if (strncmp(name, request->domain, DNS_MAX_CNAME_LEN - 1) != 0 &&
-					strncmp(name, request->cname, DNS_MAX_CNAME_LEN - 1) != 0) {
+				if (strncasecmp(name, request->domain, DNS_MAX_CNAME_LEN - 1) != 0 &&
+					strncasecmp(name, request->cname, DNS_MAX_CNAME_LEN - 1) != 0) {
 					continue;
 				}
 
@@ -3578,8 +3592,8 @@ static int _dns_server_get_answer(struct dns_server_post_context *context)
 				}
 				dns_get_AAAA(rrs, name, DNS_MAX_CNAME_LEN, &ttl, addr);
 
-				if (strncmp(name, request->domain, DNS_MAX_CNAME_LEN - 1) != 0 &&
-					strncmp(name, request->cname, DNS_MAX_CNAME_LEN - 1) != 0) {
+				if (strncasecmp(name, request->domain, DNS_MAX_CNAME_LEN - 1) != 0 &&
+					strncasecmp(name, request->cname, DNS_MAX_CNAME_LEN - 1) != 0) {
 					continue;
 				}
 
@@ -3613,8 +3627,8 @@ static int _dns_server_get_answer(struct dns_server_post_context *context)
 
 				dns_get_CNAME(rrs, name, DNS_MAX_CNAME_LEN, &ttl, cname, DNS_MAX_CNAME_LEN);
 				tlog(TLOG_DEBUG, "name: %s, ttl: %d, cname: %s\n", name, ttl, cname);
-				if (strncmp(name, request->domain, DNS_MAX_CNAME_LEN - 1) != 0 &&
-					strncmp(name, request->cname, DNS_MAX_CNAME_LEN - 1) != 0) {
+				if (strncasecmp(name, request->domain, DNS_MAX_CNAME_LEN - 1) != 0 &&
+					strncasecmp(name, request->cname, DNS_MAX_CNAME_LEN - 1) != 0) {
 					continue;
 				}
 
@@ -3691,6 +3705,13 @@ static void _dns_server_query_end(struct dns_request *request)
 {
 	int ip_num = 0;
 	int request_wait = 0;
+
+	/* if mdns request timeout */
+	if (request->is_mdns_lookup == 1 && request->rcode == DNS_RC_SERVFAIL) {
+		request->rcode = DNS_RC_NOERROR;
+		request->force_soa = 1;
+		request->ip_ttl = _dns_server_get_local_ttl(request);
+	}
 
 	pthread_mutex_lock(&request->ip_map_lock);
 	ip_num = atomic_read(&request->ip_map_num);
@@ -3790,9 +3811,9 @@ static int dns_server_resolve_callback(const char *domain, dns_result_type rtype
 	}
 
 	if (rtype == DNS_QUERY_RESULT) {
-		tlog(TLOG_DEBUG, "query result from server %s:%d, type: %d, rcode: %d, id: %d",
+		tlog(TLOG_DEBUG, "query result from server %s:%d, type: %d, domain: %s qtype: %d rcode: %d, id: %d",
 			 dns_client_get_server_ip(server_info), dns_client_get_server_port(server_info),
-			 dns_client_get_server_type(server_info), packet->head.rcode, request->id);
+			 dns_client_get_server_type(server_info), domain, request->qtype, packet->head.rcode, request->id);
 
 		if (request->passthrough == 1 && atomic_read(&request->notified) == 0) {
 			struct dns_server_post_context context;
@@ -3839,9 +3860,9 @@ static int dns_server_resolve_callback(const char *domain, dns_result_type rtype
 			}
 		}
 
-		_dns_server_process_answer(request, domain, packet, result_flag);
+		ret = _dns_server_process_answer(request, domain, packet, result_flag);
 		_dns_server_passthrough_may_complete(request);
-		return 0;
+		return ret;
 	} else if (rtype == DNS_QUERY_ERR) {
 		tlog(TLOG_ERROR, "request failed, %s", domain);
 		return -1;
@@ -4094,7 +4115,7 @@ static int _dns_server_process_local_ptr(struct dns_request *request)
 	}
 
 	/* Determine if the smartdns service is in effect. */
-	if (found == 0 && strncmp(request->domain, "smartdns", sizeof("smartdns")) == 0) {
+	if (found == 0 && strncasecmp(request->domain, "smartdns", sizeof("smartdns")) == 0) {
 		found = 1;
 	}
 
@@ -4173,6 +4194,15 @@ static int _dns_server_get_local_ttl(struct dns_request *request)
 	return DNS_SERVER_ADDR_TTL;
 }
 
+static void _dns_server_set_request_mdns(struct dns_request *request)
+{
+	if (dns_conf_mdns_lookup != 1) {
+		return;
+	}
+
+	request->is_mdns_lookup = 1;
+}
+
 static int _dns_server_process_private_ptr(struct dns_request *request)
 {
 	int a, b, c, d;
@@ -4182,9 +4212,12 @@ static int _dns_server_process_private_ptr(struct dns_request *request)
 	}
 
 	if (d == 10 || (d == 172 && c >= 16 && c <= 31) || (d == 192 && c == 168)) {
-		request->has_soa = 1;
-		_dns_server_setup_soa(request);
-		return 0;
+		if (dns_conf_mdns_lookup == 0) {
+			request->has_soa = 1;
+			_dns_server_setup_soa(request);
+			return 0;
+		}
+		_dns_server_set_request_mdns(request);
 	}
 
 	return -1;
@@ -4247,7 +4280,7 @@ static int _dns_server_process_srv(struct dns_request *request)
 
 static int _dns_server_process_svcb(struct dns_request *request)
 {
-	if (strncmp("_dns.resolver.arpa", request->domain, DNS_MAX_CNAME_LEN) == 0) {
+	if (strncasecmp("_dns.resolver.arpa", request->domain, DNS_MAX_CNAME_LEN) == 0) {
 		return _dns_server_process_DDR(request);
 	}
 
@@ -4857,7 +4890,7 @@ static int _dns_server_process_cname(struct dns_request *request)
 	struct dns_cname_rule *child_cname = _dns_server_get_dns_rule(child_request, DOMAIN_RULE_CNAME);
 
 	/* sub domain rule*/
-	if (child_cname != NULL && strncmp(child_request->domain, child_cname->cname, DNS_MAX_CNAME_LEN) == 0) {
+	if (child_cname != NULL && strncasecmp(child_request->domain, child_cname->cname, DNS_MAX_CNAME_LEN) == 0) {
 		child_request->domain_rule.rules[DOMAIN_RULE_CNAME] = NULL;
 		child_request->has_cname_loop = 1;
 	}
@@ -5477,13 +5510,12 @@ static int _dns_server_process_host(struct dns_request *request)
 	struct dns_hosts *host = NULL;
 	struct dns_hosts *host_tmp = NULL;
 	int dns_type = request->qtype;
-	char hostname_lower[DNS_MAX_CNAME_LEN];
 
 	if (dns_hosts_record_num <= 0) {
 		return -1;
 	}
 
-	key = hash_string(to_lower_case(hostname_lower, request->domain, DNS_MAX_CNAME_LEN));
+	key = hash_string_case(request->domain);
 	key = jhash(&dns_type, sizeof(dns_type), key);
 	hash_for_each_possible(dns_hosts_table.hosts, host_tmp, node, key)
 	{
@@ -5491,7 +5523,7 @@ static int _dns_server_process_host(struct dns_request *request)
 			continue;
 		}
 
-		if (strncmp(host_tmp->domain, hostname_lower, DNS_MAX_CNAME_LEN) != 0) {
+		if (strncasecmp(host_tmp->domain, request->domain, DNS_MAX_CNAME_LEN) != 0) {
 			continue;
 		}
 
@@ -5546,6 +5578,35 @@ static int _dns_server_setup_query_option(struct dns_request *request, struct dn
 
 	if (request->edns0_do) {
 		options->enable_flag |= DNS_QUEY_OPTION_EDNS0_DO;
+	}
+
+	return 0;
+}
+
+static int _dns_server_mdns_query_setup(struct dns_request *request, const char *group_name, char **request_domain,
+										char *domain_buffer, int domain_buffer_len)
+{
+
+	if (dns_conf_mdns_lookup != 1) {
+		return 0;
+	}
+
+	switch (request->qtype) {
+	case DNS_T_A:
+	case DNS_T_AAAA:
+	case DNS_T_SRV:
+		if (request->domain[0] != '\0' && strstr(request->domain, ".") == NULL) {
+			snprintf(domain_buffer, domain_buffer_len, "%s.%s", request->domain, DNS_SERVER_GROUP_LOCAL);
+			*request_domain = domain_buffer;
+			_dns_server_set_request_mdns(request);
+		}
+
+		if (group_name != NULL && strncmp(group_name, DNS_SERVER_GROUP_MDNS, DNS_GROUP_NAME_LEN) == 0) {
+			_dns_server_set_request_mdns(request);
+		}
+		break;
+	default:
+		break;
 	}
 
 	return 0;
@@ -5613,6 +5674,8 @@ static int _dns_server_do_query(struct dns_request *request, int skip_notify_eve
 	const char *group_name = NULL;
 	const char *dns_group = NULL;
 	struct dns_query_options options;
+	char *request_domain = request->domain;
+	char domain_buffer[DNS_MAX_CNAME_LEN * 2];
 
 	if (request->conn) {
 		dns_group = request->conn->dns_group;
@@ -5706,10 +5769,19 @@ static int _dns_server_do_query(struct dns_request *request, int skip_notify_eve
 	list_add_tail(&request->list, &server.request_list);
 	pthread_mutex_unlock(&server.request_list_lock);
 
+	if (_dns_server_mdns_query_setup(request, group_name, &request_domain, domain_buffer, sizeof(domain_buffer)) != 0) {
+		goto errout;
+	}
+
+	/* if request MDNS */
+	if (request->is_mdns_lookup) {
+		group_name = DNS_SERVER_GROUP_MDNS;
+	}
+
 	// Get reference for DNS query
 	request->request_wait++;
 	_dns_server_request_get(request);
-	if (dns_client_query(request->domain, request->qtype, dns_server_resolve_callback, request, group_name, &options) !=
+	if (dns_client_query(request_domain, request->qtype, dns_server_resolve_callback, request, group_name, &options) !=
 		0) {
 		request->request_wait--;
 		_dns_server_request_release(request);
@@ -6479,7 +6551,7 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn_tcp_client
 
 			const char *content_type = http_head_get_fields_value(http_head, "Content-Type");
 			if (content_type == NULL ||
-				strncmp(content_type, "application/dns-message", sizeof("application/dns-message")) != 0) {
+				strncasecmp(content_type, "application/dns-message", sizeof("application/dns-message")) != 0) {
 				tlog(TLOG_DEBUG, "content type not supported, %s", content_type);
 				goto errout;
 			}

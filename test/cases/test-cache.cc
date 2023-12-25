@@ -65,14 +65,11 @@ TEST_F(Cache, min)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
 cache-size 1
 rr-ttl-min 1
 speed-check-mode none
 response-mode fastest-response
-log-console yes
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -110,15 +107,12 @@ TEST_F(Cache, max_reply_ttl)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
 cache-size 1
 rr-ttl-min 600
 rr-ttl-reply-max 5
 speed-check-mode none
 response-mode fastest-response
-log-console yes
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -166,13 +160,10 @@ TEST_F(Cache, max_reply_ttl_expired)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
 cache-size 1
 rr-ttl-min 600
 rr-ttl-reply-max 6
-log-console yes
-log-level debug
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -234,14 +225,10 @@ bind [::]:60153 -group g1
 server 127.0.0.1:61053
 server 127.0.0.1:62053 -group g1 -exclude-default-group
 server 127.0.0.1:63053 -group g2
-log-num 0
 prefetch-domain yes
 rr-ttl-max 2
 serve-expired no
-log-console yes
-log-level debug
-srv-record-selection no
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -303,14 +290,11 @@ TEST_F(Cache, nocache)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
 cache-size 100
 rr-ttl-min 600
 rr-ttl-reply-max 5
-log-console yes
-log-level debug
 domain-rules /a.com/ --no-cache
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -337,9 +321,6 @@ TEST_F(Cache, save_file)
 	std::string conf = R"""(
 bind [::]:60053@lo
 server 127.0.0.1:62053
-log-num 0
-log-console yes
-log-level debug
 cache-persist yes
 dualstack-ip-selection no
 )""";
@@ -390,9 +371,6 @@ TEST_F(Cache, corrupt_file)
 	std::string conf = R"""(
 bind [::]:60053@lo
 server 127.0.0.1:62053
-log-num 0
-log-console yes
-log-level debug
 dualstack-ip-selection no
 cache-persist yes
 )""";
@@ -455,4 +433,49 @@ cache-persist yes
 		server.Stop();
 		usleep(200 * 1000);
 	}
+}
+
+TEST_F(Cache, cname)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::Server server;
+
+	server_upstream.Start("udp://0.0.0.0:61053", [](struct smartdns::ServerRequestContext *request) {
+		std::string domain = request->domain;
+		std::string cname = "cname." + domain;
+		if (request->qtype != DNS_T_A) {
+			return smartdns::SERVER_REQUEST_SOA;
+		}
+
+		unsigned char addr[4] = {1, 2, 3, 4};
+		dns_add_domain(request->response_packet, domain.c_str(), DNS_T_A, DNS_C_IN);
+		dns_add_CNAME(request->response_packet, DNS_RRS_AN, domain.c_str(), 300, cname.c_str());
+		dns_add_A(request->response_packet, DNS_RRS_AN, cname.c_str(), 300, addr);
+		request->response_packet->head.rcode = DNS_RC_NOERROR;
+		return smartdns::SERVER_REQUEST_OK;
+	});
+
+	server.Start(R"""(bind [::]:60053
+server 127.0.0.1:61053
+cache-size 100
+)""");
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("a.com A", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 2);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
+	EXPECT_GE(client.GetAnswer()[0].GetTTL(), 3);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "cname.a.com.");
+	EXPECT_EQ(client.GetAnswer()[1].GetName(), "cname.a.com");
+	EXPECT_GE(client.GetAnswer()[1].GetTTL(), 3);
+	EXPECT_EQ(client.GetAnswer()[1].GetData(), "1.2.3.4");
+
+	ASSERT_TRUE(client.Query("cname.a.com A", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "cname.a.com");
+	EXPECT_GE(client.GetAnswer()[0].GetTTL(), 590);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
 }

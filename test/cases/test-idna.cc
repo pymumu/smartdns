@@ -49,13 +49,10 @@ TEST_F(IDNA, match)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
-log-level debug
 speed-check-mode none
 address /中国.com/10.10.10.10
 address /中国.com/64:ff9b::1010:1010
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("xn--fiqs8s.com A", 60053));
 	std::cout << client.GetResult() << std::endl;

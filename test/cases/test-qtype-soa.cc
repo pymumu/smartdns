@@ -49,11 +49,8 @@ TEST_F(QtypeSOA, AAAA_HTTPS)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
-log-level debug
 force-qtype-SOA 28,65
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com AAAA", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -95,13 +92,10 @@ TEST_F(QtypeSOA, AAAA_Except)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
-log-level debug
 dualstack-ip-selection no
 force-qtype-SOA 28
 address /a.com/-
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 
 	ASSERT_TRUE(client.Query("a.com AAAA", 60053));
@@ -132,13 +126,10 @@ TEST_F(QtypeSOA, force_AAAA_SOA_Except)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
-log-level debug
 dualstack-ip-selection no
 force-AAAA-SOA yes
 address /a.com/-
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 
 	ASSERT_TRUE(client.Query("a.com AAAA", 60053));
@@ -169,12 +160,9 @@ TEST_F(QtypeSOA, force_AAAA_SOA)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
-log-level debug
 speed-check-mode none
 force-AAAA-SOA yes
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com A", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -214,11 +202,8 @@ TEST_F(QtypeSOA, bind_force_AAAA_SOA)
 bind [::]:60053
 bind [::]:60153 -force-aaaa-soa
 server 127.0.0.1:61053
-log-num 0
-log-console yes
-log-level debug
 speed-check-mode none
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com A", 60053));
 	std::cout << client.GetResult() << std::endl;

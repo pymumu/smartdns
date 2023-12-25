@@ -50,11 +50,8 @@ TEST_F(SRV, query)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
-log-level debug
 speed-check-mode none
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("_ldap._tcp.local.com SRV", 60053));
 	std::cout << client.GetResult() << std::endl;
@@ -85,14 +82,11 @@ TEST_F(SRV, match)
 
 	server.Start(R"""(bind [::]:60053
 server 127.0.0.1:61053
-log-num 0
-log-console yes
-log-level debug
 srv-record /_ldap._tcp.local.com/www.a.com,443,1,1
 srv-record /_ldap._tcp.local.com/www1.a.com,443,1,1
 srv-record /_ldap._tcp.local.com/www2.a.com,443,1,1
 speed-check-mode none
-cache-persist no)""");
+)""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("_ldap._tcp.local.com SRV", 60053));
 	std::cout << client.GetResult() << std::endl;

@@ -239,12 +239,20 @@ o.cfgvalue    = function(...)
     return Flag.cfgvalue(...) or "1"
 end
 
--- cache-size
+-- resolve local hostname
 o = s:taboption("advanced", Flag, "resolve_local_hostnames", translate("Resolve Local Hostnames"), translate("Resolve local hostnames by reading Dnsmasq lease file."))
 o.rmempty     = false
 o.default     = o.enabled
 o.cfgvalue    = function(...)
     return Flag.cfgvalue(...) or "1"
+end
+
+-- resolve local network hostname via mDNS
+o = s:taboption("advanced", Flag, "mdns_lookup", translate("mDNS Lookup"), translate("Resolve local network hostname via mDNS protocol."))
+o.rmempty     = true
+o.default     = o.disabled
+o.cfgvalue    = function(...)
+    return Flag.cfgvalue(...) or "0"
 end
 
 -- Force AAAA SOA
