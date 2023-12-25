@@ -449,6 +449,11 @@ int check_is_ipv6(const char *ip)
 			continue;
 		}
 
+		/* scope id, end of ipv6 address*/
+		if (c == '%') {
+			break;
+		}
+
 		if (c == ':') {
 			colon_num++;
 			dig_num = 0;
@@ -1949,7 +1954,8 @@ static int _dns_debug_display(struct dns_packet *packet)
 				char name[DNS_MAX_CNAME_LEN] = {0};
 				char target[DNS_MAX_CNAME_LEN];
 
-				ret = dns_get_SRV(rrs, name, DNS_MAX_CNAME_LEN, &ttl, &priority, &weight, &port, target, DNS_MAX_CNAME_LEN);
+				ret = dns_get_SRV(rrs, name, DNS_MAX_CNAME_LEN, &ttl, &priority, &weight, &port, target,
+								  DNS_MAX_CNAME_LEN);
 				if (ret < 0) {
 					tlog(TLOG_DEBUG, "decode SRV failed, %s", name);
 					return -1;

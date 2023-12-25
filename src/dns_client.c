@@ -70,9 +70,6 @@
 #define SOCKET_PRIORITY (6)
 #define SOCKET_IP_TOS (IPTOS_LOWDELAY | IPTOS_RELIABILITY)
 
-#define DNS_MDNS_IP "224.0.0.251"
-#define DNS_MDNS_PORT 5353
-
 /* ECS info */
 struct dns_client_ecs {
 	int enable;
@@ -4612,6 +4609,22 @@ static int _dns_client_add_mdns_server(void)
 		tlog(TLOG_ERROR, "add default server group failed.");
 		goto errout;
 	}
+
+#ifdef TEST
+	ret = _dns_client_server_add(DNS_MDNS_IP, "lo", DNS_MDNS_PORT, DNS_SERVER_MDNS, &server_flags);
+	if (ret != 0) {
+		tlog(TLOG_ERROR, "add mdns server failed.");
+		goto errout;
+	}
+
+	if (dns_client_add_to_group(DNS_SERVER_GROUP_MDNS, DNS_MDNS_IP, DNS_MDNS_PORT, DNS_SERVER_MDNS, &server_flags) !=
+		0) {
+		tlog(TLOG_ERROR, "add mdns server to group failed.");
+		goto errout;
+	}
+
+	return 0;
+#endif
 
 	if (getifaddrs(&ifaddr) == -1) {
 		goto errout;
