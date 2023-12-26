@@ -5821,6 +5821,10 @@ static int _dns_server_do_query(struct dns_request *request, int skip_notify_eve
 	list_add_tail(&request->list, &server.request_list);
 	pthread_mutex_unlock(&server.request_list_lock);
 
+	if (_dns_server_process_dns64(request) != 0) {
+		goto errout;
+	}
+	
 	// Get reference for DNS query
 	request->request_wait++;
 	_dns_server_request_get(request);
@@ -5834,10 +5838,6 @@ static int _dns_server_do_query(struct dns_request *request, int skip_notify_eve
 
 	/* When the dual stack ip preference is enabled, both A and AAAA records are requested. */
 	_dns_server_query_dualstack(request);
-
-	if (_dns_server_process_dns64(request) != 0) {
-		goto clean_exit;
-	}
 
 clean_exit:
 	return 0;
