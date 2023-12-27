@@ -69,6 +69,8 @@ class Client
 
 	std::vector<DNSRecord> GetAdditional();
 
+	std::vector<std::string> GetOpt();
+
 	int GetAnswerNum();
 
 	int GetAuthorityNum();
@@ -103,6 +105,7 @@ class Client
 	std::vector<DNSRecord> records_answer_;
 	std::vector<DNSRecord> records_authority_;
 	std::vector<DNSRecord> records_additional_;
+	std::vector<std::string> records_opt_;
 };
 
 } // namespace smartdns

@@ -1421,7 +1421,7 @@ static int _dns_server_get_cache_timeout(struct dns_request *request, struct dns
 		return ttl + 1;
 	}
 
-	if (dns_conf_prefetch && _dns_cache_is_specify_packet(request->qtype) != 0) {
+	if (dns_conf_prefetch) {
 		prefetch_time = 1;
 	}
 
@@ -5824,7 +5824,7 @@ static int _dns_server_do_query(struct dns_request *request, int skip_notify_eve
 	if (_dns_server_process_dns64(request) != 0) {
 		goto errout;
 	}
-	
+
 	// Get reference for DNS query
 	request->request_wait++;
 	_dns_server_request_get(request);
@@ -7052,7 +7052,7 @@ static dns_cache_tmout_action_t _dns_server_cache_expired(struct dns_cache *dns_
 		return DNS_CACHE_TMOUT_ACTION_DEL;
 	}
 
-	if (dns_conf_prefetch == 1 && _dns_cache_is_specify_packet(dns_cache->info.qtype) != 0) {
+	if (dns_conf_prefetch == 1) {
 		if (dns_conf_serve_expired == 1) {
 			return _dns_server_prefetch_expired_domain(dns_cache);
 		} else {

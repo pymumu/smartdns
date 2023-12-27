@@ -179,6 +179,11 @@ std::vector<DNSRecord> Client::GetAdditional()
 	return records_additional_;
 }
 
+std::vector<std::string> Client::GetOpt()
+{
+	return records_opt_;
+}
+
 int Client::GetAnswerNum()
 {
 	return answer_num_;
@@ -264,6 +269,22 @@ bool Client::ParserResult()
 	if (std::regex_search(result_, match, reg_goanswer) == false) {
 		std::cout << "DIG FAILED:\n" << result_ << std::endl;
 		return false;
+	}
+
+	std::regex reg_opt(";; OPT PSEUDOSECTION:\\n((?:.|\\n|\\r\\n)+?)\\n;;",
+							std::regex::ECMAScript | std::regex::optimize);
+	if (std::regex_search(result_, match, reg_opt)) {
+		std::string opt_str = match[1];
+
+		std::vector<std::string> lines = StringSplit(opt_str, '\n');
+		for (auto &line : lines) {
+			if (line.length() <= 0) {
+				continue;
+			}
+
+			line = line.substr(2);
+			records_opt_.push_back(line);
+		}
 	}
 
 	std::regex reg_answer_num(", ANSWER: ([0-9]+),");

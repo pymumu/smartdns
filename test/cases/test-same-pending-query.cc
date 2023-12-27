@@ -74,7 +74,7 @@ log-level error
 
 	std::vector<std::thread> threads;
 	uint64_t tick = get_tick_count();
-	for (int i = 0; i < 10; i++) {
+	for (int i = 0; i < 5; i++) {
 		auto t = std::thread([&]() {
 			for (int j = 0; j < 10; j++) {
 				smartdns::Client client;
@@ -91,4 +91,6 @@ log-level error
 	for (auto &t : threads) {
 		t.join();
 	}
+
+	EXPECT_LT(qid_map.size(), 80);
 }
