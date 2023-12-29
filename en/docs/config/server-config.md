@@ -93,6 +93,7 @@ In addition to supporting basic service, the `bind-*` parameter also supports mo
 
    | Parameter | Function                                  |
    | --------- | ---------------------------------------- |
+   | `-group` | Set the corresponding upstream server group |
    | `-no-rule-addr` | Skip address rules                  |
    | `-no-rule-nameserver` | Skip Nameserver rules           |
    | `-no-rule-ipset` | Skip ipset and nftset rules         |
@@ -101,3 +102,6 @@ In addition to supporting basic service, the `bind-*` parameter also supports mo
    | `-no-speed-check` | Disable speed test                       |
    | `-no-cache` | Stop caching                               |
    | `-force-aaaa-soa` | Disable IPV6 queries                |
+   | `-no-ip-alias` |Ignore IP alias rules|
+   | `-ipset [ipsetname]` |Put the corresponding request result into the specified ipset|
+   | `-nftset [nftsetname]` |Put the corresponding request result into the specified nftset|

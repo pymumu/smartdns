@@ -27,18 +27,21 @@ hide:
 |rr-ttl-reply-max|Domain name Minimum Reply TTL|Remote query result|number greater than 0|rr-ttl-reply-max 60
 |rr-ttl-max|Domain name Maximum TTL|Remote query result|number greater than 0|rr-ttl-max 600
 |max-reply-ip-num|Maximum number of IPs returned to the client|8|number of IPs, 1~16 |max-reply-ip-num 1
+|max-query-limit|Maximum concurrent number of requests.| 65535 | Number of requests | max-query-limit 1000 |
 |log-level|log level|error|off,fatal,error,warn,notice,info,debug|log-level error
 |log-file|log path|/var/log/<br />smartdns/<br />smartdns.log|File Pah|log-file /var/log/smartdns/smartdns.log
 |log-size|log size|128K|number+K,M,G|log-size 128K
 |log-num|archived log number|2 for openwrt, 8 for other system|Integer, 0 means turn off the log|log-num 2
 |log-file-mode|archived log file mode|0640|Integer|log-file-mode 644
 |log-console|enable output log to console|no|[yes\|no]|log-console yes
+|log-console|enable output log to syslog|no|[yes\|no]|log-console yes
 |audit-enable|audit log enable|no|[yes\|no]|audit-enable yes
 |audit-file|audit log file|/var/log/<br />smartdns/<br />smartdns-audit.log|File Path|audit-file /var/log/smartdns/smartdns-audit.log
 |audit-size|audit log size|128K|number+K,M,G|audit-size 128K
 |audit-num|archived audit log number|2|Integer, 0 means turn off the log|audit-num 2
 |audit-file-mode|archived audit log file mode|0640|Integer|audit-file-mode 644
 |audit-console|enable output audit log to console|no|[yes\|no]|audit-console yes
+|audit-syslog|enable output audit log to syslog|no|[yes\|no]|audit-syslog yes
 |conf-file|additional conf file|None|File path, wildcard |conf-file /etc/smartdns/smartdns.more.conf <br /> conf-file *.conf 
 |server|Upstream UDP DNS server|None|Repeatable <br />`[ip][:port]|URL`: Server IP, port optional OR URL. <br />`[-blacklist-ip]`: The "-blacklist-ip" parameter is to filtering IPs which is configured by "blacklist-ip". <br />`[-whitelist-ip]`: whitelist-ip parameter specifies that only the IP range configured in whitelist-ip is accepted. <br />`[-g|-group [group] ...]`: The group to which the DNS server belongs, such as office, foreign, use with nameserver. <br />`[-e|-exclude-default-group]`: Exclude DNS servers from the default group. <br />`[-set-mark mark]`: set mark on packets <br /> `[-p|-proxy name]`: set proxy server <br /> `[-b\|-bootstrap-dns]`: set as bootstrap dns server <br />[-subnet]：set per server edns-client-subnet | server 8.8.8.8:53 -blacklist-ip<br />server tls://8.8.8.8
 |server-tcp|Upstream TCP DNS server|None|Repeatable <br />`[ip][:port]`: Server IP, port optional. <br />`[-blacklist-ip]`: The "-blacklist-ip" parameter is to filtering IPs which is configured by "blacklist-ip". <br />`[-whitelist-ip]`: whitelist-ip parameter specifies that only the IP range configured in whitelist-ip is accepted. <br />`[-g|-group [group] ...]`: The group to which the DNS server belongs, such as office, foreign, use with nameserver. <br />`[-e|-exclude-default-group]`: Exclude DNS servers from the default group <br />`[-set-mark mark]`: set mark on packets <br /> `[-p|-proxy name]`: set proxy server <br /> `[-b\|-bootstrap-dns]`: set as bootstrap dns server <br />[-subnet]：set per server edns-client-subnet | server-tcp 8.8.8.8:53

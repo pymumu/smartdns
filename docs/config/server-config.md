@@ -94,11 +94,15 @@ bind-*参数除了支持基本的启用服务外，还支持更多的附加特�
 
     |参数|功能|
     |---|---|
-    |-no-rule-addr|跳过 address 规则|
-    |-no-rule-nameserver|跳过 Nameserver 规则|
-    |-no-rule-ipset|跳过 ipset 和 nftset 规则|
-    |-no-rule-soa|跳过 SOA(#) 规则|
-    |-no-dualstack-selection|停用双栈测速|
-    |-no-speed-check|停用测速|
-    |-no-cache|停止缓存|
-    |-force-aaaa-soa|禁用IPV6查询|
+    |`-group`|设置对应的上游服务器组|
+    |`-no-rule-addr`|跳过 address 规则|
+    |`-no-rule-nameserver`|跳过 Nameserver 规则|
+    |`-no-rule-ipset`|跳过 ipset 和 nftset 规则|
+    |`-no-rule-soa`|跳过 SOA(#) 规则|
+    |`-no-dualstack-selection`|停用双栈测速|
+    |`-no-speed-check`|停用测速|
+    |`-no-cache`|停止缓存|
+    |`-force-aaaa-soa`|禁用IPV6查询|
+    |`-no-ip-alias`|忽略ip集合规则|
+    |`-ipset [ipsetname]`|将对应请求的结果放入指定ipset|
+    |`-nftset [nftsetname]`|将对应的请求结果放入指定的nftset|
