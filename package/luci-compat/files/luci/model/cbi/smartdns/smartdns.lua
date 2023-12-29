@@ -612,6 +612,7 @@ s.nodescriptions = true
 s:tab("forwarding", translate('DNS Forwarding Setting'))
 s:tab("block", translate("DNS Block Setting"))
 s:tab("domain-address", translate("Domain Address"), translate("Set Specific domain ip address."))
+s:tab("ip-alias", translate('IP Alias Setting'))
 s:tab("blackip-list", translate("IP Blacklist"), translate("Set Specific ip blacklist."))
 
 ---- domain forwarding;
@@ -735,7 +736,7 @@ function o.write(self, section, value)
 end
 
 -- Doman addresss
-addr = s:taboption("domain-address", Value, "address",
+addr = s:taboption("domain-address", Value, "dummy_address",
 	translate(""), 
 	translate("Specify an IP address to return for any host in the given domains, Queries in the domains are never forwarded and always replied to with the specified IP address which may be IPv4 or IPv6."))
 
@@ -751,10 +752,71 @@ function addr.write(self, section, value)
 	nixio.fs.writefile("/etc/smartdns/address.conf", value)
 end
 
+---- ip rules;
+s = m:section(TypedSection, "ip-rule", translate("IP Rules"), translate("IP Rules Settings"))
+s.anonymous = true
+s.nodescriptions = true
+
+s:tab("ip-alias", translate('IP Alias Setting'))
+s:tab("blackip-list", translate("IP Blacklist"), translate("Set Specific ip blacklist."))
+
+-- enable flag;
+o = s:taboption("ip-alias", Flag, "enabled", translate("Enable"), translate("Enable"));
+o.rmempty = false;
+o.default = o.enabled;
+o.editable = true;
+
+-- name;
+o = s:taboption("ip-alias", Value, "name", translate("IP Rule Name"), translate("IP Rule Name"));
+o.rmempty = true;
+o.datatype = "string";
+
+o = s:taboption("ip-alias", FileUpload, "ip_set_file", translate("IP Set File"), translate("Upload IP set file."));
+o.rmempty = true
+o.datatype = "file"
+o.modalonly = true;
+o.root_directory = "/etc/smartdns/ip-set"
+
+o = s:taboption("ip-alias", DynamicList, "ip_addr", translate("IP Addresses"), translate("IP addresses, CIDR format."));
+o.rmempty = true;
+o.datatype = "ipaddr"
+o.modalonly = true;
+
+o = s:taboption("ip-alias", Flag, "whitelist_ip", translate("Whitelist IP"), translate("Whitelist IP Rule, Accept IP addresses within the range."));
+o.rmempty = true;
+o.default = o.disabled;
+o.modalonly = true;
+
+o = s:taboption("ip-alias", Flag, "blacklist_ip", translate("Blacklist IP"), translate("Blacklist IP Rule, Decline IP addresses within the range."));
+o.rmempty = true;
+o.default = o.disabled;
+o.modalonly = true;
+
+o = s:taboption("ip-alias", Flag, "ignore_ip", translate("Ignore IP"), translate("Do not use these IP addresses."));
+o.rmempty = true;
+o.default = o.disabled;
+o.modalonly = true;
+
+o = s:taboption("ip-alias", Flag, "bogus_nxdomain", translate("Bogus nxdomain"), translate("Return SOA when the requested result contains a specified IP address."));
+o.rmempty = true;
+o.default = o.disabled;
+o.modalonly = true;
+
+o = s:taboption("ip-alias", DynamicList, "ip_alias", translate("IP alias"), translate("IP Address Mapping, Can be used for CDN acceleration with Anycast IP, such as Cloudflare's CDN."));
+o.rmempty = true;
+o.datatype = 'ipaddr("nomask")';
+o.modalonly = true;
+
+-- other args
+o = s:taboption("ip-alias", Value, "addition_flag", translate("Additional Rule Flag"), translate("Additional Flags for rules, read help on ip-rule for more information."))
+o.default = ""
+o.rempty = true
+o.modalonly = true;
+
 -- IP Blacklist
-addr = s:taboption("blackip-list", Value, "blacklist_ip",
-	translate(""), 
-	translate("Configure IP blacklists that will be filtered from the results of specific DNS server."))
+addr = s:taboption("blackip-list", Value, "dummy_blacklist_ip", 
+    translate(""), 
+    translate("Configure IP blacklists that will be filtered from the results of specific DNS server."))
 
 addr.template = "cbi/tvalue"
 addr.rows = 20
@@ -764,7 +826,7 @@ function addr.cfgvalue(self, section)
 end
 
 function addr.write(self, section, value)
-	value = value:gsub("\r\n?", "\n")
+	-- value = value:gsub("\r\n?", "\n")
 	nixio.fs.writefile("/etc/smartdns/blacklist-ip.conf", value)
 end
 

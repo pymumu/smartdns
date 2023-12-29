@@ -356,6 +356,12 @@ msgstr "IP地址映射，可用于支持AnyCast IP的CDN加速，比如Cloudflar
 msgid "Ignore IP"
 msgstr "忽略IP"
 
+msgid "IP Rules"
+msgstr "IP规则"
+
+msgid "IP Rules Settings"
+msgstr "IP规则设置"
+
 msgid "IP Rule List"
 msgstr "IP规则列表"
 
