@@ -449,6 +449,11 @@ int check_is_ipv6(const char *ip)
 			continue;
 		}
 
+		/* scope id, end of ipv6 address*/
+		if (c == '%') {
+			break;
+		}
+
 		if (c == ':') {
 			colon_num++;
 			dig_num = 0;
@@ -1823,7 +1828,7 @@ errout:
 	return DAEMON_RET_ERR;
 }
 
-#ifdef DEBUG
+#if defined(DEBUG) || defined(TEST)
 struct _dns_read_packet_info {
 	int data_len;
 	int message_len;
@@ -1917,8 +1922,9 @@ static int _dns_debug_display(struct dns_packet *packet)
 	struct dns_rrs *rrs = NULL;
 	int rr_count = 0;
 	char req_host[MAX_IP_LEN];
+	int ret;
 
-	for (j = 1; j < DNS_RRS_END; j++) {
+	for (j = 1; j < DNS_RRS_OPT; j++) {
 		rrs = dns_get_rrs_start(packet, j, &rr_count);
 		printf("section: %d\n", j);
 		for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
@@ -1944,12 +1950,12 @@ static int _dns_debug_display(struct dns_packet *packet)
 				unsigned short priority = 0;
 				unsigned short weight = 0;
 				unsigned short port = 0;
-				int ret = 0;
 
 				char name[DNS_MAX_CNAME_LEN] = {0};
 				char target[DNS_MAX_CNAME_LEN];
 
-				ret = dns_get_SRV(rrs, name, DNS_MAX_CNAME_LEN, &ttl, &priority, &weight, &port, target, DNS_MAX_CNAME_LEN);
+				ret = dns_get_SRV(rrs, name, DNS_MAX_CNAME_LEN, &ttl, &priority, &weight, &port, target,
+								  DNS_MAX_CNAME_LEN);
 				if (ret < 0) {
 					tlog(TLOG_DEBUG, "decode SRV failed, %s", name);
 					return -1;
@@ -1963,7 +1969,6 @@ static int _dns_debug_display(struct dns_packet *packet)
 				char target[DNS_MAX_CNAME_LEN] = {0};
 				struct dns_https_param *p = NULL;
 				int priority = 0;
-				int ret = 0;
 
 				ret = dns_get_HTTPS_svcparm_start(rrs, &p, name, DNS_MAX_CNAME_LEN, &ttl, &priority, target,
 												  DNS_MAX_CNAME_LEN);
@@ -2060,6 +2065,48 @@ static int _dns_debug_display(struct dns_packet *packet)
 			}
 		}
 		printf("\n");
+	}
+
+	rr_count = 0;
+	rrs = dns_get_rrs_start(packet, DNS_RRS_OPT, &rr_count);
+	if (rr_count <= 0) {
+		return 0;
+	}
+
+	printf("section opt:\n");
+	for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
+		switch (rrs->type) {
+		case DNS_OPT_T_TCP_KEEPALIVE: {
+			unsigned short idle_timeout = 0;
+			ret = dns_get_OPT_TCP_KEEPALIVE(rrs, &idle_timeout);
+			if (idle_timeout == 0) {
+				continue;
+			}
+
+			printf("tcp keepalive: %d\n", idle_timeout);
+		} break;
+		case DNS_OPT_T_ECS: {
+			struct dns_opt_ecs ecs;
+			memset(&ecs, 0, sizeof(ecs));
+			ret = dns_get_OPT_ECS(rrs, &ecs);
+			if (ret != 0) {
+				continue;
+			}
+			printf("ecs family: %d, src_prefix: %d, scope_prefix: %d, ", ecs.family, ecs.source_prefix,
+				   ecs.scope_prefix);
+			if (ecs.family == 1) {
+				char ip[16] = {0};
+				inet_ntop(AF_INET, ecs.addr, ip, sizeof(ip));
+				printf("ecs address: %s\n", ip);
+			} else if (ecs.family == 2) {
+				char ip[64] = {0};
+				inet_ntop(AF_INET6, ecs.addr, ip, sizeof(ip));
+				printf("ecs address: %s\n", ip);
+			}
+		} break;
+		default:
+			break;
+		}
 	}
 
 	return 0;

@@ -20,6 +20,11 @@
 
 int main(int argc, char **argv)
 {
+	if (WEXITSTATUS(system("which dig >/dev/null 2>&1")) != 0) {
+		std::cerr << "dig not found, please install it first." << std::endl;
+		return 1;
+	}
+
 	::testing::InitGoogleTest(&argc, argv);
 	return RUN_ALL_TESTS();
 }

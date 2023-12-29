@@ -29,6 +29,13 @@ extern "C" {
 #define DNS_SERVER_GROUP_DEFAULT "default"
 #define DNS_SERVER_GROUP_MDNS "mdns"
 #define DNS_SERVER_GROUP_LOCAL "local"
+#ifdef TEST
+#define DNS_MDNS_IP "127.0.0.1"
+#define DNS_MDNS_PORT 55353
+#else
+#define DNS_MDNS_IP "224.0.0.251"
+#define DNS_MDNS_PORT 5353
+#endif
 
 typedef enum {
 	DNS_SERVER_UDP,
