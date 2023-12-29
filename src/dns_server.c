@@ -343,6 +343,7 @@ struct dns_server {
 	/* dns request list */
 	pthread_mutex_t request_list_lock;
 	struct list_head request_list;
+	atomic_t request_num;
 
 	DECLARE_HASHTABLE(request_pending, 4);
 	pthread_mutex_t request_pending_lock;
@@ -2595,6 +2596,7 @@ static void _dns_server_delete_request(struct dns_request *request)
 	pthread_mutex_destroy(&request->ip_map_lock);
 	memset(request, 0, sizeof(*request));
 	free(request);
+	atomic_dec(&server.request_num);
 }
 
 static void _dns_server_complete_with_multi_ipaddress(struct dns_request *request)
@@ -2787,6 +2789,7 @@ static struct dns_request *_dns_server_new_request(void)
 	INIT_LIST_HEAD(&request->check_list);
 	hash_init(request->ip_map);
 	_dns_server_request_get(request);
+	atomic_add(1, &server.request_num);
 
 	return request;
 errout:
@@ -5983,7 +5986,21 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 		goto errout;
 	}
 
-	tlog(TLOG_DEBUG, "query %s from %s, qtype: %d, id: %d\n", request->domain, name, request->qtype, request->id);
+	tlog(TLOG_DEBUG, "query %s from %s, qtype: %d, id: %d, query-num: %d", request->domain, name, request->qtype,
+		 request->id, atomic_read(&server.request_num));
+
+	if (atomic_read(&server.request_num) > dns_conf_max_query_limit && dns_conf_max_query_limit > 0) {
+		static time_t last_log_time = 0;
+		time_t now = time(NULL);
+		if (now - last_log_time > 120) {
+			last_log_time = now;
+			tlog(TLOG_WARN, "maximum number of dns queries reached, max: %d", dns_conf_max_query_limit);
+		}
+		request->send_tick = get_tick_count();
+		request->rcode = DNS_RC_REFUSED;
+		ret = 0;
+		goto errout;
+	}
 
 	ret = _dns_server_do_query(request, 1);
 	if (ret != 0) {
@@ -7860,6 +7877,7 @@ int dns_server_init(void)
 	pthread_attr_init(&attr);
 	INIT_LIST_HEAD(&server.conn_list);
 	time(&server.cache_save_time);
+	atomic_set(&server.request_num, 0);
 
 	epollfd = epoll_create1(EPOLL_CLOEXEC);
 	if (epollfd < 0) {

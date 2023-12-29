@@ -73,7 +73,6 @@ log-level error
 )""");
 
 	std::vector<std::thread> threads;
-	uint64_t tick = get_tick_count();
 	for (int i = 0; i < 5; i++) {
 		auto t = std::thread([&]() {
 			for (int j = 0; j < 10; j++) {

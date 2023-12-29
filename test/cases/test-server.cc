@@ -158,3 +158,64 @@ server 127.0.0.1:61053
 	EXPECT_GE(client.GetQueryTime(), 1500);
 	EXPECT_GE(count, 4);
 }
+
+TEST_F(Server, max_queries)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::MockServer server_upstream1;
+	smartdns::Server server;
+	int count = 0;
+
+	server_upstream.Start("udp://0.0.0.0:61053", [&](struct smartdns::ServerRequestContext *request) {
+		smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4", 611);
+		sleep(1);
+		return smartdns::SERVER_REQUEST_OK;
+	});
+
+	server.MockPing(PING_TYPE_ICMP, "1.2.3.4", 128, 10);
+
+	server.Start(R"""(bind [::]:60053
+bind-tcp [::]:60053
+server 127.0.0.1:61053
+dualstack-ip-selection no
+max-query-limit 2
+)""");
+
+	std::vector<std::thread> threads;
+	int success_num = 0;
+	int refused_num = 0;
+	for (int i = 0; i < 5; i++) {
+		auto t = std::thread([&]() {
+			smartdns::Client client;
+			ASSERT_TRUE(client.Query("a.com", 60053));
+			if (client.GetStatus() == "NOERROR") {
+				success_num++;
+				EXPECT_EQ(client.GetStatus(), "NOERROR");
+				ASSERT_EQ(client.GetAnswerNum(), 1);
+				EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
+				EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+			} else if (client.GetStatus() == "REFUSED") {
+				refused_num++;
+			} else {
+				FAIL();
+			}
+		});
+		threads.push_back(std::move(t));
+	}
+
+	for (auto &t : threads) {
+		t.join();
+	}
+
+	EXPECT_EQ(success_num, 2);
+	EXPECT_EQ(refused_num, 3);
+
+	for (int i = 0; i < 5; i++) {
+		smartdns::Client client;
+		ASSERT_TRUE(client.Query("a.com", 60053));
+		EXPECT_EQ(client.GetStatus(), "NOERROR");
+		ASSERT_EQ(client.GetAnswerNum(), 1);
+		EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
+		EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+	}
+}

@@ -79,6 +79,7 @@ char dns_conf_bind_ca_key_pass[DNS_MAX_PATH];
 char dns_conf_need_cert = 0;
 
 int dns_conf_max_reply_ip_num = DNS_MAX_REPLY_IP_NUM;
+int dns_conf_max_query_limit = DNS_MAX_QUERY_LIMIT;
 
 static struct config_enum_list dns_conf_response_mode_enum[] = {
 	{"first-ping", DNS_RESPONSE_MODE_FIRST_PING_IP},
@@ -1901,7 +1902,7 @@ struct dns_srv_records *dns_server_get_srv_record(const char *domain)
 }
 
 static int _confg_srv_record_add(const char *domain, const char *host, unsigned short priority, unsigned short weight,
-							   unsigned short port)
+								 unsigned short port)
 {
 	struct dns_srv_records *srv_records = NULL;
 	struct dns_srv_record *srv_record = NULL;
@@ -4346,6 +4347,7 @@ static struct config_item _config_item[] = {
 	CONF_INT("rr-ttl-reply-max", &dns_conf_rr_ttl_reply_max, 0, CONF_INT_MAX),
 	CONF_INT("local-ttl", &dns_conf_local_ttl, 0, CONF_INT_MAX),
 	CONF_INT("max-reply-ip-num", &dns_conf_max_reply_ip_num, 1, CONF_INT_MAX),
+	CONF_INT("max-query-limit", &dns_conf_max_query_limit, 0, CONF_INT_MAX),
 	CONF_ENUM("response-mode", &dns_conf_response_mode, &dns_conf_response_mode_enum),
 	CONF_YESNO("force-AAAA-SOA", &dns_conf_force_AAAA_SOA),
 	CONF_YESNO("force-no-CNAME", &dns_conf_force_no_cname),

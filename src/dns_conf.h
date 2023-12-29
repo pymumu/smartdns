@@ -59,6 +59,7 @@ extern "C" {
 #define DNS_MAX_CONF_CNAME_LEN 256
 #define MAX_QTYPE_NUM 65535
 #define DNS_MAX_REPLY_IP_NUM 8
+#define DNS_MAX_QUERY_LIMIT 65535
 #define DNS_DEFAULT_CHECKPOINT_TIME (3600 * 24)
 
 #define SMARTDNS_CONF_FILE "/etc/smartdns/smartdns.conf"
@@ -567,6 +568,7 @@ extern int dns_conf_dualstack_ip_allow_force_AAAA;
 extern int dns_conf_dualstack_ip_selection_threshold;
 
 extern int dns_conf_max_reply_ip_num;
+extern int dns_conf_max_query_limit;
 extern enum response_mode_type dns_conf_response_mode;
 
 extern int dns_conf_rr_ttl;
