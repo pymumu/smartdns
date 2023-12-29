@@ -490,6 +490,10 @@ return view.extend({
 		o.rmempty = true;
 		o.default = o.disabled;
 
+		o = s.taboption("seconddns", form.Flag, "seconddns_no_ip_alias", _("Skip IP Alias"));
+		o.rmempty = true;
+		o.default = o.disabled;
+
 		o = s.taboption("seconddns", form.Value, "seconddns_ipset_name", _("IPset Name"), _("IPset name."));
 		o.rmempty = true;
 		o.datatype = "string";
@@ -672,10 +676,6 @@ return view.extend({
 		o.rmempty = true;
 		o.default = o.disabled;
 
-		o = s.taboption("custom", form.Value, "log_size", _("Log Size"));
-		o.rmempty = true;
-		o.placeholder = "default";
-
 		o = s.taboption("custom", form.ListValue, "log_level", _("Log Level"));
 		o.rmempty = true;
 		o.placeholder = "default";
@@ -688,13 +688,53 @@ return view.extend({
 		o.value("fatal");
 		o.value("off");
 
+		o = s.taboption("custom", form.ListValue, "log_output_mode", _("Log Output Mode"));
+		o.rmempty = true;
+		o.placeholder = _("file");
+		o.value("file", _("file"));
+		o.value("syslog", _("syslog"));
+	
+		o = s.taboption("custom", form.Value, "log_size", _("Log Size"));
+		o.rmempty = true;
+		o.placeholder = "default";
+		o.depends("log_output_mode", "file");
+
 		o = s.taboption("custom", form.Value, "log_num", _("Log Number"));
 		o.rmempty = true;
 		o.placeholder = "default";
+		o.depends("log_output_mode", "file");
 
 		o = s.taboption("custom", form.Value, "log_file", _("Log File"))
 		o.rmempty = true
 		o.placeholder = "/var/log/smartdns/smartdns.log"
+		o.depends("log_output_mode", "file");
+
+		o = s.taboption("custom", form.Flag, "enable_audit_log", _("Enable Audit Log"));
+		o.rmempty = true;
+		o.default = o.disabled;
+		o.rempty = true;
+
+		o = s.taboption("custom", form.ListValue, "audit_log_output_mode", _("Audit Log Output Mode"));
+		o.rmempty = true;
+		o.placeholder = _("file");
+		o.value("file", _("file"));
+		o.value("syslog", _("syslog"));
+		o.depends("enable_audit_log", "1");
+
+		o = s.taboption("custom", form.Value, "audit_log_size", _("Audit Log Size"));
+		o.rmempty = true;
+		o.placeholder = "default";
+		o.depends({"enable_audit_log":"1", "audit_log_output_mode":"file"});
+
+		o = s.taboption("custom", form.Value, "audit_log_num", _("Audit Log Number"));
+		o.rmempty = true;
+		o.placeholder = "default";
+		o.depends({"enable_audit_log":"1", "audit_log_output_mode":"file"});
+
+		o = s.taboption("custom", form.Value, "audit_log_file", _("Audit Log File"))
+		o.rmempty = true
+		o.placeholder = "/var/log/smartdns/smartdns-audit.log"
+		o.depends({"enable_audit_log":"1", "audit_log_output_mode":"file"});
 
 		////////////////
 		// Upstream servers;

@@ -56,6 +56,7 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <syslog.h>
 
 #define DNS_MAX_EVENTS 256
 #define IPV6_READY_CHECK_TIME 180
@@ -736,7 +737,7 @@ static void _dns_server_audit_log(struct dns_server_post_context *context)
 	char req_host[MAX_IP_LEN];
 	char req_result[1024] = {0};
 	char *ip_msg = req_result;
-	char req_time[MAX_IP_LEN];
+	char req_time[MAX_IP_LEN] = {0};
 	struct tlog_time tm;
 	int i = 0;
 	int j = 0;
@@ -843,10 +844,12 @@ static void _dns_server_audit_log(struct dns_server_post_context *context)
 		safe_strncpy(req_host, "API", MAX_IP_LEN);
 	}
 
-	snprintf(req_time, sizeof(req_time), "[%.4d-%.2d-%.2d %.2d:%.2d:%.2d,%.3d]", tm.year, tm.mon, tm.mday, tm.hour,
-			 tm.min, tm.sec, tm.usec / 1000);
+	if (dns_conf_audit_syslog == 0) {
+		snprintf(req_time, sizeof(req_time), "[%.4d-%.2d-%.2d %.2d:%.2d:%.2d,%.3d] ", tm.year, tm.mon, tm.mday, tm.hour,
+				 tm.min, tm.sec, tm.usec / 1000);
+	}
 
-	tlog_printf(dns_audit, "%s %s query %s, type %d, time %lums, speed: %.1fms, result %s\n", req_time, req_host,
+	tlog_printf(dns_audit, "%s%s query %s, type %d, time %lums, speed: %.1fms, result %s\n", req_time, req_host,
 				request->domain, request->qtype, get_tick_count() - request->send_tick,
 				((float)request->ping_time) / 10, req_result);
 }
@@ -7753,9 +7756,17 @@ errout:
 	return -1;
 }
 
+static int _dns_server_audit_syslog(struct tlog_log *log, const char *buff, int bufflen)
+{
+	syslog(LOG_INFO, "%.*s", bufflen, buff);
+	return 0;
+}
+
 static int _dns_server_audit_init(void)
 {
 	char *audit_file = SMARTDNS_AUDIT_FILE;
+	unsigned int tlog_flag = 0;
+
 	if (dns_conf_audit_enable == 0) {
 		return 0;
 	}
@@ -7764,9 +7775,17 @@ static int _dns_server_audit_init(void)
 		audit_file = dns_conf_audit_file;
 	}
 
-	dns_audit = tlog_open(audit_file, dns_conf_audit_size, dns_conf_audit_num, 0, 0);
+	if (dns_conf_audit_syslog) {
+		tlog_flag |= TLOG_SEGMENT;
+	}
+
+	dns_audit = tlog_open(audit_file, dns_conf_audit_size, dns_conf_audit_num, 0, tlog_flag);
 	if (dns_audit == NULL) {
 		return -1;
+	}
+
+	if (dns_conf_audit_syslog) {
+		tlog_reg_output_func(dns_audit, _dns_server_audit_syslog);
 	}
 
 	if (dns_conf_audit_file_mode > 0) {

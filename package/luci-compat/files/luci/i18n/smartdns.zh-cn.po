@@ -18,6 +18,18 @@ msgstr "额外的服务器参数，参考bind选项的帮助说明。"
 msgid "Advanced Settings"
 msgstr "高级设置"
 
+msgid "Audit Log Output Mode"
+msgstr "审计日志输出模式"
+
+msgid "Audit Log Size"
+msgstr "审计日志大小"
+
+msgid "Audit Log Number"
+msgstr "审计日志数量"
+
+msgid "Audit Log File"
+msgstr "审计日志文件路径"
+
 msgid ""
 "Attempts to serve old responses from cache with a TTL of 0 in the response "
 "without waiting for the actual resolution to finish."
@@ -235,6 +247,9 @@ msgstr "每周日"
 msgid "Update Time (Every Day)"
 msgstr "更新时间(每天)"
 
+msgid "Enable Audit Log"
+msgstr "启用审计日志"
+
 msgid "Enable domain prefetch, accelerate domain response speed."
 msgstr "启用域名预加载，加速域名响应速度。"
 
@@ -249,6 +264,9 @@ msgstr "从default默认服务器组中排除。"
 
 msgid "Exclude Default Group"
 msgstr "从默认组中排除"
+
+msgid "file"
+msgstr "文件"
 
 msgid "Fastest IP"
 msgstr "最快IP"
@@ -337,6 +355,9 @@ msgstr "监听在指定的设备上，避免非本地网络的DNS查询请求。
 
 msgid "Local Port"
 msgstr "本地端口"
+
+msgid "Log Output Mode"
+msgstr "日志输出模式"
 
 msgid "Log Size"
 msgstr "日志大小"
@@ -449,6 +470,9 @@ msgstr "重启"
 msgid "Restart Service"
 msgstr "重启服务"
 
+msgid "syslog"
+msgstr "系统日志"
+
 msgid "Second Server Settings"
 msgstr "第二DNS服务器"
 
@@ -522,6 +546,9 @@ msgstr "跳过双栈优选"
 
 msgid "Skip Dualstack Selection."
 msgstr "跳过双栈优选。"
+
+msgid "Skip IP Alias"
+msgstr "跳过IP别名"
 
 msgid "Skip Ipset Rule"
 msgstr "跳过ipset规则"

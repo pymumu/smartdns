@@ -121,6 +121,7 @@ size_t dns_conf_log_size = 1024 * 1024;
 int dns_conf_log_num = 8;
 int dns_conf_log_file_mode;
 int dns_conf_log_console;
+int dns_conf_log_syslog;
 
 /* CA file */
 char dns_conf_ca_file[DNS_MAX_PATH];
@@ -133,11 +134,13 @@ int dns_conf_cache_checkpoint_time = DNS_DEFAULT_CHECKPOINT_TIME;
 /* auditing */
 int dns_conf_audit_enable = 0;
 int dns_conf_audit_log_SOA;
+int dns_conf_audit_syslog;
 char dns_conf_audit_file[DNS_MAX_PATH];
 size_t dns_conf_audit_size = 1024 * 1024;
 int dns_conf_audit_num = 2;
 int dns_conf_audit_file_mode;
 int dns_conf_audit_console;
+int dns_conf_audit_syslog;
 
 /* address rules */
 art_tree dns_conf_domain_rule;
@@ -4333,6 +4336,7 @@ static struct config_item _config_item[] = {
 	CONF_SIZE("log-size", &dns_conf_log_size, 0, 1024 * 1024 * 1024),
 	CONF_INT("log-num", &dns_conf_log_num, 0, 1024),
 	CONF_YESNO("log-console", &dns_conf_log_console),
+	CONF_YESNO("log-syslog", &dns_conf_log_syslog),
 	CONF_INT_BASE("log-file-mode", &dns_conf_log_file_mode, 0, 511, 8),
 	CONF_YESNO("audit-enable", &dns_conf_audit_enable),
 	CONF_YESNO("audit-SOA", &dns_conf_audit_log_SOA),
@@ -4341,6 +4345,7 @@ static struct config_item _config_item[] = {
 	CONF_SIZE("audit-size", &dns_conf_audit_size, 0, 1024 * 1024 * 1024),
 	CONF_INT("audit-num", &dns_conf_audit_num, 0, 1024),
 	CONF_YESNO("audit-console", &dns_conf_audit_console),
+	CONF_YESNO("audit-syslog", &dns_conf_audit_syslog),
 	CONF_INT("rr-ttl", &dns_conf_rr_ttl, 0, CONF_INT_MAX),
 	CONF_INT("rr-ttl-min", &dns_conf_rr_ttl_min, 0, CONF_INT_MAX),
 	CONF_INT("rr-ttl-max", &dns_conf_rr_ttl_max, 0, CONF_INT_MAX),
@@ -4613,6 +4618,10 @@ void dns_server_load_exit(void)
 
 	dns_conf_server_num = 0;
 	dns_server_bind_destroy();
+
+	if (dns_conf_log_syslog == 1 || dns_conf_audit_syslog == 1) {
+		closelog();
+	}
 }
 
 static int _config_add_default_server_if_needed(void)
@@ -4770,6 +4779,10 @@ static int _dns_conf_load_post(void)
 
 	_config_file_hash_table_destroy();
 
+	if (dns_conf_log_syslog == 0 && dns_conf_audit_syslog == 0) {
+		closelog();
+	}
+
 	return 0;
 }
 
@@ -4781,10 +4794,10 @@ int dns_server_load_conf(const char *file)
 		return ret;
 	}
 
-	openlog("smartdns", LOG_CONS | LOG_NDELAY, LOG_LOCAL1);
+	openlog("smartdns", LOG_CONS, LOG_USER);
 	ret = load_conf(file, _config_item, _conf_printf);
-	closelog();
 	if (ret != 0) {
+		closelog();
 		return ret;
 	}
 

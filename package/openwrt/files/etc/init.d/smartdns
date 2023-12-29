@@ -482,6 +482,9 @@ load_second_server()
 	config_get_bool seconddns_force_aaaa_soa "$section" "seconddns_force_aaaa_soa" "0"
 	[ "$seconddns_force_aaaa_soa" = "1" ] && ARGS="$ARGS -force-aaaa-soa"
 
+	config_get_bool seconddns_no_ip_alias "$section" "seconddns_no_ip_alias" "0"
+	[ "$seconddns_no_ip_alias" = "1" ] && ARGS="$ARGS -no-ip-alias"
+
 	config_get seconddns_ipset_name "$section" "seconddns_ipset_name" ""
 	[ -z "$seconddns_ipset_name" ] || ARGS="$ARGS -ipset $seconddns_ipset_name"
 
@@ -614,6 +617,24 @@ load_service()
 
 	config_get log_file "$section" "log_file" ""
 	[ -z "$log_file" ] || conf_append "log-file" "$log_file"
+
+	config_get log_output_mode "$section" "log_output_mode" ""
+	[ "$log_output_mode" = "syslog" ] && conf_append "log-syslog" "yes"
+
+	config_get_bool enable_audit_log "$section" "enable_audit_log" "0"
+	[ "$enable_audit_log" = "1" ] && conf_append "audit-enable" "yes"
+
+	config_get audit_log_size "$section" "audit_log_size" "64K"
+	[ -z "$audit_log_size" ] || conf_append "audit-size" "$audit_log_size"
+
+	config_get audit_log_num "$section" "audit_log_num" "1"
+	[ -z "$audit_log_num" ] || conf_append "audit-num" "$audit_log_num"
+
+	config_get audit_log_file "$section" "audit_log_file" ""
+	[ -z "$audit_log_file" ] || conf_append "audit-file" "$audit_log_file"
+
+	config_get audit_log_output_mode "$section" "audit_log_output_mode" ""
+	[ "$audit_log_output_mode" = "syslog" ] && conf_append "audit-syslog" "yes"
 
 	config_get response_mode "$section" "response_mode" ""
 	[ -z "$response_mode" ] || conf_append "response-mode" "$response_mode"

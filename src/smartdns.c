@@ -466,14 +466,42 @@ static const char *_smartdns_log_path(void)
 	return logfile;
 }
 
-static int _smartdns_init(void)
+static int _smartdns_tlog_output_syslog_callback(struct tlog_loginfo *info, const char *buff, int bufflen,
+												 void *private_data)
 {
-	int ret = 0;
+	int syslog_level = LOG_INFO;
+	switch (info->level) {
+	case TLOG_ERROR:
+		syslog_level = LOG_ERR;
+		break;
+	case TLOG_WARN:
+		syslog_level = LOG_WARNING;
+		break;
+	case TLOG_NOTICE:
+		syslog_level = LOG_NOTICE;
+		break;
+	case TLOG_INFO:
+		syslog_level = LOG_INFO;
+		break;
+	case TLOG_DEBUG:
+		syslog_level = LOG_DEBUG;
+		break;
+	default:
+		syslog_level = LOG_INFO;
+		break;
+	}
+
+	syslog(syslog_level, "%.*s", bufflen, buff);
+	return bufflen;
+}
+
+static int _smartdns_init_log(void)
+{
 	const char *logfile = _smartdns_log_path();
-	int i = 0;
 	char logdir[PATH_MAX] = {0};
 	int logbuffersize = 0;
 	int enable_log_screen = 0;
+	int ret = 0;
 
 	if (get_system_mem_size() > 1024 * 1024 * 1024) {
 		logbuffersize = 1024 * 1024;
@@ -485,8 +513,13 @@ static int _smartdns_init(void)
 	}
 
 	unsigned int tlog_flag = TLOG_NONBLOCK;
-	if (isatty(1) && enable_log_screen == 1) {
+	if (enable_log_screen == 1) {
 		tlog_flag |= TLOG_SCREEN_COLOR;
+	}
+
+	if (dns_conf_log_syslog) {
+		tlog_flag |= TLOG_SEGMENT;
+		tlog_flag |= TLOG_FORMAT_NO_PREFIX;
 	}
 
 	ret = tlog_init(logfile, dns_conf_log_size, dns_conf_log_num, logbuffersize, tlog_flag);
@@ -499,23 +532,25 @@ static int _smartdns_init(void)
 		tlog_setlogscreen(1);
 	}
 
+	if (dns_conf_log_syslog) {
+		tlog_reg_log_output_func(_smartdns_tlog_output_syslog_callback, NULL);
+	}
+
 	tlog_setlevel(dns_conf_log_level);
 	if (dns_conf_log_file_mode > 0) {
 		tlog_set_permission(tlog_get_root(), dns_conf_log_file_mode, dns_conf_log_file_mode);
 	}
 
-	tlog(TLOG_NOTICE, "smartdns starting...(Copyright (C) Nick Peng <pymumu@gmail.com>, build: %s %s)", __DATE__,
-		 __TIME__);
+	return 0;
 
-	if (dns_timer_init() != 0) {
-		tlog(TLOG_ERROR, "init timer failed.");
-		goto errout;
-	}
+errout:
+	return -1;
+}
 
-	if (_smartdns_init_ssl() != 0) {
-		tlog(TLOG_ERROR, "init ssl failed.");
-		goto errout;
-	}
+static int _smartdns_init_load_from_resolv(void)
+{
+	int ret = 0;
+	int i = 0;
 
 	for (i = 0; i < 180 && dns_conf_server_num <= 0; i++) {
 		ret = _smartdns_load_from_resolv();
@@ -536,6 +571,37 @@ static int _smartdns_init(void)
 	}
 
 	if (dns_conf_server_num <= 0) {
+		goto errout;
+	}
+
+	return 0;
+errout:
+	return -1;
+}
+
+static int _smartdns_init(void)
+{
+	int ret = 0;
+
+	if (_smartdns_init_log() != 0) {
+		tlog(TLOG_ERROR, "init log failed.");
+		goto errout;
+	}
+
+	tlog(TLOG_NOTICE, "smartdns starting...(Copyright (C) Nick Peng <pymumu@gmail.com>, build: %s %s)", __DATE__,
+		 __TIME__);
+
+	if (dns_timer_init() != 0) {
+		tlog(TLOG_ERROR, "init timer failed.");
+		goto errout;
+	}
+
+	if (_smartdns_init_ssl() != 0) {
+		tlog(TLOG_ERROR, "init ssl failed.");
+		goto errout;
+	}
+
+	if (_smartdns_init_load_from_resolv() != 0) {
 		tlog(TLOG_ERROR, "no dns server found, exit...");
 		goto errout;
 	}
@@ -743,61 +809,6 @@ static int _smartdns_init_pre(void)
 	}
 
 	return 0;
-}
-
-static void _smartdns_early_log(struct tlog_loginfo *loginfo, const char *format, va_list ap)
-{
-	char log_buf[TLOG_MAX_LINE_LEN];
-	int sys_log_level = LOG_INFO;
-	int log_buf_maxlen = 0;
-
-	if (loginfo->level < TLOG_WARN) {
-		return;
-	}
-
-	log_buf_maxlen = sizeof(log_buf) - 2;
-	log_buf[log_buf_maxlen] = '\0';
-	int len = vsnprintf(log_buf, log_buf_maxlen, format, ap);
-	if (len <= 0) {
-		return;
-	} else if (len >= log_buf_maxlen) {
-		log_buf[log_buf_maxlen - 2] = '.';
-		log_buf[log_buf_maxlen - 3] = '.';
-		log_buf[log_buf_maxlen - 4] = '.';
-		len = log_buf_maxlen - 1;
-	}
-
-	if (log_buf[len - 1] != '\n') {
-		log_buf[len] = '\n';
-		len++;
-	}
-
-	log_buf[len] = '\0';
-
-	fprintf(stderr, "%s", log_buf);
-
-	switch (loginfo->level) {
-	case TLOG_ERROR:
-		sys_log_level = LOG_ERR;
-		break;
-	case TLOG_WARN:
-		sys_log_level = LOG_WARNING;
-		break;
-	case TLOG_NOTICE:
-		sys_log_level = LOG_NOTICE;
-		break;
-	case TLOG_INFO:
-		sys_log_level = LOG_INFO;
-		break;
-	case TLOG_DEBUG:
-		sys_log_level = LOG_DEBUG;
-		break;
-	default:
-		sys_log_level = LOG_INFO;
-		break;
-	}
-
-	syslog(sys_log_level, "%s", log_buf);
 }
 
 static int _smartdns_child_pid = 0;
@@ -1027,7 +1038,8 @@ int main(int argc, char *argv[])
 
 	srand(time(NULL));
 
-	tlog_reg_early_printf_callback(_smartdns_early_log);
+	tlog_set_early_printf(1, 1, 1);
+	tlog_reg_early_printf_output_callback(_smartdns_tlog_output_syslog_callback, 1, NULL);
 
 	ret = dns_server_load_conf(config_file);
 	if (ret != 0) {
@@ -1096,11 +1108,11 @@ int main(int argc, char *argv[])
 	}
 
 	if (is_run_as_daemon) {
-		ret = daemon_kickoff(0, dns_conf_log_console | verbose_screen);
+		ret = daemon_kickoff(0, dns_conf_log_console | dns_conf_audit_console | verbose_screen);
 		if (ret != 0) {
 			goto errout;
 		}
-	} else if (dns_conf_log_console == 0 && verbose_screen == 0) {
+	} else if (dns_conf_log_console == 0 && dns_conf_audit_console == 0 && verbose_screen == 0) {
 		daemon_close_stdfds();
 	}
 
@@ -1111,8 +1123,8 @@ int main(int argc, char *argv[])
 	return ret;
 errout:
 	if (is_run_as_daemon) {
-		daemon_kickoff(ret, dns_conf_log_console | verbose_screen);
-	} else if (dns_conf_log_console == 0 && verbose_screen == 0) {
+		daemon_kickoff(ret, dns_conf_log_console | dns_conf_audit_console | verbose_screen);
+	} else if (dns_conf_log_console == 0 && dns_conf_audit_console == 0 && verbose_screen == 0) {
 		_smartdns_print_error_tip();
 	}
 	smartdns_test_notify(2);

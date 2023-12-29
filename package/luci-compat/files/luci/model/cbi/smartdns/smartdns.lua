@@ -422,6 +422,13 @@ o.cfgvalue    = function(...)
     return Flag.cfgvalue(...) or "0"
 end
 
+o = s:taboption("seconddns", Flag, "seconddns_no_ip_alias", translate("Skip IP Alias"))
+o.rmempty     = true
+o.default     = o.disabled
+o.cfgvalue    = function(...)
+    return Flag.cfgvalue(...) or "0"
+end
+
 o = s:taboption("seconddns", Value, "seconddns_ipset_name", translate("IPset Name"), translate("IPset name."))
 o.rmempty = true
 o.datatype = "hostname"
@@ -494,10 +501,6 @@ o.cfgvalue    = function(...)
     return Flag.cfgvalue(...) or "0"
 end
 
-o = s:taboption("custom", Value, "log_size", translate("Log Size"))
-o.rmempty = true
-o.placeholder = "default"
-
 o = s:taboption("custom", ListValue, "log_level", translate("Log Level"))
 o.rmempty     = true
 o.placeholder = "default"
@@ -510,13 +513,53 @@ o:value("error")
 o:value("fatal")
 o:value("off")
 
-o = s:taboption("custom", Value, "log_num", translate("Log Number"))
-o.rmempty = true
-o.placeholder = "default"
+o = s:taboption("custom", ListValue, "log_output_mode", translate("Log Output Mode"));
+o.rmempty = true;
+o.placeholder = translate("file");
+o:value("file", translate("file"));
+o:value("syslog", translate("syslog"));
+
+o = s:taboption("custom", Value, "log_size", translate("Log Size"));
+o.rmempty = true;
+o.placeholder = "default";
+o:depends("log_output_mode", "file");
+
+o = s:taboption("custom", Value, "log_num", translate("Log Number"));
+o.rmempty = true;
+o.placeholder = "default";
+o:depends("log_output_mode", "file");
 
 o = s:taboption("custom", Value, "log_file", translate("Log File"))
 o.rmempty = true
 o.placeholder = "/var/log/smartdns/smartdns.log"
+o:depends("log_output_mode", "file");
+
+o = s:taboption("custom", Flag, "enable_audit_log", translate("Enable Audit Log"));
+o.rmempty = true;
+o.default = o.disabled;
+o.rempty = true;
+
+o = s:taboption("custom", ListValue, "audit_log_output_mode", translate("Audit Log Output Mode"));
+o.rmempty = true;
+o.placeholder = translate("file");
+o:value("file", translate("file"));
+o:value("syslog", translate("syslog"));
+o:depends("enable_audit_log", "1");
+
+o = s:taboption("custom", Value, "audit_log_size", translate("Audit Log Size"));
+o.rmempty = true;
+o.placeholder = "default";
+o:depends({enable_audit_log = "1", audit_log_output_mode = "file"});
+
+o = s:taboption("custom", Value, "audit_log_num", translate("Audit Log Number"));
+o.rmempty = true;
+o.placeholder = "default";
+o:depends({enable_audit_log = "1", audit_log_output_mode = "file"});
+
+o = s:taboption("custom", Value, "audit_log_file", translate("Audit Log File"))
+o.rmempty = true
+o.placeholder = "/var/log/smartdns/smartdns-audit.log"
+o:depends({enable_audit_log = "1", audit_log_output_mode = "file"});
 
 -- Upstream servers
 s = m:section(TypedSection, "server", translate("Upstream Servers"), translate("Upstream Servers, support UDP, TCP protocol. " ..
