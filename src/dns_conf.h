@@ -59,6 +59,7 @@ extern "C" {
 #define DNS_MAX_CONF_CNAME_LEN 256
 #define MAX_QTYPE_NUM 65535
 #define DNS_MAX_REPLY_IP_NUM 8
+#define DNS_MAX_QUERY_LIMIT 65535
 #define DNS_DEFAULT_CHECKPOINT_TIME (3600 * 24)
 
 #define SMARTDNS_CONF_FILE "/etc/smartdns/smartdns.conf"
@@ -538,6 +539,7 @@ extern size_t dns_conf_log_size;
 extern int dns_conf_log_num;
 extern int dns_conf_log_file_mode;
 extern int dns_conf_log_console;
+extern int dns_conf_log_syslog;
 
 extern char dns_conf_ca_file[DNS_MAX_PATH];
 extern char dns_conf_ca_path[DNS_MAX_PATH];
@@ -553,11 +555,13 @@ extern int dns_conf_server_group_num;
 
 extern int dns_conf_audit_enable;
 extern int dns_conf_audit_log_SOA;
+extern int dns_conf_audit_syslog;
 extern char dns_conf_audit_file[DNS_MAX_PATH];
 extern size_t dns_conf_audit_size;
 extern int dns_conf_audit_num;
 extern int dns_conf_audit_file_mode;
 extern int dns_conf_audit_console;
+extern int dns_conf_audit_syslog;
 
 extern char dns_conf_server_name[DNS_MAX_SERVER_NAME_LEN];
 extern art_tree dns_conf_domain_rule;
@@ -568,6 +572,7 @@ extern int dns_conf_dualstack_ip_allow_force_AAAA;
 extern int dns_conf_dualstack_ip_selection_threshold;
 
 extern int dns_conf_max_reply_ip_num;
+extern int dns_conf_max_query_limit;
 extern enum response_mode_type dns_conf_response_mode;
 
 extern int dns_conf_rr_ttl;

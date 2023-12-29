@@ -57,6 +57,7 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <syslog.h>
 
 #define DNS_MAX_EVENTS 256
 #define IPV6_READY_CHECK_TIME 180
@@ -345,6 +346,7 @@ struct dns_server {
 	/* dns request list */
 	pthread_mutex_t request_list_lock;
 	struct list_head request_list;
+	atomic_t request_num;
 
 	DECLARE_HASHTABLE(request_pending, 4);
 	pthread_mutex_t request_pending_lock;
@@ -737,7 +739,7 @@ static void _dns_server_audit_log(struct dns_server_post_context *context)
 	char req_host[MAX_IP_LEN];
 	char req_result[1024] = {0};
 	char *ip_msg = req_result;
-	char req_time[MAX_IP_LEN];
+	char req_time[MAX_IP_LEN] = {0};
 	struct tlog_time tm;
 	int i = 0;
 	int j = 0;
@@ -844,10 +846,12 @@ static void _dns_server_audit_log(struct dns_server_post_context *context)
 		safe_strncpy(req_host, "API", MAX_IP_LEN);
 	}
 
-	snprintf(req_time, sizeof(req_time), "[%.4d-%.2d-%.2d %.2d:%.2d:%.2d,%.3d]", tm.year, tm.mon, tm.mday, tm.hour,
-			 tm.min, tm.sec, tm.usec / 1000);
+	if (dns_conf_audit_syslog == 0) {
+		snprintf(req_time, sizeof(req_time), "[%.4d-%.2d-%.2d %.2d:%.2d:%.2d,%.3d] ", tm.year, tm.mon, tm.mday, tm.hour,
+				 tm.min, tm.sec, tm.usec / 1000);
+	}
 
-	tlog_printf(dns_audit, "%s %s query %s, type %d, time %lums, speed: %.1fms, result %s\n", req_time, req_host,
+	tlog_printf(dns_audit, "%s%s query %s, type %d, time %lums, speed: %.1fms, result %s\n", req_time, req_host,
 				request->domain, request->qtype, get_tick_count() - request->send_tick,
 				((float)request->ping_time) / 10, req_result);
 }
@@ -2597,6 +2601,7 @@ static void _dns_server_delete_request(struct dns_request *request)
 	pthread_mutex_destroy(&request->ip_map_lock);
 	memset(request, 0, sizeof(*request));
 	free(request);
+	atomic_dec(&server.request_num);
 }
 
 static void _dns_server_complete_with_multi_ipaddress(struct dns_request *request)
@@ -2789,6 +2794,7 @@ static struct dns_request *_dns_server_new_request(void)
 	INIT_LIST_HEAD(&request->check_list);
 	hash_init(request->ip_map);
 	_dns_server_request_get(request);
+	atomic_add(1, &server.request_num);
 
 	return request;
 errout:
@@ -6006,7 +6012,21 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 		goto errout;
 	}
 
-	tlog(TLOG_DEBUG, "query %s from %s, qtype: %d, id: %d\n", request->domain, name, request->qtype, request->id);
+	tlog(TLOG_DEBUG, "query %s from %s, qtype: %d, id: %d, query-num: %d", request->domain, name, request->qtype,
+		 request->id, atomic_read(&server.request_num));
+
+	if (atomic_read(&server.request_num) > dns_conf_max_query_limit && dns_conf_max_query_limit > 0) {
+		static time_t last_log_time = 0;
+		time_t now = time(NULL);
+		if (now - last_log_time > 120) {
+			last_log_time = now;
+			tlog(TLOG_WARN, "maximum number of dns queries reached, max: %d", dns_conf_max_query_limit);
+		}
+		request->send_tick = get_tick_count();
+		request->rcode = DNS_RC_REFUSED;
+		ret = 0;
+		goto errout;
+	}
 
 	ret = _dns_server_do_query(request, 1);
 	if (ret != 0) {
@@ -7759,9 +7779,17 @@ errout:
 	return -1;
 }
 
+static int _dns_server_audit_syslog(struct tlog_log *log, const char *buff, int bufflen)
+{
+	syslog(LOG_INFO, "%.*s", bufflen, buff);
+	return 0;
+}
+
 static int _dns_server_audit_init(void)
 {
 	char *audit_file = SMARTDNS_AUDIT_FILE;
+	unsigned int tlog_flag = 0;
+
 	if (dns_conf_audit_enable == 0) {
 		return 0;
 	}
@@ -7770,9 +7798,17 @@ static int _dns_server_audit_init(void)
 		audit_file = dns_conf_audit_file;
 	}
 
-	dns_audit = tlog_open(audit_file, dns_conf_audit_size, dns_conf_audit_num, 0, 0);
+	if (dns_conf_audit_syslog) {
+		tlog_flag |= TLOG_SEGMENT;
+	}
+
+	dns_audit = tlog_open(audit_file, dns_conf_audit_size, dns_conf_audit_num, 0, tlog_flag);
 	if (dns_audit == NULL) {
 		return -1;
+	}
+
+	if (dns_conf_audit_syslog) {
+		tlog_reg_output_func(dns_audit, _dns_server_audit_syslog);
 	}
 
 	if (dns_conf_audit_file_mode > 0) {
@@ -7883,6 +7919,7 @@ int dns_server_init(void)
 	pthread_attr_init(&attr);
 	INIT_LIST_HEAD(&server.conn_list);
 	time(&server.cache_save_time);
+	atomic_set(&server.request_num, 0);
 
 	epollfd = epoll_create1(EPOLL_CLOEXEC);
 	if (epollfd < 0) {
