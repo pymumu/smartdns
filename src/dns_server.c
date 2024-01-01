@@ -1696,7 +1696,6 @@ static int _dns_cache_packet(struct dns_server_post_context *context)
 	}
 
 	/* if doing prefetch, update cache only */
-
 	struct dns_cache_key cache_key;
 	cache_key.dns_group_name = request->dns_group_name;
 	cache_key.domain = request->domain;
@@ -5162,7 +5161,12 @@ static int _dns_server_get_expired_ttl_reply(struct dns_cache *dns_cache)
 static int _dns_server_process_cache_packet(struct dns_request *request, struct dns_cache *dns_cache)
 {
 	int ret = -1;
-	struct dns_cache_packet *cache_packet = (struct dns_cache_packet *)dns_cache_get_data(dns_cache);
+	struct dns_cache_packet *cache_packet = NULL;
+	if (dns_cache->info.qtype != request->qtype) {
+		goto out;
+	}
+
+	cache_packet = (struct dns_cache_packet *)dns_cache_get_data(dns_cache);
 	if (cache_packet == NULL) {
 		goto out;
 	}
@@ -5170,10 +5174,6 @@ static int _dns_server_process_cache_packet(struct dns_request *request, struct 
 	int do_ipset = (dns_cache_get_ttl(dns_cache) == 0);
 	if (dns_cache_is_visited(dns_cache) == 0) {
 		do_ipset = 1;
-	}
-
-	if (dns_cache->info.qtype != request->qtype) {
-		goto out;
 	}
 
 	struct dns_server_post_context context;

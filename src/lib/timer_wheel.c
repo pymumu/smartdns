@@ -167,17 +167,21 @@ void tw_add_timer(struct tw_base *base, struct tw_timer_list *timer)
 int tw_del_timer(struct tw_base *base, struct tw_timer_list *timer)
 {
 	int ret = 0;
+	int call_del = 0;
 
 	pthread_spin_lock(&base->lock);
 	{
 		if (timer_pending(timer)) {
 			ret = 1;
 			_tw_detach_timer(timer);
+			if (timer->del_function) {
+				call_del = 1;
+			}
 		}
 	}
 	pthread_spin_unlock(&base->lock);
 
-	if (ret == 1 && timer->del_function) {
+	if (call_del) {
 		timer->del_function(base, timer, timer->data);
 	}
 
