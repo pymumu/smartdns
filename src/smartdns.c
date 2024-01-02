@@ -680,6 +680,12 @@ static void _sig_error_exit(int signo, siginfo_t *siginfo, void *ct)
 	unsigned long PC = 0;
 	ucontext_t *context = ct;
 	const char *arch = NULL;
+	const char *build_info = "";
+#ifdef SMARTDNS_VERION
+	build_info = SMARTDNS_VERION;
+#else
+	build_info = __DATE__ " " __TIME__;
+#endif
 #if defined(__i386__)
 	int *pgregs = (int *)(&(context->uc_mcontext.gregs));
 	PC = pgregs[REG_EIP];
@@ -699,10 +705,10 @@ static void _sig_error_exit(int signo, siginfo_t *siginfo, void *ct)
 	arch = "mips";
 #endif
 	tlog(TLOG_FATAL,
-		 "process exit with signal %d, code = %d, errno = %d, pid = %d, self = %d, pc = %#lx, addr = %#lx, build(%s "
+		 "process exit with signal %d, code = %d, errno = %d, pid = %d, self = %d, pc = %#lx, addr = %#lx, build("
 		 "%s %s)\n",
 		 signo, siginfo->si_code, siginfo->si_errno, siginfo->si_pid, getpid(), PC, (unsigned long)siginfo->si_addr,
-		 __DATE__, __TIME__, arch);
+		 build_info, arch);
 	print_stack();
 	sleep(1);
 	_exit(SMARTDNS_CRASH_CODE);
