@@ -312,10 +312,10 @@ msgid "Force AAAA SOA."
 msgstr "停用IPV6地址解析。"
 
 msgid "Force HTTPS SOA"
-msgstr "停用HTTPS地址解析"
+msgstr "停用HTTPS记录解析"
 
 msgid "Force HTTPS SOA."
-msgstr "停用HTTPS地址解析。"
+msgstr "停用HTTPS记录解析。"
 
 msgid "General Settings"
 msgstr "常规设置"
