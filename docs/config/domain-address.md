@@ -49,3 +49,11 @@ expand-ptr-from-address yes
 address /example.com/1.2.3.4
 expand-ptr-from-address no
 ```
+
+## 读取hosts文件指定域名地址
+
+smartdns可以读取hosts格式文件来解析域名，通过`hosts-file [path]`参数配置。
+
+```
+hosts-file /etc/hosts
+```

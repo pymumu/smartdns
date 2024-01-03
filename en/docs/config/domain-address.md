@@ -49,3 +49,11 @@ expand-ptr-from-address yes
 address /example.com/1.2.3.4
 expand-ptr-from-address no
 ```
+
+## Read Domain Address from hosts File
+
+SmartDNS can read domain addresses from a hosts file by configuring the `hosts-file [path]` parameter.
+
+```
+hosts-file /etc/hosts
+```
