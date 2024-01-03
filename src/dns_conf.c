@@ -4149,9 +4149,152 @@ static int _conf_dhcp_lease_dnsmasq_file(void *data, int argc, char *argv[])
 	return 0;
 }
 
+static int _config_foreach_file(const char *file_pattern, int (*callback)(const char *file, void *priv), void *priv)
+{
+	char file_path[DNS_MAX_PATH];
+	char file_path_dir[DNS_MAX_PATH];
+	glob_t globbuf = {0};
+
+	if (file_pattern == NULL) {
+		return -1;
+	}
+
+	if (file_pattern[0] != '/') {
+		safe_strncpy(file_path_dir, conf_get_conf_file(), DNS_MAX_PATH);
+		dir_name(file_path_dir);
+		if (strncmp(file_path_dir, conf_get_conf_file(), sizeof(file_path_dir)) == 0) {
+			if (snprintf(file_path, DNS_MAX_PATH, "%s", file_pattern) < 0) {
+				return -1;
+			}
+		} else {
+			if (snprintf(file_path, DNS_MAX_PATH, "%s/%s", file_path_dir, file_pattern) < 0) {
+				return -1;
+			}
+		}
+	} else {
+		safe_strncpy(file_path, file_pattern, DNS_MAX_PATH);
+	}
+
+	errno = 0;
+	if (glob(file_path, 0, NULL, &globbuf) != 0) {
+		if (errno == 0) {
+			return 0;
+		}
+
+		tlog(TLOG_ERROR, "open config file '%s' failed, %s", file_path, strerror(errno));
+		return -1;
+	}
+
+	for (size_t i = 0; i != globbuf.gl_pathc; ++i) {
+		const char *file = globbuf.gl_pathv[i];
+		struct stat statbuf;
+
+		if (stat(file, &statbuf) != 0) {
+			continue;
+		}
+
+		if (!S_ISREG(statbuf.st_mode)) {
+			continue;
+		}
+
+		if (callback(file, priv) != 0) {
+			tlog(TLOG_ERROR, "load config file '%s' failed.", file);
+			globfree(&globbuf);
+			return -1;
+		}
+	}
+
+	globfree(&globbuf);
+
+	return 0;
+}
+
+static int _conf_hosts_file_add(const char *file, void *priv)
+{
+	FILE *fp = NULL;
+	char line[MAX_LINE_LEN];
+	char ip[DNS_MAX_IPLEN];
+	char hostname[DNS_MAX_CNAME_LEN];
+	int ret = 0;
+	int line_no = 0;
+
+	fp = fopen(file, "r");
+	if (fp == NULL) {
+		tlog(TLOG_WARN, "open file %s error, %s", file, strerror(errno));
+		return -1;
+	}
+
+	line_no = 0;
+	while (fgets(line, MAX_LINE_LEN, fp)) {
+		line_no++;
+		int is_ptr_add = 0;
+
+		char *token = strtok(line, " \t\n");
+		if (token == NULL) {
+			continue;
+		}
+
+		safe_strncpy(ip, token, sizeof(ip) - 1);
+		if (ip[0] == '#') {
+			continue;
+		}
+
+		while ((token = strtok(NULL, " \t\n")) != NULL) {
+			safe_strncpy(hostname, token, sizeof(hostname) - 1);
+			char *skip_hostnames[] = {
+				"*",
+			};
+
+			int skip = 0;
+			for (size_t i = 0; i < sizeof(skip_hostnames) / sizeof(skip_hostnames[0]); i++) {
+				if (strncmp(hostname, skip_hostnames[i], DNS_MAX_CNAME_LEN - 1) == 0) {
+					skip = 1;
+					break;
+				}
+			}
+
+			if (skip == 1) {
+				continue;
+			}
+
+			ret = _conf_host_add(hostname, ip, DNS_HOST_TYPE_HOST, 0);
+			if (ret != 0) {
+				tlog(TLOG_WARN, "add hosts-file failed at '%s:%d'.", file, line_no);
+				continue;
+			}
+
+			if (is_ptr_add == 1) {
+				continue;
+			}
+
+			ret = _conf_ptr_add(hostname, ip, 0);
+			if (ret != 0) {
+				tlog(TLOG_WARN, "add hosts-file failed at '%s:%d'.", file, line_no);
+				continue;
+			}
+
+			is_ptr_add = 1;
+		}
+	}
+
+	fclose(fp);
+
+	return 0;
+}
+
 static int _conf_hosts_file(void *data, int argc, char *argv[])
 {
-	return 0;
+	const char *file_pattern = NULL;
+	if (argc < 1) {
+		return -1;
+	}
+
+	file_pattern = argv[1];
+	if (file_pattern == NULL) {
+		return -1;
+	}
+
+	return _config_foreach_file(file_pattern, _conf_hosts_file_add, NULL);
 }
 
 static void _config_host_table_destroy(int only_dynamic)
@@ -4464,13 +4607,14 @@ static int conf_additional_file(const char *conf_file)
 	return load_conf(file_path, _config_item, _conf_printf);
 }
 
+static int _config_additional_file_callback(const char *file, void *priv)
+{
+	return conf_additional_file(file);
+}
+
 int config_additional_file(void *data, int argc, char *argv[])
 {
 	const char *conf_pattern = NULL;
-	char file_path[DNS_MAX_PATH];
-	char file_path_dir[DNS_MAX_PATH];
-	glob_t globbuf = {0};
-
 	if (argc < 1) {
 		return -1;
 	}
@@ -4480,54 +4624,7 @@ int config_additional_file(void *data, int argc, char *argv[])
 		return -1;
 	}
 
-	if (conf_pattern[0] != '/') {
-		safe_strncpy(file_path_dir, conf_get_conf_file(), DNS_MAX_PATH);
-		dir_name(file_path_dir);
-		if (strncmp(file_path_dir, conf_get_conf_file(), sizeof(file_path_dir)) == 0) {
-			if (snprintf(file_path, DNS_MAX_PATH, "%s", conf_pattern) < 0) {
-				return -1;
-			}
-		} else {
-			if (snprintf(file_path, DNS_MAX_PATH, "%s/%s", file_path_dir, conf_pattern) < 0) {
-				return -1;
-			}
-		}
-	} else {
-		safe_strncpy(file_path, conf_pattern, DNS_MAX_PATH);
-	}
-
-	errno = 0;
-	if (glob(file_path, 0, NULL, &globbuf) != 0) {
-		if (errno == 0) {
-			return 0;
-		}
-
-		tlog(TLOG_ERROR, "open config file '%s' failed, %s", file_path, strerror(errno));
-		return -1;
-	}
-
-	for (size_t i = 0; i != globbuf.gl_pathc; ++i) {
-		const char *file = globbuf.gl_pathv[i];
-		struct stat statbuf;
-
-		if (stat(file, &statbuf) != 0) {
-			continue;
-		}
-
-		if (!S_ISREG(statbuf.st_mode)) {
-			continue;
-		}
-
-		if (conf_additional_file(file) != 0) {
-			tlog(TLOG_ERROR, "load config file '%s' failed.", file);
-			globfree(&globbuf);
-			return -1;
-		}
-	}
-
-	globfree(&globbuf);
-
-	return 0;
+	return _config_foreach_file(conf_pattern, _config_additional_file_callback, NULL);
 }
 
 const char *dns_conf_get_cache_dir(void)

@@ -316,10 +316,22 @@ o = s:taboption("advanced", Value, "rr_ttl_reply_max", translate("Reply Domain T
 o.rempty      = true
 
 o = s:taboption("advanced", DynamicList, "conf_files", translate("Include Config Files<br>/etc/smartdns/conf.d"),
-    translate("Include other config files from /etc/smartdns/conf.d or custom path, can be downloaded from the download page."));
+    translate("Include other config files from /etc/smartdns/conf.d or custom path, can be downloaded from the download page."))
+o.rmempty = true
 uci:foreach("smartdns", "download-file", function(section)
     local filetype = section.type
     if (filetype ~= 'config') then
+        return
+    end
+
+    o:value(section.name);
+end)
+
+o = s:taboption("advanced", DynamicList, "hosts_files", translate("Hosts File"), translate("Include hosts file."))
+o.rmempty = true
+uci:foreach("smartdns", "download-file", function(section)
+    local filetype = section.type
+    if (filetype ~= 'other') then
         return
     end
 
@@ -870,6 +882,13 @@ o.rempty = true
 o.editable = true
 o.root_directory = "/etc/smartdns/domain-set"
 
+o = s:option(FileUpload, "upload_other_file", translate("Upload File"))
+o.rmempty = true
+o.datatype = "file"
+o.rempty = true
+o.editable = true
+o.root_directory = "/etc/smartdns/download"
+
 o = s:option(Button, "_updateate")
 o.title = translate("Update Files")
 o.inputtitle = translate("Update Files")
@@ -913,6 +932,8 @@ end
 o = s:option(ListValue, "type", translate("type"), translate("File Type"))
 o:value("list", translate("domain list (/etc/smartdns/domain-set)"))
 o:value("config", translate("smartdns config (/etc/smartdns/conf.d)"))
+o:value("ip-set", translate("ip-set file (/etc/smartdns/ip-set)"))
+o:value("other", translate("other file (/etc/smartdns/download)"))
 o.default = "list"
 o.rempty = false
 

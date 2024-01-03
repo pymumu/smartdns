@@ -417,6 +417,20 @@ return view.extend({
 			o.value(download_files[i].name);
 		}
 
+		o = s.taboption("advanced", form.DynamicList, "hosts_files", _("Hosts File"), _("Include hosts file."));
+		o.rmempty = true;
+		for (var i = 0; i < download_files.length; i++) {
+			if (download_files[i].type == undefined) {
+				continue;
+			}
+
+			if (download_files[i].type != 'other') {
+				continue
+			}
+
+			o.value(download_files[i].name);
+		}
+	
 		///////////////////////////////////////
 		// second dns server;
 		///////////////////////////////////////
@@ -586,6 +600,12 @@ return view.extend({
 		o.rempty = true
 		o.root_directory = "/etc/smartdns/domain-set"
 
+		o = s.taboption("files", form.FileUpload, "upload_other_file", _("Upload File"));
+		o.rmempty = true
+		o.datatype = "file"
+		o.rempty = true
+		o.root_directory = "/etc/smartdns/download"
+
 		o = s.taboption('files', form.DummyValue, "_update", _("Update Files"));
 		o.renderWidget = function () {
 			return E('button', {
@@ -629,6 +649,8 @@ return view.extend({
 		so = ss.option(form.ListValue, "type", _("type"), _("File Type"));
 		so.value("list", _("domain list (/etc/smartdns/domain-set)"));
 		so.value("config", _("smartdns config (/etc/smartdns/conf.d)"));
+		so.value("ip-set", _("ip-set file (/etc/smartdns/ip-set)"));
+		so.value("other", _("other file (/etc/smartdns/download)"));
 		so.default = "list";
 		so.rempty = false;
 

@@ -31,7 +31,9 @@ SMARTDNS_DEFAULT_FORWARDING_FILE="/etc/smartdns/domain-forwarding.list"
 SMARTDNS_DEFAULT_DOMAIN_BLOCK_FILE="/etc/smartdns/domain-block.list"
 SMARTDNS_CONF_DIR="/etc/smartdns"
 SMARTDNS_CONF_DOWNLOAD_DIR="$SMARTDNS_CONF_DIR/conf.d"
+SMARTDNS_DOWNLOAD_DIR="$SMARTDNS_CONF_DIR/download"
 SMARTDNS_DOMAIN_LIST_DOWNLOAD_DIR="$SMARTDNS_CONF_DIR/domain-set"
+SMARTDNS_IP_SET_DOWNLOAD_DIR="$SMARTDNS_CONF_DIR/ip-set"
 SMARTDNS_VAR_CONF_DIR="/var/etc/smartdns"
 SMARTDNS_CONF="$SMARTDNS_VAR_CONF_DIR/smartdns.conf"
 ADDRESS_CONF="$SMARTDNS_CONF_DIR/address.conf"
@@ -520,6 +522,21 @@ conf_append_conf_files()
 	}
 }
 
+conf_append_hosts_files()
+{
+	local hosts_file="$1"
+
+	if [ "$1" != "${1#/}" ]; then
+		fullpath="$1"
+	else 
+		fullpath="$SMARTDNS_DOWNLOAD_DIR/$hosts_file"
+	fi
+
+	[ -f "$fullpath" ] && {
+		conf_append "hosts-file" "'$fullpath'"
+	}
+}
+
 load_service()
 {
 	local section="$1"
@@ -749,6 +766,8 @@ load_service()
 
 	config_list_foreach "$section" "conf_files" conf_append_conf_files
 
+	config_list_foreach "$section" "hosts_files" conf_append_hosts_files
+
 	config_foreach load_domain_rules "domain-rule"
 
 	config_foreach load_domain_rule_list "domain-rule-list"
@@ -808,12 +827,20 @@ download_file() {
 	config_get url "$section" "url" ""
 	config_get name "$section" "name" ""
 	config_get filetype "$section" "type" ""
+	config_get_bool use_proxy "$section" "use_proxy" "0"
 
 	[ -z "$url" ] && return 0
 	[ -z "$name" ] && return 0
 	[ -z "$filetype" ] && return 0
 
 	echo "download $filetype file $name from $url"
+	[ "$use_proxy" = "1" ] && {
+		proxy="$(uci -q get smartdns.@smartdns[0].proxy_server)"
+		[ ! -z "$proxy" ] && {
+			export http_proxy="$proxy"
+			export https_proxy="$proxy"
+		}
+	}
 	wget --timeout 120 -q -O "/tmp/$name" "$url"
 	if [ $? -ne 0 ]; then
 		echo "download file $name failed"
@@ -825,6 +852,10 @@ download_file() {
 		mv "/tmp/$name" "$SMARTDNS_DOMAIN_LIST_DOWNLOAD_DIR/$name"	
 	elif [ "$filetype" = "config" ]; then
 		mv "/tmp/$name" "$SMARTDNS_CONF_DOWNLOAD_DIR/$name"	
+	elif [ "$filetype" = "ip-set" ]; then
+		mv "/tmp/$name" "$SMARTDNS_IP_SET_DOWNLOAD_DIR/$name"
+	else 
+		mv "/tmp/$name" "$SMARTDNS_DOWNLOAD_DIR/$name"
 	fi
 }
 
