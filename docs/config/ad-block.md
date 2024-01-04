@@ -99,7 +99,13 @@ b.com
 
 ### hosts格式
 
-如下面命令，可以将`/path/to/hosts/file`的文件（路径换成实际的文件），转换为smartdns支持的格式
+如下面命令，可以使用`hosts-file`来指定hosts格式文件
+
+```shell
+hosts-file /etc/smartdns/anti-ad-smartdns.hosts
+```
+
+也可以通过如下命令将hosts文件转换为smartdns特有格式。
 
 ```shell
 cat /path/to/hosts/file | grep -v "^#" | awk '{print "address /"$2"/#"}' > anti-ad-smartdns.conf

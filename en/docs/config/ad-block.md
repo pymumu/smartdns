@@ -98,7 +98,13 @@ For non-SmartDNS data, simple shell commands can convert it.
 
 ### hosts Format
 
-The following command converts the `/path/to/hosts/file` file (replace the path with your actual file) to the format supported by SmartDNS:
+You can use the `hosts-file` option to specify a hosts format file, as shown in the following command:
+
+```shell
+hosts-file /etc/smartdns/anti-ad-smartdns.hosts
+```
+
+You can also convert the hosts file to the specific format used by SmartDNS using the following command.
 
 ```shell
 cat /path/to/hosts/file | grep -v "^#" | awk '{print "address /"$2"/#"}' > anti-ad-smartdns.conf
