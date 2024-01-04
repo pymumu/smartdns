@@ -507,7 +507,7 @@ msgstr "报告BUG"
 msgid "Return SOA when the requested result contains a specified IP address."
 msgstr "当结果包含对应范围的IP时，返回SOA。"
 
-msgid "Resolve Local HostnaFmes"
+msgid "Resolve Local Hostnames"
 msgstr "解析本地主机名"
 
 msgid "Resolve local hostnames by reading Dnsmasq lease file."
