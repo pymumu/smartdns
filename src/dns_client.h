@@ -25,6 +25,7 @@
 extern "C" {
 #endif
 
+#define DNS_SERVER_IFNAME_LEN 16
 #define DNS_SERVER_SPKI_LEN 64
 #define DNS_SERVER_GROUP_DEFAULT "default"
 #define DNS_SERVER_GROUP_MDNS "mdns"
@@ -101,7 +102,6 @@ struct client_dns_server_flag_udp {
 };
 
 struct client_dns_server_flag_mdns {
-	char ifname[DNS_MAX_CNAME_LEN];
 };
 
 struct client_dns_server_flag_tls {
@@ -136,6 +136,7 @@ struct client_dns_server_flags {
 	long long set_mark;
 	int drop_packet_latency_ms;
 	char proxyname[DNS_MAX_CNAME_LEN];
+	char ifname[DNS_SERVER_IFNAME_LEN];
 	struct client_dns_server_flag_ecs ipv4_ecs;
 	struct client_dns_server_flag_ecs ipv6_ecs;
 

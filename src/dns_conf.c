@@ -559,6 +559,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 		{"proxy", required_argument, NULL, 'p'}, /* proxy server */
 		{"no-check-certificate", no_argument, NULL, 'k'}, /* do not check certificate */
 		{"bootstrap-dns", no_argument, NULL, 'b'}, /* set as bootstrap dns */
+		{"interface", required_argument, NULL, 250}, /* interface */
 #ifdef FEATURE_CHECK_EDNS
 		/* experimental feature */
 		{"check-edns", no_argument, NULL, 251},   /* check edns */
@@ -665,6 +666,10 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 		}
 		case 'b': {
 			is_bootstrap_dns = 1;
+			break;
+		}
+		case 250: {
+			safe_strncpy(server->ifname, optarg, MAX_INTERFACE_LEN);
 			break;
 		}
 		case 251: {
