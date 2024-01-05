@@ -19,8 +19,14 @@ hide:
     通过如下参数可以配置指定域名的NFTSet规则
 
     ```shell
+    # 全局配置ipset
+    ipset ipsetname
+    # 指定域名配置ipset
     ipset /domain/ipset
+    # 指定IP类型配置ipset
     ipset /domain/[#4:ipsetv4,#6:ipsetv6]
+    # 忽略ipset规则
+    ipset /domain/-
     ```
 
 1. 超时
@@ -46,7 +52,12 @@ hide:
     通过如下参数可以配置指定域名的IPSet规则
 
     ```shell
+    # 全局配置nftset
+    nftset [#4:ip#table#set,#6:ipv6#table#setv6]
+    # 指定域名配置nftset
     nftset /domain/[#4:ip#table#set,#6:ipv6#table#setv6]
+    # 忽略nftset规则
+    nftset /domain/#4:-,#6:-
     ```
 
 1. 超时
@@ -85,3 +96,5 @@ bind [::]:6053 -ipset [ipset] -nftset [nftset]
 
 * -ipset：参数选项参考ipset选项。
 * -nftset：选项参考nftset。
+
+注意，bind配置ipset或nftset后，将自动禁用`域名预查询`、`过期缓存`和`双栈优选`功能。

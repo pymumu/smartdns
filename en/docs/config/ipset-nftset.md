@@ -19,8 +19,13 @@ Like Dnsmasq, smartdns supports ipset and nftset, which can use TPROXY to transp
     The following parameters can be used to configure NFTSet rules for specified domain names.
 
     ```shell
+    # set global ipset
+    ipset ipsetname
+    # set ipset for specified domain names
     ipset /domain/ipset
     ipset /domain/[#4:ipsetv4,#6:ipsetv6]
+    # ignore ipset rule for specified domain names
+    ipset /domain/-
     ```
 
 1. Timeout
@@ -46,7 +51,12 @@ Like Dnsmasq, smartdns supports ipset and nftset, which can use TPROXY to transp
     The following parameters can be used to configure IPSet rules for specified domain names.
 
     ```shell
+    # set global nftset
+    nftset [#4:ip#table#set,#6:ipv6#table#setv6]
+    # set nftset for specified domain names
     nftset /domain/[#4:ip#table#set,#6:ipv6#table#setv6]
+    # ignore ipset rule for specified domain names
+    nftset /domain/#4:-,#6:-
     ```
 
 1. Timeout
@@ -85,3 +95,5 @@ bind [::]:6053 -ipset [ipset] -nftset [nftset]
 
 * -ipset: Refer to ipset options for parameter options.
 * -nftset: options refer to nftset.
+
+Note: when bind is configured with ipset or nftset, `domain-prefretch`, `serve-expired`, and `dualstack-selection` functions will be automatically disabled.
