@@ -271,12 +271,33 @@ o.cfgvalue    = function(...)
     return Flag.cfgvalue(...) or "1"
 end
 
+o = s:taboption("advanced", Value, "ipset_name", translate("IPset Name"), translate("IPset name."))
+o.rmempty = true
+o.datatype = "string"
+o.rempty = true
+
 ---- Ipset no speed.
 o = s:taboption("advanced", Value, "ipset_no_speed", translate("No Speed IPset Name"), 
     translate("Ipset name, Add domain result to ipset when speed check fails."));
 o.rmempty = true;
 o.datatype = "hostname";
 o.rempty = true;
+
+o = s:taboption("advanced", Value, "nftset_name", translate("NFTset Name"), translate("NFTset name, format: [#[4|6]:[family#table#set]]"))
+o.rmempty = true
+o.datatype = "string"
+o.rempty = true
+function o.validate(self, value) 
+    if (value == "") then
+        return value
+    end
+
+    if (value:match("#[4|6]:[a-zA-Z0-9%-_]+#[a-zA-Z0-9%-_]+#[a-zA-Z0-9%-_]+$")) then
+        return value
+    end
+
+    return nil, translate("NFTset name format error, format: [#[4|6]:[family#table#set]]")
+end
 
 ---- NFTset no speed.
 o = s:taboption("advanced", Value, "nftset_no_speed", translate("No Speed NFTset Name"), 
@@ -434,6 +455,13 @@ o.cfgvalue    = function(...)
     return Flag.cfgvalue(...) or "0"
 end
 
+o = s:taboption("seconddns", Flag, "seconddns_force_https_soa", translate("Force HTTPS SOA"), translate("Force HTTPS SOA."))
+o.rmempty     = false
+o.default     = o.disabled
+o.cfgvalue    = function(...)
+    return Flag.cfgvalue(...) or "0"
+end
+
 o = s:taboption("seconddns", Flag, "seconddns_no_ip_alias", translate("Skip IP Alias"))
 o.rmempty     = true
 o.default     = o.disabled
@@ -443,7 +471,7 @@ end
 
 o = s:taboption("seconddns", Value, "seconddns_ipset_name", translate("IPset Name"), translate("IPset name."))
 o.rmempty = true
-o.datatype = "hostname"
+o.datatype = "string"
 o.rempty = true
 
 o = s:taboption("seconddns", Value, "seconddns_nftset_name", translate("NFTset Name"), translate("NFTset name, format: [#[4|6]:[family#table#set]]"))

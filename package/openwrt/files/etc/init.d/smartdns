@@ -484,6 +484,9 @@ load_second_server()
 	config_get_bool seconddns_force_aaaa_soa "$section" "seconddns_force_aaaa_soa" "0"
 	[ "$seconddns_force_aaaa_soa" = "1" ] && ARGS="$ARGS -force-aaaa-soa"
 
+	config_get_bool seconddns_force_https_soa "$section" "seconddns_force_https_soa" "0"
+	[ "$seconddns_force_https_soa" = "1" ] && ARGS="$ARGS -force-https-soa"
+
 	config_get_bool seconddns_no_ip_alias "$section" "seconddns_no_ip_alias" "0"
 	[ "$seconddns_no_ip_alias" = "1" ] && ARGS="$ARGS -no-ip-alias"
 
@@ -604,6 +607,12 @@ load_service()
 	[ "$force_https_soa" = "1" ] && qtype_soa_list="$qtype_soa_list 65"
 
 	config_get auto_set_dnsmasq "$section" "auto_set_dnsmasq" "1"
+
+	config_get ipset_name "$section" "ipset_name" ""
+	[ -z "$ipset_name" ] || conf_append "ipset" "$ipset_name"
+
+	config_get nftset_name "$section" "nftset_name" ""
+	[ -z "$nftset_name" ] || conf_append "nftset" "$nftset_name"
 
 	config_get ipset_no_speed "$section" "ipset_no_speed" ""
 	[ -z "$ipset_no_speed" ] || conf_append "ipset-no-speed" "$ipset_no_speed"

@@ -1889,6 +1889,14 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 		if (ipset_rule == NULL) {
 			ipset_rule = _dns_server_get_bind_ipset_nftset_rule(request, DOMAIN_RULE_IPSET);
 		}
+
+		if (ipset_rule == NULL && dns_conf_ipset.inet_enable) {
+			ipset_rule = &dns_conf_ipset.inet;
+		}
+
+		if (ipset_rule == NULL && check_no_speed_rule && dns_conf_ipset_no_speed.inet_enable) {
+			ipset_rule_v4 = &dns_conf_ipset_no_speed.inet;
+		}
 	}
 
 	if (!rule_flags || (rule_flags->flags & DOMAIN_FLAG_IPSET_IPV4_IGN) == 0) {
@@ -1897,7 +1905,11 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 			ipset_rule_v4 = _dns_server_get_bind_ipset_nftset_rule(request, DOMAIN_RULE_IPSET_IPV4);
 		}
 
-		if (ipset_rule == NULL && check_no_speed_rule && dns_conf_ipset_no_speed.ipv4_enable) {
+		if (ipset_rule_v4 == NULL && ipset_rule == NULL && dns_conf_ipset.ipv4_enable) {
+			ipset_rule_v4 = &dns_conf_ipset.ipv4;
+		}
+
+		if (ipset_rule_v4 == NULL && check_no_speed_rule && dns_conf_ipset_no_speed.ipv4_enable) {
 			ipset_rule_v4 = &dns_conf_ipset_no_speed.ipv4;
 		}
 	}
@@ -1906,6 +1918,10 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 		ipset_rule_v6 = _dns_server_get_dns_rule(request, DOMAIN_RULE_IPSET_IPV6);
 		if (ipset_rule_v6 == NULL) {
 			ipset_rule_v6 = _dns_server_get_bind_ipset_nftset_rule(request, DOMAIN_RULE_IPSET_IPV6);
+		}
+
+		if (ipset_rule_v6 == NULL && ipset_rule == NULL && dns_conf_ipset.ipv6_enable) {
+			ipset_rule_v6 = &dns_conf_ipset.ipv6;
 		}
 
 		if (ipset_rule_v6 == NULL && check_no_speed_rule && dns_conf_ipset_no_speed.ipv6_enable) {
@@ -1919,6 +1935,10 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 			nftset_ip = _dns_server_get_bind_ipset_nftset_rule(request, DOMAIN_RULE_NFTSET_IP);
 		}
 
+		if (nftset_ip == NULL && dns_conf_nftset.ip_enable) {
+			nftset_ip = &dns_conf_nftset.ip;
+		}
+
 		if (nftset_ip == NULL && check_no_speed_rule && dns_conf_nftset_no_speed.ip_enable) {
 			nftset_ip = &dns_conf_nftset_no_speed.ip;
 		}
@@ -1929,6 +1949,10 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 
 		if (nftset_ip6 == NULL) {
 			nftset_ip6 = _dns_server_get_bind_ipset_nftset_rule(request, DOMAIN_RULE_NFTSET_IP6);
+		}
+
+		if (nftset_ip6 == NULL && dns_conf_nftset.ip6_enable) {
+			nftset_ip6 = &dns_conf_nftset.ip6;
 		}
 
 		if (nftset_ip6 == NULL && check_no_speed_rule && dns_conf_nftset_no_speed.ip6_enable) {
@@ -4520,6 +4544,19 @@ static int _dns_server_pre_process_server_flags(struct dns_request *request)
 
 	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_IP_ALIAS) == 0) {
 		request->no_ipalias = 1;
+	}
+
+	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_PREFETCH) == 0) {
+		request->prefetch_flags |= PREFETCH_FLAGS_NOPREFETCH;
+	}
+
+	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_SERVE_EXPIRED) == 0) {
+		request->no_serve_expired = 1;
+	}
+
+	if (_dns_server_has_bind_flag(request, BIND_FLAG_FORCE_HTTPS_SOA) == 0) {
+		_dns_server_reply_SOA(DNS_RC_NOERROR, request);
+		return 0;
 	}
 
 	return -1;

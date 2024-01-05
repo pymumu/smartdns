@@ -612,14 +612,18 @@ static struct dns_server_group *_dns_client_get_dnsserver_group(const char *grou
 	struct dns_server_group *group = _dns_client_get_group(group_name);
 
 	if (group == NULL) {
-		group = client.default_group;
+		goto use_default;
 	} else {
 		if (list_empty(&group->head)) {
-			group = client.default_group;
+			tlog(TLOG_INFO, "group %s not exist, use default group.", group_name);
+			goto use_default;
 		}
 	}
 
 	return group;
+
+use_default:
+	return client.default_group;
 }
 
 /* add server to group */
@@ -1228,7 +1232,8 @@ static int _dns_client_server_add(char *server_ip, char *server_host, int port, 
 		snprintf(ifname, sizeof(ifname), "@%s", flags->ifname);
 	}
 
-	tlog(TLOG_INFO, "add server %s:%d%s, type: %s", server_ip, port, ifname, _dns_server_get_type_string(server_info->type));
+	tlog(TLOG_INFO, "add server %s:%d%s, type: %s", server_ip, port, ifname,
+		 _dns_server_get_type_string(server_info->type));
 
 	return 0;
 errout:

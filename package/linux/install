@@ -24,6 +24,7 @@ showhelp()
 	echo "Options:"
 	echo " -i               install smartdns."
 	echo " -u               uninstall smartdns."
+	echo " -U               upgrade install smartdns."
 	echo " --prefix [dir]   prefix directory."
 	echo " -h               show this message."
 }
@@ -223,7 +224,7 @@ main()
 {
 	ACTION=""
 
-	OPTS=`getopt -o iuh --long help,prefix: \
+	OPTS=`getopt -o iuhU --long help,prefix: \
 		-n  "" -- "$@"`
 
 	if [ $? != 0 ] ; then echo "Terminating..." >&2 ; exit 1 ; fi
@@ -246,6 +247,9 @@ main()
 		-u )
 			ACTION="UNINSTALL"
 			shift ;;
+		-U )
+			ACTION="UPGRADE"
+			shift ;;
 		-- ) shift; break ;;
 		* ) break ;;
   		esac
@@ -262,7 +266,14 @@ main()
 	elif [ "$ACTION" = "UNINSTALL" ]; then
 		uninstall_smartdns
 		return 0
-	fi	
+	elif [ "$ACTION" = "UPGRADE" ]; then
+		uninstall_smartdns
+		install_smartdns
+		return $?
+	else
+		showhelp
+		return 1
+	fi
 
 }
 

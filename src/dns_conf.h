@@ -148,6 +148,9 @@ typedef enum {
 #define BIND_FLAG_NO_RULE_CNAME (1 << 9)
 #define BIND_FLAG_NO_RULE_NFTSET (1 << 10)
 #define BIND_FLAG_NO_IP_ALIAS (1 << 11)
+#define BIND_FLAG_NO_PREFETCH (1 << 12)
+#define BIND_FLAG_FORCE_HTTPS_SOA (1 << 13)
+#define BIND_FLAG_NO_SERVE_EXPIRED (1 << 14)
 
 enum response_mode_type {
 	DNS_RESPONSE_MODE_FIRST_PING_IP = 0,
@@ -189,12 +192,15 @@ struct dns_ipset_rule {
 };
 
 struct dns_ipset_names {
+	char inet_enable;
 	char ipv4_enable;
 	char ipv6_enable;
+	struct dns_ipset_rule inet;
 	struct dns_ipset_rule ipv4;
 	struct dns_ipset_rule ipv6;
 };
 extern struct dns_ipset_names dns_conf_ipset_no_speed;
+extern struct dns_ipset_names dns_conf_ipset;
 
 struct dns_cname_rule {
 	struct dns_rule head;
@@ -231,6 +237,7 @@ struct dns_nftset_names {
 	struct dns_nftset_rule ip6;
 };
 extern struct dns_nftset_names dns_conf_nftset_no_speed;
+extern struct dns_nftset_names dns_conf_nftset;
 
 struct dns_domain_rule {
 	struct dns_rule head;

@@ -331,6 +331,26 @@ return view.extend({
 		o.rmempty = false;
 		o.default = o.enabled;
 
+		// ipset name;
+		o = s.taboption("advanced", form.Value, "ipset_name", _("IPset Name"), _("IPset name."));
+		o.rmempty = true;
+		o.datatype = "string";
+		o.rempty = true;
+		o.validate = function (section_id, value) {
+			if (value == "") {
+				return true;
+			}
+
+			var ipset = value.split(",")
+			for (var i = 0; i < ipset.length; i++) {
+				if (!ipset[i].match(/^(#[4|6]:)?[a-zA-Z0-9\-_]+$/)) {
+					return _("ipset name format error, format: [#[4|6]:]ipsetname");
+				}
+			}
+
+			return true;
+		}
+
 		// Ipset no speed.
 		o = s.taboption("advanced", form.Value, "ipset_no_speed", _("No Speed IPset Name"),
 			_("Ipset name, Add domain result to ipset when speed check fails."));
@@ -346,6 +366,26 @@ return view.extend({
 			for (var i = 0; i < ipset.length; i++) {
 				if (!ipset[i].match(/^(#[4|6]:)?[a-zA-Z0-9\-_]+$/)) {
 					return _("ipset name format error, format: [#[4|6]:]ipsetname");
+				}
+			}
+
+			return true;
+		}
+		
+		// NFTset name;
+		o = s.taboption("advanced", form.Value, "nftset_name", _("NFTset Name"), _("NFTset name, format: [#[4|6]:[family#table#set]]"));
+		o.rmempty = true;
+		o.datatype = "string";
+		o.rempty = true;
+		o.validate = function (section_id, value) {
+			if (value == "") {
+				return true;
+			}
+
+			var nftset = value.split(",")
+			for (var i = 0; i < nftset.length; i++) {
+				if (!nftset[i].match(/^#[4|6]:[a-zA-Z0-9\-_]+#[a-zA-Z0-9\-_]+#[a-zA-Z0-9\-_]+$/)) {
+					return _("NFTset name format error, format: [#[4|6]:[family#table#set]]");
 				}
 			}
 
@@ -501,6 +541,11 @@ return view.extend({
 
 		// Force AAAA SOA
 		o = s.taboption("seconddns", form.Flag, "seconddns_force_aaaa_soa", _("Force AAAA SOA"), _("Force AAAA SOA."));
+		o.rmempty = true;
+		o.default = o.disabled;
+		
+		// Force HTTPS SOA
+		o = s.taboption("seconddns", form.Flag, "seconddns_force_https_soa", _("Force HTTPS SOA"), _("Force HTTPS SOA."));
 		o.rmempty = true;
 		o.default = o.disabled;
 
