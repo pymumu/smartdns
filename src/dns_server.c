@@ -4270,7 +4270,7 @@ static int _dns_server_ip_is_subnet(unsigned char *addr, int mask, unsigned char
 	return 0;
 }
 
-static int _dns_server_process_private_ptr(unsigned char *addr, int addr_len)
+static int _dns_server_is_private_address(unsigned char *addr, int addr_len)
 {
 	if (addr_len == 4) {
 		if (addr[0] == 10 || (addr[0] == 172 && addr[1] >= 16 && addr[1] <= 31) || (addr[0] == 192 && addr[1] == 168)) {
@@ -4297,7 +4297,12 @@ static int _dns_server_process_local_ptr(struct dns_request *request)
 	int found = 0;
 
 	if (_dns_server_parser_addr_from_apra(request->domain, ptr_addr, &ptr_addr_len, sizeof(ptr_addr)) != 0) {
-		return -1;
+		/* Determine if the smartdns service is in effect. */
+		if (strncasecmp(request->domain, "smartdns", sizeof("smartdns")) != 0) {
+			return -1;
+		}
+		found = 1;
+		goto out;
 	}
 
 	if (getifaddrs(&ifaddr) == -1) {
@@ -4335,17 +4340,12 @@ static int _dns_server_process_local_ptr(struct dns_request *request)
 		found = 1;
 	}
 
-	/* Determine if the smartdns service is in effect. */
-	if (found == 0 && strncasecmp(request->domain, "smartdns", sizeof("smartdns")) == 0) {
-		found = 1;
-	}
-
-	if (found == 0 && _dns_server_process_private_ptr(ptr_addr, ptr_addr_len) == 0) {
+	if (found == 0 && _dns_server_is_private_address(ptr_addr, ptr_addr_len) == 0) {
 		request->has_soa = 1;
 		_dns_server_setup_soa(request);
 		goto clear;
 	}
-
+out:
 	if (found == 0) {
 		goto errout;
 	}
