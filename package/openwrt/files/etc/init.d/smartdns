@@ -27,6 +27,7 @@ if [ ! -d "/run" ]; then
 	SERVICE_PID_FILE="/var/run/smartdns.pid"
 fi
 
+SMARTDNS_DOWNLOAD_TMP_DIR="/tmp/smartdns-download"
 SMARTDNS_DEFAULT_FORWARDING_FILE="/etc/smartdns/domain-forwarding.list"
 SMARTDNS_DEFAULT_DOMAIN_BLOCK_FILE="/etc/smartdns/domain-block.list"
 SMARTDNS_CONF_DIR="/etc/smartdns"
@@ -850,7 +851,7 @@ download_file() {
 			export https_proxy="$proxy"
 		}
 	}
-	wget --timeout 120 -q -O "/tmp/$name" "$url"
+	wget --timeout 120 -q -O "$SMARTDNS_DOWNLOAD_TMP_DIR/$name" "$url"
 	if [ $? -ne 0 ]; then
 		echo "download file $name failed"
 		return 1
@@ -858,13 +859,13 @@ download_file() {
 
 	echo "download file $name success"
 	if [ "$filetype" = "list" ]; then
-		mv "/tmp/$name" "$SMARTDNS_DOMAIN_LIST_DOWNLOAD_DIR/$name"	
+		mv "$SMARTDNS_DOWNLOAD_TMP_DIR/$name" "$SMARTDNS_DOMAIN_LIST_DOWNLOAD_DIR/$name"	
 	elif [ "$filetype" = "config" ]; then
-		mv "/tmp/$name" "$SMARTDNS_CONF_DOWNLOAD_DIR/$name"	
+		mv "$SMARTDNS_DOWNLOAD_TMP_DIR/$name" "$SMARTDNS_CONF_DOWNLOAD_DIR/$name"	
 	elif [ "$filetype" = "ip-set" ]; then
-		mv "/tmp/$name" "$SMARTDNS_IP_SET_DOWNLOAD_DIR/$name"
+		mv "$SMARTDNS_DOWNLOAD_TMP_DIR/$name" "$SMARTDNS_IP_SET_DOWNLOAD_DIR/$name"
 	else 
-		mv "/tmp/$name" "$SMARTDNS_DOWNLOAD_DIR/$name"
+		mv "$SMARTDNS_DOWNLOAD_TMP_DIR/$name" "$SMARTDNS_DOWNLOAD_DIR/$name"
 	fi
 }
 
@@ -903,7 +904,9 @@ check_and_add_entry() {
 
 updatefiles() {
 	config_load "smartdns"
+	[ ! -d "$SMARTDNS_DOWNLOAD_TMP_DIR" ] && mkdir -p "$SMARTDNS_DOWNLOAD_TMP_DIR"
 	config_foreach download_file "download-file"
+	rm -rf "$SMARTDNS_DOWNLOAD_TMP_DIR" >/dev/null 2>&1
 	reload_service
 }
 

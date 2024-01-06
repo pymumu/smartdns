@@ -139,10 +139,10 @@ dualstack-ip-selection no
 mdns-lookup yes
 )""");
 	smartdns::Client client;
-	ASSERT_TRUE(client.Query("-x 192.168.1.1", 60053));
+	ASSERT_TRUE(client.Query("-x 127.0.0.9", 60053));
 	std::cout << client.GetResult() << std::endl;
 	ASSERT_EQ(client.GetAnswerNum(), 1);
 	EXPECT_EQ(client.GetStatus(), "NOERROR");
-	EXPECT_EQ(client.GetAnswer()[0].GetName(), "1.1.168.192.in-addr.arpa");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "9.0.0.127.in-addr.arpa");
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "host.local.");
 }
