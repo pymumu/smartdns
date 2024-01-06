@@ -4138,13 +4138,167 @@ errout:
 	return -1;
 }
 
+static void _dns_server_set_request_mdns(struct dns_request *request)
+{
+	if (dns_conf_mdns_lookup != 1) {
+		return;
+	}
+
+	request->is_mdns_lookup = 1;
+}
+
+static int _dns_server_parser_addr_from_apra(const char *arpa, unsigned char *addr, int *addr_len, int max_addr_len)
+{
+	int high, low;
+	char *endptr = NULL;
+
+	if (arpa == NULL || addr == NULL || addr_len == NULL || max_addr_len < 4) {
+		return -1;
+	}
+
+	int ret = sscanf(arpa, "%hhd.%hhd.%hhd.%hhd.in-addr.arpa", &addr[3], &addr[2], &addr[1], &addr[0]);
+	if (ret == 4 && strstr(arpa, ".in-addr.arpa") != NULL) {
+		*addr_len = 4;
+		return 0;
+	}
+
+	if (max_addr_len != 16) {
+		return -1;
+	}
+
+	for (int i = 15; i >= 0; i--) {
+		low = strtol(arpa, &endptr, 16);
+		if (endptr == NULL || *endptr != '.' || *endptr == '\0') {
+			return -1;
+		}
+
+		arpa = endptr + 1;
+		high = strtol(arpa, &endptr, 16);
+		if (endptr == NULL || *endptr != '.' || *endptr == '\0') {
+			return -1;
+		}
+
+		arpa = endptr + 1;
+		addr[i] = (high << 4) | low;
+	}
+
+	if (strstr(arpa, "ip6.arpa") == NULL) {
+		return -1;
+	}
+
+	*addr_len = 16;
+
+	return 0;
+}
+
+static int _dns_server_ip_get_addr_from_ifaddrs(struct ifaddrs *ifaddr, unsigned char *addr, int *maskbit,
+												int *addr_len)
+{
+	unsigned char *netmask = NULL;
+	unsigned char *netaddr = NULL;
+	int prefix_len = 0;
+
+	switch (ifaddr->ifa_addr->sa_family) {
+	case AF_INET: {
+		struct sockaddr_in *addr_in = NULL;
+		struct sockaddr_in *netmask_in = NULL;
+		addr_in = (struct sockaddr_in *)ifaddr->ifa_addr;
+		netmask_in = (struct sockaddr_in *)ifaddr->ifa_netmask;
+		netaddr = (unsigned char *)&(addr_in->sin_addr.s_addr);
+		netmask = (unsigned char *)&(netmask_in->sin_addr.s_addr);
+		*addr_len = 4;
+	} break;
+	case AF_INET6: {
+		struct sockaddr_in6 *addr_in6 = NULL;
+		struct sockaddr_in6 *netmask_in6 = NULL;
+		addr_in6 = (struct sockaddr_in6 *)ifaddr->ifa_addr;
+		netmask_in6 = (struct sockaddr_in6 *)ifaddr->ifa_netmask;
+		if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
+			netaddr = addr_in6->sin6_addr.s6_addr + 12;
+			netmask = netmask_in6->sin6_addr.s6_addr + 12;
+			*addr_len = 4;
+		} else {
+			netaddr = addr_in6->sin6_addr.s6_addr;
+			netmask = netmask_in6->sin6_addr.s6_addr;
+			*addr_len = 16;
+		}
+	} break;
+	default:
+		return -1;
+		break;
+	}
+
+	for (int i = 0; i < *addr_len; i++) {
+		if (netmask[i] == 0xff) {
+			prefix_len += 8;
+		} else {
+			unsigned char mask = netmask[i];
+			while (mask) {
+				mask <<= 1;
+				prefix_len++;
+			}
+			break;
+		}
+	}
+
+	memcpy(addr, netaddr, *addr_len);
+	*maskbit = prefix_len;
+
+	return 0;
+}
+
+static int _dns_server_ip_is_subnet(unsigned char *addr, int mask, unsigned char *sub_addr, int addr_len)
+{
+	if (addr_len != 4 && addr_len != 16) {
+		return -1;
+	}
+
+	if (mask > addr_len * 8) {
+		return -1;
+	}
+
+	if (memcmp(addr, sub_addr, mask / 8) != 0) {
+		return -1;
+	}
+
+	if (mask % 8 != 0) {
+		if ((addr[mask / 8] & (0xff << (8 - mask % 8))) != (sub_addr[mask / 8] & (0xff << (8 - mask % 8)))) {
+			return -1;
+		}
+	}
+
+	return 0;
+}
+
+static int _dns_server_process_private_ptr(unsigned char *addr, int addr_len)
+{
+	if (addr_len == 4) {
+		if (addr[0] == 10 || (addr[0] == 172 && addr[1] >= 16 && addr[1] <= 31) || (addr[0] == 192 && addr[1] == 168)) {
+			return 0;
+		}
+	} else if (addr_len == 16) {
+		if (addr[0] == 0xfe && addr[1] == 0x80) {
+			return 0;
+		}
+	}
+
+	return -1;
+}
+
 static int _dns_server_process_local_ptr(struct dns_request *request)
 {
 	struct ifaddrs *ifaddr = NULL;
 	struct ifaddrs *ifa = NULL;
-	unsigned char *addr = NULL;
-	char reverse_addr[DNS_MAX_CNAME_LEN] = {0};
+	unsigned char ptr_addr[16];
+	int ptr_addr_len = 0;
+	unsigned char addr[16];
+	int addr_len = 0;
+	int maskbit = 0;
 	int found = 0;
+
+	if (_dns_server_parser_addr_from_apra(request->domain, ptr_addr, &ptr_addr_len, sizeof(ptr_addr)) != 0) {
+		return -1;
+	}
 
 	if (getifaddrs(&ifaddr) == -1) {
 		return -1;
@@ -4156,54 +4310,40 @@ static int _dns_server_process_local_ptr(struct dns_request *request)
 			continue;
 		}
 
-		switch (ifa->ifa_addr->sa_family) {
-		case AF_INET: {
-			struct sockaddr_in *addr_in = NULL;
-			addr_in = (struct sockaddr_in *)ifa->ifa_addr;
-			addr = (unsigned char *)&(addr_in->sin_addr.s_addr);
-			snprintf(reverse_addr, sizeof(reverse_addr), "%d.%d.%d.%d.in-addr.arpa", addr[3], addr[2], addr[1],
-					 addr[0]);
-		} break;
-		case AF_INET6: {
-			struct sockaddr_in6 *addr_in6 = NULL;
-			addr_in6 = (struct sockaddr_in6 *)ifa->ifa_addr;
-			if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
-				addr = addr_in6->sin6_addr.s6_addr + 12;
-				snprintf(reverse_addr, sizeof(reverse_addr), "%d.%d.%d.%d.in-addr.arpa", addr[3], addr[2], addr[1],
-						 addr[0]);
-			} else {
-				addr = addr_in6->sin6_addr.s6_addr;
-				snprintf(reverse_addr, sizeof(reverse_addr),
-						 "%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x."
-						 "%x.ip6.arpa",
-						 addr[15] & 0xF, (addr[15] >> 4) & 0xF, addr[14] & 0xF, (addr[14] >> 4) & 0xF, addr[13] & 0xF,
-						 (addr[13] >> 4) & 0xF, addr[12] & 0xF, (addr[12] >> 4) & 0xF, addr[11] & 0xF,
-						 (addr[11] >> 4) & 0xF, addr[10] & 0xF, (addr[10] >> 4) & 0xF, addr[9] & 0xF,
-						 (addr[9] >> 4) & 0xF, addr[8] & 0xF, (addr[8] >> 4) & 0xF, addr[7] & 0xF, (addr[7] >> 4) & 0xF,
-						 addr[6] & 0xF, (addr[6] >> 4) & 0xF, addr[5] & 0xF, (addr[5] >> 4) & 0xF, addr[4] & 0xF,
-						 (addr[4] >> 4) & 0xF, addr[3] & 0xF, (addr[3] >> 4) & 0xF, addr[2] & 0xF, (addr[2] >> 4) & 0xF,
-						 addr[1] & 0xF, (addr[1] >> 4) & 0xF, addr[0] & 0xF, (addr[0] >> 4) & 0xF);
-			}
-		} break;
-		default:
+		addr_len = sizeof(addr);
+		if (_dns_server_ip_get_addr_from_ifaddrs(ifa, addr, &maskbit, &addr_len) != 0) {
 			continue;
+		}
+
+		if (addr_len != ptr_addr_len) {
+			continue;
+		}
+
+		if (_dns_server_ip_is_subnet(addr, addr_len * 8, ptr_addr, ptr_addr_len) == 0) {
+			found = 1;
 			break;
 		}
 
-		if (strncmp(request->domain, reverse_addr, DNS_MAX_CNAME_LEN) == 0) {
-			found = 1;
-			break;
+		if (dns_conf_mdns_lookup && _dns_server_ip_is_subnet(addr, maskbit, ptr_addr, ptr_addr_len) == 0) {
+			_dns_server_set_request_mdns(request);
+			goto errout;
 		}
 	}
 
 	/* Determine if the smartdns service is in effect. */
-	if (strncmp(request->domain, "0.0.0.0.in-addr.arpa", DNS_MAX_CNAME_LEN - 1) == 0) {
+	if (found == 0 && strncmp(request->domain, "0.0.0.0.in-addr.arpa", DNS_MAX_CNAME_LEN - 1) == 0) {
 		found = 1;
 	}
 
 	/* Determine if the smartdns service is in effect. */
 	if (found == 0 && strncasecmp(request->domain, "smartdns", sizeof("smartdns")) == 0) {
 		found = 1;
+	}
+
+	if (found == 0 && _dns_server_process_private_ptr(ptr_addr, ptr_addr_len) == 0) {
+		request->has_soa = 1;
+		_dns_server_setup_soa(request);
+		goto clear;
 	}
 
 	if (found == 0) {
@@ -4244,7 +4384,7 @@ static int _dns_server_process_local_ptr(struct dns_request *request)
 
 	request->has_ptr = 1;
 	safe_strncpy(request->ptr_hostname, full_hostname, DNS_MAX_CNAME_LEN);
-
+clear:
 	freeifaddrs(ifaddr);
 	return 0;
 errout:
@@ -4281,35 +4421,6 @@ static int _dns_server_get_local_ttl(struct dns_request *request)
 	return DNS_SERVER_ADDR_TTL;
 }
 
-static void _dns_server_set_request_mdns(struct dns_request *request)
-{
-	if (dns_conf_mdns_lookup != 1) {
-		return;
-	}
-
-	request->is_mdns_lookup = 1;
-}
-
-static int _dns_server_process_private_ptr(struct dns_request *request)
-{
-	int a, b, c, d;
-	int ret = sscanf(request->domain, "%d.%d.%d.%d.in-addr.arpa", &a, &b, &c, &d);
-	if (ret != 4) {
-		return -1;
-	}
-
-	if (d == 10 || (d == 172 && c >= 16 && c <= 31) || (d == 192 && c == 168)) {
-		if (dns_conf_mdns_lookup == 0) {
-			request->has_soa = 1;
-			_dns_server_setup_soa(request);
-			return 0;
-		}
-		_dns_server_set_request_mdns(request);
-	}
-
-	return -1;
-}
-
 static int _dns_server_process_ptr(struct dns_request *request)
 {
 	if (_dns_server_process_ptrs(request) == 0) {
@@ -4317,10 +4428,6 @@ static int _dns_server_process_ptr(struct dns_request *request)
 	}
 
 	if (_dns_server_process_local_ptr(request) == 0) {
-		goto reply_exit;
-	}
-
-	if (_dns_server_process_private_ptr(request) == 0) {
 		goto reply_exit;
 	}
 
