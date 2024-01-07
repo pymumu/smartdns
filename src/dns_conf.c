@@ -2570,6 +2570,7 @@ static int _config_bind_ip(int argc, char *argv[], DNS_BIND_TYPE type)
 		{"no-dualstack-selection", no_argument, NULL, 'D'},
 		{"no-ip-alias", no_argument, NULL, 'a'},
 		{"force-aaaa-soa", no_argument, NULL, 'F'},
+		{"acl", no_argument, NULL, 251},
 		{"no-rules", no_argument, NULL, 252},
 		{"no-serve-expired", no_argument, NULL, 253},
 		{"force-https-soa", no_argument, NULL, 254},
@@ -2664,6 +2665,10 @@ static int _config_bind_ip(int argc, char *argv[], DNS_BIND_TYPE type)
 		}
 		case 'F': {
 			server_flag |= BIND_FLAG_FORCE_AAAA_SOA;
+			break;
+		}
+		case 251: {
+			server_flag |= BIND_FLAG_ACL;
 			break;
 		}
 		case 252: {
@@ -4949,6 +4954,7 @@ static int _config_client_rules(void *data, int argc, char *argv[])
 		{"no-dualstack-selection", no_argument, NULL, 'D'},
 		{"no-ip-alias", no_argument, NULL, 'a'},
 		{"force-aaaa-soa", no_argument, NULL, 'F'},
+		{"acl", no_argument, NULL, 251},
 		{"no-rules", no_argument, NULL, 252},
 		{"no-serve-expired", no_argument, NULL, 253},
 		{"force-https-soa", no_argument, NULL, 254},
@@ -5017,6 +5023,10 @@ static int _config_client_rules(void *data, int argc, char *argv[])
 		}
 		case 'F': {
 			server_flag |= BIND_FLAG_FORCE_AAAA_SOA;
+			break;
+		}
+		case 251: {
+			server_flag |= BIND_FLAG_ACL;
 			break;
 		}
 		case 252: {

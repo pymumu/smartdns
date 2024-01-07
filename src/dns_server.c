@@ -5596,10 +5596,15 @@ static void _dns_server_request_set_client(struct dns_request *request, struct d
 	_dns_server_conn_get(conn);
 }
 
-static void _dns_server_request_set_client_rules(struct dns_request *request, struct dns_client_rules *client_rule)
+static int _dns_server_request_set_client_rules(struct dns_request *request, struct dns_client_rules *client_rule)
 {
 	if (client_rule == NULL) {
-		return;
+		if (_dns_server_has_bind_flag(request, BIND_FLAG_ACL) == 0) {
+			request->send_tick = get_tick_count();
+			request->rcode = DNS_RC_REFUSED;
+			return -1;
+		}
+		return 0;
 	}
 
 	tlog(TLOG_DEBUG, "match client rule.\n");
@@ -5617,6 +5622,8 @@ static void _dns_server_request_set_client_rules(struct dns_request *request, st
 			request->server_flags = flags->flags;
 		}
 	}
+
+	return 0;
 }
 
 static void _dns_server_request_set_id(struct dns_request *request, unsigned short id)
@@ -6202,7 +6209,6 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 
 	memcpy(&request->localaddr, local, local_len);
 	_dns_server_request_set_client(request, conn);
-	_dns_server_request_set_client_rules(request, client_rules);
 	_dns_server_request_set_client_addr(request, from, from_len);
 	_dns_server_request_set_id(request, packet->head.id);
 
@@ -6224,6 +6230,13 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 		}
 		request->send_tick = get_tick_count();
 		request->rcode = DNS_RC_REFUSED;
+		ret = 0;
+		goto errout;
+	}
+
+
+	ret = _dns_server_request_set_client_rules(request, client_rules);
+	if (ret != 0) {
 		ret = 0;
 		goto errout;
 	}

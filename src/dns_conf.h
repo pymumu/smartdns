@@ -158,6 +158,7 @@ typedef enum {
 #define BIND_FLAG_FORCE_HTTPS_SOA (1 << 13)
 #define BIND_FLAG_NO_SERVE_EXPIRED (1 << 14)
 #define BIND_FLAG_NO_RULES (1 << 15)
+#define BIND_FLAG_ACL (1 << 16)
 
 enum response_mode_type {
 	DNS_RESPONSE_MODE_FIRST_PING_IP = 0,
