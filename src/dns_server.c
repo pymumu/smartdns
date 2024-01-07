@@ -3027,6 +3027,48 @@ static int _dns_server_check_speed(struct dns_request *request, char *ip)
 	return -1;
 }
 
+static struct dns_client_rules *_dns_server_get_client_rules(struct sockaddr_storage *addr, socklen_t addr_len)
+{
+	prefix_t prefix;
+	radix_node_t *node = NULL;
+	uint8_t *netaddr = NULL;
+	int netaddr_len = 0;
+
+	switch (addr->ss_family) {
+	case AF_INET: {
+		struct sockaddr_in *addr_in = NULL;
+		addr_in = (struct sockaddr_in *)addr;
+		netaddr = (unsigned char *)&(addr_in->sin_addr.s_addr);
+		netaddr_len = 4;
+	} break;
+	case AF_INET6: {
+		struct sockaddr_in6 *addr_in6 = NULL;
+		addr_in6 = (struct sockaddr_in6 *)addr;
+		if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
+			netaddr = addr_in6->sin6_addr.s6_addr + 12;
+			netaddr_len = 4;
+		} else {
+			netaddr = addr_in6->sin6_addr.s6_addr;
+			netaddr_len = 16;
+		}
+	} break;
+	default:
+		return NULL;
+		break;
+	}
+
+	if (prefix_from_blob(netaddr, netaddr_len, netaddr_len * 8, &prefix) == NULL) {
+		return NULL;
+	}
+
+	node = radix_search_best(dns_conf_client_rule.rule, &prefix);
+	if (node == NULL) {
+		return NULL;
+	}
+
+	return node->data;
+}
+
 static struct dns_ip_rules *_dns_server_ip_rule_get(struct dns_request *request, unsigned char *addr, int addr_len,
 													dns_type_t addr_type)
 {
@@ -4609,7 +4651,7 @@ static void _dns_server_get_domain_rule_by_domain(struct dns_request *request, c
 	domain_key[domain_len] = 0;
 
 	/* find domain rule */
-	art_substring_walk(&dns_conf_domain_rule, (unsigned char *)domain_key, domain_len, _dns_server_get_rules,
+	art_substring_walk(&dns_conf_domain_rule.default_rule, (unsigned char *)domain_key, domain_len, _dns_server_get_rules,
 					   &walk_args);
 	if (likely(dns_conf_log_level > TLOG_DEBUG)) {
 		return;
@@ -5543,6 +5585,29 @@ static void _dns_server_request_set_client(struct dns_request *request, struct d
 	_dns_server_conn_get(conn);
 }
 
+static void _dns_server_request_set_client_rules(struct dns_request *request, struct dns_client_rules *client_rule)
+{
+	if (client_rule == NULL) {
+		return;
+	}
+
+	tlog(TLOG_DEBUG, "match client rule.\n");
+
+	if (client_rule->rules[CLIENT_RULE_GROUP]) {
+		struct client_rule_group *group = (struct client_rule_group *)client_rule->rules[CLIENT_RULE_GROUP];
+		if (group && group->group_name[0] != '\0') {
+			safe_strncpy(request->dns_group_name, group->group_name, sizeof(request->dns_group_name));
+		}
+	}
+
+	if (client_rule->rules[CLIENT_RULE_FLAGS]) {
+		struct client_rule_flags *flags = (struct client_rule_flags *)client_rule->rules[CLIENT_RULE_FLAGS];
+		if (flags) {
+			request->server_flags = flags->flags;
+		}
+	}
+}
+
 static void _dns_server_request_set_id(struct dns_request *request, unsigned short id)
 {
 	request->id = id;
@@ -6096,6 +6161,7 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 	char name[DNS_MAX_CNAME_LEN];
 	struct dns_packet *packet = (struct dns_packet *)packet_buff;
 	struct dns_request *request = NULL;
+	struct dns_client_rules *client_rules = NULL;
 
 	/* decode packet */
 	tlog(TLOG_DEBUG, "recv query packet from %s, len = %d, type = %d",
@@ -6116,6 +6182,7 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 		 packet->head.qdcount, packet->head.ancount, packet->head.nscount, packet->head.nrcount, inpacket_len,
 		 packet->head.id, packet->head.tc, packet->head.rd, packet->head.ra, packet->head.rcode);
 
+	client_rules = _dns_server_get_client_rules(from, from_len);
 	request = _dns_server_new_request();
 	if (request == NULL) {
 		tlog(TLOG_ERROR, "malloc failed.\n");
@@ -6124,6 +6191,7 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 
 	memcpy(&request->localaddr, local, local_len);
 	_dns_server_request_set_client(request, conn);
+	_dns_server_request_set_client_rules(request, client_rules);
 	_dns_server_request_set_client_addr(request, from, from_len);
 	_dns_server_request_set_id(request, packet->head.id);
 

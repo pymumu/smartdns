@@ -94,6 +94,12 @@ enum ip_rule {
 	IP_RULE_MAX,
 };
 
+enum client_rule {
+	CLIENT_RULE_FLAGS = 0,
+	CLIENT_RULE_GROUP,
+	CLIENT_RULE_MAX,
+};
+
 typedef enum {
 	DNS_BIND_TYPE_UDP,
 	DNS_BIND_TYPE_TCP,
@@ -240,7 +246,6 @@ extern struct dns_nftset_names dns_conf_nftset_no_speed;
 extern struct dns_nftset_names dns_conf_nftset;
 
 struct dns_domain_rule {
-	struct dns_rule head;
 	unsigned char sub_rule_only : 1;
 	unsigned char root_rule_only : 1;
 	struct dns_rule *rules[DOMAIN_RULE_MAX];
@@ -271,6 +276,17 @@ struct dns_domain_check_orders {
 struct dns_response_mode_rule {
 	struct dns_rule head;
 	enum response_mode_type mode;
+};
+
+struct dns_conf_doamin_rule_group {
+	struct hlist_node node;
+	art_tree rule;
+	const char *group_name;
+};
+
+struct dns_conf_domain_rule {
+	art_tree default_rule;
+	DECLARE_HASHTABLE(group, 8);
 };
 
 struct dns_group_table {
@@ -391,6 +407,30 @@ struct dns_iplist_ip_addresses {
 struct dns_conf_address_rule {
 	radix_tree_t *ipv4;
 	radix_tree_t *ipv6;
+};
+
+struct dns_client_rule {
+	atomic_t refcnt;
+	enum client_rule rule;
+};
+
+struct client_rule_flags {
+	struct dns_client_rule head;
+	unsigned int flags;
+	unsigned int is_flag_set;
+};
+
+struct client_rule_group {
+	struct dns_client_rule head;
+	const char *group_name;
+};
+
+struct dns_client_rules {
+	struct dns_client_rule *rules[CLIENT_RULE_MAX];
+};
+
+struct dns_conf_client_rule {
+	radix_tree_t *rule;
 };
 
 struct nftset_ipset_rules {
@@ -572,8 +612,9 @@ extern int dns_conf_audit_console;
 extern int dns_conf_audit_syslog;
 
 extern char dns_conf_server_name[DNS_MAX_SERVER_NAME_LEN];
-extern art_tree dns_conf_domain_rule;
+extern struct dns_conf_domain_rule dns_conf_domain_rule;
 extern struct dns_conf_address_rule dns_conf_address_rule;
+extern struct dns_conf_client_rule dns_conf_client_rule;
 
 extern int dns_conf_dualstack_ip_selection;
 extern int dns_conf_dualstack_ip_allow_force_AAAA;
