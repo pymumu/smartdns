@@ -4631,6 +4631,8 @@ static void _dns_server_get_domain_rule_by_domain(struct dns_request *request, c
 	unsigned char matched_key[DNS_MAX_CNAME_LEN];
 	struct rule_walk_args walk_args;
 	int i = 0;
+	struct dns_conf_doamin_rule_group *domain_rule_group = NULL;
+	int no_fallback_default_rule = 0;
 
 	if (request->skip_domain_rule != 0) {
 		return;
@@ -4650,8 +4652,17 @@ static void _dns_server_get_domain_rule_by_domain(struct dns_request *request, c
 	domain_len++;
 	domain_key[domain_len] = 0;
 
+	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_RULES) == 0) {
+		no_fallback_default_rule = 1;
+	}
+
+	domain_rule_group = dns_server_get_domain_rule_group(request->dns_group_name, no_fallback_default_rule);
+	if (domain_rule_group == NULL) {
+		return;
+	}
+
 	/* find domain rule */
-	art_substring_walk(&dns_conf_domain_rule.default_rule, (unsigned char *)domain_key, domain_len, _dns_server_get_rules,
+	art_substring_walk(&domain_rule_group->tree, (unsigned char *)domain_key, domain_len, _dns_server_get_rules,
 					   &walk_args);
 	if (likely(dns_conf_log_level > TLOG_DEBUG)) {
 		return;

@@ -157,6 +157,7 @@ typedef enum {
 #define BIND_FLAG_NO_PREFETCH (1 << 12)
 #define BIND_FLAG_FORCE_HTTPS_SOA (1 << 13)
 #define BIND_FLAG_NO_SERVE_EXPIRED (1 << 14)
+#define BIND_FLAG_NO_RULES (1 << 15)
 
 enum response_mode_type {
 	DNS_RESPONSE_MODE_FIRST_PING_IP = 0,
@@ -280,12 +281,12 @@ struct dns_response_mode_rule {
 
 struct dns_conf_doamin_rule_group {
 	struct hlist_node node;
-	art_tree rule;
+	art_tree tree;
 	const char *group_name;
 };
 
 struct dns_conf_domain_rule {
-	art_tree default_rule;
+	struct dns_conf_doamin_rule_group *default_rule;
 	DECLARE_HASHTABLE(group, 8);
 };
 
@@ -660,6 +661,8 @@ int dns_server_check_update_hosts(void);
 struct dns_proxy_names *dns_server_get_proxy_nams(const char *proxyname);
 
 struct dns_srv_records *dns_server_get_srv_record(const char *domain);
+
+struct dns_conf_doamin_rule_group *dns_server_get_domain_rule_group(const char *group_name, int no_fallback_default);
 
 extern int config_additional_file(void *data, int argc, char *argv[]);
 
