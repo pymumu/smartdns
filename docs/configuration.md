@@ -46,7 +46,10 @@ hide:
 | audit-file-mode | 审计归档文件权限 | 0640 | 文件权限 | log-file-mode 644 |
 | audit-console | 是否输出审计日志到控制台 | no | [yes\|no] | audit-console yes |
 | audit-syslog | 是否输出审计日志到系统日志 | no | [yes\|no] | audit-syslog yes |
-| conf-file | 附加配置文件 | 无 | 合法路径字符串，通配符号 | conf-file /etc/smartdns/smartdns.more.conf <br /> conf-file *.conf |
+| acl-enable | 启用ACL | no | [yes\|no] <br /> 和client-rules搭配使用。| acl-enable yes | 
+| group-begin | 规则组开始 | 无 | 组名:<br /> 和group-end搭配使用，启用此参数后，group-begin参数之后的配置项将设置到对应的组中，直到group-end结束。| group-begin group-name | 
+| group-end | 规则组结束 | 无 | 和group-begin搭配使用 | group-end |
+| conf-file | 附加配置文件 | 无 | path [-g\|group group-name] <br />path: 合法路径字符串，通配符号 <br />[-g\|group]: 对应配置文件配置所属规则组 | conf-file /etc/smartdns/smartdns.more.conf <br /> conf-file \*.conf <br /> conf-file \*.conf -group oversea |
 | server | 上游 UDP DNS | 无 | 可重复。<br />[ip][:port]\|URL：服务器 IP:端口（可选）或 URL <br />[-blacklist-ip]：配置 IP 过滤结果。<br />[-whitelist-ip]：指定仅接受参数中配置的 IP 范围<br />[-g\|-group [group] ...]：DNS 服务器所属组，比如 office 和 foreign，和 nameserver 配套使用<br />[-e\|-exclude-default-group]：将 DNS 服务器从默认组中排除。<br />[-set-mark mark]：设置数据包标记so-mark。<br />[-p\|-proxy name]：设置代理服务器。 <br />[-b\|-bootstrap-dns]：标记此服务器为bootstrap服务器。<br />[-subnet]：指定服务器使用的edns-client-subnet。<br />[-interface]：绑定到对应的网口。| server 8.8.8.8:53 -blacklist-ip -group g1 -proxy proxy<br /> server tls://8.8.8.8|
 | server-tcp | 上游 TCP DNS | 无 | 可重复。<br />[ip][:port]：服务器 IP:端口（可选）<br />[-blacklist-ip]：配置 IP 过滤结果<br />[-whitelist-ip]：指定仅接受参数中配置的 IP 范围。<br />[-g\|-group [group] ...]：DNS 服务器所属组，比如 office 和 foreign，和 nameserver 配套使用<br />[-e\|-exclude-default-group]：将 DNS 服务器从默认组中排除。<br />[-set-mark mark]：设置数据包标记so-mark。<br />[-p\|-proxy name]：设置代理服务器。 <br />[-b\|-bootstrap-dns]：标记此服务器为bootstrap服务器。<br />[-subnet]：指定服务器使用的edns-client-subnet。<br />[-interface]：绑定到对应的网口。| server-tcp 8.8.8.8:53 |
 | server-tls | 上游 TLS DNS | 无 | 可重复。<br />[ip][:port]：服务器 IP:端口（可选)<br />[-spki-pin [sha256-pin]]：TLS 合法性校验 SPKI 值，base64 编码的 sha256 SPKI pin 值<br />[-host-name]：TLS SNI 名称, 名称设置为-，表示停用SNI名称。<br />[-host-ip]: 主机IP地址。<br />[-tls-host-verify]：TLS 证书主机名校验<br /> [-k\|-no-check-certificate]：跳过证书校验<br />[-blacklist-ip]：配置 IP 过滤结果<br />[-whitelist-ip]：仅接受参数中配置的 IP 范围<br />[-g\|-group [group] ...]：DNS 服务器所属组，比如 office 和 foreign，和 nameserver 配套使用<br />[-e\|-exclude-default-group]：将 DNS 服务器从默认组中排除。<br />[-set-mark mark]：设置数据包标记so-mark。<br />[-p\|-proxy name]：设置代理服务器。 <br />[-b\|-bootstrap-dns]：标记此服务器为bootstrap服务器。<br />[-subnet]：指定服务器使用的edns-client-subnet。<br />[-interface]：绑定到对应的网口。| server-tls 8.8.8.8:853 |
@@ -64,7 +67,7 @@ hide:
 | hosts-file | 指定hosts文件 | 无 | hosts文件路径 | hosts-file /etc/hosts | 
 | edns-client-subnet | DNS ECS | 无 | edns-client-subnet ip-prefix/mask <br /> 指定EDNS客户端子网 | ip-prefix/mask 1.2.3.4/23 |
 | nameserver | 指定域名使用 server 组解析 | 无 | nameserver /domain/[group\|-], group 为组名，- 表示忽略此规则，配套 server 中的 -group 参数使用 | nameserver /www.example.com/office |
-| ipset | 域名 ipset | 无 | ipset [/domain/][ipset\|-\|#[4\|6]:[ipset\|-][,#[4\|6]:[ipset\|-]]]，-表示忽略此规则 | ipset /www.example.com/#4:dns4,#6:- <br />ipset /www.example.com/dns <br /> ipset ipsetname|
+| ipset | 域名 ipset | 无 | ipset [/domain/][ipset\|-\|#[4\|6]:[ipset\|-][,#[4\|6]:[ipset\|-]]]，-表示忽略此规则，只有ipset名称没有域名时，表示全局生效。| ipset /www.example.com/#4:dns4,#6:- <br />ipset /www.example.com/dns <br /> ipset ipsetname|
 | ipset-timeout | 设置 ipset 超时功能启用  | no | [yes\|no] | ipset-timeout yes |
 | ipset-no-speed | 当测速失败时，将域名结果设置到ipset集合中 | 无 | ipset \| #[4\|6]:ipset | ipset-no-speed #4:ipset4,#6:ipset6 <br /> ipset-no-speed ipset|
 | nftset | 域名 nftset | 无 | nftset [/domain/][#4\|#6\|-]:[family#nftable#nftset\|-][,#[4\|6]:[family#nftable#nftset\|-]]]，<br />-表示忽略此规则；<br />ipv4 地址的 family 只支持 inet 和 ip；<br />ipv6 地址的 family 只支持 inet 和 ip6；<br />由于 nft 限制，两种地址只能分开存放于两个 set 中。| nftset /www.example.com/#4:inet#tab#dns4,#6:- <br /> nftset #4:inet#tab#dns4,#6:-|
@@ -73,6 +76,7 @@ hide:
 | nftset-debug | 设置 nftset 调试功能启用  | no | [yes\|no] | nftset-debug yes |
 | domain-rules | 设置域名规则 | 无 | domain-rules /domain/ [-rules...]<br />[-c\|-speed-check-mode]：测速模式，参考 speed-check-mode 配置<br />[-a\|-address]：参考 address 配置<br />[-n\|-nameserver]：参考 nameserver 配置<br />[-p\|-ipset]：参考ipset配置<br />[-t\|-nftset]：参考nftset配置<br />[-d\|-dualstack-ip-selection]：参考 dualstack-ip-selection<br /> [-no-serve-expired]：禁用过期缓存<br />[-rr-ttl\|-rr-ttl-min\|-rr-ttl-max]: 参考配置rr-ttl, rr-ttl-min, rr-ttl-max<br />[-no-cache]：不缓存当前域名<br />[-r\|-response-mode]：响应模式，参考 response-mode 配置<br />[-delete]：删除对应的规则<br /> [no-ip-alias]: 忽略ip别名规则| domain-rules /www.example.com/ -speed-check-mode none |
 | domain-set | 设置域名集合 | 无 | domain-set [options...]<br />[-n\|-name]：域名集合名称 <br />[-t\|-type]：域名集合类型，当前仅支持list，格式为域名列表，一行一个域名。<br />[-f\|-file]：域名集合文件路径。<br /> 选项需要配合address, nameserver, ipset, nftset等需要指定域名的地方使用，使用方式为 /domain-set:[name]/| domain-set -name set -type list -file /path/to/list <br /> address /domain-set:set/1.2.4.8 |
+| client-rules | 客户端规则 | 无 | [ip/subnet] [-g\|group group-name] [-rules...] <br />设置客户端规则和规则组，规则参数与bind一样，具体参数选项请参考bind，一般情况搭配group-begin、group-end使用。 | client-rules 192.168.1.1 -g oversea |
 | bogus-nxdomain | 假冒 IP 地址过滤 | 无 | [ip/subnet]，可重复 | bogus-nxdomain 1.2.3.4/16 |
 | ignore-ip | 忽略 IP 地址 | 无 | [ip/subnet]，可重复 | ignore-ip 1.2.3.4/16 |
 | whitelist-ip | 白名单 IP 地址 | 无 | [ip/subnet]，可重复 | whitelist-ip 1.2.3.4/16 |
