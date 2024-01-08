@@ -583,7 +583,7 @@ static void _dns_server_set_dualstack_selection(struct dns_request *request)
 		return;
 	}
 
-	request->dualstack_selection = dns_conf_dualstack_ip_selection;
+	request->dualstack_selection = request->conf->dualstack_ip_selection;
 }
 
 static int _dns_server_is_return_soa_qtype(struct dns_request *request, dns_type_t qtype)
@@ -639,7 +639,7 @@ static int _dns_server_is_return_soa_qtype(struct dns_request *request, dns_type
 	}
 
 	if (qtype == DNS_T_AAAA) {
-		if (_dns_server_has_bind_flag(request, BIND_FLAG_FORCE_AAAA_SOA) == 0 || dns_conf_force_AAAA_SOA == 1) {
+		if (_dns_server_has_bind_flag(request, BIND_FLAG_FORCE_AAAA_SOA) == 0 || request->conf->force_AAAA_SOA == 1) {
 			return 1;
 		}
 
@@ -2816,7 +2816,7 @@ static struct dns_request *_dns_server_new_request(void)
 	atomic_set(&request->do_callback, 0);
 	request->ping_time = -1;
 	request->prefetch = 0;
-	request->dualstack_selection = dns_conf_dualstack_ip_selection;
+	request->dualstack_selection = 0;
 	request->dualstack_selection_ping_time = -1;
 	request->rcode = DNS_RC_SERVFAIL;
 	request->conn = NULL;
@@ -5327,14 +5327,14 @@ errout:
 
 static int _dns_server_qtype_soa(struct dns_request *request)
 {
-	if (request->skip_qtype_soa || dns_qtype_soa_table == NULL) {
+	if (request->skip_qtype_soa || request->conf->soa_table == NULL) {
 		return -1;
 	}
 
 	if (request->qtype >= 0 && request->qtype <= MAX_QTYPE_NUM) {
 		int offset = request->qtype / 8;
 		int bit = request->qtype % 8;
-		if ((dns_qtype_soa_table[offset] & (1 << bit)) == 0) {
+		if ((request->conf->soa_table[offset] & (1 << bit)) == 0) {
 			return -1;
 		}
 	}

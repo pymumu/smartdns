@@ -45,8 +45,6 @@ struct dns_nftset_table {
 };
 static struct dns_nftset_table dns_nftset_table;
 
-uint8_t *dns_qtype_soa_table;
-
 struct dns_domain_set_name_table dns_domain_set_name_table;
 
 struct dns_ip_set_name_table dns_ip_set_name_table;
@@ -158,7 +156,6 @@ struct dns_conf_rule dns_conf_rule;
 struct dns_conf_client_rule dns_conf_client_rule;
 
 /* dual-stack selection */
-int dns_conf_dualstack_ip_selection = 1;
 int dns_conf_dualstack_ip_allow_force_AAAA;
 int dns_conf_dualstack_ip_selection_threshold = 10;
 
@@ -170,7 +167,6 @@ int dns_conf_rr_ttl_reply_max;
 int dns_conf_rr_ttl_min = 600;
 int dns_conf_rr_ttl_max;
 int dns_conf_local_ttl;
-int dns_conf_force_AAAA_SOA;
 int dns_conf_force_no_cname;
 int dns_conf_nftset_debug_enable;
 int dns_conf_mdns_lookup;
@@ -494,16 +490,33 @@ static void _config_current_group_pop(void)
 	dns_conf_current_group_info = group_info;
 }
 
-static void _config_rule_group_setup_value(struct dns_conf_group_info *group_info)
+static int _config_rule_group_setup_value(struct dns_conf_group_info *group_info)
 {
 	struct dns_conf_group *group_rule = group_info->rule;
+	int soa_talbe_size = MAX_QTYPE_NUM / 8 + 1;
+	uint8_t *soa_table = NULL;
+
+	soa_table = malloc(soa_talbe_size);
+	if (soa_table == NULL) {
+		tlog(TLOG_WARN, "malloc qtype soa table failed.");
+		return -1;
+	}
+	group_rule->soa_table = soa_table;
+
 	if (_config_current_rule_group() != NULL) {
-		memcpy(&group_rule->check_orders, &_config_current_group()->rule->check_orders, sizeof(group_rule->check_orders));
-		memcpy(&group_rule->ipset_nftset, &_config_current_group()->rule->ipset_nftset, sizeof(group_rule->ipset_nftset));
-		return;
+		/* copy parent group data. */
+		memcpy(&group_rule->copy_data_section_begin, &_config_current_rule_group()->copy_data_section_begin,
+			   offsetof(struct dns_conf_group, copy_data_section_end) -
+				   offsetof(struct dns_conf_group, copy_data_section_begin));
+		memcpy(group_rule->soa_table, _config_current_rule_group()->soa_table, soa_talbe_size);
+		return 0;
 	}
 
+	memset(soa_table, 0, soa_talbe_size);
 	memcpy(&group_rule->check_orders, &dns_conf_default_check_orders, sizeof(group_rule->check_orders));
+	group_rule->dualstack_ip_selection = 1;
+
+	return 0;
 }
 
 static int _config_current_group_push(const char *group_name)
@@ -1090,6 +1103,8 @@ static void _config_rule_group_remove(struct dns_conf_group *rule_group)
 	art_tree_destroy(&rule_group->domain_rule.tree);
 	Destroy_Radix(rule_group->address_rule.ipv4, _config_ip_iter_free, NULL);
 	Destroy_Radix(rule_group->address_rule.ipv6, _config_ip_iter_free, NULL);
+	free(rule_group->soa_table);
+
 	free(rule_group);
 }
 
@@ -2429,6 +2444,14 @@ static int _config_speed_check_mode(void *data, int argc, char *argv[])
 	return _config_speed_check_mode_parser(&_config_current_rule_group()->check_orders, mode);
 }
 
+static int _config_dualstack_ip_selection(void *data, int argc, char *argv[])
+{
+	struct config_item_yesno item;
+
+	item.data = &_config_current_rule_group()->dualstack_ip_selection;
+	return conf_yesno(NULL, &item, argc, argv);
+}
+
 static int _config_dns64(void *data, int argc, char *argv[])
 {
 	prefix_t prefix;
@@ -3318,7 +3341,15 @@ errout:
 	return -1;
 }
 
-static int _config_qtype_soa(void *data, int argc, char *argv[])
+static int _config_force_AAAA_soa(void *data, int argc, char *argv[])
+{
+	struct config_item_yesno item;
+
+	item.data = &_config_current_rule_group()->force_AAAA_SOA;
+	return conf_yesno(NULL, &item, argc, argv);
+}
+
+static int _conf_qtype_soa(uint8_t *soa_table, int argc, char *argv[])
 {
 	int i = 0;
 	int j = 0;
@@ -3354,7 +3385,7 @@ static int _config_qtype_soa(void *data, int argc, char *argv[])
 			for (j = start; j <= end; j++) {
 				int offset = j / 8;
 				int bit = j % 8;
-				dns_qtype_soa_table[offset] |= (1 << bit);
+				soa_table[offset] |= (1 << bit);
 			}
 		}
 	}
@@ -3362,12 +3393,9 @@ static int _config_qtype_soa(void *data, int argc, char *argv[])
 	return 0;
 }
 
-static void _config_qtype_soa_table_destroy(void)
+static int _config_qtype_soa(void *data, int argc, char *argv[])
 {
-	if (dns_qtype_soa_table) {
-		free(dns_qtype_soa_table);
-		dns_qtype_soa_table = NULL;
-	}
+	return _conf_qtype_soa(_config_current_rule_group()->soa_table, argc, argv);
 }
 
 static void _config_domain_set_name_table_destroy(void)
@@ -5276,7 +5304,7 @@ static struct config_item _config_item[] = {
 	CONF_INT("serve-expired-ttl", &dns_conf_serve_expired_ttl, 0, CONF_INT_MAX),
 	CONF_INT("serve-expired-reply-ttl", &dns_conf_serve_expired_reply_ttl, 0, CONF_INT_MAX),
 	CONF_INT("serve-expired-prefetch-time", &dns_conf_serve_expired_prefetch_time, 0, CONF_INT_MAX),
-	CONF_YESNO("dualstack-ip-selection", &dns_conf_dualstack_ip_selection),
+	CONF_CUSTOM("dualstack-ip-selection", _config_dualstack_ip_selection, NULL),
 	CONF_YESNO("dualstack-ip-allow-force-AAAA", &dns_conf_dualstack_ip_allow_force_AAAA),
 	CONF_INT("dualstack-ip-selection-threshold", &dns_conf_dualstack_ip_selection_threshold, 0, 1000),
 	CONF_CUSTOM("dns64", _config_dns64, NULL),
@@ -5304,7 +5332,7 @@ static struct config_item _config_item[] = {
 	CONF_INT("max-reply-ip-num", &dns_conf_max_reply_ip_num, 1, CONF_INT_MAX),
 	CONF_INT("max-query-limit", &dns_conf_max_query_limit, 0, CONF_INT_MAX),
 	CONF_ENUM("response-mode", &dns_conf_response_mode, &dns_conf_response_mode_enum),
-	CONF_YESNO("force-AAAA-SOA", &dns_conf_force_AAAA_SOA),
+	CONF_CUSTOM("force-AAAA-SOA", _config_force_AAAA_soa, NULL),
 	CONF_YESNO("force-no-CNAME", &dns_conf_force_no_cname),
 	CONF_CUSTOM("force-qtype-SOA", _config_qtype_soa, NULL),
 	CONF_CUSTOM("blacklist-ip", _config_blacklist_ip, NULL),
@@ -5505,12 +5533,6 @@ static int _dns_server_load_conf_init(void)
 
 	hash_init(dns_ipset_table.ipset);
 	hash_init(dns_nftset_table.nftset);
-	dns_qtype_soa_table = malloc(MAX_QTYPE_NUM / 8 + 1);
-	if (dns_qtype_soa_table == NULL) {
-		tlog(TLOG_WARN, "malloc qtype soa table failed.");
-		return -1;
-	}
-	memset(dns_qtype_soa_table, 0, MAX_QTYPE_NUM / 8 + 1);
 	hash_init(dns_group_table.group);
 	hash_init(dns_hosts_table.hosts);
 	hash_init(dns_ptr_table.ptr);
@@ -5566,7 +5588,6 @@ void dns_server_load_exit(void)
 	_config_group_table_destroy();
 	_config_ptr_table_destroy(0);
 	_config_host_table_destroy(0);
-	_config_qtype_soa_table_destroy();
 	_config_proxy_table_destroy();
 	_config_srv_record_table_destroy();
 

@@ -225,3 +225,163 @@ server udp://127.0.0.1:61053
 		EXPECT_EQ(client.GetAnswer()[0].GetData(), "7.8.9.10");
 	}
 }
+
+TEST_F(Group, conf_inherit)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::Server server;
+	std::string file = "/tmp/smartdns_conf_file" + smartdns::GenerateRandomString(5) + ".conf";
+	std::ofstream ofs(file);
+	ASSERT_TRUE(ofs.is_open());
+	Defer
+	{
+		ofs.close();
+		unlink(file.c_str());
+	};
+
+	ofs << R"""(
+server udp://127.0.0.1:61053 -e
+client-rules 127.0.0.1
+)""";
+	ofs.flush();
+
+	server_upstream.Start("udp://0.0.0.0:61053", [](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype == DNS_T_AAAA) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "64:ff9b::102:304", 700);
+			return smartdns::SERVER_REQUEST_OK;
+		} else if (request->qtype == DNS_T_A) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4", 611);
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "7.8.9.10", 611);
+			return smartdns::SERVER_REQUEST_OK;
+		} else if (request->qtype == DNS_T_TXT) {
+			dns_add_TXT(request->response_packet, DNS_RRS_AN, request->domain.c_str(), 6, "hello world");
+			return smartdns::SERVER_REQUEST_OK;
+		} else {
+			return smartdns::SERVER_REQUEST_SOA;
+		}
+	});
+
+	/* this ip will be discard, but is reachable */
+	server.MockPing(PING_TYPE_ICMP, "1.2.3.4", 60, 50);
+	server.MockPing(PING_TYPE_ICMP, "7.8.9.10", 60, 10);
+	server.MockPing(PING_TYPE_ICMP, "64:ff9b::102:304", 60, 10);
+
+	server.Start(R"""(bind [::]:60053
+server udp://127.0.0.1:61053
+group-begin dummy
+speed-check-mode none
+force-AAAA-SOA yes
+force-qtype-SOA 16
+conf-file /tmp/smartdns_conf_file*.conf -g client
+)""");
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("a.com", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 2);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+	EXPECT_EQ(client.GetAnswer()[1].GetData(), "7.8.9.10");
+
+	ASSERT_TRUE(client.Query("b.com AAAA", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 0);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+
+	ASSERT_TRUE(client.Query("c.com TXT", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 0);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+
+	auto ipaddr = smartdns::GetAvailableIPAddresses();
+	if (ipaddr.size() > 0) {
+		ASSERT_TRUE(client.Query("a.com", 60053, ipaddr[0]));
+		std::cout << client.GetResult() << std::endl;
+		ASSERT_EQ(client.GetAnswerNum(), 1);
+		EXPECT_EQ(client.GetStatus(), "NOERROR");
+		EXPECT_EQ(client.GetAnswer()[0].GetData(), "7.8.9.10");
+
+		ASSERT_TRUE(client.Query("b.com AAAA", 60053, ipaddr[0]));
+		std::cout << client.GetResult() << std::endl;
+		ASSERT_EQ(client.GetAnswerNum(), 1);
+		EXPECT_EQ(client.GetStatus(), "NOERROR");
+		EXPECT_EQ(client.GetAnswer()[0].GetName(), "b.com");
+		EXPECT_EQ(client.GetAnswer()[0].GetData(), "64:ff9b::102:304");
+
+		ASSERT_TRUE(client.Query("c.com TXT", 60053, ipaddr[0]));
+		std::cout << client.GetResult() << std::endl;
+		ASSERT_EQ(client.GetAnswerNum(), 1);
+		EXPECT_EQ(client.GetStatus(), "NOERROR");
+		EXPECT_EQ(client.GetAnswer()[0].GetName(), "c.com");
+		EXPECT_EQ(client.GetAnswer()[0].GetData(), "\"hello world\"");
+	}
+}
+
+TEST_F(Group, dualstack_inherit_ipv4_prefer)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::Server server;
+
+	server_upstream.Start("udp://0.0.0.0:61053", [&](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype == DNS_T_A) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4");
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "5.6.7.8");
+			return smartdns::SERVER_REQUEST_OK;
+		} else if (request->qtype == DNS_T_AAAA) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "2001:db8::1");
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "2001:db8::2");
+			return smartdns::SERVER_REQUEST_OK;
+		}
+		return smartdns::SERVER_REQUEST_SOA;
+	});
+
+	server.MockPing(PING_TYPE_ICMP, "1.2.3.4", 60, 80);
+	server.MockPing(PING_TYPE_ICMP, "5.6.7.8", 60, 110);
+	server.MockPing(PING_TYPE_ICMP, "2001:db8::1", 60, 150);
+	server.MockPing(PING_TYPE_ICMP, "2001:db8::2", 60, 200);
+
+	server.Start(R"""(bind [::]:60053
+server 127.0.0.1:61053
+speed-check-mode ping
+group-begin dummy
+group-begin client
+dualstack-ip-selection no
+client-rules 127.0.0.1
+)""");
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("a.com AAAA", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 3);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "2001:db8::1");
+
+	ASSERT_TRUE(client.Query("a.com", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 3);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+
+	auto ipaddr = smartdns::GetAvailableIPAddresses();
+	if (ipaddr.size() > 0) {
+		ASSERT_TRUE(client.Query("a.com AAAA", 60053, ipaddr[0]));
+		std::cout << client.GetResult() << std::endl;
+		ASSERT_EQ(client.GetAuthorityNum(), 1);
+		EXPECT_EQ(client.GetStatus(), "NOERROR");
+		EXPECT_EQ(client.GetAuthority()[0].GetName(), "a.com");
+		EXPECT_EQ(client.GetAuthority()[0].GetTTL(), 3);
+		EXPECT_EQ(client.GetAuthority()[0].GetType(), "SOA");
+
+		ASSERT_TRUE(client.Query("a.com", 60053, ipaddr[0]));
+		std::cout << client.GetResult() << std::endl;
+		ASSERT_EQ(client.GetAnswerNum(), 1);
+		EXPECT_EQ(client.GetStatus(), "NOERROR");
+		EXPECT_LT(client.GetQueryTime(), 20);
+		EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
+		EXPECT_GT(client.GetAnswer()[0].GetTTL(), 597);
+		EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+	}
+}

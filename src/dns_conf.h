@@ -417,8 +417,13 @@ struct dns_conf_group {
 	struct hlist_node node;
 	struct dns_conf_domain_rule domain_rule;
 	struct dns_conf_address_rule address_rule;
+	uint8_t *soa_table;
+	char copy_data_section_begin[0];
 	struct dns_conf_ipset_nftset ipset_nftset;
 	struct dns_domain_check_orders check_orders;
+	int force_AAAA_SOA;
+	int dualstack_ip_selection;
+	char copy_data_section_end[0];
 	const char *group_name;
 };
 
@@ -469,8 +474,6 @@ struct dns_bind_ip {
 	const char *group;
 	struct nftset_ipset_rules nftset_ipset_rule;
 };
-
-extern uint8_t *dns_qtype_soa_table;
 
 struct dns_domain_set_rule {
 	struct list_head list;
@@ -635,7 +638,6 @@ extern char dns_conf_server_name[DNS_MAX_SERVER_NAME_LEN];
 extern struct dns_conf_domain_rule dns_conf_domain_rule;
 extern struct dns_conf_client_rule dns_conf_client_rule;
 
-extern int dns_conf_dualstack_ip_selection;
 extern int dns_conf_dualstack_ip_allow_force_AAAA;
 extern int dns_conf_dualstack_ip_selection_threshold;
 
@@ -647,7 +649,6 @@ extern int dns_conf_rr_ttl;
 extern int dns_conf_rr_ttl_reply_max;
 extern int dns_conf_rr_ttl_min;
 extern int dns_conf_rr_ttl_max;
-extern int dns_conf_force_AAAA_SOA;
 extern int dns_conf_nftset_debug_enable;
 extern int dns_conf_local_ttl;
 extern int dns_conf_mdns_lookup;
