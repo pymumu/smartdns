@@ -317,7 +317,7 @@ struct dns_request {
 
 	struct dns_request_domain_rule domain_rule;
 	int skip_domain_rule;
-	struct dns_domain_check_orders *check_order_list;
+	const struct dns_domain_check_orders *check_order_list;
 	int check_order;
 
 	enum response_mode_type response_mode;
@@ -1855,8 +1855,11 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 	char name[DNS_MAX_CNAME_LEN] = {0};
 	int rr_count = 0;
 	int timeout_value = 0;
+	int ipset_timeout_value = 0;
+	int nftset_timeout_value = 0;
 	int i = 0;
 	int j = 0;
+	struct dns_conf_group *conf;
 	struct dns_rrs *rrs = NULL;
 	struct dns_ipset_rule *rule = NULL;
 	struct dns_ipset_rule *ipset_rule = NULL;
@@ -1883,6 +1886,8 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 		check_no_speed_rule = 1;
 	}
 
+	conf = request->conf;
+
 	/* check ipset rule */
 	rule_flags = _dns_server_get_dns_rule(request, DOMAIN_RULE_FLAGS);
 	if (!rule_flags || (rule_flags->flags & DOMAIN_FLAG_IPSET_IGN) == 0) {
@@ -1891,12 +1896,12 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 			ipset_rule = _dns_server_get_bind_ipset_nftset_rule(request, DOMAIN_RULE_IPSET);
 		}
 
-		if (ipset_rule == NULL && dns_conf_ipset.inet_enable) {
-			ipset_rule = &dns_conf_ipset.inet;
+		if (ipset_rule == NULL && conf->ipset_nftset.ipset.inet_enable) {
+			ipset_rule = &conf->ipset_nftset.ipset.inet;
 		}
 
-		if (ipset_rule == NULL && check_no_speed_rule && dns_conf_ipset_no_speed.inet_enable) {
-			ipset_rule_v4 = &dns_conf_ipset_no_speed.inet;
+		if (ipset_rule == NULL && check_no_speed_rule && conf->ipset_nftset.ipset_no_speed.inet_enable) {
+			ipset_rule_v4 = &conf->ipset_nftset.ipset_no_speed.inet;
 		}
 	}
 
@@ -1906,12 +1911,12 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 			ipset_rule_v4 = _dns_server_get_bind_ipset_nftset_rule(request, DOMAIN_RULE_IPSET_IPV4);
 		}
 
-		if (ipset_rule_v4 == NULL && ipset_rule == NULL && dns_conf_ipset.ipv4_enable) {
-			ipset_rule_v4 = &dns_conf_ipset.ipv4;
+		if (ipset_rule_v4 == NULL && ipset_rule == NULL && conf->ipset_nftset.ipset.ipv4_enable) {
+			ipset_rule_v4 = &conf->ipset_nftset.ipset.ipv4;
 		}
 
-		if (ipset_rule_v4 == NULL && check_no_speed_rule && dns_conf_ipset_no_speed.ipv4_enable) {
-			ipset_rule_v4 = &dns_conf_ipset_no_speed.ipv4;
+		if (ipset_rule_v4 == NULL && check_no_speed_rule && conf->ipset_nftset.ipset_no_speed.ipv4_enable) {
+			ipset_rule_v4 = &conf->ipset_nftset.ipset_no_speed.ipv4;
 		}
 	}
 
@@ -1921,12 +1926,12 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 			ipset_rule_v6 = _dns_server_get_bind_ipset_nftset_rule(request, DOMAIN_RULE_IPSET_IPV6);
 		}
 
-		if (ipset_rule_v6 == NULL && ipset_rule == NULL && dns_conf_ipset.ipv6_enable) {
-			ipset_rule_v6 = &dns_conf_ipset.ipv6;
+		if (ipset_rule_v6 == NULL && ipset_rule == NULL && conf->ipset_nftset.ipset.ipv6_enable) {
+			ipset_rule_v6 = &conf->ipset_nftset.ipset.ipv6;
 		}
 
-		if (ipset_rule_v6 == NULL && check_no_speed_rule && dns_conf_ipset_no_speed.ipv6_enable) {
-			ipset_rule_v6 = &dns_conf_ipset_no_speed.ipv6;
+		if (ipset_rule_v6 == NULL && check_no_speed_rule && conf->ipset_nftset.ipset_no_speed.ipv6_enable) {
+			ipset_rule_v6 = &conf->ipset_nftset.ipset_no_speed.ipv6;
 		}
 	}
 
@@ -1936,12 +1941,12 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 			nftset_ip = _dns_server_get_bind_ipset_nftset_rule(request, DOMAIN_RULE_NFTSET_IP);
 		}
 
-		if (nftset_ip == NULL && dns_conf_nftset.ip_enable) {
-			nftset_ip = &dns_conf_nftset.ip;
+		if (nftset_ip == NULL && conf->ipset_nftset.nftset.ip_enable) {
+			nftset_ip = &conf->ipset_nftset.nftset.ip;
 		}
 
-		if (nftset_ip == NULL && check_no_speed_rule && dns_conf_nftset_no_speed.ip_enable) {
-			nftset_ip = &dns_conf_nftset_no_speed.ip;
+		if (nftset_ip == NULL && check_no_speed_rule && conf->ipset_nftset.nftset_no_speed.ip_enable) {
+			nftset_ip = &conf->ipset_nftset.nftset_no_speed.ip;
 		}
 	}
 
@@ -1952,12 +1957,12 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 			nftset_ip6 = _dns_server_get_bind_ipset_nftset_rule(request, DOMAIN_RULE_NFTSET_IP6);
 		}
 
-		if (nftset_ip6 == NULL && dns_conf_nftset.ip6_enable) {
-			nftset_ip6 = &dns_conf_nftset.ip6;
+		if (nftset_ip6 == NULL && conf->ipset_nftset.nftset.ip6_enable) {
+			nftset_ip6 = &conf->ipset_nftset.nftset.ip6;
 		}
 
-		if (nftset_ip6 == NULL && check_no_speed_rule && dns_conf_nftset_no_speed.ip6_enable) {
-			nftset_ip6 = &dns_conf_nftset_no_speed.ip6;
+		if (nftset_ip6 == NULL && check_no_speed_rule && conf->ipset_nftset.nftset_no_speed.ip6_enable) {
+			nftset_ip6 = &conf->ipset_nftset.nftset_no_speed.ip6;
 		}
 	}
 
@@ -1968,6 +1973,14 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 	timeout_value = request->ip_ttl * 3;
 	if (timeout_value == 0) {
 		timeout_value = _dns_server_get_conf_ttl(request, 0) * 3;
+	}
+
+	if (conf->ipset_nftset.ipset_timeout_enable) {
+		ipset_timeout_value = timeout_value;
+	}
+
+	if (conf->ipset_nftset.nftset_timeout_enable) {
+		nftset_timeout_value = timeout_value;
 	}
 
 	for (j = 1; j < DNS_RRS_OPT; j++) {
@@ -1987,7 +2000,7 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 					/* add IPV4 to ipset */
 					tlog(TLOG_DEBUG, "IPSET-MATCH: domain: %s, ipset: %s, IP: %d.%d.%d.%d", request->domain,
 						 rule->ipsetname, addr[0], addr[1], addr[2], addr[3]);
-					ipset_add(rule->ipsetname, addr, DNS_RR_A_LEN, timeout_value);
+					ipset_add(rule->ipsetname, addr, DNS_RR_A_LEN, ipset_timeout_value);
 				}
 
 				if (nftset_ip != NULL) {
@@ -1996,7 +2009,7 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 						 nftset_ip->familyname, nftset_ip->nfttablename, nftset_ip->nftsetname, addr[0], addr[1],
 						 addr[2], addr[3]);
 					nftset_add(nftset_ip->familyname, nftset_ip->nfttablename, nftset_ip->nftsetname, addr,
-							   DNS_RR_A_LEN, timeout_value);
+							   DNS_RR_A_LEN, nftset_timeout_value);
 				}
 			} break;
 			case DNS_T_AAAA: {
@@ -2015,7 +2028,7 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 						 request->domain, rule->ipsetname, addr[0], addr[1], addr[2], addr[3], addr[4], addr[5],
 						 addr[6], addr[7], addr[8], addr[9], addr[10], addr[11], addr[12], addr[13], addr[14],
 						 addr[15]);
-					ipset_add(rule->ipsetname, addr, DNS_RR_AAAA_LEN, timeout_value);
+					ipset_add(rule->ipsetname, addr, DNS_RR_AAAA_LEN, ipset_timeout_value);
 				}
 
 				if (nftset_ip6 != NULL) {
@@ -2027,7 +2040,7 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 						 addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr[6], addr[7], addr[8], addr[9],
 						 addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
 					nftset_add(nftset_ip6->familyname, nftset_ip6->nfttablename, nftset_ip6->nftsetname, addr,
-							   DNS_RR_AAAA_LEN, timeout_value);
+							   DNS_RR_AAAA_LEN, nftset_timeout_value);
 				}
 			} break;
 			default:
@@ -2809,7 +2822,7 @@ static struct dns_request *_dns_server_new_request(void)
 	request->conn = NULL;
 	request->qclass = DNS_C_IN;
 	request->result_callback = NULL;
-	request->check_order_list = &dns_conf_check_orders;
+	request->check_order_list = &dns_conf_default_check_orders;
 	request->response_mode = dns_conf_response_mode;
 	INIT_LIST_HEAD(&request->list);
 	INIT_LIST_HEAD(&request->pending_list);
@@ -3839,6 +3852,7 @@ static void _dns_server_query_end(struct dns_request *request)
 {
 	int ip_num = 0;
 	int request_wait = 0;
+	struct dns_conf_group *conf = request->conf;
 
 	/* if mdns request timeout */
 	if (request->is_mdns_lookup == 1 && request->rcode == DNS_RC_SERVFAIL) {
@@ -3856,8 +3870,8 @@ static void _dns_server_query_end(struct dns_request *request)
 	/* Not need to wait check result if only has one ip address */
 	if (ip_num <= 1 && request_wait == 1) {
 		if (request->dualstack_selection_query == 1) {
-			if ((dns_conf_ipset_no_speed.ipv4_enable || dns_conf_nftset_no_speed.ip_enable ||
-				 dns_conf_ipset_no_speed.ipv6_enable || dns_conf_nftset_no_speed.ip6_enable) &&
+			if ((conf->ipset_nftset.ipset_no_speed.ipv4_enable || conf->ipset_nftset.nftset_no_speed.ip_enable ||
+				 conf->ipset_nftset.ipset_no_speed.ipv6_enable || conf->ipset_nftset.nftset_no_speed.ip6_enable) &&
 				dns_conf_dns_dns64.prefix_len == 0) {
 				/* if speed check fail enabled, we need reply quickly, otherwise wait for ping result.*/
 				_dns_server_request_complete(request);
@@ -4691,6 +4705,10 @@ static void _dns_server_get_domain_rule_by_domain(struct dns_request *request, c
 
 static void _dns_server_get_domain_rule(struct dns_request *request)
 {
+	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_RULES) == 0) {
+		return;
+	}
+
 	_dns_server_get_domain_rule_by_domain(request, request->domain, 1);
 }
 
@@ -5539,17 +5557,14 @@ void dns_server_check_ipv6_ready(void)
 	static int do_get_conf = 0;
 	static int is_icmp_check_set;
 	static int is_tcp_check_set;
-	int i = 0;
 
 	if (do_get_conf == 0) {
-		for (i = 0; i < DOMAIN_CHECK_NUM; i++) {
-			if (dns_conf_check_orders.orders[i].type == DOMAIN_CHECK_ICMP) {
-				is_icmp_check_set = 1;
-			}
+		if (dns_conf_has_icmp_check == 1) {
+			is_icmp_check_set = 1;
+		}
 
-			if (dns_conf_check_orders.orders[i].type == DOMAIN_CHECK_TCP) {
-				is_tcp_check_set = 1;
-			}
+		if (dns_conf_has_tcp_check == 1) {
+			is_tcp_check_set = 1;
 		}
 
 		if (is_icmp_check_set == 0) {
@@ -5951,19 +5966,15 @@ errout:
 
 static int _dns_server_setup_request_conf(struct dns_request *request)
 {
-	int no_fallback_default_rule = 0;
 	struct dns_conf_group *rule_group = NULL;
 
-	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_RULES) == 0) {
-		no_fallback_default_rule = 1;
-	}
-
-	rule_group = dns_server_get_rule_group(request->dns_group_name, no_fallback_default_rule);
+	rule_group = dns_server_get_rule_group(request->dns_group_name);
 	if (rule_group == NULL) {
 		return -1;
 	}
 
 	request->conf = rule_group;
+	request->check_order_list = &rule_group->check_orders;
 
 	return 0;
 }

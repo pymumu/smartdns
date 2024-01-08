@@ -704,15 +704,6 @@ static int _ipset_socket_init(void)
 	return 0;
 }
 
-static int _ipset_support_timeout(void)
-{
-	if (dns_conf_ipset_timeout_enable) {
-		return 0;
-	}
-
-	return -1;
-}
-
 static int _ipset_operate(const char *ipset_name, const unsigned char addr[], int addr_len, unsigned long timeout,
 						  int operate)
 {
@@ -778,7 +769,7 @@ static int _ipset_operate(const char *ipset_name, const unsigned char addr[], in
 					addr);
 	nested[1]->len = (void *)buffer + NETLINK_ALIGN(netlink_head->nlmsg_len) - (void *)nested[1];
 
-	if (timeout > 0 && _ipset_support_timeout() == 0) {
+	if (timeout > 0) {
 		expire = htonl(timeout);
 		_ipset_add_attr(netlink_head, IPSET_ATTR_TIMEOUT | NLA_F_NET_BYTEORDER, sizeof(expire), &expire);
 	}

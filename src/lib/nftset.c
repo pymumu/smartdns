@@ -558,10 +558,6 @@ int nftset_add(const char *familyname, const char *tablename, const char *setnam
 	int ret = -1;
 	int nffamily = _nftset_get_nffamily_from_str(familyname);
 
-	if (dns_conf_nftset_timeout_enable == 0) {
-		timeout = 0;
-	}
-
 	ret = _nftset_get_flags(nffamily, tablename, setname, &flags);
 	if (ret == 0) {
 		ret = _nftset_process_setflags(flags, addr, addr_len, &timeout, &addr_end, &addr_end_len);

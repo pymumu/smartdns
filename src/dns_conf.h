@@ -404,10 +404,21 @@ struct dns_conf_domain_rule {
 	art_tree tree;
 };
 
+struct dns_conf_ipset_nftset {
+	int ipset_timeout_enable;
+	struct dns_ipset_names ipset_no_speed;
+	struct dns_ipset_names ipset;
+	int nftset_timeout_enable;
+	struct dns_nftset_names nftset_no_speed;
+	struct dns_nftset_names nftset;
+};
+
 struct dns_conf_group {
 	struct hlist_node node;
 	struct dns_conf_domain_rule domain_rule;
 	struct dns_conf_address_rule address_rule;
+	struct dns_conf_ipset_nftset ipset_nftset;
+	struct dns_domain_check_orders check_orders;
 	const char *group_name;
 };
 
@@ -603,7 +614,9 @@ extern char dns_conf_cache_file[DNS_MAX_PATH];
 extern int dns_conf_cache_persist;
 extern int dns_conf_cache_checkpoint_time;
 
-extern struct dns_domain_check_orders dns_conf_check_orders;
+extern struct dns_domain_check_orders dns_conf_default_check_orders;
+extern int dns_conf_has_icmp_check;
+extern int dns_conf_has_tcp_check;
 
 extern struct dns_server_groups dns_conf_server_groups[DNS_NAX_GROUP_NUMBER];
 extern int dns_conf_server_group_num;
@@ -635,8 +648,6 @@ extern int dns_conf_rr_ttl_reply_max;
 extern int dns_conf_rr_ttl_min;
 extern int dns_conf_rr_ttl_max;
 extern int dns_conf_force_AAAA_SOA;
-extern int dns_conf_ipset_timeout_enable;
-extern int dns_conf_nftset_timeout_enable;
 extern int dns_conf_nftset_debug_enable;
 extern int dns_conf_local_ttl;
 extern int dns_conf_mdns_lookup;
@@ -668,7 +679,9 @@ struct dns_proxy_names *dns_server_get_proxy_nams(const char *proxyname);
 
 struct dns_srv_records *dns_server_get_srv_record(const char *domain);
 
-struct dns_conf_group *dns_server_get_rule_group(const char *group_name, int no_fallback_default);
+struct dns_conf_group *dns_server_get_rule_group(const char *group_name);
+
+struct dns_conf_group *dns_server_get_default_rule_group(void);
 
 extern int config_additional_file(void *data, int argc, char *argv[]);
 

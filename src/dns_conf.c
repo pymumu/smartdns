@@ -104,7 +104,9 @@ int dns_conf_server_num;
 static int dns_conf_resolv_hostname = 1;
 static char dns_conf_exist_bootstrap_dns;
 
-struct dns_domain_check_orders dns_conf_check_orders = {
+int dns_conf_has_icmp_check;
+int dns_conf_has_tcp_check;
+struct dns_domain_check_orders dns_conf_default_check_orders = {
 	.orders =
 		{
 			{.type = DOMAIN_CHECK_ICMP, .tcp_port = 0},
@@ -170,12 +172,6 @@ int dns_conf_rr_ttl_max;
 int dns_conf_local_ttl;
 int dns_conf_force_AAAA_SOA;
 int dns_conf_force_no_cname;
-int dns_conf_ipset_timeout_enable;
-struct dns_ipset_names dns_conf_ipset_no_speed;
-struct dns_ipset_names dns_conf_ipset;
-int dns_conf_nftset_timeout_enable;
-struct dns_nftset_names dns_conf_nftset_no_speed;
-struct dns_nftset_names dns_conf_nftset;
 int dns_conf_nftset_debug_enable;
 int dns_conf_mdns_lookup;
 int dns_conf_acl_enable;
@@ -212,6 +208,7 @@ static struct dns_conf_group *_config_rule_group_get(const char *group_name);
 static struct dns_conf_group *_config_rule_group_new(const char *group_name);
 static struct dns_conf_group *_config_current_rule_group(void);
 static void _config_ip_iter_free(radix_node_t *node, void *cbctx);
+static int _config_nftset_setvalue(struct dns_nftset_names *nftsets, const char *nftsetvalue);
 
 static void *_new_dns_rule_ext(enum domain_rule domain_rule, int ext_size)
 {
@@ -497,6 +494,18 @@ static void _config_current_group_pop(void)
 	dns_conf_current_group_info = group_info;
 }
 
+static void _config_rule_group_setup_value(struct dns_conf_group_info *group_info)
+{
+	struct dns_conf_group *group_rule = group_info->rule;
+	if (_config_current_rule_group() != NULL) {
+		memcpy(&group_rule->check_orders, &_config_current_group()->rule->check_orders, sizeof(group_rule->check_orders));
+		memcpy(&group_rule->ipset_nftset, &_config_current_group()->rule->ipset_nftset, sizeof(group_rule->ipset_nftset));
+		return;
+	}
+
+	memcpy(&group_rule->check_orders, &dns_conf_default_check_orders, sizeof(group_rule->check_orders));
+}
+
 static int _config_current_group_push(const char *group_name)
 {
 	struct dns_conf_group_info *group_info = NULL;
@@ -528,6 +537,7 @@ static int _config_current_group_push(const char *group_name)
 
 	group_info->group_name = group_name;
 	group_info->rule = group_rule;
+	_config_rule_group_setup_value(group_info);
 
 	dns_conf_current_group_info = group_info;
 	if (dns_conf_default_group_info == NULL) {
@@ -1033,17 +1043,18 @@ static struct dns_conf_group *_config_rule_group_get(const char *group_name)
 	return NULL;
 }
 
-struct dns_conf_group *dns_server_get_rule_group(const char *group_name, int no_fallback_default)
+struct dns_conf_group *dns_server_get_rule_group(const char *group_name)
 {
 	struct dns_conf_group *rule_group = _config_rule_group_get(group_name);
 	if (rule_group) {
 		return rule_group;
 	}
 
-	if (no_fallback_default) {
-		return NULL;
-	}
+	return dns_conf_rule.default_conf;
+}
 
+struct dns_conf_group *dns_server_get_default_rule_group(void)
+{
 	return dns_conf_rule.default_conf;
 }
 
@@ -1611,6 +1622,14 @@ errout:
 	return 0;
 }
 
+static int _config_ipset_timeout(void *data, int argc, char *argv[])
+{
+	struct config_item_yesno item;
+
+	item.data = &_config_current_rule_group()->ipset_nftset.ipset_timeout_enable;
+	return conf_yesno(NULL, &item, argc, argv);
+}
+
 static int _config_ipset(void *data, int argc, char *argv[])
 {
 	char domain[DNS_MAX_CONF_CNAME_LEN];
@@ -1626,7 +1645,7 @@ static int _config_ipset(void *data, int argc, char *argv[])
 			goto errout;
 		}
 
-		if (_config_ipset_setvalue(&dns_conf_ipset, value) != 0) {
+		if (_config_ipset_setvalue(&_config_current_rule_group()->ipset_nftset.ipset, value) != 0) {
 			ret = -1;
 			goto errout;
 		}
@@ -1653,7 +1672,7 @@ static int _config_ipset_no_speed(void *data, int argc, char *argv[])
 		goto errout;
 	}
 
-	if (_config_ipset_setvalue(&dns_conf_ipset_no_speed, ipsetname) != 0) {
+	if (_config_ipset_setvalue(&_config_current_rule_group()->ipset_nftset.ipset_no_speed, ipsetname) != 0) {
 		goto errout;
 	}
 
@@ -1661,6 +1680,14 @@ static int _config_ipset_no_speed(void *data, int argc, char *argv[])
 errout:
 	tlog(TLOG_ERROR, "add ipset-no-speed %s failed", ipsetname);
 	return 0;
+}
+
+static int _config_nftset_timeout(void *data, int argc, char *argv[])
+{
+	struct config_item_yesno item;
+
+	item.data = &_config_current_rule_group()->ipset_nftset.nftset_timeout_enable;
+	return conf_yesno(NULL, &item, argc, argv);
 }
 
 static void _config_nftset_table_destroy(void)
@@ -1727,6 +1754,7 @@ static int _conf_domain_rule_nftset(char *domain, const char *nftsetname)
 	char *setname = NULL;
 	char *tablename = NULL;
 	char *family = NULL;
+	int ret = -1;
 
 	copied_name = strdup(nftsetname);
 
@@ -1796,10 +1824,11 @@ static int _conf_domain_rule_nftset(char *domain, const char *nftsetname)
 		nftset_rule = NULL;
 	}
 
+	ret = 0;
 	goto clear;
 
 errout:
-	tlog(TLOG_ERROR, "add nftset %s %s failed", domain, nftsetname);
+	tlog(TLOG_ERROR, "add nftset %s %s failed.", domain, nftsetname);
 
 	if (nftset_rule) {
 		_dns_rule_put(&nftset_rule->head);
@@ -1810,26 +1839,35 @@ clear:
 		free(copied_name);
 	}
 
-	return 0;
+	return ret;
 }
 
 static int _config_nftset(void *data, int argc, char *argv[])
 {
 	char domain[DNS_MAX_CONF_CNAME_LEN];
 	char *value = argv[1];
+	int ret = 0;
 
 	if (argc <= 1) {
 		goto errout;
 	}
 
 	if (_get_domain(value, domain, DNS_MAX_CONF_CNAME_LEN, &value) != 0) {
-		goto errout;
+		if (strstr(value, "/")) {
+			goto errout;
+		}
+		if (_config_nftset_setvalue(&_config_current_rule_group()->ipset_nftset.nftset, value) != 0) {
+			ret = -1;
+			goto errout;
+		}
+
+		return 0;
 	}
 
 	return _conf_domain_rule_nftset(domain, value);
 errout:
 	tlog(TLOG_ERROR, "add nftset %s failed", value);
-	return 0;
+	return ret;
 }
 
 static int _config_nftset_setvalue(struct dns_nftset_names *nftsets, const char *nftsetvalue)
@@ -1940,14 +1978,14 @@ static int _config_nftset_no_speed(void *data, int argc, char *argv[])
 		goto errout;
 	}
 
-	if (_config_nftset_setvalue(&dns_conf_nftset_no_speed, nftsetname) != 0) {
+	if (_config_nftset_setvalue(&_config_current_rule_group()->ipset_nftset.nftset_no_speed, nftsetname) != 0) {
 		goto errout;
 	}
 
 	return 0;
 errout:
 	tlog(TLOG_ERROR, "add nftset %s failed", nftsetname);
-	return 0;
+	return -1;
 }
 
 static int _conf_domain_rule_address(char *domain, const char *domain_address)
@@ -2387,7 +2425,8 @@ static int _config_speed_check_mode(void *data, int argc, char *argv[])
 	}
 
 	safe_strncpy(mode, argv[1], sizeof(mode));
-	return _config_speed_check_mode_parser(&dns_conf_check_orders, mode);
+
+	return _config_speed_check_mode_parser(&_config_current_rule_group()->check_orders, mode);
 }
 
 static int _config_dns64(void *data, int argc, char *argv[])
@@ -5219,10 +5258,10 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("cname", _config_cname, NULL),
 	CONF_CUSTOM("srv-record", _config_srv_record, NULL),
 	CONF_CUSTOM("proxy-server", _config_proxy_server, NULL),
-	CONF_YESNO("ipset-timeout", &dns_conf_ipset_timeout_enable),
+	CONF_CUSTOM("ipset-timeout", _config_ipset_timeout, NULL),
 	CONF_CUSTOM("ipset", _config_ipset, NULL),
 	CONF_CUSTOM("ipset-no-speed", _config_ipset_no_speed, NULL),
-	CONF_YESNO("nftset-timeout", &dns_conf_nftset_timeout_enable),
+	CONF_CUSTOM("nftset-timeout", _config_nftset_timeout, NULL),
 	CONF_YESNO("nftset-debug", &dns_conf_nftset_debug_enable),
 	CONF_CUSTOM("nftset", _config_nftset, NULL),
 	CONF_CUSTOM("nftset-no-speed", _config_nftset_no_speed, NULL),
@@ -5553,23 +5592,33 @@ static int _config_add_default_server_if_needed(void)
 
 static int _dns_conf_speed_check_mode_verify(void)
 {
+	struct dns_conf_group *group;
+	struct hlist_node *tmp = NULL;
+	unsigned long k = 0;
 	int i = 0;
 	int j = 0;
 	int print_log = 0;
 
-	if (dns_has_cap_ping == 1) {
-		return 0;
-	}
-
-	for (i = 0; i < DOMAIN_CHECK_NUM; i++) {
-		if (dns_conf_check_orders.orders[i].type == DOMAIN_CHECK_ICMP) {
-			for (j = i + 1; j < DOMAIN_CHECK_NUM; j++) {
-				dns_conf_check_orders.orders[j - 1].type = dns_conf_check_orders.orders[j].type;
-				dns_conf_check_orders.orders[j - 1].tcp_port = dns_conf_check_orders.orders[j].tcp_port;
+	hash_for_each_safe(dns_conf_rule.group, k, tmp, group, node)
+	{
+		struct dns_domain_check_orders *check_orders = &group->check_orders;
+		for (i = 0; i < DOMAIN_CHECK_NUM; i++) {
+			if (check_orders->orders[i].type == DOMAIN_CHECK_ICMP) {
+				if (dns_has_cap_ping == 0) {
+					for (j = i + 1; j < DOMAIN_CHECK_NUM; j++) {
+						check_orders->orders[j - 1].type = check_orders->orders[j].type;
+						check_orders->orders[j - 1].tcp_port = check_orders->orders[j].tcp_port;
+					}
+					check_orders->orders[j - 1].type = DOMAIN_CHECK_NONE;
+					check_orders->orders[j - 1].tcp_port = 0;
+					print_log = 1;
+				}
+				dns_conf_has_icmp_check = 1;
 			}
-			dns_conf_check_orders.orders[j - 1].type = DOMAIN_CHECK_NONE;
-			dns_conf_check_orders.orders[j - 1].tcp_port = 0;
-			print_log = 1;
+
+			if (check_orders->orders[i].type == DOMAIN_CHECK_TCP) {
+				dns_conf_has_tcp_check = 1;
+			}
 		}
 	}
 
