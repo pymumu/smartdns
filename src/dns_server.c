@@ -228,6 +228,7 @@ struct dns_request {
 	atomic_t refcnt;
 
 	struct dns_server_conn_head *conn;
+	struct dns_conf_group *conf;
 	uint32_t server_flags;
 	char dns_group_name[DNS_GROUP_NAME_LEN];
 
@@ -3076,6 +3077,10 @@ static struct dns_ip_rules *_dns_server_ip_rule_get(struct dns_request *request,
 	radix_node_t *node = NULL;
 	struct dns_ip_rules *rule = NULL;
 
+	if (request->conf == NULL) {
+		return NULL;
+	}
+
 	/* Match IP address rules */
 	if (prefix_from_blob(addr, addr_len, addr_len * 8, &prefix) == NULL) {
 		return NULL;
@@ -3083,10 +3088,10 @@ static struct dns_ip_rules *_dns_server_ip_rule_get(struct dns_request *request,
 
 	switch (prefix.family) {
 	case AF_INET:
-		node = radix_search_best(dns_conf_address_rule.ipv4, &prefix);
+		node = radix_search_best(request->conf->address_rule.ipv4, &prefix);
 		break;
 	case AF_INET6:
-		node = radix_search_best(dns_conf_address_rule.ipv6, &prefix);
+		node = radix_search_best(request->conf->address_rule.ipv6, &prefix);
 		break;
 	default:
 		break;
@@ -4631,10 +4636,12 @@ static void _dns_server_get_domain_rule_by_domain(struct dns_request *request, c
 	unsigned char matched_key[DNS_MAX_CNAME_LEN];
 	struct rule_walk_args walk_args;
 	int i = 0;
-	struct dns_conf_doamin_rule_group *domain_rule_group = NULL;
-	int no_fallback_default_rule = 0;
 
 	if (request->skip_domain_rule != 0) {
+		return;
+	}
+
+	if (request->conf == NULL) {
 		return;
 	}
 
@@ -4652,17 +4659,8 @@ static void _dns_server_get_domain_rule_by_domain(struct dns_request *request, c
 	domain_len++;
 	domain_key[domain_len] = 0;
 
-	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_RULES) == 0) {
-		no_fallback_default_rule = 1;
-	}
-
-	domain_rule_group = dns_server_get_domain_rule_group(request->dns_group_name, no_fallback_default_rule);
-	if (domain_rule_group == NULL) {
-		return;
-	}
-
 	/* find domain rule */
-	art_substring_walk(&domain_rule_group->tree, (unsigned char *)domain_key, domain_len, _dns_server_get_rules,
+	art_substring_walk(&request->conf->domain_rule.tree, (unsigned char *)domain_key, domain_len, _dns_server_get_rules,
 					   &walk_args);
 	if (likely(dns_conf_log_level > TLOG_DEBUG)) {
 		return;
@@ -4945,6 +4943,7 @@ static struct dns_request *_dns_server_new_child_request(struct dns_request *req
 	child_request->parent_request = request;
 	child_request->qtype = qtype;
 	child_request->qclass = request->qclass;
+	child_request->conf = request->conf;
 
 	if (request->has_ecs) {
 		memcpy(&child_request->ecs, &request->ecs, sizeof(child_request->ecs));
@@ -5599,15 +5598,16 @@ static void _dns_server_request_set_client(struct dns_request *request, struct d
 static int _dns_server_request_set_client_rules(struct dns_request *request, struct dns_client_rules *client_rule)
 {
 	if (client_rule == NULL) {
-		if (_dns_server_has_bind_flag(request, BIND_FLAG_ACL) == 0) {
+		if (_dns_server_has_bind_flag(request, BIND_FLAG_ACL) == 0 || dns_conf_acl_enable) {
 			request->send_tick = get_tick_count();
 			request->rcode = DNS_RC_REFUSED;
+			request->no_cache = 1;
 			return -1;
 		}
 		return 0;
 	}
 
-	tlog(TLOG_DEBUG, "match client rule.\n");
+	tlog(TLOG_DEBUG, "match client rule.");
 
 	if (client_rule->rules[CLIENT_RULE_GROUP]) {
 		struct client_rule_group *group = (struct client_rule_group *)client_rule->rules[CLIENT_RULE_GROUP];
@@ -5924,6 +5924,7 @@ static int _dns_server_query_dualstack(struct dns_request *request)
 	request_dualstack->has_cname_loop = request->has_cname_loop;
 	request_dualstack->prefetch = request->prefetch;
 	request_dualstack->prefetch_flags = request->prefetch_flags;
+	request_dualstack->conf = request->conf;
 	_dns_server_request_get(request);
 	request_dualstack->dualstack_request = request;
 	_dns_server_request_set_callback(request_dualstack, dns_server_dualstack_callback, request);
@@ -5948,6 +5949,25 @@ errout:
 	return ret;
 }
 
+static int _dns_server_setup_request_conf(struct dns_request *request)
+{
+	int no_fallback_default_rule = 0;
+	struct dns_conf_group *rule_group = NULL;
+
+	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_RULES) == 0) {
+		no_fallback_default_rule = 1;
+	}
+
+	rule_group = dns_server_get_rule_group(request->dns_group_name, no_fallback_default_rule);
+	if (rule_group == NULL) {
+		return -1;
+	}
+
+	request->conf = rule_group;
+
+	return 0;
+}
+
 static int _dns_server_do_query(struct dns_request *request, int skip_notify_event)
 {
 	int ret = -1;
@@ -5963,6 +5983,10 @@ static int _dns_server_do_query(struct dns_request *request, int skip_notify_eve
 
 	request->send_tick = get_tick_count();
 
+	if (_dns_server_setup_request_conf(request) != 0) {
+		goto errout;
+	}
+
 	/* lookup domain rule */
 	_dns_server_get_domain_rule(request);
 
@@ -5973,6 +5997,10 @@ static int _dns_server_do_query(struct dns_request *request, int skip_notify_eve
 			group_name = dns_group;
 		}
 		safe_strncpy(request->dns_group_name, group_name, DNS_GROUP_NAME_LEN);
+	}
+
+	if (_dns_server_setup_request_conf(request) != 0) {
+		goto errout;
 	}
 
 	if (_dns_server_mdns_query_setup(request, group_name, &request_domain, domain_buffer, sizeof(domain_buffer)) != 0) {
@@ -6230,10 +6258,10 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 		}
 		request->send_tick = get_tick_count();
 		request->rcode = DNS_RC_REFUSED;
+		request->no_cache = 1;
 		ret = 0;
 		goto errout;
 	}
-
 
 	ret = _dns_server_request_set_client_rules(request, client_rules);
 	if (ret != 0) {

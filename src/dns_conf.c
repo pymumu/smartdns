@@ -146,14 +146,13 @@ int dns_conf_audit_syslog;
 struct dns_conf_group_info {
 	struct list_head list;
 	const char *group_name;
-	struct dns_conf_doamin_rule_group *domain_rule;
+	struct dns_conf_group *rule;
 };
 struct dns_conf_group_info *dns_conf_current_group_info;
 struct dns_conf_group_info *dns_conf_default_group_info;
 static LIST_HEAD(dns_conf_group_info_list);
 
-struct dns_conf_domain_rule dns_conf_domain_rule;
-struct dns_conf_address_rule dns_conf_address_rule;
+struct dns_conf_rule dns_conf_rule;
 struct dns_conf_client_rule dns_conf_client_rule;
 
 /* dual-stack selection */
@@ -179,6 +178,7 @@ struct dns_nftset_names dns_conf_nftset_no_speed;
 struct dns_nftset_names dns_conf_nftset;
 int dns_conf_nftset_debug_enable;
 int dns_conf_mdns_lookup;
+int dns_conf_acl_enable;
 
 char dns_conf_user[DNS_CONF_USERNAME_LEN];
 
@@ -208,8 +208,10 @@ static int _conf_domain_rule_address(char *domain, const char *domain_address);
 static struct dns_domain_rule *_config_domain_rule_get(const char *domain);
 typedef int (*set_rule_add_func)(const char *value, void *priv);
 static int _config_ip_rule_set_each(const char *ip_set, set_rule_add_func callback, void *priv);
-static struct dns_conf_doamin_rule_group *_config_domain_rule_group_get(const char *group_name);
-static struct dns_conf_doamin_rule_group *_config_domain_rule_group_new(const char *group_name);
+static struct dns_conf_group *_config_rule_group_get(const char *group_name);
+static struct dns_conf_group *_config_rule_group_new(const char *group_name);
+static struct dns_conf_group *_config_current_rule_group(void);
+static void _config_ip_iter_free(radix_node_t *node, void *cbctx);
 
 static void *_new_dns_rule_ext(enum domain_rule domain_rule, int ext_size)
 {
@@ -455,6 +457,15 @@ struct dns_proxy_names *dns_server_get_proxy_nams(const char *proxyname)
 	return NULL;
 }
 
+static struct dns_conf_group *_config_current_rule_group(void)
+{
+	if (dns_conf_current_group_info == NULL) {
+		return NULL;
+	}
+
+	return dns_conf_current_group_info->rule;
+}
+
 static struct dns_conf_group_info *_config_current_group(void)
 {
 	return dns_conf_current_group_info;
@@ -489,7 +500,7 @@ static void _config_current_group_pop(void)
 static int _config_current_group_push(const char *group_name)
 {
 	struct dns_conf_group_info *group_info = NULL;
-	struct dns_conf_doamin_rule_group *domain_rule = NULL;
+	struct dns_conf_group *group_rule = NULL;
 
 	group_info = malloc(sizeof(*group_info));
 	if (group_info == NULL) {
@@ -507,16 +518,16 @@ static int _config_current_group_push(const char *group_name)
 	INIT_LIST_HEAD(&group_info->list);
 	list_add_tail(&group_info->list, &dns_conf_group_info_list);
 
-	domain_rule = _config_domain_rule_group_get(group_name);
-	if (domain_rule == NULL) {
-		domain_rule = _config_domain_rule_group_new(group_name);
-		if (domain_rule == NULL) {
+	group_rule = _config_rule_group_get(group_name);
+	if (group_rule == NULL) {
+		group_rule = _config_rule_group_new(group_name);
+		if (group_rule == NULL) {
 			goto errout;
 		}
 	}
 
 	group_info->group_name = group_name;
-	group_info->domain_rule = domain_rule;
+	group_info->rule = group_rule;
 
 	dns_conf_current_group_info = group_info;
 	if (dns_conf_default_group_info == NULL) {
@@ -1003,79 +1014,86 @@ static int _config_domain_iter_free(void *data, const unsigned char *key, uint32
 	return _config_domain_rule_free(domain_rule);
 }
 
-static struct dns_conf_doamin_rule_group *_config_domain_rule_group_get(const char *group_name)
+static struct dns_conf_group *_config_rule_group_get(const char *group_name)
 {
 	uint32_t key = 0;
-	struct dns_conf_doamin_rule_group *domain_rule_group = NULL;
+	struct dns_conf_group *rule_group = NULL;
 	if (group_name == NULL) {
 		group_name = "";
 	}
 
 	key = hash_string(group_name);
-	hash_for_each_possible(dns_conf_domain_rule.group, domain_rule_group, node, key)
+	hash_for_each_possible(dns_conf_rule.group, rule_group, node, key)
 	{
-		if (strncmp(domain_rule_group->group_name, group_name, DNS_GROUP_NAME_LEN) == 0) {
-			return domain_rule_group;
+		if (strncmp(rule_group->group_name, group_name, DNS_GROUP_NAME_LEN) == 0) {
+			return rule_group;
 		}
 	}
 
 	return NULL;
 }
 
-struct dns_conf_doamin_rule_group *dns_server_get_domain_rule_group(const char *group_name, int no_fallback_default)
+struct dns_conf_group *dns_server_get_rule_group(const char *group_name, int no_fallback_default)
 {
-	struct dns_conf_doamin_rule_group *domain_rule_group = _config_domain_rule_group_get(group_name);
-	if (domain_rule_group) {
-		return domain_rule_group;
+	struct dns_conf_group *rule_group = _config_rule_group_get(group_name);
+	if (rule_group) {
+		return rule_group;
 	}
 
 	if (no_fallback_default) {
 		return NULL;
 	}
 
-	return dns_conf_domain_rule.default_rule;
+	return dns_conf_rule.default_conf;
 }
 
-static struct dns_conf_doamin_rule_group *_config_domain_rule_group_new(const char *group_name)
+static struct dns_conf_group *_config_rule_group_new(const char *group_name)
 {
-	struct dns_conf_doamin_rule_group *domain_rule_group = NULL;
+	struct dns_conf_group *rule_group = NULL;
 	uint32_t key = 0;
 
-	domain_rule_group = malloc(sizeof(*domain_rule_group));
-	if (domain_rule_group == NULL) {
+	rule_group = malloc(sizeof(*rule_group));
+	if (rule_group == NULL) {
 		return NULL;
 	}
 
-	memset(domain_rule_group, 0, sizeof(*domain_rule_group));
-	domain_rule_group->group_name = group_name;
-	INIT_HLIST_NODE(&domain_rule_group->node);
-	art_tree_init(&domain_rule_group->tree);
+	memset(rule_group, 0, sizeof(*rule_group));
+	rule_group->group_name = group_name;
+
+	INIT_HLIST_NODE(&rule_group->node);
+	art_tree_init(&rule_group->domain_rule.tree);
+
+	rule_group->address_rule.ipv4 = New_Radix();
+	rule_group->address_rule.ipv6 = New_Radix();
+
 	key = hash_string(group_name);
-	hash_add(dns_conf_domain_rule.group, &domain_rule_group->node, key);
+	hash_add(dns_conf_rule.group, &rule_group->node, key);
 
-	return domain_rule_group;
+	return rule_group;
 }
 
-static void _config_domain_rule_remove(struct dns_conf_doamin_rule_group *domain_rule_group)
+static void _config_rule_group_remove(struct dns_conf_group *rule_group)
 {
-	hlist_del_init(&domain_rule_group->node);
-	art_iter(&domain_rule_group->tree, _config_domain_iter_free, NULL);
-	art_tree_destroy(&domain_rule_group->tree);
-	free(domain_rule_group);
+	hlist_del_init(&rule_group->node);
+	art_iter(&rule_group->domain_rule.tree, _config_domain_iter_free, NULL);
+	art_tree_destroy(&rule_group->domain_rule.tree);
+	Destroy_Radix(rule_group->address_rule.ipv4, _config_ip_iter_free, NULL);
+	Destroy_Radix(rule_group->address_rule.ipv6, _config_ip_iter_free, NULL);
+	free(rule_group);
 }
 
-static void _config_domain_destroy(void)
+static void _config_rule_group_destroy(void)
 {
-	struct dns_conf_doamin_rule_group *group;
+	struct dns_conf_group *group;
 	struct hlist_node *tmp = NULL;
 	unsigned long i = 0;
 
-	hash_for_each_safe(dns_conf_domain_rule.group, i, tmp, group, node)
+	hash_for_each_safe(dns_conf_rule.group, i, tmp, group, node)
 	{
-		_config_domain_rule_remove(group);
+		_config_rule_group_remove(group);
 	}
 
-	dns_conf_domain_rule.default_rule = NULL;
+	dns_conf_rule.default_conf = NULL;
 }
 
 static int _config_set_rule_each_from_list(const char *file, set_rule_add_func callback, void *priv)
@@ -1226,7 +1244,7 @@ static __attribute__((unused)) struct dns_domain_rule *_config_domain_rule_get(c
 		return NULL;
 	}
 
-	return art_search(&_config_current_group()->domain_rule->tree, (unsigned char *)domain_key, len);
+	return art_search(&_config_current_rule_group()->domain_rule.tree, (unsigned char *)domain_key, len);
 }
 
 static int _config_domain_rule_add(const char *domain, enum domain_rule type, void *rule)
@@ -1258,7 +1276,7 @@ static int _config_domain_rule_add(const char *domain, enum domain_rule type, vo
 	}
 
 	/* Get existing or create domain rule */
-	domain_rule = art_search(&_config_current_group()->domain_rule->tree, (unsigned char *)domain_key, len);
+	domain_rule = art_search(&_config_current_rule_group()->domain_rule.tree, (unsigned char *)domain_key, len);
 	if (domain_rule == NULL) {
 		add_domain_rule = malloc(sizeof(*add_domain_rule));
 		if (add_domain_rule == NULL) {
@@ -1281,8 +1299,8 @@ static int _config_domain_rule_add(const char *domain, enum domain_rule type, vo
 
 	/* update domain rule */
 	if (add_domain_rule) {
-		old_domain_rule =
-			art_insert(&_config_current_group()->domain_rule->tree, (unsigned char *)domain_key, len, add_domain_rule);
+		old_domain_rule = art_insert(&_config_current_rule_group()->domain_rule.tree, (unsigned char *)domain_key, len,
+									 add_domain_rule);
 		if (old_domain_rule) {
 			_config_domain_rule_free(old_domain_rule);
 		}
@@ -1320,7 +1338,7 @@ static int _config_domain_rule_delete(const char *domain)
 	}
 
 	/* delete existing rules */
-	void *rule = art_delete(&_config_current_group()->domain_rule->tree, (unsigned char *)domain_key, len);
+	void *rule = art_delete(&_config_current_rule_group()->domain_rule.tree, (unsigned char *)domain_key, len);
 	if (rule) {
 		_config_domain_rule_free(rule);
 	}
@@ -1363,7 +1381,7 @@ static int _config_domain_rule_flag_set(const char *domain, unsigned int flag, u
 	}
 
 	/* Get existing or create domain rule */
-	domain_rule = art_search(&_config_current_group()->domain_rule->tree, (unsigned char *)domain_key, len);
+	domain_rule = art_search(&_config_current_rule_group()->domain_rule.tree, (unsigned char *)domain_key, len);
 	if (domain_rule == NULL) {
 		add_domain_rule = malloc(sizeof(*add_domain_rule));
 		if (add_domain_rule == NULL) {
@@ -1393,8 +1411,8 @@ static int _config_domain_rule_flag_set(const char *domain, unsigned int flag, u
 
 	/* update domain rule */
 	if (add_domain_rule) {
-		old_domain_rule =
-			art_insert(&_config_current_group()->domain_rule->tree, (unsigned char *)domain_key, len, add_domain_rule);
+		old_domain_rule = art_insert(&_config_current_rule_group()->domain_rule.tree, (unsigned char *)domain_key, len,
+									 add_domain_rule);
 		if (old_domain_rule) {
 			_config_domain_rule_free(old_domain_rule);
 		}
@@ -2976,10 +2994,10 @@ static radix_node_t *_create_addr_node(const char *addr)
 
 	switch (prefix.family) {
 	case AF_INET:
-		tree = dns_conf_address_rule.ipv4;
+		tree = _config_current_rule_group()->address_rule.ipv4;
 		break;
 	case AF_INET6:
-		tree = dns_conf_address_rule.ipv6;
+		tree = _config_current_rule_group()->address_rule.ipv6;
 		break;
 	}
 
@@ -5055,11 +5073,9 @@ static int _config_client_rules(void *data, int argc, char *argv[])
 		}
 	}
 
-	if (server_flag != 0) {
-		if (_config_client_rule_flag_set(client, server_flag, 0) != 0) {
-			tlog(TLOG_ERROR, "set client rule flags failed.");
-			goto errout;
-		}
+	if (_config_client_rule_flag_set(client, server_flag, 0) != 0) {
+		tlog(TLOG_ERROR, "set client rule flags failed.");
+		goto errout;
 	}
 
 	return 0;
@@ -5240,6 +5256,7 @@ static struct config_item _config_item[] = {
 	CONF_INT("audit-num", &dns_conf_audit_num, 0, 1024),
 	CONF_YESNO("audit-console", &dns_conf_audit_console),
 	CONF_YESNO("audit-syslog", &dns_conf_audit_syslog),
+	CONF_YESNO("acl-enable", &dns_conf_acl_enable),
 	CONF_INT("rr-ttl", &dns_conf_rr_ttl, 0, CONF_INT_MAX),
 	CONF_INT("rr-ttl-min", &dns_conf_rr_ttl_min, 0, CONF_INT_MAX),
 	CONF_INT("rr-ttl-max", &dns_conf_rr_ttl_max, 0, CONF_INT_MAX),
@@ -5434,17 +5451,15 @@ const char *dns_conf_get_cache_dir(void)
 
 static int _dns_server_load_conf_init(void)
 {
-	dns_conf_address_rule.ipv4 = New_Radix();
-	dns_conf_address_rule.ipv6 = New_Radix();
 	dns_conf_client_rule.rule = New_Radix();
-	if (dns_conf_address_rule.ipv4 == NULL || dns_conf_address_rule.ipv6 == NULL || dns_conf_client_rule.rule == NULL) {
-		tlog(TLOG_WARN, "init radix tree failed.");
+	if (dns_conf_client_rule.rule == NULL) {
+		tlog(TLOG_WARN, "init client rule radix tree failed.");
 		return -1;
 	}
 
-	hash_init(dns_conf_domain_rule.group);
-	dns_conf_domain_rule.default_rule = _config_domain_rule_group_new("");
-	if (dns_conf_domain_rule.default_rule == NULL) {
+	hash_init(dns_conf_rule.group);
+	dns_conf_rule.default_conf = _config_rule_group_new("");
+	if (dns_conf_rule.default_conf == NULL) {
 		tlog(TLOG_WARN, "init default domain rule failed.");
 		return -1;
 	}
@@ -5498,17 +5513,15 @@ static void dns_server_bind_destroy(void)
 	dns_conf_bind_ip_num = 0;
 }
 
-static void _config_ip_rules_destroy(void)
+static void _config_client_rule_destroy(void)
 {
-	Destroy_Radix(dns_conf_address_rule.ipv4, _config_ip_iter_free, NULL);
-	Destroy_Radix(dns_conf_address_rule.ipv6, _config_ip_iter_free, NULL);
 	Destroy_Radix(dns_conf_client_rule.rule, _config_client_rule_iter_free_cb, NULL);
 }
 
 void dns_server_load_exit(void)
 {
-	_config_domain_destroy();
-	_config_ip_rules_destroy();
+	_config_rule_group_destroy();
+	_config_client_rule_destroy();
 	_config_ipset_table_destroy();
 	_config_nftset_table_destroy();
 	_config_group_table_destroy();
