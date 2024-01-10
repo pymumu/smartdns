@@ -21,6 +21,14 @@ In addition to blocking ads, `address` can also be used to specify the IP addres
     * `/domain/` uses suffix matching algorithm, including subdomains.
     * `ip`: can be an IPv6 or IPv4 address.
 
+1. Set global blocking for IPV6.
+
+    ```
+    address #6
+    ```
+
+    When no domain is specified, set global rules.
+
 1. Specify IPv6
 
     ```shell
@@ -30,11 +38,11 @@ In addition to blocking ads, `address` can also be used to specify the IP addres
 1. The prefix wildcard matches the main domain name
 
     ```shell
-    // prefix wild card
+    # prefix wild card
     *-a.example.com
-    // only match subdomains
+    # only match subdomains
     *.example.com
-    // only match the main domain name
+    # only match the main domain name
     -.example.com
     ```
 

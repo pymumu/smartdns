@@ -92,6 +92,7 @@ nav:
     - 域名地址: 'config/domain-address.md'
     - cname别名查询: 'config/cname.md'
     - 域名集合: 'config/domain-set.md'
+    - 规则组: 'config/rule-group.md'
     - IPSet和NFTSet: 'config/ipset-nftset.md'
     - 通过代理查询: 'config/proxy.md'
     - DNS64: 'config/dns64.md'

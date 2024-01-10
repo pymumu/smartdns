@@ -92,6 +92,7 @@ nav:
     - Domain Address: 'config/domain-address.md'
     - CNAME Alias Query: 'config/cname.md'
     - Domain Set: 'config/domain-set.md'
+    - Rule Group: 'config/rule-group.md'
     - IPSet and NFTSet: 'config/ipset-nftset.md'
     - Query through Proxy: 'config/proxy.md'
     - DNS64: 'config/dns64.md'
