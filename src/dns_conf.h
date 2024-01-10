@@ -407,10 +407,8 @@ struct dns_conf_domain_rule {
 struct dns_conf_ipset_nftset {
 	int ipset_timeout_enable;
 	struct dns_ipset_names ipset_no_speed;
-	struct dns_ipset_names ipset;
 	int nftset_timeout_enable;
 	struct dns_nftset_names nftset_no_speed;
-	struct dns_nftset_names nftset;
 };
 
 struct dns_conf_group {

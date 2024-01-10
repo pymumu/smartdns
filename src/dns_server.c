@@ -1896,10 +1896,6 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 			ipset_rule = _dns_server_get_bind_ipset_nftset_rule(request, DOMAIN_RULE_IPSET);
 		}
 
-		if (ipset_rule == NULL && conf->ipset_nftset.ipset.inet_enable) {
-			ipset_rule = &conf->ipset_nftset.ipset.inet;
-		}
-
 		if (ipset_rule == NULL && check_no_speed_rule && conf->ipset_nftset.ipset_no_speed.inet_enable) {
 			ipset_rule_v4 = &conf->ipset_nftset.ipset_no_speed.inet;
 		}
@@ -1909,10 +1905,6 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 		ipset_rule_v4 = _dns_server_get_dns_rule(request, DOMAIN_RULE_IPSET_IPV4);
 		if (ipset_rule_v4 == NULL) {
 			ipset_rule_v4 = _dns_server_get_bind_ipset_nftset_rule(request, DOMAIN_RULE_IPSET_IPV4);
-		}
-
-		if (ipset_rule_v4 == NULL && ipset_rule == NULL && conf->ipset_nftset.ipset.ipv4_enable) {
-			ipset_rule_v4 = &conf->ipset_nftset.ipset.ipv4;
 		}
 
 		if (ipset_rule_v4 == NULL && check_no_speed_rule && conf->ipset_nftset.ipset_no_speed.ipv4_enable) {
@@ -1926,10 +1918,6 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 			ipset_rule_v6 = _dns_server_get_bind_ipset_nftset_rule(request, DOMAIN_RULE_IPSET_IPV6);
 		}
 
-		if (ipset_rule_v6 == NULL && ipset_rule == NULL && conf->ipset_nftset.ipset.ipv6_enable) {
-			ipset_rule_v6 = &conf->ipset_nftset.ipset.ipv6;
-		}
-
 		if (ipset_rule_v6 == NULL && check_no_speed_rule && conf->ipset_nftset.ipset_no_speed.ipv6_enable) {
 			ipset_rule_v6 = &conf->ipset_nftset.ipset_no_speed.ipv6;
 		}
@@ -1939,10 +1927,6 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 		nftset_ip = _dns_server_get_dns_rule(request, DOMAIN_RULE_NFTSET_IP);
 		if (nftset_ip == NULL) {
 			nftset_ip = _dns_server_get_bind_ipset_nftset_rule(request, DOMAIN_RULE_NFTSET_IP);
-		}
-
-		if (nftset_ip == NULL && conf->ipset_nftset.nftset.ip_enable) {
-			nftset_ip = &conf->ipset_nftset.nftset.ip;
 		}
 
 		if (nftset_ip == NULL && check_no_speed_rule && conf->ipset_nftset.nftset_no_speed.ip_enable) {
@@ -1955,10 +1939,6 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 
 		if (nftset_ip6 == NULL) {
 			nftset_ip6 = _dns_server_get_bind_ipset_nftset_rule(request, DOMAIN_RULE_NFTSET_IP6);
-		}
-
-		if (nftset_ip6 == NULL && conf->ipset_nftset.nftset.ip6_enable) {
-			nftset_ip6 = &conf->ipset_nftset.nftset.ip6;
 		}
 
 		if (nftset_ip6 == NULL && check_no_speed_rule && conf->ipset_nftset.nftset_no_speed.ip6_enable) {
@@ -4664,13 +4644,14 @@ static void _dns_server_get_domain_rule_by_domain(struct dns_request *request, c
 
 	/* reverse domain string */
 	domain_len = strlen(domain);
-	if (domain_len >= (int)sizeof(domain_key) - 2) {
+	if (domain_len >= (int)sizeof(domain_key) - 3) {
 		return;
 	}
 
-	reverse_string(domain_key, domain, domain_len, 1);
-	domain_key[domain_len] = '.';
-	domain_len++;
+	reverse_string(domain_key + 1, domain, domain_len, 1);
+	domain_key[domain_len + 1] = '.';
+	domain_key[0] = '.';
+	domain_len += 2;
 	domain_key[domain_len] = 0;
 
 	/* find domain rule */

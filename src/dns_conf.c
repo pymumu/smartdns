@@ -306,7 +306,8 @@ static int _get_domain(char *value, char *domain, int max_domain_size, char **pt
 	/* first field */
 	begin = strstr(value, "/");
 	if (begin == NULL) {
-		goto errout;
+		safe_strncpy(domain, ".", max_domain_size);
+		return 0;
 	}
 
 	/* second field */
@@ -318,6 +319,9 @@ static int _get_domain(char *value, char *domain, int max_domain_size, char **pt
 
 	/* remove prefix . */
 	while (*begin == '.') {
+		if (begin + 1 == end) {
+			break;
+		}
 		begin++;
 	}
 
@@ -1218,15 +1222,21 @@ static int _config_setup_domain_key(const char *domain, char *domain_key, int do
 {
 	int tmp_root_rule_only = 0;
 	int tmp_sub_rule_only = 0;
+	int domain_len = 0;
 
 	int len = strlen(domain);
-	if (len >= domain_key_max_len - 2) {
+	domain_len = len;
+	if (len >= domain_key_max_len - 3) {
 		tlog(TLOG_ERROR, "domain %s too long", domain);
 		return -1;
 	}
 
-	reverse_string(domain_key, domain, len, 1);
-	if (domain[0] == '*') {
+	while (len > 0 && domain[len - 1] == '.') {
+		len--;
+	}
+
+	reverse_string(domain_key + 1, domain, len, 1);
+	if (domain[0] == '*' && domain_len > 1) {
 		/* prefix wildcard */
 		len--;
 		if (domain[1] == '.') {
@@ -1236,20 +1246,22 @@ static int _config_setup_domain_key(const char *domain, char *domain_key, int do
 			tmp_sub_rule_only = 1;
 			tmp_root_rule_only = 1;
 		}
-	} else if (domain[0] == '-') {
+	} else if (domain[0] == '-' && domain_len > 1) {
 		/* root match only */
 		len--;
 		if (domain[1] == '.') {
 			tmp_root_rule_only = 1;
 		}
-	} else {
+	} else if (len > 0) {
 		/* suffix match */
-		domain_key[len] = '.';
+		domain_key[len + 1] = '.';
 		len++;
 	}
-	domain_key[len] = 0;
 
-	*domain_key_len = len;
+	domain_key[len + 1] = 0;
+	domain_key[0] = '.';
+
+	*domain_key_len = len + 1;
 	if (root_rule_only) {
 		*root_rule_only = tmp_root_rule_only;
 	}
@@ -1656,16 +1668,7 @@ static int _config_ipset(void *data, int argc, char *argv[])
 	}
 
 	if (_get_domain(value, domain, DNS_MAX_CONF_CNAME_LEN, &value) != 0) {
-		if (strstr(value, "/")) {
-			goto errout;
-		}
-
-		if (_config_ipset_setvalue(&_config_current_rule_group()->ipset_nftset.ipset, value) != 0) {
-			ret = -1;
-			goto errout;
-		}
-
-		return 0;
+		goto errout;
 	}
 
 	ret = _conf_domain_rule_ipset(domain, value);
@@ -1868,15 +1871,7 @@ static int _config_nftset(void *data, int argc, char *argv[])
 	}
 
 	if (_get_domain(value, domain, DNS_MAX_CONF_CNAME_LEN, &value) != 0) {
-		if (strstr(value, "/")) {
-			goto errout;
-		}
-		if (_config_nftset_setvalue(&_config_current_rule_group()->ipset_nftset.nftset, value) != 0) {
-			ret = -1;
-			goto errout;
-		}
-
-		return 0;
+		goto errout;
 	}
 
 	return _conf_domain_rule_nftset(domain, value);
