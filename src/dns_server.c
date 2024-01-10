@@ -4792,6 +4792,10 @@ static int _dns_server_pre_process_rule_flags(struct dns_request *request)
 		request->no_cache = 1;
 	}
 
+	if (flags & DOMAIN_FLAG_ENABLE_CACHE) {
+		request->no_cache = 0;
+	}
+
 	if (flags & DOMAIN_FLAG_NO_IPALIAS) {
 		request->no_ipalias = 1;
 	}

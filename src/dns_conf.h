@@ -135,6 +135,7 @@ typedef enum {
 #define DOMAIN_FLAG_NO_CACHE (1 << 17)
 #define DOMAIN_FLAG_NO_IPALIAS (1 << 18)
 #define DOMAIN_FLAG_GROUP_IGNORE (1 << 19)
+#define DOMAIN_FLAG_ENABLE_CACHE (1 << 20)
 
 #define IP_RULE_FLAG_BLACKLIST (1 << 0)
 #define IP_RULE_FLAG_WHITELIST (1 << 1)
