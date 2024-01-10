@@ -81,6 +81,7 @@ enum domain_rule {
 	DOMAIN_RULE_NFTSET_IP,
 	DOMAIN_RULE_NFTSET_IP6,
 	DOMAIN_RULE_NAMESERVER,
+	DOMAIN_RULE_GROUP,
 	DOMAIN_RULE_CHECKSPEED,
 	DOMAIN_RULE_RESPONSE_MODE,
 	DOMAIN_RULE_CNAME,
@@ -133,6 +134,7 @@ typedef enum {
 #define DOMAIN_FLAG_CNAME_IGN (1 << 16)
 #define DOMAIN_FLAG_NO_CACHE (1 << 17)
 #define DOMAIN_FLAG_NO_IPALIAS (1 << 18)
+#define DOMAIN_FLAG_GROUP_IGNORE (1 << 19)
 
 #define IP_RULE_FLAG_BLACKLIST (1 << 0)
 #define IP_RULE_FLAG_WHITELIST (1 << 1)
@@ -254,6 +256,11 @@ struct dns_domain_rule {
 };
 
 struct dns_nameserver_rule {
+	struct dns_rule head;
+	const char *group_name;
+};
+
+struct dns_group_rule {
 	struct dns_rule head;
 	const char *group_name;
 };

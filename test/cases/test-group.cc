@@ -385,3 +385,139 @@ client-rules 127.0.0.1
 		EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
 	}
 }
+
+TEST_F(Group, group_match_client_ip)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::Server server;
+
+	server_upstream.Start("udp://0.0.0.0:61053", [&](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype == DNS_T_A) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4");
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "5.6.7.8");
+			return smartdns::SERVER_REQUEST_OK;
+		} else if (request->qtype == DNS_T_AAAA) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "2001:db8::1");
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "2001:db8::2");
+			return smartdns::SERVER_REQUEST_OK;
+		}
+		return smartdns::SERVER_REQUEST_SOA;
+	});
+
+	server.MockPing(PING_TYPE_ICMP, "1.2.3.4", 60, 80);
+	server.MockPing(PING_TYPE_ICMP, "5.6.7.8", 60, 110);
+	server.MockPing(PING_TYPE_ICMP, "2001:db8::1", 60, 150);
+	server.MockPing(PING_TYPE_ICMP, "2001:db8::2", 60, 200);
+
+	server.Start(R"""(bind [::]:60053
+server 127.0.0.1:61053
+speed-check-mode ping
+group-begin client
+dualstack-ip-selection no
+group-match -client-ip 127.0.0.1
+)""");
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("a.com AAAA", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 3);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "2001:db8::1");
+
+	ASSERT_TRUE(client.Query("a.com", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 3);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+
+	auto ipaddr = smartdns::GetAvailableIPAddresses();
+	if (ipaddr.size() > 0) {
+		ASSERT_TRUE(client.Query("a.com AAAA", 60053, ipaddr[0]));
+		std::cout << client.GetResult() << std::endl;
+		ASSERT_EQ(client.GetAuthorityNum(), 1);
+		EXPECT_EQ(client.GetStatus(), "NOERROR");
+		EXPECT_EQ(client.GetAuthority()[0].GetName(), "a.com");
+		EXPECT_EQ(client.GetAuthority()[0].GetTTL(), 3);
+		EXPECT_EQ(client.GetAuthority()[0].GetType(), "SOA");
+
+		ASSERT_TRUE(client.Query("a.com", 60053, ipaddr[0]));
+		std::cout << client.GetResult() << std::endl;
+		ASSERT_EQ(client.GetAnswerNum(), 1);
+		EXPECT_EQ(client.GetStatus(), "NOERROR");
+		EXPECT_LT(client.GetQueryTime(), 20);
+		EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
+		EXPECT_GT(client.GetAnswer()[0].GetTTL(), 597);
+		EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+	}
+}
+
+TEST_F(Group, group_match_domain)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::Server server;
+
+	server_upstream.Start("udp://0.0.0.0:61053", [&](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype == DNS_T_A) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4");
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "5.6.7.8");
+			return smartdns::SERVER_REQUEST_OK;
+		} else if (request->qtype == DNS_T_AAAA) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "2001:db8::1");
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "2001:db8::2");
+			return smartdns::SERVER_REQUEST_OK;
+		}
+		return smartdns::SERVER_REQUEST_SOA;
+	});
+
+	server.MockPing(PING_TYPE_ICMP, "1.2.3.4", 60, 80);
+	server.MockPing(PING_TYPE_ICMP, "5.6.7.8", 60, 110);
+	server.MockPing(PING_TYPE_ICMP, "2001:db8::1", 60, 150);
+	server.MockPing(PING_TYPE_ICMP, "2001:db8::2", 60, 200);
+
+	server.Start(R"""(bind [::]:60053
+server 127.0.0.1:61053
+speed-check-mode none
+group-begin client
+address #6
+group-match -domain a.com
+)""");
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("a.com AAAA", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAuthorityNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAuthority()[0].GetName(), "a.com");
+	EXPECT_EQ(client.GetAuthority()[0].GetTTL(), 30);
+	EXPECT_EQ(client.GetAuthority()[0].GetType(), "SOA");
+
+	ASSERT_TRUE(client.Query("a.com", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 2);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 600);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+	EXPECT_EQ(client.GetAnswer()[1].GetData(), "5.6.7.8");
+
+	ASSERT_TRUE(client.Query("b.com AAAA", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 2);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "b.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 600);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "2001:db8::1");
+	EXPECT_EQ(client.GetAnswer()[1].GetData(), "2001:db8::2");
+
+	ASSERT_TRUE(client.Query("b.com", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 2);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_LT(client.GetQueryTime(), 20);
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "b.com");
+	EXPECT_GT(client.GetAnswer()[0].GetTTL(), 597);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+	EXPECT_EQ(client.GetAnswer()[1].GetData(), "5.6.7.8");
+}

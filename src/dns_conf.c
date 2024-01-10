@@ -192,7 +192,8 @@ struct dns_edns_client_subnet dns_conf_ipv6_ecs;
 
 char dns_conf_sni_proxy_ip[DNS_MAX_IPLEN];
 
-static int _conf_domain_rule_nameserver(char *domain, const char *group_name);
+static int _conf_domain_rule_nameserver(const char *domain, const char *group_name);
+static int _conf_domain_rule_group(const char *domain, const char *group_name);
 static int _conf_ptr_add(const char *hostname, const char *ip, int is_dynamic);
 static int _conf_client_subnet(char *subnet, struct dns_edns_client_subnet *ipv4_ecs,
 							   struct dns_edns_client_subnet *ipv6_ecs);
@@ -205,6 +206,8 @@ static struct dns_conf_group *_config_rule_group_new(const char *group_name);
 static struct dns_conf_group *_config_current_rule_group(void);
 static void _config_ip_iter_free(radix_node_t *node, void *cbctx);
 static int _config_nftset_setvalue(struct dns_nftset_names *nftsets, const char *nftsetvalue);
+static int _config_client_rule_flag_set(const char *ip_cidr, unsigned int flag, unsigned int is_clear);
+static int _config_client_rule_group_add(const char *client, const char *group_name);
 
 static void *_new_dns_rule_ext(enum domain_rule domain_rule, int ext_size)
 {
@@ -236,6 +239,9 @@ static void *_new_dns_rule_ext(enum domain_rule domain_rule, int ext_size)
 		break;
 	case DOMAIN_RULE_NAMESERVER:
 		size = sizeof(struct dns_nameserver_rule);
+		break;
+	case DOMAIN_RULE_GROUP:
+		size = sizeof(struct dns_group_rule);
 		break;
 	case DOMAIN_RULE_CHECKSPEED:
 		size = sizeof(struct dns_domain_check_orders);
@@ -621,6 +627,81 @@ static int _config_group_end(void *data, int argc, char *argv[])
 {
 	_config_current_group_pop();
 	return 0;
+}
+
+static int _config_group_match(void *data, int argc, char *argv[])
+{
+	int opt = 0;
+	struct dns_conf_group_info *saved_group_info = dns_conf_current_group_info;
+	const char *group_name = saved_group_info->group_name;
+	char group_name_buf[DNS_MAX_CONF_CNAME_LEN];
+
+	/* clang-format off */
+	static struct option long_options[] = {
+		{"domain", required_argument, NULL, 'd'},
+		{"client-ip", required_argument, NULL, 'c'},
+		{"group", required_argument, NULL, 'g'},
+		{NULL, no_argument, NULL, 0}
+	};
+	/* clang-format on */
+
+	if (argc <= 1 || group_name == NULL) {
+		tlog(TLOG_ERROR, "invalid parameter.");
+		goto errout;
+	}
+
+	dns_conf_current_group_info = dns_conf_default_group_info;
+
+	for (int i = 1; i < argc - 1; i++) {
+		if (strncmp(argv[i], "-g", sizeof("-g")) == 0 || strncmp(argv[i], "--group", sizeof("--group")) == 0 ||
+			strncmp(argv[i], "-group", sizeof("-group")) == 0) {
+			safe_strncpy(group_name_buf, argv[i + 1], DNS_MAX_CONF_CNAME_LEN);
+			group_name = group_name_buf;
+			break;
+		}
+	}
+
+	while (1) {
+		opt = getopt_long_only(argc, argv, "g:", long_options, NULL);
+		if (opt == -1) {
+			break;
+		}
+
+		switch (opt) {
+		case 'g': {
+			group_name = optarg;
+			break;
+		}
+		case 'd': {
+			const char *domain = optarg;
+
+			if (_conf_domain_rule_group(domain, group_name) != 0) {
+				tlog(TLOG_ERROR, "set group match for domain %s failed.", optarg);
+				goto errout;
+			}
+			break;
+		}
+		case 'c': {
+			char *client_ip = optarg;
+			if (_config_client_rule_group_add(client_ip, group_name) != 0) {
+				tlog(TLOG_ERROR, "add group rule failed.");
+				goto errout;
+			}
+			break;
+		}
+		default:
+			tlog(TLOG_WARN, "unknown group-match option: %s at '%s:%d'.", argv[optind - 1], conf_get_conf_file(),
+				 conf_get_current_lineno());
+			break;
+		}
+	}
+
+	dns_conf_current_group_info = saved_group_info;
+
+	return 0;
+errout:
+	dns_conf_current_group_info = saved_group_info;
+	return -1;
 }
 
 /* create and get dns server group */
@@ -2854,7 +2935,7 @@ static int _config_server_https(void *data, int argc, char *argv[])
 	return ret;
 }
 
-static int _conf_domain_rule_nameserver(char *domain, const char *group_name)
+static int _conf_domain_rule_nameserver(const char *domain, const char *group_name)
 {
 	struct dns_nameserver_rule *nameserver_rule = NULL;
 	const char *group = NULL;
@@ -2893,6 +2974,48 @@ errout:
 	}
 
 	tlog(TLOG_ERROR, "add nameserver %s, %s failed", domain, group_name);
+	return 0;
+}
+
+static int _conf_domain_rule_group(const char *domain, const char *group_name)
+{
+	struct dns_group_rule *group_rule = NULL;
+	const char *group = NULL;
+
+	if (strncmp(group_name, "-", sizeof("-")) != 0) {
+		group = _dns_conf_get_group_name(group_name);
+		if (group == NULL) {
+			goto errout;
+		}
+
+		group_rule = _new_dns_rule(DOMAIN_RULE_GROUP);
+		if (group_rule == NULL) {
+			goto errout;
+		}
+
+		group_rule->group_name = group;
+	} else {
+		/* ignore this domain */
+		if (_config_domain_rule_flag_set(domain, DOMAIN_FLAG_GROUP_IGNORE, 0) != 0) {
+			goto errout;
+		}
+
+		return 0;
+	}
+
+	if (_config_domain_rule_add(domain, DOMAIN_RULE_GROUP, group_rule) != 0) {
+		goto errout;
+	}
+
+	_dns_rule_put(&group_rule->head);
+
+	return 0;
+errout:
+	if (group_rule) {
+		_dns_rule_put(&group_rule->head);
+	}
+
+	tlog(TLOG_ERROR, "add group %s, %s failed", domain, group_name);
 	return 0;
 }
 
@@ -3206,7 +3329,6 @@ static int _config_client_rules_free(struct dns_client_rules *client_rules)
 	return 0;
 }
 
-static int _config_client_rule_flag_set(const char *ip_cidr, unsigned int flag, unsigned int is_clear);
 static int _config_client_rule_flag_callback(const char *ip_cidr, void *priv)
 {
 	struct dns_set_rule_flags_callback_args *args = (struct dns_set_rule_flags_callback_args *)priv;
@@ -4329,7 +4451,8 @@ static int _conf_domain_rules(void *data, int argc, char *argv[])
 	}
 
 	for (int i = 2; i < argc - 1; i++) {
-		if (strncmp(argv[i], "-g", sizeof("-g")) == 0 || strncmp(argv[i], "--group", sizeof("--group")) == 0) {
+		if (strncmp(argv[i], "-g", sizeof("-g")) == 0 || strncmp(argv[i], "--group", sizeof("--group")) == 0 ||
+			strncmp(argv[i], "-group", sizeof("-group")) == 0) {
 			safe_strncpy(group_name, argv[i + 1], DNS_MAX_CONF_CNAME_LEN);
 			group = group_name;
 			break;
@@ -5345,6 +5468,7 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("hosts-file", _conf_hosts_file, NULL),
 	CONF_CUSTOM("group-begin", _config_group_begin, NULL),
 	CONF_CUSTOM("group-end", _config_group_end, NULL),
+	CONF_CUSTOM("group-match", _config_group_match, NULL),
 	CONF_CUSTOM("client-rules", _config_client_rules, NULL),
 	CONF_STRING("ca-file", (char *)&dns_conf_ca_file, DNS_MAX_PATH),
 	CONF_STRING("ca-path", (char *)&dns_conf_ca_path, DNS_MAX_PATH),

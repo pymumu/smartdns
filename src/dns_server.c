@@ -104,6 +104,7 @@ typedef enum DNS_CHILD_POST_RESULT {
 
 struct rule_walk_args {
 	void *args;
+	int rule_index;
 	unsigned char *key[DOMAIN_RULE_MAX];
 	uint32_t key_len[DOMAIN_RULE_MAX];
 };
@@ -515,22 +516,40 @@ static int _dns_server_epoll_ctl(struct dns_server_conn_head *head, int op, uint
 	return 0;
 }
 
-static void *_dns_server_get_dns_rule(struct dns_request *request, enum domain_rule rule)
+static void *_dns_server_get_dns_rule_ext(struct dns_request_domain_rule *domain_rule, enum domain_rule rule)
 {
-	if (rule >= DOMAIN_RULE_MAX || request == NULL) {
+	if (rule >= DOMAIN_RULE_MAX || domain_rule == NULL) {
 		return NULL;
 	}
 
-	return request->domain_rule.rules[rule];
+	return domain_rule->rules[rule];
+}
+
+static int _dns_server_is_dns_rule_extract_match_ext(struct dns_request_domain_rule *domain_rule, enum domain_rule rule)
+{
+	if (rule >= DOMAIN_RULE_MAX || domain_rule == NULL) {
+		return 0;
+	}
+
+	return domain_rule->is_sub_rule[rule] == 0;
+}
+
+static void *_dns_server_get_dns_rule(struct dns_request *request, enum domain_rule rule)
+{
+	if (request == NULL) {
+		return NULL;
+	}
+
+	return _dns_server_get_dns_rule_ext(&request->domain_rule, rule);
 }
 
 static int _dns_server_is_dns_rule_extract_match(struct dns_request *request, enum domain_rule rule)
 {
-	if (rule >= DOMAIN_RULE_MAX || request == NULL) {
+	if (request == NULL) {
 		return 0;
 	}
 
-	return request->domain_rule.is_sub_rule[rule] == 0;
+	return _dns_server_is_dns_rule_extract_match_ext(&request->domain_rule, rule);
 }
 
 static int _dns_server_is_dns64_request(struct dns_request *request)
@@ -4535,9 +4554,9 @@ static void _dns_server_log_rule(const char *domain, enum domain_rule rule_type,
 	tlog(TLOG_INFO, "RULE-MATCH, type: %d, domain: %s, rule: %s", rule_type, domain, rule_name);
 }
 
-static void _dns_server_update_rule_by_flags(struct dns_request *request)
+static void _dns_server_update_rule_by_flags(struct dns_request_domain_rule *request_domain_rule)
 {
-	struct dns_rule_flags *rule_flag = (struct dns_rule_flags *)request->domain_rule.rules[0];
+	struct dns_rule_flags *rule_flag = (struct dns_rule_flags *)request_domain_rule->rules[0];
 	unsigned int flags = 0;
 
 	if (rule_flag == NULL) {
@@ -4546,47 +4565,47 @@ static void _dns_server_update_rule_by_flags(struct dns_request *request)
 	flags = rule_flag->flags;
 
 	if (flags & DOMAIN_FLAG_ADDR_IGN) {
-		request->domain_rule.rules[DOMAIN_RULE_ADDRESS_IPV4] = NULL;
-		request->domain_rule.rules[DOMAIN_RULE_ADDRESS_IPV6] = NULL;
+		request_domain_rule->rules[DOMAIN_RULE_ADDRESS_IPV4] = NULL;
+		request_domain_rule->rules[DOMAIN_RULE_ADDRESS_IPV6] = NULL;
 	}
 
 	if (flags & DOMAIN_FLAG_ADDR_IPV4_IGN) {
-		request->domain_rule.rules[DOMAIN_RULE_ADDRESS_IPV4] = NULL;
+		request_domain_rule->rules[DOMAIN_RULE_ADDRESS_IPV4] = NULL;
 	}
 
 	if (flags & DOMAIN_FLAG_ADDR_IPV6_IGN) {
-		request->domain_rule.rules[DOMAIN_RULE_ADDRESS_IPV6] = NULL;
+		request_domain_rule->rules[DOMAIN_RULE_ADDRESS_IPV6] = NULL;
 	}
 
 	if (flags & DOMAIN_FLAG_IPSET_IGN) {
-		request->domain_rule.rules[DOMAIN_RULE_IPSET] = NULL;
+		request_domain_rule->rules[DOMAIN_RULE_IPSET] = NULL;
 	}
 
 	if (flags & DOMAIN_FLAG_IPSET_IPV4_IGN) {
-		request->domain_rule.rules[DOMAIN_RULE_IPSET_IPV4] = NULL;
+		request_domain_rule->rules[DOMAIN_RULE_IPSET_IPV4] = NULL;
 	}
 
 	if (flags & DOMAIN_FLAG_IPSET_IPV6_IGN) {
-		request->domain_rule.rules[DOMAIN_RULE_IPSET_IPV6] = NULL;
+		request_domain_rule->rules[DOMAIN_RULE_IPSET_IPV6] = NULL;
 	}
 
 	if (flags & DOMAIN_FLAG_NFTSET_IP_IGN || flags & DOMAIN_FLAG_NFTSET_INET_IGN) {
-		request->domain_rule.rules[DOMAIN_RULE_NFTSET_IP] = NULL;
+		request_domain_rule->rules[DOMAIN_RULE_NFTSET_IP] = NULL;
 	}
 
 	if (flags & DOMAIN_FLAG_NFTSET_IP6_IGN || flags & DOMAIN_FLAG_NFTSET_INET_IGN) {
-		request->domain_rule.rules[DOMAIN_RULE_NFTSET_IP6] = NULL;
+		request_domain_rule->rules[DOMAIN_RULE_NFTSET_IP6] = NULL;
 	}
 
 	if (flags & DOMAIN_FLAG_NAMESERVER_IGNORE) {
-		request->domain_rule.rules[DOMAIN_RULE_NAMESERVER] = NULL;
+		request_domain_rule->rules[DOMAIN_RULE_NAMESERVER] = NULL;
 	}
 }
 
 static int _dns_server_get_rules(unsigned char *key, uint32_t key_len, int is_subkey, void *value, void *arg)
 {
 	struct rule_walk_args *walk_args = arg;
-	struct dns_request *request = walk_args->args;
+	struct dns_request_domain_rule *request_domain_rule = walk_args->args;
 	struct dns_domain_rule *domain_rule = value;
 	int i = 0;
 	if (domain_rule == NULL) {
@@ -4605,42 +4624,49 @@ static int _dns_server_get_rules(unsigned char *key, uint32_t key_len, int is_su
 		}
 	}
 
-	for (i = 0; i < DOMAIN_RULE_MAX; i++) {
+	if (walk_args->rule_index >= 0) {
+		i = walk_args->rule_index;
+	} else {
+		i = 0;
+	}
+
+	for (; i < DOMAIN_RULE_MAX; i++) {
 		if (domain_rule->rules[i] == NULL) {
+			if (walk_args->rule_index >= 0) {
+				break;
+			}
 			continue;
 		}
 
-		request->domain_rule.rules[i] = domain_rule->rules[i];
-		request->domain_rule.is_sub_rule[i] = is_subkey;
+		request_domain_rule->rules[i] = domain_rule->rules[i];
+		request_domain_rule->is_sub_rule[i] = is_subkey;
 		walk_args->key[i] = key;
 		walk_args->key_len[i] = key_len;
+		if (walk_args->rule_index >= 0) {
+			break;
+		}
 	}
 
 	/* update rules by flags */
-	_dns_server_update_rule_by_flags(request);
+	_dns_server_update_rule_by_flags(request_domain_rule);
 
 	return 0;
 }
 
-static void _dns_server_get_domain_rule_by_domain(struct dns_request *request, const char *domain, int out_log)
+static void _dns_server_get_domain_rule_by_domain_ext(struct dns_conf_group *conf,
+													  struct dns_request_domain_rule *request_domain_rule,
+													  int rule_index, const char *domain, int out_log)
 {
 	int domain_len = 0;
 	char domain_key[DNS_MAX_CNAME_LEN];
+	struct rule_walk_args walk_args;
 	int matched_key_len = DNS_MAX_CNAME_LEN;
 	unsigned char matched_key[DNS_MAX_CNAME_LEN];
-	struct rule_walk_args walk_args;
 	int i = 0;
 
-	if (request->skip_domain_rule != 0) {
-		return;
-	}
-
-	if (request->conf == NULL) {
-		return;
-	}
-
 	memset(&walk_args, 0, sizeof(walk_args));
-	walk_args.args = request;
+	walk_args.args = request_domain_rule;
+	walk_args.rule_index = rule_index;
 
 	/* reverse domain string */
 	domain_len = strlen(domain);
@@ -4655,15 +4681,24 @@ static void _dns_server_get_domain_rule_by_domain(struct dns_request *request, c
 	domain_key[domain_len] = 0;
 
 	/* find domain rule */
-	art_substring_walk(&request->conf->domain_rule.tree, (unsigned char *)domain_key, domain_len, _dns_server_get_rules,
+	art_substring_walk(&conf->domain_rule.tree, (unsigned char *)domain_key, domain_len, _dns_server_get_rules,
 					   &walk_args);
-	if (likely(dns_conf_log_level > TLOG_DEBUG)) {
+	if (likely(dns_conf_log_level > TLOG_DEBUG) || out_log == 0) {
 		return;
 	}
 
+	if (walk_args.rule_index >= 0) {
+		i = walk_args.rule_index;
+	} else {
+		i = 0;
+	}
+
 	/* output log rule */
-	for (i = 0; i < DOMAIN_RULE_MAX; i++) {
+	for (; i < DOMAIN_RULE_MAX; i++) {
 		if (walk_args.key[i] == NULL) {
+			if (walk_args.rule_index >= 0) {
+				break;
+			}
 			continue;
 		}
 
@@ -4676,11 +4711,25 @@ static void _dns_server_get_domain_rule_by_domain(struct dns_request *request, c
 
 		matched_key_len--;
 		matched_key[matched_key_len] = 0;
-		if (out_log != 0) {
-			_dns_server_log_rule(request->domain, i, matched_key, matched_key_len);
+		_dns_server_log_rule(domain, i, matched_key, matched_key_len);
+
+		if (walk_args.rule_index >= 0) {
+			break;
 		}
 	}
+}
 
+static void _dns_server_get_domain_rule_by_domain(struct dns_request *request, const char *domain, int out_log)
+{
+	if (request->skip_domain_rule != 0) {
+		return;
+	}
+
+	if (request->conf == NULL) {
+		return;
+	}
+
+	_dns_server_get_domain_rule_by_domain_ext(request->conf, &request->domain_rule, -1, domain, out_log);
 	request->skip_domain_rule = 1;
 }
 
@@ -5945,6 +5994,42 @@ errout:
 	return ret;
 }
 
+static int _dns_server_setup_request_conf_pre(struct dns_request *request)
+{
+	struct dns_conf_group *rule_group = NULL;
+	struct dns_request_domain_rule domain_rule;
+
+	if (request->skip_domain_rule != 0 && request->conf) {
+		return 0;
+	}
+
+	rule_group = dns_server_get_rule_group(request->dns_group_name);
+	if (rule_group == NULL) {
+		return -1;
+	}
+
+	request->conf = rule_group;
+	memset(&domain_rule, 0, sizeof(domain_rule));
+	_dns_server_get_domain_rule_by_domain_ext(rule_group, &domain_rule, DOMAIN_RULE_GROUP, request->domain, 1);
+	if (domain_rule.rules[DOMAIN_RULE_GROUP] == NULL) {
+		return 0;
+	}
+
+	struct dns_group_rule *group_rule = _dns_server_get_dns_rule_ext(&domain_rule, DOMAIN_RULE_GROUP);
+	if (group_rule == NULL) {
+		return 0;
+	}
+	rule_group = dns_server_get_rule_group(group_rule->group_name);
+	if (rule_group == NULL) {
+		return 0;
+	}
+
+	request->conf = rule_group;
+	tlog(TLOG_DEBUG, "domain %s match group %s", request->domain, rule_group->group_name);
+
+	return 0;
+}
+
 static int _dns_server_setup_request_conf(struct dns_request *request)
 {
 	struct dns_conf_group *rule_group = NULL;
@@ -5975,7 +6060,7 @@ static int _dns_server_do_query(struct dns_request *request, int skip_notify_eve
 
 	request->send_tick = get_tick_count();
 
-	if (_dns_server_setup_request_conf(request) != 0) {
+	if (_dns_server_setup_request_conf_pre(request) != 0) {
 		goto errout;
 	}
 
