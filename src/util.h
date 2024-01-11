@@ -80,6 +80,8 @@ int check_is_ipv4(const char *ip);
 
 int check_is_ipv6(const char *ip);
 
+int parser_mac_address(const char *in_mac, uint8_t mac[6]);
+
 int parse_uri(const char *value, char *scheme, char *host, int *port, char *path);
 
 int parse_uri_ext(const char *value, char *scheme, char *user, char *password, char *host, int *port, char *path);
@@ -97,6 +99,10 @@ void print_stack(void);
 int ipset_add(const char *ipset_name, const unsigned char addr[], int addr_len, unsigned long timeout);
 
 int ipset_del(const char *ipset_name, const unsigned char addr[], int addr_len);
+
+int netlink_get_neighbors(int family,
+						  int (*callback)(const uint8_t *net_addr, int net_addr_len, const uint8_t mac[6], void *arg),
+						  void *arg);
 
 void SSL_CRYPTO_thread_setup(void);
 

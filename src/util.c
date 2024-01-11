@@ -117,6 +117,7 @@ struct daemon_msg {
 static int ipset_fd;
 static int pidfile_fd;
 static int daemon_fd;
+static int netlink_neighbor_fd;
 
 unsigned long get_tick_count(void)
 {
@@ -695,7 +696,7 @@ static int _ipset_socket_init(void)
 		return 0;
 	}
 
-	ipset_fd = socket(AF_NETLINK, SOCK_RAW, NETLINK_NETFILTER);
+	ipset_fd = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_NETFILTER);
 
 	if (ipset_fd < 0) {
 		return -1;
@@ -802,6 +803,103 @@ int ipset_add(const char *ipset_name, const unsigned char addr[], int addr_len, 
 int ipset_del(const char *ipset_name, const unsigned char addr[], int addr_len)
 {
 	return _ipset_operate(ipset_name, addr, addr_len, 0, IPSET_DEL);
+}
+
+int netlink_get_neighbors(int family,
+						  int (*callback)(const uint8_t *net_addr, int net_addr_len, const uint8_t mac[6], void *arg),
+						  void *arg)
+{
+	if (netlink_neighbor_fd <= 0) {
+		netlink_neighbor_fd = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC | SOCK_NONBLOCK, NETLINK_ROUTE);
+		if (netlink_neighbor_fd < 0) {
+			return -1;
+		}
+	}
+
+	struct nlmsghdr *nlh;
+	struct ndmsg *ndm;
+	char buf[1024 * 16];
+	struct iovec iov = {buf, sizeof(buf)};
+	struct sockaddr_nl sa;
+	struct msghdr msg = {&sa, sizeof(sa), &iov, 1, NULL, 0, 0};
+	int len;
+	int ret = 0;
+
+	nlh = (struct nlmsghdr *)buf;
+	nlh->nlmsg_len = NLMSG_LENGTH(sizeof(struct ndmsg));
+	nlh->nlmsg_type = RTM_GETNEIGH;
+	nlh->nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
+	nlh->nlmsg_seq = time(NULL);
+	nlh->nlmsg_pid = getpid();
+
+	ndm = NLMSG_DATA(nlh);
+	ndm->ndm_family = family;
+
+	if (send(netlink_neighbor_fd, buf, NLMSG_SPACE(sizeof(struct ndmsg)), 0) < 0) {
+		return -1;
+	}
+
+	while ((len = recvmsg(netlink_neighbor_fd, &msg, 0)) > 0) {
+		if (ret != 0) {
+			continue;
+		}
+
+		for (nlh = (struct nlmsghdr *)buf; NLMSG_OK(nlh, len); nlh = NLMSG_NEXT(nlh, len)) {
+			ndm = NLMSG_DATA(nlh);
+			struct rtattr *rta = RTM_RTA(ndm);
+			int rtalen = RTM_PAYLOAD(nlh);
+			const uint8_t *mac = NULL;
+			const uint8_t *net_addr = NULL;
+			int net_addr_len = 0;
+
+			for (; RTA_OK(rta, rtalen); rta = RTA_NEXT(rta, rtalen)) {
+				if (rta->rta_type == NDA_DST) {
+					if (ndm->ndm_family == AF_INET) {
+						struct in_addr *addr = RTA_DATA(rta);
+						if (IN_MULTICAST(ntohl(addr->s_addr))) {
+							continue;
+						}
+
+						if (ntohl(addr->s_addr) == 0) {
+							continue;
+						}
+
+						net_addr = (uint8_t *)&addr->s_addr;
+						net_addr_len = IPV4_ADDR_LEN;
+					} else if (ndm->ndm_family == AF_INET6) {
+						struct in6_addr *addr = RTA_DATA(rta);
+						if (IN6_IS_ADDR_MC_NODELOCAL(addr)) {
+							continue;
+						}
+						if (IN6_IS_ADDR_MC_LINKLOCAL(addr)) {
+							continue;
+						}
+						if (IN6_IS_ADDR_MC_SITELOCAL(addr)) {
+							continue;
+						}
+
+						if (IN6_IS_ADDR_UNSPECIFIED(addr)) {
+							continue;
+						}
+
+						net_addr = addr->s6_addr;
+						net_addr_len = IPV6_ADDR_LEN;
+					}
+				} else if (rta->rta_type == NDA_LLADDR) {
+					mac = RTA_DATA(rta);
+				}
+			}
+
+			if (net_addr != NULL && mac != NULL) {
+				ret = callback(net_addr, net_addr_len, mac, arg);
+				if (ret != 0) {
+					break;
+				}
+			}
+		}
+	}
+
+	return ret;
 }
 
 unsigned char *SSL_SHA256(const unsigned char *d, size_t n, unsigned char *md)
@@ -1817,6 +1915,23 @@ errout:
 		*wstatus = -1;
 	}
 	return DAEMON_RET_ERR;
+}
+
+int parser_mac_address(const char *in_mac, uint8_t mac[6])
+{
+	int fileld_num = 0;
+
+	if (in_mac == NULL) {
+		return -1;
+	}
+
+	fileld_num =
+		sscanf(in_mac, "%2hhx:%2hhx:%2hhx:%2hhx:%2hhx:%2hhx", &mac[0], &mac[1], &mac[2], &mac[3], &mac[4], &mac[5]);
+	if (fileld_num != 6) {
+		return -1;
+	}
+
+	return 0;
 }
 
 #if defined(DEBUG) || defined(TEST)

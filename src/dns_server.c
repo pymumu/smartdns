@@ -74,6 +74,9 @@
 #define CACHE_AUTO_ENABLE_SIZE (1024 * 1024 * 128)
 #define EXPIRED_DOMAIN_PREFETCH_TIME (3600 * 8)
 #define DNS_MAX_DOMAIN_REFETCH_NUM 64
+#define DNS_SERVER_NEIGHBOR_CACHE_MAX_NUM 8192
+#define DNS_SERVER_NEIGHBOR_CACHE_TIMEOUT (3600 * 1)
+#define DNS_SERVER_NEIGHBOR_CACHE_NOMAC_TIMEOUT 60
 
 #define PREFETCH_FLAGS_NO_DUALSTACK (1 << 0)
 #define PREFETCH_FLAGS_EXPIRED (1 << 1)
@@ -107,6 +110,29 @@ struct rule_walk_args {
 	int rule_index;
 	unsigned char *key[DOMAIN_RULE_MAX];
 	uint32_t key_len[DOMAIN_RULE_MAX];
+};
+
+struct neighbor_enum_args {
+	uint8_t *netaddr;
+	int netaddr_len;
+	struct client_roue_group_mac *group_mac;
+};
+
+struct neighbor_cache_item {
+	struct hlist_node node;
+	struct list_head list;
+	unsigned char ip_addr[DNS_RR_AAAA_LEN];
+	int ip_addr_len;
+	unsigned char mac[6];
+	int has_mac;
+	time_t last_update_time;
+};
+
+struct neighbor_cache {
+	DECLARE_HASHTABLE(cache, 6);
+	atomic_t cache_num;
+	struct list_head list;
+	pthread_mutex_t lock;
 };
 
 struct dns_conn_buf {
@@ -350,6 +376,8 @@ struct dns_server {
 
 	DECLARE_HASHTABLE(request_pending, 4);
 	pthread_mutex_t request_pending_lock;
+
+	struct neighbor_cache neighbor_cache;
 };
 
 static int is_server_init;
@@ -3040,11 +3068,188 @@ static int _dns_server_check_speed(struct dns_request *request, char *ip)
 	return -1;
 }
 
+static void _dns_server_neighbor_cache_free_item(struct neighbor_cache_item *item)
+{
+	hash_del(&item->node);
+	list_del_init(&item->list);
+	free(item);
+	atomic_dec(&server.neighbor_cache.cache_num);
+}
+
+static void _dns_server_neighbor_cache_free_last_used_item(void)
+{
+	struct neighbor_cache_item *item = NULL;
+
+	if (atomic_read(&server.neighbor_cache.cache_num) < DNS_SERVER_NEIGHBOR_CACHE_MAX_NUM) {
+		return;
+	}
+
+	item = list_last_entry(&server.neighbor_cache.list, struct neighbor_cache_item, list);
+	if (item == NULL) {
+		return;
+	}
+
+	_dns_server_neighbor_cache_free_item(item);
+}
+
+static struct neighbor_cache_item *_dns_server_neighbor_cache_get_item(const uint8_t *net_addr, int net_addr_len)
+{
+	struct neighbor_cache_item *item = NULL;
+	uint32_t key = 0;
+
+	key = jhash(net_addr, net_addr_len, 0);
+	hash_for_each_possible(server.neighbor_cache.cache, item, node, key)
+	{
+		if (item->ip_addr_len != net_addr_len) {
+			continue;
+		}
+
+		if (memcmp(item->ip_addr, net_addr, net_addr_len) == 0) {
+			break;
+		}
+	}
+
+	return item;
+}
+
+static int _dns_server_neighbor_cache_add(const uint8_t *net_addr, int net_addr_len, const uint8_t *mac)
+{
+	struct neighbor_cache_item *item = NULL;
+	uint32_t key = 0;
+
+	if (net_addr_len > DNS_RR_AAAA_LEN) {
+		return -1;
+	}
+
+	item = _dns_server_neighbor_cache_get_item(net_addr, net_addr_len);
+	if (item == NULL) {
+		item = malloc(sizeof(*item));
+		memset(item, 0, sizeof(*item));
+		if (item == NULL) {
+			return -1;
+		}
+		INIT_LIST_HEAD(&item->list);
+		INIT_HLIST_NODE(&item->node);
+	}
+
+	memcpy(item->ip_addr, net_addr, net_addr_len);
+	item->ip_addr_len = net_addr_len;
+	item->last_update_time = time(NULL);
+	if (mac == NULL) {
+		item->has_mac = 0;
+	} else {
+		memcpy(item->mac, mac, 6);
+		item->has_mac = 1;
+	}
+	key = jhash(net_addr, net_addr_len, 0);
+	hash_del(&item->node);
+	hash_add(server.neighbor_cache.cache, &item->node, key);
+	list_del_init(&item->list);
+	list_add(&item->list, &server.neighbor_cache.list);
+	atomic_inc(&server.neighbor_cache.cache_num);
+
+	_dns_server_neighbor_cache_free_last_used_item();
+
+	return 0;
+}
+
+static int _dns_server_neighbors_callback(const uint8_t *net_addr, int net_addr_len, const uint8_t mac[6], void *arg)
+{
+	struct neighbor_enum_args *args = arg;
+
+	_dns_server_neighbor_cache_add(net_addr, net_addr_len, mac);
+
+	if (net_addr_len != args->netaddr_len) {
+		return 0;
+	}
+
+	if (memcmp(net_addr, args->netaddr, net_addr_len) != 0) {
+		return 0;
+	}
+
+	args->group_mac = dns_server_rule_group_mac_get(mac);
+
+	return 1;
+}
+
+static int _dns_server_neighbor_cache_is_valid(struct neighbor_cache_item *item)
+{
+	if (item == NULL) {
+		return -1;
+	}
+
+	time_t now = time(NULL);
+
+	if (item->last_update_time + DNS_SERVER_NEIGHBOR_CACHE_TIMEOUT < now) {
+		return -1;
+	}
+
+	if (item->has_mac) {
+		return 0;
+	}
+
+	if (item->last_update_time + DNS_SERVER_NEIGHBOR_CACHE_NOMAC_TIMEOUT < now) {
+		return -1;
+	}
+
+	return 0;
+}
+
+static struct dns_client_rules *_dns_server_get_client_rules_by_mac(uint8_t *netaddr, int netaddr_len)
+{
+	struct client_roue_group_mac *group_mac = NULL;
+	struct neighbor_cache_item *item = NULL;
+	int family = AF_UNSPEC;
+	int ret = 0;
+	struct neighbor_enum_args args;
+
+	if (dns_conf_client_rule.mac_num == 0) {
+		return NULL;
+	}
+
+	item = _dns_server_neighbor_cache_get_item(netaddr, netaddr_len);
+	if (_dns_server_neighbor_cache_is_valid(item) == 0) {
+		if (item->has_mac) {
+			return NULL;
+		}
+		group_mac = dns_server_rule_group_mac_get(item->mac);
+		if (group_mac != NULL) {
+			return group_mac->rules;
+		}
+	}
+
+	if (netaddr_len == 4) {
+		family = AF_INET;
+	} else if (netaddr_len == 16) {
+		family = AF_INET6;
+	}
+
+	args.group_mac = group_mac;
+	args.netaddr = netaddr;
+	args.netaddr_len = netaddr_len;
+
+	ret = netlink_get_neighbors(family, _dns_server_neighbors_callback, &args);
+	if (ret < 0) {
+		goto add_cache;
+	}
+
+	if (ret != 1 || args.group_mac == NULL) {
+		goto add_cache;
+	}
+
+	return args.group_mac->rules;
+
+add_cache:
+	_dns_server_neighbor_cache_add(netaddr, netaddr_len, NULL);
+	return NULL;
+}
+
 static struct dns_client_rules *_dns_server_get_client_rules(struct sockaddr_storage *addr, socklen_t addr_len)
 {
 	prefix_t prefix;
 	radix_node_t *node = NULL;
 	uint8_t *netaddr = NULL;
+	struct dns_client_rules *client_rules = NULL;
 	int netaddr_len = 0;
 
 	switch (addr->ss_family) {
@@ -3070,6 +3275,11 @@ static struct dns_client_rules *_dns_server_get_client_rules(struct sockaddr_sto
 		break;
 	}
 
+	client_rules = _dns_server_get_client_rules_by_mac(netaddr, netaddr_len);
+	if (client_rules != NULL) {
+		return client_rules;
+	}
+
 	if (prefix_from_blob(netaddr, netaddr_len, netaddr_len * 8, &prefix) == NULL) {
 		return NULL;
 	}
@@ -3079,7 +3289,9 @@ static struct dns_client_rules *_dns_server_get_client_rules(struct sockaddr_sto
 		return NULL;
 	}
 
-	return node->data;
+	client_rules = node->data;
+
+	return client_rules;
 }
 
 static struct dns_ip_rules *_dns_server_ip_rule_get(struct dns_request *request, unsigned char *addr, int addr_len,
@@ -8144,6 +8356,30 @@ static int _dns_server_audit_init(void)
 	return 0;
 }
 
+static void _dns_server_neighbor_cache_remove_all(void)
+{
+	struct neighbor_cache_item *item = NULL;
+	struct hlist_node *tmp = NULL;
+	unsigned long bucket = 0;
+
+	hash_for_each_safe(server.neighbor_cache.cache, bucket, tmp, item, node)
+	{
+		_dns_server_neighbor_cache_free_item(item);
+	}
+
+	pthread_mutex_destroy(&server.neighbor_cache.lock);
+}
+
+static int _dns_server_neighbor_cache_init(void)
+{
+	hash_init(server.neighbor_cache.cache);
+	INIT_LIST_HEAD(&server.neighbor_cache.list);
+	atomic_set(&server.neighbor_cache.cache_num, 0);
+	pthread_mutex_init(&server.neighbor_cache.lock, NULL);
+
+	return 0;
+}
+
 static int _dns_server_cache_init(void)
 {
 	if (dns_cache_init(dns_conf_cachesize, _dns_server_cache_expired) != 0) {
@@ -8279,6 +8515,11 @@ int dns_server_init(void)
 		goto errout;
 	}
 
+	if (_dns_server_neighbor_cache_init() != 0) {
+		tlog(TLOG_ERROR, "init neighbor cache failed.");
+		goto errout;
+	}
+
 	is_server_init = 1;
 	return 0;
 errout:
@@ -8317,6 +8558,7 @@ void dns_server_exit(void)
 	}
 
 	_dns_server_close_socket();
+	_dns_server_neighbor_cache_remove_all();
 	_dns_server_cache_save(0);
 	_dns_server_request_remove_all();
 	pthread_mutex_destroy(&server.request_list_lock);

@@ -3329,6 +3329,51 @@ static int _config_client_rules_free(struct dns_client_rules *client_rules)
 	return 0;
 }
 
+static struct client_roue_group_mac *_config_client_rule_group_mac_new(uint8_t mac[6])
+{
+	struct client_roue_group_mac *group_mac = NULL;
+	uint32_t key;
+
+	group_mac = malloc(sizeof(*group_mac));
+	if (group_mac == NULL) {
+		return NULL;
+	}
+	memset(group_mac, 0, sizeof(*group_mac));
+	memcpy(group_mac->mac, mac, 6);
+
+	key = jhash(mac, 6, 0);
+	hash_add(dns_conf_client_rule.mac, &group_mac->node, key);
+	dns_conf_client_rule.mac_num++;
+
+	return group_mac;
+}
+
+struct client_roue_group_mac *dns_server_rule_group_mac_get(const uint8_t mac[6])
+{
+	struct client_roue_group_mac *group_mac = NULL;
+	uint32_t key;
+
+	key = jhash(mac, 6, 0);
+	hash_for_each_possible(dns_conf_client_rule.mac, group_mac, node, key)
+	{
+		if (memcmp(group_mac->mac, mac, 6) == 0) {
+			return group_mac;
+		}
+	}
+
+	return NULL;
+}
+
+static struct client_roue_group_mac *_config_client_rule_group_mac_get_or_add(uint8_t mac[6])
+{
+	struct client_roue_group_mac *group_mac = dns_server_rule_group_mac_get(mac);
+	if (group_mac == NULL) {
+		group_mac = _config_client_rule_group_mac_new(mac);
+	}
+
+	return group_mac;
+}
+
 static int _config_client_rule_flag_callback(const char *ip_cidr, void *priv)
 {
 	struct dns_set_rule_flags_callback_args *args = (struct dns_set_rule_flags_callback_args *)priv;
@@ -3340,23 +3385,38 @@ static int _config_client_rule_flag_set(const char *ip_cidr, unsigned int flag, 
 	struct dns_client_rules *client_rules = NULL;
 	struct dns_client_rules *add_client_rules = NULL;
 	struct client_rule_flags *client_rule_flags = NULL;
+	struct client_roue_group_mac *group_mac = NULL;
 	radix_node_t *node = NULL;
+	uint8_t mac[6];
+	int is_mac_address = 0;
 
-	if (strncmp(ip_cidr, "ip-set:", sizeof("ip-set:") - 1) == 0) {
-		struct dns_set_rule_flags_callback_args args;
-		args.flags = flag;
-		args.is_clear_flag = is_clear;
-		return _config_ip_rule_set_each(ip_cidr + sizeof("ip-set:") - 1, _config_client_rule_flag_callback, &args);
+	is_mac_address = parser_mac_address(ip_cidr, mac);
+	if (is_mac_address == 0) {
+		group_mac = _config_client_rule_group_mac_get_or_add(mac);
+		if (group_mac == NULL) {
+			tlog(TLOG_ERROR, "get or add mac %s failed", ip_cidr);
+			goto errout;
+		}
+
+		client_rules = group_mac->rules;
+	} else {
+		if (strncmp(ip_cidr, "ip-set:", sizeof("ip-set:") - 1) == 0) {
+			struct dns_set_rule_flags_callback_args args;
+			args.flags = flag;
+			args.is_clear_flag = is_clear;
+			return _config_ip_rule_set_each(ip_cidr + sizeof("ip-set:") - 1, _config_client_rule_flag_callback, &args);
+		}
+
+		/* Get existing or create domain rule */
+		node = _create_client_rules_node(ip_cidr);
+		if (node == NULL) {
+			tlog(TLOG_ERROR, "create addr node failed.");
+			goto errout;
+		}
+
+		client_rules = node->data;
 	}
 
-	/* Get existing or create domain rule */
-	node = _create_client_rules_node(ip_cidr);
-	if (node == NULL) {
-		tlog(TLOG_ERROR, "create addr node failed.");
-		goto errout;
-	}
-
-	client_rules = node->data;
 	if (client_rules == NULL) {
 		add_client_rules = malloc(sizeof(*add_client_rules));
 		if (add_client_rules == NULL) {
@@ -3364,7 +3424,11 @@ static int _config_client_rule_flag_set(const char *ip_cidr, unsigned int flag, 
 		}
 		memset(add_client_rules, 0, sizeof(*add_client_rules));
 		client_rules = add_client_rules;
-		node->data = client_rules;
+		if (is_mac_address == 0) {
+			group_mac->rules = client_rules;
+		} else {
+			node->data = client_rules;
+		}
 	}
 
 	/* add new rule to domain */
@@ -3390,7 +3454,7 @@ errout:
 
 	tlog(TLOG_ERROR, "set ip %s flags failed", ip_cidr);
 
-	return 0;
+	return -1;
 }
 
 static int _config_client_rule_add(const char *ip_cidr, enum client_rule type, void *rule);
@@ -3404,6 +3468,7 @@ static int _config_client_rule_add(const char *ip_cidr, enum client_rule type, v
 {
 	struct dns_client_rules *client_rules = NULL;
 	struct dns_client_rules *add_client_rules = NULL;
+	struct client_roue_group_mac *group_mac = NULL;
 	radix_node_t *node = NULL;
 
 	if (ip_cidr == NULL) {
@@ -3414,21 +3479,36 @@ static int _config_client_rule_add(const char *ip_cidr, enum client_rule type, v
 		goto errout;
 	}
 
-	if (strncmp(ip_cidr, "ip-set:", sizeof("ip-set:") - 1) == 0) {
-		struct dns_set_rule_add_callback_args args;
-		args.type = type;
-		args.rule = rule;
-		return _config_ip_rule_set_each(ip_cidr + sizeof("ip-set:") - 1, _config_client_rule_add_callback, &args);
+	uint8_t mac[6];
+	int is_mac_address = 0;
+
+	is_mac_address = parser_mac_address(ip_cidr, mac);
+	if (is_mac_address == 0) {
+		group_mac = _config_client_rule_group_mac_get_or_add(mac);
+		if (group_mac == NULL) {
+			tlog(TLOG_ERROR, "get or add mac %s failed", ip_cidr);
+			goto errout;
+		}
+
+		client_rules = group_mac->rules;
+	} else {
+		if (strncmp(ip_cidr, "ip-set:", sizeof("ip-set:") - 1) == 0) {
+			struct dns_set_rule_add_callback_args args;
+			args.type = type;
+			args.rule = rule;
+			return _config_ip_rule_set_each(ip_cidr + sizeof("ip-set:") - 1, _config_client_rule_add_callback, &args);
+		}
+
+		/* Get existing or create domain rule */
+		node = _create_client_rules_node(ip_cidr);
+		if (node == NULL) {
+			tlog(TLOG_ERROR, "create addr node failed.");
+			goto errout;
+		}
+
+		client_rules = node->data;
 	}
 
-	/* Get existing or create domain rule */
-	node = _create_client_rules_node(ip_cidr);
-	if (node == NULL) {
-		tlog(TLOG_ERROR, "create addr node failed.");
-		goto errout;
-	}
-
-	client_rules = node->data;
 	if (client_rules == NULL) {
 		add_client_rules = malloc(sizeof(*add_client_rules));
 		if (add_client_rules == NULL) {
@@ -3436,7 +3516,11 @@ static int _config_client_rule_add(const char *ip_cidr, enum client_rule type, v
 		}
 		memset(add_client_rules, 0, sizeof(*add_client_rules));
 		client_rules = add_client_rules;
-		node->data = client_rules;
+		if (is_mac_address == 0) {
+			group_mac->rules = client_rules;
+		} else {
+			node->data = client_rules;
+		}
 	}
 
 	/* add new rule to domain */
@@ -5656,7 +5740,7 @@ static int _dns_server_load_conf_init(void)
 		tlog(TLOG_WARN, "init client rule radix tree failed.");
 		return -1;
 	}
-
+	hash_init(dns_conf_client_rule.mac);
 	hash_init(dns_conf_rule.group);
 	dns_conf_rule.default_conf = _config_rule_group_new("");
 	if (dns_conf_rule.default_conf == NULL) {
@@ -5707,9 +5791,24 @@ static void dns_server_bind_destroy(void)
 	dns_conf_bind_ip_num = 0;
 }
 
+static void _config_client_rule_destroy_mac(void)
+{
+	struct hlist_node *tmp = NULL;
+	unsigned int i;
+	struct client_roue_group_mac *group_mac = NULL;
+
+	hash_for_each_safe(dns_conf_client_rule.mac, i, tmp, group_mac, node)
+	{
+		hlist_del_init(&group_mac->node);
+		_config_client_rules_free(group_mac->rules);
+		free(group_mac);
+	}
+}
+
 static void _config_client_rule_destroy(void)
 {
 	Destroy_Radix(dns_conf_client_rule.rule, _config_client_rule_iter_free_cb, NULL);
+	_config_client_rule_destroy_mac();
 }
 
 void dns_server_load_exit(void)

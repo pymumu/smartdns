@@ -78,6 +78,9 @@ From the comparison, smartdns found the fastest IP address to visit www.baidu.co
 1. **Multiple upstream DNS servers**  
    Support configuring multiple upstream DNS servers and query at the same time.the query will not be affected, Even if there is a DNS server exception.  
 
+1. **Support per-client query control**  
+   Support controlling clients using different query rules based on MAC and IP addresses, enabling features such as parental control.  
+
 1. **Return the fastest IP address**  
    Supports finding the fastest access IP address from the IP address list of the domain name and returning it to the client to avoid DNS pollution and improve network access speed.
 
