@@ -5,7 +5,7 @@ hide:
 
 # Client Rules
 
-smartdns supports setting different rules for clients based on their IP addresses, allowing for:
+smartdns supports setting different rules for clients based on their IP addresses or MAC addresses, allowing for:
 
   * Parental control: Restricting access to specific websites for certain clients.
   * Access control: Prohibiting unauthorized clients from making queries.
@@ -20,6 +20,8 @@ smartdns supports setting different rules for clients based on their IP addresse
   group-begin child
   # Set client IP for the rule group
   client-rules 192.168.1.13
+  # Set client MAC address for the rule group
+  client-rules 01:02:03:04:05:06
   # Set upstream server for the rule group
   server 1.2.3.4 -e
   # Block specific domain

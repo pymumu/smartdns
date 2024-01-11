@@ -24,8 +24,10 @@ You can specify matching rules using group-match, including client IP: `-client-
   ```
   # Rule begins, named as rule.
   group-begin rule
-  # Set matching rules, as follows for matching IP or domain.
+  # Set matching rules, as follows for matching IP, MAC or domain.
   group-match -client-ip 192.168.1.1/24 -domain a.com
+  group-match -client-ip ip-set:clien-ip 
+  group-match -domain domain-set:domain-list
   # Set related rules
   address #
   # Rule ends

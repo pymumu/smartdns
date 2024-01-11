@@ -17,15 +17,18 @@ smartdns支持规则组，不同的规则组之间隔离，方便按照域名或
 | conf-file -group  | 以指定规则组包含文件，等价group-begin, group-end  
 
 
-通过group-match可以指定匹配规则，有客户端IP：`-client-ip cidr`，域名：`-domain`。
+通过group-match可以指定匹配规则，有客户端IP：`-client-ip cidr|ip-set|mac`，域名：`-domain`。
 
 ## 按域名或客户端IP匹配规则组
 
   ```
   # 规则开始，指定名称为rule。
   group-begin rule
-  # 设置匹配规则，如下为匹配IP或者域名。
+  # 设置匹配规则，如下为匹配IP、MAC或者域名。
   group-match -client-ip 192.168.1.1/24 -domain a.com
+  group-match -client-ip 01:02:03:04:05:06
+  group-match -client-ip ip-set:clien-ip 
+  group-match -domain domain-set:domain-list
   # 设置相关的规则
   address #
   # 规则结束
