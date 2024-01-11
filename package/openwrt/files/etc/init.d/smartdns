@@ -27,11 +27,14 @@ if [ ! -d "/run" ]; then
 	SERVICE_PID_FILE="/var/run/smartdns.pid"
 fi
 
+SMARTDNS_DOWNLOAD_TMP_DIR="/tmp/smartdns-download"
 SMARTDNS_DEFAULT_FORWARDING_FILE="/etc/smartdns/domain-forwarding.list"
 SMARTDNS_DEFAULT_DOMAIN_BLOCK_FILE="/etc/smartdns/domain-block.list"
 SMARTDNS_CONF_DIR="/etc/smartdns"
 SMARTDNS_CONF_DOWNLOAD_DIR="$SMARTDNS_CONF_DIR/conf.d"
+SMARTDNS_DOWNLOAD_DIR="$SMARTDNS_CONF_DIR/download"
 SMARTDNS_DOMAIN_LIST_DOWNLOAD_DIR="$SMARTDNS_CONF_DIR/domain-set"
+SMARTDNS_IP_SET_DOWNLOAD_DIR="$SMARTDNS_CONF_DIR/ip-set"
 SMARTDNS_VAR_CONF_DIR="/var/etc/smartdns"
 SMARTDNS_CONF="$SMARTDNS_VAR_CONF_DIR/smartdns.conf"
 ADDRESS_CONF="$SMARTDNS_CONF_DIR/address.conf"
@@ -482,6 +485,9 @@ load_second_server()
 	config_get_bool seconddns_force_aaaa_soa "$section" "seconddns_force_aaaa_soa" "0"
 	[ "$seconddns_force_aaaa_soa" = "1" ] && ARGS="$ARGS -force-aaaa-soa"
 
+	config_get_bool seconddns_force_https_soa "$section" "seconddns_force_https_soa" "0"
+	[ "$seconddns_force_https_soa" = "1" ] && ARGS="$ARGS -force-https-soa"
+
 	config_get_bool seconddns_no_ip_alias "$section" "seconddns_no_ip_alias" "0"
 	[ "$seconddns_no_ip_alias" = "1" ] && ARGS="$ARGS -no-ip-alias"
 
@@ -517,6 +523,21 @@ conf_append_conf_files()
 
 	[ -f "$fullpath" ] && {
 		conf_append "conf-file" "'$fullpath'"
+	}
+}
+
+conf_append_hosts_files()
+{
+	local hosts_file="$1"
+
+	if [ "$1" != "${1#/}" ]; then
+		fullpath="$1"
+	else 
+		fullpath="$SMARTDNS_DOWNLOAD_DIR/$hosts_file"
+	fi
+
+	[ -f "$fullpath" ] && {
+		conf_append "hosts-file" "'$fullpath'"
 	}
 }
 
@@ -587,6 +608,12 @@ load_service()
 	[ "$force_https_soa" = "1" ] && qtype_soa_list="$qtype_soa_list 65"
 
 	config_get auto_set_dnsmasq "$section" "auto_set_dnsmasq" "1"
+
+	config_get ipset_name "$section" "ipset_name" ""
+	[ -z "$ipset_name" ] || conf_append "ipset" "$ipset_name"
+
+	config_get nftset_name "$section" "nftset_name" ""
+	[ -z "$nftset_name" ] || conf_append "nftset" "$nftset_name"
 
 	config_get ipset_no_speed "$section" "ipset_no_speed" ""
 	[ -z "$ipset_no_speed" ] || conf_append "ipset-no-speed" "$ipset_no_speed"
@@ -749,6 +776,8 @@ load_service()
 
 	config_list_foreach "$section" "conf_files" conf_append_conf_files
 
+	config_list_foreach "$section" "hosts_files" conf_append_hosts_files
+
 	config_foreach load_domain_rules "domain-rule"
 
 	config_foreach load_domain_rule_list "domain-rule-list"
@@ -808,13 +837,21 @@ download_file() {
 	config_get url "$section" "url" ""
 	config_get name "$section" "name" ""
 	config_get filetype "$section" "type" ""
+	config_get_bool use_proxy "$section" "use_proxy" "0"
 
 	[ -z "$url" ] && return 0
 	[ -z "$name" ] && return 0
 	[ -z "$filetype" ] && return 0
 
 	echo "download $filetype file $name from $url"
-	wget --timeout 120 -q -O "/tmp/$name" "$url"
+	[ "$use_proxy" = "1" ] && {
+		proxy="$(uci -q get smartdns.@smartdns[0].proxy_server)"
+		[ ! -z "$proxy" ] && {
+			export http_proxy="$proxy"
+			export https_proxy="$proxy"
+		}
+	}
+	wget --timeout 120 -q -O "$SMARTDNS_DOWNLOAD_TMP_DIR/$name" "$url"
 	if [ $? -ne 0 ]; then
 		echo "download file $name failed"
 		return 1
@@ -822,9 +859,13 @@ download_file() {
 
 	echo "download file $name success"
 	if [ "$filetype" = "list" ]; then
-		mv "/tmp/$name" "$SMARTDNS_DOMAIN_LIST_DOWNLOAD_DIR/$name"	
+		mv "$SMARTDNS_DOWNLOAD_TMP_DIR/$name" "$SMARTDNS_DOMAIN_LIST_DOWNLOAD_DIR/$name"	
 	elif [ "$filetype" = "config" ]; then
-		mv "/tmp/$name" "$SMARTDNS_CONF_DOWNLOAD_DIR/$name"	
+		mv "$SMARTDNS_DOWNLOAD_TMP_DIR/$name" "$SMARTDNS_CONF_DOWNLOAD_DIR/$name"	
+	elif [ "$filetype" = "ip-set" ]; then
+		mv "$SMARTDNS_DOWNLOAD_TMP_DIR/$name" "$SMARTDNS_IP_SET_DOWNLOAD_DIR/$name"
+	else 
+		mv "$SMARTDNS_DOWNLOAD_TMP_DIR/$name" "$SMARTDNS_DOWNLOAD_DIR/$name"
 	fi
 }
 
@@ -863,7 +904,9 @@ check_and_add_entry() {
 
 updatefiles() {
 	config_load "smartdns"
+	[ ! -d "$SMARTDNS_DOWNLOAD_TMP_DIR" ] && mkdir -p "$SMARTDNS_DOWNLOAD_TMP_DIR"
 	config_foreach download_file "download-file"
+	rm -rf "$SMARTDNS_DOWNLOAD_TMP_DIR" >/dev/null 2>&1
 	reload_service
 }
 

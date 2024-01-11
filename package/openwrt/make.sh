@@ -50,6 +50,7 @@ build()
 	mkdir $ROOT/root/etc/smartdns/domain-set/ -p 
 	mkdir $ROOT/root/etc/smartdns/ip-set/ -p 
 	mkdir $ROOT/root/etc/smartdns/conf.d/ -p 
+	mkdir $ROOT/root/etc/smartdns/download/ -p 
 
 	cp $SMARTDNS_CONF  $ROOT/root/etc/smartdns/
 	cp $ADDRESS_CONF $ROOT/root/etc/smartdns/

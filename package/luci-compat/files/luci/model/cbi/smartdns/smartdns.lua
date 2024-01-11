@@ -271,12 +271,33 @@ o.cfgvalue    = function(...)
     return Flag.cfgvalue(...) or "1"
 end
 
+o = s:taboption("advanced", Value, "ipset_name", translate("IPset Name"), translate("IPset name."))
+o.rmempty = true
+o.datatype = "string"
+o.rempty = true
+
 ---- Ipset no speed.
 o = s:taboption("advanced", Value, "ipset_no_speed", translate("No Speed IPset Name"), 
     translate("Ipset name, Add domain result to ipset when speed check fails."));
 o.rmempty = true;
 o.datatype = "hostname";
 o.rempty = true;
+
+o = s:taboption("advanced", Value, "nftset_name", translate("NFTset Name"), translate("NFTset name, format: [#[4|6]:[family#table#set]]"))
+o.rmempty = true
+o.datatype = "string"
+o.rempty = true
+function o.validate(self, value) 
+    if (value == "") then
+        return value
+    end
+
+    if (value:match("#[4|6]:[a-zA-Z0-9%-_]+#[a-zA-Z0-9%-_]+#[a-zA-Z0-9%-_]+$")) then
+        return value
+    end
+
+    return nil, translate("NFTset name format error, format: [#[4|6]:[family#table#set]]")
+end
 
 ---- NFTset no speed.
 o = s:taboption("advanced", Value, "nftset_no_speed", translate("No Speed NFTset Name"), 
@@ -316,10 +337,22 @@ o = s:taboption("advanced", Value, "rr_ttl_reply_max", translate("Reply Domain T
 o.rempty      = true
 
 o = s:taboption("advanced", DynamicList, "conf_files", translate("Include Config Files<br>/etc/smartdns/conf.d"),
-    translate("Include other config files from /etc/smartdns/conf.d or custom path, can be downloaded from the download page."));
+    translate("Include other config files from /etc/smartdns/conf.d or custom path, can be downloaded from the download page."))
+o.rmempty = true
 uci:foreach("smartdns", "download-file", function(section)
     local filetype = section.type
     if (filetype ~= 'config') then
+        return
+    end
+
+    o:value(section.name);
+end)
+
+o = s:taboption("advanced", DynamicList, "hosts_files", translate("Hosts File"), translate("Include hosts file."))
+o.rmempty = true
+uci:foreach("smartdns", "download-file", function(section)
+    local filetype = section.type
+    if (filetype ~= 'other') then
         return
     end
 
@@ -422,6 +455,13 @@ o.cfgvalue    = function(...)
     return Flag.cfgvalue(...) or "0"
 end
 
+o = s:taboption("seconddns", Flag, "seconddns_force_https_soa", translate("Force HTTPS SOA"), translate("Force HTTPS SOA."))
+o.rmempty     = false
+o.default     = o.disabled
+o.cfgvalue    = function(...)
+    return Flag.cfgvalue(...) or "0"
+end
+
 o = s:taboption("seconddns", Flag, "seconddns_no_ip_alias", translate("Skip IP Alias"))
 o.rmempty     = true
 o.default     = o.disabled
@@ -431,7 +471,7 @@ end
 
 o = s:taboption("seconddns", Value, "seconddns_ipset_name", translate("IPset Name"), translate("IPset name."))
 o.rmempty = true
-o.datatype = "hostname"
+o.datatype = "string"
 o.rempty = true
 
 o = s:taboption("seconddns", Value, "seconddns_nftset_name", translate("NFTset Name"), translate("NFTset name, format: [#[4|6]:[family#table#set]]"))
@@ -870,6 +910,13 @@ o.rempty = true
 o.editable = true
 o.root_directory = "/etc/smartdns/domain-set"
 
+o = s:option(FileUpload, "upload_other_file", translate("Upload File"))
+o.rmempty = true
+o.datatype = "file"
+o.rempty = true
+o.editable = true
+o.root_directory = "/etc/smartdns/download"
+
 o = s:option(Button, "_updateate")
 o.title = translate("Update Files")
 o.inputtitle = translate("Update Files")
@@ -913,6 +960,8 @@ end
 o = s:option(ListValue, "type", translate("type"), translate("File Type"))
 o:value("list", translate("domain list (/etc/smartdns/domain-set)"))
 o:value("config", translate("smartdns config (/etc/smartdns/conf.d)"))
+o:value("ip-set", translate("ip-set file (/etc/smartdns/ip-set)"))
+o:value("other", translate("other file (/etc/smartdns/download)"))
 o.default = "list"
 o.rempty = false
 

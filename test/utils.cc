@@ -1,8 +1,13 @@
 #include "include/utils.h"
+#include <arpa/inet.h>
+#include <ifaddrs.h>
+#include <netinet/in.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
+#include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -264,6 +269,40 @@ int ParserArg(const std::string &cmd, std::vector<std::string> &args)
 	}
 
 	return 0;
+}
+
+std::vector<std::string> GetAvailableIPAddresses()
+{
+	std::vector<std::string> ipAddresses;
+
+	struct ifaddrs *ifAddrStruct = nullptr;
+	struct ifaddrs *ifa = nullptr;
+	void *tmpAddrPtr = nullptr;
+
+	getifaddrs(&ifAddrStruct);
+
+	for (ifa = ifAddrStruct; ifa != nullptr; ifa = ifa->ifa_next) {
+		if (!ifa->ifa_addr) {
+			continue;
+		}
+
+		if (ifa->ifa_addr->sa_family == AF_INET) { // IPv4 address
+			tmpAddrPtr = &((struct sockaddr_in *)ifa->ifa_addr)->sin_addr;
+			char addressBuffer[INET_ADDRSTRLEN];
+			inet_ntop(AF_INET, tmpAddrPtr, addressBuffer, INET_ADDRSTRLEN);
+			std::string ipAddress(addressBuffer);
+
+			if (!ipAddress.empty() && ipAddress.substr(0, 4) != "127.") {
+				ipAddresses.push_back(ipAddress);
+			}
+		}
+	}
+
+	if (ifAddrStruct != nullptr) {
+		freeifaddrs(ifAddrStruct);
+	}
+
+	return ipAddresses;
 }
 
 } // namespace smartdns

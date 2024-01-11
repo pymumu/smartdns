@@ -612,14 +612,18 @@ static struct dns_server_group *_dns_client_get_dnsserver_group(const char *grou
 	struct dns_server_group *group = _dns_client_get_group(group_name);
 
 	if (group == NULL) {
-		group = client.default_group;
+		goto use_default;
 	} else {
 		if (list_empty(&group->head)) {
-			group = client.default_group;
+			tlog(TLOG_INFO, "group %s not exist, use default group.", group_name);
+			goto use_default;
 		}
 	}
 
 	return group;
+
+use_default:
+	return client.default_group;
 }
 
 /* add server to group */
@@ -1074,6 +1078,7 @@ static int _dns_client_server_add(char *server_ip, char *server_host, int port, 
 	char port_s[8];
 	int sock_type = 0;
 	char skip_check_cert = 0;
+	char ifname[IFNAMSIZ * 2] = {0};
 
 	switch (server_type) {
 	case DNS_SERVER_UDP: {
@@ -1110,8 +1115,10 @@ static int _dns_client_server_add(char *server_ip, char *server_host, int port, 
 		sock_type = SOCK_STREAM;
 		break;
 	case DNS_SERVER_MDNS: {
-		struct client_dns_server_flag_mdns *flag_mdns = &flags->mdns;
-		safe_strncpy(flag_mdns->ifname, server_host, DNS_MAX_CNAME_LEN);
+		if (flags->ifname[0] == '\0') {
+			tlog(TLOG_ERROR, "mdns server must set ifname.");
+			return -1;
+		}
 		sock_type = SOCK_DGRAM;
 	} break;
 	default:
@@ -1220,7 +1227,13 @@ static int _dns_client_server_add(char *server_ip, char *server_host, int port, 
 
 	_dns_server_inc_server_num(server_info);
 	freeaddrinfo(gai);
-	tlog(TLOG_INFO, "add server %s:%d, type: %s", server_ip, port, _dns_server_get_type_string(server_info->type));
+
+	if (flags->ifname[0]) {
+		snprintf(ifname, sizeof(ifname), "@%s", flags->ifname);
+	}
+
+	tlog(TLOG_INFO, "add server %s:%d%s, type: %s", server_ip, port, ifname,
+		 _dns_server_get_type_string(server_info->type));
 
 	return 0;
 errout:
@@ -1876,6 +1889,17 @@ static int _dns_client_create_socket_udp_proxy(struct dns_server_info *server_in
 		}
 	}
 
+	if (server_info->flags.ifname[0] != '\0') {
+		struct ifreq ifr;
+		memset(&ifr, 0, sizeof(struct ifreq));
+		safe_strncpy(ifr.ifr_name, server_info->flags.ifname, sizeof(ifr.ifr_name));
+		ioctl(fd, SIOCGIFINDEX, &ifr);
+		if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, (void *)&ifr, sizeof(struct ifreq)) < 0) {
+			tlog(TLOG_ERROR, "bind socket to device %s failed, %s\n", ifr.ifr_name, strerror(errno));
+			goto errout;
+		}
+	}
+
 	set_fd_nonblock(fd, 1);
 	set_sock_keepalive(fd, 30, 3, 5);
 
@@ -1930,6 +1954,17 @@ static int _dns_client_create_socket_udp(struct dns_server_info *server_info)
 	if (set_fd_nonblock(fd, 1) != 0) {
 		tlog(TLOG_ERROR, "set socket non block failed, %s", strerror(errno));
 		goto errout;
+	}
+
+	if (server_info->flags.ifname[0] != '\0') {
+		struct ifreq ifr;
+		memset(&ifr, 0, sizeof(struct ifreq));
+		safe_strncpy(ifr.ifr_name, server_info->flags.ifname, sizeof(ifr.ifr_name));
+		ioctl(fd, SIOCGIFINDEX, &ifr);
+		if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, (void *)&ifr, sizeof(struct ifreq)) < 0) {
+			tlog(TLOG_ERROR, "bind socket to device %s failed, %s\n", ifr.ifr_name, strerror(errno));
+			goto errout;
+		}
 	}
 
 	server_info->fd = fd;
@@ -2005,7 +2040,7 @@ static int _dns_client_create_socket_udp_mdns(struct dns_server_info *server_inf
 
 	struct ifreq ifr;
 	memset(&ifr, 0, sizeof(struct ifreq));
-	safe_strncpy(ifr.ifr_name, server_info->flags.mdns.ifname, sizeof(ifr.ifr_name));
+	safe_strncpy(ifr.ifr_name, server_info->flags.ifname, sizeof(ifr.ifr_name));
 	ioctl(fd, SIOCGIFINDEX, &ifr);
 	if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, (void *)&ifr, sizeof(struct ifreq)) < 0) {
 		tlog(TLOG_ERROR, "bind socket to device %s failed, %s\n", ifr.ifr_name, strerror(errno));
@@ -2072,6 +2107,17 @@ static int _DNS_client_create_socket_tcp(struct dns_server_info *server_info)
 	if (fd < 0) {
 		tlog(TLOG_ERROR, "create socket failed, %s", strerror(errno));
 		goto errout;
+	}
+
+	if (server_info->flags.ifname[0] != '\0') {
+		struct ifreq ifr;
+		memset(&ifr, 0, sizeof(struct ifreq));
+		safe_strncpy(ifr.ifr_name, server_info->flags.ifname, sizeof(ifr.ifr_name));
+		ioctl(fd, SIOCGIFINDEX, &ifr);
+		if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, (void *)&ifr, sizeof(struct ifreq)) < 0) {
+			tlog(TLOG_ERROR, "bind socket to device %s failed, %s\n", ifr.ifr_name, strerror(errno));
+			goto errout;
+		}
 	}
 
 	if (set_fd_nonblock(fd, 1) != 0) {
@@ -2170,6 +2216,17 @@ static int _DNS_client_create_socket_tls(struct dns_server_info *server_info, ch
 		fd = proxy_conn_get_fd(proxy);
 	} else {
 		fd = socket(server_info->ai_family, SOCK_STREAM, 0);
+	}
+
+	if (server_info->flags.ifname[0] != '\0') {
+		struct ifreq ifr;
+		memset(&ifr, 0, sizeof(struct ifreq));
+		safe_strncpy(ifr.ifr_name, server_info->flags.ifname, sizeof(ifr.ifr_name));
+		ioctl(fd, SIOCGIFINDEX, &ifr);
+		if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, (void *)&ifr, sizeof(struct ifreq)) < 0) {
+			tlog(TLOG_ERROR, "bind socket to device %s failed, %s\n", ifr.ifr_name, strerror(errno));
+			goto errout;
+		}
 	}
 
 	ssl = SSL_new(server_info->ssl_ctx);
@@ -4611,15 +4668,16 @@ static int _dns_client_add_mdns_server(void)
 	}
 
 #ifdef TEST
-	ret = _dns_client_server_add(DNS_MDNS_IP, "lo", DNS_MDNS_PORT, DNS_SERVER_MDNS, &server_flags);
+	safe_strncpy(server_flags.ifname, "lo", sizeof(server_flags.ifname));
+	ret = _dns_client_server_add(DNS_MDNS_IP, "", DNS_MDNS_PORT, DNS_SERVER_MDNS, &server_flags);
 	if (ret != 0) {
-		tlog(TLOG_ERROR, "add mdns server failed.");
+		tlog(TLOG_ERROR, "add mdns server to %s failed.", "lo");
 		goto errout;
 	}
 
 	if (dns_client_add_to_group(DNS_SERVER_GROUP_MDNS, DNS_MDNS_IP, DNS_MDNS_PORT, DNS_SERVER_MDNS, &server_flags) !=
 		0) {
-		tlog(TLOG_ERROR, "add mdns server to group failed.");
+		tlog(TLOG_ERROR, "add mdns server to group %s failed.", DNS_SERVER_GROUP_MDNS);
 		goto errout;
 	}
 
@@ -4654,7 +4712,8 @@ static int _dns_client_add_mdns_server(void)
 			continue;
 		}
 
-		ret = _dns_client_server_add(DNS_MDNS_IP, ifa->ifa_name, DNS_MDNS_PORT, DNS_SERVER_MDNS, &server_flags);
+		safe_strncpy(server_flags.ifname, ifa->ifa_name, sizeof(server_flags.ifname));
+		ret = _dns_client_server_add(DNS_MDNS_IP, "", DNS_MDNS_PORT, DNS_SERVER_MDNS, &server_flags);
 		if (ret != 0) {
 			tlog(TLOG_ERROR, "add mdns server failed.");
 			goto errout;

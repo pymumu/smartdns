@@ -716,6 +716,11 @@ static int _tlog_early_print(struct tlog_info_inter *info_inter, const char *for
         out_len++;
     }
 
+    if (out_len + 1 < sizeof(log_buf) - out_len - 1) {
+        log_buf[out_len] = '\0';
+        out_len++;
+    }
+
     if (tlog.early_print_output != NULL) {
         len = tlog.early_print_output(&info_inter->info, log_buf, out_len, tlog.early_print_userptr);
         if (tlog.early_print_with_screen == 0) {

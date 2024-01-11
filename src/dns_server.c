@@ -105,6 +105,7 @@ typedef enum DNS_CHILD_POST_RESULT {
 
 struct rule_walk_args {
 	void *args;
+	int rule_index;
 	unsigned char *key[DOMAIN_RULE_MAX];
 	uint32_t key_len[DOMAIN_RULE_MAX];
 	int match;
@@ -230,6 +231,7 @@ struct dns_request {
 	atomic_t refcnt;
 
 	struct dns_server_conn_head *conn;
+	struct dns_conf_group *conf;
 	uint32_t server_flags;
 	char dns_group_name[DNS_GROUP_NAME_LEN];
 
@@ -318,7 +320,7 @@ struct dns_request {
 
 	struct dns_request_domain_rule domain_rule;
 	int skip_domain_rule;
-	struct dns_domain_check_orders *check_order_list;
+	const struct dns_domain_check_orders *check_order_list;
 	int check_order;
 
 	enum response_mode_type response_mode;
@@ -516,22 +518,40 @@ static int _dns_server_epoll_ctl(struct dns_server_conn_head *head, int op, uint
 	return 0;
 }
 
-static void *_dns_server_get_dns_rule(struct dns_request *request, enum domain_rule rule)
+static void *_dns_server_get_dns_rule_ext(struct dns_request_domain_rule *domain_rule, enum domain_rule rule)
 {
-	if (rule >= DOMAIN_RULE_MAX || request == NULL) {
+	if (rule >= DOMAIN_RULE_MAX || domain_rule == NULL) {
 		return NULL;
 	}
 
-	return request->domain_rule.rules[rule];
+	return domain_rule->rules[rule];
+}
+
+static int _dns_server_is_dns_rule_extract_match_ext(struct dns_request_domain_rule *domain_rule, enum domain_rule rule)
+{
+	if (rule >= DOMAIN_RULE_MAX || domain_rule == NULL) {
+		return 0;
+	}
+
+	return domain_rule->is_sub_rule[rule] == 0;
+}
+
+static void *_dns_server_get_dns_rule(struct dns_request *request, enum domain_rule rule)
+{
+	if (request == NULL) {
+		return NULL;
+	}
+
+	return _dns_server_get_dns_rule_ext(&request->domain_rule, rule);
 }
 
 static int _dns_server_is_dns_rule_extract_match(struct dns_request *request, enum domain_rule rule)
 {
-	if (rule >= DOMAIN_RULE_MAX || request == NULL) {
+	if (request == NULL) {
 		return 0;
 	}
 
-	return request->domain_rule.is_sub_rule[rule] == 0;
+	return _dns_server_is_dns_rule_extract_match_ext(&request->domain_rule, rule);
 }
 
 static int _dns_server_is_dns64_request(struct dns_request *request)
@@ -584,7 +604,7 @@ static void _dns_server_set_dualstack_selection(struct dns_request *request)
 		return;
 	}
 
-	request->dualstack_selection = dns_conf_dualstack_ip_selection;
+	request->dualstack_selection = request->conf->dualstack_ip_selection;
 }
 
 static int _dns_server_is_return_soa_qtype(struct dns_request *request, dns_type_t qtype)
@@ -640,7 +660,7 @@ static int _dns_server_is_return_soa_qtype(struct dns_request *request, dns_type
 	}
 
 	if (qtype == DNS_T_AAAA) {
-		if (_dns_server_has_bind_flag(request, BIND_FLAG_FORCE_AAAA_SOA) == 0 || dns_conf_force_AAAA_SOA == 1) {
+		if (_dns_server_has_bind_flag(request, BIND_FLAG_FORCE_AAAA_SOA) == 0 || request->conf->force_AAAA_SOA == 1) {
 			return 1;
 		}
 
@@ -1856,8 +1876,11 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 	char name[DNS_MAX_CNAME_LEN] = {0};
 	int rr_count = 0;
 	int timeout_value = 0;
+	int ipset_timeout_value = 0;
+	int nftset_timeout_value = 0;
 	int i = 0;
 	int j = 0;
+	struct dns_conf_group *conf;
 	struct dns_rrs *rrs = NULL;
 	struct dns_ipset_rule *rule = NULL;
 	struct dns_ipset_rule *ipset_rule = NULL;
@@ -1884,12 +1907,18 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 		check_no_speed_rule = 1;
 	}
 
+	conf = request->conf;
+
 	/* check ipset rule */
 	rule_flags = _dns_server_get_dns_rule(request, DOMAIN_RULE_FLAGS);
 	if (!rule_flags || (rule_flags->flags & DOMAIN_FLAG_IPSET_IGN) == 0) {
 		ipset_rule = _dns_server_get_dns_rule(request, DOMAIN_RULE_IPSET);
 		if (ipset_rule == NULL) {
 			ipset_rule = _dns_server_get_bind_ipset_nftset_rule(request, DOMAIN_RULE_IPSET);
+		}
+
+		if (ipset_rule == NULL && check_no_speed_rule && conf->ipset_nftset.ipset_no_speed.inet_enable) {
+			ipset_rule_v4 = &conf->ipset_nftset.ipset_no_speed.inet;
 		}
 	}
 
@@ -1899,8 +1928,8 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 			ipset_rule_v4 = _dns_server_get_bind_ipset_nftset_rule(request, DOMAIN_RULE_IPSET_IPV4);
 		}
 
-		if (ipset_rule == NULL && check_no_speed_rule && dns_conf_ipset_no_speed.ipv4_enable) {
-			ipset_rule_v4 = &dns_conf_ipset_no_speed.ipv4;
+		if (ipset_rule_v4 == NULL && check_no_speed_rule && conf->ipset_nftset.ipset_no_speed.ipv4_enable) {
+			ipset_rule_v4 = &conf->ipset_nftset.ipset_no_speed.ipv4;
 		}
 	}
 
@@ -1910,8 +1939,8 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 			ipset_rule_v6 = _dns_server_get_bind_ipset_nftset_rule(request, DOMAIN_RULE_IPSET_IPV6);
 		}
 
-		if (ipset_rule_v6 == NULL && check_no_speed_rule && dns_conf_ipset_no_speed.ipv6_enable) {
-			ipset_rule_v6 = &dns_conf_ipset_no_speed.ipv6;
+		if (ipset_rule_v6 == NULL && check_no_speed_rule && conf->ipset_nftset.ipset_no_speed.ipv6_enable) {
+			ipset_rule_v6 = &conf->ipset_nftset.ipset_no_speed.ipv6;
 		}
 	}
 
@@ -1921,8 +1950,8 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 			nftset_ip = _dns_server_get_bind_ipset_nftset_rule(request, DOMAIN_RULE_NFTSET_IP);
 		}
 
-		if (nftset_ip == NULL && check_no_speed_rule && dns_conf_nftset_no_speed.ip_enable) {
-			nftset_ip = &dns_conf_nftset_no_speed.ip;
+		if (nftset_ip == NULL && check_no_speed_rule && conf->ipset_nftset.nftset_no_speed.ip_enable) {
+			nftset_ip = &conf->ipset_nftset.nftset_no_speed.ip;
 		}
 	}
 
@@ -1933,8 +1962,8 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 			nftset_ip6 = _dns_server_get_bind_ipset_nftset_rule(request, DOMAIN_RULE_NFTSET_IP6);
 		}
 
-		if (nftset_ip6 == NULL && check_no_speed_rule && dns_conf_nftset_no_speed.ip6_enable) {
-			nftset_ip6 = &dns_conf_nftset_no_speed.ip6;
+		if (nftset_ip6 == NULL && check_no_speed_rule && conf->ipset_nftset.nftset_no_speed.ip6_enable) {
+			nftset_ip6 = &conf->ipset_nftset.nftset_no_speed.ip6;
 		}
 	}
 
@@ -1945,6 +1974,14 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 	timeout_value = request->ip_ttl * 3;
 	if (timeout_value == 0) {
 		timeout_value = _dns_server_get_conf_ttl(request, 0) * 3;
+	}
+
+	if (conf->ipset_nftset.ipset_timeout_enable) {
+		ipset_timeout_value = timeout_value;
+	}
+
+	if (conf->ipset_nftset.nftset_timeout_enable) {
+		nftset_timeout_value = timeout_value;
 	}
 
 	for (j = 1; j < DNS_RRS_OPT; j++) {
@@ -1964,7 +2001,7 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 					/* add IPV4 to ipset */
 					tlog(TLOG_DEBUG, "IPSET-MATCH: domain: %s, ipset: %s, IP: %d.%d.%d.%d", request->domain,
 						 rule->ipsetname, addr[0], addr[1], addr[2], addr[3]);
-					ipset_add(rule->ipsetname, addr, DNS_RR_A_LEN, timeout_value);
+					ipset_add(rule->ipsetname, addr, DNS_RR_A_LEN, ipset_timeout_value);
 				}
 
 				if (nftset_ip != NULL) {
@@ -1973,7 +2010,7 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 						 nftset_ip->familyname, nftset_ip->nfttablename, nftset_ip->nftsetname, addr[0], addr[1],
 						 addr[2], addr[3]);
 					nftset_add(nftset_ip->familyname, nftset_ip->nfttablename, nftset_ip->nftsetname, addr,
-							   DNS_RR_A_LEN, timeout_value);
+							   DNS_RR_A_LEN, nftset_timeout_value);
 				}
 			} break;
 			case DNS_T_AAAA: {
@@ -1992,7 +2029,7 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 						 request->domain, rule->ipsetname, addr[0], addr[1], addr[2], addr[3], addr[4], addr[5],
 						 addr[6], addr[7], addr[8], addr[9], addr[10], addr[11], addr[12], addr[13], addr[14],
 						 addr[15]);
-					ipset_add(rule->ipsetname, addr, DNS_RR_AAAA_LEN, timeout_value);
+					ipset_add(rule->ipsetname, addr, DNS_RR_AAAA_LEN, ipset_timeout_value);
 				}
 
 				if (nftset_ip6 != NULL) {
@@ -2004,7 +2041,7 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 						 addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr[6], addr[7], addr[8], addr[9],
 						 addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
 					nftset_add(nftset_ip6->familyname, nftset_ip6->nfttablename, nftset_ip6->nftsetname, addr,
-							   DNS_RR_AAAA_LEN, timeout_value);
+							   DNS_RR_AAAA_LEN, nftset_timeout_value);
 				}
 			} break;
 			default:
@@ -2780,13 +2817,13 @@ static struct dns_request *_dns_server_new_request(void)
 	atomic_set(&request->do_callback, 0);
 	request->ping_time = -1;
 	request->prefetch = 0;
-	request->dualstack_selection = dns_conf_dualstack_ip_selection;
+	request->dualstack_selection = 0;
 	request->dualstack_selection_ping_time = -1;
 	request->rcode = DNS_RC_SERVFAIL;
 	request->conn = NULL;
 	request->qclass = DNS_C_IN;
 	request->result_callback = NULL;
-	request->check_order_list = &dns_conf_check_orders;
+	request->check_order_list = &dns_conf_default_check_orders;
 	request->response_mode = dns_conf_response_mode;
 	INIT_LIST_HEAD(&request->list);
 	INIT_LIST_HEAD(&request->pending_list);
@@ -3005,12 +3042,58 @@ static int _dns_server_check_speed(struct dns_request *request, char *ip)
 	return -1;
 }
 
+static struct dns_client_rules *_dns_server_get_client_rules(struct sockaddr_storage *addr, socklen_t addr_len)
+{
+	prefix_t prefix;
+	radix_node_t *node = NULL;
+	uint8_t *netaddr = NULL;
+	int netaddr_len = 0;
+
+	switch (addr->ss_family) {
+	case AF_INET: {
+		struct sockaddr_in *addr_in = NULL;
+		addr_in = (struct sockaddr_in *)addr;
+		netaddr = (unsigned char *)&(addr_in->sin_addr.s_addr);
+		netaddr_len = 4;
+	} break;
+	case AF_INET6: {
+		struct sockaddr_in6 *addr_in6 = NULL;
+		addr_in6 = (struct sockaddr_in6 *)addr;
+		if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
+			netaddr = addr_in6->sin6_addr.s6_addr + 12;
+			netaddr_len = 4;
+		} else {
+			netaddr = addr_in6->sin6_addr.s6_addr;
+			netaddr_len = 16;
+		}
+	} break;
+	default:
+		return NULL;
+		break;
+	}
+
+	if (prefix_from_blob(netaddr, netaddr_len, netaddr_len * 8, &prefix) == NULL) {
+		return NULL;
+	}
+
+	node = radix_search_best(dns_conf_client_rule.rule, &prefix);
+	if (node == NULL) {
+		return NULL;
+	}
+
+	return node->data;
+}
+
 static struct dns_ip_rules *_dns_server_ip_rule_get(struct dns_request *request, unsigned char *addr, int addr_len,
 													dns_type_t addr_type)
 {
 	prefix_t prefix;
 	radix_node_t *node = NULL;
 	struct dns_ip_rules *rule = NULL;
+
+	if (request->conf == NULL) {
+		return NULL;
+	}
 
 	/* Match IP address rules */
 	if (prefix_from_blob(addr, addr_len, addr_len * 8, &prefix) == NULL) {
@@ -3019,10 +3102,10 @@ static struct dns_ip_rules *_dns_server_ip_rule_get(struct dns_request *request,
 
 	switch (prefix.family) {
 	case AF_INET:
-		node = radix_search_best(dns_conf_address_rule.ipv4, &prefix);
+		node = radix_search_best(request->conf->address_rule.ipv4, &prefix);
 		break;
 	case AF_INET6:
-		node = radix_search_best(dns_conf_address_rule.ipv6, &prefix);
+		node = radix_search_best(request->conf->address_rule.ipv6, &prefix);
 		break;
 	default:
 		break;
@@ -3770,6 +3853,7 @@ static void _dns_server_query_end(struct dns_request *request)
 {
 	int ip_num = 0;
 	int request_wait = 0;
+	struct dns_conf_group *conf = request->conf;
 
 	/* if mdns request timeout */
 	if (request->is_mdns_lookup == 1 && request->rcode == DNS_RC_SERVFAIL) {
@@ -3787,8 +3871,8 @@ static void _dns_server_query_end(struct dns_request *request)
 	/* Not need to wait check result if only has one ip address */
 	if (ip_num <= 1 && request_wait == 1) {
 		if (request->dualstack_selection_query == 1) {
-			if ((dns_conf_ipset_no_speed.ipv4_enable || dns_conf_nftset_no_speed.ip_enable ||
-				 dns_conf_ipset_no_speed.ipv6_enable || dns_conf_nftset_no_speed.ip6_enable) &&
+			if ((conf->ipset_nftset.ipset_no_speed.ipv4_enable || conf->ipset_nftset.nftset_no_speed.ip_enable ||
+				 conf->ipset_nftset.ipset_no_speed.ipv6_enable || conf->ipset_nftset.nftset_no_speed.ip6_enable) &&
 				dns_conf_dns_dns64.prefix_len == 0) {
 				/* if speed check fail enabled, we need reply quickly, otherwise wait for ping result.*/
 				_dns_server_request_complete(request);
@@ -4116,13 +4200,172 @@ errout:
 	return -1;
 }
 
+static void _dns_server_set_request_mdns(struct dns_request *request)
+{
+	if (dns_conf_mdns_lookup != 1) {
+		return;
+	}
+
+	request->is_mdns_lookup = 1;
+}
+
+static int _dns_server_parser_addr_from_apra(const char *arpa, unsigned char *addr, int *addr_len, int max_addr_len)
+{
+	int high, low;
+	char *endptr = NULL;
+
+	if (arpa == NULL || addr == NULL || addr_len == NULL || max_addr_len < 4) {
+		return -1;
+	}
+
+	int ret = sscanf(arpa, "%hhd.%hhd.%hhd.%hhd.in-addr.arpa", &addr[3], &addr[2], &addr[1], &addr[0]);
+	if (ret == 4 && strstr(arpa, ".in-addr.arpa") != NULL) {
+		*addr_len = 4;
+		return 0;
+	}
+
+	if (max_addr_len != 16) {
+		return -1;
+	}
+
+	for (int i = 15; i >= 0; i--) {
+		low = strtol(arpa, &endptr, 16);
+		if (endptr == NULL || *endptr != '.' || *endptr == '\0') {
+			return -1;
+		}
+
+		arpa = endptr + 1;
+		high = strtol(arpa, &endptr, 16);
+		if (endptr == NULL || *endptr != '.' || *endptr == '\0') {
+			return -1;
+		}
+
+		arpa = endptr + 1;
+		addr[i] = (high << 4) | low;
+	}
+
+	if (strstr(arpa, "ip6.arpa") == NULL) {
+		return -1;
+	}
+
+	*addr_len = 16;
+
+	return 0;
+}
+
+static int _dns_server_ip_get_addr_from_ifaddrs(struct ifaddrs *ifaddr, unsigned char *addr, int *maskbit,
+												int *addr_len)
+{
+	unsigned char *netmask = NULL;
+	unsigned char *netaddr = NULL;
+	int prefix_len = 0;
+
+	switch (ifaddr->ifa_addr->sa_family) {
+	case AF_INET: {
+		struct sockaddr_in *addr_in = NULL;
+		struct sockaddr_in *netmask_in = NULL;
+		addr_in = (struct sockaddr_in *)ifaddr->ifa_addr;
+		netmask_in = (struct sockaddr_in *)ifaddr->ifa_netmask;
+		netaddr = (unsigned char *)&(addr_in->sin_addr.s_addr);
+		netmask = (unsigned char *)&(netmask_in->sin_addr.s_addr);
+		*addr_len = 4;
+	} break;
+	case AF_INET6: {
+		struct sockaddr_in6 *addr_in6 = NULL;
+		struct sockaddr_in6 *netmask_in6 = NULL;
+		addr_in6 = (struct sockaddr_in6 *)ifaddr->ifa_addr;
+		netmask_in6 = (struct sockaddr_in6 *)ifaddr->ifa_netmask;
+		if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
+			netaddr = addr_in6->sin6_addr.s6_addr + 12;
+			netmask = netmask_in6->sin6_addr.s6_addr + 12;
+			*addr_len = 4;
+		} else {
+			netaddr = addr_in6->sin6_addr.s6_addr;
+			netmask = netmask_in6->sin6_addr.s6_addr;
+			*addr_len = 16;
+		}
+	} break;
+	default:
+		return -1;
+		break;
+	}
+
+	for (int i = 0; i < *addr_len; i++) {
+		if (netmask[i] == 0xff) {
+			prefix_len += 8;
+		} else {
+			unsigned char mask = netmask[i];
+			while (mask) {
+				mask <<= 1;
+				prefix_len++;
+			}
+			break;
+		}
+	}
+
+	memcpy(addr, netaddr, *addr_len);
+	*maskbit = prefix_len;
+
+	return 0;
+}
+
+static int _dns_server_ip_is_subnet(unsigned char *addr, int mask, unsigned char *sub_addr, int addr_len)
+{
+	if (addr_len != 4 && addr_len != 16) {
+		return -1;
+	}
+
+	if (mask > addr_len * 8) {
+		return -1;
+	}
+
+	if (memcmp(addr, sub_addr, mask / 8) != 0) {
+		return -1;
+	}
+
+	if (mask % 8 != 0) {
+		if ((addr[mask / 8] & (0xff << (8 - mask % 8))) != (sub_addr[mask / 8] & (0xff << (8 - mask % 8)))) {
+			return -1;
+		}
+	}
+
+	return 0;
+}
+
+static int _dns_server_is_private_address(unsigned char *addr, int addr_len)
+{
+	if (addr_len == 4) {
+		if (addr[0] == 10 || (addr[0] == 172 && addr[1] >= 16 && addr[1] <= 31) || (addr[0] == 192 && addr[1] == 168)) {
+			return 0;
+		}
+	} else if (addr_len == 16) {
+		if (addr[0] == 0xfe && addr[1] == 0x80) {
+			return 0;
+		}
+	}
+
+	return -1;
+}
+
 static int _dns_server_process_local_ptr(struct dns_request *request)
 {
 	struct ifaddrs *ifaddr = NULL;
 	struct ifaddrs *ifa = NULL;
-	unsigned char *addr = NULL;
-	char reverse_addr[DNS_MAX_CNAME_LEN] = {0};
+	unsigned char ptr_addr[16];
+	int ptr_addr_len = 0;
+	unsigned char addr[16];
+	int addr_len = 0;
+	int maskbit = 0;
 	int found = 0;
+
+	if (_dns_server_parser_addr_from_apra(request->domain, ptr_addr, &ptr_addr_len, sizeof(ptr_addr)) != 0) {
+		/* Determine if the smartdns service is in effect. */
+		if (strncasecmp(request->domain, "smartdns", sizeof("smartdns")) != 0) {
+			return -1;
+		}
+		found = 1;
+		goto out;
+	}
 
 	if (getifaddrs(&ifaddr) == -1) {
 		return -1;
@@ -4134,56 +4377,37 @@ static int _dns_server_process_local_ptr(struct dns_request *request)
 			continue;
 		}
 
-		switch (ifa->ifa_addr->sa_family) {
-		case AF_INET: {
-			struct sockaddr_in *addr_in = NULL;
-			addr_in = (struct sockaddr_in *)ifa->ifa_addr;
-			addr = (unsigned char *)&(addr_in->sin_addr.s_addr);
-			snprintf(reverse_addr, sizeof(reverse_addr), "%d.%d.%d.%d.in-addr.arpa", addr[3], addr[2], addr[1],
-					 addr[0]);
-		} break;
-		case AF_INET6: {
-			struct sockaddr_in6 *addr_in6 = NULL;
-			addr_in6 = (struct sockaddr_in6 *)ifa->ifa_addr;
-			if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
-				addr = addr_in6->sin6_addr.s6_addr + 12;
-				snprintf(reverse_addr, sizeof(reverse_addr), "%d.%d.%d.%d.in-addr.arpa", addr[3], addr[2], addr[1],
-						 addr[0]);
-			} else {
-				addr = addr_in6->sin6_addr.s6_addr;
-				snprintf(reverse_addr, sizeof(reverse_addr),
-						 "%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x.%x."
-						 "%x.ip6.arpa",
-						 addr[15] & 0xF, (addr[15] >> 4) & 0xF, addr[14] & 0xF, (addr[14] >> 4) & 0xF, addr[13] & 0xF,
-						 (addr[13] >> 4) & 0xF, addr[12] & 0xF, (addr[12] >> 4) & 0xF, addr[11] & 0xF,
-						 (addr[11] >> 4) & 0xF, addr[10] & 0xF, (addr[10] >> 4) & 0xF, addr[9] & 0xF,
-						 (addr[9] >> 4) & 0xF, addr[8] & 0xF, (addr[8] >> 4) & 0xF, addr[7] & 0xF, (addr[7] >> 4) & 0xF,
-						 addr[6] & 0xF, (addr[6] >> 4) & 0xF, addr[5] & 0xF, (addr[5] >> 4) & 0xF, addr[4] & 0xF,
-						 (addr[4] >> 4) & 0xF, addr[3] & 0xF, (addr[3] >> 4) & 0xF, addr[2] & 0xF, (addr[2] >> 4) & 0xF,
-						 addr[1] & 0xF, (addr[1] >> 4) & 0xF, addr[0] & 0xF, (addr[0] >> 4) & 0xF);
-			}
-		} break;
-		default:
+		addr_len = sizeof(addr);
+		if (_dns_server_ip_get_addr_from_ifaddrs(ifa, addr, &maskbit, &addr_len) != 0) {
 			continue;
-			break;
 		}
 
-		if (strncmp(request->domain, reverse_addr, DNS_MAX_CNAME_LEN) == 0) {
+		if (addr_len != ptr_addr_len) {
+			continue;
+		}
+
+		if (_dns_server_ip_is_subnet(addr, addr_len * 8, ptr_addr, ptr_addr_len) == 0) {
 			found = 1;
 			break;
 		}
+
+		if (dns_conf_mdns_lookup && _dns_server_ip_is_subnet(addr, maskbit, ptr_addr, ptr_addr_len) == 0) {
+			_dns_server_set_request_mdns(request);
+			goto errout;
+		}
 	}
 
 	/* Determine if the smartdns service is in effect. */
-	if (strncmp(request->domain, "0.0.0.0.in-addr.arpa", DNS_MAX_CNAME_LEN - 1) == 0) {
+	if (found == 0 && strncmp(request->domain, "0.0.0.0.in-addr.arpa", DNS_MAX_CNAME_LEN - 1) == 0) {
 		found = 1;
 	}
 
-	/* Determine if the smartdns service is in effect. */
-	if (found == 0 && strncasecmp(request->domain, "smartdns", sizeof("smartdns")) == 0) {
-		found = 1;
+	if (found == 0 && _dns_server_is_private_address(ptr_addr, ptr_addr_len) == 0) {
+		request->has_soa = 1;
+		_dns_server_setup_soa(request);
+		goto clear;
 	}
-
+out:
 	if (found == 0) {
 		goto errout;
 	}
@@ -4222,7 +4446,7 @@ static int _dns_server_process_local_ptr(struct dns_request *request)
 
 	request->has_ptr = 1;
 	safe_strncpy(request->ptr_hostname, full_hostname, DNS_MAX_CNAME_LEN);
-
+clear:
 	freeifaddrs(ifaddr);
 	return 0;
 errout:
@@ -4259,35 +4483,6 @@ static int _dns_server_get_local_ttl(struct dns_request *request)
 	return DNS_SERVER_ADDR_TTL;
 }
 
-static void _dns_server_set_request_mdns(struct dns_request *request)
-{
-	if (dns_conf_mdns_lookup != 1) {
-		return;
-	}
-
-	request->is_mdns_lookup = 1;
-}
-
-static int _dns_server_process_private_ptr(struct dns_request *request)
-{
-	int a, b, c, d;
-	int ret = sscanf(request->domain, "%d.%d.%d.%d.in-addr.arpa", &a, &b, &c, &d);
-	if (ret != 4) {
-		return -1;
-	}
-
-	if (d == 10 || (d == 172 && c >= 16 && c <= 31) || (d == 192 && c == 168)) {
-		if (dns_conf_mdns_lookup == 0) {
-			request->has_soa = 1;
-			_dns_server_setup_soa(request);
-			return 0;
-		}
-		_dns_server_set_request_mdns(request);
-	}
-
-	return -1;
-}
-
 static int _dns_server_process_ptr(struct dns_request *request)
 {
 	if (_dns_server_process_ptrs(request) == 0) {
@@ -4295,10 +4490,6 @@ static int _dns_server_process_ptr(struct dns_request *request)
 	}
 
 	if (_dns_server_process_local_ptr(request) == 0) {
-		goto reply_exit;
-	}
-
-	if (_dns_server_process_private_ptr(request) == 0) {
 		goto reply_exit;
 	}
 
@@ -4365,9 +4556,9 @@ static void _dns_server_log_rule(const char *domain, enum domain_rule rule_type,
 	tlog(TLOG_INFO, "RULE-MATCH, type: %d, domain: %s, rule: %s", rule_type, domain, rule_name);
 }
 
-static void _dns_server_update_rule_by_flags(struct dns_request *request)
+static void _dns_server_update_rule_by_flags(struct dns_request_domain_rule *request_domain_rule)
 {
-	struct dns_rule_flags *rule_flag = (struct dns_rule_flags *)request->domain_rule.rules[0];
+	struct dns_rule_flags *rule_flag = (struct dns_rule_flags *)request_domain_rule->rules[0];
 	unsigned int flags = 0;
 
 	if (rule_flag == NULL) {
@@ -4376,47 +4567,47 @@ static void _dns_server_update_rule_by_flags(struct dns_request *request)
 	flags = rule_flag->flags;
 
 	if (flags & DOMAIN_FLAG_ADDR_IGN) {
-		request->domain_rule.rules[DOMAIN_RULE_ADDRESS_IPV4] = NULL;
-		request->domain_rule.rules[DOMAIN_RULE_ADDRESS_IPV6] = NULL;
+		request_domain_rule->rules[DOMAIN_RULE_ADDRESS_IPV4] = NULL;
+		request_domain_rule->rules[DOMAIN_RULE_ADDRESS_IPV6] = NULL;
 	}
 
 	if (flags & DOMAIN_FLAG_ADDR_IPV4_IGN) {
-		request->domain_rule.rules[DOMAIN_RULE_ADDRESS_IPV4] = NULL;
+		request_domain_rule->rules[DOMAIN_RULE_ADDRESS_IPV4] = NULL;
 	}
 
 	if (flags & DOMAIN_FLAG_ADDR_IPV6_IGN) {
-		request->domain_rule.rules[DOMAIN_RULE_ADDRESS_IPV6] = NULL;
+		request_domain_rule->rules[DOMAIN_RULE_ADDRESS_IPV6] = NULL;
 	}
 
 	if (flags & DOMAIN_FLAG_IPSET_IGN) {
-		request->domain_rule.rules[DOMAIN_RULE_IPSET] = NULL;
+		request_domain_rule->rules[DOMAIN_RULE_IPSET] = NULL;
 	}
 
 	if (flags & DOMAIN_FLAG_IPSET_IPV4_IGN) {
-		request->domain_rule.rules[DOMAIN_RULE_IPSET_IPV4] = NULL;
+		request_domain_rule->rules[DOMAIN_RULE_IPSET_IPV4] = NULL;
 	}
 
 	if (flags & DOMAIN_FLAG_IPSET_IPV6_IGN) {
-		request->domain_rule.rules[DOMAIN_RULE_IPSET_IPV6] = NULL;
+		request_domain_rule->rules[DOMAIN_RULE_IPSET_IPV6] = NULL;
 	}
 
 	if (flags & DOMAIN_FLAG_NFTSET_IP_IGN || flags & DOMAIN_FLAG_NFTSET_INET_IGN) {
-		request->domain_rule.rules[DOMAIN_RULE_NFTSET_IP] = NULL;
+		request_domain_rule->rules[DOMAIN_RULE_NFTSET_IP] = NULL;
 	}
 
 	if (flags & DOMAIN_FLAG_NFTSET_IP6_IGN || flags & DOMAIN_FLAG_NFTSET_INET_IGN) {
-		request->domain_rule.rules[DOMAIN_RULE_NFTSET_IP6] = NULL;
+		request_domain_rule->rules[DOMAIN_RULE_NFTSET_IP6] = NULL;
 	}
 
 	if (flags & DOMAIN_FLAG_NAMESERVER_IGNORE) {
-		request->domain_rule.rules[DOMAIN_RULE_NAMESERVER] = NULL;
+		request_domain_rule->rules[DOMAIN_RULE_NAMESERVER] = NULL;
 	}
 }
 
 static int _dns_server_get_rules(unsigned char *key, uint32_t key_len, int is_subkey, void *value, void *arg)
 {
 	struct rule_walk_args *walk_args = arg;
-	struct dns_request *request = walk_args->args;
+	struct dns_request_domain_rule *request_domain_rule = walk_args->args;
 	struct dns_domain_rule *domain_rule = value;
 	int i = 0;
 	if (domain_rule == NULL) {
@@ -4435,56 +4626,69 @@ static int _dns_server_get_rules(unsigned char *key, uint32_t key_len, int is_su
 		}
 	}
 
-	for (i = 0; i < DOMAIN_RULE_MAX; i++) {
+	if (walk_args->rule_index >= 0) {
+		i = walk_args->rule_index;
+	} else {
+		i = 0;
+	}
+
+	for (; i < DOMAIN_RULE_MAX; i++) {
 		if (domain_rule->rules[i] == NULL) {
+			if (walk_args->rule_index >= 0) {
+				break;
+			}
 			continue;
 		}
 
-		request->domain_rule.rules[i] = domain_rule->rules[i];
-		request->domain_rule.is_sub_rule[i] = is_subkey;
+		request_domain_rule->rules[i] = domain_rule->rules[i];
+		request_domain_rule->is_sub_rule[i] = is_subkey;
 		walk_args->key[i] = key;
 		walk_args->key_len[i] = key_len;
+		if (walk_args->rule_index >= 0) {
+			break;
+		}
 		walk_args->match = 1;
 	}
 
 	/* update rules by flags */
-	_dns_server_update_rule_by_flags(request);
+	_dns_server_update_rule_by_flags(request_domain_rule);
 
 	return 0;
 }
 
-static void _dns_server_get_domain_rule_by_domain(struct dns_request *request, const char *domain, int out_log)
+static void _dns_server_get_domain_rule_by_domain_ext(struct dns_conf_group *conf,
+													  struct dns_request_domain_rule *request_domain_rule,
+													  int rule_index, const char *domain, int out_log)
 {
 	int domain_len = 0;
 	char domain_key[DNS_MAX_CNAME_LEN];
+	struct rule_walk_args walk_args;
 	int matched_key_len = DNS_MAX_CNAME_LEN;
 	unsigned char matched_key[DNS_MAX_CNAME_LEN];
-	struct rule_walk_args walk_args;
 	int i = 0;
 	char regexp[DNS_MAX_REGEXP_LEN];
 
-	if (request->skip_domain_rule != 0) {
-		return;
-	}
-
 	memset(&walk_args, 0, sizeof(walk_args));
-	walk_args.args = request;
+	walk_args.args = request_domain_rule;
+	walk_args.rule_index = rule_index;
 
 	/* reverse domain string */
 	domain_len = strlen(domain);
-	if (domain_len >= (int)sizeof(domain_key) - 2) {
+	if (domain_len >= (int)sizeof(domain_key) - 3) {
 		return;
 	}
 
-	reverse_string(domain_key, domain, domain_len, 1);
-	domain_key[domain_len] = '.';
-	domain_len++;
+	reverse_string(domain_key + 1, domain, domain_len, 1);
+	domain_key[domain_len + 1] = '.';
+	domain_key[0] = '.';
+	domain_len += 2;
 	domain_key[domain_len] = 0;
 
 	/* find domain rule */
-	art_substring_walk(&dns_conf_domain_rule, (unsigned char *)domain_key, domain_len, _dns_server_get_rules,
+	art_substring_walk(&conf->domain_rule.tree, (unsigned char *)domain_key, domain_len, _dns_server_get_rules,
 					   &walk_args);
-if (!walk_args.match && has_regexp()) {
+
+  if (!walk_args.match && has_regexp()) {
 	      memset(&walk_args, 0, sizeof(walk_args));
 	      walk_args.args = request;
 	      
@@ -4503,13 +4707,22 @@ if (!walk_args.match && has_regexp()) {
 		}
 	}
 	
-	if (likely(dns_conf_log_level > TLOG_DEBUG)) {
+	if (likely(dns_conf_log_level > TLOG_DEBUG) || out_log == 0) {
 		return;
 	}
 
+	if (walk_args.rule_index >= 0) {
+		i = walk_args.rule_index;
+	} else {
+		i = 0;
+	}
+
 	/* output log rule */
-	for (i = 0; i < DOMAIN_RULE_MAX; i++) {
+	for (; i < DOMAIN_RULE_MAX; i++) {
 		if (walk_args.key[i] == NULL) {
+			if (walk_args.rule_index >= 0) {
+				break;
+			}
 			continue;
 		}
 
@@ -4522,16 +4735,34 @@ if (!walk_args.match && has_regexp()) {
 
 		matched_key_len--;
 		matched_key[matched_key_len] = 0;
-		if (out_log != 0) {
-			_dns_server_log_rule(request->domain, i, matched_key, matched_key_len);
+		_dns_server_log_rule(domain, i, matched_key, matched_key_len);
+
+		if (walk_args.rule_index >= 0) {
+			break;
 		}
 	}
+}
 
+static void _dns_server_get_domain_rule_by_domain(struct dns_request *request, const char *domain, int out_log)
+{
+	if (request->skip_domain_rule != 0) {
+		return;
+	}
+
+	if (request->conf == NULL) {
+		return;
+	}
+
+	_dns_server_get_domain_rule_by_domain_ext(request->conf, &request->domain_rule, -1, domain, out_log);
 	request->skip_domain_rule = 1;
 }
 
 static void _dns_server_get_domain_rule(struct dns_request *request)
 {
+	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_RULES) == 0) {
+		return;
+	}
+
 	_dns_server_get_domain_rule_by_domain(request, request->domain, 1);
 }
 
@@ -4543,6 +4774,19 @@ static int _dns_server_pre_process_server_flags(struct dns_request *request)
 
 	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_IP_ALIAS) == 0) {
 		request->no_ipalias = 1;
+	}
+
+	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_PREFETCH) == 0) {
+		request->prefetch_flags |= PREFETCH_FLAGS_NOPREFETCH;
+	}
+
+	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_SERVE_EXPIRED) == 0) {
+		request->no_serve_expired = 1;
+	}
+
+	if (request->qtype == DNS_T_HTTPS && _dns_server_has_bind_flag(request, BIND_FLAG_FORCE_HTTPS_SOA) == 0) {
+		_dns_server_reply_SOA(DNS_RC_NOERROR, request);
+		return 0;
 	}
 
 	return -1;
@@ -4570,6 +4814,10 @@ static int _dns_server_pre_process_rule_flags(struct dns_request *request)
 
 	if (flags & DOMAIN_FLAG_NO_CACHE) {
 		request->no_cache = 1;
+	}
+
+	if (flags & DOMAIN_FLAG_ENABLE_CACHE) {
+		request->no_cache = 0;
 	}
 
 	if (flags & DOMAIN_FLAG_NO_IPALIAS) {
@@ -4771,6 +5019,7 @@ static struct dns_request *_dns_server_new_child_request(struct dns_request *req
 	child_request->parent_request = request;
 	child_request->qtype = qtype;
 	child_request->qclass = request->qclass;
+	child_request->conf = request->conf;
 
 	if (request->has_ecs) {
 		memcpy(&child_request->ecs, &request->ecs, sizeof(child_request->ecs));
@@ -5136,14 +5385,14 @@ errout:
 
 static int _dns_server_qtype_soa(struct dns_request *request)
 {
-	if (request->skip_qtype_soa || dns_qtype_soa_table == NULL) {
+	if (request->skip_qtype_soa || request->conf->soa_table == NULL) {
 		return -1;
 	}
 
 	if (request->qtype >= 0 && request->qtype <= MAX_QTYPE_NUM) {
 		int offset = request->qtype / 8;
 		int bit = request->qtype % 8;
-		if ((dns_qtype_soa_table[offset] & (1 << bit)) == 0) {
+		if ((request->conf->soa_table[offset] & (1 << bit)) == 0) {
 			return -1;
 		}
 	}
@@ -5366,17 +5615,14 @@ void dns_server_check_ipv6_ready(void)
 	static int do_get_conf = 0;
 	static int is_icmp_check_set;
 	static int is_tcp_check_set;
-	int i = 0;
 
 	if (do_get_conf == 0) {
-		for (i = 0; i < DOMAIN_CHECK_NUM; i++) {
-			if (dns_conf_check_orders.orders[i].type == DOMAIN_CHECK_ICMP) {
-				is_icmp_check_set = 1;
-			}
+		if (dns_conf_has_icmp_check == 1) {
+			is_icmp_check_set = 1;
+		}
 
-			if (dns_conf_check_orders.orders[i].type == DOMAIN_CHECK_TCP) {
-				is_tcp_check_set = 1;
-			}
+		if (dns_conf_has_tcp_check == 1) {
+			is_tcp_check_set = 1;
 		}
 
 		if (is_icmp_check_set == 0) {
@@ -5420,6 +5666,37 @@ static void _dns_server_request_set_client(struct dns_request *request, struct d
 	request->conn = conn;
 	request->server_flags = conn->server_flags;
 	_dns_server_conn_get(conn);
+}
+
+static int _dns_server_request_set_client_rules(struct dns_request *request, struct dns_client_rules *client_rule)
+{
+	if (client_rule == NULL) {
+		if (_dns_server_has_bind_flag(request, BIND_FLAG_ACL) == 0 || dns_conf_acl_enable) {
+			request->send_tick = get_tick_count();
+			request->rcode = DNS_RC_REFUSED;
+			request->no_cache = 1;
+			return -1;
+		}
+		return 0;
+	}
+
+	tlog(TLOG_DEBUG, "match client rule.");
+
+	if (client_rule->rules[CLIENT_RULE_GROUP]) {
+		struct client_rule_group *group = (struct client_rule_group *)client_rule->rules[CLIENT_RULE_GROUP];
+		if (group && group->group_name[0] != '\0') {
+			safe_strncpy(request->dns_group_name, group->group_name, sizeof(request->dns_group_name));
+		}
+	}
+
+	if (client_rule->rules[CLIENT_RULE_FLAGS]) {
+		struct client_rule_flags *flags = (struct client_rule_flags *)client_rule->rules[CLIENT_RULE_FLAGS];
+		if (flags) {
+			request->server_flags = flags->flags;
+		}
+	}
+
+	return 0;
 }
 
 static void _dns_server_request_set_id(struct dns_request *request, unsigned short id)
@@ -5720,6 +5997,7 @@ static int _dns_server_query_dualstack(struct dns_request *request)
 	request_dualstack->has_cname_loop = request->has_cname_loop;
 	request_dualstack->prefetch = request->prefetch;
 	request_dualstack->prefetch_flags = request->prefetch_flags;
+	request_dualstack->conf = request->conf;
 	_dns_server_request_get(request);
 	request_dualstack->dualstack_request = request;
 	_dns_server_request_set_callback(request_dualstack, dns_server_dualstack_callback, request);
@@ -5744,6 +6022,57 @@ errout:
 	return ret;
 }
 
+static int _dns_server_setup_request_conf_pre(struct dns_request *request)
+{
+	struct dns_conf_group *rule_group = NULL;
+	struct dns_request_domain_rule domain_rule;
+
+	if (request->skip_domain_rule != 0 && request->conf) {
+		return 0;
+	}
+
+	rule_group = dns_server_get_rule_group(request->dns_group_name);
+	if (rule_group == NULL) {
+		return -1;
+	}
+
+	request->conf = rule_group;
+	memset(&domain_rule, 0, sizeof(domain_rule));
+	_dns_server_get_domain_rule_by_domain_ext(rule_group, &domain_rule, DOMAIN_RULE_GROUP, request->domain, 1);
+	if (domain_rule.rules[DOMAIN_RULE_GROUP] == NULL) {
+		return 0;
+	}
+
+	struct dns_group_rule *group_rule = _dns_server_get_dns_rule_ext(&domain_rule, DOMAIN_RULE_GROUP);
+	if (group_rule == NULL) {
+		return 0;
+	}
+	rule_group = dns_server_get_rule_group(group_rule->group_name);
+	if (rule_group == NULL) {
+		return 0;
+	}
+
+	request->conf = rule_group;
+	tlog(TLOG_DEBUG, "domain %s match group %s", request->domain, rule_group->group_name);
+
+	return 0;
+}
+
+static int _dns_server_setup_request_conf(struct dns_request *request)
+{
+	struct dns_conf_group *rule_group = NULL;
+
+	rule_group = dns_server_get_rule_group(request->dns_group_name);
+	if (rule_group == NULL) {
+		return -1;
+	}
+
+	request->conf = rule_group;
+	request->check_order_list = &rule_group->check_orders;
+
+	return 0;
+}
+
 static int _dns_server_do_query(struct dns_request *request, int skip_notify_event)
 {
 	int ret = -1;
@@ -5759,6 +6088,10 @@ static int _dns_server_do_query(struct dns_request *request, int skip_notify_eve
 
 	request->send_tick = get_tick_count();
 
+	if (_dns_server_setup_request_conf_pre(request) != 0) {
+		goto errout;
+	}
+
 	/* lookup domain rule */
 	_dns_server_get_domain_rule(request);
 
@@ -5769,6 +6102,10 @@ static int _dns_server_do_query(struct dns_request *request, int skip_notify_eve
 			group_name = dns_group;
 		}
 		safe_strncpy(request->dns_group_name, group_name, DNS_GROUP_NAME_LEN);
+	}
+
+	if (_dns_server_setup_request_conf(request) != 0) {
+		goto errout;
 	}
 
 	if (_dns_server_mdns_query_setup(request, group_name, &request_domain, domain_buffer, sizeof(domain_buffer)) != 0) {
@@ -5975,6 +6312,7 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 	char name[DNS_MAX_CNAME_LEN];
 	struct dns_packet *packet = (struct dns_packet *)packet_buff;
 	struct dns_request *request = NULL;
+	struct dns_client_rules *client_rules = NULL;
 
 	/* decode packet */
 	tlog(TLOG_DEBUG, "recv query packet from %s, len = %d, type = %d",
@@ -5995,6 +6333,7 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 		 packet->head.qdcount, packet->head.ancount, packet->head.nscount, packet->head.nrcount, inpacket_len,
 		 packet->head.id, packet->head.tc, packet->head.rd, packet->head.ra, packet->head.rcode);
 
+	client_rules = _dns_server_get_client_rules(from, from_len);
 	request = _dns_server_new_request();
 	if (request == NULL) {
 		tlog(TLOG_ERROR, "malloc failed.\n");
@@ -6024,6 +6363,13 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 		}
 		request->send_tick = get_tick_count();
 		request->rcode = DNS_RC_REFUSED;
+		request->no_cache = 1;
+		ret = 0;
+		goto errout;
+	}
+
+	ret = _dns_server_request_set_client_rules(request, client_rules);
+	if (ret != 0) {
 		ret = 0;
 		goto errout;
 	}

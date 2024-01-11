@@ -107,5 +107,7 @@ std::string GenerateRandomString(int len);
 
 int ParserArg(const std::string &cmd, std::vector<std::string> &args);
 
+std::vector<std::string> GetAvailableIPAddresses();
+
 } // namespace smartdns
 #endif // _SMARTDNS_TEST_UTILS_

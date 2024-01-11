@@ -331,6 +331,26 @@ return view.extend({
 		o.rmempty = false;
 		o.default = o.enabled;
 
+		// ipset name;
+		o = s.taboption("advanced", form.Value, "ipset_name", _("IPset Name"), _("IPset name."));
+		o.rmempty = true;
+		o.datatype = "string";
+		o.rempty = true;
+		o.validate = function (section_id, value) {
+			if (value == "") {
+				return true;
+			}
+
+			var ipset = value.split(",")
+			for (var i = 0; i < ipset.length; i++) {
+				if (!ipset[i].match(/^(#[4|6]:)?[a-zA-Z0-9\-_]+$/)) {
+					return _("ipset name format error, format: [#[4|6]:]ipsetname");
+				}
+			}
+
+			return true;
+		}
+
 		// Ipset no speed.
 		o = s.taboption("advanced", form.Value, "ipset_no_speed", _("No Speed IPset Name"),
 			_("Ipset name, Add domain result to ipset when speed check fails."));
@@ -346,6 +366,26 @@ return view.extend({
 			for (var i = 0; i < ipset.length; i++) {
 				if (!ipset[i].match(/^(#[4|6]:)?[a-zA-Z0-9\-_]+$/)) {
 					return _("ipset name format error, format: [#[4|6]:]ipsetname");
+				}
+			}
+
+			return true;
+		}
+		
+		// NFTset name;
+		o = s.taboption("advanced", form.Value, "nftset_name", _("NFTset Name"), _("NFTset name, format: [#[4|6]:[family#table#set]]"));
+		o.rmempty = true;
+		o.datatype = "string";
+		o.rempty = true;
+		o.validate = function (section_id, value) {
+			if (value == "") {
+				return true;
+			}
+
+			var nftset = value.split(",")
+			for (var i = 0; i < nftset.length; i++) {
+				if (!nftset[i].match(/^#[4|6]:[a-zA-Z0-9\-_]+#[a-zA-Z0-9\-_]+#[a-zA-Z0-9\-_]+$/)) {
+					return _("NFTset name format error, format: [#[4|6]:[family#table#set]]");
 				}
 			}
 
@@ -417,6 +457,20 @@ return view.extend({
 			o.value(download_files[i].name);
 		}
 
+		o = s.taboption("advanced", form.DynamicList, "hosts_files", _("Hosts File"), _("Include hosts file."));
+		o.rmempty = true;
+		for (var i = 0; i < download_files.length; i++) {
+			if (download_files[i].type == undefined) {
+				continue;
+			}
+
+			if (download_files[i].type != 'other') {
+				continue
+			}
+
+			o.value(download_files[i].name);
+		}
+	
 		///////////////////////////////////////
 		// second dns server;
 		///////////////////////////////////////
@@ -487,6 +541,11 @@ return view.extend({
 
 		// Force AAAA SOA
 		o = s.taboption("seconddns", form.Flag, "seconddns_force_aaaa_soa", _("Force AAAA SOA"), _("Force AAAA SOA."));
+		o.rmempty = true;
+		o.default = o.disabled;
+		
+		// Force HTTPS SOA
+		o = s.taboption("seconddns", form.Flag, "seconddns_force_https_soa", _("Force HTTPS SOA"), _("Force HTTPS SOA."));
 		o.rmempty = true;
 		o.default = o.disabled;
 
@@ -586,6 +645,12 @@ return view.extend({
 		o.rempty = true
 		o.root_directory = "/etc/smartdns/domain-set"
 
+		o = s.taboption("files", form.FileUpload, "upload_other_file", _("Upload File"));
+		o.rmempty = true
+		o.datatype = "file"
+		o.rempty = true
+		o.root_directory = "/etc/smartdns/download"
+
 		o = s.taboption('files', form.DummyValue, "_update", _("Update Files"));
 		o.renderWidget = function () {
 			return E('button', {
@@ -629,6 +694,8 @@ return view.extend({
 		so = ss.option(form.ListValue, "type", _("type"), _("File Type"));
 		so.value("list", _("domain list (/etc/smartdns/domain-set)"));
 		so.value("config", _("smartdns config (/etc/smartdns/conf.d)"));
+		so.value("ip-set", _("ip-set file (/etc/smartdns/ip-set)"));
+		so.value("other", _("other file (/etc/smartdns/download)"));
 		so.default = "list";
 		so.rempty = false;
 

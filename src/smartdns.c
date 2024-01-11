@@ -261,7 +261,13 @@ static int _smartdns_prepare_server_flags(struct client_dns_server_flags *flags,
 	} break;
 	case DNS_SERVER_HTTPS: {
 		struct client_dns_server_flag_https *flag_http = &flags->https;
-		flag_http->spi_len = dns_client_spki_decode(server->spki, (unsigned char *)flag_http->spki);
+		if (server->spki[0] != 0) {
+			flag_http->spi_len = dns_client_spki_decode(server->spki, (unsigned char *)flag_http->spki);
+			if (flag_http->spi_len <= 0) {
+				tlog(TLOG_ERROR, "decode spki failed, %s:%d", server->server, server->port);
+				return -1;
+			}
+		}
 		safe_strncpy(flag_http->hostname, server->hostname, sizeof(flag_http->hostname));
 		safe_strncpy(flag_http->path, server->path, sizeof(flag_http->path));
 		safe_strncpy(flag_http->httphost, server->httphost, sizeof(flag_http->httphost));
@@ -270,7 +276,13 @@ static int _smartdns_prepare_server_flags(struct client_dns_server_flags *flags,
 	} break;
 	case DNS_SERVER_TLS: {
 		struct client_dns_server_flag_tls *flag_tls = &flags->tls;
-		flag_tls->spi_len = dns_client_spki_decode(server->spki, (unsigned char *)flag_tls->spki);
+		if (server->spki[0] != 0) {
+			flag_tls->spi_len = dns_client_spki_decode(server->spki, (unsigned char *)flag_tls->spki);
+			if (flag_tls->spi_len <= 0) {
+				tlog(TLOG_ERROR, "decode spki failed, %s:%d", server->server, server->port);
+				return -1;
+			}
+		}
 		safe_strncpy(flag_tls->hostname, server->hostname, sizeof(flag_tls->hostname));
 		safe_strncpy(flag_tls->tls_host_verify, server->tls_host_verify, sizeof(flag_tls->tls_host_verify));
 		flag_tls->skip_check_cert = server->skip_check_cert;
@@ -288,6 +300,7 @@ static int _smartdns_prepare_server_flags(struct client_dns_server_flags *flags,
 	flags->set_mark = server->set_mark;
 	flags->drop_packet_latency_ms = server->drop_packet_latency_ms;
 	safe_strncpy(flags->proxyname, server->proxyname, sizeof(flags->proxyname));
+	safe_strncpy(flags->ifname, server->ifname, sizeof(flags->ifname));
 	if (server->ipv4_ecs.enable) {
 		flags->ipv4_ecs.enable = 1;
 		safe_strncpy(flags->ipv4_ecs.ip, server->ipv4_ecs.ip, sizeof(flags->ipv4_ecs.ip));

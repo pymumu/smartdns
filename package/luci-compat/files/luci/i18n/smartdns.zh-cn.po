@@ -309,10 +309,10 @@ msgid "Force AAAA SOA."
 msgstr "停用IPV6地址解析。"
 
 msgid "Force HTTPS SOA"
-msgstr "停用HTTPS地址解析"
+msgstr "停用HTTPS记录解析"
 
 msgid "Force HTTPS SOA."
-msgstr "停用HTTPS地址解析。"
+msgstr "停用HTTPS记录解析。"
 
 msgid "General Settings"
 msgstr "常规设置"
@@ -328,6 +328,9 @@ msgstr ""
 
 msgid "Grant access to LuCI app smartdns"
 msgstr "授予访问 LuCI 应用 smartdns 的权限"
+
+msgid "Hosts File"
+msgstr "Hosts文件"
 
 msgid "HTTP Host"
 msgstr "HTTP主机"
@@ -382,6 +385,9 @@ msgstr "如果本软件对你有帮助，请给作者加个蛋。"
 
 msgid "Include Config Files<br>/etc/smartdns/conf.d"
 msgstr "包含配置文件<br>/etc/smartdns/conf.d"
+
+msgid "Include hosts file."
+msgstr "包含hosts文件。"
 
 msgid ""
 "Include other config files from /etc/smartdns/conf.d or custom path, can be "
@@ -729,6 +735,9 @@ msgstr "上传域名列表文件，或在下载文件设置页面设置自动下
 msgid "Upload domain list file."
 msgstr "上传域名列表文件"
 
+msgid "Upload File"
+msgstr "上传文件"
+
 msgid "Upload IP set file."
 msgstr "上传IP集合列表文件。"
 
@@ -780,11 +789,17 @@ msgstr "默认"
 msgid "domain list (/etc/smartdns/domain-set)"
 msgstr "域名列表（/etc/smartdns/domain-set）"
 
+msgid "other file (/etc/smartdns/download)"
+msgstr "其它文件（/etc/smartdns/download）"
+
 msgid "https"
 msgstr "https"
 
 msgid "ip"
 msgstr "ip"
+
+msgid "ip-set file (/etc/smartdns/ip-set)"
+msgstr "IP集合列表文件（/etc/smartdns/ip-set）"
 
 msgid "ipset name format error, format: [#[4|6]:]ipsetname"
 msgstr "IPset名称格式错误，格式：[#[4|6]:]ipsetname"
