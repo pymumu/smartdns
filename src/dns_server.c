@@ -4690,7 +4690,7 @@ static void _dns_server_get_domain_rule_by_domain_ext(struct dns_conf_group *con
 
   if (!walk_args.match && has_regexp()) {
 	      memset(&walk_args, 0, sizeof(walk_args));
-	      walk_args.args = request;
+	      walk_args.args = request_domain_rule;
 	      
 	      memset(regexp,0,sizeof(regexp));
 	      if (dns_regexp_match(domain, regexp) == 0) {
@@ -4702,7 +4702,7 @@ static void _dns_server_get_domain_rule_by_domain_ext(struct dns_conf_group *con
 		     domain_key[domain_len] = 0;
 		
 		     /* find domain rule with regexp */
-		     art_substring_walk(&dns_conf_domain_rule, (unsigned char *)domain_key, domain_len, _dns_server_get_rules, 
+		     art_substring_walk(&conf->domain_rule.tree, (unsigned char *)domain_key, domain_len, _dns_server_get_rules, 
 			 					&walk_args);
 		}
 	}
