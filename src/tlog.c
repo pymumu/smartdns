@@ -459,7 +459,6 @@ static int _tlog_root_log_buffer(char *buff, int maxlen, void *userptr, const ch
         if (len + 1 < maxlen - 1) {
             *(buff + len) = '\0';
             len++;
-            log_len++;
         }
         log_head->len = log_len;
     }

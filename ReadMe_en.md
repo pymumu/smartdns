@@ -2,6 +2,7 @@ On the basis of SmartDNS, domain-set adds support for geosite domain name matchi
 
 # How to use
 ```shell
+
 Configure in smartdns.conf, such as 
 domain-set -name google -type geosite -file /etc/smartdns/geosite_google.txt 
 nameserver /domain-set:google/google

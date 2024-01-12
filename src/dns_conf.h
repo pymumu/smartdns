@@ -458,8 +458,16 @@ struct dns_client_rules {
 	struct dns_client_rule *rules[CLIENT_RULE_MAX];
 };
 
+struct client_roue_group_mac {
+	struct hlist_node node;
+	uint8_t mac[6];
+	struct dns_client_rules *rules;
+};
+
 struct dns_conf_client_rule {
 	radix_tree_t *rule;
+	DECLARE_HASHTABLE(mac, 6);
+	int mac_num;
 };
 
 struct nftset_ipset_rules {
@@ -690,6 +698,8 @@ struct dns_srv_records *dns_server_get_srv_record(const char *domain);
 struct dns_conf_group *dns_server_get_rule_group(const char *group_name);
 
 struct dns_conf_group *dns_server_get_default_rule_group(void);
+
+struct client_roue_group_mac *dns_server_rule_group_mac_get(const uint8_t mac[6]);
 
 extern int config_additional_file(void *data, int argc, char *argv[]);
 

@@ -417,7 +417,8 @@ static int load_conf_file(const char *file, struct config_item *items, conf_erro
 
 		line_len = 0;
 		is_last_line_wrap = 0;
-
+		key[0] = '\0';
+		value[0] = '\0';
 		filed_num = sscanf(line, "%63s %8191[^\r\n]s", key, value);
 		if (filed_num <= 0) {
 			continue;

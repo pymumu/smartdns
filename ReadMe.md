@@ -5,6 +5,7 @@
 ## 使用方法
 
 ```shell
+
 在smartdns.conf中配置，如
   domain-set -name google -type geosite -file /etc/smartdns/geosite_google.txt
   nameserver /domain-set:google/google
