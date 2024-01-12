@@ -3209,7 +3209,7 @@ static struct dns_client_rules *_dns_server_get_client_rules_by_mac(uint8_t *net
 
 	item = _dns_server_neighbor_cache_get_item(netaddr, netaddr_len);
 	if (_dns_server_neighbor_cache_is_valid(item) == 0) {
-		if (item->has_mac) {
+		if (item->has_mac == 0) {
 			return NULL;
 		}
 		group_mac = dns_server_rule_group_mac_get(item->mac);

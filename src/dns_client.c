@@ -615,7 +615,7 @@ static struct dns_server_group *_dns_client_get_dnsserver_group(const char *grou
 		goto use_default;
 	} else {
 		if (list_empty(&group->head)) {
-			tlog(TLOG_INFO, "group %s not exist, use default group.", group_name);
+			tlog(TLOG_DEBUG, "group %s not exist, use default group.", group_name);
 			goto use_default;
 		}
 	}
