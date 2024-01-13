@@ -1927,11 +1927,17 @@ int parser_mac_address(const char *in_mac, uint8_t mac[6])
 
 	fileld_num =
 		sscanf(in_mac, "%2hhx:%2hhx:%2hhx:%2hhx:%2hhx:%2hhx", &mac[0], &mac[1], &mac[2], &mac[3], &mac[4], &mac[5]);
-	if (fileld_num != 6) {
-		return -1;
+	if (fileld_num == 6) {
+		return 0;
 	}
 
-	return 0;
+	fileld_num =
+		sscanf(in_mac, "%2hhx-%2hhx-%2hhx-%2hhx-%2hhx-%2hhx", &mac[0], &mac[1], &mac[2], &mac[3], &mac[4], &mac[5]);
+	if (fileld_num == 6) {
+		return 0;
+	}
+
+	return -1;
 }
 
 #if defined(DEBUG) || defined(TEST)
