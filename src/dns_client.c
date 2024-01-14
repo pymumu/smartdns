@@ -280,6 +280,7 @@ static LIST_HEAD(pending_servers);
 static pthread_mutex_t pending_server_mutex = PTHREAD_MUTEX_INITIALIZER;
 static int dns_client_has_bootstrap_dns = 0;
 
+static void _dns_client_retry_dns_query(struct dns_query_struct *query);
 static int _dns_client_send_udp(struct dns_server_info *server_info, void *packet, int len);
 static void _dns_client_clear_wakeup_event(void);
 static void _dns_client_do_wakeup_event(void);
@@ -1856,6 +1857,10 @@ static int _dns_client_recv(struct dns_server_info *server_info, unsigned char *
 			/* remove this result */
 			_dns_replied_check_remove(query, from, from_len);
 			atomic_inc(&query->dns_request_sent);
+			if (ret == DNS_CLIENT_RETRY) {
+				/* retry immdiately */
+				_dns_client_retry_dns_query(query);
+			}
 		}
 	}
 
@@ -4036,6 +4041,19 @@ static int _dns_client_query_parser_options(struct dns_query_struct *query, stru
 	return 0;
 }
 
+static void _dns_client_retry_dns_query(struct dns_query_struct *query)
+{
+	if (atomic_dec_and_test(&query->retry_count) || (query->has_result != 0)) {
+		_dns_client_query_remove(query);
+		if (query->has_result == 0) {
+			tlog(TLOG_DEBUG, "retry query %s, type: %d, id: %d failed", query->domain, query->qtype, query->sid);
+		}
+	} else {
+		tlog(TLOG_DEBUG, "retry query %s, type: %d, id: %d", query->domain, query->qtype, query->sid);
+		_dns_client_send_query(query);
+	}
+}
+
 static int _dns_client_add_hashmap(struct dns_query_struct *query)
 {
 	uint32_t key = 0;
@@ -4439,16 +4457,7 @@ static void _dns_client_period_run(unsigned int msec)
 		if (atomic_read(&query->retry_count) == 1) {
 			_dns_client_check_udp_nat(query);
 		}
-
-		if (atomic_dec_and_test(&query->retry_count) || (query->has_result != 0)) {
-			_dns_client_query_remove(query);
-			if (query->has_result == 0) {
-				tlog(TLOG_DEBUG, "retry query %s, type: %d, id: %d failed", query->domain, query->qtype, query->sid);
-			}
-		} else {
-			tlog(TLOG_DEBUG, "retry query %s, type: %d, id: %d", query->domain, query->qtype, query->sid);
-			_dns_client_send_query(query);
-		}
+		_dns_client_retry_dns_query(query);
 		_dns_client_query_release(query);
 	}
 
