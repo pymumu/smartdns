@@ -666,7 +666,7 @@ int tlog_stdout_with_color(tlog_level level, const char *buff, int bufflen)
     }
 
     if (color != NULL) {
-        fprintf(stdout, "%s%.*s\033[0m\n", color, bufflen - 2, buff);
+        fprintf(stdout, "%s%.*s\033[0m\n", color, bufflen - 1, buff);
     } else {
         fprintf(stdout, "%s", buff);
     }
@@ -1227,7 +1227,6 @@ static int _tlog_write_screen(struct tlog_log *log, struct tlog_loginfo *info, c
     }
 
     if (info == NULL) {
-        
         return write(STDOUT_FILENO, buff, bufflen);;
     }
 

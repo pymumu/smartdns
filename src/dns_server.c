@@ -3746,9 +3746,13 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 	}
 
 	if (has_result == 0 && request->rcode == DNS_RC_NOERROR) {
-		tlog(TLOG_DEBUG, "no result, %s qtype: %d, rcode: %d, id: %d, retry", domain, request->qtype,
+		/* When queries A and AAAA from CloudFlare DNS at the same time and there is a retry, 
+		 * CloudFlare DNS may return the sent request packet. I don’t know the reason. 
+		 * Maybe retry should be considered?
+		 */
+		tlog(TLOG_DEBUG, "no result, %s qtype: %d, rcode: %d, id: %d", domain, request->qtype,
 			 packet->head.rcode, packet->head.id);
-		return -1;
+		return 0;
 	}
 
 	return 0;
