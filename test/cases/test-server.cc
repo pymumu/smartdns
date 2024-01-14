@@ -113,6 +113,7 @@ TEST_F(Server, retry_no_result_with_NOERROR)
 
 		if (count++ < 2) {
 			dns_add_domain(request->response_packet, request->domain.c_str(), request->qtype, request->qclass);
+			request->response_packet->head.tc = 1;
 			return smartdns::SERVER_REQUEST_OK;
 		}
 
