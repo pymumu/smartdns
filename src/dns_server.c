@@ -277,12 +277,12 @@ struct dns_request {
 	unsigned short ss_family;
 	char remote_server_fail;
 	char skip_qtype_soa;
-	socklen_t addr_len;
 	union {
 		struct sockaddr_in in;
 		struct sockaddr_in6 in6;
 		struct sockaddr addr;
 	};
+	socklen_t addr_len;
 	struct sockaddr_storage localaddr;
 	int has_ecs;
 	struct dns_opt_ecs ecs;

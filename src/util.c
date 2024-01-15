@@ -844,10 +844,10 @@ int netlink_get_neighbors(int family,
 			continue;
 		}
 
-		for (nlh = (struct nlmsghdr *)buf; NLMSG_OK(nlh, len); nlh = NLMSG_NEXT(nlh, len)) {
+		unsigned int rtalen = len;
+		for (nlh = (struct nlmsghdr *)buf; NLMSG_OK(nlh, rtalen); nlh = NLMSG_NEXT(nlh, rtalen)) {
 			ndm = NLMSG_DATA(nlh);
 			struct rtattr *rta = RTM_RTA(ndm);
-			int rtalen = RTM_PAYLOAD(nlh);
 			const uint8_t *mac = NULL;
 			const uint8_t *net_addr = NULL;
 			int net_addr_len = 0;

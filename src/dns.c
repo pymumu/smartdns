@@ -22,6 +22,7 @@
 #include "tlog.h"
 #include <arpa/inet.h>
 #include <fcntl.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -52,9 +53,14 @@ static unsigned short _dns_read_short(unsigned char **buffer)
 {
 	unsigned short value = 0;
 
-	value = ntohs(*((unsigned short *)(*buffer)));
+	if ((uintptr_t)(*buffer) % 2 == 0) {
+		value = *((unsigned short *)(*buffer));
+	} else {
+		memcpy(&value, *buffer, 2);
+	}
+
 	*buffer += 2;
-	return value;
+	return ntohs(value);
 }
 
 /* write char and move pointer */
@@ -76,7 +82,35 @@ static unsigned char _dns_read_char(unsigned char **buffer)
 static void _dns_write_short(unsigned char **buffer, unsigned short value)
 {
 	value = htons(value);
-	*((unsigned short *)(*buffer)) = value;
+
+	if ((uintptr_t)(*buffer) % 2 == 0) {
+		*((unsigned short *)(*buffer)) = value;
+	} else {
+		memcpy(*buffer, &value, 2);
+	}
+
+	*buffer += 2;
+}
+
+/* write short and move pointer */
+static void _dns_write_shortptr(unsigned char **buffer, void *ptrvalue)
+{
+	unsigned short value;
+
+	if ((uintptr_t)ptrvalue % 2 == 0) {
+		value = *(unsigned short *)ptrvalue;
+	} else {
+		memcpy(&value, ptrvalue, 2);
+	}
+
+	value = htons(value);
+
+	if ((uintptr_t)(*buffer) % 2 == 0) {
+		*((unsigned short *)(*buffer)) = value;
+	} else {
+		memcpy(*buffer, &value, 2);
+	}
+
 	*buffer += 2;
 }
 
@@ -84,7 +118,31 @@ static void _dns_write_short(unsigned char **buffer, unsigned short value)
 static void _dns_write_int(unsigned char **buffer, unsigned int value)
 {
 	value = htonl(value);
-	*((unsigned int *)(*buffer)) = value;
+	if ((uintptr_t)(*buffer) % 4 == 0) {
+		*((unsigned int *)(*buffer)) = value;
+	} else {
+		memcpy(*buffer, &value, 4);
+	}
+	*buffer += 4;
+}
+
+/* write int and move pointer */
+static void _dns_write_intptr(unsigned char **buffer, void *ptrvalue)
+{
+	unsigned int value;
+
+	if ((uintptr_t)ptrvalue % 4 == 0) {
+		value = *(unsigned int *)ptrvalue;
+	} else {
+		memcpy(&value, ptrvalue, 4);
+	}
+
+	value = htonl(value);
+	if ((uintptr_t)(*buffer) % 4 == 0) {
+		*((unsigned int *)(*buffer)) = value;
+	} else {
+		memcpy(*buffer, &value, 4);
+	}
 	*buffer += 4;
 }
 
@@ -93,10 +151,14 @@ static unsigned int _dns_read_int(unsigned char **buffer)
 {
 	unsigned int value = 0;
 
-	value = ntohl(*((unsigned int *)(*buffer)));
-	*buffer += 4;
+	if ((uintptr_t)(*buffer) % 4 == 0) {
+		value = *((unsigned int *)(*buffer));
+	} else {
+		memcpy(&value, *buffer, 4);
+	}
 
-	return value;
+	*buffer += 4;
+	return ntohl(value);
 }
 
 static inline int _dns_left_len(struct dns_context *context)
@@ -1782,15 +1844,15 @@ static int _dns_encode_SOA(struct dns_context *context, struct dns_rrs *rrs)
 		return -1;
 	}
 
-	_dns_write_int(&context->ptr, *(unsigned int *)data_context.ptr);
+	_dns_write_intptr(&context->ptr, data_context.ptr);
 	data_context.ptr += 4;
-	_dns_write_int(&context->ptr, *(unsigned int *)data_context.ptr);
+	_dns_write_intptr(&context->ptr, data_context.ptr);
 	data_context.ptr += 4;
-	_dns_write_int(&context->ptr, *(unsigned int *)data_context.ptr);
+	_dns_write_intptr(&context->ptr, data_context.ptr);
 	data_context.ptr += 4;
-	_dns_write_int(&context->ptr, *(unsigned int *)data_context.ptr);
+	_dns_write_intptr(&context->ptr, data_context.ptr);
 	data_context.ptr += 4;
-	_dns_write_int(&context->ptr, *(unsigned int *)data_context.ptr);
+	_dns_write_intptr(&context->ptr, data_context.ptr);
 	data_context.ptr += 4;
 
 	return 0;
@@ -1824,11 +1886,11 @@ static int _dns_encode_SRV(struct dns_context *context, struct dns_rrs *rrs)
 		return -1;
 	}
 
-	_dns_write_short(&context->ptr, *(unsigned short *)data_context.ptr);
+	_dns_write_shortptr(&context->ptr, data_context.ptr);
 	data_context.ptr += 2;
-	_dns_write_short(&context->ptr, *(unsigned short *)data_context.ptr);
+	_dns_write_shortptr(&context->ptr, data_context.ptr);
 	data_context.ptr += 2;
-	_dns_write_short(&context->ptr, *(unsigned short *)data_context.ptr);
+	_dns_write_shortptr(&context->ptr, data_context.ptr);
 	data_context.ptr += 2;
 	rr_len += 6;
 

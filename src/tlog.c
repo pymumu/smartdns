@@ -37,7 +37,7 @@
 #define TLOG_TMP_LEN 128
 #define TLOG_LOG_SIZE (1024 * 1024 * 50)
 #define TLOG_LOG_COUNT 32
-#define TLOG_LOG_NAME_LEN 128
+#define TLOG_LOG_NAME_LEN 256
 #define TLOG_BUFF_LEN (PATH_MAX + TLOG_LOG_NAME_LEN * 3)
 #define TLOG_SUFFIX_GZ ".gz"
 #define TLOG_SUFFIX_LOG ""
@@ -892,7 +892,7 @@ static int _tlog_get_oldest_callback(const char *path, struct dirent *entry, voi
 
     if (oldestlog->mtime == 0 || oldestlog->mtime > sb.st_mtime) {
         oldestlog->mtime = sb.st_mtime;
-        strncpy(oldestlog->name, entry->d_name, sizeof(oldestlog->name) - 1);
+        strncpy(oldestlog->name, entry->d_name, sizeof(oldestlog->name));
         oldestlog->name[sizeof(oldestlog->name) - 1] = '\0';
         return 0;
     }
@@ -1207,11 +1207,11 @@ static void _tlog_get_log_name_dir(struct tlog_log *log)
     pthread_mutex_lock(&tlog.lock);
     strncpy(log_file, log->pending_logfile, sizeof(log_file) - 1);
     log_file[sizeof(log_file) - 1] = '\0';
-    strncpy(log->logdir, dirname(log_file), sizeof(log->logdir));
+    strncpy(log->logdir, dirname(log_file), sizeof(log->logdir) - 1);
     log->logdir[sizeof(log->logdir) - 1] = '\0';
     strncpy(log_file, log->pending_logfile, PATH_MAX);
     log_file[sizeof(log_file) - 1] = '\0';
-    strncpy(log->logname, basename(log_file), sizeof(log->logname));
+    strncpy(log->logname, basename(log_file), sizeof(log->logname) - 1);
     log->logname[sizeof(log->logname) - 1] = '\0';
     pthread_mutex_unlock(&tlog.lock);
 }

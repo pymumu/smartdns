@@ -149,12 +149,12 @@ struct dns_head {
 struct dns_packet_dict_item {
 	unsigned short pos;
 	unsigned int hash;
-};
+} __attribute__((packed));
 
 struct dns_packet_dict {
 	short dict_count;
 	struct dns_packet_dict_item names[DNS_PACKET_DICT_SIZE];
-};
+} __attribute__((packed));
 
 /* packet head */
 struct dns_packet {
@@ -179,7 +179,7 @@ struct dns_rrs {
 	unsigned short len;
 	int type;
 	unsigned char data[0];
-};
+} __attribute__((packed));
 
 /* packet encode/decode context */
 struct dns_context {
