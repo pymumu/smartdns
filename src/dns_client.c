@@ -1846,20 +1846,20 @@ static int _dns_client_recv(struct dns_server_info *server_info, unsigned char *
 	if (query->callback) {
 		ret = query->callback(query->domain, DNS_QUERY_RESULT, server_info, packet, inpacket, inpacket_len,
 							  query->user_ptr);
-		if (request_num == 0 && ret == 0) {
-			/* if all server replied, or done, stop query, release resource */
-			_dns_client_query_remove(query);
-		}
 
-		if (ret == 0) {
-			query->has_result = 1;
-		} else {
+		if (ret == DNS_CLIENT_ACTION_RETRY || ret == DNS_CLIENT_ACTION_DROP) {
 			/* remove this result */
 			_dns_replied_check_remove(query, from, from_len);
 			atomic_inc(&query->dns_request_sent);
-			if (ret == DNS_CLIENT_RETRY) {
+			if (ret == DNS_CLIENT_ACTION_RETRY) {
 				/* retry immdiately */
 				_dns_client_retry_dns_query(query);
+			}
+		} else {
+			query->has_result = 1;
+			if (request_num == 0) {
+				/* if all server replied, or done, stop query, release resource */
+				_dns_client_query_remove(query);
 			}
 		}
 	}

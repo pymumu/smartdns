@@ -3659,7 +3659,12 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 		}
 
 		tlog(TLOG_DEBUG, "inquery failed, %s, rcode = %d, id = %d\n", domain, packet->head.rcode, packet->head.id);
-		return -1;
+
+		if (request->remote_server_fail == 0) {
+			return DNS_CLIENT_ACTION_DROP;
+		}
+
+		return DNS_CLIENT_ACTION_UNDEFINE;
 	}
 
 	for (j = 1; j < DNS_RRS_OPT; j++) {
@@ -3727,7 +3732,7 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 
 				request->ip_ttl = _dns_server_get_conf_ttl(request, ttl);
 				int soa_num = atomic_inc_return(&request->soa_num);
-				if ((soa_num >= ((int)ceil((float)dns_server_alive_num() / 3) + 1) || soa_num > 4) &&
+				if ((soa_num >= ((int)ceilf((float)dns_server_alive_num() / 3) + 1) || soa_num > 4) &&
 					atomic_read(&request->ip_map_num) <= 0) {
 					request->ip_ttl = ttl;
 					_dns_server_request_complete(request);
@@ -3748,10 +3753,10 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 	if (has_result == 0 && request->rcode == DNS_RC_NOERROR && packet->head.tc == 1) {
 		tlog(TLOG_DEBUG, "result is truncated, %s qtype: %d, rcode: %d, id: %d, retry.", domain, request->qtype,
 			 packet->head.rcode, packet->head.id);
-		return DNS_CLIENT_RETRY;
+		return DNS_CLIENT_ACTION_RETRY;
 	}
 
-	return 0;
+	return DNS_CLIENT_ACTION_OK;
 }
 
 static int _dns_server_passthrough_rule_check(struct dns_request *request, const char *domain,
@@ -4542,7 +4547,7 @@ static int _dns_server_ip_is_subnet(unsigned char *addr, int mask, unsigned char
 	return 0;
 }
 
-static int _dns_server_is_private_address(unsigned char *addr, int addr_len)
+static int _dns_server_is_private_address(const unsigned char *addr, int addr_len)
 {
 	if (addr_len == 4) {
 		if (addr[0] == 10 || (addr[0] == 172 && addr[1] >= 16 && addr[1] <= 31) || (addr[0] == 192 && addr[1] == 168)) {

@@ -247,3 +247,29 @@ server 127.0.0.1:61053 -interface lo
 	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
 }
+
+TEST_F(Server, refused)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::MockServer server_upstream1;
+	smartdns::Server server;
+	int count = 0;
+
+	server_upstream.Start("udp://0.0.0.0:61053", [&](struct smartdns::ServerRequestContext *request) {
+		request->response_packet->head.rcode = DNS_RC_REFUSED;
+		dns_add_domain(request->response_packet, request->domain.c_str(), request->qtype, request->qclass);
+		return smartdns::SERVER_REQUEST_OK;
+	});
+
+	server.Start(R"""(bind [::]:60053
+bind-tcp [::]:60053
+server 127.0.0.1:61053
+dualstack-ip-selection no
+)""");
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("a.com", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 0);
+	EXPECT_EQ(client.GetStatus(), "REFUSED");
+	EXPECT_LT(client.GetQueryTime(), 100);
+}

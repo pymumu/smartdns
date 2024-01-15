@@ -68,7 +68,10 @@ int dns_client_set_ecs(char *ip, int subnet);
 
 struct dns_server_info;
 /* query result notify function */
-#define DNS_CLIENT_RETRY (-2)
+#define DNS_CLIENT_ACTION_OK 0
+#define DNS_CLIENT_ACTION_UNDEFINE (-1)
+#define DNS_CLIENT_ACTION_DROP (-2)
+#define DNS_CLIENT_ACTION_RETRY (-3)
 typedef int (*dns_client_callback)(const char *domain, dns_result_type rtype, struct dns_server_info *server_info,
 								   struct dns_packet *packet, unsigned char *inpacket, int inpacket_len,
 								   void *user_ptr);
