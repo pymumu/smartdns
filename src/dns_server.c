@@ -8067,7 +8067,7 @@ static int _dns_create_socket(const char *host_ip, int type)
 	}
 
 	if (type == SOCK_STREAM) {
-		if (listen(fd, 16) != 0) {
+		if (listen(fd, 256) != 0) {
 			tlog(TLOG_ERROR, "listen failed.\n");
 			goto errout;
 		}
