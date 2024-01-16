@@ -717,7 +717,6 @@ static int _tlog_early_print(struct tlog_info_inter *info_inter, const char *for
 
     if (out_len + 1 < sizeof(log_buf) - out_len - 1) {
         log_buf[out_len] = '\0';
-        out_len++;
     }
 
     if (tlog.early_print_output != NULL) {
