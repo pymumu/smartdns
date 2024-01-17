@@ -44,6 +44,18 @@ hide:
 
     force-qtype-SOA参数后为DNS的类型。具体的类型，可以查询[IANA说明](https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-4)
 
+    清除指定的类型
+
+    ```
+    force-qtype-SOA -,28
+    ```
+
+    清除所有类型
+
+    ```
+    force-qtype-SOA -
+    ```
+
 ## 附加说明
 
 smartdns具备自动检测IPV6环境的能力，如果网络环境不支持IPV6，则会自动禁用IPV6相关的优化功能。

@@ -86,7 +86,7 @@ hide:
 | ip-rules | IP 地址规则 | 无 | [ip/subnet] [-rules...]<br /> [-blacklist-ip]: 参考 blacklist-ip <br /> [-whitelist-ip]: 参考 whitelist-ip <br /> [-bogus-nxdomain]: 参考 bogus-nxdomain <br /> [-ignore-ip]: 参考 ignore-ip <br /> [-ip-alias]: 参考 ip-alias <br /> | ip-rules 1.2.3.4/16 -whitelist-ip|
 | ip-set | 设置 IP 地址集合 | 无 | ip-set [options...]<br />[-n\|-name]：IP地址集合名称 <br />[-t\|-type]：IP地址集合类型，当前仅支持list，格式为IP地址列表，一行一个IP地址。<br />[-f\|-file]：IP地址集合文件路径。<br /> 选项需要配合ip-rules, ip-alias等需要指定IP地址的地方使用，使用方式为 ip-set:[name]| ip-set -name set -type list -file /path/to/list <br /> ip-rules ip-set:set -whitelist-ip|
 | force-AAAA-SOA | 强制 AAAA 地址返回 SOA | no | [yes\|no] | force-AAAA-SOA yes |
-| force-qtype-SOA | 强制指定 qtype 返回 SOA | qtype id | [qtypeid\|idstart-idend\|...] | force-qtype-SOA 65 28 128-256
+| force-qtype-SOA | 强制指定 qtype 返回 SOA | qtype id | [-,][qtypeid\|idstart-idend\|...] <br />`-`前缀表示清除对应的类型| force-qtype-SOA 65 28 128-256 <br />force-qtype-SOA - <br />force-qtype-SOA -,23,24
 | prefetch-domain | 域名预先获取功能 | no | [yes\|no] | prefetch-domain yes |
 | dnsmasq-lease-file | 支持读取dnsmasq dhcp文件解析本地主机名功能 | 无 | dnsmasq dhcp lease文件路径 | dnsmasq-lease-file /var/lib/misc/dnsmasq.leases |
 | serve-expired | 过期缓存服务功能 | yes | [yes\|no]，开启此功能后，如果有请求时尝试回应 TTL 为 0 的过期记录，并发查询记录，以避免查询等待 |

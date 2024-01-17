@@ -44,6 +44,18 @@ Currently, IPV6 has entered thousands of households. However, in some cases, IPV
 
     After force-qtype-SOA parameter is the type of DNS. The specific types can be queried from the IANA Explanation.
 
+    Clear specified types
+
+    ```
+    force-qtype-SOA -,28
+    ```
+
+    Clear all types
+
+    ```
+    force-qtype-SOA -
+    ```
+
 ## Additional Notes
 
 Smartdns has the ability to automatically detect IPV6 environment. If the network environment does not support IPV6, the IPV6-related optimization functions will be automatically disabled.

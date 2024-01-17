@@ -82,7 +82,7 @@ hide:
 | ip-rules | IP rules | None | [ip/subnet] [-rules...]<br /> [-blacklist-ip]: same as parameter `blacklist-ip` <br /> [-whitelist-ip]: same as parameter `whitelist-ip` <br /> [-bogus-nxdomain]: same as parameter `bogus-nxdomain` <br /> [-ignore-ip]: same as parameter `ignore-ip` <br /> [-ip-alias]: same as parameter `ip-alias` <br /> | ip-rules 1.2.3.4/16 -whitelist-ip|
 | ip-set | collection of IPs | None | ip-set [options...]<br />[-n\|-name]：name of ip set <br />[-t\|-type]：set type, only support list, one domain per line <br />[-f\|-file]：file path of ip set。<br /> used with ip-rules, ip-alias, example: ip-set:[name] | ip-set -name set -type list -file /path/to/list <br /> ip-rules ip-set:set -whitelist-ip|
 |force-AAAA-SOA|force AAAA query return SOA|no|[yes\|no]|force-AAAA-SOA yes
-|force-qtype-SOA|force specific qtype return SOA|qtype id|[qtypeid \| idstart-id-end \| ...]|force-qtype-SOA 65 28 128-256
+|force-qtype-SOA|force specific qtype return SOA|qtype id|[qtypeid \| idstart-id-end \| ...] <br />`-` prefix means clear qtype.| force-qtype-SOA 65 28 128-256 <br />force-qtype-SOA - <br />force-qtype-SOA -,23,24
 |prefetch-domain|domain prefetch feature|no|[yes\|no]|prefetch-domain yes
 |dnsmasq-lease-file|Support reading dnsmasq dhcp file to resolve local hostname|None|dnsmasq dhcp lease file| dnsmasq-lease-file /var/lib/misc/dnsmasq.leases
 |serve-expired|Cache serve expired feature|yes|[yes\|no], Attempts to serve old responses from cache with a TTL of 0 in the response without waiting for the actual resolution to finish.|serve-expired yes
