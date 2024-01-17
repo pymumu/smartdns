@@ -3554,9 +3554,25 @@ static int _conf_qtype_soa(uint8_t *soa_table, int argc, char *argv[])
 {
 	int i = 0;
 	int j = 0;
+	int is_clear = 0;
 
 	if (argc <= 1) {
 		return -1;
+	}
+
+	if (argc >= 2) {
+		if (strncmp(argv[1], "-", sizeof("-")) == 0) {
+			if (argc == 2) {
+				memset(soa_table, 0, MAX_QTYPE_NUM / 8 + 1);
+				return 0;
+			}
+
+			is_clear = 1;
+		}
+
+		if (strncmp(argv[1], "-,", sizeof(",")) == 0) {
+			is_clear = 1;
+		}
 	}
 
 	for (i = 1; i < argc; i++) {
@@ -3566,6 +3582,10 @@ static int _conf_qtype_soa(uint8_t *soa_table, int argc, char *argv[])
 			char *dash = strstr(tok, "-");
 			if (dash != NULL) {
 				*dash = '\0';
+			}
+
+			if (*tok == '\0') {
+				continue;
 			}
 
 			long start = atol(tok);
@@ -3586,7 +3606,11 @@ static int _conf_qtype_soa(uint8_t *soa_table, int argc, char *argv[])
 			for (j = start; j <= end; j++) {
 				int offset = j / 8;
 				int bit = j % 8;
-				soa_table[offset] |= (1 << bit);
+				if (is_clear) {
+					soa_table[offset] &= ~(1 << bit);
+				} else {
+					soa_table[offset] |= (1 << bit);
+				}
 			}
 		}
 	}

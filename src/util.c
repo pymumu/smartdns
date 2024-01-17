@@ -821,9 +821,15 @@ int netlink_get_neighbors(int family,
 	char buf[1024 * 16];
 	struct iovec iov = {buf, sizeof(buf)};
 	struct sockaddr_nl sa;
-	struct msghdr msg = {&sa, sizeof(sa), &iov, 1, NULL, 0, 0};
+	struct msghdr msg;
 	int len;
 	int ret = 0;
+
+	memset(&msg, 0, sizeof(msg));
+	msg.msg_name = &sa;
+	msg.msg_namelen = sizeof(sa);
+	msg.msg_iov = &iov;
+	msg.msg_iovlen = 1;
 
 	nlh = (struct nlmsghdr *)buf;
 	nlh->nlmsg_len = NLMSG_LENGTH(sizeof(struct ndmsg));

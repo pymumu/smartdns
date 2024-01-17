@@ -51,6 +51,8 @@ override CXXFLAGS +=-Iinclude
 # ldflags
 ifeq ($(STATIC), yes)
  override LDFLAGS += -lssl -lcrypto -Wl,--whole-archive -lpthread -Wl,--no-whole-archive -ldl -lm -static
+else ifeq ($(SSL_STATIC), yes)
+ override LDFLAGS += -Wl,-Bstatic -lssl -lcrypto -Wl,-Bdynamic -lpthread -ldl -lm
 else
  override LDFLAGS += -lssl -lcrypto -lpthread -ldl -lm
 endif
