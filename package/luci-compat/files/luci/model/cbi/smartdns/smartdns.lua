@@ -69,7 +69,6 @@ end
 o = s:taboption("advanced", Value, "speed_check_mode", translate("Speed Check Mode"), translate("Smartdns speed check mode."));
 o.rmempty = true;
 o.placeholder = "default";
-o.default = o.enabled;
 o:value("", translate("default"))
 o:value("ping,tcp:80,tcp:443");
 o:value("ping,tcp:443,tcp:80");
@@ -644,6 +643,179 @@ o:value("https", translate("https"))
 o.default     = "udp"
 o.rempty      = false
 
+-- client rules;
+s = m:section(TypedSection, "client-rule", translate("Client Rules"), translate("Client Rules Settings, can achieve parental control functionality."))
+s.anonymous = true;
+s.nodescriptions = true;
+
+s:tab("basic", translate('Basic Settings'))
+s:tab("advanced", translate('Advanced Settings'))
+s:tab("block", translate("DNS Block Setting"))
+
+o = s:taboption("basic", Flag, "enabled", translate("Enable"))
+o.rmempty = false;
+o.default = o.disabled;
+
+o = s:taboption("basic", DynamicList, "client_addr", translate("Client Address"), 
+translate("If a client address is specified, only that client will apply this rule. You can enter an IP address, such as 1.2.3.4, or a MAC address, such as aa:bb:cc:dd:ee:ff."))
+o.rempty = true
+o.rmempty = true;
+o.datatype = "string"
+
+o = s:taboption("basic", FileUpload, "client_addr_file", translate("Client Address File"),
+    translate("Upload client address file, same as Client Address function."))
+o.rmempty = true
+o.datatype = "file"
+o.rempty = true
+o.root_directory = "/etc/smartdns/ip-set"
+
+o = s:taboption("basic", Value, "server_group", translate("Server Group"), translate("DNS Server group belongs to, such as office, home."))
+o.rmempty = true
+o.placeholder = "default"
+o.datatype = "hostname"
+o.rempty = true
+uci:foreach("smartdns", "server", function(section)
+    local server_group = section.server_group
+    if server_group == nil then
+        return
+    end
+    o:value(server_group);
+end)
+
+function o.validate (section_id, value) 
+    if value == "" then
+        return value
+    end
+
+    if value == nil then
+        return nil, translate('Server Group not exists')
+    end
+
+    local exists = false
+    uci:foreach("smartdns", "server", function(section)
+        local server_group = section.server_group
+        if (exists == true) then
+            return
+        end
+
+        if (value == server_group) then
+            exists = true
+        end
+    end)
+
+    if exists == false then
+        return nil, translate('Server Group not exists')
+    end
+
+    return value;
+
+end
+
+-- Speed check mode;
+o = s:taboption("advanced", Value, "speed_check_mode", translate("Speed Check Mode"), translate("Smartdns speed check mode."))
+o.rmempty = true;
+o.placeholder = "default";
+o:value("", translate("default"))
+o:value("ping,tcp:80,tcp:443");
+o:value("ping,tcp:443,tcp:80");
+o:value("tcp:80,tcp:443,ping");
+o:value("tcp:443,tcp:80,ping");
+o:value("none", translate("None"));
+function o.validate (section_id, value) 
+    if value == "" then
+        return value
+    end
+
+    if value == nil then
+        return nil, translate("Speed check mode is invalid.")
+    end
+
+    if value == "none" then
+        return value
+    end
+
+    local mode = value:split(",");
+    for _, v in ipairs(mode) do repeat
+        if v == "ping" then
+            break
+        end
+
+        if v == nil then
+            return nil, translate("Speed check mode is invalid.")
+        end
+        
+        local port = v:split(":");
+        if "tcp" == port[1] then
+            if tonumber(port[2]) then
+                break
+            end
+        end
+        
+        return nil, translate("Speed check mode is invalid.")
+    until true end
+
+    return value
+end
+
+-- Support DualStack ip selection;
+o = s:taboption("advanced", Flag, "dualstack_ip_selection", translate("Dual-stack IP Selection"),
+    translate("Enable IP selection between IPV4 and IPV6"))
+o.rmempty = false
+o.default = o.enabled
+
+-- Force AAAA SOA
+o = s:taboption("advanced", Flag, "force_aaaa_soa", translate("Force AAAA SOA"), translate("Force AAAA SOA."))
+o.rmempty = true
+o.default = o.disabled
+
+-- Force HTTPS SOA
+o = s:taboption("advanced", Flag, "force_https_soa", translate("Force HTTPS SOA"), translate("Force HTTPS SOA."))
+o.rmempty = false
+o.default = o.enabled
+
+-- ipset name
+o = s:taboption("advanced", Value, "ipset_name", translate("IPset Name"), translate("IPset name."))
+o.rmempty = true
+o.datatype = "string"
+o.rempty = true
+
+-- NFTset name
+o = s:taboption("advanced", Value, "nftset_name", translate("NFTset Name"), translate("NFTset name, format: [#[4|6]:[family#table#set]]"))
+o.rmempty = true
+o.datatype = "string"
+o.rempty = true
+function o.validate(self, value) 
+    if (value == "") then
+        return value
+    end
+
+    if (value:match("#[4|6]:[a-zA-Z0-9%-_]+#[a-zA-Z0-9%-_]+#[a-zA-Z0-9%-_]+$")) then
+        return value
+    end
+
+    return nil, translate("NFTset name format error, format: [#[4|6]:[family#table#set]]")
+end
+
+-- include config
+o = s:taboption("advanced", DynamicList, "conf_files", translate("Include Config Files<br>/etc/smartdns/conf.d"),
+    translate("Include other config files from /etc/smartdns/conf.d or custom path, can be downloaded from the download page."))
+o.rmempty = true
+uci:foreach("smartdns", "download-file", function(section)
+    local filetype = section.type
+    if (filetype ~= 'config') then
+        return
+    end
+
+    o:value(section.name);
+end)
+
+o = s:taboption("block", FileUpload, "block_domain_set_file", translate("Domain List File"), translate("Upload domain list file."));
+o.rmempty = true
+o.datatype = "file"
+o.rempty = true
+o.editable = true
+o.root_directory = "/etc/smartdns/domain-set"
+
 ---- domain rules;
 s = m:section(TypedSection, "domain-rule", translate("Domain Rules"), translate("Domain Rules Settings"))
 s.anonymous = true
@@ -698,10 +870,50 @@ function o.validate (section_id, value)
 
 end
 
-o = s:taboption("forwarding", Flag, "no_speed_check", translate("Skip Speed Check"),
-    translate("Do not check speed."))
-o.rmempty = true
-o.default = o.disabled
+o = s:taboption("forwarding", Value, "speed_check_mode", translate("Speed Check Mode"), translate("Smartdns speed check mode."))
+o.rmempty = true;
+o.placeholder = "default";
+o:value("", translate("default"))
+o:value("ping,tcp:80,tcp:443");
+o:value("ping,tcp:443,tcp:80");
+o:value("tcp:80,tcp:443,ping");
+o:value("tcp:443,tcp:80,ping");
+o:value("none", translate("None"));
+function o.validate (section_id, value) 
+    if value == "" then
+        return value
+    end
+
+    if value == nil then
+        return nil, translate("Speed check mode is invalid.")
+    end
+
+    if value == "none" then
+        return value
+    end
+
+    local mode = value:split(",");
+    for _, v in ipairs(mode) do repeat
+        if v == "ping" then
+            break
+        end
+
+        if v == nil then
+            return nil, translate("Speed check mode is invalid.")
+        end
+        
+        local port = v:split(":");
+        if "tcp" == port[1] then
+            if tonumber(port[2]) then
+                break
+            end
+        end
+        
+        return nil, translate("Speed check mode is invalid.")
+    until true end
+
+    return value
+end
 
 o = s:taboption("forwarding", Flag, "force_aaaa_soa", translate("Force AAAA SOA"), translate("Force AAAA SOA."))
 o.rmempty = true

@@ -45,6 +45,9 @@ msgstr "自动设置Dnsmasq"
 msgid "Automatically set as upstream of dnsmasq when port changes."
 msgstr "端口更改时自动设为 dnsmasq 的上游。"
 
+msgid "Basic Settings"
+msgstr "基本设置"
+
 msgid "Blacklist IP"
 msgstr "黑名单"
 
@@ -71,6 +74,18 @@ msgstr "持久化缓存"
 
 msgid "Cache Size"
 msgstr "缓存大小"
+
+msgid "Client Rules"
+msgstr "客户端规则"
+
+msgid "Client Address"
+msgstr "客户端地址"
+
+msgid "Client Address File"
+msgstr "客户端地址文件"
+
+msgid "Client Rules Settings, can achieve parental control functionality."
+msgstr "客户端规则设置，可以实现家长控制功能。"
 
 msgid "Collecting data ..."
 msgstr "正在收集数据..."
@@ -382,6 +397,14 @@ msgstr "IPset名称"
 
 msgid "IPset name."
 msgstr "IPset名称。"
+
+msgid ""
+"If a client address is specified, only that client will apply this "
+"rule. You can enter an IP address, such as 1.2.3.4, or a MAC address, "
+"such as aa:bb:cc:dd:ee:ff."
+msgstr ""
+"如果指定了客户端地址，则只有该客户端将应用此规则。您可以输入IP地址，"
+"例如: 1.2.3.4, 或MAC地址，例如: aa:bb:cc:dd:ee:ff。"
 
 msgid "If you like this software, please buy me a cup of coffee."
 msgstr "如果本软件对你有帮助，请给作者加个蛋。"
@@ -726,6 +749,9 @@ msgstr "更新"
 
 msgid "Update Files"
 msgstr "更新文件"
+
+msgid "Upload client address file, same as Client Address function."
+msgstr "上传客户端地址文件，与客户端地址功能相同。"
 
 msgid "Upload Config File"
 msgstr "上传配置文件"

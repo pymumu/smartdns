@@ -284,12 +284,17 @@ load_domain_rules()
 	local section="$1"
 	local domain_set_args=""
 	local domain_set_name="domain"
+	local block_domain_set_file=""
 
 	config_get server_group "$section" "server_group" ""
 	[ ! -z "$server_group" ] && domain_set_args="$domain_set_args -nameserver $server_group"
 
-	config_get_bool no_speed_check "$section" "no_speed_check" "0"
-	[ "$no_speed_check" = "1" ] && domain_set_args="$domain_set_args -speed-check-mode none"
+	config_get speed_check_mode "$section" "speed_check_mode" ""
+	[ ! -z "$speed_check_mode" ] && domain_set_args="$domain_set_args -speed-check-mode $speed_check_mode"
+
+	config_get dualstack_ip_selection "$section" "dualstack_ip_selection" ""
+	[ "$dualstack_ip_selection" = "no" ] && domain_set_args="$domain_set_args -dualstack-ip-selection no"
+	[ "$dualstack_ip_selection" = "yes" ] && domain_set_args="$domain_set_args -dualstack-ip-selection yes"
 
 	config_get_bool force_aaaa_soa "$section" "force_aaaa_soa" "0"
 	[ "$force_aaaa_soa" = "1" ] && domain_set_args="$domain_set_args -address #6"
@@ -326,6 +331,69 @@ load_domain_rules()
 	[ ! -e "$SMARTDNS_DEFAULT_DOMAIN_BLOCK_FILE" ] && touch $SMARTDNS_DEFAULT_DOMAIN_BLOCK_FILE
 	conf_append "domain-set" "-name ${domain_set_name}-block-list -file $SMARTDNS_DEFAULT_DOMAIN_BLOCK_FILE"
 	conf_append "domain-rules" "/domain-set:${domain_set_name}-block-list/ -address #"
+}
+
+client_rule_addr_append()
+{
+	conf_append "client-rules" "$1"
+}
+
+load_client_rules()
+{
+	local section="$1"
+	local client_set_args=""
+	local client_set_name="$section"
+	local block_domain_set_file=""
+
+	config_get_bool enabled "$section" "enabled" "0"
+	[ "$enabled" != "1" ] && return
+
+	conf_append "group-begin" "client-group-${section}"
+
+	config_list_foreach "$section" "client_addr" client_rule_addr_append
+
+	config_get client_addr_file "$section" "client_addr_file" ""
+	[ ! -z "$client_addr_file" ] && {
+		[ ! -e "$client_addr_file" ] && touch $client_addr_file
+		conf_append "ip-set" "-name client-rule-list-${client_set_name} -file '$client_addr_file'"
+		conf_append "client-rules" "ip-set:client-rule-list-${client_set_name}"
+	}
+
+	config_get server_group "$section" "server_group" ""
+	[ ! -z "$server_group" ] && conf_append "nameserver $server_group"
+
+	config_get speed_check_mode "$section" "speed_check_mode" ""
+	[ ! -z "$speed_check_mode" ] && conf_append "speed-check-mode" "$speed_check_mode"
+
+	config_get dualstack_ip_selection "$section" "dualstack_ip_selection" "0"
+	[ "$dualstack_ip_selection" = "0" ] && conf_append "dualstack-ip-selection" "no"
+
+	config_get force_aaaa_soa "$section" "force_aaaa_soa" "0"
+	[ "$force_aaaa_soa" = "1" ] && qtype_soa_list="$qtype_soa_list 28"
+
+	config_get force_https_soa "$section" "force_https_soa" "1"
+	[ "$force_https_soa" = "1" ] && qtype_soa_list="$qtype_soa_list 65"
+
+	config_get ipset_name "$section" "ipset_name" ""
+	[ -z "$ipset_name" ] || conf_append "ipset" "$ipset_name"
+
+	config_get nftset_name "$section" "nftset_name" ""
+	[ -z "$nftset_name" ] || conf_append "nftset" "$nftset_name"
+
+	config_list_foreach "$section" "conf_files" conf_append_conf_files
+
+	[ ! -z "$qtype_soa_list" ] && {
+		conf_append "force-qtype-SOA" "-"
+		conf_append "force-qtype-SOA" "$qtype_soa_list"
+	}
+
+	config_get block_domain_set_file "$section" "block_domain_set_file" ""
+	[ -e "$block_domain_set_file" ] && {
+		conf_append "domain-set" "-name client-block-file-${client_set_name} -file '$block_domain_set_file'"
+		conf_append "domain-rules" "/domain-set:client-block-file-${client_set_name}/ -address #"
+	}
+
+	conf_append "group-end"
 }
 
 load_domain_rule_list()
@@ -778,6 +846,8 @@ load_service()
 
 	config_list_foreach "$section" "hosts_files" conf_append_hosts_files
 
+	config_foreach load_client_rules "client-rule"
+
 	config_foreach load_domain_rules "domain-rule"
 
 	config_foreach load_domain_rule_list "domain-rule-list"
@@ -874,6 +944,12 @@ check_and_add_entry() {
 	uci -q get smartdns.@smartdns[0] >/dev/null
 	if [ $? -ne 0 ]; then
 		uci -q add smartdns smartdns >/dev/null
+		docommit=1
+	fi
+
+	uci -q get smartdns.@client-rule[0] >/dev/null
+	if [ $? -ne 0 ]; then
+		uci -q add smartdns client-rule >/dev/null
 		docommit=1
 	fi
 	
