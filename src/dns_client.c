@@ -212,10 +212,6 @@ struct dns_client {
 	atomic_t dns_server_num;
 	atomic_t dns_server_prohibit_num;
 
-	/* ECS */
-	struct dns_client_ecs ecs_ipv4;
-	struct dns_client_ecs ecs_ipv6;
-
 	/* query domain hash table, key: sid + domain */
 	pthread_mutex_t domain_map_lock;
 	DECLARE_HASHTABLE(domain_map, 6);
@@ -240,6 +236,8 @@ struct dns_query_struct {
 	struct list_head dns_request_list;
 	atomic_t refcnt;
 	struct dns_server_group *server_group;
+
+	struct dns_conf_group *conf;
 
 	/* query id, hash key sid + domain*/
 	char domain[DNS_MAX_CNAME_LEN];
@@ -284,8 +282,6 @@ static void _dns_client_retry_dns_query(struct dns_query_struct *query);
 static int _dns_client_send_udp(struct dns_server_info *server_info, void *packet, int len);
 static void _dns_client_clear_wakeup_event(void);
 static void _dns_client_do_wakeup_event(void);
-static int _dns_client_setup_ecs(char *ip, int subnet, struct dns_client_ecs *ecs_ipv4,
-								 struct dns_client_ecs *ecs_ipv6);
 
 static ssize_t _ssl_read(struct dns_server_info *server, void *buff, int num)
 {
@@ -1049,6 +1045,46 @@ errout:
 	return NULL;
 }
 
+static int _dns_client_setup_ecs(char *ip, int subnet, struct dns_client_ecs *ecs)
+{
+	struct sockaddr_storage addr;
+	socklen_t addr_len = sizeof(addr);
+	if (getaddr_by_host(ip, (struct sockaddr *)&addr, &addr_len) != 0) {
+		return -1;
+	}
+
+	switch (addr.ss_family) {
+	case AF_INET: {
+		struct sockaddr_in *addr_in = NULL;
+		addr_in = (struct sockaddr_in *)&addr;
+		memcpy(&ecs->ecs.addr, &addr_in->sin_addr.s_addr, 4);
+		ecs->ecs.source_prefix = subnet;
+		ecs->ecs.scope_prefix = 0;
+		ecs->ecs.family = DNS_OPT_ECS_FAMILY_IPV4;
+		ecs->enable = 1;
+	} break;
+	case AF_INET6: {
+		struct sockaddr_in6 *addr_in6 = NULL;
+		addr_in6 = (struct sockaddr_in6 *)&addr;
+		if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
+			ecs->ecs.source_prefix = subnet;
+			ecs->ecs.scope_prefix = 0;
+			ecs->ecs.family = DNS_OPT_ECS_FAMILY_IPV4;
+			ecs->enable = 1;
+		} else {
+			memcpy(&ecs->ecs.addr, addr_in6->sin6_addr.s6_addr, 16);
+			ecs->ecs.source_prefix = subnet;
+			ecs->ecs.scope_prefix = 0;
+			ecs->ecs.family = DNS_ADDR_FAMILY_IPV6;
+			ecs->enable = 1;
+		}
+	} break;
+	default:
+		return -1;
+	}
+	return 0;
+}
+
 static int _dns_client_server_add_ecs(struct dns_server_info *server_info, struct client_dns_server_flags *flags)
 {
 	int ret = 0;
@@ -1058,11 +1094,11 @@ static int _dns_client_server_add_ecs(struct dns_server_info *server_info, struc
 	}
 
 	if (flags->ipv4_ecs.enable) {
-		ret = _dns_client_setup_ecs(flags->ipv4_ecs.ip, flags->ipv4_ecs.subnet, &server_info->ecs_ipv4, NULL);
+		ret = _dns_client_setup_ecs(flags->ipv4_ecs.ip, flags->ipv4_ecs.subnet, &server_info->ecs_ipv4);
 	}
 
 	if (flags->ipv6_ecs.enable) {
-		ret |= _dns_client_setup_ecs(flags->ipv6_ecs.ip, flags->ipv6_ecs.subnet, NULL, &server_info->ecs_ipv6);
+		ret |= _dns_client_setup_ecs(flags->ipv6_ecs.ip, flags->ipv6_ecs.subnet, &server_info->ecs_ipv6);
 	}
 
 	return ret;
@@ -3946,31 +3982,31 @@ static int _dns_client_send_query(struct dns_query_struct *query)
 
 static int _dns_client_query_setup_default_ecs(struct dns_query_struct *query)
 {
-	int add_ipv4_ecs = 0;
-	int add_ipv6_ecs = 0;
+	struct dns_conf_group *conf = query->conf;
+	struct dns_edns_client_subnet *ecs_conf = NULL;
 
-	if (query->qtype == DNS_T_A && client.ecs_ipv4.enable) {
-		add_ipv4_ecs = 1;
-	} else if (query->qtype == DNS_T_AAAA && client.ecs_ipv6.enable) {
-		add_ipv6_ecs = 1;
+	if (query->qtype == DNS_T_A && conf->ipv4_ecs.enable) {
+		ecs_conf = &conf->ipv4_ecs;
+	} else if (query->qtype == DNS_T_AAAA && conf->ipv6_ecs.enable) {
+		ecs_conf = &conf->ipv6_ecs;
 	} else {
-		if (client.ecs_ipv4.enable) {
-			add_ipv4_ecs = 1;
-		} else if (client.ecs_ipv6.enable) {
-			add_ipv6_ecs = 1;
+		if (conf->ipv4_ecs.enable) {
+			ecs_conf = &conf->ipv4_ecs;
+		} else if (conf->ipv6_ecs.enable) {
+			ecs_conf = &conf->ipv6_ecs;
 		}
 	}
 
-	if (add_ipv6_ecs) {
-		memcpy(&query->ecs, &client.ecs_ipv6, sizeof(query->ecs));
+	if (ecs_conf == NULL) {
 		return 0;
 	}
 
-	if (add_ipv4_ecs) {
-		memcpy(&query->ecs, &client.ecs_ipv4, sizeof(query->ecs));
-		return 0;
+	struct dns_client_ecs ecs;
+	if (_dns_client_setup_ecs(ecs_conf->ip, ecs_conf->subnet, &ecs) != 0) {
+		return -1;
 	}
 
+	memcpy(&query->ecs, &ecs, sizeof(query->ecs));
 	return 0;
 }
 
@@ -4135,6 +4171,12 @@ int dns_client_query(const char *domain, int qtype, dns_client_callback callback
 	query->server_group = _dns_client_get_dnsserver_group(group_name);
 	if (query->server_group == NULL) {
 		tlog(TLOG_ERROR, "get dns server group %s failed.", group_name);
+		goto errout;
+	}
+
+	query->conf = dns_server_get_rule_group(options->conf_group_name);
+	if (query->conf == NULL) {
+		tlog(TLOG_ERROR, "get dns config group %s failed.", options->conf_group_name);
 		goto errout;
 	}
 
@@ -4550,51 +4592,6 @@ static void *_dns_client_work(void *arg)
 	client.epoll_fd = -1;
 
 	return NULL;
-}
-
-static int _dns_client_setup_ecs(char *ip, int subnet, struct dns_client_ecs *ecs_ipv4, struct dns_client_ecs *ecs_ipv6)
-{
-	struct sockaddr_storage addr;
-	socklen_t addr_len = sizeof(addr);
-	if (getaddr_by_host(ip, (struct sockaddr *)&addr, &addr_len) != 0) {
-		return -1;
-	}
-
-	switch (addr.ss_family) {
-	case AF_INET: {
-		struct sockaddr_in *addr_in = NULL;
-		addr_in = (struct sockaddr_in *)&addr;
-		memcpy(&ecs_ipv4->ecs.addr, &addr_in->sin_addr.s_addr, 4);
-		ecs_ipv4->ecs.source_prefix = subnet;
-		ecs_ipv4->ecs.scope_prefix = 0;
-		ecs_ipv4->ecs.family = DNS_OPT_ECS_FAMILY_IPV4;
-		ecs_ipv4->enable = 1;
-	} break;
-	case AF_INET6: {
-		struct sockaddr_in6 *addr_in6 = NULL;
-		addr_in6 = (struct sockaddr_in6 *)&addr;
-		if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
-			ecs_ipv4->ecs.source_prefix = subnet;
-			ecs_ipv4->ecs.scope_prefix = 0;
-			ecs_ipv4->ecs.family = DNS_OPT_ECS_FAMILY_IPV4;
-			ecs_ipv4->enable = 1;
-		} else {
-			memcpy(&ecs_ipv6->ecs.addr, addr_in6->sin6_addr.s6_addr, 16);
-			ecs_ipv6->ecs.source_prefix = subnet;
-			ecs_ipv6->ecs.scope_prefix = 0;
-			ecs_ipv6->ecs.family = DNS_ADDR_FAMILY_IPV6;
-			ecs_ipv6->enable = 1;
-		}
-	} break;
-	default:
-		return -1;
-	}
-	return 0;
-}
-
-int dns_client_set_ecs(char *ip, int subnet)
-{
-	return _dns_client_setup_ecs(ip, subnet, &client.ecs_ipv4, &client.ecs_ipv6);
 }
 
 static int _dns_client_create_wakeup_event(void)

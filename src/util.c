@@ -2163,10 +2163,6 @@ static int _dns_debug_display(struct dns_packet *packet)
 			case DNS_T_CNAME: {
 				char cname[DNS_MAX_CNAME_LEN];
 				char name[DNS_MAX_CNAME_LEN] = {0};
-				if (dns_conf_force_no_cname) {
-					continue;
-				}
-
 				dns_get_CNAME(rrs, name, DNS_MAX_CNAME_LEN, &ttl, cname, DNS_MAX_CNAME_LEN);
 				printf("domain: %s TTL: %d CNAME: %s\n", name, ttl, cname);
 			} break;

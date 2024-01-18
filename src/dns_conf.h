@@ -427,6 +427,9 @@ struct dns_conf_group {
 	char copy_data_section_begin[0];
 	struct dns_conf_ipset_nftset ipset_nftset;
 	struct dns_domain_check_orders check_orders;
+	/* ECS */
+	struct dns_edns_client_subnet ipv4_ecs;
+	struct dns_edns_client_subnet ipv6_ecs;
 	int force_AAAA_SOA;
 	int dualstack_ip_selection;
 	char copy_data_section_end[0];
@@ -671,9 +674,6 @@ extern int dns_conf_acl_enable;
 extern int dns_conf_force_no_cname;
 
 extern char dns_conf_user[DNS_CONF_USERNAME_LEN];
-
-extern struct dns_edns_client_subnet dns_conf_ipv4_ecs;
-extern struct dns_edns_client_subnet dns_conf_ipv6_ecs;
 
 extern char dns_conf_sni_proxy_ip[DNS_MAX_IPLEN];
 

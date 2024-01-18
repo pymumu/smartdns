@@ -93,6 +93,7 @@ struct dns_query_options {
 	unsigned long long enable_flag;
 	struct dns_opt_ecs ecs_dns;
 	struct dns_query_ecs_ip ecs_ip;
+	const char *conf_group_name;
 };
 
 /* query domain */

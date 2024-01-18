@@ -186,10 +186,6 @@ struct conf_file_path {
 	char file[DNS_MAX_PATH];
 };
 
-/* ECS */
-struct dns_edns_client_subnet dns_conf_ipv4_ecs;
-struct dns_edns_client_subnet dns_conf_ipv6_ecs;
-
 char dns_conf_sni_proxy_ip[DNS_MAX_IPLEN];
 
 static int _conf_domain_rule_nameserver(const char *domain, const char *group_name);
@@ -3715,7 +3711,8 @@ static int _conf_edns_client_subnet(void *data, int argc, char *argv[])
 		return -1;
 	}
 
-	return _conf_client_subnet(argv[1], &dns_conf_ipv4_ecs, &dns_conf_ipv6_ecs);
+	return _conf_client_subnet(argv[1], &_config_current_rule_group()->ipv4_ecs,
+							   &_config_current_rule_group()->ipv6_ecs);
 }
 
 static int _conf_domain_rule_speed_check(char *domain, const char *mode)
