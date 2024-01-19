@@ -1,0 +1,211 @@
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8"
+
+msgid "A local SmartDNS server for lite users."
+msgstr "为入门用户提供的本地SmartDNS服务器。"
+
+msgid "AD Block Domain List File"
+msgstr "广告屏蔽域名列表文件"
+
+msgid "Basic Settings"
+msgstr "基础设置"
+
+msgid "Block Domain List File for Parental Control."
+msgstr "家长控制功能屏蔽的域名列表文件。"
+
+msgid "Client Address"
+msgstr "客户端地址"
+
+msgid "Client Address File"
+msgstr "客户端地址文件"
+
+msgid "Client address format error, please input ip adress or mac address."
+msgstr "客户端地址格式错误，请输入IP地址或MAC地址。"
+
+msgid "CloudFlare CDN IP File"
+msgstr "CloudFlare CDN IP文件"
+
+msgid "CloudFlare CDN IP Settings"
+msgstr "CloudFlare CDN IP设置"
+
+msgid "Collecting data ..."
+msgstr "正在收集数据..."
+
+msgid "Custom Settings"
+msgstr "自定义设置"
+
+msgid "DNS Server Mode"
+msgstr "DNS服务器模式"
+
+msgid "DNS Server Port"
+msgstr "DNS服务器端口号"
+
+msgid "Dnsmasq Forwarded To Smartdns Failure"
+msgstr "设置smartdns为dnsmasq上游失败"
+
+msgid "Domain List File"
+msgstr "域名列表文件"
+
+msgid "Domain Rules Settings"
+msgstr "域名规则设置"
+
+msgid "Enable"
+msgstr "启用"
+
+msgid "Enable or disable cloudflare cdn ip accelerating."
+msgstr "启用或禁用cloudflare CDN IP加速。"
+
+msgid "Enable or disable domain rules."
+msgstr "启用或禁用域名规则。"
+
+msgid "Enable or disable smartdns server"
+msgstr "启用或禁用smartdns服务器"
+
+msgid "Force AAAA SOA"
+msgstr "禁止AAAA记录"
+
+msgid "Force AAAA SOA."
+msgstr "强制IPV6记录返回SOA。"
+
+msgid "Force HTTPS SOA"
+msgstr "禁用HTTPS记录"
+
+msgid "Force HTTPS SOA."
+msgstr "强制HTTPS记录返回SOA"
+
+msgid "Grant access to LuCI app smartdns"
+msgstr "获取访问smartdns的权限"
+
+msgid "IP Address Mapping, mapping all CloudFlare CDN IPs to the specified IP, can be used to accelerate CloudFlare's CDN websites."
+msgstr "IP地址映射，将所有CloudFlare CDN IP映射到设置的IP，可用于加速CloudFlare的CDN网站。"
+
+msgid "IP alias"
+msgstr "IP别名"
+
+msgid "IPset Name"
+msgstr "IPSet名称"
+
+msgid "IPset name."
+msgstr "IPSet名称。"
+
+msgid ""
+"If a client address is specified, only that client will apply this rule. You "
+"can enter an IP address, such as 1.2.3.4, or a MAC address, such as aa:bb:cc:"
+"dd:ee:ff."
+msgstr "如果指定了客户端，那么对应的客户端会应用相应的规则，可以输出IP地址，如：1.2.3.4，或MAC地址，如：aa:bb:cc:dd:ee:ff。"
+
+msgid "Invalid server address: %s"
+msgstr "无效的服务器地址：%s"
+
+msgid "Main DNS Server"
+msgstr "主DNS服务"
+
+msgid "NFTset Name"
+msgstr "NFTset名称"
+
+msgid "NFTset name format error, format: [#[4|6]:[family#table#set]]"
+msgstr "NFTset名称格式错误，格式：[#[4|6]:[family#table#set]]"
+
+msgid "NFTset name, format: [#[4|6]:[family#table#set]]"
+msgstr "NFTSet名称错误，格式：[#[4|6]:[family#table#set]]"
+
+msgid "NOT RUNNING"
+msgstr "未运行"
+
+msgid "None"
+msgstr "无"
+
+msgid "Parental Control Domain File"
+msgstr "家长控制域名列表文件"
+
+msgid "Parental Control Settings"
+msgstr "家长控制设置"
+
+msgid "Parental Control Upstream Server"
+msgstr "家长控制上游服务器"
+
+msgid "Parental control feature is only available in Main DNS mode."
+msgstr "家长控制功能仅在作为主DNS时才可用。"
+
+msgid "Please check the system logs and check if the configuration is valid."
+msgstr "请检查系统日志，并确保配置正确。"
+
+msgid "RUNNING"
+msgstr "运行中"
+
+msgid "Restart"
+msgstr "重启"
+
+msgid "Restart Service"
+msgstr "重启服务"
+
+msgid "Set the IP addresses for accelerating CloudFlare CDN."
+msgstr "设置CloudFlare cdn加速。"
+
+msgid "Set the file for blocking ad domain names."
+msgstr "设置屏蔽的域名。"
+
+msgid "Settings"
+msgstr "设置"
+
+msgid "SmartDNS"
+msgstr "SmartDNS"
+
+msgid "SmartDNS official website"
+msgstr "SmartDNS官方网站。"
+
+msgid "SmartDNS Lite"
+msgstr "SmartDNS轻量版"
+
+msgid "Smartdns server mode."
+msgstr "smartdns服务器模式。"
+
+msgid "Smartdns server port."
+msgstr "smartdns服务器端口。"
+
+msgid "Smartdns speed check mode."
+msgstr "Smartdns测速模式设置。"
+
+msgid "Speed Check Mode"
+msgstr "测速模式"
+
+msgid "Speed check mode is invalid."
+msgstr "测速模式无效。"
+
+msgid "TCP port is empty"
+msgstr "TCP端口为空"
+
+msgid "Upload CloudFlare cdn ip list file, please refer to https://www.cloudflare.com/ips"
+msgstr "上传CloudFlare CDN IP列表文件，请参考https://www.cloudflare.com/ips"
+
+msgid "Upload domain list file for matching these rules, if not specified, the rules will be applied to all domains."
+msgstr "上传域名列表文件以匹配规则，未设置任何域名时，规则将应用到所有域名。"
+
+msgid "Upstream DNS Server"
+msgstr "上游DNS服务器"
+
+msgid "Upstream Server"
+msgstr "上游服务器"
+
+msgid "Upstream server for specific domain. If not specified, the default server will be used."
+msgstr "指定对应域名的上游服务器，未指定服务器时，将使用默认的服务器。"
+
+msgid ""
+"Upstream server with parental control feature. If not specified, the default "
+"server will be used."
+msgstr "启用家长控制且未配置上游服务器时，将使用默认服务器。"
+
+msgid "Upstream servers, format: [udp://|tcp://|tls://|https://][ip]."
+msgstr "上游服务器，格式：[udp://|tcp://|tls://|https://][ip]。"
+
+msgid "default"
+msgstr "默认"
+
+msgid "ipset name format error, format: [#[4|6]:]ipsetname"
+msgstr "ipset名称格式错误，格式为：[#[4|6]:]ipsetname"
+
+msgid "open website"
+msgstr "打开网站"
+
+msgid "smartdns custom settings"
+msgstr "smartdns自定义设置"

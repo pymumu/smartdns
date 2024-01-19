@@ -15,6 +15,10 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+[ "${IPKG_NO_SCRIPT}" = "1" ] && exit 0
 [ -e ${IPKG_INSTROOT}/lib/functions.sh ] || exit 0
 . ${IPKG_INSTROOT}/lib/functions.sh
-default_prerm $0 $@
+default_postinst $0 $@
+ret=$?
+/etc/init.d/smartdns-lite enable
+exit 0

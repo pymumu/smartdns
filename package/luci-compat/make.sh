@@ -50,6 +50,7 @@ build()
 
 	mkdir -p $ROOT
 	cp $CURR_DIR/* $ROOT/ -af
+	cp $CURR_DIR/../tool $ROOT/ -af
 	cd $ROOT/
 	build_tool
 	mkdir $ROOT/root/usr/lib/lua/ -p

@@ -1,0 +1,13 @@
+{
+	"admin/services/smartdns-lite": {
+		"title": "SmartDNS Lite",
+		"action": {
+			"type": "view",
+			"path": "smartdns-lite/smartdns-lite"
+		},
+		"depends": {
+			"acl": [ "luci-app-smartdns-lite" ],
+			"uci": { "smartdns-lite": true }
+		}
+	}
+}

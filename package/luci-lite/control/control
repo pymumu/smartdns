@@ -1,0 +1,7 @@
+Package: luci-app-smartdns-lite
+Version: git-18.201.27126-7bf0367-1
+Depends: libc, smartdns
+Source: feeds/luci/applications/luci-app-smartdns-lite
+Section: luci
+Architecture: all
+Description:  A smartdns server for china

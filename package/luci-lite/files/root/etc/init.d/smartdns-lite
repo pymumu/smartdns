@@ -1,0 +1,228 @@
+#!/bin/sh /etc/rc.common
+#
+# Copyright (C) 2018-2024 Ruilin Peng (Nick) <pymumu@gmail.com>.
+#
+# smartdns is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# smartdns is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+START=19
+STOP=82
+NAME=smartdns-lite
+USE_PROCD=1
+
+SMARTDNS_CONF_DIR="/etc/smartdns"
+SMARTDNS_CONF_DOWNLOAD_DIR="$SMARTDNS_CONF_DIR/conf.d"
+SMARTDNS_VAR_CONF_DIR="/var/etc/smartdns"
+SMARTDNS_CONF="$SMARTDNS_VAR_CONF_DIR/smartdns-lite.conf"
+CUSTOM_CONF="$SMARTDNS_CONF_DIR/custom.conf"
+SMARTDNS_CONF_TMP="${SMARTDNS_CONF}.tmp"
+
+conf_append()
+{
+	echo "$1 $2" >> $SMARTDNS_CONF_TMP
+}
+
+client_rule_addr_append()
+{
+	conf_append "client-rules" "$1"
+}
+
+servers_append()
+{
+	conf_append "server" "$1 $server_options"
+}
+
+load_parental_control_rules()
+{
+	local section="$1"
+	local adblock_set_name="$2"
+	local block_domain_set_file=""
+	local client_set_name="pc-client-address-$section"
+	local block_set_name="pc-block-domain-$section"
+	local server_options="-e"
+
+	config_get_bool pc_enabled "$section" "pc_enabled" "0"
+	[ "$pc_enabled" != "1" ] && return
+
+	conf_append "group-begin" "parental-control-${section}"
+
+	config_get pc_client_addr_file "$section" "pc_client_addr_file" ""
+	[ -e "$pc_client_addr_file" ] && {
+		conf_append "ip-set" "-name ${client_set_name} -file '$pc_client_addr_file'"
+		client_rule_addr_append "ip-set:${client_set_name}"
+	}
+
+	config_list_foreach "$section" "pc_client_addr" client_rule_addr_append
+
+	config_list_foreach "$section" "pc_servers" servers_append
+
+	config_get pc_block_file "$section" "pc_block_file" ""
+	[ -e "$pc_block_file" ] && {
+		conf_append "domain-set" "-name ${block_set_name} -file '$pc_block_file'"
+		conf_append "domain-rules" "/domain-set:${block_set_name}/ -address #"
+	}
+
+	[ ! -z "$adblock_set_name" ] && {
+		conf_append "domain-rules" "/domain-set:${adblock_set_name}/ -address #"
+	}
+
+	conf_append "group-end"
+}
+
+load_domain_rules()
+{
+	local section="$1"
+	local domain_set_args=""
+	local domain_set_name="rules-domain-set-$section"
+	local domain_rule_name="rules-domain-group-$section"
+	local as_group=0;
+	local qtype_soa_list=""
+	local server_options=""
+
+	config_get_bool rules_enabled "$section" "rules_enabled" "0"
+	[ "$rules_enabled" != "1" ] && return
+
+	config_list_foreach "$section" "rules_servers" servers_append
+
+	config_get rules_domain_file "$section" "rules_domain_file" ""
+	[ -e "$rules_domain_file" ] && {
+		conf_append "group-begin" "${domain_rule_name}"
+		conf_append "domain-set" "-name ${domain_set_name} -file '$rules_domain_file'"
+		conf_append "group-match" "-domain ${domain_set_name}"
+		conf_append "force-qtype-SOA" "-"
+		server_options="-e"
+		as_group="1"
+	}
+
+	config_get rules_speed_check_mode "$section" "rules_speed_check_mode" ""
+	[ ! -z "$rules_speed_check_mode" ] && conf_append "speed-check-mode" "$rules_speed_check_mode"
+
+	config_get rules_force_aaaa_soa "$section" "rules_force_aaaa_soa" "0"
+	[ "$rules_force_aaaa_soa" = "1" ] && qtype_soa_list="$qtype_soa_list 28"
+
+	config_get rules_force_https_soa "$section" "rules_force_https_soa" "1"
+	[ "$rules_force_https_soa" = "1" ] && qtype_soa_list="$qtype_soa_list 65"
+
+	[ ! -z "$qtype_soa_list" ] && conf_append "force-qtype-SOA" "$qtype_soa_list"
+
+	config_get ipset_name "$section" "ipset_name" ""
+	[ -z "$ipset_name" ] || conf_append "ipset" "$ipset_name"
+
+	config_get nftset_name "$section" "nftset_name" ""
+	[ -z "$nftset_name" ] || conf_append "nftset" "$nftset_name"
+
+	[ "$as_group" = "1" ] && {
+		conf_append "group-end"
+	}
+}
+
+cloudflare_cdn_alias()
+{
+	conf_append "ip-alias" "$1 ip-set:$ipset_set_name"
+}
+
+load_cloudflare_cdn_accelerate()
+{
+	local section="$1"
+	local ipset_set_name="cloudflare-ip-set-$section"
+
+	config_get_bool cloudflare_enabled "$section" "cloudflare_enabled" "0"
+	[ "$cloudflare_enabled" != "1" ] && return
+
+	config_get cloudflare_cdn_ip_file "$section" "cloudflare_cdn_ip_file" ""
+	[ ! -e "$cloudflare_cdn_ip_file" ] && return
+
+	conf_append "ip-set" "-name ${ipset_set_name} -file '$cloudflare_cdn_ip_file'"
+	config_list_foreach "$section" "cloudflare_ip_alias" cloudflare_cdn_alias
+}
+
+unload_service()
+{
+	:
+}
+
+load_service()
+{
+	local section="$1"
+	args=""
+	local device=""
+	local adblock_set_name=""
+	local is_auto_set="0"
+
+	mkdir -p $SMARTDNS_VAR_CONF_DIR
+	rm -f $SMARTDNS_CONF_TMP
+
+	config_get_bool enabled "$section" "enabled" '0'
+	[ "$enabled" != "1" ] && {
+		uci -q set smartdns.@smartdns[0].enabled="0"
+		uci commit smartdns
+		/etc/init.d/smartdns reload
+		return
+	}
+
+	config_get port "$section" "port" "53"
+	config_get server_mode "$section" "server_mode" "tcp_only"
+	config_get auto_set_dnsmasq "$section" "auto_set_dnsmasq" "0"
+
+	[ "$server_mode" = "main" ] && {
+		port="53"
+	}
+	
+	config_list_foreach "$section" "servers" servers_append
+
+	config_get ad_block_file "$section" "ad_block_file" ""
+	[ -e "$ad_block_file" ] && {
+		adblock_set_name="adblock-block-$section"
+		conf_append "domain-set" "-name ${adblock_set_name} -file '$ad_block_file'"
+		conf_append "domain-rules" "/domain-set:${adblock_set_name}/ -address #"
+	}
+
+	load_cloudflare_cdn_accelerate "$section"
+
+	load_parental_control_rules "$section" "$adblock_set_name"
+
+	load_domain_rules "$section"
+
+	uci -q set smartdns.@smartdns[0].enabled="1"
+	uci -q set smartdns.@smartdns[0].port="$port"
+	uci -q set smartdns.@smartdns[0].auto_set_dnsmasq="$auto_set_dnsmasq"
+	uci -q del_list smartdns.@smartdns[0].conf_files="$SMARTDNS_CONF"
+	uci -q add_list smartdns.@smartdns[0].conf_files="$SMARTDNS_CONF"
+
+	touch $SMARTDNS_CONF_TMP
+	mv $SMARTDNS_CONF_TMP $SMARTDNS_CONF
+	uci commit smartdns
+	/etc/init.d/smartdns reload
+}
+
+service_triggers() {
+	procd_add_reload_trigger smartdns-lite
+}
+
+service_stopped()
+{
+	config_load "smartdns-lite"
+	config_foreach unload_service "smartdns-lite"
+}
+
+start_service()
+{
+	config_load "smartdns-lite"
+	config_foreach load_service "smartdns-lite"
+}
+
+reload_service()
+{
+	stop
+	start
+}
