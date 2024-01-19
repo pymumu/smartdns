@@ -39,6 +39,7 @@ Download the matching version of the SmartDNS installation package. The correspo
 |openwrt|smartdns.xxxxxxxx.mipsel-openwrt-all.ipk|Support the MIPS little-endian architecture for openwrt。
 |openwrt|smartdns.xxxxxxxx.arm-openwrt-all.ipk|Support the arm architecture for openwrt。
 |openwrt LUCI|luci-app-smartdns.xxxxxxxxx.all.ipk|Openwrt management interface.
+|openwrt LUCI|luci-app-smartdns.xxxxxxxxx.all.ipk|Openwrt management interface, for lite users.
 |openwrt LUCI|luci-app-smartdns.xxxxxxxxx.all-luci-compat-all|Compat Openwrt management interface for early openwrt.
 |Windows|smartdns-rs [https://github.com/mokeyish/smartdns-rs](https://github.com/mokeyish/smartdns-rs)| Rust Version SmartDNS |
 |MacOS|smartdns-rs [https://github.com/mokeyish/smartdns-rs](https://github.com/mokeyish/smartdns-rs)| Rust Version SmartDNS |

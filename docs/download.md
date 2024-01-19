@@ -41,6 +41,7 @@ docker|docker pull pymumu/smartdns | docker镜像：<https://hub.docker.com/r/py
 | OpenWrt（MIPS Little Endian） | smartdns.1.yyyy.MM.dd-REL.mipsel-openwrt-all.ipk | MIPS 小端架构的 OpenWrt 系统 |
 | OpenWrt（ARM） | smartdns.1.yyyy.MM.dd-REL.arm-openwrt-all.ipk | ARM 小端架构的 OpenWrt 系统 |
 | OpenWrt LuCI | luci-app-smartdns.1.yyyy.MM.dd-REL.all.ipk | OpenWrt 管理界面 |
+| OpenWrt LuCI | luci-app-smartdns-lite.1.yyyy.MM.dd-REL.all.ipk | OpenWrt 管理界面，入门用户首选 |
 | OpenWrt LuCI | luci-app-smartdns.1.yyyy.MM.dd-REL.all-luci-compat-all.ipk | OpenWrt 管理界面、OpenWrt 18.xx 及之前版本 |
 | Windows | smartdns-rs [https://github.com/mokeyish/smartdns-rs](https://github.com/mokeyish/smartdns-rs) | Rust版本SmartDNS | [Rust版本SmartDNS](https://github.com/mokeyish/smartdns-rs) |
 | MacOS | smartdns-rs [https://github.com/mokeyish/smartdns-rs](https://github.com/mokeyish/smartdns-rs) | Rust版本SmartDNS |
