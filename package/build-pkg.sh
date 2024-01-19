@@ -1,5 +1,5 @@
 #!/bin/sh
-# Copyright (C) 2018-2019 Nick Peng (pymumu@gmail.com)
+# Copyright (C) 2018-2024 Nick Peng (pymumu@gmail.com)
 
 CURR_DIR=$(cd $(dirname $0);pwd)
 VER="`date +"1.%Y.%m.%d-%H%M"`"

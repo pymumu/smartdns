@@ -1,6 +1,6 @@
 /*
  * tinylog
- * Copyright (C) 2018-2023 Ruilin Peng (Nick) <pymumu@gmail.com>
+ * Copyright (C) 2018-2024 Ruilin Peng (Nick) <pymumu@gmail.com>
  * https://github.com/pymumu/tinylog
  */
 
