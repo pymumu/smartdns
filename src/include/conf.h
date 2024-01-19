@@ -47,6 +47,7 @@ struct config_item_int {
 	int *data;
 	int min;
 	int max;
+	int (*func)(int value, int *data);
 };
 
 struct config_item_int_base {
@@ -54,27 +55,32 @@ struct config_item_int_base {
 	int min;
 	int max;
 	int base;
+	int (*func)(int value, int *data);
 };
 
 struct config_item_string {
 	char *data;
 	size_t size;
+	int (*func)(const char *value, char *data);
 };
 
 struct config_item_yesno {
 	int *data;
+	int (*func)(int value, int *data);
 };
 
 struct config_item_size {
 	size_t *data;
 	size_t min;
 	size_t max;
+	int (*func)(size_t value, size_t *data);
 };
 
 struct config_item_ssize {
 	ssize_t *data;
 	ssize_t min;
 	ssize_t max;
+	int (*func)(ssize_t value, ssize_t *data);
 };
 
 struct config_enum_list {
@@ -85,58 +91,73 @@ struct config_enum_list {
 struct config_enum {
 	int *data;
 	struct config_enum_list *list;
+	int (*func)(int value, int *data);
 };
 
-#define CONF_INT(key, value, min_value, max_value)                                                                     \
+#define CONF_INT_FUNC(key, func_value, value, min_value, max_value)                                                    \
 	{                                                                                                                  \
 		key, conf_int, &(struct config_item_int)                                                                       \
 		{                                                                                                              \
-			.data = value, .min = min_value, .max = max_value                                                          \
+			.data = value, .func = func_value, .min = min_value, .max = max_value,                                     \
 		}                                                                                                              \
 	}
-#define CONF_INT_BASE(key, value, min_value, max_value, base_value)                                                    \
+#define CONF_INT_BASE_FUNC(key, func_value, value, min_value, max_value, base_value)                                   \
 	{                                                                                                                  \
 		key, conf_int_base, &(struct config_item_int_base)                                                             \
 		{                                                                                                              \
-			.data = value, .min = min_value, .max = max_value, .base = base_value                                      \
+			.data = value, .func = func_value, .min = min_value, .max = max_value, .base = base_value                  \
 		}                                                                                                              \
 	}
-#define CONF_STRING(key, value, len_value)                                                                             \
+#define CONF_STRING_FUNC(key, func_value, value, len_value)                                                            \
 	{                                                                                                                  \
 		key, conf_string, &(struct config_item_string)                                                                 \
 		{                                                                                                              \
-			.data = value, .size = len_value                                                                           \
+			.data = value, .func = func_value, .size = len_value                                                       \
 		}                                                                                                              \
 	}
-#define CONF_YESNO(key, value)                                                                                         \
+#define CONF_YESNO_FUNC(key, func_value, value)                                                                        \
 	{                                                                                                                  \
 		key, conf_yesno, &(struct config_item_yesno)                                                                   \
 		{                                                                                                              \
-			.data = value                                                                                              \
+			.data = value, .func = func_value                                                                          \
 		}                                                                                                              \
 	}
-#define CONF_SIZE(key, value, min_value, max_value)                                                                    \
+#define CONF_SIZE_FUNC(key, func_value, value, min_value, max_value)                                                   \
 	{                                                                                                                  \
 		key, conf_size, &(struct config_item_size)                                                                     \
 		{                                                                                                              \
-			.data = value, .min = min_value, .max = max_value                                                          \
+			.data = value, .func = func_value, .min = min_value, .max = max_value                                      \
 		}                                                                                                              \
 	}
-#define CONF_SSIZE(key, value, min_value, max_value)                                                                   \
+#define CONF_SSIZE_FUNC(key, func_value, value, min_value, max_value)                                                  \
 	{                                                                                                                  \
 		key, conf_ssize, &(struct config_item_ssize)                                                                   \
 		{                                                                                                              \
-			.data = value, .min = min_value, .max = max_value                                                          \
+			.data = value, .func = func_value, .min = min_value, .max = max_value                                      \
 		}                                                                                                              \
 	}
-
-#define CONF_ENUM(key, value, enum)                                                                                    \
+#define CONF_ENUM_FUNC(key, func_value, value, enum)                                                                   \
 	{                                                                                                                  \
 		key, conf_enum, &(struct config_enum)                                                                          \
 		{                                                                                                              \
-			.data = (int *)value, .list = (struct config_enum_list *)enum                                              \
+			.data = (int *)value, .func = func_value, .list = (struct config_enum_list *)enum                          \
 		}                                                                                                              \
 	}
+
+#define CONF_INT(key, value, min_value, max_value) CONF_INT_FUNC(key, NULL, value, min_value, max_value)
+
+#define CONF_INT_BASE(key, value, min_value, max_value, base_value)                                                    \
+	CONF_INT_BASE_FUNC(key, NULL, value, min_value, max_value, base_value)
+
+#define CONF_STRING(key, value, len_value) CONF_STRING_FUNC(key, NULL, value, len_value)
+
+#define CONF_YESNO(key, value) CONF_YESNO_FUNC(key, NULL, value)
+
+#define CONF_SIZE(key, value, min_value, max_value) CONF_SIZE_FUNC(key, NULL, value, min_value, max_value)
+
+#define CONF_SSIZE(key, value, min_value, max_value) CONF_SSIZE_FUNC(key, NULL, value, min_value, max_value)
+
+#define CONF_ENUM(key, value, enum) CONF_ENUM_FUNC(key, NULL, value, enum)
 
 /*
  * func: int (*func)(void *data, int argc, char *argv[]);

@@ -99,6 +99,10 @@ int conf_int(const char *item, void *data, int argc, char *argv[])
 		value = item_int->max;
 	}
 
+	if (item_int->func) {
+		return item_int->func(value, item_int->data);
+	}
+
 	*(item_int->data) = value;
 
 	return 0;
@@ -120,6 +124,10 @@ int conf_int_base(const char *item, void *data, int argc, char *argv[])
 		value = item_int->max;
 	}
 
+	if (item_int->func) {
+		return item_int->func(value, item_int->data);
+	}
+
 	*(item_int->data) = value;
 
 	return 0;
@@ -131,6 +139,10 @@ int conf_string(const char *item, void *data, int argc, char *argv[])
 
 	if (argc < 2) {
 		return -1;
+	}
+
+	if (item_string->func) {
+		return item_string->func(argv[1], item_string->data);
 	}
 
 	strncpy(item_string->data, argv[1], item_string->size);
@@ -156,6 +168,10 @@ int conf_yesno(const char *item, void *data, int argc, char *argv[])
 		yes = 1;
 	} else if (strncmp("no", value, sizeof("no")) == 0 || strncmp("NO", value, sizeof("NO")) == 0) {
 		yes = 0;
+	}
+
+	if (item_yesno->func) {
+		return item_yesno->func(yes, item_yesno->data);
 	}
 
 	*(item_yesno->data) = yes;
@@ -191,6 +207,10 @@ int conf_size(const char *item, void *data, int argc, char *argv[])
 		size = item_size->min;
 	}
 
+	if (item_size->func) {
+		return item_size->func(size, item_size->data);
+	}
+
 	*(item_size->data) = size;
 
 	return 0;
@@ -224,6 +244,10 @@ int conf_ssize(const char *item, void *data, int argc, char *argv[])
 		size = item_size->min;
 	}
 
+	if (item_size->func) {
+		return item_size->func(size, item_size->data);
+	}
+
 	*(item_size->data) = size;
 
 	return 0;
@@ -241,6 +265,9 @@ int conf_enum(const char *item, void *data, int argc, char *argv[])
 
 	for (i = 0; item_enum->list[i].name != NULL; i++) {
 		if (strcmp(enum_name, item_enum->list[i].name) == 0) {
+			if (item_enum->func) {
+				return item_enum->func(item_enum->list[i].id, item_enum->data);
+			}
 			*(item_enum->data) = item_enum->list[i].id;
 			return 0;
 		}

@@ -432,6 +432,21 @@ struct dns_conf_group {
 	struct dns_edns_client_subnet ipv6_ecs;
 	int force_AAAA_SOA;
 	int dualstack_ip_selection;
+	int dns_dualstack_ip_allow_force_AAAA;
+	int dns_dualstack_ip_selection_threshold;
+	int dns_rr_ttl;
+	int dns_rr_ttl_reply_max;
+	int dns_rr_ttl_min;
+	int dns_rr_ttl_max;
+	int dns_local_ttl;
+	int dns_force_no_cname;
+	int dns_prefetch;
+	int dns_serve_expired;
+	int dns_serve_expired_ttl;
+	int dns_serve_expired_prefetch_time;
+	int dns_serve_expired_reply_ttl;
+	int dns_max_reply_ip_num;
+	enum response_mode_type dns_response_mode;
 	char copy_data_section_end[0];
 	const char *group_name;
 };
@@ -607,11 +622,6 @@ extern char dns_conf_need_cert;
 
 extern int dns_conf_tcp_idle_time;
 extern ssize_t dns_conf_cachesize;
-extern int dns_conf_prefetch;
-extern int dns_conf_serve_expired;
-extern int dns_conf_serve_expired_ttl;
-extern int dns_conf_serve_expired_prefetch_time;
-extern int dns_conf_serve_expired_reply_ttl;
 extern struct dns_servers dns_conf_servers[DNS_MAX_SERVERS];
 extern int dns_conf_server_num;
 
@@ -655,23 +665,12 @@ extern char dns_conf_server_name[DNS_MAX_SERVER_NAME_LEN];
 extern struct dns_conf_domain_rule dns_conf_domain_rule;
 extern struct dns_conf_client_rule dns_conf_client_rule;
 
-extern int dns_conf_dualstack_ip_allow_force_AAAA;
-extern int dns_conf_dualstack_ip_selection_threshold;
-
-extern int dns_conf_max_reply_ip_num;
 extern int dns_conf_max_query_limit;
-extern enum response_mode_type dns_conf_response_mode;
-
-extern int dns_conf_rr_ttl;
-extern int dns_conf_rr_ttl_reply_max;
-extern int dns_conf_rr_ttl_min;
-extern int dns_conf_rr_ttl_max;
+extern enum response_mode_type dns_conf_default_response_mode;
 extern int dns_conf_nftset_debug_enable;
 extern int dns_conf_local_ttl;
 extern int dns_conf_mdns_lookup;
 extern int dns_conf_acl_enable;
-
-extern int dns_conf_force_no_cname;
 
 extern char dns_conf_user[DNS_CONF_USERNAME_LEN];
 

@@ -76,7 +76,6 @@ char dns_conf_bind_ca_key_file[DNS_MAX_PATH];
 char dns_conf_bind_ca_key_pass[DNS_MAX_PATH];
 char dns_conf_need_cert = 0;
 
-int dns_conf_max_reply_ip_num = DNS_MAX_REPLY_IP_NUM;
 int dns_conf_max_query_limit = DNS_MAX_QUERY_LIMIT;
 
 static struct config_enum_list dns_conf_response_mode_enum[] = {
@@ -85,15 +84,10 @@ static struct config_enum_list dns_conf_response_mode_enum[] = {
 	{"fastest-response", DNS_RESPONSE_MODE_FASTEST_RESPONSE},
 	{NULL, 0}};
 
-enum response_mode_type dns_conf_response_mode;
+enum response_mode_type dns_conf_default_response_mode = DNS_RESPONSE_MODE_FIRST_PING_IP;
 
 /* cache */
 ssize_t dns_conf_cachesize = -1;
-int dns_conf_prefetch = 0;
-int dns_conf_serve_expired = 1;
-int dns_conf_serve_expired_ttl = 24 * 3600 * 3; /* 3 days */
-int dns_conf_serve_expired_prefetch_time;
-int dns_conf_serve_expired_reply_ttl = 3;
 
 /* upstream servers */
 struct dns_servers dns_conf_servers[DNS_MAX_SERVERS];
@@ -155,19 +149,8 @@ static LIST_HEAD(dns_conf_group_info_list);
 struct dns_conf_rule dns_conf_rule;
 struct dns_conf_client_rule dns_conf_client_rule;
 
-/* dual-stack selection */
-int dns_conf_dualstack_ip_allow_force_AAAA;
-int dns_conf_dualstack_ip_selection_threshold = 10;
-
 static int dns_conf_expand_ptr_from_address = 0;
-
-/* TTL */
-int dns_conf_rr_ttl;
-int dns_conf_rr_ttl_reply_max;
-int dns_conf_rr_ttl_min = 600;
-int dns_conf_rr_ttl_max;
 int dns_conf_local_ttl;
-int dns_conf_force_no_cname;
 int dns_conf_nftset_debug_enable;
 int dns_conf_mdns_lookup;
 int dns_conf_acl_enable;
@@ -204,6 +187,97 @@ static void _config_ip_iter_free(radix_node_t *node, void *cbctx);
 static int _config_nftset_setvalue(struct dns_nftset_names *nftsets, const char *nftsetvalue);
 static int _config_client_rule_flag_set(const char *ip_cidr, unsigned int flag, unsigned int is_clear);
 static int _config_client_rule_group_add(const char *client, const char *group_name);
+
+static __attribute__((unused)) int _dns_conf_group_int(int value, int *data)
+{
+	struct dns_conf_group *conf_group = _config_current_rule_group();
+	if (conf_group == NULL) {
+		return -1;
+	}
+
+	void *ptr = (char *)conf_group + (size_t)data;
+	*(int *)ptr = value;
+
+	return 0;
+}
+
+static __attribute__((unused)) int _dns_conf_group_int_base(int value, int *data)
+{
+	struct dns_conf_group *conf_group = _config_current_rule_group();
+	if (conf_group == NULL) {
+		return -1;
+	}
+
+	void *ptr = (char *)conf_group + (size_t)data;
+	*(int *)ptr = value;
+
+	return 0;
+}
+
+static __attribute__((unused)) int _dns_conf_group_string(const char *value, char *data)
+{
+	struct dns_conf_group *conf_group = _config_current_rule_group();
+	if (conf_group == NULL) {
+		return -1;
+	}
+
+	char *ptr = (char *)conf_group + (size_t)data;
+	safe_strncpy(ptr, value, DNS_MAX_PATH);
+
+	return 0;
+}
+
+static __attribute__((unused)) int _dns_conf_group_yesno(int value, int *data)
+{
+	struct dns_conf_group *conf_group = _config_current_rule_group();
+	if (conf_group == NULL) {
+		return -1;
+	}
+
+	void *ptr = (char *)conf_group + (size_t)data;
+	*(int *)ptr = value;
+
+	return 0;
+}
+
+static __attribute__((unused)) int _dns_conf_group_size(size_t value, size_t *data)
+{
+	struct dns_conf_group *conf_group = _config_current_rule_group();
+	if (conf_group == NULL) {
+		return -1;
+	}
+
+	void *ptr = (char *)conf_group + (size_t)data;
+	*(size_t *)ptr = value;
+
+	return 0;
+}
+
+static __attribute__((unused)) int _dns_conf_group_ssize(ssize_t value, ssize_t *data)
+{
+	struct dns_conf_group *conf_group = _config_current_rule_group();
+	if (conf_group == NULL) {
+		return -1;
+	}
+
+	void *ptr = (char *)conf_group + (size_t)data;
+	*(ssize_t *)ptr = value;
+
+	return 0;
+}
+
+static __attribute__((unused)) int _dns_conf_group_enum(int value, int *data)
+{
+	struct dns_conf_group *conf_group = _config_current_rule_group();
+	if (conf_group == NULL) {
+		return -1;
+	}
+
+	void *ptr = (char *)conf_group + (size_t)data;
+	*(int *)ptr = value;
+
+	return 0;
+}
 
 static void *_new_dns_rule_ext(enum domain_rule domain_rule, int ext_size)
 {
@@ -521,6 +595,12 @@ static int _config_rule_group_setup_value(struct dns_conf_group_info *group_info
 	memset(soa_table, 0, soa_talbe_size);
 	memcpy(&group_rule->check_orders, &dns_conf_default_check_orders, sizeof(group_rule->check_orders));
 	group_rule->dualstack_ip_selection = 1;
+	group_rule->dns_dualstack_ip_selection_threshold = 10;
+	group_rule->dns_rr_ttl_min = 600;
+	group_rule->dns_serve_expired_ttl = 24 * 3600 * 3;
+	group_rule->dns_serve_expired_reply_ttl = 3;
+	group_rule->dns_max_reply_ip_num = DNS_MAX_REPLY_IP_NUM;
+	group_rule->dns_response_mode = dns_conf_default_response_mode;
 
 	return 0;
 }
@@ -2516,14 +2596,6 @@ static int _config_speed_check_mode(void *data, int argc, char *argv[])
 	return _config_speed_check_mode_parser(&_config_current_rule_group()->check_orders, mode);
 }
 
-static int _config_dualstack_ip_selection(void *data, int argc, char *argv[])
-{
-	struct config_item_yesno item;
-
-	item.data = &_config_current_rule_group()->dualstack_ip_selection;
-	return conf_yesno(NULL, &item, argc, argv);
-}
-
 static int _config_dns64(void *data, int argc, char *argv[])
 {
 	prefix_t prefix;
@@ -3536,14 +3608,6 @@ errout:
 
 	tlog(TLOG_ERROR, "add client %s rule failed", ip_cidr);
 	return -1;
-}
-
-static int _config_force_AAAA_soa(void *data, int argc, char *argv[])
-{
-	struct config_item_yesno item;
-
-	item.data = &_config_current_rule_group()->force_AAAA_SOA;
-	return conf_yesno(NULL, &item, argc, argv);
 }
 
 static int _conf_qtype_soa(uint8_t *soa_table, int argc, char *argv[])
@@ -5536,14 +5600,20 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("cache-file", _config_option_parser_filepath, (char *)&dns_conf_cache_file),
 	CONF_YESNO("cache-persist", &dns_conf_cache_persist),
 	CONF_INT("cache-checkpoint-time", &dns_conf_cache_checkpoint_time, 0, 3600 * 24 * 7),
-	CONF_YESNO("prefetch-domain", &dns_conf_prefetch),
-	CONF_YESNO("serve-expired", &dns_conf_serve_expired),
-	CONF_INT("serve-expired-ttl", &dns_conf_serve_expired_ttl, 0, CONF_INT_MAX),
-	CONF_INT("serve-expired-reply-ttl", &dns_conf_serve_expired_reply_ttl, 0, CONF_INT_MAX),
-	CONF_INT("serve-expired-prefetch-time", &dns_conf_serve_expired_prefetch_time, 0, CONF_INT_MAX),
-	CONF_CUSTOM("dualstack-ip-selection", _config_dualstack_ip_selection, NULL),
-	CONF_YESNO("dualstack-ip-allow-force-AAAA", &dns_conf_dualstack_ip_allow_force_AAAA),
-	CONF_INT("dualstack-ip-selection-threshold", &dns_conf_dualstack_ip_selection_threshold, 0, 1000),
+	CONF_YESNO_FUNC("prefetch-domain", _dns_conf_group_yesno, (void *)offsetof(struct dns_conf_group, dns_prefetch)),
+	CONF_YESNO_FUNC("serve-expired", _dns_conf_group_yesno, (void *)offsetof(struct dns_conf_group, dns_serve_expired)),
+	CONF_INT_FUNC("serve-expired-ttl", _dns_conf_group_int,
+				  (void *)offsetof(struct dns_conf_group, dns_serve_expired_ttl), 0, CONF_INT_MAX),
+	CONF_INT_FUNC("serve-expired-reply-ttl", _dns_conf_group_int,
+				  (void *)offsetof(struct dns_conf_group, dns_serve_expired_reply_ttl), 0, CONF_INT_MAX),
+	CONF_INT_FUNC("serve-expired-prefetch-time", _dns_conf_group_int,
+				  (void *)offsetof(struct dns_conf_group, dns_serve_expired_prefetch_time), 0, CONF_INT_MAX),
+	CONF_YESNO_FUNC("dualstack-ip-selection", _dns_conf_group_yesno,
+					(void *)offsetof(struct dns_conf_group, dualstack_ip_selection)),
+	CONF_YESNO_FUNC("dualstack-ip-allow-force-AAAA", _dns_conf_group_yesno,
+					(void *)offsetof(struct dns_conf_group, dns_dualstack_ip_allow_force_AAAA)),
+	CONF_INT_FUNC("dualstack-ip-selection-threshold", _dns_conf_group_int,
+				  (void *)offsetof(struct dns_conf_group, dns_dualstack_ip_selection_threshold), 0, 1000),
 	CONF_CUSTOM("dns64", _config_dns64, NULL),
 	CONF_CUSTOM("log-level", _config_log_level, NULL),
 	CONF_CUSTOM("log-file", _config_option_parser_filepath, (char *)dns_conf_log_file),
@@ -5561,16 +5631,23 @@ static struct config_item _config_item[] = {
 	CONF_YESNO("audit-console", &dns_conf_audit_console),
 	CONF_YESNO("audit-syslog", &dns_conf_audit_syslog),
 	CONF_YESNO("acl-enable", &dns_conf_acl_enable),
-	CONF_INT("rr-ttl", &dns_conf_rr_ttl, 0, CONF_INT_MAX),
-	CONF_INT("rr-ttl-min", &dns_conf_rr_ttl_min, 0, CONF_INT_MAX),
-	CONF_INT("rr-ttl-max", &dns_conf_rr_ttl_max, 0, CONF_INT_MAX),
-	CONF_INT("rr-ttl-reply-max", &dns_conf_rr_ttl_reply_max, 0, CONF_INT_MAX),
-	CONF_INT("local-ttl", &dns_conf_local_ttl, 0, CONF_INT_MAX),
-	CONF_INT("max-reply-ip-num", &dns_conf_max_reply_ip_num, 1, CONF_INT_MAX),
+	CONF_INT_FUNC("rr-ttl", _dns_conf_group_int, (void *)offsetof(struct dns_conf_group, dns_rr_ttl), 0, CONF_INT_MAX),
+	CONF_INT_FUNC("rr-ttl-min", _dns_conf_group_int, (void *)offsetof(struct dns_conf_group, dns_rr_ttl_min), 0,
+				  CONF_INT_MAX),
+	CONF_INT_FUNC("rr-ttl-max", _dns_conf_group_int, (void *)offsetof(struct dns_conf_group, dns_rr_ttl_max), 0,
+				  CONF_INT_MAX),
+	CONF_INT_FUNC("rr-ttl-reply-max", _dns_conf_group_int,
+				  (void *)offsetof(struct dns_conf_group, dns_rr_ttl_reply_max), 0, CONF_INT_MAX),
+	CONF_INT_FUNC("local-ttl", _dns_conf_group_int, (void *)offsetof(struct dns_conf_group, dns_local_ttl), 0,
+				  CONF_INT_MAX),
+	CONF_INT_FUNC("max-reply-ip-num", _dns_conf_group_int,
+				  (void *)offsetof(struct dns_conf_group, dns_max_reply_ip_num), 1, CONF_INT_MAX),
 	CONF_INT("max-query-limit", &dns_conf_max_query_limit, 0, CONF_INT_MAX),
-	CONF_ENUM("response-mode", &dns_conf_response_mode, &dns_conf_response_mode_enum),
-	CONF_CUSTOM("force-AAAA-SOA", _config_force_AAAA_soa, NULL),
-	CONF_YESNO("force-no-CNAME", &dns_conf_force_no_cname),
+	CONF_ENUM_FUNC("response-mode", _dns_conf_group_enum, (void *)offsetof(struct dns_conf_group, dns_response_mode),
+				   &dns_conf_response_mode_enum),
+	CONF_YESNO_FUNC("force-AAAA-SOA", _dns_conf_group_yesno, (void *)offsetof(struct dns_conf_group, force_AAAA_SOA)),
+	CONF_YESNO_FUNC("force-no-CNAME", _dns_conf_group_yesno,
+					(void *)offsetof(struct dns_conf_group, dns_force_no_cname)),
 	CONF_CUSTOM("force-qtype-SOA", _config_qtype_soa, NULL),
 	CONF_CUSTOM("blacklist-ip", _config_blacklist_ip, NULL),
 	CONF_CUSTOM("whitelist-ip", _conf_whitelist_ip, NULL),
@@ -5980,6 +6057,30 @@ static void _dns_conf_auto_set_cache_size(void)
 	}
 }
 
+static void _dns_conf_group_post(void)
+{
+	struct dns_conf_group *group;
+	struct hlist_node *tmp = NULL;
+	unsigned long i = 0;
+
+	hash_for_each_safe(dns_conf_rule.group, i, tmp, group, node)
+	{
+		if (dns_conf_cachesize == 0 && group->dns_response_mode == DNS_RESPONSE_MODE_FASTEST_RESPONSE) {
+			group->dns_response_mode = DNS_RESPONSE_MODE_FASTEST_IP;
+			tlog(TLOG_WARN, "force set response of group %s to %s as cache size is 0", group->group_name,
+				 dns_conf_response_mode_enum[group->dns_response_mode].name);
+		}
+
+		if ((group->dns_rr_ttl_min > group->dns_rr_ttl_max) && group->dns_rr_ttl_max > 0) {
+			group->dns_rr_ttl_min = group->dns_rr_ttl_max;
+		}
+
+		if ((group->dns_rr_ttl_max < group->dns_rr_ttl_min) && group->dns_rr_ttl_max > 0) {
+			group->dns_rr_ttl_max = group->dns_rr_ttl_min;
+		}
+	}
+}
+
 static int _dns_conf_load_post(void)
 {
 	_config_setup_smartdns_domain();
@@ -5989,23 +6090,11 @@ static int _dns_conf_load_post(void)
 
 	_dns_conf_setup_mdns();
 
-	if (dns_conf_cachesize == 0 && dns_conf_response_mode == DNS_RESPONSE_MODE_FASTEST_RESPONSE) {
-		dns_conf_response_mode = DNS_RESPONSE_MODE_FASTEST_IP;
-		tlog(TLOG_WARN, "force set response to %s as cache size is 0",
-			 dns_conf_response_mode_enum[dns_conf_response_mode].name);
-	}
-
-	if ((dns_conf_rr_ttl_min > dns_conf_rr_ttl_max) && dns_conf_rr_ttl_max > 0) {
-		dns_conf_rr_ttl_min = dns_conf_rr_ttl_max;
-	}
-
-	if ((dns_conf_rr_ttl_max < dns_conf_rr_ttl_min) && dns_conf_rr_ttl_max > 0) {
-		dns_conf_rr_ttl_max = dns_conf_rr_ttl_min;
-	}
-
 	if (dns_resolv_file[0] == '\0') {
 		safe_strncpy(dns_resolv_file, DNS_RESOLV_FILE, sizeof(dns_resolv_file));
 	}
+
+	_dns_conf_group_post();
 
 	_config_domain_set_name_table_destroy();
 

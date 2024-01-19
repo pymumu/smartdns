@@ -569,9 +569,10 @@ static int _dns_cache_read_to_cache(struct dns_cache_record *cache_record, struc
 		info->replace_time = now;
 	}
 
-	expired_time = dns_conf_serve_expired_prefetch_time;
+	struct dns_conf_group *rule_group = dns_server_get_rule_group(info->dns_group_name);
+	expired_time = rule_group->dns_serve_expired_prefetch_time;
 	if (expired_time == 0) {
-		expired_time = dns_conf_serve_expired_ttl / 2;
+		expired_time = rule_group->dns_serve_expired_ttl / 2;
 		if (expired_time == 0 || expired_time > EXPIRED_DOMAIN_PREFETCH_TIME) {
 			expired_time = EXPIRED_DOMAIN_PREFETCH_TIME;
 		}
