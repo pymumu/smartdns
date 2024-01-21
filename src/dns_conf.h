@@ -454,6 +454,7 @@ struct dns_conf_group {
 struct dns_conf_rule {
 	struct dns_conf_group *default_conf;
 	DECLARE_HASHTABLE(group, 8);
+	int group_num;
 };
 
 struct dns_client_rule {
