@@ -25,6 +25,7 @@
 #include "dns_cache.h"
 #include "dns_client.h"
 #include "dns_conf.h"
+#include "dns_plugin.h"
 #include "fast_ping.h"
 #include "hashtable.h"
 #include "http_parse.h"
@@ -357,6 +358,8 @@ struct dns_request {
 	int no_ipalias;
 
 	int has_cname_loop;
+
+	void *private_data;
 };
 
 /* dns server data */
@@ -2735,6 +2738,13 @@ static void _dns_server_request_release_complete(struct dns_request *request, in
 		request->parent_request = NULL;
 	}
 
+	atomic_inc(&request->refcnt);
+	smartdns_plugin_func_server_complete_request(request);
+	if (atomic_dec_return(&request->refcnt) > 0) {
+		/* plugin may hold request. */
+		return;
+	}
+
 	pthread_mutex_lock(&request->ip_map_lock);
 	hash_for_each_safe(request->ip_map, bucket, tmp, addr_map, node)
 	{
@@ -2756,6 +2766,66 @@ static void _dns_server_request_get(struct dns_request *request)
 	if (atomic_inc_return(&request->refcnt) <= 0) {
 		BUG("BUG: request ref is invalid, %s", request->domain);
 	}
+}
+
+struct sockaddr *dns_server_request_get_remote_addr(struct dns_request *request)
+{
+	return &request->addr;
+}
+
+struct sockaddr *dns_server_request_get_local_addr(struct dns_request *request)
+{
+	return (struct sockaddr *)&request->localaddr;
+}
+
+const char *dns_server_request_get_group_name(struct dns_request *request)
+{
+	return request->dns_group_name;
+}
+
+const char *dns_server_request_get_domain(struct dns_request *request)
+{
+	return request->domain;
+}
+
+int dns_server_request_get_qtype(struct dns_request *request)
+{
+	return request->qtype;
+}
+
+int dns_server_request_get_qclass(struct dns_request *request)
+{
+	return request->qclass;
+}
+
+int dns_server_request_get_id(struct dns_request *request)
+{
+	return request->id;
+}
+
+int dns_server_request_get_rcode(struct dns_request *request)
+{
+	return request->rcode;
+}
+
+void dns_server_request_get(struct dns_request *request)
+{
+	_dns_server_request_get(request);
+}
+
+void dns_server_request_put(struct dns_request *request)
+{
+	_dns_server_request_release(request);
+}
+
+void dns_server_request_set_private(struct dns_request *request, void *private_data)
+{
+	request->private_data = private_data;
+}
+
+void *dns_server_request_get_private(struct dns_request *request)
+{
+	return request->private_data;
 }
 
 static int _dns_server_set_to_pending_list(struct dns_request *request)
@@ -6526,6 +6596,10 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 			dns_packet_save(dns_save_fail_packet_dir, "server", name, inpacket, inpacket_len);
 		}
 		goto errout;
+	}
+
+	if (smartdns_plugin_func_server_recv(packet, inpacket, inpacket_len, local, local_len, from, from_len) != 0) {
+		return 0;
 	}
 
 	tlog(TLOG_DEBUG,

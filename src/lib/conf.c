@@ -281,7 +281,7 @@ int conf_enum(const char *item, void *data, int argc, char *argv[])
 	return -1;
 }
 
-static void conf_getopt_reset(void)
+void conf_getopt_reset(void)
 {
 	static struct option long_options[] = {{"-", 0, 0, 0}, {0, 0, 0, 0}};
 	int argc = 2;

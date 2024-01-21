@@ -615,6 +615,19 @@ extern struct dns_dns64 dns_conf_dns_dns64;
 extern struct dns_bind_ip dns_conf_bind_ip[DNS_MAX_BIND_IP];
 extern int dns_conf_bind_ip_num;
 
+struct dns_conf_plugin {
+	struct hlist_node node;
+	char name[DNS_MAX_CNAME_LEN];
+	char file[DNS_MAX_PATH];
+	char args[DNS_MAX_PATH * 4];
+	int argc;
+	int args_len;
+};
+struct dns_conf_plugin_table {
+	DECLARE_HASHTABLE(plugins, 4);
+};
+extern struct dns_conf_plugin_table dns_conf_plugin_table;
+
 extern char dns_conf_bind_ca_file[DNS_MAX_PATH];
 extern char dns_conf_bind_ca_key_file[DNS_MAX_PATH];
 extern char dns_conf_bind_ca_key_pass[DNS_MAX_PATH];

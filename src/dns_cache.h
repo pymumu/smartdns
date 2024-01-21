@@ -166,6 +166,8 @@ void dns_cache_data_get(struct dns_cache_data *cache_data);
 
 void dns_cache_data_put(struct dns_cache_data *cache_data);
 
+void dns_cache_flush(void);
+
 void dns_cache_destroy(void);
 
 int dns_cache_load(const char *file);

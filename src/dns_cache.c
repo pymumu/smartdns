@@ -496,6 +496,19 @@ void dns_cache_data_get(struct dns_cache_data *cache_data)
 	return;
 }
 
+void dns_cache_flush(void)
+{
+	struct dns_cache *dns_cache = NULL;
+	struct dns_cache *tmp = NULL;
+
+	pthread_mutex_lock(&dns_cache_head.lock);
+	list_for_each_entry_safe(dns_cache, tmp, &dns_cache_head.cache_list, list)
+	{
+		_dns_cache_remove(dns_cache);
+	}
+	pthread_mutex_unlock(&dns_cache_head.lock);
+}
+
 void dns_cache_data_put(struct dns_cache_data *cache_data)
 {
 	if (cache_data == NULL) {
@@ -853,19 +866,11 @@ int dns_cache_print(const char *file)
 
 void dns_cache_destroy(void)
 {
-	struct dns_cache *dns_cache = NULL;
-	struct dns_cache *tmp = NULL;
-
 	if (is_cache_init == 0) {
 		return;
 	}
 
-	pthread_mutex_lock(&dns_cache_head.lock);
-	list_for_each_entry_safe(dns_cache, tmp, &dns_cache_head.cache_list, list)
-	{
-		_dns_cache_remove(dns_cache);
-	}
-	pthread_mutex_unlock(&dns_cache_head.lock);
+	dns_cache_flush();
 
 	pthread_mutex_destroy(&dns_cache_head.lock);
 	hash_table_free(dns_cache_head.cache_hash, free);

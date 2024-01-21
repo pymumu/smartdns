@@ -23,6 +23,7 @@
 #include "dns_cache.h"
 #include "dns_client.h"
 #include "dns_conf.h"
+#include "dns_plugin.h"
 #include "dns_server.h"
 #include "fast_ping.h"
 #include "hashtable.h"
@@ -64,6 +65,8 @@ typedef enum {
 } smartdns_run_monitor_ret;
 
 static int verbose_screen;
+static int exit_status;
+static int exit_restart;
 
 int capget(struct __user_cap_header_struct *header, struct __user_cap_data_struct *cap);
 int capset(struct __user_cap_header_struct *header, struct __user_cap_data_struct *cap);
@@ -397,6 +400,38 @@ static int _proxy_add_servers(void)
 	return 0;
 }
 
+static int _smartdns_plugin_init(void)
+{
+	int ret = 0;
+	unsigned long i = 0;
+	struct dns_conf_plugin *plugin = NULL;
+	struct hlist_node *tmp = NULL;
+
+	ret = dns_server_plugin_init();
+	if (ret != 0) {
+		tlog(TLOG_ERROR, "init plugin failed.");
+		goto errout;
+	}
+
+	hash_for_each_safe(dns_conf_plugin_table.plugins, i, tmp, plugin, node)
+	{
+		ret = dns_plugin_add(plugin->file, plugin->argc, plugin->args, plugin->args_len);
+		if (ret != 0) {
+			goto errout;
+		}
+	}
+
+	return 0;
+errout:
+	return -1;
+}
+
+static int _smartdns_plugin_exit(void)
+{
+	dns_server_plugin_exit();
+	return 0;
+}
+
 static int _smartdns_create_cert(void)
 {
 	uid_t uid = 0;
@@ -640,6 +675,12 @@ static int _smartdns_init(void)
 		goto errout;
 	}
 
+	ret = _smartdns_plugin_init();
+	if (ret != 0) {
+		tlog(TLOG_ERROR, "init plugin failed.");
+		goto errout;
+	}
+
 	return 0;
 errout:
 
@@ -653,6 +694,7 @@ static int _smartdns_run(void)
 
 static void _smartdns_exit(void)
 {
+	_smartdns_plugin_exit();
 	dns_client_exit();
 	proxy_exit();
 	fast_ping_exit();
@@ -919,6 +961,18 @@ static void _smartdns_print_error_tip(void)
 	}
 }
 
+void smartdns_exit(int status)
+{
+	dns_server_stop();
+	exit_status = status;
+}
+
+void smartdns_restart(void)
+{
+	dns_server_stop();
+	exit_restart = 1;
+}
+
 #ifdef TEST
 
 static smartdns_post_func _smartdns_post = NULL;
@@ -1118,8 +1172,20 @@ int main(int argc, char *argv[])
 
 	smartdns_test_notify(1);
 	ret = _smartdns_run();
-	tlog(TLOG_INFO, "smartdns exit...");
-	_smartdns_exit();
+	if (ret == 0 && exit_status != 0) {
+		ret = exit_status;
+	}
+
+	if (exit_restart == 0) {
+		tlog(TLOG_INFO, "smartdns exit...");
+		_smartdns_exit();
+	} else {
+		tlog(TLOG_INFO, "smartdns restart...");
+		_smartdns_exit();
+		if (restart_when_crash == 0) {
+			execve(argv[0], argv, environ);
+		}
+	}
 	return ret;
 errout:
 	if (is_run_as_daemon) {

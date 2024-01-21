@@ -23,6 +23,10 @@
 extern "C" {
 #endif /*__cplusplus */
 
+void smartdns_exit(int status);
+
+void smartdns_restart(void);
+
 #ifdef TEST
 
 typedef void (*smartdns_post_func)(void *arg);

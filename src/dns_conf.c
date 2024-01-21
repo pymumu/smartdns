@@ -169,6 +169,8 @@ struct conf_file_path {
 	char file[DNS_MAX_PATH];
 };
 
+struct dns_conf_plugin_table dns_conf_plugin_table;
+
 char dns_conf_sni_proxy_ip[DNS_MAX_IPLEN];
 
 static int _conf_domain_rule_nameserver(const char *domain, const char *group_name);
@@ -5451,6 +5453,81 @@ errout:
 	return -1;
 }
 
+static struct dns_conf_plugin *_config_get_plugin(const char *file)
+{
+	uint32_t key = 0;
+	struct dns_conf_plugin *plugin = NULL;
+
+	key = hash_string(file);
+	hash_for_each_possible(dns_conf_plugin_table.plugins, plugin, node, key)
+	{
+		if (strncmp(plugin->file, file, DNS_MAX_PATH) != 0) {
+			continue;
+		}
+
+		return plugin;
+	}
+
+	return NULL;
+}
+
+static int _config_plugin(void *data, int argc, char *argv[])
+{
+#ifdef BUILD_STATIC
+	tlog(TLOG_ERROR, "plugin not support in static release, please install dynamic release.");
+	goto errout;
+#endif
+	char file[DNS_MAX_PATH];
+	unsigned int key = 0;
+	int i = 0;
+	char *ptr = NULL;
+	char *ptr_end = NULL;
+
+	if (argc < 1) {
+		tlog(TLOG_ERROR, "invalid parameter.");
+		goto errout;
+	}
+
+	conf_get_conf_fullpath(argv[1], file, sizeof(file));
+	if (file[0] == '\0') {
+		tlog(TLOG_ERROR, "plugin: invalid parameter.");
+		goto errout;
+	}
+
+	struct dns_conf_plugin *plugin = _config_get_plugin(file);
+	if (plugin != NULL) {
+		tlog(TLOG_ERROR, "plugin '%s' already exists.", file);
+		goto errout;
+	}
+
+	if (access(file, F_OK) != 0) {
+		tlog(TLOG_ERROR, "plugin '%s' not exists.", file);
+		goto errout;
+	}
+
+	plugin = malloc(sizeof(*plugin));
+	if (plugin == NULL) {
+		goto errout;
+	}
+	memset(plugin, 0, sizeof(*plugin));
+	safe_strncpy(plugin->file, file, sizeof(plugin->file) - 1);
+	ptr = plugin->args;
+	ptr_end = plugin->args + sizeof(plugin->args) - 2;
+	for (i = 1; i < argc && ptr < ptr_end; i++) {
+		safe_strncpy(ptr, argv[i], ptr_end - ptr - 1);
+		ptr += strlen(argv[i]) + 1;
+	}
+	plugin->argc = argc - 1;
+	plugin->args_len = ptr - plugin->args;
+
+	key = hash_string(file);
+	hash_add(dns_conf_plugin_table.plugins, &plugin->node, key);
+
+	return 0;
+errout:
+	return -1;
+}
+
 int dns_server_check_update_hosts(void)
 {
 	struct stat statbuf;
@@ -5672,6 +5749,7 @@ static struct config_item _config_item[] = {
 	CONF_YESNO("debug-save-fail-packet", &dns_save_fail_packet),
 	CONF_YESNO("no-pidfile", &dns_no_pidfile),
 	CONF_YESNO("no-daemon", &dns_no_daemon),
+	CONF_CUSTOM("plugin", _config_plugin, NULL),
 	CONF_STRING("resolv-file", (char *)&dns_resolv_file, sizeof(dns_resolv_file)),
 	CONF_STRING("debug-save-fail-packet-dir", (char *)&dns_save_fail_packet_dir, sizeof(dns_save_fail_packet_dir)),
 	CONF_CUSTOM("conf-file", config_additional_file, NULL),
@@ -5854,6 +5932,7 @@ static int _dns_server_load_conf_init(void)
 	hash_init(dns_domain_set_name_table.names);
 	hash_init(dns_ip_set_name_table.names);
 	hash_init(dns_conf_srv_record_table.srv);
+	hash_init(dns_conf_plugin_table.plugins);
 
 	_config_current_group_push_default();
 
@@ -5909,6 +5988,19 @@ static void _config_client_rule_destroy(void)
 	_config_client_rule_destroy_mac();
 }
 
+static void _config_plugin_table_destroy(void)
+{
+	struct dns_conf_plugin *plugin = NULL;
+	struct hlist_node *tmp = NULL;
+	unsigned long i = 0;
+
+	hash_for_each_safe(dns_conf_plugin_table.plugins, i, tmp, plugin, node)
+	{
+		hlist_del_init(&plugin->node);
+		free(plugin);
+	}
+}
+
 void dns_server_load_exit(void)
 {
 	_config_rule_group_destroy();
@@ -5920,6 +6012,7 @@ void dns_server_load_exit(void)
 	_config_host_table_destroy(0);
 	_config_proxy_table_destroy();
 	_config_srv_record_table_destroy();
+	_config_plugin_table_destroy();
 
 	dns_conf_server_num = 0;
 	dns_server_bind_destroy();
