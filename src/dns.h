@@ -27,7 +27,7 @@ extern "C" {
 #define DNS_RR_AAAA_LEN 16
 #define DNS_MAX_CNAME_LEN 256
 #define DNS_MAX_OPT_LEN 256
-#define DNS_IN_PACKSIZE (512 * 16)
+#define DNS_IN_PACKSIZE (512 * 8)
 #define DNS_PACKSIZE (512 * 16)
 #define DNS_DEFAULT_PACKET_SIZE 512
 #define DNS_MAX_ALPN_LEN 32

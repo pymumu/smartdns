@@ -930,10 +930,14 @@ unsigned char *SSL_SHA256(const unsigned char *d, size_t n, unsigned char *md)
 	return (md);
 }
 
-int SSL_base64_decode(const char *in, unsigned char *out)
+int SSL_base64_decode(const char *in, unsigned char *out, int max_outlen)
 {
 	size_t inlen = strlen(in);
 	int outlen = 0;
+
+	if (max_outlen < (int)inlen / 4 * 3) {
+		goto errout;
+	}
 
 	if (inlen == 0) {
 		return 0;

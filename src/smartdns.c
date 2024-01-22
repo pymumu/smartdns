@@ -265,7 +265,8 @@ static int _smartdns_prepare_server_flags(struct client_dns_server_flags *flags,
 	case DNS_SERVER_HTTPS: {
 		struct client_dns_server_flag_https *flag_http = &flags->https;
 		if (server->spki[0] != 0) {
-			flag_http->spi_len = dns_client_spki_decode(server->spki, (unsigned char *)flag_http->spki);
+			flag_http->spi_len =
+				dns_client_spki_decode(server->spki, (unsigned char *)flag_http->spki, sizeof(flag_http->spki));
 			if (flag_http->spi_len <= 0) {
 				tlog(TLOG_ERROR, "decode spki failed, %s:%d", server->server, server->port);
 				return -1;
@@ -280,7 +281,8 @@ static int _smartdns_prepare_server_flags(struct client_dns_server_flags *flags,
 	case DNS_SERVER_TLS: {
 		struct client_dns_server_flag_tls *flag_tls = &flags->tls;
 		if (server->spki[0] != 0) {
-			flag_tls->spi_len = dns_client_spki_decode(server->spki, (unsigned char *)flag_tls->spki);
+			flag_tls->spi_len =
+				dns_client_spki_decode(server->spki, (unsigned char *)flag_tls->spki, sizeof(flag_tls->spki));
 			if (flag_tls->spi_len <= 0) {
 				tlog(TLOG_ERROR, "decode spki failed, %s:%d", server->server, server->port);
 				return -1;

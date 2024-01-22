@@ -153,7 +153,7 @@ struct client_dns_server_flags {
 	};
 };
 
-int dns_client_spki_decode(const char *spki, unsigned char *spki_data_out);
+int dns_client_spki_decode(const char *spki, unsigned char *spki_data_out, int spki_data_out_max_len);
 
 /* add remote dns server */
 int dns_client_add_server(char *server_ip, int port, dns_server_type_t server_type,

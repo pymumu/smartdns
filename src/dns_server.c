@@ -5377,7 +5377,8 @@ static DNS_CHILD_POST_RESULT _dns_server_process_cname_callback(struct dns_reque
 																struct dns_request *child_request, int is_first_resp)
 {
 	_dns_server_request_copy(request, child_request);
-	if (child_request->rcode == DNS_RC_NOERROR && request->conf->dns_force_no_cname == 0 && child_request->has_soa == 0) {
+	if (child_request->rcode == DNS_RC_NOERROR && request->conf->dns_force_no_cname == 0 &&
+		child_request->has_soa == 0) {
 		safe_strncpy(request->cname, child_request->domain, sizeof(request->cname));
 		request->has_cname = 1;
 		request->ttl_cname = _dns_server_get_conf_ttl(request, child_request->ip_ttl);
@@ -7225,6 +7226,7 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn_tcp_client
 	int ret = RECV_ERROR_FAIL;
 	int len = 0;
 	struct http_head *http_head = NULL;
+	uint8_t *http_decode_data = NULL;
 
 	/* Handling multiple requests */
 	for (;;) {
@@ -7251,24 +7253,54 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn_tcp_client
 				goto errout;
 			}
 
-			if (http_head_get_method(http_head) != HTTP_METHOD_POST) {
+			if (http_head_get_method(http_head) == HTTP_METHOD_POST) {
+				const char *content_type = http_head_get_fields_value(http_head, "Content-Type");
+				if (content_type == NULL ||
+					strncasecmp(content_type, "application/dns-message", sizeof("application/dns-message")) != 0) {
+					tlog(TLOG_DEBUG, "content type not supported, %s", content_type);
+					goto errout;
+				}
+
+				request_len = http_head_get_data_len(http_head);
+				if (request_len >= len) {
+					tlog(TLOG_DEBUG, "request length is invalid.");
+					goto errout;
+				}
+				request_data = (unsigned char *)http_head_get_data(http_head);
+			} else if (http_head_get_method(http_head) == HTTP_METHOD_GET) {
+				const char *path = http_head_get_url(http_head);
+				if (path == NULL || strncasecmp(path, "/dns-query", sizeof("/dns-query")) != 0) {
+					tlog(TLOG_DEBUG, "path not supported, %s", path);
+					goto errout;
+				}
+
+				const char *base64_query = http_head_get_params_value(http_head, "dns");
+				if (base64_query == NULL) {
+					tlog(TLOG_DEBUG, "query is null.");
+					goto errout;
+				}
+
+				if (http_decode_data == NULL) {
+					http_decode_data = malloc(DNS_IN_PACKSIZE);
+					if (http_decode_data == NULL) {
+						tlog(TLOG_DEBUG, "malloc failed.");
+						goto errout;
+					}
+				}
+
+				int decode_len = SSL_base64_decode(base64_query, http_decode_data, DNS_IN_PACKSIZE);
+				if (decode_len <= 0) {
+					tlog(TLOG_DEBUG, "decode query failed.");
+					goto errout;
+				}
+
+				request_len = decode_len;
+				request_data = http_decode_data;
+			} else {
 				tlog(TLOG_DEBUG, "http method is invalid.");
 				goto errout;
 			}
 
-			const char *content_type = http_head_get_fields_value(http_head, "Content-Type");
-			if (content_type == NULL ||
-				strncasecmp(content_type, "application/dns-message", sizeof("application/dns-message")) != 0) {
-				tlog(TLOG_DEBUG, "content type not supported, %s", content_type);
-				goto errout;
-			}
-
-			request_len = http_head_get_data_len(http_head);
-			if (request_len >= len) {
-				tlog(TLOG_DEBUG, "request length is invalid.");
-				goto errout;
-			}
-			request_data = (unsigned char *)http_head_get_data(http_head);
 			proceed_len += len;
 		} else {
 			if ((total_len - proceed_len) <= (int)sizeof(unsigned short)) {
@@ -7308,7 +7340,6 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn_tcp_client
 	}
 
 out:
-
 	if (total_len > proceed_len && proceed_len > 0) {
 		memmove(tcpclient->recvbuff.buf, tcpclient->recvbuff.buf + proceed_len, total_len - proceed_len);
 	}
@@ -7318,6 +7349,10 @@ out:
 errout:
 	if (http_head) {
 		http_head_destroy(http_head);
+	}
+
+	if (http_decode_data) {
+		free(http_decode_data);
 	}
 
 	if (ret == RECV_ERROR_FAIL && tcpclient->head.type == DNS_CONN_TYPE_HTTPS_CLIENT) {

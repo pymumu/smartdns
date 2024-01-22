@@ -110,7 +110,7 @@ void SSL_CRYPTO_thread_cleanup(void);
 
 unsigned char *SSL_SHA256(const unsigned char *d, size_t n, unsigned char *md);
 
-int SSL_base64_decode(const char *in, unsigned char *out);
+int SSL_base64_decode(const char *in, unsigned char *out, int max_outlen);
 
 int SSL_base64_encode(const void *in, int in_len, char *out);
 

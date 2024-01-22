@@ -34,6 +34,14 @@ struct http_head_fields {
 	char *value;
 };
 
+struct http_params {
+	struct hlist_node node;
+	struct list_head list;
+
+	char *name;
+	char *value;
+};
+
 struct http_head {
 	HTTP_HEAD_TYPE head_type;
 	HTTP_METHOD method;
@@ -50,7 +58,9 @@ struct http_head {
 	int data_len;
 	int expect_data_len;
 	struct http_head_fields field_head;
+	struct http_params params;
 	DECLARE_HASHTABLE(field_map, 4);
+	DECLARE_HASHTABLE(params_map, 4);
 };
 
 /*
@@ -71,6 +81,8 @@ struct http_head *http_head_init(int buffsize)
 	memset(http_head, 0, sizeof(*http_head));
 	INIT_LIST_HEAD(&http_head->field_head.list);
 	hash_init(http_head->field_map);
+	INIT_LIST_HEAD(&http_head->params.list);
+	hash_init(http_head->params_map);
 
 	buffer = malloc(buffsize);
 	if (buffer == NULL) {
@@ -169,6 +181,22 @@ int http_head_lookup_fields(struct http_head_fields *fields, const char **name, 
 	return 0;
 }
 
+const char *http_head_get_params_value(struct http_head *http_head, const char *name)
+{
+	uint32_t key;
+	struct http_params *params;
+
+	key = hash_string_case(name);
+	hash_for_each_possible(http_head->params_map, params, node, key)
+	{
+		if (strncasecmp(params->name, name, 128) == 0) {
+			return params->value;
+		}
+	}
+
+	return NULL;
+}
+
 HTTP_METHOD http_head_get_method(struct http_head *http_head)
 {
 	return http_head->method;
@@ -207,6 +235,26 @@ char *http_head_get_data(struct http_head *http_head)
 int http_head_get_data_len(struct http_head *http_head)
 {
 	return http_head->data_len;
+}
+
+static int _http_head_add_param(struct http_head *http_head, char *name, char *value)
+{
+	uint32_t key = 0;
+	struct http_params *params = NULL;
+	params = malloc(sizeof(*params));
+	if (params == NULL) {
+		return -1;
+	}
+	memset(params, 0, sizeof(*params));
+
+	params->name = name;
+	params->value = value;
+
+	list_add_tail(&params->list, &http_head->params.list);
+	key = hash_string_case(name);
+	hash_add(http_head->params_map, &params->node, key);
+
+	return 0;
 }
 
 static int _http_head_add_fields(struct http_head *http_head, char *name, char *value)
@@ -272,6 +320,54 @@ static int _http_head_parse_response(struct http_head *http_head, char *key, cha
 	return 0;
 }
 
+static int _http_head_parse_params(struct http_head *http_head, char *url, int url_len)
+{
+	char *tmp_ptr = NULL;
+	char *field_start = NULL;
+	char *param_start = NULL;
+	char *field = NULL;
+	char *value = NULL;
+
+	param_start = strstr(url, "?");
+	if (param_start == NULL) {
+		return 0;
+	}
+
+	*param_start = '\0';
+	param_start++;
+
+	for (tmp_ptr = param_start; tmp_ptr < url + url_len; tmp_ptr++) {
+		if (field_start == NULL) {
+			field_start = tmp_ptr;
+		}
+
+		if (field == NULL) {
+			if (*tmp_ptr == '=') {
+				*tmp_ptr = '\0';
+				field = field_start;
+				field_start = NULL;
+			}
+			continue;
+		}
+
+		if (value == NULL) {
+			if (*tmp_ptr == '&' || tmp_ptr == url + url_len - 1) {
+				*tmp_ptr = '\0';
+				value = field_start;
+				field_start = NULL;
+
+				if (_http_head_add_param(http_head, field, value) != 0) {
+					return -2;
+				}
+				field = NULL;
+				value = NULL;
+			}
+			continue;
+		}
+	}
+	return 0;
+}
+
 static int _http_head_parse_request(struct http_head *http_head, char *key, char *value)
 {
 	int method = HTTP_METHOD_INVALID;
@@ -312,6 +408,10 @@ static int _http_head_parse_request(struct http_head *http_head, char *key, char
 
 	if (field_start && version == NULL) {
 		version = field_start;
+	}
+
+	if (_http_head_parse_params(http_head, url, tmp_ptr - url) != 0) {
+		return -2;
 	}
 
 	http_head->method = method;
@@ -469,11 +569,18 @@ int http_head_parse(struct http_head *http_head, const char *data, int data_len)
 void http_head_destroy(struct http_head *http_head)
 {
 	struct http_head_fields *fields, *tmp;
+	struct http_params *params, *tmp_params;
 
 	list_for_each_entry_safe(fields, tmp, &http_head->field_head.list, list)
 	{
 		list_del(&fields->list);
 		free(fields);
+	}
+
+	list_for_each_entry_safe(params, tmp_params, &http_head->params.list, list)
+	{
+		list_del(&params->list);
+		free(params);
 	}
 
 	if (http_head->buff) {
