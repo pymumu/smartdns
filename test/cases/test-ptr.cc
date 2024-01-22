@@ -88,6 +88,7 @@ speed-check-mode none
 expand-ptr-from-address yes
 address /a.com/10.11.12.13
 address /a.com/64:ff9b::1010:1010
+address /pi.local/192.168.1.1
 )""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("13.12.11.10.in-addr.arpa PTR", 60053));
@@ -108,6 +109,15 @@ address /a.com/64:ff9b::1010:1010
 	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 600);
 	EXPECT_EQ(client.GetAnswer()[0].GetType(), "PTR");
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "a.com.");
+
+	ASSERT_TRUE(client.Query("-x 192.168.1.1", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "1.1.168.192.in-addr.arpa");
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 600);
+	EXPECT_EQ(client.GetAnswer()[0].GetType(), "PTR");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "pi.local.");
 }
 
 TEST_F(Ptr, smartdns)

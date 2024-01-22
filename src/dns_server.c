@@ -6322,6 +6322,7 @@ static int _dns_server_setup_request_conf_pre(struct dns_request *request)
 	}
 
 	request->conf = rule_group;
+	safe_strncpy(request->dns_group_name, rule_group->group_name, sizeof(request->dns_group_name));
 	tlog(TLOG_DEBUG, "domain %s match group %s", request->domain, rule_group->group_name);
 
 	return 0;
@@ -8629,7 +8630,8 @@ int dns_server_init(void)
 
 	dns_server_check_ipv6_ready();
 	tlog(TLOG_INFO, "%s",
-		 (is_ipv6_ready) ? "IPV6 is ready, enable IPV6 features" : "IPV6 is not ready, disable IPV6 features");
+		 (is_ipv6_ready) ? "IPV6 is ready, enable IPV6 features"
+						 : "IPV6 is not ready or speed check is disabled, disable IPV6 features");
 
 	if (_dns_server_init_wakeup_event() != 0) {
 		tlog(TLOG_ERROR, "init wakeup event failed.");

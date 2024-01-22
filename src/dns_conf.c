@@ -599,6 +599,7 @@ static int _config_rule_group_setup_value(struct dns_conf_group_info *group_info
 	group_rule->dualstack_ip_selection = 1;
 	group_rule->dns_dualstack_ip_selection_threshold = 10;
 	group_rule->dns_rr_ttl_min = 600;
+	group_rule->dns_serve_expired = 1;
 	group_rule->dns_serve_expired_ttl = 24 * 3600 * 3;
 	group_rule->dns_serve_expired_reply_ttl = 3;
 	group_rule->dns_max_reply_ip_num = DNS_MAX_REPLY_IP_NUM;
@@ -978,6 +979,11 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 	/* get current group */
 	if (_config_current_group()) {
 		group_name = _config_current_group()->group_name;
+	}
+
+	/* if server is defined in a group, exclude from default group */
+	if (group_name && group_name[0] != '\0') {
+		server_flag |= SERVER_FLAG_EXCLUDE_DEFAULT;
 	}
 
 	/* process extra options */
@@ -2566,6 +2572,7 @@ static int _config_speed_check_mode_parser(struct dns_domain_check_orders *check
 			}
 			check_orders->orders[order].type = DOMAIN_CHECK_ICMP;
 			check_orders->orders[order].tcp_port = 0;
+			dns_conf_has_icmp_check = 1;
 		} else if (strstr(field, "tcp") == field) {
 			char *port_str = strstr(field, ":");
 			if (port_str) {
@@ -2577,6 +2584,7 @@ static int _config_speed_check_mode_parser(struct dns_domain_check_orders *check
 
 			check_orders->orders[order].type = DOMAIN_CHECK_TCP;
 			check_orders->orders[order].tcp_port = port;
+			dns_conf_has_tcp_check = 1;
 		} else if (strncmp(field, "none", sizeof("none")) == 0) {
 			for (i = order; i < DOMAIN_CHECK_NUM; i++) {
 				check_orders->orders[i].type = DOMAIN_CHECK_NONE;
