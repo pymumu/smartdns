@@ -26,6 +26,8 @@ SMARTDNS_VAR_CONF_DIR="/var/etc/smartdns"
 SMARTDNS_CONF="$SMARTDNS_VAR_CONF_DIR/smartdns-lite.conf"
 CUSTOM_CONF="$SMARTDNS_CONF_DIR/custom.conf"
 SMARTDNS_CONF_TMP="${SMARTDNS_CONF}.tmp"
+EXTRA_COMMANDS="clear_rules"
+EXTRA_HELP="        clear_rules      clear all rules"
 
 conf_append()
 {
@@ -40,6 +42,65 @@ client_rule_addr_append()
 servers_append()
 {
 	conf_append "server" "$1 $server_options"
+}
+
+setup_tproxy_rules()
+{
+	local tproxy_port="$1"
+	local table_type="$2"
+
+	ip rule add fwmark 1104 lookup 981
+	ip route add local 0.0.0.0/0 dev lo table 981
+	ip -6 route add local ::/0 dev lo table 981
+
+	if [ "$table_type" = "iptable" ]; then
+		iptables -t mangle -N SMARTDNS_LITE
+		iptables -t mangle -A SMARTDNS_LITE -p tcp -m set --match-set smartdns dst -j TPROXY --on-ip 127.0.0.1 --on-port ${tproxy_port} --tproxy-mark 1104
+		iptables -t mangle -A SMARTDNS_LITE -p udp -m set --match-set smartdns dst -j TPROXY --on-ip 127.0.0.1 --on-port ${tproxy_port} --tproxy-mark 1104
+		iptables -t mangle -A SMARTDNS_LITE -j ACCEPT
+		iptables -t mangle -A PREROUTING -j SMARTDNS_LITE
+
+
+		ip6tables -t mangle -N SMARTDNS_LITE
+		ip6tables -t mangle -A SMARTDNS_LITE -p tcp -m set --match-set smartdns6 dst -j TPROXY --on-ip ::1 --on-port ${tproxy_port} --tproxy-mark 1104
+		ip6tables -t mangle -A SMARTDNS_LITE -p udp -m set --match-set smartdns6 dst -j TPROXY --on-ip ::1 --on-port ${tproxy_port} --tproxy-mark 1104
+		ip6tables -t mangle -A SMARTDNS_LITE -j ACCEPT
+		ip6tables -t mangle -A PREROUTING -j SMARTDNS_LITE
+	elif [ "$table_type" = "nftable" ]; then
+		nft add table ip smartdns_lite
+		nft add set ip smartdns_lite ipv4 { type ipv4_addr\; flags interval\; auto-merge\; }
+		nft add chain ip smartdns_lite prerouting { type filter hook prerouting priority 0\; }
+		nft add rule ip smartdns_lite prerouting meta l4proto tcp ip daddr @ipv4 tproxy to 127.0.0.1:${tproxy_port} mark set 1104
+		nft add rule ip smartdns_lite prerouting meta l4proto udp ip daddr @ipv4 tproxy to 127.0.0.1:${tproxy_port} mark set 1104
+
+		nft add table ip6 smartdns_lite
+		nft add set ip6 smartdns_lite ipv6 { type ipv6_addr\; flags interval\; auto-merge\; }
+		nft add chain ip6 smartdns_lite prerouting6 { type filter hook prerouting priority 0\; }
+		nft add rule ip6 smartdns_lite prerouting6 meta l4proto tcp ip6 daddr @ipv6 tproxy to ::1:${tproxy_port} mark set 1104
+		nft add rule ip6 smartdns_lite prerouting6 meta l4proto udp ip6 daddr @ipv6 tproxy to ::1:${tproxy_port} mark set 1104
+	else
+		echo "table_type error"
+		return 1
+	fi
+}
+
+clear_tproxy_rules()
+{
+	ip rule del fwmark 1104 > /dev/null 2>&1
+	ip route flush table 981 > /dev/null 2>&1
+	iptables -t mangle -D PREROUTING -j SMARTDNS_LITE > /dev/null 2>&1
+	iptables -t mangle -F SMARTDNS_LITE > /dev/null 2>&1
+	iptables -t mangle -X SMARTDNS_LITE > /dev/null 2>&1
+	ip6tables -t mangle -D PREROUTING -j SMARTDNS_LITE > /dev/null 2>&1
+	ip6tables -t mangle -F SMARTDNS_LITE > /dev/null 2>&1
+	ip6tables -t mangle -X SMARTDNS_LITE > /dev/null 2>&1
+	nft delete table ip smartdns_lite > /dev/null 2>&1
+	nft delete table ip6 smartdns_lite > /dev/null 2>&1
+}
+
+clear_rules()
+{
+	clear_tproxy_rules
 }
 
 load_parental_control_rules()
@@ -59,7 +120,7 @@ load_parental_control_rules()
 	config_get pc_client_addr_file "$section" "pc_client_addr_file" ""
 	[ -e "$pc_client_addr_file" ] && {
 		conf_append "ip-set" "-name ${client_set_name} -file '$pc_client_addr_file'"
-		client_rule_addr_append "ip-set:${client_set_name}"
+		conf_append "group-match" "-client-ip ip-set:${client_set_name}"
 	}
 
 	config_list_foreach "$section" "pc_client_addr" client_rule_addr_append
@@ -89,6 +150,8 @@ load_domain_rules()
 	local qtype_soa_list=""
 	local server_options=""
 
+	clear_tproxy_rules
+
 	config_get_bool rules_enabled "$section" "rules_enabled" "0"
 	[ "$rules_enabled" != "1" ] && return
 
@@ -98,7 +161,7 @@ load_domain_rules()
 	[ -e "$rules_domain_file" ] && {
 		conf_append "group-begin" "${domain_rule_name}"
 		conf_append "domain-set" "-name ${domain_set_name} -file '$rules_domain_file'"
-		conf_append "group-match" "-domain ${domain_set_name}"
+		conf_append "group-match" "-domain domain-set:${domain_set_name}"
 		conf_append "force-qtype-SOA" "-"
 		server_options="-e"
 		as_group="1"
@@ -115,11 +178,29 @@ load_domain_rules()
 
 	[ ! -z "$qtype_soa_list" ] && conf_append "force-qtype-SOA" "$qtype_soa_list"
 
-	config_get ipset_name "$section" "ipset_name" ""
-	[ -z "$ipset_name" ] || conf_append "ipset" "$ipset_name"
+	config_get_bool use_internal_rules "$section" "use_internal_rules" "0"
 
-	config_get nftset_name "$section" "nftset_name" ""
-	[ -z "$nftset_name" ] || conf_append "nftset" "$nftset_name"
+	[ "$use_internal_rules" = "1" ] && {
+		config_get tproxy_server_port "$section" "tproxy_server_port" ""
+		[ ! -z "$tproxy_server_port" ] &&  {
+			which nft > /dev/null 2>&1
+			if [ "$?" = "0" ]; then
+				table_type="nftable"
+				conf_append "nftset" "#4:ip#smartdns_lite#ipv4"
+				conf_append "nftset" "#6:ip6#smartdns_lite#ipv6"
+			else
+				conf_append "ipset" "SMARTDNS_LITE"
+				table_type="iptable"
+			fi
+			setup_tproxy_rules "$tproxy_server_port" "$table_type"
+		}
+	} || {
+		config_get ipset_name "$section" "ipset_name" ""
+		[ -z "$ipset_name" ] || conf_append "ipset" "$ipset_name"
+
+		config_get nftset_name "$section" "nftset_name" ""
+		[ -z "$nftset_name" ] || conf_append "nftset" "$nftset_name"
+	}
 
 	[ "$as_group" = "1" ] && {
 		conf_append "group-end"

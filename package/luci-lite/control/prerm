@@ -18,6 +18,7 @@
 [ -e ${IPKG_INSTROOT}/lib/functions.sh ] || exit 0
 . ${IPKG_INSTROOT}/lib/functions.sh
 default_prerm $0 $@
+/etc/init.d/smartdns-lite clear_rules
 /etc/init.d/smartdns-lite disable
 rm /var/etc/smartdns-lite.conf -f
 exit 0

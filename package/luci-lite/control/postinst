@@ -20,5 +20,6 @@
 . ${IPKG_INSTROOT}/lib/functions.sh
 default_postinst $0 $@
 ret=$?
+/etc/init.d/smartdns-lite clear_rules
 /etc/init.d/smartdns-lite enable
 exit 0

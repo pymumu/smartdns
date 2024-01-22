@@ -277,15 +277,15 @@ return view.extend({
 			return true;
 		};
 
-		o = s.taboption("rules", form.Value, "rules_speed_check_mode", _("Speed Check Mode"), _("Smartdns speed check mode."));
+		o = s.taboption("rules", form.Value, "rules_speed_check_mode", _("Speed Check Mode"), _("Speed check mode for matching domains."));
 		o.rmempty = true;
-		o.placeholder = "default";
-		o.value("", _("default"));
+		o.placeholder = _("None");
+		o.default = "none";
+		o.value("none", _("None"));
 		o.value("ping,tcp:80,tcp:443");
 		o.value("ping,tcp:443,tcp:80");
 		o.value("tcp:80,tcp:443,ping");
 		o.value("tcp:443,tcp:80,ping");
-		o.value("none", _("None"));
 		o.validate = function (section_id, value) {
 			if (value == "") {
 				return true;
@@ -326,6 +326,11 @@ return view.extend({
 		o.rmempty = true;
 		o.default = o.enabled;
 
+		o = s.taboption("rules", form.Flag, "use_internal_rules", _("Use Internal IP Rules"), 
+		_("Use internal IP rules to forward data to TPROXY service when the domain matches, avoiding the need to configure IP rules."));
+		o.rmempty = true;
+		o.default = o.disabled;
+
 		o = s.taboption("rules", form.Value, "rules_ipset_name", _("IPset Name"), _("IPset name."));
 		o.rmempty = true;
 		o.datatype = "string";
@@ -344,6 +349,7 @@ return view.extend({
 
 			return true;
 		}
+		o.depends("use_internal_rules", "0");
 
 		o = s.taboption("rules", form.Value, "rules_nftset_name", _("NFTset Name"), _("NFTset name, format: [#[4|6]:[family#table#set]]"));
 		o.rmempty = true;
@@ -363,6 +369,14 @@ return view.extend({
 
 			return true;
 		}
+		o.depends("use_internal_rules", "0");
+
+		o = s.taboption("rules", form.Value, "tproxy_server_port", _("TPROXY Server Port"), 
+			_("TPROXY server port used for forwarding data requests, please make sure this port has enabled TPROXY service."));
+		o.rmempty = false;
+		o.datatype = "port";
+		o.rempty = false;
+		o.depends("use_internal_rules", "1");
 
 		o = s.taboption("cloudflare", form.Flag, "cloudflare_enabled", _("Enable"), 
 			_("Enable or disable cloudflare cdn ip accelerating."));

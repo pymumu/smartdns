@@ -163,8 +163,8 @@ msgstr "smartdns服务器模式。"
 msgid "Smartdns server port."
 msgstr "smartdns服务器端口。"
 
-msgid "Smartdns speed check mode."
-msgstr "Smartdns测速模式设置。"
+msgid "Speed check mode for matching domains."
+msgstr "匹配域名的测速模式。"
 
 msgid "Speed Check Mode"
 msgstr "测速模式"
@@ -174,6 +174,18 @@ msgstr "测速模式无效。"
 
 msgid "TCP port is empty"
 msgstr "TCP端口为空"
+
+msgid "TPROXY Server Port"
+msgstr "TPROXY服务器端口"
+
+msgid "TPROXY server port used for forwarding data requests, please make sure this port has enabled TPROXY service."
+msgstr "用于转发数据请求的TPROXY服务器端口，请确保该端口已启用TPROXY服务，否则链接可能不正常。"
+
+msgid "Use Internal IP Rules"
+msgstr "使用内置IP规则"
+
+msgid "Use internal IP rules to forward data to TPROXY service when the domain matches, avoiding the need to configure IP rules."
+msgstr "当域名匹配时，使用内置IP规则将数据转发到TPROXY服务，避免复杂的IP规则配置。"
 
 msgid "Upload CloudFlare cdn ip list file, please refer to https://www.cloudflare.com/ips"
 msgstr "上传CloudFlare CDN IP列表文件，请参考https://www.cloudflare.com/ips"
