@@ -63,9 +63,10 @@ TEST_F(Perf, no_speed_check)
 server 127.0.0.1:61053
 speed-check-mode none
 log-level error
+socket-buff-size 1M
 )""");
 	std::string file = "/tmp/smartdns-perftest-domain.list" + smartdns::GenerateRandomString(5);
-	std::string cmd = "dnsperf -p 60053";
+	std::string cmd = "dnsperf -p 60053 -b 1024";
 	cmd += " -d ";
 	cmd += file;
 	std::ofstream ofs(file);

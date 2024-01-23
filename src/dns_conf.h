@@ -696,6 +696,7 @@ extern char dns_resolv_file[DNS_MAX_PATH];
 
 extern int dns_no_pidfile;
 extern int dns_no_daemon;
+extern size_t dns_socket_buff_size;
 
 void dns_server_load_exit(void);
 

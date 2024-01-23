@@ -1566,7 +1566,16 @@ static void _tlog_work_write(struct tlog_log *log, int log_len, int log_extlen, 
     if (log_dropped > 0) {
         /* if there is dropped log, record dropped log number */
         char dropmsg[TLOG_TMP_LEN];
-        snprintf(dropmsg, sizeof(dropmsg), "[Total Dropped %d Messages]\n", log_dropped);
+        char *msg = dropmsg;
+        struct tlog_segment_log_head *log_head = NULL;
+        if (log->segment_log) {
+            memset(dropmsg, 0, sizeof(struct tlog_segment_log_head));
+            log_head = (struct tlog_segment_log_head *)dropmsg;
+            msg += sizeof(struct tlog_segment_log_head);
+            log_head->info.level = TLOG_WARN;
+        }
+        int len = snprintf(msg, msg - dropmsg, "[Total Dropped %d Messages]\n", log_dropped);
+        log_head->len = len;
         _tlog_write_output_func(log, dropmsg, strnlen(dropmsg, sizeof(dropmsg)));
     }
 }
@@ -1601,6 +1610,7 @@ static int _tlog_root_write_log(struct tlog_log *log, const char *buff, int buff
     }
 
     _tlog_root_write_screen_log(log, NULL, buff, bufflen);
+    memset(&empty_info, 0, sizeof(empty_info));
     return tlog.output_func(&empty_info.info, buff, bufflen, tlog_get_private(log));
 }
 
