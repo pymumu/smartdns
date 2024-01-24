@@ -33,9 +33,12 @@
 #include "nftset.h"
 #include "tlog.h"
 #include "util.h"
+#include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <ifaddrs.h>
+#include <linux/netlink.h>
+#include <linux/rtnetlink.h>
 #include <math.h>
 #include <net/if.h>
 #include <netinet/ip.h>
@@ -134,6 +137,17 @@ struct neighbor_cache {
 	atomic_t cache_num;
 	struct list_head list;
 	pthread_mutex_t lock;
+};
+
+struct local_addr_cache_item {
+	unsigned char ip_addr[DNS_RR_AAAA_LEN];
+	int ip_addr_len;
+	int mask_len;
+};
+
+struct local_addr_cache {
+	radix_tree_t *addr;
+	int fd_netlink;
 };
 
 struct dns_conn_buf {
@@ -381,6 +395,8 @@ struct dns_server {
 	pthread_mutex_t request_pending_lock;
 
 	struct neighbor_cache neighbor_cache;
+
+	struct local_addr_cache local_addr_cache;
 };
 
 static int is_server_init;
@@ -2163,8 +2179,7 @@ static int _dns_request_update_id_ttl(struct dns_server_post_context *context)
 	param.cname_ttl = ttl;
 	param.ip_ttl = ttl;
 	if (dns_packet_update(context->inpacket, context->inpacket_len, &param) != 0) {
-		tlog(TLOG_ERROR, "update packet info failed.");
-		return -1;
+		tlog(TLOG_DEBUG, "update packet info failed.");
 	}
 
 	return 0;
@@ -4541,85 +4556,6 @@ static int _dns_server_parser_addr_from_apra(const char *arpa, unsigned char *ad
 	return 0;
 }
 
-static int _dns_server_ip_get_addr_from_ifaddrs(struct ifaddrs *ifaddr, unsigned char *addr, int *maskbit,
-												int *addr_len)
-{
-	unsigned char *netmask = NULL;
-	unsigned char *netaddr = NULL;
-	int prefix_len = 0;
-
-	switch (ifaddr->ifa_addr->sa_family) {
-	case AF_INET: {
-		struct sockaddr_in *addr_in = NULL;
-		struct sockaddr_in *netmask_in = NULL;
-		addr_in = (struct sockaddr_in *)ifaddr->ifa_addr;
-		netmask_in = (struct sockaddr_in *)ifaddr->ifa_netmask;
-		netaddr = (unsigned char *)&(addr_in->sin_addr.s_addr);
-		netmask = (unsigned char *)&(netmask_in->sin_addr.s_addr);
-		*addr_len = 4;
-	} break;
-	case AF_INET6: {
-		struct sockaddr_in6 *addr_in6 = NULL;
-		struct sockaddr_in6 *netmask_in6 = NULL;
-		addr_in6 = (struct sockaddr_in6 *)ifaddr->ifa_addr;
-		netmask_in6 = (struct sockaddr_in6 *)ifaddr->ifa_netmask;
-		if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
-			netaddr = addr_in6->sin6_addr.s6_addr + 12;
-			netmask = netmask_in6->sin6_addr.s6_addr + 12;
-			*addr_len = 4;
-		} else {
-			netaddr = addr_in6->sin6_addr.s6_addr;
-			netmask = netmask_in6->sin6_addr.s6_addr;
-			*addr_len = 16;
-		}
-	} break;
-	default:
-		return -1;
-		break;
-	}
-
-	for (int i = 0; i < *addr_len; i++) {
-		if (netmask[i] == 0xff) {
-			prefix_len += 8;
-		} else {
-			unsigned char mask = netmask[i];
-			while (mask) {
-				mask <<= 1;
-				prefix_len++;
-			}
-			break;
-		}
-	}
-
-	memcpy(addr, netaddr, *addr_len);
-	*maskbit = prefix_len;
-
-	return 0;
-}
-
-static int _dns_server_ip_is_subnet(unsigned char *addr, int mask, unsigned char *sub_addr, int addr_len)
-{
-	if (addr_len != 4 && addr_len != 16) {
-		return -1;
-	}
-
-	if (mask > addr_len * 8) {
-		return -1;
-	}
-
-	if (memcmp(addr, sub_addr, mask / 8) != 0) {
-		return -1;
-	}
-
-	if (mask % 8 != 0) {
-		if ((addr[mask / 8] & (0xff << (8 - mask % 8))) != (sub_addr[mask / 8] & (0xff << (8 - mask % 8)))) {
-			return -1;
-		}
-	}
-
-	return 0;
-}
-
 static int _dns_server_is_private_address(const unsigned char *addr, int addr_len)
 {
 	if (addr_len == 4) {
@@ -4635,16 +4571,139 @@ static int _dns_server_is_private_address(const unsigned char *addr, int addr_le
 	return -1;
 }
 
+static void _dns_server_local_addr_cache_add(unsigned char *netaddr, int netaddr_len, int prefix_len)
+{
+	prefix_t prefix;
+	struct local_addr_cache_item *addr_cache_item = NULL;
+	radix_node_t *node = NULL;
+
+	if (prefix_from_blob(netaddr, netaddr_len, prefix_len, &prefix) == NULL) {
+		return;
+	}
+
+	node = radix_lookup(server.local_addr_cache.addr, &prefix);
+	if (node == NULL) {
+		goto errout;
+	}
+
+	if (node->data == NULL) {
+		addr_cache_item = malloc(sizeof(struct local_addr_cache_item));
+		if (addr_cache_item == NULL) {
+			return;
+		}
+		memset(addr_cache_item, 0, sizeof(struct local_addr_cache_item));
+	} else {
+		addr_cache_item = node->data;
+	}
+
+	addr_cache_item->ip_addr_len = netaddr_len;
+	memcpy(addr_cache_item->ip_addr, netaddr, netaddr_len);
+	addr_cache_item->mask_len = prefix_len;
+	node->data = addr_cache_item;
+
+	return;
+errout:
+	if (addr_cache_item) {
+		free(addr_cache_item);
+	}
+
+	return;
+}
+
+static void _dns_server_local_addr_cache_del(unsigned char *netaddr, int netaddr_len, int prefix_len)
+{
+	radix_node_t *node = NULL;
+	prefix_t prefix;
+
+	if (prefix_from_blob(netaddr, netaddr_len, prefix_len, &prefix) == NULL) {
+		return;
+	}
+
+	node = radix_search_exact(server.local_addr_cache.addr, &prefix);
+	if (node == NULL) {
+		return;
+	}
+
+	if (node->data != NULL) {
+		free(node->data);
+	}
+
+	node->data = NULL;
+	radix_remove(server.local_addr_cache.addr, node);
+}
+
+static void _dns_server_process_local_addr_cache(int fd_netlink, struct epoll_event *event, unsigned long now)
+{
+	char buffer[1024 * 8];
+	struct iovec iov = {buffer, sizeof(buffer)};
+	struct sockaddr_nl sa;
+	struct msghdr msg;
+	struct nlmsghdr *nh;
+
+	memset(&msg, 0, sizeof(msg));
+	msg.msg_name = &sa;
+	msg.msg_namelen = sizeof(sa);
+	msg.msg_iov = &iov;
+	msg.msg_iovlen = 1;
+
+	while (1) {
+		ssize_t len = recvmsg(fd_netlink, &msg, 0);
+		if (len == -1) {
+			break;
+		}
+
+		for (nh = (struct nlmsghdr *)buffer; NLMSG_OK(nh, len); nh = NLMSG_NEXT(nh, len)) {
+			if (nh->nlmsg_type == NLMSG_DONE) {
+				break;
+			}
+
+			if (nh->nlmsg_type == NLMSG_ERROR) {
+				break;
+			}
+
+			if (nh->nlmsg_type != RTM_NEWADDR && nh->nlmsg_type != RTM_DELADDR) {
+				continue;
+			}
+
+			struct ifaddrmsg *ifa = (struct ifaddrmsg *)NLMSG_DATA(nh);
+			struct rtattr *rth = IFA_RTA(ifa);
+			int rtl = IFA_PAYLOAD(nh);
+
+			while (rtl && RTA_OK(rth, rtl)) {
+				if (rth->rta_type == IFA_ADDRESS) {
+					unsigned char *netaddr = RTA_DATA(rth);
+					int netaddr_len = 0;
+
+					if (ifa->ifa_family == AF_INET) {
+						netaddr_len = 4;
+					} else if (ifa->ifa_family == AF_INET6) {
+						netaddr_len = 16;
+					} else {
+						continue;
+					}
+
+					if (nh->nlmsg_type == RTM_NEWADDR) {
+						_dns_server_local_addr_cache_add(netaddr, netaddr_len, netaddr_len * 8);
+						_dns_server_local_addr_cache_add(netaddr, netaddr_len, ifa->ifa_prefixlen);
+					} else {
+						_dns_server_local_addr_cache_del(netaddr, netaddr_len, netaddr_len * 8);
+						_dns_server_local_addr_cache_del(netaddr, netaddr_len, ifa->ifa_prefixlen);
+					}
+				}
+				rth = RTA_NEXT(rth, rtl);
+			}
+		}
+	}
+}
+
 static int _dns_server_process_local_ptr(struct dns_request *request)
 {
-	struct ifaddrs *ifaddr = NULL;
-	struct ifaddrs *ifa = NULL;
 	unsigned char ptr_addr[16];
 	int ptr_addr_len = 0;
-	unsigned char addr[16];
-	int addr_len = 0;
-	int maskbit = 0;
 	int found = 0;
+	prefix_t prefix;
+	radix_node_t *node = NULL;
+	struct local_addr_cache_item *addr_cache_item = NULL;
 
 	if (_dns_server_parser_addr_from_apra(request->domain, ptr_addr, &ptr_addr_len, sizeof(ptr_addr)) != 0) {
 		/* Determine if the smartdns service is in effect. */
@@ -4655,47 +4714,41 @@ static int _dns_server_process_local_ptr(struct dns_request *request)
 		goto out;
 	}
 
-	if (getifaddrs(&ifaddr) == -1) {
-		return -1;
+	if (dns_conf_local_ptr_enable == 0) {
+		goto out;
 	}
 
-	/* Get the NIC IP and match it. If the match is successful, return the host name. */
-	for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
-		if (ifa->ifa_addr == NULL) {
-			continue;
-		}
-
-		addr_len = sizeof(addr);
-		if (_dns_server_ip_get_addr_from_ifaddrs(ifa, addr, &maskbit, &addr_len) != 0) {
-			continue;
-		}
-
-		if (addr_len != ptr_addr_len) {
-			continue;
-		}
-
-		if (_dns_server_ip_is_subnet(addr, addr_len * 8, ptr_addr, ptr_addr_len) == 0) {
-			found = 1;
-			break;
-		}
-
-		if (dns_conf_mdns_lookup && _dns_server_ip_is_subnet(addr, maskbit, ptr_addr, ptr_addr_len) == 0) {
-			_dns_server_set_request_mdns(request);
-			goto errout;
-		}
+	if (prefix_from_blob(ptr_addr, ptr_addr_len, ptr_addr_len * 8, &prefix) == NULL) {
+		goto out;
 	}
 
-	/* Determine if the smartdns service is in effect. */
-	if (found == 0 && strncmp(request->domain, "0.0.0.0.in-addr.arpa", DNS_MAX_CNAME_LEN - 1) == 0) {
+	node = radix_search_best(server.local_addr_cache.addr, &prefix);
+	if (node == NULL) {
+		goto out;
+	}
+
+	if (node->data == NULL) {
+		goto out;
+	}
+
+	addr_cache_item = node->data;
+	if (addr_cache_item->mask_len == ptr_addr_len * 8) {
 		found = 1;
+		goto out;
 	}
 
+	if (dns_conf_mdns_lookup) {
+		_dns_server_set_request_mdns(request);
+		goto errout;
+	}
+
+out:
 	if (found == 0 && _dns_server_is_private_address(ptr_addr, ptr_addr_len) == 0) {
 		request->has_soa = 1;
 		_dns_server_setup_soa(request);
 		goto clear;
 	}
-out:
+
 	if (found == 0) {
 		goto errout;
 	}
@@ -4735,12 +4788,8 @@ out:
 	request->has_ptr = 1;
 	safe_strncpy(request->ptr_hostname, full_hostname, DNS_MAX_CNAME_LEN);
 clear:
-	freeifaddrs(ifaddr);
 	return 0;
 errout:
-	if (ifaddr) {
-		freeifaddrs(ifaddr);
-	}
 	return -1;
 }
 
@@ -8038,10 +8087,15 @@ int dns_server_run(void)
 		for (i = 0; i < num; i++) {
 			struct epoll_event *event = &events[i];
 			/* read event */
-			if (event->data.fd == server.event_fd) {
+			if (unlikely(event->data.fd == server.event_fd)) {
 				uint64_t value;
 				int unused __attribute__((unused));
 				unused = read(server.event_fd, &value, sizeof(uint64_t));
+				continue;
+			}
+
+			if (unlikely(event->data.fd == server.local_addr_cache.fd_netlink)) {
+				_dns_server_process_local_addr_cache(event->data.fd, event, now);
 				continue;
 			}
 
@@ -8511,6 +8565,100 @@ static int _dns_server_neighbor_cache_init(void)
 	return 0;
 }
 
+static void _dns_server_local_addr_cache_item_free(radix_node_t *node, void *cbctx)
+{
+	struct local_addr_cache_item *cache_item = NULL;
+	if (node == NULL) {
+		return;
+	}
+
+	if (node->data == NULL) {
+		return;
+	}
+
+	cache_item = node->data;
+	free(cache_item);
+	node->data = NULL;
+}
+
+static int _dns_server_local_addr_cache_destroy(void)
+{
+	if (server.local_addr_cache.addr) {
+		Destroy_Radix(server.local_addr_cache.addr, _dns_server_local_addr_cache_item_free, NULL);
+		server.local_addr_cache.addr = NULL;
+	}
+
+	if (server.local_addr_cache.fd_netlink > 0) {
+		close(server.local_addr_cache.fd_netlink);
+		server.local_addr_cache.fd_netlink = -1;
+	}
+
+	return 0;
+}
+
+static int _dns_server_local_addr_cache_init(void)
+{
+	int fd = 0;
+	struct sockaddr_nl sa;
+
+	server.local_addr_cache.fd_netlink = -1;
+	server.local_addr_cache.addr = NULL;
+
+	if (dns_conf_local_ptr_enable == 0) {
+		return 0;
+	}
+
+	fd = socket(AF_NETLINK, SOCK_RAW | SOCK_NONBLOCK | SOCK_CLOEXEC, NETLINK_ROUTE);
+	if (fd < 0) {
+		tlog(TLOG_WARN, "create netlink socket failed, %s", strerror(errno));
+		goto errout;
+	}
+
+	memset(&sa, 0, sizeof(sa));
+	sa.nl_family = AF_NETLINK;
+	sa.nl_groups = RTMGRP_IPV6_IFADDR | RTMGRP_IPV4_IFADDR;
+	if (bind(fd, (struct sockaddr *)&sa, sizeof(sa)) == -1) {
+		tlog(TLOG_WARN, "bind netlink socket failed, %s", strerror(errno));
+		goto errout;
+	}
+
+	struct epoll_event event;
+	memset(&event, 0, sizeof(event));
+	event.events = EPOLLIN | EPOLLERR;
+	event.data.fd = fd;
+	if (epoll_ctl(server.epoll_fd, EPOLL_CTL_ADD, fd, &event) != 0) {
+		tlog(TLOG_ERROR, "set eventfd failed, %s\n", strerror(errno));
+		goto errout;
+	}
+
+	server.local_addr_cache.fd_netlink = fd;
+	server.local_addr_cache.addr = New_Radix();
+
+	struct {
+		struct nlmsghdr nh;
+		struct rtgenmsg gen;
+	} request;
+
+	memset(&request, 0, sizeof(request));
+	request.nh.nlmsg_len = NLMSG_LENGTH(sizeof(struct rtgenmsg));
+	request.nh.nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
+	request.nh.nlmsg_type = RTM_GETADDR;
+	request.gen.rtgen_family = AF_UNSPEC;
+
+	if (send(fd, &request, request.nh.nlmsg_len, 0) < 0) {
+		tlog(TLOG_WARN, "send netlink request failed, %s", strerror(errno));
+		goto errout;
+	}
+
+	return 0;
+errout:
+	if (fd > 0) {
+		close(fd);
+	}
+
+	return -1;
+}
+
 static int _dns_server_cache_init(void)
 {
 	if (dns_cache_init(dns_conf_cachesize, _dns_server_cache_expired) != 0) {
@@ -8647,6 +8795,10 @@ int dns_server_init(void)
 		goto errout;
 	}
 
+	if (_dns_server_local_addr_cache_init() != 0) {
+		tlog(TLOG_WARN, "init local addr cache failed, disable local ptr.");
+	}
+
 	if (_dns_server_neighbor_cache_init() != 0) {
 		tlog(TLOG_ERROR, "init neighbor cache failed.");
 		goto errout;
@@ -8690,6 +8842,7 @@ void dns_server_exit(void)
 	}
 
 	_dns_server_close_socket();
+	_dns_server_local_addr_cache_destroy();
 	_dns_server_neighbor_cache_remove_all();
 	_dns_server_cache_save(0);
 	_dns_server_request_remove_all();

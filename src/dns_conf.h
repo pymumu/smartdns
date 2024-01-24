@@ -684,6 +684,7 @@ extern enum response_mode_type dns_conf_default_response_mode;
 extern int dns_conf_nftset_debug_enable;
 extern int dns_conf_local_ttl;
 extern int dns_conf_mdns_lookup;
+extern int dns_conf_local_ptr_enable;
 extern int dns_conf_acl_enable;
 
 extern char dns_conf_user[DNS_CONF_USERNAME_LEN];

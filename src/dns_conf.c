@@ -153,6 +153,7 @@ static int dns_conf_expand_ptr_from_address = 0;
 int dns_conf_local_ttl;
 int dns_conf_nftset_debug_enable;
 int dns_conf_mdns_lookup;
+int dns_conf_local_ptr_enable = 1;
 int dns_conf_acl_enable;
 
 char dns_conf_user[DNS_CONF_USERNAME_LEN];
@@ -5661,6 +5662,7 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("server-tls", _config_server_tls, NULL),
 	CONF_CUSTOM("server-https", _config_server_https, NULL),
 	CONF_YESNO("mdns-lookup", &dns_conf_mdns_lookup),
+	CONF_YESNO("local-ptr-enable", &dns_conf_local_ptr_enable),
 	CONF_CUSTOM("nameserver", _config_nameserver, NULL),
 	CONF_YESNO("expand-ptr-from-address", &dns_conf_expand_ptr_from_address),
 	CONF_CUSTOM("address", _config_address, NULL),
