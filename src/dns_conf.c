@@ -713,6 +713,7 @@ static int _config_group_end(void *data, int argc, char *argv[])
 static int _config_group_match(void *data, int argc, char *argv[])
 {
 	int opt = 0;
+	int optind_last = 0;
 	struct dns_conf_group_info *saved_group_info = dns_conf_current_group_info;
 	const char *group_name = saved_group_info->group_name;
 	char group_name_buf[DNS_MAX_CONF_CNAME_LEN];
@@ -771,10 +772,13 @@ static int _config_group_match(void *data, int argc, char *argv[])
 			break;
 		}
 		default:
-			tlog(TLOG_WARN, "unknown group-match option: %s at '%s:%d'.", argv[optind - 1], conf_get_conf_file(),
-				 conf_get_current_lineno());
+			if (optind > optind_last) {
+				tlog(TLOG_WARN, "unknown group-match option: %s at '%s:%d'.", argv[optind - 1], conf_get_conf_file(),
+					 conf_get_current_lineno());
+			}
 			break;
 		}
+		optind_last = optind;
 	}
 
 	dns_conf_current_group_info = saved_group_info;
@@ -892,6 +896,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 	char *ip = NULL;
 	char scheme[DNS_MAX_CNAME_LEN] = {0};
 	int opt = 0;
+	int optind_last = 0;
 	unsigned int result_flag = 0;
 	unsigned int server_flag = 0;
 	unsigned char *spki = NULL;
@@ -990,6 +995,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 
 	/* process extra options */
 	optind = 1;
+	optind_last = 1;
 	while (1) {
 		opt = getopt_long_only(argc, argv, "D:kg:p:eb", long_options, NULL);
 		if (opt == -1) {
@@ -1087,10 +1093,14 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 			break;
 		}
 		default:
-			tlog(TLOG_WARN, "unknown server option: %s at '%s:%d'.", argv[optind - 1], conf_get_conf_file(),
-				 conf_get_current_lineno());
+			if (optind > optind_last) {
+				tlog(TLOG_WARN, "unknown server option: %s at '%s:%d'.", argv[optind - 1], conf_get_conf_file(),
+					 conf_get_current_lineno());
+			}
 			break;
 		}
+
+		optind_last = optind;
 	}
 
 	if (check_is_ipaddr(server->server) != 0) {
@@ -2782,6 +2792,8 @@ static int _config_bind_ip(int argc, char *argv[], DNS_BIND_TYPE type)
 	struct dns_bind_ip *bind_ip = NULL;
 	char *ip = NULL;
 	int opt = 0;
+	int optind = 0;
+	int optind_last = 0;
 	char group_name[DNS_GROUP_NAME_LEN];
 	const char *group = NULL;
 	unsigned int server_flag = 0;
@@ -2845,6 +2857,7 @@ static int _config_bind_ip(int argc, char *argv[], DNS_BIND_TYPE type)
 
 	/* process extra options */
 	optind = 1;
+	optind_last = 1;
 	while (1) {
 		opt = getopt_long_only(argc, argv, "", long_options, NULL);
 		if (opt == -1) {
@@ -2928,10 +2941,14 @@ static int _config_bind_ip(int argc, char *argv[], DNS_BIND_TYPE type)
 			break;
 		}
 		default:
-			tlog(TLOG_WARN, "unknown bind option: %s at '%s:%d'.", argv[optind - 1], conf_get_conf_file(),
-				 conf_get_current_lineno());
+			if (optind > optind_last) {
+				tlog(TLOG_WARN, "unknown bind option: %s at '%s:%d'.", argv[optind - 1], conf_get_conf_file(),
+					 conf_get_current_lineno());
+			}
 			break;
 		}
+
+		optind_last = optind;
 	}
 
 	/* add new server */
@@ -4283,6 +4300,7 @@ static int _conf_ip_alias(void *data, int argc, char *argv[])
 static int _conf_ip_rules(void *data, int argc, char *argv[])
 {
 	int opt = 0;
+	int optind_last = 0;
 	char *ip_cidr = argv[1];
 
 	/* clang-format off */
@@ -4303,6 +4321,7 @@ static int _conf_ip_rules(void *data, int argc, char *argv[])
 
 	/* process extra options */
 	optind = 1;
+	optind_last = 1;
 	while (1) {
 		opt = getopt_long_only(argc, argv, "", long_options, NULL);
 		if (opt == -1) {
@@ -4341,10 +4360,14 @@ static int _conf_ip_rules(void *data, int argc, char *argv[])
 			break;
 		}
 		default:
-			tlog(TLOG_WARN, "unknown ip-rules option: %s at '%s:%d'.", argv[optind - 1], conf_get_conf_file(),
-				 conf_get_current_lineno());
+			if (optind > optind_last) {
+				tlog(TLOG_WARN, "unknown ip-rules option: %s at '%s:%d'.", argv[optind - 1], conf_get_conf_file(),
+					 conf_get_current_lineno());
+			}
 			break;
 		}
+
+		optind_last = optind;
 	}
 
 	return 0;
@@ -4581,6 +4604,8 @@ static int _conf_domain_rule_no_ipalias(const char *domain)
 static int _conf_domain_rules(void *data, int argc, char *argv[])
 {
 	int opt = 0;
+	int optind = 0;
+	int optind_last = 0;
 	char domain[DNS_MAX_CONF_CNAME_LEN];
 	char *value = argv[1];
 	int rr_ttl = 0;
@@ -4646,6 +4671,7 @@ static int _conf_domain_rules(void *data, int argc, char *argv[])
 
 	/* process extra options */
 	optind = 1;
+	optind_last = 1;
 	while (1) {
 		opt = getopt_long_only(argc, argv, "c:a:p:t:n:d:A:r:g:", long_options, NULL);
 		if (opt == -1) {
@@ -4806,10 +4832,14 @@ static int _conf_domain_rules(void *data, int argc, char *argv[])
 			break;
 		}
 		default:
-			tlog(TLOG_WARN, "unknown domain-rules option: %s at '%s:%d'.", argv[optind - 1], conf_get_conf_file(),
-				 conf_get_current_lineno());
+			if (optind > optind_last) {
+				tlog(TLOG_WARN, "unknown domain-rules option: %s at '%s:%d'.", argv[optind - 1], conf_get_conf_file(),
+					 conf_get_current_lineno());
+			}
 			break;
 		}
+
+		optind_last = optind;
 	}
 
 	if (rr_ttl > 0 || rr_ttl_min > 0 || rr_ttl_max > 0) {
@@ -5329,6 +5359,7 @@ errout:
 static int _config_client_rules(void *data, int argc, char *argv[])
 {
 	int opt = 0;
+	int optind_last = 0;
 	const char *client = argv[1];
 	unsigned int server_flag = 0;
 	const char *group = NULL;
@@ -5366,6 +5397,7 @@ static int _config_client_rules(void *data, int argc, char *argv[])
 
 	/* process extra options */
 	optind = 1;
+	optind_last = 1;
 	while (1) {
 		opt = getopt_long_only(argc, argv, "g:", long_options, NULL);
 		if (opt == -1) {
@@ -5434,10 +5466,14 @@ static int _config_client_rules(void *data, int argc, char *argv[])
 			break;
 		}
 		default:
-			tlog(TLOG_WARN, "unknown client-rules option: %s at '%s:%d'.", argv[optind - 1], conf_get_conf_file(),
-				 conf_get_current_lineno());
+			if (optind > optind_last) {
+				tlog(TLOG_WARN, "unknown client-rules option: %s at '%s:%d'.", argv[optind - 1], conf_get_conf_file(),
+					 conf_get_current_lineno());
+			}
 			break;
 		}
+
+		optind_last = optind;
 	}
 
 	if (group != NULL) {
