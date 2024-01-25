@@ -35,14 +35,20 @@ override CFLAGS += $(EXTRA_CFLAGS)
 
 ifdef VER
  override CFLAGS += -DSMARTDNS_VERION='"$(VER)"'
-else
- HAS_GIT := $(shell command -v git 2> /dev/null)
+endif
+
+HAS_GIT := $(shell command -v git 2> /dev/null)
+ifndef NO_GIT_VER
  ifdef HAS_GIT
   IS_GIT_REPO := $(shell git rev-parse --is-inside-work-tree 2>/dev/null)
   ifdef IS_GIT_REPO
-   override CFLAGS += -DSMARTDNS_VERION='"$(shell git describe --tags --always --dirty)"'
+   override COMMIT_VERION = $(shell git describe --tags --always --dirty)
   endif
  endif
+endif
+
+ifdef COMMIT_VERION
+ override CFLAGS += -DCOMMIT_VERION='"$(shell git describe --tags --always --dirty)"'
 endif
 
 CXXFLAGS=-O2 -g -Wall -std=c++11 

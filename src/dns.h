@@ -325,6 +325,7 @@ struct dns_https_param *dns_get_HTTPS_svcparm_next(struct dns_rrs *rrs, struct d
 /*
  * Packet operation
  */
+int dns_decode_head_only(struct dns_packet *packet, int maxsize, unsigned char *data, int size);
 int dns_decode(struct dns_packet *packet, int maxsize, unsigned char *data, int size);
 int dns_encode(unsigned char *data, int size, struct dns_packet *packet);
 

@@ -1168,6 +1168,10 @@ static int _dns_setup_dns_packet(struct dns_server_post_context *context)
 		return -1;
 	}
 
+	if (request->domain[0] == '\0') {
+		return 0;
+	}
+
 	/* add request domain */
 	ret = dns_add_domain(context->packet, request->domain, context->qtype, request->qclass);
 	if (ret != 0) {
@@ -6624,6 +6628,48 @@ errout:
 	return -1;
 }
 
+static int _dns_server_reply_format_error(struct dns_request *request, struct dns_server_conn_head *conn,
+										  unsigned char *inpacket, int inpacket_len, struct sockaddr_storage *local,
+										  socklen_t local_len, struct sockaddr_storage *from, socklen_t from_len)
+{
+	unsigned char packet_buff[DNS_PACKSIZE];
+	struct dns_packet *packet = (struct dns_packet *)packet_buff;
+	int decode_len = 0;
+	int need_release = 0;
+	int ret = -1;
+
+	if (request == NULL) {
+		decode_len = dns_decode_head_only(packet, DNS_PACKSIZE, inpacket, inpacket_len);
+		if (decode_len < 0) {
+			ret = -1;
+			goto out;
+		}
+
+		request = _dns_server_new_request();
+		if (request == NULL) {
+			ret = -1;
+			goto out;
+		}
+
+		need_release = 1;
+		memcpy(&request->localaddr, local, local_len);
+		_dns_server_request_set_client(request, conn);
+		_dns_server_request_set_client_addr(request, from, from_len);
+		_dns_server_request_set_id(request, packet->head.id);
+	}
+
+	request->rcode = DNS_RC_FORMERR;
+	request->no_cache = 1;
+	request->send_tick = get_tick_count();
+	ret = 0;
+out:
+	if (request && need_release) {
+		_dns_server_request_release(request);
+	}
+
+	return ret;
+}
+
 static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *inpacket, int inpacket_len,
 							struct sockaddr_storage *local, socklen_t local_len, struct sockaddr_storage *from,
 							socklen_t from_len)
@@ -6687,9 +6733,7 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 			last_log_time = now;
 			tlog(TLOG_WARN, "maximum number of dns queries reached, max: %d", dns_conf_max_query_limit);
 		}
-		request->send_tick = get_tick_count();
 		request->rcode = DNS_RC_REFUSED;
-		request->no_cache = 1;
 		ret = 0;
 		goto errout;
 	}
@@ -6708,7 +6752,16 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 	_dns_server_request_release_complete(request, 0);
 	return ret;
 errout:
+	if (ret == RECV_ERROR_INVALID_PACKET) {
+		if (_dns_server_reply_format_error(request, conn, inpacket, inpacket_len, local, local_len, from, from_len) ==
+			0) {
+			ret = 0;
+		}
+	}
+
 	if (request) {
+		request->send_tick = get_tick_count();
+		request->no_cache = 1;
 		_dns_server_forward_request(inpacket, inpacket_len);
 		_dns_server_request_release(request);
 	}
@@ -7405,7 +7458,8 @@ errout:
 		free(http_decode_data);
 	}
 
-	if (ret == RECV_ERROR_FAIL && tcpclient->head.type == DNS_CONN_TYPE_HTTPS_CLIENT) {
+	if ((ret == RECV_ERROR_FAIL || ret == RECV_ERROR_INVALID_PACKET) &&
+		tcpclient->head.type == DNS_CONN_TYPE_HTTPS_CLIENT) {
 		_dns_server_reply_http_error(tcpclient, 400, "Bad Request", "Bad Request");
 	}
 
@@ -8797,6 +8851,7 @@ int dns_server_init(void)
 
 	if (_dns_server_local_addr_cache_init() != 0) {
 		tlog(TLOG_WARN, "init local addr cache failed, disable local ptr.");
+		dns_conf_local_ptr_enable = 0;
 	}
 
 	if (_dns_server_neighbor_cache_init() != 0) {

@@ -2777,6 +2777,36 @@ int dns_packet_init(struct dns_packet *packet, int size, struct dns_head *head)
 	return 0;
 }
 
+int dns_decode_head_only(struct dns_packet *packet, int maxsize, unsigned char *data, int size)
+{
+	struct dns_head *head = &packet->head;
+	struct dns_context context;
+	int ret = 0;
+
+	memset(&context, 0, sizeof(context));
+	memset(packet, 0, sizeof(*packet));
+
+	context.data = data;
+	context.packet = packet;
+	context.ptr = data;
+	context.maxsize = size;
+	context.namedict = &packet->namedict;
+
+	ret = dns_packet_init(packet, maxsize, head);
+	if (ret != 0) {
+		return -1;
+	}
+
+	ret = _dns_decode_head(&context);
+	if (ret < 0) {
+		return -1;
+	}
+
+	packet->size = context.ptr - context.data + sizeof(*packet);
+
+	return 0;
+}
+
 int dns_decode(struct dns_packet *packet, int maxsize, unsigned char *data, int size)
 {
 	struct dns_head *head = &packet->head;

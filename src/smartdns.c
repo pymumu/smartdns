@@ -177,18 +177,28 @@ static void _help(void)
 	printf("%s", help);
 }
 
-static void _show_version(void)
+static void _smartdns_get_version(char *str_ver, int str_ver_len)
 {
-	char str_ver[256] = {0};
+	char commit_ver[TMP_BUFF_LEN_32] = {0};
+#ifdef COMMIT_VERION
+	snprintf(commit_ver, sizeof(commit_ver), " (%s)", COMMIT_VERION);
+#endif
+
 #ifdef SMARTDNS_VERION
 	const char *ver = SMARTDNS_VERION;
-	snprintf(str_ver, sizeof(str_ver), "%s", ver);
+	snprintf(str_ver, str_ver_len, "%s%s", ver, commit_ver);
 #else
 	struct tm tm;
 	get_compiled_time(&tm);
-	snprintf(str_ver, sizeof(str_ver), "1.%.4d%.2d%.2d-%.2d%.2d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
-			 tm.tm_hour, tm.tm_min);
+	snprintf(str_ver, str_ver_len, "1.%.4d%.2d%.2d-%.2d%.2d%s", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+			 tm.tm_hour, tm.tm_min, commit_ver);
 #endif
+}
+
+static void _show_version(void)
+{
+	char str_ver[256] = {0};
+	_smartdns_get_version(str_ver, sizeof(str_ver));
 	printf("smartdns %s\n", str_ver);
 }
 
@@ -618,14 +628,16 @@ errout:
 static int _smartdns_init(void)
 {
 	int ret = 0;
+	char str_ver[256] = {0};
 
 	if (_smartdns_init_log() != 0) {
 		tlog(TLOG_ERROR, "init log failed.");
 		goto errout;
 	}
 
-	tlog(TLOG_NOTICE, "smartdns starting...(Copyright (C) Nick Peng <pymumu@gmail.com>, build: %s %s)", __DATE__,
-		 __TIME__);
+	_smartdns_get_version(str_ver, sizeof(str_ver));
+
+	tlog(TLOG_NOTICE, "smartdns starting...(Copyright (C) Nick Peng <pymumu@gmail.com>, build: %s)", str_ver);
 
 	if (dns_timer_init() != 0) {
 		tlog(TLOG_ERROR, "init timer failed.");
