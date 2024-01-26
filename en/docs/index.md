@@ -16,6 +16,9 @@ Support Raspberry Pi, openwrt, ASUS router, Windows and other devices.
 
 ## Features
 
+1. **Multiple Virtual DNS server**  
+   Support multiple virtual DNS servers with different ports, rules, and clients.
+
 1. **Multiple upstream DNS servers**  
    Support configuring multiple upstream DNS servers and query at the same time.the query will not be affected, Even if there is a DNS server exception.  
 
