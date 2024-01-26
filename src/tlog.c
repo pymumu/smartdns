@@ -1574,8 +1574,11 @@ static void _tlog_work_write(struct tlog_log *log, int log_len, int log_extlen, 
             msg += sizeof(struct tlog_segment_log_head);
             log_head->info.level = TLOG_WARN;
         }
+
         int len = snprintf(msg, msg - dropmsg, "[Total Dropped %d Messages]\n", log_dropped);
-        log_head->len = len;
+        if (log_head) {
+            log_head->len = len;
+        }
         _tlog_write_output_func(log, dropmsg, strnlen(dropmsg, sizeof(dropmsg)));
     }
 }

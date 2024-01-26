@@ -75,7 +75,7 @@ From the comparison, smartdns found the fastest IP address to visit www.baidu.co
 
 ## Features
 
-1. **Multiple Virtual DNS server**
+1. **Multiple Virtual DNS server**  
    Support multiple virtual DNS servers with different ports, rules, and clients.
 
 1. **Multiple upstream DNS servers**  

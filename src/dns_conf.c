@@ -163,6 +163,7 @@ char dns_save_fail_packet_dir[DNS_MAX_PATH];
 char dns_resolv_file[DNS_MAX_PATH];
 int dns_no_pidfile;
 int dns_no_daemon;
+int dns_restart_on_crash;
 size_t dns_socket_buff_size;
 
 struct hash_table conf_file_table;
@@ -694,6 +695,10 @@ static int _config_current_group_pop_all(void)
 {
 	while (dns_conf_current_group_info != NULL && dns_conf_current_group_info != dns_conf_default_group_info) {
 		_config_current_group_pop();
+	}
+
+	if (dns_conf_default_group_info == NULL) {
+		return 0;
 	}
 
 	list_del(&dns_conf_default_group_info->list);
@@ -5792,6 +5797,7 @@ static struct config_item _config_item[] = {
 	CONF_YESNO("debug-save-fail-packet", &dns_save_fail_packet),
 	CONF_YESNO("no-pidfile", &dns_no_pidfile),
 	CONF_YESNO("no-daemon", &dns_no_daemon),
+	CONF_YESNO("restart-on-crash", &dns_restart_on_crash),
 	CONF_SIZE("socket-buff-size", &dns_socket_buff_size, 0, 1024 * 1024 * 8),
 	CONF_CUSTOM("plugin", _config_plugin, NULL),
 	CONF_STRING("resolv-file", (char *)&dns_resolv_file, sizeof(dns_resolv_file)),
@@ -5978,7 +5984,10 @@ static int _dns_server_load_conf_init(void)
 	hash_init(dns_conf_srv_record_table.srv);
 	hash_init(dns_conf_plugin_table.plugins);
 
-	_config_current_group_push_default();
+	if (_config_current_group_push_default() != 0) {
+		tlog(TLOG_ERROR, "init default group failed.");
+		return -1;
+	}
 
 	return 0;
 }

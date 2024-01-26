@@ -328,6 +328,10 @@ static int _http_head_parse_params(struct http_head *http_head, char *url, int u
 	char *field = NULL;
 	char *value = NULL;
 
+	if (url == NULL) {
+		return -1;
+	}
+
 	param_start = strstr(url, "?");
 	if (param_start == NULL) {
 		return 0;

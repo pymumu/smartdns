@@ -987,6 +987,17 @@ void smartdns_restart(void)
 	exit_restart = 1;
 }
 
+static int smartdns_enter_monitor_mode(int argc, char *argv[], int no_deamon)
+{
+	setenv("SMARTDNS_RESTART_ON_CRASH", "1", 1);
+	if (no_deamon == 1) {
+		setenv("SMARTDNS_NO_DAEMON", "1", 1);
+	}
+	execv(argv[0], argv);
+	tlog(TLOG_ERROR, "execv failed, %s", strerror(errno));
+	return -1;
+}
+
 #ifdef TEST
 
 static smartdns_post_func _smartdns_post = NULL;
@@ -1096,6 +1107,16 @@ int main(int argc, char *argv[])
 		}
 	}
 
+	if (getenv("SMARTDNS_RESTART_ON_CRASH") != NULL) {
+		restart_when_crash = 1;
+		unsetenv("SMARTDNS_RESTART_ON_CRASH");
+	}
+
+	if (getenv("SMARTDNS_NO_DAEMON") != NULL) {
+		is_run_as_daemon = 0;
+		unsetenv("SMARTDNS_NO_DAEMON");
+	}
+
 	smartdns_run_monitor_ret init_ret = _smartdns_run_monitor(restart_when_crash, is_run_as_daemon);
 	if (init_ret != SMARTDNS_RUN_MONITOR_OK) {
 		if (init_ret == SMARTDNS_RUN_MONITOR_EXIT) {
@@ -1113,6 +1134,10 @@ int main(int argc, char *argv[])
 	if (ret != 0) {
 		fprintf(stderr, "load config failed.\n");
 		goto errout;
+	}
+
+	if (dns_restart_on_crash && restart_when_crash == 0) {
+		return smartdns_enter_monitor_mode(argc, argv, dns_no_daemon || !is_run_as_daemon);
 	}
 
 	if (dns_no_daemon || restart_when_crash) {

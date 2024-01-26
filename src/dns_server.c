@@ -6604,7 +6604,7 @@ static int _dns_server_parser_request(struct dns_request *request, struct dns_pa
 		case DNS_OPT_T_TCP_KEEPALIVE: {
 			unsigned short idle_timeout = 0;
 			ret = dns_get_OPT_TCP_KEEPALIVE(rrs, &idle_timeout);
-			if (idle_timeout == 0) {
+			if (idle_timeout == 0 || ret != 0) {
 				continue;
 			}
 
