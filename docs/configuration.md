@@ -95,6 +95,10 @@ hide:
 | serve-expired-prefetch-time | 过期缓存预查询时间 | 28800 | 秒，到达对应超时时间后预查询时间 | serve-expired-prefetch-time 86400 |
 | dualstack-ip-selection | 双栈 IP 优选 | yes | [yes\|no] | dualstack-ip-selection yes |
 | dualstack-ip-selection-threshold | 双栈 IP 优选阈值 | 10ms | 单位为毫秒（ms） | dualstack-ip-selection-threshold [0-1000] |
+| no-pidfile|不创建PID文件 | no | [yes\|no] | no-pidfile yes
+| no-daemon|以前台方式运行程序 | no | [yes\|no] | no-daemon yes
+| restart-on-crash|进程异常时自动重启| no | [yes\|no] | restart-on-crash yes
+| socket-buff-size|套接字缓存大小 | size | 0~1MB | socket-buff-size 256K
 | user | 进程运行用户 | root | user [username] | user nobody |
 | ca-file | 证书文件 | /etc/ssl/<br />certs/ca-certificates.crt | 合法路径字符串 | ca-file /etc/ssl/certs/ca-certificates.crt |
 | ca-path | 证书文件路径 | /etc/ssl/certs | 合法路径字符串 | ca-path /etc/ssl/certs |

@@ -91,6 +91,10 @@ hide:
 |serve-expired-prefetch-time| Prefetch time when serve expired | 28800 | second，prefetch time | serve-expired-prefetch-time 86400 |
 |dualstack-ip-selection|Dualstack ip selection|yes|[yes\|no]|dualstack-ip-selection yes
 |dualstack-ip-selection-threshold|Dualstack ip select thresholds|10ms|millisecond|dualstack-ip-selection-threshold [0-1000]
+|no-pidfile|no create pid file | no | [yes\|no] | no-pidfile yes
+|no-daemon|no run as daemon | no | [yes\|no] | no-daemon yes
+|restart-on-crash|restart when service crash | no | [yes\|no] | restart-on-crash yes
+|socket-buff-size|socket buffer size | size | 0~1MB | socket-buff-size 256K
 |user|run as user|root|user [username]|user nobody
 |ca-file|certificate file|/etc/ssl/certs/<br />ca-certificates.crt|path|ca-file /etc/ssl/certs/ca-certificates.crt
 |ca-path|certificates path|/etc/ssl/certs|path|ca-path /etc/ssl/certs
