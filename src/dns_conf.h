@@ -85,6 +85,7 @@ enum domain_rule {
 	DOMAIN_RULE_CHECKSPEED,
 	DOMAIN_RULE_RESPONSE_MODE,
 	DOMAIN_RULE_CNAME,
+	DOMAIN_RULE_HTTPS,
 	DOMAIN_RULE_TTL,
 	DOMAIN_RULE_MAX,
 };
@@ -136,6 +137,8 @@ typedef enum {
 #define DOMAIN_FLAG_NO_IPALIAS (1 << 18)
 #define DOMAIN_FLAG_GROUP_IGNORE (1 << 19)
 #define DOMAIN_FLAG_ENABLE_CACHE (1 << 20)
+#define DOMAIN_FLAG_ADDR_HTTPS_SOA (1 << 21)
+#define DOMAIN_FLAG_ADDR_HTTPS_IGN (1 << 22)
 
 #define IP_RULE_FLAG_BLACKLIST (1 << 0)
 #define IP_RULE_FLAG_WHITELIST (1 << 1)
@@ -286,6 +289,32 @@ struct dns_domain_check_orders {
 struct dns_response_mode_rule {
 	struct dns_rule head;
 	enum response_mode_type mode;
+};
+
+struct dns_https_record {
+	int enable;
+	char target[DNS_MAX_CNAME_LEN];
+	int priority;
+	char alpn[DNS_MAX_ALPN_LEN];
+	int alpn_len;
+	int port;
+	unsigned char ech[DNS_MAX_ECH_LEN];
+	int ech_len;
+	int has_ipv4;
+	unsigned char ipv4_addr[DNS_RR_A_LEN];
+	int has_ipv6;
+	unsigned char ipv6_addr[DNS_RR_AAAA_LEN];
+};
+
+struct dns_https_filter {
+	int no_ipv4hint;
+	int no_ipv6hint;
+};
+
+struct dns_https_record_rule {
+	struct dns_rule head;
+	struct dns_https_record record;
+	struct dns_https_filter filter;
 };
 
 struct dns_group_table {

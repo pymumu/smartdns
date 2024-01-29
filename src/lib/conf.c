@@ -296,6 +296,98 @@ void conf_getopt_reset(void)
 	optopt = 0;
 }
 
+int conf_parse_key_values(char *line, int *key_num, char **keys, char **values)
+{
+	int count = 0;
+	char *ptr = line;
+	char *key = NULL;
+	char *value = NULL;
+	char *field_start = NULL;
+	int filed_stage = 0;
+	int inquote = 0;
+	int end = 0;
+
+	if (line == NULL || key_num == NULL || keys == NULL || values == NULL) {
+		return -1;
+	}
+
+	while (1) {
+		if (*ptr == '\'' || *ptr == '"') {
+			if (inquote == 0) {
+				inquote = *ptr;
+				ptr++;
+				continue;
+			} else if (inquote == *ptr) {
+				inquote = 0;
+				*ptr = '\0';
+			}
+		}
+
+		if (field_start == NULL) {
+			field_start = ptr;
+		}
+
+		if (inquote != 0) {
+			ptr++;
+			continue;
+		}
+
+		if (*ptr == ',' || *ptr == '=' || *ptr == '\0') {
+			if (filed_stage == 0) {
+				key = field_start;
+				if (*key == '\0' || *key == ',') {
+					field_start = NULL;
+					if (end == 1) {
+						break;
+					}
+					ptr++;
+					continue;
+				}
+				value = ptr;
+				filed_stage = 1;
+				keys[count] = key;
+				values[count] = value;
+				if (*ptr == '\0' || *ptr == ',') {
+					count++;
+					key = NULL;
+					value = NULL;
+					filed_stage = 0;
+				}
+				*ptr = '\0';
+			} else if (filed_stage == 1) {
+				value = field_start;
+				if (*ptr == '=') {
+					goto errout;
+				}
+				filed_stage = 0;
+				keys[count] = key;
+				values[count] = value;
+				count++;
+				*ptr = '\0';
+				key = NULL;
+				value = NULL;
+			}
+
+			field_start = NULL;
+		}
+
+		if (end == 1) {
+			break;
+		}
+
+		ptr++;
+		if (*ptr == '\0') {
+			end = 1;
+		}
+	}
+
+	*key_num = count;
+
+	return 0;
+errout:
+	return -1;
+}
+
 static int conf_parse_args(char *key, char *value, int *argc, char **argv)
 {
 	char *start = NULL;
@@ -313,6 +405,7 @@ static int conf_parse_args(char *key, char *value, int *argc, char **argv)
 				*(tmp - 1) = *tmp;
 				tmp++;
 			}
+			*(tmp - 1) = '\0';
 			ptr++;
 			continue;
 		}

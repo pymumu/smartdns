@@ -206,6 +206,8 @@ extern int conf_enum(const char *item, void *data, int argc, char *argv[]);
 
 typedef int(conf_error_handler)(const char *file, int lineno, int ret);
 
+int conf_parse_key_values(char *line, int *key_num, char **keys, char **values);
+
 int load_conf(const char *file, struct config_item items[], conf_error_handler handler);
 
 void load_exit(void);

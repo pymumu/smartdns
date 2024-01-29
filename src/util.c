@@ -279,6 +279,52 @@ errout:
 	return -1;
 }
 
+int get_raw_addr_by_ip(const char *ip, unsigned char *raw_addr, int *raw_addr_len)
+{
+	struct sockaddr_storage addr;
+	socklen_t addr_len = sizeof(addr);
+
+	if (getaddr_by_host(ip, (struct sockaddr *)&addr, &addr_len) != 0) {
+		goto errout;
+	}
+
+	switch (addr.ss_family) {
+	case AF_INET: {
+		struct sockaddr_in *addr_in = NULL;
+		addr_in = (struct sockaddr_in *)&addr;
+		if (*raw_addr_len < DNS_RR_A_LEN) {
+			goto errout;
+		}
+		memcpy(raw_addr, &addr_in->sin_addr.s_addr, DNS_RR_A_LEN);
+		*raw_addr_len = DNS_RR_A_LEN;
+	} break;
+	case AF_INET6: {
+		struct sockaddr_in6 *addr_in6 = NULL;
+		addr_in6 = (struct sockaddr_in6 *)&addr;
+		if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
+			if (*raw_addr_len < DNS_RR_A_LEN) {
+				goto errout;
+			}
+			memcpy(raw_addr, addr_in6->sin6_addr.s6_addr + 12, DNS_RR_A_LEN);
+			*raw_addr_len = DNS_RR_A_LEN;
+		} else {
+			if (*raw_addr_len < DNS_RR_AAAA_LEN) {
+				goto errout;
+			}
+			memcpy(raw_addr, addr_in6->sin6_addr.s6_addr, DNS_RR_AAAA_LEN);
+			*raw_addr_len = DNS_RR_AAAA_LEN;
+		}
+	} break;
+	default:
+		goto errout;
+		break;
+	}
+
+	return 0;
+errout:
+	return -1;
+}
+
 int getsocket_inet(int fd, struct sockaddr *addr, socklen_t *addr_len)
 {
 	struct sockaddr_storage addr_store;

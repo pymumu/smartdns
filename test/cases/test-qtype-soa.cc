@@ -240,3 +240,53 @@ speed-check-mode none
 	EXPECT_EQ(client.GetAuthority()[0].GetTTL(), 30);
 	EXPECT_EQ(client.GetAuthority()[0].GetType(), "SOA");
 }
+
+TEST_F(QtypeSOA, HTTPS_SOA)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::Server server;
+	std::map<int, int> qid_map;
+
+	server_upstream.Start("udp://0.0.0.0:61053", [&](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype != DNS_T_HTTPS) {
+			return smartdns::SERVER_REQUEST_SOA;
+		}
+
+		struct dns_packet *packet = request->response_packet;
+		struct dns_rr_nested svcparam_buffer;
+
+		dns_add_HTTPS_start(&svcparam_buffer, packet, DNS_RRS_AN, request->domain.c_str(), 3, 1, "a.com");
+		const char alph[] = "\x02h2\x05h3-19";
+		int alph_len = sizeof(alph) - 1;
+		dns_HTTPS_add_alpn(&svcparam_buffer, alph, alph_len);
+		dns_HTTPS_add_port(&svcparam_buffer, 443);
+		unsigned char add_v4[] = {1, 2, 3, 4};
+		unsigned char *addr[1] = {add_v4};
+		dns_HTTPS_add_ipv4hint(&svcparam_buffer, addr, 1);
+		unsigned char ech[] = {0x00, 0x45, 0xfe, 0x0d, 0x00};
+		dns_HTTPS_add_ech(&svcparam_buffer, (void *)ech, sizeof(ech));
+		unsigned char add_v6[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+		addr[0] = add_v6;
+		dns_HTTPS_add_ipv6hint(&svcparam_buffer, addr, 1);
+		dns_add_HTTPS_end(&svcparam_buffer);
+
+		return smartdns::SERVER_REQUEST_OK;
+	});
+
+	server.Start(R"""(bind [::]:60053
+server 127.0.0.1:61053
+log-console yes
+dualstack-ip-selection no
+speed-check-mode none
+address /a.com/#
+log-level debug
+cache-persist no)""");
+	smartdns::Client client;
+    ASSERT_TRUE(client.Query("a.com HTTPS", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAuthorityNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NXDOMAIN");
+	EXPECT_EQ(client.GetAuthority()[0].GetName(), "a.com");
+	EXPECT_EQ(client.GetAuthority()[0].GetTTL(), 30);
+	EXPECT_EQ(client.GetAuthority()[0].GetType(), "SOA");
+}
