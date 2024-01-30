@@ -744,6 +744,10 @@ static int _dns_server_is_return_soa_qtype(struct dns_request *request, dns_type
 			request->domain_rule.rules[DOMAIN_RULE_ADDRESS_IPV4] == NULL) {
 			return 1;
 		}
+	} else if (qtype == DNS_T_HTTPS) {
+		if (request->domain_rule.rules[DOMAIN_RULE_HTTPS] == NULL) {
+			return 1;
+		}
 	}
 
 	return 0;
@@ -4017,7 +4021,7 @@ static int _dns_server_process_answer_HTTPS(struct dns_rrs *rrs, struct dns_requ
 }
 
 static int _dns_server_process_answer(struct dns_request *request, const char *domain, struct dns_packet *packet,
-									  unsigned int result_flag)
+									  unsigned int result_flag, int *need_passthrouh)
 {
 	int ttl = 0;
 	char name[DNS_MAX_CNAME_LEN] = {0};
@@ -4043,6 +4047,28 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 		}
 
 		return DNS_CLIENT_ACTION_UNDEFINE;
+	}
+
+	/* when QTYPE is HTTPS, check if support */
+	if (request->qtype == DNS_T_HTTPS) {
+		int https_svcb_record_num = 0;
+		for (j = 1; j < DNS_RRS_OPT; j++) {
+			rrs = dns_get_rrs_start(packet, j, &rr_count);
+			for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
+				switch (rrs->type) {
+				case DNS_T_HTTPS: {
+					https_svcb_record_num++;
+					if (https_svcb_record_num <= 1) {
+						continue;
+					}
+
+					/* CURRENT NOT SUPPORT MUTI HTTPS RECORD */
+					*need_passthrouh = 1;
+					return DNS_CLIENT_ACTION_OK;
+				}
+				}
+			}
+		}
 	}
 
 	for (j = 1; j < DNS_RRS_OPT; j++) {
@@ -4099,6 +4125,10 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 					continue;
 				}
 				request->rcode = packet->head.rcode;
+				if (request->has_ip == 0) {
+					request->passthrough = 1;
+					_dns_server_request_complete(request);
+				}
 			} break;
 			case DNS_T_SOA: {
 				/* if DNS64 enabled, skip check SOA. */
@@ -4552,12 +4582,36 @@ static void _dns_server_passthrough_may_complete(struct dns_request *request)
 	_dns_server_request_complete_with_all_IPs(request, 1);
 }
 
+static int _dns_server_resolve_callback_reply_passthrough(struct dns_request *request, const char *domain,
+														  struct dns_packet *packet, unsigned char *inpacket,
+														  int inpacket_len, unsigned int result_flag)
+{
+	struct dns_server_post_context context;
+	int ttl = 0;
+	int ret = 0;
+
+	ret = _dns_server_passthrough_rule_check(request, domain, packet, result_flag, &ttl);
+	if (ret == 0) {
+		return 0;
+	}
+
+	ttl = _dns_server_get_conf_ttl(request, ttl);
+	_dns_server_post_context_init_from(&context, request, packet, inpacket, inpacket_len);
+	context.do_cache = 1;
+	context.do_audit = 1;
+	context.do_reply = 1;
+	context.do_ipset = 1;
+	context.reply_ttl = ttl;
+	return _dns_server_reply_passthrough(&context);
+}
+
 static int dns_server_resolve_callback(const char *domain, dns_result_type rtype, struct dns_server_info *server_info,
 									   struct dns_packet *packet, unsigned char *inpacket, int inpacket_len,
 									   void *user_ptr)
 {
 	struct dns_request *request = user_ptr;
 	int ret = 0;
+	int need_passthrouh = 0;
 	unsigned long result_flag = dns_client_server_result_flag(server_info);
 
 	if (request == NULL) {
@@ -4570,21 +4624,8 @@ static int dns_server_resolve_callback(const char *domain, dns_result_type rtype
 			 dns_client_get_server_type(server_info), domain, request->qtype, packet->head.rcode, request->id);
 
 		if (request->passthrough == 1 && atomic_read(&request->notified) == 0) {
-			struct dns_server_post_context context;
-			int ttl = 0;
-			ret = _dns_server_passthrough_rule_check(request, domain, packet, result_flag, &ttl);
-			if (ret == 0) {
-				return 0;
-			}
-
-			ttl = _dns_server_get_conf_ttl(request, ttl);
-			_dns_server_post_context_init_from(&context, request, packet, inpacket, inpacket_len);
-			context.do_cache = 1;
-			context.do_audit = 1;
-			context.do_reply = 1;
-			context.do_ipset = 1;
-			context.reply_ttl = ttl;
-			return _dns_server_reply_passthrough(&context);
+			return _dns_server_resolve_callback_reply_passthrough(request, domain, packet, inpacket, inpacket_len,
+																  result_flag);
 		}
 
 		if (request->prefetch == 0 && request->response_mode == DNS_RESPONSE_MODE_FASTEST_RESPONSE &&
@@ -4614,7 +4655,13 @@ static int dns_server_resolve_callback(const char *domain, dns_result_type rtype
 			}
 		}
 
-		ret = _dns_server_process_answer(request, domain, packet, result_flag);
+		ret = _dns_server_process_answer(request, domain, packet, result_flag, &need_passthrouh);
+		if (ret == 0 && need_passthrouh == 1 && atomic_read(&request->notified) == 0) {
+			/* not supported record, passthrouth */
+			request->passthrough = 1;
+			return _dns_server_resolve_callback_reply_passthrough(request, domain, packet, inpacket, inpacket_len,
+																  result_flag);
+		}
 		_dns_server_passthrough_may_complete(request);
 		return ret;
 	} else if (rtype == DNS_QUERY_ERR) {
@@ -5421,14 +5468,10 @@ static int _dns_server_pre_process_rule_flags(struct dns_request *request)
 
 	/* get domain rule flag */
 	rule_flag = _dns_server_get_dns_rule(request, DOMAIN_RULE_FLAGS);
-	if (rule_flag == NULL) {
-		if (_dns_server_is_return_soa(request)) {
-			goto soa;
-		}
-		goto out;
+	if (rule_flag != NULL) {
+		flags = rule_flag->flags;
 	}
 
-	flags = rule_flag->flags;
 	if (flags & DOMAIN_FLAG_NO_SERVE_EXPIRED) {
 		request->no_serve_expired = 1;
 	}
@@ -5474,6 +5517,7 @@ static int _dns_server_pre_process_rule_flags(struct dns_request *request)
 			}
 			goto soa;
 		}
+		goto out;
 		break;
 	case DNS_T_AAAA:
 		if (flags & DOMAIN_FLAG_ADDR_IPV6_IGN) {
@@ -5501,6 +5545,7 @@ static int _dns_server_pre_process_rule_flags(struct dns_request *request)
 			/* if IPV4 return SOA and dualstack-selection enabled, set request dualstack disable */
 			request->dualstack_selection = 0;
 		}
+		goto out;
 		break;
 	case DNS_T_HTTPS:
 		if (flags & DOMAIN_FLAG_ADDR_HTTPS_IGN) {
@@ -5520,6 +5565,10 @@ static int _dns_server_pre_process_rule_flags(struct dns_request *request)
 				rcode = DNS_RC_NXDOMAIN;
 				goto soa;
 			}
+		}
+
+		if (request->domain_rule.rules[DOMAIN_RULE_HTTPS] != NULL) {
+			goto skip_soa_out;
 		}
 
 		goto out;
