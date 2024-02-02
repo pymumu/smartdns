@@ -7152,7 +7152,7 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 		goto errout;
 	}
 
-	tlog(TLOG_DEBUG, "query %s from %s, qtype: %d, id: %d, query-num: %d", request->domain, name, request->qtype,
+	tlog(TLOG_DEBUG, "query %s from %s, qtype: %d, id: %d, query-num: %ld", request->domain, name, request->qtype,
 		 request->id, atomic_read(&server.request_num));
 
 	if (atomic_read(&server.request_num) > dns_conf_max_query_limit && dns_conf_max_query_limit > 0) {
@@ -9144,7 +9144,7 @@ errout:
 
 static int _dns_server_cache_init(void)
 {
-	if (dns_cache_init(dns_conf_cachesize, _dns_server_cache_expired) != 0) {
+	if (dns_cache_init(dns_conf_cachesize, dns_conf_cache_max_memsize, _dns_server_cache_expired) != 0) {
 		tlog(TLOG_ERROR, "init cache failed.");
 		return -1;
 	}

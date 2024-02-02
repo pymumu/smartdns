@@ -665,6 +665,7 @@ extern char dns_conf_need_cert;
 
 extern int dns_conf_tcp_idle_time;
 extern ssize_t dns_conf_cachesize;
+extern ssize_t dns_conf_cache_max_memsize;
 extern struct dns_servers dns_conf_servers[DNS_MAX_SERVERS];
 extern int dns_conf_server_num;
 

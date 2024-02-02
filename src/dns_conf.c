@@ -88,6 +88,7 @@ enum response_mode_type dns_conf_default_response_mode = DNS_RESPONSE_MODE_FIRST
 
 /* cache */
 ssize_t dns_conf_cachesize = -1;
+ssize_t dns_conf_cache_max_memsize = -1;
 
 /* upstream servers */
 struct dns_servers dns_conf_servers[DNS_MAX_SERVERS];
@@ -5937,6 +5938,7 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("speed-check-mode", _config_speed_check_mode, NULL),
 	CONF_INT("tcp-idle-time", &dns_conf_tcp_idle_time, 0, 3600),
 	CONF_SSIZE("cache-size", &dns_conf_cachesize, -1, CONF_INT_MAX),
+	CONF_SSIZE("cache-mem-size", &dns_conf_cache_max_memsize, 0, CONF_INT_MAX),
 	CONF_CUSTOM("cache-file", _config_option_parser_filepath, (char *)&dns_conf_cache_file),
 	CONF_YESNO("cache-persist", &dns_conf_cache_persist),
 	CONF_INT("cache-checkpoint-time", &dns_conf_cache_checkpoint_time, 0, 3600 * 24 * 7),

@@ -132,7 +132,7 @@ typedef enum DNS_CACHE_TMOUT_ACTION {
 
 typedef dns_cache_tmout_action_t (*dns_cache_callback)(struct dns_cache *dns_cache);
 
-int dns_cache_init(int size, dns_cache_callback timeout_callback);
+int dns_cache_init(int size, int mem_size, dns_cache_callback timeout_callback);
 
 int dns_cache_replace(struct dns_cache_key *key, int rcode, int ttl, int speed, int timeout, int update_time,
 					  struct dns_cache_data *cache_data);
@@ -143,6 +143,8 @@ int dns_cache_insert(struct dns_cache_key *key, int rcode, int ttl, int speed, i
 struct dns_cache *dns_cache_lookup(struct dns_cache_key *key);
 
 int dns_cache_total_num(void);
+
+long dns_cache_total_memsize(void);
 
 int dns_cache_update_timer(struct dns_cache_key *key, int timeout);
 
