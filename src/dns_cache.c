@@ -96,6 +96,7 @@ static void _dns_cache_delete(struct dns_cache *dns_cache)
 	pthread_mutex_lock(&dns_cache_head.lock);
 	hash_del(&dns_cache->node);
 	list_del_init(&dns_cache->list);
+	dns_timer_del(&dns_cache->timer);
 	pthread_mutex_unlock(&dns_cache_head.lock);
 	atomic_dec(&dns_cache_head.num);
 	atomic_sub(sizeof(*dns_cache), &dns_cache_head.mem_size);

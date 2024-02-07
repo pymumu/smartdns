@@ -173,12 +173,14 @@ return view.extend({
 		o.rmempty = false;
 		o.value("main", _("Main DNS Server"));
 		o.value("upstream", _("Upstream DNS Server"));
+		o.value("dnsmasq_upstream", _("Dnsmasq Upstream Server"));
 
 		o = s.taboption("settings", form.Value, "port", _("DNS Server Port"), _("Smartdns server port."));
 		o.rmempty = true
 		o.default = 6053;
 		o.datatype = "port";
 		o.depends("server_mode", "upstream");
+		o.depends("server_mode", "dnsmasq_upstream");
 
 		o = s.taboption("parental", form.Flag, "pc_enabled", _("Enable"), _("Enable or disable smartdns server"));
 		o.rmempty = false;

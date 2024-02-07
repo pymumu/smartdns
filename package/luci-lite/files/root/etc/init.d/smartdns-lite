@@ -238,7 +238,7 @@ load_service()
 	args=""
 	local device=""
 	local adblock_set_name=""
-	local is_auto_set="0"
+	local auto_set_dnsmasq="0"
 
 	mkdir -p $SMARTDNS_VAR_CONF_DIR
 	rm -f $SMARTDNS_CONF_TMP
@@ -246,17 +246,22 @@ load_service()
 	config_get_bool enabled "$section" "enabled" '0'
 	[ "$enabled" != "1" ] && {
 		uci -q set smartdns.@smartdns[0].enabled="0"
+		uci -q del_list smartdns.@smartdns[0].conf_files="$SMARTDNS_CONF"
 		uci commit smartdns
+		clear_tproxy_rules
 		/etc/init.d/smartdns reload
 		return
 	}
 
 	config_get port "$section" "port" "53"
-	config_get server_mode "$section" "server_mode" "tcp_only"
-	config_get auto_set_dnsmasq "$section" "auto_set_dnsmasq" "0"
+	config_get server_mode "$section" "server_mode" "main"
 
 	[ "$server_mode" = "main" ] && {
 		port="53"
+	}
+
+	[ "$server_mode" = "dnsmasq_upstream" ] && {
+		auto_set_dnsmasq="1"
 	}
 	
 	config_list_foreach "$section" "servers" servers_append
