@@ -242,8 +242,8 @@ return view.extend({
 		o.default = o.disabled;
 
 		o = s.taboption("advanced", form.Value, "doh_server_port", _("DOH Server Port"), _("Smartdns DOH server port."));
-		o.placeholder = 843;
-		o.default = 843;
+		o.placeholder = 443;
+		o.default = 443;
 		o.datatype = "port";
 		o.rempty = false;
 		o.depends('doh_server', '1');
@@ -254,7 +254,7 @@ return view.extend({
 		o.rempty = true;
 		o.depends('tls_server', '1');
 		o.depends('doh_server', '1');
-	
+
 		o = s.taboption("advanced", form.Value, "bind_cert_key", _("Server Cert Key"), _("Server certificate key file path."));
 		o.datatype = "string";
 		o.placeholder = "/var/etc/smartdns/smartdns/smartdns-key.pem"
@@ -371,7 +371,7 @@ return view.extend({
 
 			return true;
 		}
-		
+
 		// NFTset name;
 		o = s.taboption("advanced", form.Value, "nftset_name", _("NFTset Name"), _("NFTset name, format: [#[4|6]:[family#table#set]]"));
 		o.rmempty = true;
@@ -470,7 +470,7 @@ return view.extend({
 
 			o.value(download_files[i].name);
 		}
-	
+
 		///////////////////////////////////////
 		// second dns server;
 		///////////////////////////////////////
@@ -543,7 +543,7 @@ return view.extend({
 		o = s.taboption("seconddns", form.Flag, "seconddns_force_aaaa_soa", _("Force AAAA SOA"), _("Force AAAA SOA."));
 		o.rmempty = true;
 		o.default = o.disabled;
-		
+
 		// Force HTTPS SOA
 		o = s.taboption("seconddns", form.Flag, "seconddns_force_https_soa", _("Force HTTPS SOA"), _("Force HTTPS SOA."));
 		o.rmempty = true;
@@ -760,7 +760,7 @@ return view.extend({
 		o.placeholder = _("file");
 		o.value("file", _("file"));
 		o.value("syslog", _("syslog"));
-	
+
 		o = s.taboption("custom", form.Value, "log_size", _("Log Size"));
 		o.rmempty = true;
 		o.placeholder = "default";
@@ -987,7 +987,7 @@ return view.extend({
 		o.rmempty = false;
 		o.default = o.disabled;
 
-		o = s.taboption("basic", form.DynamicList, "client_addr", _("Client Address"), 
+		o = s.taboption("basic", form.DynamicList, "client_addr", _("Client Address"),
 		_("If a client address is specified, only that client will apply this rule. You can enter an IP address, such as 1.2.3.4, or a MAC address, such as aa:bb:cc:dd:ee:ff."));
 		o.rempty = true
 		o.rmempty = true;
@@ -1008,7 +1008,7 @@ return view.extend({
 			if (value.match(/^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/)) {
 				return true;
 			}
-			
+
 			return _("Client address format error, please input ip adress or mac address.");
 		}
 
@@ -1019,7 +1019,7 @@ return view.extend({
 		o.rempty = true
 		o.modalonly = true;
 		o.root_directory = "/etc/smartdns/ip-set"
-		
+
 		o = s.taboption("basic", form.Value, "server_group", _("Server Group"), _("DNS Server group belongs to, such as office, home."))
 		o.rmempty = true
 		o.placeholder = "default"
@@ -1119,7 +1119,7 @@ return view.extend({
 
 			return true;
 		}
-		
+
 		// NFTset name;
 		o = s.taboption("advanced", form.Value, "nftset_name", _("NFTset Name"), _("NFTset name, format: [#[4|6]:[family#table#set]]"));
 		o.rmempty = true;
