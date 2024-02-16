@@ -710,6 +710,11 @@ static int _fast_ping_sendping_v6(struct ping_host_struct *ping_host)
 	struct icmp6_hdr *icmp6 = &packet->icmp6;
 	int len = 0;
 
+	if (ping.fd_icmp6 <= 0) {
+		errno = EADDRNOTAVAIL;
+		goto errout;
+	}
+
 	ping_host->seq++;
 	memset(icmp6, 0, sizeof(*icmp6));
 	icmp6->icmp6_type = ICMP6_ECHO_REQUEST;
@@ -1031,7 +1036,7 @@ static int _fast_ping_create_icmp_sock(FAST_PING_TYPE type)
 				}
 				bool_print_log = 0;
 			}
-			tlog(TLOG_ERROR, "create icmp socket failed, %s\n", strerror(errno));
+			tlog(TLOG_INFO, "create icmpv6 socket failed, %s\n", strerror(errno));
 			goto errout;
 		}
 		setsockopt(fd, IPPROTO_IPV6, IPV6_RECVHOPLIMIT, &on, sizeof(on));
