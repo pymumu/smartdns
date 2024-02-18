@@ -88,7 +88,7 @@ int parse_uri(const char *value, char *scheme, char *host, int *port, char *path
 
 int parse_uri_ext(const char *value, char *scheme, char *user, char *password, char *host, int *port, char *path);
 
-void urldecode(char *dst, const char *src);
+int urldecode(char *dst, int dst_maxlen, const char *src);
 
 int set_fd_nonblock(int fd, int nonblock);
 

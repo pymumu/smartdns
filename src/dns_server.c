@@ -7759,6 +7759,7 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn_tcp_client
 	int len = 0;
 	struct http_head *http_head = NULL;
 	uint8_t *http_decode_data = NULL;
+	char *base64_query = NULL;
 
 	/* Handling multiple requests */
 	for (;;) {
@@ -7806,11 +7807,25 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn_tcp_client
 					goto errout;
 				}
 
-				const char *base64_query = http_head_get_params_value(http_head, "dns");
-				if (base64_query == NULL) {
+				const char *dns_query = http_head_get_params_value(http_head, "dns");
+				if (dns_query == NULL) {
 					tlog(TLOG_DEBUG, "query is null.");
 					goto errout;
 				}
+
+				if (base64_query == NULL) {
+					base64_query = malloc(DNS_IN_PACKSIZE);
+					if (base64_query == NULL) {
+						tlog(TLOG_DEBUG, "malloc failed.");
+						goto errout;
+					}
+				}
+
+				if (urldecode(base64_query, DNS_IN_PACKSIZE, dns_query) < 0) {
+					tlog(TLOG_DEBUG, "urldecode query failed.");
+					goto errout;
+				}
+
 
 				if (http_decode_data == NULL) {
 					http_decode_data = malloc(DNS_IN_PACKSIZE);
@@ -7885,6 +7900,10 @@ errout:
 
 	if (http_decode_data) {
 		free(http_decode_data);
+	}
+
+	if (base64_query) {
+		free(base64_query);
 	}
 
 	if ((ret == RECV_ERROR_FAIL || ret == RECV_ERROR_INVALID_PACKET) &&
