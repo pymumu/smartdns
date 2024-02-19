@@ -988,20 +988,55 @@ unsigned char *SSL_SHA256(const unsigned char *d, size_t n, unsigned char *md)
 	return (md);
 }
 
-int SSL_base64_decode(const char *in, unsigned char *out, int max_outlen)
+int SSL_base64_decode_ext(const char *in, unsigned char *out, int max_outlen, int url_safe, int auto_padding)
 {
 	size_t inlen = strlen(in);
+	char *in_padding_data = NULL;
+	int padding_len = 0;
+	const char *in_data = in;
 	int outlen = 0;
-
-	if (max_outlen < (int)inlen / 4 * 3) {
-		goto errout;
-	}
 
 	if (inlen == 0) {
 		return 0;
 	}
 
-	outlen = EVP_DecodeBlock(out, (unsigned char *)in, inlen);
+	if ((auto_padding == 1 && inlen % 4 != 0) || url_safe == 1) {
+		padding_len = 4 - inlen % 4;
+		in_padding_data = (char *)malloc(inlen + padding_len + 1);
+		if (in_padding_data == NULL) {
+			goto errout;
+		}
+
+		if (url_safe) {
+			for (size_t i = 0; i < inlen; i++) {
+				if (in[i] == '-') {
+					in_padding_data[i] = '+';
+				} else if (in[i] == '_') {
+					in_padding_data[i] = '/';
+				} else {
+					in_padding_data[i] = in[i];
+				}
+			}
+		} else {
+			memcpy(in_padding_data, in, inlen);
+		}
+
+		if (auto_padding) {
+			memset(in_padding_data + inlen, '=', padding_len);
+		} else {
+			padding_len = 0;
+		}
+
+		in_padding_data[inlen + padding_len] = '\0';
+		in_data = in_padding_data;
+		inlen += padding_len;
+	}
+
+	if (max_outlen < (int)inlen / 4 * 3) {
+		goto errout;
+	}
+
+	outlen = EVP_DecodeBlock(out, (unsigned char *)in_data, inlen);
 	if (outlen < 0) {
 		goto errout;
 	}
@@ -1011,9 +1046,25 @@ int SSL_base64_decode(const char *in, unsigned char *out, int max_outlen)
 		--outlen;
 	}
 
+	if (in_padding_data) {
+		free(in_padding_data);
+	}
+
+	outlen -= padding_len;
+
 	return outlen;
 errout:
+
+	if (in_padding_data) {
+		free(in_padding_data);
+	}
+
 	return -1;
+}
+
+int SSL_base64_decode(const char *in, unsigned char *out, int max_outlen)
+{
+	return SSL_base64_decode_ext(in, out, max_outlen, 0, 0);
 }
 
 int SSL_base64_encode(const void *in, int in_len, char *out)

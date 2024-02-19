@@ -7835,7 +7835,7 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn_tcp_client
 					}
 				}
 
-				int decode_len = SSL_base64_decode(base64_query, http_decode_data, DNS_IN_PACKSIZE);
+				int decode_len = SSL_base64_decode_ext(base64_query, http_decode_data, DNS_IN_PACKSIZE, 1, 1);
 				if (decode_len <= 0) {
 					tlog(TLOG_DEBUG, "decode query failed.");
 					goto errout;

@@ -114,6 +114,8 @@ unsigned char *SSL_SHA256(const unsigned char *d, size_t n, unsigned char *md);
 
 int SSL_base64_decode(const char *in, unsigned char *out, int max_outlen);
 
+int SSL_base64_decode_ext(const char *in, unsigned char *out, int max_outlen, int url_safe, int auto_padding);
+
 int SSL_base64_encode(const void *in, int in_len, char *out);
 
 int generate_cert_key(const char *key_path, const char *cert_path, const char *san, int days);
