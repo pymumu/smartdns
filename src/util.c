@@ -1000,7 +1000,11 @@ int SSL_base64_decode_ext(const char *in, unsigned char *out, int max_outlen, in
 		return 0;
 	}
 
-	if ((auto_padding == 1 && inlen % 4 != 0) || url_safe == 1) {
+	if (inlen % 4 == 0) {
+		auto_padding = 0;
+	}
+
+	if (auto_padding == 1 || url_safe == 1) {
 		padding_len = 4 - inlen % 4;
 		in_padding_data = (char *)malloc(inlen + padding_len + 1);
 		if (in_padding_data == NULL) {
