@@ -67,7 +67,7 @@ hide:
 | dns64 | DNS64转换 | 无 | dns64 ip-prefix/mask <br /> ipv6前缀和掩码 | dns64 64:ff9b::/96 |
 | mdns-lookup | 是否启用mDNS查询 | no | [yes\|no] | mdns-lookup yes|
 | hosts-file | 指定hosts文件 | 无 | hosts文件路径 | hosts-file /etc/hosts | 
-| edns-client-subnet | DNS ECS | 无 | edns-client-subnet ip-prefix/mask <br /> 指定EDNS客户端子网 | ip-prefix/mask 1.2.3.4/23 |
+| edns-client-subnet | DNS ECS | 无 | edns-client-subnet ip-prefix/mask <br /> 指定EDNS客户端子网 | edns-client-subnet 1.2.3.4/23 |
 | nameserver | 指定域名使用 server 组解析 | 无 | nameserver /domain/[group\|-], group 为组名，- 表示忽略此规则，配套 server 中的 -group 参数使用 | nameserver /www.example.com/office |
 | ipset | 域名 ipset | 无 | ipset [/domain/][ipset\|-\|#[4\|6]:[ipset\|-][,#[4\|6]:[ipset\|-]]]，-表示忽略此规则，只有ipset名称没有域名时，表示全局生效。| ipset /www.example.com/#4:dns4,#6:- <br />ipset /www.example.com/dns <br /> ipset ipsetname|
 | ipset-timeout | 设置 ipset 超时功能启用  | no | [yes\|no] | ipset-timeout yes |
