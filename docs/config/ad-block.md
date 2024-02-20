@@ -91,7 +91,7 @@ b.com
 |--|--|--|
 |[anti-AD](https://anti-ad.net/)|Anti Advertising for smartdns|https://anti-ad.net/anti-ad-for-smartdns.conf|
 |[adrules](https://adrules.top/)|AdRules SmartDNS List|https://adrules.top/smart-dns.conf |
-|[neodevhost](https://github.com/neodevpro/neodevhost/)|AdRules SmartDNS List|https://raw.githubusercontent.com/neodevpro/neodevhost/master/lite_smartdns.conf |
+|[neodevhost](https://github.com/neodevpro/neodevhost/)|neodevhost SmartDNS List|https://raw.githubusercontent.com/neodevpro/neodevhost/master/lite_smartdns.conf |
 
 ## 非smartdns列表
 

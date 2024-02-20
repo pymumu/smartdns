@@ -63,7 +63,7 @@ hide:
 |dns64|dns64 translation | None | dns64 ip-prefix/mask <br /> ipv6 prefix and mask. | dns64 64:ff9b::/96 |
 |mdns-lookup|Enable mDNS lookup|no|[yes\|no]|mdns-lookup yes|
 |hosts-file| set hosts file | None | hosts file path. | hosts-file /etc/hosts | 
-|edns-client-subnet| DNS ECS | None |edns-client-subnet ip-prefix/mask <br /> set EDNS client subnet | ip-prefix/mask 1.2.3.4/23 |
+|edns-client-subnet| DNS ECS | None |edns-client-subnet ip-prefix/mask <br /> set EDNS client subnet | edns-client-subnet 1.2.3.4/23 |
 |nameserver|To query domain with specific server group|None|nameserver /domain/[group\|-], `group` is the group name, `-` means ignore this rule, use the `-group` parameter in the related server|nameserver /www.example.com/office
 |ipset|Domain IPSet|None|ipset [/domain/][ipset\|-\|#[4\|6]:[ipset\|-][,#[4\|6]:[ipset\|-]]], `-` for ignore this rule.|ipset /www.example.com/#4:dns4,#6:-<br /> ipset ipsetname
 |ipset-timeout|ipset timeout enable|no|[yes\|no]|ipset-timeout yes
