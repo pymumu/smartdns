@@ -2622,6 +2622,10 @@ static int _dns_server_request_complete_with_all_IPs(struct dns_request *request
 				 request->ip_addr[9], request->ip_addr[10], request->ip_addr[11], request->ip_addr[12],
 				 request->ip_addr[13], request->ip_addr[14], request->ip_addr[15]);
 		}
+
+		if (request->rcode == DNS_RC_SERVFAIL && request->has_ip) {
+			request->rcode = DNS_RC_NOERROR;
+		}
 	}
 
 out:
@@ -7825,7 +7829,6 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn_tcp_client
 					tlog(TLOG_DEBUG, "urldecode query failed.");
 					goto errout;
 				}
-
 
 				if (http_decode_data == NULL) {
 					http_decode_data = malloc(DNS_IN_PACKSIZE);
