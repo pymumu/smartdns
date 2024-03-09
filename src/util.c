@@ -908,15 +908,16 @@ int netlink_get_neighbors(int family,
 			continue;
 		}
 
-		unsigned int rtalen = len;
-		for (nlh = (struct nlmsghdr *)buf; NLMSG_OK(nlh, rtalen); nlh = NLMSG_NEXT(nlh, rtalen)) {
+		int nlh_len = len;
+		for (nlh = (struct nlmsghdr *)buf; NLMSG_OK(nlh, nlh_len); nlh = NLMSG_NEXT(nlh, nlh_len)) {
 			ndm = NLMSG_DATA(nlh);
 			struct rtattr *rta = RTM_RTA(ndm);
 			const uint8_t *mac = NULL;
 			const uint8_t *net_addr = NULL;
 			int net_addr_len = 0;
+			int rta_len = RTM_PAYLOAD(nlh);
 
-			for (; RTA_OK(rta, rtalen); rta = RTA_NEXT(rta, rtalen)) {
+			for (; RTA_OK(rta, rta_len); rta = RTA_NEXT(rta, rta_len)) {
 				if (rta->rta_type == NDA_DST) {
 					if (ndm->ndm_family == AF_INET) {
 						struct in_addr *addr = RTA_DATA(rta);
