@@ -2994,6 +2994,24 @@ errout:
 	return -1;
 }
 
+static int _bind_is_ip_valid(const char *ip)
+{
+	struct sockaddr_storage addr;
+	socklen_t addr_len = sizeof(addr);
+	char ip_check[MAX_IP_LEN];
+	int port_check = 0;
+
+	if (parse_ip(ip, ip_check, &port_check) != 0) {
+		return -1;
+	}
+
+	if (getaddr_by_host(ip_check, (struct sockaddr *)&addr, &addr_len) != 0) {
+		return -1;
+	}
+
+	return 0;
+}
+
 static int _config_bind_ip(int argc, char *argv[], DNS_BIND_TYPE type)
 {
 	int index = dns_conf_bind_ip_num;
@@ -3038,6 +3056,11 @@ static int _config_bind_ip(int argc, char *argv[], DNS_BIND_TYPE type)
 	if (index >= DNS_MAX_SERVERS) {
 		tlog(TLOG_WARN, "exceeds max server number, %s", ip);
 		return 0;
+	}
+
+	if (_bind_is_ip_valid(ip) != 0) {
+		tlog(TLOG_ERROR, "bind ip address invalid: %s", ip);
+		return -1;
 	}
 
 	for (i = 0; i < dns_conf_bind_ip_num; i++) {

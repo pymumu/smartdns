@@ -8705,7 +8705,7 @@ static int _dns_create_socket(const char *host_ip, int type)
 	snprintf(port_str, sizeof(port_str), "%d", port);
 	gai = _dns_server_getaddr(host, port_str, type, 0);
 	if (gai == NULL) {
-		tlog(TLOG_ERROR, "get address failed.\n");
+		tlog(TLOG_ERROR, "get address failed.");
 		goto errout;
 	}
 
@@ -8771,6 +8771,8 @@ errout:
 	if (gai) {
 		freeaddrinfo(gai);
 	}
+
+	tlog(TLOG_ERROR, "add server failed, host-ip: %s, type: %d", host_ip, type);
 	return -1;
 }
 
@@ -9262,6 +9264,8 @@ int dns_server_init(void)
 	INIT_LIST_HEAD(&server.conn_list);
 	time(&server.cache_save_time);
 	atomic_set(&server.request_num, 0);
+	pthread_mutex_init(&server.request_list_lock, NULL);
+	INIT_LIST_HEAD(&server.request_list);
 
 	epollfd = epoll_create1(EPOLL_CLOEXEC);
 	if (epollfd < 0) {
@@ -9275,8 +9279,6 @@ int dns_server_init(void)
 		goto errout;
 	}
 
-	pthread_mutex_init(&server.request_list_lock, NULL);
-	INIT_LIST_HEAD(&server.request_list);
 	server.epoll_fd = epollfd;
 	atomic_set(&server.run, 1);
 
