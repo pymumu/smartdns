@@ -8973,6 +8973,8 @@ static int _dns_server_socket(void)
 
 	for (i = 0; i < dns_conf_bind_ip_num; i++) {
 		struct dns_bind_ip *bind_ip = &dns_conf_bind_ip[i];
+		tlog(TLOG_INFO, "bind ip %s, type %d", bind_ip->ip, bind_ip->type);
+		
 		switch (bind_ip->type) {
 		case DNS_BIND_TYPE_UDP:
 			if (_dns_server_socket_udp(bind_ip) != 0) {

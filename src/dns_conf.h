@@ -34,7 +34,7 @@
 extern "C" {
 #endif
 
-#define DNS_MAX_BIND_IP 16
+#define DNS_MAX_BIND_IP 32
 #define DNS_MAX_SERVERS 64
 #define DNS_MAX_SERVER_NAME_LEN 128
 #define DNS_MAX_PTR_LEN 128
