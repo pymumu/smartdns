@@ -946,9 +946,10 @@ static void _dns_server_audit_log(struct dns_server_post_context *context)
 				 tm.min, tm.sec, tm.usec / 1000);
 	}
 
-	tlog_printf(dns_audit, "%s%s query %s, type %d, time %lums, speed: %.1fms, result %s\n", req_time, req_host,
-				request->domain, request->qtype, get_tick_count() - request->send_tick,
-				((float)request->ping_time) / 10, req_result);
+	tlog_printf(dns_audit, "%s%s query %s, type %d, time %lums, speed: %.1fms, group %s, result %s\n", req_time,
+				req_host, request->domain, request->qtype, get_tick_count() - request->send_tick,
+				((float)request->ping_time) / 10,
+				request->dns_group_name[0] != '\0' ? request->dns_group_name : DNS_SERVER_GROUP_DEFAULT, req_result);
 }
 
 static void _dns_rrs_result_log(struct dns_server_post_context *context, struct dns_ip_address *addr_map)
@@ -2389,7 +2390,7 @@ static int _dns_request_post(struct dns_server_post_context *context)
 
 	tlog(TLOG_INFO, "result: %s, client: %s, qtype: %d, id: %d, group: %s, time: %lums", request->domain,
 		 get_host_by_addr(clientip, sizeof(clientip), (struct sockaddr *)&request->addr), request->qtype, request->id,
-		 request->dns_group_name[0] != '\0' ? request->dns_group_name : "default",
+		 request->dns_group_name[0] != '\0' ? request->dns_group_name : DNS_SERVER_GROUP_DEFAULT,
 		 get_tick_count() - request->send_tick);
 
 	ret = _dns_reply_inpacket(request, context->inpacket, context->inpacket_len);
@@ -4481,7 +4482,7 @@ static int _dns_server_reply_passthrough(struct dns_server_post_context *context
 
 		tlog(TLOG_INFO, "result: %s, client: %s, qtype: %d, id: %d, group: %s, time: %lums", request->domain,
 			 get_host_by_addr(clientip, sizeof(clientip), (struct sockaddr *)&request->addr), request->qtype,
-			 request->id, request->dns_group_name[0] != '\0' ? request->dns_group_name : "default",
+			 request->id, request->dns_group_name[0] != '\0' ? request->dns_group_name : DNS_SERVER_GROUP_DEFAULT,
 			 get_tick_count() - request->send_tick);
 	}
 
@@ -8974,7 +8975,7 @@ static int _dns_server_socket(void)
 	for (i = 0; i < dns_conf_bind_ip_num; i++) {
 		struct dns_bind_ip *bind_ip = &dns_conf_bind_ip[i];
 		tlog(TLOG_INFO, "bind ip %s, type %d", bind_ip->ip, bind_ip->type);
-		
+
 		switch (bind_ip->type) {
 		case DNS_BIND_TYPE_UDP:
 			if (_dns_server_socket_udp(bind_ip) != 0) {
