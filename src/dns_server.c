@@ -6684,6 +6684,7 @@ static void _dns_server_mdns_query_setup_server_group(struct dns_request *reques
 	}
 
 	*group_name = DNS_SERVER_GROUP_MDNS;
+	safe_strncpy(request->dns_group_name, DNS_SERVER_GROUP_MDNS, sizeof(request->dns_group_name));
 	return;
 }
 
@@ -6825,18 +6826,35 @@ static int _dns_server_setup_request_conf(struct dns_request *request)
 	return 0;
 }
 
+static void _dns_server_setup_dns_group_name(struct dns_request *request, const char **server_group_name)
+{
+	const char *group_name = NULL;
+	const char *temp_group_name = NULL;
+	if (request->conn) {
+		group_name = request->conn->dns_group;
+	}
+
+	temp_group_name = _dns_server_get_request_server_groupname(request);
+	if (temp_group_name != NULL) {
+		group_name = temp_group_name;
+	}
+
+	if (request->dns_group_name[0] != '\0') {
+		group_name = request->dns_group_name;
+	} else {
+		safe_strncpy(request->dns_group_name, group_name, sizeof(request->dns_group_name));
+	}
+
+	*server_group_name = group_name;
+}
+
 static int _dns_server_do_query(struct dns_request *request, int skip_notify_event)
 {
 	int ret = -1;
 	const char *server_group_name = NULL;
-	const char *dns_group = NULL;
 	struct dns_query_options options;
 	char *request_domain = request->domain;
 	char domain_buffer[DNS_MAX_CNAME_LEN * 2];
-
-	if (request->conn) {
-		dns_group = request->conn->dns_group;
-	}
 
 	request->send_tick = get_tick_count();
 
@@ -6847,16 +6865,7 @@ static int _dns_server_do_query(struct dns_request *request, int skip_notify_eve
 	/* lookup domain rule */
 	_dns_server_get_domain_rule(request);
 
-	if (request->dns_group_name[0] == '\0') {
-		if (dns_group) {
-			safe_strncpy(request->dns_group_name, dns_group, sizeof(request->dns_group_name));
-		}
-	}
-
-	server_group_name = _dns_server_get_request_server_groupname(request);
-	if (server_group_name == NULL) {
-		server_group_name = request->dns_group_name;
-	}
+	_dns_server_setup_dns_group_name(request, &server_group_name);
 
 	if (_dns_server_setup_request_conf(request) != 0) {
 		goto errout;
