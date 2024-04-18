@@ -61,9 +61,6 @@ static time_t dns_conf_dnsmasq_lease_file_time;
 struct dns_hosts_table dns_hosts_table;
 int dns_hosts_record_num;
 
-/* DNS64 */
-struct dns_dns64 dns_conf_dns_dns64;
-
 /* SRV-HOST */
 struct dns_srv_record_table dns_conf_srv_record_table;
 
@@ -2833,6 +2830,11 @@ static int _config_dns64(void *data, int argc, char *argv[])
 
 	subnet = argv[1];
 
+	if (strncmp(subnet, "-", 2U) == 0) {
+		memset(&_config_current_rule_group()->dns_dns64, 0, sizeof(struct dns_dns64));
+		return 0;
+	}
+
 	p = prefix_pton(subnet, -1, &prefix, &errmsg);
 	if (p == NULL) {
 		goto errout;
@@ -2848,8 +2850,9 @@ static int _config_dns64(void *data, int argc, char *argv[])
 		goto errout;
 	}
 
-	memcpy(&dns_conf_dns_dns64.prefix, &prefix.add.sin6.s6_addr, sizeof(dns_conf_dns_dns64.prefix));
-	dns_conf_dns_dns64.prefix_len = prefix.bitlen;
+	struct dns_dns64 *dns64 = &(_config_current_rule_group()->dns_dns64);
+	memcpy(&dns64->prefix, &prefix.add.sin6.s6_addr, sizeof(dns64->prefix));
+	dns64->prefix_len = prefix.bitlen;
 
 	return 0;
 
