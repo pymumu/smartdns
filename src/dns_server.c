@@ -77,6 +77,7 @@
 #define SOCKET_PRIORITY (6)
 #define CACHE_AUTO_ENABLE_SIZE (1024 * 1024 * 128)
 #define EXPIRED_DOMAIN_PREFETCH_TIME (3600 * 8)
+#define DNS_MAX_SERVE_EXPIRED_UPDATE_TIME (3600 * 24 * 7)
 #define DNS_MAX_DOMAIN_REFETCH_NUM 64
 #define DNS_SERVER_NEIGHBOR_CACHE_MAX_NUM 8192
 #define DNS_SERVER_NEIGHBOR_CACHE_TIMEOUT (3600 * 1)
@@ -1632,12 +1633,13 @@ static int _dns_server_get_cache_timeout(struct dns_request *request, struct dns
 			timeout = ttl - 3;
 		}
 	} else {
-		timeout = ttl;
+		timeout = ttl + 3;
 		if (is_serve_expired) {
 			timeout += request->conf->dns_serve_expired_ttl;
+			if (request->conf->dns_serve_expired_ttl == 0) {
+				timeout = DNS_MAX_SERVE_EXPIRED_UPDATE_TIME;
+			}
 		}
-
-		timeout += 3;
 	}
 
 	if (timeout <= 0) {
@@ -8338,6 +8340,10 @@ static dns_cache_tmout_action_t _dns_server_cache_expired(struct dns_cache *dns_
 		} else {
 			return _dns_server_prefetch_domain(conf_group, dns_cache);
 		}
+	}
+
+	if (conf_group->dns_serve_expired == 1 && conf_group->dns_serve_expired_ttl == 0) {
+		return DNS_CACHE_TMOUT_ACTION_UPDATE;
 	}
 
 	return DNS_CACHE_TMOUT_ACTION_DEL;

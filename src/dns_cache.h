@@ -128,6 +128,7 @@ typedef enum DNS_CACHE_TMOUT_ACTION {
 	DNS_CACHE_TMOUT_ACTION_OK = 0,
 	DNS_CACHE_TMOUT_ACTION_DEL = 1,
 	DNS_CACHE_TMOUT_ACTION_RETRY = 2,
+	DNS_CACHE_TMOUT_ACTION_UPDATE = 3,
 } dns_cache_tmout_action_t;
 
 typedef dns_cache_tmout_action_t (*dns_cache_callback)(struct dns_cache *dns_cache);

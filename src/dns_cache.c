@@ -192,6 +192,9 @@ static void dns_cache_expired(struct tw_base *base, struct tw_timer_list *timer,
 		switch (tmout_act) {
 		case DNS_CACHE_TMOUT_ACTION_OK:
 			break;
+		case DNS_CACHE_TMOUT_ACTION_UPDATE:
+			dns_timer_mod(&dns_cache->timer, dns_cache->info.timeout);
+			return;
 		case DNS_CACHE_TMOUT_ACTION_DEL:
 			dns_cache_delete(dns_cache);
 			return;
