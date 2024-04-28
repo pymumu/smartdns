@@ -61,6 +61,7 @@ extern "C" {
 #define DNS_MAX_REPLY_IP_NUM 8
 #define DNS_MAX_QUERY_LIMIT 65535
 #define DNS_DEFAULT_CHECKPOINT_TIME (3600 * 24)
+#define DNS_MAX_SERVE_EXPIRED_TIME (3600 * 24 * 365)
 #define MAX_INTERFACE_LEN 16
 
 #define SMARTDNS_CONF_FILE "/etc/smartdns/smartdns.conf"

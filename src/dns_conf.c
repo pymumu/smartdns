@@ -6462,6 +6462,10 @@ static void _dns_conf_group_post(void)
 		if ((group->dns_rr_ttl_max < group->dns_rr_ttl_min) && group->dns_rr_ttl_max > 0) {
 			group->dns_rr_ttl_max = group->dns_rr_ttl_min;
 		}
+
+		if (group->dns_serve_expired == 1 && group->dns_serve_expired_ttl == 0) {
+			group->dns_serve_expired_ttl = DNS_MAX_SERVE_EXPIRED_TIME;
+		}
 	}
 }
 
