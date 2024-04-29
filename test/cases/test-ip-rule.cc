@@ -120,6 +120,7 @@ TEST_F(IPRule, black_list)
 			return smartdns::SERVER_REQUEST_SOA;
 		}
 
+		usleep(800000);
 		smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4", 611);
 		return smartdns::SERVER_REQUEST_OK;
 	});

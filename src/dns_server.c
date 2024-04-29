@@ -4038,6 +4038,7 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 	int ret = 0;
 	int is_skip = 0;
 	int has_result = 0;
+	int is_rcode_set = 0;
 
 	if (packet->head.rcode != DNS_RC_NOERROR && packet->head.rcode != DNS_RC_NXDOMAIN) {
 		if (request->rcode == DNS_RC_SERVFAIL) {
@@ -4092,6 +4093,7 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 					return -1;
 				}
 				request->rcode = packet->head.rcode;
+				is_rcode_set = 1;
 			} break;
 			case DNS_T_AAAA: {
 				ret = _dns_server_process_answer_AAAA(rrs, request, domain, cname, result_flag);
@@ -4104,6 +4106,7 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 					return -1;
 				}
 				request->rcode = packet->head.rcode;
+				is_rcode_set = 1;
 			} break;
 			case DNS_T_NS: {
 				char nsname[DNS_MAX_CNAME_LEN];
@@ -4130,6 +4133,7 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 					continue;
 				}
 				request->rcode = packet->head.rcode;
+				is_rcode_set = 1;
 				if (request->has_ip == 0) {
 					request->passthrough = 1;
 					_dns_server_request_complete(request);
@@ -4147,6 +4151,7 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 				request->has_soa = 1;
 				if (request->rcode != DNS_RC_NOERROR) {
 					request->rcode = packet->head.rcode;
+					is_rcode_set = 1;
 				}
 				dns_get_SOA(rrs, name, 128, &ttl, &request->soa);
 				tlog(TLOG_DEBUG,
@@ -4180,6 +4185,10 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 		tlog(TLOG_DEBUG, "result is truncated, %s qtype: %d, rcode: %d, id: %d, retry.", domain, request->qtype,
 			 packet->head.rcode, packet->head.id);
 		return DNS_CLIENT_ACTION_RETRY;
+	}
+
+	if (is_rcode_set == 0 && has_result == 1) {
+		return DNS_CLIENT_ACTION_MAY_RETRY;
 	}
 
 	return DNS_CLIENT_ACTION_OK;

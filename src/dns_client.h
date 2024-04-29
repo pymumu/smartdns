@@ -72,6 +72,7 @@ struct dns_server_info;
 #define DNS_CLIENT_ACTION_UNDEFINE (-1)
 #define DNS_CLIENT_ACTION_DROP (-2)
 #define DNS_CLIENT_ACTION_RETRY (-3)
+#define DNS_CLIENT_ACTION_MAY_RETRY (-4)
 typedef int (*dns_client_callback)(const char *domain, dns_result_type rtype, struct dns_server_info *server_info,
 								   struct dns_packet *packet, unsigned char *inpacket, int inpacket_len,
 								   void *user_ptr);
