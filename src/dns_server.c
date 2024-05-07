@@ -3760,7 +3760,8 @@ static int _dns_server_process_answer_A_IP(struct dns_request *request, char *cn
 
 		/* add this ip to request */
 		if (_dns_ip_address_check_add(request, cname, paddr, DNS_T_A, 0, NULL) != 0) {
-			return -1;
+			/* skip result */
+			return -2;
 		}
 
 		snprintf(ip, sizeof(ip), "%d.%d.%d.%d", paddr[0], paddr[1], paddr[2], paddr[3]);
@@ -3829,7 +3830,8 @@ static int _dns_server_process_answer_AAAA_IP(struct dns_request *request, char 
 
 		/* add this ip to request */
 		if (_dns_ip_address_check_add(request, cname, paddr, DNS_T_AAAA, 0, NULL) != 0) {
-			return -1;
+			/* skip result */
+			return -2;
 		}
 
 		snprintf(ip, sizeof(ip), "[%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x]", paddr[0],
@@ -4130,6 +4132,7 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 				if (ret == -1) {
 					break;
 				} else if (ret == -2) {
+					is_skip = 1;
 					continue;
 				}
 				request->rcode = packet->head.rcode;
@@ -4181,13 +4184,15 @@ static int _dns_server_process_answer(struct dns_request *request, const char *d
 		request->rcode = packet->head.rcode;
 	}
 
-	if (has_result == 0 && request->rcode == DNS_RC_NOERROR && packet->head.tc == 1) {
+	if (has_result == 0 && request->rcode == DNS_RC_NOERROR && packet->head.tc == 1 && request->has_ip == 0 &&
+		request->has_soa == 0) {
 		tlog(TLOG_DEBUG, "result is truncated, %s qtype: %d, rcode: %d, id: %d, retry.", domain, request->qtype,
 			 packet->head.rcode, packet->head.id);
 		return DNS_CLIENT_ACTION_RETRY;
 	}
 
-	if (is_rcode_set == 0 && has_result == 1) {
+	if (is_rcode_set == 0 && has_result == 1 && is_skip == 0) {
+		/* need retry for some server. */
 		return DNS_CLIENT_ACTION_MAY_RETRY;
 	}
 
