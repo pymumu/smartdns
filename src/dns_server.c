@@ -6710,7 +6710,7 @@ static void _dns_server_mdns_query_setup_server_group(struct dns_request *reques
 	}
 
 	*group_name = DNS_SERVER_GROUP_MDNS;
-	safe_strncpy(request->dns_group_name, DNS_SERVER_GROUP_MDNS, sizeof(request->dns_group_name));
+	safe_strncpy(request->dns_group_name, *group_name, sizeof(request->dns_group_name));
 	return;
 }
 
@@ -6949,16 +6949,17 @@ static int _dns_server_do_query(struct dns_request *request, int skip_notify_eve
 	/* check and set passthrough */
 	_dns_server_check_set_passthrough(request);
 
-	/* process cache */
-	if (request->prefetch == 0 && request->dualstack_selection_query == 0) {
-		if (_dns_server_process_cache(request) == 0) {
-			goto clean_exit;
-		}
-	}
-
 	/* process ptr */
 	if (_dns_server_process_ptr_query(request) == 0) {
 		goto clean_exit;
+	}
+
+	/* process cache */
+	if (request->prefetch == 0 && request->dualstack_selection_query == 0) {
+		_dns_server_mdns_query_setup_server_group(request, &server_group_name);
+		if (_dns_server_process_cache(request) == 0) {
+			goto clean_exit;
+		}
 	}
 
 	ret = _dns_server_set_to_pending_list(request);

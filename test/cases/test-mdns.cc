@@ -87,6 +87,16 @@ mdns-lookup yes
 	EXPECT_EQ(client.GetAnswer()[1].GetName(), "host.local");
 	EXPECT_EQ(client.GetAnswer()[1].GetData(), "1.2.3.4");
 
+	ASSERT_TRUE(client.Query("host A", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 2);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "host");
+	EXPECT_GT(client.GetAnswer()[0].GetTTL(), 60);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "host.local.");
+	EXPECT_EQ(client.GetAnswer()[1].GetName(), "host.local");
+	EXPECT_EQ(client.GetAnswer()[1].GetData(), "1.2.3.4");
+
 	ASSERT_TRUE(client.Query("host AAAA", 60053));
 	std::cout << client.GetResult() << std::endl;
 	ASSERT_EQ(client.GetAnswerNum(), 2);
