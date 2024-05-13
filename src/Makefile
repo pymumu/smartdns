@@ -29,7 +29,8 @@ ifndef CFLAGS
  CFLAGS +=-Wall -Wstrict-prototypes -fno-omit-frame-pointer -Wstrict-aliasing -funwind-tables -Wmissing-prototypes -Wshadow -Wextra -Wno-unused-parameter -Wno-implicit-fallthrough
 endif
 
-HAS_UNWIND := $(shell echo '#include <unwind.h>\nvoid main() { _Unwind_Backtrace(0, 0);}' | $(CC) -x c - -o /dev/null >/dev/null 2>&1 && echo 1 || echo 0)
+HASH := \#
+HAS_UNWIND := $(shell echo '$(HASH)include <unwind.h>\nvoid main() { _Unwind_Backtrace(0, 0);}' | $(CC) -x c - -o /dev/null >/dev/null 2>&1 && echo 1 || echo 0)
 ifeq ($(HAS_UNWIND), 1)
 override CFLAGS += -DHAVE_UNWIND_BACKTRACE
 endif
