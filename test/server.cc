@@ -392,7 +392,7 @@ cache-persist no
 
 			smartdns_reg_post_func(Server::StartPost, this);
 			dns_ping_cap_force_enable = 1;
-			smartdns_main(args.size(), argv, fds[1], 0);
+			smartdns_test_main(args.size(), argv, fds[1], 0);
 			_exit(1);
 		} else if (pid < 0) {
 			return false;
@@ -407,8 +407,7 @@ cache-persist no
 
 			smartdns_reg_post_func(Server::StartPost, this);
 			dns_ping_cap_force_enable = 1;
-			smartdns_main(args.size(), argv, fds[1], 1);
-			dns_ping_cap_force_enable = 0;
+			smartdns_test_main(args.size(), argv, fds[1], 1);
 			smartdns_reg_post_func(nullptr, nullptr);
 		});
 	} else {

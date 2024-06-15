@@ -52,6 +52,7 @@ static char *get_dir_name(char *path)
 const char *conf_get_conf_fullpath(const char *path, char *fullpath, size_t path_len)
 {
 	char file_path_dir[PATH_MAX];
+	const char *conf_file = NULL;
 
 	if (path_len < 1) {
 		return NULL;
@@ -62,7 +63,13 @@ const char *conf_get_conf_fullpath(const char *path, char *fullpath, size_t path
 		return fullpath;
 	}
 
-	strncpy(file_path_dir, conf_get_conf_file(), PATH_MAX - 1);
+	conf_file = conf_get_conf_file();
+	if (conf_file == NULL) {
+		strncpy(fullpath, path, path_len);
+		return fullpath;
+	}
+
+	strncpy(file_path_dir, conf_file, PATH_MAX - 1);
 	file_path_dir[PATH_MAX - 1] = 0;
 	get_dir_name(file_path_dir);
 	if (file_path_dir[0] == '\0') {
@@ -448,7 +455,7 @@ static int conf_parse_args(char *key, char *value, int *argc, char **argv)
 
 void load_exit(void) {}
 
-static int load_conf_printf(const char *file, int lineno, int ret)
+static int load_conf_printf(const char *key, const char *value, const char *file, int lineno, int ret)
 {
 	if (ret != CONF_RET_OK) {
 		printf("process config file '%s' failed at line %d.", file, lineno);
@@ -504,10 +511,9 @@ static int load_conf_file(const char *file, struct config_item *items, conf_erro
 		}
 
 		/* comment in wrap line, skip */
-		if (is_last_line_wrap && read_len > 0) {
-			if (*(line + line_len) == '#') {
-				continue;
-			}
+		if (*(line + line_len) == '#') {
+			line_len = 0;
+			continue;
 		}
 
 		/* trim prefix spaces in wrap line */
@@ -547,7 +553,7 @@ static int load_conf_file(const char *file, struct config_item *items, conf_erro
 
 		/* if field format is not key = value, error */
 		if (filed_num != 2 && filed_num != 1) {
-			handler(file, line_no, CONF_RET_BADCONF);
+			handler(NULL, NULL, file, line_no, CONF_RET_BADCONF);
 			goto errout;
 		}
 
@@ -580,7 +586,7 @@ static int load_conf_file(const char *file, struct config_item *items, conf_erro
 			current_conf_file = file;
 			current_conf_lineno = line_no;
 			call_ret = items[i].item_func(items[i].item, items[i].data, argc, argv);
-			ret = handler(file, line_no, call_ret);
+			ret = handler(key, value, file, line_no, call_ret);
 			if (ret != 0) {
 				conf_getopt_reset();
 				goto errout;
@@ -597,7 +603,9 @@ static int load_conf_file(const char *file, struct config_item *items, conf_erro
 		}
 
 		if (is_func_found == 0) {
-			handler(file, line_no, CONF_RET_NOENT);
+			if (handler(key, value, file, line_no, CONF_RET_NOENT) != 0) {
+				goto errout;
+			}
 		}
 	}
 

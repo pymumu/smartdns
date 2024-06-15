@@ -18,6 +18,7 @@
 
 #include "dns_plugin.h"
 
+#include "dns_conf.h"
 #include "include/conf.h"
 #include "include/hashtable.h"
 #include "include/list.h"
@@ -342,4 +343,29 @@ void dns_server_plugin_exit(void)
 void smartdns_plugin_log(smartdns_log_level level, const char *file, int line, const char *func, const char *msg)
 {
 	tlog_ext((tlog_level)level, file, line, func, NULL, "%s", msg);
+}
+
+int smartdns_plugin_can_log(smartdns_log_level level)
+{
+	return tlog_getlevel() <= (tlog_level)level;
+}
+
+void smartdns_plugin_log_setlevel(smartdns_log_level level)
+{
+	tlog_setlevel((tlog_level)level);
+}
+
+int smartdns_plugin_log_getlevel(void)
+{
+	return tlog_getlevel();
+}
+
+const char *smartdns_plugin_get_config(const char *key)
+{
+	return dns_conf_get_plugin_conf(key);
+}
+
+void smartdns_plugin_clear_all_config(void)
+{
+	dns_conf_clear_all_plugin_conf();
 }

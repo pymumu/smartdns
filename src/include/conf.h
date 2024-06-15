@@ -21,7 +21,7 @@
 
 #include <unistd.h>
 
-#define MAX_LINE_LEN 8192
+#define MAX_LINE_LEN 4096
 #define MAX_KEY_LEN 64
 #define CONF_INT_MAX (~(1 << 31))
 #define CONF_INT_MIN (1 << 31)
@@ -204,7 +204,7 @@ extern int conf_enum(const char *item, void *data, int argc, char *argv[]);
  *
  */
 
-typedef int(conf_error_handler)(const char *file, int lineno, int ret);
+typedef int(conf_error_handler)(const char *key, const char *value, const char *file, int lineno, int ret);
 
 int conf_parse_key_values(char *line, int *key_num, char **keys, char **values);
 

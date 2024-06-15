@@ -14,9 +14,13 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-BIN=smartdns 
+BIN=smartdns
+SMARTDNS_LIB=libsmartdns.a
+SMARTDNS_TEST_LIB=libsmartdns-test.a
 OBJS_LIB=$(patsubst %.c,%.o,$(wildcard lib/*.c))
-OBJS_MAIN=$(patsubst %.c,%.o,$(wildcard *.c))
+OBJS_MAIN=$(filter-out main.o, $(patsubst %.c,%.o,$(wildcard *.c)))
+TEST_OBJS=$(patsubst %.o,%_test.o,$(OBJS_MAIN) $(OBJS_LIB))
+MAIN_OBJ = main.o
 OBJS=$(OBJS_MAIN) $(OBJS_LIB)
 
 # cflags
@@ -71,11 +75,20 @@ endif
 
 all: $(BIN)
 
-$(BIN) : $(OBJS)
-	$(CC) $(OBJS) -o $@ $(LDFLAGS)
+%_test.o: %.c
+	$(CC) -DTEST $(CFLAGS) -c $< -o $@
+
+$(BIN) : $(MAIN_OBJ) $(SMARTDNS_LIB)
+	$(CC) $^ -o $@ $(LDFLAGS)
+
+$(SMARTDNS_TEST_LIB): $(TEST_OBJS)
+	$(AR) rcs $@ $^
+
+$(SMARTDNS_LIB): $(OBJS)
+	$(AR) rcs $@ $^
 
 clang-tidy:
 	clang-tidy -p=. $(OBJS_MAIN:.o=.c) -- $(CFLAGS)
 
 clean:
-	$(RM) $(OBJS) $(BIN)
+	$(RM) $(OBJS) $(BIN) $(SMARTDNS_LIB) $(MAIN_OBJ) $(SMARTDNS_TEST_LIB) $(TEST_OBJS)

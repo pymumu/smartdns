@@ -4,5 +4,6 @@
 *.pem
 .DS_Store
 *.swp.
+*.a
 systemd/smartdns.service
 test.bin

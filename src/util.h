@@ -55,6 +55,8 @@ void bug_ext(const char *file, int line, const char *func, const char *errfmt, .
 
 unsigned long get_tick_count(void);
 
+unsigned long long get_utc_time_ms(void);
+
 char *dir_name(char *path);
 
 int get_uid_gid(uid_t *uid, gid_t *gid);

@@ -16,38 +16,9 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef SMART_DNS_H
-#define SMART_DNS_H
+#include "smartdns.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif /*__cplusplus */
-
-void smartdns_exit(int status);
-
-void smartdns_restart(void);
-
-int smartdns_get_cert(char *key, char *cert);
-
-int smartdns_main(int argc, char *argv[]);
-
-int smartdns_server_run(const char *config_file);
-
-int smartdns_server_stop(void);
-
-const char *smartdns_version(void);
-
-#ifdef TEST
-
-typedef void (*smartdns_post_func)(void *arg);
-
-int smartdns_reg_post_func(smartdns_post_func func, void *arg);
-
-int smartdns_test_main(int argc, char *argv[], int fd_notify, int no_close_allfds);
-
-#endif
-
-#ifdef __cplusplus
+int main(int argc, char *argv[])
+{
+    return smartdns_main(argc, argv);
 }
-#endif /*__cplusplus */
-#endif

@@ -348,6 +348,7 @@ struct dns_request {
 	atomic_t do_callback;
 	atomic_t adblock;
 	atomic_t soa_num;
+	atomic_t plugin_complete_called;
 
 	/* send original raw packet to server/client like proxy */
 	int passthrough;
@@ -390,6 +391,8 @@ struct dns_request {
 	int has_cname_loop;
 
 	void *private_data;
+
+	uint64_t query_time;
 };
 
 /* dns server data */
@@ -2905,7 +2908,10 @@ static void _dns_server_request_release_complete(struct dns_request *request, in
 	}
 
 	atomic_inc(&request->refcnt);
-	smartdns_plugin_func_server_complete_request(request);
+	if (atomic_inc_return(&request->plugin_complete_called) == 1) {
+		smartdns_plugin_func_server_complete_request(request);
+	}
+
 	if (atomic_dec_return(&request->refcnt) > 0) {
 		/* plugin may hold request. */
 		return;
@@ -2962,6 +2968,11 @@ int dns_server_request_get_qtype(struct dns_request *request)
 int dns_server_request_get_qclass(struct dns_request *request)
 {
 	return request->qclass;
+}
+
+uint64_t dns_server_request_get_query_time(struct dns_request *request)
+{
+	return request->query_time;
 }
 
 int dns_server_request_get_id(struct dns_request *request)
@@ -3079,6 +3090,7 @@ static struct dns_request *_dns_server_new_request(void)
 	atomic_set(&request->refcnt, 0);
 	atomic_set(&request->notified, 0);
 	atomic_set(&request->do_callback, 0);
+	atomic_set(&request->plugin_complete_called, 0);
 	request->ping_time = -1;
 	request->prefetch = 0;
 	request->dualstack_selection = 0;
@@ -3090,6 +3102,7 @@ static struct dns_request *_dns_server_new_request(void)
 	request->conf = dns_server_get_default_rule_group();
 	request->check_order_list = &dns_conf_default_check_orders;
 	request->response_mode = dns_conf_default_response_mode;
+	request->query_time = get_utc_time_ms();
 	INIT_LIST_HEAD(&request->list);
 	INIT_LIST_HEAD(&request->pending_list);
 	INIT_LIST_HEAD(&request->check_list);

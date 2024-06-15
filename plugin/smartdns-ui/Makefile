@@ -1,5 +1,5 @@
 
-# Copyright (C) 2018-2024 Ruilin Peng (Nick) <pymumu@gmail.com>.
+# Copyright (C) 2018-2023 Ruilin Peng (Nick) <pymumu@gmail.com>.
 #
 # smartdns is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -14,34 +14,37 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-SMARTDNS_SRC_DIR=../src
+BIN=smartdns-ui
+SMARTDNS_SRC_DIR=../../src
 
-BIN=test.bin
-SMARTDNS_TEST_LIB=$(SMARTDNS_SRC_DIR)/libsmartdns-test.a
+ifdef DEBUG
+CARGO_BUILD_TYPE=
+CARGO_BUILD_PATH=target/debug
+SMARTDNS_BUILD_TYPE=DEBUG=1
+else
+CARGO_BUILD_TYPE=--release
+CARGO_BUILD_PATH=target/release
+SMARTDNS_BUILD_TYPE=
+endif
 
-CXXFLAGS += -g
-CXXFLAGS += -DTEST
-CXXFLAGS += -I./ -I../src -I../src/include
-
-TEST_SOURCES := $(wildcard *.cc) $(wildcard */*.cc) $(wildcard */*/*.cc)
-TEST_OBJECTS := $(patsubst %.cc, %.o, $(TEST_SOURCES))
-OBJS += $(TEST_OBJECTS)
-
-LDFLAGS += -lssl -lcrypto -lpthread -ldl -lgtest -lstdc++ -lm
-
-.PHONY: all clean test
+.PHONY: all clean $(BIN)
 
 all: $(BIN)
 
-$(BIN) : $(OBJS) $(SMARTDNS_TEST_LIB)
-	$(CC) $^ -o $@ $(LDFLAGS)
-
-test: $(BIN)
-	./$(BIN)
-
-$(SMARTDNS_TEST_LIB):
+test-prepare:
 	$(MAKE) -C $(SMARTDNS_SRC_DIR) libsmartdns-test.a
 
+smartdns:
+	$(MAKE) -C $(SMARTDNS_SRC_DIR) $(SMARTDNS_BUILD_TYPE)
+
+$(BIN): smartdns
+	MAKEFLAGS= cargo build $(CARGO_BUILD_TYPE) --features "build-release"
+	cp $(CARGO_BUILD_PATH)/libsmartdns_ui.so target/ 
+
+test: test-prepare
+	MAKEFLAGS= cargo test
+
 clean:
-	$(RM) $(OBJS) $(BIN)
+	cargo clean
 	$(MAKE) -C $(SMARTDNS_SRC_DIR) clean
+	rm -rf target/libsmartdns_ui.so

@@ -1,0 +1,37 @@
+[package]
+name = "smartdns-ui"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+libc = "0.2.155"
+ctor = "0.2.8"
+bytes = "1.6.1"
+rusqlite = { version = "0.32.0", features = ["bundled"] }
+hyper = { version = "1.4.1", features = ["full"] }
+hyper-util = { version = "0.1.6", features = ["full"] }
+hyper-tungstenite = "0.14.0"
+tokio = { version = "1.38.1", features = ["full"] }
+serde = { version = "1.0.204", features = ["derive"] }
+tokio-rustls = "0.26.0"
+rustls-pemfile = "2.1.2"
+serde_json = "1.0.120"
+http-body-util = "0.1.2"
+getopts = "0.2.21"
+url = "2.5.2"
+jsonwebtoken = "9"
+matchit = "0.8.4"
+futures = "0.3.30"
+socket2 = "0.5.7"
+
+[features]
+build-release = []
+
+[dev-dependencies]
+reqwest = {version = "0.12.5", features = ["blocking"]}
+tungstenite = "0.23.0"
+tokio-tungstenite = "0.23.1"
+tempfile = "3.10.0"

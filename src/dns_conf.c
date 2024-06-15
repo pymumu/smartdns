@@ -121,6 +121,7 @@ char dns_conf_ca_file[DNS_MAX_PATH];
 char dns_conf_ca_path[DNS_MAX_PATH];
 
 char dns_conf_cache_file[DNS_MAX_PATH];
+char dns_conf_data_dir[DNS_MAX_PATH];
 int dns_conf_cache_persist = 2;
 int dns_conf_cache_checkpoint_time = DNS_DEFAULT_CHECKPOINT_TIME;
 
@@ -191,6 +192,7 @@ static void _config_ip_iter_free(radix_node_t *node, void *cbctx);
 static int _config_nftset_setvalue(struct dns_nftset_names *nftsets, const char *nftsetvalue);
 static int _config_client_rule_flag_set(const char *ip_cidr, unsigned int flag, unsigned int is_clear);
 static int _config_client_rule_group_add(const char *client, const char *group_name);
+static void _config_plugin_table_conf_destroy(void);
 
 #define group_member(m) ((void *)offsetof(struct dns_conf_group, m))
 
@@ -5779,6 +5781,39 @@ static struct dns_conf_plugin *_config_get_plugin(const char *file)
 	return NULL;
 }
 
+static struct dns_conf_plugin_conf *_config_get_plugin_conf(const char *key)
+{
+	uint32_t hash = 0;
+	struct dns_conf_plugin_conf *conf = NULL;
+
+	hash = hash_string(key);
+	hash_for_each_possible(dns_conf_plugin_table.plugins_conf, conf, node, hash)
+	{
+		if (strncmp(conf->key, key, DNS_MAX_PATH) != 0) {
+			continue;
+		}
+
+		return conf;
+	}
+
+	return NULL;
+}
+
+const char *dns_conf_get_plugin_conf(const char *key)
+{
+	struct dns_conf_plugin_conf *conf = _config_get_plugin_conf(key);
+	if (conf == NULL) {
+		return NULL;
+	}
+
+	return conf->value;
+}
+
+void dns_conf_clear_all_plugin_conf(void)
+{
+	_config_plugin_table_conf_destroy();
+}
+
 static int _config_plugin(void *data, int argc, char *argv[])
 {
 #ifdef BUILD_STATIC
@@ -5832,6 +5867,36 @@ static int _config_plugin(void *data, int argc, char *argv[])
 	hash_add(dns_conf_plugin_table.plugins, &plugin->node, key);
 
 	return 0;
+errout:
+	return -1;
+}
+
+static int _config_plugin_conf_add(const char *key, const char *value)
+{
+	uint32_t hash = 0;
+	struct dns_conf_plugin_conf *conf = NULL;
+
+	if (key == NULL || value == NULL) {
+		tlog(TLOG_ERROR, "invalid parameter.");
+		goto errout;
+	}
+
+	conf = _config_get_plugin_conf(key);
+	if (conf == NULL) {
+
+		hash = hash_string(key);
+		conf = malloc(sizeof(*conf));
+		if (conf == NULL) {
+			goto errout;
+		}
+		memset(conf, 0, sizeof(*conf));
+		safe_strncpy(conf->key, key, sizeof(conf->key) - 1);
+		hash_add(dns_conf_plugin_table.plugins_conf, &conf->node, hash);
+	}
+	safe_strncpy(conf->value, value, sizeof(conf->value) - 1);
+
+	return 0;
+
 errout:
 	return -1;
 }
@@ -5986,6 +6051,7 @@ static struct config_item _config_item[] = {
 	CONF_SSIZE("cache-size", &dns_conf_cachesize, -1, CONF_INT_MAX),
 	CONF_SSIZE("cache-mem-size", &dns_conf_cache_max_memsize, 0, CONF_INT_MAX),
 	CONF_CUSTOM("cache-file", _config_option_parser_filepath, (char *)&dns_conf_cache_file),
+	CONF_CUSTOM("data-dir", _config_option_parser_filepath, (char *)&dns_conf_data_dir),
 	CONF_YESNO("cache-persist", &dns_conf_cache_persist),
 	CONF_INT("cache-checkpoint-time", &dns_conf_cache_checkpoint_time, 0, 3600 * 24 * 7),
 	CONF_YESNO_FUNC("prefetch-domain", _dns_conf_group_yesno, group_member(dns_prefetch)),
@@ -6061,7 +6127,18 @@ static struct config_item _config_item[] = {
 	CONF_END(),
 };
 
-static int _conf_printf(const char *file, int lineno, int ret)
+static int _conf_value_handler(const char *key, const char *value)
+{
+	if (strstr(key, ".") == NULL) {
+		return -1;
+	}
+
+	_config_plugin_conf_add(key, value);
+
+	return 0;
+}
+
+static int _conf_printf(const char *key, const char *value, const char *file, int lineno, int ret)
 {
 	switch (ret) {
 	case CONF_RET_ERR:
@@ -6071,6 +6148,10 @@ static int _conf_printf(const char *file, int lineno, int ret)
 		return -1;
 		break;
 	case CONF_RET_NOENT:
+		if (_conf_value_handler(key, value) == 0) {
+			return 0;
+		}
+
 		tlog(TLOG_WARN, "unsupported config at '%s:%d'.", file, lineno);
 		return -1;
 		break;
@@ -6214,6 +6295,15 @@ const char *dns_conf_get_cache_dir(void)
 	return dns_conf_cache_file;
 }
 
+const char *dns_conf_get_data_dir(void)
+{
+	if (dns_conf_data_dir[0] == '\0') {
+		return SMARTDNS_DATA_DIR;
+	}
+
+	return dns_conf_data_dir;
+}
+
 static int _dns_server_load_conf_init(void)
 {
 	dns_conf_client_rule.rule = New_Radix();
@@ -6238,6 +6328,7 @@ static int _dns_server_load_conf_init(void)
 	hash_init(dns_ip_set_name_table.names);
 	hash_init(dns_conf_srv_record_table.srv);
 	hash_init(dns_conf_plugin_table.plugins);
+	hash_init(dns_conf_plugin_table.plugins_conf);
 
 	if (_config_current_group_push_default() != 0) {
 		tlog(TLOG_ERROR, "init default group failed.");
@@ -6309,6 +6400,19 @@ static void _config_plugin_table_destroy(void)
 	}
 }
 
+static void _config_plugin_table_conf_destroy(void)
+{
+	struct dns_conf_plugin_conf *plugin_conf = NULL;
+	struct hlist_node *tmp = NULL;
+	unsigned long i = 0;
+
+	hash_for_each_safe(dns_conf_plugin_table.plugins_conf, i, tmp, plugin_conf, node)
+	{
+		hlist_del_init(&plugin_conf->node);
+		free(plugin_conf);
+	}
+}
+
 void dns_server_load_exit(void)
 {
 	_config_rule_group_destroy();
@@ -6321,6 +6425,7 @@ void dns_server_load_exit(void)
 	_config_proxy_table_destroy();
 	_config_srv_record_table_destroy();
 	_config_plugin_table_destroy();
+	_config_plugin_table_conf_destroy();
 
 	dns_conf_server_num = 0;
 	dns_server_bind_destroy();

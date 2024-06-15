@@ -113,6 +113,14 @@ static void _smartdns_get_version(char *str_ver, int str_ver_len)
 #endif
 }
 
+const char *smartdns_version() {
+	static char str_ver[256] = {0};
+	if (str_ver[0] == 0) {
+		_smartdns_get_version(str_ver, sizeof(str_ver));
+	}
+	return str_ver;
+}
+
 static void _show_version(void)
 {
 	char str_ver[256] = {0};
@@ -397,6 +405,28 @@ static int _smartdns_create_cert(void)
 
 	unused = chown(dns_conf_bind_ca_file, uid, gid);
 	unused = chown(dns_conf_bind_ca_key_file, uid, gid);
+
+	return 0;
+}
+
+int smartdns_get_cert(char *key, char *cert)
+{
+	if (dns_conf_need_cert == 0) {
+		dns_conf_need_cert = 1;
+	}
+
+	if (_smartdns_create_cert() != 0) {
+		tlog(TLOG_WARN, "generate ssl cert and key file failed. %s", strerror(errno));
+		return -1;
+	}
+
+	if (key != NULL) {
+		safe_strncpy(key, dns_conf_bind_ca_key_file, PATH_MAX);
+	}
+
+	if (cert != NULL) {
+		safe_strncpy(cert, dns_conf_bind_ca_file, PATH_MAX);
+	}
 
 	return 0;
 }
@@ -729,6 +759,37 @@ static int _smartdns_create_cache_dir(void)
 	return 0;
 }
 
+static int _smartdns_create_datadir(void)
+{
+	uid_t uid = 0;
+	gid_t gid = 0;
+	struct stat sb;
+	char data_dir[PATH_MAX] = {0};
+	int unused __attribute__((unused)) = 0;
+
+	safe_strncpy(data_dir, dns_conf_get_data_dir(), PATH_MAX);
+	dir_name(data_dir);
+
+	if (get_uid_gid(&uid, &gid) != 0) {
+		return -1;
+	}
+
+	mkdir(data_dir, 0750);
+	if (stat(data_dir, &sb) == 0 && sb.st_uid == uid && sb.st_gid == gid && (sb.st_mode & 0700) == 0700) {
+		return 0;
+	}
+
+	if (chown(data_dir, uid, gid) != 0) {
+		if (dns_conf_cache_file[0] == '\0') {
+			safe_strncpy(dns_conf_cache_file, SMARTDNS_DATA_DIR, sizeof(dns_conf_cache_file));
+		}
+	}
+
+	unused = chmod(data_dir, 0750);
+	unused = chown(dns_conf_get_data_dir(), uid, gid);
+	return 0;
+}
+
 static int _set_rlimit(void)
 {
 	struct rlimit value;
@@ -742,6 +803,7 @@ static int _smartdns_init_pre(void)
 {
 	_smartdns_create_logdir();
 	_smartdns_create_cache_dir();
+	_smartdns_create_datadir();
 
 	_set_rlimit();
 
@@ -869,8 +931,8 @@ void smartdns_exit(int status)
 
 void smartdns_restart(void)
 {
-	dns_server_stop();
 	exit_restart = 1;
+	dns_server_stop();
 }
 
 static int smartdns_enter_monitor_mode(int argc, char *argv[], int no_deamon)
@@ -914,11 +976,11 @@ static void smartdns_test_notify_func(int fd_notify, uint64_t retval)
 		close_all_fd(fd_notify);                                                                                       \
 	}
 
-int smartdns_main(int argc, char *argv[], int fd_notify, int no_close_allfds)
+int smartdns_test_main(int argc, char *argv[], int fd_notify, int no_close_allfds)
 #else
 #define smartdns_test_notify(retval)
 #define smartdns_close_allfds() close_all_fd(-1)
-int main(int argc, char *argv[])
+int smartdns_main(int argc, char *argv[])
 #endif
 {
 	int ret = 0;
@@ -1122,4 +1184,46 @@ errout:
 	smartdns_test_notify(2);
 	_smartdns_exit();
 	return ret;
+}
+
+int smartdns_server_run(const char *config_file)
+{
+	int ret = -1;
+
+	ret = dns_server_load_conf(config_file);
+	if (ret != 0) {
+		fprintf(stderr, "load config failed.\n");
+		goto errout;
+	}
+
+	ret = _smartdns_init_pre();
+	if (ret != 0) {
+		fprintf(stderr, "init failed.\n");
+		goto errout;
+	}
+
+	ret = _smartdns_init();
+	if (ret != 0) {
+		fprintf(stderr, "init failed.\n");
+		goto errout;
+	}
+
+	ret = _smartdns_run();
+	if (ret != 0) {
+		fprintf(stderr, "run failed.\n");
+		goto errout;
+	}
+	
+	_smartdns_exit();
+	tlog(TLOG_INFO, "smartdns exit...");
+	return ret;
+errout:
+	_smartdns_exit();
+	return -1;
+}
+
+int smartdns_server_stop(void)
+{
+	dns_server_stop();
+	return 0;
 }

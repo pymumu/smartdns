@@ -218,6 +218,18 @@ int drop_root_privilege(void)
 	return 0;
 }
 
+unsigned long long get_utc_time_ms(void)
+{
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+
+    unsigned long long millisecondsSinceEpoch =
+        (unsigned long long)(tv.tv_sec) * 1000 +
+        (unsigned long long)(tv.tv_usec) / 1000;
+
+	return millisecondsSinceEpoch;
+}
+
 char *dir_name(char *path)
 {
 	if (strstr(path, "/") == NULL) {
@@ -691,6 +703,7 @@ int check_is_ipv6(const char *ip)
 
 	return 0;
 }
+
 int check_is_ipaddr(const char *ip)
 {
 	if (strstr(ip, ".")) {
@@ -1343,6 +1356,12 @@ int generate_cert_key(const char *key_path, const char *cert_path, const char *s
 	key_file = BIO_new_file(key_path, "wb");
 	cert_file = BIO_new_file(cert_path, "wb");
 	cert = X509_new();
+	if (cert == NULL) {
+		goto out;
+	}
+
+	X509_set_version(cert, 2);
+
 #if (OPENSSL_VERSION_NUMBER >= 0x30000000L)
 	pkey = EVP_RSA_gen(RSA_KEY_LENGTH);
 #else
@@ -1385,10 +1404,24 @@ int generate_cert_key(const char *key_path, const char *cert_path, const char *s
 		if (cert_ext == NULL) {
 			goto out;
 		}
-		X509_add_ext(cert, cert_ext, -1);
+		ret = X509_add_ext(cert, cert_ext, -1);
 	}
 
 	X509_set_issuer_name(cert, name);
+
+	// Add X509v3 extensions
+    cert_ext = X509V3_EXT_conf_nid(NULL, NULL, NID_basic_constraints, "CA:FALSE");
+    ret = X509_add_ext(cert, cert_ext, -1);
+    X509_EXTENSION_free(cert_ext);
+
+	cert_ext = X509V3_EXT_conf_nid(NULL, NULL, NID_key_usage, "digitalSignature,keyEncipherment");
+    X509_add_ext(cert, cert_ext, -1);
+    X509_EXTENSION_free(cert_ext);
+
+    cert_ext = X509V3_EXT_conf_nid(NULL, NULL, NID_subject_key_identifier, "hash");
+    X509_add_ext(cert, cert_ext, -1);
+    X509_EXTENSION_free(cert_ext);
+
 	X509_sign(cert, pkey, EVP_sha256());
 
 	ret = PEM_write_bio_PrivateKey(key_file, pkey, NULL, NULL, 0, NULL, NULL);

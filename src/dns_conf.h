@@ -68,6 +68,7 @@ extern "C" {
 #define SMARTDNS_LOG_FILE "/var/log/smartdns/smartdns.log"
 #define SMARTDNS_AUDIT_FILE "/var/log/smartdns/smartdns-audit.log"
 #define SMARTDNS_CACHE_FILE "/var/cache/smartdns/smartdns.cache"
+#define SMARTDNS_DATA_DIR "/var/lib/smartdns"
 #define SMARTDNS_TMP_CACHE_FILE "/tmp/smartdns.cache"
 #define SMARTDNS_DEBUG_DIR "/tmp/smartdns"
 #define DNS_RESOLV_FILE "/etc/resolv.conf"
@@ -661,8 +662,16 @@ struct dns_conf_plugin {
 	int argc;
 	int args_len;
 };
+
+struct dns_conf_plugin_conf {
+	struct hlist_node node;
+	char key[MAX_KEY_LEN];
+	char value[MAX_LINE_LEN];
+};
+
 struct dns_conf_plugin_table {
 	DECLARE_HASHTABLE(plugins, 4);
+	DECLARE_HASHTABLE(plugins_conf, 4);
 };
 extern struct dns_conf_plugin_table dns_conf_plugin_table;
 
@@ -695,6 +704,7 @@ extern char dns_conf_ca_file[DNS_MAX_PATH];
 extern char dns_conf_ca_path[DNS_MAX_PATH];
 
 extern char dns_conf_cache_file[DNS_MAX_PATH];
+extern char dns_conf_var_libdir[DNS_MAX_PATH];
 extern int dns_conf_cache_persist;
 extern int dns_conf_cache_checkpoint_time;
 
@@ -757,9 +767,15 @@ struct dns_conf_group *dns_server_get_default_rule_group(void);
 
 struct client_roue_group_mac *dns_server_rule_group_mac_get(const uint8_t mac[6]);
 
+const char *dns_conf_get_plugin_conf(const char *key);
+
+void dns_conf_clear_all_plugin_conf(void);
+
 extern int config_additional_file(void *data, int argc, char *argv[]);
 
 const char *dns_conf_get_cache_dir(void);
+
+const char *dns_conf_get_data_dir(void);
 
 #ifdef __cplusplus
 }

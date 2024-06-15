@@ -66,6 +66,16 @@ const char **dns_plugin_get_argv(struct dns_plugin *plugin);
 
 void smartdns_plugin_log(smartdns_log_level level, const char *file, int line, const char *func, const char *msg);
 
+int smartdns_plugin_can_log(smartdns_log_level level);
+
+void smartdns_plugin_log_setlevel(smartdns_log_level level);
+
+int smartdns_plugin_log_getlevel(void);
+
+const char *smartdns_plugin_get_config(const char *key);
+
+void smartdns_plugin_clear_all_config(void);
+
 int smartdns_plugin_func_server_recv(struct dns_packet *packet, unsigned char *inpacket, int inpacket_len,
 									 struct sockaddr_storage *local, socklen_t local_len, struct sockaddr_storage *from,
 									 socklen_t from_len);

@@ -16,38 +16,40 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef SMART_DNS_H
-#define SMART_DNS_H
+pub mod data_server;
+pub mod db;
+pub mod http_api_msg;
+pub mod http_error;
+pub mod http_jwt;
+pub mod http_server;
+pub mod http_server_api;
+pub mod http_server_log_stream;
+pub mod plugin;
+pub mod smartdns;
 
-#ifdef __cplusplus
-extern "C" {
-#endif /*__cplusplus */
+use ctor::ctor;
+#[cfg(not(test))]
+use plugin::*;
+use smartdns::*;
 
-void smartdns_exit(int status);
-
-void smartdns_restart(void);
-
-int smartdns_get_cert(char *key, char *cert);
-
-int smartdns_main(int argc, char *argv[]);
-
-int smartdns_server_run(const char *config_file);
-
-int smartdns_server_stop(void);
-
-const char *smartdns_version(void);
-
-#ifdef TEST
-
-typedef void (*smartdns_post_func)(void *arg);
-
-int smartdns_reg_post_func(smartdns_post_func func, void *arg);
-
-int smartdns_test_main(int argc, char *argv[], int fd_notify, int no_close_allfds);
-
-#endif
-
-#ifdef __cplusplus
+#[cfg(not(test))]
+fn lib_init_ops() {
+    let ops: Box<dyn SmartdnsOperations> = Box::new(SmartdnsPlugin::new());
+    unsafe {
+        PLUGIN.set_operation(ops);
+    }
 }
-#endif /*__cplusplus */
-#endif
+
+#[cfg(test)]
+fn lib_init_smartdns_lib() {
+    smartdns::dns_log_set_level(LogLevel::DEBUG);
+}
+
+#[ctor]
+fn lib_init() {
+    #[cfg(not(test))]
+    lib_init_ops();
+
+    #[cfg(test)]
+    lib_init_smartdns_lib();
+}

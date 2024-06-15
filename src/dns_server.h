@@ -87,6 +87,8 @@ int dns_server_request_get_id(struct dns_request *request);
 
 int dns_server_request_get_rcode(struct dns_request *request);
 
+uint64_t dns_server_request_get_query_time(struct dns_request *request);
+
 void dns_server_request_get(struct dns_request *request);
 
 void dns_server_request_put(struct dns_request *request);
