@@ -8,7 +8,7 @@
 			"ubus": {
 				"service": [ "list" ]
 			},
-			"uci": [ "smartdns-lite" ]
+			"uci": [ "smartdns-lite", "smartdns" ]
 		},
 		"write": {
 			"file": {
@@ -16,7 +16,7 @@
 				"/etc/init.d/smartdns-lite restart": [ "exec" ],
 				"/etc/init.d/smartdns-lite updatefiles": [ "exec" ]
 			},
-			"uci": [ "smartdns-lite" ]
+			"uci": [ "smartdns-lite", "smartdns" ]
 		}
 	}
 }
