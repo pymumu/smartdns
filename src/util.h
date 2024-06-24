@@ -57,6 +57,12 @@ unsigned long get_tick_count(void);
 
 char *dir_name(char *path);
 
+int get_uid_gid(uid_t *uid, gid_t *gid);
+
+int drop_root_privilege(void);
+
+int create_dir_with_perm(const char *dir_path);
+
 char *get_host_by_addr(char *host, int maxsize, struct sockaddr *addr);
 
 int generate_random_addr(unsigned char *addr, int addr_len, int mask);

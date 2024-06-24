@@ -36,10 +36,8 @@
 #include <fcntl.h>
 #include <getopt.h>
 #include <libgen.h>
-#include <linux/capability.h>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
-#include <pwd.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -67,93 +65,6 @@ typedef enum {
 static int verbose_screen;
 static int exit_status;
 static int exit_restart;
-
-int capget(struct __user_cap_header_struct *header, struct __user_cap_data_struct *cap);
-int capset(struct __user_cap_header_struct *header, struct __user_cap_data_struct *cap);
-
-static int get_uid_gid(uid_t *uid, gid_t *gid)
-{
-	struct passwd *result = NULL;
-	struct passwd pwd;
-	char *buf = NULL;
-	ssize_t bufsize = 0;
-	int ret = -1;
-
-	if (dns_conf_user[0] == '\0') {
-		*uid = getuid();
-		*gid = getgid();
-		return 0;
-	}
-
-	bufsize = sysconf(_SC_GETPW_R_SIZE_MAX);
-	if (bufsize == -1) {
-		bufsize = 1024 * 16;
-	}
-
-	buf = malloc(bufsize);
-	if (buf == NULL) {
-		goto out;
-	}
-
-	ret = getpwnam_r(dns_conf_user, &pwd, buf, bufsize, &result);
-	if (ret != 0) {
-		goto out;
-	}
-
-	if (result == NULL) {
-		ret = -1;
-		goto out;
-	}
-
-	*uid = result->pw_uid;
-	*gid = result->pw_gid;
-
-out:
-	if (buf) {
-		free(buf);
-	}
-
-	return ret;
-}
-
-static int drop_root_privilege(void)
-{
-	struct __user_cap_data_struct cap[2];
-	struct __user_cap_header_struct header;
-#ifdef _LINUX_CAPABILITY_VERSION_3
-	header.version = _LINUX_CAPABILITY_VERSION_3;
-#else
-	header.version = _LINUX_CAPABILITY_VERSION;
-#endif
-	header.pid = 0;
-	uid_t uid = 0;
-	gid_t gid = 0;
-	int unused __attribute__((unused)) = 0;
-
-	if (get_uid_gid(&uid, &gid) != 0) {
-		return -1;
-	}
-
-	memset(cap, 0, sizeof(cap));
-	if (capget(&header, cap) < 0) {
-		return -1;
-	}
-
-	prctl(PR_SET_KEEPCAPS, 1, 0, 0, 0);
-	for (int i = 0; i < 2; i++) {
-		cap[i].effective = (1 << CAP_NET_RAW | 1 << CAP_NET_ADMIN | 1 << CAP_NET_BIND_SERVICE);
-		cap[i].permitted = (1 << CAP_NET_RAW | 1 << CAP_NET_ADMIN | 1 << CAP_NET_BIND_SERVICE);
-	}
-
-	unused = setgid(gid);
-	unused = setuid(uid);
-	if (capset(&header, cap) < 0) {
-		return -1;
-	}
-
-	prctl(PR_SET_KEEPCAPS, 0, 0, 0, 0);
-	return 0;
-}
 
 static void _help(void)
 {
@@ -784,62 +695,27 @@ static void _reg_signal(void)
 
 static int _smartdns_create_logdir(void)
 {
-	uid_t uid = 0;
-	gid_t gid = 0;
-	struct stat sb;
-	char logdir[PATH_MAX] = {0};
-	int unused __attribute__((unused)) = 0;
-
-	safe_strncpy(logdir, _smartdns_log_path(), PATH_MAX);
-	dir_name(logdir);
-
-	if (get_uid_gid(&uid, &gid) != 0) {
+	int ret = create_dir_with_perm(_smartdns_log_path());
+	if (ret == -2) {
+		tlog_set_maxlog_count(0);
+	} else if (ret != 0) {
 		return -1;
 	}
 
-	mkdir(logdir, 0750);
-	if (stat(logdir, &sb) == 0 && sb.st_uid == uid && sb.st_gid == gid && (sb.st_mode & 0700) == 0700) {
-		return 0;
-	}
-
-	if (chown(logdir, uid, gid) != 0) {
-		/* disable log */
-		tlog_set_maxlog_count(0);
-	}
-
-	unused = chmod(logdir, 0750);
-	unused = chown(_smartdns_log_path(), uid, gid);
 	return 0;
 }
 
 static int _smartdns_create_cache_dir(void)
 {
-	uid_t uid = 0;
-	gid_t gid = 0;
-	struct stat sb;
-	char cache_dir[PATH_MAX] = {0};
-	int unused __attribute__((unused)) = 0;
-
-	safe_strncpy(cache_dir, dns_conf_get_cache_dir(), PATH_MAX);
-	dir_name(cache_dir);
-
-	if (get_uid_gid(&uid, &gid) != 0) {
-		return -1;
-	}
-
-	mkdir(cache_dir, 0750);
-	if (stat(cache_dir, &sb) == 0 && sb.st_uid == uid && sb.st_gid == gid && (sb.st_mode & 0700) == 0700) {
-		return 0;
-	}
-
-	if (chown(cache_dir, uid, gid) != 0) {
+	int ret = create_dir_with_perm(dns_conf_get_cache_dir());
+	if (ret == -2) {
 		if (dns_conf_cache_file[0] == '\0') {
 			safe_strncpy(dns_conf_cache_file, SMARTDNS_TMP_CACHE_FILE, sizeof(dns_conf_cache_file));
 		}
+	} else if (ret != 0) {
+		return -1;
 	}
 
-	unused = chmod(cache_dir, 0750);
-	unused = chown(dns_conf_get_cache_dir(), uid, gid);
 	return 0;
 }
 

@@ -41,6 +41,7 @@
 #include <openssl/x509v3.h>
 #include <poll.h>
 #include <pthread.h>
+#include <pwd.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
@@ -130,6 +131,93 @@ unsigned long get_tick_count(void)
 	return (ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
 }
 
+int get_uid_gid(uid_t *uid, gid_t *gid)
+{
+	struct passwd *result = NULL;
+	struct passwd pwd;
+	char *buf = NULL;
+	ssize_t bufsize = 0;
+	int ret = -1;
+
+	if (dns_conf_user[0] == '\0') {
+		*uid = getuid();
+		*gid = getgid();
+		return 0;
+	}
+
+	bufsize = sysconf(_SC_GETPW_R_SIZE_MAX);
+	if (bufsize == -1) {
+		bufsize = 1024 * 16;
+	}
+
+	buf = malloc(bufsize);
+	if (buf == NULL) {
+		goto out;
+	}
+
+	ret = getpwnam_r(dns_conf_user, &pwd, buf, bufsize, &result);
+	if (ret != 0) {
+		goto out;
+	}
+
+	if (result == NULL) {
+		ret = -1;
+		goto out;
+	}
+
+	*uid = result->pw_uid;
+	*gid = result->pw_gid;
+
+out:
+	if (buf) {
+		free(buf);
+	}
+
+	return ret;
+}
+
+int capget(struct __user_cap_header_struct *header, struct __user_cap_data_struct *cap);
+int capset(struct __user_cap_header_struct *header, struct __user_cap_data_struct *cap);
+
+int drop_root_privilege(void)
+{
+	struct __user_cap_data_struct cap[2];
+	struct __user_cap_header_struct header;
+#ifdef _LINUX_CAPABILITY_VERSION_3
+	header.version = _LINUX_CAPABILITY_VERSION_3;
+#else
+	header.version = _LINUX_CAPABILITY_VERSION;
+#endif
+	header.pid = 0;
+	uid_t uid = 0;
+	gid_t gid = 0;
+	int unused __attribute__((unused)) = 0;
+
+	if (get_uid_gid(&uid, &gid) != 0) {
+		return -1;
+	}
+
+	memset(cap, 0, sizeof(cap));
+	if (capget(&header, cap) < 0) {
+		return -1;
+	}
+
+	prctl(PR_SET_KEEPCAPS, 1, 0, 0, 0);
+	for (int i = 0; i < 2; i++) {
+		cap[i].effective = (1 << CAP_NET_RAW | 1 << CAP_NET_ADMIN | 1 << CAP_NET_BIND_SERVICE);
+		cap[i].permitted = (1 << CAP_NET_RAW | 1 << CAP_NET_ADMIN | 1 << CAP_NET_BIND_SERVICE);
+	}
+
+	unused = setgid(gid);
+	unused = setuid(uid);
+	if (capset(&header, cap) < 0) {
+		return -1;
+	}
+
+	prctl(PR_SET_KEEPCAPS, 0, 0, 0, 0);
+	return 0;
+}
+
 char *dir_name(char *path)
 {
 	if (strstr(path, "/") == NULL) {
@@ -138,6 +226,46 @@ char *dir_name(char *path)
 	}
 
 	return dirname(path);
+}
+
+int create_dir_with_perm(const char *dir_path)
+{
+	uid_t uid = 0;
+	gid_t gid = 0;
+	struct stat sb;
+	char data_dir[PATH_MAX] = {0};
+	int unused __attribute__((unused)) = 0;
+
+	safe_strncpy(data_dir, dir_path, PATH_MAX);
+	dir_name(data_dir);
+
+	if (get_uid_gid(&uid, &gid) != 0) {
+		return -1;
+	}
+
+	if (stat(data_dir, &sb) == 0) {
+		if (sb.st_uid == uid && sb.st_gid == gid && (sb.st_mode & 0700) == 0700) {
+			return 0;
+		}
+
+		if (sb.st_gid == gid && (sb.st_mode & 0070) == 0070) {
+			return 0;
+		}
+
+		if (sb.st_uid != uid && sb.st_gid != gid && (sb.st_mode & 0007) == 0007) {
+			return 0;
+		}
+	}
+
+	mkdir(data_dir, 0750);
+	if (chown(data_dir, uid, gid) != 0) {
+		return -2;
+	}
+
+	unused = chmod(data_dir, 0750);
+	unused = chown(dir_path, uid, gid);
+
+	return 0;
 }
 
 char *get_host_by_addr(char *host, int maxsize, struct sockaddr *addr)
@@ -1716,7 +1844,7 @@ void print_stack(void)
 	}
 }
 #else
-void print_stack(void) { }
+void print_stack(void) {}
 #endif
 
 void bug_ext(const char *file, int line, const char *func, const char *errfmt, ...)
