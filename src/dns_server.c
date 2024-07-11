@@ -3128,10 +3128,10 @@ static void _dns_server_ping_result(struct ping_host_struct *ping_host, const ch
 			return;
 		}
 
-		if (is_ipv6_ready) {
-			if (error == EADDRNOTAVAIL || errno == EACCES) {
+		if (is_ipv6_ready == 1 && (error == EADDRNOTAVAIL || errno == EACCES)) {
+			if (is_private_addr_sockaddr(addr, addr_len) == 0) {
 				is_ipv6_ready = 0;
-				tlog(TLOG_ERROR, "IPV6 is not ready, disable all ipv6 feature, recheck after %ds",
+				tlog(TLOG_WARN, "IPV6 is not ready, disable all ipv6 feature, recheck after %ds",
 					 IPV6_READY_CHECK_TIME);
 			}
 		}

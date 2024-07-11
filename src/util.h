@@ -72,6 +72,8 @@ int generate_addr_map(const unsigned char *addr_from, const unsigned char *addr_
 
 int is_private_addr(const unsigned char *addr, int addr_len);
 
+int is_private_addr_sockaddr(struct sockaddr *addr, socklen_t addr_len);
+
 int getaddr_by_host(const char *host, struct sockaddr *addr, socklen_t *addr_len);
 
 int get_raw_addr_by_ip(const char *ip, unsigned char *raw_addr, int *raw_addr_len);
