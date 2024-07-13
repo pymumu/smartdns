@@ -738,6 +738,10 @@ static int _fast_ping_sendping_v6(struct ping_host_struct *ping_host)
 			goto errout;
 		}
 
+		if (is_private_addr_sockaddr(&ping_host->addr, ping_host->addr_len)) {
+			goto errout;
+		}
+
 		if (errno == EACCES || errno == EPERM) {
 			if (bool_print_log == 0) {
 				goto errout;
