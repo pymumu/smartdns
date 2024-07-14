@@ -886,8 +886,85 @@ errout:
 
 static int _dns_cache_print(struct dns_cache_record *cache_record, struct dns_cache_data *cache_data)
 {
-	printf("domain: %s, qtype: %d, ttl: %d, speed: %.1fms\n", cache_record->info.domain, cache_record->info.qtype,
-		   cache_record->info.ttl, (float)cache_record->info.speed / 10);
+	char req_result[1024] = {0};
+	int left_len = sizeof(req_result);
+	char *ip_msg = req_result;
+	long i, j;
+
+	if (cache_record->info.qtype == DNS_T_A || cache_record->info.qtype == DNS_T_AAAA) {
+		char buff[DNS_PACKSIZE];
+		struct dns_packet *packet = (struct dns_packet *)buff;
+		struct dns_rrs *rrs = NULL;
+		int rr_count = 0;
+		int ttl = 0;
+		int ip_num = 0;
+		int total_len = 0;
+		int len = 0;
+		int has_result = 0;
+		char req_host[MAX_IP_LEN];
+		char name[DNS_MAX_CNAME_LEN] = {0};
+
+		if (dns_decode(packet, DNS_PACKSIZE, cache_data->data, cache_data->head.size) == 0) {
+			total_len = snprintf(ip_msg, left_len, ", result: ");
+			for (j = 1; j < DNS_RRS_OPT && packet; j++) {
+				rrs = dns_get_rrs_start(packet, j, &rr_count);
+				for (i = 0; i < rr_count && rrs && left_len > 0; i++, rrs = dns_get_rrs_next(packet, rrs)) {
+					switch (rrs->type) {
+					case DNS_T_A: {
+						unsigned char ipv4_addr[4];
+						if (dns_get_A(rrs, name, DNS_MAX_CNAME_LEN, &ttl, ipv4_addr) != 0) {
+							continue;
+						}
+
+						const char *fmt = "%d.%d.%d.%d";
+						if (ip_num > 0) {
+							fmt = ", %d.%d.%d.%d";
+						}
+
+						len = snprintf(ip_msg + total_len, left_len, fmt, ipv4_addr[0], ipv4_addr[1], ipv4_addr[2],
+									   ipv4_addr[3]);
+						ip_num++;
+						has_result = 1;
+					} break;
+					case DNS_T_AAAA: {
+						unsigned char ipv6_addr[16];
+						if (dns_get_AAAA(rrs, name, DNS_MAX_CNAME_LEN, &ttl, ipv6_addr) != 0) {
+							continue;
+						}
+
+						const char *fmt = "%s";
+						if (ip_num > 0) {
+							fmt = ", %s";
+						}
+						req_host[0] = '\0';
+						inet_ntop(AF_INET6, ipv6_addr, req_host, sizeof(req_host));
+						len = snprintf(ip_msg + total_len, left_len, fmt, req_host);
+						ip_num++;
+						has_result = 1;
+					} break;
+					default:
+						continue;
+					}
+
+					if (len < 0 || len >= left_len) {
+						left_len = 0;
+						break;
+					}
+
+					left_len -= len;
+					total_len += len;
+				}
+			}
+		}
+
+		if (has_result == 0) {
+			req_result[0] = '\0';
+		}
+	}
+
+	printf("domain: %s, qtype: %d, rcode: %d, ttl: %d, speed: %.1fms%s\n", cache_record->info.domain,
+		   cache_record->info.qtype, cache_record->info.rcode, cache_record->info.ttl,
+		   (float)cache_record->info.speed / 10, ip_msg);
 	return 0;
 }
 

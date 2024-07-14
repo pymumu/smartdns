@@ -80,6 +80,13 @@ static void _help(void)
 		"  -x            verbose screen.\n"
 		"  -v            display version.\n"
 		"  -h            show this help message.\n"
+		""
+		"Debug options:\n"
+#ifdef DEBUG
+		"  -N [file]     dump dns packet to file.\n"
+#endif
+		"  --cache-print [file] print cache.\n"
+		""
 
 		"Online help: https://pymumu.github.io/smartdns\n"
 		"Copyright (C) Nick Peng <pymumu@gmail.com>\n"
@@ -975,6 +982,7 @@ int main(int argc, char *argv[])
 			_help();
 			return 0;
 		case 256:
+			tlog_set_early_printf(1, 1, 1);
 			return dns_cache_print(optarg);
 			break;
 		default:
