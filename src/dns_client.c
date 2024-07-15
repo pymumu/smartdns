@@ -972,12 +972,12 @@ static int _dns_client_set_trusted_cert(SSL_CTX *ssl_ctx)
 		return -1;
 	}
 
-	if (dns_conf_ca_file[0]) {
-		cafile = dns_conf_ca_file;
+	if (dns_conf.ca_file[0]) {
+		cafile = dns_conf.ca_file;
 	}
 
-	if (dns_conf_ca_path[0]) {
-		capath = dns_conf_ca_path;
+	if (dns_conf.ca_path[0]) {
+		capath = dns_conf.ca_path;
 	}
 
 	if (cafile == NULL && capath == NULL) {
@@ -1853,8 +1853,8 @@ static int _dns_client_recv(struct dns_server_info *server_info, unsigned char *
 		char host_name[DNS_MAX_CNAME_LEN];
 		tlog(TLOG_INFO, "decode failed, packet len = %d, tc = %d, id = %d, from = %s\n", inpacket_len, packet->head.tc,
 			 packet->head.id, get_host_by_addr(host_name, sizeof(host_name), from));
-		if (dns_save_fail_packet) {
-			dns_packet_save(dns_save_fail_packet_dir, "client", host_name, inpacket, inpacket_len);
+		if (dns_conf.dns_save_fail_packet) {
+			dns_packet_save(dns_conf.dns_save_fail_packet_dir, "client", host_name, inpacket, inpacket_len);
 		}
 		return -1;
 	}
@@ -1986,9 +1986,9 @@ static int _dns_client_create_socket_udp_proxy(struct dns_server_info *server_in
 
 	set_fd_nonblock(fd, 1);
 	set_sock_keepalive(fd, 30, 3, 5);
-	if (dns_socket_buff_size > 0) {
-		setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &dns_socket_buff_size, sizeof(dns_socket_buff_size));
-		setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &dns_socket_buff_size, sizeof(dns_socket_buff_size));
+	if (dns_conf.dns_socket_buff_size > 0) {
+		setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &dns_conf.dns_socket_buff_size, sizeof(dns_conf.dns_socket_buff_size));
+		setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &dns_conf.dns_socket_buff_size, sizeof(dns_conf.dns_socket_buff_size));
 	}
 
 	ret = proxy_conn_connect(proxy);
@@ -2091,9 +2091,9 @@ static int _dns_client_create_socket_udp(struct dns_server_info *server_info)
 		setsockopt(server_info->fd, IPPROTO_IPV6, IPV6_HOPLIMIT, &on, sizeof(on));
 	}
 
-	if (dns_socket_buff_size > 0) {
-		setsockopt(server_info->fd, SOL_SOCKET, SO_SNDBUF, &dns_socket_buff_size, sizeof(dns_socket_buff_size));
-		setsockopt(server_info->fd, SOL_SOCKET, SO_RCVBUF, &dns_socket_buff_size, sizeof(dns_socket_buff_size));
+	if (dns_conf.dns_socket_buff_size > 0) {
+		setsockopt(server_info->fd, SOL_SOCKET, SO_SNDBUF, &dns_conf.dns_socket_buff_size, sizeof(dns_conf.dns_socket_buff_size));
+		setsockopt(server_info->fd, SOL_SOCKET, SO_RCVBUF, &dns_conf.dns_socket_buff_size, sizeof(dns_conf.dns_socket_buff_size));
 	}
 
 	return 0;
@@ -2233,9 +2233,9 @@ static int _DNS_client_create_socket_tcp(struct dns_server_info *server_info)
 	setsockopt(fd, IPPROTO_TCP, TCP_THIN_DUPACK, &yes, sizeof(yes));
 	setsockopt(fd, IPPROTO_TCP, TCP_THIN_LINEAR_TIMEOUTS, &yes, sizeof(yes));
 	set_sock_keepalive(fd, 30, 3, 5);
-	if (dns_socket_buff_size > 0) {
-		setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &dns_socket_buff_size, sizeof(dns_socket_buff_size));
-		setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &dns_socket_buff_size, sizeof(dns_socket_buff_size));
+	if (dns_conf.dns_socket_buff_size > 0) {
+		setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &dns_conf.dns_socket_buff_size, sizeof(dns_conf.dns_socket_buff_size));
+		setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &dns_conf.dns_socket_buff_size, sizeof(dns_conf.dns_socket_buff_size));
 	}
 
 	if (proxy) {
@@ -2357,9 +2357,9 @@ static int _DNS_client_create_socket_tls(struct dns_server_info *server_info, ch
 	set_sock_keepalive(fd, 30, 3, 5);
 	setsockopt(fd, SOL_SOCKET, SO_PRIORITY, &priority, sizeof(priority));
 	setsockopt(fd, IPPROTO_IP, IP_TOS, &ip_tos, sizeof(ip_tos));
-	if (dns_socket_buff_size > 0) {
-		setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &dns_socket_buff_size, sizeof(dns_socket_buff_size));
-		setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &dns_socket_buff_size, sizeof(dns_socket_buff_size));
+	if (dns_conf.dns_socket_buff_size > 0) {
+		setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &dns_conf.dns_socket_buff_size, sizeof(dns_conf.dns_socket_buff_size));
+		setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &dns_conf.dns_socket_buff_size, sizeof(dns_conf.dns_socket_buff_size));
 	}
 
 	if (proxy) {
@@ -4762,7 +4762,7 @@ static int _dns_client_add_mdns_server(void)
 	struct ifaddrs *ifaddr = NULL;
 	struct ifaddrs *ifa = NULL;
 
-	if (dns_conf_mdns_lookup != 1) {
+	if (dns_conf.mdns_lookup != 1) {
 		return 0;
 	}
 

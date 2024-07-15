@@ -139,7 +139,7 @@ int get_uid_gid(uid_t *uid, gid_t *gid)
 	ssize_t bufsize = 0;
 	int ret = -1;
 
-	if (dns_conf_user[0] == '\0') {
+	if (dns_conf.user[0] == '\0') {
 		*uid = getuid();
 		*gid = getgid();
 		return 0;
@@ -155,7 +155,7 @@ int get_uid_gid(uid_t *uid, gid_t *gid)
 		goto out;
 	}
 
-	ret = getpwnam_r(dns_conf_user, &pwd, buf, bufsize, &result);
+	ret = getpwnam_r(dns_conf.user, &pwd, buf, bufsize, &result);
 	if (ret != 0) {
 		goto out;
 	}

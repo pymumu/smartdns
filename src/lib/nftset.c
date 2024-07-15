@@ -295,7 +295,7 @@ static int _nftset_socket_send(void *msg, int msg_len)
 {
 	char recvbuff[1024];
 
-	if (dns_conf_nftset_debug_enable == 0) {
+	if (dns_conf.nftset_debug_enable == 0) {
 		return _nftset_socket_request(msg, msg_len, NULL, 0);
 	}
 
@@ -372,7 +372,7 @@ static int _nftset_del_element(int nffamily, const char *table_name, const char 
 	req->h.nlmsg_type = NFNL_SUBSYS_NFTABLES << 8 | NFT_MSG_DELSETELEM;
 	req->h.nlmsg_seq = time(NULL);
 
-	if (dns_conf_nftset_debug_enable) {
+	if (dns_conf.nftset_debug_enable) {
 		req->h.nlmsg_flags |= NLM_F_ACK;
 	}
 
@@ -422,7 +422,7 @@ static int _nftset_add_element(int nffamily, const char *table_name, const char 
 	req->h.nlmsg_type = NFNL_SUBSYS_NFTABLES << 8 | NFT_MSG_NEWSETELEM;
 	req->h.nlmsg_seq = time(NULL);
 
-	if (dns_conf_nftset_debug_enable) {
+	if (dns_conf.nftset_debug_enable) {
 		req->h.nlmsg_flags |= NLM_F_ACK;
 	}
 
@@ -562,7 +562,7 @@ int nftset_add(const char *familyname, const char *tablename, const char *setnam
 	if (ret == 0) {
 		ret = _nftset_process_setflags(flags, addr, addr_len, &timeout, &addr_end, &addr_end_len);
 		if (ret != 0) {
-			if (dns_conf_nftset_debug_enable) {
+			if (dns_conf.nftset_debug_enable) {
 				tlog(TLOG_ERROR, "nftset add failed, family:%s, table:%s, set:%s, error:%s", familyname, tablename,
 					 setname, "ip is invalid");
 			}
