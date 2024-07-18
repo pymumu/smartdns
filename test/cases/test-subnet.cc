@@ -493,7 +493,7 @@ TEST_F(SubNet, per_server)
 			return smartdns::SERVER_REQUEST_OK;
 		}
 
-		if (request->qtype = DNS_T_AAAA) {
+		if (request->qtype == DNS_T_AAAA) {
 			struct dns_opt_ecs ecs;
 			struct dns_rrs *rrs = NULL;
 			int rr_count = 0;

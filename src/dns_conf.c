@@ -3024,7 +3024,6 @@ static int _config_bind_ip(int argc, char *argv[], DNS_BIND_TYPE type)
 	struct dns_bind_ip *bind_ip = NULL;
 	char *ip = NULL;
 	int opt = 0;
-	int optind = 0;
 	int optind_last = 0;
 	char group_name[DNS_GROUP_NAME_LEN];
 	const char *group = NULL;
@@ -4841,7 +4840,6 @@ static int _conf_domain_rule_no_ipalias(const char *domain)
 static int _conf_domain_rules(void *data, int argc, char *argv[])
 {
 	int opt = 0;
-	int optind = 0;
 	int optind_last = 0;
 	char domain[DNS_MAX_CONF_CNAME_LEN];
 	char *value = argv[1];

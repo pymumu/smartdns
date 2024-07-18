@@ -1064,7 +1064,7 @@ int netlink_get_neighbors(int family,
 			continue;
 		}
 
-		int nlh_len = len;
+		uint32_t nlh_len = len;
 		for (nlh = (struct nlmsghdr *)buf; NLMSG_OK(nlh, nlh_len); nlh = NLMSG_NEXT(nlh, nlh_len)) {
 			ndm = NLMSG_DATA(nlh);
 			struct rtattr *rta = RTM_RTA(ndm);

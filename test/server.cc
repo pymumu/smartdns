@@ -65,7 +65,7 @@ void MockServer::Stop()
 
 	if (fd_ > 0) {
 		close(fd_);
-		fd_;
+		fd_ = -1;;
 	}
 }
 
@@ -229,6 +229,7 @@ bool MockServer::GetAddr(const std::string &host, const std::string port, int ty
 
 	memcpy(addr, result->ai_addr, result->ai_addrlen);
 	*addrlen = result->ai_addrlen;
+	freeaddrinfo(result);
 	return true;
 errout:
 	if (result) {

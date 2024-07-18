@@ -108,6 +108,7 @@ struct client_dns_server_flag_udp {
 };
 
 struct client_dns_server_flag_mdns {
+	int padding;
 };
 
 struct client_dns_server_flag_tls {
