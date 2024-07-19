@@ -48,12 +48,17 @@
 
 #define member_size(type, member) sizeof(((type *)0)->member)
 
+static int is_aligned(void *ptr, int aligment)
+{
+	return ((uintptr_t)(ptr)) % aligment == 0;
+}
+
 /* read short and move pointer */
 static unsigned short _dns_read_short(unsigned char **buffer)
 {
 	unsigned short value = 0;
 
-	if ((uintptr_t)(*buffer) % 2 == 0) {
+	if (is_aligned(*buffer, 2)) {
 		value = *((unsigned short *)(*buffer));
 	} else {
 		memcpy(&value, *buffer, 2);
@@ -83,7 +88,7 @@ static void _dns_write_short(unsigned char **buffer, unsigned short value)
 {
 	value = htons(value);
 
-	if ((uintptr_t)(*buffer) % 2 == 0) {
+	if (is_aligned(*buffer, 2)) {
 		*((unsigned short *)(*buffer)) = value;
 	} else {
 		memcpy(*buffer, &value, 2);
@@ -105,7 +110,7 @@ static void _dns_write_shortptr(unsigned char **buffer, void *ptrvalue)
 
 	value = htons(value);
 
-	if ((uintptr_t)(*buffer) % 2 == 0) {
+	if (is_aligned(*buffer, 2)) {
 		*((unsigned short *)(*buffer)) = value;
 	} else {
 		memcpy(*buffer, &value, 2);
@@ -118,7 +123,7 @@ static void _dns_write_shortptr(unsigned char **buffer, void *ptrvalue)
 static void _dns_write_int(unsigned char **buffer, unsigned int value)
 {
 	value = htonl(value);
-	if ((uintptr_t)(*buffer) % 4 == 0) {
+	if (is_aligned(*buffer, 4)) {
 		*((unsigned int *)(*buffer)) = value;
 	} else {
 		memcpy(*buffer, &value, 4);
@@ -138,7 +143,7 @@ static void _dns_write_intptr(unsigned char **buffer, void *ptrvalue)
 	}
 
 	value = htonl(value);
-	if ((uintptr_t)(*buffer) % 4 == 0) {
+	if (is_aligned(*buffer, 4)) {
 		*((unsigned int *)(*buffer)) = value;
 	} else {
 		memcpy(*buffer, &value, 4);
@@ -151,7 +156,7 @@ static unsigned int _dns_read_int(unsigned char **buffer)
 {
 	unsigned int value = 0;
 
-	if ((uintptr_t)(*buffer) % 4 == 0) {
+	if (is_aligned(*buffer, 4)) {
 		value = *((unsigned int *)(*buffer));
 	} else {
 		memcpy(&value, *buffer, 4);
@@ -658,8 +663,19 @@ int dns_add_rr_nested_memcpy(struct dns_rr_nested *rr_nested, const void *data, 
 		return -1;
 	}
 
+	if (is_aligned(rr_nested->context.ptr, 2) == 0) {
+		return -1;
+	}
+
 	memcpy(rr_nested->context.ptr, data, data_len);
 	rr_nested->context.ptr += data_len;
+
+	if (is_aligned(rr_nested->context.ptr, 2) == 0) {
+		if (_dns_left_len(&rr_nested->context) < 1) {
+			return -1;
+		}
+		_dns_write_char(&rr_nested->context.ptr, 0);
+	}
 
 	return 0;
 }
@@ -714,6 +730,11 @@ void *dns_get_rr_nested_next(struct dns_rrs *rrs, void *rr_nested, int rr_nested
 {
 	void *end = rrs->data + rrs->len;
 	void *p = rr_nested + rr_nested_len;
+
+	if (is_aligned(p, 2) == 0) {
+		p++;
+	}
+
 	if (p == end) {
 		return NULL;
 	} else if (p > end) {
@@ -1257,6 +1278,14 @@ int dns_add_HTTPS_start(struct dns_rr_nested *svcparam_buffer, struct dns_packet
 	safe_strncpy((char *)svcparam_buffer->context.ptr, target, target_len);
 	svcparam_buffer->context.ptr += target_len;
 
+	if (is_aligned(svcparam_buffer->context.ptr, 2) != 1) {
+		if (_dns_left_len(&svcparam_buffer->context) < 1) {
+			return -1;
+		}
+
+		_dns_write_char(&svcparam_buffer->context.ptr, 0);
+	}
+
 	return 0;
 }
 
@@ -1266,9 +1295,17 @@ int dns_HTTPS_add_raw(struct dns_rr_nested *svcparam, unsigned short key, unsign
 		return -1;
 	}
 
-	dns_add_rr_nested_memcpy(svcparam, &key, 2);
-	dns_add_rr_nested_memcpy(svcparam, &len, 2);
-	dns_add_rr_nested_memcpy(svcparam, value, len);
+	if (dns_add_rr_nested_memcpy(svcparam, &key, 2) != 0) {
+		return -1;
+	}
+
+	if (dns_add_rr_nested_memcpy(svcparam, &len, 2) != 0) {
+		return -1;
+	}
+
+	if (dns_add_rr_nested_memcpy(svcparam, value, len) != 0) {
+		return -1;
+	}
 	return 0;
 }
 
@@ -1279,11 +1316,19 @@ int dns_HTTPS_add_port(struct dns_rr_nested *svcparam, unsigned short port)
 	}
 
 	unsigned short value = DNS_HTTPS_T_PORT;
-	dns_add_rr_nested_memcpy(svcparam, &value, 2);
+	if (dns_add_rr_nested_memcpy(svcparam, &value, 2) != 0) {
+		return -1;
+	}
+
 	value = 2;
-	dns_add_rr_nested_memcpy(svcparam, &value, 2);
+	if (dns_add_rr_nested_memcpy(svcparam, &value, 2) != 0) {
+		return -1;
+	}
+
 	value = htons(port);
-	dns_add_rr_nested_memcpy(svcparam, &value, 2);
+	if (dns_add_rr_nested_memcpy(svcparam, &value, 2) != 0) {
+		return -1;
+	}
 
 	return 0;
 }
@@ -1295,11 +1340,18 @@ int dns_HTTPS_add_alpn(struct dns_rr_nested *svcparam, const char *alpn, int alp
 	}
 
 	unsigned short value = DNS_HTTPS_T_ALPN;
-	dns_add_rr_nested_memcpy(svcparam, &value, 2);
+	if (dns_add_rr_nested_memcpy(svcparam, &value, 2) != 0) {
+		return -1;
+	}
 
 	value = alpn_len;
-	dns_add_rr_nested_memcpy(svcparam, &value, 2);
-	dns_add_rr_nested_memcpy(svcparam, alpn, alpn_len);
+	if (dns_add_rr_nested_memcpy(svcparam, &value, 2) != 0) {
+		return -1;
+	}
+
+	if (dns_add_rr_nested_memcpy(svcparam, alpn, alpn_len) != 0) {
+		return -1;
+	}
 
 	return 0;
 }
@@ -1311,11 +1363,18 @@ int dns_HTTPS_add_ech(struct dns_rr_nested *svcparam, void *ech, int ech_len)
 	}
 
 	unsigned short value = DNS_HTTPS_T_ECH;
-	dns_add_rr_nested_memcpy(svcparam, &value, 2);
+	if (dns_add_rr_nested_memcpy(svcparam, &value, 2) != 0) {
+		return -1;
+	}
 
 	value = ech_len;
-	dns_add_rr_nested_memcpy(svcparam, &value, 2);
-	dns_add_rr_nested_memcpy(svcparam, ech, ech_len);
+	if (dns_add_rr_nested_memcpy(svcparam, &value, 2) != 0) {
+		return -1;
+	}
+
+	if (dns_add_rr_nested_memcpy(svcparam, ech, ech_len) != 0) {
+		return -1;
+	}
 
 	return 0;
 }
@@ -1327,13 +1386,19 @@ int dns_HTTPS_add_ipv4hint(struct dns_rr_nested *svcparam, unsigned char *addr[]
 	}
 
 	unsigned short value = DNS_HTTPS_T_IPV4HINT;
-	dns_add_rr_nested_memcpy(svcparam, &value, 2);
+	if (dns_add_rr_nested_memcpy(svcparam, &value, 2) != 0) {
+		return -1;
+	}
 
 	value = addr_num * DNS_RR_A_LEN;
-	dns_add_rr_nested_memcpy(svcparam, &value, 2);
+	if (dns_add_rr_nested_memcpy(svcparam, &value, 2) != 0) {
+		return -1;
+	}
 
 	for (int i = 0; i < addr_num; i++) {
-		dns_add_rr_nested_memcpy(svcparam, addr[i], DNS_RR_A_LEN);
+		if (dns_add_rr_nested_memcpy(svcparam, addr[i], DNS_RR_A_LEN) != 0) {
+			return -1;
+		}
 	}
 
 	return 0;
@@ -1346,13 +1411,19 @@ int dns_HTTPS_add_ipv6hint(struct dns_rr_nested *svcparam, unsigned char *addr[]
 	}
 
 	unsigned short value = DNS_HTTPS_T_IPV6HINT;
-	dns_add_rr_nested_memcpy(svcparam, &value, 2);
+	if (dns_add_rr_nested_memcpy(svcparam, &value, 2) != 0) {
+		return -1;
+	}
 
 	value = addr_num * DNS_RR_AAAA_LEN;
-	dns_add_rr_nested_memcpy(svcparam, &value, 2);
+	if (dns_add_rr_nested_memcpy(svcparam, &value, 2) != 0) {
+		return -1;
+	}
 
 	for (int i = 0; i < addr_num; i++) {
-		dns_add_rr_nested_memcpy(svcparam, addr[i], DNS_RR_AAAA_LEN);
+		if (dns_add_rr_nested_memcpy(svcparam, addr[i], DNS_RR_AAAA_LEN) != 0) {
+			return -1;
+		}
 	}
 
 	return 0;
@@ -1395,6 +1466,12 @@ int dns_get_HTTPS_svcparm_start(struct dns_rrs *rrs, struct dns_https_param **ht
 	rr_len -= len + 1;
 	if (rr_len < 0) {
 		return -1;
+	}
+
+	/* PADDING */
+	if (is_aligned(data, 2) != 1) {
+		data++;
+		rr_len--;
 	}
 
 	if (rr_len == 0) {

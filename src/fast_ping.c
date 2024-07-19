@@ -84,7 +84,6 @@ struct fast_ping_packet_msg {
 	struct timeval tv;
 	unsigned int sid;
 	unsigned int seq;
-	unsigned int cookie;
 };
 
 struct fast_ping_packet {
@@ -121,7 +120,7 @@ struct ping_host_struct {
 	char host[PING_MAX_HOSTLEN];
 
 	int fd;
-	unsigned int seq;
+	unsigned short seq;
 	int ttl;
 	struct timeval last;
 	int interval;
@@ -129,8 +128,7 @@ struct ping_host_struct {
 	int count;
 	int send;
 	int run;
-	unsigned int cookie;
-	unsigned int sid;
+	unsigned short sid;
 	unsigned short port;
 	unsigned short ss_family;
 	union {
@@ -140,6 +138,8 @@ struct ping_host_struct {
 	};
 	socklen_t addr_len;
 	struct fast_ping_packet packet;
+	/* for memory address alignment */
+	struct fast_ping_packet recv_packet_buffer;
 
 	struct fast_ping_fake_ip *fake;
 	int fake_time_fd;
@@ -726,7 +726,6 @@ static int _fast_ping_sendping_v6(struct ping_host_struct *ping_host)
 	gettimeofday(&packet->msg.tv, NULL);
 	gettimeofday(&ping_host->last, NULL);
 	packet->msg.sid = ping_host->sid;
-	packet->msg.cookie = ping_host->cookie;
 	packet->msg.seq = ping_host->seq;
 	icmp6->icmp6_cksum = _fast_ping_checksum((void *)packet, sizeof(struct fast_ping_packet));
 
@@ -812,7 +811,6 @@ static int _fast_ping_sendping_v4(struct ping_host_struct *ping_host)
 	gettimeofday(&ping_host->last, NULL);
 	packet->msg.sid = ping_host->sid;
 	packet->msg.seq = ping_host->seq;
-	packet->msg.cookie = ping_host->cookie;
 	icmp->icmp_cksum = _fast_ping_checksum((void *)packet, sizeof(struct fast_ping_packet));
 
 	len = sendto(ping.fd_icmp, packet, sizeof(struct fast_ping_packet), 0, &ping_host->addr, ping_host->addr_len);
@@ -1409,7 +1407,6 @@ struct ping_host_struct *fast_ping_start(PING_TYPE type, const char *host, int c
 	char ip_str[PING_MAX_HOSTLEN];
 	int port = -1;
 	FAST_PING_TYPE ping_type = FAST_PING_END;
-	unsigned int seed = 0;
 	int ret = 0;
 	struct fast_ping_fake_ip *fake = NULL;
 	int fake_time_fd = -1;
@@ -1438,8 +1435,6 @@ struct ping_host_struct *fast_ping_start(PING_TYPE type, const char *host, int c
 	atomic_set(&ping_host->ref, 0);
 	atomic_set(&ping_host->notified, 0);
 	ping_host->sid = atomic_inc_return(&ping_sid);
-	seed = ping_host->sid;
-	ping_host->cookie = rand_r(&seed);
 	ping_host->run = 0;
 	if (ping_callback) {
 		ping_host->ping_callback = ping_callback;
@@ -1546,6 +1541,11 @@ static struct fast_ping_packet *_fast_ping_icmp6_packet(struct ping_host_struct 
 	struct cmsghdr *c = NULL;
 	int hops = 0;
 
+	if (data_len < (int)sizeof(struct icmp6_hdr)) {
+		tlog(TLOG_DEBUG, "ping package length is invalid, %d, %d", data_len, (int)sizeof(struct fast_ping_packet));
+		return NULL;
+	}
+
 	for (c = CMSG_FIRSTHDR(msg); c; c = CMSG_NXTHDR(msg, c)) {
 		if (c->cmsg_level != IPPROTO_IPV6) {
 			continue;
@@ -1593,12 +1593,32 @@ static struct fast_ping_packet *_fast_ping_icmp_packet(struct ping_host_struct *
 	int hlen = 0;
 	int icmp_len = 0;
 
-	hlen = ip->ip_hl << 2;
-	packet = (struct fast_ping_packet *)(packet_data + hlen);
+	if (ping.no_unprivileged_ping) {
+		hlen = ip->ip_hl << 2;
+		if (ip->ip_p != IPPROTO_ICMP) {
+			tlog(TLOG_DEBUG, "ip type failed, %d:%d", ip->ip_p, IPPROTO_ICMP);
+			return NULL;
+		}
+	}
+
+	if (data_len - hlen < (int)sizeof(struct icmp)) {
+		tlog(TLOG_DEBUG, "response ping package length is invalid, len: %d", data_len);
+		return NULL;
+	}
+
+	if ((uintptr_t)(packet_data + hlen) % __alignof__(void *) == 0 || ping.no_unprivileged_ping == 0) {
+		packet = (struct fast_ping_packet *)(packet_data + hlen);
+	} else {
+		int copy_len = sizeof(ping_host->recv_packet_buffer);
+		if (copy_len > data_len - hlen) {
+			copy_len = data_len - hlen;
+		}
+		memcpy(&ping_host->recv_packet_buffer, packet_data + hlen, copy_len);
+		packet = &ping_host->recv_packet_buffer;
+	}
+
 	icmp = &packet->icmp;
 	icmp_len = data_len - hlen;
-	packet->ttl = ip->ip_ttl;
-
 	if (icmp_len < 16) {
 		tlog(TLOG_ERROR, "length is invalid, %d", icmp_len);
 		return NULL;
@@ -1609,18 +1629,12 @@ static struct fast_ping_packet *_fast_ping_icmp_packet(struct ping_host_struct *
 		return NULL;
 	}
 
-	if (ping.no_unprivileged_ping) {
-		if (ip->ip_p != IPPROTO_ICMP) {
-			tlog(TLOG_ERROR, "ip type failed, %d:%d", ip->ip_p, IPPROTO_ICMP);
-			return NULL;
-		}
-
-		if (icmp->icmp_id != ping.ident) {
-			tlog(TLOG_ERROR, "ident failed, %d:%d", icmp->icmp_id, ping.ident);
-			return NULL;
-		}
+	if (icmp->icmp_id != ping.ident && ping.no_unprivileged_ping) {
+		tlog(TLOG_WARN, "ident failed, %d:%d", icmp->icmp_id, ping.ident);
+		return NULL;
 	}
 
+	packet->ttl = ip->ip_ttl;
 	return packet;
 }
 
@@ -1689,7 +1703,6 @@ static int _fast_ping_process_icmp(struct ping_host_struct *ping_host, struct ti
 	struct timeval *tvsend = NULL;
 	unsigned int sid = 0;
 	unsigned int seq = 0;
-	unsigned int cookie = 0;
 	struct msghdr msg;
 	struct iovec iov;
 	char ans_data[4096];
@@ -1726,14 +1739,13 @@ static int _fast_ping_process_icmp(struct ping_host_struct *ping_host, struct ti
 	tvsend = &packet->msg.tv;
 	sid = packet->msg.sid;
 	seq = packet->msg.seq;
-	cookie = packet->msg.cookie;
 	addrkey = _fast_ping_hash_key(sid, (struct sockaddr *)&from);
 	pthread_mutex_lock(&ping.map_lock);
 	hash_for_each_possible(ping.addrmap, recv_ping_host, addr_node, addrkey)
 	{
 		if (_fast_ping_sockaddr_ip_cmp(&recv_ping_host->addr, recv_ping_host->addr_len, (struct sockaddr *)&from,
 									   from_len) == 0 &&
-			recv_ping_host->sid == sid && recv_ping_host->cookie == cookie) {
+			recv_ping_host->sid == sid) {
 			_fast_ping_host_get(recv_ping_host);
 			break;
 		}

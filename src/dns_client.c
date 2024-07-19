@@ -569,7 +569,6 @@ static struct dns_server_info *_dns_client_get_server(char *server_ip, int port,
 			continue;
 		}
 
-		pthread_mutex_unlock(&client.server_list_lock);
 		server_info_return = server_info;
 		break;
 	}
