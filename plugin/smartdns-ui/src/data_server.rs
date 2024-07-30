@@ -36,8 +36,7 @@ impl DataServerConfig {
     pub fn new() -> Self {
         DataServerConfig {
             data_root: Plugin::dns_conf_data_dir() + "/ui.db",
-            // max_log_age_ms: 7 * 24 * 60 * 60 * 1000,
-            max_log_age_ms: 60 * 60 * 1000,
+            max_log_age_ms: 7 * 24 * 60 * 60 * 1000,
         }
     }
 }

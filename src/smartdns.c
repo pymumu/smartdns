@@ -17,21 +17,17 @@
  */
 
 #define _GNU_SOURCE
+
 #include "smartdns.h"
+
 #include "art.h"
 #include "atomic.h"
-#include "dns_cache.h"
-#include "dns_client.h"
-#include "dns_conf.h"
-#include "dns_plugin.h"
-#include "dns_server.h"
-#include "fast_ping.h"
 #include "hashtable.h"
 #include "list.h"
 #include "rbtree.h"
 #include "timer.h"
 #include "tlog.h"
-#include "util.h"
+
 #include <errno.h>
 #include <fcntl.h>
 #include <getopt.h>

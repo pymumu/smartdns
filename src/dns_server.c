@@ -2940,12 +2940,12 @@ static void _dns_server_request_get(struct dns_request *request)
 	}
 }
 
-struct sockaddr *dns_server_request_get_remote_addr(struct dns_request *request)
+const struct sockaddr *dns_server_request_get_remote_addr(struct dns_request *request)
 {
 	return &request->addr;
 }
 
-struct sockaddr *dns_server_request_get_local_addr(struct dns_request *request)
+const struct sockaddr *dns_server_request_get_local_addr(struct dns_request *request)
 {
 	return (struct sockaddr *)&request->localaddr;
 }

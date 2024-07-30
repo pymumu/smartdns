@@ -19,6 +19,15 @@
 #ifndef SMART_DNS_H
 #define SMART_DNS_H
 
+
+#include "dns_cache.h"
+#include "dns_client.h"
+#include "dns_conf.h"
+#include "dns_plugin.h"
+#include "dns_server.h"
+#include "fast_ping.h"
+#include "util.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif /*__cplusplus */

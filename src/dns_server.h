@@ -71,9 +71,9 @@ int dns_server_query(const char *domain, int qtype, struct dns_server_query_opti
 
 struct dns_request;
 
-struct sockaddr *dns_server_request_get_remote_addr(struct dns_request *request);
+const struct sockaddr *dns_server_request_get_remote_addr(struct dns_request *request);
 
-struct sockaddr *dns_server_request_get_local_addr(struct dns_request *request);
+const struct sockaddr *dns_server_request_get_local_addr(struct dns_request *request);
 
 const char *dns_server_request_get_group_name(struct dns_request *request);
 

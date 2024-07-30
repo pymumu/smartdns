@@ -94,7 +94,7 @@ void smartdns_plugin_func_server_complete_request(struct dns_request *request)
 	return;
 }
 
-int smartdns_operations_register(struct smartdns_operations *operations)
+int smartdns_operations_register(const struct smartdns_operations *operations)
 {
 	struct dns_plugin_ops *chain = NULL;
 
@@ -109,7 +109,7 @@ int smartdns_operations_register(struct smartdns_operations *operations)
 	return 0;
 }
 
-int smartdns_operations_unregister(struct smartdns_operations *operations)
+int smartdns_operations_unregister(const struct smartdns_operations *operations)
 {
 	struct dns_plugin_ops *chain = NULL;
 	struct dns_plugin_ops *tmp = NULL;

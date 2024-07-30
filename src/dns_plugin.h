@@ -88,9 +88,9 @@ struct smartdns_operations {
 	void (*server_query_complete)(struct dns_request *request);
 };
 
-int smartdns_operations_register(struct smartdns_operations *operations);
+int smartdns_operations_register(const struct smartdns_operations *operations);
 
-int smartdns_operations_unregister(struct smartdns_operations *operations);
+int smartdns_operations_unregister(const struct smartdns_operations *operations);
 
 #ifdef __cplusplus
 }

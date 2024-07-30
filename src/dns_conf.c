@@ -461,7 +461,7 @@ static void _config_group_table_destroy(void)
 	}
 }
 
-struct dns_proxy_names *dns_server_get_proxy_nams(const char *proxyname)
+struct dns_proxy_names *dns_server_get_proxy_names(const char *proxyname)
 {
 	uint32_t key = 0;
 	struct dns_proxy_names *proxy = NULL;

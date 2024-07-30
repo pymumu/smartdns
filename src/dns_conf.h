@@ -762,7 +762,7 @@ int dns_server_load_conf(const char *file);
 
 int dns_server_check_update_hosts(void);
 
-struct dns_proxy_names *dns_server_get_proxy_nams(const char *proxyname);
+struct dns_proxy_names *dns_server_get_proxy_names(const char *proxyname);
 
 struct dns_srv_records *dns_server_get_srv_record(const char *domain);
 

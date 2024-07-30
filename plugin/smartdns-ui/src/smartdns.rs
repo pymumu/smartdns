@@ -16,11 +16,58 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#![allow(non_upper_case_globals)]
+#![allow(non_camel_case_types)]
+#![allow(non_snake_case)]
+#![allow(dead_code)]
+#![allow(unused_imports)]
+mod smartdns_c {
+    use libc::gid_t;
+    use libc::in6_addr;
+    use libc::in_addr;
+    use libc::sockaddr;
+    use libc::sockaddr_storage;
+    use libc::socklen_t;
+    use libc::time_t;
+    use libc::timeval;
+    use libc::tm;
+    use libc::uid_t;
+    use u32 as u_int;
+    include!(concat!(env!("OUT_DIR"), "/smartdns_bindings.rs"));
+
+}
+
 extern crate libc;
 use std::error::Error;
 use std::ffi::CString;
 
-pub use smartdns_c::LogLevel;
+#[repr(C)]
+#[derive(Copy, Clone, Debug, PartialEq)]
+#[allow(dead_code)]
+pub enum LogLevel {
+    DEBUG = 0,
+    INFO = 1,
+    NOTICE = 2,
+    WARN = 3,
+    ERROR = 4,
+    FATAL = 5,
+}
+
+impl TryFrom<u32> for LogLevel {
+    type Error = ();
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(LogLevel::DEBUG),
+            1 => Ok(LogLevel::INFO),
+            2 => Ok(LogLevel::NOTICE),
+            3 => Ok(LogLevel::WARN),
+            4 => Ok(LogLevel::ERROR),
+            5 => Ok(LogLevel::FATAL),
+            _ => Err(()),
+        }
+    }
+}
 
 #[macro_export]
 macro_rules! dns_log {
@@ -31,17 +78,20 @@ macro_rules! dns_log {
     };
 }
 pub fn dns_can_log(level: LogLevel) -> bool {
-    unsafe { smartdns_c::smartdns_plugin_can_log(level) != 0 }
+    unsafe { smartdns_c::smartdns_plugin_can_log(level as u32) != 0 }
 }
 
 pub fn dns_log_set_level(level: LogLevel) {
     unsafe {
-        smartdns_c::smartdns_plugin_log_setlevel(level);
+        smartdns_c::smartdns_plugin_log_setlevel(level as u32);
     }
 }
 
 pub fn dns_log_get_level() -> LogLevel {
-    unsafe { smartdns_c::smartdns_plugin_log_getlevel() }
+    unsafe {
+        let leve = smartdns_c::smartdns_plugin_log_getlevel();
+        LogLevel::try_from(leve as u32).unwrap()
+    }
 }
 
 pub fn dns_log_out(level: LogLevel, file: &str, line: u32, message: &str) {
@@ -54,130 +104,12 @@ pub fn dns_log_out(level: LogLevel, file: &str, line: u32, message: &str) {
 
     unsafe {
         smartdns_c::smartdns_plugin_log(
-            level,
+            level as u32,
             file_cstring.as_ptr(),
-            line,
+            line as i32,
             std::ptr::null(),
             message_cstring.as_ptr(),
         );
-    }
-}
-
-mod smartdns_c {
-
-    #[repr(C)]
-    #[derive(Copy, Clone, Debug, PartialEq)]
-    #[allow(dead_code)]
-    pub enum LogLevel {
-        DEBUG = 0,
-        INFO = 1,
-        NOTICE = 2,
-        WARN = 3,
-        ERROR = 4,
-        FATAL = 5,
-    }
-
-    #[repr(C)]
-    pub struct _SmartdnsOperations {
-        pub server_recv: Option<
-            extern "C" fn(
-                packet: *mut _DnsPacket,
-                inpacket: *mut u8,
-                inpacket_len: libc::c_int,
-                local: *mut libc::sockaddr_storage,
-                local_len: libc::socklen_t,
-                from: *mut libc::sockaddr_storage,
-                from_len: libc::socklen_t,
-            ) -> libc::c_int,
-        >,
-        pub server_query_complete: Option<extern "C" fn(request: *mut _DnsRequest)>,
-    }
-
-    #[repr(C)]
-    pub struct _DnsPlugin {
-        _dummy: [u8; 0],
-    }
-
-    #[repr(C)]
-    pub struct _DnsRequest {
-        _dummy: [u8; 0],
-    }
-
-    #[repr(C)]
-    pub struct _DnsPacket {
-        _dummy: [u8; 0],
-    }
-
-    extern "C" {
-        pub fn dns_plugin_get_argc(plugin: *mut _DnsPlugin) -> i32;
-        pub fn dns_plugin_get_argv(plugin: *mut _DnsPlugin) -> *const *const libc::c_char;
-        pub fn dns_server_request_get_group_name(request: *mut _DnsRequest) -> *const libc::c_char;
-        pub fn dns_server_request_get_domain(request: *mut _DnsRequest) -> *const libc::c_char;
-        pub fn dns_server_request_get_qtype(request: *mut _DnsRequest) -> i32;
-        pub fn dns_server_request_get_qclass(request: *mut _DnsRequest) -> i32;
-        pub fn dns_server_request_get_id(request: *mut _DnsRequest) -> u16;
-        pub fn dns_server_request_get_rcode(request: *mut _DnsRequest) -> i32;
-        pub fn dns_server_request_get_query_time(request: *mut _DnsRequest) -> u64;
-        pub fn dns_server_request_get_remote_addr(
-            request: *mut _DnsRequest,
-        ) -> *const libc::sockaddr_storage;
-
-        pub fn dns_server_request_get_local_addr(
-            request: *mut _DnsRequest,
-        ) -> *const libc::sockaddr_storage;
-
-        pub fn get_host_by_addr(
-            host: *mut libc::c_char,
-            maxsize: i32,
-            addr: *const libc::sockaddr_storage,
-        ) -> *const libc::c_char;
-
-        pub fn dns_server_request_get(request: *mut _DnsRequest);
-
-        pub fn dns_server_request_put(request: *mut _DnsRequest);
-
-        pub fn smartdns_operations_register(operations: *const _SmartdnsOperations) -> i32;
-        pub fn smartdns_operations_unregister(operations: *const _SmartdnsOperations) -> i32;
-
-        pub fn smartdns_exit(status: i32);
-
-        pub fn smartdns_restart();
-
-        pub fn smartdns_get_cert(key: *mut libc::c_char, cert: *mut libc::c_char) -> i32;
-
-        pub fn dns_cache_flush();
-
-        pub fn dns_cache_total_num() -> i32;
-
-        pub fn smartdns_plugin_log(
-            level: LogLevel,
-            file: *const libc::c_char,
-            line: u32,
-            func: *const libc::c_char,
-            msg: *const libc::c_char,
-        );
-
-        pub fn smartdns_plugin_log_setlevel(level: LogLevel);
-
-        pub fn smartdns_plugin_log_getlevel() -> LogLevel;
-
-        pub fn smartdns_plugin_can_log(level: LogLevel) -> i32;
-
-        pub fn dns_conf_get_cache_dir() -> *const libc::c_char;
-
-        pub fn dns_conf_get_data_dir() -> *const libc::c_char;
-
-        pub fn smartdns_plugin_get_config(key: *const libc::c_char) -> *const libc::c_char;
-
-        pub fn smartdns_plugin_clear_all_config();
-
-        pub fn smartdns_server_run(file: *const libc::c_char) -> i32;
-
-        pub fn smartdns_server_stop();
-
-        pub fn get_utc_time_ms() -> u64;
-
-        pub fn smartdns_version() -> *const libc::c_char;
     }
 }
 
@@ -218,13 +150,13 @@ pub fn get_utc_time_ms() -> u64 {
     unsafe { smartdns_c::get_utc_time_ms() }
 }
 
-static SMARTDNS_OPS: smartdns_c::_SmartdnsOperations = smartdns_c::_SmartdnsOperations {
+static SMARTDNS_OPS: smartdns_c::smartdns_operations = smartdns_c::smartdns_operations {
     server_recv: None,
     server_query_complete: Some(dns_request_complete),
 };
 
 #[no_mangle]
-extern "C" fn dns_request_complete(request: *mut smartdns_c::_DnsRequest) {
+extern "C" fn dns_request_complete(request: *mut smartdns_c::dns_request) {
     unsafe {
         let ops = PLUGIN.ops.as_ref();
         if let None = ops {
@@ -238,7 +170,7 @@ extern "C" fn dns_request_complete(request: *mut smartdns_c::_DnsRequest) {
 }
 
 #[no_mangle]
-extern "C" fn dns_plugin_init(plugin: *mut smartdns_c::_DnsPlugin) -> i32 {
+extern "C" fn dns_plugin_init(plugin: *mut smartdns_c::dns_plugin) -> i32 {
     unsafe {
         PLUGIN.parser_args(plugin).unwrap();
         smartdns_c::smartdns_operations_register(&SMARTDNS_OPS);
@@ -253,7 +185,7 @@ extern "C" fn dns_plugin_init(plugin: *mut smartdns_c::_DnsPlugin) -> i32 {
 }
 
 #[no_mangle]
-extern "C" fn dns_plugin_exit(_plugin: *mut smartdns_c::_DnsPlugin) -> i32 {
+extern "C" fn dns_plugin_exit(_plugin: *mut smartdns_c::dns_plugin) -> i32 {
     unsafe {
         smartdns_c::smartdns_operations_unregister(&SMARTDNS_OPS);
         PLUGIN.ops.as_mut().unwrap().server_exit();
@@ -262,12 +194,12 @@ extern "C" fn dns_plugin_exit(_plugin: *mut smartdns_c::_DnsPlugin) -> i32 {
 }
 
 pub struct DnsRequest {
-    request: *mut smartdns_c::_DnsRequest,
+    request: *mut smartdns_c::dns_request,
 }
 
 #[allow(dead_code)]
 impl DnsRequest {
-    fn new(request: *mut smartdns_c::_DnsRequest) -> DnsRequest {
+    fn new(request: *mut smartdns_c::dns_request) -> DnsRequest {
         unsafe {
             smartdns_c::dns_server_request_get(request);
         }
@@ -309,7 +241,7 @@ impl DnsRequest {
     }
 
     pub fn get_id(&self) -> u16 {
-        unsafe { smartdns_c::dns_server_request_get_id(self.request) }
+        unsafe { smartdns_c::dns_server_request_get_id(self.request) as u16 }
     }
 
     pub fn get_rcode(&self) -> u16 {
@@ -323,13 +255,11 @@ impl DnsRequest {
     pub fn get_remote_addr(&self) -> String {
         unsafe {
             let addr = smartdns_c::dns_server_request_get_remote_addr(self.request);
-            let addr =
-                std::mem::transmute::<*const libc::sockaddr_storage, *const libc::sockaddr>(addr);
             let mut buf = [0u8; 1024];
             let retstr = smartdns_c::get_host_by_addr(
                 buf.as_mut_ptr(),
                 buf.len() as i32,
-                addr as *const libc::sockaddr_storage,
+                addr as *const libc::sockaddr,
             );
             if retstr.is_null() {
                 return String::new();
@@ -345,13 +275,11 @@ impl DnsRequest {
     pub fn get_local_addr(&self) -> String {
         unsafe {
             let addr = smartdns_c::dns_server_request_get_local_addr(self.request);
-            let addr =
-                std::mem::transmute::<*const libc::sockaddr_storage, *const libc::sockaddr>(addr);
             let mut buf = [0u8; 1024];
             let retstr = smartdns_c::get_host_by_addr(
                 buf.as_mut_ptr(),
                 buf.len() as i32,
-                addr as *const libc::sockaddr_storage,
+                addr as *const libc::sockaddr,
             );
             if retstr.is_null() {
                 return String::new();
@@ -507,7 +435,7 @@ impl Plugin {
         }
     }
 
-    fn parser_args(&mut self, plugin: *mut smartdns_c::_DnsPlugin) -> Result<(), String> {
+    fn parser_args(&mut self, plugin: *mut smartdns_c::dns_plugin) -> Result<(), String> {
         let argc = unsafe { smartdns_c::dns_plugin_get_argc(plugin) };
         let args: Vec<String> = unsafe {
             let argv = smartdns_c::dns_plugin_get_argv(plugin);

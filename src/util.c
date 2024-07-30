@@ -280,7 +280,7 @@ int create_dir_with_perm(const char *dir_path)
 	return 0;
 }
 
-char *get_host_by_addr(char *host, int maxsize, struct sockaddr *addr)
+char *get_host_by_addr(char *host, int maxsize, const struct sockaddr *addr)
 {
 	struct sockaddr_storage *addr_store = (struct sockaddr_storage *)addr;
 	host[0] = 0;
@@ -388,7 +388,7 @@ int is_private_addr(const unsigned char *addr, int addr_len)
 	return 0;
 }
 
-int is_private_addr_sockaddr(struct sockaddr *addr, socklen_t addr_len)
+int is_private_addr_sockaddr(const struct sockaddr *addr, socklen_t addr_len)
 {
 	switch (addr->sa_family) {
 	case AF_INET: {
