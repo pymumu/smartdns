@@ -14,7 +14,6 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
 START=19
 STOP=82
 NAME=smartdns
@@ -514,6 +513,44 @@ conf_append_bind()
 	done
 }
 
+conf_append_bind_interface()
+{
+	local bind_type="$1"
+	local port="$2"
+	local interfaces="$3"
+	local ipv6_server="$4"
+	local ARGS="$5"
+	local intf=""
+
+	for intf in ${interfaces}; do
+		local __device
+		local __addrs
+		network_get_device __device $intf
+		[ -z "$__device" ] && continue
+
+		if [ "$ipv6_server" = "1" ]; then
+			local __addr
+			__addr=$(ifconfig "$__device"|grep 'Scope:Link' \
+				 | sed 's:.*\(fe[8ab].*\)/.*:\1:')
+
+			[ -n "${__addr}" ] || break
+
+			conf_append "$bind_type" "[${__addr}]:${port}@${__device} $ARGS"
+
+			network_get_ipaddrs6 __addrs "$intf"
+			for __addr in ${__addrs}; do
+				[ -n "${__addr}" ] && \
+				conf_append "$bind_type" "[${__addr}]:${port}@${__device} $ARGS"
+			done
+		fi
+
+		network_get_ipaddrs __addrs "$intf"
+		for __addr in ${__addrs}; do
+			conf_append "$bind_type" "[${__addr}]:${port}@${__device} $ARGS"
+		done
+	done
+}
+
 load_second_server()
 {
 	local section="$1"
@@ -739,6 +776,7 @@ load_service()
 
 	config_get_bool bind_device "$section" "bind_device" "0"
 	config_get bind_device_name "$section" "bind_device_name" "${lan_device}"
+	config_get bind_interfaces "$section" "bind_interface" ""
 	[ ! -z "$bind_device_name" ] && [ "$bind_device" = "1" ] && device="${bind_device_name}"
 
 	config_get cache_file "$section" "cache_file" "$SMARTDNS_CONF_DIR/smartdns.cache"
@@ -829,10 +867,18 @@ load_service()
 		[ "$auto_set_dnsmasq" = "0" ] && [ "$old_auto_set_dnsmasq" = "1" ] && stop_forward_dnsmasq "$old_port" "0"
 	}
 
-	conf_append_bind "bind" "$port" "$device" "$ipv6_server" "$server_flags"
-	[ "$tcp_server" = "1" ] && conf_append_bind "bind-tcp" "$port" "$device" "$ipv6_server" "$server_flags"
-	[ "$tls_server" = "1" ] && conf_append_bind "bind-tls" "$tls_server_port" "$device" "$ipv6_server" "$server_flags"
-	[ "$doh_server" = "1" ] && conf_append_bind "bind-https" "$doh_server_port" "$device" "$ipv6_server" "$server_flags"
+	local __conf_bind_func
+	if [ ! -z $bind_interfaces ]; then
+		__conf_bind_func="conf_append_bind_interface"
+		device=${bind_interfaces}
+	else
+		__conf_bind_func="conf_append_bind"
+	fi
+
+	$__conf_bind_func "bind" "$port" "$device" "$ipv6_server" "$server_flags"
+	[ "$tcp_server" = "1" ] && $__conf_bind_func "bind-tcp" "$port" "$device" "$ipv6_server" "$server_flags"
+	[ "$tls_server" = "1" ] && $__conf_bind_func "bind-tls" "$tls_server_port" "$device" "$ipv6_server" "$server_flags"
+	[ "$doh_server" = "1" ] && $__conf_bind_func "bind-https" "$doh_server_port" "$device" "$ipv6_server" "$server_flags"
 
 	[ ! -z "$bind_cert" ] && conf_append "bind-cert-file" "$bind_cert"
 	[ ! -z "$bind_cert_key" ] && conf_append "bind-cert-key-file" "$bind_cert_key"
@@ -996,6 +1042,9 @@ start_service()
 {
 	check_and_add_entry
 	config_load "smartdns"
+
+	. /lib/functions/network.sh
+
 	config_foreach load_service "smartdns"
 }
 
