@@ -6871,7 +6871,7 @@ static void _dns_server_setup_dns_group_name(struct dns_request *request, const 
 		group_name = temp_group_name;
 	}
 
-	if (request->dns_group_name[0] != '\0') {
+	if (request->dns_group_name[0] != '\0' && group_name == NULL) {
 		group_name = request->dns_group_name;
 	} else {
 		safe_strncpy(request->dns_group_name, group_name, sizeof(request->dns_group_name));

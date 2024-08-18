@@ -144,3 +144,71 @@ acl-enable yes
 	EXPECT_EQ(client.GetAnswer()[0].GetName(), "b.com");
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
 }
+
+
+TEST_F(ClientRule, in_group_nameserver) 
+{
+	smartdns::MockServer server_upstream;
+	smartdns::MockServer server_upstream2;
+	smartdns::MockServer server_upstream3;
+	smartdns::Server server;
+
+	server_upstream.Start("udp://0.0.0.0:61053", [](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype != DNS_T_A) {
+			return smartdns::SERVER_REQUEST_SOA;
+		}
+
+		smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4", 611);
+		return smartdns::SERVER_REQUEST_OK;
+	});
+
+	server_upstream2.Start("udp://0.0.0.0:62053",
+						   [](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype != DNS_T_A) {
+			return smartdns::SERVER_REQUEST_SOA;
+		}
+
+		smartdns::MockServer::AddIP(request, request->domain.c_str(), "4.5.6.7", 611);
+		return smartdns::SERVER_REQUEST_OK;
+	});
+
+	server_upstream3.Start("udp://0.0.0.0:63053",
+						   [](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype != DNS_T_A) {
+			return smartdns::SERVER_REQUEST_SOA;
+		}
+
+		usleep(10000);
+		smartdns::MockServer::AddIP(request, request->domain.c_str(), "7.8.9.10", 611);
+		return smartdns::SERVER_REQUEST_OK;
+	});
+
+	/* this ip will be discard, but is reachable */
+	server.MockPing(PING_TYPE_ICMP, "1.2.3.4", 60, 10);
+	server.MockPing(PING_TYPE_ICMP, "4.5.6.7", 60, 10);
+	server.MockPing(PING_TYPE_ICMP, "7.8.9.10", 60, 10);
+
+	server.Start(R"""(bind [::]:60053
+server udp://127.0.0.1:62053
+server udp://127.0.0.1:63053 -g in_group
+group-begin client
+server udp://127.0.0.1:61053 -e 
+client-rules 127.0.0.1 
+nameserver /cn/in_group
+group-end
+)""");
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("b.com", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "b.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+
+	ASSERT_TRUE(client.Query("b.cn", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "b.cn");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "7.8.9.10");
+}
