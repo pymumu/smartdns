@@ -16,56 +16,91 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+extern crate cfg_if;
+
 use crate::data_server::*;
 use crate::dns_log;
 use crate::http_api_msg::*;
 use crate::http_jwt::*;
 use crate::http_server_api::*;
-use crate::smartdns;
 use crate::smartdns::*;
 
 use bytes::Bytes;
 use http_body_util::Full;
 use hyper::body;
+use hyper::header::HeaderValue;
 use hyper::server::conn::http1;
 use hyper::StatusCode;
 use hyper::{service::service_fn, Request, Response};
 use hyper_util::rt::TokioIo;
-use rustls_pemfile;
 use std::convert::Infallible;
 use std::error::Error;
 use std::fs::Metadata;
-use std::io::BufReader;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::path::{Component, Path};
+use std::sync::MutexGuard;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+use std::time::Instant;
 use tokio::fs::read;
 use tokio::net::TcpListener;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
-use tokio_rustls::{rustls, TlsAcceptor};
+cfg_if::cfg_if! {
+    if #[cfg(feature = "https")] {
+        use rustls_pemfile;
+        use std::io::BufReader;
+        use tokio_rustls::{rustls, TlsAcceptor};
+    }
+}
+
+const HTTP_SERVER_DEFAULT_PASSWORD: &str = "password";
+const HTTP_SERVER_DEFAULT_USERNAME: &str = "admin";
+const HTTP_SERVER_DEFAULT_WWW_ROOT: &str = "/usr/local/shared/smartdns/www";
+const HTTP_SERVER_DEFAULT_IP: &str = "http://0.0.0.0:6080";
 
 #[derive(Clone)]
 pub struct HttpServerConfig {
     pub http_ip: String,
     pub http_root: String,
-    pub user: String,
+    pub username: String,
     pub password: String,
     pub token_expired_time: u32,
+    pub enable_cors: bool,
 }
 
 impl HttpServerConfig {
     pub fn new() -> Self {
         HttpServerConfig {
-            http_ip: "http://0.0.0.0:8080".to_string(),
-            http_root: "/usr/local/shared/smartdns/wwww".to_string(),
-            user: "admin".to_string(),
-            password: "password".to_string(),
+            http_ip: HTTP_SERVER_DEFAULT_IP.to_string(),
+            http_root: HTTP_SERVER_DEFAULT_WWW_ROOT.to_string(),
+            username: HTTP_SERVER_DEFAULT_USERNAME.to_string(),
+            password: HTTP_SERVER_DEFAULT_PASSWORD.to_string(),
             token_expired_time: 600,
+            enable_cors: false,
         }
+    }
+
+    pub fn load_config(&mut self, data_server: Arc<DataServer>) -> Result<(), Box<dyn Error>> {
+        if let Some(password) = data_server.get_server_config("smartdns-ui.password") {
+            self.password = password;
+        }
+
+        if let Some(username) = data_server.get_server_config("smartdns-ui.username") {
+            self.username = username;
+        }
+
+        if let Some(enable_cors) = data_server.get_server_config("smartdns-ui.cors-enable") {
+            if enable_cors.eq_ignore_ascii_case("yes") || enable_cors.eq_ignore_ascii_case("true") {
+                self.enable_cors = true;
+            } else {
+                self.enable_cors = false;
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -150,10 +185,11 @@ pub struct HttpServer {
     conf: Mutex<HttpServerConfig>,
     notify_tx: Option<mpsc::Sender<()>>,
     notify_rx: Mutex<Option<mpsc::Receiver<()>>>,
-    data_server: Mutex<Arc<DataServer>>,
+    data_server: Mutex<Option<Arc<DataServer>>>,
     api: API,
     local_addr: Mutex<Option<SocketAddr>>,
     mime_map: std::collections::HashMap<&'static str, &'static str>,
+    login_attempts: Mutex<(i32, Instant)>,
 }
 
 #[allow(dead_code)]
@@ -163,9 +199,10 @@ impl HttpServer {
             conf: Mutex::new(HttpServerConfig::new()),
             notify_tx: None,
             notify_rx: Mutex::new(None),
-            data_server: Mutex::new(Arc::new(DataServer::new())),
+            data_server: Mutex::new(None),
             api: API::new(),
             local_addr: Mutex::new(None),
+            login_attempts: Mutex::new((0, Instant::now())),
             mime_map: std::collections::HashMap::from([
                 ("htm", "text/html"),
                 ("html", "text/html"),
@@ -199,6 +236,42 @@ impl HttpServer {
         conf.clone()
     }
 
+    pub fn get_conf_mut(&self) -> MutexGuard<HttpServerConfig> {
+        self.conf.lock().unwrap()
+    }
+
+    pub fn login_attempts_reset(&self) {
+        let mut attempts = self.login_attempts.lock().unwrap();
+        attempts.0 = 0;
+        attempts.1 = Instant::now();
+    }
+
+    pub fn login_attempts_check(&self) -> bool {
+        let mut attempts = self.login_attempts.lock().unwrap();
+
+        if attempts.0 == 0 {
+            attempts.1 = Instant::now();
+        }
+
+        attempts.0 += 1;
+
+        if attempts.0 > 5 {
+            let now = Instant::now();
+            let duration = now.duration_since(attempts.1);
+            if duration.as_secs() < 60 {
+                if duration.as_secs() < 30 {
+                    attempts.1 = Instant::now();
+                }
+                return false;
+            }
+
+            attempts.0 = 0;
+            attempts.1 = now;
+        }
+
+        true
+    }
+
     pub fn get_local_addr(&self) -> Option<SocketAddr> {
         let local_addr = self.local_addr.lock().unwrap();
         local_addr.clone()
@@ -218,29 +291,122 @@ impl HttpServer {
 
     fn set_data_server(&self, data_server: Arc<DataServer>) -> Result<(), Box<dyn Error>> {
         let mut _data_server = self.data_server.lock().unwrap();
-        *_data_server = data_server.clone();
+        *_data_server = Some(data_server);
         Ok(())
     }
 
     pub fn get_data_server(&self) -> Arc<DataServer> {
         let data_server = self.data_server.lock().unwrap();
+        let data_server = data_server.as_ref().unwrap();
         Arc::clone(&*data_server)
     }
 
-    pub fn auth_token_is_valid(&self, req: &Request<body::Incoming>) -> bool {
-        let token = req.headers().get("Authorization");
+    pub fn get_token_from_header(
+        req: &Request<body::Incoming>,
+    ) -> Result<Option<String>, Box<dyn Error>> {
+        let token: String;
+        let header_auth = req.headers().get("Authorization");
+        if header_auth.is_none() {
+            let cookie = req.headers().get("Cookie");
+            if cookie.is_none() {
+                return Ok(None);
+            }
+
+            let cookie = cookie.unwrap().to_str();
+            if let Err(_) = cookie {
+                return Ok(None);
+            }
+
+            let cookies = cookie.unwrap().split(';').collect::<Vec<&str>>();
+            let token_cookie = cookies.iter().find(|c| c.trim().starts_with("token="));
+            if token_cookie.is_none() {
+                return Ok(None);
+            }
+
+            let token_cookie = token_cookie.unwrap().trim().strip_prefix("token=");
+            if token_cookie.is_none() {
+                return Ok(None);
+            }
+
+            let data = urlencoding::decode(token_cookie.unwrap());
+            if let Err(_) = data {
+                return Ok(None);
+            }
+
+            let data = data.unwrap();
+            token = data.to_string();
+        } else {
+            let auth = header_auth.unwrap().to_str();
+            if let Err(_) = auth {
+                return Ok(None);
+            }
+
+            token = auth.unwrap().to_string();
+        }
+
+        let token_type = "Bearer";
+        if !token.starts_with(token_type) {
+            return Err("Invalid authorization type".into());
+        }
+
+        let token = token.strip_prefix(token_type).unwrap().trim();
+
+        Ok(Some(token.to_string()))
+    }
+
+    pub fn auth_token_is_valid(
+        &self,
+        req: &Request<body::Incoming>,
+    ) -> Result<bool, Box<dyn Error>> {
+        let token = HttpServer::get_token_from_header(req)?;
+
         if token.is_none() {
-            return false;
+            return Ok(false);
         }
 
-        let token = token.unwrap().to_str().unwrap();
+        let token = token.unwrap();
         let conf = self.conf.lock().unwrap();
-        let jwt = Jwt::new(&conf.user, &conf.password, "", conf.token_expired_time);
-
-        if !jwt.is_token_valid(token) {
-            return false;
+        let jwt = Jwt::new(&conf.username, &conf.password, "", conf.token_expired_time);
+        if !jwt.is_token_valid(token.as_str()) {
+            return Ok(false);
         }
-        true
+        Ok(true)
+    }
+
+    fn server_add_cors_header(
+        &self,
+        origin: &Option<hyper::header::HeaderValue>,
+        response: &mut Response<Full<Bytes>>,
+    ) {
+        if self.get_conf().enable_cors {
+            if let Some(origin) = origin {
+                response
+                    .headers_mut()
+                    .insert("Access-Control-Allow-Origin", origin.clone());
+            } else {
+                response
+                    .headers_mut()
+                    .insert("Access-Control-Allow-Origin", "*".parse().unwrap());
+            }
+
+            response.headers_mut().insert(
+                "Access-Control-Allow-Methods",
+                "GET, POST, PUT, DELETE, OPTIONS, PATCH".parse().unwrap(),
+            );
+
+            response.headers_mut().insert(
+                "Access-Control-Allow-Headers",
+                "Content-Type, Authorization, Set-Cookie".parse().unwrap(),
+            );
+
+            response
+                .headers_mut()
+                .insert("Access-Control-Allow-Credentials", "true".parse().unwrap());
+
+            response
+                .headers_mut()
+                .insert("Access-Control-Max-Age", "600".parse().unwrap());
+        }
     }
 
     async fn server_handle_http_api_request(
@@ -248,6 +414,12 @@ impl HttpServer {
         req: Request<body::Incoming>,
         _path: PathBuf,
     ) -> Result<Response<Full<Bytes>>, Infallible> {
+        let mut origin: Option<HeaderValue> = None;
+
+        if let Some(o) = req.headers().get("Origin") {
+            origin = Some(o.clone());
+        }
+
         let error_response = |code: StatusCode, msg: &str| {
             let bytes = Bytes::from(api_msg_error(msg));
             let mut response = Response::new(Full::new(bytes));
@@ -258,14 +430,36 @@ impl HttpServer {
                 .headers_mut()
                 .insert("Cache-Control", "no-cache".parse().unwrap());
             *response.status_mut() = code;
+
+            this.server_add_cors_header(&origin, &mut response);
             Ok(response)
         };
 
         dns_log!(LogLevel::DEBUG, "api request: {:?}", req.uri());
+
+        if req.method() == hyper::Method::OPTIONS {
+            let mut response = Response::new(Full::new(Bytes::from("")));
+            response
+                .headers_mut()
+                .insert("Content-Type", "application/json".parse().unwrap());
+            response
+                .headers_mut()
+                .insert("Cache-Control", "no-cache".parse().unwrap());
+            this.server_add_cors_header(&origin, &mut response);
+            return Ok(response);
+        }
+
         match this.api.get_router(req.method(), req.uri().path()) {
             Some((router, param)) => {
-                if router.auth && !this.auth_token_is_valid(&req) {
-                    return error_response(StatusCode::UNAUTHORIZED, "Please login.");
+                if router.auth {
+                    let is_token_valid = this.auth_token_is_valid(&req);
+                    if let Err(e) = is_token_valid {
+                        return error_response(StatusCode::BAD_REQUEST, e.to_string().as_str());
+                    }
+
+                    if !is_token_valid.unwrap() {
+                        return error_response(StatusCode::UNAUTHORIZED, "Please login.");
+                    }
                 }
 
                 if router.method != req.method() {
@@ -285,6 +479,9 @@ impl HttpServer {
                             resp.headers_mut()
                                 .insert("Cache-Control", "no-cache".parse().unwrap());
                         }
+
+                        this.server_add_cors_header(&origin, &mut resp);
+
                         Ok(resp)
                     }
                     Err(e) => Ok(e.to_response()),
@@ -308,6 +505,7 @@ impl HttpServer {
         req: Request<body::Incoming>,
     ) -> Result<Response<Full<Bytes>>, Infallible> {
         let path = PathBuf::from(req.uri().path());
+        let mut is_404 = false;
         let www_root = {
             let conf = this.conf.lock().unwrap();
             PathBuf::from(conf.http_root.clone())
@@ -332,16 +530,34 @@ impl HttpServer {
 
         dns_log!(LogLevel::DEBUG, "page request: {:?}", req.uri());
         let mut filepath = www_root.join(path);
-        let mut path = req.uri().path().to_string();
+        let uri_path = req.uri().path().to_string();
+        let mut path = uri_path.clone();
 
-        if !filepath.exists() {
-            filepath = www_root.join("index.html");
-            path = format!("{}/index.html", path);
-        }
+        if !filepath.exists() || filepath.is_dir() {
+            let suffix = filepath.extension();
+            if suffix.is_none() && !uri_path.ends_with("/") {
+                let check_filepath = filepath.with_extension("html");
+                if check_filepath.exists() {
+                    filepath = check_filepath;
+                    path = format!("{}.html", uri_path);
+                }
+            }
 
-        if filepath.is_dir() {
-            filepath = filepath.join("index.html");
-            path = format!("{}/index.html", path);
+            if filepath.is_dir() {
+                filepath = filepath.join("index.html");
+                path = format!("{}/index.html", uri_path);
+            }
+
+            if !filepath.exists() {
+                filepath = www_root.join("404.html");
+                path = "/404.html".to_string();
+                if !filepath.exists() {
+                    filepath = www_root.join("index.html");
+                    path = format!("/index.html");
+                } else {
+                    is_404 = true;
+                }
+            }
         }
 
         let mut file_meta: Option<Metadata> = None;
@@ -391,7 +607,13 @@ impl HttpServer {
                     let etag = fn_get_etag(&file_meta.as_ref().unwrap());
                     header.insert("ETag", etag.parse().unwrap());
                 }
-                *response.status_mut() = StatusCode::OK;
+
+                if is_404 {
+                    *response.status_mut() = StatusCode::NOT_FOUND;
+                } else {
+                    *response.status_mut() = StatusCode::OK;
+                }
+
                 Ok(response)
             }
             Err(_) => {
@@ -420,6 +642,7 @@ impl HttpServer {
         });
     }
 
+    #[cfg(feature = "https")]
     async fn https_server_handle_conn(
         this: Arc<HttpServer>,
         stream: tokio_rustls::server::TlsStream<TcpStream>,
@@ -440,6 +663,7 @@ impl HttpServer {
         });
     }
 
+    #[cfg(feature = "https")]
     async fn handle_tls_accept(this: Arc<HttpServer>, acceptor: TlsAcceptor, stream: TcpStream) {
         tokio::task::spawn(async move {
             let acceptor_future = acceptor.accept(stream);
@@ -477,30 +701,44 @@ impl HttpServer {
         }
 
         let url = addr.parse::<url::Url>()?;
-        let mut acceptor = None;
-        if url.scheme() == "https" {
-            let cert_info = smartdns::Plugin::smartdns_get_cert()?;
 
-            dns_log!(
-                LogLevel::DEBUG,
-                "cert: {}, key: {}",
-                cert_info.cert,
-                cert_info.key
-            );
-            let cert_chain: Result<Vec<rustls::pki_types::CertificateDer<'_>>, _> =
-                rustls_pemfile::certs(&mut BufReader::new(std::fs::File::open(cert_info.cert)?))
-                    .collect();
-            let cert_chain = cert_chain.unwrap_or_else(|_| Vec::new());
-            let key_der = rustls_pemfile::private_key(&mut BufReader::new(std::fs::File::open(
-                cert_info.key,
-            )?))?
-            .unwrap();
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "https")]
+            {
+                let mut acceptor = None;
+                if url.scheme() == "https" {
+                    #[cfg(feature = "https")]
+                    let cert_info = Plugin::smartdns_get_cert()?;
 
-            let config = rustls::ServerConfig::builder()
-                .with_no_client_auth()
-                .with_single_cert(cert_chain, key_der)?;
-            acceptor = Some(TlsAcceptor::from(Arc::new(config)));
+                    dns_log!(
+                        LogLevel::DEBUG,
+                        "cert: {}, key: {}",
+                        cert_info.cert,
+                        cert_info.key
+                    );
+                    let cert_chain: Result<Vec<rustls::pki_types::CertificateDer<'_>>, _> =
+                        rustls_pemfile::certs(&mut BufReader::new(std::fs::File::open(
+                            cert_info.cert,
+                        )?))
+                        .collect();
+                    let cert_chain = cert_chain.unwrap_or_else(|_| Vec::new());
+                    let key_der = rustls_pemfile::private_key(&mut BufReader::new(
+                        std::fs::File::open(cert_info.key)?,
+                    ))?
+                    .unwrap();
+
+                    let config = rustls::ServerConfig::builder()
+                        .with_no_client_auth()
+                        .with_single_cert(cert_chain, key_der)?;
+                    acceptor = Some(TlsAcceptor::from(Arc::new(config)));
+                }
+            } else {
+                if url.scheme() == "https" {
+                    return Err("https is not supported.".into());
+                }
+            }
         }
+
         let host = url.host_str().unwrap_or("0.0.0.0");
         let port = url.port().unwrap_or(80);
         let sock_addr = format!("{}:{}", host, port).parse::<SocketAddr>()?;
@@ -527,12 +765,19 @@ impl HttpServer {
                             ka = ka.with_interval(Duration::from_secs(10));
                             sock_ref.set_tcp_keepalive(&ka)?;
                             sock_ref.set_nonblocking(true)?;
-                            if acceptor.is_some() {
-                                let acceptor = acceptor.clone().unwrap().clone();
-                                let this_clone = this.clone();
-                                HttpServer::handle_tls_accept(this_clone, acceptor, stream).await;
-                            } else {
-                                HttpServer::http_server_handle_conn(this.clone(), stream).await;
+                            cfg_if::cfg_if! {
+                                if #[cfg(feature = "https")]
+                                {
+                                    if acceptor.is_some() {
+                                        let acceptor = acceptor.clone().unwrap().clone();
+                                        let this_clone = this.clone();
+                                        HttpServer::handle_tls_accept(this_clone, acceptor, stream).await;
+                                    } else {
+                                        HttpServer::http_server_handle_conn(this.clone(), stream).await;
+                                    }
+                                } else  {
+                                    HttpServer::http_server_handle_conn(this.clone(), stream).await;
+                                }
                             }
                         }
                         Err(e) => {

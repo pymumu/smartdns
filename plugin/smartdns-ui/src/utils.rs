@@ -16,20 +16,37 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "smartdns.h"
-#include <errno.h>
-#include <stdio.h>
-#include <string.h>
-
-int main(int argc, char *argv[])
+pub fn parse_value<T>(value: Option<String>, min: T, max: T, default: T) -> T
+where
+    T: PartialOrd + std::str::FromStr,
 {
-	const char *smartdns_workdir = getenv("SMARTDNS_WORKDIR");
-	if (smartdns_workdir != NULL) {
-		if (chdir(smartdns_workdir) != 0) {
-			fprintf(stderr, "chdir to %s failed: %s\n", smartdns_workdir, strerror(errno));
-			return 1;
-		}
-	}
+    if value.is_none() {
+        return default;
+    }
 
-	return smartdns_main(argc, argv);
+    let value = value.unwrap().parse::<T>();
+    if let Err(_) = value {
+        return default;
+    }
+
+    let mut value = value.unwrap_or_else(|_| default);
+
+    if value < min {
+        value = min;
+    }
+
+    if value > max {
+        value = max;
+    }
+
+    value
+}
+
+
+pub fn seconds_until_next_hour() -> u64 {
+    let now = chrono::Local::now();
+    let minutes = chrono::Timelike::minute(&now);
+    let seconds = chrono::Timelike::second(&now);
+    let remaining_seconds = 3600 - (minutes * 60 + seconds) as u64;
+    remaining_seconds
 }

@@ -21,25 +21,15 @@
 #![allow(non_snake_case)]
 #![allow(dead_code)]
 #![allow(unused_imports)]
-mod smartdns_c {
-    use libc::gid_t;
-    use libc::in6_addr;
-    use libc::in_addr;
-    use libc::sockaddr;
-    use libc::sockaddr_storage;
-    use libc::socklen_t;
-    use libc::time_t;
-    use libc::timeval;
-    use libc::tm;
-    use libc::uid_t;
-    use u32 as u_int;
+#![allow(improper_ctypes)]
+pub mod smartdns_c {
     include!(concat!(env!("OUT_DIR"), "/smartdns_bindings.rs"));
-
 }
 
-extern crate libc;
 use std::error::Error;
 use std::ffi::CString;
+use std::fmt;
+use std::os::raw::*;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -51,6 +41,25 @@ pub enum LogLevel {
     WARN = 3,
     ERROR = 4,
     FATAL = 5,
+}
+
+impl From<LogLevel> for u32 {
+    fn from(level: LogLevel) -> u32 {
+        level as u32
+    }
+}
+
+impl ToString for LogLevel {
+    fn to_string(&self) -> String {
+        match self {
+            LogLevel::DEBUG => "debug".to_string(),
+            LogLevel::INFO => "info".to_string(),
+            LogLevel::NOTICE => "notice".to_string(),
+            LogLevel::WARN => "warn".to_string(),
+            LogLevel::ERROR => "error".to_string(),
+            LogLevel::FATAL => "fatal".to_string(),
+        }
+    }
 }
 
 impl TryFrom<u32> for LogLevel {
@@ -66,6 +75,29 @@ impl TryFrom<u32> for LogLevel {
             5 => Ok(LogLevel::FATAL),
             _ => Err(()),
         }
+    }
+}
+
+impl TryFrom<&str> for LogLevel {
+    type Error = ();
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value.to_lowercase().as_str() {
+            "debug" => Ok(LogLevel::DEBUG),
+            "info" => Ok(LogLevel::INFO),
+            "notice" => Ok(LogLevel::NOTICE),
+            "warn" => Ok(LogLevel::WARN),
+            "error" => Ok(LogLevel::ERROR),
+            "fatal" => Ok(LogLevel::FATAL),
+            _ => Err(()),
+        }
+    }
+}
+
+impl TryFrom<String> for LogLevel {
+    type Error = ();
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        LogLevel::try_from(value.as_str())
     }
 }
 
@@ -248,8 +280,27 @@ impl DnsRequest {
         unsafe { smartdns_c::dns_server_request_get_rcode(self.request) as u16 }
     }
 
-    pub fn get_query_time(&self) -> u64 {
+    pub fn get_query_time(&self) -> i32 {
         unsafe { smartdns_c::dns_server_request_get_query_time(self.request) }
+    }
+
+    pub fn get_query_timestamp(&self) -> u64 {
+        unsafe { smartdns_c::dns_server_request_get_query_timestamp(self.request) }
+    }
+
+    pub fn get_ping_time(&self) -> f64 {
+        let v = unsafe { smartdns_c::dns_server_request_get_ping_time(self.request) };
+        let mut ping_time = v as f64;
+        ping_time = (ping_time * 10.0).round() / 10.0;
+        ping_time
+    }
+
+    pub fn get_is_blocked(&self) -> bool {
+        unsafe { smartdns_c::dns_server_request_is_blocked(self.request) != 0 }
+    }
+
+    pub fn get_is_cached(&self) -> bool {
+        unsafe { smartdns_c::dns_server_request_is_cached(self.request) != 0 }
     }
 
     pub fn get_remote_addr(&self) -> String {
@@ -257,9 +308,9 @@ impl DnsRequest {
             let addr = smartdns_c::dns_server_request_get_remote_addr(self.request);
             let mut buf = [0u8; 1024];
             let retstr = smartdns_c::get_host_by_addr(
-                buf.as_mut_ptr(),
+                buf.as_mut_ptr() as *mut c_char,
                 buf.len() as i32,
-                addr as *const libc::sockaddr,
+                addr as *const smartdns_c::sockaddr,
             );
             if retstr.is_null() {
                 return String::new();
@@ -277,9 +328,9 @@ impl DnsRequest {
             let addr = smartdns_c::dns_server_request_get_local_addr(self.request);
             let mut buf = [0u8; 1024];
             let retstr = smartdns_c::get_host_by_addr(
-                buf.as_mut_ptr(),
+                buf.as_mut_ptr() as *mut c_char,
                 buf.len() as i32,
-                addr as *const libc::sockaddr,
+                addr as *const smartdns_c::sockaddr,
             );
             if retstr.is_null() {
                 return String::new();
@@ -290,6 +341,14 @@ impl DnsRequest {
                 .into_owned();
             addr
         }
+    }
+
+    pub fn is_prefetch_request(&self) -> bool {
+        unsafe { smartdns_c::dns_server_request_is_prefetch(self.request) != 0 }
+    }
+
+    pub fn is_dualstack_request(&self) -> bool {
+        unsafe { smartdns_c::dns_server_request_is_dualstack(self.request) != 0 }
     }
 }
 
@@ -345,6 +404,10 @@ impl Plugin {
         self.ops = Some(ops);
     }
 
+    pub fn clear_operation(&mut self) {
+        self.ops = None;
+    }
+
     pub fn smartdns_exit(status: i32) {
         unsafe {
             smartdns_c::smartdns_exit(status);
@@ -362,17 +425,17 @@ impl Plugin {
             let mut key = [0u8; 4096];
             let mut cert = [0u8; 4096];
             let ret = smartdns_c::smartdns_get_cert(
-                key.as_mut_ptr() as *mut libc::c_char,
-                cert.as_mut_ptr() as *mut libc::c_char,
+                key.as_mut_ptr() as *mut c_char,
+                cert.as_mut_ptr() as *mut c_char,
             );
             if ret != 0 {
                 return Err("get cert error".to_string());
             }
 
-            let key = std::ffi::CStr::from_ptr(key.as_ptr() as *const libc::c_char)
+            let key = std::ffi::CStr::from_ptr(key.as_ptr() as *const c_char)
                 .to_string_lossy()
                 .into_owned();
-            let cert = std::ffi::CStr::from_ptr(cert.as_ptr() as *const libc::c_char)
+            let cert = std::ffi::CStr::from_ptr(cert.as_ptr() as *const c_char)
                 .to_string_lossy()
                 .into_owned();
             Ok(SmartdnsCert {
@@ -414,18 +477,30 @@ impl Plugin {
     }
 
     #[allow(dead_code)]
-    pub fn dns_conf_plugin_config(key: &str, default: &str) -> String {
+    pub fn dns_conf_plugin_config(key: &str) -> Option<String> {
         let key = CString::new(key).expect("Failed to convert to CString");
         unsafe {
             let value = smartdns_c::smartdns_plugin_get_config(key.as_ptr());
             if value.is_null() {
-                return default.to_string();
+                return None;
             }
 
-            std::ffi::CStr::from_ptr(value)
-                .to_string_lossy()
-                .into_owned()
+            Some(
+                std::ffi::CStr::from_ptr(value)
+                    .to_string_lossy()
+                    .into_owned(),
+            )
         }
+    }
+
+    #[allow(dead_code)]
+    pub fn dns_conf_plugin_config_default(key: &str, default_val: &String) -> String {
+        let v = Plugin::dns_conf_plugin_config(key);
+        if let Some(v) = v {
+            return v;
+        }
+
+        default_val.clone()
     }
 
     #[allow(dead_code)]
@@ -451,6 +526,54 @@ impl Plugin {
 
         self.args = args;
         Ok(())
+    }
+}
+
+pub struct Stats {}
+
+impl Stats {
+    pub fn get_avg_process_time() -> f64 {
+        unsafe {
+            let v = smartdns_c::dns_stats_avg_time_get();
+            let mut process_time = v as f64;
+            process_time = (process_time * 10.0).round() / 10.0;
+            process_time
+        }
+    }
+
+    pub fn get_request_total() -> u64 {
+        unsafe { smartdns_c::dns_stats_request_total_get() }
+    }
+
+    pub fn get_request_success() -> u64 {
+        unsafe { smartdns_c::dns_stats_request_success_get() }
+    }
+
+    pub fn get_request_from_client() -> u64 {
+        unsafe { smartdns_c::dns_stats_request_from_client_get() }
+    }
+
+    pub fn get_request_blocked() -> u64 {
+        unsafe { smartdns_c::dns_stats_request_blocked_get() }
+    }
+
+    pub fn get_cache_hit() -> u64 {
+        unsafe { smartdns_c::dns_stats_cache_hit_get() }
+    }
+
+    pub fn get_cache_hit_rate() -> f64 {
+        unsafe {
+            let v = smartdns_c::dns_stats_cache_hit_rate_get() as f64;
+            let mut cache_hit_rate = v as f64;
+            cache_hit_rate = (cache_hit_rate * 10.0).round() / 10.0;
+            cache_hit_rate
+        }
+    }
+}
+
+impl fmt::Display for Stats {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Stats")
     }
 }
 

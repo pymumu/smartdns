@@ -1,6 +1,6 @@
+use std::collections::HashSet;
 use std::env;
 use std::path::PathBuf;
-use std::collections::HashSet;
 
 #[derive(Debug)]
 struct IgnoreMacros(HashSet<String>);
@@ -20,19 +20,30 @@ fn link_smartdns_lib() {
     let smartdns_src_dir = format!("{}/../../src", curr_source_dir);
     let smartdns_lib_file = format!("{}/libsmartdns-test.a", smartdns_src_dir);
 
-    let ignored_macros = IgnoreMacros(
-        vec![
-            "IPPORT_RESERVED".into(),
-        ]
-        .into_iter()
-        .collect(),
-    );
+    let cc = env::var("RUSTC_LINKER")
+        .unwrap_or_else(|_| env::var("CC").unwrap_or_else(|_| "cc".to_string()));
 
-    let bindings = bindgen::Builder::default()
-        .header(format!("{}/smartdns.h", smartdns_src_dir))
+    let sysroot_output = std::process::Command::new(&cc)
+        .arg("--print-sysroot")
+        .output();
+    let mut sysroot = None;
+    if let Ok(output) = sysroot_output {
+        if output.status.success() {
+            let path = String::from_utf8(output.stdout).unwrap();
+            sysroot = Some(path.trim().to_string());
+        }
+    }
+
+    let ignored_macros = IgnoreMacros(vec!["IPPORT_RESERVED".into()].into_iter().collect());
+
+    let mut bindings_builder =
+        bindgen::Builder::default().header(format!("{}/smartdns.h", smartdns_src_dir));
+    if let Some(sysroot) = sysroot {
+        bindings_builder = bindings_builder.clang_arg(format!("--sysroot={}", sysroot));
+    }
+    let bindings = bindings_builder
         .clang_arg(format!("-I{}/include", smartdns_src_dir))
         .parse_callbacks(Box::new(ignored_macros))
-        .blocklist_file("/usr/include/.*")
         .generate()
         .expect("Unable to generate bindings");
 

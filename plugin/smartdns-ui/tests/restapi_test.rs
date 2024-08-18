@@ -30,7 +30,7 @@ async fn test_rest_api_login() {
 
     let c = reqwest::Client::new();
     let body = json!({
-        "user": "admin",
+        "username": "admin",
         "password": "password",
     });
 
@@ -64,6 +64,32 @@ async fn test_rest_api_login() {
     assert_eq!(calims.user, "admin");
 }
 
+
+#[test]
+fn test_rest_api_logout() {
+    let mut server = common::TestServer::new();
+    server.set_log_level(LogLevel::DEBUG);
+    assert!(server.start().is_ok());
+
+    let mut client = common::TestClient::new(&server.get_host());
+    client.set_with_auth_header(false);
+    let res = client.login("admin", "password");
+    assert!(res.is_ok());
+
+    let c = client.get("/api/cache/count");
+    assert!(c.is_ok());
+    let (code, _) = c.unwrap();
+    assert_eq!(code, 200);
+
+    let ret = client.logout();
+    assert!(ret.is_ok());
+
+    let c = client.get("/api/cache/count");
+    assert!(c.is_ok());
+    let (code, _) = c.unwrap();
+    assert_eq!(code, 401);
+}
+
 #[tokio::test]
 async fn test_rest_api_login_incorrect() {
     let mut server = common::TestServer::new();
@@ -72,7 +98,7 @@ async fn test_rest_api_login_incorrect() {
 
     let c = reqwest::Client::new();
     let body = json!({
-        "user": "admin",
+        "username": "admin",
         "password": "wrongpassword",
     });
 
@@ -90,6 +116,31 @@ async fn test_rest_api_login_incorrect() {
     let result = http_api_msg::api_msg_parse_error(&body);
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), "Incorrect username or password.");
+}
+
+#[test]
+fn test_rest_api_change_password() {
+    let mut server = common::TestServer::new();
+    server.set_log_level(LogLevel::DEBUG);
+    assert!(server.start().is_ok());
+
+    let mut client = common::TestClient::new(&server.get_host());
+    let res = client.login("admin", "password");
+    assert!(res.is_ok());
+    let password_msg = http_api_msg::api_msg_gen_auth_password_change("wrong_oldpassword", "newpassword");
+    let c = client.put("/api/auth/password", password_msg.as_str());
+    assert!(c.is_ok());
+    let (code, _) = c.unwrap();
+    assert_eq!(code, 403);
+
+    let password_msg = http_api_msg::api_msg_gen_auth_password_change("password", "newpassword");
+    let c = client.put("/api/auth/password", password_msg.as_str());
+    assert!(c.is_ok());
+    let (code, _) = c.unwrap();
+    assert_eq!(code, 204);
+
+    let res = client.login("admin", "password");
+    assert!(!res.is_ok());    
 }
 
 #[test]
@@ -317,7 +368,6 @@ fn test_rest_api_delete_domain_by_id() {
 fn test_rest_api_server_version() {
     let mut server = common::TestServer::new();
     server.set_log_level(LogLevel::DEBUG);
-    server.enable_mock_server();
     assert!(server.start().is_ok());
 
     let client = common::TestClient::new(&server.get_host());
@@ -354,3 +404,182 @@ fn test_rest_api_https_server() {
     assert_eq!(version.1, env!("CARGO_PKG_VERSION"));
 }
 
+#[test]
+fn test_rest_api_settings() {
+    let mut server = common::TestServer::new();
+    server.set_log_level(LogLevel::DEBUG);
+    assert!(server.start().is_ok());
+
+    let mut client = common::TestClient::new(&server.get_host());
+
+    let res = client.login("admin", "password");
+    assert!(res.is_ok());
+
+    let c = client.get("/api/config/settings");
+    assert!(c.is_ok());
+    let (code, body) = c.unwrap();
+    assert_eq!(code, 200);
+    let settings = http_api_msg::api_msg_parse_key_value(&body);
+    assert!(settings.is_ok());
+
+    let mut settings = std::collections::HashMap::new();
+    settings.insert("key1".to_string(), "value1".to_string());
+    settings.insert("key2".to_string(), "value2".to_string());
+    let body = http_api_msg::api_msg_gen_key_value(&settings);
+    let c = client.put("/api/config/settings", body.as_str());
+    assert!(c.is_ok());
+    let (code, _) = c.unwrap();
+    assert_eq!(code, 204);
+
+    let c = client.get("/api/config/settings");
+    assert!(c.is_ok());
+    let (code, body) = c.unwrap();
+    assert_eq!(code, 200);
+    let settings = http_api_msg::api_msg_parse_key_value(&body);
+    assert!(settings.is_ok());
+    let settings = settings.unwrap();
+    assert_eq!(settings.len(), 2);
+    assert_eq!(settings["key1"], "value1");
+}
+
+#[test]
+fn test_rest_api_get_client() {
+    let mut server = common::TestServer::new();
+    server.set_log_level(LogLevel::DEBUG);
+    assert!(server.start().is_ok());
+
+    let record = server.new_mock_domain_record();
+    for i in 0..1024 {
+        let mut record = record.clone();
+        record.domain = format!("{}.com", i);
+        record.client = format!("client-{}", i);
+        assert!(server.add_domain_record(&record).is_ok());
+    }
+
+    let mut client = common::TestClient::new(&server.get_host());
+    let res = client.login("admin", "password");
+    assert!(res.is_ok());
+
+    let c = client.get("/api/client");
+    assert!(c.is_ok());
+    let (code, body) = c.unwrap();
+    assert_eq!(code, 200);
+    let list = http_api_msg::api_msg_parse_client_list(&body);
+    assert!(list.is_ok());
+    let list = list.unwrap();
+    assert_eq!(list.len(), 1024);
+}
+
+#[test]
+fn test_rest_api_stats_top() {
+    let mut server = common::TestServer::new();
+    server.set_log_level(LogLevel::DEBUG);
+    assert!(server.start().is_ok());
+
+    let record = server.new_mock_domain_record();
+    for i in 0..1024 {
+        let mut record = record.clone();
+        if i < 512 {
+            record.domain = format!("a.com");
+            record.client = format!("192.168.1.1");
+        } else if i < 512 + 256 + 128 {
+            record.domain = format!("b.com");
+            record.client = format!("192.168.1.2");
+        } else {
+            record.domain = format!("c.com");
+            record.client = format!("192.168.1.3");
+        }
+        assert!(server.add_domain_record(&record).is_ok());
+    }
+
+    let mut client = common::TestClient::new(&server.get_host());
+    let res = client.login("admin", "password");
+    assert!(res.is_ok());
+
+    let c = client.get("/api/stats/top/client");
+    assert!(c.is_ok());
+    let (code, body) = c.unwrap();
+    assert_eq!(code, 200);
+    let list = http_api_msg::api_msg_parse_top_client_list(&body);
+    assert!(list.is_ok());
+    let list = list.unwrap();
+    assert_eq!(list.len(), 3);
+    assert_eq!(list[0].client_ip, "192.168.1.1");
+    assert_eq!(list[0].count, 512);
+    assert_eq!(list[2].client_ip, "192.168.1.3");
+    assert_eq!(list[2].count, 128);
+
+    let c = client.get("/api/stats/top/domain");
+    assert!(c.is_ok());
+    let (code, body) = c.unwrap();
+    assert_eq!(code, 200);
+    let list = http_api_msg::api_msg_parse_top_domain_list(&body);
+    assert!(list.is_ok());
+    let list = list.unwrap();
+    assert_eq!(list.len(), 3);
+    assert_eq!(list[0].domain, "a.com");
+    assert_eq!(list[0].count, 512);
+    assert_eq!(list[2].domain, "c.com");
+    assert_eq!(list[2].count, 128);
+}
+
+
+#[test]
+fn test_rest_api_stats_overview() {
+    let mut server = common::TestServer::new();
+    server.set_log_level(LogLevel::DEBUG);
+    server.enable_mock_server();
+    assert!(server.start().is_ok());
+
+    let mut client = common::TestClient::new(&server.get_host());
+    let res = client.login("admin", "password");
+    assert!(res.is_ok());
+
+    unsafe {
+        smartdns_ui::smartdns::smartdns_c::dns_stats.avg_time.avg_time = 22.0 as f32;
+        smartdns_ui::smartdns::smartdns_c::dns_stats.request.blocked_count = 10;
+        smartdns_ui::smartdns::smartdns_c::dns_stats.request.total = 15;
+    }
+
+    let c = client.get("/api/stats/overview");
+    assert!(c.is_ok());
+    let (code, body) = c.unwrap();
+    assert_eq!(code, 200);
+    let overview = http_api_msg::api_msg_parse_stats_overview(&body);
+    assert!(overview.is_ok());
+    let overview = overview.unwrap();
+    assert_eq!(overview.avg_query_time, 22.0 as f64);
+    assert_eq!(overview.cache_hit_rate, 0 as f64);
+    assert_eq!(overview.total_query_count, 15);
+    assert_eq!(overview.block_query_count, 10);
+}
+
+
+#[test]
+fn test_rest_api_get_hourly_query_count() {
+    let mut server = common::TestServer::new();
+    server.set_log_level(LogLevel::DEBUG);
+    assert!(server.start().is_ok());
+
+    let record = server.new_mock_domain_record();
+    for i in 0..1024 {
+        let mut record = record.clone();
+        record.domain = format!("{}.com", i);
+        record.client = format!("client-{}", i);
+        assert!(server.add_domain_record(&record).is_ok());
+    }
+
+    let mut client = common::TestClient::new(&server.get_host());
+    let res = client.login("admin", "password");
+    assert!(res.is_ok());
+
+    let c = client.get("/api/stats/hourly-query-count");
+    assert!(c.is_ok());
+    let (code, body) = c.unwrap();
+    assert_eq!(code, 200);
+    let list = http_api_msg::api_msg_parse_hourly_query_count(&body);
+    assert!(list.is_ok());
+    let list = list.unwrap();
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].query_count, 1024);
+}

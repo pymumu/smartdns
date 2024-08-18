@@ -231,6 +231,10 @@ impl TestServer {
             client: "127.0.0.1".to_string(),
             domain_group: "default".to_string(),
             reply_code: 0,
+            query_time: 0,
+            ping_time: -0.1 as f64,
+            is_blocked: false,
+            is_cached: false,
         }
     }
 

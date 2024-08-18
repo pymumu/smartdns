@@ -25,6 +25,8 @@ use tungstenite::*;
 pub struct TestClient {
     url: String,
     token: Option<http_api_msg::TokenResponse>,
+    client: reqwest::blocking::Client,
+    no_auth_header: bool,
 }
 
 impl TestClient {
@@ -32,23 +34,39 @@ impl TestClient {
         let client = TestClient {
             url: url.clone(),
             token: None,
+            client: reqwest::blocking::ClientBuilder::new()
+                .danger_accept_invalid_certs(true)
+                .build()
+                .unwrap(),
+            no_auth_header: false,
         };
 
         client
     }
 
-    pub fn login(&mut self, user: &str, password: &str) -> Result<String, Box<dyn Error>> {
+    pub fn set_with_auth_header(&mut self, with_auth_header: bool) {
+        self.no_auth_header = with_auth_header;
+    }
+
+    pub fn login(&mut self, username: &str, password: &str) -> Result<String, Box<dyn Error>> {
         let url = self.url.clone() + "/api/auth/login";
         let body = http_api_msg::api_msg_gen_auth_login(&http_api_msg::AuthUser {
-            user: user.to_string(),
+            username: username.to_string(),
             password: password.to_string(),
         });
-        let client = reqwest::blocking::Client::new();
-        let resp = client.post(&url).body(body).send()?;
+        let resp = self.client.post(&url).body(body).send()?;
         let text = resp.text()?;
 
         let token = http_api_msg::api_msg_parse_auth_token(&text)?;
         self.token = Some(token);
+        Ok(text)
+    }
+
+    pub fn logout(&mut self) -> Result<String, Box<dyn Error>> {
+        let url = self.url.clone() + "/api/auth/logout";
+        let resp = self.client.post(&url).send()?;
+        let text = resp.text()?;
+        self.token = None;
         Ok(text)
     }
 
@@ -58,13 +76,10 @@ impl TestClient {
         path: &str,
     ) -> Result<reqwest::blocking::RequestBuilder, Box<dyn Error>> {
         let url = self.url.clone() + path;
-        let client = reqwest::blocking::ClientBuilder::new()
-            .danger_accept_invalid_certs(true)
-            .build()?;
-        let mut req = client.request(method, url);
+        let mut req = self.client.request(method, url);
         if let Some(token) = &self.token {
-            if self.token.is_some() {
-                req = req.header("Authorization", format!("{}", token.token));
+            if self.token.is_some() && !self.no_auth_header {
+                req = req.header("Authorization", format!("Bearer {}", token.token));
             }
         }
         Ok(req)
@@ -116,7 +131,7 @@ impl TestClient {
         if let Some(token) = &self.token {
             if self.token.is_some() {
                 request_builder =
-                    request_builder.with_header("Authorization", format!("{}", token.token));
+                    request_builder.with_header("Authorization", format!("Bearer {}", token.token));
             }
         }
 

@@ -619,6 +619,12 @@ static int _smartdns_init(void)
 		tlog(TLOG_ERROR, "add proxy servers failed.");
 	}
 
+	ret = dns_stats_init();
+	if (ret != 0) {
+		tlog(TLOG_ERROR, "start dns stats failed.\n");
+		goto errout;
+	}
+
 	ret = dns_server_init();
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "start dns server failed.\n");
@@ -661,6 +667,7 @@ static void _smartdns_exit(void)
 	proxy_exit();
 	fast_ping_exit();
 	dns_server_exit();
+	dns_stats_exit();
 	_smartdns_destroy_ssl();
 	dns_timer_destroy();
 	tlog_exit();

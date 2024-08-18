@@ -16,34 +16,76 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+use crate::data_stats::*;
 use crate::db::*;
 use crate::dns_log;
+use crate::smartdns;
 use crate::smartdns::*;
+use crate::utils;
 
+use std::collections::HashMap;
 use std::error::Error;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use tokio::sync::mpsc;
 use tokio::time::{interval_at, Duration, Instant};
 
+pub const DEFAULT_MAX_LOG_AGE: u64 = 30 * 24 * 60 * 60;
+pub const DEFAULT_MAX_LOG_AGE_MS: u64 = DEFAULT_MAX_LOG_AGE * 1000;
+pub const MAX_LOG_AGE_VALUE_MIN: u64 = 3600;
+pub const MAX_LOG_AGE_VALUE_MAX: u64 = 365 * 24 * 60 * 60 * 10;
+
+pub struct OverviewData {
+    pub total_query_count: u64,
+    pub block_query_count: u64,
+    pub avg_query_time: f64,
+    pub cache_hit_rate: f64,
+}
+
 #[derive(Clone)]
 pub struct DataServerConfig {
     pub data_root: String,
-    pub max_log_age_ms: u32,
+    pub max_log_age_ms: u64,
 }
 
 impl DataServerConfig {
     pub fn new() -> Self {
         DataServerConfig {
             data_root: Plugin::dns_conf_data_dir() + "/ui.db",
-            max_log_age_ms: 7 * 24 * 60 * 60 * 1000,
+            max_log_age_ms: DEFAULT_MAX_LOG_AGE_MS,
         }
+    }
+
+    pub fn load_config(&mut self, data_server: Arc<DataServer>) -> Result<(), Box<dyn Error>> {
+        self.max_log_age_ms = utils::parse_value(
+            data_server.get_server_config("smartdns-ui.max-query-log-age"),
+            MAX_LOG_AGE_VALUE_MIN,
+            MAX_LOG_AGE_VALUE_MAX,
+            DEFAULT_MAX_LOG_AGE,
+        ) * 1000;
+
+        let log_level = data_server.get_server_config("log-level");
+        if let Some(log_level) = log_level {
+            let log_level = log_level.try_into();
+            match log_level {
+                Ok(log_level) => {
+                    dns_log_set_level(log_level);
+                }
+                Err(_) => {
+                    dns_log!(LogLevel::WARN, "log level is invalid");
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 
 pub struct DataServerControl {
     data_server: Arc<DataServer>,
     server_thread: Mutex<Option<thread::JoinHandle<()>>>,
+    is_init: Mutex<bool>,
+    is_run: Mutex<bool>,
 }
 
 impl DataServerControl {
@@ -51,6 +93,8 @@ impl DataServerControl {
         DataServerControl {
             data_server: Arc::new(DataServer::new()),
             server_thread: Mutex::new(None),
+            is_init: Mutex::new(false),
+            is_run: Mutex::new(false),
         }
     }
 
@@ -58,12 +102,22 @@ impl DataServerControl {
         Arc::clone(&self.data_server)
     }
 
-    pub fn start_data_server(&self, conf: &DataServerConfig) -> Result<(), Box<dyn Error>> {
+    pub fn init_db(&self, conf: &DataServerConfig) -> Result<(), Box<dyn Error>> {
         let inner_clone = Arc::clone(&self.data_server);
-
         let ret = inner_clone.init_server(conf);
         if let Err(e) = ret {
             return Err(e);
+        }
+
+        *self.is_init.lock().unwrap() = true;
+        Ok(())
+    }
+
+    pub fn start_data_server(&self) -> Result<(), Box<dyn Error>> {
+        let inner_clone = Arc::clone(&self.data_server);
+
+        if *self.is_init.lock().unwrap() == false {
+            return Err("data server not init".into());
         }
 
         let server_thread = thread::spawn(move || {
@@ -72,18 +126,26 @@ impl DataServerControl {
                 dns_log!(LogLevel::ERROR, "data server error: {}", e);
                 Plugin::smartdns_exit(1);
             }
+
+            dns_log!(LogLevel::INFO, "data server exit.");
         });
 
+        *self.is_run.lock().unwrap() = true;
         *self.server_thread.lock().unwrap() = Some(server_thread);
         Ok(())
     }
 
     pub fn stop_data_server(&self) {
+        if *self.is_run.lock().unwrap() == false {
+            return;
+        }
+    
         self.data_server.stop_data_server();
         let _server_thread = self.server_thread.lock().unwrap().take();
         if let Some(server_thread) = _server_thread {
             server_thread.join().unwrap();
         }
+        *self.is_run.lock().unwrap() = false;
     }
 
     pub fn send_request(&self, request: &mut DnsRequest) -> Result<(), Box<dyn Error>> {
@@ -107,6 +169,7 @@ pub struct DataServer {
     data_tx: Option<mpsc::Sender<DnsRequest>>,
     data_rx: Mutex<Option<mpsc::Receiver<DnsRequest>>>,
     db: DB,
+    stat: Arc<DataStats>,
 }
 
 impl DataServer {
@@ -118,6 +181,7 @@ impl DataServer {
             data_tx: None,
             data_rx: Mutex::new(None),
             db: DB::new(),
+            stat: DataStats::new(),
         };
 
         let (tx, rx) = mpsc::channel(100);
@@ -137,10 +201,46 @@ impl DataServer {
         dns_log!(LogLevel::INFO, "open db: {}", conf_clone.data_root);
         let ret = self.db.open(&conf_clone.data_root);
         if let Err(e) = ret {
-            dns_log!(LogLevel::ERROR, "open db error: {}", e);
             return Err(e);
         }
+
+        let ret = self.stat.clone().init();
+        if let Err(e) = ret {
+            return Err(e);
+        }
+
         Ok(())
+    }
+
+    pub fn get_config(&self, key: &str) -> Option<String> {
+        let ret = self.db.get_config(key);
+        if let Ok(value) = ret {
+            return value;
+        }
+
+        None
+    }
+
+    pub fn get_server_config(&self, key: &str) -> Option<String> {
+        let ret = self.get_config(key);
+        if let Some(value) = ret {
+            return Some(value);
+        }
+
+        let ret = Plugin::dns_conf_plugin_config(key);
+        if let Some(value) = ret {
+            return Some(value);
+        }
+
+        None
+    }
+
+    pub fn get_config_list(&self) -> Result<HashMap<String, String>, Box<dyn Error>> {
+        self.db.get_config_list()
+    }
+
+    pub fn set_config(&self, key: &str, value: &str) -> Result<(), Box<dyn Error>> {
+        self.db.set_config(key, value)
     }
 
     pub fn get_domain_list(
@@ -166,11 +266,50 @@ impl DataServer {
         self.db.get_client_list()
     }
 
+    pub fn get_top_client_top_list(
+        &self,
+        count: u32,
+    ) -> Result<Vec<ClientQueryCount>, Box<dyn Error>> {
+        self.db.get_client_top_list(count)
+    }
+
+    pub fn get_top_domain_top_list(
+        &self,
+        count: u32,
+    ) -> Result<Vec<DomainQueryCount>, Box<dyn Error>> {
+        self.db.get_domain_top_list(count)
+    }
+
+    pub fn get_hourly_query_count(&self, pastt_hours: u32) -> Result<Vec<HourlyQueryCount>, Box<dyn Error>> {
+        self.db.get_hourly_query_count(pastt_hours)
+    }
+
+    pub fn get_overview(&self) -> Result<OverviewData, Box<dyn Error>> {
+        let overview = OverviewData {
+            total_query_count: smartdns::Stats::get_request_total(),
+            block_query_count: smartdns::Stats::get_request_blocked(),
+            avg_query_time: smartdns::Stats::get_avg_process_time(),
+            cache_hit_rate: smartdns::Stats::get_cache_hit_rate(),
+        };
+
+        Ok(overview)
+    }
+
     pub fn insert_domain(&self, data: &DomainData) -> Result<(), Box<dyn Error>> {
+        let client_ip = &data.client;
+        self.db.insert_client(client_ip.as_str())?;
         self.db.insert_domain(data)
     }
 
     async fn data_server_handle(this: Arc<DataServer>, req: DnsRequest) {
+        if req.is_prefetch_request() {
+            return;
+        }
+
+        if req.is_dualstack_request() {
+            return;
+        }
+
         let domain_data = DomainData {
             id: 0,
             domain: req.get_domain(),
@@ -178,7 +317,11 @@ impl DataServer {
             client: req.get_remote_addr(),
             domain_group: req.get_group_name(),
             reply_code: req.get_rcode(),
-            timestamp: req.get_query_time(),
+            timestamp: req.get_query_timestamp(),
+            query_time: req.get_query_time(),
+            ping_time: req.get_ping_time(),
+            is_blocked: req.get_is_blocked(),
+            is_cached: req.get_is_cached(),
         };
         dns_log!(
             LogLevel::DEBUG,
@@ -194,7 +337,7 @@ impl DataServer {
     }
 
     async fn hourly_work(this: Arc<DataServer>) {
-        dns_log!(LogLevel::INFO, "start hourly work");
+        dns_log!(LogLevel::ERROR, "start hourly work");
         let now = get_utc_time_ms();
 
         let ret = this
@@ -220,8 +363,13 @@ impl DataServer {
             data_rx = _rx.take().unwrap();
         }
 
-        let start = Instant::now() + Duration::from_secs(60);
+        this.stat.clone().start_worker()?;
+
+        let start: Instant =
+            Instant::now() + Duration::from_secs(utils::seconds_until_next_hour());
         let mut hour_timer = interval_at(start, Duration::from_secs(60 * 60));
+
+        dns_log!(LogLevel::INFO, "data server start.");
 
         loop {
             tokio::select! {
@@ -243,6 +391,8 @@ impl DataServer {
                 }
             }
         }
+
+        this.stat.clone().stop_worker();
 
         Ok(())
     }

@@ -21,7 +21,7 @@ use crate::http_api_msg::*;
 use crate::http_error::*;
 use crate::http_jwt::*;
 use crate::http_server::*;
-use crate::http_server_log_stream;
+use crate::http_server_stream;
 use crate::smartdns;
 use crate::smartdns::*;
 use crate::Plugin;
@@ -36,6 +36,9 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use url::form_urlencoded;
+
+const PASSWORD_CONFIG_KEY: &str = "smartdns-ui.password";
+const REST_API_PATH: &str = "/api";
 
 type APIRouteFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 type APIRouterFun = fn(
@@ -73,6 +76,8 @@ impl API {
         api.register(Method::PUT, "/api/cache/flush",  true, APIRoute!(API::api_cache_flush));
         api.register(Method::GET, "/api/cache/count",  true, APIRoute!(API::api_cache_count));
         api.register(Method::POST, "/api/auth/login",  false, APIRoute!(API::api_auth_login));
+        api.register(Method::POST, "/api/auth/logout",  false, APIRoute!(API::api_auth_logout));
+        api.register(Method::PUT, "/api/auth/password",  false, APIRoute!(API::api_auth_change_password));
         api.register(Method::POST, "/api/auth/refresh",  true, APIRoute!(API::api_auth_refresh));
         api.register(Method::GET, "/api/domain",  true, APIRoute!(API::api_domain_get_list));
         api.register(Method::DELETE, "/api/domain",  true, APIRoute!(API::api_domain_delete_list));
@@ -84,6 +89,13 @@ impl API {
         api.register(Method::PUT, "/api/log/level", true, APIRoute!(API::api_log_set_level));
         api.register(Method::GET, "/api/log/level", true, APIRoute!(API::api_log_get_level));
         api.register(Method::GET, "/api/server/version", false, APIRoute!(API::api_server_version));
+        api.register(Method::GET, "/api/config/settings", true, APIRoute!(API::api_config_get_settings));
+        api.register(Method::PUT, "/api/config/settings", true, APIRoute!(API::api_config_set_settings));
+        api.register(Method::GET, "/api/stats/top/client", true, APIRoute!(API::api_stats_get_top_client));
+        api.register(Method::GET, "/api/stats/top/domain", true, APIRoute!(API::api_stats_get_top_domain));
+        api.register(Method::GET, "/api/stats/overview", true, APIRoute!(API::api_stats_get_overview));
+        api.register(Method::GET, "/api/stats/hourly-query-count", true, APIRoute!(API::api_stats_get_hourly_query_count));
+        api.register(Method::GET, "/api/tool/term", true, APIRoute!(API::api_tool_term));
         api
     }
 
@@ -212,43 +224,59 @@ impl API {
         _param: APIRouteParam,
         req: Request<body::Incoming>,
     ) -> Result<Response<Full<Bytes>>, HttpError> {
-        let token = req.headers().get("Authorization");
+        let token = HttpServer::get_token_from_header(&req)?;
+        let unauth_response =
+            || API::response_error(StatusCode::UNAUTHORIZED, "Incorrect username or password.");
+
         if token.is_none() {
-            return API::response_error(
-                StatusCode::UNAUTHORIZED,
-                "Incorrect username or password.",
-            );
+            return unauth_response();
         }
 
+        let token = token.unwrap();
         let conf = this.get_conf();
-
         let jtw = Jwt::new(
-            &conf.user.as_str(),
+            &conf.username.as_str(),
             conf.password.as_str(),
             "",
             conf.token_expired_time,
         );
 
-        let token = token.unwrap().to_str().unwrap();
-        let token_new = jtw.refresh_token(token);
-        if token_new.is_err() {
-            return API::response_error(
-                StatusCode::UNAUTHORIZED,
-                "Incorrect username or password.",
-            );
+        let calim = jtw.decode_token(token.as_str());
+        if calim.is_err() {
+            return unauth_response();
         }
+
+        let token_new = jtw.refresh_token(token.as_str());
+        if token_new.is_err() {
+            return unauth_response();
+        }
+
         let token_new = token_new.unwrap();
-        API::response_build(
+        let mut resp = API::response_build(
             StatusCode::OK,
             api_msg_auth_token(&token_new.token, &token_new.expire),
-        )
+        );
+
+        let cookie_token = format!("Bearer {}", token_new.token);
+        let token_urlencode = urlencoding::encode(cookie_token.as_str());
+        let cookie = format!(
+            "token={}; HttpOnly; Max-Age={}; Path={}",
+            token_urlencode, token_new.expire, REST_API_PATH
+        );
+
+        resp.as_mut()
+            .unwrap()
+            .headers_mut()
+            .insert(hyper::header::SET_COOKIE, cookie.parse().unwrap());
+
+        resp
     }
 
     /// Login
     /// API: POST /api/auth/login
     ///     body:
     /// {
-    ///   "user": "admin"
+    ///   "username": "admin"
     ///   "password": "password"
     /// }
     async fn api_auth_login(
@@ -265,24 +293,121 @@ impl API {
         let conf = this.get_conf();
         let userinfo = userinfo.unwrap();
 
-        if userinfo.user != conf.user || userinfo.password != conf.password {
+        if !this.login_attempts_check() {
+            return API::response_error(
+                StatusCode::FORBIDDEN,
+                "Too many login attempts, please try again later.",
+            );
+        }
+
+        if userinfo.username != conf.username || userinfo.password != conf.password {
             return API::response_error(
                 StatusCode::UNAUTHORIZED,
                 "Incorrect username or password.",
             );
         }
 
+        this.login_attempts_reset();
+
         let jtw = Jwt::new(
-            userinfo.user.as_str(),
+            userinfo.username.as_str(),
             conf.password.as_str(),
             "",
             conf.token_expired_time,
         );
         let token = jtw.encode_token();
-        API::response_build(
+        let mut resp = API::response_build(
             StatusCode::OK,
             api_msg_auth_token(&token.token, &token.expire),
-        )
+        );
+
+        let cookie_token = format!("Bearer {}", token.token);
+        let token_urlencode = urlencoding::encode(cookie_token.as_str());
+        let cookie = format!(
+            "token={}; HttpOnly; Max-Age={}; Path={}",
+            token_urlencode, token.expire, REST_API_PATH
+        );
+
+        resp.as_mut()
+            .unwrap()
+            .headers_mut()
+            .insert(hyper::header::SET_COOKIE, cookie.parse().unwrap());
+
+        resp
+    }
+
+    async fn api_auth_logout(
+        _this: Arc<HttpServer>,
+        _param: APIRouteParam,
+        _req: Request<body::Incoming>,
+    ) -> Result<Response<Full<Bytes>>, HttpError> {
+        let mut response = Response::new(Full::new(Bytes::from("")));
+
+        let cookie = format!("token=none; HttpOnly; Max-Age=1; Path={}", REST_API_PATH);
+
+        response
+            .headers_mut()
+            .insert(hyper::header::SET_COOKIE, cookie.parse().unwrap());
+        *response.status_mut() = StatusCode::NO_CONTENT;
+        Ok(response)
+    }
+
+    async fn api_auth_change_password(
+        this: Arc<HttpServer>,
+        _param: APIRouteParam,
+        req: Request<body::Incoming>,
+    ) -> Result<Response<Full<Bytes>>, HttpError> {
+        let unauth_response =
+            || API::response_error(StatusCode::UNAUTHORIZED, "Incorrect username or password.");
+        let token = HttpServer::get_token_from_header(&req)?;
+        let whole_body = String::from_utf8(req.into_body().collect().await?.to_bytes().into())?;
+        if token.is_none() {
+            return unauth_response();
+        }
+
+        let password_info = api_msg_parse_auth_password_change(whole_body.as_str());
+        if let Err(e) = password_info {
+            return API::response_error(StatusCode::BAD_REQUEST, e.to_string().as_str());
+        }
+
+        let password_info = password_info.unwrap();
+        if password_info.0 == password_info.1 {
+            return API::response_error(
+                StatusCode::BAD_REQUEST,
+                "The new password is the same as the old password.",
+            );
+        }
+
+        let token = token.unwrap();
+        let mut conf = this.get_conf_mut();
+        let jtw = Jwt::new(
+            &conf.username.as_str(),
+            password_info.0.as_str(),
+            "",
+            conf.token_expired_time,
+        );
+
+        if !this.login_attempts_check() {
+            return API::response_error(
+                StatusCode::FORBIDDEN,
+                "Too many login attempts, please try again later.",
+            );
+        }
+
+        let calim = jtw.decode_token(token.as_str());
+        if calim.is_err() {
+            return API::response_error(StatusCode::FORBIDDEN, "Incorrect password.");
+        }
+
+        let data_server = this.get_data_server();
+        conf.password = password_info.1.clone();
+        let ret = data_server.set_config(PASSWORD_CONFIG_KEY, password_info.1.as_str());
+        if let Err(e) = ret {
+            return API::response_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().as_str());
+        }
+
+        this.login_attempts_reset();
+        API::response_build(StatusCode::NO_CONTENT, "".to_string())
     }
 
     /// Restart the service <br>
@@ -455,7 +580,9 @@ impl API {
         if list_count % page_size != 0 {
             total_page += 1;
         }
-        let body = api_msg_gen_domain_list(domain_list, total_page);
+
+        let total_count = data_server.get_domain_list_count();
+        let body = api_msg_gen_domain_list(&domain_list, total_page, total_count);
 
         API::response_build(StatusCode::OK, body)
     }
@@ -498,7 +625,7 @@ impl API {
     ) -> Result<Response<Full<Bytes>>, HttpError> {
         let data_server = this.get_data_server();
         let client_list: Vec<ClientData> = data_server.get_client_list()?;
-        let body = api_msg_gen_client_list(client_list);
+        let body = api_msg_gen_client_list(&client_list);
 
         API::response_build(StatusCode::OK, body)
     }
@@ -513,7 +640,7 @@ impl API {
                 .map_err(|e| HttpError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
             tokio::spawn(async move {
-                if let Err(e) = http_server_log_stream::serve_log_stream(websocket).await {
+                if let Err(e) = http_server_stream::serve_log_stream(websocket).await {
                     eprintln!("Error in websocket connection: {e}");
                 }
             });
@@ -525,7 +652,7 @@ impl API {
     }
 
     async fn api_log_set_level(
-        _this: Arc<HttpServer>,
+        this: Arc<HttpServer>,
         _param: APIRouteParam,
         _req: Request<body::Incoming>,
     ) -> Result<Response<Full<Bytes>>, HttpError> {
@@ -537,6 +664,8 @@ impl API {
 
         let level = level.unwrap();
         dns_log_set_level(level);
+        let data_server = this.get_data_server();
+        _ = data_server.set_config("log-level", level.to_string().as_str());
         API::response_build(StatusCode::NO_CONTENT, "".to_string())
     }
 
@@ -550,7 +679,7 @@ impl API {
         API::response_build(StatusCode::OK, msg)
     }
 
-    async  fn api_server_version(
+    async fn api_server_version(
         _this: Arc<HttpServer>,
         _param: APIRouteParam,
         _req: Request<body::Incoming>,
@@ -559,5 +688,129 @@ impl API {
         let ui_version = &smartdns::smartdns_ui_version();
         let msg = api_msg_gen_version(server_version, ui_version);
         API::response_build(StatusCode::OK, msg)
+    }
+
+    async fn api_config_get_settings(
+        this: Arc<HttpServer>,
+        _param: APIRouteParam,
+        _req: Request<body::Incoming>,
+    ) -> Result<Response<Full<Bytes>>, HttpError> {
+        let data_server = this.get_data_server();
+        let settings = data_server.get_config_list();
+        if settings.is_err() {
+            return API::response_error(StatusCode::NOT_FOUND, "Not found");
+        }
+
+        let mut settings = settings.unwrap();
+        let pass = settings.get(PASSWORD_CONFIG_KEY);
+        if pass.is_some() {
+            let pass = "********".to_string();
+            settings.insert(PASSWORD_CONFIG_KEY.to_string(), pass);
+        }
+        let msg = api_msg_gen_key_value(&settings);
+        API::response_build(StatusCode::OK, msg)
+    }
+
+    async fn api_config_set_settings(
+        this: Arc<HttpServer>,
+        _param: APIRouteParam,
+        req: Request<body::Incoming>,
+    ) -> Result<Response<Full<Bytes>>, HttpError> {
+        let data_server = this.get_data_server();
+        let whole_body = String::from_utf8(req.into_body().collect().await?.to_bytes().into())?;
+        let settings = api_msg_parse_key_value(whole_body.as_str());
+        if let Err(e) = settings {
+            return API::response_error(StatusCode::BAD_REQUEST, e.to_string().as_str());
+        }
+
+        let settings = settings.unwrap();
+        for (key, value) in settings {
+            if key == PASSWORD_CONFIG_KEY {
+                continue;
+            }
+            let ret = data_server.set_config(key.as_str(), value.as_str());
+            if let Err(e) = ret {
+                return API::response_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    e.to_string().as_str(),
+                );
+            }
+        }
+
+        API::response_build(StatusCode::NO_CONTENT, "".to_string())
+    }
+
+    async fn api_stats_get_top_client(
+        this: Arc<HttpServer>,
+        _param: APIRouteParam,
+        _req: Request<body::Incoming>,
+    ) -> Result<Response<Full<Bytes>>, HttpError> {
+        let data_server = this.get_data_server();
+        let params = API::get_params(&_req);
+        let count = API::params_get_value_default(&params, "count", 10 as u32)?;
+        let client_list = data_server.get_top_client_top_list(count)?;
+        let body = api_msg_gen_top_client_list(&client_list);
+
+        API::response_build(StatusCode::OK, body)
+    }
+
+    async fn api_stats_get_top_domain(
+        this: Arc<HttpServer>,
+        _param: APIRouteParam,
+        _req: Request<body::Incoming>,
+    ) -> Result<Response<Full<Bytes>>, HttpError> {
+        let data_server = this.get_data_server();
+        let params = API::get_params(&_req);
+        let count = API::params_get_value_default(&params, "count", 10 as u32)?;
+        let domain_list = data_server.get_top_domain_top_list(count)?;
+        let body = api_msg_gen_top_domain_list(&domain_list);
+
+        API::response_build(StatusCode::OK, body)
+    }
+
+    async fn api_stats_get_overview(
+        this: Arc<HttpServer>,
+        _param: APIRouteParam,
+        _req: Request<body::Incoming>,
+    ) -> Result<Response<Full<Bytes>>, HttpError> {
+        let data_server = this.get_data_server();
+        let overview = data_server.get_overview()?;
+        let body = api_msg_gen_stats_overview(&overview);
+        API::response_build(StatusCode::OK, body)
+    }
+
+    async fn api_stats_get_hourly_query_count(
+        this: Arc<HttpServer>,
+        _param: APIRouteParam,
+        _req: Request<body::Incoming>,
+    ) -> Result<Response<Full<Bytes>>, HttpError> {
+        let params = API::get_params(&_req);
+        let past_hours = API::params_get_value_default(&params, "past_hours", 24 as u32)?;
+        let data_server = this.get_data_server();
+        let hourly_query_count = data_server.get_hourly_query_count(past_hours)?;
+        let body = api_msg_gen_hourly_query_count(&hourly_query_count);
+        API::response_build(StatusCode::OK, body)
+    }
+
+
+    async fn api_tool_term(
+        _this: Arc<HttpServer>,
+        _param: APIRouteParam,
+        mut req: Request<body::Incoming>,
+    ) -> Result<Response<Full<Bytes>>, HttpError> {
+        if hyper_tungstenite::is_upgrade_request(&req) {
+            let (response, websocket) = hyper_tungstenite::upgrade(&mut req, None)
+                .map_err(|e| HttpError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+            tokio::spawn(async move {
+                if let Err(e) = http_server_stream::serve_term(websocket).await {
+                    eprintln!("Error in websocket connection: {e}");
+                }
+            });
+
+            Ok(response)
+        } else {
+            return API::response_error(StatusCode::BAD_REQUEST, "Need websocket upgrade.");
+        }
     }
 }

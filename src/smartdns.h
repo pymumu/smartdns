@@ -26,6 +26,7 @@
 #include "dns_plugin.h"
 #include "dns_server.h"
 #include "fast_ping.h"
+#include "dns_stats.h"
 #include "util.h"
 
 #ifdef __cplusplus

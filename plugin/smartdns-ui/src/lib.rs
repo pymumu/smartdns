@@ -23,11 +23,14 @@ pub mod http_error;
 pub mod http_jwt;
 pub mod http_server;
 pub mod http_server_api;
-pub mod http_server_log_stream;
+pub mod http_server_stream;
 pub mod plugin;
+pub mod data_stats;
+pub mod utils;
 pub mod smartdns;
 
 use ctor::ctor;
+use ctor::dtor;
 #[cfg(not(test))]
 use plugin::*;
 use smartdns::*;
@@ -37,6 +40,13 @@ fn lib_init_ops() {
     let ops: Box<dyn SmartdnsOperations> = Box::new(SmartdnsPlugin::new());
     unsafe {
         PLUGIN.set_operation(ops);
+    }
+}
+
+#[cfg(not(test))]
+fn lib_deinit_ops() {
+    unsafe {
+        PLUGIN.clear_operation();
     }
 }
 
@@ -52,4 +62,10 @@ fn lib_init() {
 
     #[cfg(test)]
     lib_init_smartdns_lib();
+}
+
+#[dtor]
+fn lib_deinit() {
+    #[cfg(not(test))]
+    lib_deinit_ops();
 }

@@ -70,22 +70,13 @@ impl SmartdnsPlugin {
             }
         };
 
-        let www_root =
-            Plugin::dns_conf_plugin_config("smartdns-ui.www-root", "/usr/share/smartdns/www");
-        self.http_conf.http_root = www_root;
-
-        let user = Plugin::dns_conf_plugin_config("smartdns-ui.user", "");
-        let password = Plugin::dns_conf_plugin_config("smartdns-ui.password", "");
-        let ip = Plugin::dns_conf_plugin_config("smartdns-ui.ip", "");
-        if user.len() > 0  {
-            self.http_conf.user = user;
+        let www_root = Plugin::dns_conf_plugin_config("smartdns-ui.www-root");
+        if let Some(www_root) = www_root {
+            self.http_conf.http_root = www_root;
         }
 
-        if  password.len() > 0 {
-            self.http_conf.password = password;
-        }
-
-        if ip.len() > 0 {
+        let ip = Plugin::dns_conf_plugin_config("smartdns-ui.ip");
+        if let Some(ip) = ip {
             self.http_conf.http_ip = ip;
         }
 
@@ -118,9 +109,18 @@ impl SmartdnsPlugin {
         Ok(())
     }
 
+    pub fn load_config(&mut self) -> Result<(), Box<dyn Error>> {
+        let data_server = self.get_data_server();
+        self.data_conf.load_config(data_server.clone())?;
+        self.http_conf.load_config(data_server.clone())?;
+        Ok(())
+    }
+
     pub fn start(&mut self, args: &Vec<String>) -> Result<(), Box<dyn Error>> {
         self.parser_args(args)?;
-        self.data_server_ctl.start_data_server(&self.data_conf)?;
+        self.data_server_ctl.init_db(&self.data_conf)?;
+        self.load_config()?;
+        self.data_server_ctl.start_data_server()?;
         self.http_server_ctl
             .start_http_server(&self.http_conf, self.data_server_ctl.get_data_server())?;
 
@@ -135,11 +135,7 @@ impl SmartdnsPlugin {
     pub fn query_complete(&self, request: &mut DnsRequest) {
         let ret = self.data_server_ctl.send_request(request);
         if let Err(e) = ret {
-            dns_log!(
-                LogLevel::ERROR,
-                "send data to data server error: {}",
-                e.to_string()
-            );
+            dns_log!(LogLevel::ERROR, "send data to data server error: {}", e);
             return;
         }
     }

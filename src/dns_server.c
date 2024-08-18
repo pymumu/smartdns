@@ -25,6 +25,7 @@
 #include "dns_cache.h"
 #include "dns_client.h"
 #include "dns_conf.h"
+#include "dns_stats.h"
 #include "dns_plugin.h"
 #include "fast_ping.h"
 #include "hashtable.h"
@@ -192,6 +193,7 @@ struct dns_server_post_context {
 	int skip_notify_count;
 	int select_all_best_ip;
 	int no_release_parent;
+	int is_cache_reply;
 };
 
 typedef enum dns_server_client_status {
@@ -342,6 +344,8 @@ struct dns_request {
 
 	int is_mdns_lookup;
 
+	int is_cache_reply;
+
 	struct dns_srv_records *srv_records;
 
 	atomic_t notified;
@@ -392,7 +396,8 @@ struct dns_request {
 
 	void *private_data;
 
-	uint64_t query_time;
+	uint64_t query_timestamp;
+	int query_time;
 };
 
 /* dns server data */
@@ -690,6 +695,7 @@ static int _dns_server_is_return_soa_qtype(struct dns_request *request, dns_type
 	if (rule_flag) {
 		flags = rule_flag->flags;
 		if (flags & DOMAIN_FLAG_ADDR_SOA) {
+			dns_stats_request_blocked_inc();
 			return 1;
 		}
 
@@ -701,6 +707,7 @@ static int _dns_server_is_return_soa_qtype(struct dns_request *request, dns_type
 		switch (qtype) {
 		case DNS_T_A:
 			if (flags & DOMAIN_FLAG_ADDR_IPV4_SOA) {
+				dns_stats_request_blocked_inc();
 				return 1;
 			}
 
@@ -711,6 +718,7 @@ static int _dns_server_is_return_soa_qtype(struct dns_request *request, dns_type
 			break;
 		case DNS_T_AAAA:
 			if (flags & DOMAIN_FLAG_ADDR_IPV6_SOA) {
+				dns_stats_request_blocked_inc();
 				return 1;
 			}
 
@@ -721,6 +729,7 @@ static int _dns_server_is_return_soa_qtype(struct dns_request *request, dns_type
 			break;
 		case DNS_T_HTTPS:
 			if (flags & DOMAIN_FLAG_ADDR_HTTPS_SOA) {
+				dns_stats_request_blocked_inc();
 				return 1;
 			}
 
@@ -853,6 +862,10 @@ static void _dns_server_audit_log(struct dns_server_post_context *context)
 	struct dns_request *request = context->request;
 	int has_soa = request->has_soa;
 
+	if (atomic_read(&request->notified) == 1) {
+		request->query_time = get_tick_count() - request->send_tick;
+	}
+
 	if (dns_audit == NULL || !dns_conf.audit_enable || context->do_audit == 0) {
 		return;
 	}
@@ -950,9 +963,8 @@ static void _dns_server_audit_log(struct dns_server_post_context *context)
 				 tm.min, tm.sec, tm.usec / 1000);
 	}
 
-	tlog_printf(dns_audit, "%s%s query %s, type %d, time %lums, speed: %.1fms, group %s, result %s\n", req_time,
-				req_host, request->domain, request->qtype, get_tick_count() - request->send_tick,
-				((float)request->ping_time) / 10,
+	tlog_printf(dns_audit, "%s%s query %s, type %d, time %dms, speed: %.1fms, group %s, result %s\n", req_time,
+				req_host, request->domain, request->qtype, request->query_time, ((float)request->ping_time) / 10,
 				request->dns_group_name[0] != '\0' ? request->dns_group_name : DNS_SERVER_GROUP_DEFAULT, req_result);
 }
 
@@ -2456,8 +2468,10 @@ static int _dns_server_reply_all_pending_list(struct dns_request *request, struc
 		req->dualstack_selection_has_ip = request->dualstack_selection_has_ip;
 		req->dualstack_selection_ping_time = request->dualstack_selection_ping_time;
 		req->ping_time = request->ping_time;
+		req->is_cache_reply = request->is_cache_reply;
 		_dns_server_get_answer(&context_pending);
 
+		context_pending.is_cache_reply = context->is_cache_reply;
 		context_pending.do_cache = 0;
 		context_pending.do_audit = context->do_audit;
 		context_pending.do_reply = context->do_reply;
@@ -2465,6 +2479,11 @@ static int _dns_server_reply_all_pending_list(struct dns_request *request, struc
 		context_pending.do_ipset = 0;
 		context_pending.reply_ttl = request->ip_ttl;
 		context_pending.no_release_parent = 0;
+
+		if (context_pending.is_cache_reply) {
+			dns_stats_cache_hit_inc();
+		}
+
 		_dns_server_reply_passthrough(&context_pending);
 
 		req->request_pending_list = NULL;
@@ -2644,7 +2663,6 @@ out:
 	context.skip_notify_count = 1;
 	context.select_all_best_ip = with_all_ips;
 	context.no_release_parent = 1;
-
 	_dns_request_post(&context);
 	return _dns_server_reply_all_pending_list(request, &context);
 }
@@ -2896,7 +2914,7 @@ static void _dns_server_request_release_complete(struct dns_request *request, in
 	list_del_init(&request->pending_list);
 	pthread_mutex_unlock(&server.request_pending_lock);
 
-	if (do_complete) {
+	if (do_complete && atomic_read(&request->plugin_complete_called) == 0) {
 		/* Select max hit ip address, and return to client */
 		_dns_server_select_possible_ipaddress(request);
 		_dns_server_complete_with_multi_ipaddress(request);
@@ -2925,6 +2943,13 @@ static void _dns_server_request_release_complete(struct dns_request *request, in
 	}
 	pthread_mutex_unlock(&request->ip_map_lock);
 
+	if (request->rcode == DNS_RC_NOERROR) {
+		dns_stats_request_success_inc();
+	}
+
+	if (request->conn) {
+		dns_stats_avg_time_add(request->query_time);
+	}
 	_dns_server_delete_request(request);
 }
 
@@ -2942,46 +2967,136 @@ static void _dns_server_request_get(struct dns_request *request)
 
 const struct sockaddr *dns_server_request_get_remote_addr(struct dns_request *request)
 {
+	if (request->conn == NULL) {
+		return NULL;
+	}
+
 	return &request->addr;
 }
 
 const struct sockaddr *dns_server_request_get_local_addr(struct dns_request *request)
 {
+	if (request == NULL) {
+		return NULL;
+	}
+
 	return (struct sockaddr *)&request->localaddr;
 }
 
 const char *dns_server_request_get_group_name(struct dns_request *request)
 {
+	if (request == NULL) {
+		return NULL;
+	}
+
 	return request->dns_group_name;
 }
 
 const char *dns_server_request_get_domain(struct dns_request *request)
 {
+	if (request == NULL) {
+		return NULL;
+	}
+
 	return request->domain;
 }
 
 int dns_server_request_get_qtype(struct dns_request *request)
 {
+	if (request == NULL) {
+		return 0;
+	}
+
 	return request->qtype;
 }
 
 int dns_server_request_get_qclass(struct dns_request *request)
 {
+	if (request == NULL) {
+		return 0;
+	}
+
 	return request->qclass;
 }
 
-uint64_t dns_server_request_get_query_time(struct dns_request *request)
+int dns_server_request_get_query_time(struct dns_request *request)
 {
+	if (request == NULL) {
+		return -1;
+	}
+
 	return request->query_time;
+}
+
+uint64_t dns_server_request_get_query_timestamp(struct dns_request *request)
+{
+	if (request == NULL) {
+		return 0;
+	}
+
+	return request->query_timestamp;
+}
+
+float dns_server_request_get_ping_time(struct dns_request *request)
+{
+	if (request == NULL) {
+		return 0;
+	}
+
+	return (float)request->ping_time / 10;
+}
+
+int dns_server_request_is_prefetch(struct dns_request *request)
+{
+	if (request == NULL) {
+		return 0;
+	}
+
+	return request->prefetch;
+}
+
+int dns_server_request_is_dualstack(struct dns_request *request)
+{
+	if (request == NULL) {
+		return 0;
+	}
+
+	return request->dualstack_selection_query;
+}
+
+int dns_server_request_is_blocked(struct dns_request *request)
+{
+	if (request == NULL) {
+		return 0;
+	}
+
+	return _dns_server_is_return_soa(request);
+}
+
+int dns_server_request_is_cached(struct dns_request *request)
+{
+	if (request == NULL) {
+		return 0;
+	}
+
+	return request->is_cache_reply;
 }
 
 int dns_server_request_get_id(struct dns_request *request)
 {
+	if (request == NULL) {
+		return 0;
+	}
+
 	return request->id;
 }
 
 int dns_server_request_get_rcode(struct dns_request *request)
 {
+	if (request == NULL) {
+		return DNS_RC_SERVFAIL;
+	}
+
 	return request->rcode;
 }
 
@@ -2997,11 +3112,19 @@ void dns_server_request_put(struct dns_request *request)
 
 void dns_server_request_set_private(struct dns_request *request, void *private_data)
 {
+	if (request == NULL) {
+		return;
+	}
+
 	request->private_data = private_data;
 }
 
 void *dns_server_request_get_private(struct dns_request *request)
 {
+	if (request == NULL) {
+		return NULL;
+	}
+
 	return request->private_data;
 }
 
@@ -3102,13 +3225,14 @@ static struct dns_request *_dns_server_new_request(void)
 	request->conf = dns_server_get_default_rule_group();
 	request->check_order_list = &dns_conf.default_check_orders;
 	request->response_mode = dns_conf.default_response_mode;
-	request->query_time = get_utc_time_ms();
+	request->query_timestamp = get_utc_time_ms();
 	INIT_LIST_HEAD(&request->list);
 	INIT_LIST_HEAD(&request->pending_list);
 	INIT_LIST_HEAD(&request->check_list);
 	hash_init(request->ip_map);
 	_dns_server_request_get(request);
 	atomic_add(1, &server.request_num);
+	dns_stats_request_inc();
 
 	return request;
 errout:
@@ -6282,11 +6406,14 @@ static int _dns_server_process_cache_packet(struct dns_request *request, struct 
 		}
 	}
 
+	request->is_cache_reply = 1;
+	dns_stats_cache_hit_inc();
 	request->rcode = context.packet->head.rcode;
 	context.do_cache = 0;
 	context.do_ipset = do_ipset;
 	context.do_audit = 1;
 	context.do_reply = 1;
+	context.is_cache_reply = 1;
 	context.reply_ttl = _dns_server_get_expired_ttl_reply(request, dns_cache);
 	ret = _dns_server_reply_passthrough(&context);
 out:
@@ -7231,6 +7358,7 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 	_dns_server_request_set_client(request, conn);
 	_dns_server_request_set_client_addr(request, from, from_len);
 	_dns_server_request_set_id(request, packet->head.id);
+	dns_stats_request_from_client_inc();
 
 	if (_dns_server_parser_request(request, packet) != 0) {
 		tlog(TLOG_DEBUG, "parser request failed.");
@@ -8532,6 +8660,8 @@ static void _dns_server_period_run_second(void)
 	}
 
 	_dns_server_save_cache_to_file();
+
+	dns_stats_period_run_second();
 }
 
 static void _dns_server_period_run(unsigned int msec)
