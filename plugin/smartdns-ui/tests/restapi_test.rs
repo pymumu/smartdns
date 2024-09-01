@@ -18,11 +18,13 @@
 
 mod common;
 
+use nix::libc::c_char;
 use reqwest;
 use serde_json::json;
 use smartdns_ui::{http_api_msg, http_jwt::JwtClaims, smartdns::LogLevel};
+use std::ffi::CString;
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_rest_api_login() {
     let mut server = common::TestServer::new();
     server.set_log_level(LogLevel::DEBUG);
@@ -64,7 +66,6 @@ async fn test_rest_api_login() {
     assert_eq!(calims.user, "admin");
 }
 
-
 #[test]
 fn test_rest_api_logout() {
     let mut server = common::TestServer::new();
@@ -90,7 +91,7 @@ fn test_rest_api_logout() {
     assert_eq!(code, 401);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_rest_api_login_incorrect() {
     let mut server = common::TestServer::new();
     server.set_log_level(LogLevel::DEBUG);
@@ -127,7 +128,8 @@ fn test_rest_api_change_password() {
     let mut client = common::TestClient::new(&server.get_host());
     let res = client.login("admin", "password");
     assert!(res.is_ok());
-    let password_msg = http_api_msg::api_msg_gen_auth_password_change("wrong_oldpassword", "newpassword");
+    let password_msg =
+        http_api_msg::api_msg_gen_auth_password_change("wrong_oldpassword", "newpassword");
     let c = client.put("/api/auth/password", password_msg.as_str());
     assert!(c.is_ok());
     let (code, _) = c.unwrap();
@@ -140,7 +142,7 @@ fn test_rest_api_change_password() {
     assert_eq!(code, 204);
 
     let res = client.login("admin", "password");
-    assert!(!res.is_ok());    
+    assert!(!res.is_ok());
 }
 
 #[test]
@@ -180,6 +182,26 @@ fn test_rest_api_auth_refresh() {
     assert!(!token.token.is_empty());
     assert_eq!(token.expires_in, "600");
     println!("token: {:?}", token);
+}
+
+#[test]
+fn test_rest_api_auth_check() {
+    let mut server = common::TestServer::new();
+    server.set_log_level(LogLevel::DEBUG);
+    assert!(server.start().is_ok());
+
+    let mut client = common::TestClient::new(&server.get_host());
+    let c = client.get("/api/auth/check");
+    assert!(c.is_ok());
+    let (code, _) = c.unwrap();
+    assert_eq!(code, 401);
+
+    let res = client.login("admin", "password");
+    assert!(res.is_ok());
+    let c = client.get("/api/auth/check");
+    assert!(c.is_ok());
+    let (code, _) = c.unwrap();
+    assert_eq!(code, 200);
 }
 
 #[test]
@@ -523,7 +545,6 @@ fn test_rest_api_stats_top() {
     assert_eq!(list[2].count, 128);
 }
 
-
 #[test]
 fn test_rest_api_stats_overview() {
     let mut server = common::TestServer::new();
@@ -536,8 +557,12 @@ fn test_rest_api_stats_overview() {
     assert!(res.is_ok());
 
     unsafe {
-        smartdns_ui::smartdns::smartdns_c::dns_stats.avg_time.avg_time = 22.0 as f32;
-        smartdns_ui::smartdns::smartdns_c::dns_stats.request.blocked_count = 10;
+        smartdns_ui::smartdns::smartdns_c::dns_stats
+            .avg_time
+            .avg_time = 22.0 as f32;
+        smartdns_ui::smartdns::smartdns_c::dns_stats
+            .request
+            .blocked_count = 10;
         smartdns_ui::smartdns::smartdns_c::dns_stats.request.total = 15;
     }
 
@@ -553,7 +578,6 @@ fn test_rest_api_stats_overview() {
     assert_eq!(overview.total_query_count, 15);
     assert_eq!(overview.block_query_count, 10);
 }
-
 
 #[test]
 fn test_rest_api_get_hourly_query_count() {
@@ -582,4 +606,41 @@ fn test_rest_api_get_hourly_query_count() {
     let list = list.unwrap();
     assert_eq!(list.len(), 1);
     assert_eq!(list[0].query_count, 1024);
+}
+
+#[test]
+fn test_rest_api_server_status() {
+    let mut server = common::TestServer::new();
+    server.set_log_level(LogLevel::DEBUG);
+    server.enable_mock_server();
+    assert!(server.start().is_ok());
+
+    let mut client = common::TestClient::new(&server.get_host());
+    let res = client.login("admin", "password");
+    assert!(res.is_ok());
+
+    unsafe {
+        let server_type = smartdns_ui::smartdns::smartdns_c::dns_server_type_t_DNS_SERVER_UDP;
+        let mut flags: smartdns_ui::smartdns::smartdns_c::client_dns_server_flags =
+            std::mem::zeroed();
+        let ip = CString::new("1.2.3.4").expect("CString::new failed");
+        let port = 3353;
+        smartdns_ui::smartdns::smartdns_c::dns_client_add_server(
+            ip.as_ptr() as *const c_char,
+            port,
+            server_type,
+            &mut flags,
+        );
+    }
+
+    let c = client.get("/api/upstream-server");
+    assert!(c.is_ok());
+    let (code, body) = c.unwrap();
+    assert_eq!(code, 200);
+    let server_list = http_api_msg::api_msg_parse_upstream_server_list(&body);
+    assert!(server_list.is_ok());
+    let server_list = server_list.unwrap();
+    assert!(server_list.len() > 0);
+    let exists = server_list.iter().any(|server| server.ip == "1.2.3.4");
+    assert!(exists);
 }

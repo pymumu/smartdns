@@ -489,6 +489,17 @@ static int _smartdns_tlog_output_syslog_callback(struct tlog_loginfo *info, cons
 	return bufflen;
 }
 
+static int _smartdns_tlog_output_callback(struct tlog_loginfo *info, const char *buff, int bufflen, void *private_data)
+{
+	smartdns_plugin_func_server_log_callback((smartdns_log_level)info->level, buff, bufflen);
+
+	if (dns_conf.log_syslog) {
+		return _smartdns_tlog_output_syslog_callback(info, buff, bufflen, private_data);
+	}
+
+	return tlog_write_log(buff, bufflen);
+}
+
 static int _smartdns_init_log(void)
 {
 	const char *logfile = _smartdns_log_path();
@@ -526,9 +537,7 @@ static int _smartdns_init_log(void)
 		tlog_setlogscreen(1);
 	}
 
-	if (dns_conf.log_syslog) {
-		tlog_reg_log_output_func(_smartdns_tlog_output_syslog_callback, NULL);
-	}
+	tlog_reg_log_output_func(_smartdns_tlog_output_callback, NULL);
 
 	tlog_setlevel(dns_conf.log_level);
 	if (dns_conf.log_file_mode > 0) {

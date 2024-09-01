@@ -17,8 +17,10 @@
  */
 
 use crate::data_server::*;
+use crate::data_upstream_server::UpstreamServerInfo;
 use crate::db::*;
 use crate::smartdns::LogLevel;
+use crate::whois::WhoIsInfo;
 use serde_json::json;
 use std::collections::HashMap;
 use std::error::Error;
@@ -388,6 +390,110 @@ pub fn api_msg_gen_version(smartdns_version: &str, ui_version: &str) -> String {
     json_str.to_string()
 }
 
+pub fn api_msg_gen_upstream_server_list(upstream_server_list: &Vec<UpstreamServerInfo>) -> String {
+    let json_str = json!({
+        "upstream_server_list":
+            upstream_server_list
+                .iter()
+                .map(|x| {
+                    let s = json!({
+                        "host": x.host,
+                        "ip": x.ip,
+                        "port": x.port,
+                        "server_type": x.server_type.to_string(),
+                        "total_query_count": x.total_query_count,
+                        "total_query_success": x.total_query_success,
+                        "total_query_recv_count": x.total_query_recv_count,
+                        "query_success_rate": x.query_success_rate,
+                        "avg_time": x.avg_time,
+                        "status": x.status,
+                    });
+                    s
+                })
+                .collect::<Vec<serde_json::Value>>()
+    });
+
+    json_str.to_string()
+}
+
+pub fn api_msg_parse_upstream_server_list(
+    data: &str,
+) -> Result<Vec<UpstreamServerInfo>, Box<dyn Error>> {
+    let v: serde_json::Value = serde_json::from_str(data)?;
+    let mut upstream_server_list = Vec::new();
+    let server_list = v["upstream_server_list"].as_array();
+    if server_list.is_none() {
+        return Err("list_count not found".into());
+    }
+
+    for item in server_list.unwrap() {
+        let host = item["host"].as_str();
+        if host.is_none() {
+            return Err("host not found".into());
+        }
+
+        let ip = item["ip"].as_str();
+        if ip.is_none() {
+            return Err("ip not found".into());
+        }
+
+        let port = item["port"].as_u64();
+        if port.is_none() {
+            return Err("port not found".into());
+        }
+
+        let server_type = item["server_type"].as_str();
+        if server_type.is_none() {
+            return Err("server_type not found".into());
+        }
+
+        let total_query_count = item["total_query_count"].as_u64();
+        if total_query_count.is_none() {
+            return Err("total_query_count not found".into());
+        }
+
+        let total_query_success = item["total_query_success"].as_u64();
+        if total_query_success.is_none() {
+            return Err("total_query_success not found".into());
+        }
+
+        let total_query_recv_count = item["total_query_recv_count"].as_u64();
+        if total_query_recv_count.is_none() {
+            return Err("total_query_recv_count not found".into());
+        }
+
+        let query_success_rate = item["query_success_rate"].as_f64();
+        if query_success_rate.is_none() {
+            return Err("query_success_rate not found".into());
+        }
+
+        let avg_time = item["avg_time"].as_f64();
+        if avg_time.is_none() {
+            return Err("avg_time not found".into());
+        }
+
+        let status = item["status"].as_str();
+        if status.is_none() {
+            return Err("status not found".into());
+        }
+
+        upstream_server_list.push(UpstreamServerInfo {
+            host: host.unwrap().to_string(),
+            ip: ip.unwrap().to_string(),
+            port: port.unwrap() as u16,
+            server_type: server_type.unwrap().parse()?,
+            total_query_count: total_query_count.unwrap() as u64,
+            total_query_success: total_query_success.unwrap() as u64,
+            total_query_recv_count: total_query_recv_count.unwrap() as u64,
+            query_success_rate: query_success_rate.unwrap(),
+            avg_time: avg_time.unwrap(),
+            status: status.unwrap().to_string(),
+        });
+    }
+
+    Ok(upstream_server_list)
+}
+
 pub fn api_msg_parse_version(data: &str) -> Result<(String, String), Box<dyn Error>> {
     let v: serde_json::Value = serde_json::from_str(data)?;
     let smartdns = v["smartdns"].as_str();
@@ -525,6 +631,7 @@ pub fn api_msg_gen_stats_overview(data: &OverviewData) -> String {
         "block_query_count": data.block_query_count,
         "avg_query_time": data.avg_query_time,
         "cache_hit_rate": data.cache_hit_rate,
+        "cache_number": data.cache_number,
     });
 
     json_str.to_string()
@@ -552,11 +659,17 @@ pub fn api_msg_parse_stats_overview(data: &str) -> Result<OverviewData, Box<dyn 
         return Err("cache_hit_rate not found".into());
     }
 
+    let cache_number = v["cache_number"].as_u64();
+    if cache_number.is_none() {
+        return Err("cache_number not found".into());
+    }
+
     Ok(OverviewData {
         total_query_count: total_query_count.unwrap() as u64,
         block_query_count: block_query_count.unwrap() as u64,
         avg_query_time: avg_query_time.unwrap(),
         cache_hit_rate: cache_hit_rate.unwrap(),
+        cache_number: cache_number.unwrap() as u64,
     })
 }
 
@@ -577,7 +690,9 @@ pub fn api_msg_gen_hourly_query_count(data: &Vec<HourlyQueryCount>) -> String {
     json_str.to_string()
 }
 
-pub fn api_msg_parse_hourly_query_count(data: &str) -> Result<Vec<HourlyQueryCount>, Box<dyn Error>> {
+pub fn api_msg_parse_hourly_query_count(
+    data: &str,
+) -> Result<Vec<HourlyQueryCount>, Box<dyn Error>> {
     let v: serde_json::Value = serde_json::from_str(data)?;
     let mut hourly_query_count = Vec::new();
     let hourly_list = v["hourly_query_count"].as_array();
@@ -603,4 +718,67 @@ pub fn api_msg_parse_hourly_query_count(data: &str) -> Result<Vec<HourlyQueryCou
     }
 
     Ok(hourly_query_count)
+}
+
+pub fn api_msg_gen_whois_info(data: &WhoIsInfo) -> String {
+    let json_str = json!({
+        "domain": data.domain,
+        "registrar": data.registrar,
+        "organization": data.organization,
+        "address": data.address,
+        "city": data.city,
+        "country": data.country,
+    });
+
+    json_str.to_string()
+}
+
+pub fn api_msg_parse_whois_info(data: &str) -> Result<WhoIsInfo, Box<dyn Error>> {
+    let v: serde_json::Value = serde_json::from_str(data)?;
+    let domain = v["domain"].as_str();
+    if domain.is_none() {
+        return Err("domain not found".into());
+    }
+
+    let registrar = v["registrar"].as_str();
+    if registrar.is_none() {
+        return Err("registrar not found".into());
+    }
+
+    let organization = v["organization"].as_str();
+    if organization.is_none() {
+        return Err("organization not found".into());
+    }
+
+    let address = v["address"].as_str();
+    if address.is_none() {
+        return Err("address not found".into());
+    }
+
+    let city = v["city"].as_str();
+    if city.is_none() {
+        return Err("city not found".into());
+    }
+
+    let country = v["country"].as_str();
+    if country.is_none() {
+        return Err("country not found".into());
+    }
+
+    let refer = v["refer"].as_str();
+    let refer = if refer.is_none() {
+        String::new()
+    } else {
+        refer.unwrap().to_string()
+    };
+
+    Ok(WhoIsInfo {
+        refer: refer,
+        domain: domain.unwrap().to_string(),
+        registrar: registrar.unwrap().to_string(),
+        organization: organization.unwrap().to_string(),
+        address: address.unwrap().to_string(),
+        city: city.unwrap().to_string(),
+        country: country.unwrap().to_string(),
+    })
 }

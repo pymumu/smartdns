@@ -71,12 +71,19 @@ pub struct DomainData {
 }
 
 #[derive(Debug, Clone)]
+pub struct QueryDomainListResult {
+    pub domain_list: Vec<DomainData>,
+    pub total_count: u32,
+}
+
+#[derive(Debug, Clone)]
 pub struct DomainListGetParam {
     pub id: Option<u64>,
     pub order: Option<String>,
     pub page_num: u32,
     pub page_size: u32,
     pub domain: Option<String>,
+    pub domain_filter_mode: Option<String>,
     pub domain_type: Option<u32>,
     pub client: Option<String>,
     pub domain_group: Option<String>,
@@ -95,6 +102,7 @@ impl DomainListGetParam {
             order: None,
             page_size: 10,
             domain: None,
+            domain_filter_mode: None,
             domain_type: None,
             client: None,
             domain_group: None,
@@ -224,7 +232,7 @@ impl DB {
     pub fn set_config(&self, key: &str, value: &str) -> Result<(), Box<dyn Error>> {
         let conn = self.conn.lock().unwrap();
         if conn.as_ref().is_none() {
-            return Ok(());
+            return Err("db is not open".into());
         }
 
         let conn = conn.as_ref().unwrap();
@@ -243,7 +251,7 @@ impl DB {
         let mut ret = HashMap::new();
         let conn = self.conn.lock().unwrap();
         if conn.as_ref().is_none() {
-            return Ok(ret);
+            return Err("db is not open".into());
         }
 
         let conn = conn.as_ref().unwrap();
@@ -269,7 +277,7 @@ impl DB {
     pub fn get_config(&self, key: &str) -> Result<Option<String>, Box<dyn Error>> {
         let conn = self.conn.lock().unwrap();
         if conn.as_ref().is_none() {
-            return Ok(None);
+            return Err("db is not open".into());
         }
 
         let conn = conn.as_ref().unwrap();
@@ -289,47 +297,211 @@ impl DB {
         Ok(None)
     }
 
-    pub fn insert_domain(&self, data: &DomainData) -> Result<(), Box<dyn Error>> {
-        let conn = self.conn.lock().unwrap();
+    pub fn insert_domain(&self, data: &Vec<DomainData>) -> Result<(), Box<dyn Error>> {
+        let mut conn = self.conn.lock().unwrap();
         if conn.as_ref().is_none() {
-            return Ok(());
+            return Err("db is not open".into());
         }
 
-        let conn = conn.as_ref().unwrap();
-        let mut stmt = conn.prepare(
+        let conn = conn.as_mut().unwrap();
+
+        let tx = conn.transaction()?;
+
+        let mut stmt = tx.prepare(
             "INSERT INTO domain \
             (timestamp, domain, domain_type, client, domain_group, reply_code, query_time, ping_time, is_blocked, is_cached) \
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)")?;
-        let ret = stmt.execute(rusqlite::params![
-            &data.timestamp.to_string(),
-            &data.domain,
-            &data.domain_type.to_string(),
-            &data.client,
-            &data.domain_group,
-            &data.reply_code,
-            &data.query_time,
-            &data.ping_time,
-            &(data.is_blocked as i32),
-            &(data.is_cached as i32)
-        ]);
 
-        if let Err(e) = ret {
-            return Err(Box::new(e));
+        for d in data {
+            let ret = stmt.execute(rusqlite::params![
+                &d.timestamp.to_string(),
+                &d.domain,
+                &d.domain_type.to_string(),
+                &d.client,
+                &d.domain_group,
+                &d.reply_code,
+                &d.query_time,
+                &d.ping_time,
+                &(d.is_blocked as i32),
+                &(d.is_cached as i32)
+            ]);
+
+            if let Err(e) = ret {
+                stmt.finalize()?;
+                tx.rollback()?;
+                return Err(Box::new(e));
+            }
         }
+
+        stmt.finalize()?;
+        tx.commit()?;
 
         Ok(())
     }
 
-    pub fn get_domain_list_count(&self) -> u32 {
+    pub fn get_readonly_conn(&self) -> Option<Connection> {
         let conn = self.conn.lock().unwrap();
+        if conn.is_none() {
+            return None;
+        }
+
+        let conn = conn.as_ref().unwrap();
+
+        let read_conn = Connection::open_with_flags(
+            conn.path().unwrap(),
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        );
+
+        if let Err(_) = read_conn {
+            return None;
+        }
+
+        Some(read_conn.unwrap())
+    }
+
+    /// # Returns
+    ///
+    /// A tuple containing:
+    /// - `String`: The SQL WHERE clause.
+    /// - `String`: The SQL ORDER BY clause.
+    /// - `Vec<String>`: The parameters for the SQL query.
+    pub fn get_domain_sql_where(
+        param: Option<&DomainListGetParam>,
+    ) -> Result<(String, String, Vec<String>), Box<dyn Error>> {
+        let param = match param {
+            Some(v) => v,
+            None => return Ok((String::new(), String::new(), Vec::new())),
+        };
+
+        let mut sql_where = Vec::new();
+        let mut sql_param: Vec<String> = Vec::new();
+        let mut sql_order = String::new();
+
+        if let Some(v) = &param.id {
+            sql_where.push("id = ?".to_string());
+            sql_param.push(v.to_string());
+        }
+
+        if let Some(v) = &param.domain {
+            if let Some(m) = &param.domain_filter_mode {
+                match m.as_str() {
+                    "endwith" => {
+                        sql_where.push("domain LIKE ?".to_string());
+                        sql_param.push(format!("{}%", v));
+                    }
+                    "startwith" => {
+                        sql_where.push("domain LIKE ?".to_string());
+                        sql_param.push(format!("%{}", v));
+                    }
+                    "contains" => {
+                        sql_where.push("domain LIKE ?".to_string());
+                        sql_param.push(format!("%{}%", v));
+                    }
+                    "equals" => {
+                        sql_where.push("domain = ?".to_string());
+                        sql_param.push(v.to_string());
+                    }
+                    _ => return Err("domain_filter_mode param error".into()),
+                }
+            } else {
+                sql_where.push("domain = ?".to_string());
+                sql_param.push(v.to_string());
+            }
+        }
+
+        if let Some(v) = &param.domain_type {
+            sql_where.push("domain_type = ?".to_string());
+            sql_param.push(v.to_string());
+        }
+
+        if let Some(v) = &param.client {
+            sql_where.push("client = ?".to_string());
+            sql_param.push(v.clone());
+        }
+
+        if let Some(v) = &param.domain_group {
+            sql_where.push("domain_group = ?".to_string());
+            sql_param.push(v.clone());
+        }
+
+        if let Some(v) = &param.reply_code {
+            sql_where.push("reply_code = ?".to_string());
+            sql_param.push(v.to_string());
+        }
+
+        if let Some(v) = &param.timestamp_before {
+            sql_where.push("timestamp <= ?".to_string());
+            sql_param.push(v.to_string());
+        }
+
+        if let Some(v) = &param.timestamp_after {
+            sql_where.push("timestamp >= ?".to_string());
+            sql_param.push(v.to_string());
+        }
+
+        if let Some(v) = &param.is_blocked {
+            if !sql_where.is_empty() {
+                sql_where.push(" AND ".to_string());
+            }
+
+            if *v {
+                sql_where.push("is_blocked = 1".to_string());
+            } else {
+                sql_where.push("is_blocked = 0".to_string());
+            }
+        }
+
+        if let Some(v) = &param.is_cached {
+            if !sql_where.is_empty() {
+                sql_where.push(" AND ".to_string());
+            }
+
+            if *v {
+                sql_where.push("is_cached = 1".to_string());
+            } else {
+                sql_where.push("is_cached = 0".to_string());
+            }
+        }
+
+        if let Some(v) = &param.order {
+            if v.eq_ignore_ascii_case("asc") {
+                sql_order.push_str(" ORDER BY id ASC");
+            } else if v.eq_ignore_ascii_case("desc") {
+                sql_order.push_str(" ORDER BY id DESC");
+            } else {
+                return Err("order param error".into());
+            }
+        } else {
+            sql_order.push_str(" ORDER BY id DESC");
+        }
+
+        let sql_where = if sql_where.is_empty() {
+            String::new()
+        } else {
+            format!(" WHERE {}", sql_where.join(" AND "))
+        };
+
+        Ok((sql_where, sql_order, sql_param))
+    }
+
+    pub fn get_domain_list_count(&self, param: Option<&DomainListGetParam>) -> u32 {
+        let conn = self.get_readonly_conn();
         if conn.as_ref().is_none() {
             return 0;
         }
 
         let conn = conn.as_ref().unwrap();
+        let mut sql = String::new();
+        let mut sql_param = Vec::new();
+        sql.push_str("SELECT COUNT(*) FROM domain");
+        if let Ok((sql_where, sql_order, mut ret_sql_param)) = Self::get_domain_sql_where(param) {
+            sql.push_str(sql_where.as_str());
+            sql.push_str(sql_order.as_str());
+            sql_param.append(&mut ret_sql_param);
+        }
 
-        let mut stmt = conn.prepare("SELECT COUNT(*) FROM domain").unwrap();
-        let rows = stmt.query_map([], |row| Ok(row.get(0)?));
+        let mut stmt = conn.prepare(sql.as_str()).unwrap();
+        let rows = stmt.query_map(rusqlite::params_from_iter(sql_param), |row| Ok(row.get(0)?));
 
         if let Ok(rows) = rows {
             for row in rows {
@@ -345,7 +517,7 @@ impl DB {
     pub fn delete_domain_by_id(&self, id: u64) -> Result<u64, Box<dyn Error>> {
         let conn = self.conn.lock().unwrap();
         if conn.as_ref().is_none() {
-            return Ok(0);
+            return Err("db is not open".into());
         }
 
         let conn = conn.as_ref().unwrap();
@@ -362,7 +534,7 @@ impl DB {
     pub fn delete_domain_before_timestamp(&self, timestamp: u64) -> Result<u64, Box<dyn Error>> {
         let conn = self.conn.lock().unwrap();
         if conn.as_ref().is_none() {
-            return Ok(0);
+            return Err("db is not open".into());
         }
 
         let conn = conn.as_ref().unwrap();
@@ -378,9 +550,9 @@ impl DB {
 
     pub fn get_client_top_list(&self, count: u32) -> Result<Vec<ClientQueryCount>, Box<dyn Error>> {
         let mut ret = Vec::new();
-        let conn = self.conn.lock().unwrap();
+        let conn = self.get_readonly_conn();
         if conn.as_ref().is_none() {
-            return Ok(ret);
+            return Err("db is not open".into());
         }
 
         let conn = conn.as_ref().unwrap();
@@ -410,14 +582,13 @@ impl DB {
         past_hours: u32,
     ) -> Result<Vec<HourlyQueryCount>, Box<dyn Error>> {
         let mut ret = Vec::new();
-        let conn = self.conn.lock().unwrap();
+        let conn = self.get_readonly_conn();
         if conn.as_ref().is_none() {
-            return Ok(ret);
+            return Err("db is not open".into());
         }
 
-        let seconds = 3600 * past_hours - utils::seconds_until_next_hour() as u32;
-
         let conn = conn.as_ref().unwrap();
+        let seconds = 3600 * past_hours - utils::seconds_until_next_hour() as u32;
         let mut stmt = conn.prepare(
             "SELECT \
                     strftime('%Y-%m-%d %H:00:00', datetime(timestamp / 1000, 'unixepoch', 'localtime')) AS hour, \
@@ -453,12 +624,13 @@ impl DB {
 
     pub fn get_domain_top_list(&self, count: u32) -> Result<Vec<DomainQueryCount>, Box<dyn Error>> {
         let mut ret = Vec::new();
-        let conn = self.conn.lock().unwrap();
+        let conn = self.get_readonly_conn();
         if conn.as_ref().is_none() {
-            return Ok(ret);
+            return Err("db is not open".into());
         }
 
         let conn = conn.as_ref().unwrap();
+
         let mut stmt = conn.prepare(
             "SELECT domain, COUNT(*) FROM domain GROUP BY domain ORDER BY COUNT(*) DESC LIMIT ?",
         )?;
@@ -486,133 +658,36 @@ impl DB {
 
     pub fn get_domain_list(
         &self,
-        param: &DomainListGetParam,
-    ) -> Result<Vec<DomainData>, Box<dyn Error>> {
-        let mut ret = Vec::new();
-        let conn = self.conn.lock().unwrap();
+        param: Option<&DomainListGetParam>,
+    ) -> Result<QueryDomainListResult, Box<dyn Error>> {
+        let query_start = std::time::Instant::now();
+
+        let mut ret = QueryDomainListResult {
+            domain_list: vec![],
+            total_count: 0,
+        };
+
+        let conn = self.get_readonly_conn();
         if conn.as_ref().is_none() {
-            return Ok(ret);
+            return Err("db is not open".into());
         }
 
-        let mut sql_where = String::new();
-        let mut sql_order = String::new();
-        let mut sql_param: Vec<String> = Vec::new();
+        let conn = conn.as_ref().unwrap();
 
-        if let Some(v) = &param.id {
-            if !sql_where.is_empty() {
-                sql_where.push_str(" AND ");
-            }
-            sql_where.push_str("id = ?");
-            sql_param.push(v.to_string());
-        }
-
-        if let Some(v) = &param.domain {
-            if !sql_where.is_empty() {
-                sql_where.push_str(" AND ");
-            }
-            sql_where.push_str("domain = ?");
-            sql_param.push(v.to_string());
-        }
-
-        if let Some(v) = &param.domain_type {
-            if !sql_where.is_empty() {
-                sql_where.push_str(" AND ");
-            }
-            sql_where.push_str("domain_type = ?");
-            sql_param.push(v.to_string());
-        }
-
-        if let Some(v) = &param.client {
-            if !sql_where.is_empty() {
-                sql_where.push_str(" AND ");
-            }
-            sql_where.push_str("client = ?");
-            sql_param.push(v.clone());
-        }
-
-        if let Some(v) = &param.domain_group {
-            if !sql_where.is_empty() {
-                sql_where.push_str(" AND ");
-            }
-            sql_where.push_str("domain_group = ?");
-            sql_param.push(v.clone());
-        }
-
-        if let Some(v) = &param.reply_code {
-            if !sql_where.is_empty() {
-                sql_where.push_str(" AND ");
-            }
-            sql_where.push_str("reply_code = ?");
-            sql_param.push(v.to_string());
-        }
-
-        if let Some(v) = &param.timestamp_before {
-            if !sql_where.is_empty() {
-                sql_where.push_str(" AND ");
-            }
-            sql_where.push_str("timestamp <= ?");
-            sql_param.push(v.to_string());
-        }
-
-        if let Some(v) = &param.timestamp_after {
-            if !sql_where.is_empty() {
-                sql_where.push_str(" AND ");
-            }
-            sql_where.push_str("timestamp >= ?");
-            sql_param.push(v.to_string());
-        }
-
-        if let Some(v) = &param.is_blocked {
-            if !sql_where.is_empty() {
-                sql_where.push_str(" AND ");
-            }
-
-            if *v {
-                sql_where.push_str("is_blocked = 1");
-            } else {
-                sql_where.push_str("is_blocked = 0");
-            }
-        }
-
-        if let Some(v) = &param.is_cached {
-            if !sql_where.is_empty() {
-                sql_where.push_str(" AND ");
-            }
-
-            if *v {
-                sql_where.push_str("is_cached = 1");
-            } else {
-                sql_where.push_str("is_cached = 0");
-            }
-        }
-
-        if let Some(v) = &param.order {
-            if v.eq_ignore_ascii_case("asc") {
-                sql_order.push_str(" ORDER BY id ASC");
-            } else if v.eq_ignore_ascii_case("desc") {
-                sql_order.push_str(" ORDER BY id DESC");
-            } else {
-                return Err("order param error".into());
-            }
-        } else {
-            sql_order.push_str(" ORDER BY id DESC");
-        }
+        let (sql_where, sql_order, mut sql_param) = Self::get_domain_sql_where(param)?;
 
         let mut sql = String::new();
         sql.push_str("SELECT id, timestamp, domain, domain_type, client, domain_group, reply_code, query_time, ping_time, is_blocked, is_cached FROM domain");
 
-        if !sql_where.is_empty() {
-            sql.push_str(" WHERE ");
-            sql.push_str(sql_where.as_str());
+        sql.push_str(sql_where.as_str());
+        sql.push_str(sql_order.as_str());
+
+        if let Some(p) = param {
+            sql.push_str(" LIMIT ? OFFSET ?");
+            sql_param.push(p.page_size.to_string());
+            sql_param.push(((p.page_num - 1) * p.page_size).to_string());
         }
 
-        sql.push_str(sql_order.as_str());
-        sql.push_str(" LIMIT ? OFFSET ?");
-
-        sql_param.push(param.page_size.to_string());
-        sql_param.push(((param.page_num - 1) * param.page_size).to_string());
-
-        let conn = conn.as_ref().unwrap();
         let stmt = conn.prepare(&sql);
 
         if let Err(e) = stmt {
@@ -645,33 +720,48 @@ impl DB {
         if let Ok(rows) = rows {
             for row in rows {
                 if let Ok(row) = row {
-                    ret.push(row);
+                    ret.domain_list.push(row);
                 }
             }
         }
 
+        let total_count = self.get_domain_list_count(param);
+        ret.total_count = total_count;
+
+        dns_log!(
+            LogLevel::DEBUG,
+            "get_domain_list time: {}ms",
+            query_start.elapsed().as_millis()
+        );
         Ok(ret)
     }
 
-    pub fn insert_client(&self, client_ip: &str) -> Result<(), Box<dyn Error>> {
-        let conn = self.conn.lock().unwrap();
+    pub fn insert_client(&self, client_ip: &Vec<String>) -> Result<(), Box<dyn Error>> {
+        let mut conn = self.conn.lock().unwrap();
         if conn.as_ref().is_none() {
-            return Ok(());
+            return Err("db is not open".into());
         }
 
-        let conn = conn.as_ref().unwrap();
-        let mut stmt = conn.prepare("INSERT OR IGNORE INTO client (client_ip) VALUES (?1)")?;
-        let ret = stmt.execute(rusqlite::params![client_ip]);
+        let conn = conn.as_mut().unwrap();
+        let tx = conn.transaction()?;
+        let mut stmt = tx.prepare("INSERT OR IGNORE INTO client (client_ip) VALUES (?1)")?;
+        for ip in client_ip {
+            let ret = stmt.execute(rusqlite::params![ip]);
 
-        if let Err(e) = ret {
-            return Err(Box::new(e));
+            if let Err(e) = ret {
+                stmt.finalize()?;
+                tx.rollback()?;
+                return Err(Box::new(e));
+            }
         }
+        stmt.finalize()?;
+        tx.commit()?;
 
         Ok(())
     }
 
     pub fn get_client_list(&self) -> Result<Vec<ClientData>, Box<dyn Error>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.get_readonly_conn();
         if conn.as_ref().is_none() {
             return Err("db is not open".into());
         }

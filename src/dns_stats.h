@@ -26,7 +26,7 @@
 extern "C" {
 #endif /*__cplusplus */
 
-struct dns_request_avg_time {
+struct dns_stats_avg_time {
 	uint64_t total; /* Hight 4 bytes, count, Low 4 bytes time*/
 	float avg_time;
 };
@@ -39,13 +39,21 @@ struct dns_request_stats {
 };
 
 struct dns_cache_stats {
+	uint64_t check_count;
 	uint64_t hit_count;
 };
 
 struct dns_stats {
 	struct dns_request_stats request;
 	struct dns_cache_stats cache;
-	struct dns_request_avg_time avg_time;
+	struct dns_stats_avg_time avg_time;
+};
+
+struct dns_server_stats {
+	uint64_t total;
+	uint64_t success_count;
+	uint64_t recv_count;
+	struct dns_stats_avg_time avg_time;
 };
 
 extern struct dns_stats dns_stats;
@@ -85,35 +93,13 @@ static inline void stats_dec(uint64_t *s)
 	(void)__sync_sub_and_fetch(s, 1);
 }
 
-static inline void dns_stats_request_inc(void)
-{
-	stats_inc(&dns_stats.request.total);
-}
+void dns_stats_avg_time_update(struct dns_stats_avg_time *avg_time);
 
-static inline void dns_stats_request_success_inc(void)
-{
-	stats_inc(&dns_stats.request.success_count);
-}
-
-static inline void dns_stats_request_from_client_inc(void)
-{
-	stats_inc(&dns_stats.request.from_client_count);
-}
-
-static inline void dns_stats_request_blocked_inc(void)
-{
-	stats_inc(&dns_stats.request.blocked_count);
-}
-
-static inline void dns_stats_cache_hit_inc(void)
-{
-	stats_inc(&dns_stats.cache.hit_count);
-}
+void dns_stats_avg_time_update_add(struct dns_stats_avg_time *avg_time, uint64_t time);
 
 static inline void dns_stats_avg_time_add(uint64_t time)
 {
-	uint64_t total = (uint64_t)1 << 32 | time; 
-	stats_add(&dns_stats.avg_time.total, total);
+	dns_stats_avg_time_update_add(&dns_stats.avg_time, time);
 }
 
 float dns_stats_avg_time_get(void);
@@ -130,9 +116,19 @@ uint64_t dns_stats_cache_hit_get(void);
 
 float dns_stats_cache_hit_rate_get(void);
 
-void dns_stats_avg_time_update(void);
-
 void dns_stats_period_run_second(void);
+
+void dns_stats_server_stats_avg_time_add(struct dns_server_stats *server_stats, uint64_t time);
+
+void dns_stats_server_stats_avg_time_update(struct dns_server_stats *server_stats);
+
+uint64_t dns_stats_server_stats_total_get(struct dns_server_stats *server_stats);
+
+uint64_t dns_stats_server_stats_success_get(struct dns_server_stats *server_stats);
+
+uint64_t dns_stats_server_stats_recv_get(struct dns_server_stats *server_stats);
+
+float dns_stats_server_stats_avg_time_get(struct dns_server_stats *server_stats);
 
 int dns_stats_init(void);
 

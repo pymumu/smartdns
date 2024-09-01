@@ -23,6 +23,7 @@ use crate::dns_log;
 use crate::http_api_msg::*;
 use crate::http_jwt::*;
 use crate::http_server_api::*;
+use crate::plugin::SmartdnsPlugin;
 use crate::smartdns::*;
 
 use bytes::Bytes;
@@ -41,13 +42,13 @@ use std::path::PathBuf;
 use std::path::{Component, Path};
 use std::sync::MutexGuard;
 use std::sync::{Arc, Mutex};
-use std::thread;
 use std::time::Duration;
 use std::time::Instant;
 use tokio::fs::read;
 use tokio::net::TcpListener;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
 cfg_if::cfg_if! {
     if #[cfg(feature = "https")] {
         use rustls_pemfile;
@@ -106,7 +107,8 @@ impl HttpServerConfig {
 
 pub struct HttpServerControl {
     http_server: Arc<HttpServer>,
-    server_thread: Option<thread::JoinHandle<()>>,
+    server_thread: Mutex<Option<JoinHandle<()>>>,
+    plugin: Mutex<Option<Arc<SmartdnsPlugin>>>,
 }
 
 #[allow(dead_code)]
@@ -114,19 +116,25 @@ impl HttpServerControl {
     pub fn new() -> Self {
         HttpServerControl {
             http_server: Arc::new(HttpServer::new()),
-            server_thread: None,
+            server_thread: Mutex::new(None),
+            plugin: Mutex::new(None),
         }
+    }
+
+    pub fn set_plugin(&self, plugin: Arc<SmartdnsPlugin>) {
+        *self.plugin.lock().unwrap() = Some(plugin);
+    }
+
+    pub fn get_plugin(&self) -> Arc<SmartdnsPlugin> {
+        let plugin = self.plugin.lock().unwrap();
+        Arc::clone(&plugin.as_ref().unwrap())
     }
 
     pub fn get_http_server(&self) -> Arc<HttpServer> {
         Arc::clone(&self.http_server)
     }
 
-    pub fn start_http_server(
-        &mut self,
-        conf: &HttpServerConfig,
-        data_server: Arc<DataServer>,
-    ) -> Result<(), Box<dyn Error>> {
+    pub fn start_http_server(&self, conf: &HttpServerConfig) -> Result<(), Box<dyn Error>> {
         dns_log!(LogLevel::INFO, "start smartdns-ui server.");
 
         let inner_clone = Arc::clone(&self.http_server);
@@ -135,15 +143,13 @@ impl HttpServerControl {
             return Err(e);
         }
 
-        let ret = inner_clone.set_data_server(data_server);
-        if let Err(e) = ret {
-            return Err(e);
-        }
+        inner_clone.set_plugin(self.get_plugin());
 
         let (tx, rx) = std::sync::mpsc::channel::<i32>();
+        let rt = self.get_plugin().get_runtime();
 
-        let server_thread = thread::spawn(move || {
-            let ret = HttpServer::http_server_loop(inner_clone, &tx);
+        let server_thread = rt.spawn(async move {
+            let ret = HttpServer::http_server_loop(inner_clone, &tx).await;
             if let Err(e) = ret {
                 _ = tx.send(0);
                 dns_log!(LogLevel::ERROR, "http server error: {}", e);
@@ -154,12 +160,14 @@ impl HttpServerControl {
 
         rx.recv().unwrap();
 
-        self.server_thread = Some(server_thread);
+        *self.server_thread.lock().unwrap() = Some(server_thread);
+
         Ok(())
     }
 
-    pub fn stop_http_server(&mut self) {
-        if self.server_thread.is_none() {
+    pub fn stop_http_server(&self) {
+        let mut server_thread = self.server_thread.lock().unwrap();
+        if server_thread.is_none() {
             return;
         }
 
@@ -167,11 +175,16 @@ impl HttpServerControl {
 
         self.http_server.stop_http_server();
 
-        if let Some(server_thread) = self.server_thread.take() {
-            server_thread.join().unwrap();
+        if let Some(server_thread) = server_thread.take() {
+            let rt = self.get_plugin().get_runtime();
+            tokio::task::block_in_place(|| {
+                if let Err(e) = rt.block_on(server_thread) {
+                    dns_log!(LogLevel::ERROR, "http server stop error: {}", e);
+                }
+            });
         }
 
-        self.server_thread = None;
+        *server_thread = None;
     }
 }
 
@@ -185,11 +198,11 @@ pub struct HttpServer {
     conf: Mutex<HttpServerConfig>,
     notify_tx: Option<mpsc::Sender<()>>,
     notify_rx: Mutex<Option<mpsc::Receiver<()>>>,
-    data_server: Mutex<Option<Arc<DataServer>>>,
     api: API,
     local_addr: Mutex<Option<SocketAddr>>,
     mime_map: std::collections::HashMap<&'static str, &'static str>,
     login_attempts: Mutex<(i32, Instant)>,
+    plugin: Mutex<Option<Arc<SmartdnsPlugin>>>,
 }
 
 #[allow(dead_code)]
@@ -199,10 +212,10 @@ impl HttpServer {
             conf: Mutex::new(HttpServerConfig::new()),
             notify_tx: None,
             notify_rx: Mutex::new(None),
-            data_server: Mutex::new(None),
             api: API::new(),
             local_addr: Mutex::new(None),
             login_attempts: Mutex::new((0, Instant::now())),
+            plugin: Mutex::new(None),
             mime_map: std::collections::HashMap::from([
                 ("htm", "text/html"),
                 ("html", "text/html"),
@@ -289,16 +302,18 @@ impl HttpServer {
         Ok(())
     }
 
-    fn set_data_server(&self, data_server: Arc<DataServer>) -> Result<(), Box<dyn Error>> {
-        let mut _data_server = self.data_server.lock().unwrap();
-        *_data_server = Some(data_server);
-        Ok(())
+    fn set_plugin(&self, plugin: Arc<SmartdnsPlugin>) {
+        let mut _plugin = self.plugin.lock().unwrap();
+        *_plugin = Some(plugin)
+    }
+
+    fn get_plugin(&self) -> Arc<SmartdnsPlugin> {
+        let plugin = self.plugin.lock().unwrap();
+        Arc::clone(&plugin.as_ref().unwrap())
     }
 
     pub fn get_data_server(&self) -> Arc<DataServer> {
-        let data_server = self.data_server.lock().unwrap();
-        let data_server = data_server.as_ref().unwrap();
-        Arc::clone(&*data_server)
+        self.get_plugin().get_data_server()
     }
 
     pub fn get_token_from_header(
@@ -685,7 +700,6 @@ impl HttpServer {
         });
     }
 
-    #[tokio::main]
     async fn http_server_loop(
         this: Arc<HttpServer>,
         kickoff_tx: &std::sync::mpsc::Sender<i32>,
@@ -793,14 +807,12 @@ impl HttpServer {
 
     fn stop_http_server(&self) {
         if let Some(tx) = self.notify_tx.as_ref().cloned() {
-            let t = thread::spawn(move || {
-                let rt = tokio::runtime::Runtime::new().unwrap();
-                rt.block_on(async move {
-                    _ = tx.send(()).await;
+            let rt = self.get_plugin().get_runtime();
+            tokio::task::block_in_place(|| {
+                let _ = rt.block_on(async {
+                    let _ = tx.send(()).await;
                 });
             });
-
-            let _ = t.join();
         }
     }
 }

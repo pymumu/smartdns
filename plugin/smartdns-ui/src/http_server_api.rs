@@ -17,6 +17,7 @@
  */
 
 use crate::db::*;
+use crate::dns_log;
 use crate::http_api_msg::*;
 use crate::http_error::*;
 use crate::http_jwt::*;
@@ -77,6 +78,7 @@ impl API {
         api.register(Method::GET, "/api/cache/count",  true, APIRoute!(API::api_cache_count));
         api.register(Method::POST, "/api/auth/login",  false, APIRoute!(API::api_auth_login));
         api.register(Method::POST, "/api/auth/logout",  false, APIRoute!(API::api_auth_logout));
+        api.register(Method::GET, "/api/auth/check",  true, APIRoute!(API::api_auth_check));
         api.register(Method::PUT, "/api/auth/password",  false, APIRoute!(API::api_auth_change_password));
         api.register(Method::POST, "/api/auth/refresh",  true, APIRoute!(API::api_auth_refresh));
         api.register(Method::GET, "/api/domain",  true, APIRoute!(API::api_domain_get_list));
@@ -89,12 +91,14 @@ impl API {
         api.register(Method::PUT, "/api/log/level", true, APIRoute!(API::api_log_set_level));
         api.register(Method::GET, "/api/log/level", true, APIRoute!(API::api_log_get_level));
         api.register(Method::GET, "/api/server/version", false, APIRoute!(API::api_server_version));
+        api.register(Method::GET, "/api/upstream-server", true, APIRoute!(API::api_upstream_server_get_list));
         api.register(Method::GET, "/api/config/settings", true, APIRoute!(API::api_config_get_settings));
         api.register(Method::PUT, "/api/config/settings", true, APIRoute!(API::api_config_set_settings));
         api.register(Method::GET, "/api/stats/top/client", true, APIRoute!(API::api_stats_get_top_client));
         api.register(Method::GET, "/api/stats/top/domain", true, APIRoute!(API::api_stats_get_top_domain));
         api.register(Method::GET, "/api/stats/overview", true, APIRoute!(API::api_stats_get_overview));
         api.register(Method::GET, "/api/stats/hourly-query-count", true, APIRoute!(API::api_stats_get_hourly_query_count));
+        api.register(Method::GET, "/api/whois", true, APIRoute!(API::api_whois));
         api.register(Method::GET, "/api/tool/term", true, APIRoute!(API::api_tool_term));
         api
     }
@@ -352,6 +356,14 @@ impl API {
         Ok(response)
     }
 
+    async fn api_auth_check(
+        _this: Arc<HttpServer>,
+        _param: APIRouteParam,
+        _req: Request<body::Incoming>,
+    ) -> Result<Response<Full<Bytes>>, HttpError> {
+        API::response_build(StatusCode::OK, "".to_string())
+    }
+
     async fn api_auth_change_password(
         this: Arc<HttpServer>,
         _param: APIRouteParam,
@@ -488,11 +500,11 @@ impl API {
         get_param.id = Some(id);
 
         let data_server = this.get_data_server();
-        let domain_list: Vec<DomainData> = data_server.get_domain_list(&get_param)?;
-        if domain_list.len() == 0 {
+        let domain_list = data_server.get_domain_list(&get_param)?;
+        if domain_list.domain_list.len() == 0 {
             return API::response_error(StatusCode::NOT_FOUND, "Not found");
         }
-        let body = api_msg_gen_domain(&domain_list[0]);
+        let body = api_msg_gen_domain(&domain_list.domain_list[0]);
 
         API::response_build(StatusCode::OK, body)
     }
@@ -552,7 +564,9 @@ impl API {
             );
         }
 
+        let id = API::params_get_value(&params, "id");
         let domain = API::params_get_value(&params, "domain");
+        let domain_filter_mode = API::params_get_value(&params, "domain_filter_mode");
         let domain_type = API::params_get_value(&params, "domain_type");
         let domain_group = API::params_get_value(&params, "domain_group");
         let client = API::params_get_value(&params, "client");
@@ -562,9 +576,11 @@ impl API {
         let timestamp_before = API::params_get_value(&params, "timestamp_before");
 
         let mut param = DomainListGetParam::new();
+        param.id = id;
         param.page_num = page_num;
         param.page_size = page_size;
         param.domain = domain;
+        param.domain_filter_mode = domain_filter_mode;
         param.domain_type = domain_type;
         param.domain_group = domain_group;
         param.client = client;
@@ -574,15 +590,36 @@ impl API {
         param.timestamp_before = timestamp_before;
 
         let data_server = this.get_data_server();
-        let domain_list: Vec<DomainData> = data_server.get_domain_list(&param)?;
-        let list_count = data_server.get_domain_list_count();
+        let ret = API::call_blocking(this, move || {
+            let ret = data_server.get_domain_list(&param);
+            if let Err(e) = ret {
+                return Err(e.to_string());
+            }
+
+            let ret = ret.unwrap();
+
+            return Ok(ret);
+        })
+        .await;
+
+        if let Err(e) = ret {
+            return API::response_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().as_str());
+        }
+
+        let ret = ret.unwrap();
+        if let Err(e) = ret {
+            return API::response_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().as_str());
+        }
+
+        let domain_list = ret.unwrap();
+        let list_count = domain_list.total_count;
         let mut total_page = list_count / page_size;
         if list_count % page_size != 0 {
             total_page += 1;
         }
 
-        let total_count = data_server.get_domain_list_count();
-        let body = api_msg_gen_domain_list(&domain_list, total_page, total_count);
+        let total_count = domain_list.total_count;
+        let body = api_msg_gen_domain_list(&domain_list.domain_list, total_page, total_count);
 
         API::response_build(StatusCode::OK, body)
     }
@@ -631,7 +668,7 @@ impl API {
     }
 
     async fn api_log_stream(
-        _this: Arc<HttpServer>,
+        this: Arc<HttpServer>,
         _param: APIRouteParam,
         mut req: Request<body::Incoming>,
     ) -> Result<Response<Full<Bytes>>, HttpError> {
@@ -640,8 +677,8 @@ impl API {
                 .map_err(|e| HttpError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
             tokio::spawn(async move {
-                if let Err(e) = http_server_stream::serve_log_stream(websocket).await {
-                    eprintln!("Error in websocket connection: {e}");
+                if let Err(e) = http_server_stream::serve_log_stream(this, websocket).await {
+                    dns_log!(LogLevel::DEBUG, "Error in websocket connection: {e}");
                 }
             });
 
@@ -688,6 +725,18 @@ impl API {
         let ui_version = &smartdns::smartdns_ui_version();
         let msg = api_msg_gen_version(server_version, ui_version);
         API::response_build(StatusCode::OK, msg)
+    }
+
+    async fn api_upstream_server_get_list(
+        this: Arc<HttpServer>,
+        _param: APIRouteParam,
+        _req: Request<body::Incoming>,
+    ) -> Result<Response<Full<Bytes>>, HttpError> {
+        let data_server = this.get_data_server();
+        let upstream_server_list = data_server.get_upstream_server_list()?;
+        let body = api_msg_gen_upstream_server_list(&upstream_server_list);
+
+        API::response_build(StatusCode::OK, body)
     }
 
     async fn api_config_get_settings(
@@ -747,9 +796,30 @@ impl API {
     ) -> Result<Response<Full<Bytes>>, HttpError> {
         let data_server = this.get_data_server();
         let params = API::get_params(&_req);
-        let count = API::params_get_value_default(&params, "count", 10 as u32)?;
-        let client_list = data_server.get_top_client_top_list(count)?;
-        let body = api_msg_gen_top_client_list(&client_list);
+        let count = API::params_get_value(&params, "count");
+
+        let ret = API::call_blocking(this, move || {
+            let ret = data_server.get_top_client_top_list(count);
+            if let Err(e) = ret {
+                return Err(e.to_string());
+            }
+
+            let ret = ret.unwrap();
+
+            return Ok(ret);
+        })
+        .await;
+
+        if let Err(e) = ret {
+            return API::response_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().as_str());
+        }
+
+        let ret = ret.unwrap();
+        if let Err(e) = ret {
+            return API::response_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().as_str());
+        }
+
+        let body = api_msg_gen_top_client_list(&ret.unwrap());
 
         API::response_build(StatusCode::OK, body)
     }
@@ -761,10 +831,30 @@ impl API {
     ) -> Result<Response<Full<Bytes>>, HttpError> {
         let data_server = this.get_data_server();
         let params = API::get_params(&_req);
-        let count = API::params_get_value_default(&params, "count", 10 as u32)?;
-        let domain_list = data_server.get_top_domain_top_list(count)?;
-        let body = api_msg_gen_top_domain_list(&domain_list);
+        let count = API::params_get_value(&params, "count");
 
+        let ret = API::call_blocking(this, move || {
+            let ret = data_server.get_top_domain_top_list(count);
+            if let Err(e) = ret {
+                return Err(e.to_string());
+            }
+
+            let ret = ret.unwrap();
+
+            return Ok(ret);
+        })
+        .await;
+
+        if let Err(e) = ret {
+            return API::response_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().as_str());
+        }
+
+        let ret = ret.unwrap();
+        if let Err(e) = ret {
+            return API::response_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().as_str());
+        }
+
+        let body = api_msg_gen_top_domain_list(&ret.unwrap());
         API::response_build(StatusCode::OK, body)
     }
 
@@ -785,13 +875,55 @@ impl API {
         _req: Request<body::Incoming>,
     ) -> Result<Response<Full<Bytes>>, HttpError> {
         let params = API::get_params(&_req);
-        let past_hours = API::params_get_value_default(&params, "past_hours", 24 as u32)?;
+        let past_hours = API::params_get_value(&params, "past_hours");
         let data_server = this.get_data_server();
-        let hourly_query_count = data_server.get_hourly_query_count(past_hours)?;
-        let body = api_msg_gen_hourly_query_count(&hourly_query_count);
+        let ret = API::call_blocking(this, move || {
+            let ret = data_server.get_hourly_query_count(past_hours);
+            if let Err(e) = ret {
+                return Err(e.to_string());
+            }
+
+            let ret = ret.unwrap();
+
+            return Ok(ret);
+        })
+        .await;
+
+        if let Err(e) = ret {
+            return API::response_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().as_str());
+        }
+
+        let ret = ret.unwrap();
+        if let Err(e) = ret {
+            return API::response_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().as_str());
+        }
+
+        let body = api_msg_gen_hourly_query_count(&ret.unwrap());
         API::response_build(StatusCode::OK, body)
     }
 
+    async fn api_whois(
+        this: Arc<HttpServer>,
+        _param: APIRouteParam,
+        _req: Request<body::Incoming>,
+    ) -> Result<Response<Full<Bytes>>, HttpError> {
+        let params = API::get_params(&_req);
+        let domain = API::params_get_value(&params, "domain");
+        if domain.is_none() {
+            return API::response_error(StatusCode::BAD_REQUEST, "Invalid parameter.");
+        }
+
+        let domain:String = domain.unwrap();
+        let data_server = this.get_data_server();
+        let ret = data_server.whois(domain.as_str()).await;
+
+        if let Err(e) = ret {
+            return API::response_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().as_str());
+        }
+
+        let body = api_msg_gen_whois_info(&ret.unwrap());
+        API::response_build(StatusCode::OK, body)
+    }
 
     async fn api_tool_term(
         _this: Arc<HttpServer>,
@@ -804,7 +936,7 @@ impl API {
 
             tokio::spawn(async move {
                 if let Err(e) = http_server_stream::serve_term(websocket).await {
-                    eprintln!("Error in websocket connection: {e}");
+                    dns_log!(LogLevel::DEBUG, "Error in websocket connection: {e}");
                 }
             });
 
@@ -812,5 +944,29 @@ impl API {
         } else {
             return API::response_error(StatusCode::BAD_REQUEST, "Need websocket upgrade.");
         }
+    }
+
+    async fn call_blocking<F, R>(
+        this: Arc<HttpServer>,
+        func: F,
+    ) -> Result<R, Box<dyn std::error::Error + Send>>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        let rt = this.get_data_server().get_plugin().get_runtime();
+
+        let ret = rt.spawn_blocking(move || -> R {
+            return func();
+        });
+
+        let ret = ret.await;
+        if ret.is_err() {
+            return Err(Box::new(ret.err().unwrap()));
+        }
+
+        let ret = ret.unwrap();
+        
+        return Ok(ret);
     }
 }

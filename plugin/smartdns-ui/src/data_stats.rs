@@ -17,7 +17,6 @@
  */
 
 use std::error::Error;
-use std::thread;
 
 use crate::smartdns::*;
 
@@ -31,13 +30,11 @@ use tokio::time::{interval_at, Instant};
 
 use crate::utils;
 
-struct DataStatsItem {
-
-}
+struct DataStatsItem {}
 
 impl DataStatsItem {
     pub fn new() -> Self {
-        DataStatsItem { }
+        DataStatsItem {}
     }
 
     #[allow(dead_code)]
@@ -46,9 +43,7 @@ impl DataStatsItem {
     }
 
     #[allow(dead_code)]
-    pub fn update_total(&mut self, _total: u64) {
-
-    }
+    pub fn update_total(&mut self, _total: u64) {}
 }
 
 pub struct DataStats {
@@ -122,14 +117,14 @@ impl DataStats {
         }
 
         if let Some(tx) = self.notify_tx.as_ref().cloned() {
-            let t = thread::spawn(move || {
-                let rt = tokio::runtime::Runtime::new().unwrap();
-                rt.block_on(async move {
-                    _ = tx.send(()).await;
-                });
-            });
+            let _ = tx.try_send(());
+        }
 
-            let _ = t.join();
+        let mut task = self.task.lock().unwrap();
+        if let Some(task) = task.take() {
+            tokio::task::block_in_place(|| {
+                let _ = tokio::runtime::Handle::current().block_on(task);
+            });
         }
 
         self.is_run.store(false, Ordering::Relaxed);

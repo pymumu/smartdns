@@ -22,6 +22,7 @@
 #include "dns.h"
 #include "dns_conf.h"
 #include "dns_server.h"
+#include "dns_stats.h"
 #include "fast_ping.h"
 #include "hashtable.h"
 #include "http_parse.h"
@@ -92,10 +93,13 @@ typedef enum dns_server_status {
 
 /* dns server information */
 struct dns_server_info {
+	atomic_t refcnt;
 	struct list_head list;
+	struct list_head check_list;
 	/* server ping handle */
 	struct ping_host_struct *ping_host;
 
+	char host[DNS_HOSTNAME_LEN];
 	char ip[DNS_MAX_HOSTNAME];
 	int port;
 	char proxy_name[DNS_HOSTNAME_LEN];
@@ -127,6 +131,7 @@ struct dns_server_info {
 	time_t last_recv;
 	unsigned long send_tick;
 	int prohibit;
+	atomic_t is_alive;
 	int is_already_prohibit;
 
 	/* server addr info */
@@ -144,6 +149,8 @@ struct dns_server_info {
 	/* ECS */
 	struct dns_client_ecs ecs_ipv4;
 	struct dns_client_ecs ecs_ipv6;
+
+	struct dns_server_stats stats;
 };
 
 struct dns_server_pending_group {
@@ -282,6 +289,7 @@ static void _dns_client_retry_dns_query(struct dns_query_struct *query);
 static int _dns_client_send_udp(struct dns_server_info *server_info, void *packet, int len);
 static void _dns_client_clear_wakeup_event(void);
 static void _dns_client_do_wakeup_event(void);
+static void _dns_client_server_close(struct dns_server_info *server_info);
 
 static ssize_t _ssl_read(struct dns_server_info *server, void *buff, int num)
 {
@@ -391,6 +399,15 @@ const char *dns_client_get_server_ip(struct dns_server_info *server_info)
 	return server_info->ip;
 }
 
+const char *dns_client_get_server_host(struct dns_server_info *server_info)
+{
+	if (server_info == NULL) {
+		return NULL;
+	}
+
+	return server_info->host;
+}
+
 int dns_client_get_server_port(struct dns_server_info *server_info)
 {
 	if (server_info == NULL) {
@@ -443,6 +460,105 @@ dns_server_type_t dns_client_get_server_type(struct dns_server_info *server_info
 	}
 
 	return server_info->type;
+}
+
+struct dns_server_stats *dns_client_get_server_stats(struct dns_server_info *server_info)
+{
+	if (server_info == NULL) {
+		return NULL;
+	}
+
+	return &server_info->stats;
+}
+
+int dns_client_server_is_alive(struct dns_server_info *server_info)
+{
+	if (server_info == NULL) {
+		return 0;
+	}
+
+	return atomic_read(&server_info->is_alive);
+}
+
+static void _dns_client_server_free(struct dns_server_info *server_info)
+{
+	pthread_mutex_lock(&client.server_list_lock);
+	if (!list_empty(&server_info->list)) {
+		list_del_init(&server_info->list);
+		_dns_server_dec_server_num(server_info);
+	}
+	pthread_mutex_unlock(&client.server_list_lock);
+
+	list_del_init(&server_info->check_list);
+	_dns_client_server_close(server_info);
+	pthread_mutex_destroy(&server_info->lock);
+	free(server_info);
+}
+
+void dns_client_server_info_get(struct dns_server_info *server_info)
+{
+	if (server_info == NULL) {
+		return;
+	}
+
+	atomic_inc(&server_info->refcnt);
+}
+
+void dns_client_server_info_release(struct dns_server_info *server_info)
+{
+	if (server_info == NULL) {
+		return;
+	}
+
+	int refcnt = atomic_dec_return(&server_info->refcnt);
+	if (refcnt > 0) {
+		return;
+	}
+
+	_dns_client_server_free(server_info);
+}
+
+static void _dns_client_server_info_remove(struct dns_server_info *server_info)
+{
+	if (server_info == NULL) {
+		return;
+	}
+
+	pthread_mutex_lock(&client.server_list_lock);
+	if (!list_empty(&server_info->list)) {
+		list_del_init(&server_info->list);
+		_dns_server_dec_server_num(server_info);
+	}
+	pthread_mutex_unlock(&client.server_list_lock);
+
+	_dns_client_server_close(server_info);
+	dns_client_server_info_release(server_info);
+}
+
+int dns_client_get_server_info_lists(struct dns_server_info **server_info, int max_server_num)
+{
+	struct dns_server_info *server = NULL;
+	struct dns_server_info *tmp = NULL;
+	int i = 0;
+
+	if (server_info == NULL) {
+		return -1;
+	}
+
+	pthread_mutex_lock(&client.server_list_lock);
+	list_for_each_entry_safe(server, tmp, &client.dns_server_list, list)
+	{
+		if (i >= max_server_num) {
+			break;
+		}
+
+		server_info[i] = server;
+		dns_client_server_info_get(server_info[i]);
+		i++;
+	}
+	pthread_mutex_unlock(&client.server_list_lock);
+
+	return i;
 }
 
 static const char *_dns_server_get_type_string(dns_server_type_t type)
@@ -543,8 +659,8 @@ static void _dns_client_server_update_ttl(struct ping_host_struct *ping_host, co
 }
 
 /* get server control block by ip and port, type */
-static struct dns_server_info *_dns_client_get_server(char *server_ip, int port, dns_server_type_t server_type,
-													  struct client_dns_server_flags *flags)
+static struct dns_server_info *_dns_client_get_server(const char *server_ip, int port, dns_server_type_t server_type,
+													  const struct client_dns_server_flags *flags)
 {
 	struct dns_server_info *server_info = NULL;
 	struct dns_server_info *tmp = NULL;
@@ -642,6 +758,7 @@ static int _dns_client_add_to_group(const char *group_name, struct dns_server_in
 
 	memset(group_member, 0, sizeof(*group_member));
 	group_member->server = server_info;
+	dns_client_server_info_get(server_info);
 	list_add(&group_member->list, &group->head);
 
 	return 0;
@@ -653,8 +770,8 @@ errout:
 	return -1;
 }
 
-static int _dns_client_add_to_pending_group(const char *group_name, char *server_ip, int port,
-											dns_server_type_t server_type, struct client_dns_server_flags *flags)
+static int _dns_client_add_to_pending_group(const char *group_name, const char *server_ip, int port,
+											dns_server_type_t server_type, const struct client_dns_server_flags *flags)
 {
 	struct dns_server_pending *item = NULL;
 	struct dns_server_pending *tmp = NULL;
@@ -705,8 +822,8 @@ errout:
 }
 
 /* add server to group */
-static int _dns_client_add_to_group_pending(const char *group_name, char *server_ip, int port,
-											dns_server_type_t server_type, struct client_dns_server_flags *flags,
+static int _dns_client_add_to_group_pending(const char *group_name, const char *server_ip, int port,
+											dns_server_type_t server_type, const struct client_dns_server_flags *flags,
 											int is_pending)
 {
 	struct dns_server_info *server_info = NULL;
@@ -727,7 +844,7 @@ static int _dns_client_add_to_group_pending(const char *group_name, char *server
 	return _dns_client_add_to_group(group_name, server_info);
 }
 
-int dns_client_add_to_group(const char *group_name, char *server_ip, int port, dns_server_type_t server_type,
+int dns_client_add_to_group(const char *group_name, const char *server_ip, int port, dns_server_type_t server_type,
 							struct client_dns_server_flags *flags)
 {
 	return _dns_client_add_to_group_pending(group_name, server_ip, port, server_type, flags, 1);
@@ -736,6 +853,14 @@ int dns_client_add_to_group(const char *group_name, char *server_ip, int port, d
 /* free group member */
 static int _dns_client_remove_member(struct dns_server_group_member *group_member)
 {
+	if (group_member == NULL) {
+		return -1;
+	}
+
+	if (group_member->server) {
+		dns_client_server_info_release(group_member->server);
+	}
+
 	list_del_init(&group_member->list);
 	free(group_member);
 
@@ -773,7 +898,7 @@ static int _dns_client_remove_server_from_groups(struct dns_server_info *server_
 	return 0;
 }
 
-int dns_client_remove_from_group(const char *group_name, char *server_ip, int port, dns_server_type_t server_type,
+int dns_client_remove_from_group(const char *group_name, const char *server_ip, int port, dns_server_type_t server_type,
 								 struct client_dns_server_flags *flags)
 {
 	struct dns_server_info *server_info = NULL;
@@ -1104,7 +1229,7 @@ static int _dns_client_server_add_ecs(struct dns_server_info *server_info, struc
 }
 
 /* add dns server information */
-static int _dns_client_server_add(char *server_ip, char *server_host, int port, dns_server_type_t server_type,
+static int _dns_client_server_add(const char *server_ip, char *server_host, int port, dns_server_type_t server_type,
 								  struct client_dns_server_flags *flags)
 {
 	struct dns_server_info *server_info = NULL;
@@ -1115,6 +1240,7 @@ static int _dns_client_server_add(char *server_ip, char *server_host, int port, 
 	int sock_type = 0;
 	char skip_check_cert = 0;
 	char ifname[IFNAMSIZ * 2] = {0};
+	char default_is_alive = 0;
 
 	switch (server_type) {
 	case DNS_SERVER_UDP: {
@@ -1156,6 +1282,7 @@ static int _dns_client_server_add(char *server_ip, char *server_host, int port, 
 			return -1;
 		}
 		sock_type = SOCK_DGRAM;
+		default_is_alive = 1;
 	} break;
 	default:
 		return -1;
@@ -1202,7 +1329,17 @@ static int _dns_client_server_add(char *server_ip, char *server_host, int port, 
 	server_info->prohibit = 0;
 	server_info->so_mark = flags->set_mark;
 	server_info->drop_packet_latency_ms = flags->drop_packet_latency_ms;
+	atomic_set(&server_info->refcnt, 0);
+	atomic_set(&server_info->is_alive, default_is_alive);
+	INIT_LIST_HEAD(&server_info->check_list);
+	INIT_LIST_HEAD(&server_info->list);
 	safe_strncpy(server_info->proxy_name, flags->proxyname, sizeof(server_info->proxy_name));
+	if (server_host && server_host[0]) {
+		safe_strncpy(server_info->host, server_host, sizeof(server_info->host));
+	} else {
+		safe_strncpy(server_info->host, server_ip, sizeof(server_info->host));
+	}
+
 	pthread_mutex_init(&server_info->lock, NULL);
 	memcpy(&server_info->flags, flags, sizeof(server_info->flags));
 
@@ -1259,6 +1396,7 @@ static int _dns_client_server_add(char *server_ip, char *server_host, int port, 
 	/* add to list */
 	pthread_mutex_lock(&client.server_list_lock);
 	list_add(&server_info->list, &client.dns_server_list);
+	dns_client_server_info_get(server_info);
 	pthread_mutex_unlock(&client.server_list_lock);
 
 	_dns_server_inc_server_num(server_info);
@@ -1331,6 +1469,8 @@ static void _dns_client_shutdown_socket(struct dns_server_info *server_info)
 
 	switch (server_info->type) {
 	case DNS_SERVER_UDP:
+		server_info->status = DNS_SERVER_STATUS_CONNECTING;
+		atomic_set(&server_info->is_alive, 0);
 		return;
 		break;
 	case DNS_SERVER_TCP:
@@ -1347,6 +1487,7 @@ static void _dns_client_shutdown_socket(struct dns_server_info *server_info)
 			}
 			shutdown(server_info->fd, SHUT_RDWR);
 		}
+		atomic_set(&server_info->is_alive, 0);
 		break;
 	case DNS_SERVER_MDNS:
 		break;
@@ -1362,6 +1503,8 @@ static void _dns_client_server_close(struct dns_server_info *server_info)
 		if (fast_ping_stop(server_info->ping_host) != 0) {
 			tlog(TLOG_ERROR, "stop ping failed.\n");
 		}
+
+		server_info->ping_host = NULL;
 	}
 
 	_dns_client_close_socket(server_info);
@@ -1379,22 +1522,30 @@ static void _dns_client_server_remove_all(void)
 {
 	struct dns_server_info *server_info = NULL;
 	struct dns_server_info *tmp = NULL;
+	LIST_HEAD(free_list);
+
 	pthread_mutex_lock(&client.server_list_lock);
 	list_for_each_entry_safe(server_info, tmp, &client.dns_server_list, list)
 	{
-		list_del(&server_info->list);
-		_dns_client_server_close(server_info);
-		pthread_mutex_destroy(&server_info->lock);
-		free(server_info);
+		list_add(&server_info->check_list, &free_list);
+		dns_client_server_info_get(server_info);
 	}
 	pthread_mutex_unlock(&client.server_list_lock);
+
+	list_for_each_entry_safe(server_info, tmp, &free_list, check_list)
+	{
+		list_del_init(&server_info->check_list);
+		_dns_client_server_info_remove(server_info);
+		dns_client_server_info_release(server_info);
+	}
 }
 
 /* remove single server */
-static int _dns_client_server_remove(char *server_ip, int port, dns_server_type_t server_type)
+static int _dns_client_server_remove(const char *server_ip, int port, dns_server_type_t server_type)
 {
 	struct dns_server_info *server_info = NULL;
 	struct dns_server_info *tmp = NULL;
+	LIST_HEAD(free_list);
 
 	/* find server and remove */
 	pthread_mutex_lock(&client.server_list_lock);
@@ -1408,15 +1559,20 @@ static int _dns_client_server_remove(char *server_ip, int port, dns_server_type_
 			continue;
 		}
 
-		list_del(&server_info->list);
-		_dns_client_server_close(server_info);
-		pthread_mutex_unlock(&client.server_list_lock);
-		_dns_client_remove_server_from_groups(server_info);
-		_dns_server_dec_server_num(server_info);
-		free(server_info);
+		list_add(&server_info->check_list, &free_list);
+		dns_client_server_info_get(server_info);
 		return 0;
 	}
 	pthread_mutex_unlock(&client.server_list_lock);
+
+	list_for_each_entry_safe(server_info, tmp, &free_list, check_list)
+	{
+		list_del_init(&server_info->check_list);
+		_dns_client_remove_server_from_groups(server_info);
+		_dns_client_server_info_remove(server_info);
+		dns_client_server_info_release(server_info);
+	}
+
 	return -1;
 }
 
@@ -1461,7 +1617,7 @@ static void _dns_client_server_pending_remove(struct dns_server_pending *pending
 	_dns_client_server_pending_release(pending);
 }
 
-static int _dns_client_server_pending(char *server_ip, int port, dns_server_type_t server_type,
+static int _dns_client_server_pending(const char *server_ip, int port, dns_server_type_t server_type,
 									  struct client_dns_server_flags *flags)
 {
 	struct dns_server_pending *pending = NULL;
@@ -1562,13 +1718,18 @@ errout:
 	return -1;
 }
 
-int dns_client_add_server(char *server_ip, int port, dns_server_type_t server_type,
+void dns_client_flags_init(struct client_dns_server_flags *flags)
+{
+	memset(flags, 0, sizeof(*flags));
+}
+
+int dns_client_add_server(const char *server_ip, int port, dns_server_type_t server_type,
 						  struct client_dns_server_flags *flags)
 {
 	return _dns_client_add_server_pending(server_ip, NULL, port, server_type, flags, 1);
 }
 
-int dns_client_remove_server(char *server_ip, int port, dns_server_type_t server_type)
+int dns_client_remove_server(const char *server_ip, int port, dns_server_type_t server_type)
 {
 	return _dns_client_server_remove(server_ip, port, server_type);
 }
@@ -1846,6 +2007,7 @@ static int _dns_client_recv(struct dns_server_info *server_info, unsigned char *
 		tlog(TLOG_DEBUG, "packet from invalid server.");
 		return -1;
 	}
+	stats_inc(&server_info->stats.recv_count);
 
 	/* decode domain from udp packet */
 	len = dns_decode(packet, DNS_PACKSIZE, inpacket, inpacket_len);
@@ -1885,6 +2047,10 @@ static int _dns_client_recv(struct dns_server_info *server_info, unsigned char *
 	if (dns_get_OPT_payload_size(packet) > 0) {
 		has_opt = 1;
 	}
+
+	atomic_set(&server_info->is_alive, 1);
+	int latency = get_tick_count() - server_info->send_tick;
+	dns_stats_server_stats_avg_time_add(&server_info->stats, latency);
 
 	/* get query reference */
 	query = _dns_client_get_request(domain, qtype, packet->head.id);
@@ -1943,6 +2109,7 @@ static int _dns_client_recv(struct dns_server_info *server_info, unsigned char *
 		}
 	}
 
+	stats_inc(&server_info->stats.success_count);
 	_dns_client_query_release(query);
 	return 0;
 }
@@ -2056,7 +2223,7 @@ static int _dns_client_create_socket_udp(struct dns_server_info *server_info)
 	}
 
 	server_info->fd = fd;
-	server_info->status = DNS_SERVER_STATUS_CONNECTIONLESS;
+	server_info->status = DNS_SERVER_STATUS_CONNECTING;
 
 	if (connect(fd, &server_info->addr, server_info->ai_addrlen) != 0) {
 		if (errno != EINPROGRESS) {
@@ -2092,8 +2259,10 @@ static int _dns_client_create_socket_udp(struct dns_server_info *server_info)
 	}
 
 	if (dns_conf.dns_socket_buff_size > 0) {
-		setsockopt(server_info->fd, SOL_SOCKET, SO_SNDBUF, &dns_conf.dns_socket_buff_size, sizeof(dns_conf.dns_socket_buff_size));
-		setsockopt(server_info->fd, SOL_SOCKET, SO_RCVBUF, &dns_conf.dns_socket_buff_size, sizeof(dns_conf.dns_socket_buff_size));
+		setsockopt(server_info->fd, SOL_SOCKET, SO_SNDBUF, &dns_conf.dns_socket_buff_size,
+				   sizeof(dns_conf.dns_socket_buff_size));
+		setsockopt(server_info->fd, SOL_SOCKET, SO_RCVBUF, &dns_conf.dns_socket_buff_size,
+				   sizeof(dns_conf.dns_socket_buff_size));
 	}
 
 	return 0;
@@ -2558,6 +2727,10 @@ static int _dns_client_process_udp_proxy(struct dns_server_info *server_info, st
 		return 0;
 	}
 
+	if (server_info->status == DNS_SERVER_STATUS_CONNECTING) {
+		server_info->status = DNS_SERVER_STATUS_CONNECTED;
+	}
+
 	/* update recv time */
 	time(&server_info->last_recv);
 
@@ -2647,6 +2820,10 @@ static int _dns_client_process_udp(struct dns_server_info *server_info, struct e
 	if (latency < server_info->drop_packet_latency_ms) {
 		tlog(TLOG_DEBUG, "drop packet from %s, latency: %d", from_host, latency);
 		return 0;
+	}
+
+	if (server_info->status == DNS_SERVER_STATUS_CONNECTING) {
+		server_info->status = DNS_SERVER_STATUS_CONNECTED;
 	}
 
 	/* processing dns packet */
@@ -3902,7 +4079,7 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 				}
 			}
 			total_server++;
-			tlog(TLOG_DEBUG, "send query to server %s:%d", server_info->ip, server_info->port);
+			tlog(TLOG_DEBUG, "send query to server %s:%d, type:%d", server_info->ip, server_info->port, server_info->type);
 			if (server_info->fd <= 0) {
 				ret = _dns_client_create_socket(server_info);
 				if (ret != 0) {
@@ -3917,6 +4094,7 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 			}
 
 			atomic_inc(&query->dns_request_sent);
+			stats_inc(&server_info->stats.total);
 			send_count++;
 			errno = 0;
 			server_info->send_tick = get_tick_count();
@@ -4322,13 +4500,14 @@ static void _dns_client_check_servers(void)
 	static unsigned int second_count = 0;
 
 	second_count++;
-	if (second_count % 60 != 0) {
+	if (second_count % 10 != 0) {
 		return;
 	}
 
 	pthread_mutex_lock(&client.server_list_lock);
 	list_for_each_entry_safe(server_info, tmp, &client.dns_server_list, list)
 	{
+		dns_stats_server_stats_avg_time_update(&server_info->stats);
 		if (server_info->type != DNS_SERVER_UDP) {
 			continue;
 		}

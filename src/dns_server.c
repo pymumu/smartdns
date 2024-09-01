@@ -695,7 +695,7 @@ static int _dns_server_is_return_soa_qtype(struct dns_request *request, dns_type
 	if (rule_flag) {
 		flags = rule_flag->flags;
 		if (flags & DOMAIN_FLAG_ADDR_SOA) {
-			dns_stats_request_blocked_inc();
+			stats_inc(&dns_stats.request.blocked_count);
 			return 1;
 		}
 
@@ -707,7 +707,7 @@ static int _dns_server_is_return_soa_qtype(struct dns_request *request, dns_type
 		switch (qtype) {
 		case DNS_T_A:
 			if (flags & DOMAIN_FLAG_ADDR_IPV4_SOA) {
-				dns_stats_request_blocked_inc();
+				stats_inc(&dns_stats.request.blocked_count);
 				return 1;
 			}
 
@@ -718,7 +718,7 @@ static int _dns_server_is_return_soa_qtype(struct dns_request *request, dns_type
 			break;
 		case DNS_T_AAAA:
 			if (flags & DOMAIN_FLAG_ADDR_IPV6_SOA) {
-				dns_stats_request_blocked_inc();
+				stats_inc(&dns_stats.request.blocked_count);
 				return 1;
 			}
 
@@ -729,7 +729,7 @@ static int _dns_server_is_return_soa_qtype(struct dns_request *request, dns_type
 			break;
 		case DNS_T_HTTPS:
 			if (flags & DOMAIN_FLAG_ADDR_HTTPS_SOA) {
-				dns_stats_request_blocked_inc();
+				stats_inc(&dns_stats.request.blocked_count);
 				return 1;
 			}
 
@@ -2480,10 +2480,6 @@ static int _dns_server_reply_all_pending_list(struct dns_request *request, struc
 		context_pending.reply_ttl = request->ip_ttl;
 		context_pending.no_release_parent = 0;
 
-		if (context_pending.is_cache_reply) {
-			dns_stats_cache_hit_inc();
-		}
-
 		_dns_server_reply_passthrough(&context_pending);
 
 		req->request_pending_list = NULL;
@@ -2944,7 +2940,7 @@ static void _dns_server_request_release_complete(struct dns_request *request, in
 	pthread_mutex_unlock(&request->ip_map_lock);
 
 	if (request->rcode == DNS_RC_NOERROR) {
-		dns_stats_request_success_inc();
+		stats_inc(&dns_stats.request.success_count);
 	}
 
 	if (request->conn) {
@@ -3232,7 +3228,7 @@ static struct dns_request *_dns_server_new_request(void)
 	hash_init(request->ip_map);
 	_dns_server_request_get(request);
 	atomic_add(1, &server.request_num);
-	dns_stats_request_inc();
+	stats_inc(&dns_stats.request.total);
 
 	return request;
 errout:
@@ -6407,7 +6403,6 @@ static int _dns_server_process_cache_packet(struct dns_request *request, struct 
 	}
 
 	request->is_cache_reply = 1;
-	dns_stats_cache_hit_inc();
 	request->rcode = context.packet->head.rcode;
 	context.do_cache = 0;
 	context.do_ipset = do_ipset;
@@ -7358,7 +7353,7 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 	_dns_server_request_set_client(request, conn);
 	_dns_server_request_set_client_addr(request, from, from_len);
 	_dns_server_request_set_id(request, packet->head.id);
-	dns_stats_request_from_client_inc();
+	stats_inc(&dns_stats.request.from_client_count);
 
 	if (_dns_server_parser_request(request, packet) != 0) {
 		tlog(TLOG_DEBUG, "parser request failed.");

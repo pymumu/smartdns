@@ -101,6 +101,57 @@ impl TryFrom<String> for LogLevel {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum DnsServerType {
+    SERVER_UDP,
+    SERVER_TCP,
+    SERVER_TLS,
+    SERVER_HTTPS,
+    SERVER_MDNS,
+    SERVER_UNKNOWN,
+}
+
+impl From<u32> for DnsServerType {
+    fn from(t: u32) -> DnsServerType {
+        match t {
+            0 => DnsServerType::SERVER_UDP,
+            1 => DnsServerType::SERVER_TCP,
+            2 => DnsServerType::SERVER_TLS,
+            3 => DnsServerType::SERVER_HTTPS,
+            4 => DnsServerType::SERVER_MDNS,
+            _ => DnsServerType::SERVER_UNKNOWN,
+        }
+    }
+}
+
+impl std::str::FromStr for DnsServerType {
+    type Err = String;
+
+    fn from_str(t: &str) -> Result<DnsServerType, String> {
+        match t {
+            "udp" => Ok(DnsServerType::SERVER_UDP),
+            "tcp" => Ok(DnsServerType::SERVER_TCP),
+            "tls" => Ok(DnsServerType::SERVER_TLS),
+            "https" => Ok(DnsServerType::SERVER_HTTPS),
+            "mdns" => Ok(DnsServerType::SERVER_MDNS),
+            _ => Err("unknown".to_string()),
+        }
+    }
+}
+
+impl ToString for DnsServerType {
+    fn to_string(&self) -> String {
+        match self {
+            DnsServerType::SERVER_UDP => "udp".to_string(),
+            DnsServerType::SERVER_TCP => "tcp".to_string(),
+            DnsServerType::SERVER_TLS => "tls".to_string(),
+            DnsServerType::SERVER_HTTPS => "https".to_string(),
+            DnsServerType::SERVER_MDNS => "mdns".to_string(),
+            DnsServerType::SERVER_UNKNOWN => "unknown".to_string(),
+        }
+    }
+}
+
 #[macro_export]
 macro_rules! dns_log {
     ($level:expr, $($arg:tt)*) => {
@@ -185,6 +236,7 @@ pub fn get_utc_time_ms() -> u64 {
 static SMARTDNS_OPS: smartdns_c::smartdns_operations = smartdns_c::smartdns_operations {
     server_recv: None,
     server_query_complete: Some(dns_request_complete),
+    server_log: Some(dns_server_log),
 };
 
 #[no_mangle]
@@ -198,6 +250,23 @@ extern "C" fn dns_request_complete(request: *mut smartdns_c::dns_request) {
         let ops = ops.unwrap();
         let mut req = DnsRequest::new(request);
         ops.server_query_complete(&mut req);
+    }
+}
+
+#[no_mangle]
+extern "C" fn dns_server_log(level : smartdns_c::smartdns_log_level, msg: *const c_char, msg_len: i32) {
+    unsafe {
+        let ops = PLUGIN.ops.as_ref();
+        if let None = ops {
+            return;
+        }
+
+        let msg = std::ffi::CStr::from_ptr(msg).to_string_lossy().into_owned();
+        let level = LogLevel::try_from(level as u32).unwrap();
+
+
+        let ops = ops.unwrap();
+        ops.server_log( level, msg.as_str(), msg_len as i32);
     }
 }
 
@@ -306,6 +375,9 @@ impl DnsRequest {
     pub fn get_remote_addr(&self) -> String {
         unsafe {
             let addr = smartdns_c::dns_server_request_get_remote_addr(self.request);
+            if addr.is_null() {
+                return "API".to_string();
+            }
             let mut buf = [0u8; 1024];
             let retstr = smartdns_c::get_host_by_addr(
                 buf.as_mut_ptr() as *mut c_char,
@@ -371,9 +443,177 @@ impl Clone for DnsRequest {
 }
 
 unsafe impl Send for DnsRequest {}
+unsafe impl Sync for DnsRequest {}
+
+pub struct DnsServerStats {
+    stats: *mut smartdns_c::dns_server_stats,
+    server_info: *mut smartdns_c::dns_server_info,
+}
+
+impl DnsServerStats {
+    fn new(stats: *mut smartdns_c::dns_server_stats, server_info: *mut smartdns_c::dns_server_info) -> Self {
+        unsafe { smartdns_c::dns_client_server_info_get(server_info) };
+        DnsServerStats { stats, server_info }
+    }
+
+    pub fn get_query_total(&self) -> u64 {
+        unsafe { smartdns_c::dns_stats_server_stats_total_get(self.stats) }
+    }
+
+    pub fn get_query_success(&self) -> u64 {
+        unsafe { smartdns_c::dns_stats_server_stats_success_get(self.stats) }
+    }
+
+    pub fn get_query_recv(&self) -> u64 {
+        unsafe { smartdns_c::dns_stats_server_stats_recv_get(self.stats) }
+    }
+
+    pub fn get_success_rate(&self) -> f64 {
+        let total = self.get_query_total();
+        let success = self.get_query_success();
+        let mut success_rate: f64 = 0.0;
+        if total == 0 {
+            return success_rate;
+        }
+
+        success_rate = success as f64 / total as f64 * 100.0;
+        success_rate = (success_rate * 10.0).round() / 10.0;
+        success_rate
+    }
+
+    pub fn get_query_avg_time(&self) -> f64 {
+        let v = unsafe { smartdns_c::dns_stats_server_stats_avg_time_get(self.stats) };
+        let mut avg_time = v as f64;
+        avg_time = (avg_time * 10.0).round() / 10.0;
+        avg_time
+    }
+}
+
+impl Drop for DnsServerStats {
+    fn drop(&mut self) {
+        unsafe {
+            if !self.server_info.is_null() {
+                smartdns_c::dns_client_server_info_release(self.server_info);
+            }
+        }
+    }
+}
+
+pub struct DnsUpstreamServer {
+    server_info: *mut smartdns_c::dns_server_info,
+}
+
+impl DnsUpstreamServer {
+    fn new(server_info: *mut smartdns_c::dns_server_info) -> Self {
+        unsafe {
+            smartdns_c::dns_client_server_info_get(server_info);
+        }
+
+        DnsUpstreamServer { server_info }
+    }
+
+    pub fn get_server_num() -> i32 {
+        unsafe { smartdns_c::dns_server_num() }
+    }
+
+    pub fn dns_server_alive_num() -> i32 {
+        unsafe { smartdns_c::dns_server_alive_num() }
+    }
+
+    pub fn get_server_stats(&self) -> DnsServerStats {
+        let stats = unsafe { smartdns_c::dns_client_get_server_stats(self.server_info) };
+        DnsServerStats::new(stats, self.server_info)
+    }
+
+    pub fn is_server_alive(&self) -> bool {
+        unsafe { smartdns_c::dns_client_server_is_alive(self.server_info) != 0 }
+    }
+
+    pub fn get_server_list() -> Result<Vec<DnsUpstreamServer>, String> {
+        let mut servers = Vec::new();
+        let server_num = DnsUpstreamServer::get_server_num();
+
+        unsafe {
+            let mut server_info: Vec<*mut smartdns_c::dns_server_info> =
+                Vec::with_capacity(server_num as usize);
+            let ret =
+                smartdns_c::dns_client_get_server_info_lists(server_info.as_mut_ptr(), server_num);
+            if ret < 0 {
+                return Err(("get server info failed.").to_string());
+            }
+
+            if ret > server_num {
+                return Err(("get server info failed.").to_string());
+            }
+            server_info.set_len(ret as usize);
+
+            for i in 0..ret {
+                let server_info = server_info[i as usize];
+                servers.push(DnsUpstreamServer::new(server_info));
+                smartdns_c::dns_client_server_info_release(server_info);
+            }
+        }
+
+        Ok(servers)
+    }
+
+    pub fn get_ip(&self) -> String {
+        unsafe {
+            let ip = smartdns_c::dns_client_get_server_ip(self.server_info);
+            std::ffi::CStr::from_ptr(ip).to_string_lossy().into_owned()
+        }
+    }
+
+    pub fn get_host(&self) -> String {
+        unsafe {
+            let host = smartdns_c::dns_client_get_server_host(self.server_info);
+            std::ffi::CStr::from_ptr(host).to_string_lossy().into_owned()
+        }
+    }
+
+    pub fn get_port(&self) -> u16 {
+        unsafe { smartdns_c::dns_client_get_server_port(self.server_info) as u16 }
+    }
+
+    pub fn get_type(&self) -> DnsServerType {
+        unsafe {
+            let t = smartdns_c::dns_client_get_server_type(self.server_info)
+                as smartdns_c::dns_server_type_t;
+            DnsServerType::from(t)
+        }
+    }
+
+    pub fn get_groups(&self) -> Vec<String> {
+        let groups = Vec::new();
+        groups
+    }
+}
+
+impl Drop for DnsUpstreamServer {
+    fn drop(&mut self) {
+        unsafe {
+            smartdns_c::dns_client_server_info_release(self.server_info);
+        }
+    }
+}
+
+impl Clone for DnsUpstreamServer {
+    fn clone(&self) -> Self {
+        unsafe {
+            smartdns_c::dns_client_server_info_get(self.server_info);
+        }
+
+        DnsUpstreamServer {
+            server_info: self.server_info,
+        }
+    }
+}
+
+unsafe impl Send for DnsUpstreamServer {}
 
 pub trait SmartdnsOperations {
     fn server_query_complete(&self, request: &mut DnsRequest);
+    fn server_log(&self, level: LogLevel, msg: &str, msg_len: i32);
     fn server_init(&mut self, args: &Vec<String>) -> Result<(), Box<dyn Error>>;
     fn server_exit(&mut self);
 }
@@ -559,6 +799,10 @@ impl Stats {
 
     pub fn get_cache_hit() -> u64 {
         unsafe { smartdns_c::dns_stats_cache_hit_get() }
+    }
+
+    pub fn get_cache_memsize() -> u64 {
+        unsafe { smartdns_c::dns_cache_total_memsize() as u64 }
     }
 
     pub fn get_cache_hit_rate() -> f64 {

@@ -81,11 +81,15 @@ int smartdns_plugin_func_server_recv(struct dns_packet *packet, unsigned char *i
 									 socklen_t from_len);
 void smartdns_plugin_func_server_complete_request(struct dns_request *request);
 
+void smartdns_plugin_func_server_log_callback(smartdns_log_level level, const char *msg, int msg_len);
+
 struct smartdns_operations {
 	int (*server_recv)(struct dns_packet *packet, unsigned char *inpacket, int inpacket_len,
 					   struct sockaddr_storage *local, socklen_t local_len, struct sockaddr_storage *from,
 					   socklen_t from_len);
 	void (*server_query_complete)(struct dns_request *request);
+
+	void (*server_log)(smartdns_log_level level, const char *msg, int msg_len);
 };
 
 int smartdns_operations_register(const struct smartdns_operations *operations);

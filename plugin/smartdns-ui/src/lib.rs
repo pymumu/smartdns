@@ -17,6 +17,7 @@
  */
 
 pub mod data_server;
+pub mod whois;
 pub mod db;
 pub mod http_api_msg;
 pub mod http_error;
@@ -26,6 +27,8 @@ pub mod http_server_api;
 pub mod http_server_stream;
 pub mod plugin;
 pub mod data_stats;
+pub mod data_upstream_server;
+pub mod server_log;
 pub mod utils;
 pub mod smartdns;
 
@@ -37,7 +40,7 @@ use smartdns::*;
 
 #[cfg(not(test))]
 fn lib_init_ops() {
-    let ops: Box<dyn SmartdnsOperations> = Box::new(SmartdnsPlugin::new());
+    let ops: Box<dyn SmartdnsOperations> = Box::new(SmartdnsPluginImpl::new());
     unsafe {
         PLUGIN.set_operation(ops);
     }

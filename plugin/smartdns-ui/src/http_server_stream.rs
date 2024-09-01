@@ -19,28 +19,90 @@
 use futures::sink::SinkExt;
 use futures::stream::StreamExt;
 use std::os::fd::AsRawFd;
+use std::sync::Arc;
 use tokio_fd::AsyncFd;
 
 use hyper_tungstenite::{tungstenite, HyperWebsocket};
 use nix::libc::*;
+use nix::errno::Errno;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tungstenite::Message;
 
 use crate::dns_log;
+use crate::http_server::HttpServer;
 use crate::smartdns::LogLevel;
 
 type Error = Box<dyn std::error::Error + Send + Sync + 'static>;
 
-pub async fn serve_log_stream(websocket: HyperWebsocket) -> Result<(), Error> {
-    let mut websocket = websocket.await?;
+const LOG_CONTROL_MESSAGE_TYPE: u8 = 1;
+const LOG_CONTROL_PAUSE: u8 = 1;
+const LOG_CONTROL_RESUME: u8 = 2;
 
+pub async fn serve_log_stream(
+    http_server: Arc<HttpServer>,
+    websocket: HyperWebsocket,
+) -> Result<(), Error> {
+    let mut websocket = websocket.await?;
+    let mut is_pause = false;
+
+    let data_server = http_server.get_data_server();
+    let mut log_stream = data_server.get_log_stream().await;
     loop {
         tokio::select! {
+            msg = log_stream.recv() => {
+                if is_pause {
+                    continue;
+                }
+
+                match msg {
+                    Some(msg) => {
+                        let mut binary_msg = Vec::with_capacity(2 + msg.msg.len());
+                        binary_msg.push(0);
+                        binary_msg.push(msg.level as u8);
+                        binary_msg.extend_from_slice(msg.msg.as_bytes());
+                        let msg = Message::Binary(binary_msg);
+                        websocket.send(msg).await?;
+                    }
+                    None => {
+                        websocket.send(Message::Close(None)).await?;
+                        break;
+                    }
+                }
+            }
+
             msg = websocket.next() => {
                 let message = msg.ok_or("websocket closed")??;
                 match message {
                     Message::Text(_msg) => {}
-                    Message::Binary(_msg) => {}
+                    Message::Binary(msg) => {
+                        if msg.len() == 0 {
+                            continue;
+                        }
+
+                        let msg_type = msg[0];
+                        match msg_type {
+                            LOG_CONTROL_MESSAGE_TYPE => {
+                                if msg.len() < 2 {
+                                    continue;
+                                }
+                                let control_type = msg[1];
+                                match control_type {
+                                    LOG_CONTROL_PAUSE => {
+                                        is_pause = true;
+                                        continue;
+                                    }
+                                    LOG_CONTROL_RESUME => {
+                                        is_pause = false;
+                                        continue;
+                                    }
+                                    _ => {
+                                        continue;
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
                     Message::Ping(_msg) => {}
                     Message::Pong(_msg) => {}
                     Message::Close(_msg) => {
@@ -118,18 +180,20 @@ pub async fn serve_term(websocket: HyperWebsocket) -> Result<(), Error> {
                     }
                 }
 
-                Err("command not found".into())
+                Err(format!("command not found {}", cmd).into())
             };
 
             let su_path = find_cmd("su");
             let login_path = find_cmd("login");
+            let mut err = ENOENT;
 
             if su_path.is_ok() {
                 let uid = getuid();
                 let pw = getpwuid(uid);
 
                 if pw.is_null() {
-                    return Err("getpwuid failed".into());
+                    println!("getpwuid failed");
+                    _exit(1);
                 }
 
                 let arg0 = CString::new("su").unwrap();
@@ -141,22 +205,43 @@ pub async fn serve_term(websocket: HyperWebsocket) -> Result<(), Error> {
 
                 let cmd_path = CString::new(su_path.unwrap()).unwrap();
                 let args = [arg0.as_ptr(), arg1.as_ptr(), arg2, std::ptr::null()];
-                let _ = execv(cmd_path.as_ptr(), args.as_ptr());
+                let ret = execv(cmd_path.as_ptr(), args.as_ptr());
+                if ret < 0 {
+                    err = Errno::last_raw();
+                }
+                println!("Please install `su` and add current user to sudoers");
             } else if login_path.is_ok() {
+                if geteuid() != 0 {
+                    println!("Login must be run as root, please run smartdns as root");
+                    _exit(1);
+                }
+
                 let arg0 = CString::new("login").unwrap();
                 let cmd_path = CString::new(login_path.unwrap()).unwrap();
-                let args = [arg0.as_ptr()];
-                let _ = execv(cmd_path.as_ptr(), args.as_ptr());
+                let args = [arg0.as_ptr(), std::ptr::null()];
+                let ret = execv(cmd_path.as_ptr(), args.as_ptr());
+                if ret < 0 {
+                    err = Errno::last_raw();
+                }
+                println!("Please install `login` and run as root");
+            } else {
+                println!("No su or login found, please install one of them");
             }
 
-            println!("Failed to execute `su` or `login`");
-            exit(1);
+            println!("Failed to execute `su` or `login`, code: {}", err);
+            _exit(1);
         }
 
         (pid, AsyncFd::try_from(fd_master))
     };
 
     if let Err(e) = asyncfd {
+        if pid > 0 {
+            unsafe {
+                let _ = kill(pid, SIGKILL);
+                let _ = waitpid(pid, std::ptr::null_mut(), 0);
+            }
+        }
         return Err(e.into());
     }
 
@@ -182,7 +267,7 @@ pub async fn serve_term(websocket: HyperWebsocket) -> Result<(), Error> {
                     Ok(n) => {
                         if n == 0 {
                             websocket.send(Message::Close(None)).await?;
-                            dns_log!(LogLevel::ERROR, "EOF");
+                            dns_log!(LogLevel::DEBUG, "EOF");
                             break;
                         }
                         data_len = n + 1;
@@ -192,7 +277,7 @@ pub async fn serve_term(websocket: HyperWebsocket) -> Result<(), Error> {
                     }
                     Err(e) => {
                         send_error_msg(&mut websocket, e.to_string().as_str());
-                        dns_log!(LogLevel::ERROR, "Error: {}", e.to_string().as_str());
+                        dns_log!(LogLevel::DEBUG, "Error: {}", e.to_string().as_str());
                         break;
                     }
                 }
@@ -253,6 +338,10 @@ pub async fn serve_term(websocket: HyperWebsocket) -> Result<(), Error> {
     }
 
     unsafe {
+        let fd = asyncfd.as_raw_fd();
+        if fd > 0 {
+            let _ = close(fd);
+        }
         let _ = kill(pid, SIGKILL);
         let _ = waitpid(pid, std::ptr::null_mut(), 0);
     }

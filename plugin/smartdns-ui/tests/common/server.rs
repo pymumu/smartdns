@@ -21,6 +21,7 @@ use smartdns_ui::dns_log;
 use smartdns_ui::plugin::*;
 use smartdns_ui::smartdns::*;
 use std::io::Write;
+use std::sync::Arc;
 use tempfile::TempDir;
 
 static INSTANCE_LOCK: std::sync::RwLock<()> = std::sync::RwLock::new(());
@@ -131,7 +132,7 @@ impl Drop for TestSmartDnsServer {
 pub struct TestServer {
     dns_server: TestSmartDnsServer,
     dns_server_enable: bool,
-    plugin: SmartdnsPlugin,
+    plugin: Arc<SmartdnsPlugin>,
     args: Vec<String>,
     workdir: String,
     temp_dir: TempDir,

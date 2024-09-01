@@ -24,24 +24,45 @@ use crate::smartdns::*;
 use getopts::Options;
 use std::error::Error;
 use std::sync::Arc;
+use std::sync::Mutex;
+use tokio::runtime::Builder;
+use tokio::runtime::Runtime;
 
 pub struct SmartdnsPlugin {
-    http_server_ctl: HttpServerControl,
-    http_conf: HttpServerConfig,
+    http_server_ctl: Arc<HttpServerControl>,
+    http_conf: Mutex<HttpServerConfig>,
 
     data_server_ctl: Arc<DataServerControl>,
-    data_conf: DataServerConfig,
+    data_conf: Mutex<DataServerConfig>,
+
+    runtime: Arc<Runtime>,
 }
 
 impl SmartdnsPlugin {
-    pub fn new() -> Self {
-        SmartdnsPlugin {
-            http_server_ctl: HttpServerControl::new(),
-            http_conf: HttpServerConfig::new(),
+    pub fn new() -> Arc<Self> {
+        let rt = Builder::new_multi_thread()
+            .enable_all()
+            .thread_name("smartdns-ui")
+            .thread_keep_alive(tokio::time::Duration::from_secs(30))
+            .build()
+            .unwrap();
+        let plugin = Arc::new(SmartdnsPlugin {
+            http_server_ctl: Arc::new(HttpServerControl::new()),
+            http_conf: Mutex::new(HttpServerConfig::new()),
 
             data_server_ctl: Arc::new(DataServerControl::new()),
-            data_conf: DataServerConfig::new(),
-        }
+            data_conf: Mutex::new(DataServerConfig::new()),
+            runtime: Arc::new(rt),
+        });
+
+        plugin.http_server_ctl.set_plugin(plugin.clone());
+        plugin.data_server_ctl.set_plugin(plugin.clone());
+
+        plugin
+    }
+
+    pub fn get_runtime(&self) -> Arc<Runtime> {
+        self.runtime.clone()
     }
 
     pub fn get_http_server(&self) -> Arc<HttpServer> {
@@ -52,13 +73,12 @@ impl SmartdnsPlugin {
         self.data_server_ctl.get_data_server()
     }
 
-    fn parser_args(&mut self, args: &Vec<String>) -> Result<(), Box<dyn Error>> {
+    fn parser_args(&self, args: &Vec<String>) -> Result<(), Box<dyn Error>> {
         let mut opts = Options::new();
         opts.optopt("i", "ip", "http ip", "IP");
         opts.optopt("r", "www-root", "http www root", "PATH");
         opts.optopt("", "data-dir", "http data dir", "PATH");
         opts.optopt("", "token-expire", "http token expire time", "TIME");
-
         if args.len() <= 0 {
             return Ok(());
         }
@@ -70,24 +90,27 @@ impl SmartdnsPlugin {
             }
         };
 
+        let mut http_conf = self.http_conf.lock().unwrap();
+        let mut data_conf = self.data_conf.lock().unwrap();
+
         let www_root = Plugin::dns_conf_plugin_config("smartdns-ui.www-root");
         if let Some(www_root) = www_root {
-            self.http_conf.http_root = www_root;
+            http_conf.http_root = www_root;
         }
 
         let ip = Plugin::dns_conf_plugin_config("smartdns-ui.ip");
         if let Some(ip) = ip {
-            self.http_conf.http_ip = ip;
+            http_conf.http_ip = ip;
         }
 
         if let Some(ip) = matches.opt_str("i") {
-            self.http_conf.http_ip = ip;
+            http_conf.http_ip = ip;
         }
 
         if let Some(root) = matches.opt_str("r") {
-            self.http_conf.http_root = root;
+            http_conf.http_root = root;
         }
-        dns_log!(LogLevel::INFO, "www root: {}", self.http_conf.http_root);
+        dns_log!(LogLevel::INFO, "www root: {}", http_conf.http_root);
 
         if let Some(token_expire) = matches.opt_str("token-expire") {
             let v = token_expire.parse::<u32>();
@@ -99,35 +122,42 @@ impl SmartdnsPlugin {
                 );
                 return Err(Box::new(e));
             }
-            self.http_conf.token_expired_time = v.unwrap();
+            http_conf.token_expired_time = v.unwrap();
         }
 
         if let Some(data_dir) = matches.opt_str("data-dir") {
-            self.data_conf.data_root = data_dir;
+            data_conf.data_root = data_dir;
         }
 
         Ok(())
     }
 
-    pub fn load_config(&mut self) -> Result<(), Box<dyn Error>> {
+    pub fn load_config(&self) -> Result<(), Box<dyn Error>> {
         let data_server = self.get_data_server();
-        self.data_conf.load_config(data_server.clone())?;
-        self.http_conf.load_config(data_server.clone())?;
+        self.data_conf
+            .lock()
+            .unwrap()
+            .load_config(data_server.clone())?;
+        self.http_conf
+            .lock()
+            .unwrap()
+            .load_config(data_server.clone())?;
         Ok(())
     }
 
-    pub fn start(&mut self, args: &Vec<String>) -> Result<(), Box<dyn Error>> {
+    pub fn start(&self, args: &Vec<String>) -> Result<(), Box<dyn Error>> {
         self.parser_args(args)?;
-        self.data_server_ctl.init_db(&self.data_conf)?;
+        self.data_server_ctl
+            .init_db(&self.data_conf.lock().unwrap())?;
         self.load_config()?;
         self.data_server_ctl.start_data_server()?;
-        self.http_server_ctl
-            .start_http_server(&self.http_conf, self.data_server_ctl.get_data_server())?;
+        let http_conf = self.http_conf.lock().unwrap().clone();
+        self.http_server_ctl.start_http_server(&http_conf)?;
 
         Ok(())
     }
 
-    pub fn stop(&mut self) {
+    pub fn stop(&self) {
         self.http_server_ctl.stop_http_server();
         self.data_server_ctl.stop_data_server();
     }
@@ -139,6 +169,10 @@ impl SmartdnsPlugin {
             return;
         }
     }
+
+    pub fn server_log(&self, level: LogLevel, msg: &str, msg_len: i32) {
+        self.data_server_ctl.server_log(level, msg, msg_len);
+    }
 }
 
 impl Drop for SmartdnsPlugin {
@@ -147,16 +181,38 @@ impl Drop for SmartdnsPlugin {
     }
 }
 
-impl SmartdnsOperations for SmartdnsPlugin {
+pub struct SmartdnsPluginImpl {
+    plugin: Arc<SmartdnsPlugin>,
+}
+
+impl SmartdnsPluginImpl {
+    pub fn new() -> Self {
+        SmartdnsPluginImpl {
+            plugin: SmartdnsPlugin::new(),
+        }
+    }
+}
+
+impl Drop for SmartdnsPluginImpl {
+    fn drop(&mut self) {
+        self.plugin.stop();
+    }
+}
+
+impl SmartdnsOperations for SmartdnsPluginImpl {
     fn server_query_complete(&self, request: &mut DnsRequest) {
-        return self.query_complete(request);
+        self.plugin.query_complete(request);
+    }
+
+    fn server_log(&self, level: LogLevel, msg: &str, msg_len: i32) {
+        self.plugin.server_log(level, msg, msg_len);
     }
 
     fn server_init(&mut self, args: &Vec<String>) -> Result<(), Box<dyn Error>> {
-        return self.start(args);
+        self.plugin.start(args)
     }
 
     fn server_exit(&mut self) {
-        self.stop();
+        self.plugin.stop();
     }
 }

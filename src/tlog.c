@@ -86,6 +86,7 @@ struct tlog_log {
 
     tlog_output_func output_func;
     void *private_data;
+    int set_custom_output_func;
 
     time_t last_try;
     time_t last_waitpid;
@@ -532,7 +533,7 @@ static int _tlog_vprintf(struct tlog_log *log, vprint_callback print_callback, v
         return -1;
     }
 
-    if (unlikely(log->logcount <= 0 && log->logscreen == 0)) {
+    if (unlikely(log->logcount <= 0 && log->logscreen == 0 && log->set_custom_output_func == 0)) {
         return 0;
     }
 
@@ -1233,7 +1234,7 @@ static int _tlog_write_screen(struct tlog_log *log, struct tlog_loginfo *info, c
     return tlog_stdout_with_color(info->level, buff, bufflen);
 }
 
-static int _tlog_write_ext(struct tlog_log *log, struct tlog_loginfo *info, const char *buff, int bufflen)
+static int _tlog_write(struct tlog_log *log, const char *buff, int bufflen)
 {
     int len;
     int unused __attribute__((unused));
@@ -1326,11 +1327,6 @@ static int _tlog_write_ext(struct tlog_log *log, struct tlog_loginfo *info, cons
         }
     }
     return len;
-}
-
-static inline int _tlog_write(struct tlog_log *log, const char *buff, int bufflen)
-{
-    return _tlog_write_ext(log, NULL, buff, bufflen);
 }
 
 int tlog_write(struct tlog_log *log, const char *buff, int bufflen)
@@ -1601,7 +1597,7 @@ static int _tlog_root_write_log(struct tlog_log *log, const char *buff, int buff
         if (log->segment_log) {
             head = (struct tlog_segment_log_head *)buff;
             _tlog_root_write_screen_log(log, &head->info, head->data, head->len);
-            return _tlog_write_ext(log, &head->info, head->data, head->len);
+            return _tlog_write(log, head->data, head->len);
         }
         _tlog_root_write_screen_log(log, NULL, buff, bufflen);
         return _tlog_write(log, buff, bufflen);
@@ -1609,8 +1605,8 @@ static int _tlog_root_write_log(struct tlog_log *log, const char *buff, int buff
 
     if (log->segment_log && tlog.root == log) {
         head = (struct tlog_segment_log_head *)buff;
-        _tlog_root_write_screen_log(log, &head->info, head->data, head->len - 1);
-        return tlog.output_func(&head->info, head->data, head->len - 1, tlog_get_private(log));
+        _tlog_root_write_screen_log(log, &head->info, head->data, head->len);
+        return tlog.output_func(&head->info, head->data, head->len, tlog_get_private(log));
     }
 
     _tlog_root_write_screen_log(log, NULL, buff, bufflen);
@@ -1789,7 +1785,7 @@ void tlog_setlogscreen(int enable)
     _tlog_log_setlogscreen(tlog.root, enable);
 }
 
-int tlog_write_log(char *buff, int bufflen)
+int tlog_write_log(const char *buff, int bufflen)
 {
     if (unlikely(tlog.root == NULL)) {
         return -1;
@@ -1829,7 +1825,12 @@ int tlog_reg_output_func(tlog_log *log, tlog_output_func output)
         return -1;
     }
 
-    return _tlog_reg_output_func(log, output);
+    int ret =  _tlog_reg_output_func(log, output);
+    if (ret == 0) {
+        log->set_custom_output_func = 1;
+    }
+
+    return ret;
 }
 
 int tlog_reg_format_func(tlog_format_func callback)
@@ -1842,6 +1843,7 @@ int tlog_reg_log_output_func(tlog_log_output_func output, void *private_data)
 {
     tlog.output_func = output;
     tlog_set_private(tlog.root, private_data);
+    tlog.log->set_custom_output_func = 1;
     return 0;
 }
 
@@ -1943,7 +1945,7 @@ tlog_log *tlog_open(const char *logfile, int maxlogsize, int maxlogcount, int bu
     log->output_func = _tlog_write;
     log->file_perm = S_IRUSR | S_IWUSR | S_IRGRP;
     log->archive_perm = S_IRUSR | S_IRGRP;
-
+    
     if (log->nocompress == 0 && tlog.gzip_cmd[0] == '\0') {
         log->nocompress = 1;
     }

@@ -97,7 +97,7 @@ extern int tlog_ext(tlog_level level, const char *file, int line, const char *fu
 extern int tlog_vext(tlog_level level, const char *file, int line, const char *func, void *userptr, const char *format, va_list ap);
 
 /* write buff to log file */
-extern int tlog_write_log(char *buff, int bufflen);
+extern int tlog_write_log(const char *buff, int bufflen);
 
 /* set log level */
 extern int tlog_setlevel(tlog_level level);

@@ -17,17 +17,24 @@
  */
 
 use crate::data_stats::*;
+use crate::data_upstream_server::UpstreamServerInfo;
 use crate::db::*;
 use crate::dns_log;
+use crate::plugin::SmartdnsPlugin;
+use crate::server_log::ServerLog;
+use crate::server_log::ServerLogMsg;
 use crate::smartdns;
 use crate::smartdns::*;
 use crate::utils;
+use crate::utils::ResultCache;
+use crate::whois;
+use crate::whois::WhoIsInfo;
 
 use std::collections::HashMap;
 use std::error::Error;
 use std::sync::{Arc, Mutex, RwLock};
-use std::thread;
 use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
 use tokio::time::{interval_at, Duration, Instant};
 
 pub const DEFAULT_MAX_LOG_AGE: u64 = 30 * 24 * 60 * 60;
@@ -40,6 +47,7 @@ pub struct OverviewData {
     pub block_query_count: u64,
     pub avg_query_time: f64,
     pub cache_hit_rate: f64,
+    pub cache_number: u64,
 }
 
 #[derive(Clone)]
@@ -51,7 +59,7 @@ pub struct DataServerConfig {
 impl DataServerConfig {
     pub fn new() -> Self {
         DataServerConfig {
-            data_root: Plugin::dns_conf_data_dir() + "/ui.db",
+            data_root: Plugin::dns_conf_data_dir() + "/smartdns.db",
             max_log_age_ms: DEFAULT_MAX_LOG_AGE_MS,
         }
     }
@@ -83,9 +91,10 @@ impl DataServerConfig {
 
 pub struct DataServerControl {
     data_server: Arc<DataServer>,
-    server_thread: Mutex<Option<thread::JoinHandle<()>>>,
+    server_thread: Mutex<Option<JoinHandle<()>>>,
     is_init: Mutex<bool>,
     is_run: Mutex<bool>,
+    plugin: Mutex<Option<Arc<SmartdnsPlugin>>>,
 }
 
 impl DataServerControl {
@@ -95,11 +104,21 @@ impl DataServerControl {
             server_thread: Mutex::new(None),
             is_init: Mutex::new(false),
             is_run: Mutex::new(false),
+            plugin: Mutex::new(None),
         }
     }
 
     pub fn get_data_server(&self) -> Arc<DataServer> {
         Arc::clone(&self.data_server)
+    }
+
+    pub fn set_plugin(&self, plugin: Arc<SmartdnsPlugin>) {
+        *self.plugin.lock().unwrap() = Some(plugin);
+    }
+
+    pub fn get_plugin(&self) -> Arc<SmartdnsPlugin> {
+        let plugin = self.plugin.lock().unwrap();
+        Arc::clone(&plugin.as_ref().unwrap())
     }
 
     pub fn init_db(&self, conf: &DataServerConfig) -> Result<(), Box<dyn Error>> {
@@ -120,8 +139,11 @@ impl DataServerControl {
             return Err("data server not init".into());
         }
 
-        let server_thread = thread::spawn(move || {
-            let ret = DataServer::data_server_loop(inner_clone);
+        self.data_server.set_plugin(self.get_plugin());
+        let rt = self.get_plugin().get_runtime();
+
+        let server_thread = rt.spawn(async move {
+            let ret = DataServer::data_server_loop(inner_clone).await;
             if let Err(e) = ret {
                 dns_log!(LogLevel::ERROR, "data server error: {}", e);
                 Plugin::smartdns_exit(1);
@@ -139,11 +161,16 @@ impl DataServerControl {
         if *self.is_run.lock().unwrap() == false {
             return;
         }
-    
+
         self.data_server.stop_data_server();
         let _server_thread = self.server_thread.lock().unwrap().take();
         if let Some(server_thread) = _server_thread {
-            server_thread.join().unwrap();
+            let rt = self.get_plugin().get_runtime();
+            tokio::task::block_in_place(|| {
+                if let Err(e) = rt.block_on(server_thread) {
+                    dns_log!(LogLevel::ERROR, "http server stop error: {}", e);
+                }
+            });
         }
         *self.is_run.lock().unwrap() = false;
     }
@@ -154,6 +181,10 @@ impl DataServerControl {
         }
         Ok(())
     }
+
+    pub fn server_log(&self, level: LogLevel, msg: &str, msg_len: i32) {
+        self.data_server.server_log(level, msg, msg_len);
+    }
 }
 
 impl Drop for DataServerControl {
@@ -162,14 +193,56 @@ impl Drop for DataServerControl {
     }
 }
 
+macro_rules! query_default_with_cache {
+    ($cache:expr, $db:expr, $func:ident, $count:expr, $default_count:expr, $result_type:ty) => {{
+        if $count.is_none() {
+            let db_clone = $db.clone();
+            let load_func = move || -> Option<$result_type> {
+                let ret = db_clone.$func($default_count);
+                if let Ok(ret) = ret {
+                    return Some(ret);
+                }
+                dns_log!(LogLevel::ERROR, "load cache error");
+                None
+            };
+            let ret = $cache.get(load_func);
+            if let Some(ret) = ret {
+                if ! (*ret).is_empty() {
+                    return Ok(ret);
+                }
+            }
+
+            let ret = $db.$func($default_count);
+            if let Ok(ret) = ret {
+                $cache.set(ret.clone());
+                return Ok(ret);
+            }
+
+            return ret;
+        }
+
+        $db.$func($count.unwrap_or($default_count))
+    }};
+}
+
+pub struct DataResultCache {
+    hourly_query_count: Arc<ResultCache<Vec<HourlyQueryCount>>>,
+    top_client_top_list: Arc<ResultCache<Vec<ClientQueryCount>>>,
+    top_domain_top_list: Arc<ResultCache<Vec<DomainQueryCount>>>,
+}
+
 pub struct DataServer {
     conf: RwLock<DataServerConfig>,
     notify_tx: Option<mpsc::Sender<()>>,
     notify_rx: Mutex<Option<mpsc::Receiver<()>>>,
     data_tx: Option<mpsc::Sender<DnsRequest>>,
     data_rx: Mutex<Option<mpsc::Receiver<DnsRequest>>>,
-    db: DB,
+    db: Arc<DB>,
     stat: Arc<DataStats>,
+    server_log: ServerLog,
+    plugin: Mutex<Option<Arc<SmartdnsPlugin>>>,
+    result_cache: Arc<DataResultCache>,
+    whois: whois::WhoIs,
 }
 
 impl DataServer {
@@ -180,8 +253,16 @@ impl DataServer {
             notify_rx: Mutex::new(None),
             data_tx: None,
             data_rx: Mutex::new(None),
-            db: DB::new(),
+            db: Arc::new(DB::new()),
             stat: DataStats::new(),
+            server_log: ServerLog::new(),
+            plugin: Mutex::new(None),
+            result_cache: Arc::new(DataResultCache {
+                hourly_query_count: ResultCache::new(Duration::from_secs(60 * 10)),
+                top_client_top_list: ResultCache::new(Duration::from_secs(60 * 10)),
+                top_domain_top_list: ResultCache::new(Duration::from_secs(60 * 10)),
+            }),
+            whois: whois::WhoIs::new(),
         };
 
         let (tx, rx) = mpsc::channel(100);
@@ -212,6 +293,15 @@ impl DataServer {
         Ok(())
     }
 
+    pub fn set_plugin(&self, plugin: Arc<SmartdnsPlugin>) {
+        *self.plugin.lock().unwrap() = Some(plugin);
+    }
+
+    pub fn get_plugin(&self) -> Arc<SmartdnsPlugin> {
+        let plugin = self.plugin.lock().unwrap();
+        Arc::clone(&plugin.as_ref().unwrap())
+    }
+
     pub fn get_config(&self, key: &str) -> Option<String> {
         let ret = self.db.get_config(key);
         if let Ok(value) = ret {
@@ -235,6 +325,10 @@ impl DataServer {
         None
     }
 
+    pub async fn whois(&self, domain: &str) -> Result<WhoIsInfo, Box<dyn Error>> {
+        self.whois.query(domain).await
+    }
+
     pub fn get_config_list(&self) -> Result<HashMap<String, String>, Box<dyn Error>> {
         self.db.get_config_list()
     }
@@ -243,15 +337,20 @@ impl DataServer {
         self.db.set_config(key, value)
     }
 
+    pub fn get_upstream_server_list(&self) -> Result<Vec<UpstreamServerInfo>, Box<dyn Error>> {
+        let servers = UpstreamServerInfo::get_all()?;
+        Ok(servers)
+    }
+
     pub fn get_domain_list(
         &self,
         param: &DomainListGetParam,
-    ) -> Result<Vec<DomainData>, Box<dyn Error>> {
-        self.db.get_domain_list(param)
+    ) -> Result<QueryDomainListResult, Box<dyn Error>> {
+        self.db.get_domain_list(Some(param))
     }
 
     pub fn get_domain_list_count(&self) -> u32 {
-        self.db.get_domain_list_count()
+        self.db.get_domain_list_count(None)
     }
 
     pub fn delete_domain_by_id(&self, id: u64) -> Result<u64, Box<dyn Error>> {
@@ -268,20 +367,44 @@ impl DataServer {
 
     pub fn get_top_client_top_list(
         &self,
-        count: u32,
+        count: Option<u32>,
     ) -> Result<Vec<ClientQueryCount>, Box<dyn Error>> {
-        self.db.get_client_top_list(count)
+        query_default_with_cache!(
+            self.result_cache.top_client_top_list,
+            self.db,
+            get_client_top_list,
+            count,
+            10,
+            Vec<ClientQueryCount>
+        )
     }
 
     pub fn get_top_domain_top_list(
         &self,
-        count: u32,
+        count: Option<u32>,
     ) -> Result<Vec<DomainQueryCount>, Box<dyn Error>> {
-        self.db.get_domain_top_list(count)
+        query_default_with_cache!(
+            self.result_cache.top_domain_top_list,
+            self.db,
+            get_domain_top_list,
+            count,
+            10,
+            Vec<DomainQueryCount>
+        )
     }
 
-    pub fn get_hourly_query_count(&self, pastt_hours: u32) -> Result<Vec<HourlyQueryCount>, Box<dyn Error>> {
-        self.db.get_hourly_query_count(pastt_hours)
+    pub fn get_hourly_query_count(
+        &self,
+        past_hours: Option<u32>,
+    ) -> Result<Vec<HourlyQueryCount>, Box<dyn Error>> {
+        query_default_with_cache!(
+            self.result_cache.hourly_query_count,
+            self.db,
+            get_hourly_query_count,
+            past_hours,
+            24,
+            Vec<HourlyQueryCount>
+        )
     }
 
     pub fn get_overview(&self) -> Result<OverviewData, Box<dyn Error>> {
@@ -290,47 +413,68 @@ impl DataServer {
             block_query_count: smartdns::Stats::get_request_blocked(),
             avg_query_time: smartdns::Stats::get_avg_process_time(),
             cache_hit_rate: smartdns::Stats::get_cache_hit_rate(),
+            cache_number: smartdns::Plugin::dns_cache_total_num() as u64,
         };
 
         Ok(overview)
     }
 
-    pub fn insert_domain(&self, data: &DomainData) -> Result<(), Box<dyn Error>> {
-        let client_ip = &data.client;
-        self.db.insert_client(client_ip.as_str())?;
+    pub fn insert_domain_by_list(&self, data: &Vec<DomainData>) -> Result<(), Box<dyn Error>> {
+        let mut client_ip = Vec::new();
+        for item in data {
+            client_ip.push(item.client.clone());
+        }
+        self.db.insert_client(&client_ip)?;
         self.db.insert_domain(data)
     }
 
-    async fn data_server_handle(this: Arc<DataServer>, req: DnsRequest) {
-        if req.is_prefetch_request() {
-            return;
+    pub fn insert_domain(&self, data: &DomainData) -> Result<(), Box<dyn Error>> {
+        let client_ip = vec![data.client.clone()];
+        self.db.insert_client(&client_ip)?;
+        let list = vec![data.clone()];
+        self.db.insert_domain(&list)
+    }
+
+    async fn data_server_handle_dns_request(this: Arc<DataServer>, req_list: &Vec<DnsRequest>) {
+        let mut data_list = Vec::new();
+        for req in req_list {
+            if req.is_prefetch_request() {
+                continue;
+            }
+
+            if req.is_dualstack_request() {
+                continue;
+            }
+
+            let domain_data = DomainData {
+                id: 0,
+                domain: req.get_domain(),
+                domain_type: req.get_qtype(),
+                client: req.get_remote_addr(),
+                domain_group: req.get_group_name(),
+                reply_code: req.get_rcode(),
+                timestamp: req.get_query_timestamp(),
+                query_time: req.get_query_time(),
+                ping_time: req.get_ping_time(),
+                is_blocked: req.get_is_blocked(),
+                is_cached: req.get_is_cached(),
+            };
+            dns_log!(
+                LogLevel::DEBUG,
+                "insert domain:{}, type:{}",
+                domain_data.domain,
+                domain_data.domain_type
+            );
+
+            data_list.push(domain_data);
         }
 
-        if req.is_dualstack_request() {
-            return;
-        }
-
-        let domain_data = DomainData {
-            id: 0,
-            domain: req.get_domain(),
-            domain_type: req.get_qtype(),
-            client: req.get_remote_addr(),
-            domain_group: req.get_group_name(),
-            reply_code: req.get_rcode(),
-            timestamp: req.get_query_timestamp(),
-            query_time: req.get_query_time(),
-            ping_time: req.get_ping_time(),
-            is_blocked: req.get_is_blocked(),
-            is_cached: req.get_is_cached(),
-        };
         dns_log!(
             LogLevel::DEBUG,
-            "insert domain:{}, type:{}",
-            domain_data.domain,
-            domain_data.domain_type
+            "insert domain list count:{}",
+            data_list.len()
         );
-
-        let ret = this.insert_domain(&domain_data);
+        let ret = this.insert_domain_by_list(&data_list);
         if let Err(e) = ret {
             dns_log!(LogLevel::ERROR, "insert domain error: {}", e);
         }
@@ -351,7 +495,14 @@ impl DataServer {
         }
     }
 
-    #[tokio::main]
+    pub async fn get_log_stream(&self) -> mpsc::Receiver<ServerLogMsg> {
+        return self.server_log.get_log_stream().await;
+    }
+
+    pub fn server_log(&self, level: LogLevel, msg: &str, msg_len: i32) {
+        self.server_log.dispatch_log(level, msg, msg_len);
+    }
+
     async fn data_server_loop(this: Arc<DataServer>) -> Result<(), Box<dyn Error>> {
         let mut rx: mpsc::Receiver<()>;
         let mut data_rx: mpsc::Receiver<DnsRequest>;
@@ -365,9 +516,10 @@ impl DataServer {
 
         this.stat.clone().start_worker()?;
 
-        let start: Instant =
-            Instant::now() + Duration::from_secs(utils::seconds_until_next_hour());
+        let start: Instant = Instant::now() + Duration::from_secs(utils::seconds_until_next_hour());
         let mut hour_timer = interval_at(start, Duration::from_secs(60 * 60));
+        let mut req_list: Vec<DnsRequest> = Vec::new();
+        let mut batch_timer: Option<tokio::time::Interval> = None;
 
         dns_log!(LogLevel::INFO, "data server start.");
 
@@ -379,10 +531,33 @@ impl DataServer {
                 _ = hour_timer.tick() => {
                     DataServer::hourly_work(this.clone()).await;
                 }
+                _ = async {
+                    if let Some(ref mut timer) = batch_timer {
+                        timer.tick().await;
+                    }
+                }, if batch_timer.is_some() => {
+                    DataServer::data_server_handle_dns_request(this.clone(), &req_list).await;
+                    req_list.clear();
+                    batch_timer = None;
+                }
                 res = data_rx.recv() => {
                     match res {
                         Some(req) => {
-                            DataServer::data_server_handle(this.clone(), req).await;
+                            req_list.push(req);
+                            if req_list.len() == 1 {
+                                batch_timer = Some(tokio::time::interval_at(
+                                    Instant::now() + Duration::from_millis(500),
+                                    Duration::from_secs(1),
+                                ));
+                            }
+
+                            if req_list.len() < 1000 {
+                                continue;
+                            }
+
+                            DataServer::data_server_handle_dns_request(this.clone(), &req_list).await;
+                            req_list.clear();
+                            batch_timer = None;
                         }
                         None => {
                             continue;
@@ -399,14 +574,12 @@ impl DataServer {
 
     fn stop_data_server(&self) {
         if let Some(tx) = self.notify_tx.as_ref().cloned() {
-            let t = thread::spawn(move || {
-                let rt = tokio::runtime::Runtime::new().unwrap();
-                rt.block_on(async move {
-                    _ = tx.send(()).await;
+            let rt = self.get_plugin().get_runtime();
+            tokio::task::block_in_place(|| {
+                let _ = rt.block_on(async {
+                    let _ = tx.send(()).await;
                 });
             });
-
-            let _ = t.join();
         }
     }
 }

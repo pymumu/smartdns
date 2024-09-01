@@ -63,6 +63,10 @@ int smartdns_plugin_func_server_recv(struct dns_packet *packet, unsigned char *i
 	struct dns_plugin_ops *chain = NULL;
 	int ret = 0;
 
+	if (is_plugin_init == 0) {
+		return 0;
+	}
+
 	list_for_each_entry(chain, &plugins.list, list)
 	{
 		if (!chain->ops.server_recv) {
@@ -82,6 +86,10 @@ void smartdns_plugin_func_server_complete_request(struct dns_request *request)
 {
 	struct dns_plugin_ops *chain = NULL;
 
+	if (is_plugin_init == 0) {
+		return;
+	}
+
 	list_for_each_entry(chain, &plugins.list, list)
 	{
 		if (!chain->ops.server_query_complete) {
@@ -89,6 +97,26 @@ void smartdns_plugin_func_server_complete_request(struct dns_request *request)
 		}
 
 		chain->ops.server_query_complete(request);
+	}
+
+	return;
+}
+
+void smartdns_plugin_func_server_log_callback(smartdns_log_level level, const char *msg, int msg_len)
+{
+	struct dns_plugin_ops *chain = NULL;
+
+	if (is_plugin_init == 0) {
+		return;
+	}
+
+	list_for_each_entry(chain, &plugins.list, list)
+	{
+		if (!chain->ops.server_log) {
+			continue;
+		}
+
+		chain->ops.server_log(level, msg, msg_len);
 	}
 
 	return;

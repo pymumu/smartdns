@@ -17,6 +17,7 @@
  */
 
 #include "dns_cache.h"
+#include "dns_stats.h"
 #include "stringutil.h"
 #include "timer.h"
 #include "tlog.h"
@@ -456,6 +457,7 @@ struct dns_cache *dns_cache_lookup(struct dns_cache_key *cache_key)
 
 	time(&now);
 	/* find cache */
+	stats_inc(&dns_stats.cache.check_count);
 	pthread_mutex_lock(&dns_cache_head.lock);
 	hash_table_for_each_possible(dns_cache_head.cache_hash, dns_cache, node, key)
 	{
@@ -481,6 +483,7 @@ struct dns_cache *dns_cache_lookup(struct dns_cache_key *cache_key)
 
 	if (dns_cache_ret) {
 		dns_cache_get(dns_cache_ret);
+		stats_inc(&dns_stats.cache.hit_count);
 	}
 
 	pthread_mutex_unlock(&dns_cache_head.lock);
