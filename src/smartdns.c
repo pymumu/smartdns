@@ -232,6 +232,8 @@ static int _smartdns_prepare_server_flags(struct client_dns_server_flags *flags,
 	flags->result_flag = server->result_flag;
 	flags->set_mark = server->set_mark;
 	flags->drop_packet_latency_ms = server->drop_packet_latency_ms;
+	flags->tcp_keepalive = server->tcp_keepalive;
+	flags->subnet_all_query_types = server->subnet_all_query_types;
 	safe_strncpy(flags->proxyname, server->proxyname, sizeof(flags->proxyname));
 	safe_strncpy(flags->ifname, server->ifname, sizeof(flags->ifname));
 	if (server->ipv4_ecs.enable) {

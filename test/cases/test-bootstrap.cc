@@ -55,7 +55,7 @@ TEST_F(BootStrap, bootstrap)
 
 	server.Start(R"""(bind [::]:60053
 server udp://127.0.0.1:62053 -bootstrap-dns
-server udp://example.com:61053
+server udp://example.com:61053 -group test
 )""");
 	smartdns::Client client;
 	usleep(2500000);

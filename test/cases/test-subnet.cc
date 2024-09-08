@@ -289,7 +289,7 @@ TEST_F(SubNet, v4_server_subnet_txt)
 	});
 
 	server.Start(R"""(bind [::]:60053
-server 127.0.0.1:61053 -subnet 8.8.8.8/24
+server 127.0.0.1:61053 -subnet 8.8.8.8/24 -subnet-all-query-types
 dualstack-ip-selection no
 rr-ttl-min 0
 )""");

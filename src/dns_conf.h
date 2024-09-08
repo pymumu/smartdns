@@ -386,6 +386,8 @@ struct dns_servers {
 	dns_server_type_t type;
 	long long set_mark;
 	unsigned int drop_packet_latency_ms;
+	int tcp_keepalive;
+	int subnet_all_query_types;
 	char skip_check_cert;
 	char spki[DNS_MAX_SPKI_LEN];
 	char hostname[DNS_MAX_CNAME_LEN];
@@ -673,6 +675,8 @@ extern ssize_t dns_conf_cachesize;
 extern ssize_t dns_conf_cache_max_memsize;
 extern struct dns_servers dns_conf_servers[DNS_MAX_SERVERS];
 extern int dns_conf_server_num;
+
+extern char dns_conf_exist_bootstrap_dns;
 
 /* proxy servers */
 extern struct dns_proxy_servers dns_conf_proxy_servers[PROXY_MAX_SERVERS];

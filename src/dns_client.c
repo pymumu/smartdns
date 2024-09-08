@@ -1503,11 +1503,27 @@ errout:
 	return -1;
 }
 
+static int _dns_client_resolv_ip_by_host(const char *host, char *ip, int ip_len)
+{
+	struct addrinfo *gai = NULL;
+	gai = _dns_client_getaddr(host, NULL, SOCK_STREAM, 0);
+	if (gai == NULL) {
+		return -1;
+	}
+
+	if (get_host_by_addr(ip, ip_len, gai->ai_addr) == NULL) {
+		freeaddrinfo(gai);
+		return -1;
+	}
+
+	freeaddrinfo(gai);
+	return 0;
+}
+
 static int _dns_client_add_server_pending(char *server_ip, char *server_host, int port, dns_server_type_t server_type,
 										  struct client_dns_server_flags *flags, int is_pending)
 {
 	int ret = 0;
-	struct addrinfo *gai = NULL;
 	char server_ip_tmp[DNS_HOSTNAME_LEN] = {0};
 
 	if (server_type >= DNS_SERVER_TYPE_END) {
@@ -1522,21 +1538,13 @@ static int _dns_client_add_server_pending(char *server_ip, char *server_host, in
 			return 0;
 		}
 	} else if (check_is_ipaddr(server_ip) && is_pending == 0) {
-		gai = _dns_client_getaddr(server_ip, NULL, SOCK_STREAM, 0);
-		if (gai == NULL) {
+		if (_dns_client_resolv_ip_by_host(server_ip, server_ip_tmp, sizeof(server_ip_tmp)) != 0) {
+			tlog(TLOG_ERROR, "resolve %s failed.", server_ip);
 			return -1;
 		}
 
-		if (get_host_by_addr(server_ip_tmp, sizeof(server_ip_tmp), gai->ai_addr) != NULL) {
-			tlog(TLOG_INFO, "resolve %s to %s.", server_ip, server_ip_tmp);
-			server_ip = server_ip_tmp;
-		} else {
-			tlog(TLOG_INFO, "resolve %s failed.", server_ip);
-			freeaddrinfo(gai);
-			return -1;
-		}
-
-		freeaddrinfo(gai);
+		tlog(TLOG_INFO, "resolve %s to %s.", server_ip, server_ip_tmp);
+		server_ip = server_ip_tmp;
 	}
 
 	/* add server */
@@ -1545,7 +1553,9 @@ static int _dns_client_add_server_pending(char *server_ip, char *server_host, in
 		goto errout;
 	}
 
-	dns_client_has_bootstrap_dns = 1;
+	if ((flags->server_flag & SERVER_FLAG_EXCLUDE_DEFAULT) == 0 || dns_conf_exist_bootstrap_dns) {
+		dns_client_has_bootstrap_dns = 1;
+	}
 
 	return 0;
 errout:
@@ -3765,15 +3775,15 @@ static int _dns_client_setup_server_packet(struct dns_server_info *server_info, 
 		dns_set_OPT_option(packet, DNS_OPT_FLAG_DO);
 	}
 
-	if (server_info->type != DNS_SERVER_UDP && server_info->type != DNS_SERVER_MDNS) {
-		dns_add_OPT_TCP_KEEPALIVE(packet, 6000);
+	if (server_info->flags.tcp_keepalive > 0) {
+		dns_add_OPT_TCP_KEEPALIVE(packet, server_info->flags.tcp_keepalive);
 	}
 
 	if ((query->qtype == DNS_T_A && server_info->ecs_ipv4.enable)) {
 		dns_add_OPT_ECS(packet, &server_info->ecs_ipv4.ecs);
 	} else if ((query->qtype == DNS_T_AAAA && server_info->ecs_ipv6.enable)) {
 		dns_add_OPT_ECS(packet, &server_info->ecs_ipv6.ecs);
-	} else {
+	} else if (query->qtype == DNS_T_AAAA || query->qtype == DNS_T_A || server_info->flags.subnet_all_query_types) {
 		if (server_info->ecs_ipv6.enable) {
 			dns_add_OPT_ECS(packet, &server_info->ecs_ipv6.ecs);
 		} else if (server_info->ecs_ipv4.enable) {
@@ -4339,6 +4349,18 @@ static int _dns_client_add_pendings(struct dns_server_pending *pending, char *ip
 {
 	struct dns_server_pending_group *group = NULL;
 	struct dns_server_pending_group *tmp = NULL;
+	char ip_tmp[DNS_HOSTNAME_LEN] = {0};
+
+	if (check_is_ipaddr(ip) != 0) {
+		if (_dns_client_resolv_ip_by_host(ip, ip_tmp, sizeof(ip_tmp)) != 0) {
+			tlog(TLOG_WARN, "resolv %s failed.", ip);
+			return -1;
+		}
+
+		tlog(TLOG_INFO, "resolv %s to %s.", ip, ip_tmp);
+
+		ip = ip_tmp;
+	}
 
 	if (_dns_client_add_server_pending(ip, pending->host, pending->port, pending->type, &pending->flags, 0) != 0) {
 		return -1;

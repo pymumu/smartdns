@@ -1,5 +1,6 @@
 .vscode
 *.o
+*.a
 *.pem
 .DS_Store
 *.swp.
