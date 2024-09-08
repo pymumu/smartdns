@@ -32,7 +32,7 @@ D:\SMARTDNS
 一般情况下，只需要增加 `server [IP]:port` 和 `server-tcp [IP]:port` 配置项，
 尽可能配置多个上游DNS服务器，包括国内外的服务器。
 
-具体配置请参考[配置文件说明](#配置文件说明)。
+具体配置请参考[配置文件说明](../configuration.md)。
 
 `smartdns.conf` 配置包含如下基本内容：
 
