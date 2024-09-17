@@ -19,6 +19,7 @@ SMARTDNS_BIN=/opt/usr/sbin/smartdns
 SMARTDNS_CONF=/opt/etc/smartdns/smartdns.conf
 DNSMASQ_CONF="/etc/dnsmasq.conf /var/etc/dnsmasq.conf /etc/storage/dnsmasq/dnsmasq.conf"
 SMARTDNS_PID=/run/smartdns.pid
+SMARTDNS_CHECK_PID=/tmp/smartdns_delay_check.pid
 if [ ! -d "/run" ]; then
 	SMARTDNS_PID=/var/run/smartdns.pid
 fi
@@ -30,6 +31,8 @@ SMARTDNS_OPT=/opt/etc/smartdns/smartdns-opt.conf
 # 1: redirect port
 # 2: replace 
 SMARTDNS_WORKMODE="1"
+
+SMARTDNS_INIT_SCRIPT="$0"
 
 if [ -f "$SMARTDNS_OPT" ]; then
 . "$SMARTDNS_OPT"
@@ -102,13 +105,26 @@ get_dnsmasq_cmd()
 	fi	
 }
 
-restart_dnsmasq()
+get_dnsmasq_cmdline()
 {
-	local CMD=""
 
-	get_dnsmasq_cmd
+	local CMD=""
+	local loop=0
+
+	while [ $loop -lt 3 ]; do 
+		get_dnsmasq_cmd
+		if [ ! -z "$CMD" ]; then
+			break;
+		fi
+
+		$SMARTDNS_INIT_SCRIPT stop
+		sleep 1
+		loop=$((loop+1))
+	done
+
 	if [ -z "$CMD" ]; then
 		echo "cannot find dnsmasq"
+		service restart_dnsmasq 2>/dev/null
 		return 1
 	fi
 
@@ -121,7 +137,7 @@ restart_dnsmasq()
 		PID2="$(echo "$CMD" | awk 'NR==2{print $1}')"
 		PID2_PPID="$(grep 'PPid:' /proc/$PID2/status | awk '{print $2}' 2>/dev/null)"
 		if [ "$PID2_PPID" != "$PID1" ]; then
-			kill -9 "$PID2"
+			kill -9 "$PID2" 2>/dev/null
 		fi
 		PID=$PID1
 	else
@@ -134,13 +150,29 @@ restart_dnsmasq()
 		return 1
 	fi
 
-	kill -9 "$PID"
-
-	# get dnsmasq command
 	CMD="$(echo "$CMD" | head -n 1)"
 	DNSMASQ_CMD="$(echo "$CMD" | awk '{for(i=5; i<=NF;i++)printf $i " "}')"
 
+	return 0
+}
+
+restart_dnsmasq()
+{
+	if [ -z "$DNSMASQ_CMD" ]; then
+		get_dnsmasq_cmdline
+		if [ $? -ne 0 ]; then
+			echo "cannot find dnsmasq"
+			return 1
+		fi
+	fi
+
+	if [ ! -z "$PID" ]; then
+		kill -9 "$PID"
+	fi
+
 	$DNSMASQ_CMD
+
+	return $?
 }
 
 add_dhcp_options6()
@@ -213,7 +245,7 @@ set_dnsmasq_conf()
 	fi
 }
 
-set_dnsmasq()
+do_set_dnsmasq()
 {
 	local RESTART_DNSMASQ=0
 
@@ -226,6 +258,82 @@ set_dnsmasq()
 		set_dnsmasq_conf "$conf"
 	done
 	
+	if [ $RESTART_DNSMASQ -ne 0 ]; then
+		restart_dnsmasq	
+	fi
+}
+
+kill_dnsmasq_delay_check_pid()
+{
+	if [ ! -e "$SMARTDNS_CHECK_PID" ]; then
+		return
+	fi
+
+	PID="$(cat $SMARTDNS_CHECK_PID)"
+	if [ -d "/proc/$PID" ]; then
+		kill -9 $PID
+	fi
+	rm -f $SMARTDNS_CHECK_PID
+}
+
+dnsmasq_delay_check()
+{
+	sleep 8
+	rm -f $SMARTDNS_CHECK_PID
+	get_dnsmasq_cmdline
+	if [ -z "$DNSMASQ_CMD" ] ; then 
+		$SMARTDNS_INIT_SCRIPT restart
+		return
+	fi
+
+	do_set_dnsmasq
+	pid="$(cat $SMARTDNS_PID |head -n 1 2>/dev/null)"
+	if [ -z "$pid" ]; then
+		do_clear_dnsmasq		
+		$SMARTDNS_INIT_SCRIPT start > /dev/null 2>&1 &
+	elif [ ! -d "/proc/$pid" ]; then
+		do_clear_dnsmasq		
+		$SMARTDNS_INIT_SCRIPT start > /dev/null 2>&1 &
+	fi
+	exit 0
+}
+
+begin_dnsmasq_delay_check()
+{
+	DNSMASQ_CMD=""
+	kill_dnsmasq_delay_check_pid
+	get_dnsmasq_cmdline
+	dnsmasq_delay_check > /dev/null 2>&1 &
+	PID=$!
+	echo $PID > $SMARTDNS_CHECK_PID
+}
+
+set_dnsmasq()
+{
+	get_dnsmasq_cmdline
+	do_set_dnsmasq
+	begin_dnsmasq_delay_check
+}
+
+set_jffs_dnsmasq()
+{
+	local RESTART_DNSMASQ=0
+
+	if [ "$(nvram get jffs2_scripts)" -ne 1 ]; then
+		nvram set jffs2_scripts="1"
+		nvram commit
+	fi
+
+	touch /jffs/configs/dnsmasq.conf.add
+
+	if [ -e "/jffs/configs/dnsmasq.conf.add" ]; then
+		set_dnsmasq_conf "/jffs/configs/dnsmasq.conf.add"
+	fi
+
+	if [ -e "/jffs/configs/dnsmasq.conf" ]; then
+		set_dnsmasq_conf "/jffs/configs/dnsmasq.conf"
+	fi
+
 	if [ $RESTART_DNSMASQ -ne 0 ]; then
 		restart_dnsmasq	
 	fi
@@ -246,7 +354,7 @@ clear_dnsmasq_conf()
 	fi
 }
 
-clear_dnsmasq()
+do_clear_dnsmasq()
 {
 	local RESTART_DNSMASQ=0
 
@@ -260,6 +368,33 @@ clear_dnsmasq()
 	done
 
 	if [ $RESTART_DNSMASQ -ne 0 ]; then
+		if [ $? -eq 0 ]; then
+			return
+		fi
+
+		restart_dnsmasq	
+	fi
+}
+
+clear_dnsmasq()
+{
+	kill_dnsmasq_delay_check_pid
+	do_clear_dnsmasq
+}
+
+clear_jffs_dnsmasq()
+{
+	local RESTART_DNSMASQ=0
+
+	if [ -e "/jffs/configs/dnsmasq.conf.add" ]; then
+		clear_dnsmasq_conf "/jffs/configs/dnsmasq.conf.add"
+	fi
+
+	if [ -e "/jffs/configs/dnsmasq.conf" ]; then
+		clear_dnsmasq_conf "/jffs/configs/dnsmasq.conf"
+	fi
+
+	if [ $RESTART_DNSMASQ -ne 0 ]; then
 		restart_dnsmasq	
 	fi
 }
@@ -269,14 +404,16 @@ set_smartdns_port()
 	if [ "$SMARTDNS_WORKMODE" = "0" ]; then
 		return 0
 	elif [ "$SMARTDNS_WORKMODE" = "1" ]; then
-		sed -i "s/^\(bind .*\):53\( .*\)\?$/\1:$SMARTDNS_PORT \2/g" $SMARTDNS_CONF
-		sed -i "s/^\(bind-tcp .*\):53\( .*\)\?$/\1:$SMARTDNS_PORT \2/g" $SMARTDNS_CONF
+		sed -i "s/^\(bind .*\):53\(@[^ ]*\)\?\( .*\)\?$/\1:$SMARTDNS_PORT\2 \3/g" $SMARTDNS_CONF
+		sed -i "s/^\(bind-tcp .*\):53\(@[^ ]*\)\?\( .*\)\?$/\1:$SMARTDNS_PORT\2 \3/g" $SMARTDNS_CONF
 	elif [ "$SMARTDNS_WORKMODE" = "2" ]; then
-		sed -i "s/^\(bind .*\):$SMARTDNS_PORT\( .*\)\?$/\1:53 \2/g" $SMARTDNS_CONF
-		sed -i "s/^\(bind-tcp .*\):$SMARTDNS_PORT\( .*\)\?$/\1:53 \2/g" $SMARTDNS_CONF
+		sed -i "s/^\(bind .*\):$SMARTDNS_PORT\(@[^ ]*\)\?\( .*\)\?$/\1:53\2 \3/g" $SMARTDNS_CONF
+		sed -i "s/^\(bind-tcp .*\):$SMARTDNS_PORT\(@[^ ]*\)\?\( .*\)\?$/\1:53\2 \3/g" $SMARTDNS_CONF
+	elif [ "$SMARTDNS_WORKMODE" = "3" ]; then
+		return 0
 	else
 		return 1
-	fi	
+	fi
 
 	return 0
 }
@@ -290,6 +427,9 @@ set_rule()
 		return $?
 	elif [ "$SMARTDNS_WORKMODE" = "2" ]; then
 		set_dnsmasq
+		return $?
+	elif [ "$SMARTDNS_WORKMODE" = "3" ]; then
+		set_jffs_dnsmasq
 		return $?
 	else
 		return 1
@@ -305,6 +445,9 @@ clear_rule()
 		return $?
 	elif [ "$SMARTDNS_WORKMODE" = "2" ]; then
 		clear_dnsmasq
+		return $?
+	elif [ "$SMARTDNS_WORKMODE" = "3" ]; then
+		clear_jffs_dnsmasq
 		return $?
 	else
 		return 1
@@ -391,7 +534,7 @@ case "$1" in
 			break
 		fi
 
-		stat="$(cat /proc/${pid}/stat | awk '{print $3}' 2>/dev/null)"
+		stat="$(cat /proc/${pid}/stat 2>/dev/null | awk '{print $3}' 2>/dev/null)"
 		if [ "$stat" = "Z" ]; then
 			$SLEEP $SLEEPTIME
 			break
