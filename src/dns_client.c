@@ -4309,7 +4309,7 @@ static int _dns_client_pending_server_resolve(const struct dns_result *result, v
 	int has_soa = 0;
 
 	if (result->rtcode == DNS_RC_NXDOMAIN || result->has_soa == 1 || result->rtcode == DNS_RC_REFUSED ||
-		(result->rtcode == DNS_RC_NOERROR && result->ip_num == 0)) {
+		(result->rtcode == DNS_RC_NOERROR && result->ip_num == 0 && result->ip == NULL)) {
 		has_soa = 1;
 	}
 

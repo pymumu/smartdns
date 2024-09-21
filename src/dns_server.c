@@ -4411,7 +4411,10 @@ static int _dns_server_get_answer(struct dns_server_post_context *context)
 					continue;
 				}
 
-				_dns_server_context_add_ip(context, addr_map->ip_addr);
+				if (addr_map != NULL) {
+					_dns_server_context_add_ip(context, addr_map->ip_addr);
+				}
+
 				if (request->has_ip == 1) {
 					continue;
 				}
