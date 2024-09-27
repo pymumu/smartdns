@@ -75,6 +75,8 @@ const struct sockaddr *dns_server_request_get_remote_addr(struct dns_request *re
 
 const struct sockaddr *dns_server_request_get_local_addr(struct dns_request *request);
 
+const uint8_t *dns_server_request_get_remote_mac(struct dns_request *request);
+
 const char *dns_server_request_get_group_name(struct dns_request *request);
 
 const char *dns_server_request_get_domain(struct dns_request *request);
@@ -108,6 +110,10 @@ void dns_server_request_put(struct dns_request *request);
 void dns_server_request_set_private(struct dns_request *request, void *private_data);
 
 void *dns_server_request_get_private(struct dns_request *request);
+
+int dns_server_get_server_name(char *name, int name_len);
+
+void dns_server_enable_update_neighbor_cache(int enable);
 
 #ifdef __cplusplus
 }

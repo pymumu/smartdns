@@ -78,6 +78,9 @@ int is_private_addr_sockaddr(const struct sockaddr *addr, socklen_t addr_len);
 
 int getaddr_by_host(const char *host, struct sockaddr *addr, socklen_t *addr_len);
 
+int get_raw_addr_by_sockaddr(const struct sockaddr_storage *addr, int addr_len, unsigned char *raw_addr,
+							 int *raw_addr_len);
+
 int get_raw_addr_by_ip(const char *ip, unsigned char *raw_addr, int *raw_addr_len);
 
 int getsocket_inet(int fd, struct sockaddr *addr, socklen_t *addr_len);

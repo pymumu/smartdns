@@ -211,6 +211,70 @@ static void dns_cache_expired(struct tw_base *base, struct tw_timer_list *timer,
 	dns_timer_mod(&dns_cache->timer, 5);
 }
 
+static struct dns_cache *_dns_cache_lookup(struct dns_cache_key *cache_key)
+{
+	uint32_t key = 0;
+	struct dns_cache *dns_cache = NULL;
+	struct dns_cache *dns_cache_ret = NULL;
+	time_t now = 0;
+
+	key = hash_string(cache_key->domain);
+	key = jhash(&cache_key->qtype, sizeof(cache_key->qtype), key);
+	key = hash_string_initval(cache_key->dns_group_name, key);
+	key = jhash(&cache_key->query_flag, sizeof(cache_key->query_flag), key);
+
+	time(&now);
+	/* find cache */
+	pthread_mutex_lock(&dns_cache_head.lock);
+	hash_table_for_each_possible(dns_cache_head.cache_hash, dns_cache, node, key)
+	{
+		if (dns_cache->info.qtype != cache_key->qtype) {
+			continue;
+		}
+
+		if (strncmp(cache_key->domain, dns_cache->info.domain, DNS_MAX_CNAME_LEN) != 0) {
+			continue;
+		}
+
+		if (strncmp(cache_key->dns_group_name, dns_cache->info.dns_group_name, DNS_GROUP_NAME_LEN) != 0) {
+			continue;
+		}
+
+		if (cache_key->query_flag != dns_cache->info.query_flag) {
+			continue;
+		}
+
+		dns_cache_ret = dns_cache;
+		break;
+	}
+
+	if (dns_cache_ret) {
+		dns_cache_get(dns_cache_ret);
+	}
+
+	pthread_mutex_unlock(&dns_cache_head.lock);
+
+	return dns_cache_ret;
+}
+
+struct dns_cache *dns_cache_lookup(struct dns_cache_key *cache_key)
+{
+	struct dns_cache *dns_cache_ret = NULL;
+
+	if (dns_cache_head.size <= 0) {
+		return NULL;
+	}
+
+	stats_inc(&dns_stats.cache.check_count);
+	dns_cache_ret = _dns_cache_lookup(cache_key);
+
+	if (dns_cache_ret) {
+		stats_inc(&dns_stats.cache.hit_count);
+	}
+
+	return dns_cache_ret;
+}
+
 static int _dns_cache_replace(struct dns_cache_key *cache_key, int rcode, int ttl, int speed, int timeout,
 							  int update_time, struct dns_cache_data *cache_data)
 {
@@ -222,7 +286,7 @@ static int _dns_cache_replace(struct dns_cache_key *cache_key, int rcode, int tt
 	}
 
 	/* lookup existing cache */
-	dns_cache = dns_cache_lookup(cache_key);
+	dns_cache = _dns_cache_lookup(cache_key);
 	if (dns_cache == NULL) {
 		return -1;
 	}
@@ -424,7 +488,7 @@ int dns_cache_insert(struct dns_cache_key *cache_key, int rcode, int ttl, int sp
 
 int dns_cache_update_timer(struct dns_cache_key *key, int timeout)
 {
-	struct dns_cache *dns_cache = dns_cache_lookup(key);
+	struct dns_cache *dns_cache = _dns_cache_lookup(key);
 	if (dns_cache == NULL) {
 		return -1;
 	}
@@ -437,58 +501,6 @@ int dns_cache_update_timer(struct dns_cache_key *key, int timeout)
 	dns_cache_release(dns_cache);
 
 	return 0;
-}
-
-struct dns_cache *dns_cache_lookup(struct dns_cache_key *cache_key)
-{
-	uint32_t key = 0;
-	struct dns_cache *dns_cache = NULL;
-	struct dns_cache *dns_cache_ret = NULL;
-	time_t now = 0;
-
-	if (dns_cache_head.size <= 0) {
-		return NULL;
-	}
-
-	key = hash_string(cache_key->domain);
-	key = jhash(&cache_key->qtype, sizeof(cache_key->qtype), key);
-	key = hash_string_initval(cache_key->dns_group_name, key);
-	key = jhash(&cache_key->query_flag, sizeof(cache_key->query_flag), key);
-
-	time(&now);
-	/* find cache */
-	stats_inc(&dns_stats.cache.check_count);
-	pthread_mutex_lock(&dns_cache_head.lock);
-	hash_table_for_each_possible(dns_cache_head.cache_hash, dns_cache, node, key)
-	{
-		if (dns_cache->info.qtype != cache_key->qtype) {
-			continue;
-		}
-
-		if (strncmp(cache_key->domain, dns_cache->info.domain, DNS_MAX_CNAME_LEN) != 0) {
-			continue;
-		}
-
-		if (strncmp(cache_key->dns_group_name, dns_cache->info.dns_group_name, DNS_GROUP_NAME_LEN) != 0) {
-			continue;
-		}
-
-		if (cache_key->query_flag != dns_cache->info.query_flag) {
-			continue;
-		}
-
-		dns_cache_ret = dns_cache;
-		break;
-	}
-
-	if (dns_cache_ret) {
-		dns_cache_get(dns_cache_ret);
-		stats_inc(&dns_stats.cache.hit_count);
-	}
-
-	pthread_mutex_unlock(&dns_cache_head.lock);
-
-	return dns_cache_ret;
 }
 
 int dns_cache_get_ttl(struct dns_cache *dns_cache)

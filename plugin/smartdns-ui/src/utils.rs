@@ -16,10 +16,10 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-use std::{
-    sync::{Arc, Mutex},
-    thread,
-    time::{Duration, Instant},
+use nix::libc;
+use pbkdf2::{
+    password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    Pbkdf2,
 };
 
 pub fn parse_value<T>(value: Option<String>, min: T, max: T, default: T) -> T
@@ -56,72 +56,34 @@ pub fn seconds_until_next_hour() -> u64 {
     remaining_seconds
 }
 
-pub struct ResultCache<T: Send> {
-    ttl: Duration,
-    store: Mutex<Option<T>>,
-    instant: Mutex<Instant>,
-    thread: Mutex<Option<thread::JoinHandle<()>>>,
+pub fn get_free_disk_space(path: &str) -> u64 {
+    let path = std::ffi::CString::new(path).unwrap();
+    let mut statvfs: libc::statvfs = unsafe { std::mem::zeroed() };
+    let ret = unsafe { libc::statvfs(path.as_ptr(), &mut statvfs) };
+    if ret != 0 {
+        return 0;
+    }
+    statvfs.f_bsize as u64 * statvfs.f_bavail as u64
 }
 
-impl<T: Send> Drop for ResultCache<T> {
-    fn drop(&mut self) {
-        let mut thread = self.thread.lock().unwrap();
-        if let Some(thread) = thread.take() {
-            thread.join().unwrap();
-        }
-    }
+pub fn hash_password(password: &str, round: Option<u32>) -> Result<String, Box<dyn std::error::Error>> {
+    let salt = SaltString::generate(&mut OsRng);
+    let mut parm = pbkdf2::Params::default();
+    parm.rounds = round.unwrap_or(10000);
+    let password_hash = Pbkdf2
+        .hash_password_customized(password.as_bytes(), None, None, parm, &salt)
+        .map_err(|e| e.to_string())?
+        .to_string();
+    Ok(password_hash)
 }
 
-impl<T: Send + 'static> ResultCache<T>
-where
-    T: Clone,
-{
-    pub fn new(ttl: Duration) -> Arc<Self> {
-        Arc::new(ResultCache {
-            ttl: ttl,
-            store: Mutex::new(None),
-            instant: Mutex::new(Instant::now()),
-            thread: Mutex::new(None),
-        })
-    }
+pub fn verify_password(password: &str, password_hash: &str) -> bool {
+    let parsed_hash = match PasswordHash::new(&password_hash) {
+        Ok(h) => h,
+        Err(_) => return false,
+    };
 
-    pub fn get<F>(self: &Arc<Self>, load_func: F) -> Option<T>
-    where
-        F: FnOnce() -> Option<T> + Send + 'static,
-    {
-        let now = Instant::now();
-
-        let time_since_last_update = now.duration_since(*self.instant.lock().unwrap());
-        if time_since_last_update > self.ttl {
-            return None;
-        }
-
-        if self.ttl - time_since_last_update <= Duration::from_secs(self.ttl.as_secs() / 2 + self.ttl.as_secs() / 4) {
-            let self_clone = self.clone();
-            let mut thread = self.thread.lock().unwrap();
-            if thread.is_none() {
-                *thread = Some(thread::spawn(move || {
-                    let ret = load_func();
-                    if let Some(store) = ret {
-                        self_clone.set(store);
-                    }
-                    self_clone.thread.lock().unwrap().take();
-                }));
-            }
-        }
-
-        let store = self.store.lock().unwrap();
-        if store.is_none() {
-            return None;
-        }
-
-        let store = store.as_ref().unwrap();
-        Some(store.clone())
-    }
-
-    pub fn set(&self, store: T) {
-        *self.instant.lock().unwrap() = Instant::now();
-        let mut this_store = self.store.lock().unwrap();
-        *this_store = Some(store);
-    }
+    Pbkdf2
+        .verify_password(password.as_bytes(), &parsed_hash)
+        .is_ok()
 }

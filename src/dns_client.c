@@ -1229,8 +1229,8 @@ static int _dns_client_server_add_ecs(struct dns_server_info *server_info, struc
 }
 
 /* add dns server information */
-static int _dns_client_server_add(const char *server_ip, char *server_host, int port, dns_server_type_t server_type,
-								  struct client_dns_server_flags *flags)
+static int _dns_client_server_add(const char *server_ip, const char *server_host, int port,
+								  dns_server_type_t server_type, struct client_dns_server_flags *flags)
 {
 	struct dns_server_info *server_info = NULL;
 	struct addrinfo *gai = NULL;
@@ -1618,7 +1618,7 @@ static void _dns_client_server_pending_remove(struct dns_server_pending *pending
 }
 
 static int _dns_client_server_pending(const char *server_ip, int port, dns_server_type_t server_type,
-									  struct client_dns_server_flags *flags)
+									  const struct client_dns_server_flags *flags)
 {
 	struct dns_server_pending *pending = NULL;
 
@@ -1676,8 +1676,9 @@ static int _dns_client_resolv_ip_by_host(const char *host, char *ip, int ip_len)
 	return 0;
 }
 
-static int _dns_client_add_server_pending(char *server_ip, char *server_host, int port, dns_server_type_t server_type,
-										  struct client_dns_server_flags *flags, int is_pending)
+static int _dns_client_add_server_pending(const char *server_ip, const char *server_host, int port,
+										  dns_server_type_t server_type, struct client_dns_server_flags *flags,
+										  int is_pending)
 {
 	int ret = 0;
 	char server_ip_tmp[DNS_HOSTNAME_LEN] = {0};
@@ -4079,7 +4080,8 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 				}
 			}
 			total_server++;
-			tlog(TLOG_DEBUG, "send query to server %s:%d, type:%d", server_info->ip, server_info->port, server_info->type);
+			tlog(TLOG_DEBUG, "send query to server %s:%d, type:%d", server_info->ip, server_info->port,
+				 server_info->type);
 			if (server_info->fd <= 0) {
 				ret = _dns_client_create_socket(server_info);
 				if (ret != 0) {

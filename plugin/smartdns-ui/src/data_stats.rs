@@ -16,9 +16,14 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-use std::error::Error;
+use std::{
+    collections::HashMap, error::Error, sync::{
+        atomic::{AtomicU32, AtomicU64},
+        RwLock,
+    }
+};
 
-use crate::smartdns::*;
+use crate::{data_server::DataServerConfig, db::*, dns_log, smartdns::*, utils};
 
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -28,22 +33,63 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::{interval_at, Instant};
 
-use crate::utils;
-
-struct DataStatsItem {}
+struct DataStatsItem {
+    total_request: AtomicU64,
+    total_blocked_request: AtomicU64,
+    qps: AtomicU32,
+    qps_count: AtomicU32,
+    request_dropped: AtomicU64,
+}
 
 impl DataStatsItem {
     pub fn new() -> Self {
-        DataStatsItem {}
+        DataStatsItem {
+            total_request: 0.into(),
+            total_blocked_request: 0.into(),
+            qps: 0.into(),
+            qps_count: 0.into(),
+            request_dropped: 0.into(),
+        }
+    }
+
+    pub fn get_qps(&self) -> u32 {
+        return self.qps.load(Ordering::Relaxed);
+    }
+
+    pub fn add_qps_count(&self, count: u32) {
+        self.qps_count.fetch_add(count, Ordering::Relaxed);
+    }
+
+    pub fn update_qps(&self) {
+        let qps = self.qps_count.fetch_and(0, Ordering::Relaxed);
+        self.qps.store(qps, Ordering::Relaxed);
+    }
+
+    pub fn add_request_drop(&self, count: u64) {
+        self.request_dropped.fetch_and(count, Ordering::Relaxed);
+    }
+
+    pub fn get_total_request(&self) -> u64 {
+        return self.total_request.load(Ordering::Relaxed);
+    }
+
+    pub fn add_total_request(&self, total: u64) {
+        self.total_request.fetch_add(total, Ordering::Relaxed);
+    }
+
+    pub fn get_total_blocked_request(&self) -> u64 {
+        return self.total_blocked_request.load(Ordering::Relaxed);
+    }
+
+    pub fn add_total_blocked_request(&self, total: u64) {
+        self.total_blocked_request
+            .fetch_add(total, Ordering::Relaxed);
     }
 
     #[allow(dead_code)]
     pub fn get_current_hour_total(&self) -> u64 {
         return Stats::get_request_total();
     }
-
-    #[allow(dead_code)]
-    pub fn update_total(&mut self, _total: u64) {}
 }
 
 pub struct DataStats {
@@ -51,11 +97,14 @@ pub struct DataStats {
     notify_tx: Option<mpsc::Sender<()>>,
     notify_rx: Mutex<Option<mpsc::Receiver<()>>>,
     is_run: AtomicBool,
-    data: Mutex<DataStatsItem>,
+    data: DataStatsItem,
+    db: Arc<crate::db::DB>,
+    conf: Arc<RwLock<DataServerConfig>>,
+    is_hourly_work_running: AtomicBool,
 }
 
 impl DataStats {
-    pub fn new() -> Arc<Self> {
+    pub fn new(db: Arc<crate::db::DB>, conf: Arc<RwLock<DataServerConfig>>) -> Arc<Self> {
         let (tx, rx) = mpsc::channel(100);
 
         Arc::new(DataStats {
@@ -63,18 +112,142 @@ impl DataStats {
             notify_rx: Mutex::new(Some(rx)),
             notify_tx: Some(tx),
             is_run: AtomicBool::new(false),
-            data: Mutex::new(DataStatsItem::new()),
+            data: DataStatsItem::new(),
+            db: db,
+            conf: conf,
+            is_hourly_work_running: AtomicBool::new(false),
         })
     }
 
-    pub fn init(self: Arc<Self>) -> Result<(), Box<dyn Error>> {
+    pub fn get_qps(&self) -> u32 {
+        return self.data.get_qps();
+    }
+
+    pub fn add_qps_count(&self, count: u32) {
+        self.data.add_qps_count(count);
+    }
+
+    pub fn update_qps(&self) {
+        self.data.update_qps();
+    }
+
+    pub fn add_request_drop(&self, count: u64) {
+        self.data.add_request_drop(count);
+    }
+
+    pub fn get_total_blocked_request(&self) -> u64 {
+        return self.data.get_total_blocked_request();
+    }
+
+    pub fn add_total_blocked_request(&self, total: u64) {
+        self.data.add_total_blocked_request(total);
+    }
+
+    pub fn get_total_request(&self) -> u64 {
+        return self.data.get_total_request();
+    }
+
+    pub fn get_current_hour_total(&self) -> u64 {
+        return self.data.get_current_hour_total();
+    }
+
+    pub fn add_total_request(&self, total: u64) {
+        self.data.add_total_request(total);
+    }
+
+    pub fn get_memory_usage(&self) -> u64 {
+        let statm_path = "/proc/self/statm";
+        let statm = std::fs::read_to_string(statm_path);
+        if let Err(_) = statm {
+            return 0;
+        }
+
+        let statm = statm.unwrap();
+        let statm: Vec<&str> = statm.split_whitespace().collect();
+        if statm.len() < 2 {
+            return 0;
+        }
+
+        let pages = statm[1].parse::<u64>();
+        if let Err(_) = pages {
+            return 0;
+        }
+
+        let pages = pages.unwrap();
+        return pages * 4096;
+    }
+
+    pub fn init(self: &Arc<Self>) -> Result<(), Box<dyn Error>> {
+        dns_log!(LogLevel::DEBUG, "init data stats");
+        self.load_status_data()?;
+        dns_log!(LogLevel::DEBUG, "init data stats complete");
         Ok(())
     }
 
-    pub fn start_worker(self: Arc<Self>) -> Result<(), Box<dyn Error>> {
+    pub fn load_status_data(self: &Arc<Self>) -> Result<(), Box<dyn Error>> {
+        let status_data = match self.db.get_status_data_list() {
+            Ok(data) => data,
+            Err(_) => HashMap::new(),
+        };
+
+        // load total request count
+        let mut total_count = 0 as u64;
+        let status_data_total_count = status_data.get("total_request");
+        if status_data_total_count.is_some() {
+            let count = status_data_total_count.unwrap().parse::<u64>();
+            if let Ok(count) = count {
+                total_count = count;
+            } else {
+                total_count = 0;
+            }
+        }
+
+        if total_count == 0 {
+            let count = self.db.get_domain_list_count(None);
+            total_count = count;
+        }
+        self.data.add_total_request(total_count);
+
+        // load total blocked request
+        let mut total_blocked_count = 0 as u64;
+        let status_data_total_blocked_count = status_data.get("total_blocked_request");
+        if status_data_total_blocked_count.is_some() {
+            let count = status_data_total_blocked_count.unwrap().parse::<u64>();
+            if let Ok(count) = count {
+                total_blocked_count = count;
+            } else {
+                total_blocked_count = 0;
+            }
+        }
+
+        if total_blocked_count == 0 {
+            let mut parm = DomainListGetParam::new();
+            parm.is_blocked = Some(true);
+
+            let count = self.db.get_domain_list_count(Some(&parm));
+            total_blocked_count = count;
+        }
+        self.data.add_total_blocked_request(total_blocked_count);
+        Ok(())
+    }
+
+    pub fn save_status_data(self: &Arc<Self>) -> Result<(), Box<dyn Error>> {
+        self.db.set_status_data(
+            "total_request",
+            self.get_total_request().to_string().as_str(),
+        )?;
+        self.db.set_status_data(
+            "total_blocked_request",
+            self.get_total_blocked_request().to_string().as_str(),
+        )?;
+
+        Ok(())
+    }
+
+    pub fn start_worker(self: &Arc<Self>) -> Result<(), Box<dyn Error>> {
         let this = self.clone();
         let task = tokio::spawn(async move {
-            DataStats::worker_loop(this).await;
+            DataStats::worker_loop(&this).await;
         });
 
         *(self.task.lock().unwrap()) = Some(task);
@@ -82,21 +255,56 @@ impl DataStats {
         Ok(())
     }
 
-    async fn update_stats(&self) {
-        let mut data = self.data.lock().unwrap();
-        let total = Stats::get_request_total();
-        data.update_total(total);
+    pub fn refresh(self: &Arc<Self>) {
+        let now = get_utc_time_ms();
+
+        let ret = self
+            .db
+            .delete_domain_before_timestamp(now - self.conf.read().unwrap().max_log_age_ms as u64);
+        if let Err(e) = ret {
+            dns_log!(
+                LogLevel::WARN,
+                "delete domain before timestamp error: {}",
+                e
+            );
+        }
+
+        let _ = self.db.refresh_client_top_list(now - 7 * 24 * 3600 * 1000);
+        let _ = self.db.refresh_domain_top_list(now - 7 * 24 * 3600 * 1000);
+        let _ = self
+            .db
+            .delete_hourly_query_count_before_timestamp(30 * 24 * 3600 * 1000);
+        let _ = self
+            .db
+            .delete_daily_query_count_before_timestamp(90 * 24 * 3600 * 1000);
     }
 
-    async fn worker_loop(this: Arc<Self>) {
+    async fn update_stats(self: &Arc<Self>) {
+        if self
+            .is_hourly_work_running
+            .fetch_or(true, Ordering::Acquire)
+        {
+            return;
+        }
+
+        let this = self.clone();
+        tokio::task::spawn_blocking(move || {
+            this.refresh();
+            this.is_hourly_work_running.store(false, Ordering::Release);
+        });
+    }
+
+    async fn worker_loop(this: &Arc<Self>) {
         let mut rx: mpsc::Receiver<()>;
         {
             let mut _rx = this.notify_rx.lock().unwrap();
             rx = _rx.take().unwrap();
         }
 
+        this.clone().update_stats().await;
         let start: Instant = Instant::now() + Duration::from_secs(utils::seconds_until_next_hour());
         let mut hour_timer = interval_at(start, Duration::from_secs(60 * 60));
+        let mut second_timer = interval_at(Instant::now(), Duration::from_secs(1));
 
         loop {
             tokio::select! {
@@ -104,10 +312,19 @@ impl DataStats {
                     break;
                 }
 
+                _ = second_timer.tick() => {
+                    this.update_qps();
+                }
+
                 _ = hour_timer.tick() => {
                     this.update_stats().await;
                 }
             }
+        }
+
+        let ret = this.save_status_data();
+        if let Err(e) = ret {
+            dns_log!(LogLevel::WARN, "save status data error: {}", e);
         }
     }
 

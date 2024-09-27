@@ -16,6 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+use smartdns_ui::data_server::DataServer;
 use smartdns_ui::db::*;
 use smartdns_ui::dns_log;
 use smartdns_ui::plugin::*;
@@ -185,6 +186,7 @@ impl TestServer {
         dns_log!(LogLevel::INFO, "workdir: {}", self.workdir);
     }
 
+    #[allow(dead_code)]
     pub fn get_url(&self, path: &str) -> String {
         self.ip.clone() + path
     }
@@ -193,6 +195,7 @@ impl TestServer {
         self.ip.clone()
     }
 
+    #[allow(dead_code)]
     pub fn get_www_root(&self) -> &String {
         &self.www_root
     }
@@ -208,21 +211,25 @@ impl TestServer {
         return r;
     }
 
+    #[allow(dead_code)]
     pub fn add_mock_server_conf(&mut self, key: &str, value: &str) {
         self.dns_server.add_conf(key, value);
     }
 
+    #[allow(dead_code)]
     pub fn enable_mock_server(&mut self) {
         self.dns_server_enable = true;
         self.set_one_instance(true);
     }
 
+    #[allow(dead_code)]
     pub fn add_args(&mut self, args: Vec<String>) {
         for arg in args.iter() {
             self.args.push(arg.clone());
         }
     }
 
+    #[allow(dead_code)]
     pub fn new_mock_domain_record(&self) -> DomainData {
         DomainData {
             id: 0,
@@ -239,6 +246,13 @@ impl TestServer {
         }
     }
 
+
+    #[allow(dead_code)]
+    pub fn get_data_server(&self) -> Arc<DataServer> {
+        self.plugin.get_data_server()
+    }
+
+    #[allow(dead_code)]
     pub fn add_domain_record(
         &mut self,
         record: &DomainData,
@@ -259,6 +273,7 @@ impl TestServer {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn set_https(&mut self, enable: bool) {
         self.is_https = enable;
         if enable {

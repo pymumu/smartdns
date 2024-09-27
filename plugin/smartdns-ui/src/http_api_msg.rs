@@ -224,16 +224,17 @@ pub fn api_msg_parse_domain_list(data: &str) -> Result<Vec<DomainData>, Box<dyn 
 }
 
 pub fn api_msg_gen_domain_list(
-    domain_list: &Vec<DomainData>,
-    total_page: u32,
-    total_count: u32,
+    domain_list_result: &QueryDomainListResult,
+    total_page: u64,
+    total_count: u64,
 ) -> String {
     let json_str = json!({
-        "list_count": domain_list.len(),
+        "list_count": domain_list_result.domain_list.len(),
         "total_page": total_page,
         "total_count": total_count,
+        "step_by_cursor": domain_list_result.step_by_cursor,
         "domain_list":
-            domain_list
+        domain_list_result.domain_list
                 .iter()
                 .map(|x| {
                     api_msg_gen_json_object_domain(x)
@@ -265,9 +266,27 @@ pub fn api_msg_parse_client_list(data: &str) -> Result<Vec<ClientData>, Box<dyn 
             return Err("client_ip not found".into());
         }
 
+        let mac = client_object["mac"].as_str();
+        if mac.is_none() {
+            return Err("mac not found".into());
+        }
+
+        let hostname = client_object["hostname"].as_str();
+        if hostname.is_none() {
+            return Err("hostname not found".into());
+        }
+
+        let last_query_time = client_object["last_query_time"].as_u64();
+        if last_query_time.is_none() {
+            return Err("last_query_time not found".into());
+        }
+
         client_list.push(ClientData {
             id: id.unwrap() as u32,
             client_ip: client_ip.unwrap().to_string(),
+            mac: mac.unwrap().to_string(),
+            hostname: hostname.unwrap().to_string(),
+            last_query_time: last_query_time.unwrap(),
         });
     }
 
@@ -284,6 +303,9 @@ pub fn api_msg_gen_client_list(client_list: &Vec<ClientData>) -> String {
                     let s = json!({
                         "id": x.id,
                         "client_ip": x.client_ip,
+                        "mac": x.mac,
+                        "hostname": x.hostname,
+                        "last_query_time": x.last_query_time,
                     });
                     s
                 })
@@ -625,19 +647,23 @@ pub fn api_msg_parse_top_domain_list(data: &str) -> Result<Vec<DomainQueryCount>
     Ok(domain_list)
 }
 
-pub fn api_msg_gen_stats_overview(data: &OverviewData) -> String {
+pub fn api_msg_gen_metrics_data(data: &MetricsData) -> String {
     let json_str = json!({
         "total_query_count": data.total_query_count,
         "block_query_count": data.block_query_count,
         "avg_query_time": data.avg_query_time,
         "cache_hit_rate": data.cache_hit_rate,
         "cache_number": data.cache_number,
+        "cache_memory_size": data.cache_memory_size,
+        "qps": data.qps,
+        "memory_usage": data.memory_usage,
+        "is_metrics_suspended": data.is_metrics_suspended,
     });
 
     json_str.to_string()
 }
 
-pub fn api_msg_parse_stats_overview(data: &str) -> Result<OverviewData, Box<dyn Error>> {
+pub fn api_msg_parse_metrics_data(data: &str) -> Result<MetricsData, Box<dyn Error>> {
     let v: serde_json::Value = serde_json::from_str(data)?;
     let total_query_count = v["total_query_count"].as_u64();
     if total_query_count.is_none() {
@@ -664,19 +690,91 @@ pub fn api_msg_parse_stats_overview(data: &str) -> Result<OverviewData, Box<dyn 
         return Err("cache_number not found".into());
     }
 
-    Ok(OverviewData {
+    let cache_memory_size = v["cache_memory_size"].as_u64();
+    if cache_memory_size.is_none() {
+        return Err("cache_memory_size not found".into());
+    }
+
+    let qps = v["qps"].as_u64();
+    if qps.is_none() {
+        return Err("qps not found".into());
+    }
+
+    let memory_usage = v["memory_usage"].as_u64();
+    if memory_usage.is_none() {
+        return Err("memory_usage not found".into());
+    }
+
+    let is_metrics_suspended = v["is_metrics_suspended"].as_bool();
+
+    Ok(MetricsData {
         total_query_count: total_query_count.unwrap() as u64,
         block_query_count: block_query_count.unwrap() as u64,
         avg_query_time: avg_query_time.unwrap(),
         cache_hit_rate: cache_hit_rate.unwrap(),
         cache_number: cache_number.unwrap() as u64,
+        cache_memory_size: cache_memory_size.unwrap() as u64,
+        qps: qps.unwrap() as u32,
+        memory_usage: memory_usage.unwrap() as u64,
+        is_metrics_suspended: is_metrics_suspended.unwrap_or(false),
     })
 }
 
-pub fn api_msg_gen_hourly_query_count(data: &Vec<HourlyQueryCount>) -> String {
+pub fn api_msg_gen_stats_overview(data: &OverviewData) -> String {
     let json_str = json!({
+        "server_name": data.server_name,
+        "database_size": data.db_size,
+        "startup_timestamp": data.startup_timestamp,
+        "free_disk_space": data.free_disk_space,
+        "is_process_suspended": data.is_process_suspended,
+    });
+
+    json_str.to_string()
+}
+
+pub fn api_msg_parse_stats_overview(data: &str) -> Result<OverviewData, Box<dyn Error>> {
+    let v: serde_json::Value = serde_json::from_str(data)?;
+
+    let server_name = v["server_name"].as_str();
+    if server_name.is_none() {
+        return Err("server_name not found".into());
+    }
+
+    let db_size = v["database_size"].as_u64();
+    if db_size.is_none() {
+        return Err("database_size not found".into());
+    }
+
+    let startup_timestamp = v["startup_timestamp"].as_u64();
+    if startup_timestamp.is_none() {
+        return Err("startup_timestamp not found".into());
+    }
+
+    let free_disk_space = v["free_disk_space"].as_u64();
+    if free_disk_space.is_none() {
+        return Err("free_disk_space not found".into());
+    }
+
+    let is_process_suspended = v["is_process_suspended"].as_bool();
+    if is_process_suspended.is_none() {
+        return Err("is_process_suspended not found".into());
+    }
+
+    Ok(OverviewData {
+        server_name: server_name.unwrap().to_string(),
+        db_size: db_size.unwrap() as u64,
+        startup_timestamp: startup_timestamp.unwrap() as u64,
+        free_disk_space: free_disk_space.unwrap() as u64,
+        is_process_suspended: is_process_suspended.unwrap(),
+
+    })
+}
+
+pub fn api_msg_gen_hourly_query_count(hourly_count: &HourlyQueryCount) -> String {
+    let json_str = json!({
+        "query_timestamp": hourly_count.query_timestamp,
         "hourly_query_count":
-            data
+        hourly_count.hourly_query_count
                 .iter()
                 .map(|x| {
                     let s = json!({
@@ -692,8 +790,13 @@ pub fn api_msg_gen_hourly_query_count(data: &Vec<HourlyQueryCount>) -> String {
 
 pub fn api_msg_parse_hourly_query_count(
     data: &str,
-) -> Result<Vec<HourlyQueryCount>, Box<dyn Error>> {
+) -> Result<HourlyQueryCount, Box<dyn Error>> {
     let v: serde_json::Value = serde_json::from_str(data)?;
+    let query_timestamp = v["query_timestamp"].as_u64();
+    if query_timestamp.is_none() {
+        return Err("query_timestamp not found".into());
+    }
+
     let mut hourly_query_count = Vec::new();
     let hourly_list = v["hourly_query_count"].as_array();
     if hourly_list.is_none() {
@@ -711,13 +814,78 @@ pub fn api_msg_parse_hourly_query_count(
             return Err("query_count not found".into());
         }
 
-        hourly_query_count.push(HourlyQueryCount {
+        hourly_query_count.push(HourlyQueryCountItem {
             hour: hour.unwrap().to_string(),
             query_count: query_count.unwrap() as u32,
         });
     }
 
-    Ok(hourly_query_count)
+    Ok(HourlyQueryCount {
+        query_timestamp: query_timestamp.unwrap(),
+        hourly_query_count: hourly_query_count,
+    })
+}
+
+pub fn api_msg_gen_request_qps(qps: u32) -> String {
+    let json_str = json!({
+        "qps": qps,
+    });
+
+    json_str.to_string()
+}
+
+pub fn api_msg_gen_daily_query_count(daily_count: &DailyQueryCount) -> String {
+    let json_str = json!({
+        "query_timestamp": daily_count.query_timestamp,
+        "daily_query_count":
+        daily_count.daily_query_count
+                .iter()
+                .map(|x| {
+                    let s = json!({
+                        "day": x.day,
+                        "query_count": x.query_count,
+                    });
+                    s
+                })
+                .collect::<Vec<serde_json::Value>>()
+    });
+    json_str.to_string()
+}
+
+pub fn api_msg_parse_daily_query_count(data: &str) -> Result<DailyQueryCount, Box<dyn Error>> {
+    let v: serde_json::Value = serde_json::from_str(data)?;
+    let mut daily_query_count = Vec::new();
+    let query_timestamp = v["query_timestamp"].as_u64();
+    if query_timestamp.is_none() {
+        return Err("query_timestamp not found".into());
+    }
+
+    let daily_list = v["daily_query_count"].as_array();
+    if daily_list.is_none() {
+        return Err("daily_query_count not found".into());
+    }
+
+    for item in daily_list.unwrap() {
+        let day = item["day"].as_str();
+        if day.is_none() {
+            return Err("day not found".into());
+        }
+
+        let query_count = item["query_count"].as_u64();
+        if query_count.is_none() {
+            return Err("query_count not found".into());
+        }
+
+        daily_query_count.push(DailyQueryCountItem {
+            day: day.unwrap().to_string(),
+            query_count: query_count.unwrap() as u32,
+        });
+    }
+
+    Ok(DailyQueryCount {
+        query_timestamp: query_timestamp.unwrap(),
+        daily_query_count: daily_query_count,
+    })
 }
 
 pub fn api_msg_gen_whois_info(data: &WhoIsInfo) -> String {

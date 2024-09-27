@@ -67,17 +67,6 @@ static struct config_enum_list dns_conf_response_mode_enum[] = {
 	{"fastest-response", DNS_RESPONSE_MODE_FASTEST_RESPONSE},
 	{NULL, 0}};
 
-enum response_mode_type dns_conf_default_response_mode = DNS_RESPONSE_MODE_FIRST_PING_IP;
-
-/* cache */
-ssize_t dns_conf_cachesize = -1;
-ssize_t dns_conf_cache_max_memsize = -1;
-
-/* upstream servers */
-struct dns_servers dns_conf_servers[DNS_MAX_SERVERS];
-char dns_conf_server_name[DNS_MAX_SERVER_NAME_LEN];
-int dns_conf_server_num;
-static int dns_conf_resolv_hostname = 1;
 char dns_conf_exist_bootstrap_dns;
 
 int dns_conf_has_icmp_check;

@@ -25,6 +25,7 @@ use crate::http_jwt::*;
 use crate::http_server_api::*;
 use crate::plugin::SmartdnsPlugin;
 use crate::smartdns::*;
+use crate::utils;
 
 use bytes::Bytes;
 use http_body_util::Full;
@@ -78,15 +79,22 @@ impl HttpServerConfig {
             http_ip: HTTP_SERVER_DEFAULT_IP.to_string(),
             http_root: HTTP_SERVER_DEFAULT_WWW_ROOT.to_string(),
             username: HTTP_SERVER_DEFAULT_USERNAME.to_string(),
-            password: HTTP_SERVER_DEFAULT_PASSWORD.to_string(),
+            password: utils::hash_password(HTTP_SERVER_DEFAULT_PASSWORD, Some(1000)).unwrap(),
             token_expired_time: 600,
             enable_cors: false,
         }
     }
 
     pub fn load_config(&mut self, data_server: Arc<DataServer>) -> Result<(), Box<dyn Error>> {
-        if let Some(password) = data_server.get_server_config("smartdns-ui.password") {
+        if let Some(password) = data_server.get_config("smartdns-ui.password") {
             self.password = password;
+        } else {
+            if let Some(password_from_file) =
+                data_server.get_server_config_from_file("smartdns-ui.password")
+            {
+                self.password =
+                    utils::hash_password(password_from_file.as_str(), Some(10000)).unwrap();
+            }
         }
 
         if let Some(username) = data_server.get_server_config("smartdns-ui.username") {
@@ -428,7 +436,7 @@ impl HttpServer {
         this: Arc<HttpServer>,
         req: Request<body::Incoming>,
         _path: PathBuf,
-    ) -> Result<Response<Full<Bytes>>, Infallible> {
+    ) -> Result<Response<Full<Bytes>>, Box<dyn std::error::Error>> {
         let mut origin: Option<HeaderValue> = None;
 
         if let Some(o) = req.headers().get("Origin") {
@@ -537,10 +545,11 @@ impl HttpServer {
                 dns_log!(LogLevel::ERROR, "api request error: {:?}", e);
                 let mut response = Response::new(Full::new(Bytes::from("Internal Server Error")));
                 *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
-                return ret;
+                return Ok(response);
             }
 
-            return ret;
+            let ret = ret.unwrap();
+            return Ok(ret);
         }
 
         dns_log!(LogLevel::DEBUG, "page request: {:?}", req.uri());
@@ -753,7 +762,7 @@ impl HttpServer {
             }
         }
 
-        let host = url.host_str().unwrap_or("0.0.0.0");
+        let host = url.host_str().unwrap_or("127.0.0.1");
         let port = url.port().unwrap_or(80);
         let sock_addr = format!("{}:{}", host, port).parse::<SocketAddr>()?;
 

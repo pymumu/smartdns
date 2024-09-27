@@ -20,15 +20,19 @@ use futures::sink::SinkExt;
 use futures::stream::StreamExt;
 use std::os::fd::AsRawFd;
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::time::{interval_at, Instant};
 use tokio_fd::AsyncFd;
 
 use hyper_tungstenite::{tungstenite, HyperWebsocket};
-use nix::libc::*;
 use nix::errno::Errno;
+use nix::libc::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tungstenite::Message;
 
+use crate::data_server::DataServer;
 use crate::dns_log;
+use crate::http_api_msg::api_msg_gen_metrics_data;
 use crate::http_server::HttpServer;
 use crate::smartdns::LogLevel;
 
@@ -106,6 +110,51 @@ pub async fn serve_log_stream(
                     Message::Ping(_msg) => {}
                     Message::Pong(_msg) => {}
                     Message::Close(_msg) => {
+                        websocket.send(Message::Close(None)).await?;
+                        break;
+                    }
+                    Message::Frame(_msg) => {
+                        unreachable!();
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn serve_metrics(
+    data_server: Arc<DataServer>,
+    websocket: HyperWebsocket,
+) -> Result<(), Error> {
+    let mut websocket = websocket.await?;
+    let mut second_timer = interval_at(Instant::now(), Duration::from_secs(1));
+    loop {
+        tokio::select! {
+            _ = second_timer.tick() => {
+                let metrics = data_server.get_metrics();
+                match metrics {
+                    Ok(metrics) => {
+                        let data_server = api_msg_gen_metrics_data(&metrics);
+                        let msg = Message::Text(data_server);
+                        websocket.send(msg).await?;
+                    }
+                    Err(e) => {
+                        let msg = Message::Text(format!("{{\"error\": \"{}\"}}", e));
+                        websocket.send(msg).await?;
+                    }
+                }
+            }
+            msg = websocket.next() => {
+                let message = msg.ok_or("websocket closed")??;
+                match message {
+                    Message::Text(_msg) => {}
+                    Message::Binary(_msg) => {}
+                    Message::Ping(_msg) => {}
+                    Message::Pong(_msg) => {}
+                    Message::Close(_msg) => {
+                        websocket.send(Message::Close(None)).await?;
                         break;
                     }
                     Message::Frame(_msg) => {
@@ -123,6 +172,8 @@ enum TermMessageType {
     Data,
     Err,
     Resize,
+    Pause,
+    Resume,
 }
 
 impl TryFrom<u8> for TermMessageType {
@@ -133,6 +184,8 @@ impl TryFrom<u8> for TermMessageType {
             0 => Ok(TermMessageType::Data),
             1 => Ok(TermMessageType::Err),
             2 => Ok(TermMessageType::Resize),
+            3 => Ok(TermMessageType::Pause),
+            4 => Ok(TermMessageType::Resume),
             _ => Err(()),
         }
     }
@@ -159,7 +212,8 @@ pub async fn serve_term(websocket: HyperWebsocket) -> Result<(), Error> {
             &mut ws,
         );
         if pid < 0 {
-            return Err("forkpty failed".into());
+            dns_log!(LogLevel::ERROR, "forkpty failed, error: {}", Errno::last());
+            return Err(format!("forkpty failed, error: {}", Errno::last()).into());
         }
 
         if pid == 0 {
@@ -187,7 +241,7 @@ pub async fn serve_term(websocket: HyperWebsocket) -> Result<(), Error> {
             let login_path = find_cmd("login");
             let mut err = ENOENT;
 
-            if su_path.is_ok() {
+            if su_path.is_ok() && (login_path.is_err() || geteuid() != 0) {
                 let uid = getuid();
                 let pw = getpwuid(uid);
 
@@ -257,6 +311,7 @@ pub async fn serve_term(websocket: HyperWebsocket) -> Result<(), Error> {
     };
 
     let mut asyncfd = asyncfd.unwrap();
+    let mut is_pause = false;
     loop {
         let mut buf = [0u8; 4096];
         let (data_type, data_buf) = buf.split_at_mut(1);
@@ -270,6 +325,11 @@ pub async fn serve_term(websocket: HyperWebsocket) -> Result<(), Error> {
                             dns_log!(LogLevel::DEBUG, "EOF");
                             break;
                         }
+
+                        if is_pause {
+                            continue;
+                        }
+
                         data_len = n + 1;
                         data_type[0] = TermMessageType::Data as u8;
                         let msg = Message::Binary(buf[..data_len].to_vec());
@@ -313,6 +373,12 @@ pub async fn serve_term(websocket: HyperWebsocket) -> Result<(), Error> {
                                 unsafe {
                                     let _ = ioctl(asyncfd.as_raw_fd(), TIOCSWINSZ, &ws);
                                 }
+                            }
+                            TermMessageType::Pause => {
+                                is_pause = true;
+                            }
+                            TermMessageType::Resume => {
+                                is_pause = false;
                             }
                             TermMessageType::Data => {
                                 asyncfd.write(msg).await?;

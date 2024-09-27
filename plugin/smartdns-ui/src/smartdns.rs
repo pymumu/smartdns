@@ -209,6 +209,21 @@ pub fn smartdns_ui_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
+pub fn smartdns_get_server_name() -> String {
+    unsafe {
+        let mut buffer = [0u8; 4096];
+        smartdns_c::dns_server_get_server_name(
+            buffer.as_mut_ptr() as *mut c_char,
+            buffer.len() as i32,
+        );
+        let srv_name = std::ffi::CStr::from_ptr(buffer.as_ptr() as *const c_char)
+            .to_string_lossy()
+            .into_owned();
+
+        srv_name
+    }
+}
+
 pub fn smartdns_server_run(file: &str) -> Result<(), Box<dyn Error>> {
     let file = CString::new(file).expect("Failed to convert to CString");
     let ret: i32;
@@ -221,6 +236,16 @@ pub fn smartdns_server_run(file: &str) -> Result<(), Box<dyn Error>> {
     }
 
     Ok(())
+}
+
+pub fn smartdns_enable_update_neighbour(enable: bool) {
+    unsafe {
+        if enable {
+            smartdns_c::dns_server_enable_update_neighbor_cache(1);
+        } else {
+            smartdns_c::dns_server_enable_update_neighbor_cache(0);
+        }
+    }
 }
 
 pub fn smartdns_server_stop() {
@@ -242,7 +267,8 @@ static SMARTDNS_OPS: smartdns_c::smartdns_operations = smartdns_c::smartdns_oper
 #[no_mangle]
 extern "C" fn dns_request_complete(request: *mut smartdns_c::dns_request) {
     unsafe {
-        let ops = PLUGIN.ops.as_ref();
+        let plugin_addr = std::ptr::addr_of_mut!(PLUGIN);
+        let ops = (*plugin_addr).ops.as_ref();
         if let None = ops {
             return;
         }
@@ -254,28 +280,40 @@ extern "C" fn dns_request_complete(request: *mut smartdns_c::dns_request) {
 }
 
 #[no_mangle]
-extern "C" fn dns_server_log(level : smartdns_c::smartdns_log_level, msg: *const c_char, msg_len: i32) {
+extern "C" fn dns_server_log(
+    level: smartdns_c::smartdns_log_level,
+    msg: *const c_char,
+    msg_len: i32,
+) {
     unsafe {
-        let ops = PLUGIN.ops.as_ref();
+        let plugin_addr = std::ptr::addr_of_mut!(PLUGIN);
+        let ops = (*plugin_addr).ops.as_ref();
         if let None = ops {
             return;
         }
 
-        let msg = std::ffi::CStr::from_ptr(msg).to_string_lossy().into_owned();
+        let raw_msg = std::slice::from_raw_parts(msg as *const u8, msg_len as usize + 1);
+        let msg = std::ffi::CStr::from_bytes_with_nul_unchecked(raw_msg)
+            .to_string_lossy()
+            .into_owned();
         let level = LogLevel::try_from(level as u32).unwrap();
 
-
         let ops = ops.unwrap();
-        ops.server_log( level, msg.as_str(), msg_len as i32);
+        ops.server_log(level, msg.as_str(), msg_len as i32);
     }
 }
 
 #[no_mangle]
 extern "C" fn dns_plugin_init(plugin: *mut smartdns_c::dns_plugin) -> i32 {
     unsafe {
-        PLUGIN.parser_args(plugin).unwrap();
+        let plugin_addr = std::ptr::addr_of_mut!(PLUGIN);
+        (*plugin_addr).parser_args(plugin).unwrap();
         smartdns_c::smartdns_operations_register(&SMARTDNS_OPS);
-        let ret = PLUGIN.ops.as_mut().unwrap().server_init(PLUGIN.get_args());
+        let ret = (*plugin_addr)
+            .ops
+            .as_mut()
+            .unwrap()
+            .server_init((*plugin_addr).get_args());
         if let Err(e) = ret {
             dns_log!(LogLevel::ERROR, "server init error: {}", e);
             return -1;
@@ -288,8 +326,9 @@ extern "C" fn dns_plugin_init(plugin: *mut smartdns_c::dns_plugin) -> i32 {
 #[no_mangle]
 extern "C" fn dns_plugin_exit(_plugin: *mut smartdns_c::dns_plugin) -> i32 {
     unsafe {
+        let plugin_addr = std::ptr::addr_of_mut!(PLUGIN);
         smartdns_c::smartdns_operations_unregister(&SMARTDNS_OPS);
-        PLUGIN.ops.as_mut().unwrap().server_exit();
+        (*plugin_addr).ops.as_mut().unwrap().server_exit();
     }
     return 0;
 }
@@ -372,6 +411,18 @@ impl DnsRequest {
         unsafe { smartdns_c::dns_server_request_is_cached(self.request) != 0 }
     }
 
+    pub fn get_remote_mac(&self) -> [u8; 6] {
+        unsafe {
+            let _mac_ptr = smartdns_c::dns_server_request_get_remote_mac(self.request);
+            if _mac_ptr.is_null() {
+                return [0u8; 6];
+            }
+
+            let mac = std::slice::from_raw_parts(_mac_ptr, 6);
+            return mac.try_into().unwrap();
+        }
+    }
+
     pub fn get_remote_addr(&self) -> String {
         unsafe {
             let addr = smartdns_c::dns_server_request_get_remote_addr(self.request);
@@ -451,7 +502,10 @@ pub struct DnsServerStats {
 }
 
 impl DnsServerStats {
-    fn new(stats: *mut smartdns_c::dns_server_stats, server_info: *mut smartdns_c::dns_server_info) -> Self {
+    fn new(
+        stats: *mut smartdns_c::dns_server_stats,
+        server_info: *mut smartdns_c::dns_server_info,
+    ) -> Self {
         unsafe { smartdns_c::dns_client_server_info_get(server_info) };
         DnsServerStats { stats, server_info }
     }
@@ -567,7 +621,9 @@ impl DnsUpstreamServer {
     pub fn get_host(&self) -> String {
         unsafe {
             let host = smartdns_c::dns_client_get_server_host(self.server_info);
-            std::ffi::CStr::from_ptr(host).to_string_lossy().into_owned()
+            std::ffi::CStr::from_ptr(host)
+                .to_string_lossy()
+                .into_owned()
         }
     }
 
@@ -812,6 +868,10 @@ impl Stats {
             cache_hit_rate = (cache_hit_rate * 10.0).round() / 10.0;
             cache_hit_rate
         }
+    }
+
+    pub fn get_cache_memory_size() -> u64 {
+        unsafe { smartdns_c::dns_cache_total_memsize() as u64 }
     }
 }
 

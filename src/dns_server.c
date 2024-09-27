@@ -25,8 +25,8 @@
 #include "dns_cache.h"
 #include "dns_client.h"
 #include "dns_conf.h"
-#include "dns_stats.h"
 #include "dns_plugin.h"
+#include "dns_stats.h"
 #include "fast_ping.h"
 #include "hashtable.h"
 #include "http_parse.h"
@@ -314,6 +314,7 @@ struct dns_request {
 	};
 	socklen_t addr_len;
 	struct sockaddr_storage localaddr;
+	uint8_t mac[6];
 	int has_ecs;
 	struct dns_opt_ecs ecs;
 	int edns0_do;
@@ -418,6 +419,7 @@ struct dns_server {
 	DECLARE_HASHTABLE(request_pending, 4);
 	pthread_mutex_t request_pending_lock;
 
+	int update_neighbor_cache;
 	struct neighbor_cache neighbor_cache;
 
 	struct local_addr_cache local_addr_cache;
@@ -2979,6 +2981,15 @@ const struct sockaddr *dns_server_request_get_local_addr(struct dns_request *req
 	return (struct sockaddr *)&request->localaddr;
 }
 
+const uint8_t *dns_server_request_get_remote_mac(struct dns_request *request)
+{
+	if (request->conn == NULL) {
+		return NULL;
+	}
+
+	return request->mac;
+};
+
 const char *dns_server_request_get_group_name(struct dns_request *request)
 {
 	if (request == NULL) {
@@ -3469,7 +3480,7 @@ static void _dns_server_neighbor_cache_free_last_used_item(void)
 
 static struct neighbor_cache_item *_dns_server_neighbor_cache_get_item(const uint8_t *net_addr, int net_addr_len)
 {
-	struct neighbor_cache_item *item = NULL;
+	struct neighbor_cache_item *item, *item_result = NULL;
 	uint32_t key = 0;
 
 	key = jhash(net_addr, net_addr_len, 0);
@@ -3479,12 +3490,15 @@ static struct neighbor_cache_item *_dns_server_neighbor_cache_get_item(const uin
 			continue;
 		}
 
-		if (memcmp(item->ip_addr, net_addr, net_addr_len) == 0) {
-			break;
+		if (memcmp(item->ip_addr, net_addr, net_addr_len) != 0) {
+			continue;
 		}
+
+		item_result = item;
+		break;
 	}
 
-	return item;
+	return item_result;
 }
 
 static int _dns_server_neighbor_cache_add(const uint8_t *net_addr, int net_addr_len, const uint8_t *mac)
@@ -3578,7 +3592,7 @@ static struct dns_client_rules *_dns_server_get_client_rules_by_mac(uint8_t *net
 	int ret = 0;
 	struct neighbor_enum_args args;
 
-	if (dns_conf.client_rule.mac_num == 0) {
+	if (server.update_neighbor_cache == 0) {
 		return NULL;
 	}
 
@@ -3591,6 +3605,8 @@ static struct dns_client_rules *_dns_server_get_client_rules_by_mac(uint8_t *net
 		if (group_mac != NULL) {
 			return group_mac->rules;
 		}
+
+		return NULL;
 	}
 
 	if (netaddr_len == 4) {
@@ -3608,8 +3624,12 @@ static struct dns_client_rules *_dns_server_get_client_rules_by_mac(uint8_t *net
 		goto add_cache;
 	}
 
-	if (ret != 1 || args.group_mac == NULL) {
+	if (ret != 1) {
 		goto add_cache;
+	}
+
+	if (args.group_mac == NULL) {
+		return NULL;
 	}
 
 	return args.group_mac->rules;
@@ -3623,31 +3643,12 @@ static struct dns_client_rules *_dns_server_get_client_rules(struct sockaddr_sto
 {
 	prefix_t prefix;
 	radix_node_t *node = NULL;
-	uint8_t *netaddr = NULL;
+	uint8_t netaddr[DNS_RR_AAAA_LEN] = {0};
 	struct dns_client_rules *client_rules = NULL;
-	int netaddr_len = 0;
+	int netaddr_len = sizeof(netaddr);
 
-	switch (addr->ss_family) {
-	case AF_INET: {
-		struct sockaddr_in *addr_in = NULL;
-		addr_in = (struct sockaddr_in *)addr;
-		netaddr = (unsigned char *)&(addr_in->sin_addr.s_addr);
-		netaddr_len = 4;
-	} break;
-	case AF_INET6: {
-		struct sockaddr_in6 *addr_in6 = NULL;
-		addr_in6 = (struct sockaddr_in6 *)addr;
-		if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
-			netaddr = addr_in6->sin6_addr.s6_addr + 12;
-			netaddr_len = 4;
-		} else {
-			netaddr = addr_in6->sin6_addr.s6_addr;
-			netaddr_len = 16;
-		}
-	} break;
-	default:
+	if (get_raw_addr_by_sockaddr(addr, addr_len, netaddr, &netaddr_len) != 0) {
 		return NULL;
-		break;
 	}
 
 	client_rules = _dns_server_get_client_rules_by_mac(netaddr, netaddr_len);
@@ -5210,6 +5211,58 @@ static void _dns_server_process_local_addr_cache(int fd_netlink, struct epoll_ev
 	}
 }
 
+int dns_server_get_server_name(char *name, int name_len)
+{
+	if (name == NULL || name_len <= 0) {
+		return -1;
+	}
+
+	if (dns_conf.server_name[0] == 0) {
+		char hostname[DNS_MAX_CNAME_LEN];
+		char domainname[DNS_MAX_CNAME_LEN];
+
+		/* get local domain name */
+		if (getdomainname(domainname, DNS_MAX_CNAME_LEN - 1) == 0) {
+			/* check domain is valid */
+			if (strncmp(domainname, "(none)", DNS_MAX_CNAME_LEN - 1) == 0) {
+				domainname[0] = '\0';
+			}
+		}
+
+		if (gethostname(hostname, DNS_MAX_CNAME_LEN - 1) == 0) {
+			/* check hostname is valid */
+			if (strncmp(hostname, "(none)", DNS_MAX_CNAME_LEN - 1) == 0) {
+				hostname[0] = '\0';
+			}
+		}
+
+		if (hostname[0] != '\0' && domainname[0] != '\0') {
+			snprintf(name, name_len, "%.64s.%.128s", hostname, domainname);
+		} else if (hostname[0] != '\0') {
+			safe_strncpy(name, hostname, name_len);
+		} else {
+			safe_strncpy(name, "smartdns", name_len);
+		}
+	} else {
+		/* return configured server name */
+		safe_strncpy(name, dns_conf.server_name, name_len);
+	}
+
+	return 0;
+}
+
+void dns_server_enable_update_neighbor_cache(int enable)
+{
+	if (enable) {
+		server.update_neighbor_cache = 1;
+	} else {
+		if (dns_conf.client_rule.mac_num > 0) {
+			return;
+		}
+		server.update_neighbor_cache = 0;
+	}
+}
+
 static int _dns_server_process_local_ptr(struct dns_request *request)
 {
 	unsigned char ptr_addr[16];
@@ -5274,35 +5327,8 @@ out:
 	}
 
 	char full_hostname[DNS_MAX_CNAME_LEN];
-	if (dns_conf.server_name[0] == 0) {
-		char hostname[DNS_MAX_CNAME_LEN];
-		char domainname[DNS_MAX_CNAME_LEN];
-
-		/* get local domain name */
-		if (getdomainname(domainname, DNS_MAX_CNAME_LEN - 1) == 0) {
-			/* check domain is valid */
-			if (strncmp(domainname, "(none)", DNS_MAX_CNAME_LEN - 1) == 0) {
-				domainname[0] = '\0';
-			}
-		}
-
-		if (gethostname(hostname, DNS_MAX_CNAME_LEN - 1) == 0) {
-			/* check hostname is valid */
-			if (strncmp(hostname, "(none)", DNS_MAX_CNAME_LEN - 1) == 0) {
-				hostname[0] = '\0';
-			}
-		}
-
-		if (hostname[0] != '\0' && domainname[0] != '\0') {
-			snprintf(full_hostname, sizeof(full_hostname), "%.64s.%.128s", hostname, domainname);
-		} else if (hostname[0] != '\0') {
-			safe_strncpy(full_hostname, hostname, DNS_MAX_CNAME_LEN);
-		} else {
-			safe_strncpy(full_hostname, "smartdns", DNS_MAX_CNAME_LEN);
-		}
-	} else {
-		/* return configured server name */
-		safe_strncpy(full_hostname, dns_conf.server_name, DNS_MAX_CNAME_LEN);
+	if (dns_server_get_server_name(full_hostname, sizeof(full_hostname)) != 0) {
+		goto errout;
 	}
 
 	request->has_ptr = 1;
@@ -6646,6 +6672,23 @@ static void _dns_server_request_set_id(struct dns_request *request, unsigned sho
 	request->id = id;
 }
 
+static void _dns_server_request_set_mac(struct dns_request *request, struct sockaddr_storage *from, socklen_t from_len)
+{
+	uint8_t netaddr[DNS_RR_AAAA_LEN] = {0};
+	int netaddr_len = sizeof(netaddr);
+
+	if (get_raw_addr_by_sockaddr(from, from_len, netaddr, &netaddr_len) != 0) {
+		return;
+	}
+
+	struct neighbor_cache_item *item = _dns_server_neighbor_cache_get_item(netaddr, netaddr_len);
+	if (item) {
+		if (item->has_mac) {
+			memcpy(request->mac, item->mac, 6);
+		}
+	}
+}
+
 static int _dns_server_request_set_client_addr(struct dns_request *request, struct sockaddr_storage *from,
 											   socklen_t from_len)
 {
@@ -7350,6 +7393,7 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 	}
 
 	memcpy(&request->localaddr, local, local_len);
+	_dns_server_request_set_mac(request, from, from_len);
 	_dns_server_request_set_client(request, conn);
 	_dns_server_request_set_client_addr(request, from, from_len);
 	_dns_server_request_set_id(request, packet->head.id);
@@ -9281,6 +9325,10 @@ static int _dns_server_neighbor_cache_init(void)
 	INIT_LIST_HEAD(&server.neighbor_cache.list);
 	atomic_set(&server.neighbor_cache.cache_num, 0);
 	pthread_mutex_init(&server.neighbor_cache.lock, NULL);
+
+	if (dns_conf.client_rule.mac_num > 0) {
+		server.update_neighbor_cache = 1;
+	}
 
 	return 0;
 }

@@ -164,8 +164,7 @@ impl SmartdnsPlugin {
 
     pub fn query_complete(&self, request: &mut DnsRequest) {
         let ret = self.data_server_ctl.send_request(request);
-        if let Err(e) = ret {
-            dns_log!(LogLevel::ERROR, "send data to data server error: {}", e);
+        if let Err(_) = ret {
             return;
         }
     }

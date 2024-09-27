@@ -220,12 +220,11 @@ int drop_root_privilege(void)
 
 unsigned long long get_utc_time_ms(void)
 {
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
+	struct timeval tv;
+	gettimeofday(&tv, NULL);
 
-    unsigned long long millisecondsSinceEpoch =
-        (unsigned long long)(tv.tv_sec) * 1000 +
-        (unsigned long long)(tv.tv_usec) / 1000;
+	unsigned long long millisecondsSinceEpoch =
+		(unsigned long long)(tv.tv_sec) * 1000 + (unsigned long long)(tv.tv_usec) / 1000;
 
 	return millisecondsSinceEpoch;
 }
@@ -447,19 +446,13 @@ errout:
 	return -1;
 }
 
-int get_raw_addr_by_ip(const char *ip, unsigned char *raw_addr, int *raw_addr_len)
+int get_raw_addr_by_sockaddr(const struct sockaddr_storage *addr, int addr_len, unsigned char *raw_addr,
+							 int *raw_addr_len)
 {
-	struct sockaddr_storage addr;
-	socklen_t addr_len = sizeof(addr);
-
-	if (getaddr_by_host(ip, (struct sockaddr *)&addr, &addr_len) != 0) {
-		goto errout;
-	}
-
-	switch (addr.ss_family) {
+	switch (addr->ss_family) {
 	case AF_INET: {
 		struct sockaddr_in *addr_in = NULL;
-		addr_in = (struct sockaddr_in *)&addr;
+		addr_in = (struct sockaddr_in *)addr;
 		if (*raw_addr_len < DNS_RR_A_LEN) {
 			goto errout;
 		}
@@ -468,7 +461,7 @@ int get_raw_addr_by_ip(const char *ip, unsigned char *raw_addr, int *raw_addr_le
 	} break;
 	case AF_INET6: {
 		struct sockaddr_in6 *addr_in6 = NULL;
-		addr_in6 = (struct sockaddr_in6 *)&addr;
+		addr_in6 = (struct sockaddr_in6 *)addr;
 		if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
 			if (*raw_addr_len < DNS_RR_A_LEN) {
 				goto errout;
@@ -489,6 +482,20 @@ int get_raw_addr_by_ip(const char *ip, unsigned char *raw_addr, int *raw_addr_le
 	}
 
 	return 0;
+errout:
+	return -1;
+}
+
+int get_raw_addr_by_ip(const char *ip, unsigned char *raw_addr, int *raw_addr_len)
+{
+	struct sockaddr_storage addr;
+	socklen_t addr_len = sizeof(addr);
+
+	if (getaddr_by_host(ip, (struct sockaddr *)&addr, &addr_len) != 0) {
+		goto errout;
+	}
+
+	return get_raw_addr_by_sockaddr(&addr, addr_len, raw_addr, raw_addr_len);
 errout:
 	return -1;
 }
@@ -1410,17 +1417,17 @@ int generate_cert_key(const char *key_path, const char *cert_path, const char *s
 	X509_set_issuer_name(cert, name);
 
 	// Add X509v3 extensions
-    cert_ext = X509V3_EXT_conf_nid(NULL, NULL, NID_basic_constraints, "CA:FALSE");
-    ret = X509_add_ext(cert, cert_ext, -1);
-    X509_EXTENSION_free(cert_ext);
+	cert_ext = X509V3_EXT_conf_nid(NULL, NULL, NID_basic_constraints, "CA:FALSE");
+	ret = X509_add_ext(cert, cert_ext, -1);
+	X509_EXTENSION_free(cert_ext);
 
 	cert_ext = X509V3_EXT_conf_nid(NULL, NULL, NID_key_usage, "digitalSignature,keyEncipherment");
-    X509_add_ext(cert, cert_ext, -1);
-    X509_EXTENSION_free(cert_ext);
+	X509_add_ext(cert, cert_ext, -1);
+	X509_EXTENSION_free(cert_ext);
 
-    cert_ext = X509V3_EXT_conf_nid(NULL, NULL, NID_subject_key_identifier, "hash");
-    X509_add_ext(cert, cert_ext, -1);
-    X509_EXTENSION_free(cert_ext);
+	cert_ext = X509V3_EXT_conf_nid(NULL, NULL, NID_subject_key_identifier, "hash");
+	X509_add_ext(cert, cert_ext, -1);
+	X509_EXTENSION_free(cert_ext);
 
 	X509_sign(cert, pkey, EVP_sha256());
 

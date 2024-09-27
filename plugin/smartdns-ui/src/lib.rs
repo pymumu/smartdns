@@ -17,7 +17,8 @@
  */
 
 pub mod data_server;
-pub mod whois;
+pub mod data_stats;
+pub mod data_upstream_server;
 pub mod db;
 pub mod http_api_msg;
 pub mod http_error;
@@ -26,11 +27,10 @@ pub mod http_server;
 pub mod http_server_api;
 pub mod http_server_stream;
 pub mod plugin;
-pub mod data_stats;
-pub mod data_upstream_server;
 pub mod server_log;
-pub mod utils;
 pub mod smartdns;
+pub mod utils;
+pub mod whois;
 
 use ctor::ctor;
 use ctor::dtor;
@@ -42,14 +42,16 @@ use smartdns::*;
 fn lib_init_ops() {
     let ops: Box<dyn SmartdnsOperations> = Box::new(SmartdnsPluginImpl::new());
     unsafe {
-        PLUGIN.set_operation(ops);
+        let plugin_addr = std::ptr::addr_of_mut!(PLUGIN);
+        (*plugin_addr).set_operation(ops);
     }
 }
 
 #[cfg(not(test))]
 fn lib_deinit_ops() {
     unsafe {
-        PLUGIN.clear_operation();
+        let plugin_addr = std::ptr::addr_of_mut!(PLUGIN);
+        (*plugin_addr).clear_operation();
     }
 }
 

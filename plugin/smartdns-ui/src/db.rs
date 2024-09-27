@@ -17,24 +17,32 @@
  */
 
 use crate::dns_log;
+use crate::smartdns;
 use crate::smartdns::*;
 use crate::utils;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs;
 use std::sync::Mutex;
+use std::vec;
 
+use chrono::Local;
+use rusqlite::Transaction;
 use rusqlite::{Connection, OpenFlags, Result};
 
 pub struct DB {
     conn: Mutex<Option<Connection>>,
     version: i32,
+    query_plan: bool,
 }
 
 #[derive(Debug, Clone)]
 pub struct ClientData {
     pub id: u32,
+    pub hostname: String,
     pub client_ip: String,
+    pub mac: String,
+    pub last_query_time: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -50,9 +58,27 @@ pub struct DomainQueryCount {
 }
 
 #[derive(Debug, Clone)]
-pub struct HourlyQueryCount {
+pub struct HourlyQueryCountItem {
     pub hour: String,
     pub query_count: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct HourlyQueryCount {
+    pub query_timestamp: u64,
+    pub hourly_query_count: Vec<HourlyQueryCountItem>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DailyQueryCountItem {
+    pub day: String,
+    pub query_count: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct DailyQueryCount {
+    pub query_timestamp: u64,
+    pub daily_query_count: Vec<DailyQueryCountItem>,
 }
 
 #[derive(Debug, Clone)]
@@ -73,15 +99,23 @@ pub struct DomainData {
 #[derive(Debug, Clone)]
 pub struct QueryDomainListResult {
     pub domain_list: Vec<DomainData>,
-    pub total_count: u32,
+    pub total_count: u64,
+    pub step_by_cursor: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct DomainListGetParamCursor {
+    pub id: Option<u64>,
+    pub total_count: u64,
+    pub direction: String,
 }
 
 #[derive(Debug, Clone)]
 pub struct DomainListGetParam {
     pub id: Option<u64>,
     pub order: Option<String>,
-    pub page_num: u32,
-    pub page_size: u32,
+    pub page_num: u64,
+    pub page_size: u64,
     pub domain: Option<String>,
     pub domain_filter_mode: Option<String>,
     pub domain_type: Option<u32>,
@@ -92,6 +126,7 @@ pub struct DomainListGetParam {
     pub timestamp_after: Option<u64>,
     pub is_blocked: Option<bool>,
     pub is_cached: Option<bool>,
+    pub cursor: Option<DomainListGetParamCursor>,
 }
 
 impl DomainListGetParam {
@@ -111,6 +146,7 @@ impl DomainListGetParam {
             timestamp_after: None,
             is_blocked: None,
             is_cached: None,
+            cursor: None,
         }
     }
 }
@@ -120,6 +156,7 @@ impl DB {
         DB {
             conn: Mutex::new(None),
             version: 10000, /* x: major version, xx: minor version, xx: patch version */
+            query_plan: std::env::var("SMARTDNS_DEBUG_SQL").is_ok(),
         }
     }
 
@@ -142,6 +179,48 @@ impl DB {
         )?;
 
         conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_domain_timestamp ON domain (timestamp)",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_domain_client ON domain (client)",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS domain_hourly_count (
+                timestamp BIGINT PRIMARY KEY,
+                count INTEGER DEFAULT 0
+            );",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS domain_daily_count (
+                timestamp BIGINT PRIMARY KEY,
+                count INTEGER DEFAULT 0
+            );",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS top_domain_list (
+                domain TEXT PRIMARY KEY,
+                count INTEGER DEFAULT 0
+            );",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS top_client_list (
+                client TEXT PRIMARY KEY,
+                count INTEGER DEFAULT 0
+            );",
+            [],
+        )?;
+
+        conn.execute(
             "
         CREATE TABLE IF NOT EXISTS client (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -152,6 +231,14 @@ impl DB {
 
         conn.execute(
             "CREATE TABLE IF NOT EXISTS config (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS status_data (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             )",
@@ -225,6 +312,15 @@ impl DB {
             .execute("PRAGMA synchronous = OFF", [])?;
         conn.as_ref()
             .unwrap()
+            .execute("PRAGMA page_size  = 4096", [])?;
+        conn.as_ref()
+            .unwrap()
+            .execute("PRAGMA cache_size = 10000", [])?;
+        conn.as_ref()
+            .unwrap()
+            .execute("PRAGMA temp_store = MEMORY", [])?;
+        conn.as_ref()
+            .unwrap()
             .query_row("PRAGMA journal_mode = WAL", [], |_| Ok(()))?;
         Ok(())
     }
@@ -274,6 +370,86 @@ impl DB {
         Ok(ret)
     }
 
+    pub fn set_status_data(&self, key: &str, value: &str) -> Result<(), Box<dyn Error>> {
+        let conn = self.conn.lock().unwrap();
+        if conn.as_ref().is_none() {
+            return Err("db is not open".into());
+        }
+
+        let conn = conn.as_ref().unwrap();
+        let mut stmt =
+            conn.prepare("INSERT OR REPLACE INTO status_data (key, value) VALUES (?1, ?2)")?;
+        let ret = stmt.execute(&[&key, &value]);
+
+        if let Err(e) = ret {
+            return Err(Box::new(e));
+        }
+
+        Ok(())
+    }
+
+    pub fn get_status_data_list(&self) -> Result<HashMap<String, String>, Box<dyn Error>> {
+        let mut ret = HashMap::new();
+        let conn = self.conn.lock().unwrap();
+        if conn.as_ref().is_none() {
+            return Err("db is not open".into());
+        }
+
+        let conn = conn.as_ref().unwrap();
+        let stmt = conn.prepare("SELECT key, value FROM status_data");
+        if let Err(e) = stmt {
+            return Err(Box::new(e));
+        }
+        let mut stmt = stmt.unwrap();
+
+        let rows = stmt.query_map([], |row| {
+            let key: String = row.get(0)?;
+            let value: String = row.get(1)?;
+            Ok((key, value))
+        });
+
+        if let Ok(rows) = rows {
+            for row in rows {
+                if let Ok(row) = row {
+                    ret.insert(row.0, row.1);
+                }
+            }
+        }
+
+        Ok(ret)
+    }
+
+    pub fn debug_query_plan(&self, conn: &Connection, sql: String, sql_param: &Vec<String>) {
+        if !self.query_plan {
+            return;
+        }
+
+        let sqlplan = "EXPLAIN QUERY PLAN ".to_string() + &sql;
+        let stmt = conn.prepare(sqlplan.as_str());
+        if let Err(e) = stmt {
+            dns_log!(LogLevel::DEBUG, "query plan sql error: {}", e);
+            return;
+        }
+
+        let mut stmt = stmt.unwrap();
+        let plan_rows = stmt.query_map(rusqlite::params_from_iter(sql_param.clone()), |row| {
+            Ok(row.get::<_, String>(3)?)
+        });
+
+        if let Err(e) = plan_rows {
+            dns_log!(LogLevel::DEBUG, "query plan error: {}", e);
+            return;
+        }
+
+        let plan_rows = plan_rows.unwrap();
+        dns_log!(LogLevel::NOTICE, "sql: {}", sql);
+        for plan in plan_rows {
+            if let Ok(plan) = plan {
+                dns_log!(LogLevel::NOTICE, "plan: {}", plan);
+            }
+        }
+    }
+
     pub fn get_config(&self, key: &str) -> Result<Option<String>, Box<dyn Error>> {
         let conn = self.conn.lock().unwrap();
         if conn.as_ref().is_none() {
@@ -297,12 +473,57 @@ impl DB {
         Ok(None)
     }
 
+    pub fn update_domain_hourly_count(
+        &self,
+        tx: &Transaction<'_>,
+        hourly_count: &HashMap<u64, u32>,
+    ) -> Result<(), Box<dyn Error>> {
+        let mut stmt = tx.prepare(
+            "INSERT INTO domain_hourly_count (timestamp, count)
+                 VALUES (
+                    ?1,
+                    ?2
+                )
+                ON CONFLICT(timestamp) DO UPDATE SET count = count + ?2;",
+        )?;
+
+        for (k, v) in hourly_count {
+            stmt.execute(rusqlite::params![k, v])?;
+        }
+        stmt.finalize()?;
+        Ok(())
+    }
+
+    pub fn update_domain_daily_count(
+        &self,
+        tx: &Transaction<'_>,
+        daily_count: &HashMap<u64, u32>,
+    ) -> Result<(), Box<dyn Error>> {
+        let mut stmt = tx.prepare(
+            "INSERT INTO domain_daily_count (timestamp, count)
+                 VALUES (
+                    ?1,
+                    ?2
+                )
+                ON CONFLICT(timestamp) DO UPDATE SET count = count + ?2;",
+        )?;
+
+        for (k, v) in daily_count {
+            stmt.execute(rusqlite::params![k, v])?;
+        }
+        stmt.finalize()?;
+        Ok(())
+    }
+
     pub fn insert_domain(&self, data: &Vec<DomainData>) -> Result<(), Box<dyn Error>> {
+        let local_offset = Local::now().offset().local_minus_utc();
         let mut conn = self.conn.lock().unwrap();
         if conn.as_ref().is_none() {
             return Err("db is not open".into());
         }
 
+        let mut hourly_count = HashMap::new();
+        let mut daily_count = HashMap::new();
         let conn = conn.as_mut().unwrap();
 
         let tx = conn.transaction()?;
@@ -331,12 +552,42 @@ impl DB {
                 tx.rollback()?;
                 return Err(Box::new(e));
             }
+
+            let localtimestamp = d.timestamp + local_offset as u64 * 1000;
+
+            let hour_timestamp =
+                localtimestamp - localtimestamp % 3600000 - local_offset as u64 * 1000;
+            let day_timestamp =
+                localtimestamp - localtimestamp % 86400000 - local_offset as u64 * 1000;
+
+            hourly_count
+                .entry(hour_timestamp)
+                .and_modify(|v| *v += 1)
+                .or_insert(1);
+            daily_count
+                .entry(day_timestamp)
+                .and_modify(|v| *v += 1)
+                .or_insert(1);
         }
 
         stmt.finalize()?;
+
+        self.update_domain_hourly_count(&tx, &hourly_count)?;
+        self.update_domain_daily_count(&tx, &daily_count)?;
+
         tx.commit()?;
 
         Ok(())
+    }
+
+    pub fn get_db_file_path(&self) -> Option<String> {
+        let conn = self.conn.lock().unwrap();
+        if conn.is_none() {
+            return None;
+        }
+
+        let conn = conn.as_ref().unwrap();
+        conn.path().map(|v| v.to_string())
     }
 
     pub fn get_readonly_conn(&self) -> Option<Connection> {
@@ -368,10 +619,14 @@ impl DB {
     pub fn get_domain_sql_where(
         param: Option<&DomainListGetParam>,
     ) -> Result<(String, String, Vec<String>), Box<dyn Error>> {
+        let mut is_desc_order = true;
+        let mut is_cursor_prev = false;
         let param = match param {
             Some(v) => v,
             None => return Ok((String::new(), String::new(), Vec::new())),
         };
+        let mut order_timestamp_first = true;
+        let mut cusor_with_timestamp = false;
 
         let mut sql_where = Vec::new();
         let mut sql_param: Vec<String> = Vec::new();
@@ -380,6 +635,27 @@ impl DB {
         if let Some(v) = &param.id {
             sql_where.push("id = ?".to_string());
             sql_param.push(v.to_string());
+            order_timestamp_first = false;
+        }
+
+        if let Some(v) = &param.order {
+            if v.eq_ignore_ascii_case("asc") {
+                is_cursor_prev = true;
+            } else if v.eq_ignore_ascii_case("desc") {
+                is_cursor_prev = false;
+            } else {
+                return Err("order param error".into());
+            }
+        }
+
+        if let Some(v) = &param.cursor {
+            if v.direction.eq_ignore_ascii_case("prev") {
+                is_desc_order = !is_desc_order;
+            } else if v.direction.eq_ignore_ascii_case("next") {
+                is_desc_order = is_desc_order;
+            } else {
+                return Err("cursor direction param error".into());
+            }
         }
 
         if let Some(v) = &param.domain {
@@ -406,73 +682,134 @@ impl DB {
             } else {
                 sql_where.push("domain = ?".to_string());
                 sql_param.push(v.to_string());
+                order_timestamp_first = false;
             }
         }
 
         if let Some(v) = &param.domain_type {
             sql_where.push("domain_type = ?".to_string());
             sql_param.push(v.to_string());
+            order_timestamp_first = false;
         }
 
         if let Some(v) = &param.client {
             sql_where.push("client = ?".to_string());
             sql_param.push(v.clone());
+            order_timestamp_first = false;
         }
 
         if let Some(v) = &param.domain_group {
             sql_where.push("domain_group = ?".to_string());
             sql_param.push(v.clone());
+            order_timestamp_first = false;
         }
 
         if let Some(v) = &param.reply_code {
             sql_where.push("reply_code = ?".to_string());
             sql_param.push(v.to_string());
+            order_timestamp_first = false;
         }
 
         if let Some(v) = &param.timestamp_before {
-            sql_where.push("timestamp <= ?".to_string());
-            sql_param.push(v.to_string());
+            let mut use_cursor = false;
+            if param.cursor.is_some() && (is_desc_order || is_cursor_prev) {
+                let v = param.cursor.as_ref().unwrap().id;
+                if let Some(v) = v {
+                    sql_where.push("id < ?".to_string());
+                    sql_param.push(v.to_string());
+                    use_cursor = true;
+                    order_timestamp_first = false;
+                    cusor_with_timestamp = true;
+                }
+            }
+
+            if use_cursor == false {
+                sql_where.push("timestamp <= ?".to_string());
+                sql_param.push(v.to_string());
+            }
         }
 
         if let Some(v) = &param.timestamp_after {
-            sql_where.push("timestamp >= ?".to_string());
-            sql_param.push(v.to_string());
+            let mut use_cursor = false;
+            if param.cursor.is_some() && (!is_desc_order || is_cursor_prev) {
+                let v = param.cursor.as_ref().unwrap().id;
+                if let Some(v) = v {
+                    sql_where.push("id > ?".to_string());
+                    sql_param.push(v.to_string());
+                    use_cursor = true;
+                    order_timestamp_first = false;
+                    cusor_with_timestamp = true;
+                }
+            }
+
+            if use_cursor == false {
+                sql_where.push("timestamp >= ?".to_string());
+                sql_param.push(v.to_string());
+            }
+        }
+
+        if !cusor_with_timestamp {
+            if let Some(v) = &param.cursor {
+                if is_cursor_prev {
+                    if let Some(id) = &v.id {
+                        if is_desc_order {
+                            sql_where.push("id > ?".to_string());
+                        } else {
+                            sql_where.push("id < ?".to_string());
+                        }
+
+                        sql_param.push(id.to_string());
+                        order_timestamp_first = false;
+                    }
+                } else {
+                    if let Some(id) = &v.id {
+                        if is_desc_order {
+                            sql_where.push("id < ?".to_string());
+                        } else {
+                            sql_where.push("id > ?".to_string());
+                        }
+
+                        sql_param.push(id.to_string());
+                        order_timestamp_first = false;
+                    }
+                }
+            }
         }
 
         if let Some(v) = &param.is_blocked {
-            if !sql_where.is_empty() {
-                sql_where.push(" AND ".to_string());
-            }
-
             if *v {
                 sql_where.push("is_blocked = 1".to_string());
             } else {
                 sql_where.push("is_blocked = 0".to_string());
             }
+            order_timestamp_first = false;
         }
 
         if let Some(v) = &param.is_cached {
-            if !sql_where.is_empty() {
-                sql_where.push(" AND ".to_string());
-            }
-
             if *v {
                 sql_where.push("is_cached = 1".to_string());
             } else {
                 sql_where.push("is_cached = 0".to_string());
             }
+            order_timestamp_first = false;
         }
 
-        if let Some(v) = &param.order {
-            if v.eq_ignore_ascii_case("asc") {
-                sql_order.push_str(" ORDER BY id ASC");
-            } else if v.eq_ignore_ascii_case("desc") {
-                sql_order.push_str(" ORDER BY id DESC");
+        if is_cursor_prev {
+            is_desc_order = !is_desc_order;
+        }
+
+        if is_desc_order {
+            if order_timestamp_first {
+                sql_order.push_str(" ORDER BY timestamp DESC, id DESC");
             } else {
-                return Err("order param error".into());
+                sql_order.push_str(" ORDER BY id DESC, timestamp DESC");
             }
         } else {
-            sql_order.push_str(" ORDER BY id DESC");
+            if order_timestamp_first {
+                sql_order.push_str(" ORDER BY timestamp ASC, id ASC");
+            } else {
+                sql_order.push_str(" ORDER BY id ASC, timestamp ASC");
+            }
         }
 
         let sql_where = if sql_where.is_empty() {
@@ -484,7 +821,7 @@ impl DB {
         Ok((sql_where, sql_order, sql_param))
     }
 
-    pub fn get_domain_list_count(&self, param: Option<&DomainListGetParam>) -> u32 {
+    pub fn get_domain_list_count(&self, param: Option<&DomainListGetParam>) -> u64 {
         let conn = self.get_readonly_conn();
         if conn.as_ref().is_none() {
             return 0;
@@ -548,6 +885,54 @@ impl DB {
         Ok(ret.unwrap() as u64)
     }
 
+    pub fn refresh_client_top_list(&self, timestamp: u64) -> Result<(), Box<dyn Error>> {
+        let mut client_count_list = Vec::new();
+        let conn = self.get_readonly_conn();
+        if conn.as_ref().is_none() {
+            return Err("db is not open".into());
+        }
+
+        let conn = conn.as_ref().unwrap();
+        let sql = "SELECT client, COUNT(*) FROM domain WHERE timestamp >= ? GROUP BY client ORDER BY COUNT(*) DESC LIMIT 20";
+        self.debug_query_plan(conn, sql.to_string(), &vec![timestamp.to_string()]);
+        let mut stmt = conn.prepare(sql)?;
+        let rows = stmt.query_map([timestamp.to_string()], |row| {
+            Ok(ClientQueryCount {
+                client_ip: row.get(0)?,
+                count: row.get(1)?,
+            })
+        });
+
+        if let Ok(rows) = rows {
+            for row in rows {
+                if let Ok(row) = row {
+                    client_count_list.push(row);
+                }
+            }
+        }
+
+        let mut conn = self.conn.lock().unwrap();
+        if conn.as_ref().is_none() {
+            return Err("db is not open".into());
+        }
+
+        let conn = conn.as_mut().unwrap();
+
+        let tx = conn.transaction()?;
+        let mut stmt = tx.prepare("DELETE FROM top_client_list")?;
+        stmt.execute([])?;
+        stmt.finalize()?;
+        let mut stmt =
+            tx.prepare("INSERT INTO top_client_list (client, count) VALUES ( ?1, ?2)")?;
+        for client in &client_count_list {
+            stmt.execute(rusqlite::params![client.client_ip, client.count])?;
+        }
+        stmt.finalize()?;
+        tx.commit()?;
+
+        Ok(())
+    }
+
     pub fn get_client_top_list(&self, count: u32) -> Result<Vec<ClientQueryCount>, Box<dyn Error>> {
         let mut ret = Vec::new();
         let conn = self.get_readonly_conn();
@@ -556,9 +941,8 @@ impl DB {
         }
 
         let conn = conn.as_ref().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT client, COUNT(*) FROM domain GROUP BY client ORDER BY COUNT(*) DESC LIMIT ?",
-        )?;
+        let mut stmt =
+            conn.prepare("SELECT client, count FROM top_client_list ORDER BY count DESC LIMIT ?")?;
         let rows = stmt.query_map([count.to_string()], |row| {
             Ok(ClientQueryCount {
                 client_ip: row.get(0)?,
@@ -577,10 +961,30 @@ impl DB {
         Ok(ret)
     }
 
-    pub fn get_hourly_query_count(
+    pub fn delete_daily_query_count_before_timestamp(
         &self,
-        past_hours: u32,
-    ) -> Result<Vec<HourlyQueryCount>, Box<dyn Error>> {
+        timestamp: u64,
+    ) -> Result<u64, Box<dyn Error>> {
+        let conn = self.conn.lock().unwrap();
+        if conn.as_ref().is_none() {
+            return Err("db is not open".into());
+        }
+
+        let conn = conn.as_ref().unwrap();
+
+        let ret = conn.execute(
+            "DELETE FROM domain_daily_count WHERE timestamp <= ?",
+            &[&timestamp],
+        );
+
+        if let Err(e) = ret {
+            return Err(Box::new(e));
+        }
+
+        Ok(ret.unwrap() as u64)
+    }
+
+    pub fn get_daily_query_count(&self, past_days: u32) -> Result<DailyQueryCount, Box<dyn Error>> {
         let mut ret = Vec::new();
         let conn = self.get_readonly_conn();
         if conn.as_ref().is_none() {
@@ -588,26 +992,23 @@ impl DB {
         }
 
         let conn = conn.as_ref().unwrap();
-        let seconds = 3600 * past_hours - utils::seconds_until_next_hour() as u32;
+        let seconds = 86400 * past_days - utils::seconds_until_next_hour() as u32;
         let mut stmt = conn.prepare(
             "SELECT \
-                    strftime('%Y-%m-%d %H:00:00', datetime(timestamp / 1000, 'unixepoch', 'localtime')) AS hour, \
-                    COUNT(*) AS query_count \
+                    strftime('%Y-%m-%d', datetime(timestamp / 1000, 'unixepoch', 'localtime')) AS date, timestamp, count \
                  FROM \
-                    domain \
+                    domain_daily_count \
                  WHERE \
-                    timestamp >= strftime('%s', 'now', 'utc') * 1000 - ? * 1000 \
-                 GROUP BY \
-                    hour \
+                    timestamp >= strftime('%s', 'now') * 1000 - ? * 1000 \
                  ORDER BY \
-                    hour DESC;\
+                    timestamp DESC;\
                  ",
         )?;
 
         let rows = stmt.query_map([seconds.to_string()], |row| {
-            Ok(HourlyQueryCount {
-                hour: row.get(0)?,
-                query_count: row.get(1)?,
+            Ok(DailyQueryCountItem {
+                day: row.get(0)?,
+                query_count: row.get(2)?,
             })
         });
 
@@ -619,7 +1020,133 @@ impl DB {
             }
         }
 
-        Ok(ret)
+        Ok(DailyQueryCount {
+            query_timestamp: smartdns::get_utc_time_ms(),
+            daily_query_count: ret,
+        })
+    }
+
+    pub fn delete_hourly_query_count_before_timestamp(
+        &self,
+        timestamp: u64,
+    ) -> Result<u64, Box<dyn Error>> {
+        let conn = self.conn.lock().unwrap();
+        if conn.as_ref().is_none() {
+            return Err("db is not open".into());
+        }
+
+        let conn = conn.as_ref().unwrap();
+
+        let ret = conn.execute(
+            "DELETE FROM domain_hourly_count WHERE timestamp <= ?",
+            &[&timestamp],
+        );
+
+        if let Err(e) = ret {
+            return Err(Box::new(e));
+        }
+
+        Ok(ret.unwrap() as u64)
+    }
+
+    pub fn get_hourly_query_count(
+        &self,
+        past_hours: u32,
+    ) -> Result<HourlyQueryCount, Box<dyn Error>> {
+        let mut ret = Vec::new();
+        let conn = self.get_readonly_conn();
+        if conn.as_ref().is_none() {
+            return Err("db is not open".into());
+        }
+
+        let query_start = std::time::Instant::now();
+        let conn = conn.as_ref().unwrap();
+        let seconds = 3600 * past_hours - utils::seconds_until_next_hour() as u32;
+
+        let sql = "SELECT \
+                    strftime('%Y-%m-%d %H:00:00', datetime(timestamp / 1000, 'unixepoch', 'localtime')) AS hour, timestamp, count \
+                 FROM \
+                    domain_hourly_count \
+                 WHERE \
+                    timestamp >= strftime('%s', 'now') * 1000 - ? * 1000 \
+                 ORDER BY \
+                    timestamp DESC;\
+                 ";
+        self.debug_query_plan(conn, sql.to_string(), &vec![seconds.to_string()]);
+        let mut stmt = conn.prepare(sql)?;
+
+        let rows = stmt.query_map([seconds.to_string()], |row| {
+            Ok(HourlyQueryCountItem {
+                hour: row.get(0)?,
+                query_count: row.get(2)?,
+            })
+        });
+
+        if let Ok(rows) = rows {
+            for row in rows {
+                if let Ok(row) = row {
+                    ret.push(row);
+                }
+            }
+        }
+
+        dns_log!(
+            LogLevel::DEBUG,
+            "hourly_query_count time: {}ms",
+            query_start.elapsed().as_millis()
+        );
+
+        Ok(HourlyQueryCount {
+            query_timestamp: smartdns::get_utc_time_ms(),
+            hourly_query_count: ret,
+        })
+    }
+
+    pub fn refresh_domain_top_list(&self, timestamp: u64) -> Result<(), Box<dyn Error>> {
+        let mut domain_count_list = Vec::new();
+        let conn = self.get_readonly_conn();
+        if conn.as_ref().is_none() {
+            return Err("db is not open".into());
+        }
+
+        let conn = conn.as_ref().unwrap();
+        let sql = "SELECT domain, COUNT(*) FROM domain WHERE timestamp >= ? GROUP BY domain ORDER BY COUNT(*) DESC LIMIT 20";
+        self.debug_query_plan(conn, sql.to_string(), &vec![timestamp.to_string()]);
+        let mut stmt = conn.prepare(sql)?;
+        let rows = stmt.query_map([timestamp.to_string()], |row| {
+            Ok(DomainQueryCount {
+                domain: row.get(0)?,
+                count: row.get(1)?,
+            })
+        });
+
+        if let Ok(rows) = rows {
+            for row in rows {
+                if let Ok(row) = row {
+                    domain_count_list.push(row);
+                }
+            }
+        }
+
+        let mut conn = self.conn.lock().unwrap();
+        if conn.as_ref().is_none() {
+            return Err("db is not open".into());
+        }
+
+        let conn = conn.as_mut().unwrap();
+        let tx = conn.transaction()?;
+        let mut stmt = tx.prepare("DELETE FROM top_domain_list")?;
+        stmt.execute([])?;
+        stmt.finalize()?;
+        let mut stmt =
+            tx.prepare("INSERT INTO top_domain_list (domain, count) VALUES ( ?1, ?2)")?;
+        for domain in &domain_count_list {
+            stmt.execute(rusqlite::params![domain.domain, domain.count])?;
+        }
+        stmt.finalize()?;
+        tx.commit()?;
+
+        Ok(())
     }
 
     pub fn get_domain_top_list(&self, count: u32) -> Result<Vec<DomainQueryCount>, Box<dyn Error>> {
@@ -631,9 +1158,7 @@ impl DB {
 
         let conn = conn.as_ref().unwrap();
 
-        let mut stmt = conn.prepare(
-            "SELECT domain, COUNT(*) FROM domain GROUP BY domain ORDER BY COUNT(*) DESC LIMIT ?",
-        )?;
+        let mut stmt = conn.prepare("SELECT domain, count FROM top_domain_list DESC LIMIT ?")?;
         let rows = stmt.query_map([count.to_string()], |row| {
             Ok(DomainQueryCount {
                 domain: row.get(0)?,
@@ -661,10 +1186,12 @@ impl DB {
         param: Option<&DomainListGetParam>,
     ) -> Result<QueryDomainListResult, Box<dyn Error>> {
         let query_start = std::time::Instant::now();
+        let mut cursor_reverse = false;
 
         let mut ret = QueryDomainListResult {
             domain_list: vec![],
             total_count: 0,
+            step_by_cursor: false,
         };
 
         let conn = self.get_readonly_conn();
@@ -683,11 +1210,27 @@ impl DB {
         sql.push_str(sql_order.as_str());
 
         if let Some(p) = param {
-            sql.push_str(" LIMIT ? OFFSET ?");
-            sql_param.push(p.page_size.to_string());
-            sql_param.push(((p.page_num - 1) * p.page_size).to_string());
+            let mut with_offset = true;
+            if let Some(cursor) = &p.cursor {
+                if cursor.id.is_some() {
+                    sql.push_str(" LIMIT ?");
+                    sql_param.push(p.page_size.to_string());
+                    with_offset = false;
+                }
+
+                if cursor.direction.eq_ignore_ascii_case("prev") {
+                    cursor_reverse = true;
+                }
+            }
+
+            if with_offset {
+                sql.push_str(" LIMIT ? OFFSET ?");
+                sql_param.push(p.page_size.to_string());
+                sql_param.push(((p.page_num - 1) * p.page_size).to_string());
+            }
         }
 
+        self.debug_query_plan(conn, sql.clone(), &sql_param);
         let stmt = conn.prepare(&sql);
 
         if let Err(e) = stmt {
@@ -725,12 +1268,23 @@ impl DB {
             }
         }
 
-        let total_count = self.get_domain_list_count(param);
-        ret.total_count = total_count;
+        if cursor_reverse {
+            ret.domain_list.reverse();
+        }
+
+        if let Some(p) = param {
+            if let Some(v) = &p.cursor {
+                ret.total_count = v.total_count;
+                ret.step_by_cursor = true;
+            } else {
+                let total_count = self.get_domain_list_count(param);
+                ret.total_count = total_count;
+            }
+        }
 
         dns_log!(
             LogLevel::DEBUG,
-            "get_domain_list time: {}ms",
+            "domain_list time: {}ms",
             query_start.elapsed().as_millis()
         );
         Ok(ret)
@@ -773,6 +1327,9 @@ impl DB {
             Ok(ClientData {
                 id: row.get(0)?,
                 client_ip: row.get(1)?,
+                mac: String::new(),
+                hostname: String::new(),
+                last_query_time: 0,
             })
         });
 
@@ -785,6 +1342,31 @@ impl DB {
         }
 
         Ok(ret)
+    }
+
+    pub fn get_db_size(&self) -> u64 {
+        let db_file = self.get_db_file_path();
+        let mut total_size = 0;
+        if db_file.is_none() {
+            return 0;
+        }
+
+        let db_file = db_file.unwrap();
+        let wal_file = db_file.clone() + "-wal";
+
+        let metadata = fs::metadata(db_file);
+        if let Err(_) = metadata {
+            return 0;
+        }
+        total_size += metadata.unwrap().len();
+
+        let wal_metadata = fs::metadata(wal_file);
+        if let Ok(wal_metadata) = wal_metadata {
+            let wal_size = wal_metadata.len();
+            total_size += wal_size;
+        }
+
+        total_size
     }
 
     pub fn close(&self) {

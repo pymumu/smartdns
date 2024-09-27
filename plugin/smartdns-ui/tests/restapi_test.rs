@@ -514,6 +514,8 @@ fn test_rest_api_stats_top() {
         assert!(server.add_domain_record(&record).is_ok());
     }
 
+    server.get_data_server().get_stat().refresh();
+
     let mut client = common::TestClient::new(&server.get_host());
     let res = client.login("admin", "password");
     assert!(res.is_ok());
@@ -555,6 +557,41 @@ fn test_rest_api_stats_overview() {
     let mut client = common::TestClient::new(&server.get_host());
     let res = client.login("admin", "password");
     assert!(res.is_ok());
+    let server_name;
+
+    unsafe {
+        smartdns_ui::smartdns::smartdns_c::dns_stats
+            .avg_time
+            .avg_time = 22.0 as f32;
+        smartdns_ui::smartdns::smartdns_c::dns_stats
+            .request
+            .blocked_count = 10;
+        smartdns_ui::smartdns::smartdns_c::dns_stats.request.total = 15;
+
+        server_name = smartdns_ui::smartdns::smartdns_get_server_name();
+    }
+
+    let c = client.get("/api/stats/overview");
+    assert!(c.is_ok());
+    let (code, body) = c.unwrap();
+    assert_eq!(code, 200);
+    let overview = http_api_msg::api_msg_parse_stats_overview(&body);
+    assert!(overview.is_ok());
+    let overview = overview.unwrap();
+    assert_eq!(overview.db_size > 0, true);
+    assert_eq!(overview.server_name, server_name);
+}
+
+#[test]
+fn test_rest_api_stats_metrics() {
+    let mut server = common::TestServer::new();
+    server.set_log_level(LogLevel::DEBUG);
+    server.enable_mock_server();
+    assert!(server.start().is_ok());
+
+    let mut client = common::TestClient::new(&server.get_host());
+    let res = client.login("admin", "password");
+    assert!(res.is_ok());
 
     unsafe {
         smartdns_ui::smartdns::smartdns_c::dns_stats
@@ -566,17 +603,26 @@ fn test_rest_api_stats_overview() {
         smartdns_ui::smartdns::smartdns_c::dns_stats.request.total = 15;
     }
 
-    let c = client.get("/api/stats/overview");
+    let record = server.new_mock_domain_record();
+    for i in 0..1024 {
+        let mut record = record.clone();
+        record.domain = format!("{}.com", i);
+        record.client = format!("client-{}", i);
+        record.is_blocked = i % 2 == 0;
+        assert!(server.add_domain_record(&record).is_ok());
+    }
+
+    let c = client.get("/api/stats/metrics");
     assert!(c.is_ok());
     let (code, body) = c.unwrap();
     assert_eq!(code, 200);
-    let overview = http_api_msg::api_msg_parse_stats_overview(&body);
-    assert!(overview.is_ok());
-    let overview = overview.unwrap();
-    assert_eq!(overview.avg_query_time, 22.0 as f64);
-    assert_eq!(overview.cache_hit_rate, 0 as f64);
-    assert_eq!(overview.total_query_count, 15);
-    assert_eq!(overview.block_query_count, 10);
+    let metrics = http_api_msg::api_msg_parse_metrics_data(&body);
+    assert!(metrics.is_ok());
+    let metrics = metrics.unwrap();
+    assert_eq!(metrics.avg_query_time, 22.0 as f64);
+    assert_eq!(metrics.cache_hit_rate, 0 as f64);
+    assert_eq!(metrics.total_query_count, 1024);
+    assert_eq!(metrics.block_query_count, 1024 / 2);
 }
 
 #[test]
@@ -604,8 +650,8 @@ fn test_rest_api_get_hourly_query_count() {
     let list = http_api_msg::api_msg_parse_hourly_query_count(&body);
     assert!(list.is_ok());
     let list = list.unwrap();
-    assert_eq!(list.len(), 1);
-    assert_eq!(list[0].query_count, 1024);
+    assert_eq!(list.hourly_query_count.len(), 1);
+    assert_eq!(list.hourly_query_count[0].query_count, 1024);
 }
 
 #[test]

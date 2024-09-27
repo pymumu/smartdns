@@ -44,10 +44,12 @@ impl TestClient {
         client
     }
 
+    #[allow(dead_code)]
     pub fn set_with_auth_header(&mut self, with_auth_header: bool) {
         self.no_auth_header = with_auth_header;
     }
 
+    #[allow(dead_code)]
     pub fn login(&mut self, username: &str, password: &str) -> Result<String, Box<dyn Error>> {
         let url = self.url.clone() + "/api/auth/login";
         let body = http_api_msg::api_msg_gen_auth_login(&http_api_msg::AuthUser {
@@ -62,6 +64,7 @@ impl TestClient {
         Ok(text)
     }
 
+    #[allow(dead_code)]
     pub fn logout(&mut self) -> Result<String, Box<dyn Error>> {
         let url = self.url.clone() + "/api/auth/logout";
         let resp = self.client.post(&url).send()?;
@@ -93,6 +96,7 @@ impl TestClient {
         Ok((status as i32, text))
     }
 
+    #[allow(dead_code)]
     pub fn delete(&self, path: &str) -> Result<(i32, String), Box<dyn Error>> {
         let req = self.prep_request(reqwest::Method::DELETE, path)?;
         let resp = req.send()?;
@@ -101,6 +105,7 @@ impl TestClient {
         Ok((status as i32, text))
     }
 
+    #[allow(dead_code)]
     pub fn put(&self, path: &str, body: &str) -> Result<(i32, String), Box<dyn Error>> {
         let req = self.prep_request(reqwest::Method::PUT, path)?;
         let resp = req.body(body.to_string()).send()?;
@@ -109,6 +114,7 @@ impl TestClient {
         Ok((status as i32, text))
     }
 
+    #[allow(dead_code)]
     pub fn post(&self, path: &str, body: &str) -> Result<(i32, String), Box<dyn Error>> {
         let req = self.prep_request(reqwest::Method::POST, path)?;
         let resp = req.body(body.to_string()).send()?;
@@ -117,6 +123,7 @@ impl TestClient {
         Ok((status as i32, text))
     }
 
+    #[allow(dead_code)]
     pub fn websocket(
         &self,
         path: &str,

@@ -83,3 +83,12 @@ impl From<Box<dyn std::error::Error>> for HttpError {
         }
     }
 }
+
+impl From<Box<dyn std::error::Error + Send>> for HttpError {
+    fn from(err: Box<dyn std::error::Error + Send>) -> HttpError {
+        HttpError {
+            code: StatusCode::INTERNAL_SERVER_ERROR,
+            msg: format!("Error: {}", err),
+        }
+    }
+}

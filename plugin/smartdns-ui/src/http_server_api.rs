@@ -25,6 +25,7 @@ use crate::http_server::*;
 use crate::http_server_stream;
 use crate::smartdns;
 use crate::smartdns::*;
+use crate::utils;
 use crate::Plugin;
 
 use bytes::Bytes;
@@ -96,8 +97,11 @@ impl API {
         api.register(Method::PUT, "/api/config/settings", true, APIRoute!(API::api_config_set_settings));
         api.register(Method::GET, "/api/stats/top/client", true, APIRoute!(API::api_stats_get_top_client));
         api.register(Method::GET, "/api/stats/top/domain", true, APIRoute!(API::api_stats_get_top_domain));
+        api.register(Method::GET, "/api/stats/metrics", true, APIRoute!(API::api_stats_get_metrics));
         api.register(Method::GET, "/api/stats/overview", true, APIRoute!(API::api_stats_get_overview));
         api.register(Method::GET, "/api/stats/hourly-query-count", true, APIRoute!(API::api_stats_get_hourly_query_count));
+        api.register(Method::GET, "/api/stats/daily-query-count", true, APIRoute!(API::api_stats_get_daily_query_count));
+        api.register(Method::PUT, "/api/stats/refresh", true, APIRoute!(API::api_stats_refresh));
         api.register(Method::GET, "/api/whois", true, APIRoute!(API::api_whois));
         api.register(Method::GET, "/api/tool/term", true, APIRoute!(API::api_tool_term));
         api
@@ -304,7 +308,9 @@ impl API {
             );
         }
 
-        if userinfo.username != conf.username || userinfo.password != conf.password {
+        if userinfo.username != conf.username
+            || utils::verify_password(userinfo.password.as_str(), conf.password.as_str()) != true
+        {
             return API::response_error(
                 StatusCode::UNAUTHORIZED,
                 "Incorrect username or password.",
@@ -377,27 +383,12 @@ impl API {
             return unauth_response();
         }
 
-        let password_info = api_msg_parse_auth_password_change(whole_body.as_str());
-        if let Err(e) = password_info {
-            return API::response_error(StatusCode::BAD_REQUEST, e.to_string().as_str());
-        }
-
-        let password_info = password_info.unwrap();
-        if password_info.0 == password_info.1 {
-            return API::response_error(
-                StatusCode::BAD_REQUEST,
-                "The new password is the same as the old password.",
-            );
-        }
-
-        let token = token.unwrap();
-        let mut conf = this.get_conf_mut();
-        let jtw = Jwt::new(
-            &conf.username.as_str(),
-            password_info.0.as_str(),
-            "",
-            conf.token_expired_time,
-        );
+        let password_info = match api_msg_parse_auth_password_change(whole_body.as_str()) {
+            Ok(v) => v,
+            Err(e) => {
+                return API::response_error(StatusCode::BAD_REQUEST, e.to_string().as_str());
+            }
+        };
 
         if !this.login_attempts_check() {
             return API::response_error(
@@ -406,14 +397,24 @@ impl API {
             );
         }
 
-        let calim = jtw.decode_token(token.as_str());
-        if calim.is_err() {
+        let mut conf = this.get_conf_mut();
+        if utils::verify_password(password_info.0.as_str(), conf.password.as_str()) != true {
             return API::response_error(StatusCode::FORBIDDEN, "Incorrect password.");
         }
 
+        let hashed_password = match utils::hash_password(password_info.1.as_str(), Some(10000)) {
+            Ok(v) => v,
+            Err(e) => {
+                return API::response_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    e.to_string().as_str(),
+                );
+            }
+        };
+
         let data_server = this.get_data_server();
-        conf.password = password_info.1.clone();
-        let ret = data_server.set_config(PASSWORD_CONFIG_KEY, password_info.1.as_str());
+        conf.password = hashed_password.clone();
+        let ret = data_server.set_config(PASSWORD_CONFIG_KEY, hashed_password.as_str());
         if let Err(e) = ret {
             return API::response_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().as_str());
         }
@@ -517,19 +518,23 @@ impl API {
         param: APIRouteParam,
         _req: Request<body::Incoming>,
     ) -> Result<Response<Full<Bytes>>, HttpError> {
-        let id = API::params_parser_value(param.get("id"));
-        if id.is_none() {
-            return API::response_error(StatusCode::BAD_REQUEST, "Invalid parameter.");
-        }
+        let id = match API::params_parser_value(param.get("id")) {
+            Some(v) => v,
+            None => return API::response_error(StatusCode::BAD_REQUEST, "Invalid parameter."),
+        };
 
-        let id = id.unwrap();
         let data_server = this.get_data_server();
-        let ret = data_server.delete_domain_by_id(id);
-        if let Err(e) = ret {
-            return API::response_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().as_str());
-        }
+        let ret = match data_server.delete_domain_by_id(id) {
+            Ok(v) => v,
+            Err(e) => {
+                return API::response_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    e.to_string().as_str(),
+                )
+            }
+        };
 
-        if ret.unwrap() == 0 {
+        if ret == 0 {
             return API::response_error(StatusCode::NOT_FOUND, "Not found");
         }
 
@@ -555,8 +560,8 @@ impl API {
     ) -> Result<Response<Full<Bytes>>, HttpError> {
         let params = API::get_params(&req);
 
-        let page_num = API::params_get_value_default(&params, "page_num", 1 as u32)?;
-        let page_size = API::params_get_value_default(&params, "page_size", 10 as u32)?;
+        let page_num = API::params_get_value_default(&params, "page_num", 1 as u64)?;
+        let page_size = API::params_get_value_default(&params, "page_size", 10 as u64)?;
         if page_num == 0 || page_size == 0 {
             return API::response_error(
                 StatusCode::BAD_REQUEST,
@@ -572,8 +577,18 @@ impl API {
         let client = API::params_get_value(&params, "client");
         let reply_code = API::params_get_value(&params, "reply_code");
         let order = API::params_get_value(&params, "order");
+        let is_blocked = API::params_get_value(&params, "is_blocked");
         let timestamp_after = API::params_get_value(&params, "timestamp_after");
         let timestamp_before = API::params_get_value(&params, "timestamp_before");
+        let cursor = API::params_get_value(&params, "cursor");
+        let cursor_direction =
+            match API::params_get_value_default(&params, "cursor_direction", "next".to_string()) {
+                Ok(v) => v,
+                Err(e) => {
+                    return Ok(e.to_response());
+                }
+            };
+        let total_count = API::params_get_value(&params, "total_count");
 
         let mut param = DomainListGetParam::new();
         param.id = id;
@@ -586,12 +601,24 @@ impl API {
         param.client = client;
         param.reply_code = reply_code;
         param.order = order;
+        param.is_blocked = is_blocked;
         param.timestamp_after = timestamp_after;
         param.timestamp_before = timestamp_before;
 
+        if cursor.is_some() || total_count.is_some() {
+            let param_cursor = DomainListGetParamCursor {
+                id: if cursor.is_some() { cursor } else { None },
+                total_count: total_count.unwrap(),
+                direction: cursor_direction,
+            };
+            param.cursor = Some(param_cursor);
+        }
+
         let data_server = this.get_data_server();
         let ret = API::call_blocking(this, move || {
-            let ret = data_server.get_domain_list(&param);
+            let ret = data_server
+                .get_domain_list(&param)
+                .map_err(|e| e.to_string());
             if let Err(e) = ret {
                 return Err(e.to_string());
             }
@@ -619,7 +646,7 @@ impl API {
         }
 
         let total_count = domain_list.total_count;
-        let body = api_msg_gen_domain_list(&domain_list.domain_list, total_page, total_count);
+        let body = api_msg_gen_domain_list(&domain_list, total_page, total_count);
 
         API::response_build(StatusCode::OK, body)
     }
@@ -820,7 +847,6 @@ impl API {
         }
 
         let body = api_msg_gen_top_client_list(&ret.unwrap());
-
         API::response_build(StatusCode::OK, body)
     }
 
@@ -858,6 +884,30 @@ impl API {
         API::response_build(StatusCode::OK, body)
     }
 
+    async fn api_stats_get_metrics(
+        this: Arc<HttpServer>,
+        _param: APIRouteParam,
+        mut req: Request<body::Incoming>,
+    ) -> Result<Response<Full<Bytes>>, HttpError> {
+        let data_server = this.get_data_server();
+        if hyper_tungstenite::is_upgrade_request(&req) {
+            let (response, websocket) = hyper_tungstenite::upgrade(&mut req, None)
+                .map_err(|e| HttpError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+            tokio::spawn(async move {
+                if let Err(e) = http_server_stream::serve_metrics(data_server, websocket).await {
+                    dns_log!(LogLevel::DEBUG, "Error in websocket connection: {e}");
+                }
+            });
+
+            Ok(response)
+        } else {
+            let metrics = data_server.get_metrics()?;
+            let body = api_msg_gen_metrics_data(&metrics);
+            return API::response_build(StatusCode::OK, body);
+        }
+    }
+
     async fn api_stats_get_overview(
         this: Arc<HttpServer>,
         _param: APIRouteParam,
@@ -866,6 +916,57 @@ impl API {
         let data_server = this.get_data_server();
         let overview = data_server.get_overview()?;
         let body = api_msg_gen_stats_overview(&overview);
+        return API::response_build(StatusCode::OK, body);
+    }
+
+    async fn api_stats_refresh(
+        this: Arc<HttpServer>,
+        _param: APIRouteParam,
+        _req: Request<body::Incoming>,
+    ) -> Result<Response<Full<Bytes>>, HttpError> {
+        let data_server = this.get_data_server();
+        let ret = API::call_blocking(this, move || -> Result<(), String> {
+            data_server.get_stat().refresh();
+            Ok(())
+        })
+        .await;
+
+        if let Err(e) = ret {
+            return API::response_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().as_str());
+        }
+
+        API::response_build(StatusCode::NO_CONTENT, "".to_string())
+    }
+
+    async fn api_stats_get_daily_query_count(
+        this: Arc<HttpServer>,
+        param: APIRouteParam,
+        _req: Request<body::Incoming>,
+    ) -> Result<Response<Full<Bytes>>, HttpError> {
+        let data_server = this.get_data_server();
+        let past_days = API::params_get_value(&param, "past_days");
+        let ret = API::call_blocking(this, move || {
+            let ret = data_server.get_daily_query_count(past_days);
+            if let Err(e) = ret {
+                return Err(e.to_string());
+            }
+
+            let ret = ret.unwrap();
+
+            return Ok(ret);
+        })
+        .await;
+
+        if let Err(e) = ret {
+            return API::response_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().as_str());
+        }
+
+        let ret = ret.unwrap();
+        if let Err(e) = ret {
+            return API::response_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().as_str());
+        }
+
+        let body = api_msg_gen_daily_query_count(&ret.unwrap());
         API::response_build(StatusCode::OK, body)
     }
 
@@ -913,7 +1014,7 @@ impl API {
             return API::response_error(StatusCode::BAD_REQUEST, "Invalid parameter.");
         }
 
-        let domain:String = domain.unwrap();
+        let domain: String = domain.unwrap();
         let data_server = this.get_data_server();
         let ret = data_server.whois(domain.as_str()).await;
 
@@ -966,7 +1067,7 @@ impl API {
         }
 
         let ret = ret.unwrap();
-        
+
         return Ok(ret);
     }
 }

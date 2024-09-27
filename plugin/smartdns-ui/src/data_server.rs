@@ -26,28 +26,43 @@ use crate::server_log::ServerLogMsg;
 use crate::smartdns;
 use crate::smartdns::*;
 use crate::utils;
-use crate::utils::ResultCache;
 use crate::whois;
 use crate::whois::WhoIsInfo;
 
 use std::collections::HashMap;
 use std::error::Error;
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use tokio::time::{interval_at, Duration, Instant};
+use tokio::time::{Duration, Instant};
 
 pub const DEFAULT_MAX_LOG_AGE: u64 = 30 * 24 * 60 * 60;
 pub const DEFAULT_MAX_LOG_AGE_MS: u64 = DEFAULT_MAX_LOG_AGE * 1000;
 pub const MAX_LOG_AGE_VALUE_MIN: u64 = 3600;
 pub const MAX_LOG_AGE_VALUE_MAX: u64 = 365 * 24 * 60 * 60 * 10;
+pub const MIN_FREE_DISK_SPACE: u64 = 1024 * 1024 * 8;
 
+#[derive(Clone)]
 pub struct OverviewData {
+    pub server_name: String,
+    pub db_size: u64,
+    pub startup_timestamp: u64,
+    pub free_disk_space: u64,
+    pub is_process_suspended: bool,
+}
+
+#[derive(Clone)]
+pub struct MetricsData {
     pub total_query_count: u64,
     pub block_query_count: u64,
     pub avg_query_time: f64,
     pub cache_hit_rate: f64,
     pub cache_number: u64,
+    pub cache_memory_size: u64,
+    pub qps: u32,
+    pub memory_usage: u64,
+    pub is_metrics_suspended: bool,
 }
 
 #[derive(Clone)]
@@ -176,8 +191,22 @@ impl DataServerControl {
     }
 
     pub fn send_request(&self, request: &mut DnsRequest) -> Result<(), Box<dyn Error>> {
+        if request.is_prefetch_request() {
+            return Ok(());
+        }
+
+        self.data_server.get_stat().add_qps_count(1);
+
+        if self.data_server.is_handle_request_disabled() {
+            return Ok(());
+        }
+
         if let Some(tx) = self.data_server.data_tx.as_ref() {
-            tx.try_send(request.clone())?;
+            let ret = tx.try_send(request.clone());
+            if let Err(e) = ret {
+                self.data_server.get_stat().add_request_drop(1);
+                return Err(e.to_string().into());
+            }
         }
         Ok(())
     }
@@ -193,83 +222,45 @@ impl Drop for DataServerControl {
     }
 }
 
-macro_rules! query_default_with_cache {
-    ($cache:expr, $db:expr, $func:ident, $count:expr, $default_count:expr, $result_type:ty) => {{
-        if $count.is_none() {
-            let db_clone = $db.clone();
-            let load_func = move || -> Option<$result_type> {
-                let ret = db_clone.$func($default_count);
-                if let Ok(ret) = ret {
-                    return Some(ret);
-                }
-                dns_log!(LogLevel::ERROR, "load cache error");
-                None
-            };
-            let ret = $cache.get(load_func);
-            if let Some(ret) = ret {
-                if ! (*ret).is_empty() {
-                    return Ok(ret);
-                }
-            }
-
-            let ret = $db.$func($default_count);
-            if let Ok(ret) = ret {
-                $cache.set(ret.clone());
-                return Ok(ret);
-            }
-
-            return ret;
-        }
-
-        $db.$func($count.unwrap_or($default_count))
-    }};
-}
-
-pub struct DataResultCache {
-    hourly_query_count: Arc<ResultCache<Vec<HourlyQueryCount>>>,
-    top_client_top_list: Arc<ResultCache<Vec<ClientQueryCount>>>,
-    top_domain_top_list: Arc<ResultCache<Vec<DomainQueryCount>>>,
-}
-
 pub struct DataServer {
-    conf: RwLock<DataServerConfig>,
+    conf: Arc<RwLock<DataServerConfig>>,
     notify_tx: Option<mpsc::Sender<()>>,
     notify_rx: Mutex<Option<mpsc::Receiver<()>>>,
     data_tx: Option<mpsc::Sender<DnsRequest>>,
     data_rx: Mutex<Option<mpsc::Receiver<DnsRequest>>>,
     db: Arc<DB>,
+    disable_handle_request: AtomicBool,
     stat: Arc<DataStats>,
     server_log: ServerLog,
     plugin: Mutex<Option<Arc<SmartdnsPlugin>>>,
-    result_cache: Arc<DataResultCache>,
     whois: whois::WhoIs,
+    startup_timestamp: u64,
 }
 
 impl DataServer {
     pub fn new() -> Self {
+        let db = Arc::new(DB::new());
+        let conf = Arc::new(RwLock::new(DataServerConfig::new()));
         let mut plugin = DataServer {
-            conf: RwLock::new(DataServerConfig::new()),
+            conf: conf.clone(),
             notify_tx: None,
             notify_rx: Mutex::new(None),
             data_tx: None,
             data_rx: Mutex::new(None),
-            db: Arc::new(DB::new()),
-            stat: DataStats::new(),
+            db: db.clone(),
+            stat: DataStats::new(db, conf.clone()),
             server_log: ServerLog::new(),
             plugin: Mutex::new(None),
-            result_cache: Arc::new(DataResultCache {
-                hourly_query_count: ResultCache::new(Duration::from_secs(60 * 10)),
-                top_client_top_list: ResultCache::new(Duration::from_secs(60 * 10)),
-                top_domain_top_list: ResultCache::new(Duration::from_secs(60 * 10)),
-            }),
             whois: whois::WhoIs::new(),
+            startup_timestamp: get_utc_time_ms(),
+            disable_handle_request: AtomicBool::new(false),
         };
 
         let (tx, rx) = mpsc::channel(100);
         plugin.notify_tx = Some(tx);
         plugin.notify_rx = Mutex::new(Some(rx));
 
-        let (tx, rx) = mpsc::channel(4096);
+        let (tx, rx) = mpsc::channel(1024 * 32);
         plugin.data_tx = Some(tx);
         plugin.data_rx = Mutex::new(Some(rx));
 
@@ -279,13 +270,16 @@ impl DataServer {
     fn init_server(&self, conf: &DataServerConfig) -> Result<(), Box<dyn Error>> {
         let mut conf_clone = self.conf.write().unwrap();
         *conf_clone = conf.clone();
+
+        smartdns::smartdns_enable_update_neighbour(true);
+
         dns_log!(LogLevel::INFO, "open db: {}", conf_clone.data_root);
         let ret = self.db.open(&conf_clone.data_root);
         if let Err(e) = ret {
             return Err(e);
         }
 
-        let ret = self.stat.clone().init();
+        let ret = self.stat.init();
         if let Err(e) = ret {
             return Err(e);
         }
@@ -302,10 +296,24 @@ impl DataServer {
         Arc::clone(&plugin.as_ref().unwrap())
     }
 
+    pub fn get_data_server_config(&self) -> DataServerConfig {
+        let conf = self.conf.read().unwrap();
+        conf.clone()
+    }
+
     pub fn get_config(&self, key: &str) -> Option<String> {
         let ret = self.db.get_config(key);
         if let Ok(value) = ret {
             return value;
+        }
+
+        None
+    }
+
+    pub fn get_server_config_from_file(&self, key: &str) -> Option<String> {
+        let ret = Plugin::dns_conf_plugin_config(key);
+        if let Some(value) = ret {
+            return Some(value);
         }
 
         None
@@ -349,7 +357,7 @@ impl DataServer {
         self.db.get_domain_list(Some(param))
     }
 
-    pub fn get_domain_list_count(&self) -> u32 {
+    pub fn get_domain_list_count(&self) -> u64 {
         self.db.get_domain_list_count(None)
     }
 
@@ -369,51 +377,66 @@ impl DataServer {
         &self,
         count: Option<u32>,
     ) -> Result<Vec<ClientQueryCount>, Box<dyn Error>> {
-        query_default_with_cache!(
-            self.result_cache.top_client_top_list,
-            self.db,
-            get_client_top_list,
-            count,
-            10,
-            Vec<ClientQueryCount>
-        )
+        self.db.get_client_top_list(count.unwrap_or(10))
     }
 
     pub fn get_top_domain_top_list(
         &self,
         count: Option<u32>,
     ) -> Result<Vec<DomainQueryCount>, Box<dyn Error>> {
-        query_default_with_cache!(
-            self.result_cache.top_domain_top_list,
-            self.db,
-            get_domain_top_list,
-            count,
-            10,
-            Vec<DomainQueryCount>
-        )
+        self.db.get_domain_top_list(count.unwrap_or(10))
     }
 
     pub fn get_hourly_query_count(
         &self,
         past_hours: Option<u32>,
-    ) -> Result<Vec<HourlyQueryCount>, Box<dyn Error>> {
-        query_default_with_cache!(
-            self.result_cache.hourly_query_count,
-            self.db,
-            get_hourly_query_count,
-            past_hours,
-            24,
-            Vec<HourlyQueryCount>
-        )
+    ) -> Result<HourlyQueryCount, Box<dyn Error>> {
+        self.db.get_hourly_query_count(past_hours.unwrap_or(24))
     }
 
-    pub fn get_overview(&self) -> Result<OverviewData, Box<dyn Error>> {
-        let overview = OverviewData {
-            total_query_count: smartdns::Stats::get_request_total(),
-            block_query_count: smartdns::Stats::get_request_blocked(),
+    pub fn get_daily_query_count(
+        &self,
+        past_days: Option<u32>,
+    ) -> Result<DailyQueryCount, Box<dyn Error>> {
+        self.db.get_daily_query_count(past_days.unwrap_or(30))
+    }
+
+    pub fn get_stat(&self) -> Arc<DataStats> {
+        self.stat.clone()
+    }
+
+    pub fn get_metrics(&self) -> Result<MetricsData, Box<dyn Error + Send>> {
+        let metrics = MetricsData {
+            total_query_count: self.stat.get_total_request(),
+            block_query_count: self.stat.get_total_blocked_request(),
             avg_query_time: smartdns::Stats::get_avg_process_time(),
             cache_hit_rate: smartdns::Stats::get_cache_hit_rate(),
             cache_number: smartdns::Plugin::dns_cache_total_num() as u64,
+            cache_memory_size: smartdns::Stats::get_cache_memory_size(),
+            qps: self.stat.get_qps(),
+            memory_usage: self.stat.get_memory_usage(),
+            is_metrics_suspended: self.is_handle_request_disabled(),
+        };
+
+        Ok(metrics)
+    }
+
+    pub fn is_handle_request_disabled(&self) -> bool {
+        self.disable_handle_request
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn get_free_disk_space(&self) -> u64 {
+        utils::get_free_disk_space(&self.get_data_server_config().data_root)
+    }
+
+    pub fn get_overview(&self) -> Result<OverviewData, Box<dyn Error + Send>> {
+        let overview = OverviewData {
+            server_name: smartdns::smartdns_get_server_name(),
+            db_size: self.db.get_db_size(),
+            startup_timestamp: self.startup_timestamp,
+            free_disk_space: self.get_free_disk_space(),
+            is_process_suspended: self.is_handle_request_disabled(),
         };
 
         Ok(overview)
@@ -432,11 +455,18 @@ impl DataServer {
         let client_ip = vec![data.client.clone()];
         self.db.insert_client(&client_ip)?;
         let list = vec![data.clone()];
+        self.stat.add_total_request(1);
+        if data.is_blocked {
+            self.stat.add_total_blocked_request(1);
+        }
+
         self.db.insert_domain(&list)
     }
 
     async fn data_server_handle_dns_request(this: Arc<DataServer>, req_list: &Vec<DnsRequest>) {
-        let mut data_list = Vec::new();
+        let mut domain_data_list = Vec::new();
+        let mut blocked_num = 0;
+
         for req in req_list {
             if req.is_prefetch_request() {
                 continue;
@@ -444,6 +474,10 @@ impl DataServer {
 
             if req.is_dualstack_request() {
                 continue;
+            }
+
+            if req.get_is_blocked() {
+                blocked_num += 1;
             }
 
             let domain_data = DomainData {
@@ -466,32 +500,38 @@ impl DataServer {
                 domain_data.domain_type
             );
 
-            data_list.push(domain_data);
+            domain_data_list.push(domain_data);
         }
+
+        this.stat.add_total_request(domain_data_list.len() as u64);
+        this.stat.add_total_blocked_request(blocked_num as u64);
 
         dns_log!(
             LogLevel::DEBUG,
             "insert domain list count:{}",
-            data_list.len()
+            domain_data_list.len()
         );
-        let ret = this.insert_domain_by_list(&data_list);
+
+        let ret = DataServer::call_blocking(this.clone(), move || {
+            let ret = this.insert_domain_by_list(&domain_data_list);
+            if let Err(e) = ret {
+                return Err(e.to_string());
+            }
+
+            let ret = ret.unwrap();
+            Ok(ret)
+        })
+        .await;
+
         if let Err(e) = ret {
             dns_log!(LogLevel::ERROR, "insert domain error: {}", e);
+            return;
         }
-    }
 
-    async fn hourly_work(this: Arc<DataServer>) {
-        dns_log!(LogLevel::ERROR, "start hourly work");
-        let now = get_utc_time_ms();
+        let ret = ret.unwrap();
 
-        let ret = this
-            .delete_domain_before_timestamp(now - this.conf.read().unwrap().max_log_age_ms as u64);
         if let Err(e) = ret {
-            dns_log!(
-                LogLevel::WARN,
-                "delete domain before timestamp error: {}",
-                e
-            );
+            dns_log!(LogLevel::ERROR, "insert domain error: {}", e);
         }
     }
 
@@ -501,6 +541,39 @@ impl DataServer {
 
     pub fn server_log(&self, level: LogLevel, msg: &str, msg_len: i32) {
         self.server_log.dispatch_log(level, msg, msg_len);
+    }
+
+    fn server_check(&self) {
+        let free_disk_space = self.get_free_disk_space();
+        if free_disk_space < MIN_FREE_DISK_SPACE {
+            if self
+                .disable_handle_request
+                .fetch_or(true, std::sync::atomic::Ordering::Relaxed)
+            {
+                return;
+            }
+
+            dns_log!(
+                LogLevel::WARN,
+                "free disk space is low, stop handle request. {}",
+                self.disable_handle_request
+                    .load(std::sync::atomic::Ordering::Relaxed)
+            );
+        } else {
+            if !self
+                .disable_handle_request
+                .load(std::sync::atomic::Ordering::Relaxed)
+            {
+                return;
+            }
+
+            self.disable_handle_request
+                .store(false, std::sync::atomic::Ordering::Relaxed);
+            dns_log!(
+                LogLevel::INFO,
+                "free disk space is enough, start handle request."
+            );
+        }
     }
 
     async fn data_server_loop(this: Arc<DataServer>) -> Result<(), Box<dyn Error>> {
@@ -516,10 +589,10 @@ impl DataServer {
 
         this.stat.clone().start_worker()?;
 
-        let start: Instant = Instant::now() + Duration::from_secs(utils::seconds_until_next_hour());
-        let mut hour_timer = interval_at(start, Duration::from_secs(60 * 60));
         let mut req_list: Vec<DnsRequest> = Vec::new();
         let mut batch_timer: Option<tokio::time::Interval> = None;
+        let mut check_timer = tokio::time::interval(Duration::from_secs(60));
+        let is_check_timer_running = Arc::new(AtomicBool::new(false));
 
         dns_log!(LogLevel::INFO, "data server start.");
 
@@ -528,8 +601,21 @@ impl DataServer {
                 _ = rx.recv() => {
                     break;
                 }
-                _ = hour_timer.tick() => {
-                    DataServer::hourly_work(this.clone()).await;
+                _ = check_timer.tick() => {
+                    if is_check_timer_running.fetch_xor(true, std::sync::atomic::Ordering::Relaxed) {
+                        continue;
+                    }
+
+                    let is_check_timer_running_clone = is_check_timer_running.clone();
+                    let this_clone = this.clone();
+                    let ret = DataServer::call_blocking(this.clone(), move || {
+                        this_clone.server_check();
+                        is_check_timer_running_clone.store(false, std::sync::atomic::Ordering::Relaxed);
+                    }).await;
+
+                    if let Err(e) = ret {
+                        dns_log!(LogLevel::WARN, "data server check error: {}", e);
+                    }
                 }
                 _ = async {
                     if let Some(ref mut timer) = batch_timer {
@@ -551,7 +637,7 @@ impl DataServer {
                                 ));
                             }
 
-                            if req_list.len() < 1000 {
+                            if req_list.len() <= 65535 {
                                 continue;
                             }
 
@@ -581,5 +667,29 @@ impl DataServer {
                 });
             });
         }
+    }
+
+    async fn call_blocking<F, R>(
+        this: Arc<DataServer>,
+        func: F,
+    ) -> Result<R, Box<dyn std::error::Error + Send>>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        let rt = this.get_plugin().get_runtime();
+
+        let ret = rt.spawn_blocking(move || -> R {
+            return func();
+        });
+
+        let ret = ret.await;
+        if ret.is_err() {
+            return Err(Box::new(ret.err().unwrap()));
+        }
+
+        let ret = ret.unwrap();
+
+        return Ok(ret);
     }
 }

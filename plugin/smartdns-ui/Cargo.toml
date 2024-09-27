@@ -30,6 +30,7 @@ urlencoding = "2.1.3"
 chrono = "0.4.38"
 nix = "0.29.0"
 tokio-fd = "0.3.0"
+pbkdf2 = { version = "0.12", features = ["simple"] }
 
 [features]
 build-release = []
