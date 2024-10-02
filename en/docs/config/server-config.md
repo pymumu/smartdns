@@ -5,7 +5,7 @@ hide:
 
 # Server Configuration
 
-Currently, smartdns provides three server modes: UDP, TCP, DOH, and DOT.
+Currently, smartdns provides four server modes: UDP, TCP, DOH, and DOT.
 
 ## UDP Server
 
@@ -54,6 +54,7 @@ Currently, smartdns provides three server modes: UDP, TCP, DOH, and DOT.
     bind-https [::]:443@eth0
     bind-https :443@eth0
 
+    ```
 
 1. Set certificate and key files
 
