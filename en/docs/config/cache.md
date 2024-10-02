@@ -19,9 +19,9 @@ cache-file /path/to/cache/file
 
 Note:
 
-  1. SmartDNS enable cache according to disk space by default.
-  1. Cache files will only be saved for next use when processes exited normally.
-  1. Cache size `cache-size` usually does not need to be set. SmartDNS will automatically set it based on the system memory situation.
+  1. SmartDNS enable cache according to disk space by default.
+  1. Cache files will only be saved for next use when processes exited normally.
+  1. Cache size `cache-size` usually does not need to be set. SmartDNS will automatically set it based on the system memory situation.
 
 ## Cache prefetch
 
