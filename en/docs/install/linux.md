@@ -65,9 +65,9 @@ Modify the DNS server of the local router and configure the DNS server as SmartD
 - Log in to the router on the local network and configure the Raspberry Pi to assign a static IP address.
 - Modify the WAN port or DHCP DNS to the Raspberry Pi IP address.
 
-Note:
-I. Each router configuration method is different. Please search Baidu for related configuration methods.
-II. some routers may not support configuring custom DNS server. in this case, please modify the PC's, mobile phone's DNS server to the ip of Raspberry Pi.
+    Note:
+    1. Each router configuration method is different. Please search Baidu for related configuration methods.
+    1. some routers may not support configuring custom DNS server. in this case, please modify the PC's, mobile phone's DNS server to the ip of Raspberry Pi.
 
 ## Check if the service is configured successfully
 
