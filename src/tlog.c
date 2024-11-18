@@ -1080,16 +1080,17 @@ static void _tlog_close_all_fd(void)
         }
     }
 
-    close(dir_fd);
 
     if (bytes < 0) {
         goto errout;
     }
 
+    close(dir_fd);
     return;
 errout:
     if (dir_fd > 0) {
         close(dir_fd);
+        dir_fd = -1;
     }
 #endif
     _tlog_close_all_fd_by_res();
