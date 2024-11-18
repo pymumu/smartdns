@@ -1804,6 +1804,20 @@ static void _dns_replied_check_remove(struct dns_query_struct *dns_query, struct
 	}
 }
 
+static int _dns_client_server_package_address_match(struct dns_server_info *server_info, struct sockaddr *addr,
+													socklen_t addr_len)
+{
+	if (addr_len != server_info->ai_addrlen) {
+		return -1;
+	}
+
+	if (memcmp(addr, &server_info->addr, addr_len) != 0) {
+		return -1;
+	}
+
+	return 0;
+}
+
 static int _dns_client_recv(struct dns_server_info *server_info, unsigned char *inpacket, int inpacket_len,
 							struct sockaddr *from, socklen_t from_len)
 {
@@ -1823,6 +1837,11 @@ static int _dns_client_recv(struct dns_server_info *server_info, unsigned char *
 	int has_opt = 0;
 
 	packet->head.tc = 0;
+
+	if (_dns_client_server_package_address_match(server_info, from, from_len) != 0) {
+		tlog(TLOG_DEBUG, "packet from invalid server.");
+		return -1;
+	}
 
 	/* decode domain from udp packet */
 	len = dns_decode(packet, DNS_PACKSIZE, inpacket, inpacket_len);
