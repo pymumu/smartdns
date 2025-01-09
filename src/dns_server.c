@@ -91,6 +91,7 @@
 #define RECV_ERROR_FAIL (-1)
 #define RECV_ERROR_CLOSE (-2)
 #define RECV_ERROR_INVALID_PACKET (-3)
+#define RECV_ERROR_BAD_PATH (-4)
 
 typedef enum {
 	DNS_CONN_TYPE_UDP_SERVER = 0,
@@ -7853,6 +7854,7 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn_tcp_client
 			} else if (http_head_get_method(http_head) == HTTP_METHOD_GET) {
 				const char *path = http_head_get_url(http_head);
 				if (path == NULL || strncasecmp(path, "/dns-query", sizeof("/dns-query")) != 0) {
+					ret = RECV_ERROR_BAD_PATH;
 					tlog(TLOG_DEBUG, "path not supported, %s", path);
 					goto errout;
 				}
@@ -7955,9 +7957,12 @@ errout:
 		free(base64_query);
 	}
 
-	if ((ret == RECV_ERROR_FAIL || ret == RECV_ERROR_INVALID_PACKET) &&
-		tcpclient->head.type == DNS_CONN_TYPE_HTTPS_CLIENT) {
-		_dns_server_reply_http_error(tcpclient, 400, "Bad Request", "Bad Request");
+	if (tcpclient->head.type == DNS_CONN_TYPE_HTTPS_CLIENT) {
+		if (ret == RECV_ERROR_BAD_PATH) {
+			_dns_server_reply_http_error(tcpclient, 404, "Not Found", "Not Found");
+		} else if (ret == RECV_ERROR_FAIL || ret == RECV_ERROR_INVALID_PACKET) {
+			_dns_server_reply_http_error(tcpclient, 400, "Bad Request", "Bad Request");
+		}
 	}
 
 	return ret;
