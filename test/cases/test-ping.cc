@@ -54,6 +54,13 @@ TEST_F(Ping, icmp)
 {
 	struct ping_host_struct *ping_host;
 	int count = 0;
+	
+	if (smartdns::IsICMPAvailable() == false) {
+		tlog(TLOG_INFO, "ICMP is not available, skip this test.");
+		GTEST_SKIP();
+		return;
+	}
+
 	ping_host = fast_ping_start(PING_TYPE_ICMP, "127.0.0.1", 1, 1, 200, ping_result_callback, &count);
 	ASSERT_NE(ping_host, nullptr);
 	usleep(10000);

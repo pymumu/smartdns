@@ -738,6 +738,7 @@ extern int dns_no_pidfile;
 extern int dns_no_daemon;
 extern int dns_restart_on_crash;
 extern size_t dns_socket_buff_size;
+extern int dns_ping_cap_force_enable;
 
 void dns_server_load_exit(void);
 
