@@ -55,7 +55,9 @@ domain-rules /a.com/ -r fastest-response
 	std::cout << client.GetResult() << std::endl;
 	ASSERT_EQ(client.GetAnswerNum(), 1);
 	EXPECT_EQ(client.GetStatus(), "NOERROR");
-	EXPECT_GT(client.GetQueryTime(), 100);
+	if (smartdns::IsICMPAvailable()) {
+		EXPECT_GT(client.GetQueryTime(), 100);
+	}
 	EXPECT_EQ(client.GetAnswer()[0].GetName(), "b.com");
 	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 600);
 
@@ -131,7 +133,10 @@ domain-rules /a.com/ -c none
 	std::cout << client.GetResult() << std::endl;
 	ASSERT_EQ(client.GetAnswerNum(), 1);
 	EXPECT_EQ(client.GetStatus(), "NOERROR");
-	EXPECT_GT(client.GetQueryTime(), 200);
+	if (smartdns::IsICMPAvailable()) {
+		EXPECT_GT(client.GetQueryTime(), 200);
+	}
+
 	EXPECT_EQ(client.GetAnswer()[0].GetName(), "b.com");
 	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 600);
 

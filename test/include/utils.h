@@ -109,5 +109,7 @@ int ParserArg(const std::string &cmd, std::vector<std::string> &args);
 
 std::vector<std::string> GetAvailableIPAddresses();
 
+bool IsICMPAvailable();
+
 } // namespace smartdns
 #endif // _SMARTDNS_TEST_UTILS_

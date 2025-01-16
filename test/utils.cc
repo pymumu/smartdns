@@ -1,4 +1,5 @@
 #include "include/utils.h"
+#include "util.h"
 #include <arpa/inet.h>
 #include <ifaddrs.h>
 #include <netinet/in.h>
@@ -303,6 +304,24 @@ std::vector<std::string> GetAvailableIPAddresses()
 	}
 
 	return ipAddresses;
+}
+
+bool IsICMPAvailable()
+{
+	int fd = -1;
+	if (has_unprivileged_ping()) {
+		fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP);
+	} else {
+		fd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
+	}
+
+	if (fd < 0) {
+		return false;
+	}
+
+	close(fd);
+
+	return true;
 }
 
 } // namespace smartdns

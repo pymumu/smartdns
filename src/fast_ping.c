@@ -191,6 +191,7 @@ static int bool_print_log = 1;
 static void _fast_ping_host_put(struct ping_host_struct *ping_host);
 static int _fast_ping_get_addr_by_type(PING_TYPE type, const char *ip_str, int port, struct addrinfo **out_gai,
 									   FAST_PING_TYPE *out_ping_type);
+static int _fast_ping_create_icmp(FAST_PING_TYPE type);
 
 static void _fast_ping_wakeup_thread(void)
 {
@@ -704,11 +705,26 @@ static void _fast_ping_host_remove(struct ping_host_struct *ping_host)
 	_fast_ping_host_put(ping_host);
 }
 
+static int _fast_ping_icmp_create_socket(struct ping_host_struct *ping_host)
+{
+	if (_fast_ping_create_icmp(ping_host->type) < 0) {
+		goto errout;
+	}
+
+	return 0;
+errout:
+	return -1;
+}
+
 static int _fast_ping_sendping_v6(struct ping_host_struct *ping_host)
 {
 	struct fast_ping_packet *packet = &ping_host->packet;
 	struct icmp6_hdr *icmp6 = &packet->icmp6;
 	int len = 0;
+
+	if (_fast_ping_icmp_create_socket(ping_host) < 0) {
+		goto errout;
+	}
 
 	if (ping.fd_icmp6 <= 0) {
 		errno = EADDRNOTAVAIL;
@@ -795,6 +811,15 @@ errout:
 
 static int _fast_ping_sendping_v4(struct ping_host_struct *ping_host)
 {
+	if (_fast_ping_icmp_create_socket(ping_host) < 0) {
+		goto errout;
+	}
+
+	if (ping.fd_icmp <= 0) {
+		errno = EADDRNOTAVAIL;
+		goto errout;
+	}
+
 	struct fast_ping_packet *packet = &ping_host->packet;
 	struct icmp *icmp = &packet->icmp;
 	int len = 0;
@@ -1258,10 +1283,6 @@ static int _fast_ping_get_addr_by_icmp(const char *ip_str, int port, struct addr
 	default:
 		goto errout;
 		break;
-	}
-
-	if (_fast_ping_create_icmp(ping_type) < 0) {
-		goto errout;
 	}
 
 	if (out_gai != NULL) {
