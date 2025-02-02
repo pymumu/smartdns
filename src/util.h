@@ -184,6 +184,8 @@ void daemon_close_stdfds(void);
 
 int write_file(const char *filename, void *data, int data_len);
 
+int set_http_host(const char *uri_host, int port, int default_port, char *host);
+
 int dns_packet_save(const char *dir, const char *type, const char *from, const void *packet, int packet_len);
 
 int dns_packet_debug(const char *packet_file);

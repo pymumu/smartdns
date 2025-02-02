@@ -2225,6 +2225,23 @@ int parser_mac_address(const char *in_mac, uint8_t mac[6])
 	return -1;
 }
 
+int set_http_host(const char *uri_host, int port, int default_port, char *host)
+{
+	int is_ipv6;
+
+	if (uri_host == NULL || port <= 0 || host == NULL) {
+		return -1;
+	}
+
+	is_ipv6 = check_is_ipv6(uri_host);
+	if (port == default_port) {
+		snprintf(host, DNS_MAX_CNAME_LEN, "%s%s%s", is_ipv6 == 0 ? "[" : "", uri_host, is_ipv6 == 0 ? "]" : "");
+	} else  {
+		snprintf(host, DNS_MAX_CNAME_LEN, "%s%s%s:%d", is_ipv6 == 0 ? "[" : "", uri_host, is_ipv6 == 0 ? "]" : "", port);
+	}
+	return 0;
+}
+
 #if defined(DEBUG) || defined(TEST)
 struct _dns_read_packet_info {
 	int data_len;
