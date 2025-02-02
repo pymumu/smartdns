@@ -21,6 +21,7 @@
 
 #include "art.h"
 #include "atomic.h"
+#include "common.h"
 #include "conf.h"
 #include "dns.h"
 #include "dns_client.h"
@@ -33,44 +34,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-#define DNS_MAX_BIND_IP 32
-#define DNS_MAX_SERVERS 64
-#define DNS_MAX_SERVER_NAME_LEN 128
-#define DNS_MAX_PTR_LEN 128
-#define DNS_MAX_IPSET_NAMELEN 32
-#define DNS_MAX_NFTSET_FAMILYLEN 8
-#define DNS_MAX_NFTSET_NAMELEN 256
-#define DNS_GROUP_NAME_LEN 32
-
-#define PROXY_NAME_LEN 32
-#define PROXY_MAX_SERVERS 128
-
-#define DNS_NAX_GROUP_NUMBER 16
-#define DNS_MAX_IPLEN 64
-#define DNS_PROXY_MAX_LEN 128
-#define DNS_CONF_USERNAME_LEN 32
-#define DNS_MAX_SPKI_LEN 64
-#define DNS_MAX_URL_LEN 256
-#define DNS_MAX_PATH 1024
-#define DEFAULT_DNS_PORT 53
-#define DEFAULT_DNS_TLS_PORT 853
-#define DEFAULT_DNS_HTTPS_PORT 443
-#define DNS_MAX_CONF_CNAME_LEN 256
-#define MAX_QTYPE_NUM 65535
-#define DNS_MAX_REPLY_IP_NUM 8
-#define DNS_MAX_QUERY_LIMIT 65535
-#define DNS_DEFAULT_CHECKPOINT_TIME (3600 * 24)
-#define DNS_MAX_SERVE_EXPIRED_TIME (3600 * 24 * 365)
-#define MAX_INTERFACE_LEN 16
-
-#define SMARTDNS_CONF_FILE "/etc/smartdns/smartdns.conf"
-#define SMARTDNS_LOG_FILE "/var/log/smartdns/smartdns.log"
-#define SMARTDNS_AUDIT_FILE "/var/log/smartdns/smartdns-audit.log"
-#define SMARTDNS_CACHE_FILE "/var/cache/smartdns/smartdns.cache"
-#define SMARTDNS_TMP_CACHE_FILE "/tmp/smartdns.cache"
-#define SMARTDNS_DEBUG_DIR "/tmp/smartdns"
-#define DNS_RESOLV_FILE "/etc/resolv.conf"
 
 enum domain_rule {
 	DOMAIN_RULE_FLAGS = 0,

@@ -19,24 +19,11 @@
 #ifndef _DNS_HEAD_H
 #define _DNS_HEAD_H
 
+#include "common.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif /*__cplusplus */
-
-#define DNS_RR_A_LEN 4
-#define DNS_RR_AAAA_LEN 16
-#define DNS_MAX_CNAME_LEN 256
-#define DNS_MAX_OPT_LEN 256
-#define DNS_IN_PACKSIZE (512 * 8)
-#define DNS_PACKSIZE (512 * 16)
-#define DNS_DEFAULT_PACKET_SIZE 512
-#define DNS_MAX_ALPN_LEN 32
-#define DNS_MAX_ECH_LEN 512
-
-#define DNS_OPT_FLAG_DO 0x8000
-
-#define DNS_ADDR_FAMILY_IP 1
-#define DNS_ADDR_FAMILY_IPV6 2
 
 /*
 DNS parameters:
