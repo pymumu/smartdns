@@ -1163,7 +1163,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 		}
 
 		if (server->httphost[0] == '\0') {
-			safe_strncpy(server->httphost, server->server, DNS_MAX_CNAME_LEN);
+			set_http_host(server->server, server->port, DEFAULT_DNS_HTTPS_PORT, server->httphost);
 		}
 	}
 

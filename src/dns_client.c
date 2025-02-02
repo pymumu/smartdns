@@ -1135,7 +1135,7 @@ static int _dns_client_server_add(char *server_ip, char *server_host, int port, 
 			if (server_host) {
 				safe_strncpy(flag_https->httphost, server_host, DNS_MAX_CNAME_LEN);
 			} else {
-				safe_strncpy(flag_https->httphost, server_ip, DNS_MAX_CNAME_LEN);
+				set_http_host(server_ip, port, DEFAULT_DNS_HTTPS_PORT, flag_https->httphost);
 			}
 		}
 		sock_type = SOCK_STREAM;
