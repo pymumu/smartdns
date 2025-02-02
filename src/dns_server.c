@@ -5331,19 +5331,24 @@ static int _dns_server_get_rules(unsigned char *key, uint32_t key_len, int is_su
 	struct rule_walk_args *walk_args = arg;
 	struct dns_request_domain_rule *request_domain_rule = walk_args->args;
 	struct dns_domain_rule *domain_rule = value;
+	struct dns_rule *rule;
+	int sub_rule_only = 0;
+	int root_rule_only = 0;
 	int i = 0;
 	if (domain_rule == NULL) {
 		return 0;
 	}
 
-	if (domain_rule->sub_rule_only != domain_rule->root_rule_only) {
+	// always success when domain_rule is not NULL
+	domain_rule_get_data(domain_rule, &sub_rule_only, &root_rule_only);
+	if (sub_rule_only != root_rule_only) {
 		/* only subkey rule */
-		if (domain_rule->sub_rule_only == 1 && is_subkey == 0) {
+		if (sub_rule_only == 1 && is_subkey == 0) {
 			return 0;
 		}
 
 		/* only root key rule */
-		if (domain_rule->root_rule_only == 1 && is_subkey == 1) {
+		if (root_rule_only == 1 && is_subkey == 1) {
 			return 0;
 		}
 	}
@@ -5355,14 +5360,15 @@ static int _dns_server_get_rules(unsigned char *key, uint32_t key_len, int is_su
 	}
 
 	for (; i < DOMAIN_RULE_MAX; i++) {
-		if (domain_rule->rules[i] == NULL) {
+		rule = domain_rule_get(domain_rule, i);
+		if (rule == NULL) {
 			if (walk_args->rule_index >= 0) {
 				break;
 			}
 			continue;
 		}
 
-		request_domain_rule->rules[i] = domain_rule->rules[i];
+		request_domain_rule->rules[i] = rule;
 		request_domain_rule->is_sub_rule[i] = is_subkey;
 		walk_args->key[i] = key;
 		walk_args->key_len[i] = key_len;

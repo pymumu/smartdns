@@ -285,87 +285,6 @@ static __attribute__((unused)) int _dns_conf_group_enum(int value, int *data)
 	return 0;
 }
 
-static void *_new_dns_rule_ext(enum domain_rule domain_rule, int ext_size)
-{
-	struct dns_rule *rule;
-	int size = 0;
-
-	if (domain_rule >= DOMAIN_RULE_MAX) {
-		return NULL;
-	}
-
-	switch (domain_rule) {
-	case DOMAIN_RULE_FLAGS:
-		size = sizeof(struct dns_rule_flags);
-		break;
-	case DOMAIN_RULE_ADDRESS_IPV4:
-		size = sizeof(struct dns_rule_address_IPV4);
-		break;
-	case DOMAIN_RULE_ADDRESS_IPV6:
-		size = sizeof(struct dns_rule_address_IPV6);
-		break;
-	case DOMAIN_RULE_IPSET:
-	case DOMAIN_RULE_IPSET_IPV4:
-	case DOMAIN_RULE_IPSET_IPV6:
-		size = sizeof(struct dns_ipset_rule);
-		break;
-	case DOMAIN_RULE_NFTSET_IP:
-	case DOMAIN_RULE_NFTSET_IP6:
-		size = sizeof(struct dns_nftset_rule);
-		break;
-	case DOMAIN_RULE_NAMESERVER:
-		size = sizeof(struct dns_nameserver_rule);
-		break;
-	case DOMAIN_RULE_GROUP:
-		size = sizeof(struct dns_group_rule);
-		break;
-	case DOMAIN_RULE_CHECKSPEED:
-		size = sizeof(struct dns_domain_check_orders);
-		break;
-	case DOMAIN_RULE_RESPONSE_MODE:
-		size = sizeof(struct dns_response_mode_rule);
-		break;
-	case DOMAIN_RULE_CNAME:
-		size = sizeof(struct dns_cname_rule);
-		break;
-	case DOMAIN_RULE_HTTPS:
-		size = sizeof(struct dns_https_record_rule);
-		break;
-	case DOMAIN_RULE_TTL:
-		size = sizeof(struct dns_ttl_rule);
-		break;
-	default:
-		return NULL;
-	}
-
-	size += ext_size;
-	rule = malloc(size);
-	if (!rule) {
-		return NULL;
-	}
-	memset(rule, 0, size);
-	rule->rule = domain_rule;
-	atomic_set(&rule->refcnt, 1);
-	return rule;
-}
-
-static void *_new_dns_rule(enum domain_rule domain_rule)
-{
-	return _new_dns_rule_ext(domain_rule, 0);
-}
-
-static void _dns_rule_get(struct dns_rule *rule)
-{
-	atomic_inc(&rule->refcnt);
-}
-
-static void _dns_rule_put(struct dns_rule *rule)
-{
-	if (atomic_dec_and_test(&rule->refcnt)) {
-		free(rule);
-	}
-}
-
 static void _dns_iplist_ip_address_add(struct dns_iplist_ip_addresses *iplist, unsigned char addr[], int addr_len)
 {
 	iplist->ipaddr = realloc(iplist->ipaddr, (iplist->ipaddr_num + 1) * sizeof(struct dns_iplist_ip_address));
@@ -1213,31 +1132,10 @@ static int _config_update_bootstrap_dns_rule(void)
 	return 0;
 }
 
-static int _config_domain_rule_free(struct dns_domain_rule *domain_rule)
-{
-	int i = 0;
-
-	if (domain_rule == NULL) {
-		return 0;
-	}
-
-	for (i = 0; i < DOMAIN_RULE_MAX; i++) {
-		if (domain_rule->rules[i] == NULL) {
-			continue;
-		}
-
-		_dns_rule_put(domain_rule->rules[i]);
-		domain_rule->rules[i] = NULL;
-	}
-
-	free(domain_rule);
-	return 0;
-}
-
 static int _config_domain_iter_free(void *data, const unsigned char *key, uint32_t key_len, void *value)
 {
 	struct dns_domain_rule *domain_rule = value;
-	return _config_domain_rule_free(domain_rule);
+	return domain_rule_free(domain_rule);
 }
 
 static struct dns_conf_group *_config_rule_group_get(const char *group_name)
@@ -1525,38 +1423,35 @@ static int _config_domain_rule_add(const char *domain, enum domain_rule type, vo
 	/* Get existing or create domain rule */
 	domain_rule = art_search(&_config_current_rule_group()->domain_rule.tree, (unsigned char *)domain_key, len);
 	if (domain_rule == NULL) {
-		add_domain_rule = malloc(sizeof(*add_domain_rule));
+		add_domain_rule = domain_rule_new(1);
 		if (add_domain_rule == NULL) {
 			goto errout;
 		}
-		memset(add_domain_rule, 0, sizeof(*add_domain_rule));
 		domain_rule = add_domain_rule;
 	}
 
-	/* add new rule to domain */
-	if (domain_rule->rules[type]) {
-		_dns_rule_put(domain_rule->rules[type]);
-		domain_rule->rules[type] = NULL;
+	if (domain_rule_set_data(domain_rule, sub_rule_only, root_rule_only)) {
+		goto errout;
 	}
 
-	domain_rule->rules[type] = rule;
-	domain_rule->sub_rule_only = sub_rule_only;
-	domain_rule->root_rule_only = root_rule_only;
-	_dns_rule_get(rule);
+	/* add new rule to domain */
+	if (domain_rule_set(domain_rule, type, rule)) {
+		goto errout;
+	}
 
 	/* update domain rule */
 	if (add_domain_rule) {
 		old_domain_rule = art_insert(&_config_current_rule_group()->domain_rule.tree, (unsigned char *)domain_key, len,
 									 add_domain_rule);
 		if (old_domain_rule) {
-			_config_domain_rule_free(old_domain_rule);
+			domain_rule_free(old_domain_rule);
 		}
 	}
 
 	return 0;
 errout:
 	if (add_domain_rule) {
-		free(add_domain_rule);
+		domain_rule_free(add_domain_rule);
 	}
 
 	tlog(TLOG_ERROR, "add domain %s rule failed", domain);
@@ -1587,7 +1482,7 @@ static int _config_domain_rule_delete(const char *domain)
 	/* delete existing rules */
 	void *rule = art_delete(&_config_current_rule_group()->domain_rule.tree, (unsigned char *)domain_key, len);
 	if (rule) {
-		_config_domain_rule_free(rule);
+		domain_rule_free(rule);
 	}
 
 	return 0;
@@ -1630,25 +1525,23 @@ static int _config_domain_rule_flag_set(const char *domain, unsigned int flag, u
 	/* Get existing or create domain rule */
 	domain_rule = art_search(&_config_current_rule_group()->domain_rule.tree, (unsigned char *)domain_key, len);
 	if (domain_rule == NULL) {
-		add_domain_rule = malloc(sizeof(*add_domain_rule));
+		add_domain_rule = domain_rule_new(1);
 		if (add_domain_rule == NULL) {
 			goto errout;
 		}
-		memset(add_domain_rule, 0, sizeof(*add_domain_rule));
 		domain_rule = add_domain_rule;
 	}
 
-	/* add new rule to domain */
-	if (domain_rule->rules[DOMAIN_RULE_FLAGS] == NULL) {
-		rule_flags = _new_dns_rule(DOMAIN_RULE_FLAGS);
-		rule_flags->flags = 0;
-		domain_rule->rules[DOMAIN_RULE_FLAGS] = (struct dns_rule *)rule_flags;
+	if (domain_rule_set_data(domain_rule, sub_rule_only, root_rule_only)) {
+		goto errout;
 	}
 
-	domain_rule->sub_rule_only = sub_rule_only;
-	domain_rule->root_rule_only = root_rule_only;
+	/* add new rule to domain */
+	rule_flags = domain_rule_get_or_insert_flags(domain_rule);
+	if (rule_flags == NULL) {
+		goto errout;
+	}
 
-	rule_flags = (struct dns_rule_flags *)domain_rule->rules[DOMAIN_RULE_FLAGS];
 	if (is_clear == false) {
 		rule_flags->flags |= flag;
 	} else {
@@ -1661,14 +1554,14 @@ static int _config_domain_rule_flag_set(const char *domain, unsigned int flag, u
 		old_domain_rule = art_insert(&_config_current_rule_group()->domain_rule.tree, (unsigned char *)domain_key, len,
 									 add_domain_rule);
 		if (old_domain_rule) {
-			_config_domain_rule_free(old_domain_rule);
+			domain_rule_free(old_domain_rule);
 		}
 	}
 
 	return 0;
 errout:
 	if (add_domain_rule) {
-		free(add_domain_rule);
+		domain_rule_free(add_domain_rule);
 	}
 
 	tlog(TLOG_ERROR, "add domain %s rule failed", domain);
