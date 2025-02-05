@@ -124,8 +124,8 @@ static void destroy_node(art_node *n) {
         case NODE48:
             p.p3 = (art_node48*)n;
             for (i=0;i<256;i++) {
-                idx = ((art_node48*)n)->keys[i]; 
-                if (!idx) continue; 
+                idx = p.p3->keys[i];
+                if (!idx) continue;
                 destroy_node(p.p3->children[idx-1]);
             }
             break;
@@ -194,7 +194,7 @@ static art_node** find_child(art_node *n, unsigned char c) {
             //     __m128i cmp;
             //     cmp = _mm_cmpeq_epi8(_mm_set1_epi8(c),
             //             _mm_loadu_si128((__m128i*)p.p2->keys));
-                
+
             //     // Use a mask to ignore children that don't exist
             //     mask = (1 << n->num_children) - 1;
             //     bitfield = _mm_movemask_epi8(cmp) & mask;
@@ -393,7 +393,7 @@ static art_leaf* make_leaf(const unsigned char *key, int key_len, void *value) {
     if (l == NULL) {
 		return NULL;
 	}
-    
+
     l->value = value;
     l->key_len = key_len;
     memcpy(l->key, key, key_len);
@@ -447,7 +447,7 @@ static void add_child48(art_node48 *n, art_node **ref, unsigned char c, void *ch
 static void add_child16(art_node16 *n, art_node **ref, unsigned char c, void *child) {
     if (n->n.num_children < 16) {
         unsigned mask = (1 << n->n.num_children) - 1;
-        
+
         // support non-x86 architectures
         // #ifdef __i386__
         //     __m128i cmp;
@@ -478,7 +478,7 @@ static void add_child16(art_node16 *n, art_node **ref, unsigned char c, void *ch
             }
 
             // Use a mask to ignore children that don't exist
-            bitfield &= mask;    
+            bitfield &= mask;
         #endif
         // #endif
 
@@ -1025,7 +1025,7 @@ void *art_substring(const art_tree *t, const unsigned char *str, int str_len, un
 {
     art_node **child;
     art_node *n = t->root;
-    art_node *m;    
+    art_node *m;
     art_leaf *found = NULL;
     int prefix_len, depth = 0;
 
@@ -1078,7 +1078,7 @@ void art_substring_walk(const art_tree *t, const unsigned char *str, int str_len
 {
     art_node **child;
     art_node *n = t->root;
-    art_node *m;    
+    art_node *m;
     art_leaf *found = NULL;
     int prefix_len, depth = 0;
 	int stop_search = 0;
