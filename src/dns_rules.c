@@ -28,10 +28,6 @@ void *_new_dns_rule_ext(enum domain_rule domain_rule, int ext_size)
 	struct dns_rule *rule;
 	int size = 0;
 
-	if (domain_rule >= DOMAIN_RULE_MAX) {
-		return NULL;
-	}
-
 	switch (domain_rule) {
 	case DOMAIN_RULE_FLAGS:
 		size = sizeof(struct dns_rule_flags);
@@ -109,13 +105,22 @@ enum layout_type {
 	DOMAIN_RULE_LAYOUT_POINTER = 2,
 };
 
+#define INNER_ARRAY_SIZE 1
+
 struct dns_domain_rule {
 	unsigned char sub_rule_only : 1;
 	unsigned char root_rule_only : 1;
-	struct dns_rule *rules[DOMAIN_RULE_MAX];
+
+	unsigned char layout_type : 2;
+	uint8_t capacity;
+	uint32_t bitmap;
+	union {
+		struct dns_rule *arr[INNER_ARRAY_SIZE];
+		struct dns_rule **ptr;
+	} rules;
 };
 
-struct dns_domain_rule *domain_rule_new(uint8_t capacity)
+struct dns_domain_rule *domain_rule_new(uint8_t)
 {
 	struct dns_domain_rule *domain_rule;
 
@@ -124,33 +129,101 @@ struct dns_domain_rule *domain_rule_new(uint8_t capacity)
 		return NULL;
 	}
 
+	domain_rule->layout_type = DOMAIN_RULE_LAYOUT_ARRAY;
+	domain_rule->capacity = INNER_ARRAY_SIZE;
+	domain_rule->bitmap = 0;
+
 	return domain_rule;
 }
 
-static struct dns_rule **_domain_rule_access(struct dns_domain_rule *domain_rule, enum domain_rule type, int insert)
+static struct dns_rule **_domain_rule_rules(struct dns_domain_rule *domain_rule)
 {
 	if (domain_rule == NULL) {
 		return NULL;
 	}
 
-	return &domain_rule->rules[type];
+	switch (domain_rule->layout_type) {
+	case DOMAIN_RULE_LAYOUT_ARRAY:
+		return domain_rule->rules.arr;
+	case DOMAIN_RULE_LAYOUT_POINTER:
+		return domain_rule->rules.ptr;
+	default:
+		tlog(TLOG_ERROR, "unexpected domain rule layout %d", domain_rule->layout_type);
+		return NULL;
+	}
+}
+
+static struct dns_rule **_domain_rule_access(struct dns_domain_rule *domain_rule, enum domain_rule type, int insert)
+{
+	struct dns_rule **rules = _domain_rule_rules(domain_rule);
+	int i, size;
+	int new_capacity;
+	struct dns_rule **new_rules;
+
+	if (rules == NULL || type < 0 || type >= DOMAIN_RULE_MAX) {
+		return NULL;
+	}
+
+	i = __builtin_popcount(domain_rule->bitmap & ((1u << type) - 1));
+	if ((domain_rule->bitmap >> type) & 1) {
+		return &rules[i];
+	}
+
+	if (!insert) {
+		return NULL;
+	}
+
+	size = __builtin_popcount(domain_rule->bitmap);
+	if (size < domain_rule->capacity) {
+		memmove(rules + i + 1, rules + i, (size - i) * sizeof(void *));
+		rules[i] = NULL;
+		domain_rule->bitmap |= 1 << type;
+		return &rules[i];
+	} else {
+		new_capacity = domain_rule->capacity * 2;
+		if (new_capacity > DOMAIN_RULE_MAX) {
+			new_capacity = DOMAIN_RULE_MAX;
+		}
+		new_rules = (struct dns_rule **)malloc(new_capacity * sizeof(void *));
+		if (new_rules == NULL) {
+			return NULL;
+		}
+
+		memcpy(new_rules, rules, i * sizeof(void *));
+		memcpy(new_rules + i + 1, rules + i, (size - i) * sizeof(void *));
+		new_rules[i] = NULL;
+		if (domain_rule->layout_type == DOMAIN_RULE_LAYOUT_POINTER) {
+			free(rules);
+		}
+		domain_rule->layout_type = DOMAIN_RULE_LAYOUT_POINTER;
+		domain_rule->capacity = new_capacity;
+		domain_rule->bitmap |= 1 << type;
+		domain_rule->rules.ptr = new_rules;
+		return &new_rules[i];
+	}
 }
 
 int domain_rule_free(struct dns_domain_rule *domain_rule)
 {
-	int i = 0;
+	struct dns_rule **rules = _domain_rule_rules(domain_rule);
+	int type, i;
 
-	if (domain_rule == NULL) {
-		return 0;
+	if (rules != NULL) {
+		for (type = 0, i = 0; type < DOMAIN_RULE_MAX; ++type) {
+			if (((domain_rule->bitmap >> type) & 1) == 0) {
+				continue;
+			}
+
+			if (rules[i] != NULL) {
+				_dns_rule_put(rules[i]);
+			}
+
+			++i;
+		}
 	}
 
-	for (i = 0; i < DOMAIN_RULE_MAX; i++) {
-		if (domain_rule->rules[i] == NULL) {
-			continue;
-		}
-
-		_dns_rule_put(domain_rule->rules[i]);
-		domain_rule->rules[i] = NULL;
+	if (domain_rule->layout_type == DOMAIN_RULE_LAYOUT_POINTER) {
+		free(rules);
 	}
 
 	free(domain_rule);
