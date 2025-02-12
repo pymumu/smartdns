@@ -1807,6 +1807,10 @@ static void _dns_replied_check_remove(struct dns_query_struct *dns_query, struct
 static int _dns_client_server_package_address_match(struct dns_server_info *server_info, struct sockaddr *addr,
 													socklen_t addr_len)
 {
+	if (server_info->type == DNS_SERVER_MDNS) {
+		return 0;
+	}
+
 	if (addr_len != server_info->ai_addrlen) {
 		return -1;
 	}
