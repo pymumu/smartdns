@@ -5957,6 +5957,14 @@ static int _dns_server_process_cname(struct dns_request *request)
 		check_request = check_request->parent_request;
 	}
 
+	/* query cname domain  */
+	if (child_request->has_cname_loop == 1 && strncasecmp(request->domain, cname->cname, DNS_MAX_CNAME_LEN) == 0) {
+		request->has_cname_loop = 0;
+		request->domain_rule.rules[DOMAIN_RULE_CNAME] = NULL;
+		tlog(TLOG_DEBUG, "query cname domain %s", request->domain);
+		goto out;
+	}
+
 	child_group_name = _dns_server_get_request_server_groupname(child_request);
 	if (child_group_name) {
 		/* reset dns group and setup child request domain group again when do query.*/
@@ -5975,13 +5983,21 @@ static int _dns_server_process_cname(struct dns_request *request)
 	return 1;
 
 errout:
-
 	if (child_request) {
 		request->child_request = NULL;
 		_dns_server_request_release(child_request);
 	}
 
 	return -1;
+
+out:
+	if (child_request) {
+		child_request->parent_request = NULL;
+		request->child_request = NULL;
+		_dns_server_request_release(child_request);
+		_dns_server_request_release(request);
+	}
+	return 0;
 }
 
 static enum DNS_CHILD_POST_RESULT

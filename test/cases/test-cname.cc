@@ -161,3 +161,35 @@ server 127.0.0.1:61053
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "c.a.com.");
 	EXPECT_EQ(client.GetAnswer()[1].GetData(), "4.5.6.7");
 }
+
+TEST_F(Cname, query_cname)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::Server server;
+
+	server_upstream.Start("udp://0.0.0.0:61053", [](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype != DNS_T_A) {
+			return smartdns::SERVER_REQUEST_SOA;
+		}
+
+		if (request->domain == "s.a.com") {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "4.5.6.7", 700);
+			return smartdns::SERVER_REQUEST_OK;
+		}
+
+		smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4", 611);
+		return smartdns::SERVER_REQUEST_OK;
+	});
+
+	server.Start(R"""(bind [::]:60053
+cname /a.com/s.a.com
+server 127.0.0.1:61053
+)""");
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("s.a.com", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "s.a.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "4.5.6.7");
+}
