@@ -155,3 +155,74 @@ dualstack-ip-selection no
 	EXPECT_EQ(client.GetAnswer()[0].GetType(), "PTR");
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "my-server.");
 }
+
+
+TEST_F(Ptr, private_soa)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::Server server;
+
+	server_upstream.Start("udp://0.0.0.0:61053", [&](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype == DNS_T_A) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4");
+			return smartdns::SERVER_REQUEST_OK;
+		}
+
+		if (request->qtype == DNS_T_PTR) {
+			dns_add_PTR(request->response_packet, DNS_RRS_AN, request->domain.c_str(), 30, "my-hostname");
+			request->response_packet->head.rcode = DNS_RC_NOERROR;
+			return smartdns::SERVER_REQUEST_OK;
+		}
+
+		return smartdns::SERVER_REQUEST_SOA;
+	});
+
+	server.Start(R"""(bind [::]:60053
+server 127.0.0.1:61053
+dualstack-ip-selection no
+)""");
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("4.3.168.192.in-addr.arpa PTR", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 0);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAuthority()[0].GetName(), "4.3.168.192.in-addr.arpa");
+	EXPECT_EQ(client.GetAuthority()[0].GetTTL(), 600);
+	EXPECT_EQ(client.GetAuthority()[0].GetType(), "SOA");
+}
+
+TEST_F(Ptr, private_nameserver)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::Server server;
+
+	server_upstream.Start("udp://0.0.0.0:61053", [&](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype == DNS_T_A) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4");
+			return smartdns::SERVER_REQUEST_OK;
+		}
+
+		if (request->qtype == DNS_T_PTR) {
+			dns_add_PTR(request->response_packet, DNS_RRS_AN, request->domain.c_str(), 30, "my-hostname");
+			request->response_packet->head.rcode = DNS_RC_NOERROR;
+			return smartdns::SERVER_REQUEST_OK;
+		}
+
+		return smartdns::SERVER_REQUEST_SOA;
+	});
+
+	server.Start(R"""(bind [::]:60053
+server 127.0.0.1:61053 -group test-server
+nameserver /168.192.in-addr.arpa/test-server
+dualstack-ip-selection no
+)""");
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("4.3.168.192.in-addr.arpa PTR", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "4.3.168.192.in-addr.arpa");
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 600);
+	EXPECT_EQ(client.GetAnswer()[0].GetType(), "PTR");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "my-hostname.");
+}

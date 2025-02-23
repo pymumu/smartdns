@@ -5085,6 +5085,7 @@ static int _dns_server_process_local_ptr(struct dns_request *request)
 	prefix_t prefix;
 	radix_node_t *node = NULL;
 	struct local_addr_cache_item *addr_cache_item = NULL;
+	struct dns_nameserver_rule *ptr_nameserver_rule;
 
 	if (_dns_server_parser_addr_from_apra(request->domain, ptr_addr, &ptr_addr_len, sizeof(ptr_addr)) != 0) {
 		/* Determine if the smartdns service is in effect. */
@@ -5124,6 +5125,11 @@ static int _dns_server_process_local_ptr(struct dns_request *request)
 	}
 
 out:
+	ptr_nameserver_rule = _dns_server_get_dns_rule(request, DOMAIN_RULE_NAMESERVER);
+	if (ptr_nameserver_rule != NULL && ptr_nameserver_rule->group_name[0] != 0) {
+		goto errout;
+	}
+
 	if (found == 0 && _dns_server_is_private_address(ptr_addr, ptr_addr_len) == 0) {
 		request->has_soa = 1;
 		_dns_server_setup_soa(request);
