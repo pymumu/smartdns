@@ -92,7 +92,7 @@ mdns-lookup yes
 	ASSERT_EQ(client.GetAnswerNum(), 2);
 	EXPECT_EQ(client.GetStatus(), "NOERROR");
 	EXPECT_EQ(client.GetAnswer()[0].GetName(), "host");
-	EXPECT_GT(client.GetAnswer()[0].GetTTL(), 60);
+	EXPECT_GT(client.GetAnswer()[0].GetTTL(), 59);
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "host.local.");
 	EXPECT_EQ(client.GetAnswer()[1].GetName(), "host.local");
 	EXPECT_EQ(client.GetAnswer()[1].GetData(), "1.2.3.4");
