@@ -88,6 +88,7 @@ impl API {
         api.register(Method::GET, "/api/domain/{id}",  true, APIRoute!(API::api_domain_get_by_id));
         api.register(Method::DELETE, "/api/domain/{id}",  true, APIRoute!(API::api_domain_delete_by_id));
         api.register(Method::GET, "/api/client", true, APIRoute!(API::api_client_get_list));
+        api.register(Method::DELETE, "/api/client/{id}",  true, APIRoute!(API::api_client_delete_by_id));
         api.register(Method::GET, "/api/log/stream", true, APIRoute!(API::api_log_stream));
         api.register(Method::PUT, "/api/log/level", true, APIRoute!(API::api_log_set_level));
         api.register(Method::GET, "/api/log/level", true, APIRoute!(API::api_log_get_level));
@@ -510,6 +511,37 @@ impl API {
         API::response_build(StatusCode::OK, body)
     }
 
+    /// Delete the client by id <br>
+    /// API: DELETE /api/client/{id}
+    ///  parameter: <br>
+    async fn api_client_delete_by_id(
+        this: Arc<HttpServer>,
+        param: APIRouteParam,
+        _req: Request<body::Incoming>,
+    ) -> Result<Response<Full<Bytes>>, HttpError> {
+        let id = match API::params_parser_value(param.get("id")) {
+            Some(v) => v,
+            None => return API::response_error(StatusCode::BAD_REQUEST, "Invalid parameter."),
+        };
+
+        let data_server = this.get_data_server();
+        let ret = match data_server.delete_client_by_id(id) {
+            Ok(v) => v,
+            Err(e) => {
+                return API::response_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    e.to_string().as_str(),
+                )
+            }
+        };
+
+        if ret == 0 {
+            return API::response_error(StatusCode::NOT_FOUND, "Not found");
+        }
+
+        API::response_build(StatusCode::NO_CONTENT, "".to_string())
+    }
+
     /// Delete the domain by id <br>
     /// API: DELETE /api/domain/{id}
     ///
@@ -688,8 +720,30 @@ impl API {
         _req: Request<body::Incoming>,
     ) -> Result<Response<Full<Bytes>>, HttpError> {
         let data_server = this.get_data_server();
-        let client_list: Vec<ClientData> = data_server.get_client_list()?;
-        let body = api_msg_gen_client_list(&client_list);
+        let ret = API::call_blocking(this, move || {
+            let ret = data_server.get_client_list();
+            if let Err(e) = ret {
+                return Err(e.to_string());
+            }
+
+            let ret = ret.unwrap();
+
+            return Ok(ret);
+        }).await;
+
+        let ret = match ret {
+            Ok(v) => v,
+            Err(e) => {
+                return API::response_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().as_str());
+            },
+        };
+    
+        if let Err(e) = ret {
+            return API::response_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().as_str());
+        }
+
+        let client_list = ret.unwrap();
+        let body = api_msg_gen_client_list(&client_list, client_list.len() as u32);
 
         API::response_build(StatusCode::OK, body)
     }
@@ -768,9 +822,11 @@ impl API {
 
     async fn api_config_get_settings(
         this: Arc<HttpServer>,
-        _param: APIRouteParam,
+        param: APIRouteParam,
         _req: Request<body::Incoming>,
     ) -> Result<Response<Full<Bytes>>, HttpError> {
+        let key = API::params_get_value(&param, "key");
+
         let data_server = this.get_data_server();
         let settings = data_server.get_config_list();
         if settings.is_err() {
@@ -778,11 +834,30 @@ impl API {
         }
 
         let mut settings = settings.unwrap();
+        this.get_conf().settings_map().iter().for_each(|(k, v)| {
+            if settings.get(k).is_none() {
+                settings.insert(k.to_string(), v.to_string());
+            }
+        });
         let pass = settings.get(PASSWORD_CONFIG_KEY);
         if pass.is_some() {
             let pass = "********".to_string();
             settings.insert(PASSWORD_CONFIG_KEY.to_string(), pass);
         }
+
+        if key.is_some() {
+            let key : String = key.unwrap();
+            let value = settings.get(key.as_str());
+            if value.is_none() {
+                return API::response_error(StatusCode::NOT_FOUND, "Not found");
+            }
+
+            let mut map = std::collections::HashMap::new();
+            map.insert(key, value.unwrap().clone());
+            let msg = api_msg_gen_key_value(&map);
+            return API::response_build(StatusCode::OK, msg);
+        }
+
         let msg = api_msg_gen_key_value(&settings);
         API::response_build(StatusCode::OK, msg)
     }
@@ -1027,10 +1102,14 @@ impl API {
     }
 
     async fn api_tool_term(
-        _this: Arc<HttpServer>,
+        this: Arc<HttpServer>,
         _param: APIRouteParam,
         mut req: Request<body::Incoming>,
     ) -> Result<Response<Full<Bytes>>, HttpError> {
+        if this.get_conf().enable_terminal != true {
+            return API::response_error(StatusCode::FORBIDDEN, "Terminal is disabled.");
+        }
+
         if hyper_tungstenite::is_upgrade_request(&req) {
             let (response, websocket) = hyper_tungstenite::upgrade(&mut req, None)
                 .map_err(|e| HttpError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;

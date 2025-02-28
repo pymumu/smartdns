@@ -18,6 +18,7 @@
 
 mod common;
 
+use common::TestDnsRequest;
 use nix::libc::c_char;
 use reqwest;
 use serde_json::json;
@@ -291,11 +292,11 @@ fn test_rest_api_get_domain() {
     server.set_log_level(LogLevel::DEBUG);
     assert!(server.start().is_ok());
 
-    let record = server.new_mock_domain_record();
     for i in 0..1024 {
-        let mut record = record.clone();
-        record.domain = format!("{}.com", i);
-        assert!(server.add_domain_record(&record).is_ok());
+        let mut request = TestDnsRequest::new();
+        request.domain = format!("{}.com", i);
+        request.id = i as u16;
+        assert!(server.send_test_dnsrequest(request).is_ok());
     }
 
     let mut client = common::TestClient::new(&server.get_host());
@@ -328,11 +329,11 @@ fn test_rest_api_get_by_id() {
     server.set_log_level(LogLevel::DEBUG);
     assert!(server.start().is_ok());
 
-    let record = server.new_mock_domain_record();
     for i in 0..1024 {
-        let mut record = record.clone();
-        record.domain = format!("{}.com", i);
-        assert!(server.add_domain_record(&record).is_ok());
+        let mut request = TestDnsRequest::new();
+        request.domain = format!("{}.com", i);
+        request.id = i as u16;
+        assert!(server.send_test_dnsrequest(request).is_ok());
     }
 
     let mut client = common::TestClient::new(&server.get_host());
@@ -356,11 +357,11 @@ fn test_rest_api_delete_domain_by_id() {
     server.set_log_level(LogLevel::DEBUG);
     assert!(server.start().is_ok());
 
-    let record = server.new_mock_domain_record();
     for i in 0..1024 {
-        let mut record = record.clone();
-        record.domain = format!("{}.com", i);
-        assert!(server.add_domain_record(&record).is_ok());
+        let mut request = TestDnsRequest::new();
+        request.domain = format!("{}.com", i);
+        request.id = i as u16;
+        assert!(server.send_test_dnsrequest(request).is_ok());
     }
 
     let mut client = common::TestClient::new(&server.get_host());
@@ -402,7 +403,12 @@ fn test_rest_api_server_version() {
     assert!(version.is_ok());
     let version = version.unwrap();
     assert_eq!(version.0, smartdns_ui::smartdns::smartdns_version());
-    assert_eq!(version.1, env!("CARGO_PKG_VERSION"));
+    if env!("GIT_VERSION").is_empty() {
+        assert_eq!(version.1, env!("CARGO_PKG_VERSION"));
+        return;
+    }
+    let check_version = std::format!("{} ({})", env!("CARGO_PKG_VERSION"), env!("GIT_VERSION"));
+    assert_eq!(version.1, check_version);
 }
 
 #[test]
@@ -423,7 +429,12 @@ fn test_rest_api_https_server() {
     assert!(version.is_ok());
     let version = version.unwrap();
     assert_eq!(version.0, smartdns_ui::smartdns::smartdns_version());
-    assert_eq!(version.1, env!("CARGO_PKG_VERSION"));
+    if env!("GIT_VERSION").is_empty() {
+        assert_eq!(version.1, env!("CARGO_PKG_VERSION"));
+        return;
+    }
+    let check_version = std::format!("{} ({})", env!("CARGO_PKG_VERSION"), env!("GIT_VERSION"));
+    assert_eq!(version.1, check_version);
 }
 
 #[test]
@@ -467,15 +478,15 @@ fn test_rest_api_settings() {
 #[test]
 fn test_rest_api_get_client() {
     let mut server = common::TestServer::new();
-    server.set_log_level(LogLevel::DEBUG);
+    server.set_log_level(LogLevel::INFO);
     assert!(server.start().is_ok());
 
-    let record = server.new_mock_domain_record();
     for i in 0..1024 {
-        let mut record = record.clone();
-        record.domain = format!("{}.com", i);
-        record.client = format!("client-{}", i);
-        assert!(server.add_domain_record(&record).is_ok());
+        let mut request = TestDnsRequest::new();
+        request.domain = format!("{}.com", i);
+        request.remote_addr = format!("client-{}", i);
+        request.id = i as u16;
+        assert!(server.send_test_dnsrequest(request).is_ok());
     }
 
     let mut client = common::TestClient::new(&server.get_host());
@@ -498,20 +509,19 @@ fn test_rest_api_stats_top() {
     server.set_log_level(LogLevel::DEBUG);
     assert!(server.start().is_ok());
 
-    let record = server.new_mock_domain_record();
     for i in 0..1024 {
-        let mut record = record.clone();
+        let mut request = TestDnsRequest::new();
         if i < 512 {
-            record.domain = format!("a.com");
-            record.client = format!("192.168.1.1");
+            request.domain = format!("a.com");
+            request.remote_addr = format!("192.168.1.1");
         } else if i < 512 + 256 + 128 {
-            record.domain = format!("b.com");
-            record.client = format!("192.168.1.2");
+            request.domain = format!("b.com");
+            request.remote_addr = format!("192.168.1.2");
         } else {
-            record.domain = format!("c.com");
-            record.client = format!("192.168.1.3");
+            request.domain = format!("c.com");
+            request.remote_addr = format!("192.168.1.3");
         }
-        assert!(server.add_domain_record(&record).is_ok());
+        assert!(server.send_test_dnsrequest(request).is_ok());
     }
 
     server.get_data_server().get_stat().refresh();
@@ -603,13 +613,12 @@ fn test_rest_api_stats_metrics() {
         smartdns_ui::smartdns::smartdns_c::dns_stats.request.total = 15;
     }
 
-    let record = server.new_mock_domain_record();
     for i in 0..1024 {
-        let mut record = record.clone();
-        record.domain = format!("{}.com", i);
-        record.client = format!("client-{}", i);
-        record.is_blocked = i % 2 == 0;
-        assert!(server.add_domain_record(&record).is_ok());
+        let mut request = TestDnsRequest::new();
+        request.domain = format!("{}.com", i);
+        request.remote_addr = format!("client-{}", i);
+        request.is_blocked = i % 2 == 0;
+        assert!(server.send_test_dnsrequest(request).is_ok());
     }
 
     let c = client.get("/api/stats/metrics");
@@ -631,12 +640,11 @@ fn test_rest_api_get_hourly_query_count() {
     server.set_log_level(LogLevel::DEBUG);
     assert!(server.start().is_ok());
 
-    let record = server.new_mock_domain_record();
     for i in 0..1024 {
-        let mut record = record.clone();
-        record.domain = format!("{}.com", i);
-        record.client = format!("client-{}", i);
-        assert!(server.add_domain_record(&record).is_ok());
+        let mut request = TestDnsRequest::new();
+        request.domain = format!("{}.com", i);
+        request.remote_addr = format!("client-{}", i);
+        assert!(server.send_test_dnsrequest(request).is_ok());
     }
 
     let mut client = common::TestClient::new(&server.get_host());

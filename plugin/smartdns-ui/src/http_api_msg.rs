@@ -252,10 +252,11 @@ pub fn api_msg_parse_client_list(data: &str) -> Result<Vec<ClientData>, Box<dyn 
     if list_count.is_none() {
         return Err("list_count not found".into());
     }
+
     let list_count = list_count.unwrap();
     let mut client_list = Vec::new();
     for i in 0..list_count {
-        let client_object = &v["client-list"][i as usize];
+        let client_object = &v["client_list"][i as usize];
         let id = client_object["id"].as_u64();
         if id.is_none() {
             return Err("id not found".into());
@@ -276,9 +277,9 @@ pub fn api_msg_parse_client_list(data: &str) -> Result<Vec<ClientData>, Box<dyn 
             return Err("hostname not found".into());
         }
 
-        let last_query_time = client_object["last_query_time"].as_u64();
-        if last_query_time.is_none() {
-            return Err("last_query_time not found".into());
+        let last_query_timestamp = client_object["last_query_timestamp"].as_u64();
+        if last_query_timestamp.is_none() {
+            return Err("last_query_timestamp not found".into());
         }
 
         client_list.push(ClientData {
@@ -286,17 +287,18 @@ pub fn api_msg_parse_client_list(data: &str) -> Result<Vec<ClientData>, Box<dyn 
             client_ip: client_ip.unwrap().to_string(),
             mac: mac.unwrap().to_string(),
             hostname: hostname.unwrap().to_string(),
-            last_query_time: last_query_time.unwrap(),
+            last_query_timestamp: last_query_timestamp.unwrap(),
         });
     }
 
     Ok(client_list)
 }
 
-pub fn api_msg_gen_client_list(client_list: &Vec<ClientData>) -> String {
+pub fn api_msg_gen_client_list(client_list: &Vec<ClientData>, total_count: u32) -> String {
     let json_str = json!({
         "list_count": client_list.len(),
-        "client-list":
+        "total_count": total_count,
+        "client_list":
             client_list
                 .iter()
                 .map(|x| {
@@ -305,7 +307,7 @@ pub fn api_msg_gen_client_list(client_list: &Vec<ClientData>) -> String {
                         "client_ip": x.client_ip,
                         "mac": x.mac,
                         "hostname": x.hostname,
-                        "last_query_time": x.last_query_time,
+                        "last_query_timestamp": x.last_query_timestamp,
                     });
                     s
                 })
@@ -564,6 +566,8 @@ pub fn api_msg_gen_top_client_list(client_list: &Vec<ClientQueryCount>) -> Strin
                     let s = json!({
                         "client_ip": x.client_ip,
                         "query_count": x.count,
+                        "timestamp_start": x.timestamp_start,
+                        "timestamp_end": x.timestamp_end,
                     });
                     s
                 })
@@ -592,9 +596,21 @@ pub fn api_msg_parse_top_client_list(data: &str) -> Result<Vec<ClientQueryCount>
             return Err("query_count not found".into());
         }
 
+        let timestamp_start = item["timestamp_start"].as_u64();
+        if timestamp_start.is_none() {
+            return Err("timestamp_start not found".into());
+        }
+
+        let timestamp_end = item["timestamp_end"].as_u64();
+        if timestamp_end.is_none() {
+            return Err("timestamp_end not found".into());
+        }
+
         client_list.push(ClientQueryCount {
             client_ip: client_ip.unwrap().to_string(),
             count: query_count.unwrap() as u32,
+            timestamp_start: timestamp_start.unwrap(),
+            timestamp_end: timestamp_end.unwrap(),
         });
     }
 
@@ -610,6 +626,8 @@ pub fn api_msg_gen_top_domain_list(domain_list: &Vec<DomainQueryCount>) -> Strin
                     let s = json!({
                         "domain": x.domain,
                         "query_count": x.count,
+                        "timestamp_start": x.timestamp_start,
+                        "timestamp_end": x.timestamp_end,
                     });
                     s
                 })
@@ -638,9 +656,21 @@ pub fn api_msg_parse_top_domain_list(data: &str) -> Result<Vec<DomainQueryCount>
             return Err("query_count not found".into());
         }
 
+        let timestamp_start = item["timestamp_start"].as_u64();
+        if timestamp_start.is_none() {
+            return Err("timestamp_start not found".into());
+        }
+
+        let timestamp_end = item["timestamp_end"].as_u64();
+        if timestamp_end.is_none() {
+            return Err("timestamp_end not found".into());
+        }
+
         domain_list.push(DomainQueryCount {
             domain: domain.unwrap().to_string(),
             count: query_count.unwrap() as u32,
+            timestamp_start: timestamp_start.unwrap(),
+            timestamp_end: timestamp_end.unwrap(),
         });
     }
 

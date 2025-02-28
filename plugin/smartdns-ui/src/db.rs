@@ -42,19 +42,23 @@ pub struct ClientData {
     pub hostname: String,
     pub client_ip: String,
     pub mac: String,
-    pub last_query_time: u64,
+    pub last_query_timestamp: u64,
 }
 
 #[derive(Debug, Clone)]
 pub struct ClientQueryCount {
     pub client_ip: String,
     pub count: u32,
+    pub timestamp_start: u64,
+    pub timestamp_end: u64,
 }
 
 #[derive(Debug, Clone)]
 pub struct DomainQueryCount {
     pub domain: String,
     pub count: u32,
+    pub timestamp_start: u64,
+    pub timestamp_end: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -207,7 +211,9 @@ impl DB {
         conn.execute(
             "CREATE TABLE IF NOT EXISTS top_domain_list (
                 domain TEXT PRIMARY KEY,
-                count INTEGER DEFAULT 0
+                count INTEGER DEFAULT 0,
+                timestamp_start BIGINT DEFAULT 0,
+                timestamp_end BIGINT DEFAULT 0
             );",
             [],
         )?;
@@ -215,7 +221,9 @@ impl DB {
         conn.execute(
             "CREATE TABLE IF NOT EXISTS top_client_list (
                 client TEXT PRIMARY KEY,
-                count INTEGER DEFAULT 0
+                count INTEGER DEFAULT 0,
+                timestamp_start BIGINT DEFAULT 0,
+                timestamp_end BIGINT DEFAULT 0
             );",
             [],
         )?;
@@ -223,8 +231,12 @@ impl DB {
         conn.execute(
             "
         CREATE TABLE IF NOT EXISTS client (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            client_ip TEXT NOT NULL UNIQUE
+            id INTEGER PRIMARY KEY,
+            client_ip TEXT NOT NULL,
+            mac TEXT NOT NULL,
+            hostname TEXT NOT NULL,
+            last_query_timestamp BIGINT NOT NULL,
+            UNIQUE(client_ip, mac)
         )",
             [],
         )?;
@@ -887,19 +899,21 @@ impl DB {
 
     pub fn refresh_client_top_list(&self, timestamp: u64) -> Result<(), Box<dyn Error>> {
         let mut client_count_list = Vec::new();
-        let conn = self.get_readonly_conn();
-        if conn.as_ref().is_none() {
-            return Err("db is not open".into());
-        }
+        let conn = match self.get_readonly_conn() {
+            Some(v) => v,
+            None => return Err("db is not open".into()),
+        };
 
-        let conn = conn.as_ref().unwrap();
+        let timestamp_now = smartdns::get_utc_time_ms();
         let sql = "SELECT client, COUNT(*) FROM domain WHERE timestamp >= ? GROUP BY client ORDER BY COUNT(*) DESC LIMIT 20";
-        self.debug_query_plan(conn, sql.to_string(), &vec![timestamp.to_string()]);
+        self.debug_query_plan(&conn, sql.to_string(), &vec![timestamp.to_string()]);
         let mut stmt = conn.prepare(sql)?;
         let rows = stmt.query_map([timestamp.to_string()], |row| {
             Ok(ClientQueryCount {
                 client_ip: row.get(0)?,
                 count: row.get(1)?,
+                timestamp_start: timestamp,
+                timestamp_end: timestamp_now,
             })
         });
 
@@ -923,9 +937,22 @@ impl DB {
         stmt.execute([])?;
         stmt.finalize()?;
         let mut stmt =
-            tx.prepare("INSERT INTO top_client_list (client, count) VALUES ( ?1, ?2)")?;
+            tx.prepare("INSERT INTO top_client_list (client, count, timestamp_start, timestamp_end) VALUES ( ?1, ?2, $3, $4)")?;
         for client in &client_count_list {
-            stmt.execute(rusqlite::params![client.client_ip, client.count])?;
+            stmt.execute(rusqlite::params![
+                client.client_ip,
+                client.count,
+                client.timestamp_start,
+                client.timestamp_end
+            ])?;
+            dns_log!(
+                LogLevel::DEBUG,
+                "client: {}, count: {}, timestamp_start: {}, timestamp_end: {}",
+                client.client_ip,
+                client.count,
+                client.timestamp_start,
+                client.timestamp_end
+            );
         }
         stmt.finalize()?;
         tx.commit()?;
@@ -942,11 +969,13 @@ impl DB {
 
         let conn = conn.as_ref().unwrap();
         let mut stmt =
-            conn.prepare("SELECT client, count FROM top_client_list ORDER BY count DESC LIMIT ?")?;
+            conn.prepare("SELECT client, count, timestamp_start, timestamp_end FROM top_client_list ORDER BY count DESC LIMIT ?")?;
         let rows = stmt.query_map([count.to_string()], |row| {
             Ok(ClientQueryCount {
                 client_ip: row.get(0)?,
                 count: row.get(1)?,
+                timestamp_start: row.get(2)?,
+                timestamp_end: row.get(3)?,
             })
         });
 
@@ -1104,19 +1133,21 @@ impl DB {
 
     pub fn refresh_domain_top_list(&self, timestamp: u64) -> Result<(), Box<dyn Error>> {
         let mut domain_count_list = Vec::new();
-        let conn = self.get_readonly_conn();
-        if conn.as_ref().is_none() {
-            return Err("db is not open".into());
-        }
+        let conn = match self.get_readonly_conn() {
+            Some(v) => v,
+            None => return Err("db is not open".into()),
+        };
 
-        let conn = conn.as_ref().unwrap();
+        let timestamp_now = smartdns::get_utc_time_ms();
         let sql = "SELECT domain, COUNT(*) FROM domain WHERE timestamp >= ? GROUP BY domain ORDER BY COUNT(*) DESC LIMIT 20";
-        self.debug_query_plan(conn, sql.to_string(), &vec![timestamp.to_string()]);
+        self.debug_query_plan(&conn, sql.to_string(), &vec![timestamp.to_string()]);
         let mut stmt = conn.prepare(sql)?;
         let rows = stmt.query_map([timestamp.to_string()], |row| {
             Ok(DomainQueryCount {
                 domain: row.get(0)?,
                 count: row.get(1)?,
+                timestamp_start: timestamp,
+                timestamp_end: timestamp_now,
             })
         });
 
@@ -1139,9 +1170,14 @@ impl DB {
         stmt.execute([])?;
         stmt.finalize()?;
         let mut stmt =
-            tx.prepare("INSERT INTO top_domain_list (domain, count) VALUES ( ?1, ?2)")?;
+            tx.prepare("INSERT INTO top_domain_list (domain, count, timestamp_start, timestamp_end) VALUES ( ?1, ?2, ?3, ?4)")?;
         for domain in &domain_count_list {
-            stmt.execute(rusqlite::params![domain.domain, domain.count])?;
+            stmt.execute(rusqlite::params![
+                domain.domain,
+                domain.count,
+                domain.timestamp_start,
+                domain.timestamp_end
+            ])?;
         }
         stmt.finalize()?;
         tx.commit()?;
@@ -1158,11 +1194,13 @@ impl DB {
 
         let conn = conn.as_ref().unwrap();
 
-        let mut stmt = conn.prepare("SELECT domain, count FROM top_domain_list DESC LIMIT ?")?;
+        let mut stmt = conn.prepare("SELECT domain, count, timestamp_start, timestamp_end FROM top_domain_list DESC LIMIT ?")?;
         let rows = stmt.query_map([count.to_string()], |row| {
             Ok(DomainQueryCount {
                 domain: row.get(0)?,
                 count: row.get(1)?,
+                timestamp_start: row.get(2)?,
+                timestamp_end: row.get(3)?,
             })
         });
 
@@ -1290,17 +1328,26 @@ impl DB {
         Ok(ret)
     }
 
-    pub fn insert_client(&self, client_ip: &Vec<String>) -> Result<(), Box<dyn Error>> {
+    pub fn insert_client(&self, client_data: &Vec<ClientData>) -> Result<(), Box<dyn Error>> {
         let mut conn = self.conn.lock().unwrap();
         if conn.as_ref().is_none() {
             return Err("db is not open".into());
         }
-
+        
         let conn = conn.as_mut().unwrap();
         let tx = conn.transaction()?;
-        let mut stmt = tx.prepare("INSERT OR IGNORE INTO client (client_ip) VALUES (?1)")?;
-        for ip in client_ip {
-            let ret = stmt.execute(rusqlite::params![ip]);
+        let mut stmt = tx.prepare("INSERT INTO client (id, client_ip, mac, hostname, last_query_timestamp) VALUES (
+            (SELECT MAX(rowid) FROM client) + 1,
+            ?1, ?2, ?3, ?4)
+            ON CONFLICT(client_ip, mac) DO UPDATE SET last_query_timestamp = excluded.last_query_timestamp;
+            ")?;
+        for d in client_data {
+            let ret = stmt.execute(rusqlite::params![
+                d.client_ip,
+                d.mac,
+                d.hostname,
+                d.last_query_timestamp
+            ]);
 
             if let Err(e) = ret {
                 stmt.finalize()?;
@@ -1322,14 +1369,14 @@ impl DB {
 
         let conn = conn.as_ref().unwrap();
         let mut ret = Vec::new();
-        let mut stmt = conn.prepare("SELECT id, client_ip FROM client").unwrap();
+        let mut stmt = conn.prepare("SELECT id, client_ip, mac, hostname, last_query_timestamp FROM client").unwrap();
         let rows = stmt.query_map([], |row| {
             Ok(ClientData {
                 id: row.get(0)?,
                 client_ip: row.get(1)?,
-                mac: String::new(),
-                hostname: String::new(),
-                last_query_time: 0,
+                mac: row.get(2)?,
+                hostname: row.get(3)?,
+                last_query_timestamp: row.get(4)?,
             })
         });
 
@@ -1342,6 +1389,23 @@ impl DB {
         }
 
         Ok(ret)
+    }
+
+    pub fn delete_client_by_id(&self, id: u64) -> Result<u64, Box<dyn Error>> {
+        let conn = self.conn.lock().unwrap();
+        if conn.as_ref().is_none() {
+            return Err("db is not open".into());
+        }
+
+        let conn = conn.as_ref().unwrap();
+        
+        let ret = conn.execute("DELETE FROM client WHERE id = ?", &[&id]);
+
+        if let Err(e) = ret {
+            return Err(Box::new(e));
+        }
+
+        Ok(ret.unwrap() as u64)
     }
 
     pub fn get_db_size(&self) -> u64 {

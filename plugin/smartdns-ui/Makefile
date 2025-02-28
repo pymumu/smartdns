@@ -15,6 +15,10 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 BIN=smartdns-ui
+PREFIX := /usr
+SBINDIR := $(PREFIX)/sbin
+SLIBDIR := $(PREFIX)/lib
+DESTDIR :=
 SMARTDNS_SRC_DIR=../../src
 
 ifdef DEBUG
@@ -27,19 +31,19 @@ CARGO_BUILD_PATH=target/release
 SMARTDNS_BUILD_TYPE=
 endif
 
-.PHONY: all clean $(BIN)
+.PHONY: all clean install $(BIN)
 
 all: $(BIN)
 
 test-prepare:
 	$(MAKE) -C $(SMARTDNS_SRC_DIR) libsmartdns-test.a
 
-smartdns:
-	$(MAKE) -C $(SMARTDNS_SRC_DIR) $(SMARTDNS_BUILD_TYPE)
-
-$(BIN): smartdns
+$(BIN):
 	MAKEFLAGS= cargo build $(CARGO_BUILD_TYPE) --features "build-release"
 	cp $(CARGO_BUILD_PATH)/libsmartdns_ui.so target/ 
+
+install: $(BIN)
+	install -v -m 0644 -D -t $(DESTDIR)$(SLIBDIR)/smartdns target/libsmartdns_ui.so
 
 test: test-prepare
 	MAKEFLAGS= cargo test

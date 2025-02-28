@@ -206,7 +206,17 @@ pub fn smartdns_version() -> String {
 }
 
 pub fn smartdns_ui_version() -> String {
-    env!("CARGO_PKG_VERSION").to_string()
+    let mut ver = env!("CARGO_PKG_VERSION").to_string();
+
+    if env!("GIT_VERSION").is_empty() {
+        return ver;
+    }
+
+    ver.push_str(" (");
+    ver.push_str(env!("GIT_VERSION"));
+    ver.push_str(")");
+
+    ver
 }
 
 pub fn smartdns_get_server_name() -> String {
@@ -274,8 +284,8 @@ extern "C" fn dns_request_complete(request: *mut smartdns_c::dns_request) {
         }
 
         let ops = ops.unwrap();
-        let mut req = DnsRequest::new(request);
-        ops.server_query_complete(&mut req);
+        let req = DnsRequest_C::new(request);
+        ops.server_query_complete(Box::new(req));
     }
 }
 
@@ -333,18 +343,37 @@ extern "C" fn dns_plugin_exit(_plugin: *mut smartdns_c::dns_plugin) -> i32 {
     return 0;
 }
 
-pub struct DnsRequest {
+pub trait DnsRequest: Send + Sync {
+    fn get_group_name(&self) -> String;
+    fn get_domain(&self) -> String;
+    fn get_qtype(&self) -> u32;
+    fn get_qclass(&self) -> i32;
+    fn get_id(&self) -> u16;
+    fn get_rcode(&self) -> u16;
+    fn get_query_time(&self) -> i32;
+    fn get_query_timestamp(&self) -> u64;
+    fn get_ping_time(&self) -> f64;
+    fn get_is_blocked(&self) -> bool;
+    fn get_is_cached(&self) -> bool;
+    fn get_remote_mac(&self) -> [u8; 6];
+    fn get_remote_addr(&self) -> String;
+    fn get_local_addr(&self) -> String;
+    fn is_prefetch_request(&self) -> bool;
+    fn is_dualstack_request(&self) -> bool;
+}
+
+pub struct DnsRequest_C {
     request: *mut smartdns_c::dns_request,
 }
 
 #[allow(dead_code)]
-impl DnsRequest {
-    fn new(request: *mut smartdns_c::dns_request) -> DnsRequest {
+impl DnsRequest_C {
+    fn new(request: *mut smartdns_c::dns_request) -> DnsRequest_C {
         unsafe {
             smartdns_c::dns_server_request_get(request);
         }
 
-        DnsRequest { request }
+        DnsRequest_C { request }
     }
 
     fn put_ref(&mut self) {
@@ -353,8 +382,11 @@ impl DnsRequest {
             self.request = std::ptr::null_mut();
         }
     }
+}
 
-    pub fn get_group_name(&self) -> String {
+#[allow(dead_code)]
+impl DnsRequest for DnsRequest_C {
+    fn get_group_name(&self) -> String {
         unsafe {
             let group_name = smartdns_c::dns_server_request_get_group_name(self.request);
             std::ffi::CStr::from_ptr(group_name)
@@ -363,7 +395,7 @@ impl DnsRequest {
         }
     }
 
-    pub fn get_domain(&self) -> String {
+    fn get_domain(&self) -> String {
         unsafe {
             let domain = smartdns_c::dns_server_request_get_domain(self.request);
             std::ffi::CStr::from_ptr(domain)
@@ -372,46 +404,46 @@ impl DnsRequest {
         }
     }
 
-    pub fn get_qtype(&self) -> u32 {
+    fn get_qtype(&self) -> u32 {
         unsafe { smartdns_c::dns_server_request_get_qtype(self.request) as u32 }
     }
 
-    pub fn get_qclass(&self) -> i32 {
+    fn get_qclass(&self) -> i32 {
         unsafe { smartdns_c::dns_server_request_get_qclass(self.request) }
     }
 
-    pub fn get_id(&self) -> u16 {
+    fn get_id(&self) -> u16 {
         unsafe { smartdns_c::dns_server_request_get_id(self.request) as u16 }
     }
 
-    pub fn get_rcode(&self) -> u16 {
+    fn get_rcode(&self) -> u16 {
         unsafe { smartdns_c::dns_server_request_get_rcode(self.request) as u16 }
     }
 
-    pub fn get_query_time(&self) -> i32 {
+    fn get_query_time(&self) -> i32 {
         unsafe { smartdns_c::dns_server_request_get_query_time(self.request) }
     }
 
-    pub fn get_query_timestamp(&self) -> u64 {
+    fn get_query_timestamp(&self) -> u64 {
         unsafe { smartdns_c::dns_server_request_get_query_timestamp(self.request) }
     }
 
-    pub fn get_ping_time(&self) -> f64 {
+    fn get_ping_time(&self) -> f64 {
         let v = unsafe { smartdns_c::dns_server_request_get_ping_time(self.request) };
         let mut ping_time = v as f64;
         ping_time = (ping_time * 10.0).round() / 10.0;
         ping_time
     }
 
-    pub fn get_is_blocked(&self) -> bool {
+    fn get_is_blocked(&self) -> bool {
         unsafe { smartdns_c::dns_server_request_is_blocked(self.request) != 0 }
     }
 
-    pub fn get_is_cached(&self) -> bool {
+    fn get_is_cached(&self) -> bool {
         unsafe { smartdns_c::dns_server_request_is_cached(self.request) != 0 }
     }
 
-    pub fn get_remote_mac(&self) -> [u8; 6] {
+    fn get_remote_mac(&self) -> [u8; 6] {
         unsafe {
             let _mac_ptr = smartdns_c::dns_server_request_get_remote_mac(self.request);
             if _mac_ptr.is_null() {
@@ -423,7 +455,7 @@ impl DnsRequest {
         }
     }
 
-    pub fn get_remote_addr(&self) -> String {
+    fn get_remote_addr(&self) -> String {
         unsafe {
             let addr = smartdns_c::dns_server_request_get_remote_addr(self.request);
             if addr.is_null() {
@@ -446,7 +478,7 @@ impl DnsRequest {
         }
     }
 
-    pub fn get_local_addr(&self) -> String {
+    fn get_local_addr(&self) -> String {
         unsafe {
             let addr = smartdns_c::dns_server_request_get_local_addr(self.request);
             let mut buf = [0u8; 1024];
@@ -466,35 +498,35 @@ impl DnsRequest {
         }
     }
 
-    pub fn is_prefetch_request(&self) -> bool {
+    fn is_prefetch_request(&self) -> bool {
         unsafe { smartdns_c::dns_server_request_is_prefetch(self.request) != 0 }
     }
 
-    pub fn is_dualstack_request(&self) -> bool {
+    fn is_dualstack_request(&self) -> bool {
         unsafe { smartdns_c::dns_server_request_is_dualstack(self.request) != 0 }
     }
 }
 
-impl Drop for DnsRequest {
+impl Drop for DnsRequest_C {
     fn drop(&mut self) {
         self.put_ref();
     }
 }
 
-impl Clone for DnsRequest {
+impl Clone for DnsRequest_C {
     fn clone(&self) -> Self {
         unsafe {
             smartdns_c::dns_server_request_get(self.request);
         }
 
-        DnsRequest {
+        DnsRequest_C {
             request: self.request,
         }
     }
 }
 
-unsafe impl Send for DnsRequest {}
-unsafe impl Sync for DnsRequest {}
+unsafe impl Send for DnsRequest_C {}
+unsafe impl Sync for DnsRequest_C {}
 
 pub struct DnsServerStats {
     stats: *mut smartdns_c::dns_server_stats,
@@ -668,7 +700,7 @@ impl Clone for DnsUpstreamServer {
 unsafe impl Send for DnsUpstreamServer {}
 
 pub trait SmartdnsOperations {
-    fn server_query_complete(&self, request: &mut DnsRequest);
+    fn server_query_complete(&self, request: Box<dyn DnsRequest>);
     fn server_log(&self, level: LogLevel, msg: &str, msg_len: i32);
     fn server_init(&mut self, args: &Vec<String>) -> Result<(), Box<dyn Error>>;
     fn server_exit(&mut self);

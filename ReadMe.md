@@ -72,7 +72,7 @@ PING 14.215.177.39 (14.215.177.39) 56(84) bytes of data.
 rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 ```
 
-从对比看出，SmartDNS 找到了访问 www.baidu.com 最快的 IP 地址，比阿里 DNS 速度快了 5 倍。
+从对比看出，SmartDNS 找到了访问 `www.baidu.com` 最快的 IP 地址，比阿里 DNS 速度快了 5 倍。
 
 ## 特性
 

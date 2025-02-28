@@ -1046,6 +1046,7 @@ int netlink_get_neighbors(int family,
 	if (netlink_neighbor_fd <= 0) {
 		netlink_neighbor_fd = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC | SOCK_NONBLOCK, NETLINK_ROUTE);
 		if (netlink_neighbor_fd < 0) {
+			errno = EINVAL;
 			return -1;
 		}
 	}
@@ -1058,6 +1059,7 @@ int netlink_get_neighbors(int family,
 	struct msghdr msg;
 	int len;
 	int ret = 0;
+	int send_count = 0;
 
 	memset(&msg, 0, sizeof(msg));
 	msg.msg_name = &sa;
@@ -1075,15 +1077,60 @@ int netlink_get_neighbors(int family,
 	ndm = NLMSG_DATA(nlh);
 	ndm->ndm_family = family;
 
-	if (send(netlink_neighbor_fd, buf, NLMSG_SPACE(sizeof(struct ndmsg)), 0) < 0) {
-		return -1;
+	while (true) {
+		if (send_count > 5) {
+			errno = ETIMEDOUT;
+			return -1;
+		}
+
+		send_count++;
+		if (send(netlink_neighbor_fd, buf, NLMSG_SPACE(sizeof(struct ndmsg)), 0) < 0) {
+			if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
+				struct timespec waiter;
+				waiter.tv_sec = 0;
+				waiter.tv_nsec = 500000;
+				nanosleep(&waiter, NULL);
+				continue;
+			}
+
+			close(netlink_neighbor_fd);
+			netlink_neighbor_fd = -1;
+			return -1;
+		}
+
+		break;
 	}
 
-	while ((len = recvmsg(netlink_neighbor_fd, &msg, 0)) > 0) {
+	int is_received = 0;
+	int recv_count = 0;
+	while (true) {
+		recv_count++;
+		len = recvmsg(netlink_neighbor_fd, &msg, 0);
+		if (len < 0) {
+			if (recv_count > 5 && is_received == 0) {
+				errno = ETIMEDOUT;
+				return -1;
+			}
+
+			if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
+				if (is_received) {
+					break;
+				}
+				struct timespec waiter;
+				waiter.tv_sec = 0;
+				waiter.tv_nsec = 500000;
+				nanosleep(&waiter, NULL);
+				continue;
+			}
+
+			return -1;
+		}
+
 		if (ret != 0) {
 			continue;
 		}
 
+		is_received = 1;
 		uint32_t nlh_len = len;
 		for (nlh = (struct nlmsghdr *)buf; NLMSG_OK(nlh, nlh_len); nlh = NLMSG_NEXT(nlh, nlh_len)) {
 			ndm = NLMSG_DATA(nlh);
@@ -1091,7 +1138,11 @@ int netlink_get_neighbors(int family,
 			const uint8_t *mac = NULL;
 			const uint8_t *net_addr = NULL;
 			int net_addr_len = 0;
-			int rta_len = RTM_PAYLOAD(nlh);
+			unsigned int rta_len = RTM_PAYLOAD(nlh);
+
+			if (rta_len > (sizeof(buf) - ((char *)rta - buf))) {
+				continue;
+			}
 
 			for (; RTA_OK(rta, rta_len); rta = RTA_NEXT(rta, rta_len)) {
 				if (rta->rta_type == NDA_DST) {
@@ -1128,6 +1179,9 @@ int netlink_get_neighbors(int family,
 					}
 				} else if (rta->rta_type == NDA_LLADDR) {
 					mac = RTA_DATA(rta);
+					if (mac[0] == 0 && mac[1] == 0 && mac[2] == 0 && mac[3] == 0 && mac[4] == 0 && mac[5] == 0) {
+						continue;
+					}
 				}
 			}
 

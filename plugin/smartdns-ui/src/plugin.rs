@@ -162,11 +162,14 @@ impl SmartdnsPlugin {
         self.data_server_ctl.stop_data_server();
     }
 
-    pub fn query_complete(&self, request: &mut DnsRequest) {
+    pub fn query_complete(&self, request: Box<dyn DnsRequest>) -> Result<(), Box<dyn Error>> {
         let ret = self.data_server_ctl.send_request(request);
-        if let Err(_) = ret {
-            return;
+        if let Err(e) = ret {
+            dns_log!(LogLevel::ERROR, "send request error: {}", e.to_string());
+            return Err(e);
         }
+
+        Ok(())
     }
 
     pub fn server_log(&self, level: LogLevel, msg: &str, msg_len: i32) {
@@ -199,8 +202,8 @@ impl Drop for SmartdnsPluginImpl {
 }
 
 impl SmartdnsOperations for SmartdnsPluginImpl {
-    fn server_query_complete(&self, request: &mut DnsRequest) {
-        self.plugin.query_complete(request);
+    fn server_query_complete(&self, request: Box<dyn DnsRequest>) {
+        let _ = self.plugin.query_complete(request);
     }
 
     fn server_log(&self, level: LogLevel, msg: &str, msg_len: i32) {

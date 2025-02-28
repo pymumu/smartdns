@@ -222,6 +222,7 @@ pub async fn serve_term(websocket: HyperWebsocket) -> Result<(), Error> {
                 close(i);
             }
             use std::ffi::CString;
+            std::env::set_var("TERM", "xterm-256color");
 
             let find_cmd = |cmd: &str| -> Result<String, Box<dyn std::error::Error>> {
                 let env_path = std::env::var("PATH")?;

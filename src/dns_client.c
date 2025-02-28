@@ -4419,6 +4419,10 @@ int dns_client_query(const char *domain, int qtype, dns_client_callback callback
 		goto errout;
 	}
 
+	if (atomic_read(&client.run) == 0) {
+		goto errout;
+	}
+
 	query = malloc(sizeof(*query));
 	if (query == NULL) {
 		goto errout;

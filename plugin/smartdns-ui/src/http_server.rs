@@ -71,6 +71,7 @@ pub struct HttpServerConfig {
     pub password: String,
     pub token_expired_time: u32,
     pub enable_cors: bool,
+    pub enable_terminal: bool,
 }
 
 impl HttpServerConfig {
@@ -82,7 +83,18 @@ impl HttpServerConfig {
             password: utils::hash_password(HTTP_SERVER_DEFAULT_PASSWORD, Some(1000)).unwrap(),
             token_expired_time: 600,
             enable_cors: false,
+            enable_terminal: false,
         }
+    }
+
+    pub fn settings_map(&self) -> std::collections::HashMap<String, String> {
+        let mut map = std::collections::HashMap::new();
+        map.insert("http_ip".to_string(), self.http_ip.clone());
+        map.insert("username".to_string(), self.username.clone());
+        map.insert("token_expired_time".to_string(), self.token_expired_time.to_string());
+        map.insert("enable_cors".to_string(), self.enable_cors.to_string());
+        map.insert("enable_terminal".to_string(), self.enable_terminal.to_string());
+        map
     }
 
     pub fn load_config(&mut self, data_server: Arc<DataServer>) -> Result<(), Box<dyn Error>> {
@@ -101,11 +113,21 @@ impl HttpServerConfig {
             self.username = username;
         }
 
-        if let Some(enable_cors) = data_server.get_server_config("smartdns-ui.cors-enable") {
+        if let Some(enable_cors) = data_server.get_server_config("smartdns-ui.enable-cors") {
             if enable_cors.eq_ignore_ascii_case("yes") || enable_cors.eq_ignore_ascii_case("true") {
                 self.enable_cors = true;
             } else {
                 self.enable_cors = false;
+            }
+        }
+
+        if let Some(enable_terminal) = data_server.get_server_config("smartdns-ui.enable-terminal") {
+            if enable_terminal.eq_ignore_ascii_case("yes")
+                || enable_terminal.eq_ignore_ascii_case("true")
+            {
+                self.enable_terminal = true;
+            } else {
+                self.enable_terminal = false;
             }
         }
 

@@ -15,6 +15,20 @@ impl bindgen::callbacks::ParseCallbacks for IgnoreMacros {
     }
 }
 
+fn get_git_commit_version() {
+    let result = std::process::Command::new("git")
+        .args(&["describe", "--tags", "--always", "--dirty"])
+        .output();
+
+    let git_version = match result {
+        Ok(output) => output.stdout,
+        Err(_) => Vec::new(),
+    };
+
+    let git_version = String::from_utf8(git_version).expect("Invalid UTF-8 sequence");
+    println!("cargo:rustc-env=GIT_VERSION={}", git_version.trim());
+}
+
 fn link_smartdns_lib() {
     let curr_source_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let smartdns_src_dir = format!("{}/../../src", curr_source_dir);
@@ -65,5 +79,6 @@ fn link_smartdns_lib() {
 }
 
 fn main() {
+    get_git_commit_version();
     link_smartdns_lib();
 }

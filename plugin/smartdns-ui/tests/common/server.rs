@@ -48,6 +48,129 @@ impl<'a> InstanceLockGuard<'a> {
     }
 }
 
+pub struct TestDnsRequest {
+    pub domain: String,
+    pub group_name: String,
+    pub qtype: u32,
+    pub qclass: i32,
+    pub id: u16,
+    pub rcode: u16,
+    pub query_time: i32,
+    pub query_timestamp: u64,
+    pub ping_time: f64,
+    pub is_blocked: bool,
+    pub is_cached: bool,
+    pub remote_mac: [u8; 6],
+    pub remote_addr: String,
+    pub local_addr: String,
+    pub prefetch_request: bool,
+    pub dualstack_request: bool,
+    pub drop_callback: Option<Box<dyn Fn() + Send + Sync>>,
+}
+
+#[allow(dead_code)]
+impl TestDnsRequest {
+    pub fn new() -> Self {
+        TestDnsRequest {
+            domain: "".to_string(),
+            group_name: "default".to_string(),
+            qtype: 1,
+            qclass: 1,
+            id: 0,
+            rcode: 2,
+            query_time: 0,
+            query_timestamp: get_utc_time_ms(),
+            ping_time: -0.1 as f64,
+            is_blocked: false,
+            is_cached: false,
+            remote_mac: [0; 6],
+            remote_addr: "127.0.0.1".to_string(),
+            local_addr: "127.0.0.1".to_string(),
+            prefetch_request: false,
+            dualstack_request: false,
+            drop_callback: None,
+        }
+    }
+}
+
+#[allow(dead_code)]
+impl DnsRequest for TestDnsRequest {
+    fn get_group_name(&self) -> String {
+        self.group_name.clone()
+    }
+
+    fn get_domain(&self) -> String {
+        self.domain.clone()
+    }
+
+    fn get_qtype(&self) -> u32 {
+        self.qtype
+    }
+
+    fn get_qclass(&self) -> i32 {
+        self.qclass
+    }
+
+    fn get_id(&self) -> u16 {
+        self.id
+    }
+
+    fn get_rcode(&self) -> u16 {
+        self.rcode
+    }
+
+    fn get_query_time(&self) -> i32 {
+        self.query_time
+    }
+
+    fn get_query_timestamp(&self) -> u64 {
+        self.query_timestamp
+    }
+
+    fn get_ping_time(&self) -> f64 {
+        self.ping_time
+    }
+
+    fn get_is_blocked(&self) -> bool {
+        self.is_blocked
+    }
+
+    fn get_is_cached(&self) -> bool {
+        self.is_cached
+    }
+
+    fn get_remote_mac(&self) -> [u8; 6] {
+        self.remote_mac
+    }
+
+    fn get_remote_addr(&self) -> String {
+        self.remote_addr.clone()
+    }
+
+    fn get_local_addr(&self) -> String {
+        self.local_addr.clone()
+    }
+
+    fn is_prefetch_request(&self) -> bool {
+        self.prefetch_request
+    }
+
+    fn is_dualstack_request(&self) -> bool {
+        self.dualstack_request
+    }
+}
+
+impl Drop for TestDnsRequest {
+    fn drop(&mut self) {
+        if let Some(f) = &self.drop_callback {
+            f();
+        }
+    }
+}
+
+unsafe impl Send for TestDnsRequest {}
+unsafe impl Sync for TestDnsRequest {}
+
 #[allow(dead_code)]
 struct TestSmartDnsConfigItem {
     pub key: String,
@@ -168,6 +291,7 @@ impl TestServer {
 
         server.workdir = server.temp_dir.path().to_str().unwrap().to_string();
         server.dns_server.set_workdir(&server.workdir);
+        server.get_data_server().set_recv_in_batch(false);
         server
     }
 
@@ -230,6 +354,33 @@ impl TestServer {
     }
 
     #[allow(dead_code)]
+    pub fn send_test_dnsrequest(
+        &mut self,
+        mut request: TestDnsRequest,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let batch_mode = self.get_data_server().get_recv_in_batch();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let request_drop_callback = move || {
+            tx.send(()).unwrap();
+        };
+
+        if batch_mode == false {
+            request.drop_callback = Some(Box::new(request_drop_callback));
+        }
+
+        let ret = self.plugin.query_complete(Box::new(request));
+        if let Err(e) = ret {
+            dns_log!(LogLevel::ERROR, "send_test_dnsrequest error: {:?}", e);
+            return Err(e);
+        }
+
+        if batch_mode == false {
+            rx.recv().unwrap();
+        }
+        Ok(())
+    }
+
+    #[allow(dead_code)]
     pub fn new_mock_domain_record(&self) -> DomainData {
         DomainData {
             id: 0,
@@ -245,7 +396,6 @@ impl TestServer {
             is_cached: false,
         }
     }
-
 
     #[allow(dead_code)]
     pub fn get_data_server(&self) -> Arc<DataServer> {

@@ -35,7 +35,8 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use tokio::time::{Duration, Instant};
+use tokio::time::Duration;
+use tokio::time::Instant;
 
 pub const DEFAULT_MAX_LOG_AGE: u64 = 30 * 24 * 60 * 60;
 pub const DEFAULT_MAX_LOG_AGE_MS: u64 = DEFAULT_MAX_LOG_AGE * 1000;
@@ -190,7 +191,7 @@ impl DataServerControl {
         *self.is_run.lock().unwrap() = false;
     }
 
-    pub fn send_request(&self, request: &mut DnsRequest) -> Result<(), Box<dyn Error>> {
+    pub fn send_request(&self, request: Box<dyn DnsRequest>) -> Result<(), Box<dyn Error>> {
         if request.is_prefetch_request() {
             return Ok(());
         }
@@ -202,7 +203,7 @@ impl DataServerControl {
         }
 
         if let Some(tx) = self.data_server.data_tx.as_ref() {
-            let ret = tx.try_send(request.clone());
+            let ret = tx.try_send(request);
             if let Err(e) = ret {
                 self.data_server.get_stat().add_request_drop(1);
                 return Err(e.to_string().into());
@@ -226,8 +227,8 @@ pub struct DataServer {
     conf: Arc<RwLock<DataServerConfig>>,
     notify_tx: Option<mpsc::Sender<()>>,
     notify_rx: Mutex<Option<mpsc::Receiver<()>>>,
-    data_tx: Option<mpsc::Sender<DnsRequest>>,
-    data_rx: Mutex<Option<mpsc::Receiver<DnsRequest>>>,
+    data_tx: Option<mpsc::Sender<Box<dyn DnsRequest>>>,
+    data_rx: Mutex<Option<mpsc::Receiver<Box<dyn DnsRequest>>>>,
     db: Arc<DB>,
     disable_handle_request: AtomicBool,
     stat: Arc<DataStats>,
@@ -235,6 +236,7 @@ pub struct DataServer {
     plugin: Mutex<Option<Arc<SmartdnsPlugin>>>,
     whois: whois::WhoIs,
     startup_timestamp: u64,
+    recv_in_batch: Mutex<bool>,
 }
 
 impl DataServer {
@@ -254,6 +256,7 @@ impl DataServer {
             whois: whois::WhoIs::new(),
             startup_timestamp: get_utc_time_ms(),
             disable_handle_request: AtomicBool::new(false),
+            recv_in_batch: Mutex::new(true),
         };
 
         let (tx, rx) = mpsc::channel(100);
@@ -265,6 +268,14 @@ impl DataServer {
         plugin.data_rx = Mutex::new(Some(rx));
 
         plugin
+    }
+
+    pub fn get_recv_in_batch(&self) -> bool {
+        *self.recv_in_batch.lock().unwrap()
+    }
+
+    pub fn set_recv_in_batch(&self, recv_in_batch: bool) {
+        *self.recv_in_batch.lock().unwrap() = recv_in_batch;
     }
 
     fn init_server(&self, conf: &DataServerConfig) -> Result<(), Box<dyn Error>> {
@@ -369,6 +380,10 @@ impl DataServer {
         self.db.delete_domain_before_timestamp(timestamp)
     }
 
+    pub fn delete_client_by_id(&self, id: u64) -> Result<u64, Box<dyn Error>> {
+        self.db.delete_client_by_id(id)
+    }
+
     pub fn get_client_list(&self) -> Result<Vec<ClientData>, Box<dyn Error>> {
         self.db.get_client_list()
     }
@@ -442,18 +457,15 @@ impl DataServer {
         Ok(overview)
     }
 
+    pub fn insert_client_by_list(&self, data: &Vec<ClientData>) -> Result<(), Box<dyn Error>> {
+        self.db.insert_client(data)
+    }
+
     pub fn insert_domain_by_list(&self, data: &Vec<DomainData>) -> Result<(), Box<dyn Error>> {
-        let mut client_ip = Vec::new();
-        for item in data {
-            client_ip.push(item.client.clone());
-        }
-        self.db.insert_client(&client_ip)?;
         self.db.insert_domain(data)
     }
 
     pub fn insert_domain(&self, data: &DomainData) -> Result<(), Box<dyn Error>> {
-        let client_ip = vec![data.client.clone()];
-        self.db.insert_client(&client_ip)?;
         let list = vec![data.clone()];
         self.stat.add_total_request(1);
         if data.is_blocked {
@@ -463,9 +475,14 @@ impl DataServer {
         self.db.insert_domain(&list)
     }
 
-    async fn data_server_handle_dns_request(this: Arc<DataServer>, req_list: &Vec<DnsRequest>) {
+    async fn data_server_handle_dns_request(
+        this: Arc<DataServer>,
+        req_list: &Vec<Box<dyn DnsRequest>>,
+    ) {
         let mut domain_data_list = Vec::new();
+        let mut client_data_list = Vec::new();
         let mut blocked_num = 0;
+        let timestamp_now = get_utc_time_ms();
 
         for req in req_list {
             if req.is_prefetch_request() {
@@ -501,6 +518,23 @@ impl DataServer {
             );
 
             domain_data_list.push(domain_data);
+
+            let mac_str = req
+                .get_remote_mac()
+                .iter()
+                .map(|byte| format!("{:02x}", byte))
+                .collect::<Vec<String>>()
+                .join(":");
+
+            let client_data = ClientData {
+                id: 0,
+                client_ip: req.get_remote_addr(),
+                hostname: "".to_string(),
+                mac: mac_str,
+                last_query_timestamp: timestamp_now,
+            };
+
+            client_data_list.push(client_data);
         }
 
         this.stat.add_total_request(domain_data_list.len() as u64);
@@ -513,12 +547,16 @@ impl DataServer {
         );
 
         let ret = DataServer::call_blocking(this.clone(), move || {
-            let ret = this.insert_domain_by_list(&domain_data_list);
-            if let Err(e) = ret {
-                return Err(e.to_string());
-            }
+            let _ = match this.insert_domain_by_list(&domain_data_list) {
+                Ok(v) => v,
+                Err(e) => return Err(e.to_string()),
+            };
 
-            let ret = ret.unwrap();
+            let ret = match this.insert_client_by_list(&client_data_list) {
+                Ok(v) => v,
+                Err(e) => return Err(e.to_string()),
+            };
+
             Ok(ret)
         })
         .await;
@@ -578,7 +616,8 @@ impl DataServer {
 
     async fn data_server_loop(this: Arc<DataServer>) -> Result<(), Box<dyn Error>> {
         let mut rx: mpsc::Receiver<()>;
-        let mut data_rx: mpsc::Receiver<DnsRequest>;
+        let mut data_rx: mpsc::Receiver<Box<dyn DnsRequest>>;
+        let batch_mode  = *this.recv_in_batch.lock().unwrap();
 
         {
             let mut _rx = this.notify_rx.lock().unwrap();
@@ -589,7 +628,7 @@ impl DataServer {
 
         this.stat.clone().start_worker()?;
 
-        let mut req_list: Vec<DnsRequest> = Vec::new();
+        let mut req_list: Vec<Box<dyn DnsRequest>> = Vec::new();
         let mut batch_timer: Option<tokio::time::Interval> = None;
         let mut check_timer = tokio::time::interval(Duration::from_secs(60));
         let is_check_timer_running = Arc::new(AtomicBool::new(false));
@@ -630,15 +669,18 @@ impl DataServer {
                     match res {
                         Some(req) => {
                             req_list.push(req);
-                            if req_list.len() == 1 {
-                                batch_timer = Some(tokio::time::interval_at(
-                                    Instant::now() + Duration::from_millis(500),
-                                    Duration::from_secs(1),
-                                ));
-                            }
 
-                            if req_list.len() <= 65535 {
-                                continue;
+                            if batch_mode {
+                                if req_list.len() == 1 {
+                                    batch_timer = Some(tokio::time::interval_at(
+                                        Instant::now() + Duration::from_millis(500),
+                                        Duration::from_secs(1),
+                                    ));
+                                }
+
+                                if req_list.len() <= 65535 {
+                                    continue;
+                                }
                             }
 
                             DataServer::data_server_handle_dns_request(this.clone(), &req_list).await;
