@@ -3183,6 +3183,7 @@ static int _dns_client_verify_common_name(struct dns_server_info *server_info, X
 			tlog(TLOG_DEBUG, "peer SAN: %s", dns->data);
 			if (_dns_client_tls_matchName(tls_host_verify, (char *)dns->data, dns->length) == 0) {
 				tlog(TLOG_DEBUG, "peer SAN match: %s", dns->data);
+				GENERAL_NAMES_free(alt_names);
 				return 0;
 			}
 		} break;
@@ -3196,6 +3197,9 @@ static int _dns_client_verify_common_name(struct dns_server_info *server_info, X
 errout:
 	tlog(TLOG_WARN, "server %s CN is invalid, peer CN: %s, expect CN: %s", server_info->ip, peer_CN, tls_host_verify);
 	server_info->prohibit = 1;
+	if (alt_names) {
+		GENERAL_NAMES_free(alt_names);
+	}
 	return -1;
 }
 
