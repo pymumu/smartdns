@@ -390,6 +390,8 @@ struct dns_request {
 	int has_cname_loop;
 
 	void *private_data;
+
+	int is_pending_server;
 };
 
 /* dns server data */
@@ -5459,7 +5461,11 @@ static void _dns_server_get_domain_rule_by_domain(struct dns_request *request, c
 		return;
 	}
 
-	_dns_server_get_domain_rule_by_domain_ext(request->conf, &request->domain_rule, -1, domain, out_log);
+	if (request->is_pending_server) {
+		_dns_server_get_domain_rule_by_domain_ext(request->conf, &request->domain_rule, DOMAIN_RULE_NAMESERVER, domain, out_log);
+	} else {
+		_dns_server_get_domain_rule_by_domain_ext(request->conf, &request->domain_rule, -1, domain, out_log);
+	}
 	request->skip_domain_rule = 1;
 }
 
@@ -7342,6 +7348,7 @@ int dns_server_query(const char *domain, int qtype, struct dns_server_query_opti
 
 	safe_strncpy(request->domain, domain, sizeof(request->domain));
 	request->qtype = qtype;
+	request->is_pending_server = 1;
 	_dns_server_setup_server_query_options(request, server_query_option);
 	_dns_server_request_set_callback(request, callback, user_ptr);
 	ret = _dns_server_do_query(request, 0);
