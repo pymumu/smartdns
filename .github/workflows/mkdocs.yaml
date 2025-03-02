@@ -30,7 +30,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: Run the build process with Docker
         uses: addnab/docker-run-action@v3
         with:
@@ -49,12 +49,12 @@ jobs:
             find /root/site -name "*.htm*" -print0 |  xargs -0 sed -i 's/href=" .."/href=".."/g'
             find /root/site -name "*.htm*" -print0 |  xargs -0 sed -i 's@/ .."@/.."@g'
       - name: Setup Pages
-        uses: actions/configure-pages@v3
+        uses: actions/configure-pages@v5
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v1
+        uses: actions/upload-pages-artifact@v3
         with:
           # Upload entire repository
           path: 'site'
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v1
+        uses: actions/deploy-pages@v4

@@ -27,7 +27,7 @@ D:\SMARTDNS
 
 ```
 
-Double-click `install.bat` in the `D:\smartdns\package\windows` directory for installation. Please enter the password for `WLS ubuntu` when input password.
+Double-click `install.bat` in the `D:\smartdns\package\windows` directory for installation. Please enter the password for `WSL ubuntu` when input password.
 
 ## Configuration
 

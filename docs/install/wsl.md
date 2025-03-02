@@ -23,7 +23,7 @@ D:\SMARTDNS
 └─systemd
 ```
 
-双击 `D:\smartdns\package\windows` 目录下的 `install.bat` 进行安装。要求输入密码时，请输入 `WLS ubuntu` 的密码。
+双击 `D:\smartdns\package\windows` 目录下的 `install.bat` 进行安装。要求输入密码时，请输入 `WSL ubuntu` 的密码。
 
 ## 修改配置
 
@@ -49,7 +49,7 @@ domain-rules /example.com/ -address 1.2.3.4
 
 ## 重新加载配置
 
-双击 `D:\smartdns\package\windows` 目录下的 `reload.bat` 进行重新加载。要求输入密码时，请输入 `WLS ubuntu` 的密码。
+双击 `D:\smartdns\package\windows` 目录下的 `reload.bat` 进行重新加载。要求输入密码时，请输入 `WSL ubuntu` 的密码。
 
 ## 将 DNS 请求转发到 SmartDNS 解析
 
