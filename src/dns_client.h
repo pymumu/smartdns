@@ -143,6 +143,7 @@ struct client_dns_server_flags {
 	long long set_mark;
 	int tcp_keepalive;
 	int drop_packet_latency_ms;
+	int fallback;
 
 	char proxyname[DNS_MAX_CNAME_LEN];
 	char ifname[DNS_SERVER_IFNAME_LEN];

@@ -3861,10 +3861,24 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 			prohibit_time = 5;
 		}
 
+		/* fallback group exists, use fallback group */
+		if (atomic_read(&query->retry_count) == 1) {
+			struct dns_server_group *fallback_server_group = _dns_client_get_group("fallback");
+			if (fallback_server_group != NULL) {
+				query->server_group = fallback_server_group;
+			}
+		}
+
 		pthread_mutex_lock(&client.server_list_lock);
 		list_for_each_entry_safe(group_member, tmp, &query->server_group->head, list)
 		{
 			server_info = group_member->server;
+
+			/* skip fallback server for first query */
+			if (server_info->flags.fallback && atomic_read(&query->retry_count) == DNS_QUERY_RETRY && i == 0) {
+				continue;
+			}
+
 			if (server_info->prohibit) {
 				if (server_info->is_already_prohibit == 0) {
 					server_info->is_already_prohibit = 1;

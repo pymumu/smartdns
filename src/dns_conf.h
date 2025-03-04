@@ -387,6 +387,7 @@ struct dns_servers {
 	long long set_mark;
 	unsigned int drop_packet_latency_ms;
 	int tcp_keepalive;
+	int fallback;
 	int subnet_all_query_types;
 	char skip_check_cert;
 	char spki[DNS_MAX_SPKI_LEN];

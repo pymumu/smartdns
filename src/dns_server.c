@@ -6815,7 +6815,7 @@ static int _dns_server_query_dualstack(struct dns_request *request)
 	ret = _dns_server_do_query(request_dualstack, 0);
 	if (ret != 0) {
 		request->request_wait--;
-		tlog(TLOG_ERROR, "do query %s type %d failed.\n", request->domain, qtype);
+		tlog(TLOG_DEBUG, "do query %s type %d failed.\n", request->domain, qtype);
 		goto errout;
 	}
 
