@@ -16,6 +16,12 @@ SmartDNS官网：[https://pymumu.github.io/smartdns](https://pymumu.github.io/sm
 
 ## 软件效果展示
 
+### 仪表盘
+
+![SmartDNS-WebUI](doc/smartdns-webui.png)
+
+### 速度对比
+
 **阿里 DNS**  
 使用阿里 DNS 查询百度IP，并检测结果。  
 

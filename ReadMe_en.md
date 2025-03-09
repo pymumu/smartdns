@@ -14,6 +14,12 @@ Please visit website: [https://pymumu.github.io/smartdns](https://pymumu.github.
 
 ## Software Show
 
+### Dashboard
+
+![SmartDNS-WebUI](doc/smartdns-webui.png)
+
+### Speed Comparison
+
 **Ali DNS**  
 Use Ali DNS to query Baidu's IP and test the results.  
 
