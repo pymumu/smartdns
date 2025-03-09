@@ -6079,7 +6079,7 @@ static int _conf_printf(const char *key, const char *value, const char *file, in
 		}
 
 		tlog(TLOG_WARN, "unsupported config at '%s:%d'.", file, lineno);
-		return -1;
+		return 0;
 		break;
 	default:
 		break;
