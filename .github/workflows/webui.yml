@@ -1,0 +1,22 @@
+name: WebUI CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+    - name: test
+      run: |
+        EXTRA_CFLAGS=-fPIC make -C plugin/smartdns-ui test -j8

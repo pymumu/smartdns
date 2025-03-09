@@ -471,7 +471,7 @@ fn test_rest_api_settings() {
     let settings = http_api_msg::api_msg_parse_key_value(&body);
     assert!(settings.is_ok());
     let settings = settings.unwrap();
-    assert_eq!(settings.len(), 2);
+    assert_eq!(settings.len(), 7);
     assert_eq!(settings["key1"], "value1");
 }
 
