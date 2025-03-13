@@ -22,6 +22,7 @@
 #include "rbtree.h"
 #include "tlog.h"
 #include "util.h"
+#include "regexp.h"
 #include <errno.h>
 #include <getopt.h>
 #include <glob.h>
@@ -6261,6 +6262,7 @@ static int _dns_server_load_conf_init(void)
 		return -1;
 	}
 
+dns_regexp_init();
 	return 0;
 }
 
@@ -6355,6 +6357,7 @@ void dns_server_load_exit(void)
 
 	dns_conf.server_num = 0;
 	dns_server_bind_destroy();
+dns_regexp_destroy();
 
 	if (dns_conf.log_syslog == 1 || dns_conf.audit_syslog == 1) {
 		closelog();

@@ -28,6 +28,7 @@
 #include "dns_plugin.h"
 #include "dns_stats.h"
 #include "fast_ping.h"
+#include "regexp.h"
 #include "hashtable.h"
 #include "http_parse.h"
 #include "list.h"
@@ -116,6 +117,7 @@ struct rule_walk_args {
 	int rule_index;
 	unsigned char *key[DOMAIN_RULE_MAX];
 	uint32_t key_len[DOMAIN_RULE_MAX];
+int match;
 };
 
 struct neighbor_enum_args {
@@ -5557,6 +5559,7 @@ static int _dns_server_get_rules(unsigned char *key, uint32_t key_len, int is_su
 		if (walk_args->rule_index >= 0) {
 			break;
 		}
+walk_args->match = 1;
 	}
 
 	/* update rules by flags */
@@ -5575,6 +5578,7 @@ static void _dns_server_get_domain_rule_by_domain_ext(struct dns_conf_group *con
 	int matched_key_len = DNS_MAX_CNAME_LEN;
 	unsigned char matched_key[DNS_MAX_CNAME_LEN];
 	int i = 0;
+char regexp[DNS_MAX_REGEXP_LEN];
 
 	memset(&walk_args, 0, sizeof(walk_args));
 	walk_args.args = request_domain_rule;
@@ -5595,6 +5599,26 @@ static void _dns_server_get_domain_rule_by_domain_ext(struct dns_conf_group *con
 	/* find domain rule */
 	art_substring_walk(&conf->domain_rule.tree, (unsigned char *)domain_key, domain_len, _dns_server_get_rules,
 					   &walk_args);
+
+  if (!walk_args.match && has_regexp()) {
+	      memset(&walk_args, 0, sizeof(walk_args));
+	      walk_args.args = request_domain_rule;
+	      
+	      memset(regexp,0,sizeof(regexp));
+	      if (dns_regexp_match(domain, regexp) == 0) {
+	            /* reverse regexp string */
+		     domain_len = strlen(regexp);
+		     reverse_string(domain_key, regexp, domain_len, 1);
+		     domain_key[domain_len] = '.';
+		     domain_len++;
+		     domain_key[domain_len] = 0;
+		
+		     /* find domain rule with regexp */
+		     art_substring_walk(&conf->domain_rule.tree, (unsigned char *)domain_key, domain_len, _dns_server_get_rules, 
+			 					&walk_args);
+		}
+	}
+	
 	if (likely(dns_conf.log_level > TLOG_DEBUG) || out_log == 0) {
 		return;
 	}
