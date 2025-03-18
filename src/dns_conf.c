@@ -26,6 +26,7 @@
 #include <getopt.h>
 #include <glob.h>
 #include <libgen.h>
+#include <openssl/ssl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -871,6 +872,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 		{"tcp-keepalive", required_argument, NULL, 263}, /* tcp keepalive */
 		{"subnet-all-query-types", no_argument, NULL, 264}, /* send subnent for all query types.*/
 		{"fallback", no_argument, NULL, 265}, /* fallback */
+		{"alpn", required_argument, NULL, 266}, /* alpn */
 		{NULL, no_argument, NULL, 0}
 	};
 	/* clang-format on */
@@ -905,6 +907,9 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 		if (strcasecmp(scheme, "https") == 0) {
 			type = DNS_SERVER_HTTPS;
 			default_port = DEFAULT_DNS_HTTPS_PORT;
+		} else if (strcasecmp(scheme, "quic") == 0) {
+			type = DNS_SERVER_QUIC;
+			default_port = DEFAULT_DNS_QUIC_PORT;
 		} else if (strcasecmp(scheme, "tls") == 0) {
 			type = DNS_SERVER_TLS;
 			default_port = DEFAULT_DNS_TLS_PORT;
@@ -919,6 +924,13 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 			return -1;
 		}
 	}
+
+#ifndef OSSL_QUIC1_VERSION
+	if (type == DNS_SERVER_QUIC) {
+		tlog(TLOG_ERROR, "quic not support.");
+		return -1;
+	}
+#endif
 
 	/* if port is not defined, set port to default 53 */
 	if (port == PORT_NOT_DEFINED) {
@@ -1044,6 +1056,10 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 		}
 		case 265: {
 			server->fallback = 1;
+			break;
+		}
+		case 266: {
+			safe_strncpy(server->alpn, optarg, DNS_MAX_ALPN_LEN);
 			break;
 		}
 		default:
@@ -3204,6 +3220,14 @@ static int _config_server_https(void *data, int argc, char *argv[])
 {
 	int ret = 0;
 	ret = _config_server(argc, argv, DNS_SERVER_HTTPS, DEFAULT_DNS_HTTPS_PORT);
+
+	return ret;
+}
+
+static int _config_server_quic(void *data, int argc, char *argv[])
+{
+	int ret = 0;
+	ret = _config_server(argc, argv, DNS_SERVER_QUIC, DEFAULT_DNS_QUIC_PORT);
 
 	return ret;
 }
@@ -5955,6 +5979,7 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("server-tcp", _config_server_tcp, NULL),
 	CONF_CUSTOM("server-tls", _config_server_tls, NULL),
 	CONF_CUSTOM("server-https", _config_server_https, NULL),
+	CONF_CUSTOM("server-quic", _config_server_quic, NULL),
 	CONF_YESNO("mdns-lookup", &dns_conf.mdns_lookup),
 	CONF_YESNO("local-ptr-enable", &dns_conf.local_ptr_enable),
 	CONF_CUSTOM("nameserver", _config_nameserver, NULL),

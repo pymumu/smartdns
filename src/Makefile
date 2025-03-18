@@ -70,6 +70,7 @@ ifeq ($(STATIC), yes)
 else
  override LDFLAGS += -lssl -lcrypto -lpthread -ldl -lm -rdynamic
 endif
+override LDFLAGS += $(EXTRA_LDFLAGS)
 
 .PHONY: all clean
 
