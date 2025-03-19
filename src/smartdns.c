@@ -93,7 +93,7 @@ static void _help(void)
 
 static void _smartdns_get_version(char *str_ver, int str_ver_len)
 {
-	char commit_ver[TMP_BUFF_LEN_32] = {0};
+	char commit_ver[TMP_BUFF_LEN_32 * 2] = {0};
 #ifdef COMMIT_VERION
 	snprintf(commit_ver, sizeof(commit_ver), " (%s)", COMMIT_VERION);
 #endif
@@ -209,8 +209,10 @@ static int _smartdns_prepare_server_flags(struct client_dns_server_flags *flags,
 		safe_strncpy(flag_http->path, server->path, sizeof(flag_http->path));
 		safe_strncpy(flag_http->httphost, server->httphost, sizeof(flag_http->httphost));
 		safe_strncpy(flag_http->tls_host_verify, server->tls_host_verify, sizeof(flag_http->tls_host_verify));
+		safe_strncpy(flag_http->alpn, server->alpn, DNS_MAX_ALPN_LEN);
 		flag_http->skip_check_cert = server->skip_check_cert;
 	} break;
+	case DNS_SERVER_QUIC:
 	case DNS_SERVER_TLS: {
 		struct client_dns_server_flag_tls *flag_tls = &flags->tls;
 		if (server->spki[0] != 0) {
@@ -223,6 +225,7 @@ static int _smartdns_prepare_server_flags(struct client_dns_server_flags *flags,
 		}
 		safe_strncpy(flag_tls->hostname, server->hostname, sizeof(flag_tls->hostname));
 		safe_strncpy(flag_tls->tls_host_verify, server->tls_host_verify, sizeof(flag_tls->tls_host_verify));
+		safe_strncpy(flag_tls->alpn, server->alpn, DNS_MAX_ALPN_LEN);
 		flag_tls->skip_check_cert = server->skip_check_cert;
 	} break;
 	case DNS_SERVER_TCP:

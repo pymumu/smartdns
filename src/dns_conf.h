@@ -56,6 +56,7 @@ extern "C" {
 #define DEFAULT_DNS_PORT 53
 #define DEFAULT_DNS_TLS_PORT 853
 #define DEFAULT_DNS_HTTPS_PORT 443
+#define DEFAULT_DNS_QUIC_PORT 853
 #define DNS_MAX_CONF_CNAME_LEN 256
 #define MAX_QTYPE_NUM 65535
 #define DNS_MAX_REPLY_IP_NUM 8
@@ -398,6 +399,7 @@ struct dns_servers {
 	char path[DNS_MAX_URL_LEN];
 	char proxyname[PROXY_NAME_LEN];
 	char ifname[MAX_INTERFACE_LEN];
+	char alpn[DNS_MAX_ALPN_LEN];
 	struct dns_edns_client_subnet ipv4_ecs;
 	struct dns_edns_client_subnet ipv6_ecs;
 };
