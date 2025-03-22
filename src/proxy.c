@@ -59,7 +59,7 @@ typedef enum PROXY_CONN_STATE {
 
 struct proxy_conn_buffer {
 	int len;
-	char buffer[PROXY_BUFFER_SIZE];
+	uint8_t buffer[PROXY_BUFFER_SIZE];
 };
 
 struct proxy_conn {
@@ -600,7 +600,7 @@ static proxy_handshake_state _proxy_handshake_socks5(struct proxy_conn *proxy_co
 		unsigned char addr[16];
 		unsigned short port = 0;
 		int use_dest_ip = 0;
-		char *recv_buff = NULL;
+		unsigned char *recv_buff = NULL;
 
 		int addr_len = 0;
 		len = recv(proxy_conn->fd, proxy_conn->buffer.buffer + proxy_conn->buffer.len,
@@ -792,7 +792,7 @@ static int _proxy_handshake_http(struct proxy_conn *proxy_conn)
 		goto out;
 	} break;
 	case PROXY_CONN_CONNECTING: {
-		http_head = http_head_init(4096);
+		http_head = http_head_init(4096, HTTP_VERSION_1_1);
 		if (http_head == NULL) {
 			goto out;
 		}

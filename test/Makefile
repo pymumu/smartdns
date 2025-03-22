@@ -27,19 +27,23 @@ TEST_SOURCES := $(wildcard *.cc) $(wildcard */*.cc) $(wildcard */*/*.cc)
 TEST_OBJECTS := $(patsubst %.cc, %.o, $(TEST_SOURCES))
 OBJS += $(TEST_OBJECTS)
 
-LDFLAGS += -lssl -lcrypto -lpthread -ldl -lgtest -lstdc++ -lm
+SMARTDNS_SRC_FILES := $(wildcard $(SMARTDNS_SRC_DIR)/*.c) $(wildcard $(SMARTDNS_SRC_DIR)/*.h) $(wildcard $(SMARTDNS_SRC_DIR)/lib/*.c)
 
-.PHONY: all clean test
+
+LDFLAGS += -lssl -lcrypto -lpthread -ldl -lgtest -lstdc++ -lm
+LDFLAGS += $(EXTRA_LDFLAGS)
+
+.PHONY: all clean test $(SMARTDNS_TEST_LIB)
 
 all: $(BIN)
 
 $(BIN) : $(OBJS) $(SMARTDNS_TEST_LIB)
-	$(CC) $^ -o $@ $(LDFLAGS)
+	$(CC) $^  -o $@ $(LDFLAGS)
 
 test: $(BIN)
 	./$(BIN)
 
-$(SMARTDNS_TEST_LIB):
+$(SMARTDNS_TEST_LIB): 
 	$(MAKE) -C $(SMARTDNS_SRC_DIR) libsmartdns-test.a
 
 clean:

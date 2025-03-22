@@ -153,7 +153,7 @@ struct local_addr_cache {
 };
 
 struct dns_conn_buf {
-	char buf[DNS_CONN_BUFF_SIZE];
+	uint8_t buf[DNS_CONN_BUFF_SIZE];
 	int buffsize;
 	int size;
 };
@@ -8045,12 +8045,12 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn_tcp_client
 				goto out;
 			}
 
-			http_head = http_head_init(4096);
+			http_head = http_head_init(4096, HTTP_VERSION_1_1);
 			if (http_head == NULL) {
 				goto out;
 			}
 
-			len = http_head_parse(http_head, (char *)tcpclient->recvbuff.buf, tcpclient->recvbuff.size);
+			len = http_head_parse(http_head, tcpclient->recvbuff.buf, tcpclient->recvbuff.size);
 			if (len < 0) {
 				if (len == -1) {
 					ret = 0;

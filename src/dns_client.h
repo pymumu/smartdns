@@ -45,6 +45,7 @@ typedef enum {
 	DNS_SERVER_HTTPS,
 	DNS_SERVER_MDNS,
 	DNS_SERVER_QUIC,
+	DNS_SERVER_HTTP3,
 	DNS_SERVER_TYPE_END,
 } dns_server_type_t;
 
