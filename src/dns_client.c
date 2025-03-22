@@ -612,6 +612,9 @@ static const char *_dns_server_get_type_string(dns_server_type_t type)
 	case DNS_SERVER_MDNS:
 		type_str = "mdns";
 		break;
+	case DNS_SERVER_HTTP3:
+		type_str = "http3";
+		break;
 	case DNS_SERVER_QUIC:
 		type_str = "quic";
 		break;
@@ -1062,6 +1065,7 @@ static char *_dns_client_server_get_tls_host_verify(struct dns_server_info *serv
 	switch (server_info->type) {
 	case DNS_SERVER_UDP: {
 	} break;
+	case DNS_SERVER_HTTP3:
 	case DNS_SERVER_HTTPS: {
 		struct client_dns_server_flag_https *flag_https = &server_info->flags.https;
 		tls_host_verify = flag_https->tls_host_verify;
@@ -1096,6 +1100,7 @@ static char *_dns_client_server_get_spki(struct dns_server_info *server_info, in
 	switch (server_info->type) {
 	case DNS_SERVER_UDP: {
 	} break;
+	case DNS_SERVER_HTTP3:
 	case DNS_SERVER_HTTPS: {
 		struct client_dns_server_flag_https *flag_https = &server_info->flags.https;
 		spki = flag_https->spki;
@@ -1301,6 +1306,19 @@ static int _dns_client_server_add(const char *server_ip, const char *server_host
 
 		sock_type = SOCK_DGRAM;
 	} break;
+	case DNS_SERVER_HTTP3: {
+		struct client_dns_server_flag_https *flag_https = &flags->https;
+		spki_data_len = flag_https->spi_len;
+		if (flag_https->httphost[0] == 0) {
+			if (server_host) {
+				safe_strncpy(flag_https->httphost, server_host, DNS_MAX_CNAME_LEN);
+			} else {
+				set_http_host(server_ip, port, DEFAULT_DNS_HTTPS_PORT, flag_https->httphost);
+			}
+		}
+		sock_type = SOCK_DGRAM;
+		skip_check_cert = flag_https->skip_check_cert;
+	} break;
 	case DNS_SERVER_HTTPS: {
 		struct client_dns_server_flag_https *flag_https = &flags->https;
 		spki_data_len = flag_https->spi_len;
@@ -1417,8 +1435,9 @@ static int _dns_client_server_add(const char *server_ip, const char *server_host
 	}
 
 	/* if server type is TLS, create ssl context */
-	if (server_type == DNS_SERVER_TLS || server_type == DNS_SERVER_HTTPS || server_type == DNS_SERVER_QUIC) {
-		if (server_type == DNS_SERVER_QUIC) {
+	if (server_type == DNS_SERVER_TLS || server_type == DNS_SERVER_HTTPS || server_type == DNS_SERVER_QUIC ||
+		server_type == DNS_SERVER_HTTP3) {
+		if (server_type == DNS_SERVER_QUIC || server_type == DNS_SERVER_HTTP3) {
 			server_info->ssl_ctx = _ssl_ctx_get(1);
 		} else {
 			server_info->ssl_ctx = _ssl_ctx_get(0);
@@ -1573,6 +1592,7 @@ static void _dns_client_shutdown_socket(struct dns_server_info *server_info)
 		break;
 	case DNS_SERVER_QUIC:
 	case DNS_SERVER_TLS:
+	case DNS_SERVER_HTTP3:
 	case DNS_SERVER_HTTPS:
 		if (server_info->ssl) {
 			/* Shutdown ssl */
@@ -1979,7 +1999,7 @@ static void _dns_client_check_tcp(void)
 		}
 
 #ifdef OSSL_QUIC1_VERSION
-		if (server_info->type == DNS_SERVER_QUIC) {
+		if (server_info->type == DNS_SERVER_QUIC || server_info->type == DNS_SERVER_HTTP3) {
 			if (server_info->ssl) {
 				SSL_handle_events(server_info->ssl);
 				if (SSL_get_shutdown(server_info->ssl) != 0) {
@@ -2665,8 +2685,9 @@ static int _DNS_client_create_socket_quic(struct dns_server_info *server_info, c
 
 	SSL_set1_host(ssl, hostname);
 
-	if (alpn == NULL || alpn[0] == '\0') {
-		alpn = "doq";
+	if (alpn == NULL) {
+		tlog(TLOG_INFO, "alpn is null.");
+		goto errout;
 	}
 
 	alpn_len = strnlen(alpn, DNS_MAX_ALPN_LEN - 1);
@@ -2908,12 +2929,24 @@ static int _dns_client_create_socket(struct dns_server_info *server_info)
 		return _DNS_client_create_socket_tls(server_info, flag_tls->hostname, flag_tls->alpn);
 	} else if (server_info->type == DNS_SERVER_QUIC) {
 		struct client_dns_server_flag_tls *flag_tls = NULL;
+		const char *alpn = "doq";
 		flag_tls = &server_info->flags.tls;
-		return _DNS_client_create_socket_quic(server_info, flag_tls->hostname, flag_tls->alpn);
+		if (flag_tls->alpn[0] != 0) {
+			alpn = flag_tls->alpn;
+		}
+		return _DNS_client_create_socket_quic(server_info, flag_tls->hostname, alpn);
 	} else if (server_info->type == DNS_SERVER_HTTPS) {
 		struct client_dns_server_flag_https *flag_https = NULL;
 		flag_https = &server_info->flags.https;
 		return _DNS_client_create_socket_tls(server_info, flag_https->hostname, flag_https->alpn);
+	} else if (server_info->type == DNS_SERVER_HTTP3) {
+		struct client_dns_server_flag_https *flag_https = NULL;
+		const char *alpn = "h3";
+		flag_https = &server_info->flags.https;
+		if (flag_https->alpn[0] != 0) {
+			alpn = flag_https->alpn;
+		}
+		return _DNS_client_create_socket_quic(server_info, flag_https->hostname, alpn);
 	} else {
 		return -1;
 	}
@@ -3307,7 +3340,7 @@ static int _dns_client_socket_send(struct dns_server_info *server_info)
 	} else if (server_info->type == DNS_SERVER_TCP) {
 		return send(server_info->fd, server_info->send_buff.data, server_info->send_buff.len, MSG_NOSIGNAL);
 	} else if (server_info->type == DNS_SERVER_TLS || server_info->type == DNS_SERVER_HTTPS ||
-			   server_info->type == DNS_SERVER_QUIC) {
+			   server_info->type == DNS_SERVER_QUIC || server_info->type == DNS_SERVER_HTTP3) {
 		int write_len = server_info->send_buff.len;
 		if (server_info->ssl_write_len > 0) {
 			write_len = server_info->ssl_write_len;
@@ -3338,7 +3371,7 @@ static int _dns_client_socket_recv(struct dns_server_info *server_info)
 		return recv(server_info->fd, server_info->recv_buff.data + server_info->recv_buff.len,
 					DNS_TCP_BUFFER - server_info->recv_buff.len, 0);
 	} else if (server_info->type == DNS_SERVER_TLS || server_info->type == DNS_SERVER_HTTPS ||
-			   server_info->type == DNS_SERVER_QUIC) {
+			   server_info->type == DNS_SERVER_QUIC || server_info->type == DNS_SERVER_HTTP3) {
 		int ret = _dns_client_socket_ssl_recv(server_info, server_info->recv_buff.data + server_info->recv_buff.len,
 											  DNS_TCP_BUFFER - server_info->recv_buff.len);
 		if (ret == -SSL_ERROR_WANT_WRITE && errno == EAGAIN) {
@@ -3366,12 +3399,12 @@ static int _dns_client_process_tcp_buff(struct dns_server_info *server_info)
 
 	while (1) {
 		if (server_info->type == DNS_SERVER_HTTPS) {
-			http_head = http_head_init(4096);
+			http_head = http_head_init(4096, HTTP_VERSION_1_1);
 			if (http_head == NULL) {
 				goto out;
 			}
 
-			len = http_head_parse(http_head, (char *)server_info->recv_buff.data, server_info->recv_buff.len);
+			len = http_head_parse(http_head, server_info->recv_buff.data, server_info->recv_buff.len);
 			if (len < 0) {
 				if (len == -1) {
 					ret = 0;
@@ -3449,9 +3482,59 @@ out:
 	return ret;
 }
 
+#ifdef OSSL_QUIC1_VERSION
+static int _dns_client_process_recv_http3(struct dns_server_info *server_info, struct dns_conn_stream *conn_stream)
+{
+	int ret = 0;
+	struct http_head *http_head = NULL;
+	uint8_t *pkg_data = NULL;
+	int pkg_len = 0;
+
+	http_head = http_head_init(4096, HTTP_VERSION_3_0);
+	if (http_head == NULL) {
+		goto errout;
+	}
+
+	ret = http_head_parse(http_head, conn_stream->recv_buff.data, conn_stream->recv_buff.len);
+	if (ret < 0) {
+		if (ret == -1) {
+			goto out;
+		}
+
+		tlog(TLOG_DEBUG, "remote server not supported.");
+		goto errout;
+	}
+
+	if (http_head_get_httpcode(http_head) != 200) {
+		tlog(TLOG_WARN, "http3 server query from %s:%d failed, server return http code : %d, %s", server_info->ip,
+			 server_info->port, http_head_get_httpcode(http_head), http_head_get_httpcode_msg(http_head));
+		server_info->prohibit = 1;
+		goto errout;
+	}
+
+	pkg_data = (uint8_t *)http_head_get_data(http_head);
+	pkg_len = http_head_get_data_len(http_head);
+	if (pkg_data == NULL || pkg_len <= 0) {
+		goto errout;
+	}
+
+	if (_dns_client_recv(server_info, pkg_data, pkg_len, &server_info->addr, server_info->ai_addrlen) != 0) {
+		goto errout;
+	}
+out:
+	http_head_destroy(http_head);
+	return 0;
+errout:
+
+	if (http_head) {
+		http_head_destroy(http_head);
+	}
+
+	return -1;
+}
+
 static int _dns_client_process_quic(struct dns_server_info *server_info, struct epoll_event *event, unsigned long now)
 {
-#ifdef OSSL_QUIC1_VERSION
 	if (event->events & EPOLLIN) {
 		/* connection is closed, reconnect */
 		if (SSL_get_shutdown(server_info->ssl) != 0) {
@@ -3515,11 +3598,38 @@ static int _dns_client_process_quic(struct dns_server_info *server_info, struct 
 
 				int read_len = _dns_client_socket_ssl_recv_ext(server_info, poll_items[i].desc.value.ssl,
 															   conn_stream->recv_buff.data, DNS_TCP_BUFFER);
-				unsigned short qid = htons(conn_stream->query->sid);
-				memcpy(conn_stream->recv_buff.data + 2, &qid, 2);
-				if (_dns_client_recv(server_info, conn_stream->recv_buff.data + 2, read_len - 2, &server_info->addr,
-									 server_info->ai_addrlen) != 0) {
+
+				if (read_len < 0) {
+					if (errno == EAGAIN) {
+						continue;
+					}
+
+					tlog(TLOG_ERROR, "recv failed, %s", strerror(errno));
 					goto errout;
+				}
+
+				conn_stream->recv_buff.len += read_len;
+
+				if (server_info->type == DNS_SERVER_HTTP3) {
+					ret = _dns_client_process_recv_http3(server_info, conn_stream);
+					if (ret != 0) {
+						tlog(TLOG_ERROR, "process http3 failed.");
+						goto errout;
+					}
+
+				} else if (server_info->type == DNS_SERVER_QUIC) {
+					unsigned short qid = htons(conn_stream->query->sid);
+					int msg_len = ntohs(*((unsigned short *)(conn_stream->recv_buff.data)));
+					if (msg_len <= 0 || msg_len >= DNS_IN_PACKSIZE) {
+						/* data len is invalid */
+						goto errout;
+					}
+
+					memcpy(conn_stream->recv_buff.data + 2, &qid, 2);
+					if (_dns_client_recv(server_info, conn_stream->recv_buff.data + 2, conn_stream->recv_buff.len - 2,
+										 &server_info->addr, server_info->ai_addrlen) != 0) {
+						goto errout;
+					}
 				}
 			}
 		}
@@ -3541,8 +3651,8 @@ static int _dns_client_process_quic(struct dns_server_info *server_info, struct 
 				goto errout;
 			}
 
-			memset(conn_stream->send_buff.data + 2, 0, 2);
 			SSL_set_ex_data(conn_stream->quic_stream, 0, conn_stream);
+
 			int send_len =
 				_dns_client_socket_ssl_send_ext(server_info, conn_stream->quic_stream, conn_stream->send_buff.data,
 												conn_stream->send_buff.len, SSL_WRITE_FLAG_CONCLUDE);
@@ -3565,15 +3675,11 @@ static int _dns_client_process_quic(struct dns_server_info *server_info, struct 
 			goto errout;
 		}
 	}
-#else
-	tlog(TLOG_ERROR, "quic not supported.");
-	goto errout;
-#endif
 	return 0;
-
 errout:
 	return -1;
 }
+#endif
 
 static int _dns_client_process_tcp(struct dns_server_info *server_info, struct epoll_event *event, unsigned long now)
 {
@@ -3998,9 +4104,14 @@ static int _dns_client_process_tls(struct dns_server_info *server_info, struct e
 		event->events = EPOLLOUT;
 	}
 
-	if (server_info->type == DNS_SERVER_QUIC) {
-		/* QUIC */
+	if (server_info->type == DNS_SERVER_QUIC || server_info->type == DNS_SERVER_HTTP3) {
+/* QUIC */
+#ifdef OSSL_QUIC1_VERSION
 		return _dns_client_process_quic(server_info, event, now);
+#else
+		tlog(TLOG_ERROR, "quic/http3 is not supported.");
+		goto errout;
+#endif
 	}
 
 	return _dns_client_process_tcp(server_info, event, now);
@@ -4097,7 +4208,7 @@ static int _dns_client_process(struct dns_server_info *server_info, struct epoll
 		/* receive from tcp */
 		return _dns_client_process_tcp(server_info, event, now);
 	} else if (server_info->type == DNS_SERVER_TLS || server_info->type == DNS_SERVER_HTTPS ||
-			   server_info->type == DNS_SERVER_QUIC) {
+			   server_info->type == DNS_SERVER_QUIC || server_info->type == DNS_SERVER_HTTP3) {
 		/* receive from tls */
 		return _dns_client_process_tls(server_info, event, now);
 	} else {
@@ -4409,6 +4520,9 @@ static int _dns_client_send_quic(struct dns_query_struct *query, struct dns_serv
 	memcpy(inpacket + 2, packet, len);
 	len += 2;
 
+	/* set query id to zero */
+	memset(inpacket + 2, 0, 2);
+
 	struct dns_conn_stream *stream = NULL;
 	stream = malloc(sizeof(struct dns_conn_stream));
 	if (stream == NULL) {
@@ -4443,8 +4557,6 @@ static int _dns_client_send_quic(struct dns_query_struct *query, struct dns_serv
 	/* bind stream */
 	SSL_set_ex_data(quic_stream, 0, stream);
 
-	/* set query id to zero */
-	memset(inpacket + 2, 0, 2);
 	send_len = _dns_client_socket_ssl_send_ext(server_info, quic_stream, inpacket, len, SSL_WRITE_FLAG_CONCLUDE);
 	if (send_len <= 0) {
 		if (errno == EAGAIN || errno == EPIPE || server_info->ssl == NULL) {
@@ -4460,6 +4572,112 @@ static int _dns_client_send_quic(struct dns_query_struct *query, struct dns_serv
 	}
 #else
 	tlog(TLOG_ERROR, "quic is not supported.");
+#endif
+	return 0;
+}
+
+static int _dns_client_send_http3(struct dns_query_struct *query, struct dns_server_info *server_info, void *packet,
+								  unsigned short len)
+{
+#ifdef OSSL_QUIC1_VERSION
+	int send_len = 0;
+	int http_len = 0;
+	unsigned char inpacket_data[DNS_IN_PACKSIZE];
+	unsigned char *inpacket = inpacket_data;
+	struct client_dns_server_flag_https *https_flag = NULL;
+	struct http_head *http_head = NULL;
+
+	if (len > sizeof(inpacket_data) - 128) {
+		tlog(TLOG_ERROR, "packet size is invalid.");
+		goto errout;
+	}
+
+	if (query->conn_stream) {
+		_dns_client_conn_stream_free(query->conn_stream);
+		query->conn_stream = NULL;
+	}
+
+	https_flag = &server_info->flags.https;
+
+	http_head = http_head_init(4096, HTTP_VERSION_3_0);
+	if (http_head == NULL) {
+		tlog(TLOG_ERROR, "init http head failed.");
+		goto errout;
+	}
+
+	http_head_set_method(http_head, HTTP_METHOD_POST);
+	http_head_set_url(http_head, https_flag->path);
+	http_head_set_head_type(http_head, HTTP_HEAD_REQUEST);
+	http_head_add_fields(http_head, ":authority", https_flag->httphost);
+	http_head_add_fields(http_head, "user-agent", "smartdns");
+	http_head_add_fields(http_head, "content-type", "application/dns-message");
+	http_head_add_fields(http_head, "accept-encoding", "identity");
+	http_head_set_data(http_head, packet, len);
+
+	http_len = http_head_serialize(http_head, inpacket_data, DNS_IN_PACKSIZE);
+	if (http_len <= 0) {
+		tlog(TLOG_ERROR, "serialize http head failed.");
+		goto errout;
+	}
+
+	struct dns_conn_stream *stream = NULL;
+	stream = malloc(sizeof(struct dns_conn_stream));
+	if (stream == NULL) {
+		tlog(TLOG_ERROR, "malloc memory failed.");
+		goto errout;
+	}
+
+	memset(stream, 0, sizeof(struct dns_conn_stream));
+	stream->query = query;
+	stream->server_info = server_info;
+	query->conn_stream = stream;
+	INIT_LIST_HEAD(&stream->list);
+
+	if (server_info->status != DNS_SERVER_STATUS_CONNECTED) {
+		return _dns_client_quic_pending_data(stream, server_info, inpacket, http_len);
+	}
+
+	/* run hand shake */
+	SSL_handle_events(server_info->ssl);
+
+	SSL *quic_stream = SSL_new_stream(server_info->ssl, 0);
+	if (quic_stream == NULL) {
+		_dns_client_shutdown_socket(server_info);
+		return _dns_client_quic_pending_data(stream, server_info, inpacket, http_len);
+	}
+
+	pthread_mutex_lock(&server_info->lock);
+	list_add_tail(&stream->list, &server_info->conn_stream_list);
+	stream->quic_stream = quic_stream;
+	pthread_mutex_unlock(&server_info->lock);
+
+	/* bind stream */
+	SSL_set_ex_data(quic_stream, 0, stream);
+
+	send_len = _dns_client_socket_ssl_send_ext(server_info, quic_stream, inpacket, http_len, SSL_WRITE_FLAG_CONCLUDE);
+	if (send_len <= 0) {
+		if (errno == EAGAIN || errno == EPIPE || server_info->ssl == NULL) {
+			/* save data to buffer, and retry when EPOLLOUT is available */
+			return _dns_client_quic_pending_data(stream, server_info, inpacket, http_len);
+		} else if (server_info->ssl && errno != ENOMEM) {
+			_dns_client_shutdown_socket(server_info);
+		}
+		return -1;
+	} else if (send_len < len) {
+		/* save remain data to buffer, and retry when EPOLLOUT is available */
+		return _dns_client_quic_pending_data(stream, server_info, inpacket + send_len, http_len - send_len);
+	}
+
+	http_head_destroy(http_head);
+	return 0;
+errout:
+	if (http_head) {
+		http_head_destroy(http_head);
+	}
+
+	return -1;
+#else
+	tlog(TLOG_ERROR, "http3 is not supported.");
 #endif
 	return 0;
 }
@@ -4673,6 +4891,11 @@ static int _dns_client_send_packet(struct dns_query_struct *query, void *packet,
 			case DNS_SERVER_QUIC:
 				/* quic query */
 				ret = _dns_client_send_quic(query, server_info, packet_data, packet_data_len);
+				send_err = errno;
+				break;
+			case DNS_SERVER_HTTP3:
+				/* http3 query */
+				ret = _dns_client_send_http3(query, server_info, packet_data, packet_data_len);
 				send_err = errno;
 				break;
 			default:

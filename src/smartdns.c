@@ -195,6 +195,7 @@ static int _smartdns_prepare_server_flags(struct client_dns_server_flags *flags,
 		struct client_dns_server_flag_udp *flag_udp = &flags->udp;
 		flag_udp->ttl = server->ttl;
 	} break;
+	case DNS_SERVER_HTTP3:
 	case DNS_SERVER_HTTPS: {
 		struct client_dns_server_flag_https *flag_http = &flags->https;
 		if (server->spki[0] != 0) {
@@ -812,6 +813,10 @@ static int _set_rlimit(void)
 	value.rlim_cur = 40;
 	value.rlim_max = 40;
 	setrlimit(RLIMIT_NICE, &value);
+
+	value.rlim_cur = 1024 * 10;
+	value.rlim_max = 1024 * 10;
+	setrlimit(RLIMIT_NOFILE, &value);
 	return 0;
 }
 

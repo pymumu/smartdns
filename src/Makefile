@@ -25,11 +25,7 @@ OBJS=$(OBJS_MAIN) $(OBJS_LIB)
 
 # cflags
 ifndef CFLAGS
- ifdef DEBUG
-  CFLAGS = -g -DDEBUG
- else
-  CFLAGS = -O2
- endif
+ CFLAGS = -g -DDEBUG
  CFLAGS +=-Wall -Wstrict-prototypes -fno-omit-frame-pointer -Wstrict-aliasing -funwind-tables -Wmissing-prototypes -Wshadow -Wextra -Wno-unused-parameter -Wno-implicit-fallthrough
 endif
 

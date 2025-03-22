@@ -908,6 +908,12 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 		if (strcasecmp(scheme, "https") == 0) {
 			type = DNS_SERVER_HTTPS;
 			default_port = DEFAULT_DNS_HTTPS_PORT;
+		} else if (strcasecmp(scheme, "http3") == 0) {
+			type = DNS_SERVER_HTTP3;
+			default_port = DEFAULT_DNS_HTTPS_PORT;
+		} else if (strcasecmp(scheme, "h3") == 0) {
+			type = DNS_SERVER_HTTP3;
+			default_port = DEFAULT_DNS_HTTPS_PORT;
 		} else if (strcasecmp(scheme, "quic") == 0) {
 			type = DNS_SERVER_QUIC;
 			default_port = DEFAULT_DNS_QUIC_PORT;
@@ -927,8 +933,8 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 	}
 
 #ifndef OSSL_QUIC1_VERSION
-	if (type == DNS_SERVER_QUIC) {
-		tlog(TLOG_ERROR, "quic not support.");
+	if (type == DNS_SERVER_QUIC || type == DNS_SERVER_HTTP3) {
+		tlog(TLOG_ERROR, "quic / http3 not support.");
 		return -1;
 	}
 #endif
@@ -1106,7 +1112,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 	server->ttl = ttl;
 	server->drop_packet_latency_ms = drop_packet_latency_ms;
 
-	if (server->type == DNS_SERVER_HTTPS) {
+	if (server->type == DNS_SERVER_HTTPS || server->type == DNS_SERVER_HTTP3) {
 		if (server->path[0] == 0) {
 			safe_strncpy(server->path, "/", sizeof(server->path));
 		}
@@ -3229,6 +3235,14 @@ static int _config_server_quic(void *data, int argc, char *argv[])
 {
 	int ret = 0;
 	ret = _config_server(argc, argv, DNS_SERVER_QUIC, DEFAULT_DNS_QUIC_PORT);
+
+	return ret;
+}
+
+static int _config_server_http3(void *data, int argc, char *argv[])
+{
+	int ret = 0;
+	ret = _config_server(argc, argv, DNS_SERVER_HTTP3, DEFAULT_DNS_HTTPS_PORT);
 
 	return ret;
 }
@@ -5980,6 +5994,8 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("server-tcp", _config_server_tcp, NULL),
 	CONF_CUSTOM("server-tls", _config_server_tls, NULL),
 	CONF_CUSTOM("server-https", _config_server_https, NULL),
+	CONF_CUSTOM("server-h3", _config_server_http3, NULL),
+	CONF_CUSTOM("server-http3", _config_server_http3, NULL),
 	CONF_CUSTOM("server-quic", _config_server_quic, NULL),
 	CONF_YESNO("mdns-lookup", &dns_conf.mdns_lookup),
 	CONF_YESNO("local-ptr-enable", &dns_conf.local_ptr_enable),

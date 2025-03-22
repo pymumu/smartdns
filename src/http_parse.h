@@ -27,6 +27,13 @@ struct http_head;
 struct http_head_fields;
 struct http_params;
 
+typedef enum HTTP_VERSION {
+	HTTP_VERSION_INVALID = 0,
+	HTTP_VERSION_1_1,
+	HTTP_VERSION_2_0,
+	HTTP_VERSION_3_0,
+} HTTP_VERSION;
+
 typedef enum HTTP_METHOD {
 	HTTP_METHOD_INVALID = 0,
 	HTTP_METHOD_GET,
@@ -44,7 +51,25 @@ typedef enum HTTP_HEAD_TYPE {
 	HTTP_HEAD_RESPONSE = 2,
 } HTTP_HEAD_TYPE;
 
-struct http_head *http_head_init(int buffsize);
+struct http_head *http_head_init(int buffsize, HTTP_VERSION version);
+
+const char *http_method_str(HTTP_METHOD method);
+
+int http_head_add_fields(struct http_head *http_head, const char *name, const char *value);
+
+int http_head_add_param(struct http_head *http_head, const char *name, const char *value);
+
+int http_head_set_url(struct http_head *http_head, const char *url);
+
+int http_head_set_httpversion(struct http_head *http_head, const char *version);
+
+int http_head_set_httpcode(struct http_head *http_head, int code, const char *msg);
+
+int http_head_set_head_type(struct http_head *http_head, HTTP_HEAD_TYPE head_type);
+
+int http_head_set_method(struct http_head *http_head, HTTP_METHOD method);
+
+int http_head_set_data(struct http_head *http_head, const void *data, int len);
 
 HTTP_HEAD_TYPE http_head_get_head_type(struct http_head *http_head);
 
@@ -56,9 +81,9 @@ const char *http_head_get_httpversion(struct http_head *http_head);
 
 int http_head_get_httpcode(struct http_head *http_head);
 
-char *http_head_get_httpcode_msg(struct http_head *http_head);
+const char *http_head_get_httpcode_msg(struct http_head *http_head);
 
-char *http_head_get_data(struct http_head *http_head);
+const unsigned char *http_head_get_data(struct http_head *http_head);
 
 int http_head_get_data_len(struct http_head *http_head);
 
@@ -83,7 +108,9 @@ int http_head_lookup_fields(struct http_head_fields *fields, const char **name, 
  *  -2   - parse failed
  *  -3   - buffer is small
  */
-int http_head_parse(struct http_head *http_head, const char *data, int data_len);
+int http_head_parse(struct http_head *http_head, const unsigned char *data, int data_len);
+
+int http_head_serialize(struct http_head *http_head, void *buffer, int buffer_len);
 
 void http_head_destroy(struct http_head *http_head);
 
