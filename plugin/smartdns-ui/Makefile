@@ -21,26 +21,39 @@ SLIBDIR := $(PREFIX)/lib
 DESTDIR :=
 SMARTDNS_SRC_DIR=../../src
 
-ARCH_TARGET:=$(shell $(CC) -dumpmachine | sed 's/-[^-]*-/-/')
-ARCH=$(shell echo $(ARCH_TARGET) | cut -d - -f 1)
-ABI=$(shell echo $(ARCH_TARGET) | cut -d - -f 3)
-ARCH_TARGET:=$(shell rustc --print target-list | grep $(ARCH) | grep linux | grep $(ABI) | head -n 1)
-ARCH_TARGET_PATH=$(ARCH_TARGET)/
+ifeq ($(origin CC), environment)
+  ARCH_TARGET:=$(shell $(CC) -dumpmachine | sed 's/-[^-]*-linux-/-linux-/')
+  ARCH=$(shell echo $(ARCH_TARGET) | cut -d - -f 1)
+  ABI=$(shell echo $(ARCH_TARGET) | cut -d - -f 3)
+  ifneq ($(ABI),)
+    RUST_ARCH_TARGET:=$(shell rustc --print target-list | grep $(ARCH) | grep linux | grep $(ABI) | head -n 1)
+  endif
 
-override CARGO_RUSTFLAGS=-C linker=$(CC)
-CARGO_BUILD_ARGS +=--target=$(ARCH_TARGET)
+  ifneq ($(RUST_ARCH_TARGET),)
+    ARCH_TARGET_PATH=$(RUST_ARCH_TARGET)/
+    override CARGO_RUSTFLAGS=-C linker=$(CC)
+    CARGO_BUILD_ARGS +=--target=$(RUST_ARCH_TARGET)
+  endif
+endif
+
 IS_MUSL=$(shell $(CC) -v 2>&1 | grep -i musl >/dev/null 2>&1 && echo 1 || echo 0)
 ifeq ($(IS_MUSL), 1)
 override CARGO_RUSTFLAGS +=-C target-feature=-crt-static
 endif
 
 ifdef DEBUG
-CARGO_BUILD_PATH=target/$(ARCH_TARGET_PATH)debug
-SMARTDNS_BUILD_TYPE=DEBUG=1
+  CARGO_BUILD_PATH=target/$(ARCH_TARGET_PATH)debug
+  SMARTDNS_BUILD_TYPE=DEBUG=1
 else
-CARGO_BUILD_ARGS +=--release
-CARGO_BUILD_PATH=target/$(ARCH_TARGET_PATH)release
-SMARTDNS_BUILD_TYPE=
+  ifdef OPTIMIZE_SIZE
+    CARGO_BUILD_ARGS += --profile release-optmize-size
+	CARGO_BUILD_PATH=target/$(ARCH_TARGET_PATH)release-optmize-size
+  else
+    CARGO_BUILD_ARGS +=--release
+  	CARGO_BUILD_PATH=target/$(ARCH_TARGET_PATH)release
+  endif
+
+  SMARTDNS_BUILD_TYPE=
 endif
 
 .PHONY: all clean install $(BIN)
