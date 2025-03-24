@@ -25,7 +25,11 @@ OBJS=$(OBJS_MAIN) $(OBJS_LIB)
 
 # cflags
 ifndef CFLAGS
- CFLAGS = -g -DDEBUG
+ ifdef DEBUG
+  CFLAGS = -g -DDEBUG
+ else
+  CFLAGS = -O2
+ endif
  CFLAGS +=-Wall -Wstrict-prototypes -fno-omit-frame-pointer -Wstrict-aliasing -funwind-tables -Wmissing-prototypes -Wshadow -Wextra -Wno-unused-parameter -Wno-implicit-fallthrough
 endif
 
@@ -61,6 +65,10 @@ CXXFLAGS=-O2 -g -Wall -std=c++11
 override CXXFLAGS +=-Iinclude
 
 ifeq ($(STATIC), yes)
+STATIC = 1
+endif
+
+ifdef STATIC
  override CFLAGS += -DBUILD_STATIC
  override LDFLAGS += -lssl -lcrypto -Wl,--whole-archive -lpthread -Wl,--no-whole-archive -ldl -lm -static -rdynamic
 else
