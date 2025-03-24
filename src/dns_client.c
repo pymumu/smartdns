@@ -3533,38 +3533,25 @@ errout:
 	return -1;
 }
 
-static int _dns_client_process_quic(struct dns_server_info *server_info, struct epoll_event *event, unsigned long now)
+static int _dns_client_process_quic_poll(struct dns_server_info *server_info)
 {
-	if (event->events & EPOLLIN) {
-		/* connection is closed, reconnect */
-		if (SSL_get_shutdown(server_info->ssl) != 0) {
-			int ret = 0;
-			_dns_client_close_socket_ext(server_info, 1);
-			pthread_mutex_lock(&server_info->lock);
-			server_info->recv_buff.len = 0;
-			if (!list_empty(&server_info->conn_stream_list)) {
-				/* still remain request data, reconnect and send*/
-				ret = _dns_client_create_socket(server_info);
-			} else {
-				ret = 0;
-			}
-			pthread_mutex_unlock(&server_info->lock);
-			tlog(TLOG_DEBUG, "quic server %s peer close", server_info->ip);
-			return ret;
-		}
+	LIST_HEAD(processed_list);
+	static int MAX_POLL_ITEM_COUNT = 128;
+	SSL_POLL_ITEM poll_items[MAX_POLL_ITEM_COUNT];
+	memset(poll_items, 0, sizeof(poll_items));
+	static const struct timeval nz_timeout = {0, 0};
+	int poll_ret = 0;
+	int ret = 0;
+	struct dns_conn_stream *conn_stream = NULL;
+	struct dns_conn_stream *tmp = NULL;
 
-		static int MAX_POLL_ITEM_COUNT = 1024 * 8;
-		SSL_POLL_ITEM poll_items[MAX_POLL_ITEM_COUNT];
-		memset(poll_items, 0, sizeof(poll_items));
-		static const struct timeval nz_timeout = {0, 0};
+	while (true) {
 		int poll_item_count = 0;
-		int ret = 0;
 		size_t poll_process_count = 0;
 		size_t poll_retcount = 0;
-		struct dns_conn_stream *conn_stream = NULL;
 
 		pthread_mutex_lock(&server_info->lock);
-		list_for_each_entry(conn_stream, &server_info->conn_stream_list, list)
+		list_for_each_entry_safe(conn_stream, tmp, &server_info->conn_stream_list, list)
 		{
 			if (conn_stream->quic_stream == NULL) {
 				continue;
@@ -3578,8 +3565,14 @@ static int _dns_client_process_quic(struct dns_server_info *server_info, struct 
 			poll_items[poll_item_count].events = SSL_POLL_EVENT_R;
 			poll_items[poll_item_count].revents = 0;
 			poll_item_count++;
+			list_del(&conn_stream->list);
+			list_add_tail(&conn_stream->list, &processed_list);
 		}
 		pthread_mutex_unlock(&server_info->lock);
+
+		if (poll_item_count <= 0) {
+			break;
+		}
 
 		ret = SSL_poll(poll_items, poll_item_count, sizeof(SSL_POLL_ITEM), &nz_timeout, 0, &poll_retcount);
 		if (ret <= 0) {
@@ -3632,6 +3625,49 @@ static int _dns_client_process_quic(struct dns_server_info *server_info, struct 
 					}
 				}
 			}
+		}
+	}
+	poll_ret = 0;
+	goto out;
+errout:
+	poll_ret = -1;
+	goto out;
+out:
+	pthread_mutex_lock(&server_info->lock);
+	if (list_empty(&processed_list)) {
+		pthread_mutex_unlock(&server_info->lock);
+		return 0;
+	}
+
+	list_splice_tail(&processed_list, &server_info->conn_stream_list);
+	pthread_mutex_unlock(&server_info->lock);
+
+	return poll_ret;
+}
+
+static int _dns_client_process_quic(struct dns_server_info *server_info, struct epoll_event *event, unsigned long now)
+{
+
+	if (event->events & EPOLLIN) {
+		/* connection is closed, reconnect */
+		if (SSL_get_shutdown(server_info->ssl) != 0) {
+			int ret = 0;
+			_dns_client_close_socket_ext(server_info, 1);
+			pthread_mutex_lock(&server_info->lock);
+			server_info->recv_buff.len = 0;
+			if (!list_empty(&server_info->conn_stream_list)) {
+				/* still remain request data, reconnect and send*/
+				ret = _dns_client_create_socket(server_info);
+			} else {
+				ret = 0;
+			}
+			pthread_mutex_unlock(&server_info->lock);
+			tlog(TLOG_DEBUG, "quic server %s peer close", server_info->ip);
+			return ret;
+		}
+
+		if (_dns_client_process_quic_poll(server_info) != 0) {
+			goto errout;
 		}
 	}
 
