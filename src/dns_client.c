@@ -212,6 +212,7 @@ struct dns_client {
 	struct dns_server_group *default_group;
 
 	SSL_CTX *ssl_ctx;
+	SSL_CTX *ssl_quic_ctx;
 	int ssl_verify_skip;
 
 	/* query list */
@@ -1171,52 +1172,58 @@ static int _dns_client_set_trusted_cert(SSL_CTX *ssl_ctx)
 
 static SSL_CTX *_ssl_ctx_get(int is_quic)
 {
+	SSL_CTX **ssl_ctx = NULL;
 	pthread_mutex_lock(&client.server_list_lock);
-	SSL_CTX *ssl_ctx = client.ssl_ctx;
-	if (ssl_ctx) {
+	if (is_quic) {
+		ssl_ctx = &client.ssl_quic_ctx;
+	} else {
+		ssl_ctx = &client.ssl_ctx;
+	}
+
+	if (*ssl_ctx) {
 		pthread_mutex_unlock(&client.server_list_lock);
-		return ssl_ctx;
+		return *ssl_ctx;
 	}
 
 #if (OPENSSL_VERSION_NUMBER >= 0x10100000L)
 #if (OPENSSL_VERSION_NUMBER >= 0x30200000L)
 	if (is_quic) {
-		ssl_ctx = SSL_CTX_new(OSSL_QUIC_client_method());
+		*ssl_ctx = SSL_CTX_new(OSSL_QUIC_client_method());
 	} else {
-		ssl_ctx = SSL_CTX_new(TLS_client_method());
+		*ssl_ctx = SSL_CTX_new(TLS_client_method());
 	}
 #else
 	if (is_quic) {
 		return NULL;
 	}
-	ssl_ctx = SSL_CTX_new(TLS_client_method());
+	*ssl_ctx = SSL_CTX_new(TLS_client_method());
 #endif
 #else
-	ssl_ctx = SSL_CTX_new(SSLv23_client_method());
+	*ssl_ctx = SSL_CTX_new(SSLv23_client_method());
 #endif
 
-	if (ssl_ctx == NULL) {
+	if (*ssl_ctx == NULL) {
 		tlog(TLOG_ERROR, "init ssl failed.");
 		goto errout;
 	}
 
-	SSL_CTX_set_options(ssl_ctx, SSL_OP_ALL | SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION);
-	SSL_CTX_set_session_cache_mode(ssl_ctx, SSL_SESS_CACHE_CLIENT);
-	SSL_CTX_sess_set_cache_size(ssl_ctx, DNS_MAX_SERVERS);
-	if (_dns_client_set_trusted_cert(ssl_ctx) != 0) {
-		SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_NONE, NULL);
+	SSL_CTX_set_options(*ssl_ctx, SSL_OP_ALL | SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION);
+	SSL_CTX_set_session_cache_mode(*ssl_ctx, SSL_SESS_CACHE_CLIENT);
+	SSL_CTX_sess_set_cache_size(*ssl_ctx, DNS_MAX_SERVERS);
+	if (_dns_client_set_trusted_cert(*ssl_ctx) != 0) {
+		SSL_CTX_set_verify(*ssl_ctx, SSL_VERIFY_NONE, NULL);
 		client.ssl_verify_skip = 1;
 	}
 
-	client.ssl_ctx = ssl_ctx;
 	pthread_mutex_unlock(&client.server_list_lock);
-	return client.ssl_ctx;
+	return *ssl_ctx;
 errout:
-
-	pthread_mutex_unlock(&client.server_list_lock);
-	if (ssl_ctx) {
-		SSL_CTX_free(ssl_ctx);
+	if (*ssl_ctx) {
+		SSL_CTX_free(*ssl_ctx);
 	}
+
+	*ssl_ctx = NULL;
+	pthread_mutex_unlock(&client.server_list_lock);
 
 	return NULL;
 }
@@ -3647,7 +3654,6 @@ out:
 
 static int _dns_client_process_quic(struct dns_server_info *server_info, struct epoll_event *event, unsigned long now)
 {
-
 	if (event->events & EPOLLIN) {
 		/* connection is closed, reconnect */
 		if (SSL_get_shutdown(server_info->ssl) != 0) {
@@ -5951,6 +5957,11 @@ void dns_client_exit(void)
 	if (client.ssl_ctx) {
 		SSL_CTX_free(client.ssl_ctx);
 		client.ssl_ctx = NULL;
+	}
+
+	if (client.ssl_quic_ctx) {
+		SSL_CTX_free(client.ssl_quic_ctx);
+		client.ssl_quic_ctx = NULL;
 	}
 
 	is_client_init = 0;
