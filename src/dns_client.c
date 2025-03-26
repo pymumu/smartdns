@@ -332,7 +332,12 @@ static ssize_t _ssl_write_ext2(struct dns_server_info *server, SSL *ssl, const v
 #ifdef OSSL_QUIC1_VERSION
 	ret = SSL_write_ex2(ssl, buff, num, flags, &written);
 #else
+#if OPENSSL_VERSION_NUMBER >= 0x10101000L && !defined(OPENSSL_NO_SSL_WRITE_EX)
 	ret = SSL_write_ex(ssl, buff, num, &written);
+#else
+	ret = SSL_write(ssl, buff, num);
+	written = (ret > 0) ? (size_t)ret : 0;
+#endif
 #endif
 	pthread_mutex_unlock(&server->lock);
 
