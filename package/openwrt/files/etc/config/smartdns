@@ -1,4 +1,5 @@
 config 'smartdns'
 	option 'enabled' '0'
+	option 'ui' '0'
 	
 config 'domain-rule'

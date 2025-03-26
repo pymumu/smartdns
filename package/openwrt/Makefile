@@ -6,20 +6,22 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=smartdns
-PKG_VERSION:=1.2023.41
+PKG_VERSION:=1.2025.46.2
 PKG_RELEASE:=1
 
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://www.github.com/pymumu/smartdns.git
 PKG_MIRROR_HASH:=skip
-PKG_SOURCE_VERSION:=60a3719ec739be2cc1e11724ac049b09a75059cb
+PKG_SOURCE_VERSION:=2303cffe0e5c2c42e9e9eb4c9a527099f3b16960
 
 PKG_MAINTAINER:=Nick Peng <pymumu@gmail.com>
 PKG_LICENSE:=GPL-3.0-or-later
 PKG_LICENSE_FILES:=LICENSE
 
 PKG_BUILD_PARALLEL:=1
+PKG_BUILD_DEPENDS:=rust/host node/host
 
+include $(TOPDIR)/feeds/packages/lang/rust/rust-package.mk
 include $(INCLUDE_DIR)/package.mk
 
 MAKE_VARS += VER=$(PKG_VERSION) 
@@ -48,6 +50,35 @@ define Package/smartdns/conffiles
 /etc/smartdns/domain-forwarding.list
 endef
 
+define Package/smartdns-ui
+  SECTION:=net
+  CATEGORY:=Network
+  TITLE:=smartdns server webui
+  DEPENDS:=+smartdns
+  URL:=https://www.github.com/pymumu/smartdns/
+endef
+
+define Build/Compile/smartdns-ui
+	CARGO_BUILD_ARGS="$(if $(strip $(RUST_PKG_FEATURES)),--features "$(strip $(RUST_PKG_FEATURES))") --profile $(CARGO_PKG_PROFILE)"
+	+$(CARGO_PKG_VARS) CARGO_BUILD_ARGS="$(CARGO_BUILD_ARGS)" CC=$(TARGET_CC)\
+	make -C $(PKG_BUILD_DIR)/plugin/smartdns-ui
+	git clone https://github.com/pymumu/smartdns-webui.git --dept=1 $(PKG_BUILD_DIR)/webui
+	(cd $(PKG_BUILD_DIR)/webui && npm install && npm run build)
+endef
+
+define Package/smartdns-ui/install
+	$(INSTALL_DIR) $(1)/usr/lib $(1)/usr/share/smartdns/wwwroot $(1)/etc/smartdns/data
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/plugin/smartdns-ui/target/$(ARCH)-unknown-linux-musl/release/libsmartdns_ui.so $(1)/usr/lib/libsmartdns_ui.so
+	cp -ra $(PKG_BUILD_DIR)/webui/out/* $(1)/usr/share/smartdns/wwwroot
+endef
+
+define Build/Compile
+	$(call Build/Compile/Default,smartdns)
+ifneq ($(CONFIG_PACKAGE_smartdns-ui),)
+	$(call Build/Compile/smartdns-ui)
+endif
+endef
+
 define Package/smartdns/install
 	$(INSTALL_DIR) $(1)/usr/sbin $(1)/etc/config $(1)/etc/init.d 
 	$(INSTALL_DIR) $(1)/etc/smartdns $(1)/etc/smartdns/domain-set $(1)/etc/smartdns/conf.d/
@@ -63,3 +94,4 @@ define Package/smartdns/install
 endef
 
 $(eval $(call BuildPackage,smartdns))
+$(eval $(call BuildPackage,smartdns-ui))

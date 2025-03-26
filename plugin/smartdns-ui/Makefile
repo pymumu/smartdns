@@ -26,7 +26,7 @@ ifeq ($(origin CC), environment)
   ARCH=$(shell echo $(ARCH_TARGET) | cut -d - -f 1)
   ABI=$(shell echo $(ARCH_TARGET) | cut -d - -f 3)
   ifneq ($(ABI),)
-    RUST_ARCH_TARGET:=$(shell rustc --print target-list | grep $(ARCH) | grep linux | grep $(ABI) | head -n 1)
+    RUST_ARCH_TARGET:=$(ARCH)-unknown-linux-$(ABI)
   endif
 
   ifneq ($(RUST_ARCH_TARGET),)
