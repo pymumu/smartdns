@@ -107,6 +107,8 @@ pub enum DnsServerType {
     SERVER_TCP,
     SERVER_TLS,
     SERVER_HTTPS,
+    SERVER_QUIC,
+    SERVER_HTTP3,
     SERVER_MDNS,
     SERVER_UNKNOWN,
 }
@@ -118,7 +120,9 @@ impl From<u32> for DnsServerType {
             1 => DnsServerType::SERVER_TCP,
             2 => DnsServerType::SERVER_TLS,
             3 => DnsServerType::SERVER_HTTPS,
-            4 => DnsServerType::SERVER_MDNS,
+            4 => DnsServerType::SERVER_QUIC,
+            5 => DnsServerType::SERVER_HTTP3,
+            6 => DnsServerType::SERVER_MDNS,
             _ => DnsServerType::SERVER_UNKNOWN,
         }
     }
@@ -133,6 +137,8 @@ impl std::str::FromStr for DnsServerType {
             "tcp" => Ok(DnsServerType::SERVER_TCP),
             "tls" => Ok(DnsServerType::SERVER_TLS),
             "https" => Ok(DnsServerType::SERVER_HTTPS),
+            "quic" => Ok(DnsServerType::SERVER_QUIC),
+            "http3" => Ok(DnsServerType::SERVER_HTTP3),
             "mdns" => Ok(DnsServerType::SERVER_MDNS),
             _ => Err("unknown".to_string()),
         }
@@ -146,6 +152,8 @@ impl ToString for DnsServerType {
             DnsServerType::SERVER_TCP => "tcp".to_string(),
             DnsServerType::SERVER_TLS => "tls".to_string(),
             DnsServerType::SERVER_HTTPS => "https".to_string(),
+            DnsServerType::SERVER_QUIC => "quic".to_string(),
+            DnsServerType::SERVER_HTTP3 => "http3".to_string(),
             DnsServerType::SERVER_MDNS => "mdns".to_string(),
             DnsServerType::SERVER_UNKNOWN => "unknown".to_string(),
         }
