@@ -2718,6 +2718,7 @@ static int _dns_client_setup_quic_ssl_bio(struct dns_server_info *server_info, S
 	BIO_METHOD *bio_method = server_info->bio_method;
 	BIO *read_bio = NULL;
 	BIO *write_bio = NULL;
+	BIO *udp_socket_bio = NULL;
 
 	if (ssl == NULL) {
 		tlog(TLOG_ERROR, "ssl is null, %s", server_info->ip);
