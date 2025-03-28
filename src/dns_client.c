@@ -117,6 +117,7 @@ struct dns_server_info {
 	int ssl_want_write;
 	SSL_CTX *ssl_ctx;
 	SSL_SESSION *ssl_session;
+	BIO_METHOD *bio_method;
 
 	struct proxy_conn *proxy;
 
@@ -1557,6 +1558,11 @@ static void _dns_client_close_socket_ext(struct dns_server_info *server_info, in
 		server_info->ssl_write_len = -1;
 	}
 
+	if (server_info->bio_method) {
+		BIO_meth_free(server_info->bio_method);
+		server_info->bio_method = NULL;
+	}
+
 	/* remove fd from epoll */
 	if (server_info->fd > 0) {
 		epoll_ctl(client.epoll_fd, EPOLL_CTL_DEL, server_info->fd, NULL);
@@ -2279,7 +2285,7 @@ static int _dns_client_create_socket_udp_proxy(struct dns_server_info *server_in
 	struct epoll_event event;
 	int ret = -1;
 
-	proxy = proxy_conn_new(server_info->proxy_name, server_info->ip, server_info->port, 1);
+	proxy = proxy_conn_new(server_info->proxy_name, server_info->ip, server_info->port, 1, 1);
 	if (proxy == NULL) {
 		tlog(TLOG_ERROR, "create proxy failed, %s, proxy: %s", server_info->ip, server_info->proxy_name);
 		goto errout;
@@ -2511,7 +2517,7 @@ static int _dns_client_create_socket_tcp(struct dns_server_info *server_info)
 	int ret = 0;
 
 	if (server_info->proxy_name[0] != '\0') {
-		proxy = proxy_conn_new(server_info->proxy_name, server_info->ip, server_info->port, 0);
+		proxy = proxy_conn_new(server_info->proxy_name, server_info->ip, server_info->port, 0, 1);
 		if (proxy == NULL) {
 			tlog(TLOG_ERROR, "create proxy failed, %s, proxy: %s", server_info->ip, server_info->proxy_name);
 			goto errout;
@@ -2611,6 +2617,166 @@ errout:
 	return -1;
 }
 
+#ifdef OSSL_QUIC1_VERSION
+static int _dns_client_quic_bio_recvmmsg(BIO *bio, BIO_MSG *msg, size_t stride, size_t num_msg, uint64_t flags,
+										 size_t *msgs_processed)
+{
+	struct dns_server_info *server_info = NULL;
+	int total_len = 0;
+	int len = 0;
+	int i = 0;
+	struct sockaddr_storage from;
+	socklen_t from_len = sizeof(from);
+
+	server_info = (struct dns_server_info *)BIO_get_data(bio);
+	if (server_info == NULL) {
+		tlog(TLOG_ERROR, "server info is null, %s", server_info->ip);
+		return 0;
+	}
+
+	*msgs_processed = 0;
+	for (int i = 0; i < num_msg; i++) {
+		len = proxy_conn_recvfrom(server_info->proxy, msg[i].data, msg[i].data_len, 0, (struct sockaddr *)&from,
+								  &from_len);
+		if (len < 0) {
+			if (*msgs_processed == 0) {
+				ERR_raise(ERR_LIB_SYS, errno);
+				total_len = 0;
+			}
+
+			if (errno == EAGAIN || errno == EWOULDBLOCK) {
+				break;
+			}
+
+			tlog(TLOG_ERROR, "recvmsg failed, %s", strerror(errno));
+			return 0;
+		}
+
+		msg[i].data_len = len;
+		total_len += len;
+		*msgs_processed += 1;
+	}
+
+	return total_len;
+}
+
+static int _dns_client_quic_bio_sendmmsg(BIO *bio, BIO_MSG *msg, size_t stride, size_t num_msg, uint64_t flags,
+										 size_t *msgs_processed)
+{
+	struct dns_server_info *server_info = NULL;
+	int total_len = 0;
+	int len = 0;
+	int i = 0;
+	const struct sockaddr *addr = NULL;
+	socklen_t addrlen = 0;
+
+	*msgs_processed = 0;
+	server_info = (struct dns_server_info *)BIO_get_data(bio);
+	if (server_info == NULL) {
+		tlog(TLOG_ERROR, "server info is null, %s", server_info->ip);
+		return 0;
+	}
+
+	addr = &server_info->addr;
+	addrlen = server_info->ai_addrlen;
+	for (int i = 0; i < num_msg; i++) {
+		len = proxy_conn_sendto(server_info->proxy, msg[i].data, msg[i].data_len, 0, addr, addrlen);
+		if (len < 0) {
+			if (errno == EAGAIN || errno == EWOULDBLOCK) {
+				break;
+			}
+
+			tlog(TLOG_ERROR, "sendmsg failed, %s", strerror(errno));
+			return 0;
+		}
+
+		total_len += len;
+		*msgs_processed += 1;
+	}
+
+	return total_len;
+}
+
+static long _dns_client_quic_bio_ctrl(BIO *bio, int cmd, long num, void *ptr)
+{
+	struct dns_server_info *server_info = NULL;
+	long ret = 0;
+
+	server_info = (struct dns_server_info *)BIO_get_data(bio);
+	if (server_info == NULL) {
+		tlog(TLOG_ERROR, "server info is null.");
+		return -1;
+	}
+
+	return ret;
+}
+
+static int _dns_client_setup_quic_ssl_bio(struct dns_server_info *server_info, SSL *ssl, int fd,
+										  struct proxy_conn *proxy)
+{
+	BIO_METHOD *bio_method_alloc = NULL;
+	BIO_METHOD *bio_method = server_info->bio_method;
+	BIO *read_bio = NULL;
+	BIO *write_bio = NULL;
+
+	if (ssl == NULL) {
+		tlog(TLOG_ERROR, "ssl is null, %s", server_info->ip);
+		return -1;
+	}
+
+	if (proxy == NULL) {
+		if (SSL_set_fd(ssl, fd) == 0) {
+			tlog(TLOG_ERROR, "ssl set fd failed.");
+			goto errout;
+		}
+
+		return 0;
+	}
+
+	if (bio_method == NULL) {
+		bio_method_alloc = BIO_meth_new(BIO_TYPE_SOURCE_SINK, "udp-proxy");
+		if (bio_method_alloc == NULL) {
+			tlog(TLOG_ERROR, "create bio method failed.");
+			goto errout;
+		}
+
+		bio_method = bio_method_alloc;
+		BIO_meth_set_sendmmsg(bio_method, _dns_client_quic_bio_sendmmsg);
+		BIO_meth_set_recvmmsg(bio_method, _dns_client_quic_bio_recvmmsg);
+		BIO_meth_set_ctrl(bio_method, _dns_client_quic_bio_ctrl);
+	}
+
+	udp_socket_bio = BIO_new(bio_method);
+	if (udp_socket_bio == NULL) {
+		tlog(TLOG_ERROR, "create udp_socket_bio failed.");
+		goto errout;
+	}
+	BIO_set_data(udp_socket_bio, (void *)server_info);
+	BIO_set_init(udp_socket_bio, 1);
+
+	SSL_set_bio(ssl, udp_socket_bio, udp_socket_bio);
+	server_info->bio_method = bio_method;
+
+	return 0;
+
+errout:
+	if (bio_method_alloc) {
+		BIO_meth_free(bio_method_alloc);
+	}
+
+	if (read_bio) {
+		BIO_free(read_bio);
+	}
+
+	if (write_bio) {
+		BIO_free(write_bio);
+	}
+
+	return -1;
+}
+
+#endif
+
 static int _dns_client_create_socket_quic(struct dns_server_info *server_info, const char *hostname, const char *alpn)
 {
 #ifdef OSSL_QUIC1_VERSION
@@ -2628,7 +2794,7 @@ static int _dns_client_create_socket_quic(struct dns_server_info *server_info, c
 	}
 
 	if (server_info->proxy_name[0] != '\0') {
-		proxy = proxy_conn_new(server_info->proxy_name, server_info->ip, server_info->port, 1);
+		proxy = proxy_conn_new(server_info->proxy_name, server_info->ip, server_info->port, 1, 1);
 		if (proxy == NULL) {
 			tlog(TLOG_ERROR, "create proxy failed, %s, proxy: %s", server_info->ip, server_info->proxy_name);
 			goto errout;
@@ -2638,12 +2804,6 @@ static int _dns_client_create_socket_quic(struct dns_server_info *server_info, c
 		fd = socket(server_info->ai_family, SOCK_DGRAM, IPPROTO_UDP);
 	}
 
-	ssl = SSL_new(server_info->ssl_ctx);
-	if (ssl == NULL) {
-		tlog(TLOG_ERROR, "new ssl failed, %s", server_info->ip);
-		goto errout;
-	}
-
 	if (fd < 0) {
 		tlog(TLOG_ERROR, "create socket failed, %s", strerror(errno));
 		goto errout;
@@ -2651,6 +2811,12 @@ static int _dns_client_create_socket_quic(struct dns_server_info *server_info, c
 
 	if (set_fd_nonblock(fd, 1) != 0) {
 		tlog(TLOG_ERROR, "set socket non block failed, %s", strerror(errno));
+		goto errout;
+	}
+
+	ssl = SSL_new(server_info->ssl_ctx);
+	if (ssl == NULL) {
+		tlog(TLOG_ERROR, "new ssl failed, %s", server_info->ip);
 		goto errout;
 	}
 
@@ -2674,14 +2840,14 @@ static int _dns_client_create_socket_quic(struct dns_server_info *server_info, c
 		}
 	}
 
-	SSL_set_connect_state(ssl);
 	SSL_set_blocking_mode(ssl, 0);
 	SSL_set_default_stream_mode(ssl, SSL_DEFAULT_STREAM_MODE_NONE);
-	if (SSL_set_fd(ssl, fd) == 0) {
+	if (_dns_client_setup_quic_ssl_bio(server_info, ssl, fd, proxy) != 0) {
 		tlog(TLOG_ERROR, "ssl set fd failed.");
 		goto errout;
 	}
 
+	SSL_set_connect_state(ssl);
 	/* reuse ssl session */
 	if (server_info->ssl_session) {
 		SSL_set_session(ssl, server_info->ssl_session);
@@ -2773,7 +2939,7 @@ static int _dns_client_create_socket_tls(struct dns_server_info *server_info, co
 	}
 
 	if (server_info->proxy_name[0] != '\0') {
-		proxy = proxy_conn_new(server_info->proxy_name, server_info->ip, server_info->port, 0);
+		proxy = proxy_conn_new(server_info->proxy_name, server_info->ip, server_info->port, 0, 1);
 		if (proxy == NULL) {
 			tlog(TLOG_ERROR, "create proxy failed, %s, proxy: %s", server_info->ip, server_info->proxy_name);
 			goto errout;

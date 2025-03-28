@@ -62,7 +62,7 @@ int proxy_add(const char *proxy_name, struct proxy_info *info);
 
 int proxy_remove(const char *proxy_name);
 
-struct proxy_conn *proxy_conn_new(const char *proxy_name, const char *host, int port, int is_udp);
+struct proxy_conn *proxy_conn_new(const char *proxy_name, const char *host, int port, int is_udp, int non_block);
 
 int proxy_conn_get_fd(struct proxy_conn *proxy_conn);
 

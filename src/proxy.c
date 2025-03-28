@@ -71,6 +71,7 @@ struct proxy_conn {
 	int udp_fd;
 	int buffer_len;
 	int is_udp;
+	int non_block;
 	struct sockaddr_storage udp_dest_addr;
 	socklen_t udp_dest_addrlen;
 	struct proxy_conn_buffer buffer;
@@ -245,7 +246,7 @@ static void _proxy_remove_all(void)
 	}
 }
 
-struct proxy_conn *proxy_conn_new(const char *proxy_name, const char *host, int port, int is_udp)
+struct proxy_conn *proxy_conn_new(const char *proxy_name, const char *host, int port, int is_udp, int non_block)
 {
 	struct proxy_conn *proxy_conn = NULL;
 	struct proxy_server_info *server_info = NULL;
@@ -281,6 +282,11 @@ struct proxy_conn *proxy_conn_new(const char *proxy_name, const char *host, int 
 	proxy_conn->fd = fd;
 	proxy_conn->udp_fd = -1;
 	proxy_conn->is_udp = is_udp;
+	proxy_conn->non_block = non_block;
+
+	if (non_block) {
+		set_fd_nonblock(fd, 1);
+	}
 
 	return proxy_conn;
 errout:
@@ -354,6 +360,10 @@ static int _proxy_handshake_socks5_create_udp_fd(struct proxy_conn *proxy_conn)
 	ret = bind(udp_fd, gai->ai_addr, gai->ai_addrlen);
 	if (ret < 0) {
 		goto errout;
+	}
+
+	if (proxy_conn->non_block) {
+		set_fd_nonblock(udp_fd, 1);
 	}
 
 	freeaddrinfo(gai);
