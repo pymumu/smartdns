@@ -629,6 +629,13 @@ load_service()
 	rm -f $SMARTDNS_CONF_TMP
 
 	config_get_bool enabled "$section" "enabled" '0'
+	config_get_bool ui "$section" "ui" '0'
+
+	[ "$ui" = "1" ] && {
+		conf_append "plugin" "/usr/lib/libsmartdns_ui.so"
+		conf_append "smartdns-ui.www-root" "/usr/share/smartdns/wwwroot"
+		conf_append "data-dir" "/etc/smartdns/data"
+	}
 
 	config_get server_name "$section" "server_name" ""
 	[ -z "$server_name" ] || conf_append "server-name" "$server_name"

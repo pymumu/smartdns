@@ -55,6 +55,12 @@ fn link_smartdns_lib() {
     if let Some(sysroot) = sysroot {
         bindings_builder = bindings_builder.clang_arg(format!("--sysroot={}", sysroot));
     }
+    /*
+        * The size_t type is not always usize, so we need to disable the size_t_is_usize feature.
+        * For more information, please refer to the following link:
+        * https://rust-lang.github.io/rust-bindgen/whitelist.html#size_t
+    */
+    bindings_builder = bindings_builder.size_t_is_usize(false);
     let bindings = bindings_builder
         .clang_arg(format!("-I{}/include", smartdns_src_dir))
         .parse_callbacks(Box::new(ignored_macros))
