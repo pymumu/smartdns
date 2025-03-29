@@ -2624,7 +2624,6 @@ static int _dns_client_quic_bio_recvmmsg(BIO *bio, BIO_MSG *msg, size_t stride, 
 	struct dns_server_info *server_info = NULL;
 	int total_len = 0;
 	int len = 0;
-	int i = 0;
 	struct sockaddr_storage from;
 	socklen_t from_len = sizeof(from);
 
@@ -2635,7 +2634,7 @@ static int _dns_client_quic_bio_recvmmsg(BIO *bio, BIO_MSG *msg, size_t stride, 
 	}
 
 	*msgs_processed = 0;
-	for (int i = 0; i < num_msg; i++) {
+	for (size_t i = 0; i < num_msg; i++) {
 		len = proxy_conn_recvfrom(server_info->proxy, msg[i].data, msg[i].data_len, 0, (struct sockaddr *)&from,
 								  &from_len);
 		if (len < 0) {
@@ -2666,7 +2665,6 @@ static int _dns_client_quic_bio_sendmmsg(BIO *bio, BIO_MSG *msg, size_t stride, 
 	struct dns_server_info *server_info = NULL;
 	int total_len = 0;
 	int len = 0;
-	int i = 0;
 	const struct sockaddr *addr = NULL;
 	socklen_t addrlen = 0;
 
@@ -2679,9 +2677,14 @@ static int _dns_client_quic_bio_sendmmsg(BIO *bio, BIO_MSG *msg, size_t stride, 
 
 	addr = &server_info->addr;
 	addrlen = server_info->ai_addrlen;
-	for (int i = 0; i < num_msg; i++) {
+	for (size_t i = 0; i < num_msg; i++) {
 		len = proxy_conn_sendto(server_info->proxy, msg[i].data, msg[i].data_len, 0, addr, addrlen);
 		if (len < 0) {
+			if (*msgs_processed == 0) {
+				ERR_raise(ERR_LIB_SYS, errno);
+				total_len = 0;
+			}
+
 			if (errno == EAGAIN || errno == EWOULDBLOCK) {
 				break;
 			}
@@ -2708,6 +2711,13 @@ static long _dns_client_quic_bio_ctrl(BIO *bio, int cmd, long num, void *ptr)
 		return -1;
 	}
 
+	switch (cmd) {
+	case BIO_CTRL_DGRAM_GET_MTU:
+		break;
+	default:
+		break;
+	}
+
 	return ret;
 }
 
@@ -2716,8 +2726,6 @@ static int _dns_client_setup_quic_ssl_bio(struct dns_server_info *server_info, S
 {
 	BIO_METHOD *bio_method_alloc = NULL;
 	BIO_METHOD *bio_method = server_info->bio_method;
-	BIO *read_bio = NULL;
-	BIO *write_bio = NULL;
 	BIO *udp_socket_bio = NULL;
 
 	if (ssl == NULL) {
@@ -2765,12 +2773,8 @@ errout:
 		BIO_meth_free(bio_method_alloc);
 	}
 
-	if (read_bio) {
-		BIO_free(read_bio);
-	}
-
-	if (write_bio) {
-		BIO_free(write_bio);
+	if (udp_socket_bio) {
+		BIO_free(udp_socket_bio);
 	}
 
 	return -1;
@@ -3787,7 +3791,6 @@ static int _dns_client_process_quic_poll(struct dns_server_info *server_info)
 				if (server_info->type == DNS_SERVER_HTTP3) {
 					ret = _dns_client_process_recv_http3(server_info, conn_stream);
 					if (ret != 0) {
-						tlog(TLOG_ERROR, "process http3 failed.");
 						goto errout;
 					}
 
@@ -4375,8 +4378,8 @@ static int _dns_proxy_handshake(struct dns_server_info *server_info, struct epol
 	memset(&fd_event, 0, sizeof(fd_event));
 	if (ret == PROXY_HANDSHAKE_CONNECTED) {
 		fd_event.events = EPOLLIN;
-		if (server_info->type == DNS_SERVER_UDP) {
-			server_info->status = DNS_SERVER_STATUS_CONNECTED;
+		if (server_info->type == DNS_SERVER_UDP || server_info->type == DNS_SERVER_HTTP3 ||
+			server_info->type == DNS_SERVER_QUIC) {
 			epoll_ctl(client.epoll_fd, EPOLL_CTL_DEL, fd, NULL);
 			event->events = 0;
 			fd = proxy_conn_get_udpfd(server_info->proxy);
@@ -4394,6 +4397,15 @@ static int _dns_proxy_handshake(struct dns_server_info *server_info, struct epol
 			}
 			server_info->fd = fd;
 			epoll_op = EPOLL_CTL_ADD;
+
+			if (server_info->type == DNS_SERVER_UDP) {
+				server_info->status = DNS_SERVER_STATUS_CONNECTED;
+			} else {
+				/* do handshake for quic */
+				server_info->status = DNS_SERVER_STATUS_CONNECTING;
+				fd_event.events |= EPOLLOUT;
+			}
+
 		} else {
 			fd_event.events |= EPOLLOUT;
 		}

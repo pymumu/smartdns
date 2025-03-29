@@ -731,7 +731,8 @@ static proxy_handshake_state _proxy_handshake_socks5(struct proxy_conn *proxy_co
 		}
 
 		proxy_conn->state = PROXY_CONN_CONNECTED;
-		tlog(TLOG_DEBUG, "success connect to socks5 proxy server %s", proxy_conn->server_info->proxy_name);
+		tlog(TLOG_DEBUG, "success connect to socks5 proxy server %s, type: %s", proxy_conn->server_info->proxy_name,
+			 proxy_conn->is_udp ? "udp" : "tcp");
 		return PROXY_HANDSHAKE_CONNECTED;
 	} break;
 	default:
@@ -1074,6 +1075,6 @@ void proxy_exit(void)
 	_proxy_remove_all();
 
 	is_proxy_init = 0;
-	
-	return ;
+
+	return;
 }
