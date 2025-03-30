@@ -23,26 +23,28 @@ CARGO_BUILD_ENV :=
 SMARTDNS_SRC_DIR=../../src
  
 ifeq ($(origin CC), environment)
-  ifeq ($(CARGO_BUILD_ARGS),)
-    # find default target by compiler
-    ARCH_TARGET:=$(shell $(CC) -dumpmachine)
-    RUST_ARCH_TARGET:=$(shell rustc --print target-list | grep $(ARCH_TARGET) | head -n 1)
+  ifeq ($(CARGO_BUILD_TARGET),)
+    ifeq ($(CARGO_BUILD_ARGS),)
+      # find default target by compiler
+      ARCH_TARGET:=$(shell $(CC) -dumpmachine)
+      override CARGO_BUILD_TARGET:=$(shell rustc --print target-list | grep $(ARCH_TARGET) | head -n 1)
 
-    ifeq ($(RUST_ARCH_TARGET),)
-      # not found, try to find target by compiler
-      ARCH_TARGET:=$(shell $(CC) -dumpmachine | sed 's/-[^-]*-linux-/-linux-/')
-      ARCH=$(shell echo $(ARCH_TARGET) | cut -d - -f 1)
-      ABI=$(shell echo $(ARCH_TARGET) | cut -d - -f 3)
-      ifneq ($(ABI),)
-        # force set target to $(ARCH)-unknown-linux-$(ABI)
-        RUST_ARCH_TARGET:=$(shell rustc --print target-list | grep $(ARCH) | grep linux | grep $(ABI) | grep unknown | head -n 1)
+      ifeq ($(CARGO_BUILD_TARGET),)
+        # not found, try to find target by compiler
+        ARCH_TARGET:=$(shell $(CC) -dumpmachine | sed 's/-[^-]*-linux-/-linux-/')
+        ARCH=$(shell echo $(ARCH_TARGET) | cut -d - -f 1)
+        ABI=$(shell echo $(ARCH_TARGET) | cut -d - -f 3)
+        ifneq ($(ABI),)
+          # force set target to $(ARCH)-unknown-linux-$(ABI)
+          override CARGO_BUILD_TARGET:=$(shell rustc --print target-list | grep $(ARCH) | grep linux | grep $(ABI) | grep unknown | head -n 1)
+        endif
       endif
-    endif
 
-    ifneq ($(RUST_ARCH_TARGET),)
-      ARCH_TARGET_PATH=$(RUST_ARCH_TARGET)/
-      override CARGO_RUSTFLAGS=-C linker=$(CC)
-      CARGO_BUILD_ARGS +=--target=$(RUST_ARCH_TARGET)
+      ifneq ($(CARGO_BUILD_TARGET),)
+        ARCH_TARGET_PATH=$(CARGO_BUILD_TARGET)/
+        override CARGO_RUSTFLAGS=-C linker=$(CC)
+         CARGO_BUILD_ARGS +=--target=$(CARGO_BUILD_TARGET)
+      endif
     endif
   endif
 
@@ -55,7 +57,26 @@ ifeq ($(origin CC), environment)
       # find sysroot, add sysroot to BINDGEN_EXTRA_CLANG_ARGS
       SYSROOT:=$(SYSROOT)/..
       override CARGO_BUILD_ENV += BINDGEN_EXTRA_CLANG_ARGS="--sysroot=$(SYSROOT)"
+      CARGO_BUILD_ARGS +=--target=$(CARGO_BUILD_TARGET)
     endif
+  endif
+endif
+
+ifneq ($(CARGO_BUILD_TARGET),)
+  ARCH_TARGET_PATH=$(CARGO_BUILD_TARGET)/
+endif
+
+# check and install bindgen
+IS_BINDGEN_INSTALL=$(shell which bindgen 2>/dev/null)
+ifeq ($(IS_BINDGEN_INSTALL),)
+  $(shell cargo install --force --locked bindgen-cli)
+endif
+
+ifneq ($(CARGO_BUILD_TARGET),)
+  CARGO_BUILD_TARGET_INSTALL=$(shell rustup target list | grep $(CARGO_BUILD_TARGET) | grep installed)
+  ifeq ($(CARGO_BUILD_TARGET_INSTALL),)
+    # install target
+    $(shell rustup target add $(CARGO_BUILD_TARGET))
   endif
 endif
 
