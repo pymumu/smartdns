@@ -117,6 +117,7 @@ struct dns_server_info {
 	int ssl_want_write;
 	SSL_CTX *ssl_ctx;
 	SSL_SESSION *ssl_session;
+	BIO_METHOD *bio_method;
 
 	struct proxy_conn *proxy;
 
@@ -1557,8 +1558,15 @@ static void _dns_client_close_socket_ext(struct dns_server_info *server_info, in
 		server_info->ssl_write_len = -1;
 	}
 
+	if (server_info->bio_method) {
+		BIO_meth_free(server_info->bio_method);
+		server_info->bio_method = NULL;
+	}
+
 	/* remove fd from epoll */
-	epoll_ctl(client.epoll_fd, EPOLL_CTL_DEL, server_info->fd, NULL);
+	if (server_info->fd > 0) {
+		epoll_ctl(client.epoll_fd, EPOLL_CTL_DEL, server_info->fd, NULL);
+	}
 
 	if (server_info->proxy) {
 		proxy_conn_free(server_info->proxy);
@@ -2277,7 +2285,7 @@ static int _dns_client_create_socket_udp_proxy(struct dns_server_info *server_in
 	struct epoll_event event;
 	int ret = -1;
 
-	proxy = proxy_conn_new(server_info->proxy_name, server_info->ip, server_info->port, 1);
+	proxy = proxy_conn_new(server_info->proxy_name, server_info->ip, server_info->port, 1, 1);
 	if (proxy == NULL) {
 		tlog(TLOG_ERROR, "create proxy failed, %s, proxy: %s", server_info->ip, server_info->proxy_name);
 		goto errout;
@@ -2498,7 +2506,7 @@ errout:
 	return -1;
 }
 
-static int _DNS_client_create_socket_tcp(struct dns_server_info *server_info)
+static int _dns_client_create_socket_tcp(struct dns_server_info *server_info)
 {
 	int fd = 0;
 	struct epoll_event event;
@@ -2509,7 +2517,7 @@ static int _DNS_client_create_socket_tcp(struct dns_server_info *server_info)
 	int ret = 0;
 
 	if (server_info->proxy_name[0] != '\0') {
-		proxy = proxy_conn_new(server_info->proxy_name, server_info->ip, server_info->port, 0);
+		proxy = proxy_conn_new(server_info->proxy_name, server_info->ip, server_info->port, 0, 1);
 		if (proxy == NULL) {
 			tlog(TLOG_ERROR, "create proxy failed, %s, proxy: %s", server_info->ip, server_info->proxy_name);
 			goto errout;
@@ -2609,7 +2617,172 @@ errout:
 	return -1;
 }
 
-static int _DNS_client_create_socket_quic(struct dns_server_info *server_info, const char *hostname, const char *alpn)
+#ifdef OSSL_QUIC1_VERSION
+static int _dns_client_quic_bio_recvmmsg(BIO *bio, BIO_MSG *msg, size_t stride, size_t num_msg, uint64_t flags,
+										 size_t *msgs_processed)
+{
+	struct dns_server_info *server_info = NULL;
+	int total_len = 0;
+	int len = 0;
+	struct sockaddr_storage from;
+	socklen_t from_len = sizeof(from);
+
+	server_info = (struct dns_server_info *)BIO_get_data(bio);
+	if (server_info == NULL) {
+		tlog(TLOG_ERROR, "server info is null, %s", server_info->ip);
+		return 0;
+	}
+
+	*msgs_processed = 0;
+	for (size_t i = 0; i < num_msg; i++) {
+		len = proxy_conn_recvfrom(server_info->proxy, msg[i].data, msg[i].data_len, 0, (struct sockaddr *)&from,
+								  &from_len);
+		if (len < 0) {
+			if (*msgs_processed == 0) {
+				ERR_raise(ERR_LIB_SYS, errno);
+				total_len = 0;
+			}
+
+			if (errno == EAGAIN || errno == EWOULDBLOCK) {
+				break;
+			}
+
+			tlog(TLOG_ERROR, "recvmsg failed, %s", strerror(errno));
+			return 0;
+		}
+
+		msg[i].data_len = len;
+		total_len += len;
+		*msgs_processed += 1;
+	}
+
+	return total_len;
+}
+
+static int _dns_client_quic_bio_sendmmsg(BIO *bio, BIO_MSG *msg, size_t stride, size_t num_msg, uint64_t flags,
+										 size_t *msgs_processed)
+{
+	struct dns_server_info *server_info = NULL;
+	int total_len = 0;
+	int len = 0;
+	const struct sockaddr *addr = NULL;
+	socklen_t addrlen = 0;
+
+	*msgs_processed = 0;
+	server_info = (struct dns_server_info *)BIO_get_data(bio);
+	if (server_info == NULL) {
+		tlog(TLOG_ERROR, "server info is null, %s", server_info->ip);
+		return 0;
+	}
+
+	addr = &server_info->addr;
+	addrlen = server_info->ai_addrlen;
+	for (size_t i = 0; i < num_msg; i++) {
+		len = proxy_conn_sendto(server_info->proxy, msg[i].data, msg[i].data_len, 0, addr, addrlen);
+		if (len < 0) {
+			if (*msgs_processed == 0) {
+				ERR_raise(ERR_LIB_SYS, errno);
+				total_len = 0;
+			}
+
+			if (errno == EAGAIN || errno == EWOULDBLOCK) {
+				break;
+			}
+
+			tlog(TLOG_ERROR, "sendmsg failed, %s", strerror(errno));
+			return 0;
+		}
+
+		total_len += len;
+		*msgs_processed += 1;
+	}
+
+	return total_len;
+}
+
+static long _dns_client_quic_bio_ctrl(BIO *bio, int cmd, long num, void *ptr)
+{
+	struct dns_server_info *server_info = NULL;
+	long ret = 0;
+
+	server_info = (struct dns_server_info *)BIO_get_data(bio);
+	if (server_info == NULL) {
+		tlog(TLOG_ERROR, "server info is null.");
+		return -1;
+	}
+
+	switch (cmd) {
+	case BIO_CTRL_DGRAM_GET_MTU:
+		break;
+	default:
+		break;
+	}
+
+	return ret;
+}
+
+static int _dns_client_setup_quic_ssl_bio(struct dns_server_info *server_info, SSL *ssl, int fd,
+										  struct proxy_conn *proxy)
+{
+	BIO_METHOD *bio_method_alloc = NULL;
+	BIO_METHOD *bio_method = server_info->bio_method;
+	BIO *udp_socket_bio = NULL;
+
+	if (ssl == NULL) {
+		tlog(TLOG_ERROR, "ssl is null, %s", server_info->ip);
+		return -1;
+	}
+
+	if (proxy == NULL) {
+		if (SSL_set_fd(ssl, fd) == 0) {
+			tlog(TLOG_ERROR, "ssl set fd failed.");
+			goto errout;
+		}
+
+		return 0;
+	}
+
+	if (bio_method == NULL) {
+		bio_method_alloc = BIO_meth_new(BIO_TYPE_SOURCE_SINK, "udp-proxy");
+		if (bio_method_alloc == NULL) {
+			tlog(TLOG_ERROR, "create bio method failed.");
+			goto errout;
+		}
+
+		bio_method = bio_method_alloc;
+		BIO_meth_set_sendmmsg(bio_method, _dns_client_quic_bio_sendmmsg);
+		BIO_meth_set_recvmmsg(bio_method, _dns_client_quic_bio_recvmmsg);
+		BIO_meth_set_ctrl(bio_method, _dns_client_quic_bio_ctrl);
+	}
+
+	udp_socket_bio = BIO_new(bio_method);
+	if (udp_socket_bio == NULL) {
+		tlog(TLOG_ERROR, "create udp_socket_bio failed.");
+		goto errout;
+	}
+	BIO_set_data(udp_socket_bio, (void *)server_info);
+	BIO_set_init(udp_socket_bio, 1);
+
+	SSL_set_bio(ssl, udp_socket_bio, udp_socket_bio);
+	server_info->bio_method = bio_method;
+
+	return 0;
+
+errout:
+	if (bio_method_alloc) {
+		BIO_meth_free(bio_method_alloc);
+	}
+
+	if (udp_socket_bio) {
+		BIO_free(udp_socket_bio);
+	}
+
+	return -1;
+}
+
+#endif
+
+static int _dns_client_create_socket_quic(struct dns_server_info *server_info, const char *hostname, const char *alpn)
 {
 #ifdef OSSL_QUIC1_VERSION
 	int fd = 0;
@@ -2626,7 +2799,7 @@ static int _DNS_client_create_socket_quic(struct dns_server_info *server_info, c
 	}
 
 	if (server_info->proxy_name[0] != '\0') {
-		proxy = proxy_conn_new(server_info->proxy_name, server_info->ip, server_info->port, 1);
+		proxy = proxy_conn_new(server_info->proxy_name, server_info->ip, server_info->port, 1, 1);
 		if (proxy == NULL) {
 			tlog(TLOG_ERROR, "create proxy failed, %s, proxy: %s", server_info->ip, server_info->proxy_name);
 			goto errout;
@@ -2636,12 +2809,6 @@ static int _DNS_client_create_socket_quic(struct dns_server_info *server_info, c
 		fd = socket(server_info->ai_family, SOCK_DGRAM, IPPROTO_UDP);
 	}
 
-	ssl = SSL_new(server_info->ssl_ctx);
-	if (ssl == NULL) {
-		tlog(TLOG_ERROR, "new ssl failed, %s", server_info->ip);
-		goto errout;
-	}
-
 	if (fd < 0) {
 		tlog(TLOG_ERROR, "create socket failed, %s", strerror(errno));
 		goto errout;
@@ -2649,6 +2816,12 @@ static int _DNS_client_create_socket_quic(struct dns_server_info *server_info, c
 
 	if (set_fd_nonblock(fd, 1) != 0) {
 		tlog(TLOG_ERROR, "set socket non block failed, %s", strerror(errno));
+		goto errout;
+	}
+
+	ssl = SSL_new(server_info->ssl_ctx);
+	if (ssl == NULL) {
+		tlog(TLOG_ERROR, "new ssl failed, %s", server_info->ip);
 		goto errout;
 	}
 
@@ -2672,14 +2845,14 @@ static int _DNS_client_create_socket_quic(struct dns_server_info *server_info, c
 		}
 	}
 
-	SSL_set_connect_state(ssl);
 	SSL_set_blocking_mode(ssl, 0);
 	SSL_set_default_stream_mode(ssl, SSL_DEFAULT_STREAM_MODE_NONE);
-	if (SSL_set_fd(ssl, fd) == 0) {
+	if (_dns_client_setup_quic_ssl_bio(server_info, ssl, fd, proxy) != 0) {
 		tlog(TLOG_ERROR, "ssl set fd failed.");
 		goto errout;
 	}
 
+	SSL_set_connect_state(ssl);
 	/* reuse ssl session */
 	if (server_info->ssl_session) {
 		SSL_set_session(ssl, server_info->ssl_session);
@@ -2753,7 +2926,7 @@ errout:
 #endif
 }
 
-static int _DNS_client_create_socket_tls(struct dns_server_info *server_info, const char *hostname, const char *alpn)
+static int _dns_client_create_socket_tls(struct dns_server_info *server_info, const char *hostname, const char *alpn)
 {
 	int fd = 0;
 	struct epoll_event event;
@@ -2771,7 +2944,7 @@ static int _DNS_client_create_socket_tls(struct dns_server_info *server_info, co
 	}
 
 	if (server_info->proxy_name[0] != '\0') {
-		proxy = proxy_conn_new(server_info->proxy_name, server_info->ip, server_info->port, 0);
+		proxy = proxy_conn_new(server_info->proxy_name, server_info->ip, server_info->port, 0, 1);
 		if (proxy == NULL) {
 			tlog(TLOG_ERROR, "create proxy failed, %s, proxy: %s", server_info->ip, server_info->proxy_name);
 			goto errout;
@@ -2929,11 +3102,11 @@ static int _dns_client_create_socket(struct dns_server_info *server_info)
 	} else if (server_info->type == DNS_SERVER_MDNS) {
 		return _dns_client_create_socket_udp_mdns(server_info);
 	} else if (server_info->type == DNS_SERVER_TCP) {
-		return _DNS_client_create_socket_tcp(server_info);
+		return _dns_client_create_socket_tcp(server_info);
 	} else if (server_info->type == DNS_SERVER_TLS) {
 		struct client_dns_server_flag_tls *flag_tls = NULL;
 		flag_tls = &server_info->flags.tls;
-		return _DNS_client_create_socket_tls(server_info, flag_tls->hostname, flag_tls->alpn);
+		return _dns_client_create_socket_tls(server_info, flag_tls->hostname, flag_tls->alpn);
 	} else if (server_info->type == DNS_SERVER_QUIC) {
 		struct client_dns_server_flag_tls *flag_tls = NULL;
 		const char *alpn = "doq";
@@ -2941,11 +3114,11 @@ static int _dns_client_create_socket(struct dns_server_info *server_info)
 		if (flag_tls->alpn[0] != 0) {
 			alpn = flag_tls->alpn;
 		}
-		return _DNS_client_create_socket_quic(server_info, flag_tls->hostname, alpn);
+		return _dns_client_create_socket_quic(server_info, flag_tls->hostname, alpn);
 	} else if (server_info->type == DNS_SERVER_HTTPS) {
 		struct client_dns_server_flag_https *flag_https = NULL;
 		flag_https = &server_info->flags.https;
-		return _DNS_client_create_socket_tls(server_info, flag_https->hostname, flag_https->alpn);
+		return _dns_client_create_socket_tls(server_info, flag_https->hostname, flag_https->alpn);
 	} else if (server_info->type == DNS_SERVER_HTTP3) {
 		struct client_dns_server_flag_https *flag_https = NULL;
 		const char *alpn = "h3";
@@ -2953,7 +3126,7 @@ static int _dns_client_create_socket(struct dns_server_info *server_info)
 		if (flag_https->alpn[0] != 0) {
 			alpn = flag_https->alpn;
 		}
-		return _DNS_client_create_socket_quic(server_info, flag_https->hostname, alpn);
+		return _dns_client_create_socket_quic(server_info, flag_https->hostname, alpn);
 	} else {
 		return -1;
 	}
@@ -3328,6 +3501,10 @@ static int _dns_client_ssl_poll_event(struct dns_server_info *server_info, int s
 		goto errout;
 	}
 
+	if (server_info->fd < 0) {
+		goto errout;
+	}
+
 	fd_event.data.ptr = server_info;
 	if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &fd_event) != 0) {
 		tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
@@ -3578,6 +3755,7 @@ static int _dns_client_process_quic_poll(struct dns_server_info *server_info)
 		pthread_mutex_unlock(&server_info->lock);
 
 		if (poll_item_count <= 0) {
+			SSL_handle_events(server_info->ssl);
 			break;
 		}
 
@@ -3613,7 +3791,6 @@ static int _dns_client_process_quic_poll(struct dns_server_info *server_info)
 				if (server_info->type == DNS_SERVER_HTTP3) {
 					ret = _dns_client_process_recv_http3(server_info, conn_stream);
 					if (ret != 0) {
-						tlog(TLOG_ERROR, "process http3 failed.");
 						goto errout;
 					}
 
@@ -3704,17 +3881,28 @@ static int _dns_client_process_quic(struct dns_server_info *server_info, struct 
 					SSL_handle_events(server_info->ssl);
 				}
 			}
+
+			if (send_len < conn_stream->send_buff.len) {
+				conn_stream->send_buff.len -= send_len;
+				memmove(conn_stream->send_buff.data, conn_stream->send_buff.data + send_len,
+						conn_stream->send_buff.len);
+				epoll_events = EPOLLIN | EPOLLOUT;
+			} else {
+				conn_stream->send_buff.len = 0;
+			}
 		}
 		pthread_mutex_unlock(&server_info->lock);
 
-		/* clear epollout event */
-		struct epoll_event mod_event;
-		memset(&mod_event, 0, sizeof(mod_event));
-		mod_event.events = epoll_events;
-		mod_event.data.ptr = server_info;
-		if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &mod_event) != 0) {
-			tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
-			goto errout;
+		if (server_info->fd > 0) {
+			/* clear epollout event */
+			struct epoll_event mod_event;
+			memset(&mod_event, 0, sizeof(mod_event));
+			mod_event.events = epoll_events;
+			mod_event.data.ptr = server_info;
+			if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &mod_event) != 0) {
+				tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
+				goto errout;
+			}
 		}
 	}
 	return 0;
@@ -3819,9 +4007,11 @@ static int _dns_client_process_tcp(struct dns_server_info *server_info, struct e
 		memset(&mod_event, 0, sizeof(mod_event));
 		mod_event.events = EPOLLIN;
 		mod_event.data.ptr = server_info;
-		if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &mod_event) != 0) {
-			tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
-			goto errout;
+		if (server_info->fd > 0) {
+			if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &mod_event) != 0) {
+				tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
+				goto errout;
+			}
 		}
 	}
 
@@ -4082,7 +4272,7 @@ static int _dns_client_process_tls(struct dns_server_info *server_info, struct e
 	int ssl_ret = 0;
 
 	if (unlikely(server_info->ssl == NULL)) {
-		tlog(TLOG_ERROR, "ssl is invalid.");
+		tlog(TLOG_ERROR, "ssl is invalid, server %s", server_info->ip);
 		goto errout;
 	}
 
@@ -4138,9 +4328,11 @@ static int _dns_client_process_tls(struct dns_server_info *server_info, struct e
 		memset(&fd_event, 0, sizeof(fd_event));
 		fd_event.events = EPOLLIN | EPOLLOUT;
 		fd_event.data.ptr = server_info;
-		if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &fd_event) != 0) {
-			tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
-			goto errout;
+		if (server_info->fd > 0) {
+			if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &fd_event) != 0) {
+				tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
+				goto errout;
+			}
 		}
 
 		event->events = EPOLLOUT;
@@ -4179,15 +4371,15 @@ static int _dns_proxy_handshake(struct dns_server_info *server_info, struct epol
 		return 0;
 	}
 
-	if (ret == PROXY_HANDSHAKE_ERR) {
+	if (ret == PROXY_HANDSHAKE_ERR || fd < 0) {
 		goto errout;
 	}
 
 	memset(&fd_event, 0, sizeof(fd_event));
 	if (ret == PROXY_HANDSHAKE_CONNECTED) {
 		fd_event.events = EPOLLIN;
-		if (server_info->type == DNS_SERVER_UDP) {
-			server_info->status = DNS_SERVER_STATUS_CONNECTED;
+		if (server_info->type == DNS_SERVER_UDP || server_info->type == DNS_SERVER_HTTP3 ||
+			server_info->type == DNS_SERVER_QUIC) {
 			epoll_ctl(client.epoll_fd, EPOLL_CTL_DEL, fd, NULL);
 			event->events = 0;
 			fd = proxy_conn_get_udpfd(server_info->proxy);
@@ -4205,6 +4397,15 @@ static int _dns_proxy_handshake(struct dns_server_info *server_info, struct epol
 			}
 			server_info->fd = fd;
 			epoll_op = EPOLL_CTL_ADD;
+
+			if (server_info->type == DNS_SERVER_UDP) {
+				server_info->status = DNS_SERVER_STATUS_CONNECTED;
+			} else {
+				/* do handshake for quic */
+				server_info->status = DNS_SERVER_STATUS_CONNECTING;
+				fd_event.events |= EPOLLOUT;
+			}
+
 		} else {
 			fd_event.events |= EPOLLOUT;
 		}
@@ -4356,6 +4557,11 @@ static int _dns_client_send_data_to_buffer(struct dns_server_info *server_info, 
 
 	memcpy(server_info->send_buff.data + server_info->send_buff.len, packet, len);
 	server_info->send_buff.len += len;
+
+	if (server_info->fd <= 0) {
+		errno = ECONNRESET;
+		return -1;
+	}
 
 	memset(&event, 0, sizeof(event));
 	event.events = EPOLLIN | EPOLLOUT;
@@ -4525,6 +4731,11 @@ static int _dns_client_quic_pending_data(struct dns_conn_stream *stream, struct 
 		list_add_tail(&stream->list, &server_info->conn_stream_list);
 	}
 	pthread_mutex_unlock(&server_info->lock);
+
+	if (server_info->fd <= 0) {
+		errno = ECONNRESET;
+		return -1;
+	}
 
 	memset(&event, 0, sizeof(event));
 	event.events = EPOLLIN | EPOLLOUT;

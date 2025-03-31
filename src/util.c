@@ -2330,10 +2330,20 @@ int set_http_host(const char *uri_host, int port, int default_port, char *host)
 	is_ipv6 = check_is_ipv6(uri_host);
 	if (port == default_port) {
 		snprintf(host, DNS_MAX_CNAME_LEN, "%s%s%s", is_ipv6 == 0 ? "[" : "", uri_host, is_ipv6 == 0 ? "]" : "");
-	} else  {
-		snprintf(host, DNS_MAX_CNAME_LEN, "%s%s%s:%d", is_ipv6 == 0 ? "[" : "", uri_host, is_ipv6 == 0 ? "]" : "", port);
+	} else {
+		snprintf(host, DNS_MAX_CNAME_LEN, "%s%s%s:%d", is_ipv6 == 0 ? "[" : "", uri_host, is_ipv6 == 0 ? "]" : "",
+				 port);
 	}
 	return 0;
+}
+
+int dns_is_quic_supported(void)
+{
+#ifdef OSSL_QUIC1_VERSION
+	return 1;
+#else
+	return 0;
+#endif
 }
 
 #if defined(DEBUG) || defined(TEST)

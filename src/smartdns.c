@@ -81,7 +81,8 @@ static void _help(void)
 #ifdef DEBUG
 		"  -N [file]     dump dns packet to file.\n"
 #endif
-		"  --cache-print [file] print cache.\n"
+		"  --cache-print [file]  print cache.\n"
+		"  --is-quic-supported   is quic http3 supported.\n"
 		""
 
 		"Online help: https://pymumu.github.io/smartdns\n"
@@ -1015,8 +1016,10 @@ int smartdns_main(int argc, char *argv[])
 	sigset_t empty_sigblock;
 	struct stat sb;
 
-	static struct option long_options[] = {
-		{"cache-print", required_argument, NULL, 256}, {"help", no_argument, NULL, 'h'}, {NULL, 0, NULL, 0}};
+	static struct option long_options[] = {{"cache-print", required_argument, NULL, 256},
+										   {"is-quic-supported", no_argument, NULL, 257},
+										   {"help", no_argument, NULL, 'h'},
+										   {NULL, 0, NULL, 0}};
 
 	safe_strncpy(config_file, SMARTDNS_CONF_FILE, MAX_LINE_LEN);
 
@@ -1070,6 +1073,16 @@ int smartdns_main(int argc, char *argv[])
 		case 256:
 			tlog_set_early_printf(1, 1, 1);
 			return dns_cache_print(optarg);
+			break;
+		case 257:
+			if (dns_is_quic_supported() == 0) {
+				fprintf(stdout, "quic is not supported.\n");
+				return 1;
+			} else {
+				fprintf(stdout, "quic is supported.\n");
+				return 0;
+			}
+			return 0;
 			break;
 		default:
 			fprintf(stderr, "unknown option, please run %s -h for help.\n", argv[0]);

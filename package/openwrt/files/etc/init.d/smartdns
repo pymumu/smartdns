@@ -856,6 +856,14 @@ load_service()
 
 	config_foreach load_IP_rule_list "ip-rule-list"
 
+	config_get_bool ui "$section" "ui" '0'
+
+	[ "$ui" = "1" ] && {
+		conf_append "plugin" "/usr/lib/libsmartdns_ui.so"
+		conf_append "smartdns-ui.www-root" "/usr/share/smartdns/wwwroot"
+		conf_append "data-dir" "/etc/smartdns/data"
+	}
+
 	{
 		echo "conf-file $ADDRESS_CONF"
 		echo "conf-file $BLACKLIST_IP_CONF"
