@@ -4835,6 +4835,7 @@ static int _dns_client_send_http3(struct dns_query_struct *query, struct dns_ser
 #ifdef OSSL_QUIC1_VERSION
 	int send_len = 0;
 	int http_len = 0;
+	int ret = 0;
 	unsigned char inpacket_data[DNS_IN_PACKSIZE];
 	unsigned char *inpacket = inpacket_data;
 	struct client_dns_server_flag_https *https_flag = NULL;
@@ -4887,7 +4888,8 @@ static int _dns_client_send_http3(struct dns_query_struct *query, struct dns_ser
 	INIT_LIST_HEAD(&stream->list);
 
 	if (server_info->status != DNS_SERVER_STATUS_CONNECTED) {
-		return _dns_client_quic_pending_data(stream, server_info, inpacket, http_len);
+		ret = _dns_client_quic_pending_data(stream, server_info, inpacket, http_len);
+		goto out;
 	}
 
 	/* run hand shake */
@@ -4896,7 +4898,8 @@ static int _dns_client_send_http3(struct dns_query_struct *query, struct dns_ser
 	SSL *quic_stream = SSL_new_stream(server_info->ssl, 0);
 	if (quic_stream == NULL) {
 		_dns_client_shutdown_socket(server_info);
-		return _dns_client_quic_pending_data(stream, server_info, inpacket, http_len);
+		ret = _dns_client_quic_pending_data(stream, server_info, inpacket, http_len);
+		goto out;
 	}
 
 	pthread_mutex_lock(&server_info->lock);
@@ -4911,18 +4914,20 @@ static int _dns_client_send_http3(struct dns_query_struct *query, struct dns_ser
 	if (send_len <= 0) {
 		if (errno == EAGAIN || errno == EPIPE || server_info->ssl == NULL) {
 			/* save data to buffer, and retry when EPOLLOUT is available */
-			return _dns_client_quic_pending_data(stream, server_info, inpacket, http_len);
+			ret = _dns_client_quic_pending_data(stream, server_info, inpacket, http_len);
+			goto out;
 		} else if (server_info->ssl && errno != ENOMEM) {
 			_dns_client_shutdown_socket(server_info);
 		}
 		return -1;
 	} else if (send_len < len) {
 		/* save remain data to buffer, and retry when EPOLLOUT is available */
-		return _dns_client_quic_pending_data(stream, server_info, inpacket + send_len, http_len - send_len);
+		ret = _dns_client_quic_pending_data(stream, server_info, inpacket + send_len, http_len - send_len);
+		goto out;
 	}
-
+out:
 	http_head_destroy(http_head);
-	return 0;
+	return ret;
 errout:
 	if (http_head) {
 		http_head_destroy(http_head);

@@ -1373,6 +1373,7 @@ static int _http_head_parse_http3_0(struct http_head *http_head, const uint8_t *
 	int offset = 0;
 	int offset_ret = 0;
 
+	http_head->data_len = 0;
 	while (offset < data_len) {
 		offset_ret = _quicvarint_decode((uint8_t *)data + offset, data_len - offset, &frame_type);
 		if (offset_ret < 0) {
@@ -1411,12 +1412,25 @@ static int _http_head_parse_http3_0(struct http_head *http_head, const uint8_t *
 				memcpy(http_head->buff + http_head->buff_len, data + offset, frame_len);
 				http_head->code_msg = (const char *)(http_head->buff + http_head->buff_len);
 				http_head->buff_len += frame_len;
-			} else {
-				http_head->data = data + offset;
-				http_head->data_len = frame_len;
+			} else if (frame_len > 0) {
+				if (http_head->data == NULL) {
+					http_head->data = _http_head_buffer_get_end(http_head);
+				}
+
+				if (_http_head_buffer_append(http_head, data + offset, frame_len) == NULL) {
+					http_head->code_msg = "Receive Buffer Insufficient";
+					http_head->code = 500;
+					http_head->data_len = 0;
+					http_head->buff_len = 0;
+					return -2;
+				}
+				memcpy(http_head->buff + http_head->buff_len, data + offset, frame_len);
+				http_head->data_len += frame_len;
 			}
 		} else {
-			return -2;
+			/* skip unknown frame. e.g. GREASE  */
+			offset += frame_len;
+			continue;
 		}
 		offset += frame_len;
 	}
