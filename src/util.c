@@ -2337,6 +2337,19 @@ int set_http_host(const char *uri_host, int port, int default_port, char *host)
 	return 0;
 }
 
+int decode_hex(int ch)
+{
+	if ('0' <= ch && ch <= '9') {
+		return ch - '0';
+	} else if ('A' <= ch && ch <= 'F') {
+		return ch - 'A' + 0xa;
+	} else if ('a' <= ch && ch <= 'f') {
+		return ch - 'a' + 0xa;
+	} else {
+		return -1;
+	}
+}
+
 int dns_is_quic_supported(void)
 {
 #ifdef OSSL_QUIC1_VERSION

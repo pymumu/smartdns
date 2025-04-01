@@ -643,12 +643,55 @@ static int _http_head_parse(struct http_head *http_head)
 	return 0;
 }
 
+static int _http1_get_chunk_len(const uint8_t *data, int data_len, int32_t *chunk_len)
+{
+	int offset = 0;
+	int32_t chunk_value = 0;
+	int is_num_start = 0;
+
+	for (offset = 0; offset < data_len; offset++) {
+		if (data[offset] == ' ') {
+			continue;
+		}
+
+		if (data[offset] == '\r') {
+			if (offset + 1 < data_len && data[offset + 1] == '\n') {
+				offset += 2;
+				break;
+			}
+			if (is_num_start == 0) {
+				return -2;
+			}
+
+			return -2;
+		}
+		int value = decode_hex(data[offset]);
+		if (value < 0) {
+			return -2;
+		}
+
+		if (is_num_start == 0) {
+			is_num_start = 1;
+		}
+
+		chunk_value = (chunk_value << 4) + value;
+	}
+
+	if (offset >= data_len) {
+		return -1;
+	}
+
+	*chunk_len = chunk_value;
+	return offset;
+}
+
 static int _http_head_parse_http1_1(struct http_head *http_head, const uint8_t *data, int data_len)
 {
 	int i = 0;
 	uint8_t *buff_end = NULL;
 	int left_size = 0;
 	int process_data_len = 0;
+	int is_chunked = 0;
 
 	left_size = http_head->buff_size - http_head->buff_len;
 
@@ -705,20 +748,69 @@ static int _http_head_parse_http1_1(struct http_head *http_head, const uint8_t *
 		}
 	}
 
+	const char *transfer_encoding = http_head_get_fields_value(http_head, "Transfer-Encoding");
+	if (transfer_encoding != NULL && strncasecmp(transfer_encoding, "chunked", sizeof("chunked")) == 0) {
+		is_chunked = 1;
+	}
+
 	if (http_head->head_ok == 1) {
-		int get_data_len = (http_head->expect_data_len > data_len) ? data_len : http_head->expect_data_len;
-		if (get_data_len == 0 && data_len > 0) {
-			get_data_len = data_len;
-		}
+		if (is_chunked == 0) {
+			int get_data_len = (http_head->expect_data_len > data_len) ? data_len : http_head->expect_data_len;
+			if (get_data_len == 0 && data_len > 0) {
+				get_data_len = data_len;
+			}
 
-		if (http_head->data == NULL) {
-			http_head->data = buff_end;
-		}
+			if (http_head->data == NULL) {
+				http_head->data = buff_end;
+			}
 
-		memcpy(buff_end, data, get_data_len);
-		process_data_len += get_data_len;
-		http_head->data_len += get_data_len;
-		buff_end += get_data_len;
+			memcpy(buff_end, data, get_data_len);
+			process_data_len += get_data_len;
+			http_head->data_len += get_data_len;
+			buff_end += get_data_len;
+		} else {
+			const uint8_t *body_data = buff_end;
+			uint32_t body_data_len = 0;
+
+			while (true) {
+				int32_t chunk_len = 0;
+				int offset = 0;
+				offset = _http1_get_chunk_len(data, data_len, &chunk_len);
+				if (offset < 0) {
+					return offset;
+				}
+
+				data += offset;
+				data_len -= offset;
+				process_data_len += offset;
+
+				if (chunk_len == 0) {
+					http_head->data = body_data;
+					http_head->data_len = body_data_len;
+					break;
+				}
+
+				if (data_len < chunk_len) {
+					return -1;
+				}
+
+				if (data_len < chunk_len + 2) {
+					return -1;
+				}
+
+				if (data[chunk_len] != '\r' || data[chunk_len + 1] != '\n') {
+					return -2;
+				}
+
+				memcpy(buff_end, data, chunk_len);
+				body_data_len += chunk_len;
+				buff_end += chunk_len;
+				data_len -= chunk_len;
+				data += chunk_len + 2;
+				data_len -= 2;
+				process_data_len += chunk_len + 2;
+			}
+		}
 
 		/* try append null byte */
 		if (process_data_len < http_head->buff_size - 1) {

@@ -3631,6 +3631,11 @@ static int _dns_client_process_tcp_buff(struct dns_server_info *server_info)
 			len += 2;
 		}
 
+		if (inpacket_data == NULL || dns_packet_len <= 0) {
+			tlog(TLOG_WARN, "recv tcp packet from %s, len = %d", server_info->ip, len);
+			goto out;
+		}
+
 		tlog(TLOG_DEBUG, "recv tcp packet from %s, len = %d", server_info->ip, len);
 		time(&server_info->last_recv);
 		/* process result */
