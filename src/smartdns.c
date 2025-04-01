@@ -786,7 +786,6 @@ static int _smartdns_create_datadir(void)
 	int unused __attribute__((unused)) = 0;
 
 	safe_strncpy(data_dir, dns_conf_get_data_dir(), PATH_MAX);
-	dir_name(data_dir);
 
 	if (get_uid_gid(&uid, &gid) != 0) {
 		return -1;
