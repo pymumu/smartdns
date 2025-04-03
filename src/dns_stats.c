@@ -22,6 +22,8 @@
 
 struct dns_stats dns_stats;
 
+volatile char stats_lock = 0;
+
 #define SAMPLE_PERIOD 5
 
 void dns_stats_avg_time_update_add(struct dns_stats_avg_time *avg_time, uint64_t time)
