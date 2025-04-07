@@ -17,9 +17,9 @@
  */
 
 #define _GNU_SOURCE
-#include "dns.h"
-#include "stringutil.h"
-#include "tlog.h"
+#include "smartdns/dns.h"
+#include "smartdns/lib/stringutil.h"
+#include "smartdns/tlog.h"
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <stdint.h>

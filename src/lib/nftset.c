@@ -17,9 +17,9 @@
  */
 
 #define _GNU_SOURCE /* See feature_test_macros(7) */
-#include "nftset.h"
-#include "../dns_conf.h"
-#include "../tlog.h"
+#include "smartdns/lib/nftset.h"
+#include "smartdns/dns_conf.h"
+#include "smartdns/tlog.h"
 #include <errno.h>
 #include <linux/netfilter.h>
 #include <linux/netfilter/nfnetlink.h>

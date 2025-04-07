@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "rbtree.h"
+#include "smartdns/lib/rbtree.h"
 #include <stdbool.h>
 
 static inline void rb_set_black(struct rb_node *rb)

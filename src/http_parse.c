@@ -16,13 +16,13 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "http_parse.h"
-#include "hash.h"
-#include "hashtable.h"
-#include "jhash.h"
-#include "list.h"
-#include "qpack.h"
-#include "util.h"
+#include "smartdns/http_parse.h"
+#include "smartdns/lib/hash.h"
+#include "smartdns/lib/hashtable.h"
+#include "smartdns/lib/jhash.h"
+#include "smartdns/lib/list.h"
+#include "smartdns/lib/qpack.h"
+#include "smartdns/util.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

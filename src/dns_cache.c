@@ -16,12 +16,12 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "dns_cache.h"
-#include "dns_stats.h"
-#include "stringutil.h"
-#include "timer.h"
-#include "tlog.h"
-#include "util.h"
+#include "smartdns/dns_cache.h"
+#include "smartdns/dns_stats.h"
+#include "smartdns/lib/stringutil.h"
+#include "smartdns/timer.h"
+#include "smartdns/tlog.h"
+#include "smartdns/util.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>

@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "conf.h"
+#include "smartdns/lib/conf.h"
 #include <errno.h>
 #include <getopt.h>
 #include <libgen.h>

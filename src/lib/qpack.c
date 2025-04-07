@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "qpack.h"
+#include "smartdns/lib/qpack.h"
 
 static const uint8_t _qpack_huffman_bit[64] = {
 	249, 50,  115, 39,  38,  79, 147, 39, 38,  100, 249, 50,  114, 100, 242, 100, 228, 228, 206, 77,  52, 228,

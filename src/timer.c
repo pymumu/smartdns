@@ -16,8 +16,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "timer.h"
-#include "timer_wheel.h"
+#include "smartdns/timer.h"
+#include "smartdns/lib/timer_wheel.h"
 
 static struct tw_base *dns_timer_base = NULL;
 

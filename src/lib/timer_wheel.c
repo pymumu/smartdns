@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "bitops.h"
+#include "smartdns/lib/bitops.h"
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,7 +25,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include "timer_wheel.h"
+#include "smartdns/lib/timer_wheel.h"
 
 #define TVR_BITS 10
 #define TVN_BITS 6

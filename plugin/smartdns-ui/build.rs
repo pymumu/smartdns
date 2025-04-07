@@ -32,6 +32,7 @@ fn get_git_commit_version() {
 fn link_smartdns_lib() {
     let curr_source_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let smartdns_src_dir = format!("{}/../../src", curr_source_dir);
+    let smartdns_inc_dir = format!("{}/include", smartdns_src_dir);
     let smartdns_lib_file = format!("{}/libsmartdns-test.a", smartdns_src_dir);
 
     let cc = env::var("RUSTC_LINKER")
@@ -51,7 +52,7 @@ fn link_smartdns_lib() {
     let ignored_macros = IgnoreMacros(vec!["IPPORT_RESERVED".into()].into_iter().collect());
 
     let mut bindings_builder =
-        bindgen::Builder::default().header(format!("{}/smartdns.h", smartdns_src_dir));
+        bindgen::Builder::default().header(format!("{}/smartdns/smartdns.h", smartdns_inc_dir));
     if let Some(sysroot) = sysroot {
         bindings_builder = bindings_builder.clang_arg(format!("--sysroot={}", sysroot));
     }

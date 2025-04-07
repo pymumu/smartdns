@@ -18,7 +18,7 @@
  */
 
 #define _GNU_SOURCE
-#include "idna.h"
+#include "smartdns/lib/idna.h"
 #include <limits.h>
 
 static unsigned _utf8_decode_slow(const char **p, const char *pe, unsigned a)

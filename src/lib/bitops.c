@@ -16,8 +16,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "bitmap.h"
-#include "bitops.h"
+#include "smartdns/lib/bitmap.h"
+#include "smartdns/lib/bitops.h"
 
 /*
  * This is a common helper function for find_next_bit, find_next_zero_bit, and

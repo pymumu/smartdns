@@ -29,7 +29,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <strings.h>
 #include <stdio.h>
 #include <assert.h>
-#include "art.h"
+#include "smartdns/lib/art.h"
 
 // #ifdef __i386__
 //     #include <emmintrin.h>

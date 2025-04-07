@@ -19,13 +19,13 @@
 #ifndef _SMARTDNS_CACHE_H
 #define _SMARTDNS_CACHE_H
 
-#include "atomic.h"
-#include "dns.h"
-#include "dns_conf.h"
-#include "hash.h"
-#include "hashtable.h"
-#include "list.h"
-#include "timer.h"
+#include "smartdns/dns.h"
+#include "smartdns/dns_conf.h"
+#include "smartdns/lib/atomic.h"
+#include "smartdns/lib/hash.h"
+#include "smartdns/lib/hashtable.h"
+#include "smartdns/lib/list.h"
+#include "smartdns/timer.h"
 #include <stdlib.h>
 #include <time.h>
 

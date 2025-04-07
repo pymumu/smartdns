@@ -17,10 +17,10 @@
  */
 
 #include "client.h"
-#include "dns.h"
+#include "smartdns/dns.h"
 #include "include/utils.h"
 #include "server.h"
-#include "util.h"
+#include "smartdns/util.h"
 #include "gtest/gtest.h"
 #include <fstream>
 

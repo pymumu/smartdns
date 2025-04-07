@@ -60,7 +60,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "radix.h"
+#include "smartdns/lib/radix.h"
 
 /* $Id: radix.c,v 1.17 2007/10/24 06:04:31 djm Exp $ */
 

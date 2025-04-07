@@ -16,42 +16,26 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef __TIMER_WHEEL_H
-#define __TIMER_WHEEL_H
+#ifndef SMART_DNS_TIMER_H
+#define SMART_DNS_TIMER_H
 
-#include "list.h"
+#include "smartdns/lib/timer_wheel.h"
 
 #ifdef __cplusplus
 extern "C" {
-#endif
+#endif /*__cplusplus */
 
-struct tw_base;
-struct tw_timer_list;
+int dns_timer_init(void);
 
-typedef void (*tw_func)(struct tw_base *, struct tw_timer_list *, void *, unsigned long);
-typedef void (*tw_del_func)(struct tw_base *, struct tw_timer_list *, void *);
+void dns_timer_add(struct tw_timer_list *timer);
 
-struct tw_timer_list {
-	void *data;
-	unsigned long expires;
-	tw_func function;
-	tw_del_func del_function;
-	struct list_head entry;
-};
+int dns_timer_del(struct tw_timer_list *timer);
 
-struct tw_base *tw_init_timers(void);
+int dns_timer_mod(struct tw_timer_list *timer, unsigned long expires);
 
-int tw_cleanup_timers(struct tw_base *);
-
-void tw_add_timer(struct tw_base *, struct tw_timer_list *);
-
-int tw_del_timer(struct tw_base *, struct tw_timer_list *);
-
-int tw_mod_timer_pending(struct tw_base *, struct tw_timer_list *, unsigned long);
-
-int tw_mod_timer(struct tw_base *, struct tw_timer_list *, unsigned long);
+void dns_timer_destroy(void);
 
 #ifdef __cplusplus
 }
-#endif
+#endif /*__cplusplus */
 #endif

@@ -17,7 +17,7 @@
  */
 
 #include "client.h"
-#include "dns.h"
+#include "smartdns/dns.h"
 #include "include/utils.h"
 #include "server.h"
 #include "gtest/gtest.h"
@@ -27,7 +27,7 @@
 #include <sys/types.h>
 
 /* clang-format off */
-#include "dns_cache.h"
+#include "smartdns/dns_cache.h"
 /* clang-format on */
 
 class Cache : public ::testing::Test

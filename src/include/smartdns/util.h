@@ -19,7 +19,7 @@
 #ifndef SMART_DNS_UTIL_H
 #define SMART_DNS_UTIL_H
 
-#include "stringutil.h"
+#include "smartdns/lib/stringutil.h"
 #include <netdb.h>
 #include <time.h>
 

@@ -19,8 +19,8 @@
 #ifndef _SMARTDNS_SERVER_
 #define _SMARTDNS_SERVER_
 
-#include "dns.h"
-#include "fast_ping.h"
+#include "smartdns/dns.h"
+#include "smartdns/fast_ping.h"
 #include "include/utils.h"
 #include <functional>
 #include <string>

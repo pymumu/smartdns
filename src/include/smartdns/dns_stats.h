@@ -19,7 +19,7 @@
 #ifndef SMART_DNS_STATS_H
 #define SMART_DNS_STATS_H
 
-#include "atomic.h"
+#include "smartdns/lib/atomic.h"
 #include <stdint.h>
 
 #ifdef __cplusplus

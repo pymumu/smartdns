@@ -19,15 +19,14 @@
 #ifndef SMART_DNS_H
 #define SMART_DNS_H
 
-
-#include "dns_cache.h"
-#include "dns_client.h"
-#include "dns_conf.h"
-#include "dns_plugin.h"
-#include "dns_server.h"
-#include "fast_ping.h"
-#include "dns_stats.h"
-#include "util.h"
+#include "smartdns/dns_cache.h"
+#include "smartdns/dns_client.h"
+#include "smartdns/dns_conf.h"
+#include "smartdns/dns_plugin.h"
+#include "smartdns/dns_server.h"
+#include "smartdns/dns_stats.h"
+#include "smartdns/fast_ping.h"
+#include "smartdns/util.h"
 
 #ifdef __cplusplus
 extern "C" {

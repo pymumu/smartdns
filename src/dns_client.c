@@ -17,19 +17,20 @@
  */
 
 #define _GNU_SOURCE
-#include "dns_client.h"
-#include "atomic.h"
-#include "dns.h"
-#include "dns_conf.h"
-#include "dns_server.h"
-#include "dns_stats.h"
-#include "fast_ping.h"
-#include "hashtable.h"
-#include "http_parse.h"
-#include "list.h"
-#include "proxy.h"
-#include "tlog.h"
-#include "util.h"
+#include "smartdns/dns_client.h"
+#include "smartdns/dns.h"
+#include "smartdns/dns_conf.h"
+#include "smartdns/dns_server.h"
+#include "smartdns/dns_stats.h"
+#include "smartdns/fast_ping.h"
+#include "smartdns/http_parse.h"
+#include "smartdns/lib/atomic.h"
+#include "smartdns/lib/hashtable.h"
+#include "smartdns/lib/list.h"
+#include "smartdns/proxy.h"
+#include "smartdns/tlog.h"
+#include "smartdns/util.h"
+
 #include <arpa/inet.h>
 #include <ctype.h>
 #include <errno.h>

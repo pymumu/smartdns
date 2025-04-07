@@ -19,13 +19,13 @@
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
-#include "proxy.h"
-#include "dns_conf.h"
-#include "hashtable.h"
-#include "http_parse.h"
-#include "list.h"
-#include "tlog.h"
-#include "util.h"
+#include "smartdns/proxy.h"
+#include "smartdns/lib/hashtable.h"
+#include "smartdns/lib/list.h"
+#include "smartdns/dns_conf.h"
+#include "smartdns/http_parse.h"
+#include "smartdns/tlog.h"
+#include "smartdns/util.h"
 #include <arpa/inet.h>
 #include <errno.h>
 #include <pthread.h>

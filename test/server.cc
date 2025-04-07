@@ -17,11 +17,11 @@
  */
 
 #include "server.h"
-#include "dns_server.h"
-#include "fast_ping.h"
+#include "smartdns/dns_server.h"
+#include "smartdns/fast_ping.h"
 #include "include/utils.h"
-#include "smartdns.h"
-#include "util.h"
+#include "smartdns/smartdns.h"
+#include "smartdns/util.h"
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <fstream>

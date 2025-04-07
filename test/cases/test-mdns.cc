@@ -17,8 +17,8 @@
  */
 
 #include "client.h"
-#include "dns.h"
-#include "dns_client.h"
+#include "smartdns/dns.h"
+#include "smartdns/dns_client.h"
 #include "include/utils.h"
 #include "server.h"
 #include "gtest/gtest.h"

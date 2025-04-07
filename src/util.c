@@ -20,9 +20,9 @@
 #define _GNU_SOURCE
 #include <stdio.h>
 #endif
-#include "dns_conf.h"
-#include "tlog.h"
-#include "util.h"
+#include "smartdns/dns_conf.h"
+#include "smartdns/tlog.h"
+#include "smartdns/util.h"
 #include <arpa/inet.h>
 #include <ctype.h>
 #include <dirent.h>

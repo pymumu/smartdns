@@ -17,10 +17,10 @@
  */
 
 #include "client.h"
-#include "fast_ping.h"
+#include "smartdns/fast_ping.h"
 #include "include/utils.h"
 #include "server.h"
-#include "tlog.h"
+#include "smartdns/tlog.h"
 #include "gtest/gtest.h"
 
 class Ping : public ::testing::Test

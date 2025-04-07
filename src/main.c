@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "smartdns.h"
+#include "smartdns/smartdns.h"
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>

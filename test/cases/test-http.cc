@@ -17,11 +17,11 @@
  */
 
 #include "client.h"
-#include "dns.h"
-#include "http_parse.h"
 #include "include/utils.h"
 #include "server.h"
-#include "util.h"
+#include "smartdns/dns.h"
+#include "smartdns/http_parse.h"
+#include "smartdns/util.h"
 #include "gtest/gtest.h"
 #include <fstream>
 
@@ -132,7 +132,6 @@ TEST_F(HTTP, http1_1_response_serialize)
 	EXPECT_STREQ(buffer, data);
 	http_head_destroy(http_head);
 }
-
 
 TEST_F(HTTP, http3_0_parse)
 {

@@ -16,9 +16,9 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "dns_stats.h"
-#include "stddef.h"
-#include "string.h"
+#include "smartdns/dns_stats.h"
+#include <stddef.h>
+#include <string.h>
 
 struct dns_stats dns_stats;
 
