@@ -1885,7 +1885,7 @@ static void _dns_client_query_get(struct dns_query_struct *query)
 	}
 }
 
-static struct dns_conn_stream *_dns_client_conn_stream_new(void)
+__attribute__((unused)) static struct dns_conn_stream *_dns_client_conn_stream_new(void)
 {
 	struct dns_conn_stream *stream = NULL;
 
@@ -1906,14 +1906,14 @@ static struct dns_conn_stream *_dns_client_conn_stream_new(void)
 	return stream;
 }
 
-static void _dns_client_conn_stream_get(struct dns_conn_stream *stream)
+__attribute__((unused)) static void _dns_client_conn_stream_get(struct dns_conn_stream *stream)
 {
 	if (atomic_inc_return(&stream->refcnt) <= 1) {
 		BUG("stream ref is invalid");
 	}
 }
 
-static void _dns_client_conn_stream_put(struct dns_conn_stream *stream)
+__attribute__((unused)) static void _dns_client_conn_stream_put(struct dns_conn_stream *stream)
 {
 	int refcnt = atomic_dec_return(&stream->refcnt);
 	if (refcnt) {
@@ -1944,7 +1944,8 @@ static void _dns_client_conn_stream_put(struct dns_conn_stream *stream)
 	free(stream);
 }
 
-static void _dns_client_conn_server_streams_free(struct dns_server_info *server_info, struct dns_query_struct *query)
+__attribute__((unused)) static void _dns_client_conn_server_streams_free(struct dns_server_info *server_info,
+																		 struct dns_query_struct *query)
 {
 	struct dns_conn_stream *stream = NULL;
 	struct dns_conn_stream *tmp = NULL;
