@@ -643,12 +643,55 @@ static int _http_head_parse(struct http_head *http_head)
 	return 0;
 }
 
+static int _http1_get_chunk_len(const uint8_t *data, int data_len, int32_t *chunk_len)
+{
+	int offset = 0;
+	int32_t chunk_value = 0;
+	int is_num_start = 0;
+
+	for (offset = 0; offset < data_len; offset++) {
+		if (data[offset] == ' ') {
+			continue;
+		}
+
+		if (data[offset] == '\r') {
+			if (offset + 1 < data_len && data[offset + 1] == '\n') {
+				offset += 2;
+				break;
+			}
+			if (is_num_start == 0) {
+				return -2;
+			}
+
+			return -2;
+		}
+		int value = decode_hex(data[offset]);
+		if (value < 0) {
+			return -2;
+		}
+
+		if (is_num_start == 0) {
+			is_num_start = 1;
+		}
+
+		chunk_value = (chunk_value << 4) + value;
+	}
+
+	if (offset >= data_len) {
+		return -1;
+	}
+
+	*chunk_len = chunk_value;
+	return offset;
+}
+
 static int _http_head_parse_http1_1(struct http_head *http_head, const uint8_t *data, int data_len)
 {
 	int i = 0;
 	uint8_t *buff_end = NULL;
 	int left_size = 0;
 	int process_data_len = 0;
+	int is_chunked = 0;
 
 	left_size = http_head->buff_size - http_head->buff_len;
 
@@ -705,20 +748,69 @@ static int _http_head_parse_http1_1(struct http_head *http_head, const uint8_t *
 		}
 	}
 
+	const char *transfer_encoding = http_head_get_fields_value(http_head, "Transfer-Encoding");
+	if (transfer_encoding != NULL && strncasecmp(transfer_encoding, "chunked", sizeof("chunked")) == 0) {
+		is_chunked = 1;
+	}
+
 	if (http_head->head_ok == 1) {
-		int get_data_len = (http_head->expect_data_len > data_len) ? data_len : http_head->expect_data_len;
-		if (get_data_len == 0 && data_len > 0) {
-			get_data_len = data_len;
-		}
+		if (is_chunked == 0) {
+			int get_data_len = (http_head->expect_data_len > data_len) ? data_len : http_head->expect_data_len;
+			if (get_data_len == 0 && data_len > 0) {
+				get_data_len = data_len;
+			}
 
-		if (http_head->data == NULL) {
-			http_head->data = buff_end;
-		}
+			if (http_head->data == NULL) {
+				http_head->data = buff_end;
+			}
 
-		memcpy(buff_end, data, get_data_len);
-		process_data_len += get_data_len;
-		http_head->data_len += get_data_len;
-		buff_end += get_data_len;
+			memcpy(buff_end, data, get_data_len);
+			process_data_len += get_data_len;
+			http_head->data_len += get_data_len;
+			buff_end += get_data_len;
+		} else {
+			const uint8_t *body_data = buff_end;
+			uint32_t body_data_len = 0;
+
+			while (true) {
+				int32_t chunk_len = 0;
+				int offset = 0;
+				offset = _http1_get_chunk_len(data, data_len, &chunk_len);
+				if (offset < 0) {
+					return offset;
+				}
+
+				data += offset;
+				data_len -= offset;
+				process_data_len += offset;
+
+				if (chunk_len == 0) {
+					http_head->data = body_data;
+					http_head->data_len = body_data_len;
+					break;
+				}
+
+				if (data_len < chunk_len) {
+					return -1;
+				}
+
+				if (data_len < chunk_len + 2) {
+					return -1;
+				}
+
+				if (data[chunk_len] != '\r' || data[chunk_len + 1] != '\n') {
+					return -2;
+				}
+
+				memcpy(buff_end, data, chunk_len);
+				body_data_len += chunk_len;
+				buff_end += chunk_len;
+				data_len -= chunk_len;
+				data += chunk_len + 2;
+				data_len -= 2;
+				process_data_len += chunk_len + 2;
+			}
+		}
 
 		/* try append null byte */
 		if (process_data_len < http_head->buff_size - 1) {
@@ -1373,6 +1465,7 @@ static int _http_head_parse_http3_0(struct http_head *http_head, const uint8_t *
 	int offset = 0;
 	int offset_ret = 0;
 
+	http_head->data_len = 0;
 	while (offset < data_len) {
 		offset_ret = _quicvarint_decode((uint8_t *)data + offset, data_len - offset, &frame_type);
 		if (offset_ret < 0) {
@@ -1411,12 +1504,25 @@ static int _http_head_parse_http3_0(struct http_head *http_head, const uint8_t *
 				memcpy(http_head->buff + http_head->buff_len, data + offset, frame_len);
 				http_head->code_msg = (const char *)(http_head->buff + http_head->buff_len);
 				http_head->buff_len += frame_len;
-			} else {
-				http_head->data = data + offset;
-				http_head->data_len = frame_len;
+			} else if (frame_len > 0) {
+				if (http_head->data == NULL) {
+					http_head->data = _http_head_buffer_get_end(http_head);
+				}
+
+				if (_http_head_buffer_append(http_head, data + offset, frame_len) == NULL) {
+					http_head->code_msg = "Receive Buffer Insufficient";
+					http_head->code = 500;
+					http_head->data_len = 0;
+					http_head->buff_len = 0;
+					return -2;
+				}
+				memcpy(http_head->buff + http_head->buff_len, data + offset, frame_len);
+				http_head->data_len += frame_len;
 			}
 		} else {
-			return -2;
+			/* skip unknown frame. e.g. GREASE  */
+			offset += frame_len;
+			continue;
 		}
 		offset += frame_len;
 	}

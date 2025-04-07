@@ -197,6 +197,8 @@ int dns_packet_debug(const char *packet_file);
 
 int dns_is_quic_supported(void);
 
+int decode_hex(int ch);
+
 #ifdef __cplusplus
 }
 #endif /*__cplusplus */

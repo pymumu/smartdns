@@ -861,7 +861,7 @@ load_service()
 	[ "$ui" = "1" ] && {
 		conf_append "plugin" "/usr/lib/libsmartdns_ui.so"
 		conf_append "smartdns-ui.www-root" "/usr/share/smartdns/wwwroot"
-		conf_append "data-dir" "/etc/smartdns/data"
+		conf_append "data-dir" "/var/lib/smartdns"
 	}
 
 	{
