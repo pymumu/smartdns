@@ -24,6 +24,7 @@ use std::time::Duration;
 use tokio::time::{interval_at, Instant};
 use tokio_fd::AsyncFd;
 
+use crate::smartdns::*;
 use hyper_tungstenite::{tungstenite, HyperWebsocket};
 use nix::errno::Errno;
 use nix::libc::*;
@@ -41,6 +42,23 @@ type Error = Box<dyn std::error::Error + Send + Sync + 'static>;
 const LOG_CONTROL_MESSAGE_TYPE: u8 = 1;
 const LOG_CONTROL_PAUSE: u8 = 1;
 const LOG_CONTROL_RESUME: u8 = 2;
+const LOG_CONTROL_LOGLEVEL: u8 = 3;
+
+struct LogLevelGuard {
+    old_log_level: LogLevel,
+}
+
+impl Drop for LogLevelGuard {
+    fn drop(&mut self) {
+        dns_log_set_level(self.old_log_level);
+    }
+}
+impl LogLevelGuard {
+    fn new() -> Self {
+        let old_log_level = dns_log_get_level();
+        LogLevelGuard { old_log_level }
+    }
+}
 
 pub async fn serve_log_stream(
     http_server: Arc<HttpServer>,
@@ -51,6 +69,9 @@ pub async fn serve_log_stream(
 
     let data_server = http_server.get_data_server();
     let mut log_stream = data_server.get_log_stream().await;
+
+    let _log_guard = LogLevelGuard::new();
+
     loop {
         tokio::select! {
             msg = log_stream.recv() => {
@@ -98,6 +119,33 @@ pub async fn serve_log_stream(
                                     LOG_CONTROL_RESUME => {
                                         is_pause = false;
                                         continue;
+                                    }
+                                    LOG_CONTROL_LOGLEVEL => {
+                                        if msg.len() < 6 {
+                                            continue;
+                                        }
+
+                                        let level_msg = &msg[2..2 + msg.len() - 2];
+                                        let str_log_level = std::str::from_utf8(level_msg);
+                                        if str_log_level.is_err() {
+                                            continue;
+                                        }
+
+                                        let str_log_level = str_log_level.unwrap();
+                                        if str_log_level.len() == 0 {
+                                            continue;
+                                        }
+
+                                        let str_log_level = str_log_level.to_lowercase();
+                                        let str_log_level = str_log_level.as_str();
+
+                                        let log_level = str_log_level.try_into();
+                                        if log_level.is_err() {
+                                            continue;
+                                        }
+
+                                        let log_level = log_level.unwrap();
+                                        dns_log_set_level(log_level);
                                     }
                                     _ => {
                                         continue;
