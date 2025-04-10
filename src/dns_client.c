@@ -3685,6 +3685,11 @@ static int _dns_client_process_tcp_buff(struct dns_server_info *server_info)
 				if (len == -1) {
 					ret = 0;
 					goto out;
+				} else if (len == -3) {
+					/* repsone is too large */
+					tlog(TLOG_DEBUG, "http response is too large.");
+					server_info->recv_buff.len = 0;
+					goto out;
 				}
 
 				tlog(TLOG_DEBUG, "remote server not supported.");
@@ -3780,6 +3785,12 @@ static int _dns_client_process_recv_http3(struct dns_server_info *server_info, s
 	if (ret < 0) {
 		if (ret == -1) {
 			goto out;
+		} else if (ret == -3) {
+			/* repsone is too large */
+			tlog(TLOG_DEBUG, "http3 response is too large.");
+			conn_stream->recv_buff.len = 0;
+			_dns_client_conn_stream_put(conn_stream);
+			goto errout;
 		}
 
 		tlog(TLOG_DEBUG, "remote server not supported.");

@@ -169,3 +169,56 @@ TEST_F(HTTP, http3_0_parse)
 
 	http_head_destroy(http_head);
 }
+
+TEST_F(HTTP, http1_1_small_buffer)
+{
+	const char *data = "HTTP/1.1 200 OK\r\n"
+					   "Server: smartdns\r\n"
+					   "Content-Type: text/html\r\n"
+					   "Content-Length: 11\r\n"
+					   "\r\n"
+					   "hello world";
+	struct http_head *http_head = http_head_init(5, HTTP_VERSION_1_1);
+	ASSERT_NE(http_head, nullptr);
+	int ret = http_head_parse(http_head, (const unsigned char *)data, strlen(data));
+	EXPECT_EQ(ret, -3);
+	http_head_destroy(http_head);
+}
+
+TEST_F(HTTP, http3_small_buffer)
+{
+	struct http_head *http_head = http_head_init(1024, HTTP_VERSION_3_0);
+	ASSERT_NE(http_head, nullptr);
+	http_head_set_httpversion(http_head, "HTTP/3");
+	http_head_set_method(http_head, HTTP_METHOD_GET);
+	http_head_set_url(http_head, "/");
+	http_head_add_fields(http_head, "Host", "www.example.com");
+	http_head_add_fields(http_head, "User-Agent", "smartdns/46");
+	http_head_add_fields(http_head, "Accept", "*/*");
+	http_head_set_data(http_head, "hello world", strlen("hello world") + 1);
+	http_head_set_head_type(http_head, HTTP_HEAD_REQUEST);
+	http_head_add_param(http_head, "q", "question");
+	http_head_add_param(http_head, "lang", "cn");
+	unsigned char buffer[1024];
+	int buffer_len = http_head_serialize(http_head, buffer, 1024);
+	ASSERT_EQ(buffer_len, 149);
+	http_head_destroy(http_head);
+
+	http_head = http_head_init(5, HTTP_VERSION_3_0);
+	ASSERT_NE(http_head, nullptr);
+	int ret = http_head_parse(http_head, (const unsigned char *)buffer, buffer_len);
+	EXPECT_EQ(ret, -3);
+	http_head_destroy(http_head);
+
+	http_head = http_head_init(100, HTTP_VERSION_3_0);
+	ASSERT_NE(http_head, nullptr);
+	ret = http_head_parse(http_head, (const unsigned char *)buffer, buffer_len);
+	EXPECT_EQ(ret, -3);
+	http_head_destroy(http_head);
+
+	http_head = http_head_init(1024, HTTP_VERSION_3_0);
+	ASSERT_NE(http_head, nullptr);
+	ret = http_head_parse(http_head, (const unsigned char *)buffer, buffer_len);
+	EXPECT_GT(ret, 0);
+	http_head_destroy(http_head);
+}

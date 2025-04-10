@@ -685,12 +685,13 @@ static int _http1_get_chunk_len(const uint8_t *data, int data_len, int32_t *chun
 	return offset;
 }
 
-static int _http_head_parse_http1_1(struct http_head *http_head, const uint8_t *data, int data_len)
+static int _http_head_parse_http1_1(struct http_head *http_head, const uint8_t *data, int in_data_len)
 {
 	int i = 0;
 	uint8_t *buff_end = NULL;
 	int left_size = 0;
 	int process_data_len = 0;
+	int data_len = in_data_len;
 	int is_chunked = 0;
 
 	left_size = http_head->buff_size - http_head->buff_len;
@@ -701,7 +702,7 @@ static int _http_head_parse_http1_1(struct http_head *http_head, const uint8_t *
 
 	buff_end = http_head->buff + http_head->buff_len;
 	if (http_head->head_ok == 0) {
-		for (i = 0; i < data_len; i++, data++) {
+		for (i = 0; i < in_data_len; i++, data++) {
 			*(buff_end + i) = *data;
 			if (isprint(*data) == 0 && isspace(*data) == 0) {
 				return -2;
@@ -741,6 +742,10 @@ static int _http_head_parse_http1_1(struct http_head *http_head, const uint8_t *
 		}
 
 		process_data_len += i;
+		if (process_data_len >= http_head->buff_size) {
+			return -3;
+		}
+
 		if (http_head->head_ok == 0) {
 			// Read data again */
 			http_head->buff_len += process_data_len;
@@ -816,6 +821,10 @@ static int _http_head_parse_http1_1(struct http_head *http_head, const uint8_t *
 		if (process_data_len < http_head->buff_size - 1) {
 			buff_end[0] = '\0';
 		}
+	}
+
+	if (process_data_len >= http_head->buff_size) {
+		return -3;
 	}
 
 	http_head->buff_len += process_data_len;
@@ -1241,7 +1250,7 @@ static int _quic_read_string(const uint8_t *buffer, int buffer_len, char *str, i
 	}
 
 	if ((uint64_t)max_str_len < len) {
-		return -1;
+		return -3;
 	}
 
 	if (huffman) {
@@ -1349,12 +1358,12 @@ static int _http3_parse_headers_payload(struct http_head *http_head, const uint8
 			offset_ret = _quic_read_string(data + offset, data_len - offset, buffer_value, buffer_left_len - 1,
 										   &str_len, 7, use_huffman);
 			if (offset_ret < 0) {
-				return -1;
+				return offset_ret;
 			}
 			offset += offset_ret;
 			buffer_value[str_len] = '\0';
 			if (_http_head_buffer_append(http_head, NULL, str_len + 1) == NULL) {
-				return -1;
+				return -3;
 			}
 			value = buffer_value;
 		} else if (b & 0x20) {
@@ -1370,12 +1379,12 @@ static int _http3_parse_headers_payload(struct http_head *http_head, const uint8
 			offset_ret = _quic_read_string(data + offset, data_len - offset, buffer_name, buffer_left_len - 1, &str_len,
 										   3, use_huffman);
 			if (offset_ret < 0) {
-				return -1;
+				return offset_ret;
 			}
 			offset += offset_ret;
 			buffer_name[str_len] = '\0';
 			if (_http_head_buffer_append(http_head, NULL, str_len + 1) == NULL) {
-				return -1;
+				return -3;
 			}
 			name = buffer_name;
 
@@ -1389,12 +1398,12 @@ static int _http3_parse_headers_payload(struct http_head *http_head, const uint8
 			offset_ret = _quic_read_string(data + offset, data_len - offset, buffer_value, buffer_left_len - 1,
 										   &str_len, 7, use_huffman);
 			if (offset_ret < 0) {
-				return -1;
+				return offset_ret;
 			}
 			offset += offset_ret;
 			buffer_value[str_len] = '\0';
 			if (_http_head_buffer_append(http_head, NULL, str_len + 1) == NULL) {
-				return -1;
+				return -3;
 			}
 			value = buffer_value;
 		} else {
@@ -1479,6 +1488,10 @@ static int _http_head_parse_http3_0(struct http_head *http_head, const uint8_t *
 		}
 		offset += offset_ret;
 
+		if (offset >= http_head->buff_size) {
+			return -3;
+		}
+
 		if ((uint64_t)(data_len - offset) < frame_len) {
 			return -1;
 		}
@@ -1487,7 +1500,7 @@ static int _http_head_parse_http3_0(struct http_head *http_head, const uint8_t *
 			int header_len = 0;
 			header_len = _http3_parse_headers_payload(http_head, data + offset, frame_len);
 			if (header_len < 0) {
-				return -1;
+				return header_len;
 			}
 
 			if (_http_head_setup_http3_0_httpcode(http_head) != 0) {
@@ -1514,7 +1527,7 @@ static int _http_head_parse_http3_0(struct http_head *http_head, const uint8_t *
 					http_head->code = 500;
 					http_head->data_len = 0;
 					http_head->buff_len = 0;
-					return -2;
+					return -3;
 				}
 				memcpy(http_head->buff + http_head->buff_len, data + offset, frame_len);
 				http_head->data_len += frame_len;
@@ -1525,6 +1538,10 @@ static int _http_head_parse_http3_0(struct http_head *http_head, const uint8_t *
 			continue;
 		}
 		offset += frame_len;
+	}
+
+	if (offset >= http_head->buff_size) {
+		return -3;
 	}
 
 	http_head->version = "HTTP/3.0";
