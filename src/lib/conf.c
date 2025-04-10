@@ -469,7 +469,7 @@ static int load_conf_printf(const char *key, const char *value, const char *file
 	return 0;
 }
 
-static int load_conf_file(const char *file, struct config_item *items, conf_error_handler handler)
+static int load_conf_file(const char *file, const struct config_item *items, conf_error_handler handler)
 {
 	FILE *fp = NULL;
 	char line[MAX_LINE_LEN + MAX_KEY_LEN];
@@ -619,7 +619,7 @@ errout:
 	return -1;
 }
 
-int load_conf(const char *file, struct config_item items[], conf_error_handler handler)
+int load_conf(const char *file, const struct config_item items[], conf_error_handler handler)
 {
 	return load_conf_file(file, items, handler);
 }
