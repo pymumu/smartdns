@@ -6570,12 +6570,6 @@ static void _dns_conf_group_post(void)
 
 	hash_for_each_safe(dns_conf_rule.group, i, tmp, group, node)
 	{
-		if (dns_conf.cachesize == 0 && group->dns_response_mode == DNS_RESPONSE_MODE_FASTEST_RESPONSE) {
-			group->dns_response_mode = DNS_RESPONSE_MODE_FASTEST_IP;
-			tlog(TLOG_WARN, "force set response of group %s to %s as cache size is 0", group->group_name,
-				 dns_conf_response_mode_enum[group->dns_response_mode].name);
-		}
-
 		if ((group->dns_rr_ttl_min > group->dns_rr_ttl_max) && group->dns_rr_ttl_max > 0) {
 			group->dns_rr_ttl_min = group->dns_rr_ttl_max;
 		}

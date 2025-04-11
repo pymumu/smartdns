@@ -4817,6 +4817,11 @@ static int _dns_client_send_https(struct dns_server_info *server_info, void *pac
 						"Content-Length: %d\r\n"
 						"\r\n",
 						https_flag->path, https_flag->httphost, len);
+	if (http_len < 0 || http_len >= DNS_IN_PACKSIZE) {
+		tlog(TLOG_ERROR, "http header size is invalid.");
+		return -1;
+	}
+
 	memcpy(inpacket + http_len, packet, len);
 	http_len += len;
 
