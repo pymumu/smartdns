@@ -8013,6 +8013,10 @@ static int _dns_server_tcp_recv(struct dns_server_conn_tcp_client *tcpclient)
 			return 0;
 		}
 
+		if (unlikely(tcpclient->recvbuff.size < 0)) {
+			BUG("recv buffer size is invalid.");
+		}
+
 		len = _dns_server_tcp_socket_recv(tcpclient, tcpclient->recvbuff.buf + tcpclient->recvbuff.size,
 										  sizeof(tcpclient->recvbuff.buf) - tcpclient->recvbuff.size);
 		if (len < 0) {
@@ -8055,6 +8059,12 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn_tcp_client
 	/* Handling multiple requests */
 	for (;;) {
 		ret = RECV_ERROR_FAIL;
+
+		if (proceed_len > tcpclient->recvbuff.size) {
+			tlog(TLOG_DEBUG, "proceed_len > recvbuff.size");
+			goto out;
+		}
+
 		if (tcpclient->head.type == DNS_CONN_TYPE_HTTPS_CLIENT) {
 			if ((total_len - proceed_len) <= 0) {
 				ret = RECV_ERROR_AGAIN;
@@ -8066,7 +8076,7 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn_tcp_client
 				goto out;
 			}
 
-			len = http_head_parse(http_head, tcpclient->recvbuff.buf, tcpclient->recvbuff.size);
+			len = http_head_parse(http_head, tcpclient->recvbuff.buf + proceed_len, tcpclient->recvbuff.size);
 			if (len < 0) {
 				if (len == -1) {
 					ret = 0;
@@ -8155,7 +8165,7 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn_tcp_client
 			request_len = ntohs(*((unsigned short *)(request_data)));
 
 			if (request_len >= sizeof(tcpclient->recvbuff.buf)) {
-				tlog(TLOG_DEBUG, "request length is invalid.");
+				tlog(TLOG_DEBUG, "request length is invalid. len = %d", request_len);
 				goto errout;
 			}
 
