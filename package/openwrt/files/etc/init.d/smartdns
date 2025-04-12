@@ -87,7 +87,7 @@ stop_forward_dnsmasq()
 set_main_dns()
 {
 	local hostip
-	hostip="$(uci -q get network.lan.ipaddr)"
+	hostip="$(uci -q get network.lan.ipaddr | sed 's/\/.*//g')"
 	dnsmasq_port="$(uci -q get dhcp.@dnsmasq[0].port)"
 	[ -z "$dnsmasq_port" ] && dnsmasq_port="53"
 	
