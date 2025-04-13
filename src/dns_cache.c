@@ -16,6 +16,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#define _GNU_SOURCE
+
 #include "smartdns/dns_cache.h"
 #include "smartdns/dns_stats.h"
 #include "smartdns/lib/stringutil.h"
