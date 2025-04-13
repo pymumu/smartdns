@@ -17,16 +17,16 @@
  */
 
 #include "server_https.h"
-#include "server_tcp.h"
 #include "connection.h"
 #include "dns_server.h"
 #include "server_socket.h"
+#include "server_tcp.h"
 
 #include <errno.h>
 #include <string.h>
 
 int _dns_server_reply_http_error(struct dns_server_conn_tcp_client *tcpclient, int code, const char *code_msg,
-										const char *message)
+								 const char *message)
 {
 	int send_len = 0;
 	int http_len = 0;
@@ -55,8 +55,8 @@ int _dns_server_reply_http_error(struct dns_server_conn_tcp_client *tcpclient, i
 	return 0;
 }
 
-int _dns_server_reply_https(struct dns_request *request, struct dns_server_conn_tcp_client *tcpclient,
-								   void *packet, unsigned short len)
+int _dns_server_reply_https(struct dns_request *request, struct dns_server_conn_tcp_client *tcpclient, void *packet,
+							unsigned short len)
 {
 	int send_len = 0;
 	int http_len = 0;

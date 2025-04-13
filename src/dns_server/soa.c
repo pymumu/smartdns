@@ -17,10 +17,10 @@
  */
 
 #include "soa.h"
+#include "context.h"
 #include "dns_server.h"
 #include "request.h"
 #include "rules.h"
-#include "context.h"
 
 #include "smartdns/dns_stats.h"
 

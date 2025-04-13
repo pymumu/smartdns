@@ -21,8 +21,8 @@
 #include "server_info.h"
 #include "client_tls.h"
 #include "conn_stream.h"
-#include "group.h"
 #include "ecs.h"
+#include "group.h"
 #include "pending_server.h"
 
 #include "smartdns/fast_ping.h"

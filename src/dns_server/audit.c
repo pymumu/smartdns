@@ -22,7 +22,6 @@
 
 static tlog_log *dns_audit;
 
-
 void _dns_server_audit_log(struct dns_server_post_context *context)
 {
 	char req_host[MAX_IP_LEN];

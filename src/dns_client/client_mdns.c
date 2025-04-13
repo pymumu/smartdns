@@ -21,8 +21,8 @@
 #include "client_mdns.h"
 #include "server_info.h"
 
-#include "smartdns/util.h"
 #include "smartdns/lib/stringutil.h"
+#include "smartdns/util.h"
 
 #include <ifaddrs.h>
 #include <net/if.h>

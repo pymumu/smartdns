@@ -17,17 +17,17 @@
  */
 
 #include "request.h"
-#include "request_pending.h"
 #include "address.h"
 #include "connection.h"
+#include "context.h"
 #include "dns_server.h"
 #include "dualstack.h"
+#include "mdns.h"
 #include "neighbor.h"
 #include "ptr.h"
+#include "request_pending.h"
 #include "rules.h"
 #include "soa.h"
-#include "mdns.h"
-#include "context.h"
 
 #include "smartdns/dns_plugin.h"
 #include "smartdns/dns_stats.h"
@@ -701,8 +701,8 @@ int _dns_server_pre_process_server_flags(struct dns_request *request)
 	return -1;
 }
 
-struct dns_request *_dns_server_new_child_request(struct dns_request *request, const char *domain,
-														 dns_type_t qtype, child_request_callback child_callback)
+struct dns_request *_dns_server_new_child_request(struct dns_request *request, const char *domain, dns_type_t qtype,
+												  child_request_callback child_callback)
 {
 	struct dns_request *child_request = NULL;
 

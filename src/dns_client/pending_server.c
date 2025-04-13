@@ -19,8 +19,8 @@
 #define _GNU_SOURCE
 
 #include "pending_server.h"
-#include "server_info.h"
 #include "group.h"
+#include "server_info.h"
 #include "wake_event.h"
 
 #include "smartdns/dns_server.h"
@@ -298,8 +298,8 @@ static int _dns_client_pending_server_resolve(const struct dns_result *result, v
 
 /* add server to group */
 int _dns_client_add_to_group_pending(const char *group_name, const char *server_ip, int port,
-											dns_server_type_t server_type, const struct client_dns_server_flags *flags,
-											int is_pending)
+									 dns_server_type_t server_type, const struct client_dns_server_flags *flags,
+									 int is_pending)
 {
 	struct dns_server_info *server_info = NULL;
 

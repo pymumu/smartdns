@@ -16,15 +16,15 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "dns_server.h"
 #include "prefetch.h"
-#include "request.h"
 #include "cache.h"
+#include "dns_server.h"
+#include "request.h"
 
 #include "smartdns/dns_cache.h"
 
-int _dns_server_prefetch_request(char *domain, dns_type_t qtype,
-										struct dns_server_query_option *server_query_option, int prefetch_flag)
+int _dns_server_prefetch_request(char *domain, dns_type_t qtype, struct dns_server_query_option *server_query_option,
+								 int prefetch_flag)
 {
 	int ret = -1;
 	struct dns_request *request = NULL;
@@ -56,8 +56,7 @@ errout:
 	return ret;
 }
 
-dns_cache_tmout_action_t _dns_server_prefetch_domain(struct dns_conf_group *conf_group,
-															struct dns_cache *dns_cache)
+dns_cache_tmout_action_t _dns_server_prefetch_domain(struct dns_conf_group *conf_group, struct dns_cache *dns_cache)
 {
 	/* If there are still hits, continue pre-fetching */
 	struct dns_server_query_option server_query_option;
@@ -82,7 +81,7 @@ dns_cache_tmout_action_t _dns_server_prefetch_domain(struct dns_conf_group *conf
 }
 
 dns_cache_tmout_action_t _dns_server_prefetch_expired_domain(struct dns_conf_group *conf_group,
-																	struct dns_cache *dns_cache)
+															 struct dns_cache *dns_cache)
 {
 	time_t ttl = _dns_server_expired_cache_ttl(dns_cache, conf_group->dns_serve_expired_ttl);
 	if (ttl <= 1) {

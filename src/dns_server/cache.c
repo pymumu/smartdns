@@ -20,11 +20,10 @@
 #include "answer.h"
 #include "context.h"
 #include "dns_server.h"
-#include "soa.h"
-#include "rules.h"
-#include "request.h"
 #include "prefetch.h"
-
+#include "request.h"
+#include "rules.h"
+#include "soa.h"
 
 #include <errno.h>
 #include <signal.h>
@@ -125,7 +124,7 @@ static int _dns_server_get_cache_timeout(struct dns_request *request, struct dns
 }
 
 int _dns_server_request_update_cache(struct dns_request *request, int speed, dns_type_t qtype,
-											struct dns_cache_data *cache_data, int cache_ttl)
+									 struct dns_cache_data *cache_data, int cache_ttl)
 {
 	int ttl = 0;
 	int ret = -1;

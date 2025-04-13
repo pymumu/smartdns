@@ -24,7 +24,7 @@
 #include "smartdns/http_parse.h"
 
 int _dns_client_send_http3(struct dns_query_struct *query, struct dns_server_info *server_info, void *packet,
-								  unsigned short len)
+						   unsigned short len)
 {
 #ifdef OSSL_QUIC1_VERSION
 	int http_len = 0;
@@ -74,3 +74,67 @@ errout:
 #endif
 	return 0;
 }
+
+#ifdef OSSL_QUIC1_VERSION
+int _dns_client_process_recv_http3(struct dns_server_info *server_info, struct dns_conn_stream *conn_stream)
+{
+	int ret = 0;
+	struct http_head *http_head = NULL;
+	uint8_t *pkg_data = NULL;
+	int pkg_len = 0;
+
+	http_head = http_head_init(4096, HTTP_VERSION_3_0);
+	if (http_head == NULL) {
+		goto errout;
+	}
+
+	ret = http_head_parse(http_head, conn_stream->recv_buff.data, conn_stream->recv_buff.len);
+	if (ret < 0) {
+		if (ret == -1) {
+			goto out;
+		} else if (ret == -3) {
+			/* repsone is too large */
+			tlog(TLOG_DEBUG, "http3 response is too large.");
+			conn_stream->recv_buff.len = 0;
+			_dns_client_conn_stream_put(conn_stream);
+			goto errout;
+		}
+
+		tlog(TLOG_DEBUG, "remote server not supported.");
+		goto errout;
+	}
+
+	if (http_head_get_httpcode(http_head) == 0) {
+		/* invalid http3 response */
+		server_info->prohibit = 1;
+		goto errout;
+	}
+
+	if (http_head_get_httpcode(http_head) != 200) {
+		tlog(TLOG_WARN, "http3 server query from %s:%d failed, server return http code : %d, %s", server_info->ip,
+			 server_info->port, http_head_get_httpcode(http_head), http_head_get_httpcode_msg(http_head));
+		server_info->prohibit = 1;
+		goto errout;
+	}
+
+	pkg_data = (uint8_t *)http_head_get_data(http_head);
+	pkg_len = http_head_get_data_len(http_head);
+	if (pkg_data == NULL || pkg_len <= 0) {
+		goto errout;
+	}
+
+	if (_dns_client_recv(server_info, pkg_data, pkg_len, &server_info->addr, server_info->ai_addrlen) != 0) {
+		goto errout;
+	}
+out:
+	http_head_destroy(http_head);
+	return 0;
+errout:
+
+	if (http_head) {
+		http_head_destroy(http_head);
+	}
+
+	return -1;
+}
+#endif

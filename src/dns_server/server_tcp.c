@@ -19,11 +19,11 @@
 #define _GNU_SOURCE
 
 #include "server_tcp.h"
-#include "server_tls.h"
-#include "server_https.h"
-#include "dns_server.h"
-#include "server_socket.h"
 #include "connection.h"
+#include "dns_server.h"
+#include "server_https.h"
+#include "server_socket.h"
+#include "server_tls.h"
 
 #include "smartdns/http_parse.h"
 
@@ -53,8 +53,8 @@ int _dns_server_reply_tcp_to_buffer(struct dns_server_conn_tcp_client *tcpclient
 	return 0;
 }
 
-int _dns_server_reply_tcp(struct dns_request *request, struct dns_server_conn_tcp_client *tcpclient,
-								 void *packet, unsigned short len)
+int _dns_server_reply_tcp(struct dns_request *request, struct dns_server_conn_tcp_client *tcpclient, void *packet,
+						  unsigned short len)
 {
 	int send_len = 0;
 	unsigned char inpacket_data[DNS_IN_PACKSIZE];
@@ -484,8 +484,7 @@ static int _dns_server_tcp_send(struct dns_server_conn_tcp_client *tcpclient)
 	return 0;
 }
 
-int _dns_server_process_tcp(struct dns_server_conn_tcp_client *dnsserver, struct epoll_event *event,
-								   unsigned long now)
+int _dns_server_process_tcp(struct dns_server_conn_tcp_client *dnsserver, struct epoll_event *event, unsigned long now)
 {
 	int ret = 0;
 

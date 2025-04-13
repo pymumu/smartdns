@@ -20,10 +20,10 @@
 #define _GNU_SOURCE
 #endif
 #include "smartdns/proxy.h"
-#include "smartdns/lib/hashtable.h"
-#include "smartdns/lib/list.h"
 #include "smartdns/dns_conf.h"
 #include "smartdns/http_parse.h"
+#include "smartdns/lib/hashtable.h"
+#include "smartdns/lib/list.h"
 #include "smartdns/tlog.h"
 #include "smartdns/util.h"
 #include <arpa/inet.h>

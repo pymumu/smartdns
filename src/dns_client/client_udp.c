@@ -20,8 +20,8 @@
 
 #include "smartdns/util.h"
 
-#include "client_udp.h"
 #include "client_socket.h"
+#include "client_udp.h"
 #include "server_info.h"
 
 #include <net/if.h>

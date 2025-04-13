@@ -430,7 +430,7 @@ static int _http3_parse_headers_payload(struct http_head *http_head, const uint8
 			if (offset_ret < 0) {
 				return offset_ret;
 			}
-			
+
 			offset += offset_ret;
 			buffer_value[str_len] = '\0';
 			if (_http_head_buffer_append(http_head, NULL, str_len + 1) == NULL) {

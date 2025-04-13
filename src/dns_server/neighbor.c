@@ -16,8 +16,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "dns_server.h"
 #include "neighbor.h"
+#include "dns_server.h"
 
 #include "smartdns/fast_ping.h"
 

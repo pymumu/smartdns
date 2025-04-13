@@ -33,7 +33,6 @@ void _dns_client_server_close(struct dns_server_info *server_info);
 
 const char *_dns_server_get_type_string(dns_server_type_t type);
 
-
 void _dns_client_server_remove_all(void);
 
 void _dns_client_shutdown_socket(struct dns_server_info *server_info);

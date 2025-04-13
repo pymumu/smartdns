@@ -18,10 +18,10 @@
 #define _GNU_SOURCE
 
 #include "server_tls.h"
-#include "server_tcp.h"
+#include "connection.h"
 #include "dns_server.h"
 #include "server_socket.h"
-#include "connection.h"
+#include "server_tcp.h"
 
 #include <errno.h>
 #include <netinet/tcp.h>

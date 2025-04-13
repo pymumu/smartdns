@@ -16,17 +16,17 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "dns_server.h"
 #include "context.h"
-#include "soa.h"
-#include "ip_rule.h"
-#include "request.h"
-#include "audit.h"
 #include "address.h"
+#include "audit.h"
 #include "cache.h"
-#include "rules.h"
+#include "dns_server.h"
+#include "ip_rule.h"
 #include "ipset_nftset.h"
+#include "request.h"
 #include "request_pending.h"
+#include "rules.h"
+#include "soa.h"
 
 void _dns_server_post_context_init(struct dns_server_post_context *context, struct dns_request *request)
 {
@@ -49,7 +49,7 @@ static void _dns_server_context_add_ip(struct dns_server_post_context *context, 
 }
 
 void _dns_server_post_context_init_from(struct dns_server_post_context *context, struct dns_request *request,
-											   struct dns_packet *packet, unsigned char *inpacket, int inpacket_len)
+										struct dns_packet *packet, unsigned char *inpacket, int inpacket_len)
 {
 	memset(context, 0, sizeof(*context));
 	context->packet = packet;
@@ -783,7 +783,6 @@ int _dns_request_post(struct dns_server_post_context *context)
 
 	return 0;
 }
-
 
 int _dns_server_get_answer(struct dns_server_post_context *context)
 {

@@ -23,7 +23,6 @@
 extern "C" {
 #endif /*__cplusplus */
 
-
 int _dns_create_socket(const char *host_ip, int type);
 
 #ifdef __cplusplus

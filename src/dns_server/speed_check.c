@@ -16,11 +16,11 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "dns_server.h"
 #include "speed_check.h"
+#include "address.h"
+#include "dns_server.h"
 #include "dualstack.h"
 #include "request.h"
-#include "address.h"
 
 #include "smartdns/fast_ping.h"
 #include <errno.h>

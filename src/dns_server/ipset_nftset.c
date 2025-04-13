@@ -22,8 +22,8 @@
 #include "smartdns/util.h"
 
 void _dns_server_add_ipset_nftset(struct dns_request *request, struct dns_ipset_rule *ipset_rule,
-										 struct dns_nftset_rule *nftset_rule, const unsigned char addr[], int addr_len,
-										 int ipset_timeout_value, int nftset_timeout_value)
+								  struct dns_nftset_rule *nftset_rule, const unsigned char addr[], int addr_len,
+								  int ipset_timeout_value, int nftset_timeout_value)
 {
 	if (ipset_rule != NULL) {
 		/* add IPV4 to ipset */

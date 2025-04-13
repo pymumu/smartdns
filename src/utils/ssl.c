@@ -21,8 +21,8 @@
 #include <openssl/crypto.h>
 #include <openssl/ssl.h>
 #include <openssl/x509v3.h>
-#include <sys/stat.h>
 #include <pthread.h>
+#include <sys/stat.h>
 
 int generate_cert_key(const char *key_path, const char *cert_path, const char *san, int days)
 {

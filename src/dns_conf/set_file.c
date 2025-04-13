@@ -16,18 +16,18 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
- #define _GNU_SOURCE
+#define _GNU_SOURCE
 
 #include "set_file.h"
 #include "smartdns/lib/idna.h"
 #include "smartdns/lib/stringutil.h"
 #include "smartdns/util.h"
 
-#include <limits.h>
 #include <errno.h>
 #include <getopt.h>
 #include <glob.h>
 #include <libgen.h>
+#include <limits.h>
 #include <stdio.h>
 
 int _config_set_rule_each_from_list(const char *file, set_rule_add_func callback, void *priv)

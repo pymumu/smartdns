@@ -424,7 +424,6 @@ int check_is_ipaddr(const char *ip)
 	return -1;
 }
 
-
 int set_fd_nonblock(int fd, int nonblock)
 {
 	int ret = 0;
@@ -489,4 +488,3 @@ int has_unprivileged_ping(void)
 
 	return 1;
 }
-

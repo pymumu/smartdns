@@ -18,9 +18,9 @@
 #define _GNU_SOURCE
 
 #include "server_udp.h"
+#include "connection.h"
 #include "dns_server.h"
 #include "server_socket.h"
-#include "connection.h"
 
 #include <errno.h>
 #include <linux/in.h>
@@ -29,8 +29,8 @@
 #include <sys/epoll.h>
 #include <sys/socket.h>
 
-int _dns_server_reply_udp(struct dns_request *request, struct dns_server_conn_udp *udpserver,
-								 unsigned char *inpacket, int inpacket_len)
+int _dns_server_reply_udp(struct dns_request *request, struct dns_server_conn_udp *udpserver, unsigned char *inpacket,
+						  int inpacket_len)
 {
 	int send_len = 0;
 	struct iovec iovec[1];

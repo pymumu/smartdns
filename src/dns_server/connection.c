@@ -16,12 +16,12 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "dns_server.h"
 #include "connection.h"
+#include "dns_server.h"
 
+#include <openssl/ssl.h>
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
-#include <openssl/ssl.h>
 
 int _dns_server_epoll_ctl(struct dns_server_conn_head *head, int op, uint32_t events)
 {

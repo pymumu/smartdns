@@ -16,8 +16,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "dns_server.h"
 #include "dualstack.h"
+#include "dns_server.h"
 #include "request.h"
 #include "rules.h"
 #include "smartdns/fast_ping.h"
