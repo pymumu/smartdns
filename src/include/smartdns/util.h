@@ -45,6 +45,11 @@ extern "C" {
 #define PORT_NOT_DEFINED -1
 #define MAX_IP_LEN 64
 
+#define IPV6_ADDR_LEN 16
+#define IPV4_ADDR_LEN 4
+
+#define TMP_BUFF_LEN_32 32
+
 #ifndef BASE_FILE_NAME
 #define BASE_FILE_NAME (__builtin_strrchr(__FILE__, '/') ? __builtin_strrchr(__FILE__, '/') + 1 : __FILE__)
 #endif
