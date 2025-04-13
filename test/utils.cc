@@ -1,5 +1,5 @@
 #include "include/utils.h"
-#include "util.h"
+#include "smartdns/util.h"
 #include <arpa/inet.h>
 #include <ifaddrs.h>
 #include <netinet/in.h>

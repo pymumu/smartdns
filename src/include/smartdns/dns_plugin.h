@@ -19,7 +19,7 @@
 #ifndef SMART_DNS_PLUGIN_H
 #define SMART_DNS_PLUGIN_H
 
-#include "dns.h"
+#include "smartdns/dns.h"
 #include <sys/socket.h>
 
 #ifdef __cplusplus

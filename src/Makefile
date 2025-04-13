@@ -1,5 +1,5 @@
 
-# Copyright (C) 2018-2024 Ruilin Peng (Nick) <pymumu@gmail.com>.
+# Copyright (C) 2018-2025 Ruilin Peng (Nick) <pymumu@gmail.com>.
 #
 # smartdns is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -17,7 +17,7 @@
 BIN=smartdns
 SMARTDNS_LIB=libsmartdns.a
 SMARTDNS_TEST_LIB=libsmartdns-test.a
-OBJS_LIB=$(patsubst %.c,%.o,$(wildcard lib/*.c))
+OBJS_LIB=$(patsubst %.c,%.o,$(wildcard *.c)) $(patsubst %.c,%.o,$(wildcard */*.c))
 OBJS_MAIN=$(filter-out main.o, $(patsubst %.c,%.o,$(wildcard *.c)))
 TEST_OBJS=$(patsubst %.o,%_test.o,$(OBJS_MAIN) $(OBJS_LIB))
 MAIN_OBJ = main.o

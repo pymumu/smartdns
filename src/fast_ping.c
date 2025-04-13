@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2024 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2025 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,12 +16,12 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "fast_ping.h"
-#include "atomic.h"
-#include "hashtable.h"
-#include "list.h"
-#include "tlog.h"
-#include "util.h"
+#include "smartdns/fast_ping.h"
+#include "smartdns/lib/atomic.h"
+#include "smartdns/lib/hashtable.h"
+#include "smartdns/lib/list.h"
+#include "smartdns/tlog.h"
+#include "smartdns/util.h"
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>

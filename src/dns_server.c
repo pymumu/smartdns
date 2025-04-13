@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2024 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2025 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -19,22 +19,22 @@
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
-#include "dns_server.h"
-#include "atomic.h"
-#include "dns.h"
-#include "dns_cache.h"
-#include "dns_client.h"
-#include "dns_conf.h"
-#include "dns_plugin.h"
-#include "dns_stats.h"
-#include "fast_ping.h"
-#include "regexp.h"
-#include "hashtable.h"
-#include "http_parse.h"
-#include "list.h"
-#include "nftset.h"
-#include "tlog.h"
-#include "util.h"
+#include "smartdns/dns_server.h"
+#include "smartdns/dns.h"
+#include "smartdns/dns_cache.h"
+#include "smartdns/dns_client.h"
+#include "smartdns/dns_conf.h"
+#include "smartdns/dns_plugin.h"
+#include "smartdns/dns_stats.h"
+#include "smartdns/fast_ping.h"
+#include "smartdns/http_parse.h"
+#include "smartdns/lib/atomic.h"
+#include "smartdns/lib/hashtable.h"
+#include "smartdns/lib/list.h"
+#include "smartdns/lib/nftset.h"
+#include "smartdns/tlog.h"
+#include "smartdns/util.h"
+#include "smartdns/regexp.h"
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -409,6 +409,7 @@ struct dns_server {
 	int epoll_fd;
 	int event_fd;
 	struct list_head conn_list;
+	pthread_mutex_t conn_list_lock;
 
 	pid_t cache_save_pid;
 	time_t cache_save_time;
@@ -1328,11 +1329,6 @@ static void _dns_server_conn_release(struct dns_server_conn_head *conn)
 		return;
 	}
 
-	if (conn->fd > 0) {
-		close(conn->fd);
-		conn->fd = -1;
-	}
-
 	if (conn->type == DNS_CONN_TYPE_TLS_CLIENT || conn->type == DNS_CONN_TYPE_HTTPS_CLIENT) {
 		struct dns_server_conn_tls_client *tls_client = (struct dns_server_conn_tls_client *)conn;
 		if (tls_client->ssl != NULL) {
@@ -1348,7 +1344,14 @@ static void _dns_server_conn_release(struct dns_server_conn_head *conn)
 		}
 	}
 
+	if (conn->fd > 0) {
+		close(conn->fd);
+		conn->fd = -1;
+	}
+
+	pthread_mutex_lock(&server.conn_list_lock);
 	list_del_init(&conn->list);
+	pthread_mutex_unlock(&server.conn_list_lock);
 	free(conn);
 }
 
@@ -1433,6 +1436,11 @@ static int _dns_server_reply_https(struct dns_request *request, struct dns_serve
 						"Content-Length: %d\r\n"
 						"\r\n",
 						len);
+	if (http_len < 0 || http_len >= DNS_IN_PACKSIZE) {
+		tlog(TLOG_ERROR, "http header size is invalid.");
+		return -1;
+	}
+
 	memcpy(inpacket + http_len, packet, len);
 	http_len += len;
 
@@ -7664,11 +7672,11 @@ static int _dns_server_client_close(struct dns_server_conn_head *conn)
 {
 	if (conn->fd > 0) {
 		_dns_server_epoll_ctl(conn, EPOLL_CTL_DEL, 0);
-		close(conn->fd);
-		conn->fd = -1;
 	}
 
+	pthread_mutex_lock(&server.conn_list_lock);
 	list_del_init(&conn->list);
+	pthread_mutex_unlock(&server.conn_list_lock);
 
 	_dns_server_conn_release(conn);
 
@@ -7702,6 +7710,15 @@ static int _dns_server_update_request_connection_timeout(struct dns_server_conn_
 	return 0;
 }
 
+static void _dns_server_conn_head_init(struct dns_server_conn_head *conn, int fd, int type)
+{
+	memset(conn, 0, sizeof(*conn));
+	conn->fd = fd;
+	conn->type = type;
+	atomic_set(&conn->refcnt, 0);
+	INIT_LIST_HEAD(&conn->list);
+}
+
 static int _dns_server_tcp_accept(struct dns_server_conn_tcp_server *tcpserver, struct epoll_event *event,
 								  unsigned long now)
 {
@@ -7722,15 +7739,12 @@ static int _dns_server_tcp_accept(struct dns_server_conn_tcp_server *tcpserver, 
 		goto errout;
 	}
 	memset(tcpclient, 0, sizeof(*tcpclient));
-
-	tcpclient->head.fd = fd;
-	tcpclient->head.type = DNS_CONN_TYPE_TCP_CLIENT;
+	_dns_server_conn_head_init(&tcpclient->head, fd, DNS_CONN_TYPE_TCP_CLIENT);
 	tcpclient->head.server_flags = tcpserver->head.server_flags;
 	tcpclient->head.dns_group = tcpserver->head.dns_group;
 	tcpclient->head.ipset_nftset_rule = tcpserver->head.ipset_nftset_rule;
 	tcpclient->conn_idle_timeout = dns_conf.tcp_idle_time;
 
-	atomic_set(&tcpclient->head.refcnt, 0);
 	memcpy(&tcpclient->addr, &addr, addr_len);
 	tcpclient->addr_len = addr_len;
 	tcpclient->localaddr_len = sizeof(struct sockaddr_storage);
@@ -7746,7 +7760,9 @@ static int _dns_server_tcp_accept(struct dns_server_conn_tcp_server *tcpserver, 
 
 	_dns_server_client_touch(&tcpclient->head);
 
+	pthread_mutex_lock(&server.conn_list_lock);
 	list_add(&tcpclient->head.list, &server.conn_list);
+	pthread_mutex_unlock(&server.conn_list_lock);
 	_dns_server_conn_get(&tcpclient->head);
 
 	set_sock_keepalive(fd, 30, 3, 5);
@@ -8021,6 +8037,10 @@ static int _dns_server_tcp_recv(struct dns_server_conn_tcp_client *tcpclient)
 			return 0;
 		}
 
+		if (unlikely(tcpclient->recvbuff.size < 0)) {
+			BUG("recv buffer size is invalid.");
+		}
+
 		len = _dns_server_tcp_socket_recv(tcpclient, tcpclient->recvbuff.buf + tcpclient->recvbuff.size,
 										  sizeof(tcpclient->recvbuff.buf) - tcpclient->recvbuff.size);
 		if (len < 0) {
@@ -8063,6 +8083,12 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn_tcp_client
 	/* Handling multiple requests */
 	for (;;) {
 		ret = RECV_ERROR_FAIL;
+
+		if (proceed_len > tcpclient->recvbuff.size) {
+			tlog(TLOG_DEBUG, "proceed_len > recvbuff.size");
+			goto out;
+		}
+
 		if (tcpclient->head.type == DNS_CONN_TYPE_HTTPS_CLIENT) {
 			if ((total_len - proceed_len) <= 0) {
 				ret = RECV_ERROR_AGAIN;
@@ -8074,11 +8100,15 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn_tcp_client
 				goto out;
 			}
 
-			len = http_head_parse(http_head, tcpclient->recvbuff.buf, tcpclient->recvbuff.size);
+			len = http_head_parse(http_head, tcpclient->recvbuff.buf + proceed_len, tcpclient->recvbuff.size);
 			if (len < 0) {
 				if (len == -1) {
 					ret = 0;
 					goto out;
+				} else if (len == -3) {
+					tcpclient->recvbuff.size = 0;
+					tlog(TLOG_DEBUG, "recv buffer is not enough.");
+					goto errout;
 				}
 
 				tlog(TLOG_DEBUG, "parser http header failed.");
@@ -8159,7 +8189,7 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn_tcp_client
 			request_len = ntohs(*((unsigned short *)(request_data)));
 
 			if (request_len >= sizeof(tcpclient->recvbuff.buf)) {
-				tlog(TLOG_DEBUG, "request length is invalid.");
+				tlog(TLOG_DEBUG, "request length is invalid. len = %d", request_len);
 				goto errout;
 			}
 
@@ -8221,8 +8251,9 @@ static int _dns_server_tcp_process_requests(struct dns_server_conn_tcp_client *t
 	int recv_ret = 0;
 	int request_ret = 0;
 	int is_eof = 0;
+	int i = 0;
 
-	for (;;) {
+	for (i = 0; i < 32; i++) {
 		recv_ret = _dns_server_tcp_recv(tcpclient);
 		if (recv_ret < 0) {
 			if (recv_ret == RECV_ERROR_CLOSE) {
@@ -8327,6 +8358,7 @@ static int _dns_server_tls_accept(struct dns_server_conn_tls_server *tls_server,
 {
 	struct sockaddr_storage addr;
 	struct dns_server_conn_tls_client *tls_client = NULL;
+	DNS_CONN_TYPE conn_type;
 	socklen_t addr_len = sizeof(addr);
 	int fd = -1;
 	SSL *ssl = NULL;
@@ -8337,22 +8369,22 @@ static int _dns_server_tls_accept(struct dns_server_conn_tls_server *tls_server,
 		return -1;
 	}
 
+	if (tls_server->head.type == DNS_CONN_TYPE_TLS_SERVER) {
+		conn_type = DNS_CONN_TYPE_TLS_CLIENT;
+	} else if (tls_server->head.type == DNS_CONN_TYPE_HTTPS_SERVER) {
+		conn_type = DNS_CONN_TYPE_HTTPS_CLIENT;
+	} else {
+		tlog(TLOG_ERROR, "invalid http server type.");
+		goto errout;
+	}
+
 	tls_client = malloc(sizeof(*tls_client));
 	if (tls_client == NULL) {
 		tlog(TLOG_ERROR, "malloc for tls_client failed.");
 		goto errout;
 	}
 	memset(tls_client, 0, sizeof(*tls_client));
-
-	tls_client->tcp.head.fd = fd;
-	if (tls_server->head.type == DNS_CONN_TYPE_TLS_SERVER) {
-		tls_client->tcp.head.type = DNS_CONN_TYPE_TLS_CLIENT;
-	} else if (tls_server->head.type == DNS_CONN_TYPE_HTTPS_SERVER) {
-		tls_client->tcp.head.type = DNS_CONN_TYPE_HTTPS_CLIENT;
-	} else {
-		tlog(TLOG_ERROR, "invalid http server type.");
-		goto errout;
-	}
+	_dns_server_conn_head_init(&tls_client->tcp.head, fd, conn_type);
 	tls_client->tcp.head.server_flags = tls_server->head.server_flags;
 	tls_client->tcp.head.dns_group = tls_server->head.dns_group;
 	tls_client->tcp.head.ipset_nftset_rule = tls_server->head.ipset_nftset_rule;
@@ -8389,7 +8421,10 @@ static int _dns_server_tls_accept(struct dns_server_conn_tls_server *tls_server,
 	pthread_mutex_init(&tls_client->ssl_lock, NULL);
 	_dns_server_client_touch(&tls_client->tcp.head);
 
+	pthread_mutex_lock(&server.conn_list_lock);
 	list_add(&tls_client->tcp.head.list, &server.conn_list);
+	pthread_mutex_unlock(&server.conn_list_lock);
+
 	_dns_server_conn_get(&tls_client->tcp.head);
 
 	set_sock_keepalive(fd, 30, 3, 5);
@@ -8627,6 +8662,7 @@ static void _dns_server_tcp_idle_check(void)
 	time_t now = 0;
 
 	time(&now);
+	pthread_mutex_lock(&server.conn_list_lock);
 	list_for_each_entry_safe(conn, tmp, &server.conn_list, list)
 	{
 		if (conn->type != DNS_CONN_TYPE_TCP_CLIENT && conn->type != DNS_CONN_TYPE_TLS_CLIENT &&
@@ -8646,6 +8682,7 @@ static void _dns_server_tcp_idle_check(void)
 
 		_dns_server_client_close(conn);
 	}
+	pthread_mutex_unlock(&server.conn_list_lock);
 }
 
 #ifdef TEST
@@ -9096,19 +9133,18 @@ static int _dns_server_socket_udp(struct dns_bind_ip *bind_ip)
 	int fd = -1;
 
 	host_ip = bind_ip->ip;
-	conn = malloc(sizeof(struct dns_server_conn_udp));
-	if (conn == NULL) {
-		goto errout;
-	}
-	INIT_LIST_HEAD(&conn->head.list);
-
 	fd = _dns_create_socket(host_ip, SOCK_DGRAM);
 	if (fd <= 0) {
 		goto errout;
 	}
 
-	conn->head.type = DNS_CONN_TYPE_UDP_SERVER;
-	conn->head.fd = fd;
+	conn = malloc(sizeof(struct dns_server_conn_udp));
+	if (conn == NULL) {
+		goto errout;
+	}
+	memset(conn, 0, sizeof(struct dns_server_conn_udp));
+
+	_dns_server_conn_head_init(&conn->head, fd, DNS_CONN_TYPE_UDP_SERVER);
 	_dns_server_set_flags(&conn->head, bind_ip);
 	_dns_server_conn_get(&conn->head);
 
@@ -9133,11 +9169,6 @@ static int _dns_server_socket_tcp(struct dns_bind_ip *bind_ip)
 	const int on = 1;
 
 	host_ip = bind_ip->ip;
-	conn = malloc(sizeof(struct dns_server_conn_tcp_server));
-	if (conn == NULL) {
-		goto errout;
-	}
-	INIT_LIST_HEAD(&conn->head.list);
 
 	fd = _dns_create_socket(host_ip, SOCK_STREAM);
 	if (fd <= 0) {
@@ -9146,8 +9177,12 @@ static int _dns_server_socket_tcp(struct dns_bind_ip *bind_ip)
 
 	setsockopt(fd, SOL_TCP, TCP_FASTOPEN, &on, sizeof(on));
 
-	conn->head.type = DNS_CONN_TYPE_TCP_SERVER;
-	conn->head.fd = fd;
+	conn = malloc(sizeof(struct dns_server_conn_tcp_server));
+	if (conn == NULL) {
+		goto errout;
+	}
+	memset(conn, 0, sizeof(struct dns_server_conn_tcp_server));
+	_dns_server_conn_head_init(&conn->head, fd, DNS_CONN_TYPE_TCP_SERVER);
 	_dns_server_set_flags(&conn->head, bind_ip);
 	_dns_server_conn_get(&conn->head);
 
@@ -9200,12 +9235,6 @@ static int _dns_server_socket_tls(struct dns_bind_ip *bind_ip, DNS_CONN_TYPE con
 		goto errout;
 	}
 
-	conn = malloc(sizeof(struct dns_server_conn_tls_server));
-	if (conn == NULL) {
-		goto errout;
-	}
-	INIT_LIST_HEAD(&conn->head.list);
-
 	fd = _dns_create_socket(host_ip, SOCK_STREAM);
 	if (fd <= 0) {
 		goto errout;
@@ -9244,8 +9273,12 @@ static int _dns_server_socket_tls(struct dns_bind_ip *bind_ip, DNS_CONN_TYPE con
 		goto errout;
 	}
 
-	conn->head.type = conn_type;
-	conn->head.fd = fd;
+	conn = malloc(sizeof(struct dns_server_conn_tls_server));
+	if (conn == NULL) {
+		goto errout;
+	}
+	memset(conn, 0, sizeof(struct dns_server_conn_tls_server));
+	_dns_server_conn_head_init(&conn->head, fd, conn_type);
 	conn->ssl_ctx = ssl_ctx;
 	_dns_server_set_flags(&conn->head, bind_ip);
 	_dns_server_conn_get(&conn->head);
@@ -9547,7 +9580,7 @@ errout:
 
 int dns_server_init(void)
 {
-	pthread_attr_t attr;
+	pthread_mutexattr_t attr;
 	int epollfd = -1;
 	int ret = -1;
 
@@ -9567,12 +9600,17 @@ int dns_server_init(void)
 	}
 
 	memset(&server, 0, sizeof(server));
-	pthread_attr_init(&attr);
+
+	pthread_mutexattr_init(&attr);
+	pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+
 	INIT_LIST_HEAD(&server.conn_list);
 	time(&server.cache_save_time);
 	atomic_set(&server.request_num, 0);
 	pthread_mutex_init(&server.request_list_lock, NULL);
+	pthread_mutex_init(&server.conn_list_lock, &attr);
 	INIT_LIST_HEAD(&server.request_list);
+	pthread_mutexattr_destroy(&attr);
 
 	epollfd = epoll_create1(EPOLL_CLOEXEC);
 	if (epollfd < 0) {

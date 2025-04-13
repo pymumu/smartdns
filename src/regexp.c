@@ -18,9 +18,9 @@
  */
 
 #define _GNU_SOURCE
-#include "regexp.h"
-#include "stringutil.h"
-#include "tlog.h"
+#include "smartdns/regexp.h"
+#include "smartdns/lib/stringutil.h"
+#include "smartdns/tlog.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>

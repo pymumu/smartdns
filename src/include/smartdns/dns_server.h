@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2024 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2025 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -19,8 +19,8 @@
 #ifndef _SMART_DNS_SERVER_H
 #define _SMART_DNS_SERVER_H
 
-#include "dns.h"
-#include "dns_client.h"
+#include "smartdns/dns.h"
+#include "smartdns/dns_client.h"
 #include <stdint.h>
 
 #ifdef __cplusplus

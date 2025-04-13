@@ -18,8 +18,8 @@
 
 #ifndef _SMARTDNS_REGEXP_H
 #define _SMARTDNS_REGEXP_H
-#include "dns.h"
-#include "list.h"
+#include "smartdns/dns.h"
+#include "smartdns/lib/list.h"
 #include <stdlib.h>
 #include <time.h>
 //#include <regex.h>

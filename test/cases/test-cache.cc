@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2024 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2025 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,7 +17,7 @@
  */
 
 #include "client.h"
-#include "dns.h"
+#include "smartdns/dns.h"
 #include "include/utils.h"
 #include "server.h"
 #include "gtest/gtest.h"
@@ -27,7 +27,7 @@
 #include <sys/types.h>
 
 /* clang-format off */
-#include "dns_cache.h"
+#include "smartdns/dns_cache.h"
 /* clang-format on */
 
 class Cache : public ::testing::Test

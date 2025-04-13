@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2024 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2025 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,13 +16,13 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "dns_conf.h"
-#include "idna.h"
-#include "list.h"
-#include "rbtree.h"
-#include "tlog.h"
-#include "util.h"
-#include "regexp.h"
+#include "smartdns/dns_conf.h"
+#include "smartdns/lib/idna.h"
+#include "smartdns/lib/list.h"
+#include "smartdns/lib/rbtree.h"
+#include "smartdns/tlog.h"
+#include "smartdns/util.h"
+#include "smartdns/regexp.h"
 #include <errno.h>
 #include <getopt.h>
 #include <glob.h>
@@ -6573,12 +6573,6 @@ static void _dns_conf_group_post(void)
 
 	hash_for_each_safe(dns_conf_rule.group, i, tmp, group, node)
 	{
-		if (dns_conf.cachesize == 0 && group->dns_response_mode == DNS_RESPONSE_MODE_FASTEST_RESPONSE) {
-			group->dns_response_mode = DNS_RESPONSE_MODE_FASTEST_IP;
-			tlog(TLOG_WARN, "force set response of group %s to %s as cache size is 0", group->group_name,
-				 dns_conf_response_mode_enum[group->dns_response_mode].name);
-		}
-
 		if ((group->dns_rr_ttl_min > group->dns_rr_ttl_max) && group->dns_rr_ttl_max > 0) {
 			group->dns_rr_ttl_min = group->dns_rr_ttl_max;
 		}

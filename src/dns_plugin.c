@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2023 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2025 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,20 +16,19 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "dns_plugin.h"
+#include "smartdns/dns_plugin.h"
 
-#include "dns_conf.h"
-#include "include/conf.h"
-#include "include/hashtable.h"
-#include "include/list.h"
-#include "util.h"
+#include "smartdns/dns_conf.h"
+#include "smartdns/lib/conf.h"
+#include "smartdns/lib/hashtable.h"
+#include "smartdns/lib/list.h"
+#include "smartdns/tlog.h"
+#include "smartdns/util.h"
 #include <dlfcn.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#include "tlog.h"
 
 struct dns_plugin_ops {
 	struct list_head list;

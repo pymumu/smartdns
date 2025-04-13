@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2024 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2025 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,19 +17,20 @@
  */
 
 #define _GNU_SOURCE
-#include "dns_client.h"
-#include "atomic.h"
-#include "dns.h"
-#include "dns_conf.h"
-#include "dns_server.h"
-#include "dns_stats.h"
-#include "fast_ping.h"
-#include "hashtable.h"
-#include "http_parse.h"
-#include "list.h"
-#include "proxy.h"
-#include "tlog.h"
-#include "util.h"
+#include "smartdns/dns_client.h"
+#include "smartdns/dns.h"
+#include "smartdns/dns_conf.h"
+#include "smartdns/dns_server.h"
+#include "smartdns/dns_stats.h"
+#include "smartdns/fast_ping.h"
+#include "smartdns/http_parse.h"
+#include "smartdns/lib/atomic.h"
+#include "smartdns/lib/hashtable.h"
+#include "smartdns/lib/list.h"
+#include "smartdns/proxy.h"
+#include "smartdns/tlog.h"
+#include "smartdns/util.h"
+
 #include <arpa/inet.h>
 #include <ctype.h>
 #include <errno.h>
@@ -1541,6 +1542,9 @@ static void _dns_client_close_socket_ext(struct dns_server_info *server_info, in
 			list_for_each_entry_safe(conn_stream, tmp, &server_info->conn_stream_list, server_list)
 			{
 				if (conn_stream->quic_stream) {
+#ifdef OSSL_QUIC1_VERSION
+					SSL_stream_reset(conn_stream->quic_stream, NULL, 0);
+#endif
 					SSL_free(conn_stream->quic_stream);
 					conn_stream->quic_stream = NULL;
 				}
@@ -1885,7 +1889,7 @@ static void _dns_client_query_get(struct dns_query_struct *query)
 	}
 }
 
-static struct dns_conn_stream *_dns_client_conn_stream_new(void)
+__attribute__((unused)) static struct dns_conn_stream *_dns_client_conn_stream_new(void)
 {
 	struct dns_conn_stream *stream = NULL;
 
@@ -1906,14 +1910,14 @@ static struct dns_conn_stream *_dns_client_conn_stream_new(void)
 	return stream;
 }
 
-static void _dns_client_conn_stream_get(struct dns_conn_stream *stream)
+__attribute__((unused)) static void _dns_client_conn_stream_get(struct dns_conn_stream *stream)
 {
 	if (atomic_inc_return(&stream->refcnt) <= 1) {
 		BUG("stream ref is invalid");
 	}
 }
 
-static void _dns_client_conn_stream_put(struct dns_conn_stream *stream)
+__attribute__((unused)) static void _dns_client_conn_stream_put(struct dns_conn_stream *stream)
 {
 	int refcnt = atomic_dec_return(&stream->refcnt);
 	if (refcnt) {
@@ -1944,7 +1948,8 @@ static void _dns_client_conn_stream_put(struct dns_conn_stream *stream)
 	free(stream);
 }
 
-static void _dns_client_conn_server_streams_free(struct dns_server_info *server_info, struct dns_query_struct *query)
+__attribute__((unused)) static void _dns_client_conn_server_streams_free(struct dns_server_info *server_info,
+																		 struct dns_query_struct *query)
 {
 	struct dns_conn_stream *stream = NULL;
 	struct dns_conn_stream *tmp = NULL;
@@ -1960,7 +1965,9 @@ static void _dns_client_conn_server_streams_free(struct dns_server_info *server_
 		list_del_init(&stream->server_list);
 		stream->server_info = NULL;
 		if (stream->quic_stream) {
-			SSL_shutdown(stream->quic_stream);
+#ifdef OSSL_QUIC1_VERSION
+			SSL_stream_reset(stream->quic_stream, NULL, 0);
+#endif
 			SSL_free(stream->quic_stream);
 			stream->quic_stream = NULL;
 		}
@@ -2955,6 +2962,11 @@ static int _dns_client_create_socket_quic(struct dns_server_info *server_info, c
 		goto errout;
 	}
 
+	if (server_info->ssl) {
+		SSL_free(server_info->ssl);
+		server_info->ssl = NULL;
+	}
+
 	server_info->fd = fd;
 	server_info->ssl = ssl;
 	server_info->ssl_write_len = -1;
@@ -3120,6 +3132,11 @@ static int _dns_client_create_socket_tls(struct dns_server_info *server_info, co
 		}
 	}
 
+	if (server_info->ssl) {
+		SSL_free(server_info->ssl);
+		server_info->ssl = NULL;
+	}
+
 	server_info->fd = fd;
 	server_info->ssl = ssl;
 	server_info->ssl_write_len = -1;
@@ -3280,7 +3297,7 @@ static int _dns_client_process_udp_proxy(struct dns_server_info *server_info, st
 		tlog(TLOG_ERROR, "recvfrom %s failed, %s\n", server_info->ip, strerror(errno));
 		goto errout;
 	} else if (len == 0) {
-		pthread_mutex_lock(&client.server_list_lock);
+		pthread_mutex_lock(&server_info->lock);
 		_dns_client_close_socket(server_info);
 		server_info->recv_buff.len = 0;
 		if (server_info->send_buff.len > 0) {
@@ -3289,7 +3306,7 @@ static int _dns_client_process_udp_proxy(struct dns_server_info *server_info, st
 		} else {
 			ret = 0;
 		}
-		pthread_mutex_unlock(&client.server_list_lock);
+		pthread_mutex_unlock(&server_info->lock);
 		tlog(TLOG_DEBUG, "peer close, %s", server_info->ip);
 		return ret;
 	}
@@ -3317,11 +3334,11 @@ static int _dns_client_process_udp_proxy(struct dns_server_info *server_info, st
 
 	return 0;
 errout:
-	pthread_mutex_lock(&client.server_list_lock);
+	pthread_mutex_lock(&server_info->lock);
 	server_info->recv_buff.len = 0;
 	server_info->send_buff.len = 0;
 	_dns_client_close_socket(server_info);
-	pthread_mutex_unlock(&client.server_list_lock);
+	pthread_mutex_unlock(&server_info->lock);
 	return -1;
 }
 
@@ -3668,6 +3685,11 @@ static int _dns_client_process_tcp_buff(struct dns_server_info *server_info)
 				if (len == -1) {
 					ret = 0;
 					goto out;
+				} else if (len == -3) {
+					/* repsone is too large */
+					tlog(TLOG_DEBUG, "http response is too large.");
+					server_info->recv_buff.len = 0;
+					goto out;
 				}
 
 				tlog(TLOG_DEBUG, "remote server not supported.");
@@ -3763,9 +3785,21 @@ static int _dns_client_process_recv_http3(struct dns_server_info *server_info, s
 	if (ret < 0) {
 		if (ret == -1) {
 			goto out;
+		} else if (ret == -3) {
+			/* repsone is too large */
+			tlog(TLOG_DEBUG, "http3 response is too large.");
+			conn_stream->recv_buff.len = 0;
+			_dns_client_conn_stream_put(conn_stream);
+			goto errout;
 		}
 
 		tlog(TLOG_DEBUG, "remote server not supported.");
+		goto errout;
+	}
+
+	if (http_head_get_httpcode(http_head) == 0) {
+		/* invalid http3 response */
+		server_info->prohibit = 1;
 		goto errout;
 	}
 
@@ -3956,6 +3990,10 @@ static int _dns_client_process_quic(struct dns_server_info *server_info, struct 
 		list_for_each_entry(conn_stream, &server_info->conn_stream_list, server_list)
 		{
 			if (conn_stream->quic_stream != NULL) {
+				continue;
+			}
+
+			if (conn_stream->send_buff.len <= 0) {
 				continue;
 			}
 
@@ -4401,7 +4439,7 @@ static int _dns_client_process_tls(struct dns_server_info *server_info, struct e
 			tlog(TLOG_DEBUG, "reused session");
 		} else {
 			tlog(TLOG_DEBUG, "new session");
-			pthread_mutex_lock(&client.server_list_lock);
+			pthread_mutex_lock(&server_info->lock);
 			if (server_info->ssl_session) {
 				/* free session */
 				SSL_SESSION_free(server_info->ssl_session);
@@ -4410,13 +4448,13 @@ static int _dns_client_process_tls(struct dns_server_info *server_info, struct e
 
 			if (_dns_client_tls_verify(server_info) != 0) {
 				tlog(TLOG_WARN, "peer %s verify failed.", server_info->ip);
-				pthread_mutex_unlock(&client.server_list_lock);
+				pthread_mutex_unlock(&server_info->lock);
 				goto errout;
 			}
 
 			/* save ssl session for next request */
 			server_info->ssl_session = _ssl_get1_session(server_info);
-			pthread_mutex_unlock(&client.server_list_lock);
+			pthread_mutex_unlock(&server_info->lock);
 		}
 
 		server_info->status = DNS_SERVER_STATUS_CONNECTED;
@@ -4445,11 +4483,11 @@ static int _dns_client_process_tls(struct dns_server_info *server_info, struct e
 
 	return _dns_client_process_tcp(server_info, event, now);
 errout:
-	pthread_mutex_lock(&client.server_list_lock);
+	pthread_mutex_lock(&server_info->lock);
 	server_info->recv_buff.len = 0;
 	server_info->send_buff.len = 0;
 	_dns_client_close_socket(server_info);
-	pthread_mutex_unlock(&client.server_list_lock);
+	pthread_mutex_unlock(&server_info->lock);
 
 	return -1;
 }
@@ -4522,11 +4560,11 @@ static int _dns_proxy_handshake(struct dns_server_info *server_info, struct epol
 	return retval;
 
 errout:
-	pthread_mutex_lock(&client.server_list_lock);
+	pthread_mutex_lock(&server_info->lock);
 	server_info->recv_buff.len = 0;
 	server_info->send_buff.len = 0;
 	_dns_client_close_socket(server_info);
-	pthread_mutex_unlock(&client.server_list_lock);
+	pthread_mutex_unlock(&server_info->lock);
 	return -1;
 }
 
@@ -4779,6 +4817,11 @@ static int _dns_client_send_https(struct dns_server_info *server_info, void *pac
 						"Content-Length: %d\r\n"
 						"\r\n",
 						https_flag->path, https_flag->httphost, len);
+	if (http_len < 0 || http_len >= DNS_IN_PACKSIZE) {
+		tlog(TLOG_ERROR, "http header size is invalid.");
+		return -1;
+	}
+
 	memcpy(inpacket + http_len, packet, len);
 	http_len += len;
 
@@ -4860,6 +4903,11 @@ static int _dns_client_send_quic_data(struct dns_query_struct *query, struct dns
 	int ret = 0;
 
 	_dns_client_conn_server_streams_free(server_info, query);
+
+	if (server_info->ssl == NULL) {
+		tlog(TLOG_DEBUG, "ssl is invalid, server %s", server_info->ip);
+		return -1;
+	}
 
 	struct dns_conn_stream *stream = _dns_client_conn_stream_new();
 	if (stream == NULL) {

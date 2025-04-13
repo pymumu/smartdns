@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2024 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2025 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,26 +16,17 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef SMART_DNS_TIMER_H
-#define SMART_DNS_TIMER_H
-
-#include "timer_wheel.h"
+#ifndef _SMARTDNS_IDNA_H
+#define _SMARTDNS_IDNA_H
 
 #ifdef __cplusplus
 extern "C" {
-#endif /*__cplusplus */
+#endif
 
-int dns_timer_init(void);
-
-void dns_timer_add(struct tw_timer_list *timer);
-
-int dns_timer_del(struct tw_timer_list *timer);
-
-int dns_timer_mod(struct tw_timer_list *timer, unsigned long expires);
-
-void dns_timer_destroy(void);
+int utf8_to_punycode(const char *src, int src_len, char *dst, int dst_len);
 
 #ifdef __cplusplus
 }
-#endif /*__cplusplus */
 #endif
+
+#endif // !_SMARTDNS_IDNA_H
