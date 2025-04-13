@@ -24,6 +24,7 @@
 #include <dlfcn.h>
 #include <errno.h>
 #include <stdint.h>
+#include <unistd.h>
 #include <signal.h>
 
 void bug_ext(const char *file, int line, const char *func, const char *errfmt, ...)

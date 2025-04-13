@@ -26,6 +26,7 @@
 
 #include <errno.h>
 #include <getopt.h>
+#include <limits.h>
 #include <stdio.h>
 
 struct conf_file_path {
@@ -69,8 +70,8 @@ static int conf_file_check_duplicate(const char *conf_file)
 
 static int conf_additional_file(const char *conf_file)
 {
-	char file_path[DNS_MAX_PATH];
-	char file_path_dir[DNS_MAX_PATH];
+	char file_path[PATH_MAX];
+	char file_path_dir[PATH_MAX];
 
 	if (conf_file == NULL) {
 		return -1;

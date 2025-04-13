@@ -21,6 +21,7 @@
 #include "smartdns/lib/stringutil.h"
 #include "smartdns/util.h"
 
+#include <limits.h>
 #include <errno.h>
 #include <getopt.h>
 #include <glob.h>
@@ -67,8 +68,8 @@ int _config_set_rule_each_from_list(const char *file, set_rule_add_func callback
 
 int _config_foreach_file(const char *file_pattern, int (*callback)(const char *file, void *priv), void *priv)
 {
-	char file_path[DNS_MAX_PATH];
-	char file_path_dir[DNS_MAX_PATH];
+	char file_path[PATH_MAX];
+	char file_path_dir[PATH_MAX];
 	glob_t globbuf = {0};
 
 	if (file_pattern == NULL) {
