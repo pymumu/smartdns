@@ -16,7 +16,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#define _GNU_SOURCE /* See feature_test_macros(7) */
+#define _GNU_SOURCE
+
 #include "smartdns/lib/nftset.h"
 #include "smartdns/dns_conf.h"
 #include "smartdns/tlog.h"

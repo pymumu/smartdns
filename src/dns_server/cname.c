@@ -19,7 +19,6 @@
 #include "cname.h"
 #include "request.h"
 #include "rules.h"
-#include "request.h"
 
 static DNS_CHILD_POST_RESULT _dns_server_process_cname_callback(struct dns_request *request,
 																struct dns_request *child_request, int is_first_resp)

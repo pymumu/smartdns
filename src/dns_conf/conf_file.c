@@ -16,6 +16,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+ #define _GNU_SOURCE
+
 #include "conf_file.h"
 #include "dns_conf_group.h"
 #include "set_file.h"

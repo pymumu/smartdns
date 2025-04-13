@@ -16,7 +16,6 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "dualstack.h"
 #include "dns_server.h"
 #include "dualstack.h"
 #include "request.h"
