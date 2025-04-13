@@ -20,6 +20,7 @@
 
 #include "client_http3.h"
 #include "client_quic.h"
+#include "conn_stream.h"
 
 #include "smartdns/http_parse.h"
 

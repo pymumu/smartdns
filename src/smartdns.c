@@ -982,9 +982,10 @@ int smartdns_reg_post_func(smartdns_post_func func, void *arg)
 #define smartdns_test_notify(retval) smartdns_test_notify_func(fd_notify, retval)
 static void smartdns_test_notify_func(int fd_notify, uint64_t retval)
 {
+	int unused __attribute__((unused));
 	/* notify parent kickoff */
 	if (fd_notify > 0) {
-		write(fd_notify, &retval, sizeof(retval));
+		unused = write(fd_notify, &retval, sizeof(retval));
 	}
 
 	if (_smartdns_post != NULL) {

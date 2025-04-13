@@ -19,6 +19,7 @@
 #include "smartdns/http_parse.h"
 #include "smartdns/util.h"
 
+#include "client_http3.h"
 #include "client_quic.h"
 #include "client_socket.h"
 #include "client_tls.h"
