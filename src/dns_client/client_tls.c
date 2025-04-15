@@ -588,20 +588,21 @@ int _dns_client_socket_ssl_recv_ext(struct dns_server_info *server, SSL *ssl, vo
 
 		ssl_err = ERR_get_error();
 		int ssl_reason = ERR_GET_REASON(ssl_err);
-		if (ssl_reason == SSL_R_UNINITIALIZED) {
+
+		switch (ssl_reason) {
+		case SSL_R_UNINITIALIZED:
 			errno = EAGAIN;
 			return -1;
-		}
-
-		if (ssl_reason == SSL_R_SHUTDOWN_WHILE_IN_INIT || ssl_reason == SSL_R_PROTOCOL_IS_SHUTDOWN) {
-			return 0;
-		}
-
-#ifdef SSL_R_UNEXPECTED_EOF_WHILE_READING
-		if (ssl_reason == SSL_R_UNEXPECTED_EOF_WHILE_READING) {
-			return 0;
-		}
+		case SSL_R_SHUTDOWN_WHILE_IN_INIT:
+		case SSL_R_PROTOCOL_IS_SHUTDOWN:
+#ifdef SSL_R_STREAM_FINISHED
+		case SSL_R_STREAM_FINISHED:
 #endif
+#ifdef SSL_R_UNEXPECTED_EOF_WHILE_READING
+		case SSL_R_UNEXPECTED_EOF_WHILE_READING:
+#endif
+			return 0;
+		}
 
 		tlog(TLOG_ERROR, "server %s SSL read fail error: %s", server->ip, ERR_error_string(ssl_err, buff));
 		errno = EFAULT;
@@ -722,11 +723,18 @@ errout:
 	return -1;
 }
 
-static int _dns_client_verify_common_name(struct dns_server_info *server_info, X509 *cert, char *peer_CN)
+/*
+ * check SAN
+ * return 0: match
+ * return -1: not match
+ * return -2: no SAN
+ */
+static int _dns_client_verify_SAN(struct dns_server_info *server_info, X509 *cert)
 {
-	char *tls_host_verify = NULL;
 	GENERAL_NAMES *alt_names = NULL;
 	int i = 0;
+	int ret = -1;
+	char *tls_host_verify = NULL;
 
 	/* check tls host */
 	tls_host_verify = _dns_client_server_get_tls_host_verify(server_info);
@@ -734,14 +742,14 @@ static int _dns_client_verify_common_name(struct dns_server_info *server_info, X
 		return 0;
 	}
 
-	if (tls_host_verify) {
-		if (_dns_client_tls_matchName(tls_host_verify, peer_CN, strnlen(peer_CN, DNS_MAX_CNAME_LEN)) == 0) {
-			return 0;
-		}
-	}
-
 	alt_names = X509_get_ext_d2i(cert, NID_subject_alt_name, NULL, NULL);
 	if (alt_names == NULL) {
+		ret = -2;
+		goto errout;
+	}
+
+	if (sk_GENERAL_NAME_num(alt_names) == 0) {
+		ret = -2;
 		goto errout;
 	}
 
@@ -772,12 +780,51 @@ static int _dns_client_verify_common_name(struct dns_server_info *server_info, X
 		}
 	}
 
+	tlog(TLOG_WARN, "server %s SAN is invalid, expect SAN: %s", server_info->ip, tls_host_verify);
+	return -1;
 errout:
-	tlog(TLOG_WARN, "server %s CN is invalid, peer CN: %s, expect CN: %s", server_info->ip, peer_CN, tls_host_verify);
 	server_info->prohibit = 1;
 	if (alt_names) {
 		GENERAL_NAMES_free(alt_names);
 	}
+
+	return ret;
+}
+
+static int _dns_client_verify_common_name(struct dns_server_info *server_info, X509 *cert)
+{
+	char *tls_host_verify = NULL;
+	char peer_CN[256];
+
+	tls_host_verify = _dns_client_server_get_tls_host_verify(server_info);
+	if (tls_host_verify == NULL) {
+		return 0;
+	}
+
+	if (_dns_client_tls_get_cert_CN(cert, peer_CN, sizeof(peer_CN)) != 0) {
+		tlog(TLOG_ERROR, "get cert CN failed.");
+		goto errout;
+	}
+
+	tlog(TLOG_DEBUG, "peer CN: %s", peer_CN);
+
+	/* check tls host */
+	tls_host_verify = _dns_client_server_get_tls_host_verify(server_info);
+	if (tls_host_verify == NULL) {
+		return 0;
+	}
+
+	if (tls_host_verify) {
+		if (_dns_client_tls_matchName(tls_host_verify, peer_CN, strnlen(peer_CN, DNS_MAX_CNAME_LEN)) == 0) {
+			return 0;
+		}
+	}
+
+errout:
+
+	tlog(TLOG_WARN, "server %s CN is invalid, expect CN: %s, Peer CN: %s", server_info->ip, tls_host_verify, peer_CN);
+	server_info->prohibit = 1;
+
 	return -1;
 }
 
@@ -785,7 +832,7 @@ static int _dns_client_tls_verify(struct dns_server_info *server_info)
 {
 	X509 *cert = NULL;
 	X509_PUBKEY *pubkey = NULL;
-	char peer_CN[256];
+
 	char cert_fingerprint[256];
 	int i = 0;
 	int key_len = 0;
@@ -811,24 +858,26 @@ static int _dns_client_tls_verify(struct dns_server_info *server_info)
 		long res = SSL_get_verify_result(server_info->ssl);
 		if (res != X509_V_OK) {
 			pthread_mutex_unlock(&server_info->lock);
-			peer_CN[0] = '\0';
-			_dns_client_tls_get_cert_CN(cert, peer_CN, sizeof(peer_CN));
 			tlog(TLOG_WARN, "peer server %s certificate verify failed, %s", server_info->ip,
 				 X509_verify_cert_error_string(res));
-			tlog(TLOG_WARN, "peer CN: %s", peer_CN);
 			goto errout;
 		}
 	}
 	pthread_mutex_unlock(&server_info->lock);
 
-	if (_dns_client_tls_get_cert_CN(cert, peer_CN, sizeof(peer_CN)) != 0) {
-		tlog(TLOG_ERROR, "get cert CN failed.");
+	switch (_dns_client_verify_SAN(server_info, cert)) {
+	case 0:
+		break;
+	case -1:
+		/* verify SAN failed. */
 		goto errout;
-	}
-
-	tlog(TLOG_DEBUG, "peer CN: %s", peer_CN);
-
-	if (_dns_client_verify_common_name(server_info, cert, peer_CN) != 0) {
+	case -2:
+		if (_dns_client_verify_common_name(server_info, cert) != 0) {
+			goto errout;
+		}
+		break;
+	default:
+		tlog(TLOG_WARN, "server %s SAN is invalid", server_info->ip);
 		goto errout;
 	}
 

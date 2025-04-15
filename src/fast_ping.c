@@ -750,23 +750,26 @@ static int _fast_ping_sendping_v6(struct ping_host_struct *ping_host)
 				 ping_host->addr_len);
 	if (len != sizeof(struct fast_ping_packet)) {
 		int err = errno;
-		if (errno == ENETUNREACH || errno == EINVAL || errno == EADDRNOTAVAIL || errno == EHOSTUNREACH) {
+		switch (err) {
+		case ENETUNREACH:
+		case EINVAL:
+		case EADDRNOTAVAIL:
+		case EHOSTUNREACH:
+		case ENOBUFS:
+		case EACCES:
+		case EPERM:
+		case EAFNOSUPPORT:
 			goto errout;
+		default:
+			break;
 		}
 
 		if (is_private_addr_sockaddr(&ping_host->addr, ping_host->addr_len)) {
 			goto errout;
 		}
 
-		if (errno == EACCES || errno == EPERM) {
-			if (bool_print_log == 0) {
-				goto errout;
-			}
-			bool_print_log = 0;
-		}
-
 		char ping_host_name[PING_MAX_HOSTLEN];
-		tlog(TLOG_ERROR, "sendto %s, id %d, %s",
+		tlog(TLOG_WARN, "sendto %s, id %d, %s",
 			 get_host_by_addr(ping_host_name, sizeof(ping_host_name), (struct sockaddr *)&ping_host->addr),
 			 ping_host->sid, strerror(err));
 		goto errout;
