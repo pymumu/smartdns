@@ -207,7 +207,7 @@ int conf_size(const char *item, void *data, int argc, char *argv[])
 		return -1;
 	}
 
-	size = num * base;
+	size = (size_t)num * base;
 	if (size > item_size->max) {
 		size = item_size->max;
 	} else if (size < item_size->min) {
@@ -240,7 +240,7 @@ int conf_ssize(const char *item, void *data, int argc, char *argv[])
 	}
 
 	num = atoi(value);
-	size = num * base;
+	size = (ssize_t)num * base;
 	if (size > item_size->max) {
 		size = item_size->max;
 	} else if (size < item_size->min) {
