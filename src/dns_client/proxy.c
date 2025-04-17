@@ -22,7 +22,7 @@
 #include "smartdns/util.h"
 
 #include "proxy.h"
-#include "server_info.h"
+#include "client_socket.h"
 
 #include <sys/epoll.h>
 #include <sys/socket.h>

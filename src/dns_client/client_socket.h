@@ -35,6 +35,12 @@ int _dns_client_socket_recv(struct dns_server_info *server_info);
 
 int _dns_client_create_socket(struct dns_server_info *server_info);
 
+void _dns_client_close_socket(struct dns_server_info *server_info);
+
+void _dns_client_close_socket_ext(struct dns_server_info *server_info, int no_del_conn_list);
+
+void _dns_client_shutdown_socket(struct dns_server_info *server_info);
+
 #ifdef __cplusplus
 }
 #endif /*__cplusplus */

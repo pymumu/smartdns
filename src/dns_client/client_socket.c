@@ -24,7 +24,9 @@
 #include "client_tcp.h"
 #include "client_tls.h"
 #include "client_udp.h"
+#include "conn_stream.h"
 
+#include <openssl/ssl.h>
 #include <sys/epoll.h>
 
 int _dns_client_create_socket(struct dns_server_info *server_info)
@@ -71,6 +73,117 @@ int _dns_client_create_socket(struct dns_server_info *server_info)
 	}
 
 	return 0;
+}
+
+void _dns_client_close_socket_ext(struct dns_server_info *server_info, int no_del_conn_list)
+{
+	if (server_info->fd <= 0) {
+		return;
+	}
+
+	if (server_info->ssl) {
+		/* Shutdown ssl */
+		if (server_info->status == DNS_SERVER_STATUS_CONNECTED) {
+			_ssl_shutdown(server_info);
+		}
+
+		if (server_info->type == DNS_SERVER_QUIC || server_info->type == DNS_SERVER_HTTP3) {
+			struct dns_conn_stream *conn_stream = NULL;
+			struct dns_conn_stream *tmp = NULL;
+
+			pthread_mutex_lock(&server_info->lock);
+			list_for_each_entry_safe(conn_stream, tmp, &server_info->conn_stream_list, server_list)
+			{
+				if (conn_stream->quic_stream) {
+#ifdef OSSL_QUIC1_VERSION
+					SSL_stream_reset(conn_stream->quic_stream, NULL, 0);
+#endif
+					SSL_free(conn_stream->quic_stream);
+					conn_stream->quic_stream = NULL;
+				}
+
+				if (no_del_conn_list == 1) {
+					continue;
+				}
+
+				conn_stream->server_info = NULL;
+				list_del_init(&conn_stream->server_list);
+				_dns_client_conn_stream_put(conn_stream);
+			}
+
+			pthread_mutex_unlock(&server_info->lock);
+		}
+
+		SSL_free(server_info->ssl);
+		server_info->ssl = NULL;
+		server_info->ssl_write_len = -1;
+	}
+
+	if (server_info->bio_method) {
+		BIO_meth_free(server_info->bio_method);
+		server_info->bio_method = NULL;
+	}
+
+	/* remove fd from epoll */
+	if (server_info->fd > 0) {
+		epoll_ctl(client.epoll_fd, EPOLL_CTL_DEL, server_info->fd, NULL);
+	}
+
+	if (server_info->proxy) {
+		proxy_conn_free(server_info->proxy);
+		server_info->proxy = NULL;
+	} else {
+		close(server_info->fd);
+	}
+
+	server_info->fd = -1;
+	server_info->status = DNS_SERVER_STATUS_DISCONNECTED;
+	/* update send recv time */
+	time(&server_info->last_send);
+	time(&server_info->last_recv);
+	tlog(TLOG_DEBUG, "server %s:%d closed.", server_info->ip, server_info->port);
+}
+
+void _dns_client_close_socket(struct dns_server_info *server_info)
+{
+	_dns_client_close_socket_ext(server_info, 0);
+}
+
+void _dns_client_shutdown_socket(struct dns_server_info *server_info)
+{
+	if (server_info->fd <= 0) {
+		return;
+	}
+
+	switch (server_info->type) {
+	case DNS_SERVER_UDP:
+		server_info->status = DNS_SERVER_STATUS_CONNECTING;
+		atomic_set(&server_info->is_alive, 0);
+		return;
+		break;
+	case DNS_SERVER_TCP:
+		if (server_info->fd > 0) {
+			shutdown(server_info->fd, SHUT_RDWR);
+		}
+		break;
+	case DNS_SERVER_QUIC:
+	case DNS_SERVER_TLS:
+	case DNS_SERVER_HTTP3:
+	case DNS_SERVER_HTTPS:
+		if (server_info->ssl) {
+			/* Shutdown ssl */
+			if (server_info->status == DNS_SERVER_STATUS_CONNECTED) {
+				_ssl_shutdown(server_info);
+			}
+			shutdown(server_info->fd, SHUT_RDWR);
+		}
+		atomic_set(&server_info->is_alive, 0);
+		break;
+	case DNS_SERVER_MDNS:
+		break;
+	default:
+		break;
+	}
 }
 
 int _dns_client_socket_send(struct dns_server_info *server_info)

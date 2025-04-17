@@ -350,13 +350,24 @@ int _dns_client_send_packet(struct dns_query_struct *query, void *packet, int le
 			}
 
 			if (ret != 0) {
-				if (send_err == ENETUNREACH) {
+				switch (send_err) {
+				case EBADF:
+				case ECONNRESET:
+				case EDESTADDRREQ:
+				case EINVAL:
+				case EISCONN:
+				case ENOTCONN:
+				case ENOTSOCK:
+				case EOPNOTSUPP: {
 					tlog(TLOG_DEBUG, "send query to %s failed, %s, type: %d", server_info->ip, strerror(send_err),
 						 server_info->type);
 					_dns_client_close_socket(server_info);
 					atomic_dec(&query->dns_request_sent);
 					send_count--;
 					continue;
+				}
+				default:
+					break;
 				}
 
 				tlog(TLOG_DEBUG, "send query to %s failed, %s, type: %d", server_info->ip, strerror(send_err),

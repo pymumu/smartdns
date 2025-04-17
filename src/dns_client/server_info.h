@@ -35,12 +35,6 @@ const char *_dns_server_get_type_string(dns_server_type_t type);
 
 void _dns_client_server_remove_all(void);
 
-void _dns_client_shutdown_socket(struct dns_server_info *server_info);
-
-void _dns_client_close_socket(struct dns_server_info *server_info);
-
-void _dns_client_close_socket_ext(struct dns_server_info *server_info, int no_del_conn_list);
-
 struct dns_server_info *_dns_client_get_server(const char *server_ip, int port, dns_server_type_t server_type,
 											   const struct client_dns_server_flags *flags);
 
