@@ -8,12 +8,16 @@ hide:
 
 ![SmartDNS](assets/smartdns-banner.png)
 
-SmartDNS 是一个运行在本地的 DNS 服务器，它接受来自本地客户端的 DNS 查询请求，然后从多个上游 DNS 服务器获取 DNS 查询结果，并将访问速度最快的结果返回给客户端，以此提高网络访问速度。
-SmartDNS 同时支持指定特定域名 IP 地址，并高性匹配，可达到过滤广告的效果; 支持DOT(DNS over TLS)和DOH(DNS over HTTPS)，更好的保护隐私。
+SmartDNS 是一个运行在本地的 DNS 服务器，提供仪表界面，它接受来自本地客户端的 DNS 查询请求，然后从多个上游 DNS 服务器获取 DNS 查询结果，并将访问速度最快的结果返回给客户端，以此提高网络访问速度。
+SmartDNS 同时支持指定特定域名 IP 地址，并高性匹配，可达到过滤广告的效果; 支持DOT(DNS over TLS)、DOH(DNS over HTTPS)和 DOQ(DNS over Quic)，更好的保护隐私。
 
 与 DNSmasq 的 all-servers 不同，SmartDNS 返回的是访问速度最快的解析结果。
 
 支持树莓派、OpenWrt、华硕路由器原生固件和 Windows 系统等。  
+
+## 仪表盘
+
+![SmartDNS-WebUI](assets/smartdns-webui.png)
 
 ## 特性
 
@@ -30,7 +34,7 @@ SmartDNS 同时支持指定特定域名 IP 地址，并高性匹配，可达到�
    支持从域名所属 IP 地址列表中查找到访问速度最快的 IP 地址，并返回给客户端，提高网络访问速度。
 
 1. **支持多种查询协议**  
-   支持 UDP、TCP、DOT 和 DOH 查询及服务，以及非 53 端口查询；支持通过socks5，HTTP代理查询;
+   支持 UDP、TCP、DOT、DOH 和 DoQ 查询及服务，以及非 53 端口查询；支持通过socks5，HTTP代理查询;
 
 1. **特定域名 IP 地址指定**  
    支持指定域名的 IP 地址，达到广告过滤效果、避免恶意网站的效果。

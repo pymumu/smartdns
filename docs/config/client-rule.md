@@ -83,6 +83,7 @@ client-rules 192.168.1.2/24
     # 设置规则组使用的上游服务器
     server-https https://1.2.3.4 -e
     server-tls tls://1.2.3.4 -e
+    server-quic quic://1.2.3.4 -e
     # 禁止测速
     speed-check-mode none
     # 禁止IPV6和HTTPS记录

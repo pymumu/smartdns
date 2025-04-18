@@ -8,11 +8,15 @@ hide:
 
 ![SmartDNS](assets/smartdns-banner.png)  
 
-SmartDNS is a local DNS server. SmartDNS accepts DNS query requests from local clients, obtains DNS query results from multiple upstream DNS servers, and returns the fastest access results to clients. supports secure DNS protocols like DoT (DNS over TLS), DoH (DNS over HTTPS), better protect privacy, Avoiding DNS pollution and improving network access speed, supports high-performance ad filtering.
+SmartDNS is a local DNS server with dashboard. SmartDNS accepts DNS query requests from local clients, obtains DNS query results from multiple upstream DNS servers, and returns the fastest access results to clients. supports secure DNS protocols like DoT (DNS over TLS), DoH (DNS over HTTPS), better protect privacy, Avoiding DNS pollution and improving network access speed, supports high-performance ad filtering.
 
 Unlike dnsmasq's all-servers, smartdns returns the fastest ip.
 
 Support Raspberry Pi, openwrt, ASUS router, Windows and other devices.  
+
+## Dashbaord
+
+![SmartDNS-WebUI](assets/smartdns-webui.png)
 
 ## Features
 

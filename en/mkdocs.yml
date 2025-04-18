@@ -103,6 +103,7 @@ nav:
     - Forwarding with IPSet: 'config/forwarding-with-ipset.md'
     - Edns Client Subnet: 'config/edns-client-subnet.md'
     - Bootstrap DNS: 'config/bootstrap-dns.md'
+    - Fallback DNS: 'config/fallback-dns.md'
     - Resolve Local Hostname: 'config/resolv-dnsmasq-lease.md'
   - Configurations: 'configuration.md'
   - Compile: 'compile.md'

@@ -1,6 +1,7 @@
 site
 en/site
 src
+plugin
 test
 .vscode
 .DS_Store

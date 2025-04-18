@@ -83,6 +83,7 @@ Similar to parental control, smartdns can route specific hosts that require redi
     # Set the upstream servers for the rule group
     server-https https://1.2.3.4 -e
     server-tls tls://1.2.3.4 -e
+    server-quic quic://1.2.3.4 -e
     # Disable speed check
     speed-check-mode none
     # Disable IPV6 and HTTPS logging
