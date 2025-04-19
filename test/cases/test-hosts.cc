@@ -148,7 +148,7 @@ hosts-file /tmp/*.hosts
 	ASSERT_EQ(client.GetAnswerNum(), 0);
 	EXPECT_EQ(client.GetStatus(), "NXDOMAIN");
 	EXPECT_EQ(client.GetAuthority()[0].GetName(), "c.com");
-	EXPECT_EQ(client.GetAuthority()[0].GetTTL(), 60);
+	EXPECT_EQ(client.GetAuthority()[0].GetTTL(), 3);
 	EXPECT_EQ(client.GetAuthority()[0].GetType(), "SOA");
 
 	ASSERT_TRUE(client.Query("d.com A", 60053));
