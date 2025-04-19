@@ -80,6 +80,7 @@ nav:
     - Docker: 'install/docker.md'
   - 配置指导:
     - 基本配置: 'config/basic-config.md'
+    - 上游DNS服务器: 'config/upstream-dns.md'
     - 服务端配置: 'config/server-config.md'
     - 缓存设置: 'config/cache.md'
     - 屏蔽广告: 'config/ad-block.md'
