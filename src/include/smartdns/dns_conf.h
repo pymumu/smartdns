@@ -682,6 +682,7 @@ struct dns_config {
 
 	char bind_ca_file[DNS_MAX_PATH];
 	char bind_ca_key_file[DNS_MAX_PATH];
+	char bind_root_ca_key_file[DNS_MAX_PATH];
 	char bind_ca_key_pass[DNS_MAX_PATH];
 	char need_cert;
 	int tcp_idle_time;

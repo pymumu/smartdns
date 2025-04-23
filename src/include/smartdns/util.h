@@ -136,7 +136,9 @@ int SSL_base64_decode_ext(const char *in, unsigned char *out, int max_outlen, in
 
 int SSL_base64_encode(const void *in, int in_len, char *out);
 
-int generate_cert_key(const char *key_path, const char *cert_path, const char *san, int days);
+int generate_cert_key(const char *key_path, const char *cert_path, const char *root_key_path, const char *san, int days);
+
+int generate_cert_san(char *san, int max_san_len);
 
 int create_pid_file(const char *pid_file);
 

@@ -379,6 +379,7 @@ static int _smartdns_create_cert(void)
 {
 	uid_t uid = 0;
 	gid_t gid = 0;
+	char san[PATH_MAX] = {0};
 
 	if (dns_conf.need_cert == 0) {
 		return 0;
@@ -390,11 +391,18 @@ static int _smartdns_create_cert(void)
 
 	conf_get_conf_fullpath("smartdns-cert.pem", dns_conf.bind_ca_file, sizeof(dns_conf.bind_ca_file));
 	conf_get_conf_fullpath("smartdns-key.pem", dns_conf.bind_ca_key_file, sizeof(dns_conf.bind_ca_key_file));
+	conf_get_conf_fullpath("smartdns-root-key.pem", dns_conf.bind_root_ca_key_file, sizeof(dns_conf.bind_root_ca_key_file));
 	if (access(dns_conf.bind_ca_file, F_OK) == 0 && access(dns_conf.bind_ca_key_file, F_OK) == 0) {
 		return 0;
 	}
 
-	if (generate_cert_key(dns_conf.bind_ca_key_file, dns_conf.bind_ca_file, NULL, 365 * 3) != 0) {
+	if (generate_cert_san(san, sizeof(san)) != 0) {
+		tlog(TLOG_WARN, "generate cert san failed.");
+		return -1;
+	}
+
+	if (generate_cert_key(dns_conf.bind_ca_key_file, dns_conf.bind_ca_file, dns_conf.bind_root_ca_key_file, san,
+						  365 * 10) != 0) {
 		tlog(TLOG_WARN, "Generate default ssl cert and key file failed. %s", strerror(errno));
 		return -1;
 	}

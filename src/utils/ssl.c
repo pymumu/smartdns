@@ -16,149 +16,469 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "smartdns/dns_conf.h"
+#include "smartdns/tlog.h"
 #include "smartdns/util.h"
 
+#include <ifaddrs.h>
+#include <linux/limits.h>
 #include <openssl/crypto.h>
 #include <openssl/ssl.h>
 #include <openssl/x509v3.h>
 #include <pthread.h>
 #include <sys/stat.h>
 
-int generate_cert_key(const char *key_path, const char *cert_path, const char *san, int days)
-{
-	int ret = -1;
-#if (OPENSSL_VERSION_NUMBER <= 0x30000000L)
-	RSA *rsa = NULL;
-	BIGNUM *bn = NULL;
-#endif
-	X509_EXTENSION *cert_ext = NULL;
-	BIO *cert_file = NULL;
-	BIO *key_file = NULL;
-	X509 *cert = NULL;
-	EVP_PKEY *pkey = NULL;
-	const int RSA_KEY_LENGTH = 2048;
+#define DNS_MAX_HOSTNAME_LEN 256
 
-	if (key_path == NULL || cert_path == NULL) {
-		return ret;
+struct DNS_EVP_PKEY_CTX {
+	EVP_PKEY *pkey;
+#if (OPENSSL_VERSION_NUMBER < 0x30000000L)
+	RSA *rsa;
+	BIGNUM *bn;
+#endif
+};
+
+int generate_cert_san(char *san, int max_san_len)
+{
+	char hostname[DNS_MAX_HOSTNAME_LEN];
+	char domainname[DNS_MAX_HOSTNAME_LEN];
+	int san_len = 0;
+	struct ifaddrs *ifaddr = NULL;
+	struct ifaddrs *ifa = NULL;
+	uint8_t addr[16] = {0};
+	int addr_len = 0;
+
+	hostname[0] = '\0';
+	domainname[0] = '\0';
+
+	if (san == NULL || max_san_len <= 0) {
+		return -1;
 	}
 
-	key_file = BIO_new_file(key_path, "wb");
-	cert_file = BIO_new_file(cert_path, "wb");
+	int len = snprintf(san, max_san_len - san_len, "DNS:%s", "smartdns");
+	if (len < 0 || len >= max_san_len - san_len) {
+		return -1;
+	}
+	san_len += len;
+
+	len = snprintf(san + san_len, max_san_len - san_len, ",DNS:%s", "localhost");
+	if (len < 0 || len >= max_san_len - san_len) {
+		return -1;
+	}
+	san_len += len;
+
+	/* get local domain name */
+	if (getdomainname(domainname, DNS_MAX_HOSTNAME_LEN - 1) == 0) {
+		/* check domain is valid */
+		if (strncmp(domainname, "(none)", DNS_MAX_HOSTNAME_LEN - 1) == 0) {
+			domainname[0] = '\0';
+		}
+
+		if (domainname[0] != '\0') {
+			len = snprintf(san + san_len, max_san_len - san_len, ",DNS:%s", domainname);
+			if (len < 0 || len >= max_san_len - san_len) {
+				return -1;
+			}
+			san_len += len;
+		}
+	}
+
+	if (gethostname(hostname, DNS_MAX_HOSTNAME_LEN - 1) == 0) {
+		/* check hostname is valid */
+		if (strncmp(hostname, "(none)", DNS_MAX_HOSTNAME_LEN - 1) == 0) {
+			hostname[0] = '\0';
+		}
+
+		if (hostname[0] != '\0') {
+			len = snprintf(san + san_len, max_san_len - san_len, ",DNS:%s", hostname);
+			if (len < 0 || len >= max_san_len - san_len) {
+				return -1;
+			}
+			san_len += len;
+		}
+	}
+
+	if (dns_conf.server_name[0] != '\0' &&
+		strncmp(dns_conf.server_name, "smartdns", DNS_MAX_SERVER_NAME_LEN - 1) != 0) {
+		len = snprintf(san + san_len, max_san_len - san_len, ",DNS:%s", dns_conf.server_name);
+		if (len < 0 || len >= max_san_len - san_len) {
+			return -1;
+		}
+		san_len += len;
+	}
+
+	if (getifaddrs(&ifaddr) == -1) {
+		return -1;
+	}
+
+	for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
+		if (ifa->ifa_addr == NULL) {
+			continue;
+		}
+
+		switch (ifa->ifa_addr->sa_family) {
+		case AF_INET: {
+			struct sockaddr_in *addr_in = NULL;
+			addr_in = (struct sockaddr_in *)ifa->ifa_addr;
+			memcpy(addr, &(addr_in->sin_addr.s_addr), 4);
+			addr_len = 4;
+		} break;
+		case AF_INET6: {
+			struct sockaddr_in6 *addr_in6 = NULL;
+			addr_in6 = (struct sockaddr_in6 *)ifa->ifa_addr;
+			if (IN6_IS_ADDR_V4MAPPED(&addr_in6->sin6_addr)) {
+				memcpy(addr, &(addr_in6->sin6_addr.s6_addr[12]), 4);
+				addr_len = 4;
+			} else {
+				memcpy(addr, addr_in6->sin6_addr.s6_addr, 16);
+				addr_len = 16;
+				// TODO
+				// SKIP local IPV6;
+				continue;
+			}
+		} break;
+		default:
+			continue;
+			break;
+		}
+
+		if (is_private_addr(addr, addr_len) == 0) {
+			continue;
+		}
+
+		if (addr_len == 4) {
+			len = snprintf(san + san_len, max_san_len - san_len, ",IP:%d.%d.%d.%d", addr[0], addr[1], addr[2], addr[3]);
+		} else if (addr_len == 16) {
+			len = snprintf(san + san_len, max_san_len - san_len, ",IP:%x:%x:%x:%x:%x:%x:%x:%x",
+						   ntohs(((struct sockaddr_in6 *)ifa->ifa_addr)->sin6_addr.s6_addr[0]),
+						   ntohs(((struct sockaddr_in6 *)ifa->ifa_addr)->sin6_addr.s6_addr[1]),
+						   ntohs(((struct sockaddr_in6 *)ifa->ifa_addr)->sin6_addr.s6_addr[2]),
+						   ntohs(((struct sockaddr_in6 *)ifa->ifa_addr)->sin6_addr.s6_addr[3]),
+						   ntohs(((struct sockaddr_in6 *)ifa->ifa_addr)->sin6_addr.s6_addr[4]),
+						   ntohs(((struct sockaddr_in6 *)ifa->ifa_addr)->sin6_addr.s6_addr[5]),
+						   ntohs(((struct sockaddr_in6 *)ifa->ifa_addr)->sin6_addr.s6_addr[6]),
+						   ntohs(((struct sockaddr_in6 *)ifa->ifa_addr)->sin6_addr.s6_addr[7]));
+		} else {
+			continue;
+		}
+		if (len < 0 || len >= max_san_len - san_len) {
+			goto errout;
+		}
+		san_len += len;
+	}
+
+	freeifaddrs(ifaddr);
+	return 0;
+
+errout:
+	if (ifaddr) {
+		freeifaddrs(ifaddr);
+	}
+	return -1;
+}
+
+static void _free_key(struct DNS_EVP_PKEY_CTX *ctx)
+{
+	if (ctx) {
+		if (ctx->pkey) {
+			EVP_PKEY_free(ctx->pkey);
+		}
+#if (OPENSSL_VERSION_NUMBER < 0x30000000L)
+		if (ctx->rsa) {
+			RSA_free(ctx->rsa);
+		}
+		if (ctx->bn) {
+			BN_free(ctx->bn);
+		}
+		free(ctx);
+#endif
+	}
+}
+
+static struct DNS_EVP_PKEY_CTX *_read_key_from_file(const char *key_path)
+{
+	struct DNS_EVP_PKEY_CTX *ctx = NULL;
+	EVP_PKEY *pkey = NULL;
+	BIO *key_file = NULL;
+
+	ctx = malloc(sizeof(struct DNS_EVP_PKEY_CTX));
+	if (ctx == NULL) {
+		return NULL;
+	}
+	memset(ctx, 0, sizeof(struct DNS_EVP_PKEY_CTX));
+
+	key_file = BIO_new_file(key_path, "rb");
+	if (key_file == NULL) {
+		tlog(TLOG_ERROR, "read root key file %s failed.", key_path);
+		goto errout;
+	}
+
+	pkey = PEM_read_bio_PrivateKey(key_file, NULL, NULL, NULL);
+	if (pkey == NULL) {
+		tlog(TLOG_ERROR, "read root key data failed.");
+		goto errout;
+	}
+
+	BIO_free(key_file);
+	ctx->pkey = pkey;
+	return ctx;
+errout:
+	if (key_file) {
+		BIO_free(key_file);
+	}
+	if (ctx) {
+		_free_key(ctx);
+	}
+	return NULL;
+}
+
+static struct DNS_EVP_PKEY_CTX *_generate_key(void)
+{
+	struct DNS_EVP_PKEY_CTX *ctx = NULL;
+	ctx = malloc(sizeof(struct DNS_EVP_PKEY_CTX));
+	if (ctx == NULL) {
+		return NULL;
+	}
+	memset(ctx, 0, sizeof(struct DNS_EVP_PKEY_CTX));
+
+	const int RSA_KEY_LENGTH = 2048;
+#if (OPENSSL_VERSION_NUMBER >= 0x30000000L)
+	ctx->pkey = EVP_RSA_gen(RSA_KEY_LENGTH);
+#else
+	ctx->pkey = EVP_PKEY_new();
+	ctx->rsa = RSA_new();
+	ctx->bn = BN_new();
+
+	BN_set_word(ctx->bn, RSA_F4);
+	RSA_generate_key_ex(ctx->rsa, RSA_KEY_LENGTH, ctx->bn, NULL);
+	EVP_PKEY_assign_RSA(ctx->pkey, ctx->rsa);
+#endif
+	return ctx;
+}
+
+static X509 *_generate_smartdns_cert(EVP_PKEY *pkey, X509 *issuer_cert, EVP_PKEY *issuer_key, const char *san, int days)
+{
+	X509 *cert = NULL;
+	X509_EXTENSION *cert_ext = NULL;
+	int is_ca = 0;
+
+	if (pkey == NULL) {
+		goto errout;
+	}
+
 	cert = X509_new();
 	if (cert == NULL) {
-		goto out;
+		goto errout;
+	}
+
+	if (issuer_cert == NULL || issuer_key == NULL) {
+		is_ca = 1;
 	}
 
 	X509_set_version(cert, 2);
-
-#if (OPENSSL_VERSION_NUMBER >= 0x30000000L)
-	pkey = EVP_RSA_gen(RSA_KEY_LENGTH);
-#else
-	bn = BN_new();
-	rsa = RSA_new();
-	pkey = EVP_PKEY_new();
-	if (rsa == NULL || pkey == NULL || bn == NULL) {
-		goto out;
-	}
-
-	EVP_PKEY_assign(pkey, EVP_PKEY_RSA, rsa);
-	BN_set_word(bn, RSA_F4);
-	if (RSA_generate_key_ex(rsa, RSA_KEY_LENGTH, bn, NULL) != 1) {
-		goto out;
-	}
-#endif
-
-	if (key_file == NULL || cert_file == NULL || cert == NULL || pkey == NULL) {
-		goto out;
-	}
-
-	ASN1_INTEGER_set(X509_get_serialNumber(cert), 1);           // serial number
-	X509_gmtime_adj(X509_get_notBefore(cert), 0);               // now
-	X509_gmtime_adj(X509_get_notAfter(cert), days * 24 * 3600); // accepts secs
+	ASN1_INTEGER_set(X509_get_serialNumber(cert), rand());
+	X509_gmtime_adj(X509_get_notBefore(cert), 0);
+	X509_gmtime_adj(X509_get_notAfter(cert), days * 24 * 3600);
 
 	X509_set_pubkey(cert, pkey);
 
 	X509_NAME *name = X509_get_subject_name(cert);
+	X509_NAME *issuer_name = name;
 
 	const unsigned char *country = (unsigned char *)"smartdns";
 	const unsigned char *company = (unsigned char *)"smartdns";
-	const unsigned char *common_name = (unsigned char *)"smartdns";
+	const unsigned char *common_name = (unsigned char *)(is_ca ? "SmartDNS Root" : "smartdns");
+	const char *BASIC_CONSTRAINTS = is_ca ? "CA:TRUE" : "CA:FALSE";
+	const char *KEY_USAGE = is_ca ? "keyCertSign,cRLSign" : "digitalSignature,keyEncipherment";
+	const char *EXT_KEY_USAGE = is_ca ? NULL : "serverAuth";
 
 	X509_NAME_add_entry_by_txt(name, "C", MBSTRING_ASC, country, -1, -1, 0);
-	X509_NAME_add_entry_by_txt(name, "O", MBSTRING_ASC, company, -1, -1, 0);
 	X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC, common_name, -1, -1, 0);
+	if (is_ca) {
+		X509_NAME_add_entry_by_txt(name, "O", MBSTRING_ASC, company, -1, -1, 0);
+	} else {
+		X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC, common_name, -1, -1, 0);
+		issuer_name = X509_get_subject_name(issuer_cert);
+	}
+	X509_set_subject_name(cert, name);
+	X509_set_issuer_name(cert, issuer_name);
 
 	if (san != NULL) {
 		cert_ext = X509V3_EXT_conf_nid(NULL, NULL, NID_subject_alt_name, san);
 		if (cert_ext == NULL) {
-			goto out;
+			goto errout;
 		}
-		ret = X509_add_ext(cert, cert_ext, -1);
+		X509_add_ext(cert, cert_ext, -1);
+		X509_EXTENSION_free(cert_ext);
 	}
 
-	X509_set_issuer_name(cert, name);
-
 	// Add X509v3 extensions
-	cert_ext = X509V3_EXT_conf_nid(NULL, NULL, NID_basic_constraints, "CA:FALSE");
-	ret = X509_add_ext(cert, cert_ext, -1);
-	X509_EXTENSION_free(cert_ext);
-
-	cert_ext = X509V3_EXT_conf_nid(NULL, NULL, NID_key_usage, "digitalSignature,keyEncipherment");
+	cert_ext = X509V3_EXT_conf_nid(NULL, NULL, NID_basic_constraints, BASIC_CONSTRAINTS);
 	X509_add_ext(cert, cert_ext, -1);
 	X509_EXTENSION_free(cert_ext);
+
+	cert_ext = X509V3_EXT_conf_nid(NULL, NULL, NID_key_usage, KEY_USAGE);
+	X509_add_ext(cert, cert_ext, -1);
+	X509_EXTENSION_free(cert_ext);
+
+	if (EXT_KEY_USAGE != NULL) {
+		cert_ext = X509V3_EXT_conf_nid(NULL, NULL, NID_ext_key_usage, EXT_KEY_USAGE);
+		X509_add_ext(cert, cert_ext, -1);
+		X509_EXTENSION_free(cert_ext);
+	}
 
 	cert_ext = X509V3_EXT_conf_nid(NULL, NULL, NID_subject_key_identifier, "hash");
 	X509_add_ext(cert, cert_ext, -1);
 	X509_EXTENSION_free(cert_ext);
 
-	X509_sign(cert, pkey, EVP_sha256());
+	X509_sign(cert, is_ca ? pkey : issuer_key, EVP_sha256());
+	return cert;
 
-	ret = PEM_write_bio_PrivateKey(key_file, pkey, NULL, NULL, 0, NULL, NULL);
-	if (ret != 1) {
-		goto out;
+errout:
+	if (cert) {
+		X509_free(cert);
 	}
 
-	ret = PEM_write_bio_X509(cert_file, cert);
-	if (ret != 1) {
-		goto out;
+	return NULL;
+}
+
+int generate_cert_key(const char *key_path, const char *cert_path, const char *root_key_path, const char *san, int days)
+{
+	char root_key_path_buff[PATH_MAX * 2] = {0};
+	char server_key_path[PATH_MAX] = {0};
+	BIO *server_key_file = NULL;
+	BIO *server_cert_file = NULL;
+	BIO *root_key_file = NULL;
+	int create_root_key = 0;
+	X509 *ca_cert = NULL;
+	X509 *server_cert = NULL;
+	struct DNS_EVP_PKEY_CTX *server_key_ctx = NULL;
+	struct DNS_EVP_PKEY_CTX *ca_key_ctx = NULL;
+
+	if (key_path == NULL || cert_path == NULL) {
+		return -1;
+	}
+
+	if (root_key_path == NULL || root_key_path[0] == '\0') {
+		safe_strncpy(server_key_path, key_path, sizeof(server_key_path));
+		if (dir_name(server_key_path) == NULL) {
+			tlog(TLOG_ERROR, "get server key path failed.");
+			return -1;
+		}
+
+		snprintf(root_key_path_buff, sizeof(root_key_path_buff), "%s/root-ca.key", server_key_path);
+		root_key_path = root_key_path_buff;
+	}
+
+	if (access(root_key_path, F_OK) == 0) {
+		ca_key_ctx = _read_key_from_file(root_key_path);
+		if (ca_key_ctx == NULL) {
+			tlog(TLOG_ERROR, "read root ca key failed.");
+			goto errout;
+		}
+		create_root_key = 1;
+	} else {
+		ca_key_ctx = _generate_key();
+		create_root_key = 0;
+	}
+
+	if (ca_key_ctx == NULL) {
+		tlog(TLOG_ERROR, "generate root ca key failed.");
+		goto errout;
+	}
+
+	ca_cert = _generate_smartdns_cert(ca_key_ctx->pkey, NULL, NULL, NULL, days + 1);
+	if (ca_cert == NULL) {
+		tlog(TLOG_ERROR, "generate root ca cert failed.");
+		goto errout;
+	}
+
+	server_key_ctx = _generate_key();
+	if (server_key_ctx == NULL) {
+		tlog(TLOG_ERROR, "generate server key failed.");
+		goto errout;
+	}
+	server_cert = _generate_smartdns_cert(server_key_ctx->pkey, ca_cert, ca_key_ctx->pkey, san, days);
+	if (server_cert == NULL) {
+		tlog(TLOG_ERROR, "generate server cert failed.");
+		goto errout;
+	}
+
+	server_key_file = BIO_new_file(key_path, "wb");
+	server_cert_file = BIO_new_file(cert_path, "wb");
+	if (server_key_file == NULL || server_cert_file == NULL) {
+		tlog(TLOG_ERROR, "create key/cert file failed.");
+		return -1;
+	}
+
+	if (PEM_write_bio_PrivateKey(server_key_file, server_key_ctx->pkey, NULL, NULL, 0, NULL, NULL) != 1) {
+		return -1;
+	}
+
+	if (PEM_write_bio_X509(server_cert_file, server_cert) != 1) {
+		return -1;
+	}
+
+	if (PEM_write_bio_X509(server_cert_file, ca_cert) != 1) {
+		return -1;
+	}
+
+	if (create_root_key == 0) {
+		root_key_file = BIO_new_file(root_key_path, "wb");
+		if (root_key_file == NULL) {
+			tlog(TLOG_ERROR, "create root ca key file failed.");
+			goto errout;
+		}
+
+		if (PEM_write_bio_PrivateKey(root_key_file, ca_key_ctx->pkey, NULL, NULL, 0, NULL, NULL) != 1) {
+			goto errout;
+		}
+		BIO_free_all(root_key_file);
+		chmod(root_key_path, S_IRUSR);
 	}
 
 	chmod(key_path, S_IRUSR);
 	chmod(cert_path, S_IRUSR);
 
-	ret = 0;
-out:
-	if (cert_ext) {
-		X509_EXTENSION_free(cert_ext);
+	BIO_free_all(server_key_file);
+	BIO_free_all(server_cert_file);
+
+	X509_free(ca_cert);
+	X509_free(server_cert);
+	_free_key(ca_key_ctx);
+	_free_key(server_key_ctx);
+	return 0;
+
+errout:
+	if (server_key_file) {
+		BIO_free_all(server_key_file);
 	}
 
-	if (pkey) {
-		EVP_PKEY_free(pkey);
+	if (server_cert_file) {
+		BIO_free_all(server_cert_file);
 	}
 
-#if (OPENSSL_VERSION_NUMBER <= 0x30000000L)
-	if (rsa && pkey == NULL) {
-		RSA_free(rsa);
+	if (root_key_file) {
+		BIO_free_all(root_key_file);
 	}
 
-	if (bn) {
-		BN_free(bn);
-	}
-#endif
-
-	if (cert_file) {
-		BIO_free_all(cert_file);
+	if (ca_cert) {
+		X509_free(ca_cert);
 	}
 
-	if (key_file) {
-		BIO_free_all(key_file);
+	if (server_cert) {
+		X509_free(server_cert);
 	}
 
-	if (cert) {
-		X509_free(cert);
+	if (ca_key_ctx) {
+		_free_key(ca_key_ctx);
 	}
 
-	return ret;
+	if (server_key_ctx) {
+		_free_key(server_key_ctx);
+	}
+
+	return -1;
 }
 
 #if OPENSSL_API_COMPAT < 0x10100000
