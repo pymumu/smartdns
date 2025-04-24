@@ -493,7 +493,7 @@ fn test_rest_api_get_client() {
     let res = client.login("admin", "password");
     assert!(res.is_ok());
 
-    let c = client.get("/api/client");
+    let c = client.get("/api/client?page_size=4096");
     assert!(c.is_ok());
     let (code, body) = c.unwrap();
     assert_eq!(code, 200);
