@@ -140,6 +140,8 @@ int generate_cert_key(const char *key_path, const char *cert_path, const char *r
 
 int generate_cert_san(char *san, int max_san_len);
 
+int is_cert_valid(const char *cert_file_path);
+
 int create_pid_file(const char *pid_file);
 
 int full_path(char *normalized_path, int normalized_path_len, const char *path);

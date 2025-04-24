@@ -380,6 +380,8 @@ static int _smartdns_create_cert(void)
 	uid_t uid = 0;
 	gid_t gid = 0;
 	char san[PATH_MAX] = {0};
+	/* 13 month */
+	int validity_days = 13 * 30;
 
 	if (dns_conf.need_cert == 0) {
 		return 0;
@@ -391,9 +393,21 @@ static int _smartdns_create_cert(void)
 
 	conf_get_conf_fullpath("smartdns-cert.pem", dns_conf.bind_ca_file, sizeof(dns_conf.bind_ca_file));
 	conf_get_conf_fullpath("smartdns-key.pem", dns_conf.bind_ca_key_file, sizeof(dns_conf.bind_ca_key_file));
-	conf_get_conf_fullpath("smartdns-root-key.pem", dns_conf.bind_root_ca_key_file, sizeof(dns_conf.bind_root_ca_key_file));
+	conf_get_conf_fullpath("smartdns-root-key.pem", dns_conf.bind_root_ca_key_file,
+						   sizeof(dns_conf.bind_root_ca_key_file));
 	if (access(dns_conf.bind_ca_file, F_OK) == 0 && access(dns_conf.bind_ca_key_file, F_OK) == 0) {
-		return 0;
+		if (is_cert_valid(dns_conf.bind_ca_file)) {
+			return 0;
+		}
+
+		if (access(dns_conf.bind_root_ca_key_file, R_OK) != 0) {
+			tlog(TLOG_WARN, "root ca key file %s is not found, can not regenerate cert file.",
+				 dns_conf.bind_root_ca_key_file);
+			return 0;
+		}
+		unlink(dns_conf.bind_ca_file);
+		unlink(dns_conf.bind_ca_key_file);
+		tlog(TLOG_WARN, "regenerate cert with root ca key %s", dns_conf.bind_root_ca_key_file);
 	}
 
 	if (generate_cert_san(san, sizeof(san)) != 0) {
@@ -401,8 +415,12 @@ static int _smartdns_create_cert(void)
 		return -1;
 	}
 
+	if (dns_conf.bind_ca_validity_days > 0) {
+		validity_days = dns_conf.bind_ca_validity_days;
+	}
+
 	if (generate_cert_key(dns_conf.bind_ca_key_file, dns_conf.bind_ca_file, dns_conf.bind_root_ca_key_file, san,
-						  365 * 10) != 0) {
+						  validity_days) != 0) {
 		tlog(TLOG_WARN, "Generate default ssl cert and key file failed. %s", strerror(errno));
 		return -1;
 	}

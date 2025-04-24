@@ -38,6 +38,62 @@ struct DNS_EVP_PKEY_CTX {
 #endif
 };
 
+int is_cert_valid(const char *cert_file_path)
+{
+	struct stat st;
+	BIO *cert_file = NULL;
+	X509 *cert = NULL;
+	int ret = 0;
+
+	if (stat(cert_file_path, &st) != 0) {
+		return 0;
+	}
+
+	if (st.st_size <= 0) {
+		return 0;
+	}
+
+	cert_file = BIO_new_file(cert_file_path, "r");
+	if (cert_file == NULL) {
+		return 0;
+	}
+
+	cert = PEM_read_bio_X509_AUX(cert_file, NULL, NULL, NULL);
+	if (cert == NULL) {
+		goto out;
+	}
+
+	if (X509_get_notAfter(cert) == NULL) {
+		goto out;
+	}
+
+	if (X509_get_notBefore(cert) == NULL) {
+		goto out;
+	}
+
+	if (X509_cmp_current_time(X509_get_notAfter(cert)) < 0) {
+		tlog(TLOG_WARN, "cert %s expired", cert_file_path);
+		goto out;
+	}
+
+	if (X509_cmp_current_time(X509_get_notBefore(cert)) > 0) {
+		tlog(TLOG_WARN, "cert %s not valid yet", cert_file_path);
+		goto out;
+	}
+
+	ret = 1;
+out:
+	if (cert) {
+		X509_free(cert);
+	}
+
+	if (cert_file) {
+		BIO_free(cert_file);
+	}
+
+	return ret;
+}
+
 int generate_cert_san(char *san, int max_san_len)
 {
 	char hostname[DNS_MAX_HOSTNAME_LEN];
@@ -290,14 +346,13 @@ static X509 *_generate_smartdns_cert(EVP_PKEY *pkey, X509 *issuer_cert, EVP_PKEY
 	const unsigned char *common_name = (unsigned char *)(is_ca ? "SmartDNS Root" : "smartdns");
 	const char *BASIC_CONSTRAINTS = is_ca ? "CA:TRUE" : "CA:FALSE";
 	const char *KEY_USAGE = is_ca ? "keyCertSign,cRLSign" : "digitalSignature,keyEncipherment";
-	const char *EXT_KEY_USAGE = is_ca ? NULL : "serverAuth";
+	const char *EXT_KEY_USAGE = is_ca ? "clientAuth,serverAuth,codeSigning,timeStamping" : "serverAuth";
 
 	X509_NAME_add_entry_by_txt(name, "C", MBSTRING_ASC, country, -1, -1, 0);
 	X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC, common_name, -1, -1, 0);
 	if (is_ca) {
 		X509_NAME_add_entry_by_txt(name, "O", MBSTRING_ASC, company, -1, -1, 0);
 	} else {
-		X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC, common_name, -1, -1, 0);
 		issuer_name = X509_get_subject_name(issuer_cert);
 	}
 	X509_set_subject_name(cert, name);
@@ -387,7 +442,7 @@ int generate_cert_key(const char *key_path, const char *cert_path, const char *r
 		goto errout;
 	}
 
-	ca_cert = _generate_smartdns_cert(ca_key_ctx->pkey, NULL, NULL, NULL, days + 1);
+	ca_cert = _generate_smartdns_cert(ca_key_ctx->pkey, NULL, NULL, NULL, 365 * 10);
 	if (ca_cert == NULL) {
 		tlog(TLOG_ERROR, "generate root ca cert failed.");
 		goto errout;

@@ -128,6 +128,7 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("bind-tls", _config_bind_ip_tls, NULL),
 	CONF_CUSTOM("bind-https", _config_bind_ip_https, NULL),
 	CONF_CUSTOM("bind-cert-root-key-file", _config_option_parser_filepath, &dns_conf.bind_root_ca_key_file),
+	CONF_INT("bind-cert-validity-days", &dns_conf.bind_ca_validity_days, 0, 9999),
 	CONF_CUSTOM("bind-cert-file", _config_option_parser_filepath, &dns_conf.bind_ca_file),
 	CONF_CUSTOM("bind-cert-key-file", _config_option_parser_filepath, &dns_conf.bind_ca_key_file),
 	CONF_STRING("bind-cert-key-pass", dns_conf.bind_ca_key_pass, DNS_MAX_PATH),
