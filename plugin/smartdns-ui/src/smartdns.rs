@@ -273,7 +273,7 @@ pub fn smartdns_conf_get_conf_fullpath(path: &str) -> String {
         smartdns_c::conf_get_conf_fullpath(
             path.as_ptr(),
             buffer.as_mut_ptr() as *mut c_char,
-            buffer.len() as usize,
+            buffer.len().try_into().unwrap(),
         );
         let conf_fullpath = std::ffi::CStr::from_ptr(buffer.as_ptr() as *const c_char)
             .to_string_lossy()
