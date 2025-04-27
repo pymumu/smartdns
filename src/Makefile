@@ -69,6 +69,12 @@ ifeq ($(STATIC), yes)
 STATIC = 1
 endif
 
+USE_ATOMIC := $(shell echo '$(HASH)include <stdint.h>\nvoid main() { uint64_t value=0;__sync_add_and_fetch(&value, 1);;}' | $(CC) -x c - -o /dev/null >/dev/null 2>&1 && echo 1 || echo 0)
+ifeq ($(USE_ATOMIC), 0)
+ override CFLAGS += -DUSE_ATOMIC
+ override LDFLAGS += -latomic 
+endif
+
 ifdef STATIC
  override CFLAGS += -DBUILD_STATIC
  override LDFLAGS += -lssl -lcrypto -Wl,--whole-archive -lpthread -Wl,--no-whole-archive -ldl -lm -static -rdynamic

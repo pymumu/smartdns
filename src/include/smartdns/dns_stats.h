@@ -65,7 +65,11 @@ static inline uint64_t stats_read(const uint64_t *s)
 
 static inline uint64_t stats_read_and_set(uint64_t *s, uint64_t v)
 {
+#ifdef USE_ATOMIC
+	return __atomic_test_and_set(s, v);
+#else
 	return __sync_lock_test_and_set(s, v);
+#endif
 }
 
 static inline void stats_set(uint64_t *s, uint64_t v)
@@ -75,22 +79,38 @@ static inline void stats_set(uint64_t *s, uint64_t v)
 
 static inline void stats_add(uint64_t *s, uint64_t v)
 {
+#ifdef USE_ATOMIC
+	(void)__atomic_add_fetch(s, v, __ATOMIC_SEQ_CST);
+#else
 	(void)__sync_add_and_fetch(s, v);
+#endif
 }
 
 static inline void stats_inc(uint64_t *s)
 {
+#ifdef USE_ATOMIC
+	(void)__atomic_add_fetch(s, 1, __ATOMIC_SEQ_CST);
+#else
 	(void)__sync_add_and_fetch(s, 1);
+#endif
 }
 
 static inline void stats_sub(uint64_t *s, uint64_t v)
 {
+#ifdef USE_ATOMIC
+	(void)__atomic_sub_fetch(s, v, __ATOMIC_SEQ_CST);
+#else
 	(void)__sync_sub_and_fetch(s, v);
+#endif
 }
 
 static inline void stats_dec(uint64_t *s)
 {
+#ifdef USE_ATOMIC
+	(void)__atomic_sub_fetch(s, 1, __ATOMIC_SEQ_CST);
+#else
 	(void)__sync_sub_and_fetch(s, 1);
+#endif
 }
 
 void dns_stats_avg_time_update(struct dns_stats_avg_time *avg_time);
