@@ -35,7 +35,7 @@ ifndef CFLAGS
 endif
 
 HASH := \#
-HAS_UNWIND := $(shell echo '$(HASH)include <unwind.h>\nvoid main() { _Unwind_Backtrace(0, 0);}' | $(CC) -x c - -o /dev/null >/dev/null 2>&1 && echo 1 || echo 0)
+HAS_UNWIND := $(shell printf '$(HASH)include <unwind.h>\nvoid main() { _Unwind_Backtrace(0, 0);}' | $(CC) -x c - -o /dev/null >/dev/null 2>&1 && echo -n 1 || echo -n 0)
 ifeq ($(HAS_UNWIND), 1)
 override CFLAGS += -DHAVE_UNWIND_BACKTRACE
 endif
@@ -69,18 +69,19 @@ ifeq ($(STATIC), yes)
 STATIC = 1
 endif
 
-USE_ATOMIC := $(shell echo '$(HASH)include <stdint.h>\nvoid main() { uint64_t value=0;__sync_add_and_fetch(&value, 1);;}' | $(CC) -x c - -o /dev/null >/dev/null 2>&1 && echo 1 || echo 0)
-ifeq ($(USE_ATOMIC), 0)
- override CFLAGS += -DUSE_ATOMIC
- override LDFLAGS += -latomic 
-endif
-
 ifdef STATIC
  override CFLAGS += -DBUILD_STATIC
  override LDFLAGS += -lssl -lcrypto -Wl,--whole-archive -lpthread -Wl,--no-whole-archive -ldl -lm -static -rdynamic
 else
  override LDFLAGS += -lssl -lcrypto -lpthread -ldl -lm -rdynamic
 endif
+
+USE_ATOMIC := $(shell printf '$(HASH)include <stdint.h>\nvoid main() { uint64_t value=0;__sync_add_and_fetch(&value, 1);}' | $(CC) -x c - -o /dev/null >/dev/null 2>&1 && echo -n 1 || echo -n 0)
+ifeq ($(USE_ATOMIC), 0)
+ override CFLAGS += -DUSE_ATOMIC
+ override LDFLAGS += -latomic 
+endif
+
 override LDFLAGS += $(EXTRA_LDFLAGS)
 
 .PHONY: all clean
