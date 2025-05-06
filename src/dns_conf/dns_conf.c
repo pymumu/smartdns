@@ -356,8 +356,11 @@ static void _dns_conf_default_value_init(void)
 	dns_conf.cache_checkpoint_time = DNS_DEFAULT_CHECKPOINT_TIME;
 	dns_conf.cache_persist = 2;
 	dns_conf.log_num = 8;
-	dns_conf.log_size = 1024 * 1024;
+	dns_conf.log_size = 1024 * 128;
 	dns_conf.log_level = TLOG_ERROR;
+	dns_conf.audit_num = 2;
+	dns_conf.audit_file_mode = 0640;
+	dns_conf.audit_size = 1024 * 128;
 	dns_conf.resolv_hostname = 1;
 	dns_conf.cachesize = -1;
 	dns_conf.cache_max_memsize = -1;
