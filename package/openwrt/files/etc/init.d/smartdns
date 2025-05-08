@@ -119,8 +119,10 @@ stop_main_dns()
 		uci -q set dhcp.@dnsmasq[0].dns_redirect=1
 		uci -q delete dhcp.@dnsmasq[0].old_dns_redirect
 	}
-	uci -q delete dhcp.@dnsmasq[0].port
+	[ "$dnsmasq_port" = "0" ] && {
+	uci -q set dhcp.@dnsmasq[0].port="53"
 	uci -q del_list dhcp.lan.dhcp_option="6,$hostip"
+	}
 	uci commit dhcp
 	[ "$norestart" != "1" ] && /etc/init.d/dnsmasq reload
 }
