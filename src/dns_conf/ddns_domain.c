@@ -18,6 +18,14 @@
 
 #include "ddns_domain.h"
 #include "domain_rule.h"
+#include "smartdns/lib/stringutil.h"
+
+static char ddns_domain[DNS_MAX_CNAME_LEN] = {0};
+
+const char *dns_conf_get_ddns_domain(void)
+{
+	return ddns_domain;
+}
 
 int _config_ddns_domain(void *data, int argc, char *argv[])
 {
@@ -27,6 +35,7 @@ int _config_ddns_domain(void *data, int argc, char *argv[])
 	}
 
 	const char *domain = argv[1];
+	safe_strncpy(ddns_domain, domain, sizeof(ddns_domain));
 	_config_domain_rule_flag_set(domain, DOMAIN_FLAG_SMARTDNS_DOMAIN, 0);
 	return 0;
 }

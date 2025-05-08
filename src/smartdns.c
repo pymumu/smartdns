@@ -382,6 +382,7 @@ static int _smartdns_create_cert(void)
 	char san[PATH_MAX] = {0};
 	/* 13 month */
 	int validity_days = 13 * 30;
+	char ddns_san[DNS_MAX_CNAME_LEN] = {0};
 
 	if (dns_conf.need_cert == 0) {
 		return 0;
@@ -409,8 +410,12 @@ static int _smartdns_create_cert(void)
 		unlink(dns_conf.bind_ca_key_file);
 		tlog(TLOG_WARN, "regenerate cert with root ca key %s", dns_conf.bind_root_ca_key_file);
 	}
+	
+	if (dns_conf_get_ddns_domain()[0] != 0) {
+		snprintf(ddns_san, sizeof(ddns_san), "DNS:%s", dns_conf_get_ddns_domain());
+	}
 
-	if (generate_cert_san(san, sizeof(san)) != 0) {
+	if (generate_cert_san(san, sizeof(san), ddns_san) != 0) {
 		tlog(TLOG_WARN, "generate cert san failed.");
 		return -1;
 	}

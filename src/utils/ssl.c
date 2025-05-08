@@ -94,7 +94,7 @@ out:
 	return ret;
 }
 
-int generate_cert_san(char *san, int max_san_len)
+int generate_cert_san(char *san, int max_san_len, const char *append_san)
 {
 	char hostname[DNS_MAX_HOSTNAME_LEN];
 	char domainname[DNS_MAX_HOSTNAME_LEN];
@@ -117,11 +117,13 @@ int generate_cert_san(char *san, int max_san_len)
 	}
 	san_len += len;
 
-	len = snprintf(san + san_len, max_san_len - san_len, ",DNS:%s", "localhost");
-	if (len < 0 || len >= max_san_len - san_len) {
-		return -1;
+	if (append_san != NULL && append_san[0] != '\0') {
+		len = snprintf(san + san_len, max_san_len - san_len, ",%s", append_san);
+		if (len < 0 || len >= max_san_len - san_len) {
+			return -1;
+		}
+		san_len += len;
 	}
-	san_len += len;
 
 	/* get local domain name */
 	if (getdomainname(domainname, DNS_MAX_HOSTNAME_LEN - 1) == 0) {

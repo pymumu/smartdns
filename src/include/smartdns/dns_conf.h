@@ -786,6 +786,8 @@ const char *dns_conf_get_cache_dir(void);
 
 const char *dns_conf_get_data_dir(void);
 
+const char *dns_conf_get_ddns_domain(void);
+
 #ifdef __cplusplus
 }
 #endif
