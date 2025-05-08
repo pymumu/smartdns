@@ -253,7 +253,7 @@ struct dns_client_rules *_dns_server_get_client_rules_by_mac(uint8_t *netaddr, i
 				struct ping_host_struct *ping_host = fast_ping_start(PING_TYPE_ICMP, host, 0, 10, 1000, NULL, NULL);
 				if (ping_host) {
 					/* wait for NDP*/
-					usleep(100);
+					usleep(1000);
 					fast_ping_stop(ping_host);
 					continue;
 				}
