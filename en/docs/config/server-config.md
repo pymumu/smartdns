@@ -72,7 +72,15 @@ Currently, smartdns provides four server modes: UDP, TCP, DOH, and DOT.
 
     Note:
 
-    If these three parameters are not specified, smartdns will automatically generate a self-signed cert `smartdns-cert.pem` and `smartdns-key.pem` key file in the `/etc/smartdns` directory, with CN as smartdns.
+    If the above three parameters are not specified, smartdns will automatically generate a certificate chain in the same directory as the `smartdns.conf` configuration file. Clients can manually add the root certificate to the trusted certificate authority to use DOT and DOH services. The files are as follows:
+    
+    File|Function|Validity|Description
+    --|--|--|--
+    smartdns-root-key.pem|Root certificate private key|10 years|Automatically generated root certificate private key, used to sign the server certificate and added to the trusted root certificate authority on the client machine.
+    smartdns-key.pem|Server certificate private key|13 months|Automatically generated server certificate private key, used for DOH, DOT, and WebUI HTTPS encryption on the server.
+    smartdns-cert.pem|Server certificate|13 months|Automatically generated server certificate, signed using smartdns-root-key.pem. The SAN is automatically set to the host IP, hostname, and the domain name set by `ddns-domain`.
+
+    If the server certificate expires after 13 months, restarting the smartdns server will automatically regenerate the server certificate.
 
 1. Optional, the `tcp-idle-time` parameter controls the TCP idle disconnect time.
 

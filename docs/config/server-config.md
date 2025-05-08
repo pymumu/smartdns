@@ -72,7 +72,16 @@ smartdns目前提供了UDP, TCP, DOT, DOH四种服务端模式。
 
     注意：
 
-    上述三个参数如果不指定的情况下，smartdns将会自动在/etc/smartdns目录自动生成自签名证书`smartdns-cert.pem`和`smartdns-key.pem` key文件，CN为smartdns。
+    上述三个参数如果不指定的情况下，smartdns将会自动在`smartdns.conf`配置文件同级目录自动生成证书链, 客户端可将根证书手工加入受信任的证书机构使用DOT，DOH服务，文件如下：
+    
+    文件|功能|有效期|说明
+    --|--|--|--
+    smartdns-root-key.pem|根证书私钥|10年|自动生成的根证书私钥，用于给服务端证书签名，并加入客户端机器的受信任的根证书机构
+    smartdns-key.pem|服务端证书密钥|13个月|自动生成的服务端证书私钥，用于服务端DOH,DOT,WebUI HTTPS加密使用
+    smartdns-cert.pem|服务端证书|13个月|自动生成的服务端证书，使用smartdns-root-key.pem签名，SAN自动设置为主机IP，主机名，和`ddns-domain`设置的域名
+
+    如果服务端证书13个月过期后，重启smartdns服务器可自动重新生成服务端证书。
+
 
 1. 可选，参数tcp-idle-time控制TCP空闲断链时间
 
