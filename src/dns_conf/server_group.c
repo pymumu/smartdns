@@ -65,6 +65,7 @@ int _dns_conf_get_group_set(const char *group_name, struct dns_servers *server)
 
 	for (i = 0; i < group->server_num; i++) {
 		if (group->servers[i] == server) {
+			/* already in group */
 			return 0;
 		}
 	}

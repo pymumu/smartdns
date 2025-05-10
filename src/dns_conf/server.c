@@ -173,7 +173,16 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 			break;
 		}
 		case 'g': {
-			group_name = optarg;
+			/* first group, add later */
+			if (group_name == NULL) {
+				group_name = optarg;
+				break;
+			}
+
+			if (_dns_conf_get_group_set(optarg, server) != 0) {
+				tlog(TLOG_ERROR, "add group failed.");
+				goto errout;
+			}
 			break;
 		}
 		case 'p': {
