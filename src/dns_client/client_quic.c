@@ -595,6 +595,11 @@ static int _dns_client_quic_pending_data(struct dns_conn_stream *stream, struct 
 	stream->query = query;
 	pthread_mutex_unlock(&server_info->lock);
 
+	if (client.epoll_fd <= 0) {
+		errno = ECONNRESET;
+		goto errout;
+	}
+
 	memset(&event, 0, sizeof(event));
 	event.events = EPOLLIN | EPOLLOUT;
 	event.data.ptr = server_info;
@@ -640,6 +645,13 @@ int _dns_client_send_quic_data(struct dns_query_struct *query, struct dns_server
 		struct epoll_event event;
 		_dns_client_shutdown_socket(server_info);
 		ret = _dns_client_quic_pending_data(stream, server_info, query, packet, len);
+
+		if (client.epoll_fd <= 0 || ret != 0) {
+			errno = ECONNRESET;
+			goto out;
+		}
+
+		/* clear epollout event */
 		memset(&event, 0, sizeof(event));
 		event.events = EPOLLIN;
 		event.data.ptr = server_info;
