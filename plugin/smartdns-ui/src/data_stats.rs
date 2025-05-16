@@ -17,10 +17,9 @@
  */
 
 use std::{
-    collections::HashMap, error::Error, sync::{
-        atomic::{AtomicU32, AtomicU64},
-        RwLock,
-    }
+    collections::HashMap,
+    error::Error,
+    sync::{atomic::AtomicU32, RwLock},
 };
 
 use crate::{data_server::DataServerConfig, db::*, dns_log, smartdns::*, utils};
@@ -29,10 +28,14 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
 };
+
+#[cfg(target_has_atomic = "64")]
+use std::sync::atomic::AtomicU64;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::{interval_at, Instant};
 
+#[cfg(target_has_atomic = "64")]
 struct DataStatsItem {
     total_request: AtomicU64,
     total_blocked_request: AtomicU64,
@@ -41,15 +44,35 @@ struct DataStatsItem {
     request_dropped: AtomicU64,
 }
 
+#[cfg(not(target_has_atomic = "64"))]
+struct DataStatsItem {
+    total_request: Arc<Mutex<u64>>,
+    total_blocked_request: Arc<Mutex<u64>>,
+    qps: AtomicU32,
+    qps_count: AtomicU32,
+    request_dropped: Arc<Mutex<u64>>,
+}
+
 impl DataStatsItem {
     pub fn new() -> Self {
-        DataStatsItem {
+        #[cfg(target_has_atomic = "64")]
+        let ret = DataStatsItem {
             total_request: 0.into(),
             total_blocked_request: 0.into(),
             qps: 0.into(),
             qps_count: 0.into(),
             request_dropped: 0.into(),
-        }
+        };
+        #[cfg(not(target_has_atomic = "64"))]
+        let ret = DataStatsItem {
+            total_request: Arc::new(Mutex::new(0)),
+            total_blocked_request: Arc::new(Mutex::new(0)),
+            qps: 0.into(),
+            qps_count: 0.into(),
+            request_dropped: Arc::new(Mutex::new(0)),
+        };
+
+        return ret;
     }
 
     pub fn get_qps(&self) -> u32 {
@@ -66,24 +89,69 @@ impl DataStatsItem {
     }
 
     pub fn add_request_drop(&self, count: u64) {
-        self.request_dropped.fetch_and(count, Ordering::Relaxed);
+        #[cfg(target_has_atomic = "64")]
+        {
+            self.request_dropped.fetch_and(count, Ordering::Relaxed);
+        }
+
+        #[cfg(not(target_has_atomic = "64"))]
+        {
+            let mut dropped = self.request_dropped.lock().unwrap();
+            *dropped += count;
+        }
     }
 
     pub fn get_total_request(&self) -> u64 {
-        return self.total_request.load(Ordering::Relaxed);
+        #[cfg(target_has_atomic = "64")]
+        {
+            return self.total_request.load(Ordering::Relaxed);
+        }
+
+        #[cfg(not(target_has_atomic = "64"))]
+        {
+            let total = self.total_request.lock().unwrap();
+            return *total;
+        }
     }
 
     pub fn add_total_request(&self, total: u64) {
-        self.total_request.fetch_add(total, Ordering::Relaxed);
+        #[cfg(target_has_atomic = "64")]
+        {
+            self.total_request.fetch_add(total, Ordering::Relaxed);
+        }
+
+        #[cfg(not(target_has_atomic = "64"))]
+        {
+            let mut total_request = self.total_request.lock().unwrap();
+            *total_request += total;
+        }
     }
 
     pub fn get_total_blocked_request(&self) -> u64 {
-        return self.total_blocked_request.load(Ordering::Relaxed);
+        #[cfg(target_has_atomic = "64")]
+        {
+            return self.total_blocked_request.load(Ordering::Relaxed);
+        }
+
+        #[cfg(not(target_has_atomic = "64"))]
+        {
+            let total = self.total_blocked_request.lock().unwrap();
+            return *total;
+        }
     }
 
     pub fn add_total_blocked_request(&self, total: u64) {
-        self.total_blocked_request
-            .fetch_add(total, Ordering::Relaxed);
+        #[cfg(target_has_atomic = "64")]
+        {
+            self.total_blocked_request
+                .fetch_add(total, Ordering::Relaxed);
+        }
+
+        #[cfg(not(target_has_atomic = "64"))]
+        {
+            let mut total_blocked_request = self.total_blocked_request.lock().unwrap();
+            *total_blocked_request += total;
+        }
     }
 
     #[allow(dead_code)]
@@ -271,20 +339,12 @@ impl DataStats {
 
         let ret = self.db.refresh_client_top_list(now - 7 * 24 * 3600 * 1000);
         if let Err(e) = ret {
-            dns_log!(
-                LogLevel::WARN,
-                "refresh client top list error: {}",
-                e
-            );
+            dns_log!(LogLevel::WARN, "refresh client top list error: {}", e);
         }
 
         let ret = self.db.refresh_domain_top_list(now - 7 * 24 * 3600 * 1000);
         if let Err(e) = ret {
-            dns_log!(
-                LogLevel::WARN,
-                "refresh domain top list error: {}",
-                e
-            );
+            dns_log!(LogLevel::WARN, "refresh domain top list error: {}", e);
         }
         let _ = self
             .db
