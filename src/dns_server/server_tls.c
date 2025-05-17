@@ -229,6 +229,10 @@ int _dns_server_ssl_poll_event(struct dns_server_conn_tls_client *tls_client, in
 
 	fd_event.data.ptr = tls_client;
 	if (epoll_ctl(server.epoll_fd, EPOLL_CTL_MOD, tls_client->tcp.head.fd, &fd_event) != 0) {
+		if (errno == ENOENT) {
+			/* fd not found, ignore */
+			return 0;
+		}
 		tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
 		goto errout;
 	}

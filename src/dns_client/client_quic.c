@@ -645,8 +645,7 @@ int _dns_client_send_quic_data(struct dns_query_struct *query, struct dns_server
 		struct epoll_event event;
 		_dns_client_shutdown_socket(server_info);
 		ret = _dns_client_quic_pending_data(stream, server_info, query, packet, len);
-
-		if (client.epoll_fd <= 0 || ret != 0) {
+		if (ret != 0) {
 			errno = ECONNRESET;
 			goto out;
 		}
@@ -656,6 +655,9 @@ int _dns_client_send_quic_data(struct dns_query_struct *query, struct dns_server
 		event.events = EPOLLIN;
 		event.data.ptr = server_info;
 		if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &event) != 0) {
+			if (errno == ENOENT) {
+				goto out;
+			}
 			tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
 			ret = -1;
 		}

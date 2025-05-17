@@ -376,7 +376,7 @@ int _dns_client_process_udp(struct dns_server_info *server_info, struct epoll_ev
 	/* update recv time */
 	time(&server_info->last_recv);
 
-	if (latency < server_info->drop_packet_latency_ms) {
+	if (latency > 0 && latency < server_info->drop_packet_latency_ms) {
 		tlog(TLOG_DEBUG, "drop packet from %s, latency: %d", from_host, latency);
 		return 0;
 	}

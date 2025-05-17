@@ -276,6 +276,10 @@ int _dns_client_send_data_to_buffer(struct dns_server_info *server_info, void *p
 	event.events = EPOLLIN | EPOLLOUT;
 	event.data.ptr = server_info;
 	if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &event) != 0) {
+		if (errno == ENOENT) {
+			/* fd not found, ignore */
+			return 0;
+		}
 		tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
 		return -1;
 	}

@@ -1250,6 +1250,10 @@ int _dns_server_setup_request_conf_pre(struct dns_request *request)
 		return 0;
 	}
 
+	if (request->conn && request->conn->dns_group != NULL && request->dns_group_name[0] == '\0') {
+		safe_strncpy(request->dns_group_name, request->conn->dns_group, sizeof(request->dns_group_name));
+	}
+
 	rule_group = dns_server_get_rule_group(request->dns_group_name);
 	if (rule_group == NULL) {
 		return -1;
@@ -1297,9 +1301,6 @@ void _dns_server_setup_dns_group_name(struct dns_request *request, const char **
 {
 	const char *group_name = NULL;
 	const char *temp_group_name = NULL;
-	if (request->conn) {
-		group_name = request->conn->dns_group;
-	}
 
 	temp_group_name = _dns_server_get_request_server_groupname(request);
 	if (temp_group_name != NULL) {
