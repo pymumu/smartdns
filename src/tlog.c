@@ -761,7 +761,7 @@ int tlog_vext(tlog_level level, const char *file, int line, const char *func, vo
         return _tlog_early_print(&info_inter, format, ap);
     }
 
-    if (unlikely(tlog.root->logsize <= 0)) {
+    if (unlikely(tlog.root->logsize <= 0 && tlog.root->logscreen == 0 && tlog.root->set_custom_output_func == 0)) {
         return 0;
     }
 
@@ -1269,7 +1269,7 @@ static int _tlog_write(struct tlog_log *log, const char *buff, int bufflen)
         _tlog_archive_log(log);
     }
 
-    if (log->fd <= 0) {
+    if (log->fd <= 0 && log->logsize > 0) {
         /* open a new log file to write */
         time_t now;
 
