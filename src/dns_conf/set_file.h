@@ -31,6 +31,7 @@ int _get_domain(char *value, char *domain, int max_domain_size, char **ptr_after
 int _config_foreach_file(const char *file_pattern, int (*callback)(const char *file, void *priv), void *priv);
 
 typedef int (*set_rule_add_func)(const char *value, void *priv);
+int _config_domain_rule_each_from_geosite(const char *file, int type, set_rule_add_func callback, void *priv);
 int _config_set_rule_each_from_list(const char *file, set_rule_add_func callback, void *priv);
 
 #ifdef __cplusplus

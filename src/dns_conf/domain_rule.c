@@ -149,10 +149,14 @@ static int _config_domain_rule_set_each(const char *domain_set, set_rule_add_fun
 			}
 			break;
 		case DNS_DOMAIN_SET_GEOSITE:
-_config_domain_rule_each_from_geosite(set_name_item->file, DNS_DOMAIN_SET_GEOSITE,callback, priv);
+if (_config_domain_rule_each_from_geosite(set_name_item->file, DNS_DOMAIN_SET_GEOSITE,callback, priv) != 0) {
+	return -1;
+};
 			break;
 		case DNS_DOMAIN_SET_GEOSITELIST:
-_config_domain_rule_each_from_geosite(set_name_item->file, DNS_DOMAIN_SET_GEOSITELIST,callback, priv);
+if (_config_domain_rule_each_from_geosite(set_name_item->file, DNS_DOMAIN_SET_GEOSITELIST,callback, priv) != 0) {
+	return -1;
+}
 			break;
 
 			break;

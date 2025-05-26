@@ -30,7 +30,7 @@
 #include <limits.h>
 #include <stdio.h>
 
-static int _config_domain_rule_each_from_geosite(const char *file, int type, set_rule_add_func callback, void *priv)
+int _config_domain_rule_each_from_geosite(const char *file, int type, set_rule_add_func callback, void *priv)
 {
 	FILE *fp = NULL;
 	char line[MAX_LINE_LEN];
