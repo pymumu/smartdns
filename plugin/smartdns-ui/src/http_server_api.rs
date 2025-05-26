@@ -640,7 +640,11 @@ impl API {
         if cursor.is_some() || total_count.is_some() {
             let param_cursor = DomainListGetParamCursor {
                 id: if cursor.is_some() { cursor } else { None },
-                total_count: total_count.unwrap(),
+                total_count: if total_count.is_some() {
+                    total_count.unwrap()
+                } else {
+                    0
+                },
                 direction: cursor_direction,
             };
             param.cursor = Some(param_cursor);
@@ -717,11 +721,65 @@ impl API {
     async fn api_client_get_list(
         this: Arc<HttpServer>,
         _param: APIRouteParam,
-        _req: Request<body::Incoming>,
+        req: Request<body::Incoming>,
     ) -> Result<Response<Full<Bytes>>, HttpError> {
+        let params = API::get_params(&req);
+
+        let page_num = API::params_get_value_default(&params, "page_num", 1 as u64)?;
+        let page_size = API::params_get_value_default(&params, "page_size", 10 as u64)?;
+        if page_num == 0 || page_size == 0 {
+            return API::response_error(
+                StatusCode::BAD_REQUEST,
+                "Invalid parameter: page_num or page_size",
+            );
+        }
+
+        let id = API::params_get_value(&params, "id");
+        let client_ip = API::params_get_value(&params, "client_ip");
+        let hostname = API::params_get_value(&params, "hostname");
+        let mac = API::params_get_value(&params, "mac");
+        let timestamp_after = API::params_get_value(&params, "timestamp_after");
+        let timestamp_before = API::params_get_value(&params, "timestamp_before");
+        let order = API::params_get_value(&params, "order");
+        let cursor = API::params_get_value(&params, "cursor");
+        let cursor_direction =
+            match API::params_get_value_default(&params, "cursor_direction", "next".to_string()) {
+                Ok(v) => v,
+                Err(e) => {
+                    return Ok(e.to_response());
+                }
+            };
+        let total_count = API::params_get_value(&params, "total_count");
+
+        let mut param = ClientListGetParam::new();
+        param.id = id;
+        param.page_num = page_num;
+        param.page_size = page_size;
+        param.client_ip = client_ip;
+        param.hostname = hostname;
+        param.mac = mac;
+        param.order = order;
+        param.timestamp_after = timestamp_after;
+        param.timestamp_before = timestamp_before;
+
+        if cursor.is_some() || total_count.is_some() {
+            let param_cursor = ClientListGetParamCursor {
+                id: if cursor.is_some() { cursor } else { None },
+                total_count: if total_count.is_some() {
+                    total_count.unwrap()
+                } else {
+                    0
+                },
+                direction: cursor_direction,
+            };
+            param.cursor = Some(param_cursor);
+        }
+
         let data_server = this.get_data_server();
         let ret = API::call_blocking(this, move || {
-            let ret = data_server.get_client_list();
+            let ret = data_server
+                .get_client_list(&param)
+                .map_err(|e| e.to_string());
             if let Err(e) = ret {
                 return Err(e.to_string());
             }
@@ -729,21 +787,27 @@ impl API {
             let ret = ret.unwrap();
 
             return Ok(ret);
-        }).await;
+        })
+        .await;
 
-        let ret = match ret {
-            Ok(v) => v,
-            Err(e) => {
-                return API::response_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().as_str());
-            },
-        };
-    
+        if let Err(e) = ret {
+            return API::response_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().as_str());
+        }
+
+        let ret = ret.unwrap();
         if let Err(e) = ret {
             return API::response_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().as_str());
         }
 
         let client_list = ret.unwrap();
-        let body = api_msg_gen_client_list(&client_list, client_list.len() as u32);
+        let list_count = client_list.total_count;
+        let mut total_page = list_count / page_size;
+        if list_count % page_size != 0 {
+            total_page += 1;
+        }
+
+        let total_count = client_list.total_count;
+        let body = api_msg_gen_client_list(&client_list, total_page, total_count);
 
         API::response_build(StatusCode::OK, body)
     }
@@ -846,7 +910,7 @@ impl API {
         }
 
         if key.is_some() {
-            let key : String = key.unwrap();
+            let key: String = key.unwrap();
             let value = settings.get(key.as_str());
             if value.is_none() {
                 return API::response_error(StatusCode::NOT_FOUND, "Not found");

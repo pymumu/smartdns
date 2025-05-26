@@ -207,7 +207,7 @@ int conf_size(const char *item, void *data, int argc, char *argv[])
 		return -1;
 	}
 
-	size = num * base;
+	size = (size_t)num * base;
 	if (size > item_size->max) {
 		size = item_size->max;
 	} else if (size < item_size->min) {
@@ -240,7 +240,7 @@ int conf_ssize(const char *item, void *data, int argc, char *argv[])
 	}
 
 	num = atoi(value);
-	size = num * base;
+	size = (ssize_t)num * base;
 	if (size > item_size->max) {
 		size = item_size->max;
 	} else if (size < item_size->min) {
@@ -469,7 +469,7 @@ static int load_conf_printf(const char *key, const char *value, const char *file
 	return 0;
 }
 
-static int load_conf_file(const char *file, struct config_item *items, conf_error_handler handler)
+static int load_conf_file(const char *file, const struct config_item *items, conf_error_handler handler)
 {
 	FILE *fp = NULL;
 	char line[MAX_LINE_LEN + MAX_KEY_LEN];
@@ -619,7 +619,7 @@ errout:
 	return -1;
 }
 
-int load_conf(const char *file, struct config_item items[], conf_error_handler handler)
+int load_conf(const char *file, const struct config_item items[], conf_error_handler handler)
 {
 	return load_conf_file(file, items, handler);
 }

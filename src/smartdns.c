@@ -379,6 +379,10 @@ static int _smartdns_create_cert(void)
 {
 	uid_t uid = 0;
 	gid_t gid = 0;
+	char san[PATH_MAX] = {0};
+	/* 13 month */
+	int validity_days = 13 * 30;
+	char ddns_san[DNS_MAX_CNAME_LEN] = {0};
 
 	if (dns_conf.need_cert == 0) {
 		return 0;
@@ -390,11 +394,38 @@ static int _smartdns_create_cert(void)
 
 	conf_get_conf_fullpath("smartdns-cert.pem", dns_conf.bind_ca_file, sizeof(dns_conf.bind_ca_file));
 	conf_get_conf_fullpath("smartdns-key.pem", dns_conf.bind_ca_key_file, sizeof(dns_conf.bind_ca_key_file));
+	conf_get_conf_fullpath("smartdns-root-key.pem", dns_conf.bind_root_ca_key_file,
+						   sizeof(dns_conf.bind_root_ca_key_file));
 	if (access(dns_conf.bind_ca_file, F_OK) == 0 && access(dns_conf.bind_ca_key_file, F_OK) == 0) {
-		return 0;
+		if (is_cert_valid(dns_conf.bind_ca_file)) {
+			return 0;
+		}
+
+		if (access(dns_conf.bind_root_ca_key_file, R_OK) != 0) {
+			tlog(TLOG_WARN, "root ca key file %s is not found, can not regenerate cert file.",
+				 dns_conf.bind_root_ca_key_file);
+			return 0;
+		}
+		unlink(dns_conf.bind_ca_file);
+		unlink(dns_conf.bind_ca_key_file);
+		tlog(TLOG_WARN, "regenerate cert with root ca key %s", dns_conf.bind_root_ca_key_file);
+	}
+	
+	if (dns_conf_get_ddns_domain()[0] != 0) {
+		snprintf(ddns_san, sizeof(ddns_san), "DNS:%s", dns_conf_get_ddns_domain());
 	}
 
-	if (generate_cert_key(dns_conf.bind_ca_key_file, dns_conf.bind_ca_file, NULL, 365 * 3) != 0) {
+	if (generate_cert_san(san, sizeof(san), ddns_san) != 0) {
+		tlog(TLOG_WARN, "generate cert san failed.");
+		return -1;
+	}
+
+	if (dns_conf.bind_ca_validity_days > 0) {
+		validity_days = dns_conf.bind_ca_validity_days;
+	}
+
+	if (generate_cert_key(dns_conf.bind_ca_key_file, dns_conf.bind_ca_file, dns_conf.bind_root_ca_key_file, san,
+						  validity_days) != 0) {
 		tlog(TLOG_WARN, "Generate default ssl cert and key file failed. %s", strerror(errno));
 		return -1;
 	}
@@ -982,9 +1013,10 @@ int smartdns_reg_post_func(smartdns_post_func func, void *arg)
 #define smartdns_test_notify(retval) smartdns_test_notify_func(fd_notify, retval)
 static void smartdns_test_notify_func(int fd_notify, uint64_t retval)
 {
+	int unused __attribute__((unused));
 	/* notify parent kickoff */
 	if (fd_notify > 0) {
-		write(fd_notify, &retval, sizeof(retval));
+		unused = write(fd_notify, &retval, sizeof(retval));
 	}
 
 	if (_smartdns_post != NULL) {

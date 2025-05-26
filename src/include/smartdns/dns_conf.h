@@ -683,7 +683,9 @@ struct dns_config {
 
 	char bind_ca_file[DNS_MAX_PATH];
 	char bind_ca_key_file[DNS_MAX_PATH];
+	char bind_root_ca_key_file[DNS_MAX_PATH];
 	char bind_ca_key_pass[DNS_MAX_PATH];
+	int  bind_ca_validity_days;
 	char need_cert;
 	int tcp_idle_time;
 	ssize_t cachesize;
@@ -784,6 +786,8 @@ extern int config_additional_file(void *data, int argc, char *argv[]);
 const char *dns_conf_get_cache_dir(void);
 
 const char *dns_conf_get_data_dir(void);
+
+const char *dns_conf_get_ddns_domain(void);
 
 #ifdef __cplusplus
 }

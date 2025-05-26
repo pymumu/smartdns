@@ -16,6 +16,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#define _GNU_SOURCE
+
 #include "smartdns/dns_cache.h"
 #include "smartdns/dns_stats.h"
 #include "smartdns/lib/stringutil.h"
@@ -672,6 +674,7 @@ static int _dns_cache_read_record(int fd, uint32_t cache_number, dns_cache_read_
 {
 	unsigned int i = 0;
 	ssize_t ret = 0;
+	int data_size = 0;
 	struct dns_cache_record cache_record;
 	struct dns_cache_data_head data_head;
 	struct dns_cache_data *cache_data = NULL;
@@ -704,7 +707,8 @@ static int _dns_cache_read_record(int fd, uint32_t cache_number, dns_cache_read_
 			goto errout;
 		}
 
-		cache_data = malloc(data_head.size + sizeof(data_head));
+		data_size = data_head.size + sizeof(data_head);
+		cache_data = malloc(data_size);
 		if (cache_data == NULL) {
 			tlog(TLOG_ERROR, "malloc cache data failed %s", strerror(errno));
 			goto errout;
@@ -722,6 +726,7 @@ static int _dns_cache_read_record(int fd, uint32_t cache_number, dns_cache_read_
 		cache_record.info.is_visited = 0;
 		cache_record.info.domain[DNS_MAX_CNAME_LEN - 1] = '\0';
 		cache_record.info.dns_group_name[DNS_GROUP_NAME_LEN - 1] = '\0';
+		atomic_add(data_size, &dns_cache_head.mem_size);
 		ret = callback(&cache_record, cache_data);
 		dns_cache_data_put(cache_data);
 		cache_data = NULL;

@@ -95,7 +95,7 @@ impl SmartdnsPlugin {
 
         let www_root = Plugin::dns_conf_plugin_config("smartdns-ui.www-root");
         if let Some(www_root) = www_root {
-            http_conf.http_root = www_root;
+            http_conf.http_root = smartdns_conf_get_conf_fullpath(&www_root);
         }
 
         let ip = Plugin::dns_conf_plugin_config("smartdns-ui.ip");
@@ -112,7 +112,11 @@ impl SmartdnsPlugin {
         }
         dns_log!(LogLevel::INFO, "www root: {}", http_conf.http_root);
 
-        if let Some(token_expire) = matches.opt_str("token-expire") {
+        let mut token_expire = Plugin::dns_conf_plugin_config("smartdns-ui.token-expire");
+        if token_expire.is_none() {
+            token_expire = matches.opt_str("token-expire");
+        }
+        if let Some(token_expire) = token_expire {
             let v = token_expire.parse::<u32>();
             if let Err(e) = v {
                 dns_log!(

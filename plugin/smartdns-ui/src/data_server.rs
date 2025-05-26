@@ -384,8 +384,11 @@ impl DataServer {
         self.db.delete_client_by_id(id)
     }
 
-    pub fn get_client_list(&self) -> Result<Vec<ClientData>, Box<dyn Error>> {
-        self.db.get_client_list()
+    pub fn get_client_list(
+        &self,
+        param: &ClientListGetParam,
+    ) -> Result<QueryClientListResult, Box<dyn Error>> {
+        self.db.get_client_list(Some(param))
     }
 
     pub fn get_top_client_top_list(
@@ -617,7 +620,7 @@ impl DataServer {
     async fn data_server_loop(this: Arc<DataServer>) -> Result<(), Box<dyn Error>> {
         let mut rx: mpsc::Receiver<()>;
         let mut data_rx: mpsc::Receiver<Box<dyn DnsRequest>>;
-        let batch_mode  = *this.recv_in_batch.lock().unwrap();
+        let batch_mode = *this.recv_in_batch.lock().unwrap();
 
         {
             let mut _rx = this.notify_rx.lock().unwrap();

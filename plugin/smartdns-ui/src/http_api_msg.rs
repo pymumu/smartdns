@@ -294,22 +294,31 @@ pub fn api_msg_parse_client_list(data: &str) -> Result<Vec<ClientData>, Box<dyn 
     Ok(client_list)
 }
 
-pub fn api_msg_gen_client_list(client_list: &Vec<ClientData>, total_count: u32) -> String {
+pub fn api_msg_gen_json_object_client(client: &ClientData) -> serde_json::Value {
+    json!({
+        "id": client.id,
+        "client_ip": client.client_ip,
+        "mac": client.mac,
+        "hostname": client.hostname,
+        "last_query_timestamp": client.last_query_timestamp,
+    })
+}
+
+pub fn api_msg_gen_client_list(
+    client_list_result: &QueryClientListResult,
+    total_page: u64,
+    total_count: u64,
+) -> String {
     let json_str = json!({
-        "list_count": client_list.len(),
+        "list_count": client_list_result.client_list.len(),
+        "total_page": total_page,
         "total_count": total_count,
+        "step_by_cursor": client_list_result.step_by_cursor,
         "client_list":
-            client_list
+        client_list_result.client_list
                 .iter()
                 .map(|x| {
-                    let s = json!({
-                        "id": x.id,
-                        "client_ip": x.client_ip,
-                        "mac": x.mac,
-                        "hostname": x.hostname,
-                        "last_query_timestamp": x.last_query_timestamp,
-                    });
-                    s
+                    api_msg_gen_json_object_client(x)
                 })
                 .collect::<Vec<serde_json::Value>>()
 
@@ -796,7 +805,6 @@ pub fn api_msg_parse_stats_overview(data: &str) -> Result<OverviewData, Box<dyn 
         startup_timestamp: startup_timestamp.unwrap() as u64,
         free_disk_space: free_disk_space.unwrap() as u64,
         is_process_suspended: is_process_suspended.unwrap(),
-
     })
 }
 
@@ -818,9 +826,7 @@ pub fn api_msg_gen_hourly_query_count(hourly_count: &HourlyQueryCount) -> String
     json_str.to_string()
 }
 
-pub fn api_msg_parse_hourly_query_count(
-    data: &str,
-) -> Result<HourlyQueryCount, Box<dyn Error>> {
+pub fn api_msg_parse_hourly_query_count(data: &str) -> Result<HourlyQueryCount, Box<dyn Error>> {
     let v: serde_json::Value = serde_json::from_str(data)?;
     let query_timestamp = v["query_timestamp"].as_u64();
     if query_timestamp.is_none() {

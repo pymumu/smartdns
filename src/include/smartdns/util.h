@@ -45,6 +45,11 @@ extern "C" {
 #define PORT_NOT_DEFINED -1
 #define MAX_IP_LEN 64
 
+#define IPV6_ADDR_LEN 16
+#define IPV4_ADDR_LEN 4
+
+#define TMP_BUFF_LEN_32 32
+
 #ifndef BASE_FILE_NAME
 #define BASE_FILE_NAME (__builtin_strrchr(__FILE__, '/') ? __builtin_strrchr(__FILE__, '/') + 1 : __FILE__)
 #endif
@@ -131,7 +136,11 @@ int SSL_base64_decode_ext(const char *in, unsigned char *out, int max_outlen, in
 
 int SSL_base64_encode(const void *in, int in_len, char *out);
 
-int generate_cert_key(const char *key_path, const char *cert_path, const char *san, int days);
+int generate_cert_key(const char *key_path, const char *cert_path, const char *root_key_path, const char *san, int days);
+
+int generate_cert_san(char *san, int max_san_len, const char *append_san);
+
+int is_cert_valid(const char *cert_file_path);
 
 int create_pid_file(const char *pid_file);
 

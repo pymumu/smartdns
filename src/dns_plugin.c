@@ -16,6 +16,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#define _GNU_SOURCE
+
 #include "smartdns/dns_plugin.h"
 
 #include "smartdns/dns_conf.h"
