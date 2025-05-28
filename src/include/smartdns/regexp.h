@@ -24,6 +24,7 @@
 #include <time.h>
 //#include <regex.h>
 #include <cre2.h>
+#include "smartdns/bloom.h"
 
 #ifdef __cpluscplus
 extern "C" {
@@ -40,6 +41,21 @@ struct dns_regexp {
     cre2_options_t *opt;
 };
 
+extern bloom_filter_t *g_regexp_bloom_filter;
+
+// 初始化正则表达式布隆过滤器
+int dns_regexp_bloom_filter_init(size_t size, size_t num_hashes);
+
+// 释放正则表达式布隆过滤器
+void dns_regexp_bloom_filter_free(void);
+
+// 将正则表达式模式添加到布隆过滤器
+void dns_regexp_bloom_filter_add_pattern(const char *pattern);
+
+// 检查域名是否可能匹配布隆过滤器中的任何模式
+// 返回1表示可能匹配，0表示绝对不匹配
+int dns_regexp_bloom_filter_check_domain(const char *domain);
+
 int dns_regexp_init(void);
 
 __attribute__((unused)) struct dns_regexp *_dns_regexp_last(void);
@@ -54,7 +70,7 @@ int _dns_regexp_insert(char *regexp, struct list_head *head);
 
 int dns_regexp_insert(char *regexp);
 
-int dns_regexp_match(const char *domain, char *regexp);
+int dns_regexp_match(const char *string, char *matched_pattern);
 
 void dns_regexp_destroy(void);
 

@@ -1,4 +1,3 @@
-
 /*************************************************************************
  *
  * Copyright (C) 2018-2023 Ruilin Peng (Nick) <pymumu@gmail.com>.
@@ -27,6 +26,9 @@
 #include <string.h>
 #include <sys/types.h>
 
+// 从 regexp.h 移到此处，因为这是实现文件
+// #include "../utils/bloom.h" // 应通过 regexp.h 包含
+
 /* regexp list */
 struct dns_regexp_head {
 	struct list_head regexp_list;
@@ -35,10 +37,63 @@ struct dns_regexp_head {
 
 static struct dns_regexp_head dns_regexp_head;
 
+// 全局布隆过滤器实例
+bloom_filter_t *g_regexp_bloom_filter = NULL;
+
+// 默认布隆过滤器参数 (可根据需要调整或设为可配置)
+#define DEFAULT_BLOOM_FILTER_SIZE (1024 * 8) // 1KB 位数组
+#define DEFAULT_BLOOM_FILTER_HASHES 7
+
+int dns_regexp_bloom_filter_init(size_t size, size_t num_hashes) {
+    if (g_regexp_bloom_filter != NULL) {
+        // 已经初始化，可能需要先释放或返回错误
+        tlog(TLOG_WARN, "Bloom filter already initialized.");
+        return 0; // 或者返回错误码
+    }
+    size_t bf_size = (size > 0) ? size : DEFAULT_BLOOM_FILTER_SIZE;
+    size_t bf_hashes = (num_hashes > 0) ? num_hashes : DEFAULT_BLOOM_FILTER_HASHES;
+
+    g_regexp_bloom_filter = bloom_filter_new(bf_size, bf_hashes);
+    if (g_regexp_bloom_filter == NULL) {
+        tlog(TLOG_ERROR, "Failed to initialize regexp bloom filter.");
+        return -1;
+    }
+    tlog(TLOG_INFO, "Regexp bloom filter initialized (size: %zu bits, hashes: %zu).", bf_size, bf_hashes);
+    return 0;
+}
+
+void dns_regexp_bloom_filter_free(void) {
+    if (g_regexp_bloom_filter != NULL) {
+        bloom_filter_free(g_regexp_bloom_filter);
+        g_regexp_bloom_filter = NULL;
+        tlog(TLOG_INFO, "Regexp bloom filter freed.");
+    }
+}
+
+void dns_regexp_bloom_filter_add_pattern(const char *pattern) {
+    if (g_regexp_bloom_filter != NULL && pattern != NULL) {
+        bloom_filter_add(g_regexp_bloom_filter, pattern, strlen(pattern));
+        // tlog(TLOG_DEBUG, "Added pattern to bloom filter: %s", pattern);
+    }
+}
+
+int dns_regexp_bloom_filter_check_domain(const char *domain) {
+    if (g_regexp_bloom_filter != NULL && domain != NULL) {
+        return bloom_filter_check(g_regexp_bloom_filter, domain, strlen(domain));
+    }
+    return 1; // 如果过滤器未初始化或输入无效，保守地返回可能匹配
+}
+
 int dns_regexp_init(void)
 {
 	INIT_LIST_HEAD(&dns_regexp_head.regexp_list);
 	dns_regexp_head.num=0;
+    // 初始化布隆过滤器
+    if (dns_regexp_bloom_filter_init(0, 0) != 0) { // 使用默认大小和哈希数
+        // 处理初始化失败的情况，可能记录错误日志或阻止启动
+        tlog(TLOG_ERROR, "Failed to initialize bloom filter during regexp_init.");
+        // 根据项目错误处理策略，这里可能需要返回错误
+    }
 	return 0;
 }
 
@@ -102,6 +157,9 @@ int _dns_regexp_insert(char *regexp, struct list_head *head)
 	//tlog(TLOG_INFO, "compile regexp: %s", regexp);
 	safe_strncpy(dns_regexp->regexp, regexp, DNS_MAX_REGEXP_LEN);
 	list_add_tail(&dns_regexp->list, head);
+
+    // 将模式添加到布隆过滤器
+    dns_regexp_bloom_filter_add_pattern(regexp);
 	
 	return 0;
 errout:
@@ -132,66 +190,60 @@ int dns_regexp_insert(char *regexp)
 
 int dns_regexp_match(const char *domain, char *regexp)
 {
-	struct dns_regexp *dns_regexp = NULL;
+	struct dns_regexp *dns_regexp_entry = NULL;
 	struct dns_regexp *tmp = NULL;
 
-	if (regexp == NULL) {
-		return -1;
+	if (domain == NULL || regexp == NULL) { // Check domain as well
+		return -1; // Invalid arguments
 	}
 
-	list_for_each_entry_safe(dns_regexp, tmp, &dns_regexp_head.regexp_list, list) {
-		/*
-		regmatch_t match;
-		int reti = regexec(&dns_regexp->regex, domain, 1, &match,0);
-		if (reti==REG_NOERROR) {
-			safe_strncpy(regexp, dns_regexp->regexp, DNS_MAX_REGEXP_LEN);
-			tlog(TLOG_DEBUG, "domain %s match regexp: %s", domain, dns_regexp->regexp);
-			return 0;
-		}
-		else if (reti == REG_NOMATCH) {
-			//tlog(TLOG_DEBUG, "domain %s not match regexp: %s", domain, dns_regexp->regexp);
-		}
-		else {
-		    char msgbuf[100];
-			regerror(reti, &dns_regexp->regex, msgbuf, sizeof(msgbuf));
-			tlog(TLOG_ERROR, "domain %s match regexp: %s, error %s", domain, dns_regexp->regexp, msgbuf);							
-		}
-		*/
+    // 使用布隆过滤器进行初筛
+    if (g_regexp_bloom_filter != NULL && dns_regexp_head.num > 0) { // 仅当有正则且过滤器已初始化时检查
+        if (!dns_regexp_bloom_filter_check_domain(domain)) {
+            // tlog(TLOG_DEBUG, "Bloom filter: domain %s likely NOT in regexp set.", domain);
+            return -1; // 布隆过滤器指示不匹配，可以提前返回
+        }
+        // tlog(TLOG_DEBUG, "Bloom filter: domain %s MAY BE in regexp set.", domain);
+    }
 
-		cre2_string_t	match;
+	list_for_each_entry_safe(dns_regexp_entry, tmp, &dns_regexp_head.regexp_list, list) {
+		cre2_string_t	match_details; // Renamed from 'match' to avoid conflict if any
     	int	nmatch = 1;
-    	int e = cre2_match(dns_regexp->rex, domain, strlen(domain), 0, strlen(domain), CRE2_UNANCHORED, &match, nmatch);
+    	int e = cre2_match(dns_regexp_entry->rex, domain, strlen(domain), 0, strlen(domain), CRE2_UNANCHORED, &match_details, nmatch);
 		switch (e) {
-			case 1:
-				safe_strncpy(regexp, dns_regexp->regexp, DNS_MAX_REGEXP_LEN);
-				tlog(TLOG_INFO, "domain %s match regexp: %s", domain, dns_regexp->regexp);
-				return 0;
+			case 1: // Match
+				safe_strncpy(regexp, dns_regexp_entry->regexp, DNS_MAX_REGEXP_LEN);
+				tlog(TLOG_INFO, "domain %s match regexp: %s", domain, dns_regexp_entry->regexp);
+				return 0; // Success (matched)
 
-			case 0:
-				//tlog(TLOG_INFO, "domain %s not match regexp: %s", domain, dns_regexp->regexp);
+			case 0: // No match
 				break;
 
-			default:
-				if (cre2_error_code(dns_regexp->rex)) {
-					tlog(TLOG_ERROR, "domain %s match regexp: %s, error %s", domain, dns_regexp->regexp, 
-									cre2_error_string(dns_regexp->rex));							
+			default: // Error
+				if (cre2_error_code(dns_regexp_entry->rex)) {
+					tlog(TLOG_ERROR, "domain %s match regexp: %s, error %s", domain, dns_regexp_entry->regexp, 
+									cre2_error_string(dns_regexp_entry->rex));							
 				}
 		}
 	}
 	
-	return -1;
+	return -1; // No match found after iterating all regexps
 }
 
 void dns_regexp_destroy(void)
 {
-	struct dns_regexp *dns_regexp = NULL;
+	struct dns_regexp *dns_regexp_entry = NULL;
 	struct dns_regexp *tmp = NULL;
 
-	list_for_each_entry_safe(dns_regexp, tmp, &dns_regexp_head.regexp_list, list)
+    // 释放布隆过滤器
+    dns_regexp_bloom_filter_free();
+
+	list_for_each_entry_safe(dns_regexp_entry, tmp, &dns_regexp_head.regexp_list, list)
 	{
 	    //regfree(&dns_regexp->regex);
-		cre2_delete(dns_regexp->rex);
-		cre2_opt_delete(dns_regexp->opt);
-		_dns_regexp_delete(dns_regexp);
+		cre2_delete(dns_regexp_entry->rex);
+		cre2_opt_delete(dns_regexp_entry->opt);
+		_dns_regexp_delete(dns_regexp_entry); // _dns_regexp_delete already calls list_del_init and free
 	}
+    dns_regexp_head.num = 0; // Reset count after clearing
 }

@@ -1,0 +1,63 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# SmartDNS Codebase Guide
+
+This guide helps in understanding the `smartdns-with-geosite` project structure and key components.
+
+## Core Configuration
+
+The primary configuration file for SmartDNS is typically `smartdns.conf`. For detailed information on configuration options and their loading mechanism, refer to the [smartdns_technical analysis_document.md](mdc:smartdns_technical analysis_document.md).
+
+*   **Main Configuration File (Example Path):** `etc/smartdns/smartdns.conf` (Actual path might vary based on installation)
+*   **Configuration Loading Logic:** Primarily handled within the `src/dns_conf/` directory, with `[src/dns_conf/dns_conf.c](mdc:src/dns_conf/dns_conf.c)` being a key file for parsing and `_config_item[]` definitions.
+
+## Main Source Code Directory: `src/`
+
+The core logic of SmartDNS resides in the `[src/](mdc:src)` directory.
+
+*   **Entry Point:** The program execution likely starts in `[src/main.c](mdc:src/main.c)` or `[src/smartdns.c](mdc:src/smartdns.c)`.
+*   **Core DNS Logic:** `[src/dns.c](mdc:src/dns.c)`
+*   **Cache Implementation:** `[src/dns_cache.c](mdc:src/dns_cache.c)`
+*   **Plugin System:** `[src/dns_plugin.c](mdc:src/dns_plugin.c)`
+
+### Key Subdirectories in `src/`:
+
+*   **`[src/dns_conf/](mdc:src/dns_conf)`**: Handles parsing and management of configuration files.
+    *   `[src/dns_conf/dns_conf.c](mdc:src/dns_conf/dns_conf.c)`: Central configuration parsing.
+    *   `[src/dns_conf/domain_rule.c](mdc:src/dns_conf/domain_rule.c)`: Domain-specific rule processing.
+    *   `[src/dns_conf/set_file.c](mdc:src/dns_conf/set_file.c)`: Handles `domain-set` and geosite files.
+*   **`[src/dns_server/](mdc:src/dns_server)`**: Contains the server-side logic for handling DNS requests.
+    *   `[src/dns_server/dns_server.c](mdc:src/dns_server/dns_server.c)`: Core server operations, listening, request handling.
+    *   `[src/dns_server/rules.c](mdc:src/dns_server/rules.c)`: Server-side rule application.
+    *   `[src/dns_server/cache.c](mdc:src/dns_server/cache.c)` (if distinct from top-level `dns_cache.c`, or `server_cache.c` as mentioned in docs): Server-specific cache interactions.
+*   **`[src/dns_client/](mdc:src/dns_client)`**: Implements the client-side logic for querying upstream DNS servers.
+    *   `[src/dns_client/dns_client.c](mdc:src/dns_client/dns_client.c)`: Core client operations.
+    *   Files for specific protocols like `client_udp.c`, `client_tcp.c`, `client_tls.c`, `client_https.c`, `client_quic.c`.
+*   **`[src/utils/](mdc:src/utils)`**: Contains utility functions (networking, logging, string manipulation, SSL).
+    *   `[src/utils/log.c](mdc:src/utils/log.c)` (or `tlog.c` at `src/`): Logging.
+    *   `[src/utils/ssl.c](mdc:src/utils/ssl.c)`: SSL/TLS utilities.
+*   **`[src/lib/](mdc:src/lib)`**: Internal libraries and data structures (e.g., `radix.c`, `rbtree.c`, `art.c`).
+*   **`[src/fast_ping/](mdc:src/fast_ping)`**: Implements ICMP and other ping mechanisms for speed testing.
+    *   `[src/fast_ping/fast_ping.c](mdc:src/fast_ping/fast_ping.c)`: Main logic for fast ping.
+*   **`[src/http_parse/](mdc:src/http_parse)`**: Logic for parsing HTTP, relevant for DoH.
+*   **`[src/include/](mdc:src/include)`**: Header files for the project, especially `[src/include/smartdns/](mdc:src/include/smartdns)`.
+
+## Technical Documentation
+
+For a comprehensive understanding of SmartDNS's architecture, configuration options, and internal workings, refer to:
+
+*   [smartdns_technical analysis_document.md](mdc:smartdns_technical analysis_document.md)
+
+This document provides detailed explanations of:
+*   Configuration directives.
+*   Core service flow.
+*   Cache mechanisms.
+*   Speed testing.
+*   Rule matching (including domain-set and geosite).
+*   Encrypted DNS protocol handling (DoT, DoH, DoQ).
+*   Dualstack IP selection.
+
+This rule should help in quickly navigating to relevant parts of the codebase based on the technical documentation and our discussion.
