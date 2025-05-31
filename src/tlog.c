@@ -190,7 +190,7 @@ static inline void _tlog_spin_unlock(unsigned int *lock)
 
 static int _tlog_mkdir(const char *path)
 {
-    char path_c[PATH_MAX];
+    char path_c[PATH_MAX + 1];
     char *path_end;
     char str;
     int len;
@@ -892,7 +892,7 @@ static int _tlog_get_oldest_callback(const char *path, struct dirent *entry, voi
 
     if (oldestlog->mtime == 0 || oldestlog->mtime > sb.st_mtime) {
         oldestlog->mtime = sb.st_mtime;
-        strncpy(oldestlog->name, entry->d_name, sizeof(oldestlog->name));
+        strncpy(oldestlog->name, entry->d_name, sizeof(oldestlog->name) - 1);
         oldestlog->name[sizeof(oldestlog->name) - 1] = '\0';
         return 0;
     }
@@ -1199,7 +1199,7 @@ static int _tlog_archive_log(struct tlog_log *log)
 
 static void _tlog_get_log_name_dir(struct tlog_log *log)
 {
-    char log_file[PATH_MAX];
+    char log_file[PATH_MAX + 1];
     if (log->fd > 0) {
         close(log->fd);
         log->fd = -1;
@@ -1248,7 +1248,7 @@ static int _tlog_write(struct tlog_log *log, const char *buff, int bufflen)
         log->rename_pending = 0;
     }
 
-    if (log->logcount <= 0) {
+    if (log->logcount <= 0 || log->logsize <= 0) {
         return 0;
     }
 
@@ -1663,7 +1663,7 @@ static void *_tlog_work(void *arg)
         log_len = 0;
         log_extlen = 0;
         log_extend = 0;
-        if (tlog.run == 0) {
+        if (__atomic_load_n(&tlog.run, __ATOMIC_RELAXED) == 0) {
             if (_tlog_any_has_data() == 0) {
                 break;
             }
@@ -1683,11 +1683,11 @@ static void *_tlog_work(void *arg)
         }
 
         /* if buffer is empty, wait */
-        if (_tlog_any_has_data_locked() == 0 && tlog.run) {
+        if (_tlog_any_has_data_locked() == 0 && __atomic_load_n(&tlog.run, __ATOMIC_RELAXED)) {
             log = _tlog_wait_log_locked(log);
             if (log == NULL) {
                 pthread_mutex_unlock(&tlog.lock);
-                if (errno != ETIMEDOUT && tlog.run) {
+                if (errno != ETIMEDOUT && __atomic_load_n(&tlog.run, __ATOMIC_RELAXED)) {
                     sleep(1);
                 }
                 continue;
@@ -1909,7 +1909,7 @@ tlog_log *tlog_open(const char *logfile, int maxlogsize, int maxlogcount, int bu
 {
     struct tlog_log *log = NULL;
 
-    if (tlog.run == 0) {
+    if (__atomic_load_n(&tlog.run, __ATOMIC_RELAXED) == 0) {
         fprintf(stderr, "tlog: tlog is not initialized.\n");
         return NULL;
     }
@@ -2090,7 +2090,7 @@ int tlog_init(const char *logfile, int maxlogsize, int maxlogcount, int buffsize
     pthread_attr_init(&attr);
     pthread_cond_init(&tlog.cond, NULL);
     pthread_mutex_init(&tlog.lock, NULL);
-    tlog.run = 1;
+    __atomic_store_n(&tlog.run, 1, __ATOMIC_RELAXED);
 
     log = tlog_open(logfile, maxlogsize, maxlogcount, buffsize, flag);
     if (log == NULL) {
@@ -2120,14 +2120,14 @@ int tlog_init(const char *logfile, int maxlogsize, int maxlogcount, int buffsize
 errout:
     if (tlog.tid) {
         void *retval = NULL;
-        tlog.run = 0;
+        __atomic_store_n(&tlog.run, 0, __ATOMIC_RELAXED);
         pthread_join(tlog.tid, &retval);
         tlog.tid = 0;
     }
 
     pthread_cond_destroy(&tlog.cond);
     pthread_mutex_destroy(&tlog.lock);
-    tlog.run = 0;
+    __atomic_store_n(&tlog.run, 0, __ATOMIC_RELAXED);
     tlog.root = NULL;
     tlog.root_format = NULL;
 
@@ -2144,7 +2144,7 @@ void tlog_exit(void)
 
     if (tlog.tid) {
         void *ret = NULL;
-        tlog.run = 0;
+        __atomic_store_n(&tlog.run, 0, __ATOMIC_RELAXED);
         pthread_mutex_lock(&tlog.lock);
         pthread_cond_signal(&tlog.cond);
         pthread_mutex_unlock(&tlog.lock);

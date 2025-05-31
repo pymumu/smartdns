@@ -96,11 +96,12 @@ int _dns_server_reply_all_pending_list(struct dns_request *request, struct dns_s
 	struct dns_request *tmp = NULL;
 	int ret = 0;
 
+	pthread_mutex_lock(&server.request_pending_lock);
 	if (request->request_pending_list == NULL) {
+		pthread_mutex_unlock(&server.request_pending_lock);
 		return 0;
 	}
 
-	pthread_mutex_lock(&server.request_pending_lock);
 	pending_list = request->request_pending_list;
 	request->request_pending_list = NULL;
 	hlist_del_init(&pending_list->node);

@@ -346,7 +346,7 @@ static X509 *_generate_smartdns_cert(EVP_PKEY *pkey, X509 *issuer_cert, EVP_PKEY
 	const unsigned char *country = (unsigned char *)"smartdns";
 	const unsigned char *company = (unsigned char *)"smartdns";
 	const unsigned char *common_name = (unsigned char *)(is_ca ? "SmartDNS Root" : "smartdns");
-	const char *BASIC_CONSTRAINTS = is_ca ? "CA:TRUE" : "CA:FALSE";
+	const char *CA_BASIC_CONSTRAINTS = is_ca ? "CA:TRUE" : "CA:FALSE";
 	const char *KEY_USAGE = is_ca ? "keyCertSign,cRLSign" : "digitalSignature,keyEncipherment";
 	const char *EXT_KEY_USAGE = is_ca ? "clientAuth,serverAuth,codeSigning,timeStamping" : "serverAuth";
 
@@ -370,7 +370,7 @@ static X509 *_generate_smartdns_cert(EVP_PKEY *pkey, X509 *issuer_cert, EVP_PKEY
 	}
 
 	// Add X509v3 extensions
-	cert_ext = X509V3_EXT_conf_nid(NULL, NULL, NID_basic_constraints, BASIC_CONSTRAINTS);
+	cert_ext = X509V3_EXT_conf_nid(NULL, NULL, NID_basic_constraints, CA_BASIC_CONSTRAINTS);
 	X509_add_ext(cert, cert_ext, -1);
 	X509_EXTENSION_free(cert_ext);
 

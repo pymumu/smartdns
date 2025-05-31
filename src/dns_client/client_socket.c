@@ -77,10 +77,6 @@ int _dns_client_create_socket(struct dns_server_info *server_info)
 
 void _dns_client_close_socket_ext(struct dns_server_info *server_info, int no_del_conn_list)
 {
-	if (server_info->fd <= 0) {
-		return;
-	}
-
 	if (server_info->ssl) {
 		/* Shutdown ssl */
 		if (server_info->status == DNS_SERVER_STATUS_CONNECTED) {
@@ -122,6 +118,10 @@ void _dns_client_close_socket_ext(struct dns_server_info *server_info, int no_de
 	if (server_info->bio_method) {
 		BIO_meth_free(server_info->bio_method);
 		server_info->bio_method = NULL;
+	}
+
+	if (server_info->fd <= 0) {
+		return;
 	}
 
 	/* remove fd from epoll */

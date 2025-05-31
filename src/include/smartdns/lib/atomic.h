@@ -16,14 +16,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-
 #ifndef _GENERIC_ATOMIC_H
 #define _GENERIC_ATOMIC_H
-
-#define ACCESS_ONCE(x) (*(volatile typeof(x) *)&(x))
-
-#define READ_ONCE(x) \
-({ typeof(x) ___x = ACCESS_ONCE(x); ___x; })
 
 /**
  * Atomic type.
@@ -32,7 +26,7 @@ typedef struct {
 	long counter;
 } atomic_t;
 
-#define ATOMIC_INIT(i)  { (i) }
+#define ATOMIC_INIT(i) {(i)}
 
 /**
  * Read atomic variable
@@ -42,7 +36,7 @@ typedef struct {
  */
 static inline long atomic_read(const atomic_t *v)
 {
-	return READ_ONCE((v)->counter);
+	return __atomic_load_n(&v->counter, __ATOMIC_SEQ_CST);
 }
 
 /**
@@ -52,7 +46,7 @@ static inline long atomic_read(const atomic_t *v)
  */
 static inline void atomic_set(atomic_t *v, long i)
 {
-    v->counter = i;
+	__atomic_store_n(&v->counter, i, __ATOMIC_SEQ_CST);
 }
 
 /**
@@ -60,9 +54,9 @@ static inline void atomic_set(atomic_t *v, long i)
  * @param i integer value to add
  * @param v pointer of type atomic_t
  */
-static inline void atomic_add( long i, atomic_t *v )
+static inline void atomic_add(long i, atomic_t *v)
 {
-	(void)__sync_add_and_fetch(&v->counter, i);
+	__atomic_add_fetch(&v->counter, i, __ATOMIC_SEQ_CST);
 }
 
 /**
@@ -72,9 +66,9 @@ static inline void atomic_add( long i, atomic_t *v )
  *
  * Atomically subtracts @i from @v.
  */
-static inline void atomic_sub( long i, atomic_t *v )
+static inline void atomic_sub(long i, atomic_t *v)
 {
-	(void)__sync_sub_and_fetch(&v->counter, i);
+	__atomic_sub_fetch(&v->counter, i, __ATOMIC_SEQ_CST);
 }
 
 /**
@@ -86,9 +80,9 @@ static inline void atomic_sub( long i, atomic_t *v )
  * true if the result is zero, or false for all
  * other cases.
  */
-static inline long atomic_sub_and_test( long i, atomic_t *v )
+static inline long atomic_sub_and_test(long i, atomic_t *v)
 {
-	return !(__sync_sub_and_fetch(&v->counter, i));
+	return !(__atomic_sub_fetch(&v->counter, i, __ATOMIC_SEQ_CST));
 }
 
 /**
@@ -97,9 +91,9 @@ static inline long atomic_sub_and_test( long i, atomic_t *v )
  *
  * Atomically increments @v by 1.
  */
-static inline void atomic_inc( atomic_t *v )
+static inline void atomic_inc(atomic_t *v)
 {
-	(void)__sync_add_and_fetch(&v->counter, 1);
+	__atomic_add_fetch(&v->counter, 1, __ATOMIC_SEQ_CST);
 }
 
 /**
@@ -109,9 +103,9 @@ static inline void atomic_inc( atomic_t *v )
  * Atomically decrements @v by 1.  Note that the guaranteed
  * useful range of an atomic_t is only 24 bits.
  */
-static inline void atomic_dec( atomic_t *v )
+static inline void atomic_dec(atomic_t *v)
 {
-	(void)__sync_sub_and_fetch(&v->counter, 1);
+	__atomic_sub_fetch(&v->counter, 1, __ATOMIC_SEQ_CST);
 }
 
 /**
@@ -120,9 +114,9 @@ static inline void atomic_dec( atomic_t *v )
  *
  * Atomically increments @v by 1.
  */
-static inline long atomic_inc_return( atomic_t *v )
+static inline long atomic_inc_return(atomic_t *v)
 {
-	return __sync_add_and_fetch(&v->counter, 1);
+	return __atomic_add_fetch(&v->counter, 1, __ATOMIC_SEQ_CST);
 }
 
 /**
@@ -132,9 +126,9 @@ static inline long atomic_inc_return( atomic_t *v )
  * Atomically decrements @v by 1.  Note that the guaranteed
  * useful range of an atomic_t is only 24 bits.
  */
-static inline long atomic_dec_return( atomic_t *v )
+static inline long atomic_dec_return(atomic_t *v)
 {
-	return __sync_sub_and_fetch(&v->counter, 1);
+	return __atomic_sub_fetch(&v->counter, 1, __ATOMIC_SEQ_CST);
 }
 
 /**
@@ -145,9 +139,9 @@ static inline long atomic_dec_return( atomic_t *v )
  * returns true if the result is 0, or false for all other
  * cases.
  */
-static inline long atomic_dec_and_test( atomic_t *v )
+static inline long atomic_dec_and_test(atomic_t *v)
 {
-	return !(__sync_sub_and_fetch(&v->counter, 1));
+	return !(__atomic_sub_fetch(&v->counter, 1, __ATOMIC_SEQ_CST));
 }
 
 /**
@@ -158,9 +152,9 @@ static inline long atomic_dec_and_test( atomic_t *v )
  * and returns true if the result is zero, or false for all
  * other cases.
  */
-static inline long atomic_inc_and_test( atomic_t *v )
+static inline long atomic_inc_and_test(atomic_t *v)
 {
-	return !(__sync_add_and_fetch(&v->counter, 1));
+	return !(__atomic_add_fetch(&v->counter, 1, __ATOMIC_SEQ_CST));
 }
 
 /**
@@ -172,10 +166,9 @@ static inline long atomic_inc_and_test( atomic_t *v )
  * if the result is negative, or false when
  * result is greater than or equal to zero.
  */
-static inline long atomic_add_negative( long i, atomic_t *v )
+static inline long atomic_add_negative(long i, atomic_t *v)
 {
-	return (__sync_add_and_fetch(&v->counter, i) < 0);
+	return (__atomic_add_fetch(&v->counter, i, __ATOMIC_SEQ_CST) < 0);
 }
 
 #endif
-
