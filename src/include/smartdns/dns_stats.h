@@ -65,7 +65,7 @@ static inline uint64_t stats_read(const uint64_t *s)
 
 static inline uint64_t stats_read_and_set(uint64_t *s, uint64_t v)
 {
-	return __atomic_test_and_set(s, v);
+	return __atomic_exchange_n(s, v, __ATOMIC_SEQ_CST);
 }
 
 static inline void stats_set(uint64_t *s, uint64_t v)
