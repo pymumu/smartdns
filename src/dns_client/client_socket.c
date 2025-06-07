@@ -31,23 +31,26 @@
 
 int _dns_client_create_socket(struct dns_server_info *server_info)
 {
+	int ret = -1;
+	pthread_mutex_lock(&server_info->lock);
 	time(&server_info->last_send);
 	time(&server_info->last_recv);
 
 	if (server_info->fd > 0) {
+		pthread_mutex_unlock(&server_info->lock);
 		return -1;
 	}
 
 	if (server_info->type == DNS_SERVER_UDP) {
-		return _dns_client_create_socket_udp(server_info);
+		ret = _dns_client_create_socket_udp(server_info);
 	} else if (server_info->type == DNS_SERVER_MDNS) {
-		return _dns_client_create_socket_udp_mdns(server_info);
+		ret = _dns_client_create_socket_udp_mdns(server_info);
 	} else if (server_info->type == DNS_SERVER_TCP) {
-		return _dns_client_create_socket_tcp(server_info);
+		ret = _dns_client_create_socket_tcp(server_info);
 	} else if (server_info->type == DNS_SERVER_TLS) {
 		struct client_dns_server_flag_tls *flag_tls = NULL;
 		flag_tls = &server_info->flags.tls;
-		return _dns_client_create_socket_tls(server_info, flag_tls->hostname, flag_tls->alpn);
+		ret = _dns_client_create_socket_tls(server_info, flag_tls->hostname, flag_tls->alpn);
 	} else if (server_info->type == DNS_SERVER_QUIC) {
 		struct client_dns_server_flag_tls *flag_tls = NULL;
 		const char *alpn = "doq";
@@ -55,11 +58,11 @@ int _dns_client_create_socket(struct dns_server_info *server_info)
 		if (flag_tls->alpn[0] != 0) {
 			alpn = flag_tls->alpn;
 		}
-		return _dns_client_create_socket_quic(server_info, flag_tls->hostname, alpn);
+		ret = _dns_client_create_socket_quic(server_info, flag_tls->hostname, alpn);
 	} else if (server_info->type == DNS_SERVER_HTTPS) {
 		struct client_dns_server_flag_https *flag_https = NULL;
 		flag_https = &server_info->flags.https;
-		return _dns_client_create_socket_tls(server_info, flag_https->hostname, flag_https->alpn);
+		ret = _dns_client_create_socket_tls(server_info, flag_https->hostname, flag_https->alpn);
 	} else if (server_info->type == DNS_SERVER_HTTP3) {
 		struct client_dns_server_flag_https *flag_https = NULL;
 		const char *alpn = "h3";
@@ -67,19 +70,32 @@ int _dns_client_create_socket(struct dns_server_info *server_info)
 		if (flag_https->alpn[0] != 0) {
 			alpn = flag_https->alpn;
 		}
-		return _dns_client_create_socket_quic(server_info, flag_https->hostname, alpn);
+		ret = _dns_client_create_socket_quic(server_info, flag_https->hostname, alpn);
 	} else {
-		return -1;
+		ret = -1;
 	}
 
-	return 0;
+	pthread_mutex_unlock(&server_info->lock);
+
+	return ret;
 }
 
 void _dns_client_close_socket_ext(struct dns_server_info *server_info, int no_del_conn_list)
 {
+	dns_server_status server_status = DNS_SERVER_STATUS_DISCONNECTED;
+
+	pthread_mutex_lock(&server_info->lock);
+	server_status = server_info->status;
+	server_info->status = DNS_SERVER_STATUS_DISCONNECTED;
+
+	/* remove fd from epoll */
+	if (server_info->fd > 0) {
+		epoll_ctl(client.epoll_fd, EPOLL_CTL_DEL, server_info->fd, NULL);
+	}
+
 	if (server_info->ssl) {
 		/* Shutdown ssl */
-		if (server_info->status == DNS_SERVER_STATUS_CONNECTED) {
+		if (server_status == DNS_SERVER_STATUS_CONNECTED) {
 			_ssl_shutdown(server_info);
 		}
 
@@ -87,7 +103,6 @@ void _dns_client_close_socket_ext(struct dns_server_info *server_info, int no_de
 			struct dns_conn_stream *conn_stream = NULL;
 			struct dns_conn_stream *tmp = NULL;
 
-			pthread_mutex_lock(&server_info->lock);
 			list_for_each_entry_safe(conn_stream, tmp, &server_info->conn_stream_list, server_list)
 			{
 				if (conn_stream->quic_stream) {
@@ -106,41 +121,31 @@ void _dns_client_close_socket_ext(struct dns_server_info *server_info, int no_de
 				list_del_init(&conn_stream->server_list);
 				_dns_client_conn_stream_put(conn_stream);
 			}
-
-			pthread_mutex_unlock(&server_info->lock);
 		}
-
+		
 		SSL_free(server_info->ssl);
 		server_info->ssl = NULL;
 		server_info->ssl_write_len = -1;
 	}
-
+	
 	if (server_info->bio_method) {
 		BIO_meth_free(server_info->bio_method);
 		server_info->bio_method = NULL;
 	}
-
-	if (server_info->fd <= 0) {
-		return;
-	}
-
-	/* remove fd from epoll */
-	if (server_info->fd > 0) {
-		epoll_ctl(client.epoll_fd, EPOLL_CTL_DEL, server_info->fd, NULL);
-	}
-
+	
 	if (server_info->proxy) {
 		proxy_conn_free(server_info->proxy);
 		server_info->proxy = NULL;
-	} else {
+	} else if (server_info->fd > 0) {
 		close(server_info->fd);
 	}
-
+	
 	server_info->fd = -1;
-	server_info->status = DNS_SERVER_STATUS_DISCONNECTED;
 	/* update send recv time */
 	time(&server_info->last_send);
 	time(&server_info->last_recv);
+
+	pthread_mutex_unlock(&server_info->lock);
 	tlog(TLOG_DEBUG, "server %s:%d closed.", server_info->ip, server_info->port);
 }
 

@@ -47,6 +47,8 @@ SSL_CTX *_ssl_ctx_get(int is_quic);
 
 int _ssl_shutdown(struct dns_server_info *server);
 
+int _ssl_do_handevent(struct dns_server_info *server);
+
 #ifdef __cplusplus
 }
 #endif /*__cplusplus */

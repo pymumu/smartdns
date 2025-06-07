@@ -34,11 +34,12 @@
 static ssize_t _ssl_read(struct dns_server_conn_tls_client *conn, void *buff, int num)
 {
 	ssize_t ret = 0;
+	pthread_mutex_lock(&conn->ssl_lock);
 	if (conn == NULL || buff == NULL) {
+		pthread_mutex_unlock(&conn->ssl_lock);
 		return SSL_ERROR_SYSCALL;
 	}
 
-	pthread_mutex_lock(&conn->ssl_lock);
 	ret = SSL_read(conn->ssl, buff, num);
 	pthread_mutex_unlock(&conn->ssl_lock);
 	return ret;
@@ -47,11 +48,12 @@ static ssize_t _ssl_read(struct dns_server_conn_tls_client *conn, void *buff, in
 static ssize_t _ssl_write(struct dns_server_conn_tls_client *conn, const void *buff, int num)
 {
 	ssize_t ret = 0;
+	pthread_mutex_lock(&conn->ssl_lock);
 	if (conn == NULL || buff == NULL || conn->ssl == NULL) {
+		pthread_mutex_unlock(&conn->ssl_lock);
 		return SSL_ERROR_SYSCALL;
 	}
 
-	pthread_mutex_lock(&conn->ssl_lock);
 	ret = SSL_write(conn->ssl, buff, num);
 	pthread_mutex_unlock(&conn->ssl_lock);
 	return ret;
@@ -60,11 +62,12 @@ static ssize_t _ssl_write(struct dns_server_conn_tls_client *conn, const void *b
 static int _ssl_get_error(struct dns_server_conn_tls_client *conn, int ret)
 {
 	int err = 0;
+	pthread_mutex_lock(&conn->ssl_lock);
 	if (conn == NULL || conn->ssl == NULL) {
+		pthread_mutex_unlock(&conn->ssl_lock);
 		return SSL_ERROR_SYSCALL;
 	}
 
-	pthread_mutex_lock(&conn->ssl_lock);
 	err = SSL_get_error(conn->ssl, ret);
 	pthread_mutex_unlock(&conn->ssl_lock);
 	return err;
@@ -73,11 +76,12 @@ static int _ssl_get_error(struct dns_server_conn_tls_client *conn, int ret)
 static int _ssl_do_accept(struct dns_server_conn_tls_client *conn)
 {
 	int err = 0;
+	pthread_mutex_lock(&conn->ssl_lock);
 	if (conn == NULL || conn->ssl == NULL) {
+		pthread_mutex_unlock(&conn->ssl_lock);
 		return SSL_ERROR_SYSCALL;
 	}
 
-	pthread_mutex_lock(&conn->ssl_lock);
 	err = SSL_accept(conn->ssl);
 	pthread_mutex_unlock(&conn->ssl_lock);
 	return err;

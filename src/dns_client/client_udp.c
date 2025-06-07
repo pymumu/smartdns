@@ -273,7 +273,7 @@ static int _dns_client_process_udp_proxy(struct dns_server_info *server_info, st
 			ret = 0;
 		}
 		pthread_mutex_unlock(&server_info->lock);
-		tlog(TLOG_DEBUG, "peer close, %s", server_info->ip);
+		tlog(TLOG_DEBUG, "peer close, %s:%d", server_info->ip, server_info->port);
 		return ret;
 	}
 

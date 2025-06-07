@@ -24,6 +24,7 @@
 
 #include "client_socket.h"
 #include "client_tcp.h"
+#include "client_tls.h"
 #include "server_info.h"
 
 #include <net/if.h>
@@ -287,7 +288,7 @@ int _dns_client_process_tcp(struct dns_server_info *server_info, struct epoll_ev
 				ret = 0;
 			}
 			pthread_mutex_unlock(&client.server_list_lock);
-			tlog(TLOG_DEBUG, "peer close, %s", server_info->ip);
+			tlog(TLOG_DEBUG, "peer close, %s:%d", server_info->ip, server_info->port);
 			return ret;
 		}
 
@@ -423,10 +424,10 @@ void _dns_client_check_tcp(void)
 #ifdef OSSL_QUIC1_VERSION
 		if (server_info->type == DNS_SERVER_QUIC || server_info->type == DNS_SERVER_HTTP3) {
 			if (server_info->ssl) {
-				SSL_handle_events(server_info->ssl);
+				_ssl_do_handevent(server_info);
 				if (SSL_get_shutdown(server_info->ssl) != 0) {
 					_dns_client_close_socket_ext(server_info, 1);
-					tlog(TLOG_DEBUG, "quick server %s shutdown.", server_info->ip);
+					tlog(TLOG_DEBUG, "quick server %s:%d shutdown.", server_info->ip, server_info->port);
 				}
 			}
 		}
@@ -434,7 +435,7 @@ void _dns_client_check_tcp(void)
 
 		if (server_info->status == DNS_SERVER_STATUS_CONNECTING) {
 			if (server_info->last_recv + DNS_TCP_CONNECT_TIMEOUT < now) {
-				tlog(TLOG_DEBUG, "server %s connect timeout.", server_info->ip);
+				tlog(TLOG_DEBUG, "server %s:%d connect timeout.", server_info->ip, server_info->port);
 				_dns_client_close_socket(server_info);
 			}
 		} else if (server_info->status == DNS_SERVER_STATUS_CONNECTED) {

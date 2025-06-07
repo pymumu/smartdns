@@ -317,7 +317,7 @@ int _dns_client_create_socket_quic(struct dns_server_info *server_info, const ch
 		goto errout;
 	}
 
-	tlog(TLOG_DEBUG, "quic server %s connecting.\n", server_info->ip);
+	tlog(TLOG_DEBUG, "quic server %s:%d connecting.\n", server_info->ip, server_info->port);
 
 	return 0;
 errout:
@@ -388,7 +388,7 @@ static int _dns_client_process_quic_poll(struct dns_server_info *server_info)
 		pthread_mutex_unlock(&server_info->lock);
 
 		if (poll_item_count <= 0) {
-			SSL_handle_events(server_info->ssl);
+			_ssl_do_handevent(server_info);
 			break;
 		}
 
@@ -493,7 +493,7 @@ int _dns_client_process_quic(struct dns_server_info *server_info, struct epoll_e
 				ret = 0;
 			}
 			pthread_mutex_unlock(&server_info->lock);
-			tlog(TLOG_DEBUG, "quic server %s peer close", server_info->ip);
+			tlog(TLOG_DEBUG, "quic server %s:%d peer close", server_info->ip, server_info->port);
 			return ret;
 		}
 
@@ -530,7 +530,7 @@ int _dns_client_process_quic(struct dns_server_info *server_info, struct epoll_e
 			if (send_len < 0) {
 				if (errno == EAGAIN) {
 					epoll_events = EPOLLIN | EPOLLOUT;
-					SSL_handle_events(server_info->ssl);
+					_ssl_do_handevent(server_info);
 				}
 			}
 
@@ -637,8 +637,8 @@ int _dns_client_send_quic_data(struct dns_query_struct *query, struct dns_server
 		goto out;
 	}
 
-	/* run hand shake */
-	SSL_handle_events(server_info->ssl);
+	/* run quic handevent */
+	_ssl_do_handevent(server_info);
 
 	SSL *quic_stream = SSL_new_stream(server_info->ssl, 0);
 	if (quic_stream == NULL) {

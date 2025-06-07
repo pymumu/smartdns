@@ -296,6 +296,7 @@ int create_pid_file(const char *pid_file)
 		goto errout;
 	}
 
+	ftruncate(fd, 0);
 	snprintf(buff, TMP_BUFF_LEN_32, "%d\n", getpid());
 
 	if (write(fd, buff, strnlen(buff, TMP_BUFF_LEN_32)) < 0) {

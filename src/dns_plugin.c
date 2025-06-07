@@ -31,6 +31,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
 
 struct dns_plugin_ops {
 	struct list_head list;
@@ -51,6 +52,7 @@ struct dns_plugin {
 
 struct dns_plugins {
 	struct list_head list;
+	pthread_rwlock_t lock;
 	DECLARE_HASHTABLE(plugin, 4);
 };
 
@@ -64,10 +66,11 @@ int smartdns_plugin_func_server_recv(struct dns_packet *packet, unsigned char *i
 	struct dns_plugin_ops *chain = NULL;
 	int ret = 0;
 
-	if (is_plugin_init == 0) {
+	if (unlikely(is_plugin_init == 0)) {
 		return 0;
 	}
 
+	pthread_rwlock_rdlock(&plugins.lock);
 	list_for_each_entry(chain, &plugins.list, list)
 	{
 		if (!chain->ops.server_recv) {
@@ -76,9 +79,11 @@ int smartdns_plugin_func_server_recv(struct dns_packet *packet, unsigned char *i
 
 		ret = chain->ops.server_recv(packet, inpacket, inpacket_len, local, local_len, from, from_len);
 		if (ret != 0) {
+			pthread_rwlock_unlock(&plugins.lock);
 			return ret;
 		}
 	}
+	pthread_rwlock_unlock(&plugins.lock);
 
 	return 0;
 }
@@ -87,10 +92,11 @@ void smartdns_plugin_func_server_complete_request(struct dns_request *request)
 {
 	struct dns_plugin_ops *chain = NULL;
 
-	if (is_plugin_init == 0) {
+	if (unlikely(is_plugin_init == 0)) {
 		return;
 	}
 
+	pthread_rwlock_rdlock(&plugins.lock);
 	list_for_each_entry(chain, &plugins.list, list)
 	{
 		if (!chain->ops.server_query_complete) {
@@ -99,6 +105,7 @@ void smartdns_plugin_func_server_complete_request(struct dns_request *request)
 
 		chain->ops.server_query_complete(request);
 	}
+	pthread_rwlock_unlock(&plugins.lock);
 
 	return;
 }
@@ -107,10 +114,11 @@ void smartdns_plugin_func_server_log_callback(smartdns_log_level level, const ch
 {
 	struct dns_plugin_ops *chain = NULL;
 
-	if (is_plugin_init == 0) {
+	if (unlikely(is_plugin_init == 0)) {
 		return;
 	}
 
+	pthread_rwlock_rdlock(&plugins.lock);
 	list_for_each_entry(chain, &plugins.list, list)
 	{
 		if (!chain->ops.server_log) {
@@ -119,6 +127,7 @@ void smartdns_plugin_func_server_log_callback(smartdns_log_level level, const ch
 
 		chain->ops.server_log(level, msg, msg_len);
 	}
+	pthread_rwlock_unlock(&plugins.lock);
 
 	return;
 }
@@ -133,7 +142,9 @@ int smartdns_operations_register(const struct smartdns_operations *operations)
 	}
 
 	memcpy(&chain->ops, operations, sizeof(struct smartdns_operations));
+	pthread_rwlock_wrlock(&plugins.lock);
 	list_add_tail(&chain->list, &plugins.list);
+	pthread_rwlock_unlock(&plugins.lock);
 
 	return 0;
 }
@@ -143,14 +154,17 @@ int smartdns_operations_unregister(const struct smartdns_operations *operations)
 	struct dns_plugin_ops *chain = NULL;
 	struct dns_plugin_ops *tmp = NULL;
 
+	pthread_rwlock_wrlock(&plugins.lock);
 	list_for_each_entry_safe(chain, tmp, &plugins.list, list)
 	{
 		if (memcmp(&chain->ops, operations, sizeof(struct smartdns_operations)) == 0) {
 			list_del(&chain->list);
+			pthread_rwlock_unlock(&plugins.lock);
 			free(chain);
 			return 0;
 		}
 	}
+	pthread_rwlock_unlock(&plugins.lock);
 
 	return -1;
 }
@@ -161,12 +175,15 @@ static struct dns_plugin *_dns_plugin_get(const char *plugin_file)
 	unsigned int key = 0;
 
 	key = hash_string(plugin_file);
+	pthread_rwlock_rdlock(&plugins.lock);
 	hash_for_each_possible(plugins.plugin, plugin, node, key)
 	{
 		if (strncmp(plugin->file, plugin_file, PATH_MAX - 1) == 0) {
+			pthread_rwlock_unlock(&plugins.lock);
 			return plugin;
 		}
 	}
+	pthread_rwlock_unlock(&plugins.lock);
 
 	return NULL;
 }
@@ -254,10 +271,21 @@ static struct dns_plugin *_dns_plugin_new(const char *plugin_file)
 	return plugin;
 }
 
-static int _dns_plugin_remove(struct dns_plugin *plugin)
+static int _dns_plugin_remove_locked(struct dns_plugin *plugin)
 {
 	_dns_plugin_unload_library(plugin);
 	hash_del(&plugin->node);
+	free(plugin);
+
+	return 0;
+}
+
+static int _dns_plugin_remove(struct dns_plugin *plugin)
+{
+	_dns_plugin_unload_library(plugin);
+	pthread_rwlock_wrlock(&plugins.lock);
+	hash_del(&plugin->node);
+	pthread_rwlock_unlock(&plugins.lock);
 	free(plugin);
 
 	return 0;
@@ -323,11 +351,13 @@ static int _dns_plugin_remove_all_ops(void)
 	struct dns_plugin_ops *chain = NULL;
 	struct dns_plugin_ops *tmp = NULL;
 
+	pthread_rwlock_wrlock(&plugins.lock);
 	list_for_each_entry_safe(chain, tmp, &plugins.list, list)
 	{
 		list_del(&chain->list);
 		free(chain);
 	}
+	pthread_rwlock_unlock(&plugins.lock);
 
 	return 0;
 }
@@ -338,10 +368,12 @@ static int _dns_plugin_remove_all(void)
 	struct hlist_node *tmp = NULL;
 	unsigned int key = 0;
 
+	pthread_rwlock_wrlock(&plugins.lock);
 	hash_for_each_safe(plugins.plugin, key, tmp, plugin, node)
 	{
-		_dns_plugin_remove(plugin);
+		_dns_plugin_remove_locked(plugin);
 	}
+	pthread_rwlock_unlock(&plugins.lock);
 
 	return -1;
 }
@@ -354,6 +386,10 @@ int dns_server_plugin_init(void)
 
 	hash_init(plugins.plugin);
 	INIT_LIST_HEAD(&plugins.list);
+	if (pthread_rwlock_init(&plugins.lock, NULL) != 0) {
+		tlog(TLOG_ERROR, "init plugin rwlock failed.");
+		return -1;
+	}
 	is_plugin_init = 1;
 	return 0;
 }
@@ -366,6 +402,9 @@ void dns_server_plugin_exit(void)
 
 	_dns_plugin_remove_all_ops();
 	_dns_plugin_remove_all();
+
+	pthread_rwlock_destroy(&plugins.lock);
+	is_plugin_init = 0;
 	return;
 }
 
