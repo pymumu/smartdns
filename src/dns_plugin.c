@@ -271,15 +271,6 @@ static struct dns_plugin *_dns_plugin_new(const char *plugin_file)
 	return plugin;
 }
 
-static int _dns_plugin_remove_locked(struct dns_plugin *plugin)
-{
-	_dns_plugin_unload_library(plugin);
-	hash_del(&plugin->node);
-	free(plugin);
-
-	return 0;
-}
-
 static int _dns_plugin_remove(struct dns_plugin *plugin)
 {
 	_dns_plugin_unload_library(plugin);
@@ -369,9 +360,15 @@ static int _dns_plugin_remove_all(void)
 	unsigned int key = 0;
 
 	pthread_rwlock_wrlock(&plugins.lock);
-	hash_for_each_safe(plugins.plugin, key, tmp, plugin, node)
-	{
-		_dns_plugin_remove_locked(plugin);
+	/* avoid hang */
+	while (!hash_empty(plugins.plugin)) {
+		pthread_rwlock_unlock(&plugins.lock);
+		hash_for_each_safe(plugins.plugin, key, tmp, plugin, node)
+		{
+			_dns_plugin_remove(plugin);
+			break;
+		}
+		pthread_rwlock_wrlock(&plugins.lock);
 	}
 	pthread_rwlock_unlock(&plugins.lock);
 
