@@ -738,7 +738,7 @@ errout:
 
 int dns_is_quic_supported(void)
 {
-#ifdef OSSL_QUIC1_VERSION
+#if defined(OSSL_QUIC1_VERSION) && !defined (OPENSSL_NO_QUIC)
 	return 1;
 #else
 	return 0;

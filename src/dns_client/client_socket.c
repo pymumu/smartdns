@@ -106,7 +106,7 @@ void _dns_client_close_socket_ext(struct dns_server_info *server_info, int no_de
 			list_for_each_entry_safe(conn_stream, tmp, &server_info->conn_stream_list, server_list)
 			{
 				if (conn_stream->quic_stream) {
-#ifdef OSSL_QUIC1_VERSION
+#if defined(OSSL_QUIC1_VERSION) && !defined (OPENSSL_NO_QUIC)
 					SSL_stream_reset(conn_stream->quic_stream, NULL, 0);
 #endif
 					SSL_free(conn_stream->quic_stream);

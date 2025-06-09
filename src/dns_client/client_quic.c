@@ -35,7 +35,7 @@
 #include <sys/epoll.h>
 #include <sys/ioctl.h>
 
-#ifdef OSSL_QUIC1_VERSION
+#if defined(OSSL_QUIC1_VERSION) && !defined (OPENSSL_NO_QUIC)
 static int _dns_client_quic_bio_recvmmsg(BIO *bio, BIO_MSG *msg, size_t stride, size_t num_msg, uint64_t flags,
 										 size_t *msgs_processed)
 {
@@ -202,7 +202,7 @@ errout:
 
 int _dns_client_create_socket_quic(struct dns_server_info *server_info, const char *hostname, const char *alpn)
 {
-#ifdef OSSL_QUIC1_VERSION
+#if defined(OSSL_QUIC1_VERSION) && !defined (OPENSSL_NO_QUIC)
 	int fd = 0;
 	unsigned char alpn_data[DNS_MAX_ALPN_LEN];
 	int32_t alpn_len = 0;
@@ -349,7 +349,7 @@ errout:
 #endif
 }
 
-#ifdef OSSL_QUIC1_VERSION
+#if defined(OSSL_QUIC1_VERSION) && !defined (OPENSSL_NO_QUIC)
 static int _dns_client_process_quic_poll(struct dns_server_info *server_info)
 {
 	LIST_HEAD(processed_list);
@@ -563,7 +563,7 @@ errout:
 }
 #endif
 
-#ifdef OSSL_QUIC1_VERSION
+#if defined(OSSL_QUIC1_VERSION) && !defined (OPENSSL_NO_QUIC)
 static int _dns_client_quic_pending_data(struct dns_conn_stream *stream, struct dns_server_info *server_info,
 										 struct dns_query_struct *query, void *packet, int len)
 {
@@ -706,7 +706,7 @@ out:
 int _dns_client_send_quic(struct dns_query_struct *query, struct dns_server_info *server_info, void *packet,
 						  unsigned short len)
 {
-#ifdef OSSL_QUIC1_VERSION
+#if defined(OSSL_QUIC1_VERSION) && !defined (OPENSSL_NO_QUIC)
 	unsigned char inpacket_data[DNS_IN_PACKSIZE];
 	unsigned char *inpacket = inpacket_data;
 

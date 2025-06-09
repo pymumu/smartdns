@@ -27,7 +27,7 @@
 int _dns_client_send_http3(struct dns_query_struct *query, struct dns_server_info *server_info, void *packet,
 						   unsigned short len)
 {
-#ifdef OSSL_QUIC1_VERSION
+#if defined(OSSL_QUIC1_VERSION) && !defined (OPENSSL_NO_QUIC)
 	int http_len = 0;
 	int ret = 0;
 	unsigned char inpacket_data[DNS_IN_PACKSIZE];
@@ -76,7 +76,7 @@ errout:
 	return 0;
 }
 
-#ifdef OSSL_QUIC1_VERSION
+#if defined(OSSL_QUIC1_VERSION) && !defined (OPENSSL_NO_QUIC)
 int _dns_client_process_recv_http3(struct dns_server_info *server_info, struct dns_conn_stream *conn_stream)
 {
 	int ret = 0;
