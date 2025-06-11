@@ -266,14 +266,12 @@ void _dns_server_select_possible_ipaddress(struct dns_request *request)
 	switch (request->qtype) {
 	case DNS_T_A: {
 		memcpy(request->ip_addr, selected_addr_map->ip_addr, DNS_RR_A_LEN);
-		request->ip_ttl = request->conf->dns_rr_ttl_min > 0 ? request->conf->dns_rr_ttl_min : DNS_SERVER_TMOUT_TTL;
 		tlog(TLOG_DEBUG, "possible result: %s, rcode: %d,  hitnum: %d, %d.%d.%d.%d", request->domain, request->rcode,
 			 selected_addr_map->hitnum, request->ip_addr[0], request->ip_addr[1], request->ip_addr[2],
 			 request->ip_addr[3]);
 	} break;
 	case DNS_T_AAAA: {
 		memcpy(request->ip_addr, selected_addr_map->ip_addr, DNS_RR_AAAA_LEN);
-		request->ip_ttl = request->conf->dns_rr_ttl_min > 0 ? request->conf->dns_rr_ttl_min : DNS_SERVER_TMOUT_TTL;
 		tlog(TLOG_DEBUG,
 			 "possible result: %s, rcode: %d,  hitnum: %d, "
 			 "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x",
