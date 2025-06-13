@@ -214,6 +214,8 @@ load_server()
 		SERVER="server-tls"
 	elif [ "$type" = "https" ]; then
 		SERVER="server-https"
+	elif [ "$type" = "quic" ]; then
+		SERVER="server-quic"
 	fi
 
 	if echo "$ip" | grep "://" >/dev/null 2>&1; then
