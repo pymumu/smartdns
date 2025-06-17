@@ -216,6 +216,8 @@ load_server()
 		SERVER="server-https"
 	elif [ "$type" = "quic" ]; then
 		SERVER="server-quic"
+	elif [ "$type" = "h3" ]; then
+		SERVER="server-h3"
 	fi
 
 	if echo "$ip" | grep "://" >/dev/null 2>&1; then
