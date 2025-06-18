@@ -40,7 +40,6 @@ hide:
 |log-num|archived log number|2 for openwrt, 8 for other system|Integer, 0 means turn off the log|log-num 2
 |log-file-mode|archived log file mode|0640|Integer|log-file-mode 644
 |log-console|enable output log to console|no|[yes\|no]|log-console yes
-|log-console|enable output log to syslog|no|[yes\|no]|log-console yes
 |audit-enable|audit log enable|no|[yes\|no]|audit-enable yes
 |audit-file|audit log file|/var/log/<br />smartdns/<br />smartdns-audit.log|File Path|audit-file /var/log/smartdns/smartdns-audit.log
 |audit-size|audit log size|128K|number+K,M,G|audit-size 128K

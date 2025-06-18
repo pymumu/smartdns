@@ -21,9 +21,9 @@ flowchart
     style ipset color:white,fill:green,stroke:#ee00,stroke-width:2px
     style ipset1 color:white,fill:green,stroke:#ee00,stroke-width:2px
     style speed-check color:white,fill:green,stroke:#ee00,stroke-width:2px
-    client(((客户端)))-----> |1. 请求|smartdns
-    smartdns---->|2. 获取到IP|client
-    client--->|3. 使用IP请求数据|router
+    client(((客户端)))-----> |1\. 请求|smartdns
+    smartdns---->|2\. 获取到IP|client
+    client--->|3\. 使用IP请求数据|router
     subgraph smartdns [SmartDNS&nbsp&nbsp]
         server(DNS服务)-->|a. 处理规则namserver|rule(域名规则)
         rule-->|b. 外部域名|public-group(外部服务器组)

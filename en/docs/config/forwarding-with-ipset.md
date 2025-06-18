@@ -21,9 +21,9 @@ flowchart
     style ipset color:white,fill:green,stroke:#ee00,stroke-width:2px
     style ipset1 color:white,fill:green,stroke:#ee00,stroke-width:2px
     style speed-check color:white,fill:green,stroke:#ee00,stroke-width:2px
-    client(((Client)))-----> |1. Request|smartdns
-    smartdns---->|2. Obtain IP|client
-    client--->|3. Request data using IP|router
+    client(((Client)))-----> |1\. Request|smartdns
+    smartdns---->|2\. Obtain IP|client
+    client--->|3\. Request data using IP|router
     subgraph smartdns [SmartDNS&nbsp&nbsp]
         server(DNS service)-->|a.Handling namserver rules|rule(domain name rules)
         rule-->|b.External domains|public-group(external server group)
