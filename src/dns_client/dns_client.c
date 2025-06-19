@@ -270,7 +270,9 @@ int _dns_client_send_packet(struct dns_query_struct *query, void *packet, int le
 					_dns_server_inc_prohibit_server_num(server_info);
 					time(&server_info->last_send);
 					time(&server_info->last_recv);
-					tlog(TLOG_INFO, "server %s not alive, prohibit", server_info->ip);
+					if (server_info->type != DNS_SERVER_MDNS) {
+						tlog(TLOG_INFO, "server %s not alive, prohibit", server_info->ip);
+					}
 					_dns_client_shutdown_socket(server_info);
 				}
 
@@ -332,6 +334,7 @@ int _dns_client_send_packet(struct dns_query_struct *query, void *packet, int le
 			case DNS_SERVER_MDNS:
 				/* mdns query */
 				ret = _dns_client_send_udp_mdns(server_info, packet_data, packet_data_len);
+				send_err = errno;
 				break;
 			case DNS_SERVER_QUIC:
 				/* quic query */
