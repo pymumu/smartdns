@@ -863,9 +863,15 @@ load_service()
 	config_get_bool ui "$section" "ui" '0'
 
 	[ "$ui" = "1" ] && {
+		config_get ui_port "$section" "ui_port" "6080"
+		config_get ui_data_dir "$section" "ui_data_dir" "/var/lib/smartdns"
+		config_get ui_log_max_age "$section" "ui_log_max_age" "30"
+
 		conf_append "plugin" "/usr/lib/libsmartdns_ui.so"
 		conf_append "smartdns-ui.www-root" "/usr/share/smartdns/wwwroot"
-		conf_append "data-dir" "/var/lib/smartdns"
+		conf_append "smartdns-ui.ip" "http://0.0.0.0:$ui_port"
+		conf_append "data-dir" "$ui_data_dir"
+		conf_append "smartdns-ui.max-query-log-age" "$ui_log_max_age"
 	}
 
 	{
