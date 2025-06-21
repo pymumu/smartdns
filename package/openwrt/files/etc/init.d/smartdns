@@ -1,19 +1,10 @@
 #!/bin/sh /etc/rc.common
-#
+
 # Copyright (C) 2018-2025 Ruilin Peng (Nick) <pymumu@gmail.com>.
-#
-# smartdns is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# smartdns is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+# smartdns is free software under the GPLv3 (or later).
+# Distributed without any warranty; see the license for details.
+# Full license: http://www.gnu.org/licenses/
 
 START=19
 STOP=82
@@ -863,9 +854,15 @@ load_service()
 	config_get_bool ui "$section" "ui" '0'
 
 	[ "$ui" = "1" ] && {
+		config_get ui_port "$section" "ui_port" "6080"
+		config_get ui_data_dir "$section" "ui_data_dir" "/var/lib/smartdns"
+		config_get ui_log_max_age "$section" "ui_log_max_age" "30"
+
 		conf_append "plugin" "/usr/lib/libsmartdns_ui.so"
 		conf_append "smartdns-ui.www-root" "/usr/share/smartdns/wwwroot"
-		conf_append "data-dir" "/var/lib/smartdns"
+		conf_append "smartdns-ui.ip" "http://0.0.0.0:$ui_port"
+		conf_append "data-dir" "$ui_data_dir"
+		conf_append "smartdns-ui.max-query-log-age" "$ui_log_max_age"
 	}
 
 	{
