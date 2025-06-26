@@ -801,7 +801,7 @@ load_service()
 	# disable service
 	[ "$enabled" = "0" ] && {
 		[ "$old_enabled" = "0" ] && return 1
-		[ "$old_port" = "53" ] && stop_main_dns "0"
+		[ "$old_port" = "53" ] && [ "$old_auto_set_dnsmasq" = "1" ] && stop_main_dns "0"
 		[ "$old_port" != "53" ] && [ "$old_auto_set_dnsmasq" = "1" ] && stop_forward_dnsmasq "$old_port" "0"
 		disable_auto_update
 		return 1
@@ -812,13 +812,16 @@ load_service()
 		[ "$old_port" = "53" ] && {
 			no_restart_dnsmasq="1"
 			[ "$auto_set_dnsmasq" = "0" ] && no_restart_dnsmasq="0"
-			stop_main_dns "$no_restart_dnsmasq"
+			[ "$old_auto_set_dnsmasq" = "1" ] && stop_main_dns "$no_restart_dnsmasq"
 		}
 		[ "$old_port" != "53" ] && [ "$old_auto_set_dnsmasq" = "1" ] && stop_forward_dnsmasq "$old_port" "1"
 	}
 
 	# start service
-	[ "$port" = "53" ] && set_main_dns
+	[ "$port" = "53" ] && {
+		[ "$auto_set_dnsmasq" = "1" ] && set_main_dns
+		[ "$auto_set_dnsmasq" = "0" ] && [ "$old_auto_set_dnsmasq" = "1" ] && stop_main_dns "0"
+	}
 	[ "$port" != "53" ] && {
 		[ "$auto_set_dnsmasq" = "1" ] && set_forward_dnsmasq "$port"
 		[ "$auto_set_dnsmasq" = "0" ] && [ "$old_auto_set_dnsmasq" = "1" ] && stop_forward_dnsmasq "$old_port" "0"
@@ -905,7 +908,7 @@ unload_service()
 
 	[ "$enabled" = "1" ] && {
 		[ "$old_enabled" = "0" ] && return 1
-		[ "$old_port" = "53" ] && stop_main_dns "0"
+		[ "$old_port" = "53" ] && [ "$old_auto_set_dnsmasq" = "1" ] && stop_main_dns "0"
 		[ "$old_port" != "53" ] && [ "$old_auto_set_dnsmasq" = "1" ] && stop_forward_dnsmasq "$old_port" "0"
 	}
 }
