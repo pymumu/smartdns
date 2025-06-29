@@ -141,7 +141,7 @@ struct _dns_read_packet_info {
 static struct _dns_read_packet_info *_dns_read_packet_file(const char *packet_file)
 {
 	struct _dns_read_packet_info *info = NULL;
-	int fd = 0;
+	int fd = -1;
 	int len = 0;
 	int message_len = 0;
 	uint8_t *ptr = NULL;

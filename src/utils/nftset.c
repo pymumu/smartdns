@@ -179,7 +179,7 @@ static int _nftset_socket_init(void)
 	struct sockaddr_nl addr = {0};
 	addr.nl_family = AF_NETLINK;
 	addr.nl_pid = 0;
-	int fd = 0;
+	int fd = -1;
 
 	if (nftset_fd > 0) {
 		return 0;

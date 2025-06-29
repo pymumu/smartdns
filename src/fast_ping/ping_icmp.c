@@ -201,7 +201,7 @@ errout:
 
 static int _fast_ping_create_icmp(FAST_PING_TYPE type)
 {
-	int fd = 0;
+	int fd = -1;
 	int *set_fd = NULL;
 
 	pthread_mutex_lock(&ping.lock);

@@ -184,7 +184,7 @@ int _dns_server_local_addr_cache_destroy(void)
 
 int _dns_server_local_addr_cache_init(void)
 {
-	int fd = 0;
+	int fd = -1;
 	struct sockaddr_nl sa;
 
 	server.local_addr_cache.fd_netlink = -1;

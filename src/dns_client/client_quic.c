@@ -203,7 +203,7 @@ errout:
 int _dns_client_create_socket_quic(struct dns_server_info *server_info, const char *hostname, const char *alpn)
 {
 #if defined(OSSL_QUIC1_VERSION) && !defined (OPENSSL_NO_QUIC)
-	int fd = 0;
+	int fd = -1;
 	unsigned char alpn_data[DNS_MAX_ALPN_LEN];
 	int32_t alpn_len = 0;
 	struct epoll_event event;

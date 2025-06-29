@@ -104,7 +104,7 @@ errout:
 
 int _dns_client_create_socket_udp(struct dns_server_info *server_info)
 {
-	int fd = 0;
+	int fd = -1;
 	struct epoll_event event;
 	const int on = 1;
 	const int val = 255;

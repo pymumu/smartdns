@@ -405,7 +405,7 @@ int _dns_client_server_add(const char *server_ip, const char *server_host, int p
 	server_info->ai_family = gai->ai_family;
 	server_info->ai_addrlen = gai->ai_addrlen;
 	server_info->type = server_type;
-	server_info->fd = 0;
+	server_info->fd = -1;
 	server_info->status = DNS_SERVER_STATUS_INIT;
 	server_info->ttl = ttl;
 	server_info->ttl_range = 0;

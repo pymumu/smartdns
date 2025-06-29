@@ -350,7 +350,7 @@ errout:
 
 int _dns_client_create_socket_tls(struct dns_server_info *server_info, const char *hostname, const char *alpn)
 {
-	int fd = 0;
+	int fd = -1;
 	struct epoll_event event;
 	SSL *ssl = NULL;
 	struct proxy_conn *proxy = NULL;

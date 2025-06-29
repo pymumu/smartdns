@@ -35,7 +35,7 @@ int _fast_ping_sendping_udp(struct ping_host_struct *ping_host)
 	struct ping_dns_head dns_head;
 	int len = 0;
 	int flag = 0;
-	int fd = 0;
+	int fd = -1;
 
 	flag |= (0 << 15) & 0x8000;
 	flag |= (2 << 11) & 0x7800;
@@ -140,7 +140,7 @@ errout:
 
 static int _fast_ping_create_udp(FAST_PING_TYPE type)
 {
-	int fd = 0;
+	int fd = -1;
 	int *set_fd = NULL;
 
 	pthread_mutex_lock(&ping.lock);
