@@ -370,6 +370,45 @@ errout:
 	return 0;
 }
 
+int _config_domain_rule_remove(const char *domain, enum domain_rule type)
+{
+	char domain_key[DNS_MAX_CONF_CNAME_LEN];
+	int len = 0;
+	int sub_rule_only = 0;
+	int root_rule_only = 0;
+
+	if (type < 0 || type >= DOMAIN_RULE_MAX) {
+		tlog(TLOG_ERROR, "invalid domain rule type %d", type);
+		return -1;
+	}
+
+	if (strncmp(domain, "domain-set:", sizeof("domain-set:") - 1) == 0) {
+		return _config_domain_rule_set_each(domain + sizeof("domain-set:") - 1, _config_domain_rule_delete_callback,
+											NULL);
+	}
+
+	if (_config_setup_domain_key(domain, domain_key, sizeof(domain_key), &len, &root_rule_only, &sub_rule_only) != 0) {
+		tlog(TLOG_ERROR, "setup domain key failed for %s", domain);
+		return -1;
+	}
+
+	struct dns_domain_rule *domain_rule = art_search(&_config_current_rule_group()->domain_rule.tree,
+													   (unsigned char *)domain_key, len);
+	if (domain_rule == NULL) {
+		tlog(TLOG_ERROR, "domain %s not found", domain);
+		return -1;		
+	}
+
+	if (domain_rule->rules[type] == NULL) {
+		return 0;
+	}
+
+	_dns_rule_put(domain_rule->rules[type]);
+	domain_rule->rules[type] = NULL;
+	
+	return 0;
+}
+
 int _config_domain_rule_add(const char *domain, enum domain_rule type, void *rule)
 {
 	struct dns_domain_rule *domain_rule = NULL;

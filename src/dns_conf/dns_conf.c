@@ -40,6 +40,7 @@
 #include "ip_rule.h"
 #include "ip_set.h"
 #include "ipset.h"
+#include "local_domain.h"
 #include "nameserver.h"
 #include "nftset.h"
 #include "plugin.h"
@@ -215,6 +216,7 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("domain-rules", _config_domain_rules, NULL),
 	CONF_CUSTOM("domain-set", _config_domain_set, NULL),
 	CONF_CUSTOM("ddns-domain", _config_ddns_domain, NULL),
+	CONF_CUSTOM("local-domain", _config_local_domain, NULL),
 	CONF_CUSTOM("dnsmasq-lease-file", _conf_dhcp_lease_dnsmasq_file, NULL),
 	CONF_CUSTOM("hosts-file", _config_hosts_file, NULL),
 	CONF_CUSTOM("group-begin", _config_group_begin, NULL),

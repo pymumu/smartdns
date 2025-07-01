@@ -755,6 +755,12 @@ load_service()
 	config_get dns64 "$section" "dns64" ""
 	[ -z "$dns64" ] || conf_append "dns64" "$dns64"
 
+	config_get ddns_domain "$section" "ddns_domain" ""
+	[ -z "$ddns_domain" ] || conf_append "ddns-domain" "$ddns_domain"
+
+	config_get local_domain "$section" "local_domain" ""
+	[ -z "$local_domain" ] || conf_append "local-domain" "$local_domain"
+
 	config_get_bool mdns_lookup "$section" "mdns_lookup" "0"
 	[ "$mdns_lookup" = "1" ] && conf_append "mdns-lookup" "yes"
 

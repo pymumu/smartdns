@@ -17,6 +17,7 @@
  */
 
 #include "host_file.h"
+#include "local_domain.h"
 #include "ptr.h"
 #include "set_file.h"
 #include "smartdns/lib/stringutil.h"
@@ -179,6 +180,46 @@ errout:
 	return NULL;
 }
 
+static int _conf_host_expand_local_domain(struct dns_hosts *host)
+{
+	struct dns_hosts *host_expand = NULL;
+	const char *local_domain = dns_conf_get_local_domain();
+	char domain[DNS_MAX_CNAME_LEN] = {0};
+	int ret;
+
+	if (local_domain == NULL || local_domain[0] == '\0') {
+		return 0;
+	}
+
+	if (strstr(host->domain, ".") != NULL) {
+		// already has domain, skip
+		return 0;
+	}
+
+	ret = snprintf(domain, sizeof(domain), "%s.%s", host->domain, local_domain);
+	if (ret < 0 || ret >= (int)sizeof(domain)) {
+		tlog(TLOG_WARN, "expand host %s with local domain %s failed, too long.", host->domain, local_domain);
+		return -1;
+	}
+
+	host_expand = _dns_conf_get_hosts(domain, host->dns_type);
+	if (host_expand == NULL) {
+		goto errout;
+	}
+
+	host_expand->is_soa = host->is_soa;
+	host_expand->is_dynamic = host->is_dynamic;
+	host_expand->host_type = host->host_type;
+	memcpy(host_expand->ipv6_addr, host->ipv6_addr, DNS_RR_AAAA_LEN);
+
+	dns_hosts_record_num++;
+
+	return 0;
+
+errout:
+	return -1;
+}
+
 int _conf_host_add(const char *hostname, const char *ip, dns_hosts_type host_type, int is_dynamic)
 {
 	struct dns_hosts *host = NULL;
@@ -250,7 +291,11 @@ int _conf_host_add(const char *hostname, const char *ip, dns_hosts_type host_typ
 		goto errout;
 	}
 
-	dns_hosts_record_num++;
+	dns_hosts_record_num += 2;
+
+	_conf_host_expand_local_domain(host);
+	_conf_host_expand_local_domain(host_other);
+
 	return 0;
 
 errout:

@@ -16,8 +16,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef _DNS_CONF_DOMAIN_RULE_H_
-#define _DNS_CONF_DOMAIN_RULE_H_
+#ifndef _DNS_CONF_LOCAL_DOMAIN_H_
+#define _DNS_CONF_LOCAL_DOMAIN_H_
 
 #include "dns_conf.h"
 #include "smartdns/dns_conf.h"
@@ -26,19 +26,9 @@
 extern "C" {
 #endif /*__cplusplus */
 
-int _config_domain_iter_free(void *data, const unsigned char *key, uint32_t key_len, void *value);
+const char *dns_conf_get_local_domain(void);
 
-void *_new_dns_rule_ext(enum domain_rule domain_rule, int ext_size);
-void *_new_dns_rule(enum domain_rule domain_rule);
-void _dns_rule_get(struct dns_rule *rule);
-void _dns_rule_put(struct dns_rule *rule);
-
-int _config_domain_rule_add(const char *domain, enum domain_rule type, void *rule);
-int _config_domain_rule_remove(const char *domain, enum domain_rule type);
-int _config_domain_rule_flag_set(const char *domain, unsigned int flag, unsigned int is_clear);
-int _config_domain_rules(void *data, int argc, char *argv[]);
-int _config_domain_rule_delete(const char *domain);
-int _conf_domain_rule_group(const char *domain, const char *group_name);
+int _config_local_domain(void *data, int argc, char *argv[]);
 
 #ifdef __cplusplus
 }

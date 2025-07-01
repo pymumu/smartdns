@@ -48,7 +48,11 @@ int netlink_get_neighbors(int family,
 	int ret = 0;
 	int send_count = 0;
 
+	memset(buf, 0, sizeof(buf));
+	memset(&sa, 0, sizeof(sa));
 	memset(&msg, 0, sizeof(msg));
+	
+	sa.nl_family = AF_NETLINK;
 	msg.msg_name = &sa;
 	msg.msg_namelen = sizeof(sa);
 	msg.msg_iov = &iov;
@@ -62,6 +66,7 @@ int netlink_get_neighbors(int family,
 	nlh->nlmsg_pid = getpid();
 
 	ndm = NLMSG_DATA(nlh);
+	memset(ndm, 0, sizeof(struct ndmsg));
 	ndm->ndm_family = family;
 
 	while (1) {
