@@ -5,3 +5,4 @@ plugin
 test
 .vscode
 .DS_Store
+systemd

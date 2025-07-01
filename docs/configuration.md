@@ -66,6 +66,7 @@ hide:
 | srv-record | 指定SRV记录 | 无 | srv-record /domain/[target][,port][,priority][,weight] | srv-record /_vlmcs._tcp/example.com,1688,1,1|
 | https-record | 指定HTTPS记录 | 无 | https-record /domain/[target=][,port=][,priority=][,ech=][,ipv4hint=][,ipv6hint=][,alpn=][,noipv4hint][,noipv6hint][#][-]:<br />[target]: target参数<br />[port]: port参数<br />[priority]: priority参数<br />[ech]: ECH参数<br />[alpn]: alph参数<br />[ipv4hint]: IPV4地址<br />[ipv6hint]: IPV6地址<br />[noipv4hint]:过滤IPV4地址<br />[noipv6hint]: 过滤IPV6地址 <br/> # 表示返回SOA<br /> - 表示忽略规则| https-record /example.com/ech="aaa"<br /> https-record /example.com/alpn="h2,http/1.1"<br />https-record noipv4hint,noipv6hint<br /> https-record # <br /> https-record /example.com/-|
 | ddns-domain | 指定DDNS域名 | 无 | ddns-domain doamin.com, 用于将指定的域名解析为smartdns所在主机IP地址。| ddns-domain example.com
+| local-domain | 指定本地域名 | 无 | local-domain doamin.com, 用于本地域名，smartdns会将指定域名追加到本地主机名后面。| local-domain example.com
 | dns64 | DNS64转换 | 无 | dns64 ip-prefix/mask <br /> ipv6前缀和掩码 | dns64 64:ff9b::/96 |
 | mdns-lookup | 是否启用mDNS查询 | no | [yes\|no] | mdns-lookup yes|
 | hosts-file | 指定hosts文件 | 无 | hosts文件路径 | hosts-file /etc/hosts | 

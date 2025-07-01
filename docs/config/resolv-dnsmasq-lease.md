@@ -18,6 +18,7 @@ dnsmasq-lease-file /var/lib/misc/dnsmasq.leases
 
 1. Windows系统默认使用mDNS解析地址，如需要在windows下用使用smartdns解析，则需要在主机名后面增加`.`，表示使用DNS解析。如`ping smartdns.`
 1. smartdns会周期监控文件变化，并自动加载变化的映射关系。
+1. 如本地网络DHCP设置了DNS后缀，可使用`local-domain`参数设置本地域名。
 
 ## 使用mDNS查询
 

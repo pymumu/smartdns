@@ -60,7 +60,8 @@ hide:
 |cname|set cname to domain| None | cname /domain/target <br />- for ignore this rule. <br />set cname to domain. | cname /www.example.com/cdn.example.com |
 |srv-record| add srv record | None | srv-record /domain/[target][,port][,priority][,weight] | srv-record /_vlmcs._tcp/example.com,1688,1,1|
 | https-record | Specify HTTPS record | None | https-record /domain/[target=][,port=][,priority=][,ech=][,ipv4hint=][,ipv6hint=][,alpn=][,noipv4hint][,noipv6hint][#][-]:<br />[target]: target parameter<br />[port]: port parameter<br />[priority]: priority parameter<br />[ech]: ECH parameter<br />[alpn]: alph parameter<br />[ipv4hint]: IPV4 address<br />[ipv6hint]: IPV6 address<br />[noipv4hint]: Filter IPV4 addresses<br />[noipv6hint]: Filter IPV6 addresses <br/> # indicates return SOA<br /> - indicates ignore rule| https-record /example.com/ech="aaa"<br /> https-record /example.com/alpn="h2,http/1.1"<br />https-record noipv4hint,noipv6hint<br /> https-record # <br /> https-record /example.com/-|
-|ddns-domain|Specifies the DDNS domain name |None|ddns-domain domainin.com, used to resolve the specified domain name to the IP address of the host where smartdns resides. | ddns-domain example.com
+|ddns-domain|Specifies the DDNS domain name |None|ddns-domain domain.com, used to resolve the specified domain name to the IP address of the host where smartdns resides. | ddns-domain example.com
+|local-domain|Specifies the DDNS domain name |None|local-domain domain.com, append local domain to local hostname. | local-domain example.com
 |dns64|dns64 translation | None | dns64 ip-prefix/mask <br /> ipv6 prefix and mask. | dns64 64:ff9b::/96 |
 |mdns-lookup|Enable mDNS lookup|no|[yes\|no]|mdns-lookup yes|
 |hosts-file| set hosts file | None | hosts file path. | hosts-file /etc/hosts | 
