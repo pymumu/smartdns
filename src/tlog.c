@@ -69,6 +69,7 @@ struct tlog_log {
     char logname[TLOG_LOG_NAME_LEN];
     char suffix[TLOG_LOG_NAME_LEN];
     char pending_logfile[PATH_MAX];
+    char logfile[PATH_MAX * 2];
     int rename_pending;
     int fail;
     int logsize;
@@ -995,7 +996,9 @@ static void _tlog_wait_pid(struct tlog_log *log, int wait_hang)
     int option = (wait_hang == 0) ? WNOHANG : 0;
     /* check and obtain gzip process status*/
     if (waitpid(log->zip_pid, &status, option) <= 0) {
-        return;
+        if (errno != ECHILD || errno == EINTR) {
+            return;
+        }
     }
 
     /* gzip process exited */
@@ -1214,6 +1217,7 @@ static void _tlog_get_log_name_dir(struct tlog_log *log)
     log_file[sizeof(log_file) - 1] = '\0';
     strncpy(log->logname, basename(log_file), sizeof(log->logname) - 1);
     log->logname[sizeof(log->logname) - 1] = '\0';
+    snprintf(log->logfile, sizeof(log->logfile), "%s/%s", log->logdir, log->logname);
     pthread_mutex_unlock(&tlog.lock);
 }
 
@@ -1238,6 +1242,7 @@ static int _tlog_write(struct tlog_log *log, const char *buff, int bufflen)
 {
     int len;
     int unused __attribute__((unused));
+    struct stat sb = { 0 };
 
     if (bufflen <= 0 || log->fail) {
         return 0;
@@ -1269,9 +1274,18 @@ static int _tlog_write(struct tlog_log *log, const char *buff, int bufflen)
         _tlog_archive_log(log);
     }
 
-    if (log->fd <= 0 && log->logsize > 0) {
+
+    if ((log->fd <= 0 && log->logsize > 0)
+        || ((0 == fstat(log->fd, &sb))
+            && (0 == sb.st_nlink))      // log file was deleted
+    ) {
         /* open a new log file to write */
         time_t now;
+        
+        if (log->fd > 0) {
+                close(log->fd);
+                log->fd = -1;
+        }
 
         time(&now);
         if (now == log->last_try) {
@@ -1279,7 +1293,6 @@ static int _tlog_write(struct tlog_log *log, const char *buff, int bufflen)
         }
         log->last_try = now;
 
-        char logfile[PATH_MAX * 2];
         if (_tlog_mkdir(log->logdir) != 0) {
             if (log->print_errmsg == 0) {
                 return -1;
@@ -1293,15 +1306,15 @@ static int _tlog_write(struct tlog_log *log, const char *buff, int bufflen)
             }
             return -1;
         }
-        snprintf(logfile, sizeof(logfile), "%s/%s", log->logdir, log->logname);
+
         log->filesize = 0;
-        log->fd = open(logfile, O_APPEND | O_CREAT | O_WRONLY | O_CLOEXEC, log->file_perm);
+        log->fd = open(log->logfile, O_APPEND | O_CREAT | O_WRONLY | O_CLOEXEC, log->file_perm);
         if (log->fd < 0) {
             if (log->print_errmsg == 0) {
                 return -1;
             }
 
-            fprintf(stderr, "tlog: open log file %s failed, %s\n", logfile, strerror(errno));
+            fprintf(stderr, "tlog: open log file %s failed, %s\n", log->logfile, strerror(errno));
             log->print_errmsg = 0;
             return -1;
         }
