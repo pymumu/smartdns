@@ -134,6 +134,7 @@ void dns_cache_release(struct dns_cache *dns_cache)
 
 static void _dns_cache_remove(struct dns_cache *dns_cache)
 {
+	/* This function should always be called with dns_cache_head.lock held */
 	hash_del(&dns_cache->node);
 	list_del_init(&dns_cache->list);
 	dns_timer_del(&dns_cache->timer);
@@ -178,17 +179,27 @@ struct dns_cache_data *dns_cache_new_data_packet(void *packet, size_t packet_len
 static void dns_cache_timer_release(struct tw_base *base, struct tw_timer_list *timer, void *data)
 {
 	struct dns_cache *dns_cache = data;
-	dns_cache_delete(dns_cache);
+	/* Only delete if not already being deleted to prevent double-free */
+	pthread_mutex_lock(&dns_cache_head.lock);
+	if (dns_cache->del_pending == 0) {
+		dns_cache->del_pending = 1;
+		pthread_mutex_unlock(&dns_cache_head.lock);
+		_dns_cache_remove(dns_cache);
+	} else {
+		pthread_mutex_unlock(&dns_cache_head.lock);
+	}
 }
 
 static void dns_cache_expired(struct tw_base *base, struct tw_timer_list *timer, void *data, unsigned long timestamp)
 {
 	struct dns_cache *dns_cache = data;
 
+	pthread_mutex_lock(&dns_cache_head.lock);
 	if (dns_cache->del_pending == 1) {
-		dns_cache_delete(dns_cache);
+		pthread_mutex_unlock(&dns_cache_head.lock);
 		return;
 	}
+	pthread_mutex_unlock(&dns_cache_head.lock);
 
 	if (dns_cache_head.timeout_callback) {
 		dns_cache_tmout_action_t tmout_act = dns_cache_head.timeout_callback(dns_cache);
@@ -209,8 +220,15 @@ static void dns_cache_expired(struct tw_base *base, struct tw_timer_list *timer,
 		}
 	}
 
-	dns_cache->del_pending = 1;
-	dns_timer_mod(&dns_cache->timer, 5);
+	pthread_mutex_lock(&dns_cache_head.lock);
+	/* Check again in case another thread set del_pending while we were in callback */
+	if (dns_cache->del_pending == 0) {
+		dns_cache->del_pending = 1;
+		pthread_mutex_unlock(&dns_cache_head.lock);
+		dns_timer_mod(&dns_cache->timer, 5);
+	} else {
+		pthread_mutex_unlock(&dns_cache_head.lock);
+	}
 }
 
 static struct dns_cache *_dns_cache_lookup(struct dns_cache_key *cache_key)
@@ -363,7 +381,11 @@ static void _dns_cache_remove_by_domain(struct dns_cache_key *cache_key)
 			continue;
 		}
 
-		_dns_cache_remove(dns_cache);
+		/* Atomically check and set del_pending to prevent double deletion */
+		if (dns_cache->del_pending == 0) {
+			dns_cache->del_pending = 1;
+			_dns_cache_remove(dns_cache);
+		}
 		break;
 	}
 
@@ -436,7 +458,11 @@ static int _dns_cache_insert(struct dns_cache_info *info, struct dns_cache_data 
 			break;
 		}
 
-		_dns_cache_remove(del_cache);
+		/* Atomically check and set del_pending to prevent double deletion */
+		if (del_cache->del_pending == 0) {
+			del_cache->del_pending = 1;
+			_dns_cache_remove(del_cache);
+		}
 	} while (loop_count++ < 32);
 
 	dns_cache_get(dns_cache);
@@ -552,7 +578,11 @@ void dns_cache_flush(void)
 	pthread_mutex_lock(&dns_cache_head.lock);
 	list_for_each_entry_safe(dns_cache, tmp, &dns_cache_head.cache_list, list)
 	{
-		_dns_cache_remove(dns_cache);
+		/* Atomically check and set del_pending to prevent double deletion */
+		if (dns_cache->del_pending == 0) {
+			dns_cache->del_pending = 1;
+			_dns_cache_remove(dns_cache);
+		}
 	}
 	pthread_mutex_unlock(&dns_cache_head.lock);
 }
@@ -589,6 +619,12 @@ long dns_cache_total_memsize(void)
 void dns_cache_delete(struct dns_cache *dns_cache)
 {
 	pthread_mutex_lock(&dns_cache_head.lock);
+	/* Atomically check and set del_pending to prevent double deletion */
+	if (dns_cache->del_pending == 1) {
+		pthread_mutex_unlock(&dns_cache_head.lock);
+		return;
+	}
+	dns_cache->del_pending = 1;
 	_dns_cache_remove(dns_cache);
 	pthread_mutex_unlock(&dns_cache_head.lock);
 }
