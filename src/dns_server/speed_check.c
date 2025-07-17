@@ -120,7 +120,7 @@ static void _dns_server_ping_result(struct ping_host_struct *ping_host, const ch
 				request->ping_time = rtt;
 				request->has_cname = 0;
 				request->has_ip = 1;
-				memcpy(request->ip_addr, addr_in6->sin6_addr.s6_addr + 12, 4);
+				memcpy(request->ip_addr, addr_in6->sin6_addr.s6_addr, 16);
 				request->ip_addr_type = DNS_T_A;
 				if (addr_map && addr_map->cname[0] != 0) {
 					request->has_cname = 1;

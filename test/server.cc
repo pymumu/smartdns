@@ -199,11 +199,6 @@ bool MockServer::AddIP(struct ServerRequestContext *request, const std::string &
 					  (unsigned char *)&addr4->sin_addr.s_addr);
 		} else if (addr.ss_family == AF_INET6) {
 			struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)&addr;
-			if (IN6_IS_ADDR_V4MAPPED(&addr6->sin6_addr)) {
-				dns_add_A(request->response_packet, DNS_RRS_AN, domain.c_str(), ttl,
-						  (unsigned char *)&addr6->sin6_addr.s6_addr[12]);
-				return true;
-			}
 			dns_add_AAAA(request->response_packet, DNS_RRS_AN, domain.c_str(), ttl,
 						 (unsigned char *)&addr6->sin6_addr.s6_addr);
 		}
