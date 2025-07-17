@@ -121,11 +121,16 @@ void dns_cache_get(struct dns_cache *dns_cache)
 
 void dns_cache_release(struct dns_cache *dns_cache)
 {
+	int refcnt = 0;
 	if (dns_cache == NULL) {
 		return;
 	}
 
-	if (!atomic_dec_and_test(&dns_cache->ref)) {
+	refcnt = atomic_dec_return(&dns_cache->ref);
+	if (refcnt > 0) {
+		return;
+	} else if (refcnt < 0) {
+		BUG("dns_cache refcnt is invalid: %d", refcnt);
 		return;
 	}
 
@@ -134,6 +139,7 @@ void dns_cache_release(struct dns_cache *dns_cache)
 
 static void _dns_cache_remove(struct dns_cache *dns_cache)
 {
+	dns_cache->del_pending = 0;
 	hash_del(&dns_cache->node);
 	list_del_init(&dns_cache->list);
 	dns_timer_del(&dns_cache->timer);
@@ -178,7 +184,7 @@ struct dns_cache_data *dns_cache_new_data_packet(void *packet, size_t packet_len
 static void dns_cache_timer_release(struct tw_base *base, struct tw_timer_list *timer, void *data)
 {
 	struct dns_cache *dns_cache = data;
-	dns_cache_delete(dns_cache);
+	dns_cache_release(dns_cache);
 }
 
 static void dns_cache_expired(struct tw_base *base, struct tw_timer_list *timer, void *data, unsigned long timestamp)
