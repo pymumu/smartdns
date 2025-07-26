@@ -194,6 +194,8 @@ static int _dns_plugin_load_library(struct dns_plugin *plugin)
 	dns_plugin_init_func init_func = NULL;
 	dns_plugin_exit_func exit_func = NULL;
 
+	tlog(TLOG_DEBUG, "load plugin %s", plugin->file);
+
 	handle = dlopen(plugin->file, RTLD_LAZY | RTLD_LOCAL);
 	if (!handle) {
 		tlog(TLOG_ERROR, "load plugin %s failed: %s", plugin->file, dlerror());

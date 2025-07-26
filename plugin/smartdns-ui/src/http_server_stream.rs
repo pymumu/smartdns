@@ -85,7 +85,7 @@ pub async fn serve_log_stream(
                         binary_msg.push(0);
                         binary_msg.push(msg.level as u8);
                         binary_msg.extend_from_slice(msg.msg.as_bytes());
-                        let msg = Message::Binary(binary_msg);
+                        let msg = Message::Binary(binary_msg.into());
                         websocket.send(msg).await?;
                     }
                     None => {
@@ -185,11 +185,11 @@ pub async fn serve_metrics(
                 match metrics {
                     Ok(metrics) => {
                         let data_server = api_msg_gen_metrics_data(&metrics);
-                        let msg = Message::Text(data_server);
+                        let msg = Message::Text(data_server.into());
                         websocket.send(msg).await?;
                     }
                     Err(e) => {
-                        let msg = Message::Text(format!("{{\"error\": \"{}\"}}", e));
+                        let msg = Message::Text(format!("{{\"error\": \"{}\"}}", e).into());
                         websocket.send(msg).await?;
                     }
                 }
@@ -352,7 +352,7 @@ pub async fn serve_term(websocket: HyperWebsocket) -> Result<(), Error> {
         let mut buf = [0u8; 4096];
         buf[0] = TermMessageType::Err as u8;
         buf[1..msg.len() + 1].copy_from_slice(msg.as_bytes());
-        let msg = Message::Binary(buf[..msg.len() + 1].to_vec());
+        let msg = Message::Binary(buf[..msg.len() + 1].to_vec().into());
         let _ = ws.send(msg);
 
         let msg = Message::Close(None);
@@ -381,7 +381,7 @@ pub async fn serve_term(websocket: HyperWebsocket) -> Result<(), Error> {
 
                         data_len = n + 1;
                         data_type[0] = TermMessageType::Data as u8;
-                        let msg = Message::Binary(buf[..data_len].to_vec());
+                        let msg = Message::Binary(buf[..data_len].to_vec().into());
                         websocket.send(msg).await?;
                     }
                     Err(e) => {

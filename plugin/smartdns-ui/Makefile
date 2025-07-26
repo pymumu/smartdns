@@ -109,10 +109,10 @@ test-prepare:
 
 $(BIN):
 	MAKEFLAGS= RUSTFLAGS="$(CARGO_RUSTFLAGS) $(RUSTFLAGS)" $(CARGO_BUILD_ENV) cargo build $(CARGO_BUILD_ARGS) --features "build-release"
-	cp $(CARGO_BUILD_PATH)/libsmartdns_ui.so target/ 
+	cp $(CARGO_BUILD_PATH)/libsmartdns_ui.so target/smartdns_ui.so
 
 install: $(BIN)
-	install -v -m 0644 -D -t $(DESTDIR)$(SLIBDIR)/smartdns target/libsmartdns_ui.so
+	install -v -m 0644 -D -t $(DESTDIR)$(SLIBDIR)/smartdns target/smartdns_ui.so
 
 test: test-prepare
 	MAKEFLAGS= cargo test
@@ -120,4 +120,4 @@ test: test-prepare
 clean:
 	cargo clean
 	$(MAKE) -C $(SMARTDNS_SRC_DIR) clean
-	rm -rf target/libsmartdns_ui.so
+	rm -rf target/smartdns_ui.so

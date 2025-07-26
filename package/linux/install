@@ -149,6 +149,7 @@ uninstall_smartdns()
 	rmdir $PREFIX$SMARTDNS_CONF_DIR 2>/dev/null
 	rm -f $PREFIX/usr/sbin/smartdns
 	rm -f $PREFIX/etc/default/smartdns
+	rm -f $PREFIX/etc/init.d/smartdns
 
 	if [ $ISWSL -eq 0 ]; then
 		sed -i '\#%sudo ALL=NOPASSWD: /etc/init.d/smartdns#d' /etc/sudoers 2>/dev/null

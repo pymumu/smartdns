@@ -867,7 +867,7 @@ load_service()
 		config_get ui_data_dir "$section" "ui_data_dir" "/var/lib/smartdns"
 		config_get ui_log_max_age "$section" "ui_log_max_age" "30"
 
-		conf_append "plugin" "/usr/lib/libsmartdns_ui.so"
+		conf_append "plugin" "smartdns_ui.so"
 		conf_append "smartdns-ui.www-root" "/usr/share/smartdns/wwwroot"
 		conf_append "smartdns-ui.ip" "http://0.0.0.0:$ui_port"
 		conf_append "data-dir" "$ui_data_dir"

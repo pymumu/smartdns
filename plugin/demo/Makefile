@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-BIN=smartdns-demo.so 
+BIN=smartdns_demo.so 
 OBJS_MAIN=$(patsubst %.c,%.o,$(wildcard *.c))
 OBJS=$(OBJS_MAIN)
 

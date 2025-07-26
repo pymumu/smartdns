@@ -19,6 +19,8 @@
 #include "plugin.h"
 #include "smartdns/lib/stringutil.h"
 
+#include <stdio.h>
+
 struct dns_conf_plugin_table dns_conf_plugin_table;
 
 static struct dns_conf_plugin *_config_get_plugin(const char *file)
@@ -69,6 +71,25 @@ const char *dns_conf_get_plugin_conf(const char *key)
 
 int _config_plugin(void *data, int argc, char *argv[])
 {
+	// clang-format off
+	const char *plugin_dir [] = {
+#if UINTPTR_MAX == 0xFFFFFFFFFFFFFFFFULL
+		"/lib64/smartdns",
+		"/usr/lib64/smartdns",
+		"/usr/local/lib64/smartdns",
+		"/lib64",
+		"/usr/lib64",
+		"/usr/local/lib64",
+#endif
+		"/lib/smartdns",
+		"/usr/lib/smartdns",
+		"/usr/local/lib/smartdns",
+		"/lib",
+		"/usr/lib",
+		"/usr/local/lib",
+	};
+	// clang-format on
+	const int plugin_dir_len = sizeof(plugin_dir) / sizeof(plugin_dir[0]);
 #ifdef BUILD_STATIC
 	tlog(TLOG_ERROR, "plugin not support in static release, please install dynamic release.");
 	goto errout;
@@ -84,20 +105,41 @@ int _config_plugin(void *data, int argc, char *argv[])
 		goto errout;
 	}
 
-	conf_get_conf_fullpath(argv[1], file, sizeof(file));
-	if (file[0] == '\0') {
+	if (argv[1] == NULL || argv[1][0] == '\0') {
 		tlog(TLOG_ERROR, "plugin: invalid parameter.");
 		goto errout;
+	}
+
+	file[0] = '\0';
+	if (strstr(argv[1], "/") == NULL) {
+		/* relative path, search in plugin dir */
+		for (i = 0; i < plugin_dir_len; i++) {
+			snprintf(file, sizeof(file), "%s/%s", plugin_dir[i], argv[1]);
+			if (access(file, F_OK) == 0) {
+				break;
+			}
+		}
+		if (i == plugin_dir_len) {
+			file[0] = '\0';
+		}
+	}
+
+	if (file[0] == '\0') {
+		conf_get_conf_fullpath(argv[1], file, sizeof(file));
+		if (file[0] == '\0') {
+			tlog(TLOG_ERROR, "plugin: invalid parameter.");
+			goto errout;
+		}
+
+		if (access(file, F_OK) != 0) {
+			tlog(TLOG_ERROR, "plugin '%s' not exists.", argv[1]);
+			goto errout;
+		}
 	}
 
 	struct dns_conf_plugin *plugin = _config_get_plugin(file);
 	if (plugin != NULL) {
 		tlog(TLOG_ERROR, "plugin '%s' already exists.", file);
-		goto errout;
-	}
-
-	if (access(file, F_OK) != 0) {
-		tlog(TLOG_ERROR, "plugin '%s' not exists.", file);
 		goto errout;
 	}
 
