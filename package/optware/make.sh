@@ -17,9 +17,11 @@
 CURR_DIR=$(cd $(dirname $0);pwd)
 VER="`date +"1.%Y.%m.%d-%H%M"`"
 SMARTDNS_DIR=$CURR_DIR/../../
+SMARTDNS_CP=$SMARTDNS_DIR/package/copy-smartdns.sh
 SMARTDNS_BIN=$SMARTDNS_DIR/src/smartdns
 SMARTDNS_CONF=$SMARTDNS_DIR/etc/smartdns/smartdns.conf
 SMARTDNS_OPT=$CURR_DIR/smartdns-opt.conf
+IS_BUILD_SMARTDNS_UI=0
 
 showhelp()
 {
@@ -28,6 +30,7 @@ showhelp()
 	echo " -o               output directory."
 	echo " --arch           archtecture."
 	echo " --ver            version."
+	echo " --with-ui        build with smartdns-ui plugin."
 	echo " -h               show this message."
 }
 
@@ -46,11 +49,34 @@ build()
 	cp $SMARTDNS_CONF  $ROOT/opt/etc/smartdns/
 	cp $SMARTDNS_OPT $ROOT/opt/etc/smartdns/
 	cp $CURR_DIR/S50smartdns $ROOT/opt/etc/init.d/
-	cp $SMARTDNS_BIN $ROOT/opt/usr/sbin
+	$SMARTDNS_CP $ROOT/opt /opt
+	if [ $? -ne 0 ]; then
+		echo "copy smartdns file failed."
+		rm -fr $PKG_ROOT
+		return 1
+	fi
 	if [ $? -ne 0 ]; then
 		echo "copy smartdns file failed."
 		rm -fr $ROOT/
 		return 1
+	fi
+
+	if [ $IS_BUILD_SMARTDNS_UI -ne 0 ]; then
+		mkdir $ROOT/opt/usr/lib/smartdns -p
+		cp $SMARTDNS_DIR/plugin/smartdns-ui/target/smartdns_ui.so $ROOT/opt/usr/lib/smartdns/
+		if [ $? -ne 0 ]; then
+			echo "copy smartdns_ui.so file failed."
+			rm -fr $ROOT/
+			return 1
+		fi
+
+		mkdir $ROOT/opt/usr/share/smartdns/wwwroot -p
+		cp $WORKDIR/smartdns-webui/out/* $ROOT/opt/usr/share/smartdns/wwwroot/ -a
+		if [ $? -ne 0 ]; then
+			echo "Failed to copy smartdns-ui web files."
+			rm -fr $ROOT/
+			return 1
+		fi
 	fi
 
 	sed -i "s/# *server-name smartdns/server-name smartdns/g" $ROOT/opt/etc/smartdns/smartdns.conf
@@ -69,7 +95,7 @@ build()
 
 main()
 {
-	OPTS=`getopt -o o:h --long arch:,ver:,filearch: \
+	OPTS=`getopt -o o:h --long arch:,ver:,with-ui,filearch: \
 		-n  "" -- "$@"`
 
 	if [ $? != 0 ] ; then echo "Terminating..." >&2 ; exit 1 ; fi
@@ -85,6 +111,9 @@ main()
 		--filearch)
 			FILEARCH="$2"
 			shift 2;;
+		--with-ui)
+			IS_BUILD_SMARTDNS_UI=1
+			shift ;;
 		--ver)
 			VER="$2"
 			shift 2;;

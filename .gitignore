@@ -7,3 +7,5 @@
 *.a
 systemd/smartdns.service
 test.bin
+package/target
+package/*.gz

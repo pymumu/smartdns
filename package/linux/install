@@ -100,26 +100,58 @@ install_files()
 		return 1
 	fi
 
-	install -v -m 0755 -t $PREFIX/usr/sbin usr/sbin/smartdns
+	install -v -d $SMARTDNS_UI_WWWROOT
 	if [ $? -ne 0 ]; then
 		return 1
 	fi
 
+	install -v -d $SMARTDNS_PLUIGN_DIR
+	if [ $? -ne 0 ]; then
+		return 1
+	fi
+
+	install -v -t $SMARTDNS_PLUIGN_DIR $INST_DIR/usr/local/lib/smartdns/smartdns_ui.so
+	if [ $? -ne 0 ]; then
+		echo "smartdns-ui plugin not found, skipping copy."
+	fi
+
+	if [ -d "$INST_DIR/usr/local/lib/smartdns" ]; then
+		cp $INST_DIR/usr/local/lib/smartdns/* $SMARTDNS_PLUIGN_DIR/ -a
+		if [ $? -ne 0 ]; then
+			echo "Failed to copy smartdns library files."
+			return 1
+		fi
+	fi
+
+	if [ -d "$INST_DIR/usr/share/smartdns/wwwroot/" ]; then
+		cp $INST_DIR/usr/share/smartdns/wwwroot/* $SMARTDNS_UI_WWWROOT/ -a
+		if [ $? -ne 0 ]; then
+			echo "Failed to copy smartdns-webui files."
+			return 1
+		fi
+	fi
+
+	cp $INST_DIR/usr/sbin/smartdns $PREFIX/usr/sbin -a
+	if [ $? -ne 0 ]; then
+		return 1
+	fi
+	chmod +x $PREFIX/usr/sbin/smartdns
+
 	if [ -e "$PREFIX$SMARTDNS_CONF_DIR/smartdns.conf" ]; then
-		cp etc/smartdns/smartdns.conf $PREFIX$SMARTDNS_CONF_DIR/smartdns.conf.pkg
+		cp $INST_DIR/etc/smartdns/smartdns.conf $PREFIX$SMARTDNS_CONF_DIR/smartdns.conf.pkg
 	else 
-		install -v -m 0640 -t  $PREFIX$SMARTDNS_CONF_DIR etc/smartdns/smartdns.conf
+		install -v -m 0640 -t  $PREFIX$SMARTDNS_CONF_DIR $INST_DIR/etc/smartdns/smartdns.conf
 		if [ $? -ne 0 ]; then
 			return 1
 		fi
 	fi
 
-	install -v -m 0640 -t  $PREFIX/etc/default etc/default/smartdns
+	install -v -m 0640 -t  $PREFIX/etc/default $INST_DIR/etc/default/smartdns
 	if [ $? -ne 0 ]; then
 		return 1
 	fi
 	
-	install -v -m 0755 -t $SMARTDNS_INIT_DIR etc/init.d/smartdns 
+	install -v -m 0755 -t $SMARTDNS_INIT_DIR $INST_DIR/etc/init.d/smartdns 
 	if [ $? -ne 0 ]; then
 		if [ $ISSYSTEMD -ne 0 ]; then
 			return 1
@@ -132,7 +164,7 @@ install_files()
 			echo "cannot find systemd path"
 			return 1
 		fi
-		install -v -m 0644 -t $PREFIX$SYSTEM_UNIT_PATH systemd/smartdns.service 
+		install -v -m 0644 -t $PREFIX$SYSTEM_UNIT_PATH $INST_DIR/systemd/smartdns.service 
 		if [ $? -ne 0 ]; then
 			return 1
 		fi
@@ -150,6 +182,9 @@ uninstall_smartdns()
 	rm -f $PREFIX/usr/sbin/smartdns
 	rm -f $PREFIX/etc/default/smartdns
 	rm -f $PREFIX/etc/init.d/smartdns
+	rm -fr $PREFIX/usr/share/smartdns/wwwroot
+	rmdir $PREFIX/usr/share/smartdns 2>/dev/null
+	rm -fr $PREFIX/usr/local/lib/smartdns 2>/dev/null
 
 	if [ $ISWSL -eq 0 ]; then
 		sed -i '\#%sudo ALL=NOPASSWD: /etc/init.d/smartdns#d' /etc/sudoers 2>/dev/null
@@ -209,6 +244,9 @@ init_dir()
 
 	SMARTDNS_CONF_DIR=$PREFIX/etc/smartdns
 	SMARTDNS_INIT_DIR=$PREFIX/etc/init.d
+	SMARTDNS_UI_WWWROOT=$PREFIX/usr/share/smartdns/wwwroot
+	SMARTDNS_PLUIGN_DIR=$PREFIX/usr/local/lib/smartdns
+
 	which systemctl >/dev/null 2>&1
 	ISSYSTEMD="$?"
 	# Running under WSL (Windows Subsystem for Linux)?

@@ -60,7 +60,7 @@ cfg_if::cfg_if! {
 
 const HTTP_SERVER_DEFAULT_PASSWORD: &str = "password";
 const HTTP_SERVER_DEFAULT_USERNAME: &str = "admin";
-const HTTP_SERVER_DEFAULT_WWW_ROOT: &str = "/usr/local/shared/smartdns/www";
+const HTTP_SERVER_DEFAULT_WWW_ROOT: &str = "/usr/share/smartdns/wwwroot";
 const HTTP_SERVER_DEFAULT_IP: &str = "http://0.0.0.0:6080";
 
 #[derive(Clone)]

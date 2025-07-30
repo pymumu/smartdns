@@ -242,7 +242,8 @@ impl DataStats {
         }
 
         let pages = pages.unwrap();
-        return pages * 4096;
+        let pagesizie = utils::get_page_size() as u64;
+        return pages * pagesizie;
     }
 
     pub fn init(self: &Arc<Self>) -> Result<(), Box<dyn Error>> {

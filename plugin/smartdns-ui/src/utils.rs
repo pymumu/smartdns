@@ -87,3 +87,8 @@ pub fn verify_password(password: &str, password_hash: &str) -> bool {
         .verify_password(password.as_bytes(), &parsed_hash)
         .is_ok()
 }
+
+pub fn get_page_size() -> usize {
+    // Use libc to get the system page size
+    unsafe { libc::sysconf(libc::_SC_PAGESIZE) as usize }
+}

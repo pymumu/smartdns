@@ -29,6 +29,26 @@ fn get_git_commit_version() {
     println!("cargo:rustc-env=GIT_VERSION={}", git_version.trim());
 }
 
+fn link_rename_lib() {
+    /*
+    rename the output file to smartdns_ui.so
+    */
+    let release_plugin = env::var("RELEASE_PLUGIN").is_ok();
+
+    if release_plugin == false {
+        // In debug mode, we don't rename the output file
+        return;
+    }
+
+    let curr_source_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+    let target_dir =
+        env::var("CARGO_TARGET_DIR").unwrap_or_else(|_| format!("{}/target", curr_source_dir));
+    let crate_name = std::env::var("CARGO_PKG_NAME").unwrap().replace("-", "_");
+    let so_path = format!("{}/{}.so", target_dir, crate_name);
+    println!("cargo:rustc-link-arg=-o");
+    println!("cargo:rustc-link-arg={}", so_path);
+}
+
 fn link_smartdns_lib() {
     let curr_source_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let smartdns_src_dir = format!("{}/../../src", curr_source_dir);
@@ -82,4 +102,5 @@ fn link_smartdns_lib() {
 fn main() {
     get_git_commit_version();
     link_smartdns_lib();
+    link_rename_lib();
 }

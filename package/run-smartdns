@@ -1,0 +1,31 @@
+#!/bin/sh
+
+CWD=$(pwd)
+real_path=$(readlink -f "$0")
+CURDIR=$(cd $(dirname $real_path); pwd)
+SMARTDNS_BIN=${CURDIR}/smartdns
+NEED_CHECK_ARM_CP15=0
+INTERPRETER="${CURDIR}/lib/ld-linux.so"
+
+if [ "$NEED_CHECK_ARM_CP15" = "1" ] && [ "$(uname -m)" = "aarch64" ]; then
+    # Fix arm cp15_barrier issue when running on aarch64 with 32bit userland
+    # sysctl abi.cp15_barrier=2
+    cp15_barrier=$(cat /proc/sys/abi/cp15_barrier 2>/dev/null)
+    if [ "$cp15_barrier" != "2" ]; then
+        sh -c "echo "2" > /proc/sys/abi/cp15_barrier" 2>/dev/null;
+        if [ "$?" != "0" ]; then
+            echo "Failed to set cp15_barrier to 2, please run 'echo 2 > /proc/sys/abi/cp15_barrier' manually"
+            exit 1
+        else
+            echo "Set cp15_barrier to 2"
+        fi
+    fi
+fi
+
+if [ ! -f ${INTERPRETER} ]; then
+    echo "smartdns dynamic loader not found: ${INTERPRETER}"
+    exit 1
+fi
+
+cd $CURDIR
+SMARTDNS_WORKDIR="$CWD" exec "${SMARTDNS_BIN}" $@

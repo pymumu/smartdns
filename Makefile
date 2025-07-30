@@ -54,7 +54,9 @@ $(SMARTDNS_SYSTEMD): systemd/smartdns.service.in
 
 help:
 	@echo "Options:"
-	@echo "  WITH_UI=1: Build with smartdns-ui plugin"
+	@echo "  WITH_UI=1: Build with smartdns-ui plugin" 
+	@echo "  OPTIMIZE_SIZE=1: Optimize size of the smartdns-ui plugin (only for smartdns-ui)"
+	@echo "  DESTDIR: Specify the installation directory prefix"
 
 clean:
 	$(MAKE) $(MFLAGS) -C src clean  

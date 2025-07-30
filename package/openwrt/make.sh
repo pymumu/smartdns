@@ -18,6 +18,7 @@ CURR_DIR=$(cd $(dirname $0);pwd)
 
 VER="`date +"1.%Y.%m.%d-%H%M"`"
 SMARTDNS_DIR=$CURR_DIR/../../
+SMARTDNS_CP=$SMARTDNS_DIR/package/copy-smartdns.sh
 SMARTDNS_BIN=$SMARTDNS_DIR/src/smartdns
 SMARTDNS_CONF=$SMARTDNS_DIR/etc/smartdns/smartdns.conf
 ADDRESS_CONF=$CURR_DIR/address.conf
@@ -25,6 +26,7 @@ BLACKLIST_IP_CONF=$CURR_DIR/blacklist-ip.conf
 CUSTOM_CONF=$CURR_DIR/custom.conf
 DOMAIN_BLOCK_LIST=$CURR_DIR/domain-block.list
 DOMAIN_FORWARDING_LIST=$CURR_DIR/domain-forwarding.list
+IS_BUILD_SMARTDNS_UI=0
 
 showhelp()
 {
@@ -33,6 +35,7 @@ showhelp()
 	echo " -o               output directory."
 	echo " --arch           archtecture."
 	echo " --ver            version."
+	echo " --with-ui        build with smartdns-ui plugin."
 	echo " -h               show this message."
 }
 
@@ -59,11 +62,29 @@ build()
 	cp $DOMAIN_BLOCK_LIST $ROOT/root/etc/smartdns/
 	cp $DOMAIN_FORWARDING_LIST $ROOT/root/etc/smartdns/
 	cp $CURR_DIR/files/etc $ROOT/root/ -af
-	cp $SMARTDNS_BIN $ROOT/root/usr/sbin
+	$SMARTDNS_CP $ROOT/root
 	if [ $? -ne 0 ]; then
 		echo "copy smartdns file failed."
 		rm -fr $ROOT/
 		return 1
+	fi
+
+	if [ $IS_BUILD_SMARTDNS_UI -ne 0 ]; then
+		mkdir $ROOT/root/usr/lib/smartdns -p
+		cp $SMARTDNS_DIR/plugin/smartdns-ui/target/smartdns_ui.so $ROOT/root/usr/lib/smartdns/
+		if [ $? -ne 0 ]; then
+			echo "copy smartdns_ui.so file failed."
+			rm -fr $ROOT/
+			return 1
+		fi
+
+		mkdir $ROOT/root/usr/share/smartdns/wwwroot -p
+		cp $WORKDIR/smartdns-webui/out/* $ROOT/root/usr/share/smartdns/wwwroot/ -a
+		if [ $? -ne 0 ]; then
+			echo "Failed to copy smartdns-ui web files."
+			rm -fr $ROOT/
+			return 1
+		fi
 	fi
 
 	chmod +x $ROOT/root/etc/init.d/smartdns
@@ -92,7 +113,7 @@ build()
 
 main()
 {
-	OPTS=`getopt -o o:h --long arch:,ver:,filearch: \
+	OPTS=`getopt -o o:h --long arch:,ver:,with-ui,filearch: \
 		-n  "" -- "$@"`
 
 	if [ $? != 0 ] ; then echo "Terminating..." >&2 ; exit 1 ; fi
@@ -108,6 +129,9 @@ main()
 		--filearch)
 			FILEARCH="$2"
 			shift 2;;
+		--with-ui)
+			IS_BUILD_SMARTDNS_UI=1
+			shift ;;
 		--ver)
 			VER="$2"
 			shift 2;;

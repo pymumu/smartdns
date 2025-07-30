@@ -48,16 +48,19 @@ ifeq ($(origin CC), environment)
     endif
   endif
 
-  # find sysroot
-  SYSROOT:=$(shell $(CC) -print-sysroot)
-  ifeq ($(SYSROOT),)
-    # if sysroot is not set, try find sysroot from compiler default include path
-    SYSROOT:=$(shell $(CC) -xc /dev/null -E -Wp,-v 2>&1 | sed -n 's,^ ,,p' | head -n 1)
-    ifneq ($(SYSROOT),)
-      # find sysroot, add sysroot to BINDGEN_EXTRA_CLANG_ARGS
-      SYSROOT:=$(SYSROOT)/..
-      override CARGO_BUILD_ENV += BINDGEN_EXTRA_CLANG_ARGS="--sysroot=$(SYSROOT)"
-      CARGO_BUILD_ARGS +=--target=$(CARGO_BUILD_TARGET)
+  IS_NATIVE_BUILD=$(shell [ "$(CC)" = "cc" ] || [ "$(CC)" = "gcc" ] && echo 1 || echo 0)
+  ifeq ($(IS_NATIVE_BUILD), 0)
+    # find sysroot
+    SYSROOT:=$(shell $(CC) -print-sysroot)
+    ifeq ($(SYSROOT),)
+      # if sysroot is not set, try find sysroot from compiler default include path
+      SYSROOT:=$(shell $(CC) -xc /dev/null -E -Wp,-v 2>&1 | sed -n 's,^ ,,p' | head -n 1)
+      ifneq ($(SYSROOT),)
+        # find sysroot, add sysroot to BINDGEN_EXTRA_CLANG_ARGS
+        SYSROOT:=$(SYSROOT)/..
+        override CARGO_BUILD_ENV += BINDGEN_EXTRA_CLANG_ARGS="--sysroot=$(SYSROOT)"
+        CARGO_BUILD_ARGS +=--target=$(CARGO_BUILD_TARGET)
+      endif
     endif
   endif
 endif
