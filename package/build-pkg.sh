@@ -11,6 +11,7 @@ SMARTDNS_WEBUI_URL="https://github.com/pymumu/smartdns-webui/archive/refs/heads/
 SMARTDNS_WEBUI_SOURCE="$WORKDIR/smartdns-webui"
 SMARTDNS_STATIC_DIR="$WORKDIR/smartdns-static"
 SMARTDNS_WITH_LIBS=0
+MAKE_NJOBS=1
 
 export CC
 export STRIP
@@ -55,6 +56,9 @@ init_env()
     if [ -z "$CC" ]; then
         CC=gcc
     fi
+
+	MAKE_NJOBS=$(grep processor /proc/cpuinfo  | wc -l 2>/dev/null || echo 1)
+	export MAKE_NJOBS
 
 	mkdir -p $WORKDIR
 	if [ $? -ne 0 ]; then
@@ -160,7 +164,7 @@ copy_linker()
     echo "libc: $LIBC_PATH"
 
     if [ "$SYM_LINKER_NAME" = "$LIBC_PATH" ]; then
-        ln -f -s $(basename $LIBC_PATH) $SMARTDNS_STATIC_DIR/$(basename $LINKER_NAME)
+        ln -f -s $(basename $LIBC_PATH) $SMARTDNS_STATIC_DIR/lib/$(basename $LINKER_NAME)
     else
         cp $LINK_PATH $SMARTDNS_STATIC_DIR/lib -af
         if [ $? -ne 0 ]; then
@@ -168,8 +172,8 @@ copy_linker()
             return 1
         fi
 
-        SYM_LINKER_NAME=`readlink $SMARTDNS_STATIC_DIR/$LINKER_NAME`
-        if [ ! -e $SMARTDNS_STATIC_DIR/$SYM_LINKER_NAME ]; then
+        SYM_LINKER_NAME=`readlink $SMARTDNS_STATIC_DIR/lib/$LINKER_NAME`
+        if [ ! -e $SMARTDNS_STATIC_DIR/lib/$SYM_LINKER_NAME ]; then
             SYM_LINKER_NAME=`basename $SYM_LINKER_NAME`
             ln -f -s $SYM_LINKER_NAME $SMARTDNS_STATIC_DIR/lib/$LINKER_NAME
         fi
@@ -197,14 +201,15 @@ build_smartdns()
 
 	make -C $CODE_DIR clean $MAKE_ARGS
 	if [ $SMARTDNS_WITH_LIBS -eq 1 ]; then
-		export LDFLAGS='-Wl,-dynamic-linker,'lib/$(echo $LINKER_NAME)' -Wl,-rpath,\$$ORIGIN:\$$ORIGIN/lib'
+		LINK_LDFLAGS='-Wl,-dynamic-linker,'lib/$(echo $LINKER_NAME)' -Wl,-rpath,\$$ORIGIN:\$$ORIGIN/lib'
+		export LDFLAGS="$LDFLAGS $LINK_LDFLAGS"
 		echo "LDFLAGS: $LDFLAGS"
 		RUSTFLAGS='-C link-arg=-Wl,-rpath,$$ORIGIN'
 		echo "Building smartdns with specific linker..."
 		unset STATIC
 	fi
 
-	RUSTFLAGS="$RUSTFLAGS" make -C $CODE_DIR $MAKE_WITH_UI all -j8 VER=$VER $MAKE_ARGS
+	RUSTFLAGS="$RUSTFLAGS" make -C $CODE_DIR $MAKE_WITH_UI all -j$MAKE_NJOBS VER=$VER $MAKE_ARGS
 	if [ $? -ne 0 ]; then
 		echo "make smartdns failed"
 		exit 1
@@ -325,14 +330,13 @@ build()
 		fi
 	fi
 
-	build_webpages
-	if [ $? -ne 0 ]; then
-		echo "build smartdns-ui failed"
-		return 1
-	fi
-
 	WITH_UI_ARGS=""
 	if [ $WITH_UI -eq 1 ] && [ "$PLATFORM" != "luci" ]; then
+		build_webpages
+		if [ $? -ne 0 ]; then
+			echo "build smartdns-ui failed"
+			return 1
+		fi
 		WITH_UI_ARGS="--with-ui"
 	fi
 
