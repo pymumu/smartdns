@@ -49,15 +49,10 @@ build()
 	cp $SMARTDNS_CONF  $ROOT/opt/etc/smartdns/
 	cp $SMARTDNS_OPT $ROOT/opt/etc/smartdns/
 	cp $CURR_DIR/S50smartdns $ROOT/opt/etc/init.d/
-	$SMARTDNS_CP $ROOT/opt /opt
+	$SMARTDNS_CP $ROOT /opt
 	if [ $? -ne 0 ]; then
 		echo "copy smartdns file failed."
 		rm -fr $PKG_ROOT
-		return 1
-	fi
-	if [ $? -ne 0 ]; then
-		echo "copy smartdns file failed."
-		rm -fr $ROOT/
 		return 1
 	fi
 
