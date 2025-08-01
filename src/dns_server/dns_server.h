@@ -329,6 +329,12 @@ struct dns_request {
 	atomic_t plugin_complete_called;
 
 	/* send original raw packet to server/client like proxy */
+
+	/*
+	 0: not passthrough, reply to client
+	 1: passthrough, reply to client, no modify packet
+	 2: passthrough, reply to client, check and filter ip addresses.
+	 */
 	int passthrough;
 
 	int request_wait;

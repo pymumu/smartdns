@@ -197,6 +197,68 @@ static int _dns_server_add_srv(struct dns_server_post_context *context)
 	return 0;
 }
 
+static int _dns_add_rrs_ip_hint(struct dns_server_post_context *context, struct dns_rr_nested *param, dns_type_t qtype)
+{
+	typedef int (*addfunc)(struct dns_rr_nested *svcparam, unsigned char *addr[], int addr_num);
+	struct dns_request *request = context->request;
+	struct dns_ip_address *addr_map = NULL;
+	unsigned long bucket = 0;
+	struct hlist_node *tmp = NULL;
+	int ret = 0;
+	int all_ips = 0;
+	int addr_num = 0;
+	addfunc add_func = NULL;
+
+	unsigned char *addr[8];
+	int addr_buffer_size = sizeof(addr) / sizeof(addr[0]);
+
+	if (qtype == DNS_T_A) {
+		add_func = dns_HTTPS_add_ipv4hint;
+	} else if (qtype == DNS_T_AAAA) {
+		add_func = dns_HTTPS_add_ipv6hint;
+	} else {
+		return 0; // Unsupported type
+	}
+
+	if (request->passthrough == 2) {
+		all_ips = 1;
+	}
+
+	if (request->has_ip == 0) {
+		return 0;
+	}
+
+	if (all_ips == 0) {
+		if (request->ip_addr_type == (int)qtype) {
+			addr[0] = request->ip_addr;
+			ret = add_func(param, addr, 1);
+
+			return ret;
+		}
+		return 0;
+	}
+
+	ret = 0;
+	pthread_mutex_lock(&request->ip_map_lock);
+	hash_for_each_safe(request->ip_map, bucket, tmp, addr_map, node)
+	{
+		if (addr_map->addr_type == qtype) {
+			addr[addr_num] = addr_map->ip_addr;
+			addr_num++;
+			if (addr_num >= addr_buffer_size) {
+				break;
+			}
+		}
+	}
+	pthread_mutex_unlock(&request->ip_map_lock);
+
+	if (addr_num > 0) {
+		ret = add_func(param, addr, addr_num);
+	}
+
+	return ret;
+}
+
 static int _dns_add_rrs_HTTPS(struct dns_server_post_context *context)
 {
 	struct dns_request *request = context->request;
@@ -228,12 +290,9 @@ static int _dns_add_rrs_HTTPS(struct dns_server_post_context *context)
 		}
 	}
 
-	if (request->has_ip) {
-		unsigned char *addr[1];
-		addr[0] = request->ip_addr;
-		if (request->ip_addr_type == DNS_T_A) {
-			ret = dns_HTTPS_add_ipv4hint(&param, addr, 1);
-		}
+	ret = _dns_add_rrs_ip_hint(context, &param, DNS_T_A);
+	if (ret != 0) {
+		return ret;
 	}
 
 	if (https_svcb->ech_len > 0) {
@@ -243,12 +302,9 @@ static int _dns_add_rrs_HTTPS(struct dns_server_post_context *context)
 		}
 	}
 
-	if (request->has_ip) {
-		unsigned char *addr[1];
-		addr[0] = request->ip_addr;
-		if (request->ip_addr_type == DNS_T_AAAA) {
-			ret = dns_HTTPS_add_ipv6hint(&param, addr, 1);
-		}
+	ret = _dns_add_rrs_ip_hint(context, &param, DNS_T_AAAA);
+	if (ret != 0) {
+		return ret;
 	}
 
 	dns_add_HTTPS_end(&param);
