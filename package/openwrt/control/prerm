@@ -20,6 +20,10 @@ default_prerm $0 $@
 /etc/init.d/smartdns disable
 rm /var/etc/smartdns.conf -f
 rm /var/etc/smartdns/smartdns.conf -f
-rm /var/log/smartdns/ -fr
-rm /etc/smartdns/smartdns.cache -f
+if [ "$1" = "remove" ]; then
+    rm /var/run/smartdns.pid -f
+    rm /var/log/smartdns/ -fr
+    rm /etc/smartdns/smartdns.cache -f
+    rm /var/lib/smartdns/ -fr
+fi
 exit 0

@@ -267,6 +267,7 @@ int create_pid_file(const char *pid_file)
 	int fd = 0;
 	int flags = 0;
 	char buff[TMP_BUFF_LEN_32];
+	int unused __attribute__((unused));
 
 	/*  create pid file, and lock this file */
 	fd = open(pid_file, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
@@ -296,7 +297,7 @@ int create_pid_file(const char *pid_file)
 		goto errout;
 	}
 
-	ftruncate(fd, 0);
+	unused = ftruncate(fd, 0);
 	snprintf(buff, TMP_BUFF_LEN_32, "%d\n", getpid());
 
 	if (write(fd, buff, strnlen(buff, TMP_BUFF_LEN_32)) < 0) {

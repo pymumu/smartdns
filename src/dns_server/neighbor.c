@@ -231,34 +231,9 @@ struct dns_client_rules *_dns_server_get_client_rules_by_mac(uint8_t *netaddr, i
 	args.netaddr = netaddr;
 	args.netaddr_len = netaddr_len;
 
-	for (int i = 0; i < 2; i++) {
+	for (int i = 0; i < 1; i++) {
 		ret = netlink_get_neighbors(family, _dns_server_neighbors_callback, &args);
 		if (ret < 0) {
-			goto add_cache;
-		}
-
-		if (ret != 1) {
-			/* FIXME: ugly force refresh NDP table by sending ICMP message.*/
-			if (i == 0) {
-				char host[DNS_MAX_CNAME_LEN] = {0};
-				if (family == AF_INET) {
-					snprintf(host, sizeof(host), "%d.%d.%d.%d", netaddr[0], netaddr[1], netaddr[2], netaddr[3]);
-				} else if (family == AF_INET6) {
-					snprintf(host, sizeof(host),
-							 "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x", netaddr[0],
-							 netaddr[1], netaddr[2], netaddr[3], netaddr[4], netaddr[5], netaddr[6], netaddr[7],
-							 netaddr[8], netaddr[9], netaddr[10], netaddr[11], netaddr[12], netaddr[13], netaddr[14],
-							 netaddr[15]);
-				}
-				struct ping_host_struct *ping_host = fast_ping_start(PING_TYPE_ICMP, host, 0, 10, 1000, NULL, NULL);
-				if (ping_host) {
-					/* wait for NDP*/
-					usleep(1000);
-					fast_ping_stop(ping_host);
-					continue;
-				}
-			}
-
 			goto add_cache;
 		}
 	}
