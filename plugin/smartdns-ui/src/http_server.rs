@@ -31,10 +31,10 @@ use bytes::Bytes;
 use http_body_util::Full;
 use hyper::body;
 use hyper::header::HeaderValue;
-use hyper::server::conn::http1;
 use hyper::StatusCode;
 use hyper::{service::service_fn, Request, Response};
 use hyper_util::rt::TokioIo;
+use hyper_util::server::conn::auto;
 use std::convert::Infallible;
 use std::error::Error;
 use std::fs::Metadata;
@@ -91,9 +91,15 @@ impl HttpServerConfig {
         let mut map = std::collections::HashMap::new();
         map.insert("http_ip".to_string(), self.http_ip.clone());
         map.insert("username".to_string(), self.username.clone());
-        map.insert("token_expired_time".to_string(), self.token_expired_time.to_string());
+        map.insert(
+            "token_expired_time".to_string(),
+            self.token_expired_time.to_string(),
+        );
         map.insert("enable_cors".to_string(), self.enable_cors.to_string());
-        map.insert("enable_terminal".to_string(), self.enable_terminal.to_string());
+        map.insert(
+            "enable_terminal".to_string(),
+            self.enable_terminal.to_string(),
+        );
         map
     }
 
@@ -121,7 +127,8 @@ impl HttpServerConfig {
             }
         }
 
-        if let Some(enable_terminal) = data_server.get_server_config("smartdns-ui.enable-terminal") {
+        if let Some(enable_terminal) = data_server.get_server_config("smartdns-ui.enable-terminal")
+        {
             if enable_terminal.eq_ignore_ascii_case("yes")
                 || enable_terminal.eq_ignore_ascii_case("true")
             {
@@ -224,6 +231,19 @@ impl Drop for HttpServerControl {
     }
 }
 
+#[derive(Clone)]
+pub struct TokioExecutor;
+
+impl<F> hyper::rt::Executor<F> for TokioExecutor
+where
+    F: std::future::Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    fn execute(&self, fut: F) {
+        tokio::task::spawn(fut);
+    }
+}
+
 pub struct HttpServer {
     conf: Mutex<HttpServerConfig>,
     notify_tx: Option<mpsc::Sender<()>>,
@@ -247,23 +267,43 @@ impl HttpServer {
             login_attempts: Mutex::new((0, Instant::now())),
             plugin: Mutex::new(None),
             mime_map: std::collections::HashMap::from([
+                /* text */
                 ("htm", "text/html"),
                 ("html", "text/html"),
                 ("js", "text/javascript"),
                 ("css", "text/css"),
-                ("json", "application/json"),
+                ("txt", "text/plain"),
+                ("conf", "text/plain"),
+                ("xml", "text/xml"),
+                ("csv", "text/csv"),
+                ("md", "text/markdown"),
+                /* image */
                 ("png", "image/png"),
                 ("gif", "image/gif"),
                 ("jpeg", "image/jpeg"),
                 ("svg", "image/svg+xml"),
+                ("ico", "image/x-icon"),
+                ("bmp", "image/bmp"),
+                ("avif", "image/avif"),
+                /* video */
+                ("mpeg", "video/mpeg"),
+                ("mp4", "video/mp4"),
+                ("webm", "video/webm"),
+                /* audio */
+                ("mp3", "audio/mpeg"),
+                ("ogg", "audio/ogg"),
+                ("wav", "audio/wav"),
+                /* font */
+                ("woff", "font/woff"),
+                ("woff2", "font/woff2"),
+                ("ttf", "font/ttf"),
+                ("otf", "font/otf"),
+                /* application */
+                ("wasm", "application/wasm"),
+                ("pdf", "application/pdf"),
+                ("json", "application/json"),
                 ("tar", "application/x-tar"),
                 ("zip", "application/zip"),
-                ("txt", "text/plain"),
-                ("conf", "text/plain"),
-                ("ico", "application/octet-stream"),
-                ("xml", "text/xml"),
-                ("mpeg", "video/mpeg"),
-                ("mp3", "audio/mpeg"),
             ]),
         };
 
@@ -648,6 +688,8 @@ impl HttpServer {
                 let header = response.headers_mut();
                 header.insert("Content-Length", bytes_len.to_string().parse().unwrap());
                 header.insert("Content-Type", this.get_mime_type(&path).parse().unwrap());
+                header.insert("Connection", "keep-alive".parse().unwrap());
+                header.insert("Keep-Alive", "timeout=60, max=1000".parse().unwrap());
 
                 if file_meta.as_ref().is_some() {
                     let etag = fn_get_etag(&file_meta.as_ref().unwrap());
@@ -663,7 +705,7 @@ impl HttpServer {
                 Ok(response)
             }
             Err(_) => {
-                let bytes = Bytes::from("Not Found");
+                let bytes = Bytes::from("Page Not Found");
                 let mut response = Response::new(Full::new(bytes));
                 *response.status_mut() = StatusCode::NOT_FOUND;
                 Ok(response)
@@ -677,9 +719,8 @@ impl HttpServer {
         let handle_func = move |req| HttpServer::server_handle_http_request(this.clone(), req);
 
         tokio::task::spawn(async move {
-            let conn = http1::Builder::new()
-                .serve_connection(io, service_fn(handle_func))
-                .with_upgrades()
+            let conn = auto::Builder::new(TokioExecutor)
+                .serve_connection_with_upgrades(io, service_fn(handle_func))
                 .await;
             if let Err(err) = conn {
                 dns_log!(LogLevel::DEBUG, "Error serving connection: {:?}", err);
@@ -698,9 +739,8 @@ impl HttpServer {
         let handle_func = move |req| HttpServer::server_handle_http_request(this.clone(), req);
 
         tokio::task::spawn(async move {
-            let conn = http1::Builder::new()
-                .serve_connection(io, service_fn(handle_func))
-                .with_upgrades()
+            let conn = auto::Builder::new(TokioExecutor)
+                .serve_connection_with_upgrades(io, service_fn(handle_func))
                 .await;
             if let Err(err) = conn {
                 dns_log!(LogLevel::DEBUG, "Error serving connection: {:?}", err);
@@ -772,9 +812,11 @@ impl HttpServer {
                     ))?
                     .unwrap();
 
-                    let config = rustls::ServerConfig::builder()
+                    let mut config = rustls::ServerConfig::builder()
                         .with_no_client_auth()
                         .with_single_cert(cert_chain, key_der)?;
+
+                    config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
                     acceptor = Some(TlsAcceptor::from(Arc::new(config)));
                 }
             } else {
@@ -806,10 +848,19 @@ impl HttpServer {
                             let sock_ref = socket2::SockRef::from(&stream);
 
                             let mut ka = socket2::TcpKeepalive::new();
-                            ka = ka.with_time(Duration::from_secs(30));
-                            ka = ka.with_interval(Duration::from_secs(10));
+                            ka = ka.with_time(Duration::from_secs(60));
+                            ka = ka.with_interval(Duration::from_secs(30));
                             sock_ref.set_tcp_keepalive(&ka)?;
                             sock_ref.set_nonblocking(true)?;
+                            sock_ref.tcp_nodelay()?;
+
+                            if let Err(_) = sock_ref.set_recv_buffer_size(262144) {
+                                dns_log!(LogLevel::DEBUG, "Failed to set recv buffer size");
+                            }
+
+                            if let Err(_) = sock_ref.set_send_buffer_size(262144) {
+                                dns_log!(LogLevel::DEBUG, "Failed to set send buffer size");
+                            }
                             cfg_if::cfg_if! {
                                 if #[cfg(feature = "https")]
                                 {
