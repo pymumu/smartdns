@@ -52,6 +52,7 @@ int _dns_client_send_http3(struct dns_query_struct *query, struct dns_server_inf
 	http_head_add_fields(http_head, ":authority", https_flag->httphost);
 	http_head_add_fields(http_head, "user-agent", "smartdns");
 	http_head_add_fields(http_head, "content-type", "application/dns-message");
+	http_head_add_fields(http_head, "accept", "application/dns-message");
 	http_head_add_fields(http_head, "accept-encoding", "identity");
 	http_head_set_data(http_head, packet, len);
 
