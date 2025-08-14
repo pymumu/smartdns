@@ -823,7 +823,12 @@ static int _smartdns_create_datadir(void)
 	}
 
 	mkdir(data_dir, 0750);
-	if (stat(data_dir, &sb) == 0 && sb.st_uid == uid && sb.st_gid == gid && (sb.st_mode & 0700) == 0700) {
+	if (stat(data_dir, &sb) != 0) {
+		tlog(TLOG_DEBUG, "create dir %s failed, %s", data_dir, strerror(errno));
+		return -1;
+	}
+
+	if (sb.st_uid == uid && sb.st_gid == gid && (sb.st_mode & 0700) == 0700) {
 		return 0;
 	}
 
@@ -853,9 +858,13 @@ static int _set_rlimit(void)
 
 static int _smartdns_init_pre(void)
 {
+	int ret = -1;
 	_smartdns_create_logdir();
 	_smartdns_create_cache_dir();
-	_smartdns_create_datadir();
+	ret = _smartdns_create_datadir();
+	if (ret != 0) {
+		tlog(TLOG_DEBUG, "create data dir failed.");
+	}
 
 	_set_rlimit();
 
@@ -1202,7 +1211,7 @@ int smartdns_main(int argc, char *argv[])
 
 	ret = _smartdns_init_pre();
 	if (ret != 0) {
-		fprintf(stderr, "init failed.\n");
+		fprintf(stderr, "smartdns init failed.\n");
 		goto errout;
 	}
 

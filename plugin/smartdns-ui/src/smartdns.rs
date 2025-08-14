@@ -350,7 +350,8 @@ extern "C" fn dns_plugin_init(plugin: *mut smartdns_c::dns_plugin) -> i32 {
             .unwrap()
             .server_init((*plugin_addr).get_args());
         if let Err(e) = ret {
-            dns_log!(LogLevel::ERROR, "server init error: {}", e);
+            dns_log!(LogLevel::ERROR, "{}", e.to_string());
+            dns_log!(LogLevel::ERROR, "server init failed.");
             return -1;
         }
     }

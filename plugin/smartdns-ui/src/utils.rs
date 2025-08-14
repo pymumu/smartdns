@@ -92,3 +92,8 @@ pub fn get_page_size() -> usize {
     // Use libc to get the system page size
     unsafe { libc::sysconf(libc::_SC_PAGESIZE) as usize }
 }
+
+pub fn is_dir_writable(path: &str) -> bool {
+    let path = std::ffi::CString::new(path).unwrap();
+    unsafe { libc::access(path.as_ptr(), libc::W_OK) == 0 }
+}

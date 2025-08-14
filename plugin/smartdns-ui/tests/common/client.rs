@@ -57,6 +57,11 @@ impl TestClient {
             password: password.to_string(),
         });
         let resp = self.client.post(&url).body(body).send()?;
+
+        if resp.status().as_u16() != 200 {
+            return Err(resp.text()?.into());
+        }
+
         let text = resp.text()?;
 
         let token = http_api_msg::api_msg_parse_auth_token(&text)?;

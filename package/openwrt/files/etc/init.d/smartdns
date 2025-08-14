@@ -871,7 +871,7 @@ load_service()
 
 		conf_append "plugin" "smartdns_ui.so"
 		conf_append "smartdns-ui.www-root" "/usr/share/smartdns/wwwroot"
-		conf_append "smartdns-ui.ip" "http://0.0.0.0:$ui_port"
+		conf_append "smartdns-ui.ip" "http://[::]:$ui_port"
 		conf_append "data-dir" "$ui_data_dir"
 		conf_append "smartdns-ui.max-query-log-age" "$ui_log_max_age_s"
 	}

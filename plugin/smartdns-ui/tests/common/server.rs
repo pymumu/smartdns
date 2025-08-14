@@ -300,7 +300,7 @@ impl TestServer {
         self.args.insert(1, self.ip.clone());
 
         self.args.insert(0, "--data-dir".to_string());
-        self.args.insert(1, self.workdir.clone() + "/data.db");
+        self.args.insert(1, self.workdir.clone());
 
         self.args.insert(0, "--www-root".to_string());
         self.www_root = self.workdir.clone() + "/www";

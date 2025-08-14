@@ -42,6 +42,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::path::{Component, Path};
 use std::sync::MutexGuard;
+use std::sync::Weak;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::time::Instant;
@@ -61,7 +62,7 @@ cfg_if::cfg_if! {
 const HTTP_SERVER_DEFAULT_PASSWORD: &str = "password";
 const HTTP_SERVER_DEFAULT_USERNAME: &str = "admin";
 const HTTP_SERVER_DEFAULT_WWW_ROOT: &str = "/usr/share/smartdns/wwwroot";
-const HTTP_SERVER_DEFAULT_IP: &str = "http://0.0.0.0:6080";
+const HTTP_SERVER_DEFAULT_IP: &str = "http://[::]:6080";
 
 #[derive(Clone)]
 pub struct HttpServerConfig {
@@ -145,7 +146,7 @@ impl HttpServerConfig {
 pub struct HttpServerControl {
     http_server: Arc<HttpServer>,
     server_thread: Mutex<Option<JoinHandle<()>>>,
-    plugin: Mutex<Option<Arc<SmartdnsPlugin>>>,
+    plugin: Mutex<Weak<SmartdnsPlugin>>,
 }
 
 #[allow(dead_code)]
@@ -154,17 +155,24 @@ impl HttpServerControl {
         HttpServerControl {
             http_server: Arc::new(HttpServer::new()),
             server_thread: Mutex::new(None),
-            plugin: Mutex::new(None),
+            plugin: Mutex::new(Weak::new()),
         }
     }
 
     pub fn set_plugin(&self, plugin: Arc<SmartdnsPlugin>) {
-        *self.plugin.lock().unwrap() = Some(plugin);
+        *self.plugin.lock().unwrap() = Arc::downgrade(&plugin);
     }
 
-    pub fn get_plugin(&self) -> Arc<SmartdnsPlugin> {
-        let plugin = self.plugin.lock().unwrap();
-        Arc::clone(&plugin.as_ref().unwrap())
+    pub fn get_plugin(&self) -> Result<Arc<SmartdnsPlugin>, Box<dyn Error>> {
+        let plugin = match self.plugin.lock() {
+            Ok(plugin) => plugin,
+            Err(_) => return Err("Failed to lock plugin mutex".into()),
+        };
+
+        if let Some(plugin) = plugin.upgrade() {
+            return Ok(plugin);
+        }
+        Err("Plugin is not set".into())
     }
 
     pub fn get_http_server(&self) -> Arc<HttpServer> {
@@ -180,22 +188,24 @@ impl HttpServerControl {
             return Err(e);
         }
 
-        inner_clone.set_plugin(self.get_plugin());
+        let plugin = self.get_plugin()?;
+        inner_clone.set_plugin(plugin.clone());
 
-        let (tx, rx) = std::sync::mpsc::channel::<i32>();
-        let rt = self.get_plugin().get_runtime();
+        let (tx, rx) = tokio::sync::oneshot::channel::<i32>();
+        let rt = plugin.get_runtime();
 
         let server_thread = rt.spawn(async move {
-            let ret = HttpServer::http_server_loop(inner_clone, &tx).await;
+            let ret = HttpServer::http_server_loop(inner_clone, tx).await;
             if let Err(e) = ret {
-                _ = tx.send(0);
                 dns_log!(LogLevel::ERROR, "http server error: {}", e);
                 Plugin::smartdns_exit(1);
             }
             dns_log!(LogLevel::INFO, "http server exit.");
         });
 
-        rx.recv().unwrap();
+        tokio::task::block_in_place(|| {
+            let _ = rt.block_on(rx);
+        });
 
         *self.server_thread.lock().unwrap() = Some(server_thread);
 
@@ -213,15 +223,23 @@ impl HttpServerControl {
         self.http_server.stop_http_server();
 
         if let Some(server_thread) = server_thread.take() {
-            let rt = self.get_plugin().get_runtime();
+            let plugin = self.get_plugin();
+            if plugin.is_err() {
+                dns_log!(
+                    LogLevel::ERROR,
+                    "get plugin error: {}",
+                    plugin.err().unwrap()
+                );
+                return;
+            }
+            let plugin = plugin.unwrap();
+            let rt = plugin.get_runtime();
             tokio::task::block_in_place(|| {
                 if let Err(e) = rt.block_on(server_thread) {
                     dns_log!(LogLevel::ERROR, "http server stop error: {}", e);
                 }
             });
         }
-
-        *server_thread = None;
     }
 }
 
@@ -252,7 +270,7 @@ pub struct HttpServer {
     local_addr: Mutex<Option<SocketAddr>>,
     mime_map: std::collections::HashMap<&'static str, &'static str>,
     login_attempts: Mutex<(i32, Instant)>,
-    plugin: Mutex<Option<Arc<SmartdnsPlugin>>>,
+    plugin: Mutex<Weak<SmartdnsPlugin>>,
 }
 
 #[allow(dead_code)]
@@ -265,7 +283,7 @@ impl HttpServer {
             api: API::new(),
             local_addr: Mutex::new(None),
             login_attempts: Mutex::new((0, Instant::now())),
-            plugin: Mutex::new(None),
+            plugin: Mutex::new(Weak::new()),
             mime_map: std::collections::HashMap::from([
                 /* text */
                 ("htm", "text/html"),
@@ -319,7 +337,7 @@ impl HttpServer {
         conf.clone()
     }
 
-    pub fn get_conf_mut(&self) -> MutexGuard<HttpServerConfig> {
+    pub fn get_conf_mut(&'_ self) -> MutexGuard<'_, HttpServerConfig> {
         self.conf.lock().unwrap()
     }
 
@@ -374,16 +392,23 @@ impl HttpServer {
 
     fn set_plugin(&self, plugin: Arc<SmartdnsPlugin>) {
         let mut _plugin = self.plugin.lock().unwrap();
-        *_plugin = Some(plugin)
+        *_plugin = Arc::downgrade(&plugin);
     }
 
-    fn get_plugin(&self) -> Arc<SmartdnsPlugin> {
-        let plugin = self.plugin.lock().unwrap();
-        Arc::clone(&plugin.as_ref().unwrap())
+    fn get_plugin(&self) -> Result<Arc<SmartdnsPlugin>, Box<dyn Error>> {
+        let plugin = match self.plugin.lock() {
+            Ok(plugin) => plugin,
+            Err(_) => return Err("Failed to lock plugin mutex".into()),
+        };
+
+        if let Some(plugin) = plugin.upgrade() {
+            return Ok(plugin);
+        }
+        Err("Plugin is not set".into())
     }
 
     pub fn get_data_server(&self) -> Arc<DataServer> {
-        self.get_plugin().get_data_server()
+        self.get_plugin().unwrap().get_data_server()
     }
 
     pub fn get_token_from_header(
@@ -773,7 +798,7 @@ impl HttpServer {
 
     async fn http_server_loop(
         this: Arc<HttpServer>,
-        kickoff_tx: &std::sync::mpsc::Sender<i32>,
+        kickoff_tx: tokio::sync::oneshot::Sender<i32>,
     ) -> Result<(), Box<dyn Error>> {
         let addr: String;
         let mut rx: mpsc::Receiver<()>;
@@ -836,7 +861,7 @@ impl HttpServer {
         *this.local_addr.lock().unwrap() = Some(addr);
         dns_log!(LogLevel::INFO, "http server listen at {}", url);
 
-        _ = kickoff_tx.send(0);
+        let _ = kickoff_tx.send(0);
         loop {
             tokio::select! {
                 _ = rx.recv() => {
@@ -889,7 +914,14 @@ impl HttpServer {
 
     fn stop_http_server(&self) {
         if let Some(tx) = self.notify_tx.as_ref().cloned() {
-            let rt = self.get_plugin().get_runtime();
+            let plugin = match self.get_plugin() {
+                Ok(plugin) => plugin,
+                Err(e) => {
+                    dns_log!(LogLevel::ERROR, "get plugin error: {}", e);
+                    return;
+                }
+            };
+            let rt = plugin.get_runtime();
             tokio::task::block_in_place(|| {
                 let _ = rt.block_on(async {
                     let _ = tx.send(()).await;

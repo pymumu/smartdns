@@ -249,7 +249,6 @@ impl DataStats {
     pub fn init(self: &Arc<Self>) -> Result<(), Box<dyn Error>> {
         dns_log!(LogLevel::DEBUG, "init data stats");
         self.load_status_data()?;
-        dns_log!(LogLevel::DEBUG, "init data stats complete");
         Ok(())
     }
 

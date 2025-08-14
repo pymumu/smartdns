@@ -130,7 +130,7 @@ impl SmartdnsPlugin {
         }
 
         if let Some(data_dir) = matches.opt_str("data-dir") {
-            data_conf.data_root = data_dir;
+            data_conf.data_path = data_dir;
         }
 
         Ok(())

@@ -1198,7 +1198,7 @@ impl API {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        let rt = this.get_data_server().get_plugin().get_runtime();
+        let rt = this.get_data_server().get_plugin().unwrap().get_runtime();
 
         let ret = rt.spawn_blocking(move || -> R {
             return func();

@@ -20,33 +20,20 @@ mod common;
 
 use common::TestDnsRequest;
 use nix::libc::c_char;
-use reqwest;
-use serde_json::json;
 use smartdns_ui::{http_api_msg, http_jwt::JwtClaims, smartdns::LogLevel};
 use std::ffi::CString;
 
-#[tokio::test(flavor = "multi_thread")]
-async fn test_rest_api_login() {
+#[test]
+fn test_rest_api_login() {
     let mut server = common::TestServer::new();
     server.set_log_level(LogLevel::DEBUG);
     assert!(server.start().is_ok());
 
-    let c = reqwest::Client::new();
-    let body = json!({
-        "username": "admin",
-        "password": "password",
-    });
-
-    let res = c
-        .post(server.get_url("/api/auth/login"))
-        .body(body.to_string())
-        .send()
-        .await
-        .unwrap();
-    let code = res.status();
-    let body = res.text().await.unwrap();
+    let mut client = common::TestClient::new(&server.get_host());
+    let res = client.login("admin", "password");
+    assert!(res.is_ok());
+    let body = res.unwrap();
     println!("res: {}", body);
-    assert_eq!(code, 200);
 
     let result = http_api_msg::api_msg_parse_auth_token(&body);
     assert!(result.is_ok());
@@ -92,28 +79,17 @@ fn test_rest_api_logout() {
     assert_eq!(code, 401);
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn test_rest_api_login_incorrect() {
+#[test]
+fn test_rest_api_login_incorrect() {
     let mut server = common::TestServer::new();
     server.set_log_level(LogLevel::DEBUG);
     assert!(server.start().is_ok());
 
-    let c = reqwest::Client::new();
-    let body = json!({
-        "username": "admin",
-        "password": "wrongpassword",
-    });
-
-    let res = c
-        .post(server.get_url("/api/auth/login"))
-        .body(body.to_string())
-        .send()
-        .await
-        .unwrap();
-    let code = res.status();
-    let body = res.text().await.unwrap();
+    let mut client = common::TestClient::new(&server.get_host());
+    let res = client.login("admin", "wrongpassword");
+    assert!(!res.is_ok());
+    let body = res.err().unwrap().to_string();
     println!("res: {}", body);
-    assert_eq!(code, 401);
 
     let result = http_api_msg::api_msg_parse_error(&body);
     assert!(result.is_ok());

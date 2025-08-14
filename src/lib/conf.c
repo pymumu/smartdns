@@ -475,6 +475,8 @@ static int load_conf_file(const char *file, const struct config_item *items, con
 	char line[MAX_LINE_LEN + MAX_KEY_LEN];
 	char key[MAX_KEY_LEN];
 	char value[MAX_LINE_LEN];
+	int value_begin = 0, value_end = 0;
+	int value_len = 0;
 	int filed_num = 0;
 	int i = 0;
 	int last_item_index = -1;
@@ -541,9 +543,24 @@ static int load_conf_file(const char *file, const struct config_item *items, con
 		is_last_line_wrap = 0;
 		key[0] = '\0';
 		value[0] = '\0';
-		filed_num = sscanf(line, "%63s %4095[^\r\n]s", key, value);
+		filed_num = sscanf(line, "%63s %n%4095[^\r\n]%n", key, &value_begin, value, &value_end);
 		if (filed_num <= 0) {
 			continue;
+		}
+
+		/* remove suffix space of value */
+		value_len = value_end - value_begin;
+		if (value_len < 0) {
+			continue;
+		}
+
+		for (i = value_len - 1; i >= 0; i--) {
+			if (value[i] == ' ' || value[i] == '\t') {
+				value[i] = '\0';
+				value_len--;
+			} else {
+				break;
+			}
 		}
 
 		/* comment, skip */

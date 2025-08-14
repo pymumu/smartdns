@@ -204,13 +204,15 @@ static int _dns_plugin_load_library(struct dns_plugin *plugin)
 
 	init_func = (dns_plugin_init_func)dlsym(handle, DNS_PLUGIN_INIT_FUNC);
 	if (!init_func) {
-		tlog(TLOG_ERROR, "load plugin %s failed: %s", plugin->file, dlerror());
+		tlog(TLOG_ERROR, "load plugin failed: %s", dlerror());
+		tlog(TLOG_ERROR, "%s is not a valid smartdns plugin, please check 'plugin' option.", plugin->file);
 		goto errout;
 	}
 
 	exit_func = (dns_plugin_exit_func)dlsym(handle, DNS_PLUGIN_EXIT_FUNC);
 	if (!exit_func) {
-		tlog(TLOG_ERROR, "load plugin %s failed: %s", plugin->file, dlerror());
+		tlog(TLOG_ERROR, "load plugin failed: %s", dlerror());
+		tlog(TLOG_ERROR, "%s not a valid smartdns plugin, please check 'plugin' option.", plugin->file);
 		goto errout;
 	}
 
