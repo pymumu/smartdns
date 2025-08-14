@@ -174,8 +174,9 @@ static int _config_setup_domain_key(const char *domain, char *domain_key, int do
 
 	int len = strlen(domain);
 	domain_len = len;
-	if (len >= domain_key_max_len - 3) {
-		tlog(TLOG_ERROR, "domain %s too long", domain);
+	if (!domain_key || !domain_key_len || domain_key_max_len <= 0 || 
+		len + 3 > domain_key_max_len) {
+		tlog(TLOG_ERROR, "invalid parameters or domain too long: %s (max %d)", domain, domain_key_max_len - 3);
 		return -1;
 	}
 
@@ -202,12 +203,14 @@ static int _config_setup_domain_key(const char *domain, char *domain_key, int do
 		}
 	} else if (len > 0) {
 		/* suffix match */
-		domain_key[len + 1] = '.';
-		len++;
+		if (len + 2 < domain_key_max_len) {
+			domain_key[len + 1] = '.';
+			len++;
+		}
 	}
 
-	domain_key[len + 1] = 0;
 	domain_key[0] = '.';
+	domain_key[len + 1] = '\0';
 
 	*domain_key_len = len + 1;
 	if (root_rule_only) {
