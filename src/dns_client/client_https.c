@@ -44,6 +44,7 @@ int _dns_client_send_https(struct dns_server_info *server_info, void *packet, un
 						"Host: %s\r\n"
 						"User-Agent: smartdns\r\n"
 						"Content-Type: application/dns-message\r\n"
+						"Accept: application/dns-message\r\n"	
 						"Content-Length: %d\r\n"
 						"\r\n",
 						https_flag->path, https_flag->httphost, len);
