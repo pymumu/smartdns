@@ -62,7 +62,8 @@ cfg_if::cfg_if! {
 const HTTP_SERVER_DEFAULT_PASSWORD: &str = "password";
 const HTTP_SERVER_DEFAULT_USERNAME: &str = "admin";
 const HTTP_SERVER_DEFAULT_WWW_ROOT: &str = "/usr/share/smartdns/wwwroot";
-const HTTP_SERVER_DEFAULT_IP: &str = "http://[::]:6080";
+const HTTP_SERVER_DEFAULT_IPV6: &str = "http://[::]:6080";
+const HTTP_SERVER_DEFAULT_IP: &str = "http://0.0.0.0:6080";
 
 #[derive(Clone)]
 pub struct HttpServerConfig {
@@ -77,8 +78,15 @@ pub struct HttpServerConfig {
 
 impl HttpServerConfig {
     pub fn new() -> Self {
+
+        let host_ip = if utils::is_ipv6_supported() {
+            HTTP_SERVER_DEFAULT_IPV6.to_string()
+        } else {
+            HTTP_SERVER_DEFAULT_IP.to_string()
+        };
+
         HttpServerConfig {
-            http_ip: HTTP_SERVER_DEFAULT_IP.to_string(),
+            http_ip: host_ip,
             http_root: HTTP_SERVER_DEFAULT_WWW_ROOT.to_string(),
             username: HTTP_SERVER_DEFAULT_USERNAME.to_string(),
             password: utils::hash_password(HTTP_SERVER_DEFAULT_PASSWORD, Some(1000)).unwrap(),
