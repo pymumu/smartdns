@@ -151,6 +151,7 @@ impl SmartdnsPlugin {
 
     pub fn start(&self, args: &Vec<String>) -> Result<(), Box<dyn Error>> {
         self.parser_args(args)?;
+        self.load_config()?;
         self.data_server_ctl
             .init_db(&self.data_conf.lock().unwrap())?;
         self.load_config()?;
