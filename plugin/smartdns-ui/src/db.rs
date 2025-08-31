@@ -383,7 +383,13 @@ impl DB {
             .execute("PRAGMA temp_store = MEMORY", [])?;
         conn.as_ref()
             .unwrap()
+            .execute("PRAGMA auto_vacuum = FULL", [])?;
+        conn.as_ref()
+            .unwrap()
             .query_row("PRAGMA journal_mode = WAL", [], |_| Ok(()))?;
+        conn.as_ref()
+            .unwrap()
+            .query_row("PRAGMA wal_autocheckpoint = 50000", [], |_| Ok(()))?;
         Ok(())
     }
 
