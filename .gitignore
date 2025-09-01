@@ -2,6 +2,7 @@ site
 en/site
 src
 plugin
+package
 test
 .vscode
 .DS_Store

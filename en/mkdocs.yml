@@ -80,6 +80,7 @@ nav:
     - Docker: 'install/docker.md'
   - Configuration Guides:
     - Basic Configuration: 'config/basic-config.md'
+    - DashBoard: 'config/dashboard.md'
     - Upstream DNS Server: 'config/upstream-dns.md'
     - Server Configuration: 'config/server-config.md'
     - Cache Settings: 'config/cache.md'

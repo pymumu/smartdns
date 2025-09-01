@@ -6,6 +6,8 @@ hide:
 
 # 配置选项
 
+## SmartDNS配置项说明：
+
 配置建议：
 
 **smartdns默认已设置为最优模式，适合大部分场景的DNS查询体验改善，一般情况只需要增加上游服务器地址即可，无需做其他配置修改；如有其他配置修改，请务必了解其用途，避免修改后起到反作用。**
@@ -107,6 +109,20 @@ hide:
 | user | 进程运行用户 | root | user [username] | user nobody |
 | ca-file | 证书文件 | /etc/ssl/<br />certs/ca-certificates.crt | 合法路径字符串 | ca-file /etc/ssl/certs/ca-certificates.crt |
 | ca-path | 证书文件路径 | /etc/ssl/certs | 合法路径字符串 | ca-path /etc/ssl/certs |
+
+## WebUI插件配置项
+
+| 键名 | 功能说明 | 默认值 | 可用值/要求 | 举例 |
+| :--- | :--- | :--- | :--- | :--- |
+| plugin smartdns_ui.so | 启用WebUI插件 | 无 | 详见`plugin`参数，指定后会加载WebUI前端插件<br />注意：静态编译的smartdns程序不支持加载插件。| plugin smartdns_ui.so |
+| smartdns-ui.www-root | web页面路径 |/usr/share/smartdns/wwwroot | 路径，指向存放仪表盘页面的路径| smartdns-ui.www-root /usr/share/smartdns/wwwroot  
+| smartdns-ui.ip | 服务监听IP端口 |http://[::]:6080 | 监听服务的IP和端口和号，若要启用HTTPS，可设置为https://[::]:6080，<br />对应的证书文件为：`bind-cert-file`，`bind-cert-key-file`设置，若为指定，将自动生成CN为smartdns的证书链。| smartdns-ui.ip https://[::]:6080 <br /> smartdns-ui.ip  http://0.0.0.0:6080 |
+| smartdns-ui.token-expire | Token超时时间 | 600 | token超时时间，单位为秒。| smartdns-ui.token-expire 600 |
+| smartdns-ui.max-query-log-age | 查询日志最大保留时间 | 2592000 | 查询日志最大存储时间，单位为秒。| smartdns-ui.max-query-log-age 2592000 |
+| smartdns-ui.enable-terminal | 启用终端页面 | no | [yes\|no]：是否开启终端页面功能。| smartdns-ui.enable-terminal yes|
+| smartdns-ui.enable-cors | 启用跨源资源共享 | no | [yes\|no]: 是否开启跨资源共享，当web页面和http服务分离时使用。| smartdns-ui.enable-cors no|
+| smartdns-ui.user | WebUI登陆用户 | admin | 登录用户名 | smartdns-ui.user admin|
+| smartdns-ui.password | WebUI默认密码 | password| 默认密码，登录后可在设置页面修改。| smartdns-ui.password password|
 
 ## 命令行参数
 
