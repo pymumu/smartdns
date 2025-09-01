@@ -381,6 +381,24 @@ impl DB {
         conn.as_ref()
             .unwrap()
             .execute("PRAGMA temp_store = MEMORY", [])?;
+
+        let current_auto_vacuum: i32 =
+            conn.as_ref()
+                .unwrap()
+                .query_row("PRAGMA auto_vacuum", [], |row| row.get(0))?;
+        dns_log!(
+            LogLevel::DEBUG,
+            "Current auto_vacuum: {}",
+            current_auto_vacuum
+        );
+        if current_auto_vacuum != 2 {
+            dns_log!(LogLevel::NOTICE, "Set auto_vacuum to INCREMENTAL");
+            conn.as_ref()
+                .unwrap()
+                .execute("PRAGMA auto_vacuum = INCREMENTAL", [])?;
+            conn.as_ref().unwrap().execute("VACUUM", [])?;
+        }
+
         conn.as_ref()
             .unwrap()
             .execute("PRAGMA auto_vacuum = FULL", [])?;
@@ -390,6 +408,27 @@ impl DB {
         conn.as_ref()
             .unwrap()
             .query_row("PRAGMA wal_autocheckpoint = 50000", [], |_| Ok(()))?;
+        Ok(())
+    }
+
+    pub fn run_vacuum(&self, pages: Option<u32>) -> Result<(), Box<dyn Error>> {
+        let conn = self.conn.lock().unwrap();
+        if conn.as_ref().is_none() {
+            return Err("db is not open".into());
+        }
+
+        let conn = conn.as_ref().unwrap();
+        dns_log!(LogLevel::DEBUG, "Start incremental vacuum");
+
+        conn.query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |_| Ok(()))?;
+        if let Some(pages) = pages {
+            conn.query_row(&format!("PRAGMA incremental_vacuum({})", pages), [], |_| {
+                Ok(())
+            })?;
+        } else {
+            conn.query_row("PRAGMA incremental_vacuum", [], |_| Ok(()))?;
+        }
+
         Ok(())
     }
 
@@ -937,20 +976,26 @@ impl DB {
     }
 
     pub fn delete_domain_before_timestamp(&self, timestamp: u64) -> Result<u64, Box<dyn Error>> {
-        let conn = self.conn.lock().unwrap();
-        if conn.as_ref().is_none() {
-            return Err("db is not open".into());
-        }
+        let ret = {
+            let conn = self.conn.lock().unwrap();
+            if conn.as_ref().is_none() {
+                return Err("db is not open".into());
+            }
 
-        let conn = conn.as_ref().unwrap();
+            let conn = conn.as_ref().unwrap();
 
-        let ret = conn.execute("DELETE FROM domain WHERE timestamp <= ?", &[&timestamp]);
+            let ret = conn.execute("DELETE FROM domain WHERE timestamp <= ?", &[&timestamp]);
 
-        if let Err(e) = ret {
-            return Err(Box::new(e));
-        }
+            if let Err(e) = ret {
+                return Err(Box::new(e));
+            }
 
-        Ok(ret.unwrap() as u64)
+            Ok(ret.unwrap() as u64)
+        };
+
+        self.run_vacuum(Some(50000))?;
+
+        ret
     }
 
     pub fn refresh_client_top_list(&self, timestamp: u64) -> Result<(), Box<dyn Error>> {
