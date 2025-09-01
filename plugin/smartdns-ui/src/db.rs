@@ -384,12 +384,23 @@ impl DB {
         conn.as_ref()
             .unwrap()
             .execute("PRAGMA auto_vacuum = FULL", [])?;
+        let avt: i64 = conn
+            .as_ref()
+            .unwrap()
+            .query_row("PRAGMA auto_vacuum;", [], |r| r.get(0))?;
+        if avt != 1 {
+            conn.as_ref().unwrap().execute_batch("VACUUM;")?;
+        }
         conn.as_ref()
             .unwrap()
             .query_row("PRAGMA journal_mode = WAL", [], |_| Ok(()))?;
         conn.as_ref()
             .unwrap()
-            .query_row("PRAGMA wal_autocheckpoint = 50000", [], |_| Ok(()))?;
+            .query_row("PRAGMA wal_autocheckpoint = 3000", [], |_| Ok(()))?;
+        let _ = conn
+            .as_ref()
+            .unwrap()
+            .execute_batch("PRAGMA wal_checkpoint(TRUNCATE); PRAGMA optimize;");
         Ok(())
     }
 
