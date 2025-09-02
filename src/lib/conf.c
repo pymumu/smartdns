@@ -286,9 +286,9 @@ int conf_enum(const char *item, void *data, int argc, char *argv[])
 
 void conf_getopt_reset(void)
 {
-	static struct option long_options[] = {{"-", 0, 0, 0}, {0, 0, 0, 0}};
+	static struct option long_options[] = {{"-", 0, NULL, 0}, {NULL, 0, NULL, 0}};
 	int argc = 2;
-	char *argv[3] = {"reset", "", 0};
+	char *argv[3] = {"reset", "", NULL};
 
 	optind = 0;
 	opterr = 0;
@@ -448,7 +448,7 @@ static int conf_parse_args(char *key, char *value, int *argc, char **argv)
 	}
 
 	*argc = count;
-	argv[count] = 0;
+	argv[count] = NULL;
 
 	return 0;
 }

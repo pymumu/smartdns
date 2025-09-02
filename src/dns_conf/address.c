@@ -50,12 +50,11 @@ int _conf_domain_rule_address(char *domain, const char *domain_address)
 
 	do {
 		field = ptr;
-		ptr = strstr(ptr, ",");
-
 		if (field == NULL || *field == '\0') {
 			break;
 		}
 
+		ptr = strstr(ptr, ",");
 		if (ptr) {
 			*ptr = 0;
 		}

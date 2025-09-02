@@ -34,12 +34,13 @@ static void _dns_server_ping_result(struct ping_host_struct *ping_host, const ch
 	int may_complete = 0;
 	int threshold = 100;
 	struct dns_ip_address *addr_map = NULL;
-	int last_rtt = request->ping_time;
-
+	int last_rtt = 0; 
+	
 	if (request == NULL) {
 		return;
 	}
 
+	last_rtt = request->ping_time;
 	if (result == PING_RESULT_END) {
 		_dns_server_request_release(request);
 		fast_ping_stop(ping_host);

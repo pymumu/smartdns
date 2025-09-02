@@ -85,7 +85,7 @@ struct http_head_fields *http_head_first_fields(struct http_head *http_head)
 const char *http_head_get_fields_value(struct http_head *http_head, const char *name)
 {
 	uint32_t key;
-	struct http_head_fields *filed;
+	struct http_head_fields *filed = NULL;
 
 	key = hash_string_case(name);
 	hash_for_each_possible(http_head->field_map, filed, node, key)
@@ -148,7 +148,7 @@ int http_head_lookup_fields(struct http_head_fields *fields, const char **name, 
 const char *http_head_get_params_value(struct http_head *http_head, const char *name)
 {
 	uint32_t key;
-	struct http_params *params;
+	struct http_params *params = NULL;
 
 	key = hash_string_case(name);
 	hash_for_each_possible(http_head->params_map, params, node, key)
@@ -482,8 +482,8 @@ int http_head_serialize(struct http_head *http_head, void *buffer, int buffer_le
 
 void http_head_destroy(struct http_head *http_head)
 {
-	struct http_head_fields *fields, *tmp;
-	struct http_params *params, *tmp_params;
+	struct http_head_fields *fields = NULL, *tmp;
+	struct http_params *params = NULL, *tmp_params;
 
 	list_for_each_entry_safe(fields, tmp, &http_head->field_head.list, list)
 	{

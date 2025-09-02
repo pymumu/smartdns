@@ -47,11 +47,11 @@ int _config_speed_check_mode_parser(struct dns_domain_check_orders *check_orders
 	ptr = tmpbuff;
 	do {
 		field = ptr;
-		ptr = strstr(ptr, ",");
 		if (field == NULL || order >= DOMAIN_CHECK_NUM) {
 			return 0;
 		}
-
+		
+		ptr = strstr(ptr, ",");
 		if (ptr) {
 			*ptr = 0;
 		}

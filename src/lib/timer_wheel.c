@@ -380,7 +380,7 @@ struct tw_base *tw_init_timers(void)
 		INIT_LIST_HEAD(base->tv1.vec + j);
 	}
 
-	ret = gettimeofday(&tv, 0);
+	ret = gettimeofday(&tv, NULL);
 	if (ret < 0) {
 		goto errout1;
 	}

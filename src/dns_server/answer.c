@@ -260,7 +260,7 @@ static int _dns_server_process_answer_HTTPS(struct dns_rrs *rrs, struct dns_requ
 	}
 
 	https_svcb = request->https_svcb;
-	if (https_svcb == 0) {
+	if (https_svcb == NULL) {
 		/* ignore non-matched query type */
 		tlog(TLOG_WARN, "https svcb not set");
 		return -1;

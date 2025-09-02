@@ -110,7 +110,7 @@ static void _smartdns_get_version(char *str_ver, int str_ver_len)
 #endif
 }
 
-const char *smartdns_version()
+const char *smartdns_version(void)
 {
 	static char str_ver[256] = {0};
 	if (str_ver[0] == 0) {

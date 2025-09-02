@@ -92,7 +92,7 @@ static void _dns_server_neighbor_cache_free_last_used_item(void)
 
 struct neighbor_cache_item *_dns_server_neighbor_cache_get_item(const uint8_t *net_addr, int net_addr_len)
 {
-	struct neighbor_cache_item *item, *item_result = NULL;
+	struct neighbor_cache_item *item = NULL, *item_result = NULL;
 	uint32_t key = 0;
 
 	key = jhash(net_addr, net_addr_len, 0);
@@ -125,10 +125,10 @@ static int _dns_server_neighbor_cache_add(const uint8_t *net_addr, int net_addr_
 	item = _dns_server_neighbor_cache_get_item(net_addr, net_addr_len);
 	if (item == NULL) {
 		item = malloc(sizeof(*item));
-		memset(item, 0, sizeof(*item));
 		if (item == NULL) {
 			return -1;
 		}
+		memset(item, 0, sizeof(*item));
 		INIT_LIST_HEAD(&item->list);
 		INIT_HLIST_NODE(&item->node);
 	}

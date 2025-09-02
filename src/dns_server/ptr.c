@@ -147,7 +147,7 @@ static int _dns_server_parser_addr_from_apra(const char *arpa, unsigned char *ad
 		return -1;
 	}
 
-	int ret = sscanf(arpa, "%hhd.%hhd.%hhd.%hhd.in-addr.arpa", &addr[3], &addr[2], &addr[1], &addr[0]);
+	int ret = sscanf(arpa, "%hhu.%hhu.%hhu.%hhu.in-addr.arpa", &addr[3], &addr[2], &addr[1], &addr[0]);
 	if (ret == 4 && strstr(arpa, ".in-addr.arpa") != NULL) {
 		*addr_len = 4;
 		return 0;

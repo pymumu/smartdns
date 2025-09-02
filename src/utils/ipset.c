@@ -137,7 +137,7 @@ static int _ipset_operate(const char *ipset_name, const unsigned char addr[], in
 	netlink_head->nlmsg_len += NETLINK_ALIGN(sizeof(struct ipset_netlink_msg));
 	netlink_msg->family = af;
 	netlink_msg->version = NFNETLINK_V0;
-	netlink_msg->res_id = htons(0);
+	netlink_msg->res_id = htons(NFNL_SUBSYS_IPSET);
 
 	proto = IPSET_PROTOCOL;
 	_ipset_add_attr(netlink_head, IPSET_ATTR_PROTOCOL, sizeof(proto), &proto);

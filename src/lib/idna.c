@@ -101,7 +101,7 @@ static unsigned _utf8_decode(const char **p, const char *pe)
 	return _utf8_decode_slow(p, pe, a);
 }
 
-static int _utf8_to_punycode_label(const char *s, const char *se, char **d, char *de)
+static int _utf8_to_punycode_label(const char *s, const char *se, char **d, const char *de)
 {
 	static const char alphabet[] = "abcdefghijklmnopqrstuvwxyz0123456789";
 	const char *ss;

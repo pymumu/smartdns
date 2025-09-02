@@ -168,4 +168,5 @@ unsigned long __sw_hweight64(uint64_t w)
 	return (res + (res >> 32)) & 0x00000000000000FFul;
 #endif
 #endif
+	return 0;
 }

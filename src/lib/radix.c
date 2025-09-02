@@ -574,7 +574,8 @@ update_addr(const char **addr_ptr, const char *addr, size_t len)
 prefix_t
 *prefix_pton(const char *string, long len, prefix_t *prefix, const char **errmsg)
 {
-	char save[256], *cp, *ep;
+	static char save[256];
+	char *cp, *ep;
 	struct addrinfo hints, *ai;
 	void *addr;
 	const char *addr_str = NULL;

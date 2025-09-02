@@ -366,7 +366,6 @@ int _dns_server_do_query(struct dns_request *request, int skip_notify_event)
 clean_exit:
 	return 0;
 errout:
-	request = NULL;
 	return ret;
 }
 

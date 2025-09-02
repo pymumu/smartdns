@@ -21,6 +21,7 @@
 #include "smartdns/lib/nftset.h"
 #include "smartdns/dns_conf.h"
 #include "smartdns/tlog.h"
+
 #include <errno.h>
 #include <linux/netfilter.h>
 #include <linux/netfilter/nfnetlink.h>
@@ -147,7 +148,7 @@ static int _nftset_start_batch(void *buf, void **nextbuf)
 	req->h.nlmsg_type = NFNL_MSG_BATCH_BEGIN;
 	req->h.nlmsg_seq = time(NULL);
 
-	req->m.res_id = NFNL_SUBSYS_NFTABLES;
+	req->m.res_id = htons(NFNL_SUBSYS_NFTABLES);
 
 	if (nextbuf) {
 		*nextbuf = (uint8_t *)buf + req->h.nlmsg_len;
@@ -165,7 +166,7 @@ static int _nftset_end_batch(void *buf, void **nextbuf)
 	req->h.nlmsg_type = NFNL_MSG_BATCH_END;
 	req->h.nlmsg_seq = time(NULL);
 
-	req->m.res_id = NFNL_SUBSYS_NFTABLES;
+	req->m.res_id = htons(NFNL_SUBSYS_NFTABLES);
 
 	if (nextbuf) {
 		*nextbuf = (uint8_t *)buf + req->h.nlmsg_len;
@@ -314,7 +315,7 @@ static int _nftset_get_nftset(int nffamily, const char *table_name, const char *
 	req->h.nlmsg_seq = time(NULL);
 
 	req->m.nfgen_family = nffamily;
-	req->m.res_id = NFNL_SUBSYS_NFTABLES;
+	req->m.res_id = htons(NFNL_SUBSYS_NFTABLES);
 	req->m.version = 0;
 
 	struct nlmsghdr *n = &req->h;
@@ -528,7 +529,7 @@ int nftset_del(const char *familyname, const char *tablename, const char *setnam
 
 	ret = _nftset_get_flags(nffamily, tablename, setname, &flags);
 	if (ret == 0) {
-		ret = _nftset_process_setflags(flags, addr, addr_len, 0, &addr_end, &addr_end_len);
+		ret = _nftset_process_setflags(flags, addr, addr_len, NULL, &addr_end, &addr_end_len);
 		if (ret != 0) {
 			return -1;
 		}
