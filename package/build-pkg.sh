@@ -192,7 +192,7 @@ build_smartdns()
 {
 	MAKE_WITH_UI=""
 	if [ $WITH_UI -eq 1 ]; then
-		MAKE_WITH_UI="WITH_UI=1"
+		MAKE_WITH_UI="WITH_UI=1 OPTIMIZE_SIZE=1"
 	fi
 
 	if [ "$PLATFORM" = "luci" ]; then

@@ -392,7 +392,7 @@ impl DB {
             current_auto_vacuum
         );
         if current_auto_vacuum != 2 {
-            dns_log!(LogLevel::NOTICE, "Set auto_vacuum to INCREMENTAL");
+            dns_log!(LogLevel::INFO, "Set auto_vacuum to INCREMENTAL");
             conn.as_ref()
                 .unwrap()
                 .execute("PRAGMA auto_vacuum = INCREMENTAL", [])?;
@@ -401,13 +401,10 @@ impl DB {
 
         conn.as_ref()
             .unwrap()
-            .execute("PRAGMA auto_vacuum = FULL", [])?;
-        conn.as_ref()
-            .unwrap()
             .query_row("PRAGMA journal_mode = WAL", [], |_| Ok(()))?;
         conn.as_ref()
             .unwrap()
-            .query_row("PRAGMA wal_autocheckpoint = 50000", [], |_| Ok(()))?;
+            .query_row("PRAGMA wal_autocheckpoint = 1000", [], |_| Ok(()))?;
         Ok(())
     }
 
@@ -759,7 +756,7 @@ impl DB {
             if v.direction.eq_ignore_ascii_case("prev") {
                 is_desc_order = !is_desc_order;
             } else if v.direction.eq_ignore_ascii_case("next") {
-                is_desc_order = is_desc_order;
+                // do nothing
             } else {
                 return Err("cursor direction param error".into());
             }
@@ -1528,7 +1525,7 @@ impl DB {
             if v.direction.eq_ignore_ascii_case("prev") {
                 is_desc_order = !is_desc_order;
             } else if v.direction.eq_ignore_ascii_case("next") {
-                is_desc_order = is_desc_order;
+                // do nothing
             } else {
                 return Err("cursor direction param error".into());
             }
