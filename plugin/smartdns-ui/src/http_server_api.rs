@@ -92,6 +92,7 @@ impl API {
         api.register(Method::GET, "/api/log/stream", true, APIRoute!(API::api_log_stream));
         api.register(Method::PUT, "/api/log/level", true, APIRoute!(API::api_log_set_level));
         api.register(Method::GET, "/api/log/level", true, APIRoute!(API::api_log_get_level));
+        api.register(Method::GET, "/api/log/audit/stream", true, APIRoute!(API::api_audit_log_stream));
         api.register(Method::GET, "/api/server/version", false, APIRoute!(API::api_server_version));
         api.register(Method::GET, "/api/upstream-server", true, APIRoute!(API::api_upstream_server_get_list));
         api.register(Method::GET, "/api/config/settings", true, APIRoute!(API::api_config_get_settings));
@@ -823,6 +824,27 @@ impl API {
 
             tokio::spawn(async move {
                 if let Err(e) = http_server_stream::serve_log_stream(this, websocket).await {
+                    dns_log!(LogLevel::DEBUG, "Error in websocket connection: {e}");
+                }
+            });
+
+            Ok(response)
+        } else {
+            return API::response_error(StatusCode::BAD_REQUEST, "Need websocket upgrade.");
+        }
+    }
+
+    async fn api_audit_log_stream(
+        this: Arc<HttpServer>,
+        _param: APIRouteParam,
+        mut req: Request<body::Incoming>,
+    ) -> Result<Response<Full<Bytes>>, HttpError> {
+        if hyper_tungstenite::is_upgrade_request(&req) {
+            let (response, websocket) = hyper_tungstenite::upgrade(&mut req, None)
+                .map_err(|e| HttpError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+            tokio::spawn(async move {
+                if let Err(e) = http_server_stream::serve_audit_log_stream(this, websocket).await {
                     dns_log!(LogLevel::DEBUG, "Error in websocket connection: {e}");
                 }
             });

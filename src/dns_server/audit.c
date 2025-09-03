@@ -18,6 +18,9 @@
 
 #include "audit.h"
 #include "dns_server.h"
+
+#include "smartdns/dns_plugin.h"
+
 #include <syslog.h>
 
 static tlog_log *dns_audit;
@@ -154,6 +157,17 @@ static int _dns_server_audit_syslog(struct tlog_log *log, const char *buff, int 
 	return 0;
 }
 
+static int _dns_server_audit_output_callback(struct tlog_log *log, const char *buff, int bufflen)
+{
+	smartdns_plugin_func_server_audit_log_callback(buff, bufflen);
+
+	if (dns_conf.audit_syslog) {
+		return _dns_server_audit_syslog(log, buff, bufflen);
+	}
+
+	return tlog_write(log, buff, bufflen);
+}
+
 int _dns_server_audit_init(void)
 {
 	char *audit_file = SMARTDNS_AUDIT_FILE;
@@ -176,9 +190,7 @@ int _dns_server_audit_init(void)
 		return -1;
 	}
 
-	if (dns_conf.audit_syslog) {
-		tlog_reg_output_func(dns_audit, _dns_server_audit_syslog);
-	}
+	tlog_reg_output_func(dns_audit, _dns_server_audit_output_callback);
 
 	if (dns_conf.audit_file_mode > 0) {
 		tlog_set_permission(dns_audit, dns_conf.audit_file_mode, dns_conf.audit_file_mode);

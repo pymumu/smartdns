@@ -297,6 +297,7 @@ static SMARTDNS_OPS: smartdns_c::smartdns_operations = smartdns_c::smartdns_oper
     server_recv: None,
     server_query_complete: Some(dns_request_complete),
     server_log: Some(dns_server_log),
+    server_audit_log: Some(dns_server_audit_log),
 };
 
 #[no_mangle]
@@ -335,6 +336,25 @@ extern "C" fn dns_server_log(
 
         let ops = ops.unwrap();
         ops.server_log(level, msg.as_str(), msg_len as i32);
+    }
+}
+
+#[no_mangle]
+extern "C" fn dns_server_audit_log(msg: *const c_char, msg_len: i32) {
+    unsafe {
+        let plugin_addr = std::ptr::addr_of_mut!(PLUGIN);
+        let ops = (*plugin_addr).ops.as_ref();
+        if let None = ops {
+            return;
+        }
+
+        let raw_msg = std::slice::from_raw_parts(msg as *const u8, msg_len as usize + 1);
+        let msg = std::ffi::CStr::from_bytes_with_nul_unchecked(raw_msg)
+            .to_string_lossy()
+            .into_owned();
+
+        let ops = ops.unwrap();
+        ops.server_audit_log(msg.as_str(), msg_len as i32);
     }
 }
 
@@ -728,6 +748,7 @@ unsafe impl Send for DnsUpstreamServer {}
 pub trait SmartdnsOperations {
     fn server_query_complete(&self, request: Box<dyn DnsRequest>);
     fn server_log(&self, level: LogLevel, msg: &str, msg_len: i32);
+    fn server_audit_log(&self, msg: &str, msg_len: i32);
     fn server_init(&mut self, args: &Vec<String>) -> Result<(), Box<dyn Error>>;
     fn server_exit(&mut self);
 }

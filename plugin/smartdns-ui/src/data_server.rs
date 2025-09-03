@@ -23,6 +23,8 @@ use crate::dns_log;
 use crate::plugin::SmartdnsPlugin;
 use crate::server_log::ServerLog;
 use crate::server_log::ServerLogMsg;
+use crate::server_log::ServerAuditLog;
+use crate::server_log::ServerAuditLogMsg;
 use crate::smartdns;
 use crate::smartdns::*;
 use crate::utils;
@@ -238,6 +240,10 @@ impl DataServerControl {
     pub fn server_log(&self, level: LogLevel, msg: &str, msg_len: i32) {
         self.data_server.server_log(level, msg, msg_len);
     }
+
+    pub fn server_audit_log(&self, msg: &str, msg_len: i32) {
+        self.data_server.server_audit_log(msg, msg_len);
+    }
 }
 
 impl Drop for DataServerControl {
@@ -256,6 +262,7 @@ pub struct DataServer {
     disable_handle_request: AtomicBool,
     stat: Arc<DataStats>,
     server_log: ServerLog,
+    server_audit_log: ServerAuditLog,
     plugin: Mutex<Weak<SmartdnsPlugin>>,
     whois: whois::WhoIs,
     startup_timestamp: u64,
@@ -275,6 +282,7 @@ impl DataServer {
             db: db.clone(),
             stat: DataStats::new(db, conf.clone()),
             server_log: ServerLog::new(),
+            server_audit_log: ServerAuditLog::new(),
             plugin: Mutex::new(Weak::new()),
             whois: whois::WhoIs::new(),
             startup_timestamp: get_utc_time_ms(),
@@ -621,6 +629,15 @@ impl DataServer {
 
     pub fn server_log(&self, level: LogLevel, msg: &str, msg_len: i32) {
         self.server_log.dispatch_log(level, msg, msg_len);
+    }
+    
+    pub async fn get_audit_log_stream(&self) -> mpsc::Receiver<ServerAuditLogMsg> {
+        return self.server_audit_log.get_audit_log_stream().await;
+    }
+
+    pub fn server_audit_log(&self, msg: &str, msg_len: i32) {
+        self.server_audit_log
+            .dispatch_audit_log(msg, msg_len);
     }
 
     fn server_check(&self) {

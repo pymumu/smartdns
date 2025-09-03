@@ -300,6 +300,24 @@ fn test_rest_api_get_domain() {
 }
 
 #[test]
+fn test_rest_api_audit_log_stream() {
+    let mut server = common::TestServer::new();
+    server.set_log_level(LogLevel::DEBUG);
+    assert!(server.start().is_ok());
+
+    let mut client = common::TestClient::new(&server.get_host());
+    let res = client.login("admin", "password");
+    assert!(res.is_ok());
+    let socket = client.websocket("/api/log/audit/stream");
+    assert!(socket.is_ok());
+    let mut socket = socket.unwrap();
+
+    _ = socket.send(tungstenite::Message::Text("aaaa".to_string()));
+    _ = socket.close(None);
+}
+
+
+#[test]
 fn test_rest_api_get_by_id() {
     let mut server = common::TestServer::new();
     server.set_log_level(LogLevel::DEBUG);

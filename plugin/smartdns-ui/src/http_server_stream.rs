@@ -172,6 +172,88 @@ pub async fn serve_log_stream(
     Ok(())
 }
 
+pub async fn serve_audit_log_stream(
+    http_server: Arc<HttpServer>,
+    websocket: HyperWebsocket,
+) -> Result<(), Error> {
+    let mut websocket = websocket.await?;
+    let mut is_pause = false;
+
+    let data_server = http_server.get_data_server();
+    let mut log_stream = data_server.get_audit_log_stream().await;
+
+    loop {
+        tokio::select! {
+            msg = log_stream.recv() => {
+                if is_pause {
+                    continue;
+                }
+
+                match msg {
+                    Some(msg) => {
+                        let mut binary_msg = Vec::with_capacity(1 + msg.msg.len());
+                        binary_msg.push(0);
+                        binary_msg.extend_from_slice(msg.msg.as_bytes());
+                        let msg = Message::Binary(binary_msg.into());
+                        websocket.send(msg).await?;
+                    }
+                    None => {
+                        websocket.send(Message::Close(None)).await?;
+                        break;
+                    }
+                }
+            }
+
+            msg = websocket.next() => {
+                let message = msg.ok_or("websocket closed")??;
+                match message {
+                    Message::Text(_msg) => {}
+                    Message::Binary(msg) => {
+                        if msg.len() == 0 {
+                            continue;
+                        }
+
+                        let msg_type = msg[0];
+                        match msg_type {
+                            LOG_CONTROL_MESSAGE_TYPE => {
+                                if msg.len() < 2 {
+                                    continue;
+                                }
+                                let control_type = msg[1];
+                                match control_type {
+                                    LOG_CONTROL_PAUSE => {
+                                        is_pause = true;
+                                        continue;
+                                    }
+                                    LOG_CONTROL_RESUME => {
+                                        is_pause = false;
+                                        continue;
+                                    }
+                                    _ => {
+                                        continue;
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    Message::Ping(_msg) => {}
+                    Message::Pong(_msg) => {}
+                    Message::Close(_msg) => {
+                        websocket.send(Message::Close(None)).await?;
+                        break;
+                    }
+                    Message::Frame(_msg) => {
+                        unreachable!();
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
 pub async fn serve_metrics(
     data_server: Arc<DataServer>,
     websocket: HyperWebsocket,

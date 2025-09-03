@@ -132,6 +132,28 @@ void smartdns_plugin_func_server_log_callback(smartdns_log_level level, const ch
 	return;
 }
 
+void smartdns_plugin_func_server_audit_log_callback(const char *msg, int msg_len)
+{
+	struct dns_plugin_ops *chain = NULL;
+
+	if (unlikely(is_plugin_init == 0)) {
+		return;
+	}
+
+	pthread_rwlock_rdlock(&plugins.lock);
+	list_for_each_entry(chain, &plugins.list, list)
+	{
+		if (!chain->ops.server_audit_log) {
+			continue;
+		}
+
+		chain->ops.server_audit_log(msg, msg_len);
+	}
+	pthread_rwlock_unlock(&plugins.lock);
+
+	return;
+}
+
 int smartdns_operations_register(const struct smartdns_operations *operations)
 {
 	struct dns_plugin_ops *chain = NULL;
