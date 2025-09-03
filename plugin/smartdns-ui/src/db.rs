@@ -418,14 +418,21 @@ impl DB {
         dns_log!(LogLevel::DEBUG, "Start incremental vacuum");
 
         conn.query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |_| Ok(()))?;
-        if let Some(pages) = pages {
-            conn.query_row(&format!("PRAGMA incremental_vacuum({})", pages), [], |_| {
-                Ok(())
-            })?;
+        let vacuum_sql = if let Some(pages) = pages {
+            format!("PRAGMA incremental_vacuum({})", pages)
         } else {
-            conn.query_row("PRAGMA incremental_vacuum", [], |_| Ok(()))?;
-        }
+            "PRAGMA incremental_vacuum".to_string()
+        };
 
+        let mut stmt = conn.prepare(vacuum_sql.as_str())?;
+        let mut _reclaimed_pages = 0;
+
+        let rows = stmt.query_map([], |_row| Ok(()));
+        if let Ok(rows) = rows {
+            for _row in rows {
+                _reclaimed_pages += 1;
+            }
+        }
         Ok(())
     }
 

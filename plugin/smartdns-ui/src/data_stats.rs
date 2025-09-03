@@ -330,6 +330,10 @@ impl DataStats {
             .db
             .delete_domain_before_timestamp(now - self.conf.read().unwrap().max_log_age_ms as u64);
         if let Err(e) = ret {
+            if e.to_string() == "Query returned no rows" {
+                return 
+            }
+
             dns_log!(
                 LogLevel::WARN,
                 "delete domain before timestamp error: {}",
