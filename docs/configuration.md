@@ -114,11 +114,11 @@ hide:
 
 | 键名 | 功能说明 | 默认值 | 可用值/要求 | 举例 |
 | :--- | :--- | :--- | :--- | :--- |
-| plugin smartdns_ui.so | 启用WebUI插件 | 无 | 详见`plugin`参数，指定后会加载WebUI前端插件<br />注意：静态编译的smartdns程序不支持加载插件。| plugin smartdns_ui.so |
-| smartdns-ui.www-root | web页面路径 |/usr/share/smartdns/wwwroot | 路径，指向存放仪表盘页面的路径| smartdns-ui.www-root /usr/share/smartdns/wwwroot  
-| smartdns-ui.ip | 服务监听IP端口 |http://[::]:6080 | 监听服务的IP和端口和号，若要启用HTTPS，可设置为https://[::]:6080，<br />对应的证书文件为：`bind-cert-file`，`bind-cert-key-file`设置，若为指定，将自动生成CN为smartdns的证书链。| smartdns-ui.ip https://[::]:6080 <br /> smartdns-ui.ip  http://0.0.0.0:6080 |
+| plugin smartdns_ui.so | 启用WebUI插件 | 无 | 详见`plugin`参数，指定后会加载WebUI前端插件<br />注意：静态编译的smartdns程序不支持加载插件，如要使用此功能，请使用动态链接库版本。| plugin smartdns_ui.so |
+| smartdns-ui.www-root | web页面路径 |/usr/share/smartdns/wwwroot | 页面路径，指向存放仪表盘页面的路径| smartdns-ui.www-root /usr/share/smartdns/wwwroot  
+| smartdns-ui.ip | 服务监听IP端口 |http://[::]:6080 | 监听服务的IP和端口和号，若要启用HTTPS，可设置为https://[::]:6080，<br />对应的证书文件为由`bind-cert-file`，`bind-cert-key-file`设置，若未指定，则会自动生成`CN`为`SmartDNS Root`的证书链。| smartdns-ui.ip https://[::]:6080 <br /> smartdns-ui.ip  http://0.0.0.0:6080 |
 | smartdns-ui.token-expire | Token超时时间 | 600 | token超时时间，单位为秒。| smartdns-ui.token-expire 600 |
-| smartdns-ui.max-query-log-age | 查询日志最大保留时间 | 2592000 | 查询日志最大存储时间，单位为秒。| smartdns-ui.max-query-log-age 2592000 |
+| smartdns-ui.max-query-log-age | 查询日志最大保留时间 | 2592000 | 查询日志最大存储时间，单位为秒，最小值为3600秒。| smartdns-ui.max-query-log-age 2592000 |
 | smartdns-ui.enable-terminal | 启用终端页面 | no | [yes\|no]：是否开启终端页面功能。| smartdns-ui.enable-terminal yes|
 | smartdns-ui.enable-cors | 启用跨源资源共享 | no | [yes\|no]: 是否开启跨资源共享，当web页面和http服务分离时使用。| smartdns-ui.enable-cors no|
 | smartdns-ui.user | WebUI登陆用户 | admin | 登录用户名 | smartdns-ui.user admin|

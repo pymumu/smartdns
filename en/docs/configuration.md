@@ -109,9 +109,9 @@ hide:
 | :--- | :--- | :--- | :--- | :--- |
 | plugin smartdns_ui.so | Enable WebUI plugin | None | See the `plugin` parameter. When specified, loads the WebUI frontend plugin.<br />Note: Statically compiled smartdns does not support plugin loading. | plugin smartdns_ui.so |
 | smartdns-ui.www-root | Web page root path | /usr/share/smartdns/wwwroot | Path to the dashboard web pages | smartdns-ui.www-root /usr/share/smartdns/wwwroot |
-| smartdns-ui.ip | Service listening IP and port | http://[::]:6080 | IP and port to listen on. To enable HTTPS, set to https://[::]:6080.<br />Certificate files are set by `bind-cert-file` and `bind-cert-key-file`. If not specified, a certificate chain with CN=smartdns will be generated automatically. | smartdns-ui.ip https://[::]:6080 <br /> smartdns-ui.ip http://0.0.0.0:6080 |
+| smartdns-ui.ip | Service listening IP and port | http://[::]:6080 | IP and port to listen on. To enable HTTPS, set to https://[::]:6080.<br />Certificate files are set by `bind-cert-file` and `bind-cert-key-file`. If not specified, a certificate chain with `CN=SmartDNS Root` will be generated automatically. | smartdns-ui.ip https://[::]:6080 <br /> smartdns-ui.ip http://0.0.0.0:6080 |
 | smartdns-ui.token-expire | Token expiration time | 600 | Token expiration time in seconds | smartdns-ui.token-expire 600 |
-| smartdns-ui.max-query-log-age | Maximum query log retention time | 2592000 | Maximum query log storage time in seconds | smartdns-ui.max-query-log-age 2592000 |
+| smartdns-ui.max-query-log-age | Maximum query log retention time | 2592000 | Maximum query log storage time in seconds, minimum value is 3600. | smartdns-ui.max-query-log-age 2592000 |
 | smartdns-ui.enable-terminal | Enable terminal page | no | [yes\|no]: Whether to enable the terminal page feature | smartdns-ui.enable-terminal yes |
 | smartdns-ui.enable-cors | Enable Cross-Origin Resource Sharing | no | [yes\|no]: Enable CORS, used when web page and HTTP service are separated | smartdns-ui.enable-cors no |
 | smartdns-ui.user | WebUI login user name | admin | Login username | smartdns-ui.user admin |
