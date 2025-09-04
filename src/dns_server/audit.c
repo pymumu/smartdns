@@ -53,7 +53,8 @@ void _dns_server_audit_log(struct dns_server_post_context *context)
 		return;
 	}
 
-	if (request->conn == NULL) {
+	/* skip log prefetch request and dualstack selection request */
+	if (request->prefetch || request->dualstack_selection_query) {
 		return;
 	}
 
