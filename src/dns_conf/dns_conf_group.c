@@ -213,7 +213,13 @@ static int _config_rule_group_setup_value(struct dns_conf_group_info *group_info
 	group_rule->dns_dualstack_ip_selection_threshold = 10;
 	group_rule->dns_rr_ttl_min = 600;
 	group_rule->dns_serve_expired = 1;
-	group_rule->dns_serve_expired_ttl = 24 * 3600 * 3;
+	
+	if (group_rule->dns_prefetch == 1) {
+		group_rule->dns_serve_expired_ttl = 24 * 3600 * 7;
+	} else {
+		group_rule->dns_serve_expired_ttl = 24 * 3600;
+	}
+	
 	group_rule->dns_serve_expired_reply_ttl = 3;
 	group_rule->dns_max_reply_ip_num = DNS_MAX_REPLY_IP_NUM;
 	group_rule->dns_response_mode = dns_conf.default_response_mode;

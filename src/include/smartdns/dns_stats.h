@@ -28,6 +28,7 @@ extern "C" {
 
 struct dns_stats_avg_time {
 	uint64_t total; /* Hight 4 bytes, count, Low 4 bytes time*/
+	uint64_t count;
 	float avg_time;
 };
 

@@ -22,8 +22,6 @@
 
 struct dns_stats dns_stats;
 
-#define SAMPLE_PERIOD 5
-
 void dns_stats_avg_time_update_add(struct dns_stats_avg_time *avg_time, uint64_t time)
 {
 	if (avg_time == NULL) {
@@ -44,30 +42,29 @@ void dns_stats_avg_time_update(struct dns_stats_avg_time *avg_time)
 		return;
 	}
 
-	float sample_avg = (float)time / count;
+	double sample_avg = (double)time / count;
 
-	if (avg_time->avg_time == 0) {
+	if (avg_time->count == 0) {
 		avg_time->avg_time = sample_avg;
-	} else {
-		int base = 1000;
-		if (count > 100) {
-			count = 100;
-		}
-
-		float weight_new = (float)count / base;
-		float weight_prev = 1.0 - weight_new;
-
-		avg_time->avg_time = (avg_time->avg_time * weight_prev) + (sample_avg * weight_new);
+		avg_time->count = count;
+		return;
 	}
+
+	int base = 1000;
+	if (count > 100) {
+		count = 100;
+	}
+
+	double weight_new = (double)count / base;
+	double weight_prev = 1.0 - weight_new;
+
+	avg_time->avg_time = (avg_time->avg_time * weight_prev) + (sample_avg * weight_new);
+	avg_time->count += count;
 }
 
 void dns_stats_period_run_second(void)
 {
-	static int last_total = 0;
-	last_total++;
-	if (last_total % SAMPLE_PERIOD == 0) {
-		dns_stats_avg_time_update(&dns_stats.avg_time);
-	}
+	dns_stats_avg_time_update(&dns_stats.avg_time);
 }
 
 float dns_stats_avg_time_get(void)
