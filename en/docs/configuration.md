@@ -90,8 +90,8 @@ hide:
 |prefetch-domain|domain prefetch feature|no|[yes\|no]|prefetch-domain yes
 |dnsmasq-lease-file|Support reading dnsmasq dhcp file to resolve local hostname|None|dnsmasq dhcp lease file| dnsmasq-lease-file /var/lib/misc/dnsmasq.leases
 |serve-expired|Cache serve expired feature|yes|[yes\|no], Attempts to serve old responses from cache with a TTL of 0 in the response without waiting for the actual resolution to finish.|serve-expired yes
-|serve-expired-ttl|Cache serve expired limit TTL|0|second, 0: disable, > 0  seconds after expiration|serve-expired-ttl 0
-|serve-expired-reply-ttl|TTL value to use when replying with expired data|5|second, 0: disable, > 0  seconds after expiration|serve-expired-reply-ttl 30
+|serve-expired-ttl|Cache serve expired limit TTL|86400|second, 0: disable, > 0  seconds after expiration|serve-expired-ttl 604800
+|serve-expired-reply-ttl|TTL value to use when replying with expired data|3|second, serve-expired record TTL, > 0  seconds after expiration|serve-expired-reply-ttl 3
 |serve-expired-prefetch-time| Prefetch time when serve expired | 28800 | second，prefetch time | serve-expired-prefetch-time 86400 |
 |dualstack-ip-selection|Dualstack ip selection|yes|[yes\|no]|dualstack-ip-selection yes
 |dualstack-ip-selection-threshold|Dualstack ip select thresholds|10ms|millisecond|dualstack-ip-selection-threshold [0-1000]

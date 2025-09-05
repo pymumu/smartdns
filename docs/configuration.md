@@ -97,8 +97,8 @@ hide:
 | prefetch-domain | 域名预先获取功能 | no | [yes\|no] | prefetch-domain yes |
 | dnsmasq-lease-file | 支持读取dnsmasq dhcp文件解析本地主机名功能 | 无 | dnsmasq dhcp lease文件路径 | dnsmasq-lease-file /var/lib/misc/dnsmasq.leases |
 | serve-expired | 过期缓存服务功能 | yes | [yes\|no]，开启此功能后，如果有请求时尝试回应 TTL 为 0 的过期记录，并发查询记录，以避免查询等待 |
-| serve-expired-ttl | 过期缓存服务最长超时时间 | 0 | 秒，0 表示停用超时，大于 0 表示指定的超时的秒数 | serve-expired-ttl 0 |
-| serve-expired-reply-ttl | 回应的过期缓存 TTL | 5 | 秒，0 表示停用超时，大于 0 表示指定的超时的秒数 | serve-expired-reply-ttl 30 |
+| serve-expired-ttl | 过期缓存服务最长超时时间 | 86400 | 秒，0 表示停用超时，大于 0 表示指定的超时的秒数 | serve-expired-ttl 604800 |
+| serve-expired-reply-ttl | 回应的过期缓存 TTL | 3 | 秒， 过期缓存记录回复的TTL时间，大于 0 表示指定的超时的秒数 | serve-expired-reply-ttl 3 |
 | serve-expired-prefetch-time | 过期缓存预查询时间 | 28800 | 秒，到达对应超时时间后预查询时间 | serve-expired-prefetch-time 86400 |
 | dualstack-ip-selection | 双栈 IP 优选 | yes | [yes\|no] | dualstack-ip-selection yes |
 | dualstack-ip-selection-threshold | 双栈 IP 优选阈值 | 10ms | 单位为毫秒（ms） | dualstack-ip-selection-threshold [0-1000] |
