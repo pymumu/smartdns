@@ -234,6 +234,7 @@ impl API {
         _param: APIRouteParam,
         req: Request<body::Incoming>,
     ) -> Result<Response<Full<Bytes>>, HttpError> {
+        let is_https = this.is_https_server();
         let token = HttpServer::get_token_from_header(&req)?;
         let unauth_response =
             || API::response_error(StatusCode::UNAUTHORIZED, "Incorrect username or password.");
@@ -269,10 +270,14 @@ impl API {
 
         let cookie_token = format!("Bearer {}", token_new.token);
         let token_urlencode = urlencoding::encode(cookie_token.as_str());
-        let cookie = format!(
+        let mut cookie = format!(
             "token={}; HttpOnly; Max-Age={}; Path={}",
             token_urlencode, token_new.expire, REST_API_PATH
         );
+
+        if is_https && conf.enable_cors {
+            cookie.push_str("; SameSite=None; Secure");
+        }
 
         resp.as_mut()
             .unwrap()
@@ -294,6 +299,7 @@ impl API {
         _param: APIRouteParam,
         req: Request<body::Incoming>,
     ) -> Result<Response<Full<Bytes>>, HttpError> {
+        let is_https = this.is_https_server();
         let whole_body = String::from_utf8(req.into_body().collect().await?.to_bytes().into())?;
         let userinfo = api_msg_parse_auth(whole_body.as_str());
         if let Err(e) = userinfo {
@@ -335,10 +341,14 @@ impl API {
 
         let cookie_token = format!("Bearer {}", token.token);
         let token_urlencode = urlencoding::encode(cookie_token.as_str());
-        let cookie = format!(
+        let mut cookie = format!(
             "token={}; HttpOnly; Max-Age={}; Path={}",
             token_urlencode, token.expire, REST_API_PATH
         );
+
+        if is_https && conf.enable_cors {
+            cookie.push_str("; SameSite=None; Secure");
+        }
 
         resp.as_mut()
             .unwrap()

@@ -78,7 +78,6 @@ pub struct HttpServerConfig {
 
 impl HttpServerConfig {
     pub fn new() -> Self {
-
         let host_ip = if utils::is_ipv6_supported() {
             HTTP_SERVER_DEFAULT_IPV6.to_string()
         } else {
@@ -413,6 +412,21 @@ impl HttpServer {
             return Ok(plugin);
         }
         Err("Plugin is not set".into())
+    }
+
+    pub fn is_https_server(&self) -> bool {
+        let http_ip = self.get_conf().http_ip;
+        if http_ip.parse::<url::Url>().is_err() {
+            return false;
+        }
+
+        let binding = http_ip.parse::<url::Url>().unwrap();
+        let scheme = binding.scheme();
+        if scheme == "https" {
+            return true;
+        }
+
+        false
     }
 
     pub fn get_data_server(&self) -> Arc<DataServer> {

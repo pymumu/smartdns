@@ -47,3 +47,8 @@ int dns_plugin_exit(struct dns_plugin *plugin)
 	smartdns_operations_unregister(&demo_ops);
 	return 0;
 }
+
+int dns_plugin_api_version(void)
+{
+	return SMARTDNS_PLUGIN_API_VERSION;
+}

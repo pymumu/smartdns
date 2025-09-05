@@ -389,6 +389,11 @@ extern "C" fn dns_plugin_exit(_plugin: *mut smartdns_c::dns_plugin) -> i32 {
     return 0;
 }
 
+#[no_mangle]
+extern "C" fn dns_plugin_api_version() -> u32 {
+    smartdns_c::SMARTDNS_PLUGIN_API_VERSION
+}
+
 pub trait DnsRequest: Send + Sync {
     fn get_group_name(&self) -> String;
     fn get_domain(&self) -> String;

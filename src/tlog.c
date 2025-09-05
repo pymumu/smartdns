@@ -518,6 +518,64 @@ static int _tlog_need_drop(struct tlog_log *log)
     return ret;
 }
 
+static int _tlog_write_screen(struct tlog_log *log, struct tlog_loginfo *info, const char *buff, int bufflen)
+{
+    if (bufflen <= 0) {
+        return 0;
+    }
+
+    if (log->logscreen == 0) {
+        return 0;
+    }
+
+    if (info == NULL) {
+        return write(STDOUT_FILENO, buff, bufflen);;
+    }
+
+    return tlog_stdout_with_color(info->level, buff, bufflen);
+}
+
+static int _tlog_write_output_func(struct tlog_log *log, char *buff, int bufflen)
+{
+    if (log->logscreen && log != tlog.root) {
+        _tlog_write_screen(log, NULL, buff, bufflen);
+    }
+
+    if (log->output_func == NULL) {
+        return -1;
+    }
+
+    return log->output_func(log, buff, bufflen);
+}
+
+static void _tlog_output_warning(void)
+{
+    static int printed = 0;
+    if (printed) {
+        return;
+    }
+    printed = 1;
+    tlog_log *root = tlog.root;
+
+    const char warning_msg[] = ""
+    "TLOG ERROR: \n"
+    "  Do not call the tlog output function from within a registered tlog log output callback function.\n"
+    "  Recursively calling the log output function will cause tlog to fail to output logs and deadlock.\n";
+
+    if (root->logcount > 0 && root->logsize > 0 && root->logfile[0] != 0) {
+        int fd = open(root->logfile, O_APPEND | O_CREAT | O_WRONLY | O_CLOEXEC, root->file_perm);
+        if (fd >= 0) {
+            write(fd, warning_msg, sizeof(warning_msg) - 1);
+            close(fd);
+        }
+    }
+
+    /* if open log file failed, print to stderr */
+    fprintf(stderr, "\033[31;1m%s\033[0m\n", warning_msg);
+
+    return;
+}
+
 static int _tlog_vprintf(struct tlog_log *log, vprint_callback print_callback, void *userptr, const char *format, va_list ap)
 {
     int len;
@@ -552,6 +610,17 @@ static int _tlog_vprintf(struct tlog_log *log, vprint_callback print_callback, v
         buff[len - 3] = '.';
         buff[len - 4] = '.';
         buff[len - 5] = '.';
+    }
+
+    /* 
+     Output log from tlog_worker thread context? this may crash from upper-level function.
+     Try call printf output log. 
+     */
+    if (tlog.tid == pthread_self()) {
+        _tlog_output_warning();
+        vprintf(format, ap);
+        printf("\n");
+        return -1;
     }
 
     pthread_mutex_lock(&tlog.lock);
@@ -1221,23 +1290,6 @@ static void _tlog_get_log_name_dir(struct tlog_log *log)
     pthread_mutex_unlock(&tlog.lock);
 }
 
-static int _tlog_write_screen(struct tlog_log *log, struct tlog_loginfo *info, const char *buff, int bufflen)
-{
-    if (bufflen <= 0) {
-        return 0;
-    }
-
-    if (log->logscreen == 0) {
-        return 0;
-    }
-
-    if (info == NULL) {
-        return write(STDOUT_FILENO, buff, bufflen);;
-    }
-
-    return tlog_stdout_with_color(info->level, buff, bufflen);
-}
-
 static int _tlog_write(struct tlog_log *log, const char *buff, int bufflen)
 {
     int len;
@@ -1514,19 +1566,6 @@ static void _tlog_wakeup_waiters(struct tlog_log *log)
         pthread_cond_broadcast(&log->client_cond);
     }
     pthread_mutex_unlock(&log->lock);
-}
-
-static int _tlog_write_output_func(struct tlog_log *log, char *buff, int bufflen)
-{
-    if (log->logscreen && log != tlog.root) {
-        _tlog_write_screen(log, NULL, buff, bufflen);
-    }
-
-    if (log->output_func == NULL) {
-        return -1;
-    }
-
-    return log->output_func(log, buff, bufflen);
 }
 
 static void _tlog_write_one_segment_log(struct tlog_log *log, char *buff, int bufflen)
