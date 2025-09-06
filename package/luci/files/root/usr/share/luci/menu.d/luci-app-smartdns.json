@@ -1,6 +1,7 @@
 {
 	"admin/services/smartdns": {
 		"title": "SmartDNS",
+		"order": 60,
 		"action": {
 			"type": "view",
 			"path": "smartdns/smartdns"
@@ -8,6 +9,13 @@
 		"depends": {
 			"acl": [ "luci-app-smartdns" ],
 			"uci": { "smartdns": true }
+		}
+	},
+
+	"admin/services/smartdns/log": {
+		"action": {
+			"type": "view",
+			"path": "smartdns/log"
 		}
 	}
 }

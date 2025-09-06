@@ -2,8 +2,11 @@
 	"luci-app-smartdns": {
 		"description": "Grant access to LuCI app smartdns",
 		"read": {
+			"cgi-io": [ "exec" ],
 			"file": {
-				"/etc/smartdns/*": [ "read" ]
+				"/etc/smartdns/*": [ "read" ],
+				"/usr/libexec/smartdns-call tail": [ "exec" ],
+				"/usr/libexec/smartdns-call clear_log": [ "exec" ]
 			},
 			"ubus": {
 				"service": [ "list" ]
