@@ -1,0 +1,24 @@
+#!/bin/sh
+# 
+# Copyright 2018-2025 Nick Peng <zxlhhyccc@gmail.com>
+# Licensed to the public under the GPL V3 License.
+
+action=$1
+shift
+
+log_file="$(uci -q get smartdns.@smartdns[0].log_file)"
+list_file="${log_file:-/var/log/smartdns/smartdns.log}"
+
+case "$action" in
+      tail)
+            if [ ! -e "$list_file" ]; then
+                  echo "Log file does not exist."
+            fi
+            # read log
+            tail -n 5000 "$list_file"
+            ;;
+      clear_log)
+            # clear log
+            > $list_file
+            ;;
+esac
