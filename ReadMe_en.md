@@ -151,3 +151,13 @@ If you feel that this project is helpful to you, please donate to us so that the
 ## Open Source License
 
 Smartdns is licensed to the public under the GPL V3 License.
+
+## Star History
+
+<a href="https://www.star-history.com/#pymumu/smartdns&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=pymumu/smartdns&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=pymumu/smartdns&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=pymumu/smartdns&type=Date" />
+ </picture>
+</a>
