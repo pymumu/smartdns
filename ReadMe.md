@@ -159,3 +159,13 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 ## 开源声明
 
 SmartDNS 基于 GPL V3 协议开源。
+
+## Star History
+
+<a href="https://www.star-history.com/#pymumu/smartdns&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=pymumu/smartdns&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=pymumu/smartdns&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=pymumu/smartdns&type=Date" />
+ </picture>
+</a>
