@@ -1,5 +1,7 @@
 # SmartDNS
 
+**[中文](ReadMe.md) | English**
+
 ![SmartDNS](doc/smartdns-banner.png)  
 SmartDNS is a local DNS server. SmartDNS accepts DNS query requests from local clients, obtains DNS query results from multiple upstream DNS servers, and returns the fastest access results to clients. supports secure DNS protocols like DoT, DoH, DoQ, DoH3, better protect privacy,  
 Avoiding DNS pollution and improving network access speed, supports high-performance ad filtering.
