@@ -63,6 +63,7 @@ build()
 	rm $ROOT/root/usr/lib/lua/luci/i18n/smartdns.zh-cn.po
 
 	cp $ROOT/files/root/* $ROOT/root/ -avf
+	chmod 0755 $ROOT/root/usr/libexec/smartdns-call
 	INST_SIZE="`du -sb $ROOT/root/ | awk '{print $1}'`"
 	
 	sed -i "s/^Architecture.*/Architecture: all/g" $ROOT/control/control
