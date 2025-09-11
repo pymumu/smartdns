@@ -288,6 +288,11 @@ int _config_current_group_pop_to(struct dns_conf_group_info *group_info)
 	return 0;
 }
 
+int _config_current_group_pop_to_default(void)
+{
+	return _config_current_group_pop_to(dns_conf_default_group_info);
+}
+
 int _config_current_group_pop_all(void)
 {
 	while (dns_conf_current_group_info != NULL && dns_conf_current_group_info != dns_conf_default_group_info) {

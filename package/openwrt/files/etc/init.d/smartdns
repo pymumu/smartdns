@@ -191,6 +191,7 @@ load_server()
 	config_get addition_arg "$section" "addition_arg" ""
 	config_get set_mark "$section" "set_mark" ""
 	config_get_bool use_proxy "$section" "use_proxy" "0"
+	config_get fallback "$section" "fallback" "0"
 
 	[ "$enabled" = "0" ] && return
 
@@ -230,6 +231,7 @@ load_server()
 	[ -z "$spki_pin" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -spki-pin $spki_pin"
 	[ -z "$set_mark" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -set-mark $set_mark"
 	[ "$use_proxy" = "0" ] || ADDITIONAL_ARGS="$ADDITIONAL_ARGS -proxy default-proxy"
+	[ "$fallback" = "1" ] && addition_arg="$addition_arg -fallback"
 
 	if [ -z "$port" ] || [ "$IS_URI" = "1" ]; then
 		DNS_ADDRESS="$ip"

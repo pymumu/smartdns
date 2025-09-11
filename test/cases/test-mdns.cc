@@ -70,6 +70,8 @@ TEST(mDNS, query)
 server 127.0.0.1:61053
 dualstack-ip-selection no
 mdns-lookup yes
+group-begin test
+address -
 )""");
 	smartdns::Client client;
 

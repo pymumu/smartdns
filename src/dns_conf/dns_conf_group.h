@@ -56,6 +56,7 @@ void _config_set_current_group(struct dns_conf_group_info *group_info);
 void _config_current_group_pop(void);
 int _config_current_group_push(const char *group_name);
 int _config_current_group_push_default(void);
+int _config_current_group_pop_to_default(void);
 int _config_current_group_pop_to(struct dns_conf_group_info *group_info);
 int _config_current_group_pop_all(void);
 

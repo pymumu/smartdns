@@ -419,6 +419,7 @@ static void _dns_conf_auto_set_cache_size(void)
 
 static int _dns_conf_load_post(void)
 {
+	_config_current_group_pop_to_default();
 	_config_setup_smartdns_domain();
 	_dns_conf_speed_check_mode_verify();
 
