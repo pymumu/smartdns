@@ -1,5 +1,7 @@
 # SmartDNS
 
+**[中文](ReadMe.md) | English**
+
 ![SmartDNS](doc/smartdns-banner.png)  
 SmartDNS is a local DNS server. SmartDNS accepts DNS query requests from local clients, obtains DNS query results from multiple upstream DNS servers, and returns the fastest access results to clients. supports secure DNS protocols like DoT, DoH, DoQ, DoH3, better protect privacy,  
 Avoiding DNS pollution and improving network access speed, supports high-performance ad filtering.
@@ -149,3 +151,13 @@ If you feel that this project is helpful to you, please donate to us so that the
 ## Open Source License
 
 Smartdns is licensed to the public under the GPL V3 License.
+
+## Star History
+
+<a href="https://www.star-history.com/#pymumu/smartdns&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=pymumu/smartdns&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=pymumu/smartdns&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=pymumu/smartdns&type=Date" />
+ </picture>
+</a>
