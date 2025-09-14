@@ -108,6 +108,8 @@ int _conf_domain_rule_https_record(const char *domain, const char *host)
 			https_record_rule->filter.no_ipv4hint = 1;
 		} else if (strncmp(key, "noipv6hint", sizeof("noipv6hint")) == 0) {
 			https_record_rule->filter.no_ipv6hint = 1;
+		} else if (strncmp(key, "noech", sizeof("noech")) == 0) {
+			https_record_rule->filter.no_ech = 1;
 		} else {
 			mode_type = 1;
 			https_record_rule->record.enable = 1;
