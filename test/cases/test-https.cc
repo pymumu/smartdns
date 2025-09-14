@@ -451,7 +451,7 @@ cache-persist no)""");
 	EXPECT_EQ(client.GetStatus(), "NOERROR");
 	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
 	EXPECT_EQ(client.GetAnswer()[0].GetType(), "HTTPS");
-	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1 a.com. alpn=\"h2,h3-19\" port=443 ech=AEX+DQA=");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1 a.com. alpn=\"h2,h3-19\" port=443");
 }
 
 TEST_F(HTTPS, HTTPS_DOMAIN_RULE_IGN)
@@ -588,7 +588,7 @@ TEST_F(HTTPS, filter_ip)
 server 127.0.0.1:61053
 log-console yes
 dualstack-ip-selection no
-https-record noipv4hint,noipv6hint,noech
+https-record noipv4hint,noipv6hint
 log-level debug
 cache-persist no)""");
 	smartdns::Client client;
