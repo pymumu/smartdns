@@ -427,7 +427,7 @@ server 127.0.0.1:61053
 log-console yes
 dualstack-ip-selection no
 force-qtype-SOA 65
-https-record /a.com/noipv4hint,noipv6hint
+https-record /a.com/noipv4hint,noipv6hint,noech
 log-level debug
 cache-persist no)""");
 	smartdns::Client client;
@@ -588,7 +588,7 @@ TEST_F(HTTPS, filter_ip)
 server 127.0.0.1:61053
 log-console yes
 dualstack-ip-selection no
-https-record noipv4hint,noipv6hint
+https-record noipv4hint,noipv6hint,noech
 log-level debug
 cache-persist no)""");
 	smartdns::Client client;
@@ -659,7 +659,7 @@ TEST_F(HTTPS, multi_not_support)
 server 127.0.0.1:61053
 log-console yes
 dualstack-ip-selection no
-https-record noipv4hint,noipv6hint
+https-record noipv4hint,noipv6hint,noech
 log-level debug
 cache-persist no)""");
 	smartdns::Client client;

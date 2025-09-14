@@ -240,18 +240,7 @@ static int _dns_server_process_answer_HTTPS(struct dns_rrs *rrs, struct dns_requ
 	struct dns_https_param *p = NULL;
 	int priority = 0;
 	struct dns_request_https *https_svcb;
-	int no_ipv4 = 0;
-	int no_ipv6 = 0;
 	struct dns_https_record_rule *https_record_rule = _dns_server_get_dns_rule(request, DOMAIN_RULE_HTTPS);
-	if (https_record_rule) {
-		if (https_record_rule->filter.no_ipv4hint) {
-			no_ipv4 = 1;
-		}
-
-		if (https_record_rule->filter.no_ipv6hint) {
-			no_ipv6 = 1;
-		}
-	}
 
 	ret = dns_get_HTTPS_svcparm_start(rrs, &p, name, DNS_MAX_CNAME_LEN, &ttl, &priority, target, DNS_MAX_CNAME_LEN);
 	if (ret != 0) {
@@ -290,7 +279,7 @@ static int _dns_server_process_answer_HTTPS(struct dns_rrs *rrs, struct dns_requ
 		} break;
 		case DNS_HTTPS_T_IPV4HINT: {
 			struct dns_rule_address_IPV4 *address_ipv4 = NULL;
-			if (_dns_server_is_return_soa_qtype(request, DNS_T_A) || no_ipv4 == 1) {
+			if (_dns_server_is_return_soa_qtype(request, DNS_T_A) || (https_record_rule && https_record_rule->filter.no_ipv4hint)) {
 				break;
 			}
 
@@ -311,6 +300,10 @@ static int _dns_server_process_answer_HTTPS(struct dns_rrs *rrs, struct dns_requ
 			}
 		} break;
 		case DNS_HTTPS_T_ECH: {
+			if (https_record_rule && https_record_rule->filter.no_ech) {
+				break;
+			}
+
 			if (p->len > sizeof(https_svcb->ech)) {
 				tlog(TLOG_WARN, "ech too long");
 				break;
@@ -321,7 +314,7 @@ static int _dns_server_process_answer_HTTPS(struct dns_rrs *rrs, struct dns_requ
 		case DNS_HTTPS_T_IPV6HINT: {
 			struct dns_rule_address_IPV6 *address_ipv6 = NULL;
 
-			if (_dns_server_is_return_soa_qtype(request, DNS_T_AAAA) || no_ipv6 == 1) {
+			if (_dns_server_is_return_soa_qtype(request, DNS_T_AAAA) || (https_record_rule && https_record_rule->filter.no_ipv6hint)) {
 				break;
 			}
 
