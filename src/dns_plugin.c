@@ -483,6 +483,11 @@ int smartdns_plugin_log_getlevel(void)
 	return tlog_getlevel();
 }
 
+int smartdns_plugin_is_audit_enabled(void)
+{
+	return dns_conf.audit_enable;
+}
+
 const char *smartdns_plugin_get_config(const char *key)
 {
 	return dns_conf_get_plugin_conf(key);

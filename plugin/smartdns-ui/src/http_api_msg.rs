@@ -440,6 +440,7 @@ pub fn api_msg_gen_upstream_server_list(upstream_server_list: &Vec<UpstreamServe
                         "query_success_rate": x.query_success_rate,
                         "avg_time": x.avg_time,
                         "status": x.status,
+                        "security": x.security,
                     });
                     s
                 })
@@ -510,6 +511,11 @@ pub fn api_msg_parse_upstream_server_list(
             return Err("status not found".into());
         }
 
+        let security = item["security"].as_str();
+        if security.is_none() {
+            return Err("security not found".into());
+        }
+
         upstream_server_list.push(UpstreamServerInfo {
             host: host.unwrap().to_string(),
             ip: ip.unwrap().to_string(),
@@ -521,6 +527,7 @@ pub fn api_msg_parse_upstream_server_list(
             query_success_rate: query_success_rate.unwrap(),
             avg_time: avg_time.unwrap(),
             status: status.unwrap().to_string(),
+            security: security.unwrap().to_string(),
         });
     }
 
@@ -690,6 +697,7 @@ pub fn api_msg_gen_metrics_data(data: &MetricsData) -> String {
     let json_str = json!({
         "total_query_count": data.total_query_count,
         "block_query_count": data.block_query_count,
+        "fail_query_count": data.fail_query_count,
         "avg_query_time": data.avg_query_time,
         "cache_hit_rate": data.cache_hit_rate,
         "cache_number": data.cache_number,
@@ -712,6 +720,11 @@ pub fn api_msg_parse_metrics_data(data: &str) -> Result<MetricsData, Box<dyn Err
     let block_query_count = v["block_query_count"].as_u64();
     if block_query_count.is_none() {
         return Err("block_query_count not found".into());
+    }
+
+    let fail_query_count = v["fail_query_count"].as_u64();
+    if fail_query_count.is_none() {
+        return Err("fail_query_count not found".into());
     }
 
     let avg_query_time = v["avg_query_time"].as_f64();
@@ -749,6 +762,7 @@ pub fn api_msg_parse_metrics_data(data: &str) -> Result<MetricsData, Box<dyn Err
     Ok(MetricsData {
         total_query_count: total_query_count.unwrap() as u64,
         block_query_count: block_query_count.unwrap() as u64,
+        fail_query_count: fail_query_count.unwrap() as u64,
         avg_query_time: avg_query_time.unwrap(),
         cache_hit_rate: cache_hit_rate.unwrap(),
         cache_number: cache_number.unwrap() as u64,

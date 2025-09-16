@@ -62,6 +62,7 @@ int _dns_client_create_socket_udp_mdns(struct dns_server_info *server_info)
 
 	server_info->fd = fd;
 	server_info->status = DNS_SERVER_STATUS_CONNECTIONLESS;
+	server_info->security_status = DNS_CLIENT_SERVER_SECURITY_NOT_APPLICABLE;
 
 	memset(&event, 0, sizeof(event));
 	event.events = EPOLLIN;

@@ -18,6 +18,8 @@
 
 use futures::sink::SinkExt;
 use futures::stream::StreamExt;
+use hyper_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
+use hyper_tungstenite::tungstenite::protocol::CloseFrame;
 use std::os::fd::AsRawFd;
 use std::sync::Arc;
 use std::time::Duration;
@@ -181,6 +183,18 @@ pub async fn serve_audit_log_stream(
 
     let data_server = http_server.get_data_server();
     let mut log_stream = data_server.get_audit_log_stream().await;
+
+    if dns_audit_log_enabled() == false {
+        let reason =
+            "Audit log is not enabled, please set `audit-enable` to `yes` in smartdns config file.";
+
+        let close_msg = CloseFrame {
+            code: CloseCode::Bad(4003),
+            reason: reason.into(),
+        };
+        websocket.send(Message::Close(Some(close_msg))).await?;
+        return Ok(());
+    }
 
     loop {
         tokio::select! {

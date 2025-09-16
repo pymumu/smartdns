@@ -123,7 +123,7 @@ impl HttpServerConfig {
             }
         }
 
-        if let Some(username) = data_server.get_server_config("smartdns-ui.username") {
+        if let Some(username) = data_server.get_server_config("smartdns-ui.user") {
             self.username = username;
         }
 
@@ -187,8 +187,6 @@ impl HttpServerControl {
     }
 
     pub fn start_http_server(&self, conf: &HttpServerConfig) -> Result<(), Box<dyn Error>> {
-        dns_log!(LogLevel::INFO, "start smartdns-ui server.");
-
         let inner_clone = Arc::clone(&self.http_server);
         let ret = inner_clone.set_conf(conf);
         if let Err(e) = ret {
@@ -207,7 +205,7 @@ impl HttpServerControl {
                 dns_log!(LogLevel::ERROR, "http server error: {}", e);
                 Plugin::smartdns_exit(1);
             }
-            dns_log!(LogLevel::INFO, "http server exit.");
+            dns_log!(LogLevel::DEBUG, "http server exit.");
         });
 
         tokio::task::block_in_place(|| {
@@ -224,8 +222,6 @@ impl HttpServerControl {
         if server_thread.is_none() {
             return;
         }
-
-        dns_log!(LogLevel::INFO, "stop smartdns-ui server.");
 
         self.http_server.stop_http_server();
 
@@ -881,7 +877,7 @@ impl HttpServer {
         let addr = listner.local_addr()?;
 
         *this.local_addr.lock().unwrap() = Some(addr);
-        dns_log!(LogLevel::INFO, "http server listen at {}", url);
+        dns_log!(LogLevel::INFO, "http server listen at {}", addr);
 
         let _ = kickoff_tx.send(0);
         loop {

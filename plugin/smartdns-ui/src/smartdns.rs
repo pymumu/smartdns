@@ -160,6 +160,40 @@ impl ToString for DnsServerType {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum DnsServerTrustStatus {
+    TRUST_UNKNOW,
+    TRUST_NOT_APPLICABLE,
+    TRUST_VERIFY_FAILED,
+    TRUST_INSECURE,
+    TRUST_SECURE,
+}
+
+impl From<u32> for DnsServerTrustStatus {
+    fn from(t: u32) -> DnsServerTrustStatus {
+        match t {
+            0 => DnsServerTrustStatus::TRUST_UNKNOW,
+            1 => DnsServerTrustStatus::TRUST_NOT_APPLICABLE,
+            2 => DnsServerTrustStatus::TRUST_VERIFY_FAILED,
+            3 => DnsServerTrustStatus::TRUST_INSECURE,
+            4 => DnsServerTrustStatus::TRUST_SECURE,
+            _ => DnsServerTrustStatus::TRUST_UNKNOW,
+        }
+    }
+}
+
+impl ToString for DnsServerTrustStatus {
+    fn to_string(&self) -> String {
+        match self {
+            DnsServerTrustStatus::TRUST_UNKNOW => "Unknown".to_string(),
+            DnsServerTrustStatus::TRUST_NOT_APPLICABLE => "Not Applicable".to_string(),
+            DnsServerTrustStatus::TRUST_VERIFY_FAILED => "Verify Failed".to_string(),
+            DnsServerTrustStatus::TRUST_INSECURE => "Insecure".to_string(),
+            DnsServerTrustStatus::TRUST_SECURE => "Secure".to_string(),
+        }
+    }
+}
+
 #[macro_export]
 macro_rules! dns_log {
     ($level:expr, $($arg:tt)*) => {
@@ -183,6 +217,10 @@ pub fn dns_log_get_level() -> LogLevel {
         let leve = smartdns_c::smartdns_plugin_log_getlevel();
         LogLevel::try_from(leve as u32).unwrap()
     }
+}
+
+pub fn dns_audit_log_enabled() -> bool {
+    unsafe { smartdns_c::smartdns_plugin_is_audit_enabled() != 0 }
 }
 
 pub fn dns_log_out(level: LogLevel, file: &str, line: u32, message: &str) {
@@ -719,6 +757,14 @@ impl DnsUpstreamServer {
             let t = smartdns_c::dns_client_get_server_type(self.server_info)
                 as smartdns_c::dns_server_type_t;
             DnsServerType::from(t)
+        }
+    }
+
+    pub fn get_server_security_status(&self) -> DnsServerTrustStatus {
+        unsafe {
+            let t = smartdns_c::dns_client_get_server_security_status(self.server_info)
+                as smartdns_c::dns_server_security_status;
+            DnsServerTrustStatus::from(t)
         }
     }
 

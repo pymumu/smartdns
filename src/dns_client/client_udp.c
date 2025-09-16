@@ -139,6 +139,7 @@ int _dns_client_create_socket_udp(struct dns_server_info *server_info)
 
 	server_info->fd = fd;
 	server_info->status = DNS_SERVER_STATUS_CONNECTING;
+	server_info->security_status = DNS_CLIENT_SERVER_SECURITY_NOT_APPLICABLE;
 
 	if (connect(fd, &server_info->addr, server_info->ai_addrlen) != 0) {
 		if (errno != EINPROGRESS) {

@@ -39,6 +39,7 @@ use tokio::time::{interval_at, Instant};
 struct DataStatsItem {
     total_request: AtomicU64,
     total_blocked_request: AtomicU64,
+    total_failed_request: AtomicU64,
     qps: AtomicU32,
     qps_count: AtomicU32,
     request_dropped: AtomicU64,
@@ -48,6 +49,7 @@ struct DataStatsItem {
 struct DataStatsItem {
     total_request: Arc<Mutex<u64>>,
     total_blocked_request: Arc<Mutex<u64>>,
+    total_failed_request: Arc<Mutex<u64>>,
     qps: AtomicU32,
     qps_count: AtomicU32,
     request_dropped: Arc<Mutex<u64>>,
@@ -59,6 +61,7 @@ impl DataStatsItem {
         let ret = DataStatsItem {
             total_request: 0.into(),
             total_blocked_request: 0.into(),
+            total_failed_request: 0.into(),
             qps: 0.into(),
             qps_count: 0.into(),
             request_dropped: 0.into(),
@@ -67,6 +70,7 @@ impl DataStatsItem {
         let ret = DataStatsItem {
             total_request: Arc::new(Mutex::new(0)),
             total_blocked_request: Arc::new(Mutex::new(0)),
+            total_failed_request: Arc::new(Mutex::new(0)),
             qps: 0.into(),
             qps_count: 0.into(),
             request_dropped: Arc::new(Mutex::new(0)),
@@ -154,6 +158,33 @@ impl DataStatsItem {
         }
     }
 
+    pub fn add_total_failed_request(&self, total: u64) {
+        #[cfg(target_has_atomic = "64")]
+        {
+            self.total_failed_request
+                .fetch_add(total, Ordering::Relaxed);
+        }
+
+        #[cfg(not(target_has_atomic = "64"))]
+        {
+            let mut total_failed_request = self.total_failed_request.lock().unwrap();
+            *total_failed_request += total;
+        }
+    }
+
+    pub fn get_total_failed_request(&self) -> u64 {
+        #[cfg(target_has_atomic = "64")]
+        {
+            return self.total_failed_request.load(Ordering::Relaxed);
+        }
+
+        #[cfg(not(target_has_atomic = "64"))]
+        {
+            let total = self.total_failed_request.lock().unwrap();
+            return *total;
+        }
+    }
+
     #[allow(dead_code)]
     pub fn get_current_hour_total(&self) -> u64 {
         return Stats::get_request_total();
@@ -209,6 +240,14 @@ impl DataStats {
 
     pub fn add_total_blocked_request(&self, total: u64) {
         self.data.add_total_blocked_request(total);
+    }
+
+    pub fn get_total_failed_request(&self) -> u64 {
+        return self.data.get_total_failed_request();
+    }
+
+    pub fn add_total_failed_request(&self, total: u64) {
+        self.data.add_total_failed_request(total);
     }
 
     pub fn get_total_request(&self) -> u64 {
@@ -291,11 +330,24 @@ impl DataStats {
         if total_blocked_count == 0 {
             let mut parm = DomainListGetParam::new();
             parm.is_blocked = Some(true);
-
+            
             let count = self.db.get_domain_list_count(Some(&parm));
             total_blocked_count = count;
         }
         self.data.add_total_blocked_request(total_blocked_count);
+
+        // load total failed request
+        let mut total_failed_count = 0 as u64;
+        let status_data_total_failed_count = status_data.get("total_failed_request");
+        if status_data_total_failed_count.is_some() {
+            let count = status_data_total_failed_count.unwrap().parse::<u64>();
+            if let Ok(count) = count {
+                total_failed_count = count;
+            } else {
+                total_failed_count = 0;
+            }
+        }
+        self.data.add_total_failed_request(total_failed_count);
         Ok(())
     }
 
@@ -307,6 +359,10 @@ impl DataStats {
         self.db.set_status_data(
             "total_blocked_request",
             self.get_total_blocked_request().to_string().as_str(),
+        )?;
+        self.db.set_status_data(
+            "total_failed_request",
+            self.get_total_failed_request().to_string().as_str(),
         )?;
 
         Ok(())
@@ -331,7 +387,7 @@ impl DataStats {
             .delete_domain_before_timestamp(now - self.conf.read().unwrap().max_log_age_ms as u64);
         if let Err(e) = ret {
             if e.to_string() == "Query returned no rows" {
-                return 
+                return;
             }
 
             dns_log!(

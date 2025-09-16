@@ -57,6 +57,14 @@ typedef enum dns_result_type {
 	DNS_QUERY_END,
 } dns_result_type;
 
+typedef enum dns_server_security_status {
+	DNS_CLIENT_SERVER_SECURITY_UNKNOW = 0,
+	DNS_CLIENT_SERVER_SECURITY_NOT_APPLICABLE = 1,
+	DNS_CLIENT_SERVER_SECURITY_VERIFY_FAILED = 2,
+	DNS_CLIENT_SERVER_SECURITY_INSECURE = 3,
+	DNS_CLIENT_SERVER_SECURITY_SECURE = 4,
+} dns_server_security_status;
+
 #define DNSSERVER_FLAG_BLACKLIST_IP (0x1 << 0)
 #define DNSSERVER_FLAG_WHITELIST_IP (0x1 << 1)
 #define DNSSERVER_FLAG_CHECK_EDNS (0x1 << 2)
@@ -84,6 +92,8 @@ typedef int (*dns_client_callback)(const char *domain, dns_result_type rtype, st
 unsigned int dns_client_server_result_flag(struct dns_server_info *server_info);
 
 const char *dns_client_get_server_ip(struct dns_server_info *server_info);
+
+dns_server_security_status dns_client_get_server_security_status(struct dns_server_info *server_info);
 
 const char *dns_client_get_server_host(struct dns_server_info *server_info);
 

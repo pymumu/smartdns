@@ -36,6 +36,8 @@ pub struct SmartdnsPlugin {
     data_conf: Mutex<DataServerConfig>,
 
     runtime: Arc<Runtime>,
+
+    is_start: Mutex<bool>,
 }
 
 impl SmartdnsPlugin {
@@ -53,6 +55,8 @@ impl SmartdnsPlugin {
             data_server_ctl: Arc::new(DataServerControl::new()),
             data_conf: Mutex::new(DataServerConfig::new()),
             runtime: Arc::new(rt),
+
+            is_start: Mutex::new(false),
         });
 
         plugin.http_server_ctl.set_plugin(plugin.clone());
@@ -110,7 +114,6 @@ impl SmartdnsPlugin {
         if let Some(root) = matches.opt_str("r") {
             http_conf.http_root = root;
         }
-        dns_log!(LogLevel::INFO, "www root: {}", http_conf.http_root);
 
         let mut token_expire = Plugin::dns_conf_plugin_config("smartdns-ui.token-expire");
         if token_expire.is_none() {
@@ -150,6 +153,10 @@ impl SmartdnsPlugin {
     }
 
     pub fn start(&self, args: &Vec<String>) -> Result<(), Box<dyn Error>> {
+        dns_log!(LogLevel::INFO, "start smartdns-ui server.");
+        let mut is_start = self.is_start.lock().unwrap();
+        *is_start = true;
+
         self.parser_args(args)?;
         self.load_config()?;
         self.data_server_ctl
@@ -163,6 +170,13 @@ impl SmartdnsPlugin {
     }
 
     pub fn stop(&self) {
+        let mut is_start = self.is_start.lock().unwrap();
+        if !*is_start {
+            return;
+        }
+        *is_start = false;
+        
+        dns_log!(LogLevel::INFO, "stop smartdns-ui server.");
         self.http_server_ctl.stop_http_server();
         self.data_server_ctl.stop_data_server();
     }

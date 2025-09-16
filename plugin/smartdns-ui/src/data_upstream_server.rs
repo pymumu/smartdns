@@ -30,6 +30,7 @@ pub struct UpstreamServerInfo {
     pub query_success_rate: f64,
     pub avg_time: f64,
     pub status: String,
+    pub security: String,
 }
 
 impl UpstreamServerInfo {
@@ -48,6 +49,8 @@ impl UpstreamServerInfo {
                     "Abnormal"
                 };
 
+                let security_status = server.get_server_security_status();
+
                 servers.push(UpstreamServerInfo {
                     host: server.get_host(),
                     ip: server.get_ip(),
@@ -59,6 +62,7 @@ impl UpstreamServerInfo {
                     query_success_rate: stats.get_success_rate(),
                     avg_time: stats.get_query_avg_time(),
                     status: status.to_string(),
+                    security: security_status.to_string(),
                 });
             });
         Ok(servers)

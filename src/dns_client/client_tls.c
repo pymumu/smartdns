@@ -60,7 +60,7 @@ static ssize_t _ssl_write_ext2(struct dns_server_info *server, SSL *ssl, const v
 		return SSL_ERROR_SYSCALL;
 	}
 
-#if defined(OSSL_QUIC1_VERSION) && !defined (OPENSSL_NO_QUIC)
+#if defined(OSSL_QUIC1_VERSION) && !defined(OPENSSL_NO_QUIC)
 	ret = SSL_write_ex2(ssl, buff, num, flags, &written);
 #else
 	ret = SSL_write_ex(ssl, buff, num, &written);
@@ -129,7 +129,7 @@ int _ssl_do_handevent(struct dns_server_info *server)
 		pthread_mutex_unlock(&server->lock);
 		return SSL_ERROR_SYSCALL;
 	}
-#if defined(OSSL_QUIC1_VERSION) && !defined (OPENSSL_NO_QUIC)
+#if defined(OSSL_QUIC1_VERSION) && !defined(OPENSSL_NO_QUIC)
 	err = SSL_handle_events(server->ssl);
 #else
 	err = SSL_ERROR_SYSCALL;
@@ -865,6 +865,7 @@ static int _dns_client_tls_verify(struct dns_server_info *server_info)
 	unsigned char *key_sha256 = NULL;
 	char *spki = NULL;
 	int spki_len = 0;
+	int is_secure = 0;
 
 	if (server_info->ssl == NULL) {
 		return -1;
@@ -886,6 +887,8 @@ static int _dns_client_tls_verify(struct dns_server_info *server_info)
 				 X509_verify_cert_error_string(res));
 			goto errout;
 		}
+
+		is_secure = 1;
 	}
 	pthread_mutex_unlock(&server_info->lock);
 
@@ -955,11 +958,19 @@ static int _dns_client_tls_verify(struct dns_server_info *server_info)
 			goto errout;
 		} else {
 			tlog(TLOG_DEBUG, "server %s cert spki verify succeed", server_info->ip);
+			is_secure = 1;
 		}
 	}
 
 	OPENSSL_free(key_data);
 	X509_free(cert);
+
+	if (is_secure) {
+		server_info->security_status = DNS_CLIENT_SERVER_SECURITY_SECURE;
+	} else {
+		server_info->security_status = DNS_CLIENT_SERVER_SECURITY_INSECURE;
+	}
+
 	return 0;
 
 errout:
@@ -970,6 +981,8 @@ errout:
 	if (cert) {
 		X509_free(cert);
 	}
+
+	server_info->security_status = DNS_CLIENT_SERVER_SECURITY_VERIFY_FAILED;
 
 	return -1;
 }
@@ -1049,7 +1062,7 @@ int _dns_client_process_tls(struct dns_server_info *server_info, struct epoll_ev
 
 	if (server_info->type == DNS_SERVER_QUIC || server_info->type == DNS_SERVER_HTTP3) {
 /* QUIC */
-#if defined(OSSL_QUIC1_VERSION) && !defined (OPENSSL_NO_QUIC)
+#if defined(OSSL_QUIC1_VERSION) && !defined(OPENSSL_NO_QUIC)
 		return _dns_client_process_quic(server_info, event, now);
 #else
 		tlog(TLOG_ERROR, "quic/http3 is not supported.");

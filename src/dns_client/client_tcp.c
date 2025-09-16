@@ -113,6 +113,7 @@ int _dns_client_create_socket_tcp(struct dns_server_info *server_info)
 
 	server_info->fd = fd;
 	server_info->status = DNS_SERVER_STATUS_CONNECTING;
+	server_info->security_status = DNS_CLIENT_SERVER_SECURITY_NOT_APPLICABLE;
 	server_info->proxy = proxy;
 
 	memset(&event, 0, sizeof(event));

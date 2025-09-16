@@ -77,6 +77,8 @@ void smartdns_plugin_log_setlevel(smartdns_log_level level);
 
 int smartdns_plugin_log_getlevel(void);
 
+int smartdns_plugin_is_audit_enabled(void);
+
 const char *smartdns_plugin_get_config(const char *key);
 
 void smartdns_plugin_clear_all_config(void);

@@ -19,12 +19,12 @@
 #define _GNU_SOURCE
 
 #include "server_info.h"
+#include "client_socket.h"
 #include "client_tls.h"
 #include "conn_stream.h"
 #include "ecs.h"
 #include "group.h"
 #include "pending_server.h"
-#include "client_socket.h"
 
 #include "smartdns/fast_ping.h"
 #include "smartdns/lib/stringutil.h"
@@ -50,6 +50,15 @@ const char *dns_client_get_server_ip(struct dns_server_info *server_info)
 	}
 
 	return server_info->ip;
+}
+
+dns_server_security_status dns_client_get_server_security_status(struct dns_server_info *server_info)
+{
+	if (server_info == NULL) {
+		return DNS_CLIENT_SERVER_SECURITY_UNKNOW;
+	}
+
+	return server_info->security_status;
 }
 
 const char *dns_client_get_server_host(struct dns_server_info *server_info)
@@ -413,6 +422,8 @@ int _dns_client_server_add(const char *server_ip, const char *server_host, int p
 	server_info->prohibit = 0;
 	server_info->so_mark = flags->set_mark;
 	server_info->drop_packet_latency_ms = flags->drop_packet_latency_ms;
+	server_info->security_status = DNS_CLIENT_SERVER_SECURITY_UNKNOW;
+
 	atomic_set(&server_info->refcnt, 0);
 	atomic_set(&server_info->is_alive, default_is_alive);
 	INIT_LIST_HEAD(&server_info->check_list);
