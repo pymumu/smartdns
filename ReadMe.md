@@ -1,6 +1,6 @@
 # SmartDNS
 
-**[English](ReadMe_en.md)**
+**中文 | [English](ReadMe_en.md)**
 
 ![SmartDNS](doc/smartdns-banner.png)
 SmartDNS 是一个运行在本地的 DNS 服务器，它接受来自本地客户端的 DNS 查询请求，然后从多个上游 DNS 服务器获取 DNS 查询结果，并将访问速度最快的结果返回给客户端，以此提高网络访问速度。
@@ -159,3 +159,13 @@ rtt min/avg/max/mdev = 5.954/6.133/6.313/0.195 ms
 ## 开源声明
 
 SmartDNS 基于 GPL V3 协议开源。
+
+## Star History
+
+<a href="https://www.star-history.com/#pymumu/smartdns&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=pymumu/smartdns&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=pymumu/smartdns&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=pymumu/smartdns&type=Date" />
+ </picture>
+</a>
