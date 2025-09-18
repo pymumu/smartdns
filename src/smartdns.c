@@ -410,7 +410,7 @@ static int _smartdns_create_cert(void)
 		unlink(dns_conf.bind_ca_key_file);
 		tlog(TLOG_WARN, "regenerate cert with root ca key %s", dns_conf.bind_root_ca_key_file);
 	}
-	
+
 	if (dns_conf_get_ddns_domain()[0] != 0) {
 		snprintf(ddns_san, sizeof(ddns_san), "DNS:%s", dns_conf_get_ddns_domain());
 	}
@@ -555,7 +555,14 @@ static int _smartdns_init_log(void)
 
 	unsigned int tlog_flag = TLOG_NONBLOCK;
 	if (enable_log_screen == 1) {
-		tlog_flag |= TLOG_SCREEN_COLOR;
+		tlog_flag |= TLOG_SCREEN;
+	}
+
+	if (dns_conf.log_color_mode) {
+		tlog_flag |= TLOG_SEGMENT;
+		if (enable_log_screen) {
+			tlog_flag |= TLOG_SCREEN_COLOR;
+		}
 	}
 
 	if (dns_conf.log_syslog) {
