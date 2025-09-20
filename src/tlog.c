@@ -1644,7 +1644,7 @@ static int _tlog_root_write_screen_log(struct tlog_log *log, struct tlog_loginfo
 static int _tlog_root_write_log(struct tlog_log *log, const char *buff, int bufflen)
 {
     struct tlog_segment_log_head *head = NULL;
-    static struct tlog_segment_log_head empty_info;
+    static struct tlog_segment_log_head empty_info = { .info.level = TLOG_INFO };
     if (tlog.output_func == NULL) {
         if (log->segment_log) {
             head = (struct tlog_segment_log_head *)buff;
@@ -1662,7 +1662,6 @@ static int _tlog_root_write_log(struct tlog_log *log, const char *buff, int buff
     }
 
     _tlog_root_write_screen_log(log, NULL, buff, bufflen);
-    memset(&empty_info, 0, sizeof(empty_info));
     return tlog.output_func(&empty_info.info, buff, bufflen, tlog_get_private(log));
 }
 

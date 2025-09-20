@@ -181,6 +181,7 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("log-file", _config_option_parser_filepath, (char *)dns_conf.log_file),
 	CONF_SIZE("log-size", &dns_conf.log_size, 0, 1024 * 1024 * 1024),
 	CONF_INT("log-num", &dns_conf.log_num, 0, 1024),
+	CONF_YESNO("log-color", &dns_conf.log_color_mode),
 	CONF_YESNO("log-console", &dns_conf.log_console),
 	CONF_YESNO("log-syslog", &dns_conf.log_syslog),
 	CONF_INT_BASE("log-file-mode", &dns_conf.log_file_mode, 0, 511, 8),
@@ -360,6 +361,7 @@ static void _dns_conf_default_value_init(void)
 	dns_conf.log_num = 8;
 	dns_conf.log_size = 1024 * 128;
 	dns_conf.log_level = TLOG_ERROR;
+	dns_conf.log_color_mode = 1;
 	dns_conf.audit_num = 2;
 	dns_conf.audit_file_mode = 0640;
 	dns_conf.audit_size = 1024 * 128;

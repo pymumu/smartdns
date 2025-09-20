@@ -701,6 +701,7 @@ struct dns_config {
 	char log_file[DNS_MAX_PATH];
 	size_t log_size;
 	int log_num;
+	int log_color_mode;
 	int log_file_mode;
 	int log_console;
 	int log_syslog;
