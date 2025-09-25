@@ -165,7 +165,6 @@ static int dns_server_resolve_callback(const char *domain, dns_result_type rtype
 				context.reply_ttl = _dns_server_get_reply_ttl(request, ttl);
 				context.cache_ttl = _dns_server_get_conf_ttl(request, ttl);
 				request->ip_ttl = context.cache_ttl;
-				context.no_check_add_ip = 1;
 				_dns_server_reply_passthrough(&context);
 				request->cname[0] = 0;
 				request->has_ip = 0;
