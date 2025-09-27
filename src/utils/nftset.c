@@ -552,16 +552,16 @@ static int _nftset_process_setflags(uint32_t flags, const unsigned char addr[], 
 }
 
 /* Check whether the IP address already exists in the nftables collection */
-static int _nftset_test_ip_exists(int nffamily, const char* tablename, const char* setname,
-	const unsigned char addr[], int addr_len)
+static int _nftset_test_ip_exists(int nffamily, const char *tablename, const char *setname, const unsigned char addr[],
+								  int addr_len)
 {
 	uint8_t buf[PAYLOAD_MAX];
 	uint8_t result[PAYLOAD_MAX];
-	void* next = buf;
+	void *next = buf;
 	int buffer_len = 0;
 
 	/* Initialize test message */
-	struct nlmsgreq* req = (struct nlmsgreq*)next;
+	struct nlmsgreq *req = (struct nlmsgreq *)next;
 	memset(next, 0, sizeof(struct nlmsgreq));
 
 	req->h.nlmsg_len = NLMSG_LENGTH(sizeof(struct nfgenmsg));
@@ -572,35 +572,32 @@ static int _nftset_test_ip_exists(int nffamily, const char* tablename, const cha
 	req->m.res_id = htons(NFNL_SUBSYS_NFTABLES);
 	req->m.version = 0;
 
-	struct nlmsghdr* n = &req->h;
+	struct nlmsghdr *n = &req->h;
 
 	_nftset_addattr_string(n, PAYLOAD_MAX, NFTA_SET_ELEM_LIST_TABLE, tablename);
 	_nftset_addattr_string(n, PAYLOAD_MAX, NFTA_SET_ELEM_LIST_SET, setname);
 
-	struct rtattr* nest_list = _nftset_addattr_nest(n, PAYLOAD_MAX, NLA_F_NESTED | NFTA_SET_ELEM_LIST_ELEMENTS);
-	struct rtattr* nest_elem = _nftset_addattr_nest(n, PAYLOAD_MAX, NLA_F_NESTED | NFTA_LIST_ELEM);
-	struct rtattr* nest_elem_key = _nftset_addattr_nest(n, PAYLOAD_MAX, NLA_F_NESTED | NFTA_SET_ELEM_KEY);
+	struct rtattr *nest_list = _nftset_addattr_nest(n, PAYLOAD_MAX, NLA_F_NESTED | NFTA_SET_ELEM_LIST_ELEMENTS);
+	struct rtattr *nest_elem = _nftset_addattr_nest(n, PAYLOAD_MAX, NLA_F_NESTED | NFTA_LIST_ELEM);
+	struct rtattr *nest_elem_key = _nftset_addattr_nest(n, PAYLOAD_MAX, NLA_F_NESTED | NFTA_SET_ELEM_KEY);
 	_nftset_addattr(n, PAYLOAD_MAX, NFTA_DATA_VALUE, addr, addr_len);
 	_nftset_addattr_nest_end(n, nest_elem_key);
 	_nftset_addattr_nest_end(n, nest_elem);
 	_nftset_addattr_nest_end(n, nest_list);
 
-	next = (uint8_t*)next + req->h.nlmsg_len;
-	buffer_len = (uint8_t*)next - buf;
+	next = (uint8_t *)next + req->h.nlmsg_len;
+	buffer_len = (uint8_t *)next - buf;
 
 	if (dns_conf.nftset_debug_enable) {
 		char ip_str[INET6_ADDRSTRLEN];
 		if (addr_len == 4) {
 			inet_ntop(AF_INET, addr, ip_str, sizeof(ip_str));
-		}
-		else if (addr_len == 16) {
+		} else if (addr_len == 16) {
 			inet_ntop(AF_INET6, addr, ip_str, sizeof(ip_str));
-		}
-		else {
+		} else {
 			snprintf(ip_str, sizeof(ip_str), "unknown");
 		}
-		tlog(TLOG_DEBUG, "nftset test ip: family=%d, table=%s, set=%s, ip=%s",
-			nffamily, tablename, setname, ip_str);
+		tlog(TLOG_DEBUG, "nftset test ip: family=%d, table=%s, set=%s, ip=%s", nffamily, tablename, setname, ip_str);
 	}
 
 	/* Send a test message and receive a response */
@@ -626,22 +623,22 @@ static int _nftset_test_ip_exists(int nffamily, const char* tablename, const cha
 			char ip_str[INET6_ADDRSTRLEN];
 			if (addr_len == 4) {
 				inet_ntop(AF_INET, addr, ip_str, sizeof(ip_str));
-			}
-			else if (addr_len == 16) {
+			} else if (addr_len == 16) {
 				inet_ntop(AF_INET6, addr, ip_str, sizeof(ip_str));
-			}
-			else {
+			} else {
 				snprintf(ip_str, sizeof(ip_str), "unknown");
 			}
-			tlog(TLOG_DEBUG, "nftset test ip communication failed, assuming ip not exists: family=%d, table=%s, set=%s, ip=%s, errorno:%d",
-				nffamily, tablename, setname, ip_str, errno);
+			tlog(TLOG_DEBUG,
+				 "nftset test ip communication failed, assuming ip not exists: family=%d, table=%s, set=%s, ip=%s, "
+				 "errorno:%d",
+				 nffamily, tablename, setname, ip_str, errno);
 		}
 		return 0;
 	}
 
 	int ip_exists = 0;
 
-	struct nlmsghdr* nlh = (struct nlmsghdr*)result;
+	struct nlmsghdr *nlh = (struct nlmsghdr *)result;
 
 	/* If a successful response is received, it indicates that the IP already exists */
 	if (nlh->nlmsg_type == (NFNL_SUBSYS_NFTABLES << 8 | NFT_MSG_NEWSETELEM)) {
@@ -650,14 +647,13 @@ static int _nftset_test_ip_exists(int nffamily, const char* tablename, const cha
 
 	/* Received an error message */
 	if (nlh->nlmsg_type == NLMSG_ERROR) {
-		struct nlmsgerr* err = (struct nlmsgerr*)NLMSG_DATA(nlh);
+		struct nlmsgerr *err = (struct nlmsgerr *)NLMSG_DATA(nlh);
 
 		if (err->error == -ENOENT) {
 			ip_exists = 0;
-		}
-		else if (dns_conf.nftset_debug_enable) {
-			tlog(TLOG_DEBUG, "nftset test ip error: family=%d, table=%s, set=%s, error=%d",
-				nffamily, tablename, setname, -err->error);
+		} else if (dns_conf.nftset_debug_enable) {
+			tlog(TLOG_DEBUG, "nftset test ip error: family=%d, table=%s, set=%s, error=%d", nffamily, tablename,
+				 setname, -err->error);
 		}
 	}
 
@@ -665,15 +661,13 @@ static int _nftset_test_ip_exists(int nffamily, const char* tablename, const cha
 		char ip_str[INET6_ADDRSTRLEN];
 		if (addr_len == 4) {
 			inet_ntop(AF_INET, addr, ip_str, sizeof(ip_str));
-		}
-		else if (addr_len == 16) {
+		} else if (addr_len == 16) {
 			inet_ntop(AF_INET6, addr, ip_str, sizeof(ip_str));
-		}
-		else {
+		} else {
 			snprintf(ip_str, sizeof(ip_str), "unknown");
 		}
-		tlog(TLOG_DEBUG, "nftset test ip result: family=%d, table=%s, set=%s, ip=%s, exists=%d",
-			nffamily, tablename, setname, ip_str, ip_exists);
+		tlog(TLOG_DEBUG, "nftset test ip result: family=%d, table=%s, set=%s, ip=%s, exists=%d", nffamily, tablename,
+			 setname, ip_str, ip_exists);
 	}
 
 	return ip_exists;
@@ -735,15 +729,13 @@ int nftset_add(const char *familyname, const char *tablename, const char *setnam
 			char ip_str[INET6_ADDRSTRLEN];
 			if (addr_len == 4) {
 				inet_ntop(AF_INET, addr, ip_str, sizeof(ip_str));
-			}
-			else if (addr_len == 16) {
+			} else if (addr_len == 16) {
 				inet_ntop(AF_INET6, addr, ip_str, sizeof(ip_str));
-			}
-			else {
+			} else {
 				snprintf(ip_str, sizeof(ip_str), "unknown");
 			}
-			tlog(TLOG_DEBUG, "nftset skip adding existing ip: family=%d, table=%s, set=%s, ip=%s",
-				nffamily, tablename, setname, ip_str);
+			tlog(TLOG_DEBUG, "nftset skip adding existing ip: family=%d, table=%s, set=%s, ip=%s", nffamily, tablename,
+				 setname, ip_str);
 		}
 		return 0;
 	}
@@ -771,8 +763,8 @@ int nftset_add(const char *familyname, const char *tablename, const char *setnam
 			}
 
 			if (dns_conf.nftset_debug_enable) {
-				tlog(TLOG_ERROR, "nftset setflags failed, family:%s, table:%s, set:%s, ip:%s, error:%s", familyname, tablename,
-					 setname, ip_str, "ip is invalid");
+				tlog(TLOG_ERROR, "nftset setflags failed, family:%s, table:%s, set:%s, ip:%s, error:%s", familyname,
+					 tablename, setname, ip_str, "ip is invalid");
 			}
 			return -1;
 		}
@@ -801,9 +793,9 @@ int nftset_add(const char *familyname, const char *tablename, const char *setnam
 			snprintf(ip_str, sizeof(ip_str), "unknown");
 		}
 
-		tlog(TLOG_ERROR, "nftset add failed, family:%s, table:%s, set:%s, ip:%s, error:%s", 
-			 familyname, tablename, setname, ip_str, strerror(errno));
-	}else {
+		tlog(TLOG_ERROR, "nftset add failed, family:%s, table:%s, set:%s, ip:%s, error:%s", familyname, tablename,
+			 setname, ip_str, strerror(errno));
+	} else {
 		if (dns_conf.nftset_debug_enable) {
 			char ip_str[INET6_ADDRSTRLEN];
 			if (addr_len == 4) {
@@ -815,11 +807,11 @@ int nftset_add(const char *familyname, const char *tablename, const char *setnam
 			}
 
 			if (timeout > 0) {
-				tlog(TLOG_DEBUG, "nftset add success, family:%s, table:%s, set:%s, ip:%s, timeout:%lu", 
-					 familyname, tablename, setname, ip_str, timeout);
+				tlog(TLOG_DEBUG, "nftset add success, family:%s, table:%s, set:%s, ip:%s, timeout:%lu", familyname,
+					 tablename, setname, ip_str, timeout);
 			} else {
-				tlog(TLOG_DEBUG, "nftset add success, family:%s, table:%s, set:%s, ip:%s", 
-					 familyname, tablename, setname, ip_str);
+				tlog(TLOG_DEBUG, "nftset add success, family:%s, table:%s, set:%s, ip:%s", familyname, tablename,
+					 setname, ip_str);
 			}
 		}
 	}
@@ -842,4 +834,3 @@ int nftset_del(const char *familyname, const char *tablename, const char *setnam
 }
 
 #endif
-
