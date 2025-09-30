@@ -111,7 +111,7 @@ test-prepare:
 	$(MAKE) -C $(SMARTDNS_SRC_DIR) libsmartdns-test.a
 
 $(BIN):
-	MAKEFLAGS= RUSTFLAGS="$(CARGO_RUSTFLAGS) $(RUSTFLAGS)" $(CARGO_BUILD_ENV) cargo build $(CARGO_BUILD_ARGS) --features "build-release"
+	CXXFLAGS= CFLAGS= MAKEFLAGS= RUSTFLAGS="$(CARGO_RUSTFLAGS) $(RUSTFLAGS)" $(CARGO_BUILD_ENV) cargo build $(CARGO_BUILD_ARGS) --features "build-release"
 	cp $(CARGO_BUILD_PATH)/libsmartdns_ui.so target/smartdns_ui.so
 
 install: $(BIN)
