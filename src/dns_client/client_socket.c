@@ -33,13 +33,14 @@ int _dns_client_create_socket(struct dns_server_info *server_info)
 {
 	int ret = -1;
 	pthread_mutex_lock(&server_info->lock);
-	time(&server_info->last_send);
-	time(&server_info->last_recv);
-
+	
 	if (server_info->fd > 0) {
 		pthread_mutex_unlock(&server_info->lock);
 		return -1;
 	}
+	
+	time(&server_info->last_send);
+	time(&server_info->last_recv);
 
 	if (server_info->type == DNS_SERVER_UDP) {
 		ret = _dns_client_create_socket_udp(server_info);

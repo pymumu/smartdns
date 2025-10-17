@@ -97,7 +97,6 @@ struct dns_cache {
 	struct list_head check_list;
 
 	atomic_t ref;
-	int del_pending;
 
 	struct dns_cache_info info;
 	struct dns_cache_data *cache_data;

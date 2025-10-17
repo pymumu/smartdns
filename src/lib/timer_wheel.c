@@ -175,13 +175,6 @@ int tw_del_timer(struct tw_base *base, struct tw_timer_list *timer)
 		if (timer_pending(timer)) {
 			ret = 1;
 			_tw_detach_timer(timer);
-			if (timer->del_function) {
-				tw_del_func del_func = timer->del_function;
-				timer->del_function = NULL;
-				pthread_spin_unlock(&base->lock);
-				del_func(base, timer, timer->data);
-				pthread_spin_lock(&base->lock);
-			}
 		}
 	}
 	pthread_spin_unlock(&base->lock);
@@ -285,13 +278,6 @@ static inline void run_timers(struct tw_base *base)
 			}
 
 			pthread_spin_lock(&base->lock);
-			if ((timer_pending(timer) == 0 && timer->del_function)) {
-				tw_del_func del_func = timer->del_function;
-				timer->del_function = NULL;
-				pthread_spin_unlock(&base->lock);
-				del_func(base, timer, timer->data);
-				pthread_spin_lock(&base->lock);
-			}
 		}
 	}
 	pthread_spin_unlock(&base->lock);

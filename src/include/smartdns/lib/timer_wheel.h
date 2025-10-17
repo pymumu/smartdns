@@ -29,13 +29,10 @@ struct tw_base;
 struct tw_timer_list;
 
 typedef void (*tw_func)(struct tw_base *, struct tw_timer_list *, void *, unsigned long);
-typedef void (*tw_del_func)(struct tw_base *, struct tw_timer_list *, void *);
-
 struct tw_timer_list {
 	void *data;
 	unsigned long expires;
 	tw_func function;
-	tw_del_func del_function;
 	struct list_head entry;
 };
 

@@ -65,5 +65,5 @@ int dns_timer_mod(struct tw_timer_list *timer, unsigned long expires)
 		return 0;
 	}
 
-	return tw_mod_timer(dns_timer_base, timer, expires);
+	return tw_mod_timer_pending(dns_timer_base, timer, expires);
 }

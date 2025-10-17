@@ -284,7 +284,7 @@ int _dns_client_send_packet(struct dns_query_struct *query, void *packet, int le
 				server_info->prohibit = 0;
 				server_info->is_already_prohibit = 0;
 				_dns_server_dec_prohibit_server_num(server_info);
-				if (now - 60 > server_info->last_send) {
+				if (now - prohibit_time >= server_info->last_send) {
 					_dns_client_close_socket(server_info);
 				}
 			}
