@@ -737,7 +737,6 @@ impl DataServer {
                     }
                 }, if batch_timer.is_some() => {
                     batch_timer = None;
-                    dns_log!(LogLevel::ERROR, "data server batch timer triggered, process {} requests.", req_list.len());
                     DataServer::data_server_handle_dns_request(this.clone(), &req_list).await;
                     req_list.clear();
                 }
