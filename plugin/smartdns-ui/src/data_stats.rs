@@ -105,6 +105,19 @@ impl DataStatsItem {
         }
     }
 
+    pub fn get_request_drop(&self) -> u64 {
+        #[cfg(target_has_atomic = "64")]
+        {
+            return self.request_dropped.load(Ordering::Relaxed);
+        }
+
+        #[cfg(not(target_has_atomic = "64"))]
+        {
+            let dropped = self.request_dropped.lock().unwrap();
+            return *dropped;
+        }
+    }
+
     pub fn get_total_request(&self) -> u64 {
         #[cfg(target_has_atomic = "64")]
         {
@@ -234,6 +247,10 @@ impl DataStats {
         self.data.add_request_drop(count);
     }
 
+    pub fn get_request_drop(&self) -> u64 {
+        return self.data.get_request_drop();
+    }
+
     pub fn get_total_blocked_request(&self) -> u64 {
         return self.data.get_total_blocked_request();
     }
@@ -336,6 +353,20 @@ impl DataStats {
         }
         self.data.add_total_blocked_request(total_blocked_count);
 
+        
+        // load request drop count
+        let mut request_drop = 0 as u64;
+        let status_data_request_drop = status_data.get("request_drop");
+        if status_data_request_drop.is_some() {
+            let count = status_data_request_drop.unwrap().parse::<u64>();
+            if let Ok(count) = count {
+                request_drop = count;
+            } else {
+                request_drop = 0;
+            }
+        }
+        self.data.add_request_drop(request_drop);
+
         // load total failed request
         let mut total_failed_count = 0 as u64;
         let status_data_total_failed_count = status_data.get("total_failed_request");
@@ -363,6 +394,10 @@ impl DataStats {
         self.db.set_status_data(
             "total_failed_request",
             self.get_total_failed_request().to_string().as_str(),
+        )?;
+        self.db.set_status_data(
+            "request_drop",
+            self.get_request_drop().to_string().as_str(),
         )?;
 
         Ok(())

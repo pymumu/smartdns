@@ -21,10 +21,10 @@ use crate::data_upstream_server::UpstreamServerInfo;
 use crate::db::*;
 use crate::dns_log;
 use crate::plugin::SmartdnsPlugin;
-use crate::server_log::ServerLog;
-use crate::server_log::ServerLogMsg;
 use crate::server_log::ServerAuditLog;
 use crate::server_log::ServerAuditLogMsg;
+use crate::server_log::ServerLog;
+use crate::server_log::ServerLogMsg;
 use crate::smartdns;
 use crate::smartdns::*;
 use crate::utils;
@@ -43,7 +43,7 @@ use tokio::time::Instant;
 
 pub const DEFAULT_MAX_LOG_AGE: u64 = 30 * 24 * 60 * 60;
 pub const DEFAULT_MAX_LOG_AGE_MS: u64 = DEFAULT_MAX_LOG_AGE * 1000;
-pub const MAX_LOG_AGE_VALUE_MIN: u64 = 3600;
+pub const MAX_LOG_AGE_VALUE_MIN: u64 = 600;
 pub const MAX_LOG_AGE_VALUE_MAX: u64 = 365 * 24 * 60 * 60 * 10;
 pub const MIN_FREE_DISK_SPACE: u64 = 1024 * 1024 * 8;
 pub const DB_FILE_NAME: &str = "smartdns.db";
@@ -61,6 +61,7 @@ pub struct OverviewData {
 pub struct MetricsData {
     pub total_query_count: u64,
     pub block_query_count: u64,
+    pub request_drop_count: u64,
     pub fail_query_count: u64,
     pub avg_query_time: f64,
     pub cache_hit_rate: f64,
@@ -475,6 +476,7 @@ impl DataServer {
         let metrics = MetricsData {
             total_query_count: self.stat.get_total_request(),
             block_query_count: self.stat.get_total_blocked_request(),
+            request_drop_count: self.stat.get_request_drop(),
             fail_query_count: self.stat.get_total_failed_request(),
             avg_query_time: smartdns::Stats::get_avg_process_time(),
             cache_hit_rate: smartdns::Stats::get_cache_hit_rate(),
@@ -526,7 +528,7 @@ impl DataServer {
 
         if data.reply_code != 0 {
             self.stat.add_total_failed_request(1);
-        }   
+        }
 
         self.db.insert_domain(&list)
     }
@@ -642,14 +644,13 @@ impl DataServer {
     pub fn server_log(&self, level: LogLevel, msg: &str, msg_len: i32) {
         self.server_log.dispatch_log(level, msg, msg_len);
     }
-    
+
     pub async fn get_audit_log_stream(&self) -> mpsc::Receiver<ServerAuditLogMsg> {
         return self.server_audit_log.get_audit_log_stream().await;
     }
 
     pub fn server_audit_log(&self, msg: &str, msg_len: i32) {
-        self.server_audit_log
-            .dispatch_audit_log(msg, msg_len);
+        self.server_audit_log.dispatch_audit_log(msg, msg_len);
     }
 
     fn server_check(&self) {
@@ -699,10 +700,10 @@ impl DataServer {
 
         this.stat.clone().start_worker()?;
 
-        let req_list_size = if batch_mode { 1024 * 16 } else { 1 };
+        let req_list_size = if batch_mode { 1024 * 32 } else { 1 };
         let mut req_list: Vec<Box<dyn DnsRequest>> = Vec::with_capacity(req_list_size);
-        let recv_buffer_size = if batch_mode { 4096 } else { 1 };
-        let mut recv_buffer  = Vec::with_capacity(recv_buffer_size);
+        let batch_size = if batch_mode { 1024 * 8 } else { 1 };
+        let mut recv_buffer = Vec::with_capacity(batch_size);
         let mut batch_timer: Option<tokio::time::Interval> = None;
         let mut check_timer = tokio::time::interval(Duration::from_secs(60));
         let is_check_timer_running = Arc::new(AtomicBool::new(false));
@@ -735,33 +736,39 @@ impl DataServer {
                         timer.tick().await;
                     }
                 }, if batch_timer.is_some() => {
+                    batch_timer = None;
+                    dns_log!(LogLevel::ERROR, "data server batch timer triggered, process {} requests.", req_list.len());
                     DataServer::data_server_handle_dns_request(this.clone(), &req_list).await;
                     req_list.clear();
-                    batch_timer = None;
                 }
-                count = data_rx.recv_many(&mut recv_buffer, recv_buffer_size) => {
+                count = data_rx.recv_many(&mut recv_buffer, batch_size) => {
                     if count <= 0 {
                         continue;
                     }
-                    
+
                     req_list.extend(recv_buffer.drain(0..count));
 
                     if batch_mode {
                         if req_list.len() >= 1 && batch_timer.is_none() {
+                            let fill = (req_list.len() as f32 / batch_size as f32)
+                                .max(0.0)
+                                .min(1.0);
+                            let delay_ms = (1000.0 - 990.0 * fill) as u64;
+
                             batch_timer = Some(tokio::time::interval_at(
-                                Instant::now() + Duration::from_millis(500),
-                                Duration::from_secs(1),
+                                Instant::now() + Duration::from_millis(delay_ms),
+                                Duration::from_secs(2),
                             ));
                         }
 
-                        if req_list.len() < req_list_size - recv_buffer_size {
+                        if req_list.len() < batch_size {
                             continue;
                         }
                     }
 
+                    batch_timer = None;
                     DataServer::data_server_handle_dns_request(this.clone(), &req_list).await;
                     req_list.clear();
-                    batch_timer = None;
                 }
             }
         }

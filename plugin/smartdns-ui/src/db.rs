@@ -377,7 +377,7 @@ impl DB {
             .execute("PRAGMA page_size  = 4096", [])?;
         conn.as_ref()
             .unwrap()
-            .execute("PRAGMA cache_size = 10000", [])?;
+            .execute("PRAGMA cache_size = -8192", [])?;
         conn.as_ref()
             .unwrap()
             .execute("PRAGMA temp_store = MEMORY", [])?;

@@ -697,6 +697,7 @@ pub fn api_msg_gen_metrics_data(data: &MetricsData) -> String {
     let json_str = json!({
         "total_query_count": data.total_query_count,
         "block_query_count": data.block_query_count,
+        "request_drop_count": data.request_drop_count,
         "fail_query_count": data.fail_query_count,
         "avg_query_time": data.avg_query_time,
         "cache_hit_rate": data.cache_hit_rate,
@@ -720,6 +721,11 @@ pub fn api_msg_parse_metrics_data(data: &str) -> Result<MetricsData, Box<dyn Err
     let block_query_count = v["block_query_count"].as_u64();
     if block_query_count.is_none() {
         return Err("block_query_count not found".into());
+    }
+
+    let request_drop_count = v["request_drop_count"].as_u64();
+    if request_drop_count.is_none() {
+        return Err("request_drop_count not found".into());
     }
 
     let fail_query_count = v["fail_query_count"].as_u64();
@@ -762,6 +768,7 @@ pub fn api_msg_parse_metrics_data(data: &str) -> Result<MetricsData, Box<dyn Err
     Ok(MetricsData {
         total_query_count: total_query_count.unwrap() as u64,
         block_query_count: block_query_count.unwrap() as u64,
+        request_drop_count: request_drop_count.unwrap() as u64,
         fail_query_count: fail_query_count.unwrap() as u64,
         avg_query_time: avg_query_time.unwrap(),
         cache_hit_rate: cache_hit_rate.unwrap(),
