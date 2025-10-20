@@ -60,9 +60,7 @@ static ssize_t _ssl_write_ext2(struct dns_server_info *server, SSL *ssl, const v
 		return SSL_ERROR_SYSCALL;
 	}
 
-#if defined(OSSL_QUIC1_VERSION) && !defined(OPENSSL_NO_QUIC)
-	ret = SSL_write_ex2(ssl, buff, num, flags, &written);
-#elif OPENSSL_VERSION_NUMBER >= 0x10101000L
+#if OPENSSL_VERSION_NUMBER >= 0x10101000L
 	ret = SSL_write_ex(ssl, buff, num, &written);
 #else
 	ret = SSL_write(ssl, buff, num);
@@ -105,12 +103,12 @@ static int _ssl_get_error_ext(struct dns_server_info *server, SSL *ssl, int ret)
 	return err;
 }
 
-static int _ssl_get_error(struct dns_server_info *server, int ret)
+int _ssl_get_error(struct dns_server_info *server, int ret)
 {
 	return _ssl_get_error_ext(server, server->ssl, ret);
 }
 
-static int _ssl_do_handshake(struct dns_server_info *server)
+int _ssl_do_handshake(struct dns_server_info *server)
 {
 	int err = 0;
 	pthread_mutex_lock(&server->lock);
@@ -493,8 +491,10 @@ int _dns_client_create_socket_tls(struct dns_server_info *server_info, const cha
 
 	return 0;
 errout:
-	if (server_info->fd > 0) {
-		server_info->fd = -1;
+	if (fd > 0) {
+		epoll_ctl(client.epoll_fd, EPOLL_CTL_DEL, fd, NULL);
+		close(fd);
+		if (server_info->fd == fd) server_info->fd = -1;
 	}
 
 	if (server_info->ssl) {
@@ -855,7 +855,7 @@ errout:
 	return -1;
 }
 
-static int _dns_client_tls_verify(struct dns_server_info *server_info)
+int _dns_client_tls_verify(struct dns_server_info *server_info)
 {
 	X509 *cert = NULL;
 	X509_PUBKEY *pubkey = NULL;
@@ -1063,16 +1063,6 @@ int _dns_client_process_tls(struct dns_server_info *server_info, struct epoll_ev
 		event->events = EPOLLOUT;
 	}
 
-	if (server_info->type == DNS_SERVER_QUIC || server_info->type == DNS_SERVER_HTTP3) {
-/* QUIC */
-#if defined(OSSL_QUIC1_VERSION) && !defined(OPENSSL_NO_QUIC)
-		return _dns_client_process_quic(server_info, event, now);
-#else
-		tlog(TLOG_ERROR, "quic/http3 is not supported.");
-		goto errout;
-#endif
-	}
-
 	return _dns_client_process_tcp(server_info, event, now);
 errout:
 	pthread_mutex_lock(&server_info->lock);
@@ -1107,8 +1097,10 @@ int _dns_client_send_tls(struct dns_server_info *server_info, void *packet, unsi
 	}
 
 	if (server_info->ssl == NULL) {
-		errno = EINVAL;
-		return -1;
+		tlog(TLOG_DEBUG, "SSL object is NULL for server %s, buffering data and closing socket", server_info->ip);
+		_dns_client_close_socket(server_info);
+		/* Buffer data and wait for reconnection */
+		return _dns_client_send_data_to_buffer(server_info, inpacket, len);
 	}
 
 	send_len = _dns_client_socket_ssl_send(server_info, inpacket, len);
