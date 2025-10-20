@@ -204,21 +204,25 @@ static int _dns_client_process(struct dns_server_info *server_info, struct epoll
 		}
 	}
 
-	if (server_info->type == DNS_SERVER_UDP || server_info->type == DNS_SERVER_MDNS) {
-		/* receive from udp */
+	switch (server_info->type) {
+	case DNS_SERVER_UDP:
+	case DNS_SERVER_MDNS:
 		return _dns_client_process_udp(server_info, event, now);
-	} else if (server_info->type == DNS_SERVER_TCP) {
-		/* receive from tcp */
+
+	case DNS_SERVER_TCP:
 		return _dns_client_process_tcp(server_info, event, now);
-	} else if (server_info->type == DNS_SERVER_TLS || server_info->type == DNS_SERVER_HTTPS ||
-			   server_info->type == DNS_SERVER_QUIC || server_info->type == DNS_SERVER_HTTP3) {
-		/* receive from tls */
+	
+	case DNS_SERVER_TLS:
+	case DNS_SERVER_HTTPS:
 		return _dns_client_process_tls(server_info, event, now);
-	} else {
+
+	case DNS_SERVER_QUIC:
+	case DNS_SERVER_HTTP3:
+		return _dns_client_process_quic(server_info, event, now);
+
+	default:
 		return -1;
 	}
-
-	return 0;
 }
 
 int _dns_client_send_packet(struct dns_query_struct *query, void *packet, int len)
