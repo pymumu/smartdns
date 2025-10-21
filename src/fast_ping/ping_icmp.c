@@ -271,7 +271,8 @@ struct fast_ping_packet *_fast_ping_icmp_packet(struct ping_host_struct *ping_ho
 		return NULL;
 	}
 
-	if ((uintptr_t)(packet_data + hlen) % __alignof__(void *) == 0 || ping.no_unprivileged_ping == 0) {
+	int align = __alignof__(struct fast_ping_packet);
+	if (((uintptr_t)(packet_data + hlen) % align) == 0 && ping.no_unprivileged_ping == 0) {
 		packet = (struct fast_ping_packet *)(packet_data + hlen);
 	} else {
 		int copy_len = sizeof(ping_host->recv_packet_buffer);

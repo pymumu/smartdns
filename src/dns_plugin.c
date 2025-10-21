@@ -57,7 +57,7 @@ struct dns_plugins {
 };
 
 static struct dns_plugins plugins;
-static int is_plugin_init;
+static atomic_t is_plugin_init = ATOMIC_INIT(0);
 
 int smartdns_plugin_func_server_recv(struct dns_packet *packet, unsigned char *inpacket, int inpacket_len,
 									 struct sockaddr_storage *local, socklen_t local_len, struct sockaddr_storage *from,
@@ -66,7 +66,7 @@ int smartdns_plugin_func_server_recv(struct dns_packet *packet, unsigned char *i
 	struct dns_plugin_ops *chain = NULL;
 	int ret = 0;
 
-	if (unlikely(is_plugin_init == 0)) {
+	if (unlikely(atomic_read(&is_plugin_init) == 0)) {
 		return 0;
 	}
 
@@ -92,7 +92,7 @@ void smartdns_plugin_func_server_complete_request(struct dns_request *request)
 {
 	struct dns_plugin_ops *chain = NULL;
 
-	if (unlikely(is_plugin_init == 0)) {
+	if (unlikely(atomic_read(&is_plugin_init) == 0)) {
 		return;
 	}
 
@@ -114,7 +114,7 @@ void smartdns_plugin_func_server_log_callback(smartdns_log_level level, const ch
 {
 	struct dns_plugin_ops *chain = NULL;
 
-	if (unlikely(is_plugin_init == 0)) {
+	if (unlikely(atomic_read(&is_plugin_init) == 0)) {
 		return;
 	}
 
@@ -136,7 +136,7 @@ void smartdns_plugin_func_server_audit_log_callback(const char *msg, int msg_len
 {
 	struct dns_plugin_ops *chain = NULL;
 
-	if (unlikely(is_plugin_init == 0)) {
+	if (unlikely(atomic_read(&is_plugin_init) == 0)) {
 		return;
 	}
 
@@ -435,7 +435,7 @@ static int _dns_plugin_remove_all(void)
 
 int dns_server_plugin_init(void)
 {
-	if (is_plugin_init == 1) {
+	if (atomic_read(&is_plugin_init) == 1) {
 		return 0;
 	}
 
@@ -445,13 +445,13 @@ int dns_server_plugin_init(void)
 		tlog(TLOG_ERROR, "init plugin rwlock failed.");
 		return -1;
 	}
-	is_plugin_init = 1;
+	atomic_set(&is_plugin_init, 1);
 	return 0;
 }
 
 void dns_server_plugin_exit(void)
 {
-	if (is_plugin_init == 0) {
+	if (atomic_read(&is_plugin_init) == 0) {
 		return;
 	}
 
@@ -459,7 +459,7 @@ void dns_server_plugin_exit(void)
 	_dns_plugin_remove_all();
 
 	pthread_rwlock_destroy(&plugins.lock);
-	is_plugin_init = 0;
+	atomic_set(&is_plugin_init, 0);
 	return;
 }
 

@@ -137,7 +137,6 @@ static int _smartdns_load_from_resolv_file(const char *resolv_file)
 	int ret = -1;
 
 	int filed_num = 0;
-	int line_num = 0;
 
 	fp = fopen(resolv_file, "r");
 	if (fp == NULL) {
@@ -146,7 +145,6 @@ static int _smartdns_load_from_resolv_file(const char *resolv_file)
 	}
 
 	while (fgets(line, MAX_LINE_LEN, fp)) {
-		line_num++;
 		filed_num = sscanf(line, "%63s %1023[^\r\n]s", key, value);
 
 		if (filed_num != 2) {
