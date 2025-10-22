@@ -17,9 +17,9 @@
  */
 
 #include "client.h"
-#include "smartdns/dns.h"
 #include "include/utils.h"
 #include "server.h"
+#include "smartdns/dns.h"
 #include "smartdns/util.h"
 #include "gtest/gtest.h"
 #include <fstream>
@@ -102,7 +102,6 @@ dns64 64:ff9b::/96
 	EXPECT_LT(client.GetQueryTime(), 100);
 }
 
-
 TEST_F(DNS64, with_AAAA_result)
 {
 	smartdns::MockServer server_upstream;
@@ -112,7 +111,7 @@ TEST_F(DNS64, with_AAAA_result)
 		if (request->qtype == DNS_T_A) {
 			smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4");
 			return smartdns::SERVER_REQUEST_OK;
-		} 
+		}
 
 		if (request->qtype == DNS_T_AAAA) {
 			smartdns::MockServer::AddIP(request, request->domain.c_str(), "2001:db8::1");
@@ -141,7 +140,6 @@ dns64 64:ff9b::/96
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "2001:db8::1");
 }
 
-
 TEST_F(DNS64, ipv4_in_ipv6)
 {
 	smartdns::MockServer server_upstream;
@@ -150,7 +148,7 @@ TEST_F(DNS64, ipv4_in_ipv6)
 	server_upstream.Start("udp://0.0.0.0:61053", [&](struct smartdns::ServerRequestContext *request) {
 		if (request->qtype == DNS_T_A) {
 			return smartdns::SERVER_REQUEST_SOA;
-		} 
+		}
 
 		if (request->qtype == DNS_T_AAAA) {
 			smartdns::MockServer::AddIP(request, request->domain.c_str(), "::ffff:1.2.3.4");
@@ -177,3 +175,87 @@ server 127.0.0.1:61053
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "::ffff:1.2.3.4");
 }
 
+TEST_F(DNS64, ipv4only_arpa)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::Server server;
+
+	server_upstream.Start("udp://0.0.0.0:61053", [&](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype == DNS_T_A) {
+			return smartdns::SERVER_REQUEST_SOA;
+		}
+
+		if (request->qtype == DNS_T_AAAA) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "::ffff:1.2.3.4");
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "2001:db8::1");
+			return smartdns::SERVER_REQUEST_OK;
+		}
+		return smartdns::SERVER_REQUEST_SOA;
+	});
+
+	server.Start(R"""(bind [::]:60053
+server 127.0.0.1:61053
+dns64 64:ff9b::/96
+)""");
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("ipv4only.arpa AAAA", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 0);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+
+	ASSERT_TRUE(client.Query("ipv4only.arpa A", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 2);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "ipv4only.arpa");
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 600);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "192.0.0.170");
+	EXPECT_EQ(client.GetAnswer()[1].GetName(), "ipv4only.arpa");
+	EXPECT_EQ(client.GetAnswer()[1].GetTTL(), 600);
+	EXPECT_EQ(client.GetAnswer()[1].GetData(), "192.0.0.171");
+}
+
+TEST_F(DNS64, ipv4only_arpa_nodns64)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::Server server;
+
+	server_upstream.Start("udp://0.0.0.0:61053", [&](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype == DNS_T_A) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4");
+			return smartdns::SERVER_REQUEST_OK;
+		}
+
+		if (request->qtype == DNS_T_AAAA) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "::ffff:1.2.3.4");
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "2001:db8::1");
+			return smartdns::SERVER_REQUEST_OK;
+		}
+		return smartdns::SERVER_REQUEST_SOA;
+	});
+
+	server.MockPing(PING_TYPE_ICMP, "::ffff:1.2.3.4", 60, 10);
+	server.MockPing(PING_TYPE_ICMP, "2001:db8::1", 60, 90);
+
+	server.Start(R"""(bind [::]:60053
+server 127.0.0.1:61053
+)""");
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("a.com AAAA", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_LT(client.GetQueryTime(), 1200);
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 600);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "::ffff:1.2.3.4");
+
+	ASSERT_TRUE(client.Query("a.com A", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_LT(client.GetQueryTime(), 1200);
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 600);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+}

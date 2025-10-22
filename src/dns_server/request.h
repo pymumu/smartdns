@@ -103,8 +103,6 @@ int _dns_server_is_dns64_request(struct dns_request *request);
 
 void _dns_server_request_release(struct dns_request *request);
 
-void _dns_server_request_release(struct dns_request *request);
-
 void _dns_server_request_get(struct dns_request *request);
 
 void _dns_server_request_remove_all(void);

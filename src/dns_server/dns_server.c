@@ -344,7 +344,13 @@ int _dns_server_do_query(struct dns_request *request, int skip_notify_event)
 	list_add_tail(&request->list, &server.request_list);
 	pthread_mutex_unlock(&server.request_list_lock);
 
-	if (_dns_server_process_dns64(request) != 0) {
+	ret = _dns_server_process_dns64(request);
+	if (ret != 0) {
+		if (ret == 2) {
+			/* dns64 processing, return success */
+			goto clean_exit;
+		}
+
 		goto errout;
 	}
 

@@ -18,6 +18,7 @@
 
 #include "dns64.h"
 #include "dns_conf_group.h"
+#include "domain_rule.h"
 
 int _config_dns64(void *data, int argc, char *argv[])
 {
@@ -60,4 +61,16 @@ int _config_dns64(void *data, int argc, char *argv[])
 
 errout:
 	return -1;
+}
+
+static void _dns_conf_dns64_setup_ipv4only_arpa_rule(void)
+{
+	_config_domain_rule_flag_set(DNS64_IPV4ONLY_APRA_DOMAIN, DOMAIN_FLAG_DUALSTACK_SELECT, 0);
+	_conf_domain_rule_speed_check(DNS64_IPV4ONLY_APRA_DOMAIN, "none");
+	_conf_domain_rule_response_mode(DNS64_IPV4ONLY_APRA_DOMAIN, "fastest-response");
+}
+
+void _dns_conf_dns64_post(void)
+{
+	_dns_conf_dns64_setup_ipv4only_arpa_rule();
 }

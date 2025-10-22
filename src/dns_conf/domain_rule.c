@@ -539,7 +539,7 @@ static int _conf_domain_rule_no_ipalias(const char *domain)
 	return _config_domain_rule_flag_set(domain, DOMAIN_FLAG_NO_IPALIAS, 0);
 }
 
-static int _conf_domain_rule_response_mode(char *domain, const char *mode)
+int _conf_domain_rule_response_mode(char *domain, const char *mode)
 {
 	enum response_mode_type response_mode_type = DNS_RESPONSE_MODE_FIRST_PING_IP;
 	struct dns_response_mode_rule *response_mode = NULL;
@@ -571,7 +571,7 @@ errout:
 	return 0;
 }
 
-static int _conf_domain_rule_speed_check(char *domain, const char *mode)
+int _conf_domain_rule_speed_check(char *domain, const char *mode)
 {
 	struct dns_domain_check_orders *check_orders = NULL;
 

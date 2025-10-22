@@ -16,19 +16,16 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef _DNS_CONF_DNS64_H_
-#define _DNS_CONF_DNS64_H_
+#ifndef _DNS_SERVER_DNS64_
+#define _DNS_SERVER_DNS64_
 
-#include "dns_conf.h"
-#include "smartdns/dns_conf.h"
+#include "dns_server.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif /*__cplusplus */
 
-int _config_dns64(void *data, int argc, char *argv[]);
-
-void _dns_conf_dns64_post(void);
+int _dns_server_process_dns64(struct dns_request *request);
 
 #ifdef __cplusplus
 }

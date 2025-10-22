@@ -435,6 +435,8 @@ static int _dns_conf_load_post(void)
 
 	_dns_conf_group_post();
 
+	_dns_conf_dns64_post();
+
 	_config_domain_set_name_table_destroy();
 
 	_config_ip_set_name_table_destroy();

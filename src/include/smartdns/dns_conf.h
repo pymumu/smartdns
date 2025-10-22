@@ -74,6 +74,8 @@ extern "C" {
 #define SMARTDNS_DEBUG_DIR "/tmp/smartdns"
 #define DNS_RESOLV_FILE "/etc/resolv.conf"
 
+#define DNS64_IPV4ONLY_APRA_DOMAIN "ipv4only.arpa"
+
 enum domain_rule {
 	DOMAIN_RULE_FLAGS = 0,
 	DOMAIN_RULE_ADDRESS_IPV4,
