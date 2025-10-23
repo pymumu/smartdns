@@ -15,7 +15,8 @@ hyper-util = { version = "0.1.17", features = ["full"] }
 hyper-tungstenite = "0.18.0"
 tokio = { version = "1.47.1", features = ["full"] }
 serde = { version = "1.0.225", features = ["derive"] }
-tokio-rustls = { version = "0.26.2", optional = true}
+tokio-rustls = { version = "0.26.2", default-features = false, features = ["ring", "tls12"], optional = true }
+rustls = { version = "0.23.32", default-features = false, features = ["ring", "tls12"] }
 rustls-pemfile = { version = "2.2.0", optional = true}
 serde_json = "1.0.145"
 http-body-util = "0.1.3"

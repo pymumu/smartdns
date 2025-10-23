@@ -403,19 +403,25 @@ static void _dns_conf_auto_set_cache_size(void)
 	}
 
 	if (memsize <= 16 * 1024 * 1024) {
-		dns_conf.cachesize = 2048; /* 1MB memory */
+		dns_conf.cachesize = 4096; /* 2MB memory */
 	} else if (memsize <= 32 * 1024 * 1024) {
-		dns_conf.cachesize = 8192; /* 4MB memory*/
-	} else if (memsize <= 64 * 1024 * 1024) {
 		dns_conf.cachesize = 16384; /* 8MB memory*/
-	} else if (memsize <= 128 * 1024 * 1024) {
+	} else if (memsize <= 64 * 1024 * 1024) {
 		dns_conf.cachesize = 32768; /* 16MB memory*/
-	} else if (memsize <= 256 * 1024 * 1024) {
+	} else if (memsize <= 128 * 1024 * 1024) {
 		dns_conf.cachesize = 65536; /* 32MB memory*/
-	} else if (memsize <= 512 * 1024 * 1024) {
+	} else if (memsize <= 256 * 1024 * 1024) {
 		dns_conf.cachesize = 131072; /* 64MB memory*/
-	} else {
+	} else if (memsize <= 512L * 1024 * 1024) {
+		dns_conf.cachesize = 196608; /* 96MB memory*/
+	} else if (memsize <= 1024L * 1024 * 1024) {
 		dns_conf.cachesize = 262144; /* 128MB memory*/
+	} else if (memsize <= 2048L * 1024 * 1024) {
+		dns_conf.cachesize = 393216; /* 192MB memory*/
+	} else if (memsize <= 4096L * 1024 * 1024) {
+		dns_conf.cachesize = 524288; /* 256MB memory*/
+	} else {
+		dns_conf.cachesize = 1048576; /* 512MB memory*/
 	}
 }
 
