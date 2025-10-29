@@ -335,6 +335,7 @@ struct dns_update_param {
 	int id;
 	int ip_ttl;
 	int cname_ttl;
+	const char *query_domain;
 };
 
 int dns_packet_update(unsigned char *data, int size, struct dns_update_param *param);

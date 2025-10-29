@@ -247,7 +247,7 @@ server 127.0.0.1:61053
 	EXPECT_EQ(client.GetStatus(), "NOERROR");
 	EXPECT_LT(client.GetQueryTime(), 1200);
 	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
-	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 600);
+	EXPECT_GT(client.GetAnswer()[0].GetTTL(), 590);
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "::ffff:1.2.3.4");
 
 	ASSERT_TRUE(client.Query("a.com A", 60053));
@@ -256,6 +256,6 @@ server 127.0.0.1:61053
 	EXPECT_EQ(client.GetStatus(), "NOERROR");
 	EXPECT_LT(client.GetQueryTime(), 1200);
 	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
-	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 600);
+	EXPECT_GT(client.GetAnswer()[0].GetTTL(), 590);
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
 }

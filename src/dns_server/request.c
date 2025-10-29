@@ -156,6 +156,11 @@ static void _dns_server_delete_request(struct dns_request *request)
 	if (request->https_svcb) {
 		free(request->https_svcb);
 	}
+
+	if (request->original_domain) {
+		free(request->original_domain);
+	}
+
 	memset(request, 0, sizeof(*request));
 	free(request);
 	atomic_dec(&server.request_num);
@@ -1207,7 +1212,20 @@ int _dns_server_parser_request(struct dns_request *request, struct dns_packet *p
 		}
 
 		// Only support one question.
-		safe_strncpy(request->domain, domain, sizeof(request->domain));
+		int case_changed = 0;
+		safe_strncpy_lower(request->domain, domain, sizeof(request->domain), &case_changed);
+
+		/* support draft dns0x20 */
+		if (case_changed) {
+			request->original_domain = malloc(DNS_MAX_CNAME_LEN);
+			if (request->original_domain == NULL) {
+				tlog(TLOG_ERROR, "malloc failed.\n");
+				goto errout;
+			}
+
+			safe_strncpy(request->original_domain, domain, DNS_MAX_CNAME_LEN);
+			tlog(TLOG_DEBUG, "query %s by origin domain %s", request->domain, request->original_domain);
+		}
 		request->qtype = qtype;
 		break;
 	}

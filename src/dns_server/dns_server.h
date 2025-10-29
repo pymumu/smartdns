@@ -272,6 +272,7 @@ struct dns_request {
 
 	/* dns query */
 	char domain[DNS_MAX_CNAME_LEN];
+	char *original_domain;
 	dns_type_t qtype;
 	int qclass;
 	unsigned long send_tick;

@@ -223,7 +223,7 @@ static struct dns_cache *_dns_cache_lookup(struct dns_cache_key *cache_key)
 	struct dns_cache *dns_cache_ret = NULL;
 	time_t now = 0;
 
-	key = hash_string(cache_key->domain);
+	key = hash_string_case(cache_key->domain);
 	key = jhash(&cache_key->qtype, sizeof(cache_key->qtype), key);
 	key = hash_string_initval(cache_key->dns_group_name, key);
 	key = jhash(&cache_key->query_flag, sizeof(cache_key->query_flag), key);
@@ -237,7 +237,7 @@ static struct dns_cache *_dns_cache_lookup(struct dns_cache_key *cache_key)
 			continue;
 		}
 
-		if (strncmp(cache_key->domain, dns_cache->info.domain, DNS_MAX_CNAME_LEN) != 0) {
+		if (strncasecmp(cache_key->domain, dns_cache->info.domain, DNS_MAX_CNAME_LEN) != 0) {
 			continue;
 		}
 
@@ -345,7 +345,7 @@ static void _dns_cache_remove_by_domain(struct dns_cache_key *cache_key)
 	uint32_t key = 0;
 	struct dns_cache *dns_cache = NULL;
 
-	key = hash_string(cache_key->domain);
+	key = hash_string_case(cache_key->domain);
 	key = jhash(&cache_key->qtype, sizeof(cache_key->qtype), key);
 	key = hash_string_initval(cache_key->dns_group_name, key);
 	key = jhash(&cache_key->query_flag, sizeof(cache_key->query_flag), key);
@@ -361,7 +361,7 @@ static void _dns_cache_remove_by_domain(struct dns_cache_key *cache_key)
 			continue;
 		}
 
-		if (strncmp(cache_key->domain, dns_cache->info.domain, DNS_MAX_CNAME_LEN) != 0) {
+		if (strncasecmp(cache_key->domain, dns_cache->info.domain, DNS_MAX_CNAME_LEN) != 0) {
 			continue;
 		}
 
@@ -401,7 +401,7 @@ static int _dns_cache_insert(struct dns_cache_info *info, struct dns_cache_data 
 	}
 
 	memset(dns_cache, 0, sizeof(*dns_cache));
-	key = hash_string(info->domain);
+	key = hash_string_case(info->domain);
 	key = jhash(&info->qtype, sizeof(info->qtype), key);
 	key = hash_string_initval(info->dns_group_name, key);
 	key = jhash(&info->query_flag, sizeof(info->query_flag), key);

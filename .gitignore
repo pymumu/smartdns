@@ -10,3 +10,4 @@ test.bin
 package/target
 package/*.gz
 package/*.ipk
+target

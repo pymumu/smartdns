@@ -728,7 +728,7 @@ static int _dns_result_child_post(struct dns_server_post_context *context)
 	return 0;
 }
 
-static int _dns_request_update_id_ttl(struct dns_server_post_context *context)
+static int _dns_request_update_id_ttl_domain(struct dns_server_post_context *context)
 {
 	int ttl = context->reply_ttl;
 	struct dns_request *request = context->request;
@@ -758,6 +758,7 @@ static int _dns_request_update_id_ttl(struct dns_server_post_context *context)
 	param.id = request->id;
 	param.cname_ttl = ttl;
 	param.ip_ttl = ttl;
+	param.query_domain = request->original_domain;
 	if (dns_packet_update(context->inpacket, context->inpacket_len, &param) != 0) {
 		tlog(TLOG_DEBUG, "update packet info failed.");
 	}
@@ -820,7 +821,7 @@ int _dns_request_post(struct dns_server_post_context *context)
 		return 0;
 	}
 
-	ret = _dns_request_update_id_ttl(context);
+	ret = _dns_request_update_id_ttl_domain(context);
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "update packet ttl failed.");
 		return -1;
@@ -1047,11 +1048,12 @@ int _dns_server_reply_passthrough(struct dns_server_post_context *context)
 		char clientip[DNS_MAX_CNAME_LEN] = {0};
 
 		/* When passthrough, modify the id to be the id of the client request. */
-		int ret = _dns_request_update_id_ttl(context);
+		int ret = _dns_request_update_id_ttl_domain(context);
 		if (ret != 0) {
 			tlog(TLOG_ERROR, "update packet ttl failed.");
 			return -1;
 		}
+
 		_dns_reply_inpacket(request, context->inpacket, context->inpacket_len);
 
 		tlog(TLOG_INFO, "result: %s, client: %s, qtype: %d, id: %d, group: %s, time: %lums", request->domain,

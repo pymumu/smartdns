@@ -47,5 +47,32 @@ static inline char *safe_strncpy(char *dest, const char *src, size_t n)
 	return ret;
 }
 
+static inline char *safe_strncpy_lower(char *dest, const char *src, size_t n, int *case_changed) 
+{
+	if (src == NULL) {
+		dest[0] = '\0';
+		return dest;
+	}
+
+	if (n <= 0) {
+		return NULL;
+	}
+	
+	while (n > 1 && *src) {
+		*dest = *src;
+		if (*dest >= 'A' && *dest <= 'Z') {
+			*dest = *dest + 32;
+			if (case_changed) {
+				*case_changed = 1;
+			}
+		}
+		dest++;
+		src++;
+		n--;
+	}
+	*dest = '\0';
+	return dest;
+}
+
 
 #endif

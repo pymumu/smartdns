@@ -2952,6 +2952,122 @@ int dns_encode(unsigned char *data, int size, struct dns_packet *packet)
 	return context.ptr - context.data;
 }
 
+static int _dns_update_domain(struct dns_context *context, const char *domain)
+{
+	int len = 0;
+	int ptr_jump = 0;
+	int output_len = 0;
+	unsigned char *ptr = context->ptr;
+	unsigned char *packet = context->data;
+	int packet_size = context->maxsize;
+	int domain_len = strlen(domain);
+	int processed_len = 0;
+
+	while (1) {
+		if (ptr >= packet + packet_size || ptr < packet || ptr_jump > 32 || processed_len > domain_len + 1) {
+			return -1;
+		}
+
+		len = *ptr;
+		if (len == 0) {
+			ptr++;
+			processed_len++;
+			break;
+		}
+
+		/* compressed domain */
+		if (len >= 0xC0) {
+			if ((ptr + 2) > (packet + packet_size)) {
+				return -1;
+			}
+
+			/* read offset */
+			len = _dns_read_short(&ptr) & 0x3FFF;
+			ptr = packet + len;
+			if (ptr > packet + packet_size) {
+				return -1;
+			}
+
+			ptr_jump++;
+			continue;
+		}
+
+		ptr_jump = 0;
+
+		if (output_len > 0) {
+			output_len += 1;
+		}
+
+		if (ptr > packet + packet_size) {
+			return -1;
+		}
+
+		ptr++;
+		/* update domain */
+		memcpy(ptr, domain + processed_len, len);
+		ptr += len;
+		processed_len += len + 1;
+		output_len += len;
+	}
+
+	if (output_len != domain_len) {
+		tlog(TLOG_DEBUG, "update domain failed, length mismatch. output_len: %d, domain_len: %d", output_len,
+			 domain_len);
+		return -1;
+	}
+
+	return 0;
+}
+
+static int _dns_update_rr_domain(struct dns_context *context, unsigned char *rr_start, const char *domain,
+								 struct dns_update_param *param)
+{
+	const char *query_domain = param->query_domain;
+	unsigned char *old_context_ptr = context->ptr;
+
+	if (param->query_domain == NULL) {
+		return 0;
+	}
+
+	if (strncasecmp(domain, query_domain, DNS_MAX_CNAME_LEN) != 0) {
+		return 0;
+	}
+
+	context->ptr = rr_start;
+	if (_dns_update_domain(context, query_domain) != 0) {
+		tlog(TLOG_DEBUG, "update domain failed, %s", domain);
+		context->ptr = old_context_ptr;
+		return -1;
+	}
+
+	context->ptr = old_context_ptr;
+
+	return 0;
+}
+
+static int _dns_update_qd(struct dns_context *context, dns_rr_type type, struct dns_update_param *param)
+{
+	char domain[DNS_MAX_CNAME_LEN];
+	int qtype = 0;
+	int qclass = 0;
+	int len = 0;
+	unsigned char *rr_start = context->ptr;
+
+	len = _dns_decode_qr_head(context, domain, DNS_MAX_CNAME_LEN, &qtype, &qclass);
+	if (len < 0) {
+		tlog(TLOG_DEBUG, "update qd failed.");
+		return -1;
+	}
+
+	int ret = _dns_update_rr_domain(context, rr_start, domain, param);
+	if (ret < 0) {
+		tlog(TLOG_DEBUG, "domain not match, %s", domain);
+		return -1;
+	}
+
+	return 0;
+}
+
 static int _dns_update_an(struct dns_context *context, dns_rr_type type, struct dns_update_param *param)
 {
 	int ret = 0;
@@ -2961,11 +3077,18 @@ static int _dns_update_an(struct dns_context *context, dns_rr_type type, struct 
 	int rr_len = 0;
 	char domain[DNS_MAX_CNAME_LEN];
 	unsigned char *start = NULL;
+	unsigned char *rr_start = context->ptr;
 
 	/* decode rr head */
 	ret = _dns_decode_rr_head(context, domain, DNS_MAX_CNAME_LEN, &qtype, &qclass, &ttl, &rr_len);
 	if (ret < 0) {
 		tlog(TLOG_DEBUG, "decode head failed.");
+		return -1;
+	}
+
+	ret = _dns_update_rr_domain(context, rr_start, domain, param);
+	if (ret < 0) {
+		tlog(TLOG_DEBUG, "domain not match, %s", domain);
 		return -1;
 	}
 
@@ -3001,12 +3124,8 @@ static int _dns_update_body(struct dns_context *context, struct dns_update_param
 	count = head->qdcount;
 	head->qdcount = 0;
 	for (i = 0; i < count; i++) {
-		char domain[DNS_MAX_CNAME_LEN];
-		int qtype = 0;
-		int qclass = 0;
-		int len = 0;
-		len = _dns_decode_qr_head(context, domain, DNS_MAX_CNAME_LEN, &qtype, &qclass);
-		if (len < 0) {
+		ret = _dns_update_qd(context, DNS_RRS_QD, param);
+		if (ret < 0) {
 			tlog(TLOG_DEBUG, "update qd failed.");
 			return -1;
 		}
