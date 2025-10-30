@@ -80,6 +80,31 @@ build()
 	tar zcf $ROOT/data.tar.gz -C root .
 	tar zcf $OUTPUTDIR/luci-app-smartdns.$VER.$FILEARCH.ipk ./control.tar.gz ./data.tar.gz ./debian-binary
 
+	which apk >/dev/null 2>&1
+	if [ $? -eq 0 ]; then
+		APK_VER="`echo $VER | sed 's/[-]/-r/'`"
+		ARCH="`echo $ARCH | sed 's/all/noarch/g'`"
+		apk mkpkg \
+			--info "name:luci-app-smartdns" \
+			--info "version:$APK_VER" \
+			--info "description:smartdns luci" \
+			--info "arch:$ARCH" \
+			--info "license:GPL" \
+			--info "origin: https://github.com/pymumu/smartdns.git" \
+			--info "depends:libc smartdns" \
+			--script "post-install:$ROOT/control/postinst" \
+			--script "pre-deinstall:$ROOT/control/prerm" \
+			--files "$ROOT/root/" \
+			--output "$OUTPUTDIR/luci-app-smartdns.$VER.$FILEARCH.apk"
+		if [ $? -ne 0 ]; then
+			echo "build apk package failed."
+			rm -fr $ROOT/
+			return 1
+		fi
+	else
+		echo "== warning: apk tool not found, skip build apk package. =="
+	fi
+
 	rm -fr $ROOT/
 }
 
