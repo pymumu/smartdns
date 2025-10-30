@@ -58,4 +58,12 @@ SmartDNS provides a web based dashboard feature that can be enabled by installin
     smartdns-ui.max-query-log-age 86400
     ```
 
+## Enabling the SmartDNS Dashboard Terminal
+
+1. Enable Terminal service:
+
+    ```shell
+    smartdns-ui.enable-terminal yes
+    ```
+
 For more configuration options, refer to the [Configurations](../configuration.md) page.

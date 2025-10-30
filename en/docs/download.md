@@ -12,7 +12,7 @@ smartdns can already be installed using system package management tools.
 
 System|Installation|Instructions|
 --|--|--
-openwrt|opkg update<br />opkg install luci-app-smartdns<br />opkg install smartdns|systems after 22.03. <br />Software source: <https://downloads.openwrt.org/releases/>
+openwrt|apk add luci-app-smartdns<br />apk add smartdns<br />opkg update<br />opkg install luci-app-smartdns<br />opkg install smartdns|use apk command system after 24.10, use opkg systems after 22.03. <br />Software source: <https://downloads.openwrt.org/releases/>
 ddwrt|latest firmware. goto services page abd enable SmartDNS Resolver. |Demo: <https://forum.dd-wrt.com/demo/Services.html>
 debian|apt-get install smartdns|
 entware|ipkg update<br />ipkg install smartdns|Software source: <https://bin.entware.net/>
@@ -35,11 +35,11 @@ Download the matching version of the SmartDNS installation package. The correspo
 |optware|smartdns.xxxxxxxx.mips-optware-all.ipk|Support the MIPS big-endian architecture for optware。
 |optware|smartdns.xxxxxxxx.mipsel-optware-all.ipk|Support the MIPS little-endian architecture for optware。
 |optware|smartdns.xxxxxxxx.arm-optware-all.ipk|Support the arm architecture for optware。
-|openwrt|smartdns.xxxxxxxx.mips-openwrt-all.ipk|Support the MIPS big-endian architecture for openwrt。
-|openwrt|smartdns.xxxxxxxx.mipsel-openwrt-all.ipk|Support the MIPS little-endian architecture for openwrt。
-|openwrt|smartdns.xxxxxxxx.arm-openwrt-all.ipk|Support the arm architecture for openwrt。
-|openwrt LUCI|luci-app-smartdns.xxxxxxxxx.all.ipk|Openwrt management interface.
-|openwrt LUCI|luci-app-smartdns.xxxxxxxxx.all.ipk|Openwrt management interface, for lite users.
+|openwrt|smartdns.xxxxxxxx.mips-openwrt-all.apk<br />smartdns.xxxxxxxx.mips-openwrt-all.ipk|Support the MIPS big-endian architecture for openwrt。
+|openwrt|smartdns.xxxxxxxx.mipsel-openwrt-all.apk<br />smartdns.xxxxxxxx.mipsel-openwrt-all.ipk|Support the MIPS little-endian architecture for openwrt。
+|openwrt|smartdns.xxxxxxxx.arm-openwrt-all.apk<br />smartdns.xxxxxxxx.arm-openwrt-all.ipk|Support the arm architecture for openwrt。
+|openwrt LUCI|luci-app-smartdns.xxxxxxxxx.all.apk<br />luci-app-smartdns.xxxxxxxxx.all.ipk|Openwrt management interface.
+|openwrt LUCI|luci-app-smartdns-lite.xxxxxxxxx.all.apk<br />luci-app-smartdns-lite.xxxxxxxxx.all.ipk|Openwrt management interface, for lite users.
 |openwrt LUCI|luci-app-smartdns.xxxxxxxxx.all-luci-compat-all|Compat Openwrt management interface for early openwrt.
 |Windows|smartdns-rs [https://github.com/mokeyish/smartdns-rs](https://github.com/mokeyish/smartdns-rs)| Rust Version SmartDNS |
 |MacOS|smartdns-rs [https://github.com/mokeyish/smartdns-rs](https://github.com/mokeyish/smartdns-rs)| Rust Version SmartDNS |

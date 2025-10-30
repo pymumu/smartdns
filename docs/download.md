@@ -14,7 +14,7 @@ smartdns已经合入主流系统的软件仓库，可以直接使用系统安装
 
 系统|安装方式|说明|
 --|--|--
-openwrt|opkg update<br />opkg install luci-app-smartdns<br />opkg install smartdns|22.03之后的系统。<br />软件源路径：<https://downloads.openwrt.org/releases/>
+openwrt|apk add luci-app-smartdns<br />apk add smartdns<br />opkg update<br />opkg install luci-app-smartdns<br />opkg install smartdns|24.10之后系统用apk命令，22.03之后的系统用opkg<br />软件源路径：<https://downloads.openwrt.org/releases/>
 ddwrt|官方最新固件service页面->SmartDNS Resolver->启用。|选择界面参考：<https://forum.dd-wrt.com/demo/Services.html>
 debian|apt-get install smartdns|
 entware|ipkg update<br />ipkg install smartdns|软件源路径：<https://bin.entware.net/>
@@ -37,11 +37,11 @@ docker|docker pull pymumu/smartdns | docker镜像：<https://hub.docker.com/r/py
 | Optware | smartdns.1.yyyy.MM.dd-REL.mips-optware-all.ipk | MIPS 大端架构的 Optware 系统 |
 | Optware（MIPS Little Endian） | smartdns.1.yyyy.MM.dd-REL.mipsel-optware-all.ipk | MIPS 小端架构的 Optware 系统 |
 | Optware（ARM） | smartdns.1.yyyy.MM.dd-REL.arm-optware-all.ipk | ARM 小端架构的 Optware 系统 |
-| OpenWrt（MIPS） | smartdns.1.yyyy.MM.dd-REL.mips-openwrt-all.ipk | MIPS 大端架构的 OpenWrt 系统 |
-| OpenWrt（MIPS Little Endian） | smartdns.1.yyyy.MM.dd-REL.mipsel-openwrt-all.ipk | MIPS 小端架构的 OpenWrt 系统 |
-| OpenWrt（ARM） | smartdns.1.yyyy.MM.dd-REL.arm-openwrt-all.ipk | ARM 小端架构的 OpenWrt 系统 |
-| OpenWrt LuCI | luci-app-smartdns.1.yyyy.MM.dd-REL.all.ipk | OpenWrt 管理界面 |
-| OpenWrt LuCI | luci-app-smartdns-lite.1.yyyy.MM.dd-REL.all.ipk | OpenWrt 管理界面，入门用户首选 |
+| OpenWrt（MIPS） | smartdns.1.yyyy.MM.dd-REL.mips-openwrt-all.apk<br />smartdns.1.yyyy.MM.dd-REL.mips-openwrt-all.ipk | MIPS 大端架构的 OpenWrt 系统 |
+| OpenWrt（MIPS Little Endian） | smartdns.1.yyyy.MM.dd-REL.mipsel-openwrt-all.apk <br />smartdns.1.yyyy.MM.dd-REL.mipsel-openwrt-all.ipk | MIPS 小端架构的 OpenWrt 系统 |
+| OpenWrt（ARM） | smartdns.1.yyyy.MM.dd-REL.arm-openwrt-all.apk<br />smartdns.1.yyyy.MM.dd-REL.arm-openwrt-all.ipk | ARM 小端架构的 OpenWrt 系统 |
+| OpenWrt LuCI | luci-app-smartdns.1.yyyy.MM.dd-REL.all.apk<br />luci-app-smartdns.1.yyyy.MM.dd-REL.all.ipk | OpenWrt 管理界面 |
+| OpenWrt LuCI | luci-app-smartdns-lite.1.yyyy.MM.dd-REL.all.apk<br />luci-app-smartdns-lite.1.yyyy.MM.dd-REL.all.ipk | OpenWrt 管理界面，入门用户首选 |
 | OpenWrt LuCI | luci-app-smartdns.1.yyyy.MM.dd-REL.all-luci-compat-all.ipk | OpenWrt 管理界面、OpenWrt 18.xx 及之前版本 |
 | Windows | smartdns-rs [https://github.com/mokeyish/smartdns-rs](https://github.com/mokeyish/smartdns-rs) | Rust版本SmartDNS | [Rust版本SmartDNS](https://github.com/mokeyish/smartdns-rs) |
 | MacOS | smartdns-rs [https://github.com/mokeyish/smartdns-rs](https://github.com/mokeyish/smartdns-rs) | Rust版本SmartDNS |

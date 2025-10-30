@@ -9,9 +9,16 @@ hide:
 
 Upload the software to the /root directory of the router with winscp or other tool, and execute the following command to install it.
 
+after openwrt 24.10
 ```shell
-opkg install smartdns.xxxxxxxx.xxxx.ipk
-opkg install luci-app-smartdns.xxxxxxxx.xxxx.all.ipk
+apk add --allow-untrusted smartdns.1.yyyy.MM.dd-REL.xxxx.ipk
+apk add --allow-untrusted luci-app-smartdns-lite.1.yyyy.MM.dd-REL.all.ipk
+```
+
+before openwrt 24.10 
+```shell
+opkg install smartdns.1.yyyy.MM.dd-REL.xxxx.ipk
+opkg install luci-app-smartdns-lite.1.yyyy.MM.dd-REL.all.ipk
 ```
 
 - Note: For versions before OpenWrt 19.07, please install `luci-app-smartdns.xxxxxxxxx.all-luci-compat-all` package.

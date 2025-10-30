@@ -7,9 +7,16 @@ hide:
 
 将软件包（使用 WinSCP 等）上传到路由器的 `/root` 目录，执行如下命令安装
 
+openwrt 24.10之后版本
+```shell
+apk add --allow-untrusted smartdns.1.yyyy.MM.dd-REL.xxxx.ipk
+apk add --allow-untrusted luci-app-smartdns-lite.1.yyyy.MM.dd-REL.all.ipk
+```
+
+openwrt 24.10之前版本
 ```shell
 opkg install smartdns.1.yyyy.MM.dd-REL.xxxx.ipk
-opkg install luci-app-smartdns.1.yyyy.MM.dd-REL.all.ipk
+opkg install luci-app-smartdns-lite.1.yyyy.MM.dd-REL.all.ipk
 ```
 
 - **注意：** 19.07 之前的版本，请务必安装 `luci-app-smartdns.1.yyyy.MM.dd-REL.all-luci-compat-all.ipk`。

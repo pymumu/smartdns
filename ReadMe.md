@@ -4,12 +4,17 @@ SmartDNS文档仓库，采用mkdocs生成，代码仓包含中文，英文两个
 
 ## 文档开发步骤
 
-1. 安装mkdocs工具：https://squidfunk.github.io/mkdocs-material/getting-started/
 
 1. 下载文档代码
 
     ```shell
     git clone -b doc https://github.com/pymumu/smartdns.git
+    ```
+
+1. 安装mkdocs工具：
+
+    ```shell
+    make install-deps
     ```
 
 1. 启动Serve模式验证

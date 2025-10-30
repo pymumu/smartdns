@@ -59,4 +59,12 @@ SmartDNS提供了插件化的仪表盘功能，可通过单独安装仪表盘插
     smartdns-ui.max-query-log-age 86400
     ```
 
+## 启用SmartDNS仪表盘终端
+
+1. smartdns提供了web终端，可以通过如下配置开启
+
+    ```shell
+    smartdns-ui.enable-terminal yes
+    ```
+
 更多配置项参考[`配置选项`](../configuration.md)页面。
