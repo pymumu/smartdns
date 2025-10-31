@@ -55,7 +55,7 @@ hide:
 | audit-console | 是否输出审计日志到控制台 | no | [yes\|no] | audit-console yes |
 | audit-syslog | 是否输出审计日志到系统日志 | no | [yes\|no] | audit-syslog yes |
 | acl-enable | 启用ACL | no | [yes\|no] <br /> 和client-rules搭配使用。| acl-enable yes | 
-| group-begin | 规则组开始 | 无 | 组名:<br /> 和group-end搭配使用，启用此参数后，group-begin参数之后的配置项将设置到对应的组中，直到group-end结束。| group-begin group-name | 
+| group-begin | 规则组开始 | 无 | [group-name]: 组名<br /> [-inherit group-name]:继承配置的组, `none`表示不继承任何组的配置，默认情况下继承当前组的配置。<br /> 和group-end搭配使用，启用此参数后，group-begin参数之后的配置项将设置到对应的组中，直到group-end结束。| group-begin group-name <br /> group-begin group-name -inherit none<br /> group-begin group-name -inherit anothr-group| 
 | group-end | 规则组结束 | 无 | 和group-begin搭配使用 | group-end |
 | group-match | 匹配组规则 | 无 | 当满足条件时使用对应的规则组<br />[-g\|group group-name]: 指定规则组，可选，不指定时，使用当前group-begin的组。<br />[-client-ip ip-set\|ip/cidr\|mac address]: 指定客户端IP地址，匹配时，使用指定的组。<br />[-domain domain]: 指定域名，匹配时使用指定的组。 | group-match -client-ip 1.1.1.1 -domain a.com <br />group-match -client-ip ip-set:clients -domain domain-set:domainlist
 | conf-file | 附加配置文件 | 无 | path [-g\|group group-name] <br />path: 合法路径字符串，通配符号 <br />[-g\|group]: 对应配置文件配置所属规则组 | conf-file /etc/smartdns/smartdns.more.conf <br /> conf-file \*.conf <br /> conf-file \*.conf -group oversea |

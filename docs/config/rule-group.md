@@ -11,7 +11,7 @@ smartdns支持规则组，不同的规则组之间隔离，方便按照域名或
 
 | 参数 | 功能 |
 |--|--|
-| group-begin [-g\|group group-name] | 规则组开始  
+| group-begin [group-name] [-inherit group-name]| 规则组开始  
 | group-end  | 规则组结束  
 | group-match  | 匹配规则组条件，可以设置域名或客户端IP。
 | conf-file -group  | 以指定规则组包含文件，等价group-begin, group-end  
@@ -32,6 +32,24 @@ smartdns支持规则组，不同的规则组之间隔离，方便按照域名或
   # 设置相关的规则
   address #
   # 规则结束
+  group-end
+  ```
+
+## 继承组的配置
+
+group-begin默认情况下继承当前组的配置，如果要指定继承不同组，可以使用`-inherit`指定继承配置的组。
+
+  ```
+  # 默认继承当前组的配置
+  group-begin rule
+  group-end
+
+  # 设置none，表示不继承任何组，使用默认配置
+  group-begin rule -inherit none
+  gorup-end
+
+  # 继承指定的组的配置
+  group-begin rule -inherit another-group
   group-end
   ```
 

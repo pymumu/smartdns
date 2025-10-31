@@ -11,7 +11,7 @@ The relevant parameters are:
 
 | Parameter | Function |
 |--|--|
-| group-begin [-g\|group group-name] | Begin a rule group |
+| group-begin [group-name] [-inherit group-name]| Begin a rule group |
 | group-end  | End a rule group |
 | group-match  | Match conditions for rule group, can be set to domain or client IP |
 | conf-file -group  | Include files in the specified rule group, equivalent to group-begin, group-end  
@@ -31,6 +31,24 @@ You can specify matching rules using group-match, including client IP: `-client-
   # Set related rules
   address #
   # Rule ends
+  group-end
+  ```
+
+## Configuring Group Inheritance
+
+By default, `group-begin` inherits the configuration of the current group. To inherit from a different group, use the `-inherit` option to specify the group to inherit from.
+
+  ```
+  # By default, inherits the configuration of the current group
+  group-begin rule
+  group-end
+
+  # Set to none to not inherit any group, using the default configuration
+  group-begin rule -inherit none
+  group-end
+
+  # Inherit the configuration from a specified group
+  group-begin rule -inherit another-group
   group-end
   ```
 
