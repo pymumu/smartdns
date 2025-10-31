@@ -23,13 +23,5 @@
 
 int main(int argc, char *argv[])
 {
-	const char *smartdns_workdir = getenv("SMARTDNS_WORKDIR");
-	if (smartdns_workdir != NULL) {
-		if (chdir(smartdns_workdir) != 0) {
-			fprintf(stderr, "chdir to %s failed: %s\n", smartdns_workdir, strerror(errno));
-			return 1;
-		}
-	}
-
 	return smartdns_main(argc, argv);
 }

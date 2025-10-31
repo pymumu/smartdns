@@ -1001,15 +1001,51 @@ void smartdns_restart(void)
 	dns_server_stop();
 }
 
+static const char *smartdns_exec_dir(void)
+{
+	static char start_dir[PATH_MAX] = {0};
+	if (start_dir[0] == 0) {
+		if (getcwd(start_dir, sizeof(start_dir)) == NULL) {
+			snprintf(start_dir, sizeof(start_dir), ".");
+		}
+	}
+	return start_dir;
+}
+
 static int smartdns_enter_monitor_mode(int argc, char *argv[], int no_deamon)
 {
+	char exec_path[PATH_MAX] = {0};
+
 	setenv("SMARTDNS_RESTART_ON_CRASH", "1", 1);
 	if (no_deamon == 1) {
 		setenv("SMARTDNS_NO_DAEMON", "1", 1);
 	}
-	execv(argv[0], argv);
-	tlog(TLOG_ERROR, "execv failed, %s", strerror(errno));
+
+	chdir(smartdns_exec_dir());
+	if (readlink("/proc/self/exe", exec_path, sizeof(exec_path) - 1) > 0) {
+		execv(exec_path, argv);
+	} else {
+		safe_strncpy(exec_path, argv[0], sizeof(exec_path));
+		execvp(exec_path, argv);
+	}
+
+	tlog(TLOG_ERROR, "execv failed, %s, %s", exec_path, strerror(errno));
 	return -1;
+}
+
+static int smartdns_init_workdir(void)
+{
+	smartdns_exec_dir();
+	const char *smartdns_workdir = getenv("SMARTDNS_WORKDIR");
+
+	if (smartdns_workdir != NULL) {
+		if (chdir(smartdns_workdir) != 0) {
+			fprintf(stderr, "chdir to %s failed: %s\n", smartdns_workdir, strerror(errno));
+			return 1;
+		}
+	}
+
+	return 0;
 }
 
 #ifdef TEST
@@ -1065,6 +1101,10 @@ int smartdns_main(int argc, char *argv[])
 										   {"is-quic-supported", no_argument, NULL, 257},
 										   {"help", no_argument, NULL, 'h'},
 										   {NULL, 0, NULL, 0}};
+
+	if (smartdns_init_workdir() != 0) {
+		return 1;
+	}
 
 	safe_strncpy(config_file, SMARTDNS_CONF_FILE, MAX_LINE_LEN);
 
@@ -1145,6 +1185,11 @@ int smartdns_main(int argc, char *argv[])
 		unsetenv("SMARTDNS_NO_DAEMON");
 	}
 
+	/* started by systemd, do not restart when crash */
+	if (getenv("INVOCATION_ID") != NULL) {
+		restart_when_crash = 0;
+	}
+
 	smartdns_run_monitor_ret init_ret = _smartdns_run_monitor(restart_when_crash, is_run_as_daemon);
 	if (init_ret != SMARTDNS_RUN_MONITOR_OK) {
 		if (init_ret == SMARTDNS_RUN_MONITOR_EXIT) {
@@ -1162,6 +1207,11 @@ int smartdns_main(int argc, char *argv[])
 	if (ret != 0) {
 		fprintf(stderr, "load config failed.\n");
 		goto errout;
+	}
+
+	/* started by systemd, do not restart when crash */
+	if (getenv("INVOCATION_ID") != NULL) {
+		dns_conf.dns_restart_on_crash = 0;
 	}
 
 	if (dns_conf.dns_restart_on_crash && restart_when_crash == 0) {
