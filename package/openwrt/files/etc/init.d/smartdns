@@ -48,11 +48,13 @@ set_forward_dnsmasq()
 		return
 	fi
 
-	uci -q delete dhcp.@dnsmasq[0].server
-	uci -q add_list dhcp.@dnsmasq[0].server="$addr"
-	uci -q set dhcp.@dnsmasq[0].noresolv=1
-	uci -q set dhcp.@dnsmasq[0].rebind_protection=0
-	uci -q set dhcp.@dnsmasq[0].domainneeded=0
+	uci_batch=""
+	uci_batch="$uci_batch delete dhcp.@dnsmasq[0].server\n"
+	uci_batch="$uci_batch add_list dhcp.@dnsmasq[0].server=\"$addr\"\n"
+	uci_batch="$uci_batch set dhcp.@dnsmasq[0].noresolv=1\n"
+	uci_batch="$uci_batch set dhcp.@dnsmasq[0].rebind_protection=0\n"
+	uci_batch="$uci_batch set dhcp.@dnsmasq[0].domainneeded=0\n"
+	echo -e "$uci_batch" | uci batch -
 	uci commit dhcp
 	/etc/init.d/dnsmasq reload
 }
@@ -67,10 +69,12 @@ stop_forward_dnsmasq()
 		return
 	fi
 	
-	uci -q delete dhcp.@dnsmasq[0].server
-	uci -q delete dhcp.@dnsmasq[0].noresolv
-	uci -q set dhcp.@dnsmasq[0].rebind_protection=1
-	uci -q set dhcp.@dnsmasq[0].domainneeded=1
+	uci_batch=""
+	uci_batch="$uci_batch delete dhcp.@dnsmasq[0].server\n"
+	uci_batch="$uci_batch delete dhcp.@dnsmasq[0].noresolv\n"
+	uci_batch="$uci_batch set dhcp.@dnsmasq[0].rebind_protection=1\n"
+	uci_batch="$uci_batch set dhcp.@dnsmasq[0].domainneeded=1\n"
+	echo -e "$uci_batch" | uci batch -
 	uci commit dhcp
 	[ "$norestart" != "1" ] && /etc/init.d/dnsmasq reload
 }
@@ -83,18 +87,25 @@ set_main_dns()
 	[ -z "$dnsmasq_port" ] && dnsmasq_port="53"
 	
 	[ -z "$hostip" ] && return
+
+	uci_batch=""
 	[ "$dnsmasq_port" = "53" ] && {
-		uci -q set dhcp.@dnsmasq[0].port=0
-		uci -q add_list dhcp.lan.dhcp_option="6,$hostip"
+		uci_batch="$uci_batch set dhcp.@dnsmasq[0].port=0\n"
+		uci_batch="$uci_batch add_list dhcp.lan.dhcp_option=\"6,$hostip\"\n"
 	}
 
 	# for some third-party firmware
 	redir_dns="$(uci -q get dhcp.@dnsmasq[0].dns_redirect)"
 	[ "$redir_dns" = "1" ] && {
-		uci -q set dhcp.@dnsmasq[0].dns_redirect=0
-		uci -q set dhcp.@dnsmasq[0].old_dns_redirect=1
+		uci_batch="$uci_batch set dhcp.@dnsmasq[0].dns_redirect=0\n"
+		uci_batch="$uci_batch set dhcp.@dnsmasq[0].old_dns_redirect=1\n"
 	}
 
+	if [ -z "$uci_batch" ]; then
+		return
+	fi
+
+	echo -e "$uci_batch" | uci batch -
 	uci commit dhcp
 	/etc/init.d/dnsmasq reload
 }
@@ -106,12 +117,15 @@ stop_main_dns()
 	dnsmasq_port="$(uci -q get dhcp.@dnsmasq[0].port)"
 	redir_dns="$(uci -q get dhcp.@dnsmasq[0].old_dns_redirect)"
 	[ "$dnsmasq_port" != "0" ] && return
+
+	uci_batch=""
 	[ "$redir_dns" = "1" ] && {
-		uci -q set dhcp.@dnsmasq[0].dns_redirect=1
-		uci -q delete dhcp.@dnsmasq[0].old_dns_redirect
+		uci_batch="$uci_batch set dhcp.@dnsmasq[0].dns_redirect=1\n"
+		uci_batch="$uci_batch delete dhcp.@dnsmasq[0].old_dns_redirect\n"
 	}
-	uci -q delete dhcp.@dnsmasq[0].port
-	uci -q del_list dhcp.lan.dhcp_option="6,$hostip"
+	uci_batch="$uci_batch delete dhcp.@dnsmasq[0].port\n"
+	uci_batch="$uci_batch del_list dhcp.lan.dhcp_option=\"6,$hostip\"\n"
+	echo -e "$uci_batch" | uci batch -
 	uci commit dhcp
 	[ "$norestart" != "1" ] && /etc/init.d/dnsmasq reload
 }
@@ -214,7 +228,7 @@ load_server()
 
 	if echo "$ip" | grep "://" >/dev/null 2>&1; then
 		IS_URI="1"
-	elif echo "$ip" | grep ":"; then
+	elif echo "$ip" | grep ":" >/dev/null 2>&1; then
 		if ! echo "$ip" | grep -q "\\[" >/dev/null 2>&1; then
 			ip="[$ip]"
 		fi
@@ -775,11 +789,12 @@ load_service()
 	[ -e "$resolve_file" ] && conf_append "resolv-file" "$resolve_file"
 
 	# upgrade old configuration
+	uci_batch=""
 	if [ "$redirect" = "redirect" ] || [ "$redirect" = "dnsmasq-upstream" ] || [ "$redirect" = "none" ]; then
 		[ "$redirect" = "redirect" ] && {
 			clear_iptable "$port"
 			clear_iptable "$old_port"
-			uci -q delete smartdns.@smartdns[0].port
+			uci_batch="$uci_batch delete smartdns.@smartdns[0].port\n"
 			port="53"
 		}
 
@@ -787,23 +802,24 @@ load_service()
 			stop_forward_dnsmasq "$port"
 			stop_forward_dnsmasq "$old_port"
 			auto_set_dnsmasq="1"
-			uci -q set smartdns.@smartdns[0].auto_set_dnsmasq="1"
+			uci_batch="$uci_batch set smartdns.@smartdns[0].auto_set_dnsmasq=\"1\"\n"
 		}
 
 		[ "$redirect" = "none" ] && {
 			auto_set_dnsmasq="0"
-			uci -q set smartdns.@smartdns[0].auto_set_dnsmasq="0"
+			uci_batch="$uci_batch set smartdns.@smartdns[0].auto_set_dnsmasq=\"0\"\n"
 		}
-		uci -q delete smartdns.@smartdns[0].redirect
-		uci -q delete smartdns.@smartdns[0].old_redirect
+		uci_batch="$uci_batch delete smartdns.@smartdns[0].redirect\n"
+		uci_batch="$uci_batch delete smartdns.@smartdns[0].old_redirect\n"
 	fi
 
-	uci -q delete smartdns.@smartdns[0].old_port
-	uci -q delete smartdns.@smartdns[0].old_enabled
-	uci -q delete smartdns.@smartdns[0].old_auto_set_dnsmasq
-	uci -q set smartdns.@smartdns[0].old_port="$port"
-	uci -q set smartdns.@smartdns[0].old_enabled="$enabled"
-	uci -q set smartdns.@smartdns[0].old_auto_set_dnsmasq="$auto_set_dnsmasq"
+	uci_batch="$uci_batch delete smartdns.@smartdns[0].old_port\n"
+	uci_batch="$uci_batch delete smartdns.@smartdns[0].old_enabled\n"
+	uci_batch="$uci_batch delete smartdns.@smartdns[0].old_auto_set_dnsmasq\n"
+	uci_batch="$uci_batch set smartdns.@smartdns[0].old_port=\"$port\"\n"
+	uci_batch="$uci_batch set smartdns.@smartdns[0].old_enabled=\"$enabled\"\n"
+	uci_batch="$uci_batch set smartdns.@smartdns[0].old_auto_set_dnsmasq=\"$auto_set_dnsmasq\"\n"
+	echo -e "$uci_batch" | uci batch -
 	uci commit smartdns
 
 	# disable service
