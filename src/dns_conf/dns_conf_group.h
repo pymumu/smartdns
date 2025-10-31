@@ -29,6 +29,7 @@ extern "C" {
 struct dns_conf_group_info {
 	struct list_head list;
 	const char *group_name;
+	const char *inherit_group;
 	struct dns_conf_group *rule;
 };
 
@@ -54,7 +55,7 @@ struct dns_conf_group_info *_config_default_group(void);
 void _config_set_current_group(struct dns_conf_group_info *group_info);
 
 void _config_current_group_pop(void);
-int _config_current_group_push(const char *group_name);
+int _config_current_group_push(const char *group_name, const char *inherit_group_name);
 int _config_current_group_push_default(void);
 int _config_current_group_pop_to_default(void);
 int _config_current_group_pop_to(struct dns_conf_group_info *group_info);

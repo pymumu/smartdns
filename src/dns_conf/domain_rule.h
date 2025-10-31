@@ -39,6 +39,7 @@ int _config_domain_rule_flag_set(const char *domain, unsigned int flag, unsigned
 int _config_domain_rules(void *data, int argc, char *argv[]);
 int _config_domain_rule_delete(const char *domain);
 int _conf_domain_rule_group(const char *domain, const char *group_name);
+int _config_domain_rule_free(struct dns_domain_rule *domain_rule);
 
 int _conf_domain_rule_speed_check(char *domain, const char *mode);
 int _conf_domain_rule_response_mode(char *domain, const char *mode);

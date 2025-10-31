@@ -154,7 +154,7 @@ int config_additional_file(void *data, int argc, char *argv[])
 
 	last_group_info = _config_current_group();
 	if (group_name != NULL) {
-		ret = _config_current_group_push(group_name);
+		ret = _config_current_group_push(group_name, NULL);
 		if (ret != 0) {
 			tlog(TLOG_ERROR, "begin group '%s' failed.", group_name);
 			return -1;

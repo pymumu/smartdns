@@ -26,17 +26,41 @@
 
 int _config_group_begin(void *data, int argc, char *argv[])
 {
+	int opt = 0;
+
 	const char *group_name = NULL;
+	const char *inherit_group_name = NULL;
 	if (argc < 2) {
 		return -1;
 	}
+
+	/* clang-format off */
+	static struct option long_options[] = {
+		{"inherit", required_argument, NULL, 'h'},
+		{NULL, no_argument, NULL, 0}
+	};
+	/* clang-format on */
 
 	group_name = argv[1];
 	if (group_name[0] == '\0') {
 		group_name = NULL;
 	}
 
-	if (_config_current_group_push(group_name) != 0) {
+	while (1) {
+		opt = getopt_long_only(argc, argv, "n", long_options, NULL);
+		if (opt == -1) {
+			break;
+		}
+
+		switch (opt) {
+		case 'h': {
+			inherit_group_name = optarg;
+			break;
+		}
+		}
+	}
+
+	if (_config_current_group_push(group_name, inherit_group_name) != 0) {
 		return -1;
 	}
 

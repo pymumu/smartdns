@@ -185,11 +185,58 @@ void _config_current_group_pop(void)
 	dns_conf_current_group_info = group_info;
 }
 
+static int _config_domain_rule_iter_copy(void *data, const unsigned char *key, uint32_t key_len, void *value)
+{
+	art_tree *dest_tree = data;
+	struct dns_domain_rule *old_domain_rule = NULL;
+	struct dns_domain_rule *new_domain_rule = NULL;
+
+	new_domain_rule = malloc(sizeof(struct dns_domain_rule));
+	if (new_domain_rule == NULL) {
+		return -1;
+	}
+	memset(new_domain_rule, 0, sizeof(struct dns_domain_rule));
+	
+	old_domain_rule = (struct dns_domain_rule *)value;
+	for (int i = 0; i < DOMAIN_RULE_MAX; i++) {
+		if (old_domain_rule->rules[i]) {
+			_dns_rule_get(old_domain_rule->rules[i]);
+			new_domain_rule->rules[i] = old_domain_rule->rules[i];
+		}
+	}
+	new_domain_rule->sub_rule_only = old_domain_rule->sub_rule_only;
+	new_domain_rule->root_rule_only = old_domain_rule->root_rule_only;
+
+	old_domain_rule = art_insert(dest_tree, key, key_len, new_domain_rule);
+	if (old_domain_rule) {
+		_config_domain_rule_free(old_domain_rule);
+	}
+
+	return 0;
+}
+
 static int _config_rule_group_setup_value(struct dns_conf_group_info *group_info)
 {
 	struct dns_conf_group *group_rule = group_info->rule;
 	int soa_talbe_size = MAX_QTYPE_NUM / 8 + 1;
 	uint8_t *soa_table = NULL;
+	struct dns_conf_group *parent_group = _config_current_rule_group();
+
+	if (group_info->inherit_group != NULL) {
+		if (strncmp(group_info->inherit_group, "none", sizeof("none")) == 0) {
+			parent_group = NULL;
+		} else if (strncmp(group_info->inherit_group, "parent", sizeof("parent")) == 0) {
+			parent_group = _config_current_rule_group();
+		} else if (strncmp(group_info->inherit_group, "default", sizeof("default")) == 0) {
+			parent_group = dns_server_get_default_rule_group();
+		} else {
+			parent_group = _config_rule_group_get(group_info->inherit_group);
+			if (parent_group == NULL) {
+				tlog(TLOG_WARN, "inherit group %s not exist.", group_info->inherit_group);
+				return -1;
+			}
+		}
+	}
 
 	soa_table = malloc(soa_talbe_size);
 	if (soa_table == NULL) {
@@ -198,12 +245,13 @@ static int _config_rule_group_setup_value(struct dns_conf_group_info *group_info
 	}
 	group_rule->soa_table = soa_table;
 
-	if (_config_current_rule_group() != NULL) {
+	if (parent_group != NULL) {
 		/* copy parent group data. */
-		memcpy(&group_rule->copy_data_section_begin, &_config_current_rule_group()->copy_data_section_begin,
+		memcpy(&group_rule->copy_data_section_begin, &parent_group->copy_data_section_begin,
 			   offsetof(struct dns_conf_group, copy_data_section_end) -
 				   offsetof(struct dns_conf_group, copy_data_section_begin));
-		memcpy(group_rule->soa_table, _config_current_rule_group()->soa_table, soa_talbe_size);
+		memcpy(group_rule->soa_table, parent_group->soa_table, soa_talbe_size);
+		art_iter(&parent_group->domain_rule.tree, _config_domain_rule_iter_copy, &group_rule->domain_rule.tree);
 		return 0;
 	}
 
@@ -213,13 +261,13 @@ static int _config_rule_group_setup_value(struct dns_conf_group_info *group_info
 	group_rule->dns_dualstack_ip_selection_threshold = 10;
 	group_rule->dns_rr_ttl_min = 600;
 	group_rule->dns_serve_expired = 1;
-	
+
 	if (group_rule->dns_prefetch == 1) {
 		group_rule->dns_serve_expired_ttl = 24 * 3600 * 7;
 	} else {
 		group_rule->dns_serve_expired_ttl = 24 * 3600;
 	}
-	
+
 	group_rule->dns_serve_expired_reply_ttl = 3;
 	group_rule->dns_max_reply_ip_num = DNS_MAX_REPLY_IP_NUM;
 	group_rule->dns_response_mode = dns_conf.default_response_mode;
@@ -227,7 +275,7 @@ static int _config_rule_group_setup_value(struct dns_conf_group_info *group_info
 	return 0;
 }
 
-int _config_current_group_push(const char *group_name)
+int _config_current_group_push(const char *group_name, const char *inherit_group_name)
 {
 	struct dns_conf_group_info *group_info = NULL;
 	struct dns_conf_group *group_rule = NULL;
@@ -244,7 +292,12 @@ int _config_current_group_push(const char *group_name)
 		}
 	}
 
+	if (inherit_group_name == NULL && _config_current_rule_group() != NULL) {
+		inherit_group_name = _config_current_rule_group()->group_name;
+	}
+
 	memset(group_info, 0, sizeof(*group_info));
+	group_info->inherit_group = inherit_group_name;
 	INIT_LIST_HEAD(&group_info->list);
 	list_add_tail(&group_info->list, &dns_conf_group_info_list);
 
@@ -276,7 +329,7 @@ errout:
 
 int _config_current_group_push_default(void)
 {
-	return _config_current_group_push(NULL);
+	return _config_current_group_push(NULL, NULL);
 }
 
 int _config_current_group_pop_to(struct dns_conf_group_info *group_info)

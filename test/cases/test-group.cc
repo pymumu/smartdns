@@ -618,3 +618,97 @@ server 127.0.0.1:62053
 	EXPECT_EQ(client.GetAuthority()[0].GetTTL(), 3);
 	EXPECT_EQ(client.GetAuthority()[0].GetType(), "SOA");
 }
+
+TEST_F(Group, group_inherit)
+{
+	smartdns::Server server;
+	smartdns::MockServer server_upstream;
+
+	server_upstream.Start("udp://0.0.0.0:61056", [](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype != DNS_T_A) {
+			return smartdns::SERVER_REQUEST_SOA;
+		}
+
+		usleep(50000);
+
+		smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4", 611);
+		return smartdns::SERVER_REQUEST_OK;
+	});
+
+	server.MockPing(PING_TYPE_ICMP, "1.2.3.4", 60, 80);
+
+	server.Start(R"""(bind [::]:60053
+bind [::]:60054 -g group1
+bind [::]:60055 -g group1_1
+bind [::]:60056 -g group1_1_1
+bind [::]:60057 -g group1_1_2
+server 127.0.0.1:61053
+address 1.1.1.0
+speed-check-mode none
+
+group-begin group1
+	address 1.1.1.1
+	group-match -domain b.com
+	address /b.com/1.1.1.3
+		
+	group-begin group1_1
+		address /b.com/1.1.1.2
+
+		group-begin group1_1_1 -inherit none
+			server 127.0.0.1:61056
+		group-end
+
+		group-begin group1_1_2 -inherit default
+		group-end
+	group-end
+group-end
+)""");
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("a.com", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 600);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.1.1.0");
+
+	ASSERT_TRUE(client.Query("b.com", 60054));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "b.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 600);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.1.1.3");
+
+	ASSERT_TRUE(client.Query("a.com", 60055));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 600);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.1.1.1");
+
+	ASSERT_TRUE(client.Query("b.com", 60055));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "b.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 600);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.1.1.2");
+
+	ASSERT_TRUE(client.Query("a.com", 60056));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 3);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+
+	ASSERT_TRUE(client.Query("a.com", 60057));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 600);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.1.1.0");
+}
