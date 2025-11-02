@@ -149,9 +149,9 @@ return view.extend({
 
 		// server name;
 		o = s.taboption("settings", form.Value, "server_name", _("Server Name"), _("Smartdns server name"));
-		o.default = "smartdns";
+		o.placeholder = "server name";
 		o.datatype = "hostname";
-		o.rempty = false;
+		o.rempty = true;
 
 		// Port;
 		o = s.taboption("settings", form.Value, "port", _("Local Port"),
