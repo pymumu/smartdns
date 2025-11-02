@@ -45,9 +45,9 @@ o.rempty      = false
 
 ---- server name
 o = s:taboption("settings", Value, "server_name", translate("Server Name"), translate("Smartdns server name"))
-o.default     = "smartdns"
+o.placeholder = "server name"
 o.datatype    = "hostname"
-o.rempty      = false
+o.rempty      = true
 
 ---- Port
 o = s:taboption("settings", Value, "port", translate("Local Port"), 
