@@ -42,6 +42,7 @@ static int _dns_cache_is_specify_packet(int qtype)
 	case DNS_T_HTTPS:
 	case DNS_T_TXT:
 	case DNS_T_SRV:
+	case DNS_T_CAA:
 		break;
 	default:
 		return -1;

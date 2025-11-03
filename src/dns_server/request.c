@@ -47,7 +47,7 @@ static int _dns_server_request_complete_with_all_IPs(struct dns_request *request
 	int ttl = 0;
 	struct dns_server_post_context context;
 
-	if (request->rcode == DNS_RC_SERVFAIL || request->rcode == DNS_RC_NXDOMAIN) {
+	if (request->rcode == DNS_RC_SERVFAIL) {
 		ttl = DNS_SERVER_FAIL_TTL;
 	}
 
