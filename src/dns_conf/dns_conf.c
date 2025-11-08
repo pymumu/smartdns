@@ -17,6 +17,7 @@
  */
 
 #include "smartdns/dns_conf.h"
+#include "smartdns/lib/idna.h"
 #include "smartdns/tlog.h"
 #include "smartdns/util.h"
 
@@ -121,8 +122,20 @@ static int _dns_conf_setup_mdns(void)
 	return _conf_domain_rule_nameserver(DNS_SERVER_GROUP_LOCAL, DNS_SERVER_GROUP_MDNS);
 }
 
+static int _config_server_name(void *data, int argc, char *argv[])
+{
+	if (argc <= 1) {
+		tlog(TLOG_ERROR, "invalid parameter.");
+		return -1;
+	}
+
+	utf8_to_punycode(argv[1], strlen(argv[1]), dns_conf.server_name, DNS_MAX_SERVER_NAME_LEN);
+
+	return 0;
+}
+
 static struct config_item _config_item[] = {
-	CONF_STRING("server-name", (char *)dns_conf.server_name, DNS_MAX_SERVER_NAME_LEN),
+	CONF_CUSTOM("server-name", _config_server_name, NULL),
 	CONF_YESNO("resolv-hostname", &dns_conf.resolv_hostname),
 	CONF_CUSTOM("bind", _config_bind_ip_udp, NULL),
 	CONF_CUSTOM("bind-tcp", _config_bind_ip_tcp, NULL),

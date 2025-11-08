@@ -260,7 +260,7 @@ cache-persist no)""");
 	ASSERT_EQ(client.GetAuthorityNum(), 1);
 	EXPECT_EQ(client.GetStatus(), "NXDOMAIN");
 	EXPECT_EQ(client.GetAuthority()[0].GetName(), "a.com");
-	EXPECT_EQ(client.GetAuthority()[0].GetTTL(), 3);
+	EXPECT_GT(client.GetAuthority()[0].GetTTL(), 595);
 	EXPECT_EQ(client.GetAuthority()[0].GetType(), "SOA");
 }
 

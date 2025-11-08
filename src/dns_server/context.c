@@ -995,6 +995,10 @@ int _dns_cache_reply_packet(struct dns_server_post_context *context)
 			return 0;
 		}
 
+		if (context->packet->head.rcode == DNS_RC_NXDOMAIN) {
+			context->reply_ttl = 0;
+		}
+
 		return _dns_cache_packet(context);
 	}
 
