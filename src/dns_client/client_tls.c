@@ -19,6 +19,7 @@
 #define _GNU_SOURCE
 
 #include "client_tls.h"
+#include "client_https.h"
 #include "client_quic.h"
 #include "client_socket.h"
 #include "client_tcp.h"
@@ -1050,6 +1051,12 @@ int _dns_client_process_tls(struct dns_server_info *server_info, struct epoll_ev
 		}
 
 		server_info->status = DNS_SERVER_STATUS_CONNECTED;
+
+		/* Send HTTP/2 preface if this is an HTTPS connection with HTTP/2 */
+		if (server_info->type == DNS_SERVER_HTTPS) {
+			_dns_client_send_https_preface(server_info);
+		}
+
 		memset(&fd_event, 0, sizeof(fd_event));
 		fd_event.events = EPOLLIN | EPOLLOUT;
 		fd_event.data.ptr = server_info;

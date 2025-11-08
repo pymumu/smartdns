@@ -18,11 +18,30 @@
 #define _GNU_SOURCE
 
 #include "client_https.h"
+#include "client_http2.h"
 #include "client_socket.h"
 #include "client_tls.h"
 #include "server_info.h"
 
 #include "smartdns/http_parse.h"
+
+/* Check if ALPN negotiated HTTP/2 */
+static int _dns_client_is_http2(struct dns_server_info *server_info)
+{
+	const unsigned char *alpn_data = NULL;
+	unsigned int alpn_len = 0;
+
+	if (server_info->ssl == NULL) {
+		return 0;
+	}
+
+	SSL_get0_alpn_selected(server_info->ssl, &alpn_data, &alpn_len);
+	if (alpn_data && alpn_len == 2 && memcmp(alpn_data, "h2", 2) == 0) {
+		return 1;
+	}
+
+	return 0;
+}
 
 int _dns_client_send_https(struct dns_server_info *server_info, void *packet, unsigned short len)
 {
@@ -35,6 +54,11 @@ int _dns_client_send_https(struct dns_server_info *server_info, void *packet, un
 	if (len > sizeof(inpacket_data) - 2) {
 		tlog(TLOG_ERROR, "packet size is invalid.");
 		return -1;
+	}
+
+	/* Check if connection uses HTTP/2 */
+	if (_dns_client_is_http2(server_info)) {
+		return _dns_client_send_http2(server_info, packet, len);
 	}
 
 	https_flag = &server_info->flags.https;
@@ -79,5 +103,16 @@ int _dns_client_send_https(struct dns_server_info *server_info, void *packet, un
 		return _dns_client_send_data_to_buffer(server_info, inpacket + send_len, http_len - send_len);
 	}
 
+	return 0;
+}
+
+int _dns_client_send_https_preface(struct dns_server_info *server_info)
+{
+	/* Check if connection uses HTTP/2 */
+	if (_dns_client_is_http2(server_info)) {
+		return _dns_client_send_http2_preface(server_info);
+	}
+
+	/* HTTP/1.1 doesn't need preface */
 	return 0;
 }

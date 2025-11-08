@@ -16,8 +16,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef _DNS_CLIENT_HTTPS_H_
-#define _DNS_CLIENT_HTTPS_H_
+#ifndef _DNS_CLIENT_HTTP2_H_
+#define _DNS_CLIENT_HTTP2_H_
 
 #include "dns_client.h"
 
@@ -25,9 +25,14 @@
 extern "C" {
 #endif /*__cplusplus */
 
-int _dns_client_send_https(struct dns_server_info *server_info, void *packet, unsigned short len);
+/* Send HTTP/2 connection preface and SETTINGS frame */
+int _dns_client_send_http2_preface(struct dns_server_info *server_info);
 
-int _dns_client_send_https_preface(struct dns_server_info *server_info);
+/* Send HTTP/2 DoH request */
+int _dns_client_send_http2(struct dns_server_info *server_info, void *packet, unsigned short len);
+
+/* Process HTTP/2 response */
+int _dns_client_process_http2_response(struct dns_server_info *server_info);
 
 #ifdef __cplusplus
 }
