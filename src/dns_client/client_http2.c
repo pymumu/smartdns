@@ -48,14 +48,6 @@ int _dns_client_send_http2_preface(struct dns_server_info *server_info)
 	}
 	
 	ctx = (struct http2_context *)server_info->http2_ctx;
-	
-	/* Set ALPN for HTTP/2 if not already set */
-	if (server_info->flags.https.alpn[0] == '\0') {
-		/* Set ALPN to "h2" for HTTP/2 */
-		strncpy(server_info->flags.https.alpn, "h2", DNS_MAX_ALPN_LEN - 1);
-		server_info->flags.https.alpn[DNS_MAX_ALPN_LEN - 1] = '\0';
-		tlog(TLOG_DEBUG, "Setting ALPN to h2 for HTTP/2");
-	}
 
 	/* Generate preface using http2_parse function */
 	offset = http2_handshake(ctx, buffer, sizeof(buffer));

@@ -62,8 +62,12 @@ int _dns_client_create_socket(struct dns_server_info *server_info)
 		ret = _dns_client_create_socket_quic(server_info, flag_tls->hostname, alpn);
 	} else if (server_info->type == DNS_SERVER_HTTPS) {
 		struct client_dns_server_flag_https *flag_https = NULL;
+		const char *alpn = "h2";
 		flag_https = &server_info->flags.https;
-		ret = _dns_client_create_socket_tls(server_info, flag_https->hostname, flag_https->alpn);
+		if (flag_https->alpn[0] != 0) {
+			alpn = flag_https->alpn;
+		}
+		ret = _dns_client_create_socket_tls(server_info, flag_https->hostname, alpn);
 	} else if (server_info->type == DNS_SERVER_HTTP3) {
 		struct client_dns_server_flag_https *flag_https = NULL;
 		const char *alpn = "h3";
