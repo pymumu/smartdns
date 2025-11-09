@@ -62,10 +62,10 @@ int _dns_client_create_socket(struct dns_server_info *server_info)
 		ret = _dns_client_create_socket_quic(server_info, flag_tls->hostname, alpn);
 	} else if (server_info->type == DNS_SERVER_HTTPS) {
 		struct client_dns_server_flag_https *flag_https = NULL;
-		const char *alpn = "";  /* Default: no ALPN (use HTTP/1.1) for compatibility */
+		const char *alpn = "h2";  /* Default: HTTP/2 for DoH */
 		flag_https = &server_info->flags.https;
 		if (flag_https->alpn[0] != 0) {
-			alpn = flag_https->alpn;  /* User can explicitly set "-alpn h2" or "-alpn h2,http/1.1" */
+			alpn = flag_https->alpn;  /* User can override with "-alpn http/1.1" or other values */
 		}
 		ret = _dns_client_create_socket_tls(server_info, flag_https->hostname, alpn);
 	} else if (server_info->type == DNS_SERVER_HTTP3) {
