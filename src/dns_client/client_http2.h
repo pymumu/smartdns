@@ -25,6 +25,68 @@
 extern "C" {
 #endif /*__cplusplus */
 
+/* HTTP/2 Stream State */
+typedef enum {
+	HTTP2_STREAM_IDLE = 0,
+	HTTP2_STREAM_OPEN,
+	HTTP2_STREAM_HALF_CLOSED_LOCAL,
+	HTTP2_STREAM_HALF_CLOSED_REMOTE,
+	HTTP2_STREAM_CLOSED
+} http2_stream_state_t;
+
+/* HTTP/2 Stream */
+struct http2_stream {
+	struct list_head list;
+	uint32_t stream_id;
+	http2_stream_state_t state;
+	
+	/* Stream buffers */
+	unsigned char *recv_buffer;
+	int recv_buffer_size;
+	int recv_buffer_len;
+	
+	/* Request tracking */
+	void *request_data;
+	int request_data_len;
+	time_t create_time;
+};
+
+/* HTTP/2 Connection Context */
+struct http2_context {
+	/* Connection state */
+	int initialized;
+	uint32_t next_stream_id;  /* Next stream ID to use (odd for client, even for server) */
+	
+	/* SETTINGS */
+	uint32_t max_concurrent_streams;
+	uint32_t initial_window_size;
+	uint32_t max_frame_size;
+	
+	/* Streams */
+	struct list_head stream_list;
+	int stream_count;
+	
+	/* Connection buffer for incomplete frames */
+	unsigned char *conn_buffer;
+	int conn_buffer_size;
+	int conn_buffer_len;
+};
+
+/* Initialize HTTP/2 context for a server connection */
+struct http2_context *http2_context_init(int is_server);
+
+/* Destroy HTTP/2 context */
+void http2_context_destroy(struct http2_context *ctx);
+
+/* Create a new stream */
+struct http2_stream *http2_stream_create(struct http2_context *ctx);
+
+/* Find stream by ID */
+struct http2_stream *http2_stream_find(struct http2_context *ctx, uint32_t stream_id);
+
+/* Close and destroy a stream */
+void http2_stream_close(struct http2_context *ctx, struct http2_stream *stream);
+
 /* Send HTTP/2 connection preface and SETTINGS frame */
 int _dns_client_send_http2_preface(struct dns_server_info *server_info);
 

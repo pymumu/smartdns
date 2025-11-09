@@ -132,6 +132,9 @@ struct dns_server_info {
 	struct list_head conn_stream_list;
 
 	dns_server_security_status security_status;
+	
+	/* HTTP/2 connection context (for HTTPS with HTTP/2) */
+	void *http2_ctx;
 };
 
 struct dns_server_pending_group {
