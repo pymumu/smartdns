@@ -160,6 +160,8 @@ static int _dns_client_process_tcp_buff(struct dns_server_info *server_info)
 			/* Auto-detect HTTP version by checking for HTTP/2 frame header */
 			/* HTTP/2 frame starts with 3-byte length, 1-byte type, 1-byte flags, 4-byte stream ID */
 			/* HTTP/1.1 response starts with "HTTP/1.1" */
+			/* Note: This heuristic works because HTTP/2 frames never start with 'H' (ASCII 0x48) */
+			/* as the first byte is part of the 24-bit length field (max 16MB = 0xFFFFFF) */
 			if (server_info->recv_buff.len >= 9) {
 				/* Check if this looks like an HTTP/2 frame (not starting with "HTTP") */
 				if (server_info->recv_buff.data[0] != 'H') {

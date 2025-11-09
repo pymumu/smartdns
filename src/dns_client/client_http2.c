@@ -156,6 +156,7 @@ int _dns_client_process_http2_response(struct dns_server_info *server_info)
 	int len = 0;
 	struct http_head *http_head = NULL;
 	unsigned char *inpacket_data = NULL;
+	int dns_packet_len = 0;
 	int ret = -1;
 
 	http_head = http_head_init(8192, HTTP_VERSION_2_0);
@@ -194,7 +195,7 @@ int _dns_client_process_http2_response(struct dns_server_info *server_info)
 	}
 
 	inpacket_data = (unsigned char *)http_head_get_data(http_head);
-	int dns_packet_len = http_head_get_data_len(http_head);
+	dns_packet_len = http_head_get_data_len(http_head);
 
 	if (inpacket_data == NULL || dns_packet_len <= 0) {
 		tlog(TLOG_WARN, "recv http2 packet from %s, len = %d", server_info->ip, len);

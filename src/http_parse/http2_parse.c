@@ -99,15 +99,16 @@ static int _hpack_decode_integer(const uint8_t *buffer, int buffer_len, int pref
 	offset = 1;
 	while (offset < buffer_len) {
 		uint32_t b = buffer[offset];
+		/* Prevent integer overflow: max shift is 21 bits (32 - 7 - 4 reserved bits) */
+		if (m > 21) {
+			return -1;
+		}
 		*value += (b & 0x7F) << m;
 		offset++;
 		if ((b & 0x80) == 0) {
 			return offset;
 		}
 		m += 7;
-		if (m >= 28) {
-			return -1;
-		}
 	}
 
 	return -1;
@@ -131,19 +132,24 @@ static int _hpack_decode_string(const uint8_t *buffer, int buffer_len, char *str
 		return -1;
 	}
 
-	if ((uint32_t)max_str_len < len) {
-		return -3;
-	}
-
 	if (huffman) {
 		size_t decoded_len = 0;
+		/* Huffman decode - buffer size checked by decoder */
 		if (hpack_huffman_decode(buffer + offset, buffer + offset + len, (uint8_t *)str, max_str_len, &decoded_len) <
 			0) {
 			return -1;
 		}
+		if (decoded_len >= (size_t)max_str_len) {
+			/* Decoded string too large for buffer */
+			return -3;
+		}
 		str[decoded_len] = '\0';
 		*str_len = decoded_len;
 	} else {
+		/* Non-Huffman: check buffer size before copy */
+		if ((uint32_t)max_str_len < len) {
+			return -3;
+		}
 		memcpy(str, buffer + offset, len);
 		str[len] = '\0';
 		*str_len = len;
@@ -271,7 +277,10 @@ static int _http2_build_header_block(struct http_head *http_head, uint8_t *buffe
 	} else if (http_head->head_type == HTTP_HEAD_RESPONSE) {
 		/* :status */
 		char status_str[12];
-		snprintf(status_str, sizeof(status_str), "%d", http_head->code);
+		int n = snprintf(status_str, sizeof(status_str), "%d", http_head->code);
+		if (n < 0 || n >= (int)sizeof(status_str)) {
+			return -1;
+		}
 
 		if (http_head->code == 200) {
 			/* Indexed header field: :status 200 (index 8) */
@@ -318,7 +327,10 @@ static int _http2_build_header_block(struct http_head *http_head, uint8_t *buffe
 	/* Add content-length if data is present */
 	if (http_head->data_len > 0 && http_head->data) {
 		char len_str[32];
-		snprintf(len_str, sizeof(len_str), "%d", http_head->data_len);
+		int n = snprintf(len_str, sizeof(len_str), "%d", http_head->data_len);
+		if (n < 0 || n >= (int)sizeof(len_str)) {
+			return -1;
+		}
 
 		if (buffer_len - offset < 2) {
 			return -1;
@@ -569,11 +581,12 @@ int http_head_parse_http2_0(struct http_head *http_head, const uint8_t *data, in
 					return -1;
 				}
 				uint8_t pad_length = frame_data[0];
-				header_offset = 1;
-				frame_data_len -= (1 + pad_length);
-				if (frame_data_len < 0) {
+				/* Validate padding before subtraction to prevent underflow */
+				if (frame_data_len < 1 + pad_length) {
 					return -1;
 				}
+				header_offset = 1;
+				frame_data_len -= (1 + pad_length);
 			}
 
 			/* Skip priority if present */
@@ -607,11 +620,12 @@ int http_head_parse_http2_0(struct http_head *http_head, const uint8_t *data, in
 					return -1;
 				}
 				uint8_t pad_length = frame_data[0];
-				data_offset = 1;
-				frame_data_len -= (1 + pad_length);
-				if (frame_data_len < 0) {
+				/* Validate padding before subtraction to prevent underflow */
+				if (frame_data_len < 1 + pad_length) {
 					return -1;
 				}
+				data_offset = 1;
+				frame_data_len -= (1 + pad_length);
 			}
 
 			/* Store data */
