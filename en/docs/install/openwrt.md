@@ -11,8 +11,8 @@ Upload the software to the /root directory of the router with winscp or other to
 
 after openwrt 24.10
 ```shell
-apk add --allow-untrusted smartdns.1.yyyy.MM.dd-REL.xxxx.ipk
-apk add --allow-untrusted luci-app-smartdns-lite.1.yyyy.MM.dd-REL.all.ipk
+apk add --allow-untrusted smartdns.1.yyyy.MM.dd-REL.xxxx.apk
+apk add --allow-untrusted luci-app-smartdns-lite.1.yyyy.MM.dd-REL.all.apk
 ```
 
 before openwrt 24.10 

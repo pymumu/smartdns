@@ -9,8 +9,8 @@ hide:
 
 openwrt 24.10之后版本
 ```shell
-apk add --allow-untrusted smartdns.1.yyyy.MM.dd-REL.xxxx.ipk
-apk add --allow-untrusted luci-app-smartdns-lite.1.yyyy.MM.dd-REL.all.ipk
+apk add --allow-untrusted smartdns.1.yyyy.MM.dd-REL.xxxx.apk
+apk add --allow-untrusted luci-app-smartdns-lite.1.yyyy.MM.dd-REL.all.apk
 ```
 
 openwrt 24.10之前版本
