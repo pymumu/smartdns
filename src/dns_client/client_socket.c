@@ -62,7 +62,7 @@ int _dns_client_create_socket(struct dns_server_info *server_info)
 		ret = _dns_client_create_socket_quic(server_info, flag_tls->hostname, alpn);
 	} else if (server_info->type == DNS_SERVER_HTTPS) {
 		struct client_dns_server_flag_https *flag_https = NULL;
-		const char *alpn = "h2";
+		const char *alpn = "h2,http/1.1";  /* Try HTTP/2 first, fall back to HTTP/1.1 */
 		flag_https = &server_info->flags.https;
 		if (flag_https->alpn[0] != 0) {
 			alpn = flag_https->alpn;
