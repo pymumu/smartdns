@@ -25,168 +25,18 @@
 
 #include "smartdns/http_parse.h"
 
+/* Include http2_parse header from http_parse directory */
+#include "../http_parse/http2_parse.h"
+
 #include <stdlib.h>
 #include <string.h>
-
-/* HTTP/2 connection preface (RFC 7540 Section 3.5) */
-static const unsigned char HTTP2_PREFACE[] = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
-#define HTTP2_PREFACE_LEN 24
-
-/* HTTP/2 Frame Header Size */
-#define HTTP2_FRAME_HEADER_SIZE 9
-
-/* HTTP/2 Frame Types */
-#define HTTP2_FRAME_SETTINGS 0x4
-
-/* Initialize HTTP/2 context */
-struct http2_context *http2_context_init(int is_server)
-{
-	struct http2_context *ctx = NULL;
-	
-	ctx = malloc(sizeof(struct http2_context));
-	if (ctx == NULL) {
-		return NULL;
-	}
-	
-	memset(ctx, 0, sizeof(struct http2_context));
-	
-	/* Initialize stream ID: odd for client, even for server */
-	ctx->next_stream_id = is_server ? 2 : 1;
-	
-	/* Default SETTINGS */
-	ctx->max_concurrent_streams = 100;
-	ctx->initial_window_size = 65535;
-	ctx->max_frame_size = 16384;
-	
-	/* Initialize stream list */
-	INIT_LIST_HEAD(&ctx->stream_list);
-	ctx->stream_count = 0;
-	
-	/* Allocate connection buffer for incomplete frames */
-	ctx->conn_buffer_size = 32768;
-	ctx->conn_buffer = malloc(ctx->conn_buffer_size);
-	if (ctx->conn_buffer == NULL) {
-		free(ctx);
-		return NULL;
-	}
-	ctx->conn_buffer_len = 0;
-	
-	ctx->initialized = 1;
-	
-	return ctx;
-}
-
-/* Destroy HTTP/2 context */
-void http2_context_destroy(struct http2_context *ctx)
-{
-	struct http2_stream *stream = NULL;
-	struct http2_stream *tmp = NULL;
-	
-	if (ctx == NULL) {
-		return;
-	}
-	
-	/* Free all streams */
-	list_for_each_entry_safe(stream, tmp, &ctx->stream_list, list)
-	{
-		list_del(&stream->list);
-		if (stream->recv_buffer) {
-			free(stream->recv_buffer);
-		}
-		free(stream);
-	}
-	
-	/* Free connection buffer */
-	if (ctx->conn_buffer) {
-		free(ctx->conn_buffer);
-	}
-	
-	free(ctx);
-}
-
-/* Create a new stream */
-struct http2_stream *http2_stream_create(struct http2_context *ctx)
-{
-	struct http2_stream *stream = NULL;
-	
-	if (ctx == NULL || !ctx->initialized) {
-		return NULL;
-	}
-	
-	stream = malloc(sizeof(struct http2_stream));
-	if (stream == NULL) {
-		return NULL;
-	}
-	
-	memset(stream, 0, sizeof(struct http2_stream));
-	
-	/* Assign stream ID */
-	stream->stream_id = ctx->next_stream_id;
-	ctx->next_stream_id += 2;  /* Skip to next odd/even number */
-	
-	stream->state = HTTP2_STREAM_IDLE;
-	
-	/* Allocate receive buffer */
-	stream->recv_buffer_size = 65536;
-	stream->recv_buffer = malloc(stream->recv_buffer_size);
-	if (stream->recv_buffer == NULL) {
-		free(stream);
-		return NULL;
-	}
-	stream->recv_buffer_len = 0;
-	
-	stream->create_time = time(NULL);
-	
-	/* Add to stream list */
-	list_add_tail(&stream->list, &ctx->stream_list);
-	ctx->stream_count++;
-	
-	return stream;
-}
-
-/* Find stream by ID */
-struct http2_stream *http2_stream_find(struct http2_context *ctx, uint32_t stream_id)
-{
-	struct http2_stream *stream = NULL;
-	
-	if (ctx == NULL) {
-		return NULL;
-	}
-	
-	list_for_each_entry(stream, &ctx->stream_list, list)
-	{
-		if (stream->stream_id == stream_id) {
-			return stream;
-		}
-	}
-	
-	return NULL;
-}
-
-/* Close and destroy a stream */
-void http2_stream_close(struct http2_context *ctx, struct http2_stream *stream)
-{
-	if (ctx == NULL || stream == NULL) {
-		return;
-	}
-	
-	/* Remove from list */
-	list_del(&stream->list);
-	ctx->stream_count--;
-	
-	/* Free buffers */
-	if (stream->recv_buffer) {
-		free(stream->recv_buffer);
-	}
-	
-	free(stream);
-}
 
 int _dns_client_send_http2_preface(struct dns_server_info *server_info)
 {
 	unsigned char buffer[256];
 	int offset = 0;
 	int send_len = 0;
+	struct http2_context *ctx = NULL;
 	
 	/* Initialize HTTP/2 context if needed */
 	if (server_info->http2_ctx == NULL) {
@@ -197,6 +47,8 @@ int _dns_client_send_http2_preface(struct dns_server_info *server_info)
 		}
 	}
 	
+	ctx = (struct http2_context *)server_info->http2_ctx;
+	
 	/* Set ALPN for HTTP/2 if not already set */
 	if (server_info->flags.https.alpn[0] == '\0') {
 		/* Set ALPN to "h2" for HTTP/2 */
@@ -205,24 +57,12 @@ int _dns_client_send_http2_preface(struct dns_server_info *server_info)
 		tlog(TLOG_DEBUG, "Setting ALPN to h2 for HTTP/2");
 	}
 
-	/* Send HTTP/2 connection preface */
-	memcpy(buffer, HTTP2_PREFACE, HTTP2_PREFACE_LEN);
-	offset = HTTP2_PREFACE_LEN;
-
-	/* Send empty SETTINGS frame */
-	/* Frame length: 0 */
-	buffer[offset++] = 0x00;
-	buffer[offset++] = 0x00;
-	buffer[offset++] = 0x00;
-	/* Frame type: SETTINGS */
-	buffer[offset++] = HTTP2_FRAME_SETTINGS;
-	/* Flags: 0 */
-	buffer[offset++] = 0x00;
-	/* Stream ID: 0 */
-	buffer[offset++] = 0x00;
-	buffer[offset++] = 0x00;
-	buffer[offset++] = 0x00;
-	buffer[offset++] = 0x00;
+	/* Generate preface using http2_parse function */
+	offset = http2_handshake(ctx, buffer, sizeof(buffer));
+	if (offset < 0) {
+		tlog(TLOG_ERROR, "failed to generate HTTP/2 preface.");
+		return -1;
+	}
 
 	/* Send the preface and SETTINGS */
 	if (server_info->status != DNS_SERVER_STATUS_CONNECTED) {
@@ -276,10 +116,9 @@ int _dns_client_send_http2(struct dns_server_info *server_info, void *packet, un
 	
 	ctx = (struct http2_context *)server_info->http2_ctx;
 	
-	/* Create a new stream for this request */
-	stream = http2_stream_create(ctx);
-	if (stream == NULL) {
-		tlog(TLOG_ERROR, "failed to create HTTP/2 stream.");
+	/* Get an available stream using http2_poll */
+	if (http2_poll(ctx, &stream) != 0 || stream == NULL) {
+		tlog(TLOG_ERROR, "failed to get available HTTP/2 stream.");
 		return -1;
 	}
 	

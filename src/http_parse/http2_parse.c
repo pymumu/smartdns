@@ -20,7 +20,9 @@
 #include "hpack.h"
 #include "http_parse.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 /* HTTP/2 Frame Types (RFC 7540) */
 #define HTTP2_FRAME_DATA 0x0
@@ -735,4 +737,223 @@ int http_head_serialize_http2_0(struct http_head *http_head, uint8_t *buffer, in
 	}
 
 	return offset;
+}
+/* HTTP/2 connection preface (RFC 7540 Section 3.5) */
+static const unsigned char HTTP2_PREFACE[] = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+#define HTTP2_PREFACE_LEN 24
+
+/* Initialize HTTP/2 context */
+struct http2_context *http2_context_init(int is_server)
+{
+struct http2_context *ctx = NULL;
+
+ctx = malloc(sizeof(struct http2_context));
+if (ctx == NULL) {
+return NULL;
+}
+
+memset(ctx, 0, sizeof(struct http2_context));
+
+/* Initialize stream ID: odd for client, even for server */
+ctx->next_stream_id = is_server ? 2 : 1;
+
+/* Default SETTINGS */
+ctx->max_concurrent_streams = 100;
+ctx->initial_window_size = 65535;
+ctx->max_frame_size = 16384;
+
+/* Initialize stream list */
+INIT_LIST_HEAD(&ctx->stream_list);
+ctx->stream_count = 0;
+
+/* Allocate connection buffer for incomplete frames */
+ctx->conn_buffer_size = 32768;
+ctx->conn_buffer = malloc(ctx->conn_buffer_size);
+if (ctx->conn_buffer == NULL) {
+free(ctx);
+return NULL;
+}
+ctx->conn_buffer_len = 0;
+
+ctx->initialized = 1;
+
+return ctx;
+}
+
+/* Destroy HTTP/2 context */
+void http2_context_destroy(struct http2_context *ctx)
+{
+struct http2_stream *stream = NULL;
+struct http2_stream *tmp = NULL;
+
+if (ctx == NULL) {
+return;
+}
+
+/* Free all streams */
+list_for_each_entry_safe(stream, tmp, &ctx->stream_list, list)
+{
+list_del(&stream->list);
+if (stream->recv_buffer) {
+free(stream->recv_buffer);
+}
+free(stream);
+}
+
+/* Free connection buffer */
+if (ctx->conn_buffer) {
+free(ctx->conn_buffer);
+}
+
+free(ctx);
+}
+
+/* Create a new stream */
+struct http2_stream *http2_stream_create(struct http2_context *ctx)
+{
+struct http2_stream *stream = NULL;
+
+if (ctx == NULL || !ctx->initialized) {
+return NULL;
+}
+
+stream = malloc(sizeof(struct http2_stream));
+if (stream == NULL) {
+return NULL;
+}
+
+memset(stream, 0, sizeof(struct http2_stream));
+
+/* Assign stream ID */
+stream->stream_id = ctx->next_stream_id;
+ctx->next_stream_id += 2;  /* Skip to next odd/even number */
+
+stream->state = HTTP2_STREAM_IDLE;
+
+/* Allocate receive buffer */
+stream->recv_buffer_size = 65536;
+stream->recv_buffer = malloc(stream->recv_buffer_size);
+if (stream->recv_buffer == NULL) {
+free(stream);
+return NULL;
+}
+stream->recv_buffer_len = 0;
+
+stream->create_time = time(NULL);
+
+/* Add to stream list */
+list_add_tail(&stream->list, &ctx->stream_list);
+ctx->stream_count++;
+
+return stream;
+}
+
+/* Find stream by ID */
+struct http2_stream *http2_stream_find(struct http2_context *ctx, uint32_t stream_id)
+{
+struct http2_stream *stream = NULL;
+
+if (ctx == NULL) {
+return NULL;
+}
+
+list_for_each_entry(stream, &ctx->stream_list, list)
+{
+if (stream->stream_id == stream_id) {
+return stream;
+}
+}
+
+return NULL;
+}
+
+/* Close and destroy a stream */
+void http2_stream_close(struct http2_context *ctx, struct http2_stream *stream)
+{
+if (ctx == NULL || stream == NULL) {
+return;
+}
+
+/* Remove from list */
+list_del(&stream->list);
+ctx->stream_count--;
+
+/* Free buffers */
+if (stream->recv_buffer) {
+free(stream->recv_buffer);
+}
+
+free(stream);
+}
+
+/* Send HTTP/2 connection preface */
+int http2_send_preface(unsigned char *buffer, int buffer_size)
+{
+int offset = 0;
+
+if (buffer_size < HTTP2_PREFACE_LEN + HTTP2_FRAME_HEADER_SIZE) {
+return -1;
+}
+
+/* Send HTTP/2 connection preface */
+memcpy(buffer, HTTP2_PREFACE, HTTP2_PREFACE_LEN);
+offset = HTTP2_PREFACE_LEN;
+
+/* Send empty SETTINGS frame */
+/* Frame length: 0 */
+buffer[offset++] = 0x00;
+buffer[offset++] = 0x00;
+buffer[offset++] = 0x00;
+/* Frame type: SETTINGS */
+buffer[offset++] = HTTP2_FRAME_SETTINGS;
+/* Flags: 0 */
+buffer[offset++] = 0x00;
+/* Stream ID: 0 */
+buffer[offset++] = 0x00;
+buffer[offset++] = 0x00;
+buffer[offset++] = 0x00;
+buffer[offset++] = 0x00;
+
+return offset;
+}
+
+/* HTTP/2 handshake - prepare connection */
+int http2_handshake(struct http2_context *ctx, unsigned char *buffer, int buffer_size)
+{
+if (ctx == NULL || !ctx->initialized) {
+return -1;
+}
+
+/* Generate preface and SETTINGS */
+return http2_send_preface(buffer, buffer_size);
+}
+
+/* HTTP/2 poll - get an available stream for communication */
+int http2_poll(struct http2_context *ctx, struct http2_stream **available_stream)
+{
+struct http2_stream *stream = NULL;
+
+if (ctx == NULL || !ctx->initialized || available_stream == NULL) {
+return -1;
+}
+
+*available_stream = NULL;
+
+/* Find an OPEN stream or create a new one */
+list_for_each_entry(stream, &ctx->stream_list, list)
+{
+if (stream->state == HTTP2_STREAM_OPEN || stream->state == HTTP2_STREAM_IDLE) {
+*available_stream = stream;
+return 0;
+}
+}
+
+/* No available stream found, create a new one */
+stream = http2_stream_create(ctx);
+if (stream == NULL) {
+return -1;
+}
+
+*available_stream = stream;
+return 0;
 }
