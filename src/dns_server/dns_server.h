@@ -36,6 +36,9 @@
 extern "C" {
 #endif /*__cplusplus */
 
+/* Forward declaration */
+struct http2_context;
+
 #define DNS_MAX_EVENTS 256
 #define IPV6_READY_CHECK_TIME 180
 #define DNS_SERVER_TMOUT_TTL (5 * 60)
@@ -211,6 +214,9 @@ struct dns_server_conn_tls_client {
 	SSL *ssl;
 	int ssl_want_write;
 	pthread_mutex_t ssl_lock;
+	
+	/* HTTP/2 context for DoH */
+	struct http2_context *http2_ctx;
 };
 
 /* ip address lists of domain */

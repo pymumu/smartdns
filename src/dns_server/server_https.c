@@ -17,6 +17,7 @@
  */
 
 #include "server_https.h"
+#include "server_http2.h"
 #include "connection.h"
 #include "dns_server.h"
 #include "server_socket.h"
@@ -68,6 +69,16 @@ int _dns_server_reply_https(struct dns_request *request, struct dns_server_conn_
 		return -1;
 	}
 
+	/* Check if this is an HTTP/2 connection */
+	if (tcpclient->head.type == DNS_CONN_TYPE_HTTPS_CLIENT) {
+		struct dns_server_conn_tls_client *tls_client = (struct dns_server_conn_tls_client *)tcpclient;
+		if (tls_client->http2_ctx != NULL) {
+			/* Use HTTP/2 response */
+			return _dns_server_reply_http2(request, tls_client, packet, len);
+		}
+	}
+
+	/* HTTP/1.1 response */
 	http_len = snprintf((char *)inpacket, DNS_IN_PACKSIZE,
 						"HTTP/1.1 200 OK\r\n"
 						"Content-Type: application/dns-message\r\n"
