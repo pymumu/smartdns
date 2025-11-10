@@ -17,14 +17,943 @@
  */
 
 #include "http2_parse.h"
+#include "hpack.h"
 #include "http_parse.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+/* HTTP/2 Frame Types (RFC 7540) */
+#define HTTP2_FRAME_DATA 0x0
+#define HTTP2_FRAME_HEADERS 0x1
+#define HTTP2_FRAME_PRIORITY 0x2
+#define HTTP2_FRAME_RST_STREAM 0x3
+#define HTTP2_FRAME_SETTINGS 0x4
+#define HTTP2_FRAME_PUSH_PROMISE 0x5
+#define HTTP2_FRAME_PING 0x6
+#define HTTP2_FRAME_GOAWAY 0x7
+#define HTTP2_FRAME_WINDOW_UPDATE 0x8
+#define HTTP2_FRAME_CONTINUATION 0x9
+
+/* HTTP/2 Frame Flags */
+#define HTTP2_FLAG_END_STREAM 0x1
+#define HTTP2_FLAG_END_HEADERS 0x4
+#define HTTP2_FLAG_PADDED 0x8
+#define HTTP2_FLAG_PRIORITY 0x20
+
+/* HTTP/2 Frame Header Size */
+#define HTTP2_FRAME_HEADER_SIZE 9
+
+/* Encode integer with prefix bits (RFC 7541 Section 5.1) */
+static int _hpack_encode_integer(uint32_t value, int prefix_bits, uint8_t *buffer, int buffer_size)
+{
+	int max_prefix = (1 << prefix_bits) - 1;
+	int offset = 0;
+
+	if (value < (uint32_t)max_prefix) {
+		if (buffer_size < 1) {
+			return -1;
+		}
+		buffer[0] |= value;
+		return 1;
+	}
+
+	if (buffer_size < 1) {
+		return -1;
+	}
+	buffer[0] |= max_prefix;
+	offset = 1;
+	value -= max_prefix;
+
+	while (value >= 128) {
+		if (buffer_size - offset < 1) {
+			return -1;
+		}
+		buffer[offset++] = (value & 0x7F) | 0x80;
+		value >>= 7;
+	}
+
+	if (buffer_size - offset < 1) {
+		return -1;
+	}
+	buffer[offset++] = value;
+
+	return offset;
+}
+
+/* Decode integer with prefix bits (RFC 7541 Section 5.1) */
+static int _hpack_decode_integer(const uint8_t *buffer, int buffer_len, int prefix_bits, uint32_t *value)
+{
+	int max_prefix = (1 << prefix_bits) - 1;
+	int offset = 0;
+	int m = 0;
+
+	if (buffer_len < 1) {
+		return -1;
+	}
+
+	*value = buffer[0] & max_prefix;
+	if (*value < (uint32_t)max_prefix) {
+		return 1;
+	}
+
+	offset = 1;
+	while (offset < buffer_len) {
+		uint32_t b = buffer[offset];
+		/* Prevent integer overflow: max shift is 21 bits (32 - 7 - 4 reserved bits) */
+		if (m > 21) {
+			return -1;
+		}
+		*value += (b & 0x7F) << m;
+		offset++;
+		if ((b & 0x80) == 0) {
+			return offset;
+		}
+		m += 7;
+	}
+
+	return -1;
+}
+
+/* Decode string (RFC 7541 Section 5.2) */
+static int _hpack_decode_string(const uint8_t *buffer, int buffer_len, char *str, int max_str_len, size_t *str_len)
+{
+	int huffman = (buffer[0] & 0x80) != 0;
+	uint32_t len = 0;
+	int offset = 0;
+	int offset_ret = 0;
+
+	offset_ret = _hpack_decode_integer(buffer, buffer_len, 7, &len);
+	if (offset_ret < 0) {
+		return -1;
+	}
+	offset = offset_ret;
+
+	if ((uint32_t)(buffer_len - offset) < len) {
+		return -1;
+	}
+
+	if (huffman) {
+		size_t decoded_len = 0;
+		/* Huffman decode - buffer size checked by decoder */
+		if (hpack_huffman_decode(buffer + offset, buffer + offset + len, (uint8_t *)str, max_str_len, &decoded_len) <
+			0) {
+			return -1;
+		}
+		if (decoded_len >= (size_t)max_str_len) {
+			/* Decoded string too large for buffer */
+			return -3;
+		}
+		str[decoded_len] = '\0';
+		*str_len = decoded_len;
+	} else {
+		/* Non-Huffman: check buffer size before copy */
+		if ((uint32_t)max_str_len < len) {
+			return -3;
+		}
+		memcpy(str, buffer + offset, len);
+		str[len] = '\0';
+		*str_len = len;
+	}
+
+	return offset + len;
+}
+
+/* Encode string (RFC 7541 Section 5.2) */
+static int _hpack_encode_string(const char *str, int str_len, uint8_t *buffer, int buffer_size)
+{
+	int offset = 0;
+	int offset_ret = 0;
+
+	/* We don't use Huffman encoding for simplicity */
+	if (buffer_size < 1) {
+		return -1;
+	}
+
+	buffer[0] = 0; /* No Huffman encoding */
+	offset_ret = _hpack_encode_integer(str_len, 7, buffer, buffer_size);
+	if (offset_ret < 0) {
+		return -1;
+	}
+	offset = offset_ret;
+
+	if (buffer_size - offset < str_len) {
+		return -1;
+	}
+
+	memcpy(buffer + offset, str, str_len);
+	offset += str_len;
+
+	return offset;
+}
+
+/* Build HPACK header block */
+static int _http2_build_header_block(struct http_head *http_head, uint8_t *buffer, int buffer_len)
+{
+	int offset = 0;
+	int offset_ret = 0;
+	struct http_head_fields *fields = NULL;
+	struct http_params *params = NULL;
+
+	if (http_head->head_type == HTTP_HEAD_REQUEST) {
+		char request_path[1024];
+		int request_path_len = 0;
+
+		/* Build path with query parameters */
+		request_path_len = snprintf(request_path, sizeof(request_path), "%s", http_head->url);
+		if (request_path_len < 0 || request_path_len >= (int)sizeof(request_path)) {
+			return -1;
+		}
+
+		int count = 0;
+		list_for_each_entry(params, &http_head->params.list, list)
+		{
+			int remain = sizeof(request_path) - request_path_len;
+			int n;
+			if (count == 0) {
+				n = snprintf(request_path + request_path_len, remain, "?%s=%s", params->name, params->value);
+			} else {
+				n = snprintf(request_path + request_path_len, remain, "&%s=%s", params->name, params->value);
+			}
+			if (n < 0 || n >= remain) {
+				return -3;
+			}
+			request_path_len += n;
+			count++;
+		}
+
+		/* :method */
+		const char *method = http_method_str(http_head->method);
+		if (http_head->method == HTTP_METHOD_GET) {
+			/* Indexed header field: :method GET (index 2) */
+			if (buffer_len - offset < 1) {
+				return -1;
+			}
+			buffer[offset++] = 0x82; /* 10000010 */
+		} else if (http_head->method == HTTP_METHOD_POST) {
+			/* Indexed header field: :method POST (index 3) */
+			if (buffer_len - offset < 1) {
+				return -1;
+			}
+			buffer[offset++] = 0x83; /* 10000011 */
+		} else {
+			/* Literal header field with incremental indexing: :method */
+			if (buffer_len - offset < 2) {
+				return -1;
+			}
+			buffer[offset++] = 0x42; /* 01000010 - indexed name :method (index 2) */
+			offset_ret = _hpack_encode_string(method, strlen(method), buffer + offset, buffer_len - offset);
+			if (offset_ret < 0) {
+				return -1;
+			}
+			offset += offset_ret;
+		}
+
+		/* :path */
+		if (strcmp(request_path, "/") == 0) {
+			/* Indexed header field: :path / (index 4) */
+			if (buffer_len - offset < 1) {
+				return -1;
+			}
+			buffer[offset++] = 0x84; /* 10000100 */
+		} else {
+			/* Literal header field with incremental indexing: :path */
+			if (buffer_len - offset < 2) {
+				return -1;
+			}
+			buffer[offset++] = 0x44; /* 01000100 - indexed name :path (index 4) */
+			offset_ret = _hpack_encode_string(request_path, strlen(request_path), buffer + offset, buffer_len - offset);
+			if (offset_ret < 0) {
+				return -1;
+			}
+			offset += offset_ret;
+		}
+
+		/* :scheme https (index 7) */
+		if (buffer_len - offset < 1) {
+			return -1;
+		}
+		buffer[offset++] = 0x87; /* 10000111 */
+
+	} else if (http_head->head_type == HTTP_HEAD_RESPONSE) {
+		/* :status */
+		char status_str[12];
+		int n = snprintf(status_str, sizeof(status_str), "%d", http_head->code);
+		if (n < 0 || n >= (int)sizeof(status_str)) {
+			return -1;
+		}
+
+		if (http_head->code == 200) {
+			/* Indexed header field: :status 200 (index 8) */
+			if (buffer_len - offset < 1) {
+				return -1;
+			}
+			buffer[offset++] = 0x88; /* 10001000 */
+		} else {
+			/* Literal header field: :status */
+			if (buffer_len - offset < 2) {
+				return -1;
+			}
+			buffer[offset++] = 0x48; /* 01001000 - indexed name :status (index 8) */
+			offset_ret = _hpack_encode_string(status_str, strlen(status_str), buffer + offset, buffer_len - offset);
+			if (offset_ret < 0) {
+				return -1;
+			}
+			offset += offset_ret;
+		}
+	}
+
+	/* Add other header fields */
+	list_for_each_entry(fields, &http_head->field_head.list, list)
+	{
+		/* Literal header field without indexing - new name */
+		if (buffer_len - offset < 2) {
+			return -1;
+		}
+		buffer[offset++] = 0x00; /* 00000000 - literal without indexing */
+
+		offset_ret = _hpack_encode_string(fields->name, strlen(fields->name), buffer + offset, buffer_len - offset);
+		if (offset_ret < 0) {
+			return -1;
+		}
+		offset += offset_ret;
+
+		offset_ret = _hpack_encode_string(fields->value, strlen(fields->value), buffer + offset, buffer_len - offset);
+		if (offset_ret < 0) {
+			return -1;
+		}
+		offset += offset_ret;
+	}
+
+	/* Add content-length if data is present */
+	if (http_head->data_len > 0 && http_head->data) {
+		char len_str[32];
+		int n = snprintf(len_str, sizeof(len_str), "%d", http_head->data_len);
+		if (n < 0 || n >= (int)sizeof(len_str)) {
+			return -1;
+		}
+
+		if (buffer_len - offset < 2) {
+			return -1;
+		}
+		buffer[offset++] = 0x5C; /* 01011100 - indexed name content-length (index 28) */
+		offset_ret = _hpack_encode_string(len_str, strlen(len_str), buffer + offset, buffer_len - offset);
+		if (offset_ret < 0) {
+			return -1;
+		}
+		offset += offset_ret;
+	}
+
+	return offset;
+}
+
+/* Parse HPACK header block */
+static int _http2_parse_header_block(struct http_head *http_head, const uint8_t *data, int data_len)
+{
+	int offset = 0;
+	int offset_ret = 0;
+
+	while (offset < data_len) {
+		uint8_t b = data[offset];
+		const char *name = NULL;
+		const char *value = NULL;
+		char *buffer_name = NULL;
+		char *buffer_value = NULL;
+		size_t str_len = 0;
+		int buffer_left_len = 0;
+		struct hpack_header_field *header = NULL;
+
+		if (b & 0x80) {
+			/* Indexed Header Field */
+			uint32_t index = 0;
+			offset_ret = _hpack_decode_integer(data + offset, data_len - offset, 7, &index);
+			if (offset_ret < 0) {
+				return -1;
+			}
+			offset += offset_ret;
+
+			header = hpack_get_static_header_field(index);
+			if (header == NULL) {
+				return -2;
+			}
+
+			name = header->name;
+			value = header->value;
+
+		} else if (b & 0x40) {
+			/* Literal Header Field with Incremental Indexing */
+			uint32_t index = 0;
+			offset_ret = _hpack_decode_integer(data + offset, data_len - offset, 6, &index);
+			if (offset_ret < 0) {
+				return -1;
+			}
+			offset += offset_ret;
+
+			if (index == 0) {
+				/* New name */
+				buffer_name = (char *)_http_head_buffer_get_end(http_head);
+				buffer_left_len = _http_head_buffer_left_len(http_head);
+
+				offset_ret =
+					_hpack_decode_string(data + offset, data_len - offset, buffer_name, buffer_left_len - 1, &str_len);
+				if (offset_ret < 0) {
+					return offset_ret;
+				}
+				offset += offset_ret;
+
+				if (_http_head_buffer_append(http_head, NULL, str_len + 1) == NULL) {
+					return -3;
+				}
+				name = buffer_name;
+			} else {
+				/* Indexed name */
+				header = hpack_get_static_header_field(index);
+				if (header == NULL) {
+					return -2;
+				}
+				name = header->name;
+			}
+
+			/* Value string */
+			buffer_value = (char *)_http_head_buffer_get_end(http_head);
+			buffer_left_len = _http_head_buffer_left_len(http_head);
+
+			offset_ret =
+				_hpack_decode_string(data + offset, data_len - offset, buffer_value, buffer_left_len - 1, &str_len);
+			if (offset_ret < 0) {
+				return offset_ret;
+			}
+			offset += offset_ret;
+
+			if (_http_head_buffer_append(http_head, NULL, str_len + 1) == NULL) {
+				return -3;
+			}
+			value = buffer_value;
+
+		} else if ((b & 0xF0) == 0x00) {
+			/* Literal Header Field without Indexing */
+			uint32_t index = 0;
+			offset_ret = _hpack_decode_integer(data + offset, data_len - offset, 4, &index);
+			if (offset_ret < 0) {
+				return -1;
+			}
+			offset += offset_ret;
+
+			if (index == 0) {
+				/* New name */
+				buffer_name = (char *)_http_head_buffer_get_end(http_head);
+				buffer_left_len = _http_head_buffer_left_len(http_head);
+
+				offset_ret =
+					_hpack_decode_string(data + offset, data_len - offset, buffer_name, buffer_left_len - 1, &str_len);
+				if (offset_ret < 0) {
+					return offset_ret;
+				}
+				offset += offset_ret;
+
+				if (_http_head_buffer_append(http_head, NULL, str_len + 1) == NULL) {
+					return -3;
+				}
+				name = buffer_name;
+			} else {
+				/* Indexed name */
+				header = hpack_get_static_header_field(index);
+				if (header == NULL) {
+					return -2;
+				}
+				name = header->name;
+			}
+
+			/* Value string */
+			buffer_value = (char *)_http_head_buffer_get_end(http_head);
+			buffer_left_len = _http_head_buffer_left_len(http_head);
+
+			offset_ret =
+				_hpack_decode_string(data + offset, data_len - offset, buffer_value, buffer_left_len - 1, &str_len);
+			if (offset_ret < 0) {
+				return offset_ret;
+			}
+			offset += offset_ret;
+
+			if (_http_head_buffer_append(http_head, NULL, str_len + 1) == NULL) {
+				return -3;
+			}
+			value = buffer_value;
+
+		} else {
+			/* Other types not supported */
+			return -2;
+		}
+
+		if (http_head_add_fields(http_head, name, value) != 0) {
+			return -2;
+		}
+	}
+
+	return 0;
+}
+
+/* Setup HTTP code and method from pseudo-headers */
+static int _http_head_setup_http2_0(struct http_head *http_head)
+{
+	const char *status = NULL;
+	const char *method = NULL;
+	const char *path = NULL;
+
+	method = http_head_get_fields_value(http_head, ":method");
+	if (method) {
+		http_head->head_type = HTTP_HEAD_REQUEST;
+		if (strcmp(method, "GET") == 0) {
+			http_head->method = HTTP_METHOD_GET;
+		} else if (strcmp(method, "POST") == 0) {
+			http_head->method = HTTP_METHOD_POST;
+		} else if (strcmp(method, "PUT") == 0) {
+			http_head->method = HTTP_METHOD_PUT;
+		} else if (strcmp(method, "DELETE") == 0) {
+			http_head->method = HTTP_METHOD_DELETE;
+		}
+
+		path = http_head_get_fields_value(http_head, ":path");
+		if (path) {
+			char *path_copy = (char *)_http_head_buffer_get_end(http_head);
+			int path_len = strlen(path);
+			if (_http_head_buffer_left_len(http_head) < path_len + 1) {
+				return -3;
+			}
+			memcpy(path_copy, path, path_len + 1);
+			_http_head_buffer_append(http_head, NULL, path_len + 1);
+			http_head->url = path_copy;
+
+			/* Parse query parameters */
+			_http_head_parse_params(http_head, path_copy, path_len);
+		}
+	}
+
+	status = http_head_get_fields_value(http_head, ":status");
+	if (status) {
+		http_head->head_type = HTTP_HEAD_RESPONSE;
+		http_head->code = atoi(status);
+	}
+
+	return 0;
+}
 
 int http_head_parse_http2_0(struct http_head *http_head, const uint8_t *data, int data_len)
 {
-	return -2;
+	int offset = 0;
+	const uint8_t *frame_data = NULL;
+	int frame_data_len = 0;
+	int headers_complete = 0;
+	int data_complete = 0;
+	const uint8_t *body_data = NULL;
+	int body_data_len = 0;
+
+	/* Parse HTTP/2 frames */
+	while (offset < data_len && (!headers_complete || !data_complete)) {
+		if (data_len - offset < HTTP2_FRAME_HEADER_SIZE) {
+			return -1; /* Incomplete frame header */
+		}
+
+		/* Parse frame header (9 bytes) */
+		uint32_t frame_length = ((uint32_t)data[offset] << 16) | ((uint32_t)data[offset + 1] << 8) | data[offset + 2];
+		uint8_t frame_type = data[offset + 3];
+		uint8_t frame_flags = data[offset + 4];
+		uint32_t stream_id = ((uint32_t)data[offset + 5] << 24) | ((uint32_t)data[offset + 6] << 16) |
+							 ((uint32_t)data[offset + 7] << 8) | data[offset + 8];
+		stream_id &= 0x7FFFFFFF; /* Clear reserved bit */
+
+		offset += HTTP2_FRAME_HEADER_SIZE;
+
+		if (data_len - offset < (int)frame_length) {
+			return -1; /* Incomplete frame payload */
+		}
+
+		frame_data = data + offset;
+		frame_data_len = frame_length;
+		offset += frame_length;
+
+		/* Process frame based on type */
+		if (frame_type == HTTP2_FRAME_HEADERS) {
+			int header_offset = 0;
+
+			/* Skip padding if present */
+			if (frame_flags & HTTP2_FLAG_PADDED) {
+				if (frame_data_len < 1) {
+					return -1;
+				}
+				uint8_t pad_length = frame_data[0];
+				/* Validate padding before subtraction to prevent underflow */
+				if (frame_data_len < 1 + pad_length) {
+					return -1;
+				}
+				header_offset = 1;
+				frame_data_len -= (1 + pad_length);
+			}
+
+			/* Skip priority if present */
+			if (frame_flags & HTTP2_FLAG_PRIORITY) {
+				if (frame_data_len < 5) {
+					return -1;
+				}
+				header_offset += 5;
+				frame_data_len -= 5;
+			}
+
+			/* Parse header block */
+			if (_http2_parse_header_block(http_head, frame_data + header_offset, frame_data_len) < 0) {
+				return -2;
+			}
+
+			if (frame_flags & HTTP2_FLAG_END_HEADERS) {
+				headers_complete = 1;
+			}
+
+			if (frame_flags & HTTP2_FLAG_END_STREAM) {
+				data_complete = 1;
+			}
+
+		} else if (frame_type == HTTP2_FRAME_DATA) {
+			int data_offset = 0;
+
+			/* Skip padding if present */
+			if (frame_flags & HTTP2_FLAG_PADDED) {
+				if (frame_data_len < 1) {
+					return -1;
+				}
+				uint8_t pad_length = frame_data[0];
+				/* Validate padding before subtraction to prevent underflow */
+				if (frame_data_len < 1 + pad_length) {
+					return -1;
+				}
+				data_offset = 1;
+				frame_data_len -= (1 + pad_length);
+			}
+
+			/* Store data */
+			body_data = frame_data + data_offset;
+			body_data_len = frame_data_len;
+
+			if (frame_flags & HTTP2_FLAG_END_STREAM) {
+				data_complete = 1;
+			}
+
+		} else if (frame_type == HTTP2_FRAME_CONTINUATION) {
+			/* Continue parsing header block */
+			if (_http2_parse_header_block(http_head, frame_data, frame_data_len) < 0) {
+				return -2;
+			}
+
+			if (frame_flags & HTTP2_FLAG_END_HEADERS) {
+				headers_complete = 1;
+			}
+		}
+		/* Ignore other frame types */
+	}
+
+	if (!headers_complete) {
+		return -1;
+	}
+
+	/* Setup HTTP code and method from pseudo-headers */
+	if (_http_head_setup_http2_0(http_head) != 0) {
+		return -2;
+	}
+
+	/* Set body data if present */
+	if (body_data && body_data_len > 0) {
+		http_head->data = body_data;
+		http_head->data_len = body_data_len;
+	}
+
+	http_head->head_ok = 1;
+
+	return offset;
 }
 
 int http_head_serialize_http2_0(struct http_head *http_head, uint8_t *buffer, int buffer_len)
 {
-	return -2;
+	int offset = 0;
+	int header_block_len = 0;
+	uint8_t header_block[4096];
+
+	/* Build HPACK header block */
+	header_block_len = _http2_build_header_block(http_head, header_block, sizeof(header_block));
+	if (header_block_len < 0) {
+		return -1;
+	}
+
+	/* Write HEADERS frame */
+	uint32_t frame_length = header_block_len;
+	uint8_t frame_flags = HTTP2_FLAG_END_HEADERS;
+	uint32_t stream_id = 1; /* Use stream ID 1 for DoH requests */
+
+	if (http_head->data_len == 0 || http_head->data == NULL) {
+		frame_flags |= HTTP2_FLAG_END_STREAM;
+	}
+
+	if (buffer_len - offset < HTTP2_FRAME_HEADER_SIZE + (int)frame_length) {
+		return -1;
+	}
+
+	/* Frame header */
+	buffer[offset++] = (frame_length >> 16) & 0xFF;
+	buffer[offset++] = (frame_length >> 8) & 0xFF;
+	buffer[offset++] = frame_length & 0xFF;
+	buffer[offset++] = HTTP2_FRAME_HEADERS;
+	buffer[offset++] = frame_flags;
+	buffer[offset++] = (stream_id >> 24) & 0xFF;
+	buffer[offset++] = (stream_id >> 16) & 0xFF;
+	buffer[offset++] = (stream_id >> 8) & 0xFF;
+	buffer[offset++] = stream_id & 0xFF;
+
+	/* Frame payload */
+	memcpy(buffer + offset, header_block, header_block_len);
+	offset += header_block_len;
+
+	/* Write DATA frame if present */
+	if (http_head->data_len > 0 && http_head->data) {
+		frame_length = http_head->data_len;
+		frame_flags = HTTP2_FLAG_END_STREAM;
+
+		if (buffer_len - offset < HTTP2_FRAME_HEADER_SIZE + (int)frame_length) {
+			return -1;
+		}
+
+		/* Frame header */
+		buffer[offset++] = (frame_length >> 16) & 0xFF;
+		buffer[offset++] = (frame_length >> 8) & 0xFF;
+		buffer[offset++] = frame_length & 0xFF;
+		buffer[offset++] = HTTP2_FRAME_DATA;
+		buffer[offset++] = frame_flags;
+		buffer[offset++] = (stream_id >> 24) & 0xFF;
+		buffer[offset++] = (stream_id >> 16) & 0xFF;
+		buffer[offset++] = (stream_id >> 8) & 0xFF;
+		buffer[offset++] = stream_id & 0xFF;
+
+		/* Frame payload */
+		memcpy(buffer + offset, http_head->data, http_head->data_len);
+		offset += http_head->data_len;
+	}
+
+	return offset;
+}
+/* HTTP/2 connection preface (RFC 7540 Section 3.5) */
+static const unsigned char HTTP2_PREFACE[] = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+#define HTTP2_PREFACE_LEN 24
+
+/* Initialize HTTP/2 context */
+struct http2_context *http2_context_init(int is_server)
+{
+struct http2_context *ctx = NULL;
+
+ctx = malloc(sizeof(struct http2_context));
+if (ctx == NULL) {
+return NULL;
+}
+
+memset(ctx, 0, sizeof(struct http2_context));
+
+/* Initialize stream ID: odd for client, even for server */
+ctx->next_stream_id = is_server ? 2 : 1;
+
+/* Default SETTINGS */
+ctx->max_concurrent_streams = 100;
+ctx->initial_window_size = 65535;
+ctx->max_frame_size = 16384;
+
+/* Initialize stream list */
+INIT_LIST_HEAD(&ctx->stream_list);
+ctx->stream_count = 0;
+
+/* Allocate connection buffer for incomplete frames */
+ctx->conn_buffer_size = 32768;
+ctx->conn_buffer = malloc(ctx->conn_buffer_size);
+if (ctx->conn_buffer == NULL) {
+free(ctx);
+return NULL;
+}
+ctx->conn_buffer_len = 0;
+
+ctx->initialized = 1;
+
+return ctx;
+}
+
+/* Destroy HTTP/2 context */
+void http2_context_destroy(struct http2_context *ctx)
+{
+struct http2_stream *stream = NULL;
+struct http2_stream *tmp = NULL;
+
+if (ctx == NULL) {
+return;
+}
+
+/* Free all streams */
+list_for_each_entry_safe(stream, tmp, &ctx->stream_list, list)
+{
+list_del(&stream->list);
+if (stream->recv_buffer) {
+free(stream->recv_buffer);
+}
+free(stream);
+}
+
+/* Free connection buffer */
+if (ctx->conn_buffer) {
+free(ctx->conn_buffer);
+}
+
+free(ctx);
+}
+
+/* Create a new stream */
+struct http2_stream *http2_stream_create(struct http2_context *ctx)
+{
+struct http2_stream *stream = NULL;
+
+if (ctx == NULL || !ctx->initialized) {
+return NULL;
+}
+
+stream = malloc(sizeof(struct http2_stream));
+if (stream == NULL) {
+return NULL;
+}
+
+memset(stream, 0, sizeof(struct http2_stream));
+
+/* Assign stream ID */
+stream->stream_id = ctx->next_stream_id;
+ctx->next_stream_id += 2;  /* Skip to next odd/even number */
+
+stream->state = HTTP2_STREAM_IDLE;
+
+/* Allocate receive buffer */
+stream->recv_buffer_size = 65536;
+stream->recv_buffer = malloc(stream->recv_buffer_size);
+if (stream->recv_buffer == NULL) {
+free(stream);
+return NULL;
+}
+stream->recv_buffer_len = 0;
+
+stream->create_time = time(NULL);
+
+/* Add to stream list */
+list_add_tail(&stream->list, &ctx->stream_list);
+ctx->stream_count++;
+
+return stream;
+}
+
+/* Find stream by ID */
+struct http2_stream *http2_stream_find(struct http2_context *ctx, uint32_t stream_id)
+{
+struct http2_stream *stream = NULL;
+
+if (ctx == NULL) {
+return NULL;
+}
+
+list_for_each_entry(stream, &ctx->stream_list, list)
+{
+if (stream->stream_id == stream_id) {
+return stream;
+}
+}
+
+return NULL;
+}
+
+/* Close and destroy a stream */
+void http2_stream_close(struct http2_context *ctx, struct http2_stream *stream)
+{
+if (ctx == NULL || stream == NULL) {
+return;
+}
+
+/* Remove from list */
+list_del(&stream->list);
+ctx->stream_count--;
+
+/* Free buffers */
+if (stream->recv_buffer) {
+free(stream->recv_buffer);
+}
+
+free(stream);
+}
+
+/* Send HTTP/2 connection preface */
+int http2_send_preface(unsigned char *buffer, int buffer_size)
+{
+int offset = 0;
+
+if (buffer_size < HTTP2_PREFACE_LEN + HTTP2_FRAME_HEADER_SIZE) {
+return -1;
+}
+
+/* Send HTTP/2 connection preface */
+memcpy(buffer, HTTP2_PREFACE, HTTP2_PREFACE_LEN);
+offset = HTTP2_PREFACE_LEN;
+
+/* Send empty SETTINGS frame */
+/* Frame length: 0 */
+buffer[offset++] = 0x00;
+buffer[offset++] = 0x00;
+buffer[offset++] = 0x00;
+/* Frame type: SETTINGS */
+buffer[offset++] = HTTP2_FRAME_SETTINGS;
+/* Flags: 0 */
+buffer[offset++] = 0x00;
+/* Stream ID: 0 */
+buffer[offset++] = 0x00;
+buffer[offset++] = 0x00;
+buffer[offset++] = 0x00;
+buffer[offset++] = 0x00;
+
+return offset;
+}
+
+/* HTTP/2 handshake - prepare connection */
+int http2_handshake(struct http2_context *ctx, unsigned char *buffer, int buffer_size)
+{
+if (ctx == NULL || !ctx->initialized) {
+return -1;
+}
+
+/* Generate preface and SETTINGS */
+return http2_send_preface(buffer, buffer_size);
+}
+
+/* HTTP/2 poll - get an available stream for communication */
+int http2_poll(struct http2_context *ctx, struct http2_stream **available_stream)
+{
+struct http2_stream *stream = NULL;
+
+if (ctx == NULL || !ctx->initialized || available_stream == NULL) {
+return -1;
+}
+
+*available_stream = NULL;
+
+/* Find an OPEN stream or create a new one */
+list_for_each_entry(stream, &ctx->stream_list, list)
+{
+if (stream->state == HTTP2_STREAM_OPEN || stream->state == HTTP2_STREAM_IDLE) {
+*available_stream = stream;
+return 0;
+}
+}
+
+/* No available stream found, create a new one */
+stream = http2_stream_create(ctx);
+if (stream == NULL) {
+return -1;
+}
+
+*available_stream = stream;
+return 0;
 }

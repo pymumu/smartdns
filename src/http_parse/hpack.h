@@ -16,20 +16,34 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef _DNS_CLIENT_HTTPS_H_
-#define _DNS_CLIENT_HTTPS_H_
+#ifndef _HPACK_H
+#define _HPACK_H
 
-#include "dns_client.h"
+#include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
-#endif /*__cplusplus */
+#endif
 
-int _dns_client_send_https(struct dns_server_info *server_info, void *packet, unsigned short len);
+struct hpack_header_field {
+	const char *name;
+	const char *value;
+};
 
-int _dns_client_send_https_preface(struct dns_server_info *server_info);
+/* Get static header field by index (1-61) */
+struct hpack_header_field *hpack_get_static_header_field(int index);
+
+/* Huffman decode for HPACK */
+int hpack_huffman_decode(const uint8_t *bytes, const uint8_t *bytes_max, uint8_t *decoded, size_t max_decoded,
+						 size_t *nb_decoded);
+
+/* Huffman encode for HPACK */
+int hpack_huffman_encode(const uint8_t *input, size_t input_len, uint8_t *output, size_t max_output,
+						 size_t *output_len);
 
 #ifdef __cplusplus
 }
-#endif /*__cplusplus */
 #endif
+
+#endif // !_HPACK_H

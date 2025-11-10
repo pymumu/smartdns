@@ -393,6 +393,30 @@ static int _dns_server_socket_tls_ssl_pass_callback(char *buf, int size, int rwf
 	return strlen(buf);
 }
 
+/* ALPN callback for HTTP/2 negotiation */
+static int _dns_server_tls_alpn_select_callback(SSL *ssl, const unsigned char **out, unsigned char *outlen,
+												const unsigned char *in, unsigned int inlen, void *arg)
+{
+	/* Supported protocols: h2 (HTTP/2), http/1.1 */
+	static const unsigned char alpn_h2[] = "\x02h2";
+	static const unsigned char alpn_http11[] = "\x08http/1.1";
+	
+	/* Try to negotiate HTTP/2 first */
+	if (SSL_select_next_proto((unsigned char **)out, outlen, alpn_h2, sizeof(alpn_h2) - 1, in, inlen) ==
+		OPENSSL_NPN_NEGOTIATED) {
+		return SSL_TLSEXT_ERR_OK;
+	}
+	
+	/* Fall back to HTTP/1.1 */
+	if (SSL_select_next_proto((unsigned char **)out, outlen, alpn_http11, sizeof(alpn_http11) - 1, in, inlen) ==
+		OPENSSL_NPN_NEGOTIATED) {
+		return SSL_TLSEXT_ERR_OK;
+	}
+	
+	/* No match */
+	return SSL_TLSEXT_ERR_NOACK;
+}
+
 int _dns_server_socket_tls(struct dns_bind_ip *bind_ip, DNS_CONN_TYPE conn_type)
 {
 	const char *host_ip = NULL;
@@ -455,6 +479,11 @@ int _dns_server_socket_tls(struct dns_bind_ip *bind_ip, DNS_CONN_TYPE conn_type)
 		SSL_CTX_use_PrivateKey_file(ssl_ctx, ssl_cert_key_file, SSL_FILETYPE_PEM) <= 0) {
 		tlog(TLOG_ERROR, "load cert key %s failed, %s", ssl_cert_key_file, ERR_error_string(ERR_get_error(), NULL));
 		goto errout;
+	}
+
+	/* Set ALPN callback for HTTP/2 negotiation (for bind-https) */
+	if (conn_type == DNS_CONN_TYPE_HTTPS_SERVER) {
+		SSL_CTX_set_alpn_select_cb(ssl_ctx, _dns_server_tls_alpn_select_callback, NULL);
 	}
 
 	conn = malloc(sizeof(struct dns_server_conn_tls_server));

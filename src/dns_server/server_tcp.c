@@ -22,10 +22,12 @@
 #include "connection.h"
 #include "dns_server.h"
 #include "server_https.h"
+#include "server_http2.h"
 #include "server_socket.h"
 #include "server_tls.h"
 
 #include "smartdns/http_parse.h"
+#include "../http_parse/http2_parse.h"
 
 #include <errno.h>
 #include <netinet/tcp.h>
@@ -254,89 +256,129 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn_tcp_client
 				goto out;
 			}
 
-			http_head = http_head_init(4096, HTTP_VERSION_1_1);
-			if (http_head == NULL) {
-				goto out;
+			/* Check if this is HTTP/2 or HTTP/1.1 */
+			int is_http2 = 0;
+			if (tcpclient->head.type == DNS_CONN_TYPE_HTTPS_CLIENT) {
+				/* Cast to TLS client to access http2_ctx */
+				struct dns_server_conn_tls_client *tls_client = (struct dns_server_conn_tls_client *)tcpclient;
+				
+				/* If http2_ctx exists, we're using HTTP/2 */
+				if (tls_client->http2_ctx != NULL) {
+					is_http2 = 1;
+				} else if (_dns_server_is_http2_request(tcpclient->recvbuff.buf + proceed_len, 
+														 tcpclient->recvbuff.size - proceed_len)) {
+					is_http2 = 1;
+				}
 			}
 
-			len = http_head_parse(http_head, tcpclient->recvbuff.buf + proceed_len, tcpclient->recvbuff.size  - proceed_len);
-			if (len < 0) {
-				if (len == -1) {
-					ret = 0;
+			if (is_http2) {
+				/* Handle HTTP/2 request */
+				struct dns_server_conn_tls_client *tls_client = (struct dns_server_conn_tls_client *)tcpclient;
+				unsigned char *http2_request_data = NULL;
+				int http2_request_len = 0;
+				
+				len = _dns_server_process_http2_request(tls_client, 
+														 tcpclient->recvbuff.buf + proceed_len,
+														 tcpclient->recvbuff.size - proceed_len,
+														 &http2_request_data, &http2_request_len);
+				if (len < 0) {
+					tlog(TLOG_DEBUG, "Failed to process HTTP/2 request");
+					goto errout;
+				} else if (len == 0) {
+					/* Need more data */
+					ret = RECV_ERROR_AGAIN;
 					goto out;
-				} else if (len == -3) {
-					tcpclient->recvbuff.size = 0;
-					tlog(TLOG_DEBUG, "recv buffer is not enough.");
-					goto errout;
 				}
-
-				tlog(TLOG_DEBUG, "parser http header failed.");
-				goto errout;
-			}
-
-			if (http_head_get_method(http_head) == HTTP_METHOD_POST) {
-				const char *content_type = http_head_get_fields_value(http_head, "Content-Type");
-				if (content_type == NULL ||
-					strncasecmp(content_type, "application/dns-message", sizeof("application/dns-message")) != 0) {
-					tlog(TLOG_DEBUG, "content type not supported, %s", content_type);
-					goto errout;
-				}
-
-				request_len = http_head_get_data_len(http_head);
-				if (request_len >= len) {
-					tlog(TLOG_DEBUG, "request length is invalid.");
-					goto errout;
-				}
-				request_data = (unsigned char *)http_head_get_data(http_head);
-			} else if (http_head_get_method(http_head) == HTTP_METHOD_GET) {
-				const char *path = http_head_get_url(http_head);
-				if (path == NULL || strncasecmp(path, "/dns-query", sizeof("/dns-query")) != 0) {
-					ret = RECV_ERROR_BAD_PATH;
-					tlog(TLOG_DEBUG, "path not supported, %s", path);
-					goto errout;
-				}
-
-				const char *dns_query = http_head_get_params_value(http_head, "dns");
-				if (dns_query == NULL) {
-					tlog(TLOG_DEBUG, "query is null.");
-					goto errout;
-				}
-
-				if (base64_query == NULL) {
-					base64_query = malloc(DNS_IN_PACKSIZE);
-					if (base64_query == NULL) {
-						tlog(TLOG_DEBUG, "malloc failed.");
-						goto errout;
-					}
-				}
-
-				if (urldecode(base64_query, DNS_IN_PACKSIZE, dns_query) < 0) {
-					tlog(TLOG_DEBUG, "urldecode query failed.");
-					goto errout;
-				}
-
-				if (http_decode_data == NULL) {
-					http_decode_data = malloc(DNS_IN_PACKSIZE);
-					if (http_decode_data == NULL) {
-						tlog(TLOG_DEBUG, "malloc failed.");
-						goto errout;
-					}
-				}
-
-				int decode_len = SSL_base64_decode_ext(base64_query, http_decode_data, DNS_IN_PACKSIZE, 1, 1);
-				if (decode_len <= 0) {
-					tlog(TLOG_DEBUG, "decode query failed.");
-					goto errout;
-				}
-
-				request_len = decode_len;
-				request_data = http_decode_data;
+				
+				request_data = http2_request_data;
+				request_len = http2_request_len;
+				proceed_len += len;
 			} else {
-				tlog(TLOG_DEBUG, "http method is invalid.");
-				goto errout;
-			}
+				/* Handle HTTP/1.1 request */
+				http_head = http_head_init(4096, HTTP_VERSION_1_1);
+				if (http_head == NULL) {
+					goto out;
+				}
 
-			proceed_len += len;
+				len = http_head_parse(http_head, tcpclient->recvbuff.buf + proceed_len, tcpclient->recvbuff.size  - proceed_len);
+				if (len < 0) {
+					if (len == -1) {
+						ret = 0;
+						goto out;
+					} else if (len == -3) {
+						tcpclient->recvbuff.size = 0;
+						tlog(TLOG_DEBUG, "recv buffer is not enough.");
+						goto errout;
+					}
+
+					tlog(TLOG_DEBUG, "parser http header failed.");
+					goto errout;
+				}
+
+				if (http_head_get_method(http_head) == HTTP_METHOD_POST) {
+					const char *content_type = http_head_get_fields_value(http_head, "Content-Type");
+					if (content_type == NULL ||
+						strncasecmp(content_type, "application/dns-message", sizeof("application/dns-message")) != 0) {
+						tlog(TLOG_DEBUG, "content type not supported, %s", content_type);
+						goto errout;
+					}
+
+					request_len = http_head_get_data_len(http_head);
+					if (request_len >= len) {
+						tlog(TLOG_DEBUG, "request length is invalid.");
+						goto errout;
+					}
+					request_data = (unsigned char *)http_head_get_data(http_head);
+				} else if (http_head_get_method(http_head) == HTTP_METHOD_GET) {
+					const char *path = http_head_get_url(http_head);
+					if (path == NULL || strncasecmp(path, "/dns-query", sizeof("/dns-query")) != 0) {
+						ret = RECV_ERROR_BAD_PATH;
+						tlog(TLOG_DEBUG, "path not supported, %s", path);
+						goto errout;
+					}
+
+					const char *dns_query = http_head_get_params_value(http_head, "dns");
+					if (dns_query == NULL) {
+						tlog(TLOG_DEBUG, "query is null.");
+						goto errout;
+					}
+
+					if (base64_query == NULL) {
+						base64_query = malloc(DNS_IN_PACKSIZE);
+						if (base64_query == NULL) {
+							tlog(TLOG_DEBUG, "malloc failed.");
+							goto errout;
+						}
+					}
+
+					if (urldecode(base64_query, DNS_IN_PACKSIZE, dns_query) < 0) {
+						tlog(TLOG_DEBUG, "urldecode query failed.");
+						goto errout;
+					}
+
+					if (http_decode_data == NULL) {
+						http_decode_data = malloc(DNS_IN_PACKSIZE);
+						if (http_decode_data == NULL) {
+							tlog(TLOG_DEBUG, "malloc failed.");
+							goto errout;
+						}
+					}
+
+					int decode_len = SSL_base64_decode_ext(base64_query, http_decode_data, DNS_IN_PACKSIZE, 1, 1);
+					if (decode_len <= 0) {
+						tlog(TLOG_DEBUG, "decode query failed.");
+						goto errout;
+					}
+
+					request_len = decode_len;
+					request_data = http_decode_data;
+				} else {
+					tlog(TLOG_DEBUG, "http method is invalid.");
+					goto errout;
+				}
+
+				proceed_len += len;
+			}
 		} else {
 			if ((total_len - proceed_len) <= (int)sizeof(unsigned short)) {
 				ret = RECV_ERROR_AGAIN;

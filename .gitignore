@@ -11,3 +11,4 @@ package/target
 package/*.gz
 package/*.ipk
 target
+_codeql_detected_source_root

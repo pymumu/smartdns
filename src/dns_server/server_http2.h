@@ -16,18 +16,31 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef _DNS_CLIENT_HTTPS_H_
-#define _DNS_CLIENT_HTTPS_H_
+#ifndef _DNS_SERVER_HTTP2_H_
+#define _DNS_SERVER_HTTP2_H_
 
-#include "dns_client.h"
+#include "dns_server.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif /*__cplusplus */
 
-int _dns_client_send_https(struct dns_server_info *server_info, void *packet, unsigned short len);
+/* Initialize HTTP/2 context for server connection */
+int _dns_server_http2_init_context(struct dns_server_conn_tls_client *tls_client);
 
-int _dns_client_send_https_preface(struct dns_server_info *server_info);
+/* Destroy HTTP/2 context */
+void _dns_server_http2_destroy_context(struct dns_server_conn_tls_client *tls_client);
+
+/* Process HTTP/2 request and extract DNS query data */
+int _dns_server_process_http2_request(struct dns_server_conn_tls_client *tls_client, unsigned char *data, int data_len,
+									   unsigned char **request_data, int *request_len);
+
+/* Send HTTP/2 DNS response */
+int _dns_server_reply_http2(struct dns_request *request, struct dns_server_conn_tls_client *tls_client, void *packet,
+							unsigned short len);
+
+/* Check if data is HTTP/2 frame */
+int _dns_server_is_http2_request(unsigned char *data, int data_len);
 
 #ifdef __cplusplus
 }

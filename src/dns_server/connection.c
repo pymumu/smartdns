@@ -18,6 +18,7 @@
 
 #include "connection.h"
 #include "dns_server.h"
+#include "server_http2.h"
 
 #include <openssl/ssl.h>
 #include <sys/epoll.h>
@@ -58,6 +59,10 @@ void _dns_server_conn_release(struct dns_server_conn_head *conn)
 		if (tls_client->ssl != NULL) {
 			SSL_free(tls_client->ssl);
 			tls_client->ssl = NULL;
+		}
+		/* Clean up HTTP/2 context if it exists */
+		if (tls_client->http2_ctx != NULL) {
+			_dns_server_http2_destroy_context(tls_client);
 		}
 		pthread_mutex_destroy(&tls_client->ssl_lock);
 	} else if (conn->type == DNS_CONN_TYPE_TLS_SERVER || conn->type == DNS_CONN_TYPE_HTTPS_SERVER) {
