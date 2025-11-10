@@ -717,54 +717,46 @@ int dns_server_run(void)
 	int num = 0;
 	int i = 0;
 	unsigned long now = {0};
-	unsigned long last = {0};
 	unsigned int msec = 0;
 	int sleep = 100;
 	int sleep_time = 0;
 	unsigned long expect_time = 0;
+	unsigned long start_time = 0;
 
-	sleep_time = sleep;
-	now = get_tick_count() - sleep;
-	last = now;
+	now = get_tick_count();
+	start_time = now;
 	expect_time = now + sleep;
+
 	while (atomic_read(&server.run)) {
 		now = get_tick_count();
-		if (sleep_time > 0) {
-			sleep_time -= now - last;
-			if (sleep_time <= 0) {
-				sleep_time = 0;
-			}
-
-			int cnt = sleep_time / sleep;
-			msec -= cnt;
-			expect_time -= cnt * sleep;
-			sleep_time -= cnt * sleep;
-		}
 
 		if (now >= expect_time) {
+			unsigned long elapsed_from_start = now - start_time;
+			unsigned int current_period = (elapsed_from_start + sleep / 2) / sleep;
+
+			if (current_period > msec) {
+				msec = current_period;
+			}
+			expect_time = start_time + (msec + 1) * sleep;
+
+			_dns_server_period_run(msec);
 			msec++;
-			if (last != now) {
-				_dns_server_period_run(msec);
-			}
-			sleep_time = sleep - (now - expect_time);
-			if (sleep_time < 0) {
-				sleep_time = 0;
-				expect_time = now;
-			}
 
 			/* When server is idle, the sleep time is 1000ms, to reduce CPU usage */
 			pthread_mutex_lock(&server.request_list_lock);
 			if (list_empty(&server.request_list)) {
-				int cnt = 10 - (msec % 10) - 1;
-				sleep_time += sleep * cnt;
-				msec += cnt;
-				/* sleep to next second */
-				expect_time += sleep * cnt;
+				if (msec % 10 != 0) {
+					msec = ((msec / 10) + 1) * 10;
+					expect_time = start_time + msec * sleep;
+				}
 			}
 			pthread_mutex_unlock(&server.request_list_lock);
-			expect_time += sleep;
 		}
-		last = now;
+
+		sleep_time = (int)(expect_time - now);
+		if (sleep_time < 0) {
+			sleep_time = 0;
+		}
 
 		num = epoll_wait(server.epoll_fd, events, DNS_MAX_EVENTS, sleep_time);
 		if (num < 0) {

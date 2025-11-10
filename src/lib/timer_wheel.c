@@ -295,40 +295,31 @@ static unsigned long _tw_tick_count(void)
 static void *timer_work(void *arg)
 {
 	struct tw_base *base = arg;
-	int sleep = 1000;
+	int sleep = 1000; 
 	int sleep_time = 0;
 	unsigned long now = {0};
-	unsigned long last = {0};
 	unsigned long expect_time = 0;
+	unsigned long start_time = 0;
 
-	sleep_time = sleep;
-	now = _tw_tick_count() - sleep;
-	last = now;
+	now = _tw_tick_count();
+	start_time = now;
 	expect_time = now + sleep;
+	
 	while (1) {
 		run_timers(base);
 
 		now = _tw_tick_count();
-		if (sleep_time > 0) {
-			sleep_time -= now - last;
-			if (sleep_time <= 0) {
-				sleep_time = 0;
-			}
-
-			int cnt = sleep_time / sleep;
-			expect_time -= cnt * sleep;
-			sleep_time -= cnt * sleep;
-		}
-
+		
 		if (now >= expect_time) {
-			sleep_time = sleep - (now - expect_time);
-			if (sleep_time < 0) {
-				sleep_time = 0;
-				expect_time = now;
-			}
-			expect_time += sleep;
+			unsigned long elapsed_from_start = now - start_time;
+			unsigned long next_period = (elapsed_from_start / sleep) + 1;
+			expect_time = start_time + next_period * sleep;
 		}
-		last = now;
+		
+		sleep_time = (int)(expect_time - now);
+		if (sleep_time < 0) {
+			sleep_time = 0;
+		}
 
 		usleep(sleep_time * 1000);
 	}

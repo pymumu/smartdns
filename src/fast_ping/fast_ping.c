@@ -452,43 +452,36 @@ static void *_fast_ping_work(void *arg)
 	int num = 0;
 	int i = 0;
 	unsigned long now = {0};
-	unsigned long last = {0};
 	struct timeval tvnow = {0};
 	int sleep = 100;
 	int sleep_time = 0;
 	unsigned long expect_time = 0;
+	unsigned long start_time = 0;
 
 	setpriority(PRIO_PROCESS, 0, -5);
 
-	sleep_time = sleep;
-	now = get_tick_count() - sleep;
-	last = now;
+	now = get_tick_count();
+	start_time = now;
 	expect_time = now + sleep;
+	
 	while (atomic_read(&ping.run)) {
 		now = get_tick_count();
-		if (sleep_time > 0) {
-			sleep_time -= now - last;
-			if (sleep_time <= 0) {
-				sleep_time = 0;
-			}
-		}
-
+		
 		if (now >= expect_time) {
-			if (last != now) {
-				_fast_ping_period_run();
-			}
-			sleep_time = sleep - (now - expect_time);
-			if (sleep_time < 0) {
-				sleep_time = 0;
-				expect_time = now;
-			}
-			expect_time += sleep;
+			_fast_ping_period_run();
+			unsigned long elapsed_from_start = now - start_time;
+			unsigned long next_period = (elapsed_from_start / sleep) + 1;
+			expect_time = start_time + next_period * sleep;
 		}
-		last = now;
+		
+		sleep_time = (int)(expect_time - now);
+		if (sleep_time < 0) {
+			sleep_time = 0;
+		}
 
 		pthread_mutex_lock(&ping.map_lock);
 		if (hash_empty(ping.addrmap)) {
-			sleep_time = -1;
+			sleep_time = -1; 
 		}
 		pthread_mutex_unlock(&ping.map_lock);
 
@@ -499,7 +492,9 @@ static void *_fast_ping_work(void *arg)
 		}
 
 		if (sleep_time == -1) {
-			expect_time = get_tick_count();
+			now = get_tick_count();
+			start_time = now;
+			expect_time = now + sleep;
 		}
 
 		if (num == 0) {
