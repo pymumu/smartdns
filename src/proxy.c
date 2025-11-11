@@ -642,7 +642,7 @@ static proxy_handshake_state _proxy_handshake_socks5(struct proxy_conn *proxy_co
 		}
 
 		if (recv_buff[1] != 0) {
-			if ((unsigned char)recv_buff[1] <=
+			if (recv_buff[1] <=
 				(sizeof(proxy_socks5_status_code) / sizeof(proxy_socks5_status_code[0]))) {
 				tlog(TLOG_ERROR, "server %s reply failed, error-code: %s", proxy_conn->server_info->proxy_name,
 					 proxy_socks5_status_code[(int)recv_buff[1]]);

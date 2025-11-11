@@ -34,8 +34,8 @@ static void _dns_server_ping_result(struct ping_host_struct *ping_host, const ch
 	int may_complete = 0;
 	int threshold = 100;
 	struct dns_ip_address *addr_map = NULL;
-	int last_rtt = 0; 
-	
+	int last_rtt = 0;
+
 	if (request == NULL) {
 		return;
 	}

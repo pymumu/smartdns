@@ -343,6 +343,8 @@ static int _dns_server_process_answer_HTTPS(struct dns_rrs *rrs, struct dns_requ
 				_dns_server_process_answer_AAAA_IP(request, cname, p->value + k * 16, ttl, result_flag);
 			}
 		} break;
+		default:
+			break;
 		}
 	}
 
@@ -398,6 +400,8 @@ int _dns_server_process_answer(struct dns_request *request, const char *domain, 
 					*need_passthrouh = 1;
 					return DNS_CLIENT_ACTION_OK;
 				}
+				default:
+					break;
 				}
 			}
 		}

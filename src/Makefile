@@ -1,4 +1,3 @@
-
 # Copyright (C) 2018-2025 Ruilin Peng (Nick) <pymumu@gmail.com>.
 #
 # smartdns is free software: you can redistribute it and/or modify
@@ -100,8 +99,19 @@ $(SMARTDNS_TEST_LIB): $(TEST_OBJS)
 $(SMARTDNS_LIB): $(OBJS)
 	$(AR) rcs $@ $^
 
+clang-tidy-parallel:
+	@echo "Running clang-tidy with $(shell nproc) parallel jobs..."
+	@printf '%s\n' $(LINT_OBJS:.o=.c) | xargs -P $(shell nproc) -I {} clang-tidy {} -- $(CFLAGS)
+
 clang-tidy:
 	clang-tidy -p=. $(LINT_OBJS:.o=.c) -- $(CFLAGS)
 
 clean:
 	$(RM) $(OBJS) $(BIN) $(SMARTDNS_LIB) $(MAIN_OBJ) $(SMARTDNS_TEST_LIB) $(TEST_OBJS)
+
+# lint specific files
+# make lint-files FILES="dns.c proxy.c"
+lint-files:
+	@echo "Specify FILES variable to lint specific files, e.g., make lint-files FILES='src/dns.c src/proxy.c'"
+	clang-tidy -p=. $(FILES) -- $(CFLAGS)
+

@@ -1203,6 +1203,7 @@ static int _tlog_archive_log_compressed(struct tlog_log *log)
 
     /* start gzip process to compress log file */
     if (log->zip_pid <= 0) {
+        // NOLINTNEXTLINE(bugprone-unsafe-functions): vfork is safe here as we immediately exec
         int pid = vfork();
         if (pid == 0) {
             _tlog_close_all_fd();

@@ -149,6 +149,8 @@ int config_additional_file(void *data, int argc, char *argv[])
 			group_name = optarg;
 			break;
 		}
+		default:
+			break;
 		}
 	}
 

@@ -57,6 +57,8 @@ int _config_group_begin(void *data, int argc, char *argv[])
 			inherit_group_name = optarg;
 			break;
 		}
+		default:
+			break;
 		}
 	}
 

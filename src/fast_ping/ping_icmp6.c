@@ -150,6 +150,9 @@ struct fast_ping_packet *_fast_ping_icmp6_packet(struct ping_host_struct *ping_h
 				continue;
 			}
 			memcpy(&hops, CMSG_DATA(c), sizeof(hops));
+			break;
+		default:
+			break;
 		}
 	}
 

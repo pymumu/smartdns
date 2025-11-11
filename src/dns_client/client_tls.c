@@ -629,6 +629,8 @@ int _dns_client_socket_ssl_recv_ext(struct dns_server_info *server, SSL *ssl, vo
 		case SSL_R_UNEXPECTED_EOF_WHILE_READING:
 #endif
 			return 0;
+		default:
+			break;
 		}
 
 		tlog(TLOG_ERROR, "server %s SSL read fail error: %s", server->ip, ERR_error_string(ssl_err, buff));

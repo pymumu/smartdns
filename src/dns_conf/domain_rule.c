@@ -106,7 +106,7 @@ static struct dns_domain_rule *_ensure_domain_rule_capacity(struct dns_domain_ru
 	}
 
 	uint8_t old_capacity = new_rule->capacity;
-	memset(new_rule->rules + old_capacity, 0, (new_capacity - old_capacity) * sizeof(struct dns_rule *));
+	memset((void *)(new_rule->rules + old_capacity), 0, (new_capacity - old_capacity) * sizeof(struct dns_rule *));
 	new_rule->capacity = new_capacity;
 
 	return new_rule;

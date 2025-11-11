@@ -54,7 +54,7 @@ typedef enum dns_rr_type {
 	DNS_RRS_NS = 2,
 	DNS_RRS_NR = 3,
 	DNS_RRS_OPT = 4,
-	DNS_RRS_END,
+	DNS_RRS_END = 5,
 } dns_rr_type;
 
 typedef enum dns_class {

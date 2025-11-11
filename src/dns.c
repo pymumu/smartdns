@@ -20,14 +20,12 @@
 #include "smartdns/dns.h"
 #include "smartdns/lib/stringutil.h"
 #include "smartdns/tlog.h"
-#include <arpa/inet.h>
-#include <fcntl.h>
+
+#include <netinet/in.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <unistd.h>
+#include <strings.h>
 
 #define QR_MASK 0x8000
 #define OPCODE_MASK 0x7800
@@ -2956,12 +2954,12 @@ static int _dns_update_domain(struct dns_context *context, const char *domain)
 {
 	int len = 0;
 	int ptr_jump = 0;
-	int output_len = 0;
+	size_t output_len = 0;
 	unsigned char *ptr = context->ptr;
 	unsigned char *packet = context->data;
 	int packet_size = context->maxsize;
-	int domain_len = strlen(domain);
-	int processed_len = 0;
+	size_t domain_len = strlen(domain);
+	size_t processed_len = 0;
 
 	while (1) {
 		if (ptr >= packet + packet_size || ptr < packet || ptr_jump > 32 || processed_len > domain_len + 1) {
@@ -3011,7 +3009,7 @@ static int _dns_update_domain(struct dns_context *context, const char *domain)
 	}
 
 	if (output_len != domain_len) {
-		tlog(TLOG_DEBUG, "update domain failed, length mismatch. output_len: %d, domain_len: %d", output_len,
+		tlog(TLOG_DEBUG, "update domain failed, length mismatch. output_len: %lu, domain_len: %lu", output_len,
 			 domain_len);
 		return -1;
 	}

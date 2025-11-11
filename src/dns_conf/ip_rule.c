@@ -63,10 +63,11 @@ int _config_ip_rule_set_each(const char *ip_set, set_rule_add_func callback, voi
 
 static void _dns_iplist_ip_address_add(struct dns_iplist_ip_addresses *iplist, unsigned char addr[], int addr_len)
 {
-	iplist->ipaddr = realloc(iplist->ipaddr, (iplist->ipaddr_num + 1) * sizeof(struct dns_iplist_ip_address));
-	if (iplist->ipaddr == NULL) {
+	struct dns_iplist_ip_address *new_ipaddr = realloc(iplist->ipaddr, (iplist->ipaddr_num + 1) * sizeof(struct dns_iplist_ip_address));
+	if (new_ipaddr == NULL) {
 		return;
 	}
+	iplist->ipaddr = new_ipaddr;
 	memset(&iplist->ipaddr[iplist->ipaddr_num], 0, sizeof(struct dns_iplist_ip_address));
 	iplist->ipaddr[iplist->ipaddr_num].addr_len = addr_len;
 	memcpy(iplist->ipaddr[iplist->ipaddr_num].addr, addr, addr_len);
@@ -192,6 +193,8 @@ static radix_node_t *_create_addr_node(const char *addr)
 	case AF_INET6:
 		tree = _config_current_rule_group()->address_rule.ipv6;
 		break;
+	default:
+		return NULL;
 	}
 
 	node = radix_lookup(tree, &prefix);

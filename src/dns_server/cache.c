@@ -321,7 +321,7 @@ int _dns_cache_cname_packet(struct dns_server_post_context *context)
 	return 0;
 errout:
 	if (cache_packet) {
-		dns_cache_data_put((struct dns_cache_data *)cache_packet);
+		dns_cache_data_put(cache_packet);
 	}
 
 	return ret;
@@ -369,7 +369,7 @@ int _dns_cache_packet(struct dns_server_post_context *context)
 	return 0;
 errout:
 	if (cache_packet) {
-		dns_cache_data_put((struct dns_cache_data *)cache_packet);
+		dns_cache_data_put(cache_packet);
 	}
 
 	return ret;

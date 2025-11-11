@@ -259,7 +259,8 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn_tcp_client
 				goto out;
 			}
 
-			len = http_head_parse(http_head, tcpclient->recvbuff.buf + proceed_len, tcpclient->recvbuff.size  - proceed_len);
+			len = http_head_parse(http_head, tcpclient->recvbuff.buf + proceed_len,
+								  tcpclient->recvbuff.size - proceed_len);
 			if (len < 0) {
 				if (len == -1) {
 					ret = 0;

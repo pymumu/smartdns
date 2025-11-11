@@ -22,7 +22,6 @@
 #include "smartdns/util.h"
 
 #include <dlfcn.h>
-#include <errno.h>
 #include <signal.h>
 #include <stdint.h>
 #include <unistd.h>
