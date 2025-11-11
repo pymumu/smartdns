@@ -45,7 +45,7 @@ static int _dns_server_is_dns_rule_extract_match_ext(struct dns_request_domain_r
 static void _dns_server_log_rule(const char *domain, enum domain_rule rule_type, unsigned char *rule_key,
 								 int rule_key_len)
 {
-	char rule_name[DNS_MAX_CNAME_LEN];
+	char rule_name[DNS_MAX_CNAME_LEN] = {0};
 	if (rule_key_len <= 0) {
 		return;
 	}
@@ -135,7 +135,7 @@ static int _dns_server_get_rules(unsigned char *key, uint32_t key_len, int is_su
 		i = 0;
 	}
 
-	for (; i < DOMAIN_RULE_MAX; i++) {
+	for (; i < domain_rule->capacity; i++) {
 		if (domain_rule->rules[i] == NULL) {
 			if (walk_args->rule_index >= 0) {
 				break;
@@ -163,10 +163,10 @@ void _dns_server_get_domain_rule_by_domain_ext(struct dns_conf_group *conf,
 											   const char *domain, int out_log)
 {
 	int domain_len = 0;
-	char domain_key[DNS_MAX_CNAME_LEN];
+	char domain_key[DNS_MAX_CNAME_LEN] = {0};
 	struct rule_walk_args walk_args;
 	int matched_key_len = DNS_MAX_CNAME_LEN;
-	unsigned char matched_key[DNS_MAX_CNAME_LEN];
+	unsigned char matched_key[DNS_MAX_CNAME_LEN] = {0};
 	int i = 0;
 
 	memset(&walk_args, 0, sizeof(walk_args));
@@ -238,7 +238,7 @@ int _dns_server_passthrough_rule_check(struct dns_request *request, const char *
 {
 	int ttl = 0;
 	char name[DNS_MAX_CNAME_LEN] = {0};
-	char cname[DNS_MAX_CNAME_LEN];
+	char cname[DNS_MAX_CNAME_LEN] = {0};
 	int rr_count = 0;
 	int i = 0;
 	int j = 0;
@@ -350,8 +350,8 @@ int _dns_server_passthrough_rule_check(struct dns_request *request, const char *
 			default:
 				if (ttl == 0) {
 					/* Get TTL */
-					char tmpname[DNS_MAX_CNAME_LEN];
-					char tmpbuf[DNS_MAX_CNAME_LEN];
+					char tmpname[DNS_MAX_CNAME_LEN] = {0};
+					char tmpbuf[DNS_MAX_CNAME_LEN] = {0};
 					dns_get_CNAME(rrs, tmpname, DNS_MAX_CNAME_LEN, &ttl, tmpbuf, DNS_MAX_CNAME_LEN);
 					if (request->ip_ttl == 0) {
 						request->ip_ttl = _dns_server_get_conf_ttl(request, ttl);

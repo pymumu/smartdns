@@ -178,7 +178,7 @@ static int _http3_build_headers_payload(struct http_head *http_head, uint8_t *bu
 		offset += offset_ret;
 	} else if (http_head->head_type == HTTP_HEAD_RESPONSE) {
 		char status_str[12];
-		sprintf(status_str, "%d", http_head->code);
+		snprintf(status_str, sizeof(status_str), "%d", http_head->code);
 		offset_ret = _qpack_build_header(":status", status_str, buffer + offset, buffer_len - offset);
 		if (offset_ret < 0) {
 			return -1;
@@ -197,7 +197,7 @@ static int _http3_build_headers_payload(struct http_head *http_head, uint8_t *bu
 
 	if (http_head->data_len > 0 && http_head->data) {
 		char len_str[12];
-		sprintf(len_str, "%d", http_head->data_len);
+		snprintf(len_str, sizeof(len_str), "%d", http_head->data_len);
 		offset_ret = _qpack_build_header("content-length", len_str, buffer + offset, buffer_len - offset);
 		if (offset_ret < 0) {
 			return -1;

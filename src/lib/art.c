@@ -47,6 +47,12 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define LEAF_RAW(x) ((art_leaf*)((void*)((uintptr_t)x & ~1)))
 
 /**
+ * Forward declarations
+ */
+static void add_child32(art_node32 *n, art_node **ref, unsigned char c, void *child);
+static void add_child48(art_node48 *n, art_node **ref, unsigned char c, void *child);
+
+/**
  * Allocates a node of the given type,
  * initializes to zero and sets the type.
  */
@@ -59,6 +65,9 @@ static art_node* alloc_node(uint8_t type) {
             break;
         case NODE16:
             mem = (art_node*)calloc(1, sizeof(art_node16));
+            break;
+        case NODE32:
+            mem = (art_node*)calloc(1, sizeof(art_node32));
             break;
         case NODE48:
             mem = (art_node*)calloc(1, sizeof(art_node48));
@@ -103,8 +112,9 @@ static void destroy_node(art_node *n) {
     union {
         art_node4 *p1;
         art_node16 *p2;
-        art_node48 *p3;
-        art_node256 *p4;
+        art_node32 *p3;
+        art_node48 *p4;
+        art_node256 *p5;
     } p;
     switch (n->type) {
         case NODE4:
@@ -121,20 +131,27 @@ static void destroy_node(art_node *n) {
             }
             break;
 
+        case NODE32:
+            p.p3 = (art_node32*)n;
+            for (i=0;i<n->num_children;i++) {
+                destroy_node(p.p3->children[i]);
+            }
+            break;
+
         case NODE48:
-            p.p3 = (art_node48*)n;
+            p.p4 = (art_node48*)n;
             for (i=0;i<256;i++) {
                 idx = ((art_node48*)n)->keys[i]; 
                 if (!idx) continue; 
-                destroy_node(p.p3->children[idx-1]);
+                destroy_node(p.p4->children[idx-1]);
             }
             break;
 
         case NODE256:
-            p.p4 = (art_node256*)n;
+            p.p5 = (art_node256*)n;
             for (i=0;i<256;i++) {
-                if (p.p4->children[i])
-                    destroy_node(p.p4->children[i]);
+                if (p.p5->children[i])
+                    destroy_node(p.p5->children[i]);
             }
             break;
 
@@ -168,8 +185,9 @@ static art_node** find_child(art_node *n, unsigned char c) {
     union {
         art_node4 *p1;
         art_node16 *p2;
-        art_node48 *p3;
-        art_node256 *p4;
+        art_node32 *p3;
+        art_node48 *p4;
+        art_node256 *p5;
     } p;
     switch (n->type) {
         case NODE4:
@@ -232,17 +250,26 @@ static art_node** find_child(art_node *n, unsigned char c) {
             break;
         }
 
+        case NODE32:
+            p.p3 = (art_node32*)n;
+            // Linear search for NODE32
+            for (i = 0; i < n->num_children; i++) {
+                if (p.p3->keys[i] == c)
+                    return &p.p3->children[i];
+            }
+            break;
+
         case NODE48:
-            p.p3 = (art_node48*)n;
-            i = p.p3->keys[c];
+            p.p4 = (art_node48*)n;
+            i = p.p4->keys[c];
             if (i)
-                return &p.p3->children[i-1];
+                return &p.p4->children[i-1];
             break;
 
         case NODE256:
-            p.p4 = (art_node256*)n;
-            if (p.p4->children[c])
-                return &p.p4->children[c];
+            p.p5 = (art_node256*)n;
+            if (p.p5->children[c])
+                return &p.p5->children[c];
             break;
 
         default:
@@ -334,6 +361,8 @@ static art_leaf* minimum(const art_node *n) {
             return minimum(((const art_node4*)n)->children[0]);
         case NODE16:
             return minimum(((const art_node16*)n)->children[0]);
+        case NODE32:
+            return minimum(((const art_node32*)n)->children[0]);
         case NODE48:
             idx=0;
             while (!((const art_node48*)n)->keys[idx]) idx++;
@@ -360,6 +389,8 @@ static art_leaf* maximum(const art_node *n) {
             return maximum(((const art_node4*)n)->children[n->num_children-1]);
         case NODE16:
             return maximum(((const art_node16*)n)->children[n->num_children-1]);
+        case NODE32:
+            return maximum(((const art_node32*)n)->children[n->num_children-1]);
         case NODE48:
             idx=255;
             while (!((const art_node48*)n)->keys[idx]) idx--;
@@ -444,6 +475,41 @@ static void add_child48(art_node48 *n, art_node **ref, unsigned char c, void *ch
     }
 }
 
+static void add_child32(art_node32 *n, art_node **ref, unsigned char c, void *child) {
+    if (n->n.num_children < 32) {
+        unsigned idx;
+        // Find insertion point
+        for (idx = 0; idx < n->n.num_children; idx++) {
+            if (c < n->keys[idx]) break;
+        }
+
+        // Shift to make room
+        memmove(n->keys+idx+1, n->keys+idx, n->n.num_children - idx);
+        memmove(n->children+idx+1, n->children+idx,
+                (n->n.num_children - idx)*sizeof(void*));
+
+        // Insert element
+        n->keys[idx] = c;
+        n->children[idx] = (art_node*)child;
+        n->n.num_children++;
+
+    } else {
+        art_node48 *new_node = (art_node48*)alloc_node(NODE48);
+        int i;
+
+        // Copy the child pointers and populate the key map
+        memcpy(new_node->children, n->children,
+                sizeof(void*)*n->n.num_children);
+        for (i=0;i<n->n.num_children;i++) {
+            new_node->keys[n->keys[i]] = i + 1;
+        }
+        copy_header((art_node*)new_node, (art_node*)n);
+        *ref = (art_node*)new_node;
+        free(n);
+        add_child48(new_node, ref, c, child);
+    }
+}
+
 static void add_child16(art_node16 *n, art_node **ref, unsigned char c, void *child) {
     if (n->n.num_children < 16) {
         unsigned mask = (1 << n->n.num_children) - 1;
@@ -498,19 +564,17 @@ static void add_child16(art_node16 *n, art_node **ref, unsigned char c, void *ch
         n->n.num_children++;
 
     } else {
-        art_node48 *new_node = (art_node48*)alloc_node(NODE48);
-        int i;
+        art_node32 *new_node = (art_node32*)alloc_node(NODE32);
 
-        // Copy the child pointers and populate the key map
+        // Copy the child pointers and keys
         memcpy(new_node->children, n->children,
                 sizeof(void*)*n->n.num_children);
-        for (i=0;i<n->n.num_children;i++) {
-            new_node->keys[n->keys[i]] = i + 1;
-        }
+        memcpy(new_node->keys, n->keys,
+                sizeof(unsigned char)*n->n.num_children);
         copy_header((art_node*)new_node, (art_node*)n);
         *ref = (art_node*)new_node;
         free(n);
-        add_child48(new_node, ref, c, child);
+        add_child32(new_node, ref, c, child);
     }
 }
 
@@ -552,6 +616,8 @@ static void add_child(art_node *n, art_node **ref, unsigned char c, void *child)
             return add_child4((art_node4*)n, ref, c, child);
         case NODE16:
             return add_child16((art_node16*)n, ref, c, child);
+        case NODE32:
+            return add_child32((art_node32*)n, ref, c, child);
         case NODE48:
             return add_child48((art_node48*)n, ref, c, child);
         case NODE256:
@@ -716,8 +782,8 @@ static void remove_child48(art_node48 *n, art_node **ref, unsigned char c) {
     n->children[pos-1] = NULL;
     n->n.num_children--;
 
-    if (n->n.num_children == 12) {
-        art_node16 *new_node = (art_node16*)alloc_node(NODE16);
+    if (n->n.num_children == 31) {
+        art_node32 *new_node = (art_node32*)alloc_node(NODE32);
         *ref = (art_node*)new_node;
         copy_header((art_node*)new_node, (art_node*)n);
 
@@ -731,6 +797,22 @@ static void remove_child48(art_node48 *n, art_node **ref, unsigned char c) {
                 child++;
             }
         }
+        free(n);
+    }
+}
+
+static void remove_child32(art_node32 *n, art_node **ref, art_node **l) {
+    int pos = l - n->children;
+    memmove(n->keys+pos, n->keys+pos+1, n->n.num_children - 1 - pos);
+    memmove(n->children+pos, n->children+pos+1, (n->n.num_children - 1 - pos)*sizeof(void*));
+    n->n.num_children--;
+
+    if (n->n.num_children == 15) {
+        art_node16 *new_node = (art_node16*)alloc_node(NODE16);
+        *ref = (art_node*)new_node;
+        copy_header((art_node*)new_node, (art_node*)n);
+        memcpy(new_node->keys, n->keys, 16);
+        memcpy(new_node->children, n->children, 16*sizeof(void*));
         free(n);
     }
 }
@@ -788,6 +870,8 @@ static void remove_child(art_node *n, art_node **ref, unsigned char c, art_node 
             return remove_child4((art_node4*)n, ref, l);
         case NODE16:
             return remove_child16((art_node16*)n, ref, l);
+        case NODE32:
+            return remove_child32((art_node32*)n, ref, l);
         case NODE48:
             return remove_child48((art_node48*)n, ref, c);
         case NODE256:
@@ -880,6 +964,13 @@ static int recursive_iter(art_node *n, art_callback cb, void *data) {
         case NODE16:
             for (i=0; i < n->num_children; i++) {
                 res = recursive_iter(((art_node16*)n)->children[i], cb, data);
+                if (res) return res;
+            }
+            break;
+
+        case NODE32:
+            for (i=0; i < n->num_children; i++) {
+                res = recursive_iter(((art_node32*)n)->children[i], cb, data);
                 if (res) return res;
             }
             break;

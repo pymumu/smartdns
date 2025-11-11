@@ -51,7 +51,7 @@ extern "C" {
 #define DNS_PROXY_MAX_LEN 128
 #define DNS_CONF_USERNAME_LEN 32
 #define DNS_MAX_SPKI_LEN 64
-#define DNS_MAX_URL_LEN 256
+#define DNS_MAX_URL_LEN 1024
 #define DNS_MAX_PATH 1024
 #define DEFAULT_DNS_PORT 53
 #define DEFAULT_DNS_TLS_PORT 853
@@ -76,22 +76,29 @@ extern "C" {
 
 #define DNS64_IPV4ONLY_APRA_DOMAIN "ipv4only.arpa"
 
+/* Domain rule types, ordered by usage frequency for memory optimization */
 enum domain_rule {
-	DOMAIN_RULE_FLAGS = 0,
-	DOMAIN_RULE_ADDRESS_IPV4,
-	DOMAIN_RULE_ADDRESS_IPV6,
-	DOMAIN_RULE_IPSET,
-	DOMAIN_RULE_IPSET_IPV4,
-	DOMAIN_RULE_IPSET_IPV6,
-	DOMAIN_RULE_NFTSET_IP,
-	DOMAIN_RULE_NFTSET_IP6,
-	DOMAIN_RULE_NAMESERVER,
-	DOMAIN_RULE_GROUP,
-	DOMAIN_RULE_CHECKSPEED,
-	DOMAIN_RULE_RESPONSE_MODE,
-	DOMAIN_RULE_CNAME,
-	DOMAIN_RULE_HTTPS,
-	DOMAIN_RULE_TTL,
+	DOMAIN_RULE_FLAGS = 0,               /* Flags (block, ignore, cache, etc.) */
+	
+	DOMAIN_RULE_ADDRESS_IPV4,            /* IPv4 address rule (ad-block, custom DNS) */
+	DOMAIN_RULE_ADDRESS_IPV6,            /* IPv6 address rule */
+	DOMAIN_RULE_NAMESERVER,              /* Nameserver group (domain routing) */
+	
+	DOMAIN_RULE_CHECKSPEED,              /* Speed check mode */
+	DOMAIN_RULE_IPSET,                   /* IPSet rule for traffic routing */
+	DOMAIN_RULE_NFTSET_IP,               /* NFTSet IPv4 */
+	DOMAIN_RULE_IPSET_IPV4,              /* IPv4 IPSet */
+	
+	DOMAIN_RULE_GROUP,                   /* Group rule */
+
+	DOMAIN_RULE_NFTSET_IP6,              /* NFTSet IPv6 */
+	DOMAIN_RULE_IPSET_IPV6,              /* IPv6 IPSet */
+	
+	DOMAIN_RULE_HTTPS,                   /* HTTPS record */
+	DOMAIN_RULE_RESPONSE_MODE,           /* Response mode */
+	DOMAIN_RULE_CNAME,                   /* CNAME rule */
+	DOMAIN_RULE_TTL,                     /* TTL control */
+	
 	DOMAIN_RULE_MAX,
 };
 
@@ -261,7 +268,8 @@ extern struct dns_nftset_names dns_conf_nftset;
 struct dns_domain_rule {
 	unsigned char sub_rule_only : 1;
 	unsigned char root_rule_only : 1;
-	struct dns_rule *rules[DOMAIN_RULE_MAX];
+	unsigned char capacity : 6;          /* Current allocated capacity (max 63) */
+	struct dns_rule *rules[];            /* Flexible array member */
 };
 
 struct dns_nameserver_rule {

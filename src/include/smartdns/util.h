@@ -42,7 +42,7 @@ extern "C" {
 #define TCP_THIN_DUPACK 17
 #endif
 
-#define PORT_NOT_DEFINED -1
+#define PORT_NOT_DEFINED (-1)
 #define MAX_IP_LEN 64
 
 #define IPV6_ADDR_LEN 16
@@ -113,8 +113,6 @@ int set_fd_nonblock(int fd, int nonblock);
 char *reverse_string(char *output, const char *input, int len, int to_lower_case);
 
 char *to_lower_case(char *output, const char *input, int len);
-
-void print_stack(void);
 
 int ipset_add(const char *ipset_name, const unsigned char addr[], int addr_len, unsigned long timeout);
 

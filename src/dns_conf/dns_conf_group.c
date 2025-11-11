@@ -191,14 +191,19 @@ static int _config_domain_rule_iter_copy(void *data, const unsigned char *key, u
 	struct dns_domain_rule *old_domain_rule = NULL;
 	struct dns_domain_rule *new_domain_rule = NULL;
 
-	new_domain_rule = malloc(sizeof(struct dns_domain_rule));
+	old_domain_rule = (struct dns_domain_rule *)value;
+	
+	/* Allocate new domain rule with same capacity as original */
+	size_t size = sizeof(struct dns_domain_rule) + old_domain_rule->capacity * sizeof(struct dns_rule *);
+	new_domain_rule = malloc(size);
 	if (new_domain_rule == NULL) {
 		return -1;
 	}
-	memset(new_domain_rule, 0, sizeof(struct dns_domain_rule));
+	memset(new_domain_rule, 0, size);
+	new_domain_rule->capacity = old_domain_rule->capacity;
 	
-	old_domain_rule = (struct dns_domain_rule *)value;
-	for (int i = 0; i < DOMAIN_RULE_MAX; i++) {
+	/* Copy rules using actual capacity, not DOMAIN_RULE_MAX */
+	for (int i = 0; i < old_domain_rule->capacity; i++) {
 		if (old_domain_rule->rules[i]) {
 			_dns_rule_get(old_domain_rule->rules[i]);
 			new_domain_rule->rules[i] = old_domain_rule->rules[i];

@@ -34,10 +34,11 @@ extern "C" {
 
 #define NODE4   1
 #define NODE16  2
-#define NODE48  3
-#define NODE256 4
+#define NODE32  3
+#define NODE48  4
+#define NODE256 5
 
-#define MAX_PREFIX_LEN 10
+#define MAX_PREFIX_LEN 6
 
 #if defined(__GNUC__) && !defined(__clang__)
 # if __STDC_VERSION__ >= 199901L && 402 == (__GNUC__ * 100 + __GNUC_MINOR__)
@@ -80,6 +81,15 @@ typedef struct {
     unsigned char keys[16];
     art_node *children[16];
 } art_node16;
+
+/**
+ * Node with 32 children
+ */
+typedef struct {
+    art_node n;
+    unsigned char keys[32];
+    art_node *children[32];
+} art_node32;
 
 /**
  * Node with 48 children, but
