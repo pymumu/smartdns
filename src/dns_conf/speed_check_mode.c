@@ -25,6 +25,7 @@
 #include <string.h>
 
 static int dns_has_cap_ping = 0;
+int dns_has_raw_cap = 0;
 int dns_ping_cap_force_enable = 0;
 
 static void _config_speed_check_mode_clear(struct dns_domain_check_orders *check_orders)
@@ -50,7 +51,7 @@ int _config_speed_check_mode_parser(struct dns_domain_check_orders *check_orders
 		if (field == NULL || order >= DOMAIN_CHECK_NUM) {
 			return 0;
 		}
-		
+
 		ptr = strstr(ptr, ",");
 		if (ptr) {
 			*ptr = 0;
@@ -66,6 +67,17 @@ int _config_speed_check_mode_parser(struct dns_domain_check_orders *check_orders
 			check_orders->orders[order].type = DOMAIN_CHECK_ICMP;
 			check_orders->orders[order].tcp_port = 0;
 			dns_conf.has_icmp_check = 1;
+		} else if (strstr(field, "tcp-syn") == field) {
+			char *port_str = strstr(field, ":");
+			if (port_str) {
+				port = atoi(port_str + 1);
+				if (port <= 0 || port >= 65535) {
+					port = 80;
+				}
+			}
+
+			check_orders->orders[order].type = DOMAIN_CHECK_TCP_SYN;
+			check_orders->orders[order].tcp_port = port;
 		} else if (strstr(field, "tcp") == field) {
 			char *port_str = strstr(field, ":");
 			if (port_str) {
@@ -117,6 +129,8 @@ int _dns_conf_speed_check_mode_verify(void)
 	int i = 0;
 	int j = 0;
 	int print_log = 0;
+	int trim_tail = 0;
+	int tcp_sync_fallback = 0;
 
 	hash_for_each_safe(dns_conf_rule.group, k, tmp, group, node)
 	{
@@ -124,13 +138,7 @@ int _dns_conf_speed_check_mode_verify(void)
 		for (i = 0; i < DOMAIN_CHECK_NUM; i++) {
 			if (check_orders->orders[i].type == DOMAIN_CHECK_ICMP) {
 				if (dns_has_cap_ping == 0) {
-					for (j = i + 1; j < DOMAIN_CHECK_NUM; j++) {
-						check_orders->orders[j - 1].type = check_orders->orders[j].type;
-						check_orders->orders[j - 1].tcp_port = check_orders->orders[j].tcp_port;
-					}
-					check_orders->orders[j - 1].type = DOMAIN_CHECK_NONE;
-					check_orders->orders[j - 1].tcp_port = 0;
-					print_log = 1;
+					trim_tail = 1;
 				}
 				dns_conf.has_icmp_check = 1;
 			}
@@ -138,11 +146,40 @@ int _dns_conf_speed_check_mode_verify(void)
 			if (check_orders->orders[i].type == DOMAIN_CHECK_TCP) {
 				dns_conf.has_tcp_check = 1;
 			}
+
+			if (dns_has_raw_cap == 0) {
+				if (check_orders->orders[i].type == DOMAIN_CHECK_TCP_SYN) {
+					if (dns_has_raw_cap == 0) {
+						tcp_sync_fallback = 1;
+						check_orders->orders[i].type = DOMAIN_CHECK_TCP;
+					} else {
+						dns_conf.has_tcp_syn_check = 1;
+					}
+				}
+			}
+
+			if (trim_tail == 1) {
+				for (j = i + 1; j < DOMAIN_CHECK_NUM; j++) {
+					check_orders->orders[j - 1].type = check_orders->orders[j].type;
+					check_orders->orders[j - 1].tcp_port = check_orders->orders[j].tcp_port;
+				}
+				check_orders->orders[j - 1].type = DOMAIN_CHECK_NONE;
+				check_orders->orders[j - 1].tcp_port = 0;
+				print_log = 1;
+			}
+
+			trim_tail = 0;
 		}
 	}
 
 	if (print_log) {
-		tlog(TLOG_WARN, "speed check by ping is disabled because smartdns does not have network raw privileges");
+		tlog(TLOG_WARN,
+			 "speed check by ping or tcp-syn is disabled because smartdns does not have network raw privileges");
+	}
+
+	if (tcp_sync_fallback) {
+		tlog(TLOG_WARN,
+			 "tcp-syn speed check fallback to tcp mode because smartdns does not have network raw privileges");
 	}
 
 	return 0;
@@ -168,6 +205,8 @@ int _dns_ping_cap_check(void)
 	if (dns_ping_cap_force_enable) {
 		dns_has_cap_ping = 1;
 	}
+
+	dns_has_raw_cap = has_raw_cap;
 
 	return 0;
 }

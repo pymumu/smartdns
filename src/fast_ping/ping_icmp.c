@@ -515,3 +515,18 @@ uint16_t _fast_ping_checksum(uint16_t *header, size_t len)
 
 	return htons(~((sum >> 16) + (sum & 0xffff)));
 }
+
+void _fast_ping_close_icmp(void)
+{
+	if (ping.fd_icmp > 0) {
+		epoll_ctl(ping.epoll_fd, EPOLL_CTL_DEL, ping.fd_icmp, NULL);
+		close(ping.fd_icmp);
+		ping.fd_icmp = -1;
+	}
+
+	if (ping.fd_icmp6 > 0) {
+		epoll_ctl(ping.epoll_fd, EPOLL_CTL_DEL, ping.fd_icmp6, NULL);
+		close(ping.fd_icmp6);
+		ping.fd_icmp6 = -1;
+	}
+}

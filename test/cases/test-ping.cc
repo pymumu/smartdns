@@ -47,7 +47,10 @@ void ping_result_callback(struct ping_host_struct *ping_host, const char *host, 
 						  void *userptr)
 {
 	int *count = (int *)userptr;
-	*count = 1;
+	if (result == PING_RESULT_RESPONSE) {
+		*count = 1;
+		tlog(TLOG_INFO, "ping to %s succeeded, seq=%d, ttl=%d", host, seqno, ttl);
+	}
 }
 
 TEST_F(Ping, icmp)
@@ -77,6 +80,78 @@ TEST_F(Ping, tcp)
 	usleep(10000);
 	fast_ping_stop(ping_host);
 	EXPECT_EQ(count, 1);
+}
+
+TEST_F(Ping, tcp_syn)
+{
+	struct ping_host_struct *ping_host;
+	int count = 0;
+	
+	/* Test TCP SYN ping - may not work in all environments */
+	ping_host = fast_ping_start(PING_TYPE_TCP_SYN, "127.0.0.1:53", 5, 1000, 1000, ping_result_callback, &count);
+	if (ping_host == nullptr) {
+		tlog(TLOG_INFO, "TCP SYN ping not available (need root/CAP_NET_RAW), skip this test.");
+		GTEST_SKIP();
+		return;
+	}
+	
+	usleep(10000);
+	fast_ping_stop(ping_host);
+	
+	EXPECT_GT(count, 0);
+}
+
+TEST_F(Ping, tcp_syn_v6)
+{
+	struct ping_host_struct *ping_host;
+	int count = 0;
+
+	/* Test TCP SYN ping - may not work in all environments */
+	ping_host = fast_ping_start(PING_TYPE_TCP_SYN, "[::1]:443", 2, 1000, 1000, ping_result_callback, &count);
+	if (ping_host == nullptr) {
+		tlog(TLOG_INFO, "TCP SYN ping not available (need root/CAP_NET_RAW), skip this test.");
+		GTEST_SKIP();
+		return;
+	}
+	
+	usleep(1000000);
+	fast_ping_stop(ping_host);
+	
+	EXPECT_GT(count, 0);
+}
+
+TEST_F(Ping, tcp_syn_concurrent)
+{
+	struct ping_host_struct *ping_host1;
+	struct ping_host_struct *ping_host2;
+	int count1 = 0, count2 = 0;
+	
+	/* Test concurrent TCP SYN pings to different servers */
+	ping_host1 = fast_ping_start(PING_TYPE_TCP_SYN, "127.0.0.1:22", 1, 1, 500, ping_result_callback, &count1);
+	if (ping_host1 == nullptr) {
+		tlog(TLOG_INFO, "TCP SYN ping not available, skip this test.");
+		GTEST_SKIP();
+		return;
+	}
+	
+	tlog(TLOG_INFO, "First ping started, now starting second...");
+	
+	/* Use Alibaba DNS server (accessible in China) */
+	ping_host2 = fast_ping_start(PING_TYPE_TCP_SYN, "127.0.0.2:53", 1, 1, 500, ping_result_callback, &count2);
+	ASSERT_NE(ping_host2, nullptr);
+	
+	tlog(TLOG_INFO, "Both pings started, waiting 200ms...");
+	usleep(200000); /* Wait 200ms for responses */
+	
+	tlog(TLOG_INFO, "Wait complete, stopping pings...");
+	fast_ping_stop(ping_host1);
+	fast_ping_stop(ping_host2);
+	usleep(50000); /* Brief wait for cleanup */
+	
+	tlog(TLOG_INFO, "TCP SYN concurrent ping test completed, count1=%d, count2=%d", count1, count2);
+	
+	/* At least one should succeed (localhost SSH should be reachable) */
+	EXPECT_GE(count1 + count2, 1);
 }
 
 void fake_ping_result_callback(struct ping_host_struct *ping_host, const char *host, FAST_PING_RESULT result,

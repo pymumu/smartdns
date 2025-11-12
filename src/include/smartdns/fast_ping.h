@@ -28,7 +28,8 @@ extern "C" {
 typedef enum {
 	PING_TYPE_ICMP = 1,
 	PING_TYPE_TCP = 2,
-	PING_TYPE_DNS = 3,
+	PING_TYPE_TCP_SYN = 3,
+	PING_TYPE_DNS = 4,
 } PING_TYPE;
 
 typedef enum {

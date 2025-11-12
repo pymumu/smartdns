@@ -34,6 +34,8 @@ int _dns_conf_speed_check_mode_verify(void);
 
 int _config_speed_check_mode_parser(struct dns_domain_check_orders *check_orders, const char *mode);
 
+extern int dns_has_raw_cap;
+
 #ifdef __cplusplus
 }
 #endif /*__cplusplus */

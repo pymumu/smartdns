@@ -326,3 +326,18 @@ int _fast_ping_process_udp(struct ping_host_struct *ping_host, struct timeval *n
 errout:
 	return -1;
 }
+
+void _fast_ping_close_udp(void)
+{
+	if (ping.fd_udp > 0) {
+		epoll_ctl(ping.epoll_fd, EPOLL_CTL_DEL, ping.fd_udp, NULL);
+		close(ping.fd_udp);
+		ping.fd_udp = -1;
+	}
+
+	if (ping.fd_udp6 > 0) {
+		epoll_ctl(ping.epoll_fd, EPOLL_CTL_DEL, ping.fd_udp6, NULL);
+		close(ping.fd_udp6);
+		ping.fd_udp6 = -1;
+	}
+}

@@ -125,7 +125,8 @@ typedef enum {
 	DOMAIN_CHECK_NONE = 0,
 	DOMAIN_CHECK_ICMP = 1,
 	DOMAIN_CHECK_TCP = 2,
-	DOMAIN_CHECK_NUM = 3,
+	DOMAIN_CHECK_TCP_SYN = 3,
+	DOMAIN_CHECK_NUM = 4,
 } DOMAIN_CHECK_TYPE;
 
 #define DOMAIN_FLAG_ADDR_SOA (1 << 0)
@@ -729,6 +730,7 @@ struct dns_config {
 	struct dns_domain_check_orders default_check_orders;
 	int has_icmp_check;
 	int has_tcp_check;
+	int has_tcp_syn_check;
 
 	struct dns_server_groups server_groups[DNS_NAX_GROUP_NUMBER];
 	int server_group_num;

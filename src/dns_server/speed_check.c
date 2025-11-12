@@ -228,6 +228,11 @@ int _dns_server_check_speed(struct dns_request *request, char *ip)
 		tlog(TLOG_DEBUG, "ping %s with tcp, order: %d, timeout: %d", tcp_ip, order, ping_timeout);
 		return _dns_server_ping(request, PING_TYPE_TCP, tcp_ip, ping_timeout);
 		break;
+	case DOMAIN_CHECK_TCP_SYN:
+		snprintf(tcp_ip, sizeof(tcp_ip), "%s:%d", ip, port);
+		tlog(TLOG_DEBUG, "ping %s with tcp-syn, order: %d, timeout: %d", tcp_ip, order, ping_timeout);
+		return _dns_server_ping(request, PING_TYPE_TCP_SYN, tcp_ip, ping_timeout);
+		break;
 	default:
 		break;
 	}

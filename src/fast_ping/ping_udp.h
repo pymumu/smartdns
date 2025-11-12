@@ -31,6 +31,8 @@ int _fast_ping_sendping_udp(struct ping_host_struct *ping_host);
 
 int _fast_ping_process_udp(struct ping_host_struct *ping_host, struct timeval *now);
 
+void _fast_ping_close_udp(void);
+
 #ifdef __cplusplus
 }
 #endif /*__cplusplus */

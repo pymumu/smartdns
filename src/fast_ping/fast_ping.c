@@ -30,6 +30,7 @@
 #include "ping_icmp.h"
 #include "ping_icmp6.h"
 #include "ping_tcp.h"
+#include "ping_tcp_syn.h"
 #include "ping_udp.h"
 #include "wakeup_event.h"
 
@@ -160,6 +161,8 @@ static int _fast_ping_sendping(struct ping_host_struct *ping_host)
 		ret = _fast_ping_sendping_v6(ping_host);
 	} else if (ping_host->type == FAST_PING_TCP) {
 		ret = _fast_ping_sendping_tcp(ping_host);
+	} else if (ping_host->type == FAST_PING_TCP_SYN) {
+		ret = _fast_ping_sendping_tcp_syn(ping_host);
 	} else if (ping_host->type == FAST_PING_UDP || ping_host->type == FAST_PING_UDP6) {
 		ret = _fast_ping_sendping_udp(ping_host);
 	}
@@ -201,6 +204,9 @@ int _fast_ping_get_addr_by_type(PING_TYPE type, const char *ip_str, int port, st
 		break;
 	case PING_TYPE_TCP:
 		return _fast_ping_get_addr_by_tcp(ip_str, port, out_gai, out_ping_type);
+		break;
+	case PING_TYPE_TCP_SYN:
+		return _fast_ping_get_addr_by_tcp_syn(ip_str, port, out_gai, out_ping_type);
 		break;
 	case PING_TYPE_DNS:
 		return _fast_ping_get_addr_by_dns(ip_str, port, out_gai, out_ping_type);
@@ -362,6 +368,9 @@ static int _fast_ping_process(struct ping_host_struct *ping_host, struct epoll_e
 		break;
 	case FAST_PING_TCP:
 		ret = _fast_ping_process_tcp(ping_host, event, now);
+		break;
+	case FAST_PING_TCP_SYN:
+		ret = _fast_ping_process_tcp_syn(ping_host, now);
 		break;
 	case FAST_PING_UDP6:
 	case FAST_PING_UDP:
@@ -619,25 +628,9 @@ errout:
 
 static void _fast_ping_close_fds(void)
 {
-	if (ping.fd_icmp > 0) {
-		close(ping.fd_icmp);
-		ping.fd_icmp = -1;
-	}
-
-	if (ping.fd_icmp6 > 0) {
-		close(ping.fd_icmp6);
-		ping.fd_icmp6 = -1;
-	}
-
-	if (ping.fd_udp > 0) {
-		close(ping.fd_udp);
-		ping.fd_udp = -1;
-	}
-
-	if (ping.fd_udp6 > 0) {
-		close(ping.fd_udp6);
-		ping.fd_udp6 = -1;
-	}
+	_fast_ping_close_icmp();
+	_fast_ping_close_udp();
+	_fast_ping_close_tcp_syn();
 }
 
 void fast_ping_exit(void)

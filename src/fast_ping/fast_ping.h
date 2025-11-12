@@ -65,6 +65,7 @@ typedef enum FAST_PING_TYPE {
 	FAST_PING_ICMP = 1,
 	FAST_PING_ICMP6 = 2,
 	FAST_PING_TCP,
+	FAST_PING_TCP_SYN,
 	FAST_PING_UDP,
 	FAST_PING_UDP6,
 	FAST_PING_END,
@@ -120,6 +121,7 @@ struct ping_host_struct {
 	int run;
 	unsigned short sid;
 	unsigned short port;
+	unsigned short tcp_local_port;
 	unsigned short ss_family;
 	union {
 		struct sockaddr addr;
@@ -128,7 +130,7 @@ struct ping_host_struct {
 	};
 	socklen_t addr_len;
 	struct fast_ping_packet packet;
-	/* for memory address alignment */
+
 	struct fast_ping_packet recv_packet_buffer;
 
 	struct fast_ping_fake_ip *fake;
@@ -160,6 +162,16 @@ struct fast_ping_struct {
 	struct ping_host_struct udp_host;
 	int fd_udp6;
 	struct ping_host_struct udp6_host;
+	int fd_tcp_syn;
+	struct ping_host_struct tcp_syn_host;
+	int fd_tcp_syn6;
+	struct ping_host_struct tcp_syn6_host;
+	int fd_tcp_syn_bind;
+	uint16_t tcp_syn_bind_port;
+	struct sockaddr_in tcp_syn_bind_addr;
+	int fd_tcp_syn6_bind;
+	uint16_t tcp_syn6_bind_port;
+	struct sockaddr_in6 tcp_syn6_bind_addr;
 
 	int event_fd;
 	pthread_t notify_tid;

@@ -365,6 +365,16 @@ void dns_server_load_exit(void)
 
 static void _dns_conf_default_value_init(void)
 {
+	/*
+	 TODO: when tcp syn ping is stable, enable it by default
+	*/
+	DOMAIN_CHECK_TYPE tcp_check_type = DOMAIN_CHECK_TCP;
+#ifdef DEFAULT_TCP_SYN_PING
+	if (dns_has_raw_cap) {
+		tcp_check_type = DOMAIN_CHECK_TCP_SYN;
+	}
+#endif
+
 	dns_conf.max_query_limit = DNS_MAX_QUERY_LIMIT;
 	dns_conf.tcp_idle_time = 120;
 	dns_conf.local_ptr_enable = 1;
@@ -381,11 +391,12 @@ static void _dns_conf_default_value_init(void)
 	dns_conf.resolv_hostname = 1;
 	dns_conf.cachesize = -1;
 	dns_conf.cache_max_memsize = -1;
+
 	dns_conf.default_check_orders.orders[0].type = DOMAIN_CHECK_ICMP;
 	dns_conf.default_check_orders.orders[0].tcp_port = 0;
-	dns_conf.default_check_orders.orders[1].type = DOMAIN_CHECK_TCP;
+	dns_conf.default_check_orders.orders[1].type = tcp_check_type;
 	dns_conf.default_check_orders.orders[1].tcp_port = 80;
-	dns_conf.default_check_orders.orders[2].type = DOMAIN_CHECK_TCP;
+	dns_conf.default_check_orders.orders[2].type = tcp_check_type;
 	dns_conf.default_check_orders.orders[2].tcp_port = 443;
 	dns_conf.default_response_mode = DNS_RESPONSE_MODE_FIRST_PING_IP;
 }
