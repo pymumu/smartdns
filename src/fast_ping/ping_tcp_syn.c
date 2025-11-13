@@ -55,11 +55,6 @@ struct pseudo_header6 {
 	uint8_t next_header;
 } __attribute__((packed));
 
-struct tcp_syn_packet {
-	struct tcphdr tcp;
-	uint32_t data; /* Store sid for packet identification */
-} __attribute__((packed));
-
 /* Get local IP address based on destination address and routing table */
 static int _tcp_syn_get_local_addr(int family, struct sockaddr *dest, struct sockaddr_storage *local)
 {
@@ -412,7 +407,7 @@ static int _tcp_syn_build_packet_ipv4(char *packet, struct ping_host_struct *pin
 	tcph->psh = 0;
 	tcph->ack = 0;
 	tcph->urg = 0;
-	tcph->window = htons(65535);
+	tcph->window = htons(8192);
 	tcph->check = 0;
 	tcph->urg_ptr = htons(0);
 
@@ -856,18 +851,11 @@ errout:
 	return -1;
 }
 
-static int _fast_ping_create_tcp_syn_sock(FAST_PING_TYPE type)
+static int _fast_ping_create_tcp_syn_sock(int is_ipv6)
 {
 	int fd = -1;
 	struct epoll_event event;
 	struct ping_host_struct *tcp_syn_host = NULL;
-	int is_ipv6 = 0;
-
-	/* FAST_PING_END is used internally to indicate IPv6 */
-	if (type == FAST_PING_END) {
-		is_ipv6 = 1;
-		type = FAST_PING_TCP_SYN;
-	}
 
 	if (!is_ipv6) {
 		fd = _fast_ping_create_tcp_syn_sock_ipv4();
@@ -893,7 +881,7 @@ static int _fast_ping_create_tcp_syn_sock(FAST_PING_TYPE type)
 	}
 
 	tcp_syn_host->fd = fd;
-	tcp_syn_host->type = type;
+	tcp_syn_host->type = FAST_PING_TCP_SYN;
 
 	return fd;
 
@@ -908,17 +896,16 @@ errout:
 	return -1;
 }
 
-static int _fast_ping_create_tcp_syn(FAST_PING_TYPE type)
+static int _fast_ping_create_tcp_syn(int is_ipv6)
 {
 	int fd = -1;
 	int *set_fd = NULL;
 
 	pthread_mutex_lock(&ping.lock);
 
-	if (type == FAST_PING_TCP_SYN) {
+	if (!is_ipv6) {
 		set_fd = &ping.fd_tcp_syn;
 	} else {
-		/* IPv6 */
 		set_fd = &ping.fd_tcp_syn6;
 	}
 
@@ -926,7 +913,7 @@ static int _fast_ping_create_tcp_syn(FAST_PING_TYPE type)
 		goto out;
 	}
 
-	fd = _fast_ping_create_tcp_syn_sock(type);
+	fd = _fast_ping_create_tcp_syn_sock(is_ipv6);
 	if (fd < 0) {
 		goto errout;
 	}
@@ -953,7 +940,7 @@ int _fast_ping_tcp_syn_create_socket(struct ping_host_struct *ping_host)
 
 	/* Determine IPv4 or IPv6 based on address family */
 	if (ping_host->ss_family == AF_INET) {
-		if (_fast_ping_create_tcp_syn(FAST_PING_TCP_SYN) < 0) {
+		if (_fast_ping_create_tcp_syn(0) < 0) {
 			goto errout;
 		}
 		if (ping.fd_tcp_syn <= 0) {
@@ -965,8 +952,7 @@ int _fast_ping_tcp_syn_create_socket(struct ping_host_struct *ping_host)
 		/* Use a special internal type indicator */
 		pthread_mutex_lock(&ping.lock);
 		if (ping.fd_tcp_syn6 <= 0) {
-			/* Pass FAST_PING_END as indicator for IPv6 */
-			int fd = _fast_ping_create_tcp_syn_sock(FAST_PING_END);
+			int fd = _fast_ping_create_tcp_syn_sock(1);
 			if (fd > 0) {
 				ping.fd_tcp_syn6 = fd;
 			}
