@@ -695,7 +695,8 @@ static void _dns_server_period_run(unsigned int msec)
 			continue;
 		}
 
-		if (request->send_tick < now - (check_order * DNS_PING_CHECK_INTERVAL) && request->has_ping_result == 0) {
+		if ((request->send_tick < now - (check_order * DNS_PING_CHECK_INTERVAL) && request->has_ping_result == 0) ||
+			request->ping_time > DNS_PING_RTT_CHECK_THRESHOLD) {
 			_dns_server_request_get(request);
 			list_add_tail(&request->check_list, &check_list);
 			request->check_order++;

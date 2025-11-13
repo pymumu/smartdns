@@ -210,10 +210,26 @@ int _dns_server_check_speed(struct dns_request *request, char *ip)
 	}
 
 	ping_timeout = ping_timeout - (now - request->send_tick);
-	if (ping_timeout > DNS_PING_TIMEOUT) {
-		ping_timeout = DNS_PING_TIMEOUT;
-	} else if (ping_timeout < 200) {
-		ping_timeout = 200;
+	switch (request->response_mode) {
+	case DNS_RESPONSE_MODE_FIRST_PING_IP:
+		if (ping_timeout > 200) {
+			ping_timeout = 200;
+		}
+		break;
+	case DNS_RESPONSE_MODE_FASTEST_IP:
+		if (ping_timeout > DNS_PING_TIMEOUT) {
+			ping_timeout = DNS_PING_TIMEOUT;
+		} else if (ping_timeout < 200) {
+			ping_timeout = 200;
+		}
+		break;
+	case DNS_RESPONSE_MODE_FASTEST_RESPONSE:
+		if (ping_timeout < 200) {
+			ping_timeout = 200;
+		}
+		break;
+	default:
+		break;
 	}
 
 	port = request->check_order_list->orders[order].tcp_port;
