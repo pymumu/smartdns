@@ -18,6 +18,7 @@
 
 #include "plugin.h"
 #include "smartdns/lib/stringutil.h"
+#include "smartdns/util.h"
 
 #include <stdio.h>
 
@@ -143,11 +144,10 @@ int _config_plugin(void *data, int argc, char *argv[])
 		goto errout;
 	}
 
-	plugin = malloc(sizeof(*plugin));
+	plugin = zalloc(1, sizeof(*plugin));
 	if (plugin == NULL) {
 		goto errout;
 	}
-	memset(plugin, 0, sizeof(*plugin));
 	safe_strncpy(plugin->file, file, sizeof(plugin->file) - 1);
 	ptr = plugin->args;
 	ptr_end = plugin->args + sizeof(plugin->args) - 2;
@@ -180,11 +180,10 @@ int _config_plugin_conf_add(const char *key, const char *value)
 	if (conf == NULL) {
 
 		hash = hash_string(key);
-		conf = malloc(sizeof(*conf));
+		conf = zalloc(1, sizeof(*conf));
 		if (conf == NULL) {
 			goto errout;
 		}
-		memset(conf, 0, sizeof(*conf));
 		safe_strncpy(conf->key, key, sizeof(conf->key) - 1);
 		hash_add(dns_conf_plugin_table.plugins_conf, &conf->node, hash);
 	}

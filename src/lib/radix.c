@@ -106,17 +106,15 @@ static prefix_t
 	if (family == AF_INET6) {
 		default_bitlen = 128;
 		if (prefix == NULL) {
-			if ((prefix = malloc(sizeof(*prefix))) == NULL)
+			if ((prefix = calloc(1, sizeof(*prefix))) == NULL)
 				return (NULL);
-			memset(prefix, '\0', sizeof(*prefix));
 			dynamic_allocated++;
 		}
 		memcpy(&prefix->add.sin6, dest, 16);
 	} else if (family == AF_INET) {
 		if (prefix == NULL) {
-			if ((prefix = malloc(sizeof(*prefix))) == NULL)
+			if ((prefix = calloc(1, sizeof(*prefix))) == NULL)
 				return (NULL);
-			memset(prefix, '\0', sizeof(*prefix));
 			dynamic_allocated++;
 		}
 		memcpy(&prefix->add.sin, dest, 4);
@@ -171,9 +169,8 @@ radix_tree_t
 {
 	radix_tree_t *radix;
 
-	if ((radix = malloc(sizeof(*radix))) == NULL)
+	if ((radix = calloc(1, sizeof(*radix))) == NULL)
 		return (NULL);
-	memset(radix, '\0', sizeof(*radix));
 
 	radix->maxbits = 128;
 	radix->head = NULL;
@@ -340,9 +337,8 @@ radix_node_t
 	unsigned int i, j, r;
 
 	if (radix->head == NULL) {
-		if ((node = malloc(sizeof(*node))) == NULL)
+		if ((node = calloc(1, sizeof(*node))) == NULL)
 			return (NULL);
-		memset(node, '\0', sizeof(*node));
 		node->bit = prefix->bitlen;
 		node->prefix = Ref_Prefix(prefix);
 		node->parent = NULL;
@@ -401,9 +397,8 @@ radix_node_t
 			node->prefix = Ref_Prefix(prefix);
 		return (node);
 	}
-	if ((new_node = malloc(sizeof(*new_node))) == NULL)
+	if ((new_node = calloc(1, sizeof(*new_node))) == NULL)
 		return (NULL);
-	memset(new_node, '\0', sizeof(*new_node));
 	new_node->bit = prefix->bitlen;
 	new_node->prefix = Ref_Prefix(prefix);
 	new_node->parent = NULL;
@@ -438,11 +433,10 @@ radix_node_t
 
 		node->parent = new_node;
 	} else {
-		if ((glue = malloc(sizeof(*glue))) == NULL) {
+		if ((glue = calloc(1, sizeof(*glue))) == NULL) {
 			free(new_node);
 			return (NULL);
 		}
-		memset(glue, '\0', sizeof(*glue));
 		glue->bit = differ_bit;
 		glue->prefix = NULL;
 		glue->parent = node->parent;

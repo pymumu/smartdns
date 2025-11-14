@@ -71,7 +71,7 @@ int dns_cache_init(int size, int mem_size, dns_cache_callback timeout_callback)
 		bits = 12;
 	}
 
-	hash_table_init(dns_cache_head.cache_hash, bits, malloc);
+	hash_table_init(dns_cache_head.cache_hash, bits);
 	atomic_set(&dns_cache_head.num, 0);
 	atomic_set(&dns_cache_head.mem_size, 0);
 	dns_cache_head.size = size;
@@ -168,13 +168,12 @@ struct dns_cache_data *dns_cache_new_data_packet(void *packet, size_t packet_len
 	}
 
 	data_size = sizeof(*cache_packet) + packet_len;
-	cache_packet = malloc(data_size);
+	cache_packet = zalloc(1, data_size);
 	if (cache_packet == NULL) {
 		return NULL;
 	}
 
 	memcpy(cache_packet->data, packet, packet_len);
-	memset(&cache_packet->head, 0, sizeof(cache_packet->head));
 
 	cache_packet->head.size = packet_len;
 	cache_packet->head.magic = MAGIC_CACHE_DATA;
@@ -395,12 +394,10 @@ static int _dns_cache_insert(struct dns_cache_info *info, struct dns_cache_data 
 	cache_key.dns_group_name = info->dns_group_name;
 	_dns_cache_remove_by_domain(&cache_key);
 
-	dns_cache = malloc(sizeof(*dns_cache));
+	dns_cache = zalloc(1, sizeof(*dns_cache));
 	if (dns_cache == NULL) {
 		goto errout;
 	}
-
-	memset(dns_cache, 0, sizeof(*dns_cache));
 	key = hash_string_case(info->domain);
 	key = jhash(&info->qtype, sizeof(info->qtype), key);
 	key = hash_string_initval(info->dns_group_name, key);
@@ -724,7 +721,7 @@ static int _dns_cache_read_record(int fd, uint32_t cache_number, dns_cache_read_
 		}
 
 		data_size = data_head.size + sizeof(data_head);
-		cache_data = malloc(data_size);
+		cache_data = zalloc(1, data_size);
 		if (cache_data == NULL) {
 			tlog(TLOG_ERROR, "malloc cache data failed %s", strerror(errno));
 			goto errout;

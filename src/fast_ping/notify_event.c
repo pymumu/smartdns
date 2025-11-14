@@ -19,6 +19,7 @@
 
 #include "notify_event.h"
 #include "ping_host.h"
+#include "smartdns/util.h"
 
 #include <errno.h>
 #include <pthread.h>
@@ -44,11 +45,10 @@ int _fast_ping_send_notify_event(struct ping_host_struct *ping_host, FAST_PING_R
 {
 	struct fast_ping_notify_event *notify_event = NULL;
 
-	notify_event = malloc(sizeof(struct fast_ping_notify_event));
+	notify_event = zalloc(1, sizeof(struct fast_ping_notify_event));
 	if (notify_event == NULL) {
 		goto errout;
 	}
-	memset(notify_event, 0, sizeof(struct fast_ping_notify_event));
 	INIT_LIST_HEAD(&notify_event->list);
 	notify_event->seq = seq;
 	notify_event->ttl = ttl;

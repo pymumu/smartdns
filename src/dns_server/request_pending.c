@@ -60,13 +60,11 @@ int _dns_server_set_to_pending_list(struct dns_request *request)
 	}
 
 	if (pending_list == NULL) {
-		pending_list = malloc(sizeof(*pending_list));
+		pending_list = zalloc(1, sizeof(*pending_list));
 		if (pending_list == NULL) {
 			ret = -1;
 			goto out;
 		}
-
-		memset(pending_list, 0, sizeof(*pending_list));
 		pthread_mutex_init(&pending_list->request_list_lock, NULL);
 		INIT_LIST_HEAD(&pending_list->request_list);
 		INIT_HLIST_NODE(&pending_list->node);

@@ -399,16 +399,15 @@ int _dns_client_server_add(const char *server_ip, const char *server_host, int p
 		goto errout;
 	}
 
-	server_info = malloc(sizeof(*server_info));
-	if (server_info == NULL) {
-		goto errout;
-	}
-
 	if (server_type != DNS_SERVER_UDP) {
 		flags->result_flag &= (~DNSSERVER_FLAG_CHECK_TTL);
 	}
 
-	memset(server_info, 0, sizeof(*server_info));
+	server_info = zalloc(1, sizeof(*server_info));
+	if (server_info == NULL) {
+		goto errout;
+	}
+
 	safe_strncpy(server_info->ip, server_ip, sizeof(server_info->ip));
 	server_info->port = port;
 	server_info->ai_family = gai->ai_family;

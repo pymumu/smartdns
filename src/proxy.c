@@ -175,12 +175,11 @@ int proxy_add(const char *proxy_name, struct proxy_info *info)
 		return -1;
 	}
 
-	server_info = malloc(sizeof(*server_info));
+	server_info = zalloc(1, sizeof(*server_info));
 	if (server_info == NULL) {
 		goto errout;
 	}
 
-	memset(server_info, 0, sizeof(*server_info));
 	memcpy(&server_info->info, info, sizeof(struct proxy_info));
 
 	if (parse_ip(info->server, ip_str, &port) != 0) {
@@ -268,12 +267,11 @@ struct proxy_conn *proxy_conn_new(const char *proxy_name, const char *host, int 
 		goto errout;
 	}
 
-	proxy_conn = malloc(sizeof(*proxy_conn));
+	proxy_conn = zalloc(1, sizeof(*proxy_conn));
 	if (proxy_conn == NULL) {
 		goto errout;
 	}
 
-	memset(proxy_conn, 0, sizeof(*proxy_conn));
 	safe_strncpy(proxy_conn->host, host, DNS_MAX_CNAME_LEN);
 	proxy_conn->port = port;
 	proxy_conn->type = server_info->info.type;

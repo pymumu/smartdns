@@ -24,13 +24,11 @@ struct dns_conn_stream *_dns_client_conn_stream_new(void)
 {
 	struct dns_conn_stream *stream = NULL;
 
-	stream = malloc(sizeof(*stream));
+	stream = zalloc(1, sizeof(*stream));
 	if (stream == NULL) {
 		tlog(TLOG_ERROR, "malloc conn stream failed");
 		return NULL;
 	}
-
-	memset(stream, 0, sizeof(*stream));
 	INIT_LIST_HEAD(&stream->server_list);
 	INIT_LIST_HEAD(&stream->query_list);
 	stream->quic_stream = NULL;

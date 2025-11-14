@@ -449,13 +449,11 @@ struct dns_request *_dns_server_new_request(void)
 {
 	struct dns_request *request = NULL;
 
-	request = malloc(sizeof(*request));
+	request = zalloc(1, sizeof(*request));
 	if (request == NULL) {
 		tlog(TLOG_ERROR, "malloc request failed.\n");
 		goto errout;
 	}
-
-	memset(request, 0, sizeof(*request));
 	pthread_mutex_init(&request->ip_map_lock, NULL);
 	atomic_set(&request->adblock, 0);
 	atomic_set(&request->soa_num, 0);
@@ -837,11 +835,10 @@ int _dns_server_process_https_svcb(struct dns_request *request)
 		return 0;
 	}
 
-	request->https_svcb = malloc(sizeof(*request->https_svcb));
+	request->https_svcb = zalloc(1, sizeof(*request->https_svcb));
 	if (request->https_svcb == NULL) {
 		return -1;
 	}
-	memset(request->https_svcb, 0, sizeof(*request->https_svcb));
 
 	if (https_record_rule == NULL) {
 		return 0;

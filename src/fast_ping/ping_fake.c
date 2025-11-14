@@ -122,11 +122,10 @@ int fast_ping_fake_ip_add(PING_TYPE type, const char *host, int ttl, float time)
 	}
 
 	fake_old = _fast_ping_fake_find(ping_type, gai->ai_addr, gai->ai_addrlen);
-	fake = malloc(sizeof(*fake));
+	fake = zalloc(1, sizeof(*fake));
 	if (fake == NULL) {
 		goto errout;
 	}
-	memset(fake, 0, sizeof(*fake));
 
 	safe_strncpy(fake->host, ip_str, PING_MAX_HOSTLEN);
 	fake->ttl = ttl;

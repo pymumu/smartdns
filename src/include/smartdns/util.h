@@ -21,6 +21,7 @@
 
 #include "smartdns/lib/stringutil.h"
 #include <netdb.h>
+#include <stdlib.h>
 #include <time.h>
 
 #ifdef __cplusplus
@@ -206,6 +207,11 @@ int dns_packet_debug(const char *packet_file);
 int dns_is_quic_supported(void);
 
 int decode_hex(int ch);
+
+static inline void *zalloc(size_t count, size_t size)
+{
+	return calloc(count, size);
+}
 
 #ifdef __cplusplus
 }

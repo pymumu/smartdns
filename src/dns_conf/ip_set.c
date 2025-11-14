@@ -18,6 +18,7 @@
 
 #include "ip_set.h"
 #include "smartdns/lib/stringutil.h"
+#include "smartdns/util.h"
 
 #include <errno.h>
 #include <getopt.h>
@@ -46,12 +47,11 @@ int _config_ip_set(void *data, int argc, char *argv[])
 		goto errout;
 	}
 
-	ip_set = malloc(sizeof(*ip_set));
+	ip_set = zalloc(1, sizeof(*ip_set));
 	if (ip_set == NULL) {
 		tlog(TLOG_ERROR, "cannot malloc memory.");
 		goto errout;
 	}
-	memset(ip_set, 0, sizeof(*ip_set));
 	INIT_LIST_HEAD(&ip_set->list);
 
 	optind = 1;
@@ -103,12 +103,11 @@ int _config_ip_set(void *data, int argc, char *argv[])
 	}
 
 	if (ip_set_name_list == NULL) {
-		ip_set_name_list = malloc(sizeof(*ip_set_name_list));
+		ip_set_name_list = zalloc(1, sizeof(*ip_set_name_list));
 		if (ip_set_name_list == NULL) {
 			tlog(TLOG_ERROR, "cannot malloc memory.");
 			goto errout;
 		}
-		memset(ip_set_name_list, 0, sizeof(*ip_set_name_list));
 		INIT_LIST_HEAD(&ip_set_name_list->set_name_list);
 		safe_strncpy(ip_set_name_list->name, set_name, DNS_MAX_CNAME_LEN);
 		hash_add(dns_ip_set_name_table.names, &ip_set_name_list->node, key);

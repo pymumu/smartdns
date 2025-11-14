@@ -230,11 +230,10 @@ int _config_ip_rule_flag_set(const char *ip_cidr, unsigned int flag, unsigned in
 
 	ip_rules = node->data;
 	if (ip_rules == NULL) {
-		add_ip_rules = malloc(sizeof(*add_ip_rules));
+		add_ip_rules = zalloc(1, sizeof(*add_ip_rules));
 		if (add_ip_rules == NULL) {
 			goto errout;
 		}
-		memset(add_ip_rules, 0, sizeof(*add_ip_rules));
 		ip_rules = add_ip_rules;
 		node->data = ip_rules;
 	}
@@ -301,11 +300,10 @@ int _config_ip_rule_add(const char *ip_cidr, enum ip_rule type, void *rule)
 
 	ip_rules = node->data;
 	if (ip_rules == NULL) {
-		add_ip_rules = malloc(sizeof(*add_ip_rules));
+		add_ip_rules = zalloc(1, sizeof(*add_ip_rules));
 		if (add_ip_rules == NULL) {
 			goto errout;
 		}
-		memset(add_ip_rules, 0, sizeof(*add_ip_rules));
 		ip_rules = add_ip_rules;
 		node->data = ip_rules;
 	}
@@ -350,11 +348,10 @@ static void *_new_dns_ip_rule_ext(enum ip_rule ip_rule, int ext_size)
 	}
 
 	size += ext_size;
-	rule = malloc(size);
+	rule = zalloc(1, size);
 	if (!rule) {
 		return NULL;
 	}
-	memset(rule, 0, size);
 	rule->rule = ip_rule;
 	atomic_set(&rule->refcnt, 1);
 	return rule;

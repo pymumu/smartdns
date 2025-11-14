@@ -124,11 +124,10 @@ static int _dns_server_neighbor_cache_add(const uint8_t *net_addr, int net_addr_
 
 	item = _dns_server_neighbor_cache_get_item(net_addr, net_addr_len);
 	if (item == NULL) {
-		item = malloc(sizeof(*item));
+		item = zalloc(1, sizeof(*item));
 		if (item == NULL) {
 			return -1;
 		}
-		memset(item, 0, sizeof(*item));
 		INIT_LIST_HEAD(&item->list);
 		INIT_HLIST_NODE(&item->node);
 	}

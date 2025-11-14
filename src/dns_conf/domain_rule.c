@@ -166,11 +166,10 @@ void *_new_dns_rule_ext(enum domain_rule domain_rule, int ext_size)
 	}
 
 	size += ext_size;
-	rule = malloc(size);
+	rule = zalloc(1, size);
 	if (!rule) {
 		return NULL;
 	}
-	memset(rule, 0, size);
 	rule->rule = domain_rule;
 	atomic_set(&rule->refcnt, 1);
 	return rule;

@@ -429,11 +429,10 @@ int dns_client_query(const char *domain, int qtype, dns_client_callback callback
 		goto errout;
 	}
 
-	query = malloc(sizeof(*query));
+	query = zalloc(1, sizeof(*query));
 	if (query == NULL) {
 		goto errout;
 	}
-	memset(query, 0, sizeof(*query));
 
 	INIT_HLIST_NODE(&query->domain_node);
 	INIT_LIST_HEAD(&query->dns_request_list);

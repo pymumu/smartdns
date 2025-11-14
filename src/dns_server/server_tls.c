@@ -271,12 +271,11 @@ int _dns_server_tls_accept(struct dns_server_conn_tls_server *tls_server, struct
 		goto errout;
 	}
 
-	tls_client = malloc(sizeof(*tls_client));
+	tls_client = zalloc(1, sizeof(*tls_client));
 	if (tls_client == NULL) {
 		tlog(TLOG_ERROR, "malloc for tls_client failed.");
 		goto errout;
 	}
-	memset(tls_client, 0, sizeof(*tls_client));
 	_dns_server_conn_head_init(&tls_client->tcp.head, fd, conn_type);
 	tls_client->tcp.head.server_flags = tls_server->head.server_flags;
 	tls_client->tcp.head.dns_group = tls_server->head.dns_group;
@@ -457,11 +456,10 @@ int _dns_server_socket_tls(struct dns_bind_ip *bind_ip, DNS_CONN_TYPE conn_type)
 		goto errout;
 	}
 
-	conn = malloc(sizeof(struct dns_server_conn_tls_server));
+	conn = zalloc(1, sizeof(struct dns_server_conn_tls_server));
 	if (conn == NULL) {
 		goto errout;
 	}
-	memset(conn, 0, sizeof(struct dns_server_conn_tls_server));
 	_dns_server_conn_head_init(&conn->head, fd, conn_type);
 	conn->ssl_ctx = ssl_ctx;
 	_dns_server_set_flags(&conn->head, bind_ip);

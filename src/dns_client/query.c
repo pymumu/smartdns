@@ -216,7 +216,7 @@ int _dns_replied_check_add(struct dns_query_struct *dns_query, struct sockaddr *
 		}
 	}
 
-	replied_map = malloc(sizeof(*replied_map));
+	replied_map = zalloc(1, sizeof(*replied_map));
 	if (replied_map == NULL) {
 		tlog(TLOG_ERROR, "malloc failed");
 		return -1;

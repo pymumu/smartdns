@@ -78,13 +78,11 @@ int _dns_client_add_to_group(const char *group_name, struct dns_server_info *ser
 		return -1;
 	}
 
-	group_member = malloc(sizeof(*group_member));
+	group_member = zalloc(1, sizeof(*group_member));
 	if (group_member == NULL) {
 		tlog(TLOG_ERROR, "malloc memory failed.");
 		goto errout;
 	}
-
-	memset(group_member, 0, sizeof(*group_member));
 	group_member->server = server_info;
 	dns_client_server_info_get(server_info);
 	list_add(&group_member->list, &group->head);
@@ -184,12 +182,10 @@ int dns_client_add_group(const char *group_name)
 		return 0;
 	}
 
-	group = malloc(sizeof(*group));
+	group = zalloc(1, sizeof(*group));
 	if (group == NULL) {
 		goto errout;
 	}
-
-	memset(group, 0, sizeof(*group));
 	INIT_LIST_HEAD(&group->head);
 	safe_strncpy(group->group_name, group_name, DNS_GROUP_NAME_LEN);
 	key = hash_string(group_name);

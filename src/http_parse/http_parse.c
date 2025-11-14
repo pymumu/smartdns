@@ -17,6 +17,7 @@
  */
 
 #include "smartdns/http_parse.h"
+#include "smartdns/util.h"
 #include "http1_parse.h"
 #include "http2_parse.h"
 #include "http3_parse.h"
@@ -37,17 +38,16 @@ struct http_head *http_head_init(int buffsize, HTTP_VERSION version)
 	struct http_head *http_head = NULL;
 	unsigned char *buffer = NULL;
 
-	http_head = malloc(sizeof(*http_head));
+	http_head = zalloc(1, sizeof(*http_head));
 	if (http_head == NULL) {
 		goto errout;
 	}
-	memset(http_head, 0, sizeof(*http_head));
 	INIT_LIST_HEAD(&http_head->field_head.list);
 	hash_init(http_head->field_map);
 	INIT_LIST_HEAD(&http_head->params.list);
 	hash_init(http_head->params_map);
 
-	buffer = malloc(buffsize);
+	buffer = zalloc(1, buffsize);
 	if (buffer == NULL) {
 		goto errout;
 	}
@@ -233,11 +233,10 @@ int _http_head_add_param(struct http_head *http_head, const char *name, const ch
 {
 	uint32_t key = 0;
 	struct http_params *params = NULL;
-	params = malloc(sizeof(*params));
+	params = zalloc(1, sizeof(*params));
 	if (params == NULL) {
 		return -1;
 	}
-	memset(params, 0, sizeof(*params));
 
 	params->name = name;
 	params->value = value;
@@ -330,11 +329,10 @@ static int _http_head_add_fields(struct http_head *http_head, const char *name, 
 {
 	uint32_t key = 0;
 	struct http_head_fields *fields = NULL;
-	fields = malloc(sizeof(*fields));
+	fields = zalloc(1, sizeof(*fields));
 	if (fields == NULL) {
 		return -1;
 	}
-	memset(fields, 0, sizeof(*fields));
 
 	fields->name = name;
 	fields->value = value;

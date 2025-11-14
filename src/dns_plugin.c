@@ -318,12 +318,10 @@ static struct dns_plugin *_dns_plugin_new(const char *plugin_file)
 		return NULL;
 	}
 
-	plugin = (struct dns_plugin *)malloc(sizeof(struct dns_plugin));
+	plugin = (struct dns_plugin *)zalloc(1, sizeof(struct dns_plugin));
 	if (!plugin) {
 		return NULL;
 	}
-
-	memset(plugin, 0, sizeof(struct dns_plugin));
 	strncpy(plugin->file, plugin_file, PATH_MAX - 1);
 
 	return plugin;

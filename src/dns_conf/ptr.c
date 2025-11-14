@@ -39,7 +39,7 @@ static struct dns_ptr *_dns_conf_get_ptr(const char *ptr_domain)
 		return ptr;
 	}
 
-	ptr = malloc(sizeof(*ptr));
+	ptr = zalloc(1, sizeof(*ptr));
 	if (ptr == NULL) {
 		goto errout;
 	}

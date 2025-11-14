@@ -240,12 +240,10 @@ struct ping_host_struct *fast_ping_start(PING_TYPE type, const char *host, int c
 		goto errout;
 	}
 
-	ping_host = malloc(sizeof(*ping_host));
+	ping_host = zalloc(1, sizeof(*ping_host));
 	if (ping_host == NULL) {
 		goto errout;
 	}
-
-	memset(ping_host, 0, sizeof(*ping_host));
 	safe_strncpy(ping_host->host, host, PING_MAX_HOSTLEN);
 	ping_host->fd = -1;
 	ping_host->timeout = timeout;

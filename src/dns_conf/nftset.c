@@ -21,6 +21,7 @@
 #include "domain_rule.h"
 #include "get_domain.h"
 #include "smartdns/lib/stringutil.h"
+#include "smartdns/util.h"
 
 struct dns_nftset_table {
 	DECLARE_HASHTABLE(nftset, 8);
@@ -61,7 +62,7 @@ const struct dns_nftset_name *_dns_conf_get_nftable(const char *familyname, cons
 		}
 	}
 
-	nftset_name = malloc(sizeof(*nftset_name));
+	nftset_name = zalloc(1, sizeof(*nftset_name));
 	if (nftset_name == NULL) {
 		goto errout;
 	}

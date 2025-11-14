@@ -62,11 +62,10 @@ static void *_new_dns_client_rule_ext(enum client_rule client_rule, int ext_size
 	}
 
 	size += ext_size;
-	rule = malloc(size);
+	rule = zalloc(1, size);
 	if (!rule) {
 		return NULL;
 	}
-	memset(rule, 0, size);
 	rule->rule = client_rule;
 	atomic_set(&rule->refcnt, 1);
 	return rule;
@@ -118,11 +117,10 @@ static struct client_roue_group_mac *_config_client_rule_group_mac_new(uint8_t m
 	struct client_roue_group_mac *group_mac = NULL;
 	uint32_t key;
 
-	group_mac = malloc(sizeof(*group_mac));
+	group_mac = zalloc(1, sizeof(*group_mac));
 	if (group_mac == NULL) {
 		return NULL;
 	}
-	memset(group_mac, 0, sizeof(*group_mac));
 	memcpy(group_mac->mac, mac, 6);
 
 	key = jhash(mac, 6, 0);
@@ -211,11 +209,10 @@ static int _config_client_rule_add(const char *ip_cidr, enum client_rule type, v
 	}
 
 	if (client_rules == NULL) {
-		add_client_rules = malloc(sizeof(*add_client_rules));
+		add_client_rules = zalloc(1, sizeof(*add_client_rules));
 		if (add_client_rules == NULL) {
 			goto errout;
 		}
-		memset(add_client_rules, 0, sizeof(*add_client_rules));
 		client_rules = add_client_rules;
 		if (is_mac_address == 0) {
 			group_mac->rules = client_rules;
@@ -287,11 +284,10 @@ int _config_client_rule_flag_set(const char *ip_cidr, unsigned int flag, unsigne
 	}
 
 	if (client_rules == NULL) {
-		add_client_rules = malloc(sizeof(*add_client_rules));
+		add_client_rules = zalloc(1, sizeof(*add_client_rules));
 		if (add_client_rules == NULL) {
 			goto errout;
 		}
-		memset(add_client_rules, 0, sizeof(*add_client_rules));
 		client_rules = add_client_rules;
 		if (is_mac_address == 0) {
 			group_mac->rules = client_rules;

@@ -19,6 +19,7 @@
 #include "srv_record.h"
 #include "set_file.h"
 #include "smartdns/lib/stringutil.h"
+#include "smartdns/util.h"
 
 /* SRV-HOST */
 struct dns_srv_record_table dns_conf_srv_record_table;
@@ -48,22 +49,20 @@ static int _confg_srv_record_add(const char *domain, const char *host, unsigned 
 
 	srv_records = dns_server_get_srv_record(domain);
 	if (srv_records == NULL) {
-		srv_records = malloc(sizeof(*srv_records));
+		srv_records = zalloc(1, sizeof(*srv_records));
 		if (srv_records == NULL) {
 			goto errout;
 		}
-		memset(srv_records, 0, sizeof(*srv_records));
 		safe_strncpy(srv_records->domain, domain, DNS_MAX_CONF_CNAME_LEN);
 		INIT_LIST_HEAD(&srv_records->list);
 		key = hash_string(domain);
 		hash_add(dns_conf_srv_record_table.srv, &srv_records->node, key);
 	}
 
-	srv_record = malloc(sizeof(*srv_record));
+	srv_record = zalloc(1, sizeof(*srv_record));
 	if (srv_record == NULL) {
 		goto errout;
 	}
-	memset(srv_record, 0, sizeof(*srv_record));
 	safe_strncpy(srv_record->host, host, DNS_MAX_CONF_CNAME_LEN);
 	srv_record->priority = priority;
 	srv_record->weight = weight;

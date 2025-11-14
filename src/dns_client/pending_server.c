@@ -108,11 +108,10 @@ int _dns_client_add_to_pending_group(const char *group_name, const char *server_
 		goto errout;
 	}
 
-	group = malloc(sizeof(*group));
+	group = zalloc(1, sizeof(*group));
 	if (group == NULL) {
 		goto errout;
 	}
-	memset(group, 0, sizeof(*group));
 	safe_strncpy(group->group_name, group_name, DNS_GROUP_NAME_LEN);
 
 	pthread_mutex_lock(&pending_server_mutex);
@@ -174,12 +173,11 @@ static int _dns_client_server_pending(const char *server_ip, int port, dns_serve
 {
 	struct dns_server_pending *pending = NULL;
 
-	pending = malloc(sizeof(*pending));
+	pending = zalloc(1, sizeof(*pending));
 	if (pending == NULL) {
 		tlog(TLOG_ERROR, "malloc failed");
 		goto errout;
 	}
-	memset(pending, 0, sizeof(*pending));
 
 	safe_strncpy(pending->host, server_ip, DNS_HOSTNAME_LEN);
 	pending->port = port;

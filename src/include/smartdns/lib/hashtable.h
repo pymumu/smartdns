@@ -70,15 +70,29 @@ static inline void __hash_init(struct hlist_head *ht, unsigned int sz)
  */
 #define hash_init(hashtable) __hash_init(hashtable, HASH_SIZE(hashtable))
 
-#define hash_table_init(hashtable, bits, malloc_func)                 \
-	(hashtable).size = bits;                                         \
-	(hashtable).table = malloc_func(sizeof(struct hlist_head) * HASH_TABLE_SIZE((hashtable)));   \
-	__hash_init((hashtable).table, HASH_TABLE_SIZE((hashtable)))
+/**
+ * hash_table_init - initialize a dynamic hash table
+ * @hashtable: hash_table structure to initialize
+ * @bits: log2 of the number of buckets
+ *
+ * Uses calloc for zero-initialized allocation. Since calloc guarantees
+ * zero-filled memory, no explicit initialization loop is needed.
+ * This is more efficient than malloc + memset, especially for large tables.
+ */
+#define hash_table_init(hashtable, bits)                                                                               \
+	do {                                                                                                               \
+		unsigned int __bits = (bits);                                                                                  \
+		unsigned int __count = (1 << __bits);                                                                          \
+		(hashtable).size = __bits;                                                                                     \
+		(hashtable).table = calloc(__count, sizeof(struct hlist_head));                                                \
+	} while (0)
 
-#define hash_table_free(hashtable, free_func)                       \
-	free_func((hashtable).table);                                  \
-	(hashtable).table = NULL;                                      \
-	(hashtable).size = 0;
+#define hash_table_free(hashtable, free_func)                                                                          \
+	do {                                                                                                               \
+		free_func((hashtable).table);                                                                                  \
+		(hashtable).table = NULL;                                                                                      \
+		(hashtable).size = 0;                                                                                          \
+	} while (0)
 
 /**
  * hash_add - add an object to a hashtable

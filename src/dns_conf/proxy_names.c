@@ -18,6 +18,7 @@
 
 #include "proxy_names.h"
 #include "smartdns/lib/stringutil.h"
+#include "smartdns/util.h"
 
 struct dns_proxy_table dns_proxy_table;
 
@@ -51,12 +52,10 @@ static struct dns_proxy_names *_dns_conf_get_proxy(const char *proxy_name)
 		}
 	}
 
-	proxy = malloc(sizeof(*proxy));
+	proxy = zalloc(1, sizeof(*proxy));
 	if (proxy == NULL) {
 		goto errout;
 	}
-
-	memset(proxy, 0, sizeof(*proxy));
 	safe_strncpy(proxy->proxy_name, proxy_name, PROXY_NAME_LEN);
 	hash_add(dns_proxy_table.proxy, &proxy->node, key);
 	INIT_LIST_HEAD(&proxy->server_list);

@@ -336,7 +336,7 @@ struct tw_base *tw_init_timers(void)
 	};
 	struct tw_base *base = NULL;
 
-	base = malloc(sizeof(*base));
+	base = calloc(1, sizeof(*base));
 	if (!base) {
 		goto errout;
 	}

@@ -180,13 +180,12 @@ int _dns_ip_address_check_add(struct dns_request *request, char *cname, unsigned
 	}
 
 	atomic_inc(&request->ip_map_num);
-	addr_map = malloc(sizeof(*addr_map));
+	addr_map = zalloc(1, sizeof(*addr_map));
 	if (addr_map == NULL) {
 		pthread_mutex_unlock(&request->ip_map_lock);
 		tlog(TLOG_ERROR, "malloc addr map failed");
 		return -1;
 	}
-	memset(addr_map, 0, sizeof(*addr_map));
 
 	addr_map->addr_type = addr_type;
 	addr_map->hitnum = 1;

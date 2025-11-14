@@ -164,13 +164,12 @@ _dns_server_process_dns64_callback(struct dns_request *request, struct dns_reque
 			continue;
 		}
 
-		new_addr_map = malloc(sizeof(struct dns_ip_address));
+		new_addr_map = zalloc(1, sizeof(struct dns_ip_address));
 		if (new_addr_map == NULL) {
 			tlog(TLOG_ERROR, "malloc failed.\n");
 			pthread_mutex_unlock(&child_request->ip_map_lock);
 			return DNS_CHILD_POST_FAIL;
 		}
-		memset(new_addr_map, 0, sizeof(struct dns_ip_address));
 
 		new_addr_map->addr_type = DNS_T_AAAA;
 		addr_len = DNS_RR_AAAA_LEN;

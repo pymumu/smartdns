@@ -161,7 +161,7 @@ static struct dns_hosts *_dns_conf_get_hosts(const char *hostname, int dns_type)
 		return host;
 	}
 
-	host = malloc(sizeof(*host));
+	host = zalloc(1, sizeof(*host));
 	if (host == NULL) {
 		goto errout;
 	}

@@ -21,6 +21,7 @@
 #include "domain_rule.h"
 #include "get_domain.h"
 #include "smartdns/lib/stringutil.h"
+#include "smartdns/util.h"
 
 /* ipset */
 struct dns_ipset_table {
@@ -60,7 +61,7 @@ const char *_dns_conf_get_ipset(const char *ipsetname)
 		}
 	}
 
-	ipset_name = malloc(sizeof(*ipset_name));
+	ipset_name = zalloc(1, sizeof(*ipset_name));
 	if (ipset_name == NULL) {
 		goto errout;
 	}

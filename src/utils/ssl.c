@@ -259,11 +259,10 @@ static struct DNS_EVP_PKEY_CTX *_read_key_from_file(const char *key_path)
 	EVP_PKEY *pkey = NULL;
 	BIO *key_file = NULL;
 
-	ctx = malloc(sizeof(struct DNS_EVP_PKEY_CTX));
+	ctx = zalloc(1, sizeof(struct DNS_EVP_PKEY_CTX));
 	if (ctx == NULL) {
 		return NULL;
 	}
-	memset(ctx, 0, sizeof(struct DNS_EVP_PKEY_CTX));
 
 	key_file = BIO_new_file(key_path, "rb");
 	if (key_file == NULL) {
@@ -293,11 +292,10 @@ errout:
 static struct DNS_EVP_PKEY_CTX *_generate_key(void)
 {
 	struct DNS_EVP_PKEY_CTX *ctx = NULL;
-	ctx = malloc(sizeof(struct DNS_EVP_PKEY_CTX));
+	ctx = zalloc(1, sizeof(struct DNS_EVP_PKEY_CTX));
 	if (ctx == NULL) {
 		return NULL;
 	}
-	memset(ctx, 0, sizeof(struct DNS_EVP_PKEY_CTX));
 
 	const int RSA_KEY_LENGTH = 2048;
 #if (OPENSSL_VERSION_NUMBER >= 0x30000000L)

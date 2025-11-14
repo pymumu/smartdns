@@ -23,6 +23,7 @@
 #include "set_file.h"
 #include "smartdns/lib/conf.h"
 #include "smartdns/lib/hashtable.h"
+#include "smartdns/util.h"
 #include "smartdns/lib/stringutil.h"
 #include "smartdns/util.h"
 
@@ -40,7 +41,7 @@ struct hash_table conf_file_table;
 
 int conf_file_table_init(void)
 {
-	hash_table_init(conf_file_table, 8, malloc);
+	hash_table_init(conf_file_table, 8);
 
 	return 0;
 }
@@ -60,7 +61,7 @@ static int conf_file_check_duplicate(const char *conf_file)
 		return 0;
 	}
 
-	file = malloc(sizeof(*file));
+	file = zalloc(1, sizeof(*file));
 	if (file == NULL) {
 		return -1;
 	}

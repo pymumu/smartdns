@@ -243,12 +243,11 @@ static int _tcp_syn_send_rst_ipv4(struct ping_host_struct *ping_host, struct soc
 	tcp_packet->urg_ptr = 0;
 
 	/* Calculate TCP checksum with pseudo header */
-	pseudo_packet = malloc(sizeof(struct pseudo_header) + sizeof(struct tcphdr));
+	pseudo_packet = zalloc(1, sizeof(struct pseudo_header) + sizeof(struct tcphdr));
 	if (pseudo_packet == NULL) {
 		goto errout;
 	}
 
-	memset(pseudo_packet, 0, sizeof(struct pseudo_header) + sizeof(struct tcphdr));
 	struct pseudo_header *psh = (struct pseudo_header *)pseudo_packet;
 	psh->source_address = local_in->sin_addr.s_addr;
 	psh->dest_address = dest_in->sin_addr.s_addr;
@@ -412,13 +411,12 @@ static int _tcp_syn_build_packet_ipv4(char *packet, struct ping_host_struct *pin
 	tcph->urg_ptr = htons(0);
 
 	/* Calculate TCP checksum with pseudo header */
-	pseudo_packet = malloc(sizeof(struct pseudo_header) + sizeof(struct tcphdr));
+	pseudo_packet = zalloc(1, sizeof(struct pseudo_header) + sizeof(struct tcphdr));
 	if (pseudo_packet == NULL) {
 		goto errout;
 	}
 
 	struct pseudo_header *psh = (struct pseudo_header *)pseudo_packet;
-	memset(psh, 0, sizeof(struct pseudo_header));
 	psh->source_address = local_in->sin_addr.s_addr;
 	psh->dest_address = dest_in->sin_addr.s_addr;
 	psh->placeholder = 0;

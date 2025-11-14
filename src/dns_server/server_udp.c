@@ -173,11 +173,10 @@ int _dns_server_socket_udp(struct dns_bind_ip *bind_ip)
 		goto errout;
 	}
 
-	conn = malloc(sizeof(struct dns_server_conn_udp));
+	conn = zalloc(1, sizeof(struct dns_server_conn_udp));
 	if (conn == NULL) {
 		goto errout;
 	}
-	memset(conn, 0, sizeof(struct dns_server_conn_udp));
 
 	_dns_server_conn_head_init(&conn->head, fd, DNS_CONN_TYPE_UDP_SERVER);
 	_dns_server_set_flags(&conn->head, bind_ip);

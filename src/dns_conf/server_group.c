@@ -18,6 +18,7 @@
 
 #include "server_group.h"
 #include "smartdns/lib/stringutil.h"
+#include "smartdns/util.h"
 
 /* dns groups */
 struct dns_group_table dns_group_table;
@@ -35,12 +36,10 @@ struct dns_server_groups *_dns_conf_get_group(const char *group_name)
 		}
 	}
 
-	group = malloc(sizeof(*group));
+	group = zalloc(1, sizeof(*group));
 	if (group == NULL) {
 		goto errout;
 	}
-
-	memset(group, 0, sizeof(*group));
 	safe_strncpy(group->group_name, group_name, DNS_GROUP_NAME_LEN);
 	hash_add(dns_group_table.group, &group->node, key);
 

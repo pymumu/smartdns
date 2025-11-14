@@ -100,12 +100,11 @@ int _dns_server_tcp_accept(struct dns_server_conn_tcp_server *tcpserver, struct 
 		return -1;
 	}
 
-	tcpclient = malloc(sizeof(*tcpclient));
+	tcpclient = zalloc(1, sizeof(*tcpclient));
 	if (tcpclient == NULL) {
 		tlog(TLOG_ERROR, "malloc for tcpclient failed.");
 		goto errout;
 	}
-	memset(tcpclient, 0, sizeof(*tcpclient));
 	_dns_server_conn_head_init(&tcpclient->head, fd, DNS_CONN_TYPE_TCP_CLIENT);
 	tcpclient->head.server_flags = tcpserver->head.server_flags;
 	tcpclient->head.dns_group = tcpserver->head.dns_group;
@@ -558,11 +557,10 @@ int _dns_server_socket_tcp(struct dns_bind_ip *bind_ip)
 
 	setsockopt(fd, SOL_TCP, TCP_FASTOPEN, &on, sizeof(on));
 
-	conn = malloc(sizeof(struct dns_server_conn_tcp_server));
+	conn = zalloc(1, sizeof(struct dns_server_conn_tcp_server));
 	if (conn == NULL) {
 		goto errout;
 	}
-	memset(conn, 0, sizeof(struct dns_server_conn_tcp_server));
 	_dns_server_conn_head_init(&conn->head, fd, DNS_CONN_TYPE_TCP_SERVER);
 	_dns_server_set_flags(&conn->head, bind_ip);
 	_dns_server_conn_get(&conn->head);

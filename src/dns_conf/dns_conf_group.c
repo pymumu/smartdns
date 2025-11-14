@@ -21,6 +21,7 @@
 #include "ip_rule.h"
 #include "server_group.h"
 #include "smartdns/lib/stringutil.h"
+#include "smartdns/util.h"
 
 struct dns_conf_group_info *dns_conf_current_group_info;
 struct dns_conf_group_info *dns_conf_default_group_info;
@@ -192,16 +193,15 @@ static int _config_domain_rule_iter_copy(void *data, const unsigned char *key, u
 	struct dns_domain_rule *new_domain_rule = NULL;
 
 	old_domain_rule = (struct dns_domain_rule *)value;
-	
+
 	/* Allocate new domain rule with same capacity as original */
 	size_t size = sizeof(struct dns_domain_rule) + old_domain_rule->capacity * sizeof(struct dns_rule *);
-	new_domain_rule = malloc(size);
+	new_domain_rule = zalloc(1, size);
 	if (new_domain_rule == NULL) {
 		return -1;
 	}
-	memset(new_domain_rule, 0, size);
 	new_domain_rule->capacity = old_domain_rule->capacity;
-	
+
 	/* Copy rules using actual capacity, not DOMAIN_RULE_MAX */
 	for (int i = 0; i < old_domain_rule->capacity; i++) {
 		if (old_domain_rule->rules[i]) {
@@ -243,7 +243,7 @@ static int _config_rule_group_setup_value(struct dns_conf_group_info *group_info
 		}
 	}
 
-	soa_table = malloc(soa_talbe_size);
+	soa_table = zalloc(1, soa_talbe_size);
 	if (soa_table == NULL) {
 		tlog(TLOG_WARN, "malloc qtype soa table failed.");
 		return -1;
@@ -260,7 +260,6 @@ static int _config_rule_group_setup_value(struct dns_conf_group_info *group_info
 		return 0;
 	}
 
-	memset(soa_table, 0, soa_talbe_size);
 	memcpy(&group_rule->check_orders, &dns_conf.default_check_orders, sizeof(group_rule->check_orders));
 	group_rule->dualstack_ip_selection = 1;
 	group_rule->dns_dualstack_ip_selection_threshold = 10;
@@ -285,7 +284,7 @@ int _config_current_group_push(const char *group_name, const char *inherit_group
 	struct dns_conf_group_info *group_info = NULL;
 	struct dns_conf_group *group_rule = NULL;
 
-	group_info = malloc(sizeof(*group_info));
+	group_info = zalloc(1, sizeof(*group_info));
 	if (group_info == NULL) {
 		goto errout;
 	}
@@ -416,12 +415,10 @@ struct dns_conf_group *_config_rule_group_new(const char *group_name)
 		return NULL;
 	}
 
-	rule_group = malloc(sizeof(*rule_group));
+	rule_group = zalloc(1, sizeof(*rule_group));
 	if (rule_group == NULL) {
 		return NULL;
 	}
-
-	memset(rule_group, 0, sizeof(*rule_group));
 	rule_group->group_name = group_name;
 
 	INIT_HLIST_NODE(&rule_group->node);

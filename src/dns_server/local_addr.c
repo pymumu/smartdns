@@ -42,11 +42,10 @@ static void _dns_server_local_addr_cache_add(unsigned char *netaddr, int netaddr
 	}
 
 	if (node->data == NULL) {
-		addr_cache_item = malloc(sizeof(struct local_addr_cache_item));
+		addr_cache_item = zalloc(1, sizeof(struct local_addr_cache_item));
 		if (addr_cache_item == NULL) {
 			return;
 		}
-		memset(addr_cache_item, 0, sizeof(struct local_addr_cache_item));
 	} else {
 		addr_cache_item = node->data;
 	}

@@ -46,12 +46,11 @@ int _config_proxy_server(void *data, int argc, char *argv[])
 		return 0;
 	}
 
-	server = malloc(sizeof(*server));
+	server = zalloc(1, sizeof(*server));
 	if (server == NULL) {
 		tlog(TLOG_WARN, "malloc memory failed.");
 		goto errout;
 	}
-	memset(server, 0, sizeof(*server));
 
 	ip = argv[1];
 	if (parse_uri_ext(ip, scheme, server->username, server->password, server->server, &port, NULL) != 0) {
