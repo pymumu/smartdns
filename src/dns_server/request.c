@@ -930,20 +930,12 @@ void _dns_server_request_set_callback(struct dns_request *request, dns_result_ca
 
 int _dns_server_process_smartdns_domain(struct dns_request *request)
 {
-	struct dns_rule_flags *rule_flag = NULL;
-	unsigned int flags = 0;
-
-	/* get domain rule flag */
-	rule_flag = _dns_server_get_dns_rule(request, DOMAIN_RULE_FLAGS);
-	if (rule_flag == NULL) {
-		return -1;
-	}
+	uint32_t flags = _dns_server_get_rule_flags(request);
 
 	if (_dns_server_is_dns_rule_extract_match(request, DOMAIN_RULE_FLAGS) == 0) {
 		return -1;
 	}
 
-	flags = rule_flag->flags;
 	if (!(flags & DOMAIN_FLAG_SMARTDNS_DOMAIN)) {
 		return -1;
 	}
@@ -1126,6 +1118,7 @@ int _dns_server_setup_request_conf_pre(struct dns_request *request)
 	if (group_rule == NULL) {
 		return 0;
 	}
+
 	rule_group = dns_server_get_rule_group(group_rule->group_name);
 	if (rule_group == NULL) {
 		return 0;

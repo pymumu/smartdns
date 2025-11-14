@@ -37,8 +37,8 @@ static DNS_CHILD_POST_RESULT _dns_server_process_cname_callback(struct dns_reque
 int _dns_server_process_cname_pre(struct dns_request *request)
 {
 	struct dns_cname_rule *cname = NULL;
-	struct dns_rule_flags *rule_flag = NULL;
 	struct dns_request_domain_rule domain_rule;
+	uint32_t flags = _dns_server_get_rule_flags(request);
 
 	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_RULE_CNAME) == 0) {
 		return 0;
@@ -49,11 +49,8 @@ int _dns_server_process_cname_pre(struct dns_request *request)
 	}
 
 	/* get domain rule flag */
-	rule_flag = _dns_server_get_dns_rule(request, DOMAIN_RULE_FLAGS);
-	if (rule_flag != NULL) {
-		if (rule_flag->flags & DOMAIN_FLAG_CNAME_IGN) {
-			return 0;
-		}
+	if (flags & DOMAIN_FLAG_CNAME_IGN) {
+		return 0;
 	}
 
 	cname = _dns_server_get_dns_rule(request, DOMAIN_RULE_CNAME);

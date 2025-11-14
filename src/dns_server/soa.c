@@ -26,8 +26,7 @@
 
 int _dns_server_is_return_soa_qtype(struct dns_request *request, dns_type_t qtype)
 {
-	struct dns_rule_flags *rule_flag = NULL;
-	unsigned int flags = 0;
+	uint32_t flags = _dns_server_get_rule_flags(request);
 
 	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_RULE_SOA) == 0) {
 		/* when both has no rule SOA and force AAAA soa, force AAAA soa has high priority */
@@ -38,56 +37,52 @@ int _dns_server_is_return_soa_qtype(struct dns_request *request, dns_type_t qtyp
 		return 0;
 	}
 
-	rule_flag = _dns_server_get_dns_rule(request, DOMAIN_RULE_FLAGS);
-	if (rule_flag) {
-		flags = rule_flag->flags;
-		if (flags & DOMAIN_FLAG_ADDR_SOA) {
+	if (flags & DOMAIN_FLAG_ADDR_IGN) {
+		request->skip_qtype_soa = 1;
+		return 0;
+	}
+
+	if (flags & DOMAIN_FLAG_ADDR_SOA) {
+		stats_inc(&dns_stats.request.blocked_count);
+		return 1;
+	}
+
+	switch (qtype) {
+	case DNS_T_A:
+		if (flags & DOMAIN_FLAG_ADDR_IPV4_SOA) {
 			stats_inc(&dns_stats.request.blocked_count);
 			return 1;
 		}
 
-		if (flags & DOMAIN_FLAG_ADDR_IGN) {
+		if (flags & DOMAIN_FLAG_ADDR_IPV4_IGN) {
 			request->skip_qtype_soa = 1;
 			return 0;
 		}
-
-		switch (qtype) {
-		case DNS_T_A:
-			if (flags & DOMAIN_FLAG_ADDR_IPV4_SOA) {
-				stats_inc(&dns_stats.request.blocked_count);
-				return 1;
-			}
-
-			if (flags & DOMAIN_FLAG_ADDR_IPV4_IGN) {
-				request->skip_qtype_soa = 1;
-				return 0;
-			}
-			break;
-		case DNS_T_AAAA:
-			if (flags & DOMAIN_FLAG_ADDR_IPV6_SOA) {
-				stats_inc(&dns_stats.request.blocked_count);
-				return 1;
-			}
-
-			if (flags & DOMAIN_FLAG_ADDR_IPV6_IGN) {
-				request->skip_qtype_soa = 1;
-				return 0;
-			}
-			break;
-		case DNS_T_HTTPS:
-			if (flags & DOMAIN_FLAG_ADDR_HTTPS_SOA) {
-				stats_inc(&dns_stats.request.blocked_count);
-				return 1;
-			}
-
-			if (flags & DOMAIN_FLAG_ADDR_HTTPS_IGN) {
-				request->skip_qtype_soa = 1;
-				return 0;
-			}
-			break;
-		default:
-			break;
+		break;
+	case DNS_T_AAAA:
+		if (flags & DOMAIN_FLAG_ADDR_IPV6_SOA) {
+			stats_inc(&dns_stats.request.blocked_count);
+			return 1;
 		}
+
+		if (flags & DOMAIN_FLAG_ADDR_IPV6_IGN) {
+			request->skip_qtype_soa = 1;
+			return 0;
+		}
+		break;
+	case DNS_T_HTTPS:
+		if (flags & DOMAIN_FLAG_ADDR_HTTPS_SOA) {
+			stats_inc(&dns_stats.request.blocked_count);
+			return 1;
+		}
+
+		if (flags & DOMAIN_FLAG_ADDR_HTTPS_IGN) {
+			request->skip_qtype_soa = 1;
+			return 0;
+		}
+		break;
+	default:
+		break;
 	}
 
 	if (qtype == DNS_T_AAAA) {

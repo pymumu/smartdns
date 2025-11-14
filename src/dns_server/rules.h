@@ -27,6 +27,8 @@ extern "C" {
 
 void *_dns_server_get_dns_rule(struct dns_request *request, enum domain_rule rule);
 
+uint32_t _dns_server_get_rule_flags(struct dns_request *request);
+
 int _dns_server_get_conf_ttl(struct dns_request *request, int ttl);
 
 void *_dns_server_get_dns_rule_ext(struct dns_request_domain_rule *domain_rule, enum domain_rule rule);

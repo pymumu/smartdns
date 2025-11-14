@@ -57,13 +57,8 @@ static void _dns_server_log_rule(const char *domain, enum domain_rule rule_type,
 
 static void _dns_server_update_rule_by_flags(struct dns_request_domain_rule *request_domain_rule)
 {
-	struct dns_rule_flags *rule_flag = (struct dns_rule_flags *)request_domain_rule->rules[0];
 	unsigned int flags = 0;
-
-	if (rule_flag == NULL) {
-		return;
-	}
-	flags = rule_flag->flags;
+	flags = request_domain_rule->flags;
 
 	if (flags & DOMAIN_FLAG_ADDR_IGN) {
 		request_domain_rule->rules[DOMAIN_RULE_ADDRESS_IPV4] = NULL;
@@ -141,6 +136,10 @@ static int _dns_server_get_rules(unsigned char *key, uint32_t key_len, int is_su
 				break;
 			}
 			continue;
+		}
+
+		if (i == DOMAIN_RULE_FLAGS) {
+			request_domain_rule->flags |= ((struct dns_rule_flags *)domain_rule->rules[i])->flags;
 		}
 
 		request_domain_rule->rules[i] = domain_rule->rules[i];
@@ -452,6 +451,26 @@ void *_dns_server_get_dns_rule(struct dns_request *request, enum domain_rule rul
 	return _dns_server_get_dns_rule_ext(&request->domain_rule, rule);
 }
 
+uint32_t _dns_server_get_rule_flags(struct dns_request *request)
+{
+	struct dns_rule_flags *rule_flag = NULL;
+	if (request == NULL) {
+		return 0;
+	}
+
+	if (request->domain_rule.flags != 0) {
+		return request->domain_rule.flags;
+	}
+
+	if (request->domain_rule.rules[DOMAIN_RULE_FLAGS] == NULL) {
+		return 0;
+	}
+
+	rule_flag = (struct dns_rule_flags *)request->domain_rule.rules[DOMAIN_RULE_FLAGS];
+
+	return rule_flag->flags;
+}
+
 int _dns_server_is_dns_rule_extract_match(struct dns_request *request, enum domain_rule rule)
 {
 	if (request == NULL) {
@@ -463,15 +482,9 @@ int _dns_server_is_dns_rule_extract_match(struct dns_request *request, enum doma
 
 int _dns_server_pre_process_rule_flags(struct dns_request *request)
 {
-	struct dns_rule_flags *rule_flag = NULL;
-	unsigned int flags = 0;
-	int rcode = DNS_RC_NOERROR;
-
 	/* get domain rule flag */
-	rule_flag = _dns_server_get_dns_rule(request, DOMAIN_RULE_FLAGS);
-	if (rule_flag != NULL) {
-		flags = rule_flag->flags;
-	}
+	unsigned int flags = _dns_server_get_rule_flags(request);
+	int rcode = DNS_RC_NOERROR;
 
 	if (flags & DOMAIN_FLAG_NO_SERVE_EXPIRED) {
 		request->no_serve_expired = 1;

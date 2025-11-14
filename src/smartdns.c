@@ -576,6 +576,7 @@ static int _smartdns_init_log(void)
 
 	if (enable_log_screen) {
 		tlog_setlogscreen(1);
+		verbose_screen = 1;
 	}
 
 	tlog_reg_log_output_func(_smartdns_tlog_output_callback, NULL);

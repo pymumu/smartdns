@@ -101,12 +101,20 @@ int _conf_domain_rule_https_record(const char *domain, const char *host)
 			if (_config_domain_rule_flag_set(domain, DOMAIN_FLAG_ADDR_HTTPS_IGN, 0) != 0) {
 				goto errout;
 			}
+
+			if (_config_domain_rule_flag_set(domain, DOMAIN_FLAG_ADDR_IGN, 0) != 0) {
+				goto errout;
+			}
+
 		} else if (strncmp(key, "target", sizeof("target")) == 0) {
 			safe_strncpy(https_record_rule->record.target, val, DNS_MAX_CONF_CNAME_LEN);
 			https_record_rule->record.enable = 1;
 		} else if (strncmp(key, "noipv4hint", sizeof("noipv4hint")) == 0) {
 			https_record_rule->filter.no_ipv4hint = 1;
 		} else if (strncmp(key, "noipv6hint", sizeof("noipv6hint")) == 0) {
+			https_record_rule->filter.no_ipv6hint = 1;
+		} else if (strncmp(key, "noiphint", sizeof("noiphint")) == 0) {
+			https_record_rule->filter.no_ipv4hint = 1;
 			https_record_rule->filter.no_ipv6hint = 1;
 		} else if (strncmp(key, "noech", sizeof("noech")) == 0) {
 			https_record_rule->filter.no_ech = 1;

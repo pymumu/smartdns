@@ -236,6 +236,7 @@ struct dns_request_pending_list {
 };
 
 struct dns_request_domain_rule {
+	uint32_t flags;
 	struct dns_rule *rules[DOMAIN_RULE_MAX];
 	int is_sub_rule[DOMAIN_RULE_MAX];
 };

@@ -17,9 +17,9 @@
  */
 
 #include "client.h"
-#include "smartdns/dns.h"
 #include "include/utils.h"
 #include "server.h"
+#include "smartdns/dns.h"
 #include "smartdns/util.h"
 #include "gtest/gtest.h"
 #include <fstream>
@@ -481,7 +481,6 @@ address /com/#
 	EXPECT_EQ(client.GetStatus(), "NXDOMAIN");
 }
 
-
 TEST_F(Address, ipv4_in_Test)
 {
 	smartdns::MockServer server_upstream;
@@ -517,4 +516,59 @@ address /a.com/::ffff:192.168.1.1
 	std::cout << client.GetResult() << std::endl;
 	ASSERT_EQ(client.GetAnswerNum(), 0);
 	EXPECT_EQ(client.GetStatus(), "NOERROR");
+}
+
+TEST_F(Address, group_ignore_address)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::Server server;
+
+	server_upstream.Start("udp://0.0.0.0:61053", [&](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype == DNS_T_A) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4", 700);
+			return smartdns::SERVER_REQUEST_OK;
+		} else if (request->qtype == DNS_T_AAAA) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "64:ff9b::102:304", 700);
+			return smartdns::SERVER_REQUEST_OK;
+		}
+		return smartdns::SERVER_REQUEST_SOA;
+	});
+
+	server.Start(R"""(bind [::]:60053
+bind [::]:60054 -group ignore-address
+server 127.0.0.1:61053
+address 2.3.4.5
+speed-check-mode none
+address /a.com/2.3.4.6
+group-begin ignore-address
+	address -
+group-end 
+)""");
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("a.com A", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 600);
+	EXPECT_EQ(client.GetAnswer()[0].GetType(), "A");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "2.3.4.6");
+
+	ASSERT_TRUE(client.Query("b.com A", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "b.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 600);
+	EXPECT_EQ(client.GetAnswer()[0].GetType(), "A");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "2.3.4.5");
+
+	ASSERT_TRUE(client.Query("b.com A", 60054));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "b.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 700);
+	EXPECT_EQ(client.GetAnswer()[0].GetType(), "A");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
 }
