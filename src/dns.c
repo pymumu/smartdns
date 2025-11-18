@@ -3009,7 +3009,7 @@ static int _dns_update_domain(struct dns_context *context, const char *domain)
 	}
 
 	if (output_len != domain_len) {
-		tlog(TLOG_DEBUG, "update domain failed, length mismatch. output_len: %lu, domain_len: %lu", output_len,
+		tlog(TLOG_DEBUG, "update domain failed, length mismatch. output_len: %zu, domain_len: %zu", output_len,
 			 domain_len);
 		return -1;
 	}
