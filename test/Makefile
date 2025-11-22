@@ -29,6 +29,9 @@ OBJS += $(TEST_OBJECTS)
 
 SMARTDNS_SRC_FILES := $(wildcard $(SMARTDNS_SRC_DIR)/*.c) $(wildcard $(SMARTDNS_SRC_DIR)/*.h) $(wildcard $(SMARTDNS_SRC_DIR)/lib/*.c)
 
+ifeq ($(filter -j,$(MAKEFLAGS)),)
+MAKEFLAGS += -j$(shell nproc)
+endif
 
 LDFLAGS += -lssl -lcrypto -lpthread -ldl -lgtest -lstdc++ -lm
 LDFLAGS += $(EXTRA_LDFLAGS)

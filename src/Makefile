@@ -23,6 +23,10 @@ LINT_OBJS=$(filter-out lib/%.o, $(OBJS))
 TEST_OBJS=$(patsubst %.o,%_test.o,$(OBJS))
 MAIN_OBJ = main.o
 
+ifeq ($(filter -j,$(MAKEFLAGS)),)
+MAKEFLAGS += -j$(shell nproc)
+endif
+
 # cflags
 ifndef CFLAGS
  ifdef DEBUG
