@@ -20,6 +20,7 @@
 
 #include "smartdns/util.h"
 
+#include "client_http2.h"
 #include "client_http3.h"
 #include "client_https.h"
 #include "client_mdns.h"
@@ -28,6 +29,7 @@
 #include "client_tcp.h"
 #include "client_tls.h"
 #include "client_udp.h"
+#include "conn_stream.h"
 #include "dns_client.h"
 #include "ecs.h"
 #include "group.h"
@@ -221,6 +223,18 @@ static int _dns_client_process(struct dns_server_info *server_info, struct epoll
 	return 0;
 }
 
+static int _dns_client_send_http(struct dns_server_info *server_info, struct dns_query_struct *query, void *packet_data,
+								 int packet_data_len)
+{
+	if (server_info->alpn_selected[0] == '\0' || strncmp(server_info->alpn_selected, "h2", 2) == 0) {
+		/* Send with HTTP2 by default */
+		return _dns_client_send_http2(server_info, query, packet_data, packet_data_len);
+	} else {
+		/* For HTTP/1.1 or other, buffer raw data to stream for later processing */
+		return _dns_client_send_http1(server_info, packet_data, packet_data_len); /* Assuming same buffering */
+	}
+}
+
 int _dns_client_send_packet(struct dns_query_struct *query, void *packet, int len)
 {
 	struct dns_server_info *server_info = NULL;
@@ -327,8 +341,8 @@ int _dns_client_send_packet(struct dns_query_struct *query, void *packet, int le
 				send_err = errno;
 				break;
 			case DNS_SERVER_HTTPS:
-				/* https query */
-				ret = _dns_client_send_https(server_info, packet_data, packet_data_len);
+				/* https query - buffer raw data in stream, protocol determined later */
+				ret = _dns_client_send_http(server_info, query, packet_data, packet_data_len);
 				send_err = errno;
 				break;
 			case DNS_SERVER_MDNS:
@@ -564,22 +578,22 @@ static void *_dns_client_work(void *arg)
 	now = get_tick_count();
 	start_time = now;
 	expect_time = now + sleep;
-	
+
 	while (atomic_read(&client.run)) {
 		now = get_tick_count();
-		
+
 		if (now >= expect_time) {
 			unsigned long elapsed_from_start = now - start_time;
-			unsigned int current_period = (elapsed_from_start + sleep / 2) / sleep; 
-			
+			unsigned int current_period = (elapsed_from_start + sleep / 2) / sleep;
+
 			if (current_period > msec) {
 				msec = current_period;
 			}
-			
+
 			expect_time = start_time + (msec + 1) * sleep;
 			_dns_client_period_run(msec);
 			msec++;
-			
+
 			/* When client is idle, the sleep time is 1000ms, to reduce CPU usage */
 			pthread_mutex_lock(&client.domain_map_lock);
 			if (list_empty(&client.dns_request_list)) {
@@ -590,7 +604,7 @@ static void *_dns_client_work(void *arg)
 			}
 			pthread_mutex_unlock(&client.domain_map_lock);
 		}
-		
+
 		sleep_time = (int)(expect_time - now);
 		if (sleep_time < 0) {
 			sleep_time = 0;

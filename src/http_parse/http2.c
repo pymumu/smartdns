@@ -708,7 +708,6 @@ static int http2_verify_connection_preface(struct http2_ctx *ctx)
 
 	/* Verify preface */
 	if (memcmp(ctx->read_buffer, HTTP2_CONNECTION_PREFACE, HTTP2_CONNECTION_PREFACE_LEN) != 0) {
-		fprintf(stderr, "[HTTP/2] Invalid connection preface\n");
 		ctx->status = HTTP2_ERR_PROTOCOL;
 		return HTTP2_ERR_PROTOCOL;
 	}

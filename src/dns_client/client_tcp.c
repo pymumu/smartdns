@@ -22,9 +22,11 @@
 #include "smartdns/lib/stringutil.h"
 #include "smartdns/util.h"
 
+#include "client_https.h"
 #include "client_socket.h"
 #include "client_tcp.h"
 #include "client_tls.h"
+#include "conn_stream.h"
 #include "server_info.h"
 
 #include <net/if.h>
@@ -248,6 +250,66 @@ out:
 	return ret;
 }
 
+static int _dns_client_process_https_streams(struct dns_server_info *server_info)
+{
+	struct dns_conn_stream *stream, *tmp;
+	int ret = 0;
+
+	/* If negotiated HTTP/2, skip HTTP/1.1 processing */
+	if (server_info->alpn_selected[0] != '\0' && strncmp(server_info->alpn_selected, "h2", 2) == 0) {
+		return 0;
+	}
+
+	pthread_mutex_lock(&server_info->lock);
+	list_for_each_entry_safe(stream, tmp, &server_info->conn_stream_list, server_list)
+	{
+		if (stream->send_buff.len == 0) {
+			continue;
+		}
+		/* Format raw DNS data to HTTP/1.1 */
+		unsigned char http_packet[DNS_IN_PACKSIZE];
+		int http_len = _dns_client_format_https_packet(server_info, stream->send_buff.data, stream->send_buff.len,
+													   http_packet, sizeof(http_packet));
+		if (http_len < 0) {
+			goto errout;
+		}
+		/* Send the formatted packet */
+		int send_len;
+		if (server_info->ssl) {
+			send_len = _dns_client_socket_ssl_send(server_info, http_packet, http_len);
+		} else {
+			send_len = send(server_info->fd, http_packet, http_len, MSG_NOSIGNAL);
+		}
+		if (send_len < 0) {
+			if (errno == EAGAIN) {
+				/* Buffer the formatted data */
+				if (_dns_client_send_data_to_buffer(server_info, http_packet, http_len) != 0) {
+					goto errout;
+				}
+				goto out;
+			}
+			goto errout;
+		}
+		if (send_len < http_len) {
+			/* Buffer remaining */
+			if (_dns_client_send_data_to_buffer(server_info, http_packet + send_len, http_len - send_len) != 0) {
+				goto errout;
+			}
+			goto out;
+		}
+		/* Clear stream buffer after sending */
+		stream->send_buff.len = 0;
+		/* Remove from list and release */
+		list_del_init(&stream->server_list);
+		_dns_client_conn_stream_put(stream);
+	}
+out:
+	pthread_mutex_unlock(&server_info->lock);
+	return ret;
+errout:
+	ret = -1;
+	goto out;
+}
 int _dns_client_process_tcp(struct dns_server_info *server_info, struct epoll_event *event, unsigned long now)
 {
 	int len = 0;
@@ -334,6 +396,14 @@ int _dns_client_process_tcp(struct dns_server_info *server_info, struct epoll_ev
 			}
 			pthread_mutex_unlock(&client.server_list_lock);
 		}
+
+		/* Process HTTPS streams if any */
+		if (server_info->type == DNS_SERVER_HTTPS && server_info->send_buff.len == 0) {
+			if (_dns_client_process_https_streams(server_info) != 0) {
+				goto errout;
+			}
+		}
+
 		/* still remain data, retry */
 		if (server_info->send_buff.len > 0) {
 			return 0;
@@ -422,7 +492,7 @@ void _dns_client_check_tcp(void)
 			continue;
 		}
 
-#if defined(OSSL_QUIC1_VERSION) && !defined (OPENSSL_NO_QUIC)
+#if defined(OSSL_QUIC1_VERSION) && !defined(OPENSSL_NO_QUIC)
 		if (server_info->type == DNS_SERVER_QUIC || server_info->type == DNS_SERVER_HTTP3) {
 			if (server_info->ssl) {
 				_ssl_do_handevent(server_info);

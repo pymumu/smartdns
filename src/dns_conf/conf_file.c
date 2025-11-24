@@ -25,7 +25,6 @@
 #include "smartdns/lib/hashtable.h"
 #include "smartdns/util.h"
 #include "smartdns/lib/stringutil.h"
-#include "smartdns/util.h"
 
 #include <errno.h>
 #include <getopt.h>
