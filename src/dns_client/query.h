@@ -39,9 +39,8 @@ int _dns_client_send_query(struct dns_query_struct *query);
 
 struct dns_query_struct *_dns_client_get_request(char *domain, int qtype, unsigned short sid);
 
-int _dns_replied_check_add(struct dns_query_struct *dns_query, struct sockaddr *addr, socklen_t addr_len);
-
-void _dns_replied_check_remove(struct dns_query_struct *dns_query, struct sockaddr *addr, socklen_t addr_len);
+int _dns_replied_check_add(struct dns_query_struct *dns_query, struct dns_server_info *server);
+void _dns_replied_check_remove(struct dns_query_struct *dns_query, struct dns_server_info *server);
 
 int _dns_client_query_parser_options(struct dns_query_struct *query, struct dns_query_options *options);
 

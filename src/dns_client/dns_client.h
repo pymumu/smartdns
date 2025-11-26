@@ -212,12 +212,7 @@ struct dns_client {
 /* dns replied server info */
 struct dns_query_replied {
 	struct hlist_node node;
-	socklen_t addr_len;
-	union {
-		struct sockaddr_in in;
-		struct sockaddr_in6 in6;
-		struct sockaddr addr;
-	};
+	struct dns_server_info *server;
 };
 
 struct dns_conn_stream {

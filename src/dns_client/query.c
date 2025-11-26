@@ -196,22 +196,17 @@ struct dns_query_struct *_dns_client_get_request(char *domain, int qtype, unsign
 	return query_result;
 }
 
-int _dns_replied_check_add(struct dns_query_struct *dns_query, struct sockaddr *addr, socklen_t addr_len)
+int _dns_replied_check_add(struct dns_query_struct *dns_query, struct dns_server_info *server)
 {
 	uint32_t key = 0;
 	struct dns_query_replied *replied_map = NULL;
 
-	if (addr_len > sizeof(struct sockaddr_in6)) {
-		tlog(TLOG_ERROR, "addr length is invalid.");
-		return -1;
-	}
-
 	/* avoid multiple replies from one server */
-	key = jhash(addr, addr_len, 0);
+	key = jhash(&server, sizeof(server), 0);
 	hash_for_each_possible(dns_query->replied_map, replied_map, node, key)
 	{
 		/* already replied, ignore this reply */
-		if (memcmp(&replied_map->addr, addr, addr_len) == 0) {
+		if (replied_map->server == server) {
 			return -1;
 		}
 	}
@@ -223,24 +218,20 @@ int _dns_replied_check_add(struct dns_query_struct *dns_query, struct sockaddr *
 	}
 
 	/* add address info to check hashtable */
-	memcpy(&replied_map->addr, addr, addr_len);
+	replied_map->server = server;
 	hash_add(dns_query->replied_map, &replied_map->node, key);
 	return 0;
 }
 
-void _dns_replied_check_remove(struct dns_query_struct *dns_query, struct sockaddr *addr, socklen_t addr_len)
+void _dns_replied_check_remove(struct dns_query_struct *dns_query, struct dns_server_info *server)
 {
 	uint32_t key = 0;
 	struct dns_query_replied *replied_map = NULL;
 
-	if (addr_len > sizeof(struct sockaddr_in6)) {
-		return;
-	}
-
-	key = jhash(addr, addr_len, 0);
+	key = jhash(&server, sizeof(server), 0);
 	hash_for_each_possible(dns_query->replied_map, replied_map, node, key)
 	{
-		if (memcmp(&replied_map->addr, addr, addr_len) == 0) {
+		if (replied_map->server == server) {
 			hash_del(&replied_map->node);
 			free(replied_map);
 			return;

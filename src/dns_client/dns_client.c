@@ -145,7 +145,7 @@ int _dns_client_recv(struct dns_server_info *server_info, unsigned char *inpacke
 	}
 
 	/* avoid multiple replies */
-	if (_dns_replied_check_add(query, from, from_len) != 0) {
+	if (_dns_replied_check_add(query, server_info) != 0) {
 		_dns_client_query_release(query);
 		return 0;
 	}
@@ -164,7 +164,7 @@ int _dns_client_recv(struct dns_server_info *server_info, unsigned char *inpacke
 
 		if (ret == DNS_CLIENT_ACTION_RETRY || ret == DNS_CLIENT_ACTION_DROP) {
 			/* remove this result */
-			_dns_replied_check_remove(query, from, from_len);
+			_dns_replied_check_remove(query, server_info);
 			atomic_inc(&query->dns_request_sent);
 			if (ret == DNS_CLIENT_ACTION_RETRY) {
 				/*
