@@ -233,9 +233,10 @@ struct dns_rr_nested {
 	unsigned char *rr_len_ptr;
 	unsigned short rr_head_len;
 	dns_rr_type type;
+	dns_type_t rtype;
 };
 
-struct dns_https_param {
+struct dns_svcparam {
 	unsigned short key;
 	unsigned short len;
 	unsigned char value[0];
@@ -246,7 +247,7 @@ struct dns_rrs *dns_get_rrs_start(struct dns_packet *packet, dns_rr_type type, i
 
 struct dns_rr_nested *dns_add_rr_nested_start(struct dns_rr_nested *rr_nested_buffer, struct dns_packet *packet,
 											  dns_rr_type type, dns_type_t rtype, const char *domain, int ttl);
-int dns_add_rr_nested_end(struct dns_rr_nested *rr_nested, dns_type_t rtype);
+int dns_add_rr_nested_end(struct dns_rr_nested *rr_nested);
 int dns_add_rr_nested_memcpy(struct dns_rr_nested *rr_nested, const void *data, int data_len);
 
 void *dns_get_rr_nested_start(struct dns_rrs *rrs, char *domain, int maxsize, int *qtype, int *ttl, int *rr_len);
@@ -304,24 +305,40 @@ int dns_get_SRV(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, unsign
 /* the key must be added in orders, or dig will report FORMERR */
 int dns_add_HTTPS_start(struct dns_rr_nested *svcparam_buffer, struct dns_packet *packet, dns_rr_type type,
 						const char *domain, int ttl, int priority, const char *target);
-int dns_HTTPS_add_raw(struct dns_rr_nested *svcparam, unsigned short key, unsigned char *value, unsigned short len);
-/* key 1, alph */
-int dns_HTTPS_add_alpn(struct dns_rr_nested *svcparam, const char *alpn, int alpn_len);
-/* key 2, no default alph */
-int dns_HTTPS_add_no_default_alpn(struct dns_rr_nested *svcparam);
+int dns_add_SVCB_start(struct dns_rr_nested *svcparam_buffer, struct dns_packet *packet, dns_rr_type type,
+					   const char *domain, int ttl, int priority, const char *target);
+
+/* SVCB parameter functions */
+int dns_SVCB_add_raw(struct dns_rr_nested *svcparam, unsigned short key, unsigned char *value, unsigned short len);
+/* key 1, alpn */
+int dns_SVCB_add_alpn(struct dns_rr_nested *svcparam, const unsigned char *alpn, int alpn_len);
+/* key 2, no default alpn */
+int dns_SVCB_add_no_default_alpn(struct dns_rr_nested *svcparam);
 /* key 3, port */
-int dns_HTTPS_add_port(struct dns_rr_nested *svcparam, unsigned short port);
+int dns_SVCB_add_port(struct dns_rr_nested *svcparam, unsigned short port);
 /* key 4, ipv4 */
-int dns_HTTPS_add_ipv4hint(struct dns_rr_nested *svcparam, unsigned char *addr[], int addr_num);
+int dns_SVCB_add_ipv4hint(struct dns_rr_nested *svcparam, unsigned char *addr[], int addr_num);
 /* key 5, ech */
-int dns_HTTPS_add_ech(struct dns_rr_nested *svcparam, void *ech, int ech_len);
+int dns_SVCB_add_ech(struct dns_rr_nested *svcparam, void *ech, int ech_len);
 /* key 6, ipv6*/
-int dns_HTTPS_add_ipv6hint(struct dns_rr_nested *svcparam, unsigned char *addr[], int addr_num);
+int dns_SVCB_add_ipv6hint(struct dns_rr_nested *svcparam, unsigned char *addr[], int addr_num);
+
+/* End functions */
+int dns_add_SVCB_end(struct dns_rr_nested *svcparam);
 int dns_add_HTTPS_end(struct dns_rr_nested *svcparam);
 
-int dns_get_HTTPS_svcparm_start(struct dns_rrs *rrs, struct dns_https_param **https_param, char *domain, int maxsize,
+/* Backward compatibility - HTTPS parameter functions */
+int dns_HTTPS_add_raw(struct dns_rr_nested *svcparam, unsigned short key, unsigned char *value, unsigned short len);
+int dns_HTTPS_add_alpn(struct dns_rr_nested *svcparam, const char *alpn, int alpn_len);
+int dns_HTTPS_add_no_default_alpn(struct dns_rr_nested *svcparam);
+int dns_HTTPS_add_port(struct dns_rr_nested *svcparam, unsigned short port);
+int dns_HTTPS_add_ipv4hint(struct dns_rr_nested *svcparam, unsigned char *addr[], int addr_num);
+int dns_HTTPS_add_ech(struct dns_rr_nested *svcparam, void *ech, int ech_len);
+int dns_HTTPS_add_ipv6hint(struct dns_rr_nested *svcparam, unsigned char *addr[], int addr_num);
+
+int dns_svcparm_start(struct dns_rrs *rrs, struct dns_svcparam **https_param, char *domain, int maxsize,
 								int *ttl, int *priority, char *target, int target_size);
-struct dns_https_param *dns_get_HTTPS_svcparm_next(struct dns_rrs *rrs, struct dns_https_param *param);
+struct dns_svcparam *dns_svcparm_next(struct dns_rrs *rrs, struct dns_svcparam *param);
 
 /*
  * Packet operation

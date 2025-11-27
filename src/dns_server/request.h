@@ -31,8 +31,6 @@ void _dns_server_request_release_complete(struct dns_request *request, int do_co
 
 void _dns_server_query_end(struct dns_request *request);
 
-int _dns_server_process_DDR(struct dns_request *request);
-
 void *dns_server_request_get_private(struct dns_request *request);
 
 struct dns_request *_dns_server_new_request(void);
@@ -64,8 +62,6 @@ int _dns_server_parser_request(struct dns_request *request, struct dns_packet *p
 void _dns_server_set_request_mdns(struct dns_request *request);
 
 int _dns_server_process_svcb(struct dns_request *request);
-
-int _dns_server_process_DDR(struct dns_request *request);
 
 int _dns_server_process_srv(struct dns_request *request);
 

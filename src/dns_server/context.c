@@ -636,17 +636,17 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 			} break;
 			case DNS_T_HTTPS: {
 				char target[DNS_MAX_CNAME_LEN] = {0};
-				struct dns_https_param *p = NULL;
+				struct dns_svcparam *p = NULL;
 				int priority = 0;
 
-				int ret = dns_get_HTTPS_svcparm_start(rrs, &p, name, DNS_MAX_CNAME_LEN, &ttl, &priority, target,
+				int ret = dns_svcparm_start(rrs, &p, name, DNS_MAX_CNAME_LEN, &ttl, &priority, target,
 													  DNS_MAX_CNAME_LEN);
 				if (ret != 0) {
 					tlog(TLOG_WARN, "get HTTPS svcparm failed");
 					return -1;
 				}
 
-				for (; p; p = dns_get_HTTPS_svcparm_next(rrs, p)) {
+				for (; p; p = dns_svcparm_next(rrs, p)) {
 					switch (p->key) {
 					case DNS_HTTPS_T_IPV4HINT: {
 						unsigned char *addr;

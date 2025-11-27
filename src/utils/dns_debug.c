@@ -264,13 +264,14 @@ static int _dns_debug_display(struct dns_packet *packet)
 				printf("domain: %s SRV: %s TTL: %d priority: %d weight: %d port: %d\n", name, target, ttl, priority,
 					   weight, port);
 			} break;
+			case DNS_T_SVCB:
 			case DNS_T_HTTPS: {
 				char name[DNS_MAX_CNAME_LEN] = {0};
 				char target[DNS_MAX_CNAME_LEN] = {0};
-				struct dns_https_param *p = NULL;
+				struct dns_svcparam *p = NULL;
 				int priority = 0;
 
-				ret = dns_get_HTTPS_svcparm_start(rrs, &p, name, DNS_MAX_CNAME_LEN, &ttl, &priority, target,
+				ret = dns_svcparm_start(rrs, &p, name, DNS_MAX_CNAME_LEN, &ttl, &priority, target,
 												  DNS_MAX_CNAME_LEN);
 				if (ret != 0) {
 					printf("get HTTPS svcparm failed\n");
@@ -279,7 +280,7 @@ static int _dns_debug_display(struct dns_packet *packet)
 
 				printf("domain: %s HTTPS: %s TTL: %d priority: %d\n", name, target, ttl, priority);
 
-				for (; p; p = dns_get_HTTPS_svcparm_next(rrs, p)) {
+				for (; p; p = dns_svcparm_next(rrs, p)) {
 					switch (p->key) {
 					case DNS_HTTPS_T_MANDATORY: {
 						printf("  HTTPS: mandatory: %s\n", p->value);

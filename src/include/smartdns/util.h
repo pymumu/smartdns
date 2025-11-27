@@ -213,6 +213,8 @@ static inline void *zalloc(size_t count, size_t size)
 	return calloc(count, size);
 }
 
+int encode_alpn_protos(const char *alpn, uint8_t *alpn_data, int alpn_data_max);
+
 #ifdef __cplusplus
 }
 #endif /*__cplusplus */

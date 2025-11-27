@@ -20,6 +20,7 @@
 #include "address.h"
 #include "connection.h"
 #include "context.h"
+#include "ddr.h"
 #include "dns64.h"
 #include "dns_server.h"
 #include "dualstack.h"
@@ -653,11 +654,6 @@ static int _dns_server_process_local_SOA(struct dns_request *request)
 	soa->minimum = 86400;
 
 	return _dns_server_reply_SOA_ext(DNS_RC_NOERROR, request);
-}
-
-int _dns_server_process_DDR(struct dns_request *request)
-{
-	return _dns_server_reply_SOA(DNS_RC_NOERROR, request);
 }
 
 int _dns_server_process_srv(struct dns_request *request)
