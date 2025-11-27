@@ -2,10 +2,14 @@ FROM ubuntu:latest AS smartdns-builder
 LABEL previous-stage=smartdns-builder
 
 # prepare builder
-ARG OPENSSL_VER=3.4.2
+ARG OPENSSL_VER=3.5.4
+ARG NODE_VERSION=20.x
 RUN apt update && \
-    apt install -y binutils perl curl make gcc nodejs npm clang wget unzip ca-certificates && \
+    apt install -y binutils perl curl make gcc clang wget unzip ca-certificates && \
     update-ca-certificates && \
+    curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION} | bash - && \
+    apt install -y nodejs && \
+    node --version && npm --version && \
     \
     curl https://sh.rustup.rs -sSf | sh -s -- -y && \
     export PATH="$HOME/.cargo/bin:$PATH" && \
@@ -36,7 +40,7 @@ COPY . /build/smartdns/
 RUN cd /build/smartdns && \
     export CFLAGS="-I /opt/build/include" && \
     export LDFLAGS="-L /opt/build/lib -L /opt/build/lib64" && \
-    export PATH="$HOME/.cargo/bin:$PATH" && \
+    export PATH="$HOME/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" && \
     rm -fr /build/smartdns/package/*.tar.gz && \
     sh ./package/build-pkg.sh --platform linux --arch `dpkg --print-architecture` --with-ui --static && \
     \
