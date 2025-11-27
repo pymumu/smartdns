@@ -108,15 +108,14 @@ int _dns_server_is_return_soa_qtype(struct dns_request *request, dns_type_t qtyp
 	return 0;
 }
 
-int _dns_server_reply_SOA(int rcode, struct dns_request *request)
+int _dns_server_reply_SOA_ext(int rcode, struct dns_request *request)
 {
 	/* return SOA record */
 	request->rcode = rcode;
 	if (request->ip_ttl <= 0) {
 		request->ip_ttl = DNS_SERVER_SOA_TTL;
 	}
-
-	_dns_server_setup_soa(request);
+	request->has_soa = 1;
 
 	struct dns_server_post_context context;
 	_dns_server_post_context_init(&context, request);
@@ -126,6 +125,12 @@ int _dns_server_reply_SOA(int rcode, struct dns_request *request)
 	_dns_request_post(&context);
 
 	return 0;
+}
+
+int _dns_server_reply_SOA(int rcode, struct dns_request *request)
+{
+	_dns_server_setup_soa(request);
+	return _dns_server_reply_SOA_ext(rcode, request);
 }
 
 int _dns_server_qtype_soa(struct dns_request *request)

@@ -628,6 +628,33 @@ void _dns_server_set_request_mdns(struct dns_request *request)
 	request->is_mdns_lookup = 1;
 }
 
+static int _dns_server_process_local_SOA(struct dns_request *request)
+{
+	struct dns_soa *soa = NULL;
+	char *mname = "ns.local";
+	char *rname = "admin.local";
+
+	if (strncasecmp("local", request->domain, DNS_MAX_CNAME_LEN) != 0) {
+		mname = "ns.lan";
+		rname = "admin.lan";
+		if (strncasecmp("lan", request->domain, DNS_MAX_CNAME_LEN) != 0) {
+			return -1;
+		}
+	}
+
+	soa = &request->soa;
+
+	safe_strncpy(soa->mname, mname, DNS_MAX_CNAME_LEN);
+	safe_strncpy(soa->rname, rname, DNS_MAX_CNAME_LEN);
+	soa->serial = 1;
+	soa->refresh = 3600;
+	soa->retry = 900;
+	soa->expire = 604800;
+	soa->minimum = 86400;
+
+	return _dns_server_reply_SOA_ext(DNS_RC_NOERROR, request);
+}
+
 int _dns_server_process_DDR(struct dns_request *request)
 {
 	return _dns_server_reply_SOA(DNS_RC_NOERROR, request);
@@ -946,6 +973,15 @@ int _dns_server_process_special_query(struct dns_request *request)
 
 	switch (request->qtype) {
 	case DNS_T_PTR:
+		break;
+	case DNS_T_SOA:
+		ret = _dns_server_process_local_SOA(request);
+		if (ret == 0) {
+			goto clean_exit;
+		} else {
+			/* pass to upstream server */
+			request->passthrough = 1;
+		}
 		break;
 	case DNS_T_SRV:
 		ret = _dns_server_process_srv(request);

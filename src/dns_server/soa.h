@@ -33,6 +33,8 @@ int _dns_server_is_return_soa_qtype(struct dns_request *request, dns_type_t qtyp
 
 int _dns_server_reply_SOA(int rcode, struct dns_request *request);
 
+int _dns_server_reply_SOA_ext(int rcode, struct dns_request *request);
+
 int _dns_server_qtype_soa(struct dns_request *request);
 
 #ifdef __cplusplus
