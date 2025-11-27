@@ -20,8 +20,12 @@
 #include "server_tls.h"
 #include "connection.h"
 #include "dns_server.h"
+#include "server_https.h"
 #include "server_socket.h"
 #include "server_tcp.h"
+#include "server_http2.h"
+
+#include "smartdns/http2.h"
 
 #include <errno.h>
 #include <netinet/tcp.h>
@@ -30,6 +34,44 @@
 #include <pthread.h>
 #include <string.h>
 #include <sys/epoll.h>
+
+static int alpn_select_cb(SSL *ssl, const unsigned char **out, unsigned char *outlen, const unsigned char *in,
+						  unsigned int inlen, void *arg)
+{
+	struct dns_bind_ip *bind_ip = (struct dns_bind_ip *)arg;
+	const char *alpn = bind_ip->alpn;
+	if (alpn[0] == '\0') {
+		alpn = "h2,http/1.1";
+	}
+
+	/* Parse server ALPN list */
+	char alpn_copy[256];
+	safe_strncpy(alpn_copy, alpn, sizeof(alpn_copy));
+	char *saveptr = NULL;
+	char *proto = strtok_r(alpn_copy, ",", &saveptr);
+
+	while (proto) {
+		unsigned int proto_len = strlen(proto);
+		for (unsigned int i = 0; i < inlen;) {
+			unsigned int len = in[i++];
+			if (i + len > inlen) {
+				break;
+			}
+
+			if (len == proto_len && memcmp(&in[i], proto, len) == 0) {
+				*out = &in[i];
+				*outlen = len;
+				return SSL_TLSEXT_ERR_OK;
+			}
+			i += len;
+		}
+		proto = strtok_r(NULL, ",", &saveptr);
+	}
+
+	/* No match found */
+	tlog(TLOG_DEBUG, "ALPN negotiation failed: no matching protocol found");
+	return SSL_TLSEXT_ERR_NOACK;
+}
 
 static ssize_t _ssl_read(struct dns_server_conn_tls_client *conn, void *buff, int num)
 {
@@ -137,7 +179,11 @@ int _dns_server_socket_ssl_send(struct dns_server_conn_tls_client *tls_client, c
 		ret = -1;
 		break;
 	case SSL_ERROR_SYSCALL:
-		tlog(TLOG_DEBUG, "SSL syscall failed, %s", strerror(errno));
+		if (errno == 0) {
+			tlog(TLOG_DEBUG, "SSL connection closed");
+		} else {
+			tlog(TLOG_DEBUG, "SSL syscall failed, %s", strerror(errno));
+		}
 		return ret;
 	default:
 		errno = EFAULT;
@@ -367,6 +413,18 @@ int _dns_server_process_tls(struct dns_server_conn_tls_client *tls_client, struc
 		}
 
 		tls_client->tcp.status = DNS_SERVER_CLIENT_STATUS_CONNECTED;
+
+		/* Get negotiated ALPN */
+		const unsigned char *alpn_data = NULL;
+		unsigned int alpn_len = 0;
+		SSL_get0_alpn_selected(tls_client->ssl, &alpn_data, &alpn_len);
+		if (alpn_data && alpn_len > 0 && alpn_len < sizeof(tls_client->alpn_selected)) {
+			memcpy(tls_client->alpn_selected, alpn_data, alpn_len);
+			tls_client->alpn_selected[alpn_len] = '\0';
+		} else {
+			safe_strncpy(tls_client->alpn_selected, "http/1.1", sizeof(tls_client->alpn_selected));
+		}
+
 		memset(&fd_event, 0, sizeof(fd_event));
 		fd_event.events = EPOLLIN | EPOLLOUT;
 		fd_event.data.ptr = tls_client;
@@ -374,6 +432,15 @@ int _dns_server_process_tls(struct dns_server_conn_tls_client *tls_client, struc
 			tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
 			goto errout;
 		}
+	}
+
+	/* if HTTP/2 was negotiated */
+	if (strcmp(tls_client->alpn_selected, "h2") == 0) {
+		ret = _dns_server_process_http2(tls_client, event, now);
+		if (ret != 0) {
+			goto errout;
+		}
+		return ret;
 	}
 
 	return _dns_server_process_tcp((struct dns_server_conn_tcp_client *)tls_client, event, now);
@@ -455,6 +522,9 @@ int _dns_server_socket_tls(struct dns_bind_ip *bind_ip, DNS_CONN_TYPE conn_type)
 		tlog(TLOG_ERROR, "load cert key %s failed, %s", ssl_cert_key_file, ERR_error_string(ERR_get_error(), NULL));
 		goto errout;
 	}
+
+	/* Set ALPN */
+	SSL_CTX_set_alpn_select_cb(ssl_ctx, alpn_select_cb, bind_ip);
 
 	conn = zalloc(1, sizeof(struct dns_server_conn_tls_server));
 	if (conn == NULL) {

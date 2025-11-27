@@ -19,6 +19,8 @@
 #include "connection.h"
 #include "dns_server.h"
 
+#include "smartdns/http2.h"
+
 #include <openssl/ssl.h>
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
@@ -66,6 +68,8 @@ void _dns_server_conn_release(struct dns_server_conn_head *conn)
 			SSL_CTX_free(tls_server->ssl_ctx);
 			tls_server->ssl_ctx = NULL;
 		}
+	} else if (conn->type == DNS_CONN_TYPE_HTTP2_STREAM) {
+		/* Nothing to release for stream connection wrapper, just free(conn) at the end */
 	}
 
 	if (conn->fd > 0) {
@@ -95,10 +99,23 @@ void _dns_server_close_socket(void)
 	struct dns_server_conn_head *conn = NULL;
 	struct dns_server_conn_head *tmp = NULL;
 
+	pthread_mutex_lock(&server.conn_list_lock);
 	list_for_each_entry_safe(conn, tmp, &server.conn_list, list)
 	{
+		/* Force cleanup of TLS/HTTPS client connections to prevent memory leaks */
+		if (conn->type == DNS_CONN_TYPE_TLS_CLIENT || conn->type == DNS_CONN_TYPE_HTTPS_CLIENT) {
+			struct dns_server_conn_tls_client *tls_client = (struct dns_server_conn_tls_client *)conn;
+			
+			/* Free SSL connection */
+			if (tls_client->ssl != NULL) {
+				SSL_free(tls_client->ssl);
+				tls_client->ssl = NULL;
+			}
+		}
+
 		_dns_server_client_close(conn);
 	}
+	pthread_mutex_unlock(&server.conn_list_lock);
 }
 
 void _dns_server_close_socket_server(void)
@@ -143,6 +160,15 @@ int _dns_server_client_close(struct dns_server_conn_head *conn)
 	pthread_mutex_lock(&server.conn_list_lock);
 	list_del_init(&conn->list);
 	pthread_mutex_unlock(&server.conn_list_lock);
+
+	if (conn->type == DNS_CONN_TYPE_TLS_CLIENT || conn->type == DNS_CONN_TYPE_HTTPS_CLIENT) {
+		struct dns_server_conn_tls_client *tls_client = (struct dns_server_conn_tls_client *)conn;
+		if (tls_client->http2_ctx != NULL) {
+			http2_ctx_close(tls_client->http2_ctx);
+			http2_ctx_free(tls_client->http2_ctx);
+			tls_client->http2_ctx = NULL;
+		}
+	}
 
 	_dns_server_conn_release(conn);
 

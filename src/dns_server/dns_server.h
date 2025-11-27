@@ -26,6 +26,7 @@
 #include "smartdns/dns.h"
 #include "smartdns/dns_conf.h"
 #include "smartdns/dns_server.h"
+#include "smartdns/http2.h"
 #include "smartdns/tlog.h"
 #include "smartdns/util.h"
 
@@ -76,6 +77,7 @@ typedef enum {
 	DNS_CONN_TYPE_TLS_CLIENT,
 	DNS_CONN_TYPE_HTTPS_SERVER,
 	DNS_CONN_TYPE_HTTPS_CLIENT,
+	DNS_CONN_TYPE_HTTP2_STREAM,
 } DNS_CONN_TYPE;
 
 typedef enum DNS_CHILD_POST_RESULT {
@@ -212,6 +214,8 @@ struct dns_server_conn_tls_client {
 	SSL *ssl;
 	int ssl_want_write;
 	pthread_mutex_t ssl_lock;
+	void *http2_ctx;
+	char alpn_selected[32];
 };
 
 /* ip address lists of domain */

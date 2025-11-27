@@ -16,8 +16,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef _HTTP2_CLIENT_H_
-#define _HTTP2_CLIENT_H_
+#ifndef _HTTP2_H_
+#define _HTTP2_H_
 
 #include <stddef.h>
 #include <stdint.h>
@@ -30,6 +30,11 @@ extern "C" {
 struct http2_ctx;
 struct http2_stream;
 
+/* HTTP/2 Settings structure */
+struct http2_settings {
+	int max_concurrent_streams; /* -1 = use default (4096), 0 = unlimited */
+};
+
 /* Error codes */
 enum {
 	HTTP2_ERR_NONE = 0,
@@ -37,7 +42,11 @@ enum {
 	HTTP2_ERR_EOF = -2,
 	HTTP2_ERR_IO = -3,
 	HTTP2_ERR_PROTOCOL = -4,
+	HTTP2_ERR_HTTP1 = -5,
 };
+
+/* Convert error code to string */
+const char *http2_error_to_string(int ret);
 
 /* BIO callback types */
 typedef int (*http2_bio_read_fn)(void *private_data, uint8_t *buf, int len);
@@ -58,10 +67,11 @@ struct http2_poll_item {
  * @param bio_read Read callback function
  * @param bio_write Write callback function
  * @param private_data User data passed to BIO callbacks
+ * @param settings HTTP/2 settings to use (NULL for defaults)
  * @return New context or NULL on error
  */
 struct http2_ctx *http2_ctx_client_new(const char *server, http2_bio_read_fn bio_read, http2_bio_write_fn bio_write,
-									   void *private_data);
+									   void *private_data, const struct http2_settings *settings);
 
 /**
  * Create a new HTTP/2 server context
@@ -69,16 +79,24 @@ struct http2_ctx *http2_ctx_client_new(const char *server, http2_bio_read_fn bio
  * @param bio_read Read callback function
  * @param bio_write Write callback function
  * @param private_data User data passed to BIO callbacks
+ * @param settings HTTP/2 settings to use (NULL for defaults)
  * @return New context or NULL on error
  */
 struct http2_ctx *http2_ctx_server_new(const char *server, http2_bio_read_fn bio_read, http2_bio_write_fn bio_write,
-									   void *private_data);
+									   void *private_data, const struct http2_settings *settings);
 
 /**
  * Free an HTTP/2 context
  * @param ctx Context to free
  */
 void http2_ctx_free(struct http2_ctx *ctx);
+
+/**
+ * Close an HTTP/2 context and release all streams
+ * This is used to break circular references between context and streams
+ * @param ctx Context to close
+ */
+void http2_ctx_close(struct http2_ctx *ctx);
 
 /**
  * Increase reference count of HTTP/2 context
@@ -132,6 +150,13 @@ int http2_ctx_want_read(struct http2_ctx *ctx);
  */
 int http2_ctx_want_write(struct http2_ctx *ctx);
 
+/**
+ * Check if connection is closed or has encountered an error
+ * @param ctx HTTP/2 context
+ * @return 1 if connection is closed/errored, 0 if still active
+ */
+int http2_ctx_is_closed(struct http2_ctx *ctx);
+
 /* Stream Management APIs */
 
 /**
@@ -145,21 +170,21 @@ struct http2_stream *http2_stream_new(struct http2_ctx *ctx);
  * Free a stream
  * @param stream Stream to free
  */
-void http2_stream_free(struct http2_stream *stream);
+
 
 /**
  * Increase reference count of stream
  * @param stream Stream
  * @return The same stream pointer
  */
-struct http2_stream *http2_stream_ref(struct http2_stream *stream);
+struct http2_stream *http2_stream_get(struct http2_stream *stream);
 
 /**
  * Decrease reference count of stream
  * Frees the stream when reference count reaches zero
  * @param stream Stream
  */
-void http2_stream_unref(struct http2_stream *stream);
+void http2_stream_put(struct http2_stream *stream);
 
 /**
  * Get stream ID
@@ -204,6 +229,14 @@ int http2_stream_set_response(struct http2_stream *stream, int status, const str
  * @return Method string or NULL
  */
 const char *http2_stream_get_method(struct http2_stream *stream);
+
+/**
+ * Get query parameter from request path
+ * @param stream Stream
+ * @param name Parameter name
+ * @return Parameter value (must be freed by caller) or NULL if not found
+ */
+char *http2_stream_get_query_param(struct http2_stream *stream, const char *name);
 
 /**
  * Get request path
@@ -291,4 +324,4 @@ void *http2_stream_get_ex_data(struct http2_stream *stream);
 }
 #endif
 
-#endif /* _HTTP2_CLIENT_H_ */
+#endif /* _HTTP2_H_ */

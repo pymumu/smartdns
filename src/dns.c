@@ -2236,6 +2236,7 @@ static int _dns_decode_opt(struct dns_context *context, dns_rr_type type, unsign
 		switch (opt_code) {
 		case DNS_OPT_T_ECS: {
 			struct dns_opt_ecs ecs;
+			memset(&ecs, 0, sizeof(ecs));
 			ret = _dns_decode_opt_ecs(context, &ecs, opt_len);
 			if (ret != 0) {
 				tlog(TLOG_ERROR, "decode ecs failed.");

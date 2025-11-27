@@ -565,6 +565,7 @@ struct dns_bind_ip {
 	const char *ssl_cert_key_pass;
 	const char *group;
 	struct nftset_ipset_rules nftset_ipset_rule;
+	char alpn[DNS_MAX_ALPN_LEN];
 };
 
 struct dns_domain_set_rule {
@@ -696,7 +697,7 @@ struct dns_config {
 	char bind_ca_key_file[DNS_MAX_PATH];
 	char bind_root_ca_key_file[DNS_MAX_PATH];
 	char bind_ca_key_pass[DNS_MAX_PATH];
-	int  bind_ca_validity_days;
+	int bind_ca_validity_days;
 	char need_cert;
 	int tcp_idle_time;
 	ssize_t cachesize;

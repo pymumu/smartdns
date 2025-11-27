@@ -43,6 +43,7 @@
 #include "server_tcp.h"
 #include "server_tls.h"
 #include "server_udp.h"
+#include "server_http2.h"
 #include "soa.h"
 #include "speed_check.h"
 
@@ -98,6 +99,8 @@ int _dns_reply_inpacket(struct dns_request *request, unsigned char *inpacket, in
 		ret = _dns_server_reply_tcp(request, (struct dns_server_conn_tcp_client *)conn, inpacket, inpacket_len);
 	} else if (conn->type == DNS_CONN_TYPE_HTTPS_CLIENT) {
 		ret = _dns_server_reply_https(request, (struct dns_server_conn_tcp_client *)conn, inpacket, inpacket_len);
+	} else if (conn->type == DNS_CONN_TYPE_HTTP2_STREAM) {
+		ret = _dns_server_reply_http2(request, (struct dns_server_conn_http2_stream *)conn, inpacket, inpacket_len);
 	} else {
 		ret = -1;
 	}

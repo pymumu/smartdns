@@ -57,7 +57,9 @@ static int _dns_client_send_http2_stream(struct dns_server_info *server_info, st
 		return -1;
 	}
 
+	pthread_mutex_lock(&server_info->lock);
 	conn_stream->http2_stream = http2_stream;
+	pthread_mutex_unlock(&server_info->lock);
 	http2_stream_set_ex_data(http2_stream, conn_stream);
 
 	/* Set request headers */
@@ -68,15 +70,19 @@ static int _dns_client_send_http2_stream(struct dns_server_info *server_info, st
 										  {NULL, NULL}};
 
 	if (http2_stream_set_request(http2_stream, "POST", https_flag->path, headers) < 0) {
-		http2_stream_free(http2_stream);
+		pthread_mutex_lock(&server_info->lock);
 		conn_stream->http2_stream = NULL;
+		pthread_mutex_unlock(&server_info->lock);
+		http2_stream_put(http2_stream);
 		return -1;
 	}
 
 	/* Write request body */
 	if (http2_stream_write_body(http2_stream, (const uint8_t *)data, len, 1) < 0) {
-		http2_stream_free(http2_stream);
+		pthread_mutex_lock(&server_info->lock);
 		conn_stream->http2_stream = NULL;
+		pthread_mutex_unlock(&server_info->lock);
+		http2_stream_put(http2_stream);
 		return -1;
 	}
 
@@ -88,10 +94,11 @@ static void _dns_client_cleanup_http2_stream(struct dns_server_info *server_info
 											 struct http2_stream *http2_stream)
 {
 	pthread_mutex_lock(&server_info->lock);
-	http2_stream_free(http2_stream);
 	conn_stream->http2_stream = NULL;
 	list_del_init(&conn_stream->server_list);
 	pthread_mutex_unlock(&server_info->lock);
+
+	http2_stream_put(http2_stream);
 	_dns_client_conn_stream_put(conn_stream);
 }
 
@@ -142,21 +149,36 @@ static void _dns_client_send_buffered_http2_requests(struct dns_server_info *ser
 	struct dns_conn_stream *conn_stream = NULL;
 	struct dns_conn_stream *tmp = NULL;
 
-	pthread_mutex_lock(&server_info->lock);
-	list_for_each_entry_safe(conn_stream, tmp, &server_info->conn_stream_list, server_list)
-	{
-		if (conn_stream->http2_stream != NULL || conn_stream->send_buff.len <= 0) {
-			continue;
+	while (1) {
+		struct dns_conn_stream *target_stream = NULL;
+
+		pthread_mutex_lock(&server_info->lock);
+		list_for_each_entry_safe(conn_stream, tmp, &server_info->conn_stream_list, server_list)
+		{
+			if (conn_stream->http2_stream != NULL || conn_stream->send_buff.len <= 0) {
+				continue;
+			}
+			target_stream = conn_stream;
+			_dns_client_conn_stream_get(target_stream);
+			break;
+		}
+		pthread_mutex_unlock(&server_info->lock);
+
+		if (target_stream == NULL) {
+			break;
 		}
 
 		/* Send buffered request using helper function */
-		if (_dns_client_send_http2_stream(server_info, conn_stream, conn_stream->send_buff.data,
-										  conn_stream->send_buff.len) == 0) {
+		if (_dns_client_send_http2_stream(server_info, target_stream, target_stream->send_buff.data,
+										  target_stream->send_buff.len) == 0) {
 			/* Clear buffer as it's now in HTTP/2 stream buffer */
-			conn_stream->send_buff.len = 0;
+			target_stream->send_buff.len = 0;
+		} else {
+			_dns_client_release_stream_on_error(server_info, target_stream);
 		}
+
+		_dns_client_conn_stream_put(target_stream);
 	}
-	pthread_mutex_unlock(&server_info->lock);
 }
 
 int _dns_client_send_http2(struct dns_server_info *server_info, struct dns_query_struct *query, void *packet,
@@ -226,7 +248,7 @@ int _dns_client_send_http2(struct dns_server_info *server_info, struct dns_query
 
 	/* Initialize HTTP/2 context if not already done */
 	if (server_info->http2_ctx == NULL) {
-		http2_ctx = http2_ctx_client_new(https_flag->httphost, _http2_bio_read, _http2_bio_write, server_info);
+		http2_ctx = http2_ctx_client_new(https_flag->httphost, _http2_bio_read, _http2_bio_write, server_info, NULL);
 		if (http2_ctx == NULL) {
 			tlog(TLOG_ERROR, "init http2 context failed.");
 			goto errout;
@@ -281,7 +303,7 @@ errout:
 	_dns_client_release_stream_on_error(server_info, stream);
 
 	if (http2_stream) {
-		http2_stream_free(http2_stream);
+		http2_stream_put(http2_stream);
 	}
 	if (http2_ctx && server_info->http2_ctx == NULL) {
 		http2_ctx_free(http2_ctx);
@@ -297,13 +319,12 @@ int _dns_client_process_http2(struct dns_server_info *server_info, struct epoll_
 	/* Initialize context if needed (e.g. first time in EPOLLOUT) */
 	if (http2_ctx == NULL) {
 		struct client_dns_server_flag_https *https_flag = &server_info->flags.https;
-		http2_ctx = http2_ctx_client_new(https_flag->httphost, _http2_bio_read, _http2_bio_write, server_info);
+		http2_ctx = http2_ctx_client_new(https_flag->httphost, _http2_bio_read, _http2_bio_write, server_info, NULL);
 		if (http2_ctx == NULL) {
 			tlog(TLOG_ERROR, "init http2 context failed.");
 			goto errout;
 		}
 		server_info->http2_ctx = http2_ctx;
-		http2_ctx_handshake(http2_ctx);
 	}
 
 	/* Handle EPOLLOUT - flush pending writes and send buffered requests */
@@ -357,7 +378,9 @@ int _dns_client_process_http2(struct dns_server_info *server_info, struct epoll_
 			/* Poll for stream readiness */
 			ret = http2_ctx_poll(http2_ctx, poll_items, 10, &poll_count);
 			if (ret < 0) {
-				tlog(TLOG_DEBUG, "http2 poll failed, ret=%d", ret);
+				if (ret != HTTP2_ERR_EOF) {
+					tlog(TLOG_DEBUG, "http2 poll failed, ret=%d", ret);
+				}
 				goto errout;
 			}
 
@@ -379,7 +402,7 @@ int _dns_client_process_http2(struct dns_server_info *server_info, struct epoll_
 				conn_stream = (struct dns_conn_stream *)http2_stream_get_ex_data(http2_stream);
 				if (conn_stream == NULL) {
 					tlog(TLOG_DEBUG, "conn_stream is null for http2 stream");
-					http2_stream_free(http2_stream);
+					http2_stream_put(http2_stream);
 					continue;
 				}
 

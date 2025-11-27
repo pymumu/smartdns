@@ -14,25 +14,34 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
+ *
+ *************************************************************************/
 
-#ifndef _DNS_SERVER_HTTPS_
-#define _DNS_SERVER_HTTPS_
+#ifndef _SERVER_HTTP2_H_
+#define _SERVER_HTTP2_H_
 
 #include "dns_server.h"
+#include "smartdns/http2.h"
 #include <sys/epoll.h>
 
 #ifdef __cplusplus
 extern "C" {
-#endif /*__cplusplus */
+#endif
 
-int _dns_server_reply_http_error(struct dns_server_conn_tcp_client *tcpclient, int code, const char *code_msg,
-								 const char *message);
+struct dns_server_conn_http2_stream {
+	struct dns_server_conn_head head;
+	struct http2_stream *stream;
+	struct dns_server_conn_tls_client *tls_client;
+};
 
-int _dns_server_reply_https(struct dns_request *request, struct dns_server_conn_tcp_client *tcpclient, void *packet,
-							unsigned short len);
+int _dns_server_process_http2(struct dns_server_conn_tls_client *tls_client, struct epoll_event *event,
+							  unsigned long now);
+
+int _dns_server_reply_http2(struct dns_request *request, struct dns_server_conn_http2_stream *stream_conn,
+							unsigned char *inpacket, int inpacket_len);
 
 #ifdef __cplusplus
 }
-#endif /*__cplusplus */
+#endif
+
 #endif

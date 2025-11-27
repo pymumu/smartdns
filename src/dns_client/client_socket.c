@@ -134,7 +134,7 @@ void _dns_client_close_socket_ext(struct dns_server_info *server_info, int no_de
 			list_for_each_entry_safe(conn_stream, tmp, &server_info->conn_stream_list, server_list)
 			{
 				if (conn_stream->http2_stream) {
-					http2_stream_free(conn_stream->http2_stream);
+					http2_stream_put(conn_stream->http2_stream);
 					conn_stream->http2_stream = NULL;
 				}
 

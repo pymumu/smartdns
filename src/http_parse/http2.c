@@ -17,6 +17,7 @@
  */
 
 #include "smartdns/http2.h"
+#include "smartdns/util.h"
 
 #include "hpack.h"
 #include "http_parse.h"
@@ -29,6 +30,26 @@
 #ifdef WITH_ZLIB
 #include <zlib.h>
 #endif
+
+const char *http2_error_to_string(int ret)
+{
+	switch (ret) {
+	case HTTP2_ERR_NONE:
+		return "no error";
+	case HTTP2_ERR_EAGAIN:
+		return "operation would block";
+	case HTTP2_ERR_EOF:
+		return "connection closed by client";
+	case HTTP2_ERR_IO:
+		return "I/O error";
+	case HTTP2_ERR_PROTOCOL:
+		return "protocol error";
+	case HTTP2_ERR_HTTP1:
+		return "client sent HTTP/1.1 after ALPN h2";
+	default:
+		return "unknown error";
+	}
+}
 
 /* HTTP/2 Frame Types */
 #define HTTP2_FRAME_DATA 0x00
@@ -91,6 +112,7 @@ struct http2_stream {
 	int body_read_offset;
 	int end_stream_received;
 	int end_stream_sent;
+	int end_stream_read_handled; /* Flag to track if EOF has been reported to app */
 	int window_size;
 	int body_decompressed; /* Flag to track if body has been decompressed */
 	void *ex_data;
@@ -116,6 +138,8 @@ struct http2_ctx {
 	int connection_window_size;
 	int peer_max_frame_size;
 	int peer_initial_window_size;
+	int active_streams;
+	struct http2_settings settings; /* HTTP/2 settings */
 
 	/* I/O state */
 	int want_read;
@@ -173,8 +197,6 @@ static void write_uint24(uint8_t *data, uint32_t value)
 	data[1] = (value >> 8) & 0xFF;
 	data[2] = value & 0xFF;
 }
-
-/* HPACK integer encoding/decoding */
 
 /* HPACK callback */
 static int http2_on_header(void *ctx, const char *name, const char *value)
@@ -268,6 +290,7 @@ static int http2_write_frame_header(uint8_t *buf, int length, uint8_t type, uint
 static int http2_send_frame(struct http2_ctx *ctx, const uint8_t *data, int len)
 {
 	int total_sent = 0;
+	int unsent = 0;
 
 	/* First, try to flush any pending writes */
 	if (ctx->pending_write_len > 0) {
@@ -324,7 +347,7 @@ static int http2_send_frame(struct http2_ctx *ctx, const uint8_t *data, int len)
 
 buffer_new_data:
 	/* Buffer the unsent data */
-	int unsent = len - total_sent;
+	unsent = len - total_sent;
 	if (unsent > 0) {
 		/* Ensure buffer capacity */
 		int needed = ctx->pending_write_len + unsent;
@@ -352,7 +375,7 @@ buffer_new_data:
 
 static int http2_send_settings(struct http2_ctx *ctx, int ack)
 {
-	uint8_t frame[HTTP2_FRAME_HEADER_SIZE + 24]; /* Increased size for ENABLE_PUSH */
+	uint8_t frame[HTTP2_FRAME_HEADER_SIZE + 256]; /* Increased size for ENABLE_PUSH */
 	int offset = HTTP2_FRAME_HEADER_SIZE;
 	uint8_t flags = ack ? HTTP2_FLAG_ACK : 0;
 
@@ -378,6 +401,13 @@ static int http2_send_settings(struct http2_ctx *ctx, int ack)
 		write_uint32(frame + offset, (HTTP2_SETTINGS_MAX_FRAME_SIZE << 16) | 0);
 		write_uint32(frame + offset + 2, HTTP2_DEFAULT_MAX_FRAME_SIZE);
 		offset += 6;
+
+		if (ctx->settings.max_concurrent_streams > 0) {
+			/* SETTINGS_MAX_CONCURRENT_STREAMS */
+			write_uint32(frame + offset, (HTTP2_SETTINGS_MAX_CONCURRENT_STREAMS << 16) | 0);
+			write_uint32(frame + offset + 2, ctx->settings.max_concurrent_streams);
+			offset += 6;
+		}
 	}
 
 	http2_write_frame_header(frame, offset - HTTP2_FRAME_HEADER_SIZE, HTTP2_FRAME_SETTINGS, flags, 0);
@@ -467,6 +497,11 @@ static struct http2_stream *http2_find_stream(struct http2_ctx *ctx, int stream_
 
 static struct http2_stream *http2_create_stream(struct http2_ctx *ctx, int stream_id)
 {
+	/* Check concurrent streams limit */
+	if (ctx->active_streams >= ctx->settings.max_concurrent_streams && ctx->settings.max_concurrent_streams > 0) {
+		return NULL;
+	}
+
 	struct http2_stream *stream = malloc(sizeof(*stream));
 	if (!stream) {
 		return NULL;
@@ -491,8 +526,8 @@ static struct http2_stream *http2_create_stream(struct http2_ctx *ctx, int strea
 
 	stream->next = ctx->streams;
 	ctx->streams = stream;
+	ctx->active_streams++;
 
-	/* Increase ctx reference count */
 	http2_ctx_ref(ctx);
 
 	return stream;
@@ -504,6 +539,7 @@ static void http2_remove_stream(struct http2_ctx *ctx, struct http2_stream *stre
 	while (*p) {
 		if (*p == stream) {
 			*p = stream->next;
+			ctx->active_streams--;
 			return;
 		}
 		p = &(*p)->next;
@@ -708,6 +744,15 @@ static int http2_verify_connection_preface(struct http2_ctx *ctx)
 
 	/* Verify preface */
 	if (memcmp(ctx->read_buffer, HTTP2_CONNECTION_PREFACE, HTTP2_CONNECTION_PREFACE_LEN) != 0) {
+		/* Check if it looks like HTTP/1.1 */
+		if (ctx->read_buffer_len >= 4 &&
+			(memcmp(ctx->read_buffer, "GET ", 4) == 0 || memcmp(ctx->read_buffer, "POST ", 5) == 0 ||
+			 memcmp(ctx->read_buffer, "HEAD ", 5) == 0 || memcmp(ctx->read_buffer, "PUT ", 4) == 0 ||
+			 memcmp(ctx->read_buffer, "DELETE ", 7) == 0 || memcmp(ctx->read_buffer, "OPTIONS ", 8) == 0 ||
+			 memcmp(ctx->read_buffer, "PATCH ", 6) == 0)) {
+			ctx->status = HTTP2_ERR_HTTP1;
+			return HTTP2_ERR_HTTP1;
+		}
 		ctx->status = HTTP2_ERR_PROTOCOL;
 		return HTTP2_ERR_PROTOCOL;
 	}
@@ -866,7 +911,7 @@ void http2_ctx_unref(struct http2_ctx *ctx)
 	/* Reference count reached zero, free the context */
 	pthread_mutex_lock(&ctx->mutex);
 
-	/* Free all streams - each stream will call http2_stream_unref */
+	/* Free all streams - each stream will call http2_stream_put */
 	while (ctx->streams) {
 		struct http2_stream *next = ctx->streams->next;
 		ctx->streams->next = NULL; /* Detach from list */
@@ -893,7 +938,45 @@ void http2_ctx_unref(struct http2_ctx *ctx)
 	free(ctx);
 }
 
-struct http2_stream *http2_stream_ref(struct http2_stream *stream)
+void http2_ctx_close(struct http2_ctx *ctx)
+{
+	struct http2_stream *streams_to_free = NULL;
+
+	if (!ctx) {
+		return;
+	}
+
+	pthread_mutex_lock(&ctx->mutex);
+
+	/* Detach all streams from context */
+	streams_to_free = ctx->streams;
+	ctx->streams = NULL;
+
+	pthread_mutex_unlock(&ctx->mutex);
+
+	/* Now free streams outside the lock */
+	while (streams_to_free) {
+		struct http2_stream *stream = streams_to_free;
+		streams_to_free = stream->next;
+
+		/* We need to simulate stream destruction */
+		/* http2_stream_put expects stream to have refcount.
+		   But here we just want to break the cycle.
+		   The stream holds a reference to ctx.
+		   If we free the stream, we should release that reference. */
+
+		/* Manually free stream resources */
+		http2_free_headers(stream);
+		free(stream->body_buffer);
+
+		free(stream);
+
+		/* Release the reference to ctx that was taken when the stream was created */
+		http2_ctx_unref(ctx);
+	}
+}
+
+struct http2_stream *http2_stream_get(struct http2_stream *stream)
 {
 	if (!stream) {
 		return NULL;
@@ -902,7 +985,7 @@ struct http2_stream *http2_stream_ref(struct http2_stream *stream)
 	return stream;
 }
 
-void http2_stream_unref(struct http2_stream *stream)
+void http2_stream_put(struct http2_stream *stream)
 {
 	if (!stream) {
 		return;
@@ -931,14 +1014,13 @@ void http2_stream_unref(struct http2_stream *stream)
 /* Public API implementation */
 
 struct http2_ctx *http2_ctx_client_new(const char *server, http2_bio_read_fn bio_read, http2_bio_write_fn bio_write,
-									   void *private_data)
+									   void *private_data, const struct http2_settings *settings)
 {
-	struct http2_ctx *ctx = malloc(sizeof(*ctx));
+	struct http2_ctx *ctx = zalloc(1, sizeof(*ctx));
 	if (!ctx) {
 		return NULL;
 	}
 
-	memset(ctx, 0, sizeof(*ctx));
 	pthread_mutex_init(&ctx->mutex, NULL);
 	ctx->refcount = 1; /* Initial reference count */
 	ctx->is_client = 1;
@@ -950,6 +1032,12 @@ struct http2_ctx *http2_ctx_client_new(const char *server, http2_bio_read_fn bio
 	ctx->connection_window_size = HTTP2_DEFAULT_WINDOW_SIZE;
 	ctx->peer_max_frame_size = HTTP2_DEFAULT_MAX_FRAME_SIZE;
 	ctx->peer_initial_window_size = HTTP2_DEFAULT_WINDOW_SIZE;
+	ctx->active_streams = 0;
+
+	/* Initialize settings with defaults or provided values */
+	if (settings) {
+		ctx->settings = *settings;
+	}
 
 	/* Initialize I/O state */
 	ctx->want_read = 0;
@@ -971,14 +1059,13 @@ struct http2_ctx *http2_ctx_client_new(const char *server, http2_bio_read_fn bio
 }
 
 struct http2_ctx *http2_ctx_server_new(const char *server, http2_bio_read_fn bio_read, http2_bio_write_fn bio_write,
-									   void *private_data)
+									   void *private_data, const struct http2_settings *settings)
 {
-	struct http2_ctx *ctx = malloc(sizeof(*ctx));
+	struct http2_ctx *ctx = zalloc(1, sizeof(*ctx));
 	if (!ctx) {
 		return NULL;
 	}
 
-	memset(ctx, 0, sizeof(*ctx));
 	pthread_mutex_init(&ctx->mutex, NULL);
 	ctx->refcount = 1; /* Initial reference count */
 	ctx->is_client = 0;
@@ -990,6 +1077,12 @@ struct http2_ctx *http2_ctx_server_new(const char *server, http2_bio_read_fn bio
 	ctx->connection_window_size = HTTP2_DEFAULT_WINDOW_SIZE;
 	ctx->peer_max_frame_size = HTTP2_DEFAULT_MAX_FRAME_SIZE;
 	ctx->peer_initial_window_size = HTTP2_DEFAULT_WINDOW_SIZE;
+	ctx->active_streams = 0;
+
+	/* Initialize settings with defaults or provided values */
+	if (settings) {
+		ctx->settings = *settings;
+	}
 
 	/* Initialize I/O state */
 	ctx->want_read = 0;
@@ -1104,7 +1197,8 @@ int http2_ctx_poll(struct http2_ctx *ctx, struct http2_poll_item *items, int max
 		while (stream) {
 			/* Server accepts odd stream IDs (client-initiated) */
 			/* Stream is ready to accept when it has received complete request (END_STREAM) */
-			if ((stream->stream_id % 2) == 1 && !list_empty(&stream->header_list.list) && stream->end_stream_received) {
+			if ((stream->stream_id % 2) == 1 && !list_empty(&stream->header_list.list) && stream->end_stream_received &&
+				!stream->end_stream_sent) {
 				has_new_stream = 1;
 				break;
 			}
@@ -1129,7 +1223,7 @@ int http2_ctx_poll(struct http2_ctx *ctx, struct http2_poll_item *items, int max
 		 * 2. Stream has ended (all data including headers received)
 		 */
 		int has_body_data = stream->body_buffer_len > stream->body_read_offset;
-		int stream_ended = stream->end_stream_received;
+		int stream_ended = stream->end_stream_received && !stream->end_stream_read_handled;
 
 		int readable = has_body_data || stream_ended;
 		int writable = stream->state == HTTP2_STREAM_OPEN || stream->state == HTTP2_STREAM_HALF_CLOSED_REMOTE;
@@ -1149,13 +1243,13 @@ int http2_ctx_poll(struct http2_ctx *ctx, struct http2_poll_item *items, int max
 
 	/* If we found items, return success (0) even if there was an error/EOF.
 	   The error will be returned on the next call when no items are ready. */
-	if (count > 0) {
-		return 0;
-	}
-
 	/* If no items and we have an error/EOF, return it */
 	if (ret < 0 && ret != HTTP2_ERR_EAGAIN) {
 		return ret;
+	}
+
+	if (count > 0) {
+		return 0;
 	}
 
 	if (ctx->status < 0) {
@@ -1178,11 +1272,7 @@ struct http2_stream *http2_stream_new(struct http2_ctx *ctx)
 	return stream;
 }
 
-void http2_stream_free(struct http2_stream *stream)
-{
-	/* For backward compatibility, just call unref */
-	http2_stream_unref(stream);
-}
+
 
 int http2_stream_get_id(struct http2_stream *stream)
 {
@@ -1527,6 +1617,7 @@ int http2_stream_read_body(struct http2_stream *stream, uint8_t *data, int len)
 
 		/* If stream ended or connection has error, return 0 (EOF) */
 		if (stream->end_stream_received || ctx->status < 0) {
+			stream->end_stream_read_handled = 1;
 			return 0;
 		}
 
@@ -1648,4 +1739,57 @@ int http2_ctx_want_write(struct http2_ctx *ctx)
 	pthread_mutex_unlock(&ctx->mutex);
 
 	return want_write;
+}
+
+int http2_ctx_is_closed(struct http2_ctx *ctx)
+{
+	if (!ctx) {
+		return 1;
+	}
+
+	pthread_mutex_lock(&ctx->mutex);
+	int is_closed = (ctx->status < 0);
+	pthread_mutex_unlock(&ctx->mutex);
+
+	return is_closed;
+}
+
+char *http2_stream_get_query_param(struct http2_stream *stream, const char *name)
+{
+	const char *path = http2_stream_get_path(stream);
+	const char *q = NULL;
+	const char *val_start = NULL;
+	int name_len = 0;
+
+	if (path == NULL || name == NULL) {
+		return NULL;
+	}
+
+	q = strstr(path, "?");
+	if (q == NULL) {
+		return NULL;
+	}
+	q++;
+
+	name_len = strlen(name);
+
+	while (*q) {
+		if (strncmp(q, name, name_len) == 0 && q[name_len] == '=') {
+			val_start = q + name_len + 1;
+			break;
+		}
+		q = strchr(q, '&');
+		if (q == NULL) {
+			break;
+		}
+		q++;
+	}
+
+	if (val_start) {
+		const char *end = strchr(val_start, '&');
+		size_t val_len = end ? (size_t)(end - val_start) : strlen(val_start);
+		return strndup(val_start, val_len);
+	}
+
+	return NULL;
 }

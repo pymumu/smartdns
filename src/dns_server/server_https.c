@@ -21,6 +21,9 @@
 #include "dns_server.h"
 #include "server_socket.h"
 #include "server_tcp.h"
+#include "server_tls.h"
+
+#include "smartdns/http2.h"
 
 #include <errno.h>
 #include <string.h>
