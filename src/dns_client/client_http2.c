@@ -248,13 +248,18 @@ int _dns_client_send_http2(struct dns_server_info *server_info, struct dns_query
 	https_flag = &server_info->flags.https;
 
 	/* Initialize HTTP/2 context if not already done */
+	pthread_mutex_lock(&server_info->lock);
 	if (server_info->http2_ctx == NULL) {
 		http2_ctx = http2_ctx_client_new(https_flag->httphost, _http2_bio_read, _http2_bio_write, server_info, NULL);
 		if (http2_ctx == NULL) {
+			pthread_mutex_unlock(&server_info->lock);
 			tlog(TLOG_ERROR, "init http2 context failed.");
 			goto errout;
 		}
 		server_info->http2_ctx = http2_ctx;
+		/* Add reference for local use */
+		http2_ctx_ref(http2_ctx);
+		pthread_mutex_unlock(&server_info->lock);
 
 		/* Perform HTTP/2 handshake */
 		ret = http2_ctx_handshake(http2_ctx);
@@ -264,6 +269,8 @@ int _dns_client_send_http2(struct dns_server_info *server_info, struct dns_query
 		}
 	} else {
 		http2_ctx = server_info->http2_ctx;
+		http2_ctx_ref(http2_ctx);
+		pthread_mutex_unlock(&server_info->lock);
 	}
 
 	/* Send the request via HTTP/2 */
@@ -297,6 +304,7 @@ int _dns_client_send_http2(struct dns_server_info *server_info, struct dns_query
 
 	/* Release initial reference - stream is now managed by the lists */
 	_dns_client_conn_stream_put(stream);
+	http2_ctx_unref(http2_ctx);
 	return 0;
 
 errout:
@@ -306,8 +314,8 @@ errout:
 	if (http2_stream) {
 		http2_stream_put(http2_stream);
 	}
-	if (http2_ctx && server_info->http2_ctx == NULL) {
-		http2_ctx_free(http2_ctx);
+	if (http2_ctx) {
+		http2_ctx_unref(http2_ctx);
 	}
 	return -1;
 }
