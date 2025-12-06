@@ -631,6 +631,7 @@ int _dns_client_send_quic_data(struct dns_query_struct *query, struct dns_server
 		tlog(TLOG_ERROR, "malloc memory failed.");
 		return -1;
 	}
+	stream->type = server_info->type;
 
 	if (server_info->status != DNS_SERVER_STATUS_CONNECTED) {
 		ret = _dns_client_quic_pending_data(stream, server_info, query, packet, len);
