@@ -234,6 +234,7 @@ struct dns_conn_stream {
 		SSL *quic_stream;
 		struct http2_stream *http2_stream;
 	};
+	dns_server_type_t type;
 };
 
 /* query struct */

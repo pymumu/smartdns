@@ -196,6 +196,7 @@ int _dns_client_send_http2(struct dns_server_info *server_info, struct dns_query
 		tlog(TLOG_ERROR, "malloc memory failed for http2 stream.");
 		return -1;
 	}
+	stream->type = DNS_SERVER_HTTPS;
 
 	/* Link stream to server and query */
 	pthread_mutex_lock(&server_info->lock);
