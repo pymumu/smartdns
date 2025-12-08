@@ -162,6 +162,17 @@ struct http2_ctx {
 	int write_buffer_len;
 };
 
+/* Public API implementation */
+struct http2_ctx_init_params {
+	const char *server;
+	http2_bio_read_fn bio_read;
+	http2_bio_write_fn bio_write;
+	void *private_data;
+	const struct http2_settings *settings;
+	int is_client;
+	int next_stream_id;
+};
+
 /* Forward declarations */
 static int http2_send_settings(struct http2_ctx *ctx, int ack);
 static int http2_send_window_update(struct http2_ctx *ctx, int stream_id, int increment);
@@ -289,6 +300,11 @@ static int http2_write_frame_header(uint8_t *buf, int length, uint8_t type, uint
 
 static int http2_send_frame(struct http2_ctx *ctx, const uint8_t *data, int len)
 {
+	/* Check if connection is already closed */
+	if (ctx->status < 0) {
+		return -1;
+	}
+
 	int total_sent = 0;
 	int unsent = 0;
 
@@ -318,6 +334,10 @@ static int http2_send_frame(struct http2_ctx *ctx, const uint8_t *data, int len)
 				ctx->pending_write_len = 0;
 				ctx->want_write = 0;
 			}
+		} else if (ret == 0) {
+			/* Connection closed */
+			ctx->status = HTTP2_ERR_EOF;
+			return -1;
 		}
 	}
 
@@ -336,6 +356,7 @@ static int http2_send_frame(struct http2_ctx *ctx, const uint8_t *data, int len)
 
 		if (ret == 0) {
 			/* Connection closed */
+			ctx->status = HTTP2_ERR_EOF;
 			return -1;
 		}
 
@@ -1011,32 +1032,28 @@ void http2_stream_put(struct http2_stream *stream)
 	free(stream);
 }
 
-/* Public API implementation */
-
-struct http2_ctx *http2_ctx_client_new(const char *server, http2_bio_read_fn bio_read, http2_bio_write_fn bio_write,
-									   void *private_data, const struct http2_settings *settings)
+static void http2_ctx_init_common(struct http2_ctx *ctx, const struct http2_ctx_init_params *params)
 {
-	struct http2_ctx *ctx = zalloc(1, sizeof(*ctx));
-	if (!ctx) {
-		return NULL;
-	}
-
-	pthread_mutex_init(&ctx->mutex, NULL);
+	pthread_mutexattr_t attr;
+	pthread_mutexattr_init(&attr);
+	pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+	pthread_mutex_init(&ctx->mutex, &attr);
+	pthread_mutexattr_destroy(&attr);
 	ctx->refcount = 1; /* Initial reference count */
-	ctx->is_client = 1;
-	ctx->server = server;
-	ctx->bio_read = bio_read;
-	ctx->bio_write = bio_write;
-	ctx->private_data = private_data;
-	ctx->next_stream_id = 1;
+	ctx->is_client = params->is_client;
+	ctx->server = params->server;
+	ctx->bio_read = params->bio_read;
+	ctx->bio_write = params->bio_write;
+	ctx->private_data = params->private_data;
+	ctx->next_stream_id = params->next_stream_id;
 	ctx->connection_window_size = HTTP2_DEFAULT_WINDOW_SIZE;
 	ctx->peer_max_frame_size = HTTP2_DEFAULT_MAX_FRAME_SIZE;
 	ctx->peer_initial_window_size = HTTP2_DEFAULT_WINDOW_SIZE;
 	ctx->active_streams = 0;
 
 	/* Initialize settings with defaults or provided values */
-	if (settings) {
-		ctx->settings = *settings;
+	if (params->settings) {
+		ctx->settings = *params->settings;
 	}
 
 	/* Initialize I/O state */
@@ -1048,9 +1065,31 @@ struct http2_ctx *http2_ctx_client_new(const char *server, http2_bio_read_fn bio
 
 	hpack_init_context(&ctx->encoder);
 	hpack_init_context(&ctx->decoder);
+}
 
-	/* Send connection preface - may return EAGAIN, will be buffered */
-	http2_send_frame(ctx, (const uint8_t *)HTTP2_CONNECTION_PREFACE, HTTP2_CONNECTION_PREFACE_LEN);
+static struct http2_ctx *http2_ctx_new(int is_client, const char *server, http2_bio_read_fn bio_read, http2_bio_write_fn bio_write,
+									void *private_data, const struct http2_settings *settings)
+{
+	struct http2_ctx *ctx = zalloc(1, sizeof(*ctx));
+	if (!ctx) {
+		return NULL;
+	}
+
+	struct http2_ctx_init_params params = {
+		.server = server,
+		.bio_read = bio_read,
+		.bio_write = bio_write,
+		.private_data = private_data,
+		.settings = settings,
+		.is_client = is_client,
+		.next_stream_id = is_client ? 1 : 2
+	};
+	http2_ctx_init_common(ctx, &params);
+
+	if (is_client) {
+		/* Send connection preface - may return EAGAIN, will be buffered */
+		http2_send_frame(ctx, (const uint8_t *)HTTP2_CONNECTION_PREFACE, HTTP2_CONNECTION_PREFACE_LEN);
+	}
 
 	/* Send initial SETTINGS - may return EAGAIN, will be buffered */
 	http2_send_settings(ctx, 0);
@@ -1058,46 +1097,16 @@ struct http2_ctx *http2_ctx_client_new(const char *server, http2_bio_read_fn bio
 	return ctx;
 }
 
+struct http2_ctx *http2_ctx_client_new(const char *server, http2_bio_read_fn bio_read, http2_bio_write_fn bio_write,
+									   void *private_data, const struct http2_settings *settings)
+{
+	return http2_ctx_new(1, server, bio_read, bio_write, private_data, settings);
+}
+
 struct http2_ctx *http2_ctx_server_new(const char *server, http2_bio_read_fn bio_read, http2_bio_write_fn bio_write,
 									   void *private_data, const struct http2_settings *settings)
 {
-	struct http2_ctx *ctx = zalloc(1, sizeof(*ctx));
-	if (!ctx) {
-		return NULL;
-	}
-
-	pthread_mutex_init(&ctx->mutex, NULL);
-	ctx->refcount = 1; /* Initial reference count */
-	ctx->is_client = 0;
-	ctx->server = server;
-	ctx->bio_read = bio_read;
-	ctx->bio_write = bio_write;
-	ctx->private_data = private_data;
-	ctx->next_stream_id = 2;
-	ctx->connection_window_size = HTTP2_DEFAULT_WINDOW_SIZE;
-	ctx->peer_max_frame_size = HTTP2_DEFAULT_MAX_FRAME_SIZE;
-	ctx->peer_initial_window_size = HTTP2_DEFAULT_WINDOW_SIZE;
-	ctx->active_streams = 0;
-
-	/* Initialize settings with defaults or provided values */
-	if (settings) {
-		ctx->settings = *settings;
-	}
-
-	/* Initialize I/O state */
-	ctx->want_read = 0;
-	ctx->want_write = 0;
-	ctx->pending_write_buffer = NULL;
-	ctx->pending_write_len = 0;
-	ctx->pending_write_capacity = 0;
-
-	hpack_init_context(&ctx->encoder);
-	hpack_init_context(&ctx->decoder);
-
-	/* Server waits for client preface, but also sends SETTINGS */
-	http2_send_settings(ctx, 0);
-
-	return ctx;
+	return http2_ctx_new(0, server, bio_read, bio_write, private_data, settings);
 }
 
 void http2_ctx_free(struct http2_ctx *ctx)
@@ -1271,8 +1280,6 @@ struct http2_stream *http2_stream_new(struct http2_ctx *ctx)
 	pthread_mutex_unlock(&ctx->mutex);
 	return stream;
 }
-
-
 
 int http2_stream_get_id(struct http2_stream *stream)
 {
