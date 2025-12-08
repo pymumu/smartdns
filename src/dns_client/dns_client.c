@@ -226,13 +226,14 @@ static int _dns_client_process(struct dns_server_info *server_info, struct epoll
 static int _dns_client_send_http(struct dns_server_info *server_info, struct dns_query_struct *query, void *packet_data,
 								 int packet_data_len)
 {
-	if (server_info->alpn_selected[0] == '\0' || strncmp(server_info->alpn_selected, "h2", 2) == 0) {
-		/* Send with HTTP2 by default */
-		return _dns_client_send_http2(server_info, query, packet_data, packet_data_len);
-	} else {
-		/* For HTTP/1.1 or other, buffer raw data to stream for later processing */
-		return _dns_client_send_http1(server_info, packet_data, packet_data_len); /* Assuming same buffering */
+	/* If ALPN is negotiated and is NOT h2, use HTTP/1.1 */
+	if (server_info->alpn_selected[0] != '\0' && strncmp(server_info->alpn_selected, "h2", 2) != 0) {
+		return _dns_client_send_http1(server_info, packet_data, packet_data_len);
 	}
+
+	/* Default to HTTP/2 buffering (stream-based).
+	   If ALPN later turns out to be H1, _dns_client_process_https_streams will handle it. */
+	return _dns_client_send_http2(server_info, query, packet_data, packet_data_len);
 }
 
 int _dns_client_send_packet(struct dns_query_struct *query, void *packet, int len)
