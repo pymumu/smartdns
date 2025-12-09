@@ -268,44 +268,41 @@ int _dns_client_send_http2(struct dns_server_info *server_info, struct dns_query
 	}
 
 	http2_ctx = server_info->http2_ctx;
-	http2_ctx_ref(http2_ctx);
+	if (!http2_ctx) {
+		goto errout;
+	}
 
-	if (http2_ctx) {
-		/* Send the request via HTTP/2 */
-		ret = _dns_client_send_http2_stream(server_info, stream, packet, len);
-		if (ret < 0) {
-			tlog(TLOG_ERROR, "send http2 stream failed.");
-			goto errout;
-		}
+	/* Send the request via HTTP/2 */
+	ret = _dns_client_send_http2_stream(server_info, stream, packet, len);
+	if (ret < 0) {
+		tlog(TLOG_ERROR, "send http2 stream failed.");
+		goto errout;
+	}
 
-		/* Flush data immediately */
-		struct http2_poll_item poll_items[1];
-		int poll_count = 0;
-		int loop = 0;
-		while (http2_ctx_want_write(http2_ctx) && loop++ < 10) {
-			http2_ctx_poll(http2_ctx, poll_items, 1, &poll_count);
-		}
+	/* Flush data immediately */
+	struct http2_poll_item poll_items[1];
+	int poll_count = 0;
+	int loop = 0;
+	while (http2_ctx_want_write(http2_ctx) && loop++ < 10) {
+		http2_ctx_poll(http2_ctx, poll_items, 1, &poll_count);
+	}
 
-		/* Check if there's pending write data, if so add EPOLLOUT event */
-		if (http2_ctx_want_write(http2_ctx)) {
-			struct epoll_event event;
-			memset(&event, 0, sizeof(event));
-			event.events = EPOLLIN | EPOLLOUT;
-			event.data.ptr = server_info;
-			if (server_info->fd > 0) {
-				if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &event) != 0) {
-					tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
-					/* Continue anyway, data will be sent on next EPOLLIN */
-				}
+	/* Check if there's pending write data, if so add EPOLLOUT event */
+	if (http2_ctx_want_write(http2_ctx)) {
+		struct epoll_event event;
+		memset(&event, 0, sizeof(event));
+		event.events = EPOLLIN | EPOLLOUT;
+		event.data.ptr = server_info;
+		if (server_info->fd > 0) {
+			if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &event) != 0) {
+				tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
+				/* Continue anyway, data will be sent on next EPOLLIN */
 			}
 		}
 	}
 
 	/* Release initial reference - stream is now managed by the lists */
 	_dns_client_conn_stream_put(stream);
-	if (http2_ctx) {
-		http2_ctx_unref(http2_ctx);
-	}
 	return 0;
 
 errout:
@@ -314,9 +311,6 @@ errout:
 
 	if (http2_stream) {
 		http2_stream_put(http2_stream);
-	}
-	if (http2_ctx) {
-		http2_ctx_unref(http2_ctx);
 	}
 	return -1;
 }
@@ -338,8 +332,7 @@ int _dns_client_process_http2(struct dns_server_info *server_info, struct epoll_
 				goto errout;
 			}
 			server_info->http2_ctx = http2_ctx;
-			/* Add reference for local use */
-			http2_ctx_ref(http2_ctx);
+			/* server_info now owns the context (refcount=1 from _new) */
 			pthread_mutex_unlock(&server_info->lock);
 
 			/* Perform HTTP/2 handshake */
@@ -350,12 +343,8 @@ int _dns_client_process_http2(struct dns_server_info *server_info, struct epoll_
 			}
 		} else {
 			http2_ctx = server_info->http2_ctx;
-			http2_ctx_ref(http2_ctx);
 			pthread_mutex_unlock(&server_info->lock);
 		}
-	} else {
-		/* Add reference for local use */
-		http2_ctx_ref(http2_ctx);
 	}
 
 	/* Handle EPOLLOUT - flush pending writes and send buffered requests */
@@ -480,13 +469,7 @@ int _dns_client_process_http2(struct dns_server_info *server_info, struct epoll_
 		}
 	}
 
-	if (http2_ctx) {
-		http2_ctx_unref(http2_ctx);
-	}
 	return 0;
 errout:
-	if (http2_ctx) {
-		http2_ctx_unref(http2_ctx);
-	}
 	return -1;
 }
