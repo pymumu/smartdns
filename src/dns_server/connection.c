@@ -165,7 +165,7 @@ int _dns_server_client_close(struct dns_server_conn_head *conn)
 		struct dns_server_conn_tls_client *tls_client = (struct dns_server_conn_tls_client *)conn;
 		if (tls_client->http2_ctx != NULL) {
 			http2_ctx_close(tls_client->http2_ctx);
-			http2_ctx_free(tls_client->http2_ctx);
+			http2_ctx_put(tls_client->http2_ctx);
 			tls_client->http2_ctx = NULL;
 		}
 	}

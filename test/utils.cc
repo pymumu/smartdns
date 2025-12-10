@@ -37,6 +37,19 @@ TempFile::~TempFile()
 	}
 }
 
+void TempFile::Close()
+{
+	if (ofs_.is_open()) {
+		ofs_.close();
+		ofs_.clear();
+	}
+
+	if (path_.length() > 0) {
+		unlink(path_.c_str());
+		path_.clear();
+	}
+}
+
 void TempFile::SetPattern(const std::string &pattern)
 {
 	pattern_ = pattern;

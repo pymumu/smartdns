@@ -173,12 +173,62 @@ static void _dns_client_send_buffered_http2_requests(struct dns_server_info *ser
 										  target_stream->send_buff.len) == 0) {
 			/* Clear buffer as it's now in HTTP/2 stream buffer */
 			target_stream->send_buff.len = 0;
+			_dns_client_conn_stream_put(target_stream);
 		} else {
+			/* Send failed, remove from buffer and clean up */
 			_dns_client_release_stream_on_error(server_info, target_stream);
+			/* Don't put here since release already cleaned up all references including the temp get */
 		}
-
-		_dns_client_conn_stream_put(target_stream);
 	}
+}
+
+/* Helper function to buffer data for HTTP/2 when connection is not ready */
+static int _dns_client_http2_pending_data(struct dns_conn_stream *stream, struct dns_server_info *server_info,
+										  struct dns_query_struct *query, void *packet, int len)
+{
+	struct epoll_event event;
+	if (DNS_TCP_BUFFER - stream->send_buff.len < len) {
+		errno = ENOMEM;
+		return -1;
+	}
+
+	if (server_info->fd <= 0) {
+		errno = ECONNRESET;
+		goto errout;
+	}
+
+	memcpy(stream->send_buff.data + stream->send_buff.len, packet, len);
+	stream->send_buff.len += len;
+
+	pthread_mutex_lock(&server_info->lock);
+	if (list_empty(&stream->server_list)) {
+		list_add_tail(&stream->server_list, &server_info->conn_stream_list);
+		_dns_client_conn_stream_get(stream);
+	}
+	stream->server_info = server_info;
+
+	if (list_empty(&stream->query_list)) {
+		list_add_tail(&stream->query_list, &query->conn_stream_list);
+		_dns_client_conn_stream_get(stream);
+	}
+	stream->query = query;
+	pthread_mutex_unlock(&server_info->lock);
+
+	if (client.epoll_fd <= 0) {
+		errno = ECONNRESET;
+		goto errout;
+	}
+
+	memset(&event, 0, sizeof(event));
+	event.events = EPOLLIN | EPOLLOUT;
+	event.data.ptr = server_info;
+	if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &event) != 0) {
+		tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
+		goto errout;
+	}
+	return 0;
+errout:
+	return -1;
 }
 
 int _dns_client_send_http2(struct dns_server_info *server_info, struct dns_query_struct *query, void *packet,
@@ -186,7 +236,6 @@ int _dns_client_send_http2(struct dns_server_info *server_info, struct dns_query
 {
 	struct dns_conn_stream *stream = NULL;
 	struct http2_ctx *http2_ctx = NULL;
-	struct http2_stream *http2_stream = NULL;
 	int ret = -1;
 
 	/* Create connection stream for this request */
@@ -197,16 +246,9 @@ int _dns_client_send_http2(struct dns_server_info *server_info, struct dns_query
 	}
 	stream->type = DNS_SERVER_HTTPS;
 
-	/* Link stream to server and query */
-	pthread_mutex_lock(&server_info->lock);
-	list_add_tail(&stream->server_list, &server_info->conn_stream_list);
-	_dns_client_conn_stream_get(stream);
+	/* Set stream pointers but don't add to lists yet */
 	stream->server_info = server_info;
-
-	list_add_tail(&stream->query_list, &query->conn_stream_list);
-	_dns_client_conn_stream_get(stream);
 	stream->query = query;
-	pthread_mutex_unlock(&server_info->lock);
 
 	if (len > DNS_IN_PACKSIZE - 128) {
 		tlog(TLOG_ERROR, "packet size is invalid.");
@@ -215,56 +257,20 @@ int _dns_client_send_http2(struct dns_server_info *server_info, struct dns_query
 
 	/* If not connected, buffer the data and return */
 	if (server_info->status != DNS_SERVER_STATUS_CONNECTED) {
-		if (DNS_TCP_BUFFER - stream->send_buff.len < len) {
-			tlog(TLOG_ERROR, "send buffer is full.");
+		ret = _dns_client_http2_pending_data(stream, server_info, query, packet, len);
+		if (ret != 0) {
 			goto errout;
 		}
-
-		memcpy(stream->send_buff.data + stream->send_buff.len, packet, len);
-		stream->send_buff.len += len;
-
-		pthread_mutex_lock(&server_info->lock);
-		if (list_empty(&stream->server_list)) {
-			list_add_tail(&stream->server_list, &server_info->conn_stream_list);
-			_dns_client_conn_stream_get(stream);
-		}
-		pthread_mutex_unlock(&server_info->lock);
-
-		/* Ensure we are monitoring for write events to trigger connection/sending */
-		if (server_info->fd > 0) {
-			struct epoll_event event;
-			memset(&event, 0, sizeof(event));
-			event.events = EPOLLIN | EPOLLOUT;
-			event.data.ptr = server_info;
-			epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &event);
-		}
-
-		/* Release initial reference - stream is now managed by the lists */
-		_dns_client_conn_stream_put(stream);
-		return 0;
+		goto out;
 	}
 
 	/* If connected but context not ready, buffer it too (will be flushed in process_http2) */
 	if (server_info->http2_ctx == NULL) {
-		if (DNS_TCP_BUFFER - stream->send_buff.len < len) {
-			tlog(TLOG_ERROR, "send buffer is full.");
+		ret = _dns_client_http2_pending_data(stream, server_info, query, packet, len);
+		if (ret != 0) {
 			goto errout;
 		}
-
-		memcpy(stream->send_buff.data + stream->send_buff.len, packet, len);
-		stream->send_buff.len += len;
-
-		/* Ensure stream is in the list */
-		pthread_mutex_lock(&server_info->lock);
-		if (list_empty(&stream->server_list)) {
-			list_add_tail(&stream->server_list, &server_info->conn_stream_list);
-			_dns_client_conn_stream_get(stream);
-		}
-		pthread_mutex_unlock(&server_info->lock);
-
-		/* Release initial reference */
-		_dns_client_conn_stream_put(stream);
-		return 0;
+		goto out;
 	}
 
 	http2_ctx = server_info->http2_ctx;
@@ -276,8 +282,23 @@ int _dns_client_send_http2(struct dns_server_info *server_info, struct dns_query
 	ret = _dns_client_send_http2_stream(server_info, stream, packet, len);
 	if (ret < 0) {
 		tlog(TLOG_ERROR, "send http2 stream failed.");
-		goto errout;
+		/* Fall back to buffering the data */
+		ret = _dns_client_http2_pending_data(stream, server_info, query, packet, len);
+		if (ret != 0) {
+			/* avoid memory leak */
+			goto errout_put_stream;
+		}
+		goto out;
 	}
+
+	/* Now add stream to lists since HTTP/2 stream was successfully created */
+	pthread_mutex_lock(&server_info->lock);
+	list_add_tail(&stream->server_list, &server_info->conn_stream_list);
+	_dns_client_conn_stream_get(stream);
+
+	list_add_tail(&stream->query_list, &query->conn_stream_list);
+	_dns_client_conn_stream_get(stream);
+	pthread_mutex_unlock(&server_info->lock);
 
 	/* Flush data immediately */
 	struct http2_poll_item poll_items[1];
@@ -301,17 +322,23 @@ int _dns_client_send_http2(struct dns_server_info *server_info, struct dns_query
 		}
 	}
 
-	/* Release initial reference - stream is now managed by the lists */
-	_dns_client_conn_stream_put(stream);
+out:
+	if (stream) {
+		/* Release initial reference - stream is now managed by the lists */
+		_dns_client_conn_stream_put(stream);
+	}
 	return 0;
+
+errout_put_stream:
+	if (stream) {
+		_dns_client_conn_stream_put(stream);
+	}
 
 errout:
 	/* Clean up stream on error */
 	_dns_client_release_stream_on_error(server_info, stream);
 
-	if (http2_stream) {
-		http2_stream_put(http2_stream);
-	}
+
 	return -1;
 }
 
@@ -325,7 +352,8 @@ int _dns_client_process_http2(struct dns_server_info *server_info, struct epoll_
 		struct client_dns_server_flag_https *https_flag = &server_info->flags.https;
 		pthread_mutex_lock(&server_info->lock);
 		if (server_info->http2_ctx == NULL) {
-			http2_ctx = http2_ctx_client_new(https_flag->httphost, _http2_bio_read, _http2_bio_write, server_info, NULL);
+			http2_ctx =
+				http2_ctx_client_new(https_flag->httphost, _http2_bio_read, _http2_bio_write, server_info, NULL);
 			if (http2_ctx == NULL) {
 				pthread_mutex_unlock(&server_info->lock);
 				tlog(TLOG_ERROR, "init http2 context failed.");

@@ -448,6 +448,8 @@ void Server::Stop(bool graceful)
 		waitpid(pid_, nullptr, 0);
 	}
 
+	conf_temp_file_.Close();
+
 	pid_ = 0;
 }
 

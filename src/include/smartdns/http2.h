@@ -86,12 +86,6 @@ struct http2_ctx *http2_ctx_server_new(const char *server, http2_bio_read_fn bio
 									   void *private_data, const struct http2_settings *settings);
 
 /**
- * Free an HTTP/2 context
- * @param ctx Context to free
- */
-void http2_ctx_free(struct http2_ctx *ctx);
-
-/**
  * Close an HTTP/2 context and release all streams
  * This is used to break circular references between context and streams
  * @param ctx Context to close
@@ -103,14 +97,14 @@ void http2_ctx_close(struct http2_ctx *ctx);
  * @param ctx HTTP/2 context
  * @return The same context pointer
  */
-struct http2_ctx *http2_ctx_ref(struct http2_ctx *ctx);
+struct http2_ctx *http2_ctx_get(struct http2_ctx *ctx);
 
 /**
  * Decrease reference count of HTTP/2 context
  * Frees the context when reference count reaches zero
  * @param ctx HTTP/2 context
  */
-void http2_ctx_unref(struct http2_ctx *ctx);
+void http2_ctx_put(struct http2_ctx *ctx);
 
 /**
  * Perform HTTP/2 handshake (SETTINGS exchange)

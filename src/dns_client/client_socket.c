@@ -155,7 +155,7 @@ void _dns_client_close_socket_ext(struct dns_server_info *server_info, int no_de
 
 	/* Clean up HTTP/2 context (connection-level) */
 	if (server_info->http2_ctx) {
-		http2_ctx_unref(server_info->http2_ctx);
+		http2_ctx_put(server_info->http2_ctx);
 		server_info->http2_ctx = NULL;
 	}
 

@@ -254,6 +254,7 @@ struct proxy_conn *proxy_conn_new(const char *proxy_name, const char *host, int 
 
 	server_info = _proxy_get_server_info(proxy_name);
 	if (server_info == NULL) {
+		tlog(TLOG_WARN, "proxy server %s not found", proxy_name);
 		goto errout;
 	}
 
