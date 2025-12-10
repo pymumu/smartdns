@@ -72,17 +72,24 @@ void _dns_client_conn_stream_put(struct dns_conn_stream *stream)
 		}
 	}
 
-	if (stream->query) {
-		list_del_init(&stream->query_list);
-		stream->query = NULL;
-	}
-
 	if (stream->server_info) {
-		pthread_mutex_lock(&stream->server_info->lock);
+		struct dns_server_info *server_info = stream->server_info;
+		stream->server_info = NULL;
+		pthread_mutex_lock(&server_info->lock);
+		/* Remove from server list and release reference */
 		if (!list_empty(&stream->server_list)) {
 			list_del_init(&stream->server_list);
+			stream->server_info = NULL;
+			_dns_client_conn_stream_put(stream);
 		}
-		pthread_mutex_unlock(&stream->server_info->lock);
+		pthread_mutex_unlock(&server_info->lock);
+	}
+
+	/* Remove from query list and release reference */
+	if (!list_empty(&stream->query_list)) {
+		list_del_init(&stream->query_list);
+		stream->query = NULL;
+		_dns_client_conn_stream_put(stream);
 	}
 
 	free(stream);

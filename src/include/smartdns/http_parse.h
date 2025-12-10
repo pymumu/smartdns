@@ -30,7 +30,6 @@ struct http_params;
 typedef enum HTTP_VERSION {
 	HTTP_VERSION_INVALID = 0,
 	HTTP_VERSION_1_1,
-	HTTP_VERSION_2_0,
 	HTTP_VERSION_3_0,
 } HTTP_VERSION;
 

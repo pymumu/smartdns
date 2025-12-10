@@ -138,7 +138,7 @@ TEST_F(LIBHTTP2, Integrated)
 		http2_stream_write_body(stream, (const uint8_t *)response, response_len, 1);
 
 		usleep(100000);
-		http2_ctx_free(ctx);
+		http2_ctx_put(ctx);
 	});
 
 	std::thread client_thread([this]() {
@@ -205,7 +205,7 @@ TEST_F(LIBHTTP2, Integrated)
 		EXPECT_NE(resp.find("Echo Response"), std::string::npos);
 
 		http2_stream_put(stream);
-		http2_ctx_free(ctx);
+		http2_ctx_put(ctx);
 	});
 
 	server_thread.join();
@@ -270,7 +270,7 @@ TEST_F(LIBHTTP2, MultiStream)
 		}
 
 		usleep(100000);
-		http2_ctx_free(ctx);
+		http2_ctx_put(ctx);
 	});
 
 	std::thread client_thread([this, NUM_STREAMS]() {
@@ -343,7 +343,7 @@ TEST_F(LIBHTTP2, MultiStream)
 		for (int i = 0; i < NUM_STREAMS; i++) {
 			http2_stream_put(streams[i]);
 		}
-		http2_ctx_free(ctx);
+		http2_ctx_put(ctx);
 	});
 
 	server_thread.join();
@@ -425,7 +425,7 @@ TEST_F(LIBHTTP2, EarlyStreamCreation)
 		http2_stream_write_body(stream, (const uint8_t *)response, response_len, 1);
 
 		usleep(100000);
-		http2_ctx_free(ctx);
+		http2_ctx_put(ctx);
 	});
 
 	std::thread client_thread([this]() {
@@ -496,7 +496,7 @@ TEST_F(LIBHTTP2, EarlyStreamCreation)
 		EXPECT_NE(resp.find("test echo"), std::string::npos);
 
 		http2_stream_put(stream);
-		http2_ctx_free(ctx);
+		http2_ctx_put(ctx);
 	});
 
 	server_thread.join();
@@ -579,7 +579,7 @@ TEST_F(LIBHTTP2, ServerLoopTerminationOnDisconnect)
 		
 		EXPECT_LT(loop_count, 100) << "Server loop did not terminate (infinite loop detected)";
 
-		http2_ctx_free(ctx);
+		http2_ctx_put(ctx);
 	});
 
 	std::thread client_thread([this]() {
@@ -608,7 +608,7 @@ TEST_F(LIBHTTP2, ServerLoopTerminationOnDisconnect)
 		usleep(200000); // Wait for server to process
 		
 		http2_stream_put(stream);
-		http2_ctx_free(ctx);
+		http2_ctx_put(ctx);
 	});
 
 	server_thread.join();

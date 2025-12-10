@@ -71,6 +71,8 @@ class TempFile
 
 	void SetPattern(const std::string &pattern);
 
+	void Close();
+
   private:
 	bool NewTempFile();
 	std::string path_;

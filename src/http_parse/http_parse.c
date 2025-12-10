@@ -19,7 +19,6 @@
 #include "smartdns/http_parse.h"
 #include "smartdns/util.h"
 #include "http1_parse.h"
-#include "http2_parse.h"
 #include "http3_parse.h"
 #include "http_parse.h"
 #include <stdio.h>
@@ -452,8 +451,6 @@ int http_head_parse(struct http_head *http_head, const unsigned char *data, int 
 {
 	if (http_head->http_version == HTTP_VERSION_1_1) {
 		return http_head_parse_http1_1(http_head, data, data_len);
-	} else if (http_head->http_version == HTTP_VERSION_2_0) {
-		return http_head_parse_http2_0(http_head, data, data_len);
 	} else if (http_head->http_version == HTTP_VERSION_3_0) {
 		return http_head_parse_http3_0(http_head, data, data_len);
 	}
@@ -469,8 +466,6 @@ int http_head_serialize(struct http_head *http_head, void *buffer, int buffer_le
 
 	if (http_head->http_version == HTTP_VERSION_1_1) {
 		return http_head_serialize_http1_1(http_head, buffer, buffer_len);
-	} else if (http_head->http_version == HTTP_VERSION_2_0) {
-		return http_head_serialize_http2_0(http_head, buffer, buffer_len);
 	} else if (http_head->http_version == HTTP_VERSION_3_0) {
 		return http_head_serialize_http3_0(http_head, buffer, buffer_len);
 	}

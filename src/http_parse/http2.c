@@ -549,7 +549,7 @@ static struct http2_stream *http2_create_stream(struct http2_ctx *ctx, int strea
 	ctx->streams = stream;
 	ctx->active_streams++;
 
-	http2_ctx_ref(ctx);
+	http2_ctx_get(ctx);
 
 	return stream;
 }
@@ -910,7 +910,7 @@ static int http2_process_frames(struct http2_ctx *ctx)
 
 /* Reference counting functions */
 
-struct http2_ctx *http2_ctx_ref(struct http2_ctx *ctx)
+struct http2_ctx *http2_ctx_get(struct http2_ctx *ctx)
 {
 	if (!ctx) {
 		return NULL;
@@ -919,7 +919,7 @@ struct http2_ctx *http2_ctx_ref(struct http2_ctx *ctx)
 	return ctx;
 }
 
-void http2_ctx_unref(struct http2_ctx *ctx)
+void http2_ctx_put(struct http2_ctx *ctx)
 {
 	if (!ctx) {
 		return;
@@ -980,20 +980,16 @@ void http2_ctx_close(struct http2_ctx *ctx)
 		struct http2_stream *stream = streams_to_free;
 		streams_to_free = stream->next;
 
-		/* We need to simulate stream destruction */
-		/* http2_stream_put expects stream to have refcount.
-		   But here we just want to break the cycle.
-		   The stream holds a reference to ctx.
-		   If we free the stream, we should release that reference. */
+		/* Detach stream from context - break the circular reference */
+		stream->ctx = NULL;
+		stream->next = NULL;
 
-		/* Manually free stream resources */
-		http2_free_headers(stream);
-		free(stream->body_buffer);
-
-		free(stream);
+		/* Release the reference that the context was holding */
+		/* This will properly decrement refcount and only free if refcount reaches 0 */
+		http2_stream_put(stream);
 
 		/* Release the reference to ctx that was taken when the stream was created */
-		http2_ctx_unref(ctx);
+		http2_ctx_put(ctx);
 	}
 }
 
@@ -1018,17 +1014,17 @@ void http2_stream_put(struct http2_stream *stream)
 
 	/* Reference count reached zero, free the stream */
 	struct http2_ctx *ctx = stream->ctx;
-	pthread_mutex_lock(&ctx->mutex);
 
-	http2_remove_stream(ctx, stream);
+	if (ctx) {
+		pthread_mutex_lock(&ctx->mutex);
+		http2_remove_stream(ctx, stream);
+		pthread_mutex_unlock(&ctx->mutex);
+		http2_ctx_put(ctx);
+	}
+
 	http2_free_headers(stream);
+	stream->ctx = NULL;
 	free(stream->body_buffer);
-
-	pthread_mutex_unlock(&ctx->mutex);
-
-	/* Decrease ctx reference count */
-	http2_ctx_unref(ctx);
-
 	free(stream);
 }
 
@@ -1067,23 +1063,22 @@ static void http2_ctx_init_common(struct http2_ctx *ctx, const struct http2_ctx_
 	hpack_init_context(&ctx->decoder);
 }
 
-static struct http2_ctx *http2_ctx_new(int is_client, const char *server, http2_bio_read_fn bio_read, http2_bio_write_fn bio_write,
-									void *private_data, const struct http2_settings *settings)
+static struct http2_ctx *http2_ctx_new(int is_client, const char *server, http2_bio_read_fn bio_read,
+									   http2_bio_write_fn bio_write, void *private_data,
+									   const struct http2_settings *settings)
 {
 	struct http2_ctx *ctx = zalloc(1, sizeof(*ctx));
 	if (!ctx) {
 		return NULL;
 	}
 
-	struct http2_ctx_init_params params = {
-		.server = server,
-		.bio_read = bio_read,
-		.bio_write = bio_write,
-		.private_data = private_data,
-		.settings = settings,
-		.is_client = is_client,
-		.next_stream_id = is_client ? 1 : 2
-	};
+	struct http2_ctx_init_params params = {.server = server,
+										   .bio_read = bio_read,
+										   .bio_write = bio_write,
+										   .private_data = private_data,
+										   .settings = settings,
+										   .is_client = is_client,
+										   .next_stream_id = is_client ? 1 : 2};
 	http2_ctx_init_common(ctx, &params);
 
 	if (is_client) {
@@ -1107,12 +1102,6 @@ struct http2_ctx *http2_ctx_server_new(const char *server, http2_bio_read_fn bio
 									   void *private_data, const struct http2_settings *settings)
 {
 	return http2_ctx_new(0, server, bio_read, bio_write, private_data, settings);
-}
-
-void http2_ctx_free(struct http2_ctx *ctx)
-{
-	/* For backward compatibility, just call unref */
-	http2_ctx_unref(ctx);
 }
 
 int http2_ctx_handshake(struct http2_ctx *ctx)
