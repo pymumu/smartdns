@@ -197,6 +197,11 @@ static int _dns_client_http2_pending_data(struct dns_conn_stream *stream, struct
 		goto errout;
 	}
 
+	if (client.epoll_fd <= 0) {
+		errno = ECONNRESET;
+		goto errout;
+	}
+
 	memcpy(stream->send_buff.data + stream->send_buff.len, packet, len);
 	stream->send_buff.len += len;
 
@@ -214,19 +219,29 @@ static int _dns_client_http2_pending_data(struct dns_conn_stream *stream, struct
 	stream->query = query;
 	pthread_mutex_unlock(&server_info->lock);
 
-	if (client.epoll_fd <= 0) {
-		errno = ECONNRESET;
-		goto errout;
-	}
-
 	memset(&event, 0, sizeof(event));
 	event.events = EPOLLIN | EPOLLOUT;
 	event.data.ptr = server_info;
 	if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &event) != 0) {
 		tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
-		goto errout;
+		goto errout_put;
 	}
+
 	return 0;
+errout_put:
+	/* Clean up stream on error */
+	pthread_mutex_lock(&server_info->lock);
+	if (!list_empty(&stream->server_list)) {
+		list_del_init(&stream->server_list);
+		stream->server_info = NULL;
+		_dns_client_conn_stream_put(stream);
+	}
+	if (!list_empty(&stream->query_list)) {
+		list_del_init(&stream->query_list);
+		stream->query = NULL;
+		_dns_client_conn_stream_put(stream);
+	}
+	pthread_mutex_unlock(&server_info->lock);
 errout:
 	return -1;
 }
@@ -273,11 +288,6 @@ int _dns_client_send_http2(struct dns_server_info *server_info, struct dns_query
 		goto out;
 	}
 
-	http2_ctx = server_info->http2_ctx;
-	if (!http2_ctx) {
-		goto errout;
-	}
-
 	/* Send the request via HTTP/2 */
 	ret = _dns_client_send_http2_stream(server_info, stream, packet, len);
 	if (ret < 0) {
@@ -286,7 +296,7 @@ int _dns_client_send_http2(struct dns_server_info *server_info, struct dns_query
 		ret = _dns_client_http2_pending_data(stream, server_info, query, packet, len);
 		if (ret != 0) {
 			/* avoid memory leak */
-			goto errout_put_stream;
+			goto errout;
 		}
 		goto out;
 	}
@@ -329,15 +339,10 @@ out:
 	}
 	return 0;
 
-errout_put_stream:
+errout:
 	if (stream) {
 		_dns_client_conn_stream_put(stream);
 	}
-
-errout:
-	/* Clean up stream on error */
-	_dns_client_release_stream_on_error(server_info, stream);
-
 
 	return -1;
 }
