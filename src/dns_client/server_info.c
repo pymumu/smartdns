@@ -425,6 +425,14 @@ int _dns_client_server_add(const char *server_ip, const char *server_host, int p
 
 	atomic_set(&server_info->refcnt, 0);
 	atomic_set(&server_info->is_alive, default_is_alive);
+	atomic_set(&server_info->conn_dead, 0);
+	atomic_set(&server_info->conn_healthy, 1);
+	atomic_set(&server_info->conn_error, 0);
+	server_info->consecutive_errors = 0;
+	server_info->last_fatal_error = 0;
+	server_info->last_io_error = 0;
+	memset(server_info->last_error_str, 0, sizeof(server_info->last_error_str));
+
 	INIT_LIST_HEAD(&server_info->check_list);
 	INIT_LIST_HEAD(&server_info->list);
 	safe_strncpy(server_info->proxy_name, flags->proxyname, sizeof(server_info->proxy_name));
