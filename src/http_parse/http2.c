@@ -113,6 +113,7 @@ struct http2_stream {
 	int end_stream_received;
 	int end_stream_sent;
 	int end_stream_read_handled; /* Flag to track if EOF has been reported to app */
+	int accepted;                /* Flag to track if stream has been accepted by app */
 	int window_size;
 	int body_decompressed; /* Flag to track if body has been decompressed */
 	void *ex_data;
@@ -533,6 +534,16 @@ static struct http2_stream *http2_create_stream(struct http2_ctx *ctx, int strea
 	stream->refcount = 1; /* Initial reference count */
 	stream->stream_id = stream_id;
 	stream->state = HTTP2_STREAM_IDLE;
+
+	/* Determine if stream is accepted (locally initiated) or needs accept (peer initiated) */
+	if (ctx->is_client) {
+		/* Client: Odd IDs are local (accepted), Even IDs are remote (need accept) */
+		stream->accepted = (stream_id % 2) != 0;
+	} else {
+		/* Server: Even IDs are local (accepted), Odd IDs are remote (need accept) */
+		stream->accepted = (stream_id % 2) == 0;
+	}
+
 	stream->window_size = HTTP2_DEFAULT_WINDOW_SIZE;
 	stream->body_buffer_size = 8192;
 	stream->body_buffer = malloc(stream->body_buffer_size);
@@ -548,23 +559,27 @@ static struct http2_stream *http2_create_stream(struct http2_ctx *ctx, int strea
 	stream->next = ctx->streams;
 	ctx->streams = stream;
 	ctx->active_streams++;
-
 	http2_ctx_get(ctx);
 
 	return stream;
 }
 
-static void http2_remove_stream(struct http2_ctx *ctx, struct http2_stream *stream)
+static int http2_remove_stream(struct http2_ctx *ctx, struct http2_stream *stream)
 {
+	int ret = -1;
+	pthread_mutex_lock(&ctx->mutex);
 	struct http2_stream **p = &ctx->streams;
 	while (*p) {
 		if (*p == stream) {
 			*p = stream->next;
 			ctx->active_streams--;
-			return;
+			ret = 0;
+			break;
 		}
 		p = &(*p)->next;
 	}
+	pthread_mutex_unlock(&ctx->mutex);
+	return ret;
 }
 
 static int http2_process_data_frame(struct http2_ctx *ctx, int stream_id, const uint8_t *data, int len, uint8_t flags)
@@ -925,8 +940,14 @@ void http2_ctx_put(struct http2_ctx *ctx)
 		return;
 	}
 
-	if (__sync_sub_and_fetch(&ctx->refcount, 1) > 0) {
+	int refcnt = __sync_sub_and_fetch(&ctx->refcount, 1);
+	if (refcnt > 0) {
 		return; /* Still has references */
+	}
+
+	if (refcnt < 0) {
+		BUG("http2_ctx_put: negative reference count");
+		return;
 	}
 
 	/* Reference count reached zero, free the context */
@@ -936,11 +957,9 @@ void http2_ctx_put(struct http2_ctx *ctx)
 	while (ctx->streams) {
 		struct http2_stream *next = ctx->streams->next;
 		ctx->streams->next = NULL; /* Detach from list */
-
-		/* Manually free stream without calling unref to avoid recursion */
-		http2_free_headers(ctx->streams);
-		free(ctx->streams->body_buffer);
-		free(ctx->streams);
+		ctx->streams->ctx = NULL;  /* Break circular reference */
+		ctx->streams->state = HTTP2_STREAM_CLOSED;
+		http2_stream_put(ctx->streams);
 
 		ctx->streams = next;
 	}
@@ -975,7 +994,7 @@ void http2_ctx_close(struct http2_ctx *ctx)
 
 	pthread_mutex_unlock(&ctx->mutex);
 
-	/* Now free streams outside the lock */
+	/* Now free streams outside the lock - just break circular references */
 	while (streams_to_free) {
 		struct http2_stream *stream = streams_to_free;
 		streams_to_free = stream->next;
@@ -984,13 +1003,15 @@ void http2_ctx_close(struct http2_ctx *ctx)
 		stream->ctx = NULL;
 		stream->next = NULL;
 
-		/* Release the reference that the context was holding */
-		/* This will properly decrement refcount and only free if refcount reaches 0 */
 		http2_stream_put(stream);
 
+		/* Do not release stream reference - caller is responsible for calling http2_stream_put */
 		/* Release the reference to ctx that was taken when the stream was created */
 		http2_ctx_put(ctx);
 	}
+
+	/* release context reference held by caller */
+	http2_ctx_put(ctx);
 }
 
 struct http2_stream *http2_stream_get(struct http2_stream *stream)
@@ -1008,17 +1029,24 @@ void http2_stream_put(struct http2_stream *stream)
 		return;
 	}
 
-	if (__sync_sub_and_fetch(&stream->refcount, 1) > 0) {
+	int refcnt = __sync_sub_and_fetch(&stream->refcount, 1);
+	if (refcnt > 0) {
 		return; /* Still has references */
+	}
+
+	if (refcnt < 0) {
+		BUG("http2_stream: negative reference count");
+		return;
 	}
 
 	/* Reference count reached zero, free the stream */
 	struct http2_ctx *ctx = stream->ctx;
 
 	if (ctx) {
-		pthread_mutex_lock(&ctx->mutex);
-		http2_remove_stream(ctx, stream);
-		pthread_mutex_unlock(&ctx->mutex);
+		if (http2_remove_stream(ctx, stream) == 0) {
+			/* release ownership held by ctx */
+			http2_stream_put(stream);
+		}
 		http2_ctx_put(ctx);
 	}
 
@@ -1156,8 +1184,13 @@ struct http2_stream *http2_ctx_accept_stream(struct http2_ctx *ctx)
 	struct http2_stream *stream = ctx->streams;
 	while (stream) {
 		if ((ctx->is_client && (stream->stream_id % 2) == 0) || (!ctx->is_client && (stream->stream_id % 2) == 1)) {
-			if (!list_empty(&stream->header_list.list) && !stream->end_stream_sent) {
+			if (!stream->accepted && !list_empty(&stream->header_list.list) && !stream->end_stream_sent) {
+				stream->accepted = 1;
 				pthread_mutex_unlock(&ctx->mutex);
+				if (stream) {
+					/* take owership */
+					http2_stream_get(stream);
+				}
 				return stream;
 			}
 		}
@@ -1168,10 +1201,8 @@ struct http2_stream *http2_ctx_accept_stream(struct http2_ctx *ctx)
 	return NULL;
 }
 
-int http2_ctx_poll(struct http2_ctx *ctx, struct http2_poll_item *items, int max_items, int *ret_count)
+static int _http2_ctx_io_process(struct http2_ctx *ctx)
 {
-	pthread_mutex_lock(&ctx->mutex);
-
 	/* Try to flush any pending writes first */
 	if (ctx->pending_write_len > 0) {
 		uint8_t dummy = 0;
@@ -1179,43 +1210,59 @@ int http2_ctx_poll(struct http2_ctx *ctx, struct http2_poll_item *items, int max
 	}
 
 	/* Process frames */
-	int ret = http2_process_frames(ctx);
+	return http2_process_frames(ctx);
+}
 
-	/* Note: We continue even if http2_process_frames returns error (like EOF),
-	   because we might have received data that made streams readable.
-	   We will return the error at the end if no streams are ready. */
-
-	int count = 0;
-
-	/* For server, check if there are new peer-initiated streams to accept */
-	if (!ctx->is_client && count < max_items) {
-		struct http2_stream *stream = ctx->streams;
-		int has_new_stream = 0;
-
-		while (stream) {
-			/* Server accepts odd stream IDs (client-initiated) */
-			/* Stream is ready to accept when it has received complete request (END_STREAM) */
-			if ((stream->stream_id % 2) == 1 && !list_empty(&stream->header_list.list) && stream->end_stream_received &&
-				!stream->end_stream_sent) {
-				has_new_stream = 1;
-				break;
-			}
-			stream = stream->next;
-		}
-
-		if (has_new_stream) {
-			/* Return server context item (stream = NULL) to indicate new connection */
-			items[count].stream = NULL;
-			items[count].readable = 1;
-			items[count].writable = 0;
-			count++;
-		}
+static int _http2_ctx_check_new_streams(struct http2_ctx *ctx, struct http2_poll_item *items, int max_items, int *count)
+{
+	if (ctx->is_client || *count >= max_items) {
+		return 0;
 	}
 
-	/* Return existing streams */
 	struct http2_stream *stream = ctx->streams;
+	int has_new_stream = 0;
 
-	while (stream && count < max_items) {
+	while (stream) {
+		/* Server accepts odd stream IDs (client-initiated) */
+		/* Stream is ready to accept when it has received complete request (END_STREAM) */
+		if ((stream->stream_id % 2) == 1 && !stream->accepted && !list_empty(&stream->header_list.list) &&
+			stream->end_stream_received && !stream->end_stream_sent) {
+			has_new_stream = 1;
+			break;
+		}
+		stream = stream->next;
+	}
+
+	if (has_new_stream) {
+		/* Return server context item (stream = NULL) to indicate new connection */
+		items[*count].stream = NULL;
+		items[*count].readable = 1;
+		items[*count].writable = 0;
+		(*count)++;
+		return 1;
+	}
+	return 0;
+}
+
+static void _http2_ctx_collect_ready_streams(struct http2_ctx *ctx, struct http2_poll_item *items, int max_items,
+											 int *count, int check_writable)
+{
+	struct http2_stream *stream = ctx->streams;
+	struct http2_stream *prev = NULL;
+	struct http2_stream *ready_head = NULL;
+	struct http2_stream *ready_tail = NULL;
+
+	while (stream && *count < max_items) {
+		struct http2_stream *next_stream = stream->next;
+		int remove_from_list = 0;
+
+		/* Only return streams that have been accepted */
+		if (!stream->accepted) {
+			prev = stream;
+			stream = next_stream;
+			continue;
+		}
+
 		/* Stream is readable if:
 		 * 1. Has unread body data in buffer, OR
 		 * 2. Stream has ended (all data including headers received)
@@ -1226,15 +1273,75 @@ int http2_ctx_poll(struct http2_ctx *ctx, struct http2_poll_item *items, int max
 		int readable = has_body_data || stream_ended;
 		int writable = stream->state == HTTP2_STREAM_OPEN || stream->state == HTTP2_STREAM_HALF_CLOSED_REMOTE;
 
-		if (readable || writable) {
-			items[count].stream = stream;
-			items[count].readable = readable;
-			items[count].writable = writable;
-			count++;
+		if (readable || (check_writable && writable)) {
+			items[*count].stream = stream;
+			items[*count].readable = readable;
+			items[*count].writable = writable;
+			(*count)++;
+			remove_from_list = 1;
 		}
 
-		stream = stream->next;
+		if (remove_from_list) {
+			/* Remove from current position */
+			if (prev) {
+				prev->next = next_stream;
+			} else {
+				ctx->streams = next_stream;
+			}
+
+			/* Add to ready list */
+			stream->next = NULL;
+			if (ready_tail) {
+				ready_tail->next = stream;
+				ready_tail = stream;
+			} else {
+				ready_head = stream;
+				ready_tail = stream;
+			}
+
+			/* Move to next, prev stays same */
+			stream = next_stream;
+		} else {
+			prev = stream;
+			stream = next_stream;
+		}
 	}
+
+	/* Append ready list to the end of ctx->streams */
+	if (ready_head) {
+		if (ctx->streams == NULL) {
+			ctx->streams = ready_head;
+		} else {
+			/* Find tail */
+			struct http2_stream *tail = ctx->streams;
+			if (prev && prev->next == NULL) {
+				/* Optimization: prev might be the tail if we iterated to the end */
+				tail = prev;
+			} else {
+				while (tail->next) {
+					tail = tail->next;
+				}
+			}
+			tail->next = ready_head;
+		}
+	}
+}
+
+static int _http2_ctx_poll(struct http2_ctx *ctx, struct http2_poll_item *items, int max_items, int *ret_count,
+						   int check_writable)
+{
+	pthread_mutex_lock(&ctx->mutex);
+
+	int ret = _http2_ctx_io_process(ctx);
+
+	/* Note: We continue even if http2_process_frames returns error (like EOF),
+	   because we might have received data that made streams readable.
+	   We will return the error at the end if no streams are ready. */
+
+	int count = 0;
+
+	_http2_ctx_check_new_streams(ctx, items, max_items, &count);
+	_http2_ctx_collect_ready_streams(ctx, items, max_items, &count, check_writable);
 
 	*ret_count = count;
 	pthread_mutex_unlock(&ctx->mutex);
@@ -1257,6 +1364,16 @@ int http2_ctx_poll(struct http2_ctx *ctx, struct http2_poll_item *items, int max
 	return 0;
 }
 
+int http2_ctx_poll(struct http2_ctx *ctx, struct http2_poll_item *items, int max_items, int *ret_count)
+{
+	return _http2_ctx_poll(ctx, items, max_items, ret_count, 1);
+}
+
+int http2_ctx_poll_readable(struct http2_ctx *ctx, struct http2_poll_item *items, int max_items, int *ret_count)
+{
+	return _http2_ctx_poll(ctx, items, max_items, ret_count, 0);
+}
+
 struct http2_stream *http2_stream_new(struct http2_ctx *ctx)
 {
 	pthread_mutex_lock(&ctx->mutex);
@@ -1265,9 +1382,49 @@ struct http2_stream *http2_stream_new(struct http2_ctx *ctx)
 	ctx->next_stream_id += 2;
 
 	struct http2_stream *stream = http2_create_stream(ctx, stream_id);
+	if (stream) {
+		/* take owership */
+		http2_stream_get(stream);
+	}
 
 	pthread_mutex_unlock(&ctx->mutex);
 	return stream;
+}
+
+static int http2_send_rst_stream(struct http2_ctx *ctx, int stream_id, uint32_t error_code)
+{
+	uint8_t frame[HTTP2_FRAME_HEADER_SIZE + 4];
+
+	http2_write_frame_header(frame, 4, HTTP2_FRAME_RST_STREAM, 0, stream_id);
+	write_uint32(frame + HTTP2_FRAME_HEADER_SIZE, error_code);
+
+	return http2_send_frame(ctx, frame, sizeof(frame));
+}
+
+void http2_stream_close(struct http2_stream *stream)
+{
+	if (stream == NULL) {
+		return;
+	}
+
+	struct http2_ctx *ctx = stream->ctx;
+	if (ctx) {
+		pthread_mutex_lock(&ctx->mutex);
+
+		/* Send RST_STREAM to close the stream */
+		http2_send_rst_stream(ctx, stream->stream_id, 0); /* NO_ERROR */
+		if (http2_remove_stream(ctx, stream) == 0) {
+			/* release ownership held by ctx */
+			http2_stream_put(stream);
+		}
+		stream->ctx = NULL;
+		pthread_mutex_unlock(&ctx->mutex);
+		http2_ctx_put(ctx);
+	}
+	/* Mark stream as closed */
+	stream->state = HTTP2_STREAM_CLOSED;
+
+	http2_stream_put(stream);
 }
 
 int http2_stream_get_id(struct http2_stream *stream)
@@ -1537,7 +1694,7 @@ static int http2_try_decompress_body(struct http2_stream *stream)
 	}
 
 	/* Only decompress when the stream is fully received or connection is closed */
-	if (!stream->end_stream_received && stream->ctx->status >= 0) {
+	if (!stream->end_stream_received && stream->ctx && stream->ctx->status >= 0) {
 		return 0;
 	}
 
@@ -1583,7 +1740,9 @@ int http2_stream_read_body(struct http2_stream *stream, uint8_t *data, int len)
 	}
 
 	struct http2_ctx *ctx = stream->ctx;
-	pthread_mutex_lock(&ctx->mutex);
+	if (ctx) {
+		pthread_mutex_lock(&ctx->mutex);
+	}
 
 	/* NOTE: We do NOT call http2_process_frames here!
 	 * The caller should use http2_ctx_poll to process frames for all streams.
@@ -1599,8 +1758,9 @@ int http2_stream_read_body(struct http2_stream *stream, uint8_t *data, int len)
 		/* Check if it's a compression format we handle */
 		if (strcasecmp(content_encoding, "gzip") == 0 || strcasecmp(content_encoding, "deflate") == 0) {
 			/* If stream not ended and connection is healthy, return EAGAIN */
-			if (!stream->end_stream_received && ctx->status >= 0) {
-				pthread_mutex_unlock(&ctx->mutex);
+			if (!stream->end_stream_received && (!ctx || ctx->status >= 0)) {
+				if (ctx)
+					pthread_mutex_unlock(&ctx->mutex);
 				errno = EAGAIN;
 				return -1;
 			}
@@ -1609,10 +1769,12 @@ int http2_stream_read_body(struct http2_stream *stream, uint8_t *data, int len)
 
 	int available = stream->body_buffer_len - stream->body_read_offset;
 	if (available <= 0) {
-		pthread_mutex_unlock(&ctx->mutex);
+		if (ctx) {
+			pthread_mutex_unlock(&ctx->mutex);
+		}
 
 		/* If stream ended or connection has error, return 0 (EOF) */
-		if (stream->end_stream_received || ctx->status < 0) {
+		if (stream->end_stream_received || (!ctx || ctx->status < 0)) {
 			stream->end_stream_read_handled = 1;
 			return 0;
 		}
@@ -1626,7 +1788,9 @@ int http2_stream_read_body(struct http2_stream *stream, uint8_t *data, int len)
 	memcpy(data, stream->body_buffer + stream->body_read_offset, to_read);
 	stream->body_read_offset += to_read;
 
-	pthread_mutex_unlock(&ctx->mutex);
+	if (ctx) {
+		pthread_mutex_unlock(&ctx->mutex);
+	}
 	return to_read;
 }
 
@@ -1637,7 +1801,9 @@ int http2_stream_body_available(struct http2_stream *stream)
 	}
 
 	struct http2_ctx *ctx = stream->ctx;
-	pthread_mutex_lock(&ctx->mutex);
+	if (ctx) {
+		pthread_mutex_lock(&ctx->mutex);
+	}
 
 	/* Try to decompress if needed */
 	http2_try_decompress_body(stream);
@@ -1646,8 +1812,10 @@ int http2_stream_body_available(struct http2_stream *stream)
 	const char *content_encoding = http2_stream_get_header_value(stream, "content-encoding");
 	if (content_encoding && !stream->body_decompressed) {
 		if (strcasecmp(content_encoding, "gzip") == 0 || strcasecmp(content_encoding, "deflate") == 0) {
-			if (!stream->end_stream_received && ctx->status >= 0) {
-				pthread_mutex_unlock(&ctx->mutex);
+			if (!stream->end_stream_received && (!ctx || ctx->status >= 0)) {
+				if (ctx) {
+					pthread_mutex_unlock(&ctx->mutex);
+				}
 				return 0;
 			}
 		}
@@ -1655,7 +1823,9 @@ int http2_stream_body_available(struct http2_stream *stream)
 
 	int available = stream->body_buffer_len - stream->body_read_offset;
 
-	pthread_mutex_unlock(&ctx->mutex);
+	if (ctx) {
+		pthread_mutex_unlock(&ctx->mutex);
+	}
 	return available > 0 ? 1 : 0;
 }
 
@@ -1666,7 +1836,9 @@ int http2_stream_is_end(struct http2_stream *stream)
 	}
 
 	struct http2_ctx *ctx = stream->ctx;
-	pthread_mutex_lock(&ctx->mutex);
+	if (ctx) {
+		pthread_mutex_lock(&ctx->mutex);
+	}
 
 	/* Try to decompress if needed - this might change body_buffer_len */
 	http2_try_decompress_body(stream);
@@ -1674,11 +1846,13 @@ int http2_stream_is_end(struct http2_stream *stream)
 	int is_end = stream->end_stream_received && (stream->body_read_offset >= stream->body_buffer_len);
 
 	/* If connection is closed/error, and we have read all buffered data, consider stream ended */
-	if (!is_end && ctx->status < 0 && stream->body_read_offset >= stream->body_buffer_len) {
+	if (!is_end && (!ctx || ctx->status < 0) && stream->body_read_offset >= stream->body_buffer_len) {
 		is_end = 1;
 	}
 
-	pthread_mutex_unlock(&ctx->mutex);
+	if (ctx) {
+		pthread_mutex_unlock(&ctx->mutex);
+	}
 	return is_end;
 }
 
@@ -1689,11 +1863,15 @@ void http2_stream_set_ex_data(struct http2_stream *stream, void *data)
 	}
 
 	struct http2_ctx *ctx = stream->ctx;
-	pthread_mutex_lock(&ctx->mutex);
+	if (ctx) {
+		pthread_mutex_lock(&ctx->mutex);
+	}
 
 	stream->ex_data = data;
 
-	pthread_mutex_unlock(&ctx->mutex);
+	if (ctx) {
+		pthread_mutex_unlock(&ctx->mutex);
+	}
 }
 
 void *http2_stream_get_ex_data(struct http2_stream *stream)
@@ -1703,11 +1881,15 @@ void *http2_stream_get_ex_data(struct http2_stream *stream)
 	}
 
 	struct http2_ctx *ctx = stream->ctx;
-	pthread_mutex_lock(&ctx->mutex);
+	if (ctx) {
+		pthread_mutex_lock(&ctx->mutex);
+	}
 
 	void *data = stream->ex_data;
 
-	pthread_mutex_unlock(&ctx->mutex);
+	if (ctx) {
+		pthread_mutex_unlock(&ctx->mutex);
+	}
 	return data;
 }
 

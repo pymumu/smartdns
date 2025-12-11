@@ -230,10 +230,8 @@ struct dns_conn_stream {
 	struct dns_query_struct *query;
 	struct dns_server_info *server_info;
 
-	union {
-		SSL *quic_stream;
-		struct http2_stream *http2_stream;
-	};
+	SSL *quic_stream;
+	struct http2_stream *http2_stream;
 	dns_server_type_t type;
 };
 

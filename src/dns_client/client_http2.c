@@ -51,16 +51,16 @@ static int _dns_client_send_http2_stream(struct dns_server_info *server_info, st
 	struct client_dns_server_flag_https *https_flag = &server_info->flags.https;
 	char content_length[32];
 
-	/* Create HTTP/2 stream */
-	http2_stream = http2_stream_new(http2_ctx);
-	if (http2_stream == NULL) {
+	if (http2_ctx == NULL) {
 		return -1;
 	}
 
-	pthread_mutex_lock(&server_info->lock);
-	conn_stream->http2_stream = http2_stream;
-	pthread_mutex_unlock(&server_info->lock);
-	http2_stream_set_ex_data(http2_stream, conn_stream);
+	/* Create HTTP/2 stream */
+	http2_stream = http2_stream_new(http2_ctx);
+	if (http2_stream == NULL) {
+		tlog(TLOG_WARN, "create http2 stream failed");
+		return -1;
+	}
 
 	/* Set request headers */
 	snprintf(content_length, sizeof(content_length), "%d", len);
@@ -70,36 +70,23 @@ static int _dns_client_send_http2_stream(struct dns_server_info *server_info, st
 										  {NULL, NULL}};
 
 	if (http2_stream_set_request(http2_stream, "POST", https_flag->path, headers) < 0) {
-		pthread_mutex_lock(&server_info->lock);
-		conn_stream->http2_stream = NULL;
-		pthread_mutex_unlock(&server_info->lock);
-		http2_stream_put(http2_stream);
-		return -1;
+		goto errout;
 	}
 
 	/* Write request body */
 	if (http2_stream_write_body(http2_stream, (const uint8_t *)data, len, 1) < 0) {
-		pthread_mutex_lock(&server_info->lock);
-		conn_stream->http2_stream = NULL;
-		pthread_mutex_unlock(&server_info->lock);
-		http2_stream_put(http2_stream);
-		return -1;
+		goto errout;
 	}
 
-	return 0;
-}
-
-/* Helper function to clean up a finished HTTP/2 stream */
-static void _dns_client_cleanup_http2_stream(struct dns_server_info *server_info, struct dns_conn_stream *conn_stream,
-											 struct http2_stream *http2_stream)
-{
 	pthread_mutex_lock(&server_info->lock);
-	conn_stream->http2_stream = NULL;
-	list_del_init(&conn_stream->server_list);
+	conn_stream->http2_stream = http2_stream;
 	pthread_mutex_unlock(&server_info->lock);
+	http2_stream_set_ex_data(http2_stream, conn_stream);
+	return 0;
 
-	http2_stream_put(http2_stream);
-	_dns_client_conn_stream_put(conn_stream);
+errout:
+	http2_stream_close(http2_stream);
+	return -1;
 }
 
 /* Helper function to release a conn_stream and its references on error */
@@ -207,14 +194,14 @@ static int _dns_client_http2_pending_data(struct dns_conn_stream *stream, struct
 
 	pthread_mutex_lock(&server_info->lock);
 	if (list_empty(&stream->server_list)) {
-		list_add_tail(&stream->server_list, &server_info->conn_stream_list);
 		_dns_client_conn_stream_get(stream);
+		list_add_tail(&stream->server_list, &server_info->conn_stream_list);
 	}
 	stream->server_info = server_info;
 
 	if (list_empty(&stream->query_list)) {
-		list_add_tail(&stream->query_list, &query->conn_stream_list);
 		_dns_client_conn_stream_get(stream);
+		list_add_tail(&stream->query_list, &query->conn_stream_list);
 	}
 	stream->query = query;
 	pthread_mutex_unlock(&server_info->lock);
@@ -253,6 +240,12 @@ int _dns_client_send_http2(struct dns_server_info *server_info, struct dns_query
 	struct http2_ctx *http2_ctx = NULL;
 	int ret = -1;
 
+	if (len > DNS_IN_PACKSIZE - 128) {
+		tlog(TLOG_ERROR, "packet size is invalid.");
+		ret = -1;
+		goto out;
+	}
+
 	/* Create connection stream for this request */
 	stream = _dns_client_conn_stream_new();
 	if (stream == NULL) {
@@ -261,30 +254,15 @@ int _dns_client_send_http2(struct dns_server_info *server_info, struct dns_query
 	}
 	stream->type = DNS_SERVER_HTTPS;
 
-	/* Set stream pointers but don't add to lists yet */
-	stream->server_info = server_info;
-	stream->query = query;
-
-	if (len > DNS_IN_PACKSIZE - 128) {
-		tlog(TLOG_ERROR, "packet size is invalid.");
-		goto errout;
-	}
-
 	/* If not connected, buffer the data and return */
 	if (server_info->status != DNS_SERVER_STATUS_CONNECTED) {
 		ret = _dns_client_http2_pending_data(stream, server_info, query, packet, len);
-		if (ret != 0) {
-			goto errout;
-		}
 		goto out;
 	}
 
 	/* If connected but context not ready, buffer it too (will be flushed in process_http2) */
 	if (server_info->http2_ctx == NULL) {
 		ret = _dns_client_http2_pending_data(stream, server_info, query, packet, len);
-		if (ret != 0) {
-			goto errout;
-		}
 		goto out;
 	}
 
@@ -294,20 +272,18 @@ int _dns_client_send_http2(struct dns_server_info *server_info, struct dns_query
 		tlog(TLOG_ERROR, "send http2 stream failed.");
 		/* Fall back to buffering the data */
 		ret = _dns_client_http2_pending_data(stream, server_info, query, packet, len);
-		if (ret != 0) {
-			/* avoid memory leak */
-			goto errout;
-		}
 		goto out;
 	}
 
 	/* Now add stream to lists since HTTP/2 stream was successfully created */
 	pthread_mutex_lock(&server_info->lock);
+	_dns_client_conn_stream_get(stream);
 	list_add_tail(&stream->server_list, &server_info->conn_stream_list);
-	_dns_client_conn_stream_get(stream);
+	stream->server_info = server_info;
 
-	list_add_tail(&stream->query_list, &query->conn_stream_list);
 	_dns_client_conn_stream_get(stream);
+	list_add_tail(&stream->query_list, &query->conn_stream_list);
+	stream->query = query;
 	pthread_mutex_unlock(&server_info->lock);
 
 	/* Flush data immediately */
@@ -332,177 +308,214 @@ int _dns_client_send_http2(struct dns_server_info *server_info, struct dns_query
 		}
 	}
 
+	ret = 0;
 out:
 	if (stream) {
-		/* Release initial reference - stream is now managed by the lists */
 		_dns_client_conn_stream_put(stream);
+	}
+
+	return ret;
+}
+
+static int _dns_client_http2_init_ctx(struct dns_server_info *server_info)
+{
+	struct http2_ctx *http2_ctx = server_info->http2_ctx;
+	struct client_dns_server_flag_https *https_flag = &server_info->flags.https;
+	int ret = 0;
+
+	if (http2_ctx != NULL) {
+		return 0;
+	}
+
+	pthread_mutex_lock(&server_info->lock);
+	if (server_info->http2_ctx == NULL) {
+		http2_ctx = http2_ctx_client_new(https_flag->httphost, _http2_bio_read, _http2_bio_write, server_info, NULL);
+		if (http2_ctx == NULL) {
+			pthread_mutex_unlock(&server_info->lock);
+			tlog(TLOG_ERROR, "init http2 context failed.");
+			return -1;
+		}
+		server_info->http2_ctx = http2_ctx;
+		/* server_info now owns the context (refcount=1 from _new) */
+		pthread_mutex_unlock(&server_info->lock);
+
+		/* Perform HTTP/2 handshake */
+		ret = http2_ctx_handshake(http2_ctx);
+		if (ret < 0) {
+			tlog(TLOG_ERROR, "http2 handshake failed.");
+			return -1;
+		}
+	} else {
+		pthread_mutex_unlock(&server_info->lock);
+	}
+
+	return 0;
+}
+
+static int _dns_client_http2_process_write(struct dns_server_info *server_info)
+{
+	struct http2_ctx *http2_ctx = server_info->http2_ctx;
+	int epoll_events = EPOLLIN;
+
+	/* Send buffered requests */
+	_dns_client_send_buffered_http2_requests(server_info);
+
+	/* Flush pending writes */
+	_dns_client_flush_http2_writes(http2_ctx);
+
+	/* Update epoll events based on write status */
+	if (http2_ctx_want_write(http2_ctx)) {
+		epoll_events |= EPOLLOUT;
+	}
+
+	if (server_info->fd > 0) {
+		struct epoll_event mod_event;
+		memset(&mod_event, 0, sizeof(mod_event));
+		mod_event.events = epoll_events;
+		mod_event.data.ptr = server_info;
+		if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &mod_event) != 0) {
+			tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
+			return -1;
+		}
 	}
 	return 0;
+}
 
-errout:
-	if (stream) {
-		_dns_client_conn_stream_put(stream);
+static int _dns_client_http2_process_stream_one(struct dns_server_info *server_info,
+												struct dns_conn_stream *conn_stream)
+{
+	struct http2_stream *http2_stream = conn_stream->http2_stream;
+	uint8_t response_body[DNS_IN_PACKSIZE];
+	int response_len = 0;
+	int ret = 0;
+
+	if (http2_stream == NULL || conn_stream->query == NULL) {
+		return 1;
 	}
 
-	return -1;
+	/* Check HTTP status code first */
+	int status = http2_stream_get_status(http2_stream);
+	if (status > 0 && status != 200) {
+		tlog(TLOG_WARN, "http2 server query from %s:%d failed, server return http code: %d", server_info->ip,
+			 server_info->port, status);
+		server_info->prohibit = 1;
+		return 1;
+	}
+
+	/* Read response body */
+	response_len = http2_stream_read_body(http2_stream, response_body, sizeof(response_body));
+	if (response_len <= 0) {
+		/* Error or no data - check if stream has ended */
+		goto out;
+	}
+
+	/* Process DNS response */
+	ret = _dns_client_recv(server_info, response_body, response_len, &server_info->addr, server_info->ai_addrlen);
+	if (ret != 0) {
+		tlog(TLOG_ERROR, "process dns response failed");
+	}
+
+out:
+	if (http2_stream_is_end(http2_stream)) {
+		return 1;
+	}
+
+	return 0;
+}
+
+static int _dns_client_http2_process_read(struct dns_server_info *server_info)
+{
+	struct http2_ctx *http2_ctx = server_info->http2_ctx;
+	struct http2_poll_item poll_items[128];
+	int poll_count = 0;
+	int loop_count = 0;
+	const int MAX_LOOP_COUNT = 128;
+	struct dns_conn_stream *conn_stream = NULL;
+	int ret = 0;
+	int i = 0;
+
+	/* Ensure handshake is complete before polling */
+	ret = http2_ctx_handshake(http2_ctx);
+	if (ret == 0) {
+		/* Handshake in progress, need more data */
+		return 0;
+	} else if (ret < 0) {
+		tlog(TLOG_ERROR, "http2 handshake failed.");
+		return -1;
+	}
+
+	/* Poll and process streams until no more ready */
+	while (loop_count++ < MAX_LOOP_COUNT) {
+		/* Poll for stream readiness */
+		ret = http2_ctx_poll_readable(http2_ctx, poll_items, 128, &poll_count);
+		if (ret < 0) {
+			if (ret != HTTP2_ERR_EOF) {
+				tlog(TLOG_DEBUG, "http2 poll failed, ret=%d", ret);
+			}
+			return -1;
+		}
+
+		if (poll_count == 0) {
+			break;
+		}
+
+		/* Process each ready stream */
+		for (i = 0; i < poll_count; i++) {
+			struct http2_stream *stream = poll_items[i].stream;
+			if (stream == NULL) {
+				continue;
+			}
+
+			conn_stream = (struct dns_conn_stream *)http2_stream_get_ex_data(stream);
+			if (conn_stream == NULL) {
+				continue;
+			}
+
+			if (poll_items[i].readable) {
+				int stream_ended = _dns_client_http2_process_stream_one(server_info, conn_stream);
+				if (stream_ended) {
+					int need_put = 0;
+					pthread_mutex_lock(&server_info->lock);
+					if (!list_empty(&conn_stream->server_list)) {
+						list_del_init(&conn_stream->server_list);
+						conn_stream->server_info = NULL;
+						need_put = 1;
+					}
+					pthread_mutex_unlock(&server_info->lock);
+
+					if (need_put) {
+						_dns_client_conn_stream_put(conn_stream);
+					}
+				}
+			}
+		}
+
+		if (poll_count < 128) {
+			break;
+		}
+	}
+	return 0;
 }
 
 int _dns_client_process_http2(struct dns_server_info *server_info, struct epoll_event *event, unsigned long now)
 {
-	struct http2_ctx *http2_ctx = server_info->http2_ctx;
-	int ret = 0;
-
-	/* Initialize context if needed (e.g. first time in EPOLLOUT) */
-	if (http2_ctx == NULL) {
-		struct client_dns_server_flag_https *https_flag = &server_info->flags.https;
-		pthread_mutex_lock(&server_info->lock);
-		if (server_info->http2_ctx == NULL) {
-			http2_ctx =
-				http2_ctx_client_new(https_flag->httphost, _http2_bio_read, _http2_bio_write, server_info, NULL);
-			if (http2_ctx == NULL) {
-				pthread_mutex_unlock(&server_info->lock);
-				tlog(TLOG_ERROR, "init http2 context failed.");
-				goto errout;
-			}
-			server_info->http2_ctx = http2_ctx;
-			/* server_info now owns the context (refcount=1 from _new) */
-			pthread_mutex_unlock(&server_info->lock);
-
-			/* Perform HTTP/2 handshake */
-			ret = http2_ctx_handshake(http2_ctx);
-			if (ret < 0) {
-				tlog(TLOG_ERROR, "http2 handshake failed.");
-				goto errout;
-			}
-		} else {
-			http2_ctx = server_info->http2_ctx;
-			pthread_mutex_unlock(&server_info->lock);
+	if (server_info->http2_ctx == NULL) {
+		if (_dns_client_http2_init_ctx(server_info) < 0) {
+			return -1;
 		}
 	}
 
-	/* Handle EPOLLOUT - flush pending writes and send buffered requests */
 	if (event->events & EPOLLOUT) {
-		/* Send buffered requests */
-		_dns_client_send_buffered_http2_requests(server_info);
-
-		/* Flush pending writes */
-		_dns_client_flush_http2_writes(http2_ctx);
-
-		/* Update epoll events based on write status */
-		int epoll_events = EPOLLIN;
-		if (http2_ctx_want_write(http2_ctx)) {
-			epoll_events |= EPOLLOUT;
-		}
-
-		if (server_info->fd > 0) {
-			struct epoll_event mod_event;
-			memset(&mod_event, 0, sizeof(mod_event));
-			mod_event.events = epoll_events;
-			mod_event.data.ptr = server_info;
-			if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &mod_event) != 0) {
-				tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
-				goto errout;
-			}
+		if (_dns_client_http2_process_write(server_info) < 0) {
+			return -1;
 		}
 	}
 
-	/* Handle EPOLLIN - read and process data */
-	if (event->events & EPOLLIN) {
-		struct http2_poll_item poll_items[10];
-		int poll_count = 0;
-		uint8_t response_body[DNS_IN_PACKSIZE];
-		int response_len = 0;
-		int loop_count = 0;
-		const int MAX_LOOP_COUNT = 128;
-
-		/* Ensure handshake is complete before polling */
-		ret = http2_ctx_handshake(http2_ctx);
-		if (ret == 0) {
-			/* Handshake in progress, need more data */
-			return 0;
-		} else if (ret < 0) {
-			tlog(TLOG_ERROR, "http2 handshake failed.");
-			goto errout;
-		}
-		/* ret == 1 means handshake complete, continue */
-
-		/* Poll and process streams until no more ready */
-		while (loop_count++ < MAX_LOOP_COUNT) {
-			/* Poll for stream readiness */
-			ret = http2_ctx_poll(http2_ctx, poll_items, 10, &poll_count);
-			if (ret < 0) {
-				if (ret != HTTP2_ERR_EOF) {
-					tlog(TLOG_DEBUG, "http2 poll failed, ret=%d", ret);
-				}
-				goto errout;
-			}
-
-			if (poll_count == 0) {
-				/* No more ready streams */
-				break;
-			}
-
-			/* Process each ready stream */
-			for (int i = 0; i < poll_count; i++) {
-				struct http2_stream *http2_stream = poll_items[i].stream;
-				struct dns_conn_stream *conn_stream = NULL;
-
-				if (http2_stream == NULL || !poll_items[i].readable) {
-					continue;
-				}
-
-				/* Get conn_stream from stream's private data */
-				conn_stream = (struct dns_conn_stream *)http2_stream_get_ex_data(http2_stream);
-				if (conn_stream == NULL) {
-					tlog(TLOG_DEBUG, "conn_stream is null for http2 stream");
-					http2_stream_put(http2_stream);
-					continue;
-				}
-
-				/* Check HTTP status code first */
-				int status = http2_stream_get_status(http2_stream);
-				if (status > 0 && status != 200) {
-					tlog(TLOG_WARN, "http2 server query from %s:%d failed, server return http code: %d",
-						 server_info->ip, server_info->port, status);
-					server_info->prohibit = 1;
-					_dns_client_cleanup_http2_stream(server_info, conn_stream, http2_stream);
-					continue;
-				}
-
-				/* Read response body */
-				response_len = http2_stream_read_body(http2_stream, response_body, sizeof(response_body));
-				if (response_len < 0) {
-					/* Error or no data - check if stream has ended */
-					if (http2_stream_is_end(http2_stream)) {
-						_dns_client_cleanup_http2_stream(server_info, conn_stream, http2_stream);
-					}
-					continue;
-				}
-
-				if (response_len == 0) {
-					/* EOF - check if stream has ended */
-					if (http2_stream_is_end(http2_stream)) {
-						_dns_client_cleanup_http2_stream(server_info, conn_stream, http2_stream);
-					}
-					continue;
-				}
-
-				/* Process DNS response */
-				ret = _dns_client_recv(server_info, response_body, response_len, &server_info->addr,
-									   server_info->ai_addrlen);
-				if (ret != 0) {
-					tlog(TLOG_ERROR, "process dns response failed");
-				}
-
-				/* Check if stream has ended after reading body */
-				if (http2_stream_is_end(http2_stream)) {
-					_dns_client_cleanup_http2_stream(server_info, conn_stream, http2_stream);
-				}
-			}
-		}
+	/* Always process read, as write might have read data (e.g. WINDOW_UPDATE),
+	   or there might be pending data in SSL/HTTP2 buffers */
+	if (_dns_client_http2_process_read(server_info) < 0) {
+		return -1;
 	}
 
 	return 0;
-errout:
-	return -1;
 }
