@@ -127,14 +127,13 @@ void _dns_client_close_socket_ext(struct dns_server_info *server_info, int no_de
 				_dns_client_conn_stream_put(conn_stream);
 			}
 		} else if (server_info->type == DNS_SERVER_HTTPS) {
-			/* Clean up HTTP/2 streams for this server */
 			struct dns_conn_stream *conn_stream = NULL;
 			struct dns_conn_stream *tmp = NULL;
 
 			list_for_each_entry_safe(conn_stream, tmp, &server_info->conn_stream_list, server_list)
 			{
 				if (conn_stream->http2_stream) {
-					http2_stream_put(conn_stream->http2_stream);
+					http2_stream_close(conn_stream->http2_stream);
 					conn_stream->http2_stream = NULL;
 				}
 

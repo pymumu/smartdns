@@ -52,44 +52,31 @@ void _dns_client_conn_stream_put(struct dns_conn_stream *stream)
 	int refcnt = atomic_dec_return(&stream->refcnt);
 	if (refcnt) {
 		if (refcnt < 0) {
-			BUG("BUG: stream refcnt is %d", refcnt);
+			BUG("BUG: stream  %p, refcnt is %d", stream, refcnt);
 		}
 		return;
 	}
 
-	if (stream->type == DNS_SERVER_QUIC || stream->type == DNS_SERVER_HTTP3) {
-		/* Clean up QUIC stream */
-		if (stream->quic_stream) {
-			SSL_free(stream->quic_stream);
-			stream->quic_stream = NULL;
-		}
-	} else if (stream->type == DNS_SERVER_HTTPS) {
-		/* Clean up HTTP/2 stream */
-		if (stream->http2_stream) {
-			struct http2_stream *http2_stream = stream->http2_stream;
-			stream->http2_stream = NULL;
-			http2_stream_put(http2_stream);
-		}
+	if (stream->quic_stream) {
+		SSL_free(stream->quic_stream);
+		stream->quic_stream = NULL;
+	}
+
+	if (stream->http2_stream) {
+		struct http2_stream *http2_stream = stream->http2_stream;
+		stream->http2_stream = NULL;
+		http2_stream_close(http2_stream);
+	}
+
+	if (stream->query) {
+		list_del_init(&stream->query_list);
+		stream->query = NULL;
 	}
 
 	if (stream->server_info) {
-		struct dns_server_info *server_info = stream->server_info;
-		stream->server_info = NULL;
-		pthread_mutex_lock(&server_info->lock);
-		/* Remove from server list and release reference */
-		if (!list_empty(&stream->server_list)) {
-			list_del_init(&stream->server_list);
-			stream->server_info = NULL;
-			_dns_client_conn_stream_put(stream);
-		}
-		pthread_mutex_unlock(&server_info->lock);
-	}
-
-	/* Remove from query list and release reference */
-	if (!list_empty(&stream->query_list)) {
-		list_del_init(&stream->query_list);
-		stream->query = NULL;
-		_dns_client_conn_stream_put(stream);
+		pthread_mutex_lock(&stream->server_info->lock);
+		list_del_init(&stream->server_list);
+		pthread_mutex_unlock(&stream->server_info->lock);
 	}
 
 	free(stream);
@@ -110,22 +97,19 @@ void _dns_client_conn_server_streams_free(struct dns_server_info *server_info, s
 
 		list_del_init(&stream->server_list);
 		stream->server_info = NULL;
-		if (stream->type == DNS_SERVER_QUIC || stream->type == DNS_SERVER_HTTP3) {
-			if (stream->quic_stream) {
+		if (stream->quic_stream) {
 #if defined(OSSL_QUIC1_VERSION) && !defined(OPENSSL_NO_QUIC)
-				SSL_stream_reset(stream->quic_stream, NULL, 0);
+			SSL_stream_reset(stream->quic_stream, NULL, 0);
 #endif
-				SSL_free(stream->quic_stream);
-				stream->quic_stream = NULL;
-			}
-		} else if (stream->type == DNS_SERVER_HTTPS) {
-			/* Clean up HTTP/2 stream */
-			if (stream->http2_stream) {
-				struct http2_stream *http2_stream = stream->http2_stream;
-				stream->http2_stream = NULL;
-				http2_stream_put(http2_stream);
-			}
+			SSL_free(stream->quic_stream);
+			stream->quic_stream = NULL;
 		}
+
+		if (stream->http2_stream) {
+			http2_stream_put(stream->http2_stream);
+			stream->http2_stream = NULL;
+		}
+
 		_dns_client_conn_stream_put(stream);
 	}
 	pthread_mutex_unlock(&server_info->lock);
