@@ -217,7 +217,7 @@ int _dns_server_process_http2(struct dns_server_conn_tls_client *tls_client, str
 			return -1;
 		}
 		if (tls_client->http2_ctx != NULL) {
-			http2_ctx_close(ctx);
+			http2_ctx_close(tls_client->http2_ctx);
 		}
 		tls_client->http2_ctx = ctx;
 
@@ -295,7 +295,7 @@ int _dns_server_process_http2(struct dns_server_conn_tls_client *tls_client, str
 					if (poll_items[i].readable) {
 						struct http2_stream *stream = http2_ctx_accept_stream(ctx);
 						if (stream) {
-							/* process immi */
+							/* Accept and immediately process new HTTP/2 stream */
 							_dns_server_http2_process_stream(tls_client, stream);
 						}
 					}

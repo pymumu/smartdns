@@ -11,7 +11,6 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <cstring>
-#include <cstdlib> // for rand
 
 // Helper function to get environment variable with default value
 int get_env_int(const char* name, int default_value) {
@@ -240,7 +239,8 @@ speed-check-mode ping
     std::cout << "  Failure: " << failure_count.load() << std::endl;
     std::cout << "  Duration: " << duration.count() << "ms" << std::endl;
     std::cout << "  QPS: " << qps << std::endl;
-    std::cout << "  Success Rate: " << (success_count.load() * 100.0 / total_queries.load()) << "%" << std::endl;
+    double success_rate = total_queries.load() > 0 ? (success_count.load() * 100.0 / total_queries.load()) : 0.0;
+    std::cout << "  Success Rate: " << success_rate << "%" << std::endl;
 
     // Assertions
     EXPECT_FALSE(stop_all_tasks.load());  // No failures should occur, all tasks should complete
@@ -250,7 +250,7 @@ speed-check-mode ping
 }
 
 // Instantiate the test for each protocol
-INSTANTIATE_TEST_SUITE_P(,Stress,
+INSTANTIATE_TEST_SUITE_P(, Stress, 
                          ::testing::ValuesIn(protocols),
                          [](const ::testing::TestParamInfo<ProtocolConfig>& info) {
                              return info.param.name;

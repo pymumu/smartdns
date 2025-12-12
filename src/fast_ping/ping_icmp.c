@@ -115,7 +115,7 @@ static int _fast_ping_create_icmp_sock(FAST_PING_TYPE type)
 	int fd = -1;
 	struct ping_host_struct *icmp_host = NULL;
 	struct epoll_event event;
-	/* Set receive and send buffer to 512KB， if buffer size is too small, ping may fail. */
+	/* Set receive and send buffer to 512KB, if buffer size is too small, ping may fail. */
 	int buffsize = 512 * 1024;
 	socklen_t optlen = sizeof(buffsize);
 	const int val = 255;
