@@ -125,7 +125,7 @@ struct http2_ctx {
 	pthread_mutex_t mutex;
 	int refcount; /* Atomic reference count */
 	int is_client;
-	const char *server;
+	char *server;
 	http2_bio_read_fn bio_read;
 	http2_bio_write_fn bio_write;
 	void *private_data;
@@ -236,6 +236,10 @@ static int http2_stream_add_header(struct http2_stream *stream, const char *name
 {
 	uint32_t key = 0;
 	struct http_head_fields *fields = NULL;
+
+	if (name == NULL || value == NULL) {
+		return -1;
+	}
 
 	fields = malloc(sizeof(*fields));
 	if (fields == NULL) {
@@ -972,6 +976,10 @@ void http2_ctx_put(struct http2_ctx *ctx)
 		free(ctx->pending_write_buffer);
 	}
 
+	if (ctx->server) {
+		free(ctx->server);
+	}
+
 	pthread_mutex_unlock(&ctx->mutex);
 	pthread_mutex_destroy(&ctx->mutex);
 
@@ -1065,7 +1073,7 @@ static void http2_ctx_init_common(struct http2_ctx *ctx, const struct http2_ctx_
 	pthread_mutexattr_destroy(&attr);
 	ctx->refcount = 1; /* Initial reference count */
 	ctx->is_client = params->is_client;
-	ctx->server = params->server;
+	ctx->server = strdup(params->server ? params->server : "");
 	ctx->bio_read = params->bio_read;
 	ctx->bio_write = params->bio_write;
 	ctx->private_data = params->private_data;
@@ -1516,6 +1524,9 @@ const char *http2_stream_get_method(struct http2_stream *stream)
 	}
 
 	struct http2_ctx *ctx = stream->ctx;
+	if (!ctx) {
+		return NULL;
+	}
 	pthread_mutex_lock(&ctx->mutex);
 
 	const char *method = http2_stream_get_header_value(stream, ":method");
@@ -1531,6 +1542,9 @@ const char *http2_stream_get_path(struct http2_stream *stream)
 	}
 
 	struct http2_ctx *ctx = stream->ctx;
+	if (!ctx) {
+		return NULL;
+	}
 	pthread_mutex_lock(&ctx->mutex);
 
 	const char *path = http2_stream_get_header_value(stream, ":path");
@@ -1546,6 +1560,9 @@ int http2_stream_get_status(struct http2_stream *stream)
 	}
 
 	struct http2_ctx *ctx = stream->ctx;
+	if (!ctx) {
+		return -1;
+	}
 	pthread_mutex_lock(&ctx->mutex);
 
 	const char *status_str = http2_stream_get_header_value(stream, ":status");
@@ -1759,8 +1776,9 @@ int http2_stream_read_body(struct http2_stream *stream, uint8_t *data, int len)
 		if (strcasecmp(content_encoding, "gzip") == 0 || strcasecmp(content_encoding, "deflate") == 0) {
 			/* If stream not ended and connection is healthy, return EAGAIN */
 			if (!stream->end_stream_received && (!ctx || ctx->status >= 0)) {
-				if (ctx)
+				if (ctx) {
 					pthread_mutex_unlock(&ctx->mutex);
+				}
 				errno = EAGAIN;
 				return -1;
 			}
@@ -1934,17 +1952,34 @@ int http2_ctx_is_closed(struct http2_ctx *ctx)
 
 char *http2_stream_get_query_param(struct http2_stream *stream, const char *name)
 {
-	const char *path = http2_stream_get_path(stream);
+	const char *path = NULL;
 	const char *q = NULL;
 	const char *val_start = NULL;
 	int name_len = 0;
+	char *ret = NULL;
 
-	if (path == NULL || name == NULL) {
+	if (stream == NULL || name == NULL) {
+		return NULL;
+	}
+
+	struct http2_ctx *ctx = stream->ctx;
+	if (ctx) {
+		pthread_mutex_lock(&ctx->mutex);
+	}
+
+	path = http2_stream_get_header_value(stream, ":path");
+	if (path == NULL) {
+		if (ctx) {
+			pthread_mutex_unlock(&ctx->mutex);
+		}
 		return NULL;
 	}
 
 	q = strstr(path, "?");
 	if (q == NULL) {
+		if (ctx) {
+			pthread_mutex_unlock(&ctx->mutex);
+		}
 		return NULL;
 	}
 	q++;
@@ -1966,8 +2001,12 @@ char *http2_stream_get_query_param(struct http2_stream *stream, const char *name
 	if (val_start) {
 		const char *end = strchr(val_start, '&');
 		size_t val_len = end ? (size_t)(end - val_start) : strlen(val_start);
-		return strndup(val_start, val_len);
+		ret = strndup(val_start, val_len);
 	}
 
-	return NULL;
+	if (ctx) {
+		pthread_mutex_unlock(&ctx->mutex);
+	}
+
+	return ret;
 }
