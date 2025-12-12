@@ -236,13 +236,141 @@ static int _dns_client_send_http(struct dns_server_info *server_info, struct dns
 	return _dns_client_send_http2(server_info, query, packet_data, packet_data_len);
 }
 
+static int _dns_client_check_server_prohibit(struct dns_server_info *server_info, int prohibit_time)
+{
+	if (server_info->prohibit) {
+		if (server_info->is_already_prohibit == 0) {
+			server_info->is_already_prohibit = 1;
+			_dns_server_inc_prohibit_server_num(server_info);
+			time(&server_info->last_send);
+			time(&server_info->last_recv);
+			if (server_info->type != DNS_SERVER_MDNS) {
+				tlog(TLOG_INFO, "server %s not alive, prohibit", server_info->ip);
+			}
+			_dns_client_shutdown_socket(server_info);
+		}
+
+		time_t now = 0;
+		time(&now);
+		if ((now - prohibit_time < server_info->last_send)) {
+			return 1;
+		}
+		server_info->prohibit = 0;
+		server_info->is_already_prohibit = 0;
+		_dns_server_dec_prohibit_server_num(server_info);
+		if (now - prohibit_time >= server_info->last_send) {
+			_dns_client_close_socket(server_info);
+		}
+	}
+	return 0;
+}
+
+static int _dns_client_send_one_packet(struct dns_server_info *server_info, struct dns_query_struct *query,
+									   void *packet_data, int packet_data_len)
+{
+	int ret = 0;
+	int send_err = 0;
+	int retry = 0;
+
+	atomic_inc(&query->dns_request_sent);
+	stats_inc(&server_info->stats.total);
+	errno = 0;
+	server_info->send_tick = get_tick_count();
+
+	while (1) {
+		switch (server_info->type) {
+		case DNS_SERVER_UDP:
+			/* udp query */
+			ret = _dns_client_send_udp(server_info, packet_data, packet_data_len);
+			send_err = errno;
+			break;
+		case DNS_SERVER_TCP:
+			/* tcp query */
+			ret = _dns_client_send_tcp(server_info, packet_data, packet_data_len);
+			send_err = errno;
+			break;
+		case DNS_SERVER_TLS:
+			/* tls query */
+			ret = _dns_client_send_tls(server_info, packet_data, packet_data_len);
+			send_err = errno;
+			break;
+		case DNS_SERVER_HTTPS:
+			/* https query - buffer raw data in stream, protocol determined later */
+			ret = _dns_client_send_http(server_info, query, packet_data, packet_data_len);
+			send_err = errno;
+			break;
+		case DNS_SERVER_MDNS:
+			/* mdns query */
+			ret = _dns_client_send_udp_mdns(server_info, packet_data, packet_data_len);
+			send_err = errno;
+			break;
+		case DNS_SERVER_QUIC:
+			/* quic query */
+			ret = _dns_client_send_quic(query, server_info, packet_data, packet_data_len);
+			send_err = errno;
+			break;
+		case DNS_SERVER_HTTP3:
+			/* http3 query */
+			ret = _dns_client_send_http3(query, server_info, packet_data, packet_data_len);
+			send_err = errno;
+			break;
+		default:
+			/* unsupported query type */
+			ret = -1;
+			break;
+		}
+
+		if (ret != 0) {
+			switch (send_err) {
+			case EBADF:
+			case ECONNRESET:
+			case EPIPE:
+			case EDESTADDRREQ:
+			case EINVAL:
+			case EISCONN:
+			case ENOTCONN:
+			case ENOTSOCK:
+			case EOPNOTSUPP: {
+				tlog(TLOG_DEBUG, "send query to %s failed, %s, type: %d", server_info->ip, strerror(send_err),
+					 server_info->type);
+				_dns_client_close_socket(server_info);
+				if (retry == 0) {
+					retry = 1;
+					if (_dns_client_create_socket(server_info) == 0) {
+						continue;
+					}
+				}
+				atomic_dec(&query->dns_request_sent);
+				return -1;
+			}
+			default:
+				break;
+			}
+
+			tlog(TLOG_DEBUG, "send query to %s failed, %s, type: %d", server_info->ip, strerror(send_err),
+				 server_info->type);
+			time_t now = 0;
+			time(&now);
+			if (now - 10 > server_info->last_recv || send_err != ENOMEM) {
+				server_info->prohibit = 1;
+			}
+
+			atomic_dec(&query->dns_request_sent);
+			return -1;
+		}
+		break;
+	}
+	time(&server_info->last_send);
+
+	return 0;
+}
+
 int _dns_client_send_packet(struct dns_query_struct *query, void *packet, int len)
 {
 	struct dns_server_info *server_info = NULL;
 	struct dns_server_group_member *group_member = NULL;
 	struct dns_server_group_member *tmp = NULL;
 	int ret = 0;
-	int send_err = 0;
 	int i = 0;
 	int total_server = 0;
 	int send_count = 0;
@@ -279,30 +407,10 @@ int _dns_client_send_packet(struct dns_query_struct *query, void *packet, int le
 				continue;
 			}
 
-			if (server_info->prohibit) {
-				if (server_info->is_already_prohibit == 0) {
-					server_info->is_already_prohibit = 1;
-					_dns_server_inc_prohibit_server_num(server_info);
-					time(&server_info->last_send);
-					time(&server_info->last_recv);
-					if (server_info->type != DNS_SERVER_MDNS) {
-						tlog(TLOG_INFO, "server %s not alive, prohibit", server_info->ip);
-					}
-					_dns_client_shutdown_socket(server_info);
-				}
-
-				time_t now = 0;
-				time(&now);
-				if ((now - prohibit_time < server_info->last_send)) {
-					continue;
-				}
-				server_info->prohibit = 0;
-				server_info->is_already_prohibit = 0;
-				_dns_server_dec_prohibit_server_num(server_info);
-				if (now - prohibit_time >= server_info->last_send) {
-					_dns_client_close_socket(server_info);
-				}
+			if (_dns_client_check_server_prohibit(server_info, prohibit_time)) {
+				continue;
 			}
+
 			total_server++;
 			tlog(TLOG_DEBUG, "send query to server %s:%d, type:%d", server_info->ip, server_info->port,
 				 server_info->type);
@@ -319,88 +427,9 @@ int _dns_client_send_packet(struct dns_query_struct *query, void *packet, int le
 				continue;
 			}
 
-			atomic_inc(&query->dns_request_sent);
-			stats_inc(&server_info->stats.total);
-			send_count++;
-			errno = 0;
-			server_info->send_tick = get_tick_count();
-
-			switch (server_info->type) {
-			case DNS_SERVER_UDP:
-				/* udp query */
-				ret = _dns_client_send_udp(server_info, packet_data, packet_data_len);
-				send_err = errno;
-				break;
-			case DNS_SERVER_TCP:
-				/* tcp query */
-				ret = _dns_client_send_tcp(server_info, packet_data, packet_data_len);
-				send_err = errno;
-				break;
-			case DNS_SERVER_TLS:
-				/* tls query */
-				ret = _dns_client_send_tls(server_info, packet_data, packet_data_len);
-				send_err = errno;
-				break;
-			case DNS_SERVER_HTTPS:
-				/* https query - buffer raw data in stream, protocol determined later */
-				ret = _dns_client_send_http(server_info, query, packet_data, packet_data_len);
-				send_err = errno;
-				break;
-			case DNS_SERVER_MDNS:
-				/* mdns query */
-				ret = _dns_client_send_udp_mdns(server_info, packet_data, packet_data_len);
-				send_err = errno;
-				break;
-			case DNS_SERVER_QUIC:
-				/* quic query */
-				ret = _dns_client_send_quic(query, server_info, packet_data, packet_data_len);
-				send_err = errno;
-				break;
-			case DNS_SERVER_HTTP3:
-				/* http3 query */
-				ret = _dns_client_send_http3(query, server_info, packet_data, packet_data_len);
-				send_err = errno;
-				break;
-			default:
-				/* unsupported query type */
-				ret = -1;
-				break;
+			if (_dns_client_send_one_packet(server_info, query, packet_data, packet_data_len) == 0) {
+				send_count++;
 			}
-
-			if (ret != 0) {
-				switch (send_err) {
-				case EBADF:
-				case ECONNRESET:
-				case EDESTADDRREQ:
-				case EINVAL:
-				case EISCONN:
-				case ENOTCONN:
-				case ENOTSOCK:
-				case EOPNOTSUPP: {
-					tlog(TLOG_DEBUG, "send query to %s failed, %s, type: %d", server_info->ip, strerror(send_err),
-						 server_info->type);
-					_dns_client_close_socket(server_info);
-					atomic_dec(&query->dns_request_sent);
-					send_count--;
-					continue;
-				}
-				default:
-					break;
-				}
-
-				tlog(TLOG_DEBUG, "send query to %s failed, %s, type: %d", server_info->ip, strerror(send_err),
-					 server_info->type);
-				time_t now = 0;
-				time(&now);
-				if (now - 10 > server_info->last_recv || send_err != ENOMEM) {
-					server_info->prohibit = 1;
-				}
-
-				atomic_dec(&query->dns_request_sent);
-				send_count--;
-				continue;
-			}
-			time(&server_info->last_send);
 		}
 		pthread_mutex_unlock(&client.server_list_lock);
 

@@ -202,7 +202,7 @@ int _dns_replied_check_add(struct dns_query_struct *dns_query, struct dns_server
 	struct dns_query_replied *replied_map = NULL;
 
 	/* avoid multiple replies from one server */
-	key = jhash(&server, sizeof(server), 0);
+	key = jhash((const void *)&server, sizeof(server), 0);
 	hash_for_each_possible(dns_query->replied_map, replied_map, node, key)
 	{
 		/* already replied, ignore this reply */
@@ -228,7 +228,7 @@ void _dns_replied_check_remove(struct dns_query_struct *dns_query, struct dns_se
 	uint32_t key = 0;
 	struct dns_query_replied *replied_map = NULL;
 
-	key = jhash(&server, sizeof(server), 0);
+	key = jhash((const void *)&server, sizeof(server), 0);
 	hash_for_each_possible(dns_query->replied_map, replied_map, node, key)
 	{
 		if (replied_map->server == server) {

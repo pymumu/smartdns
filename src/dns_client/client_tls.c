@@ -1103,8 +1103,8 @@ errout:
 	pthread_mutex_lock(&server_info->lock);
 	server_info->recv_buff.len = 0;
 	server_info->send_buff.len = 0;
-	_dns_client_close_socket(server_info);
 	pthread_mutex_unlock(&server_info->lock);
+	_dns_client_close_socket(server_info);
 
 	return -1;
 }

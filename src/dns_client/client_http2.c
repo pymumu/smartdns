@@ -179,11 +179,6 @@ static int _dns_client_http2_pending_data(struct dns_conn_stream *stream, struct
 		return -1;
 	}
 
-	if (server_info->fd <= 0) {
-		errno = ECONNRESET;
-		goto errout;
-	}
-
 	if (client.epoll_fd <= 0) {
 		errno = ECONNRESET;
 		goto errout;
@@ -193,6 +188,12 @@ static int _dns_client_http2_pending_data(struct dns_conn_stream *stream, struct
 	stream->send_buff.len += len;
 
 	pthread_mutex_lock(&server_info->lock);
+	if (server_info->fd <= 0) {
+		pthread_mutex_unlock(&server_info->lock);
+		errno = ECONNRESET;
+		goto errout;
+	}
+
 	if (list_empty(&stream->server_list)) {
 		_dns_client_conn_stream_get(stream);
 		list_add_tail(&stream->server_list, &server_info->conn_stream_list);
@@ -204,15 +205,16 @@ static int _dns_client_http2_pending_data(struct dns_conn_stream *stream, struct
 		list_add_tail(&stream->query_list, &query->conn_stream_list);
 	}
 	stream->query = query;
-	pthread_mutex_unlock(&server_info->lock);
 
 	memset(&event, 0, sizeof(event));
 	event.events = EPOLLIN | EPOLLOUT;
 	event.data.ptr = server_info;
 	if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &event) != 0) {
 		tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
+		pthread_mutex_unlock(&server_info->lock);
 		goto errout_put;
 	}
+	pthread_mutex_unlock(&server_info->lock);
 
 	return 0;
 errout_put:
@@ -269,7 +271,7 @@ int _dns_client_send_http2(struct dns_server_info *server_info, struct dns_query
 	/* Send the request via HTTP/2 */
 	ret = _dns_client_send_http2_stream(server_info, stream, packet, len);
 	if (ret < 0) {
-		tlog(TLOG_ERROR, "send http2 stream failed.");
+		tlog(TLOG_DEBUG, "send http2 stream failed.");
 		/* Fall back to buffering the data */
 		ret = _dns_client_http2_pending_data(stream, server_info, query, packet, len);
 		goto out;
