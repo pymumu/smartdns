@@ -91,6 +91,9 @@ int _fast_ping_sendping_v4(struct ping_host_struct *ping_host)
 	len = sendto(ping.fd_icmp, packet, sizeof(struct fast_ping_packet), 0, &ping_host->addr, ping_host->addr_len);
 	if (len != sizeof(struct fast_ping_packet)) {
 		int err = errno;
+		if (errno == EAGAIN || errno == EWOULDBLOCK) {
+			goto errout;
+		}
 		if (errno == ENETUNREACH || errno == EINVAL || errno == EADDRNOTAVAIL || errno == EPERM || errno == EACCES) {
 			goto errout;
 		}
@@ -112,7 +115,8 @@ static int _fast_ping_create_icmp_sock(FAST_PING_TYPE type)
 	int fd = -1;
 	struct ping_host_struct *icmp_host = NULL;
 	struct epoll_event event;
-	int buffsize = 64 * 1024;
+	/* Set receive and send buffer to 512KB， if buffer size is too small, ping may fail. */
+	int buffsize = 512 * 1024;
 	socklen_t optlen = sizeof(buffsize);
 	const int val = 255;
 	const int on = 1;
@@ -177,6 +181,7 @@ static int _fast_ping_create_icmp_sock(FAST_PING_TYPE type)
 	setsockopt(fd, SOL_SOCKET, SO_RCVBUF, (const char *)&buffsize, optlen);
 	setsockopt(fd, SOL_IP, IP_TTL, &val, sizeof(val));
 	setsockopt(fd, IPPROTO_IP, IP_TOS, &ip_tos, sizeof(ip_tos));
+	set_fd_nonblock(fd, 1);
 
 	icmp_host->fd = fd;
 	icmp_host->type = type;
