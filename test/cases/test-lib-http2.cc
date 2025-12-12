@@ -602,7 +602,7 @@ TEST_F(LIBHTTP2, ServerLoopTerminationOnDisconnect)
 			struct pollfd pfd = {client_sock, POLLIN, 0};
 			poll(&pfd, 1, 10);
 			ret = http2_ctx_handshake(ctx);
-			if (ret <= 1) {
+			if (ret != 0) {
 				break;
 			}
 		}

@@ -164,7 +164,6 @@ static void _dns_client_send_buffered_http2_requests(struct dns_server_info *ser
 		} else {
 			/* Send failed, remove from buffer and clean up */
 			_dns_client_release_stream_on_error(server_info, target_stream);
-			/* Don't put here since release already cleaned up all references including the temp get */
 		}
 	}
 }
