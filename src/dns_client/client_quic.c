@@ -65,6 +65,12 @@ static int _dns_client_quic_bio_recvmmsg(BIO *bio, BIO_MSG *msg, size_t stride, 
 				break;
 			}
 
+			if (errno == EPIPE || errno == ECONNRESET) {
+				/* Ignore broken pipe and connection reset errors */
+				tlog(TLOG_DEBUG, "recvmsg broken pipe or connection reset, %s", server_info->ip);
+				return total_len;
+			}
+
 			tlog(TLOG_ERROR, "recvmsg failed, %s", strerror(errno));
 			return 0;
 		}
@@ -105,6 +111,12 @@ static int _dns_client_quic_bio_sendmmsg(BIO *bio, BIO_MSG *msg, size_t stride, 
 
 			if (errno == EAGAIN || errno == EWOULDBLOCK) {
 				break;
+			}
+
+			if (errno == EPIPE || errno == ECONNRESET) {
+				/* Ignore broken pipe and connection reset errors */
+				tlog(TLOG_DEBUG, "sendmsg broken pipe or connection reset, %s", server_info->ip);
+				return total_len;
 			}
 
 			tlog(TLOG_ERROR, "sendmsg failed, %s", strerror(errno));
