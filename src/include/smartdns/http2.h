@@ -215,11 +215,12 @@ struct http2_header_pair {
  * @param stream Stream
  * @param method HTTP method (e.g., "GET", "POST")
  * @param path Request path
+ * @param scheme Scheme (e.g., "https"), if NULL defaults to "https"
  * @param headers Array of additional headers (NULL-terminated, last element must have name=NULL)
  * @return 0 on success, -1 on error
  */
 int http2_stream_set_request(struct http2_stream *stream, const char *method, const char *path,
-							 const struct http2_header_pair *headers);
+							 const char *scheme, const struct http2_header_pair *headers);
 
 /**
  * Server: Set response headers

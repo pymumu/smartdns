@@ -69,7 +69,7 @@ static int _dns_client_send_http2_stream(struct dns_server_info *server_info, st
 										  {"content-length", content_length},
 										  {NULL, NULL}};
 
-	if (http2_stream_set_request(http2_stream, "POST", https_flag->path, headers) < 0) {
+	if (http2_stream_set_request(http2_stream, "POST", https_flag->path, NULL, headers) < 0) {
 		goto errout;
 	}
 

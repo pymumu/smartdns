@@ -170,7 +170,7 @@ TEST_F(LIBHTTP2, Integrated)
 		// Send request
 		struct http2_header_pair headers[] = {
 			{"content-type", "application/json"}, {"content-length", "27"}, {NULL, NULL}};
-		http2_stream_set_request(stream, "POST", "/echo", headers);
+		http2_stream_set_request(stream, "POST", "/echo", NULL, headers);
 		const char *request_body = "{\"message\":\"Hello Echo!\"}";
 		http2_stream_write_body(stream, (const uint8_t *)request_body, strlen(request_body), 1);
 
@@ -316,7 +316,7 @@ TEST_F(LIBHTTP2, MultiStream)
 
 			struct http2_header_pair headers[] = {
 				{"content-type", "text/plain"}, {"content-length", content_length}, {NULL, NULL}};
-			http2_stream_set_request(streams[i], "POST", path, headers);
+			http2_stream_set_request(streams[i], "POST", path, NULL, headers);
 			http2_stream_write_body(streams[i], (const uint8_t *)body, body_len, 1);
 		}
 
@@ -451,7 +451,7 @@ TEST_F(LIBHTTP2, EarlyStreamCreation)
 
 		// Send request immediately (before handshake)
 		struct http2_header_pair headers[] = {{"user-agent", "test-client"}, {NULL, NULL}};
-		int ret = http2_stream_set_request(stream, "POST", "/early-test", headers);
+		int ret = http2_stream_set_request(stream, "POST", "/early-test", NULL, headers);
 		EXPECT_EQ(ret, 0) << "Failed to set request";
 		const char *request_body = "test echo";
 		http2_stream_write_body(stream, (const uint8_t *)request_body, strlen(request_body), 1);
@@ -612,7 +612,7 @@ TEST_F(LIBHTTP2, ServerLoopTerminationOnDisconnect)
 		ASSERT_NE(stream, nullptr);
 
 		struct http2_header_pair headers[] = {{"content-type", "text/plain"}, {NULL, NULL}};
-		http2_stream_set_request(stream, "POST", "/test", headers);
+		http2_stream_set_request(stream, "POST", "/test", NULL, headers);
 		http2_stream_write_body(stream, (const uint8_t *)"test", 4, 1);
 		http2_stream_close(stream);
 		http2_ctx_close(ctx);
@@ -699,7 +699,7 @@ TEST_F(LIBHTTP2, StreamClose)
 		ASSERT_NE(stream, nullptr);
 
 		// Send request
-		http2_stream_set_request(stream, "GET", "/test", NULL);
+		http2_stream_set_request(stream, "GET", "/test", NULL, NULL);
 		http2_stream_write_body(stream, NULL, 0, 1);
 
 		// Wait for response
@@ -918,7 +918,7 @@ TEST_F(LIBHTTP2, StressTest)
 				int body_len = snprintf(body, sizeof(body), "Req %d", i);
 
 				struct http2_header_pair headers[] = {{"content-type", "text/plain"}, {NULL, NULL}};
-				http2_stream_set_request(stream, "POST", path, headers);
+				http2_stream_set_request(stream, "POST", path, NULL, headers);
 				http2_stream_write_body(stream, (const uint8_t *)body, body_len, 1);
 			}
 

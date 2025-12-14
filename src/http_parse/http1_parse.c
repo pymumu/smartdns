@@ -337,6 +337,11 @@ int http_head_parse_http1_1(struct http_head *http_head, const uint8_t *data, in
 					return -2;
 				}
 
+				/* Check buffer space */
+				if (http_head->buff_len + process_data_len + chunk_len >= http_head->buff_size) {
+					return -3;
+				}
+
 				memcpy(buff_end, data, chunk_len);
 				body_data_len += chunk_len;
 				buff_end += chunk_len;
