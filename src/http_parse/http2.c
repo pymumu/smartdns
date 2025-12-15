@@ -1606,6 +1606,9 @@ int http2_stream_set_request(struct http2_stream *stream, const char *method, co
 	}
 
 	struct http2_ctx *ctx = stream->ctx;
+	if (!ctx) {
+		return -1;
+	}
 	pthread_mutex_lock(&ctx->mutex);
 
 	/* Clear old headers */
@@ -1656,6 +1659,9 @@ int http2_stream_set_response(struct http2_stream *stream, int status, const str
 	}
 
 	struct http2_ctx *ctx = stream->ctx;
+	if (!ctx) {
+		return -1;
+	}
 	pthread_mutex_lock(&ctx->mutex);
 
 	/* Clear old headers */
@@ -1745,6 +1751,9 @@ const char *http2_stream_get_header(struct http2_stream *stream, const char *nam
 	}
 
 	struct http2_ctx *ctx = stream->ctx;
+	if (!ctx) {
+		return NULL;
+	}
 	pthread_mutex_lock(&ctx->mutex);
 
 	const char *value = _http2_stream_get_header_value(stream, name);
@@ -1760,6 +1769,9 @@ int http2_stream_write_body(struct http2_stream *stream, const uint8_t *data, in
 	}
 
 	struct http2_ctx *ctx = stream->ctx;
+	if (!ctx) {
+		return -1;
+	}
 	pthread_mutex_lock(&ctx->mutex);
 
 	int total_sent = 0;
