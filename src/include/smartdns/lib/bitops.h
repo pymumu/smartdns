@@ -95,6 +95,8 @@ static inline unsigned long __ffs(unsigned long word)
 
 static inline int fls(int x)
 {
+	if (x == 0)
+		return 0;
 	return 32 - __builtin_clz(x);
 }
 

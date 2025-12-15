@@ -432,7 +432,7 @@ static void _fast_ping_period_run(void)
 		}
 
 		if (millisecond < ping_host->interval) {
-			list_del(&ping_host->action_list);
+			list_del_init(&ping_host->action_list);
 			_fast_ping_host_put(ping_host);
 			continue;
 		}
@@ -440,7 +440,7 @@ static void _fast_ping_period_run(void)
 		if (ping_host->count > 0) {
 			if (ping_host->count == 1) {
 				_fast_ping_host_remove(ping_host);
-				list_del(&ping_host->action_list);
+				list_del_init(&ping_host->action_list);
 				_fast_ping_host_put(ping_host);
 				continue;
 			}
@@ -448,7 +448,7 @@ static void _fast_ping_period_run(void)
 		}
 
 		_fast_ping_sendping(ping_host);
-		list_del(&ping_host->action_list);
+		list_del_init(&ping_host->action_list);
 		_fast_ping_host_put(ping_host);
 	}
 }
