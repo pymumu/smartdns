@@ -46,19 +46,26 @@ static int _http2_bio_write(void *private_data, const uint8_t *buf, int len)
 static int _dns_client_send_http2_stream(struct dns_server_info *server_info, struct dns_conn_stream *conn_stream,
 										 void *data, unsigned short len)
 {
-	struct http2_ctx *http2_ctx = server_info->http2_ctx;
+	struct http2_ctx *http2_ctx = NULL;
 	struct http2_stream *http2_stream = NULL;
 	struct client_dns_server_flag_https *https_flag = &server_info->flags.https;
 	char content_length[32];
 
+	pthread_mutex_lock(&server_info->lock);
+	http2_ctx = server_info->http2_ctx;
 	if (http2_ctx == NULL) {
+		pthread_mutex_unlock(&server_info->lock);
 		return -1;
 	}
+	/* Get reference to prevent it from being freed while we use it */
+	http2_ctx_get(http2_ctx);
+	pthread_mutex_unlock(&server_info->lock);
 
 	/* Create HTTP/2 stream */
 	http2_stream = http2_stream_new(http2_ctx);
 	if (http2_stream == NULL) {
 		tlog(TLOG_WARN, "create http2 stream failed");
+		http2_ctx_put(http2_ctx);
 		return -1;
 	}
 
@@ -82,10 +89,12 @@ static int _dns_client_send_http2_stream(struct dns_server_info *server_info, st
 	conn_stream->http2_stream = http2_stream;
 	pthread_mutex_unlock(&server_info->lock);
 	http2_stream_set_ex_data(http2_stream, conn_stream);
+	http2_ctx_put(http2_ctx);
 	return 0;
 
 errout:
 	http2_stream_close(http2_stream);
+	http2_ctx_put(http2_ctx);
 	return -1;
 }
 
@@ -355,11 +364,20 @@ static int _dns_client_http2_init_ctx(struct dns_server_info *server_info)
 
 static int _dns_client_http2_process_write(struct dns_server_info *server_info)
 {
-	struct http2_ctx *http2_ctx = server_info->http2_ctx;
+	struct http2_ctx *http2_ctx = NULL;
 	int epoll_events = EPOLLIN;
 
 	/* Send buffered requests */
 	_dns_client_send_buffered_http2_requests(server_info);
+
+	pthread_mutex_lock(&server_info->lock);
+	http2_ctx = server_info->http2_ctx;
+	if (http2_ctx == NULL) {
+		pthread_mutex_unlock(&server_info->lock);
+		return 0;
+	}
+	http2_ctx_get(http2_ctx);
+	pthread_mutex_unlock(&server_info->lock);
 
 	/* Flush pending writes */
 	_dns_client_flush_http2_writes(http2_ctx);
@@ -376,9 +394,11 @@ static int _dns_client_http2_process_write(struct dns_server_info *server_info)
 		mod_event.data.ptr = server_info;
 		if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &mod_event) != 0) {
 			tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
+			http2_ctx_put(http2_ctx);
 			return -1;
 		}
 	}
+	http2_ctx_put(http2_ctx);
 	return 0;
 }
 
@@ -426,7 +446,7 @@ out:
 
 static int _dns_client_http2_process_read(struct dns_server_info *server_info)
 {
-	struct http2_ctx *http2_ctx = server_info->http2_ctx;
+	struct http2_ctx *http2_ctx = NULL;
 	struct http2_poll_item poll_items[128];
 	int poll_count = 0;
 	int loop_count = 0;
@@ -435,13 +455,24 @@ static int _dns_client_http2_process_read(struct dns_server_info *server_info)
 	int ret = 0;
 	int i = 0;
 
+	pthread_mutex_lock(&server_info->lock);
+	http2_ctx = server_info->http2_ctx;
+	if (http2_ctx == NULL) {
+		pthread_mutex_unlock(&server_info->lock);
+		return 0;
+	}
+	http2_ctx_get(http2_ctx);
+	pthread_mutex_unlock(&server_info->lock);
+
 	/* Ensure handshake is complete before polling */
 	ret = http2_ctx_handshake(http2_ctx);
 	if (ret == 0) {
 		/* Handshake in progress, need more data */
+		http2_ctx_put(http2_ctx);
 		return 0;
 	} else if (ret < 0) {
 		tlog(TLOG_ERROR, "http2 handshake failed.");
+		http2_ctx_put(http2_ctx);
 		return -1;
 	}
 
@@ -453,6 +484,7 @@ static int _dns_client_http2_process_read(struct dns_server_info *server_info)
 			if (ret != HTTP2_ERR_EOF) {
 				tlog(TLOG_DEBUG, "http2 poll failed, ret=%d", ret);
 			}
+			http2_ctx_put(http2_ctx);
 			return -1;
 		}
 
@@ -495,6 +527,7 @@ static int _dns_client_http2_process_read(struct dns_server_info *server_info)
 			break;
 		}
 	}
+	http2_ctx_put(http2_ctx);
 	return 0;
 }
 
