@@ -21,6 +21,7 @@
 #include "connection.h"
 #include "dns_server.h"
 #include "server_tls.h"
+#include "smartdns/dns_conf.h"
 #include "smartdns/http2.h"
 #include "smartdns/tlog.h"
 #include "smartdns/util.h"
@@ -216,10 +217,6 @@ int _dns_server_process_http2(struct dns_server_conn_tls_client *tls_client, str
 			tlog(TLOG_ERROR, "init http2 context failed.");
 			return -1;
 		}
-		if (tls_client->http2_ctx != NULL) {
-			http2_ctx_close(tls_client->http2_ctx);
-		}
-		tls_client->http2_ctx = ctx;
 
 		/* Perform initial handshake */
 		ret = http2_ctx_handshake(ctx);
@@ -230,8 +227,11 @@ int _dns_server_process_http2(struct dns_server_conn_tls_client *tls_client, str
 				log_level = TLOG_DEBUG; /* Less noisy for clients that disconnect early or misbehave */
 			}
 			tlog(log_level, "http2 handshake failed, ret=%d (%s), alpn=%s.", ret, err_msg, tls_client->alpn_selected);
+			http2_ctx_close(ctx);
 			return -1;
 		}
+		
+		tls_client->http2_ctx = ctx;
 	}
 
 	/* Handle EPOLLOUT - flush pending writes */
@@ -252,7 +252,7 @@ int _dns_server_process_http2(struct dns_server_conn_tls_client *tls_client, str
 		struct http2_poll_item poll_items[10];
 		int poll_count = 0;
 		int loop_count = 0;
-		const int MAX_LOOP_COUNT = 128;
+		const int MAX_LOOP_COUNT = 512;
 
 		/* Ensure handshake is complete */
 		ret = http2_ctx_handshake(ctx);

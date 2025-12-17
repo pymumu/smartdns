@@ -32,7 +32,7 @@ struct http2_stream;
 
 /* HTTP/2 Settings structure */
 struct http2_settings {
-	int max_concurrent_streams; /* -1 = use default (4096), 0 = unlimited */
+	int max_concurrent_streams; /* -1 = use default (8192), 0 = unlimited */
 };
 
 /* Error codes */

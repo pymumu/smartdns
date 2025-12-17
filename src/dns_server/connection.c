@@ -62,6 +62,11 @@ void _dns_server_conn_release(struct dns_server_conn_head *conn)
 			SSL_free(tls_client->ssl);
 			tls_client->ssl = NULL;
 		}
+
+		if (tls_client->http2_ctx != NULL) {
+			http2_ctx_put(tls_client->http2_ctx);
+			tls_client->http2_ctx = NULL;
+		}
 		pthread_mutex_destroy(&tls_client->ssl_lock);
 	} else if (conn->type == DNS_CONN_TYPE_TLS_SERVER || conn->type == DNS_CONN_TYPE_HTTPS_SERVER) {
 		struct dns_server_conn_tls_server *tls_server = (struct dns_server_conn_tls_server *)conn;

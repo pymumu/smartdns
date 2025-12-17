@@ -624,7 +624,7 @@ static struct http2_stream *_http2_create_stream(struct http2_ctx *ctx, uint32_t
 	}
 
 	stream->ctx = ctx;
-	stream->refcount = 1; /* Initial reference count */
+	stream->refcount = 0; /* Initial reference count */
 	stream->stream_id = stream_id;
 	stream->state = HTTP2_STREAM_IDLE;
 
@@ -649,10 +649,12 @@ static struct http2_stream *_http2_create_stream(struct http2_ctx *ctx, uint32_t
 	INIT_LIST_HEAD(&stream->header_list.list);
 	hash_init(stream->header_map);
 
+	http2_stream_get(stream); /* Hold ownership for ctx */
+	pthread_mutex_lock(&ctx->mutex);
 	hash_add(ctx->stream_map, &stream->hash_node, stream->stream_id);
 	list_add(&stream->node, &ctx->streams);
 	ctx->active_streams++;
-	http2_ctx_get(ctx);
+	pthread_mutex_unlock(&ctx->mutex);
 
 	return stream;
 }
@@ -1623,7 +1625,6 @@ void http2_stream_close(struct http2_stream *stream)
 		pthread_mutex_unlock(&ctx->mutex);
 
 		_http2_remove_stream(stream);
-		http2_ctx_put(ctx);
 	}
 	/* Mark stream as closed */
 	stream->state = HTTP2_STREAM_CLOSED;

@@ -182,6 +182,13 @@ static int _dns_client_http2_pending_data(struct dns_conn_stream *stream, struct
 										  struct dns_query_struct *query, void *packet, int len)
 {
 	struct epoll_event event;
+	
+	/* Validate input parameters */
+	if (len <= 0 || len > DNS_IN_PACKSIZE - 128) {
+		errno = EINVAL;
+		return -1;
+	}
+	
 	if (DNS_TCP_BUFFER - stream->send_buff.len < len) {
 		errno = ENOMEM;
 		return -1;
@@ -450,7 +457,7 @@ static int _dns_client_http2_process_read(struct dns_server_info *server_info)
 	struct http2_poll_item poll_items[128];
 	int poll_count = 0;
 	int loop_count = 0;
-	const int MAX_LOOP_COUNT = 128;
+	const int MAX_LOOP_COUNT = 512;
 	struct dns_conn_stream *conn_stream = NULL;
 	int ret = 0;
 	int i = 0;
