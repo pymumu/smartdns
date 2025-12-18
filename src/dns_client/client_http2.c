@@ -478,7 +478,7 @@ static int _dns_client_http2_process_read(struct dns_server_info *server_info)
 		http2_ctx_put(http2_ctx);
 		return 0;
 	} else if (ret < 0) {
-		tlog(TLOG_ERROR, "http2 handshake failed.");
+		tlog(TLOG_DEBUG, "http2 handshake failed.");
 		http2_ctx_put(http2_ctx);
 		return -1;
 	}
