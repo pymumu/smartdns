@@ -103,8 +103,28 @@ int check_is_ipv6(const char *ip);
 
 int parser_mac_address(const char *in_mac, uint8_t mac[6]);
 
+/**
+ * Parse URI string into components
+ * @param value: URI string to parse
+ * @param scheme: Output buffer for scheme (can be NULL), minimum size: 32 bytes
+ * @param host: Output buffer for host (can be NULL), minimum size: 256 bytes
+ * @param port: Output pointer for port number (can be NULL)
+ * @param path: Output buffer for path (can be NULL), minimum size: PATH_MAX (typically 4096 bytes)
+ * @return: 0 on success, -1 on failure
+ */
 int parse_uri(const char *value, char *scheme, char *host, int *port, char *path);
 
+/**
+ * Parse URI string into components with authentication
+ * @param value: URI string to parse
+ * @param scheme: Output buffer for scheme (can be NULL), minimum size: 32 bytes
+ * @param user: Output buffer for username (can be NULL), minimum size: 128 bytes
+ * @param password: Output buffer for password (can be NULL), minimum size: 128 bytes
+ * @param host: Output buffer for host (can be NULL), minimum size: 256 bytes
+ * @param port: Output pointer for port number (can be NULL)
+ * @param path: Output buffer for path (can be NULL), minimum size: PATH_MAX (typically 4096 bytes)
+ * @return: 0 on success, -1 on failure
+ */
 int parse_uri_ext(const char *value, char *scheme, char *user, char *password, char *host, int *port, char *path);
 
 int urldecode(char *dst, int dst_maxlen, const char *src);
