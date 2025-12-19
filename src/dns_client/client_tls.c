@@ -381,6 +381,11 @@ int _dns_client_create_socket_tls(struct dns_server_info *server_info, const cha
 		fd = socket(server_info->ai_family, SOCK_STREAM, 0);
 	}
 
+	if (fd < 0) {
+		tlog(TLOG_ERROR, "create socket failed, %s", strerror(errno));
+		goto errout;
+	}
+
 	if (server_info->flags.ifname[0] != '\0') {
 		struct ifreq ifr;
 		memset(&ifr, 0, sizeof(struct ifreq));
@@ -487,7 +492,7 @@ int _dns_client_create_socket_tls(struct dns_server_info *server_info, const cha
 	event.events = EPOLLIN | EPOLLOUT;
 	event.data.ptr = server_info;
 	if (epoll_ctl(client.epoll_fd, EPOLL_CTL_ADD, fd, &event) != 0) {
-		tlog(TLOG_ERROR, "epoll ctl failed.");
+		tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
 		goto errout;
 	}
 
@@ -504,6 +509,8 @@ errout:
 	}
 
 	server_info->status = DNS_SERVER_STATUS_INIT;
+	server_info->proxy = NULL;
+	server_info->ssl_write_len = -1;
 
 	if (fd > 0 && proxy == NULL) {
 		close(fd);

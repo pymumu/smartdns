@@ -135,6 +135,9 @@ errout:
 	}
 
 	server_info->status = DNS_SERVER_STATUS_INIT;
+	server_info->proxy = NULL;
+	server_info->security_status = DNS_CLIENT_SERVER_SECURITY_UNKNOW;
+	server_info->ssl_write_len = -1;
 
 	if (fd > 0 && proxy == NULL) {
 		close(fd);
