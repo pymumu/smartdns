@@ -614,7 +614,8 @@ static struct http2_stream *_http2_create_stream(struct http2_ctx *ctx, uint32_t
 {
 	/* Check concurrent streams limit */
 	if (ctx->active_streams >= ctx->settings.max_concurrent_streams && ctx->settings.max_concurrent_streams > 0) {
-		tlog(TLOG_WARN, "HTTP/2: Max concurrent streams limit reached (%d)", ctx->settings.max_concurrent_streams);
+		tlog(TLOG_DEBUG, "HTTP/2: Max concurrent streams limit reached (%d)", ctx->settings.max_concurrent_streams);
+		errno = ENOSPC;
 		return NULL;
 	}
 

@@ -64,7 +64,9 @@ static int _dns_client_send_http2_stream(struct dns_server_info *server_info, st
 	/* Create HTTP/2 stream */
 	http2_stream = http2_stream_new(http2_ctx);
 	if (http2_stream == NULL) {
-		tlog(TLOG_WARN, "create http2 stream failed");
+		if (errno != ENOSPC) {
+			tlog(TLOG_WARN, "create http2 stream failed");
+		}
 		http2_ctx_put(http2_ctx);
 		return -1;
 	}
