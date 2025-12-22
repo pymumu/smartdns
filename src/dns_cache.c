@@ -141,6 +141,15 @@ void dns_cache_release(struct dns_cache *dns_cache)
 
 static void _dns_cache_remove(struct dns_cache *dns_cache)
 {
+	/*
+	 * If the list is empty, it means the cache has been removed by other threads.
+	 * The reference count has been decreased by the other thread.
+	 * We should simply return to avoid double free.
+	 */
+	if (list_empty(&dns_cache->list)) {
+		return;
+	}
+
 	hash_del(&dns_cache->node);
 	list_del_init(&dns_cache->list);
 	if (dns_timer_del(&dns_cache->timer)) {
