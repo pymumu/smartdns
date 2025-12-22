@@ -427,7 +427,7 @@ int _dns_server_get_reply_ttl(struct dns_request *request, int ttl)
 
 	if ((request->passthrough == 0 || request->passthrough == 2) && dns_conf.cachesize > 0 &&
 		request->check_order_list->orders[0].type != DOMAIN_CHECK_NONE && request->no_serve_expired == 0 &&
-		request->has_soa == 0) {
+		request->has_soa == 0 && request->no_cache == 0) {
 		reply_ttl = request->conf->dns_serve_expired_reply_ttl;
 		if (reply_ttl < 2) {
 			reply_ttl = 2;
