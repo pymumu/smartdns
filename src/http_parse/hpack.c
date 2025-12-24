@@ -388,6 +388,10 @@ static int hpack_decode_huffman(const uint8_t *src, size_t src_len, uint8_t *dst
 	size_t i;
 
 	for (i = 0; i < src_len; i++) {
+		if (nbits > 56) {
+			/* Bit buffer would overflow on next byte */
+			return -1;
+		}
 		bits = (bits << 8) | src[i];
 		nbits += 8;
 
@@ -398,17 +402,18 @@ static int hpack_decode_huffman(const uint8_t *src, size_t src_len, uint8_t *dst
 
 			/* Try different code lengths from longest to shortest for current bits */
 			for (len = (nbits > 30 ? 30 : nbits); len >= 5; len--) {
-				uint32_t code = (uint32_t)((bits >> (nbits - len)) & ((1ULL << len) - 1));
+				uint32_t code = (uint32_t)((bits >> (nbits - len)) & (((uint64_t)1 << len) - 1));
 				size_t j;
 
 				/* Search for matching code in table */
 				for (j = 0; j < HUFFMAN_TABLE_SIZE; j++) {
-					if (huffman_table[j].nbits == len && huffman_table[j].bits == code) {
+					if (huffman_table[j].nbits == (uint8_t)len && huffman_table[j].bits == code) {
 						if (dst_pos >= dst_len) {
 							return -1;
 						}
 						dst[dst_pos++] = huffman_table[j].symbol;
 						nbits -= len;
+						bits &= (((uint64_t)1 << nbits) - 1); /* Clear decoded bits */
 						found = 1;
 						break;
 					}
@@ -576,22 +581,22 @@ static int hpack_add_dynamic_entry(struct hpack_context *hpack, const char *name
 	return 0;
 }
 
-static int hpack_get_entry(struct hpack_context *hpack, int index, const char **name, const char **value)
+static int hpack_get_entry(struct hpack_context *hpack, uint64_t index, const char **name, const char **value)
 {
 	if (index == 0) {
 		return -1;
 	}
 
-	if (index <= (int)HPACK_STATIC_TABLE_SIZE) {
+	if (index <= HPACK_STATIC_TABLE_SIZE) {
 		*name = hpack_static_table[index - 1].name;
 		*value = hpack_static_table[index - 1].value;
 		return 0;
 	}
 
 	/* Dynamic table */
-	int dynamic_index = index - HPACK_STATIC_TABLE_SIZE - 1;
+	uint64_t dynamic_index = index - HPACK_STATIC_TABLE_SIZE - 1;
 	struct hpack_dynamic_entry *entry = hpack->dynamic_table;
-	int i = 0;
+	uint64_t i = 0;
 
 	while (entry && i < dynamic_index) {
 		entry = entry->next;

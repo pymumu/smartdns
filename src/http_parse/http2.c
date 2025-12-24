@@ -339,7 +339,9 @@ static int _http2_send_frame(struct http2_ctx *ctx, const uint8_t *data, int len
 		return -1;
 	}
 
+	pthread_mutex_lock(&ctx->mutex);
 	if (ctx->status < 0) {
+		pthread_mutex_unlock(&ctx->mutex);
 		return -1;
 	}
 
@@ -356,6 +358,7 @@ static int _http2_send_frame(struct http2_ctx *ctx, const uint8_t *data, int len
 				goto buffer_new_data;
 			}
 			/* Real error */
+			pthread_mutex_unlock(&ctx->mutex);
 			return -1;
 		}
 
@@ -375,6 +378,7 @@ static int _http2_send_frame(struct http2_ctx *ctx, const uint8_t *data, int len
 		} else if (ret == 0) {
 			/* Connection closed */
 			ctx->status = HTTP2_ERR_EOF;
+			pthread_mutex_unlock(&ctx->mutex);
 			return -1;
 		}
 	}
@@ -389,12 +393,14 @@ static int _http2_send_frame(struct http2_ctx *ctx, const uint8_t *data, int len
 				goto buffer_new_data;
 			}
 			/* Real error */
+			pthread_mutex_unlock(&ctx->mutex);
 			return -1;
 		}
 
 		if (ret == 0) {
 			/* Connection closed */
 			ctx->status = HTTP2_ERR_EOF;
+			pthread_mutex_unlock(&ctx->mutex);
 			return -1;
 		}
 
@@ -402,6 +408,7 @@ static int _http2_send_frame(struct http2_ctx *ctx, const uint8_t *data, int len
 	}
 
 	ctx->want_write = 0;
+	pthread_mutex_unlock(&ctx->mutex);
 	return len;
 
 buffer_new_data:
@@ -413,17 +420,20 @@ buffer_new_data:
 		if (needed > ctx->pending_write_capacity) {
 			int new_capacity = ctx->pending_write_capacity ? safe_buffer_size(ctx->pending_write_capacity, 2) : 8192;
 			if (new_capacity < 0) {
+				pthread_mutex_unlock(&ctx->mutex);
 				return -1;
 			}
 			while (new_capacity < needed) {
 				int temp = safe_buffer_size(new_capacity, 2);
 				if (temp < 0) {
+					pthread_mutex_unlock(&ctx->mutex);
 					return -1;
 				}
 				new_capacity = temp;
 			}
 			uint8_t *new_buffer = realloc(ctx->pending_write_buffer, new_capacity);
 			if (!new_buffer) {
+				pthread_mutex_unlock(&ctx->mutex);
 				return -1;
 			}
 			ctx->pending_write_buffer = new_buffer;
@@ -436,6 +446,7 @@ buffer_new_data:
 	}
 
 	ctx->want_write = 1;
+	pthread_mutex_unlock(&ctx->mutex);
 	return len; /* Return success - data is buffered */
 }
 
@@ -660,7 +671,7 @@ static struct http2_stream *_http2_create_stream(struct http2_ctx *ctx, uint32_t
 	return stream;
 }
 
-static int _http2_remove_stream(struct http2_stream *stream)
+static int _http2_remove_stream(struct http2_stream *stream, int do_put)
 {
 	struct http2_ctx *ctx = NULL;
 	if (!stream) {
@@ -672,32 +683,33 @@ static int _http2_remove_stream(struct http2_stream *stream)
 		pthread_mutex_lock(&ctx->mutex);
 	}
 
-	if (hlist_unhashed(&stream->hash_node)) {
-		goto out;
+	/* Try to remove from hash map */
+	if (!hlist_unhashed(&stream->hash_node)) {
+		hash_del(&stream->hash_node);
 	}
-	hash_del(&stream->hash_node);
 
-	if (list_empty(&stream->node)) {
-		goto out;
+	/* Try to remove from list */
+	if (!list_empty(&stream->node)) {
+		list_del_init(&stream->node);
+		stream->ctx = NULL; /* Break link to ctx to prevent UAF if ctx dies first */
+		if (ctx) {
+			ctx->active_streams--;
+		}
+		
+		/* Only release ownership if we successfully removed it from the list.
+		   This prevents double-free if called concurrently or recursively. */
+		if (do_put) {
+			http2_stream_put(stream);
+		}
+	} else {
+		/* If already removed from list, we assume we don't own the list reference anymore */
 	}
-	list_del_init(&stream->node);
-	stream->ctx = NULL; /* Break circular reference */
-	stream->state = HTTP2_STREAM_CLOSED;
 
 	if (ctx) {
-		ctx->active_streams--;
 		pthread_mutex_unlock(&ctx->mutex);
 	}
 
-	/* release ownership held by ctx */
-	http2_stream_put(stream);
 	return 0;
-
-out:
-	if (ctx) {
-		pthread_mutex_unlock(&ctx->mutex);
-	}
-	return -1;
 }
 
 static int _http2_process_data_frame(struct http2_ctx *ctx, int stream_id, const uint8_t *data, int len, uint8_t flags)
@@ -1206,7 +1218,7 @@ void http2_ctx_put(struct http2_ctx *ctx)
 	struct http2_stream *stream, *tmp;
 	list_for_each_entry_safe(stream, tmp, &ctx->streams, node)
 	{
-		_http2_remove_stream(stream);
+		_http2_remove_stream(stream, 1);
 	}
 
 	hpack_free_context(&ctx->encoder);
@@ -1247,7 +1259,7 @@ void http2_ctx_close(struct http2_ctx *ctx)
 	struct http2_stream *stream, *tmp;
 	list_for_each_entry_safe(stream, tmp, &streams_to_free, node)
 	{
-		_http2_remove_stream(stream);
+		_http2_remove_stream(stream, 1);
 	}
 
 	/* release context reference held by caller */
@@ -1279,7 +1291,9 @@ void http2_stream_put(struct http2_stream *stream)
 		return;
 	}
 
-	_http2_remove_stream(stream);
+	if (!list_empty(&stream->node)) {
+		_http2_remove_stream(stream, 0);
+	}
 	_http2_free_headers(stream);
 	free(stream->body_buffer);
 	free(stream);
@@ -1625,7 +1639,7 @@ void http2_stream_close(struct http2_stream *stream)
 		http2_send_rst_stream(ctx, stream->stream_id, 0); /* NO_ERROR */
 		pthread_mutex_unlock(&ctx->mutex);
 
-		_http2_remove_stream(stream);
+		_http2_remove_stream(stream, 1);
 	}
 	/* Mark stream as closed */
 	stream->state = HTTP2_STREAM_CLOSED;
