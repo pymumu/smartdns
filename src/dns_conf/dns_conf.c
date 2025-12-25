@@ -264,9 +264,11 @@ static int _conf_value_handler(const char *key, const char *value)
 		return -1;
 	}
 
-	_config_plugin_conf_add(key, value);
+#ifdef BUILD_STATIC
+	return -1;
+#endif
 
-	return 0;
+	return _config_plugin_conf_add(key, value);
 }
 
 int _conf_printf(const char *key, const char *value, const char *file, int lineno, int ret)

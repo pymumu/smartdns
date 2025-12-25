@@ -676,15 +676,10 @@ struct dns_conf_plugin {
 	int args_len;
 };
 
-struct dns_conf_plugin_conf {
-	struct hlist_node node;
-	char key[MAX_KEY_LEN];
-	char value[MAX_LINE_LEN];
-};
 
 struct dns_conf_plugin_table {
 	DECLARE_HASHTABLE(plugins, 4);
-	DECLARE_HASHTABLE(plugins_conf, 4);
+	art_tree plugins_conf;
 };
 extern struct dns_conf_plugin_table dns_conf_plugin_table;
 extern char dns_conf_exist_bootstrap_dns;
