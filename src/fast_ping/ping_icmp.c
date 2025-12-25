@@ -479,34 +479,46 @@ errout:
 int _fast_ping_sockaddr_ip_cmp(struct sockaddr *first_addr, socklen_t first_addr_len, struct sockaddr *second_addr,
 							   socklen_t second_addr_len)
 {
-	if (first_addr_len != second_addr_len) {
-		return -1;
-	}
+	void *ip1, *ip2;
+	int len1, len2;
 
-	if (first_addr->sa_family != second_addr->sa_family) {
-		return -1;
-	}
-
-	switch (first_addr->sa_family) {
-	case AF_INET: {
-		struct sockaddr_in *first_addr_in = (struct sockaddr_in *)first_addr;
-		struct sockaddr_in *second_addr_in = (struct sockaddr_in *)second_addr;
-		if (memcmp(&first_addr_in->sin_addr.s_addr, &second_addr_in->sin_addr.s_addr, IPV4_ADDR_LEN) != 0) {
-			return -1;
+	if (first_addr->sa_family == AF_INET) {
+		ip1 = &((struct sockaddr_in *)first_addr)->sin_addr.s_addr;
+		len1 = IPV4_ADDR_LEN;
+	} else if (first_addr->sa_family == AF_INET6) {
+		struct in6_addr *in6 = &((struct sockaddr_in6 *)first_addr)->sin6_addr;
+		if (IN6_IS_ADDR_V4MAPPED(in6)) {
+			ip1 = in6->s6_addr + 12;
+			len1 = IPV4_ADDR_LEN;
+		} else {
+			ip1 = in6->s6_addr;
+			len1 = IPV6_ADDR_LEN;
 		}
-	} break;
-	case AF_INET6: {
-		struct sockaddr_in6 *first_addr_in6 = (struct sockaddr_in6 *)first_addr;
-		struct sockaddr_in6 *second_addr_in6 = (struct sockaddr_in6 *)second_addr;
-		if (memcmp(&first_addr_in6->sin6_addr.s6_addr, &second_addr_in6->sin6_addr.s6_addr, IPV4_ADDR_LEN) != 0) {
-			return -1;
-		}
-	} break;
-	default:
+	} else {
 		return -1;
 	}
 
-	return 0;
+	if (second_addr->sa_family == AF_INET) {
+		ip2 = &((struct sockaddr_in *)second_addr)->sin_addr.s_addr;
+		len2 = IPV4_ADDR_LEN;
+	} else if (second_addr->sa_family == AF_INET6) {
+		struct in6_addr *in6 = &((struct sockaddr_in6 *)second_addr)->sin6_addr;
+		if (IN6_IS_ADDR_V4MAPPED(in6)) {
+			ip2 = in6->s6_addr + 12;
+			len2 = IPV4_ADDR_LEN;
+		} else {
+			ip2 = in6->s6_addr;
+			len2 = IPV6_ADDR_LEN;
+		}
+	} else {
+		return -1;
+	}
+
+	if (len1 != len2) {
+		return -1;
+	}
+
+	return memcmp(ip1, ip2, len1);
 }
 
 uint16_t _fast_ping_checksum(uint16_t *header, size_t len)

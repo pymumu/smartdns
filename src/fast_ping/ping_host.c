@@ -20,6 +20,7 @@
 #include "ping_host.h"
 #include "notify_event.h"
 #include "ping_fake.h"
+#include "smartdns/util.h"
 
 #include <errno.h>
 #include <pthread.h>
@@ -29,8 +30,8 @@
 void _fast_ping_host_get(struct ping_host_struct *ping_host)
 {
 	if (atomic_inc_return(&ping_host->ref) <= 0) {
-		tlog(TLOG_ERROR, "BUG: ping host ref is invalid, host: %s", ping_host->host);
-		abort();
+
+		BUG("ping host ref is invalid, host: %s", ping_host->host);
 	}
 }
 
@@ -60,8 +61,8 @@ void _fast_ping_host_put(struct ping_host_struct *ping_host)
 	int ref_cnt = atomic_dec_and_test(&ping_host->ref);
 	if (!ref_cnt) {
 		if (ref_cnt < 0) {
-			tlog(TLOG_ERROR, "invalid refcount of ping_host %s", ping_host->host);
-			abort();
+
+			BUG("invalid refcount of ping_host %s", ping_host->host);
 		}
 		return;
 	}

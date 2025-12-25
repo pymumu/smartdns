@@ -30,6 +30,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <stdio.h>
 #include <assert.h>
 #include "smartdns/lib/art.h"
+#include "smartdns/util.h"
 
 // #ifdef __i386__
 //     #include <emmintrin.h>
@@ -76,10 +77,10 @@ static art_node* alloc_node(uint8_t type) {
             mem = (art_node*)calloc(1, sizeof(art_node256));
             break;
         default:
-            abort();
+            BUG("alloc_node: invalid type");
     }
     if (mem == NULL) {
-		abort();
+		BUG("alloc_node: calloc failed");
 	}
 	n = mem;
 	n->type = type;
@@ -156,7 +157,7 @@ static void destroy_node(art_node *n) {
             break;
 
         default:
-            abort();
+            BUG("destroy_node: invalid type");
     }
 
     // Free ourself on the way up
@@ -273,7 +274,7 @@ static art_node** find_child(art_node *n, unsigned char c) {
             break;
 
         default:
-            abort();
+            BUG("find_child: invalid type");
     }
     return NULL;
 }
@@ -373,7 +374,8 @@ static art_leaf* minimum(const art_node *n) {
             while (!((const art_node256*)n)->children[idx]) idx++;
             return minimum(((const art_node256*)n)->children[idx]);
         default:
-            abort();
+            BUG("minimum: invalid type");
+            return NULL;
     }
 }
 
@@ -401,7 +403,8 @@ static art_leaf* maximum(const art_node *n) {
             while (!((const art_node256*)n)->children[idx]) idx--;
             return maximum(((const art_node256*)n)->children[idx]);
         default:
-            abort();
+            BUG("maximum: invalid type");
+            return NULL;
     }
 }
 
@@ -623,7 +626,7 @@ static void add_child(art_node *n, art_node **ref, unsigned char c, void *child)
         case NODE256:
             return add_child256((art_node256*)n, ref, c, child);
         default:
-            abort();
+            BUG("add_child: invalid type");
     }
 }
 
@@ -877,7 +880,7 @@ static void remove_child(art_node *n, art_node **ref, unsigned char c, art_node 
         case NODE256:
             return remove_child256((art_node256*)n, ref, c);
         default:
-            abort();
+            BUG("remove_child: invalid type");
     }
 }
 
@@ -994,7 +997,7 @@ static int recursive_iter(art_node *n, art_callback cb, void *data) {
             break;
 
         default:
-            abort();
+            BUG("recursive_iter: invalid type");
     }
     return 0;
 }

@@ -30,12 +30,22 @@
 int _dns_proxy_handshake(struct dns_server_info *server_info, struct epoll_event *event, unsigned long now)
 {
 	struct epoll_event fd_event;
-	proxy_handshake_state ret = proxy_conn_handshake(server_info->proxy);
-	int fd = server_info->fd;
+	proxy_handshake_state ret;
+	int fd;
 	int retval = -1;
 	int epoll_op = EPOLL_CTL_MOD;
 
+	pthread_mutex_lock(&server_info->lock);
+	if (server_info->proxy == NULL) {
+		pthread_mutex_unlock(&server_info->lock);
+		return -1;
+	}
+
+	ret = proxy_conn_handshake(server_info->proxy);
+	fd = server_info->fd;
+
 	if (ret == PROXY_HANDSHAKE_OK) {
+		pthread_mutex_unlock(&server_info->lock);
 		return 0;
 	}
 
@@ -92,13 +102,15 @@ int _dns_proxy_handshake(struct dns_server_info *server_info, struct epoll_event
 		goto errout;
 	}
 
+	pthread_mutex_unlock(&server_info->lock);
 	return retval;
 
 errout:
-	pthread_mutex_lock(&server_info->lock);
 	server_info->recv_buff.len = 0;
 	server_info->send_buff.len = 0;
-	_dns_client_close_socket(server_info);
+	if (server_info->proxy) {
+		_dns_client_close_socket(server_info);
+	}
 	pthread_mutex_unlock(&server_info->lock);
 	return -1;
 }

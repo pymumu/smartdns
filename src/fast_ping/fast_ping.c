@@ -235,6 +235,10 @@ struct ping_host_struct *fast_ping_start(PING_TYPE type, const char *host, int c
 		goto errout;
 	}
 
+	if (timeout <= 0) {
+		timeout = 100;
+	}
+
 	ret = _fast_ping_get_addr_by_type(type, ip_str, port, &gai, &ping_type);
 	if (ret != 0) {
 		goto errout;
@@ -375,8 +379,8 @@ static int _fast_ping_process(struct ping_host_struct *ping_host, struct epoll_e
 		ret = _fast_ping_process_udp(ping_host, now);
 		break;
 	default:
-		tlog(TLOG_ERROR, "BUG: type error : %p, %d, %s, %d", ping_host, ping_host->sid, ping_host->host, ping_host->fd);
-		abort();
+
+		BUG("type error : %p, %d, %s, %d", ping_host, ping_host->sid, ping_host->host, ping_host->fd);
 		break;
 	}
 
@@ -512,7 +516,7 @@ static void *_fast_ping_work(void *arg)
 		for (i = 0; i < num; i++) {
 			struct epoll_event *event = &events[i];
 			/* read event */
-			if (event->data.fd == ping.event_fd) {
+			if (event->data.ptr == NULL) {
 				uint64_t value;
 				int unused __attribute__((unused));
 				unused = read(ping.event_fd, &value, sizeof(uint64_t));

@@ -35,8 +35,8 @@ void _fast_ping_fake_put(struct fast_ping_fake_ip *fake)
 	int ref_cnt = atomic_dec_and_test(&fake->ref);
 	if (!ref_cnt) {
 		if (ref_cnt < 0) {
-			tlog(TLOG_ERROR, "invalid refcount of fake ping %s", fake->host);
-			abort();
+
+			BUG("invalid refcount of fake ping %s", fake->host);
 		}
 		return;
 	}

@@ -232,6 +232,10 @@ int _dns_server_check_speed(struct dns_request *request, char *ip)
 		break;
 	}
 
+	if (ping_timeout < 200) {
+		ping_timeout = 200;
+	}
+
 	port = request->check_order_list->orders[order].tcp_port;
 	type = request->check_order_list->orders[order].type;
 	switch (type) {

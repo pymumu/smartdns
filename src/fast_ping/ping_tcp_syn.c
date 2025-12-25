@@ -682,7 +682,7 @@ int _fast_ping_process_tcp_syn(struct ping_host_struct *ping_host, struct timeva
 		}
 
 		/* Check if SYN-ACK or RST */
-		if (!((tcp->syn && tcp->ack) || tcp->rst)) {
+		if (!((tcp->syn && tcp->ack) || (tcp->rst && tcp->ack))) {
 			continue;
 		}
 
@@ -869,6 +869,9 @@ static int _fast_ping_create_tcp_syn_sock(int is_ipv6)
 		tcp_syn_host = &ping.tcp_syn6_host;
 	}
 
+	tcp_syn_host->fd = fd;
+	tcp_syn_host->type = FAST_PING_TCP_SYN;
+
 	/* Add to epoll */
 	memset(&event, 0, sizeof(event));
 	event.events = EPOLLIN;
@@ -877,9 +880,6 @@ static int _fast_ping_create_tcp_syn_sock(int is_ipv6)
 		tlog(TLOG_ERROR, "add TCP SYN socket to epoll failed, %s", strerror(errno));
 		goto errout;
 	}
-
-	tcp_syn_host->fd = fd;
-	tcp_syn_host->type = FAST_PING_TCP_SYN;
 
 	return fd;
 

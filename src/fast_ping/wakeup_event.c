@@ -43,7 +43,7 @@ int _fast_ping_init_wakeup_event(void)
 	struct epoll_event event;
 	memset(&event, 0, sizeof(event));
 	event.events = EPOLLIN | EPOLLERR;
-	event.data.fd = fdevent;
+	event.data.ptr = NULL;
 	if (epoll_ctl(ping.epoll_fd, EPOLL_CTL_ADD, fdevent, &event) != 0) {
 		tlog(TLOG_ERROR, "set eventfd failed, %s\n", strerror(errno));
 		goto errout;
