@@ -1530,7 +1530,7 @@ static void _http2_ctx_collect_ready_streams(struct http2_ctx *ctx, struct http2
 
 		if (readable || (check_writable && writable)) {
 			if (*count < max_items) {
-				items[*count].stream = stream;
+				items[*count].stream = http2_stream_get(stream);
 				items[*count].readable = readable;
 				items[*count].writable = writable;
 				(*count)++;
@@ -1632,6 +1632,7 @@ void http2_stream_close(struct http2_stream *stream)
 		return;
 	}
 
+	http2_stream_get(stream); /* Ensure stream survives during close */
 	struct http2_ctx *ctx = stream->ctx;
 	if (ctx) {
 		pthread_mutex_lock(&ctx->mutex);
@@ -1644,6 +1645,7 @@ void http2_stream_close(struct http2_stream *stream)
 	/* Mark stream as closed */
 	stream->state = HTTP2_STREAM_CLOSED;
 
+	http2_stream_put(stream);
 	http2_stream_put(stream);
 }
 

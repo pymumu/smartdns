@@ -244,6 +244,9 @@ int _dns_server_process_http2(struct dns_server_conn_tls_client *tls_client, str
 			if (ret < 0) {
 				break;
 			}
+			if (poll_count > 0 && poll_items[0].stream) {
+				http2_stream_put(poll_items[0].stream);
+			}
 		}
 	}
 
@@ -304,6 +307,10 @@ int _dns_server_process_http2(struct dns_server_conn_tls_client *tls_client, str
 
 				if (poll_items[i].stream && poll_items[i].readable) {
 					_dns_server_http2_process_stream(tls_client, poll_items[i].stream);
+				}
+				
+				if (poll_items[i].stream) {
+					http2_stream_put(poll_items[i].stream); /* Release poll reference */
 				}
 			}
 		}
