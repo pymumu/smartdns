@@ -380,6 +380,11 @@ static int _proxy_handshake_socks5_create_udp_fd(struct proxy_conn *proxy_conn)
 	freeaddrinfo(gai);
 	return udp_fd;
 errout:
+
+	if (udp_fd >= 0) {
+		close(udp_fd);
+	}
+
 	if (gai) {
 		freeaddrinfo(gai);
 	}
@@ -514,6 +519,14 @@ static proxy_handshake_state _proxy_handshake_socks5(struct proxy_conn *proxy_co
 	static time_t last_error_log_time = 0;
 
 	memset(buff, 0, sizeof(buff));
+
+	if (proxy_conn == NULL) {
+		return PROXY_HANDSHAKE_ERR;
+	}
+
+	if (proxy_conn->fd < 0) {
+		return PROXY_HANDSHAKE_ERR;
+	}
 
 	switch (proxy_conn->state) {
 	case PROXY_CONN_INIT: {
@@ -772,6 +785,14 @@ static int _proxy_handshake_http(struct proxy_conn *proxy_conn)
 	char buff[4096];
 	struct http_head *http_head = NULL;
 
+	if (proxy_conn == NULL) {
+		return PROXY_HANDSHAKE_ERR;
+	}
+
+	if (proxy_conn->fd < 0) {
+		return PROXY_HANDSHAKE_ERR;
+	}
+
 	switch (proxy_conn->state) {
 	case PROXY_CONN_INIT: {
 		char connecthost[DNS_MAX_CNAME_LEN * 2];
@@ -916,6 +937,11 @@ static int _proxy_is_tcp_connected(struct proxy_conn *proxy_conn)
 {
 	char buff[1];
 	int ret = 0;
+
+	if (proxy_conn == NULL) {
+		return 0;
+	}
+
 	ret = recv(proxy_conn->fd, buff, 1, MSG_PEEK | MSG_DONTWAIT);
 	if (ret < 0) {
 		if (errno == EAGAIN || errno == EWOULDBLOCK) {
@@ -933,6 +959,10 @@ int proxy_conn_sendto(struct proxy_conn *proxy_conn, const void *buf, size_t len
 	int ret = 0;
 
 	if (proxy_conn == NULL) {
+		return -1;
+	}
+
+	if (proxy_conn->udp_fd < 0) {
 		return -1;
 	}
 
@@ -988,6 +1018,10 @@ int proxy_conn_recvfrom(struct proxy_conn *proxy_conn, void *buf, size_t len, in
 	int ret = 0;
 
 	if (proxy_conn == NULL) {
+		return -1;
+	}
+
+	if (proxy_conn->udp_fd < 0) {
 		return -1;
 	}
 

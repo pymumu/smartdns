@@ -403,11 +403,6 @@ int _dns_client_create_socket_tls(struct dns_server_info *server_info, const cha
 		goto errout;
 	}
 
-	if (fd < 0) {
-		tlog(TLOG_ERROR, "create socket failed, %s", strerror(errno));
-		goto errout;
-	}
-
 	if (set_fd_nonblock(fd, 1) != 0) {
 		tlog(TLOG_ERROR, "set socket non block failed, %s", strerror(errno));
 		goto errout;

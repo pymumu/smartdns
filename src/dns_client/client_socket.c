@@ -88,10 +88,8 @@ int _dns_client_create_socket(struct dns_server_info *server_info)
 void _dns_client_close_socket_ext(struct dns_server_info *server_info, int no_del_conn_list)
 {
 	dns_server_status server_status = DNS_SERVER_STATUS_DISCONNECTED;
-	int saved_fd;
 
 	pthread_mutex_lock(&server_info->lock);
-	saved_fd = server_info->fd;
 	server_status = server_info->status;
 	server_info->status = DNS_SERVER_STATUS_DISCONNECTED;
 
@@ -163,17 +161,11 @@ void _dns_client_close_socket_ext(struct dns_server_info *server_info, int no_de
 	if (server_info->proxy) {
 		proxy_conn_free(server_info->proxy);
 		server_info->proxy = NULL;
+	} else if (server_info->fd > 0) {
+		close(server_info->fd);
 	}
-
-	/* Close fd and remove from epoll */
-	if (saved_fd > 0) {
-		if (server_info->proxy == NULL) {
-			close(saved_fd);
-		}
-		server_info->fd = -1;
-		epoll_ctl(client.epoll_fd, EPOLL_CTL_DEL, saved_fd, NULL);
-		tlog(TLOG_DEBUG, "server %s:%d closed.", server_info->ip, server_info->port);
-	}
+	server_info->fd = -1;
+	tlog(TLOG_DEBUG, "server %s:%d closed.", server_info->ip, server_info->port);
 
 	/* update send recv time */
 	time(&server_info->last_send);
