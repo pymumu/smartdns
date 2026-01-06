@@ -209,8 +209,6 @@ static int _config_domain_rule_iter_copy(void *data, const unsigned char *key, u
 			new_domain_rule->rules[i] = old_domain_rule->rules[i];
 		}
 	}
-	new_domain_rule->sub_rule_only = old_domain_rule->sub_rule_only;
-	new_domain_rule->root_rule_only = old_domain_rule->root_rule_only;
 
 	old_domain_rule = art_insert(dest_tree, key, key_len, new_domain_rule);
 	if (old_domain_rule) {

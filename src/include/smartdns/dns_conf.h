@@ -189,6 +189,8 @@ enum response_mode_type {
 struct dns_rule {
 	atomic_t refcnt;
 	enum domain_rule rule;
+	unsigned char sub_only : 1;
+	unsigned char root_only : 1;
 };
 
 struct dns_rule_flags {
@@ -268,10 +270,8 @@ extern struct dns_nftset_names dns_conf_nftset_no_speed;
 extern struct dns_nftset_names dns_conf_nftset;
 
 struct dns_domain_rule {
-	unsigned char sub_rule_only : 1;
-	unsigned char root_rule_only : 1;
-	unsigned char capacity : 6; /* Current allocated capacity (max 63) */
-	struct dns_rule *rules[];   /* Flexible array member */
+	unsigned char capacity;   /* Current allocated capacity (max 255) */
+	struct dns_rule *rules[]; /* Flexible array member */
 };
 
 struct dns_nameserver_rule {
@@ -675,7 +675,6 @@ struct dns_conf_plugin {
 	int argc;
 	int args_len;
 };
-
 
 struct dns_conf_plugin_table {
 	DECLARE_HASHTABLE(plugins, 4);

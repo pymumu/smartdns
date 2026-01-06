@@ -17,9 +17,9 @@
  */
 
 #include "client.h"
-#include "smartdns/dns.h"
 #include "include/utils.h"
 #include "server.h"
+#include "smartdns/dns.h"
 #include "smartdns/util.h"
 #include "gtest/gtest.h"
 #include <fstream>
@@ -353,4 +353,46 @@ address
 	std::cout << client.GetResult() << std::endl;
 	ASSERT_EQ(client.GetAnswerNum(), 0);
 	EXPECT_EQ(client.GetStatus(), "NOERROR");
+}
+
+TEST_F(Rule, root_and_sub)
+{
+	smartdns::Server server;
+	smartdns::MockServer server_upstream;
+
+	server_upstream.Start("udp://0.0.0.0:61053", [&](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype == DNS_T_A) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "9.9.9.9", 700);
+			return smartdns::SERVER_REQUEST_OK;
+		}
+		return smartdns::SERVER_REQUEST_SOA;
+	});
+
+	server.Start(R"""(bind [::]:60053
+server 127.0.0.1:61053
+log-level debug
+speed-check-mode none
+address /q.a.com/1.2.3.4
+address /-.a.com/4.5.6.7
+address /*.a.com/7.8.9.10
+)""");
+	smartdns::Client client;
+
+	// 1. q.a.com should be 1.2.3.4
+	ASSERT_TRUE(client.Query("q.a.com A", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+
+	// 2. a.com should be 4.5.6.7 (matching -.a.com)
+	ASSERT_TRUE(client.Query("a.com A", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "4.5.6.7");
+
+	// 3. other.a.com should be 7.8.9.10 (matching *.a.com)
+	ASSERT_TRUE(client.Query("other.a.com A", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "7.8.9.10");
 }

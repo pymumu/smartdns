@@ -287,8 +287,18 @@ static int _config_setup_domain_key(const char *domain, char *domain_key, int do
 		}
 	}
 
+	/* add dot to the front when sub rule only */
 	domain_key[0] = '.';
-	domain_key[len + 1] = '\0';
+	if (tmp_sub_rule_only == 1 && tmp_root_rule_only == 0) {
+		domain_key[len + 1] = '\0';
+	} else if (tmp_root_rule_only == 1 && tmp_sub_rule_only == 0) {
+		if (domain_key[len] == '.') {
+			len--;
+		}
+		domain_key[len + 1] = '\0';
+	} else {
+		domain_key[len + 1] = '\0';
+	}
 
 	*domain_key_len = len + 1;
 	if (root_rule_only) {
@@ -422,10 +432,9 @@ int _config_domain_rule_flag_set(const char *domain, unsigned int flag, unsigned
 		domain_rule->rules[DOMAIN_RULE_FLAGS] = (struct dns_rule *)rule_flags;
 	}
 
-	domain_rule->sub_rule_only = sub_rule_only;
-	domain_rule->root_rule_only = root_rule_only;
-
 	rule_flags = (struct dns_rule_flags *)domain_rule->rules[DOMAIN_RULE_FLAGS];
+	rule_flags->head.sub_only = sub_rule_only;
+	rule_flags->head.root_only = root_rule_only;
 	if (is_clear == false) {
 		rule_flags->flags |= flag;
 	} else {
@@ -552,8 +561,8 @@ int _config_domain_rule_add(const char *domain, enum domain_rule type, void *rul
 	}
 
 	domain_rule->rules[type] = rule;
-	domain_rule->sub_rule_only = sub_rule_only;
-	domain_rule->root_rule_only = root_rule_only;
+	((struct dns_rule *)rule)->sub_only = sub_rule_only;
+	((struct dns_rule *)rule)->root_only = root_rule_only;
 	_dns_rule_get(rule);
 
 	/* update domain rule - only for new allocations */

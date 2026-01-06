@@ -90,6 +90,7 @@ typedef enum DNS_CHILD_POST_RESULT {
 struct rule_walk_args {
 	void *args;
 	int rule_index;
+	uint32_t full_key_len;
 	unsigned char *key[DOMAIN_RULE_MAX];
 	uint32_t key_len[DOMAIN_RULE_MAX];
 };

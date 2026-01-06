@@ -112,16 +112,12 @@ static int _dns_server_get_rules(unsigned char *key, uint32_t key_len, int is_su
 		return 0;
 	}
 
-	if (domain_rule->sub_rule_only != domain_rule->root_rule_only) {
-		/* only subkey rule */
-		if (domain_rule->sub_rule_only == 1 && is_subkey == 0) {
-			return 0;
-		}
-
-		/* only root key rule */
-		if (domain_rule->root_rule_only == 1 && is_subkey == 1) {
-			return 0;
-		}
+	/* sub rule flag check */
+	int is_effective_sub = 1;
+	if (key_len == walk_args->full_key_len) {
+		is_effective_sub = 0;
+	} else if (key_len == walk_args->full_key_len - 1 && walk_args->full_key_len > 0) {
+		is_effective_sub = 0;
 	}
 
 	if (walk_args->rule_index >= 0) {
@@ -139,7 +135,24 @@ static int _dns_server_get_rules(unsigned char *key, uint32_t key_len, int is_su
 		}
 
 		if (i == DOMAIN_RULE_FLAGS) {
+			struct dns_rule_flags *rule_flags = (struct dns_rule_flags *)domain_rule->rules[i];
+			if (rule_flags->head.sub_only == 1 && is_effective_sub == 0) {
+				continue;
+			}
+
+			if (rule_flags->head.root_only == 1 && is_effective_sub == 1) {
+				continue;
+			}
+
 			request_domain_rule->flags |= ((struct dns_rule_flags *)domain_rule->rules[i])->flags;
+		}
+
+		if (domain_rule->rules[i]->sub_only == 1 && is_effective_sub == 0) {
+			continue;
+		}
+
+		if (domain_rule->rules[i]->root_only == 1 && is_effective_sub == 1) {
+			continue;
 		}
 
 		request_domain_rule->rules[i] = domain_rule->rules[i];
@@ -183,6 +196,7 @@ void _dns_server_get_domain_rule_by_domain_ext(struct dns_conf_group *conf,
 	domain_key[0] = '.';
 	domain_len += 2;
 	domain_key[domain_len] = 0;
+	walk_args.full_key_len = domain_len;
 
 	/* find domain rule */
 	art_substring_walk(&conf->domain_rule.tree, (unsigned char *)domain_key, domain_len, _dns_server_get_rules,
