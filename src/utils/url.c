@@ -139,7 +139,17 @@ int parse_uri_ext(const char *value, char *scheme, char *user, char *password, c
 	process_ptr += field_len;
 
 	if (path) {
-		strcpy(path, process_ptr);
+		/* Copy the remaining path portion of the URI
+		 * IMPORTANT: Callers must provide a buffer of at least PATH_MAX size for the path parameter.
+		 * This is not enforced by the function signature for backward compatibility.
+		 * We validate the length to prevent buffer overflow.
+		 */
+		size_t remaining_len = strlen(process_ptr);
+		if (remaining_len >= PATH_MAX) {
+			return -1;
+		}
+		memcpy(path, process_ptr, remaining_len);
+		path[remaining_len] = '\0';
 	}
 	return 0;
 }
