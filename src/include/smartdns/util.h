@@ -171,6 +171,8 @@ int has_network_raw_cap(void);
 
 int has_unprivileged_ping(void);
 
+int has_network_admin_cap(void);
+
 int set_sock_keepalive(int fd, int keepidle, int keepinterval, int keepcnt);
 
 int set_sock_lingertime(int fd, int time);
@@ -215,7 +217,11 @@ static inline void *zalloc(size_t count, size_t size)
 
 int encode_alpn_protos(const char *alpn, uint8_t *alpn_data, int alpn_data_max);
 
+int check_is_valid_config_name(const char *name);
+
 int check_tool(const char *tool);
+
+
 
 const char *detect_firewall_type(void);
 

@@ -2295,6 +2295,7 @@ static int _proxy_server_create_tproxy_sockets(void)
 {
 	struct dns_tproxy_server_conf *t_conf = NULL;
 	size_t i;
+
 	hash_for_each(dns_proxy_table.tproxy, i, t_conf, node)
 	{
 		// Skip if no_server is set
@@ -2502,7 +2503,15 @@ int proxy_server_init(void)
 		return 0;
 	}
 
-	// 设置防火墙规则
+	if (dns_conf_tproxy_server_num() > 0) {
+		if (has_network_admin_cap() == 0) {
+			tlog(TLOG_ERROR, "TPROXY requires CAP_NET_ADMIN capability, proxy server start failed.");
+			tlog(TLOG_ERROR, "Please run as root or use 'setcap cap_net_admin+ep <path_to_smartdns>' to grant the capability.");
+			return -1;
+		}
+	}
+
+	// Set firewall rules
 	if (_proxy_server_setup_firewall_rules() != 0) {
 		tlog(TLOG_ERROR, "setup firewall rules failed.");
 		return -1;

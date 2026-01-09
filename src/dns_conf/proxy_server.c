@@ -37,6 +37,8 @@ static enum firewall_type _detect_firewall_type_enum(void)
 	return FIREWALL_NONE;
 }
 
+
+
 static int _config_proxy_detect_speed_check(const char *proxy_name)
 {
 	struct dns_proxy_servers *server;
@@ -289,6 +291,11 @@ int _config_tproxy_server(void *data, int argc, char *argv[])
 		goto errout;
 	}
 
+	if (check_is_valid_config_name(conf->name) == 0) {
+		tlog(TLOG_ERROR, "tproxy-server name %s is invalid, only support [a-zA-Z0-9_-]", conf->name);
+		goto errout;
+	}
+
 	if (firewall_type[0] == '\0') {
 		safe_strncpy(firewall_type, "auto", sizeof(firewall_type));
 	}
@@ -432,6 +439,11 @@ int _config_sniproxy_server(void *data, int argc, char *argv[])
 
 	if (conf->name[0] == '\0') {
 		tlog(TLOG_ERROR, "please set sni-proxy-server name");
+		goto errout;
+	}
+
+	if (check_is_valid_config_name(conf->name) == 0) {
+		tlog(TLOG_ERROR, "sni-proxy-server name %s is invalid, only support [a-zA-Z0-9_-]", conf->name);
 		goto errout;
 	}
 

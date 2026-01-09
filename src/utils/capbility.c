@@ -112,3 +112,31 @@ int drop_root_privilege(void)
 	prctl(PR_SET_KEEPCAPS, 0, 0, 0, 0);
 	return 0;
 }
+
+int has_network_admin_cap(void)
+{
+	struct __user_cap_data_struct cap[2];
+	struct __user_cap_header_struct header;
+
+#ifdef _LINUX_CAPABILITY_VERSION_3
+	header.version = _LINUX_CAPABILITY_VERSION_3;
+#else
+	header.version = _LINUX_CAPABILITY_VERSION;
+#endif
+	header.pid = 0;
+
+	memset(cap, 0, sizeof(cap));
+	if (capget(&header, cap) < 0) {
+		return 0;
+	}
+
+	if ((cap[0].effective & (1 << CAP_NET_ADMIN)) == (1 << CAP_NET_ADMIN)) {
+		return 1;
+	}
+
+	if (geteuid() == 0) {
+		return 1;
+	}
+
+	return 0;
+}

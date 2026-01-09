@@ -294,6 +294,23 @@ int decode_hex(int ch)
 	}
 }
 
+int check_is_valid_config_name(const char *name)
+{
+	const char *p = name;
+	if (name == NULL || *name == '\0') {
+		return 0;
+	}
+
+	while (*p) {
+		if (!((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') || (*p >= '0' && *p <= '9') || *p == '_' ||
+			  *p == '-')) {
+			return 0;
+		}
+		p++;
+	}
+	return 1;
+}
+
 int check_tool(const char *tool)
 {
 	const char *check_path[] = {"/usr/sbin", "/sbin", "/bin", "/usr/bin", "/usr/local/sbin", "/usr/local/bin", NULL};
