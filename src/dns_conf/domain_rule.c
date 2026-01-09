@@ -21,6 +21,7 @@
 #include "cname.h"
 #include "dns_conf_group.h"
 #include "https_record.h"
+#include "ip_proxy.h"
 #include "ipset.h"
 #include "nameserver.h"
 #include "nftset.h"
@@ -903,48 +904,9 @@ int _conf_domain_rule_tproxy(const char *domain, const char *proxy_name)
 }
 
 
-int _config_tproxy(void *data, int argc, char *argv[])
-{
-	char *value = argv[1];
-	char domain[DNS_MAX_CONF_CNAME_LEN];
-
-	if (argc <= 1) {
-		goto errout;
-	}
-
-	if (_get_domain(value, domain, DNS_MAX_CONF_CNAME_LEN, &value) != 0) {
-		goto errout;
-	}
-
-	return _conf_domain_rule_tproxy(domain, value);
-errout:
-	tlog(TLOG_ERROR, "add tproxy %s:%s failed", domain, value);
-	return 0;
-}
-
 int _conf_domain_rule_sniproxy(const char *domain, const char *proxy_name)
 {
 	return _conf_domain_rule_proxy(domain, proxy_name, PROXY_TYPE_SNI_PROXY);
-}
-
-
-int _config_sni_proxy(void *data, int argc, char *argv[])
-{
-	char *value = argv[1];
-	char domain[DNS_MAX_CONF_CNAME_LEN];
-
-	if (argc <= 1) {
-		goto errout;
-	}
-
-	if (_get_domain(value, domain, DNS_MAX_CONF_CNAME_LEN, &value) != 0) {
-		goto errout;
-	}
-
-	return _conf_domain_rule_sniproxy(domain, value);
-errout:
-	tlog(TLOG_ERROR, "add sni-proxy %s:%s failed", domain, value);
-	return 0;
 }
 
 

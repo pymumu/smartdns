@@ -627,6 +627,34 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 		}
 	}
 
+	/* check IP rule tproxy */
+	if (request->ip_rules != NULL && request->ip_rules->rules[IP_RULE_PROXY] != NULL) {
+		struct ip_rule_proxy *rule_proxy =
+			container_of(request->ip_rules->rules[IP_RULE_PROXY], struct ip_rule_proxy, head);
+		if (rule_proxy->proxy_type == PROXY_TYPE_TPROXY) {
+			// Get firewall sets for this IP rule proxy
+			if (tproxy_server_get_firewall_sets(rule_proxy->proxy_name, &firewall_sets) == 0) {
+				// Set up ipset rules
+				if (firewall_sets.ipset_ipv4 != NULL) {
+					ipset_rule_v4 = firewall_sets.ipset_ipv4;
+				}
+
+				if (firewall_sets.ipset_ipv6 != NULL) {
+					ipset_rule_v6 = firewall_sets.ipset_ipv6;
+				}
+
+				// Set up nftset rules
+				if (firewall_sets.nftset_ipv4 != NULL) {
+					nftset_ip = firewall_sets.nftset_ipv4;
+				}
+
+				if (firewall_sets.nftset_ipv6 != NULL) {
+					nftset_ip6 = firewall_sets.nftset_ipv6;
+				}
+			}
+		}
+	}
+
 	if (!(ipset_rule || ipset_rule_v4 || ipset_rule_v6 || nftset_ip || nftset_ip6)) {
 		return 0;
 	}

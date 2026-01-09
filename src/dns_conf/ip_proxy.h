@@ -16,8 +16,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef _DNS_CONF_IP_RULE_H_
-#define _DNS_CONF_IP_RULE_H_
+#ifndef _DNS_CONF_IP_PROXY_H_
+#define _DNS_CONF_IP_PROXY_H_
 
 #include "dns_conf.h"
 #include "set_file.h"
@@ -26,24 +26,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif /*__cplusplus */
-
-void _config_ip_iter_free(radix_node_t *node, void *cbctx);
-
-int _config_ip_rule_flag_set(const char *ip_cidr, unsigned int flag, unsigned int is_clear);
-int _config_ip_rule_set_each(const char *ip_set, set_rule_add_func callback, void *priv);
-
-int _config_blacklist_ip(void *data, int argc, char *argv[]);
-int _config_bogus_nxdomain(void *data, int argc, char *argv[]);
-int _config_ip_ignore(void *data, int argc, char *argv[]);
-int _config_whitelist_ip(void *data, int argc, char *argv[]);
-int _config_ip_rules(void *data, int argc, char *argv[]);
-
-int _config_ip_rule_alias_add_ip(const char *ip, struct ip_rule_alias *ip_alias);
-int _config_ip_rule_add(const char *ip_cidr, enum ip_rule type, void *rule);
-
-void *_new_dns_ip_rule(enum ip_rule ip_rule);
-void _dns_ip_rule_get(struct dns_ip_rule *rule);
-void _dns_ip_rule_put(struct dns_ip_rule *rule);
 
 int _conf_ip_proxy(const char *ip_cidr, const char *proxy_name, enum proxy_type proxy_type);
 

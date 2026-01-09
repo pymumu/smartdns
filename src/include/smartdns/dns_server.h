@@ -115,6 +115,10 @@ int dns_server_get_server_name(char *name, int name_len);
 
 void dns_server_enable_update_neighbor_cache(int enable);
 
+int _dns_server_set_sniproxy_local_ip(struct dns_request *request);
+
+int _dns_server_reply_sniproxy_local_ip(struct dns_request *request);
+
 #ifdef __cplusplus
 }
 #endif

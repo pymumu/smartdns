@@ -87,6 +87,8 @@ int _config_ip_rules(void *data, int argc, char *argv[])
 		{"bogus-nxdomain", no_argument, NULL, 'n'},
 		{"ignore-ip", no_argument, NULL, 'i'},
 		{"ip-alias", required_argument, NULL, 'a'},
+		{"tproxy", required_argument, NULL, 259},
+		{"sni-proxy", required_argument, NULL, 260},
 		{NULL, no_argument, NULL, 0}
 	};
 	/* clang-format on */
@@ -134,6 +136,30 @@ int _config_ip_rules(void *data, int argc, char *argv[])
 			if (_conf_ip_alias(ip_cidr, optarg) != 0) {
 				goto errout;
 			}
+			break;
+		}
+		case 259: {
+			const char *proxy_name = optarg;
+			if (proxy_name == NULL) {
+				goto errout;
+			}
+
+			if (_conf_ip_proxy(ip_cidr, proxy_name, PROXY_TYPE_TPROXY) != 0) {
+				goto errout;
+			}
+
+			break;
+		}
+		case 260: {
+			const char *proxy_name = optarg;
+			if (proxy_name == NULL) {
+				goto errout;
+			}
+
+			if (_conf_ip_proxy(ip_cidr, proxy_name, PROXY_TYPE_SNI_PROXY) != 0) {
+				goto errout;
+			}
+
 			break;
 		}
 		default:
@@ -342,6 +368,9 @@ static void *_new_dns_ip_rule_ext(enum ip_rule ip_rule, int ext_size)
 		break;
 	case IP_RULE_ALIAS:
 		size = sizeof(struct ip_rule_alias);
+		break;
+	case IP_RULE_PROXY:
+		size = sizeof(struct ip_rule_proxy);
 		break;
 	default:
 		return NULL;

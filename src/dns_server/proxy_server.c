@@ -62,9 +62,6 @@ static int _dns_server_update_proxy_request_rules(struct dns_request *request, s
 
 int _dns_server_process_proxyserver(struct dns_request *request)
 {
-	struct sockaddr_in *addr_in = NULL;
-	struct sockaddr_in6 *addr_in6 = NULL;
-	struct sockaddr_storage *localaddr;
 	struct dns_server_conn_head *conn = NULL;
 	struct dns_proxy_rule *proxy_rule = NULL;
 
@@ -76,8 +73,6 @@ int _dns_server_process_proxyserver(struct dns_request *request)
 	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_RULE_SNIPROXY) == 0) {
 		goto errout;
 	}
-
-	localaddr = &request->localaddr;
 
 	proxy_rule = (struct dns_proxy_rule *)_dns_server_get_dns_rule(request, DOMAIN_RULE_PROXY);
 	if (proxy_rule == NULL) {
@@ -97,36 +92,10 @@ int _dns_server_process_proxyserver(struct dns_request *request)
 	}
 
 	/* address /domain/ rule */
-	switch (request->qtype) {
-	case DNS_T_A:
-		if (localaddr->ss_family != AF_INET) {
-			_dns_server_reply_SOA(DNS_RC_NOERROR, request);
-			return 0;
-		}
-		addr_in = (struct sockaddr_in *)localaddr;
-		memcpy(request->ip_addr, &addr_in->sin_addr.s_addr, DNS_RR_A_LEN);
-		break;
-	case DNS_T_AAAA:
-		if (localaddr->ss_family != AF_INET6) {
-			_dns_server_reply_SOA(DNS_RC_NOERROR, request);
-			return 0;
-		}
-		addr_in6 = (struct sockaddr_in6 *)localaddr;
-		memcpy(request->ip_addr, &addr_in6->sin6_addr.s6_addr, DNS_RR_AAAA_LEN);
-		break;
-	default:
-		goto errout;
-		break;
+	if (_dns_server_reply_sniproxy_local_ip(request) != 0) {
+		_dns_server_reply_SOA(DNS_RC_NOERROR, request);
+		return 0;
 	}
-
-	request->ip_ttl = 600;
-	request->has_ip = 1;
-
-	request->rcode = DNS_RC_NOERROR;
-	struct dns_server_post_context context;
-	_dns_server_post_context_init(&context, request);
-	context.do_reply = 1;
-	_dns_request_post(&context);
 
 	return 0;
 errout:
@@ -169,4 +138,52 @@ const char *_dns_server_get_proxy_server_groupname(struct dns_request *request)
 	}
 
 	return group_name;
+}
+
+int _dns_server_set_sniproxy_local_ip(struct dns_request *request)
+{
+	struct sockaddr_storage *localaddr = &request->localaddr;
+	struct sockaddr_in *addr_in = NULL;
+	struct sockaddr_in6 *addr_in6 = NULL;
+
+	/* address /domain/ rule */
+	switch (request->qtype) {
+	case DNS_T_A:
+		if (localaddr->ss_family != AF_INET) {
+			return -1;
+		}
+		addr_in = (struct sockaddr_in *)localaddr;
+		memcpy(request->ip_addr, &addr_in->sin_addr.s_addr, DNS_RR_A_LEN);
+		break;
+	case DNS_T_AAAA:
+		if (localaddr->ss_family != AF_INET6) {
+			return -1;
+		}
+		addr_in6 = (struct sockaddr_in6 *)localaddr;
+		memcpy(request->ip_addr, &addr_in6->sin6_addr.s6_addr, DNS_RR_AAAA_LEN);
+		break;
+	default:
+		return -1;
+		break;
+	}
+
+	request->ip_ttl = 600;
+	request->has_ip = 1;
+	request->rcode = DNS_RC_NOERROR;
+
+	return 0;
+}
+
+int _dns_server_reply_sniproxy_local_ip(struct dns_request *request)
+{
+	if (_dns_server_set_sniproxy_local_ip(request) != 0) {
+		return -1;
+	}
+
+	struct dns_server_post_context context;
+	_dns_server_post_context_init(&context, request);
+	context.do_reply = 1;
+	_dns_request_post(&context);
+
+	return 0;
 }

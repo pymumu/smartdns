@@ -387,6 +387,8 @@ struct dns_request {
 	const struct dns_domain_check_orders *check_order_list;
 	int check_order;
 
+	struct dns_ip_rules *ip_rules;
+
 	enum response_mode_type response_mode;
 
 	struct dns_request_pending_list *request_pending_list;

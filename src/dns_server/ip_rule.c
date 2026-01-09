@@ -21,6 +21,10 @@
 #include "neighbor.h"
 #include "rules.h"
 #include "soa.h"
+#include "ipset_nftset.h"
+#include "smartdns/proxy_server.h"
+#include "context.h"
+#include "rules.h"
 
 struct dns_client_rules *_dns_server_get_client_rules(struct sockaddr_storage *addr, socklen_t addr_len)
 {
@@ -93,9 +97,10 @@ static struct dns_ip_rules *_dns_server_ip_rule_get(struct dns_request *request,
 	return rule;
 }
 
-static int _dns_server_ip_rule_check(struct dns_request *request, struct dns_ip_rules *ip_rules, int result_flag)
+static int _dns_server_ip_rule_check(struct dns_request *request, struct dns_ip_rules *ip_rules, int result_flag, int addr_len)
 {
 	struct ip_rule_flags *rule_flags = NULL;
+	struct ip_rule_proxy *rule_proxy = NULL;
 	if (ip_rules == NULL) {
 		goto rule_not_found;
 	}
@@ -126,6 +131,24 @@ static int _dns_server_ip_rule_check(struct dns_request *request, struct dns_ip_
 					goto rule_not_found;
 				}
 				goto skip;
+			}
+		}
+	}
+
+	request->ip_rules = ip_rules;
+	/* check proxy rule */
+	if (ip_rules->rules[IP_RULE_PROXY] != NULL) {
+		rule_proxy = container_of(ip_rules->rules[IP_RULE_PROXY], struct ip_rule_proxy, head);
+		if (rule_proxy != NULL) {
+			if (rule_proxy->proxy_type == PROXY_TYPE_TPROXY) {
+				/* For tproxy, set proxy info for later processing in _dns_server_setup_ipset_nftset_packet */
+				goto match;
+			} else if (rule_proxy->proxy_type == PROXY_TYPE_SNI_PROXY) {
+				/* For sni-proxy, return the local interface IP address */
+				if (_dns_server_reply_sniproxy_local_ip(request) == 0) {
+					goto match;
+				}
+				/* If failed, skip this rule and continue checking other rules */
 			}
 		}
 	}
@@ -192,7 +215,7 @@ int _dns_server_process_ip_rule(struct dns_request *request, unsigned char *addr
 	int ret = 0;
 
 	ip_rules = _dns_server_ip_rule_get(request, addr, addr_len, addr_type);
-	ret = _dns_server_ip_rule_check(request, ip_rules, result_flag);
+	ret = _dns_server_ip_rule_check(request, ip_rules, result_flag, addr_len);
 	if (ret != 0) {
 		return ret;
 	}
