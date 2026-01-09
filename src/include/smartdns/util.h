@@ -221,7 +221,7 @@ int check_is_valid_config_name(const char *name);
 
 int check_tool(const char *tool);
 
-
+int run_shell_script(const char *script, int timeout);
 
 const char *detect_firewall_type(void);
 

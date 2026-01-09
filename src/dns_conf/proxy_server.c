@@ -325,7 +325,8 @@ int _config_tproxy_server(void *data, int argc, char *argv[])
 	} else if (strncmp(firewall_type, "iptables", sizeof("iptables") - 1) == 0) {
 		conf->firewall_type = FIREWALL_IPTABLES;
 	} else {
-		conf->firewall_type = FIREWALL_AUTO; // Default to auto, but should not happen
+		tlog(TLOG_ERROR, "invalid firewall type %s", firewall_type);
+		goto errout;
 	}
 
 	if (conf->so_mark == 0) {

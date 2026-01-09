@@ -574,6 +574,10 @@ static int _smartdns_init_log(void)
 		goto errout;
 	}
 
+#ifdef DEBUG
+	tlog_set_maxline_size(tlog_get_root(), 4 * 1024);
+#endif
+
 	if (enable_log_screen) {
 		tlog_setlogscreen(1);
 		verbose_screen = 1;

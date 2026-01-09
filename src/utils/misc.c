@@ -20,13 +20,17 @@
 #include "smartdns/dns.h"
 #include "smartdns/util.h"
 
+#include "smartdns/tlog.h"
+#include <errno.h>
 #include <libgen.h>
 #include <linux/limits.h>
+#include <poll.h>
 #include <stdio.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <sys/sysinfo.h>
 #include <sys/time.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -323,4 +327,137 @@ int check_tool(const char *tool)
 	}
 
 	return 0;
+}
+
+int run_shell_script(const char *script, int timeout)
+{
+	int pipe_in[2] = {-1, -1};
+	int pipe_out[2] = {-1, -1};
+	int pipe_err[2] = {-1, -1};
+	pid_t pid = -1;
+	int status = -1;
+	struct pollfd fds[2];
+	char buffer[2048];
+	int ret = -1;
+	unsigned long start_time = get_tick_count();
+
+	if (pipe(pipe_in) < 0 || pipe(pipe_out) < 0 || pipe(pipe_err) < 0) {
+		tlog(TLOG_ERROR, "pipe failed: %s", strerror(errno));
+		goto cleanup;
+	}
+
+	pid = fork();
+	if (pid < 0) {
+		tlog(TLOG_ERROR, "fork failed: %s", strerror(errno));
+		goto cleanup;
+	}
+
+	if (pid == 0) {
+		close(pipe_in[1]);
+		close(pipe_out[0]);
+		close(pipe_err[0]);
+		dup2(pipe_in[0], STDIN_FILENO);
+		dup2(pipe_out[1], STDOUT_FILENO);
+		dup2(pipe_err[1], STDERR_FILENO);
+		close(pipe_in[0]);
+		close(pipe_out[1]);
+		close(pipe_err[1]);
+		execl("/bin/sh", "sh", NULL);
+		_exit(127);
+	}
+
+	close(pipe_in[0]);
+	pipe_in[0] = -1;
+	close(pipe_out[1]);
+	pipe_out[1] = -1;
+	close(pipe_err[1]);
+	pipe_err[1] = -1;
+
+	size_t len = strlen(script);
+	size_t written = 0;
+	while (written < len) {
+		ssize_t n = write(pipe_in[1], script + written, len - written);
+		if (n < 0) {
+			if (errno == EINTR)
+				continue;
+			break;
+		}
+		written += n;
+	}
+	close(pipe_in[1]);
+	pipe_in[1] = -1;
+
+	fds[0].fd = pipe_out[0];
+	fds[0].events = POLLIN;
+	fds[1].fd = pipe_err[0];
+	fds[1].events = POLLIN;
+
+	while (fds[0].fd >= 0 || fds[1].fd >= 0) {
+		int remaining = 0;
+		if (timeout > 0) {
+			unsigned long now = get_tick_count();
+			if (now >= start_time + timeout) {
+				tlog(TLOG_ERROR, "script execution timed out after %d ms", timeout);
+				kill(pid, SIGKILL);
+				goto cleanup;
+			}
+			remaining = (start_time + timeout) - now;
+		} else {
+			remaining = -1;
+		}
+
+		if (poll(fds, 2, remaining) < 0) {
+			if (errno == EINTR)
+				continue;
+			break;
+		}
+
+		// Check overlap time again if poll returns 0 (timeout) or events
+		if (timeout > 0 && get_tick_count() >= start_time + timeout) {
+			tlog(TLOG_ERROR, "script execution timed out after %d ms", timeout);
+			kill(pid, SIGKILL);
+			goto cleanup;
+		}
+
+		for (int i = 0; i < 2; i++) {
+			if (fds[i].fd >= 0 && (fds[i].revents & (POLLIN | POLLHUP | POLLERR))) {
+				ssize_t n = read(fds[i].fd, buffer, sizeof(buffer) - 1);
+				if (n > 0) {
+					buffer[n] = 0;
+					char *p = buffer + n - 1;
+					// trim newline
+					while (p >= buffer && (*p == '\n' || *p == '\r'))
+						*p-- = 0;
+					if (buffer[0]) {
+						if (i == 0)
+							tlog(TLOG_DEBUG, "%s", buffer);
+						else
+							tlog(TLOG_ERROR, "%s", buffer);
+					}
+				} else if (n == 0 || (n < 0 && errno != EINTR)) {
+					close(fds[i].fd);
+					fds[i].fd = -1;
+				}
+			}
+		}
+	}
+
+	if (waitpid(pid, &status, 0) != -1 && WIFEXITED(status)) {
+		ret = WEXITSTATUS(status);
+	}
+
+cleanup:
+	if (pipe_in[0] != -1)
+		close(pipe_in[0]);
+	if (pipe_in[1] != -1)
+		close(pipe_in[1]);
+	if (pipe_out[0] != -1)
+		close(pipe_out[0]);
+	if (pipe_out[1] != -1)
+		close(pipe_out[1]);
+	if (pipe_err[0] != -1)
+		close(pipe_err[0]);
+	if (pipe_err[1] != -1)
+		close(pipe_err[1]);
+	return ret;
 }
