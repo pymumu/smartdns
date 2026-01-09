@@ -164,6 +164,11 @@ void _dns_client_close_socket_ext(struct dns_server_info *server_info, int no_de
 	} else if (server_info->fd > 0) {
 		close(server_info->fd);
 	}
+
+	if (server_info->fd > 0) {
+		epoll_ctl(client.epoll_fd, EPOLL_CTL_DEL, server_info->fd, NULL);
+	}
+
 	server_info->fd = -1;
 	tlog(TLOG_DEBUG, "server %s:%d closed.", server_info->ip, server_info->port);
 

@@ -277,6 +277,8 @@ struct dns_query_struct {
 
 	/* replied hash table */
 	DECLARE_HASHTABLE(replied_map, 4);
+
+	pthread_mutex_t lock;
 };
 
 extern struct dns_client client;

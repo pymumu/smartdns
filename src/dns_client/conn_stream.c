@@ -69,7 +69,9 @@ void _dns_client_conn_stream_put(struct dns_conn_stream *stream)
 	}
 
 	if (stream->query) {
+		pthread_mutex_lock(&stream->query->lock);
 		list_del_init(&stream->query_list);
+		pthread_mutex_unlock(&stream->query->lock);
 		stream->query = NULL;
 	}
 

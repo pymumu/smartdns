@@ -52,12 +52,16 @@ void _dns_client_query_release(struct dns_query_struct *query)
 		query->callback(query->domain, DNS_QUERY_END, NULL, NULL, NULL, 0, query->user_ptr);
 	}
 
+	pthread_mutex_lock(&query->lock);
 	list_for_each_entry_safe(stream, stream_tmp, &query->conn_stream_list, query_list)
 	{
 		list_del_init(&stream->query_list);
 		stream->query = NULL;
 		_dns_client_conn_stream_put(stream);
 	}
+	pthread_mutex_unlock(&query->lock);
+
+	pthread_mutex_destroy(&query->lock);
 
 	/* free resource */
 	pthread_mutex_lock(&client.domain_map_lock);

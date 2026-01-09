@@ -481,6 +481,7 @@ int dns_client_query(const char *domain, int qtype, dns_client_callback callback
 	INIT_HLIST_NODE(&query->domain_node);
 	INIT_LIST_HEAD(&query->dns_request_list);
 	INIT_LIST_HEAD(&query->conn_stream_list);
+	pthread_mutex_init(&query->lock, NULL);
 	atomic_set(&query->refcnt, 0);
 	atomic_set(&query->dns_request_sent, 0);
 	atomic_set(&query->retry_count, DNS_QUERY_RETRY);

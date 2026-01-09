@@ -609,10 +609,12 @@ static int _dns_client_quic_pending_data(struct dns_conn_stream *stream, struct 
 	stream->server_info = server_info;
 
 	if (list_empty(&stream->query_list)) {
+		pthread_mutex_lock(&query->lock);
 		list_add_tail(&stream->query_list, &query->conn_stream_list);
+		stream->query = query;
+		pthread_mutex_unlock(&query->lock);
 		_dns_client_conn_stream_get(stream);
 	}
-	stream->query = query;
 
 	memset(&event, 0, sizeof(event));
 	event.events = EPOLLIN | EPOLLOUT;
@@ -633,8 +635,12 @@ errout_put:
 		_dns_client_conn_stream_put(stream);
 	}
 	if (!list_empty(&stream->query_list)) {
-		list_del_init(&stream->query_list);
-		stream->query = NULL;
+		if (stream->query) {
+			pthread_mutex_lock(&stream->query->lock);
+			list_del_init(&stream->query_list);
+			pthread_mutex_unlock(&stream->query->lock);
+			stream->query = NULL;
+		}
 		_dns_client_conn_stream_put(stream);
 	}
 	pthread_mutex_unlock(&server_info->lock);
@@ -701,9 +707,11 @@ int _dns_client_send_quic_data(struct dns_query_struct *query, struct dns_server
 	_dns_client_conn_stream_get(stream);
 	stream->server_info = server_info;
 
+	pthread_mutex_lock(&query->lock);
 	list_add_tail(&stream->query_list, &query->conn_stream_list);
-	_dns_client_conn_stream_get(stream);
 	stream->query = query;
+	pthread_mutex_unlock(&query->lock);
+	_dns_client_conn_stream_get(stream);
 	pthread_mutex_unlock(&server_info->lock);
 
 	/* bind stream */
