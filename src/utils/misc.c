@@ -293,3 +293,17 @@ int decode_hex(int ch)
 		return -1;
 	}
 }
+
+int check_tool(const char *tool)
+{
+	const char *check_path[] = {"/usr/sbin", "/sbin", "/bin", "/usr/bin", "/usr/local/sbin", "/usr/local/bin", NULL};
+	char path[256];
+	for (int i = 0; check_path[i] != NULL; i++) {
+		snprintf(path, sizeof(path), "%s/%s", check_path[i], tool);
+		if (access(path, X_OK) == 0) {
+			return 1;
+		}
+	}
+
+	return 0;
+}

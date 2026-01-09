@@ -27,6 +27,7 @@
 #include "request.h"
 #include "request_pending.h"
 #include "rules.h"
+#include "smartdns/proxy_server.h"
 #include "soa.h"
 
 void _dns_server_post_context_init(struct dns_server_post_context *context, struct dns_request *request)
@@ -521,6 +522,8 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 	struct dns_nftset_rule *nftset_ip6 = NULL;
 	struct dns_rule_flags *rule_flags = NULL;
 	int check_no_speed_rule = 0;
+	struct dns_proxy_rule *proxy_rule = NULL;
+	struct firewall_sets firewall_sets;
 
 	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_RULE_IPSET) == 0) {
 		return 0;
@@ -598,6 +601,32 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 		}
 	}
 
+	/* check tproxy rule */
+	proxy_rule = _dns_server_get_dns_rule(request, DOMAIN_RULE_PROXY);
+	if (proxy_rule != NULL && proxy_rule->proxy_type == PROXY_TYPE_TPROXY) {
+
+		// Get firewall sets for this proxy
+		if (tproxy_server_get_firewall_sets(proxy_rule->proxy_name, &firewall_sets) == 0) {
+			// Set up ipset rules
+			if (firewall_sets.ipset_ipv4 != NULL) {
+				ipset_rule_v4 = firewall_sets.ipset_ipv4;
+			}
+
+			if (firewall_sets.ipset_ipv6 != NULL) {
+				ipset_rule_v6 = firewall_sets.ipset_ipv6;
+			}
+
+			// Set up nftset rules
+			if (firewall_sets.nftset_ipv4 != NULL) {
+				nftset_ip = firewall_sets.nftset_ipv4;
+			}
+
+			if (firewall_sets.nftset_ipv6 != NULL) {
+				nftset_ip6 = firewall_sets.nftset_ipv6;
+			}
+		}
+	}
+
 	if (!(ipset_rule || ipset_rule_v4 || ipset_rule_v6 || nftset_ip || nftset_ip6)) {
 		return 0;
 	}
@@ -648,8 +677,8 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 				struct dns_svcparam *p = NULL;
 				int priority = 0;
 
-				int ret = dns_svcparm_start(rrs, &p, name, DNS_MAX_CNAME_LEN, &ttl, &priority, target,
-													  DNS_MAX_CNAME_LEN);
+				int ret =
+					dns_svcparm_start(rrs, &p, name, DNS_MAX_CNAME_LEN, &ttl, &priority, target, DNS_MAX_CNAME_LEN);
 				if (ret != 0) {
 					tlog(TLOG_WARN, "get HTTPS svcparm failed");
 					return -1;

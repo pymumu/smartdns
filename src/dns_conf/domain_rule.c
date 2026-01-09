@@ -26,6 +26,7 @@
 #include "nftset.h"
 #include "server_group.h"
 #include "set_file.h"
+#include "proxy_names.h"
 #include "smartdns/lib/stringutil.h"
 #include "smartdns/util.h"
 #include "speed_check_mode.h"
@@ -183,6 +184,7 @@ static struct dns_rule_info dns_rule_info_table[DOMAIN_RULE_MAX] = {
 	[DOMAIN_RULE_RESPONSE_MODE] = {sizeof(struct dns_response_mode_rule), NULL, NULL},
 	[DOMAIN_RULE_CNAME] = {sizeof(struct dns_cname_rule), NULL, NULL},
 	[DOMAIN_RULE_TTL] = {sizeof(struct dns_ttl_rule), NULL, NULL},
+	[DOMAIN_RULE_PROXY] = {sizeof(struct dns_proxy_rule), NULL, NULL},
 };
 
 void *_new_dns_rule_ext(enum domain_rule domain_rule, int ext_size)
@@ -861,6 +863,91 @@ errout:
 	return 0;
 }
 
+static int _conf_domain_rule_proxy(const char *domain, const char *proxy_name, enum proxy_type proxy_type)
+{
+	struct dns_proxy_rule *proxy_rule = NULL;
+	const char *proxy = NULL;
+
+	proxy = _dns_conf_get_proxy_name(proxy_name);
+	if (proxy == NULL) {
+		goto errout;
+	}
+
+	proxy_rule = _new_dns_rule(DOMAIN_RULE_PROXY);
+	if (proxy_rule == NULL) {
+		goto errout;
+	}
+
+	proxy_rule->proxy_name = proxy;
+	proxy_rule->proxy_type = proxy_type;
+
+	if (_config_domain_rule_add(domain, DOMAIN_RULE_PROXY, proxy_rule) != 0) {
+		goto errout;
+	}
+
+	_dns_rule_put(&proxy_rule->head);
+
+	return 0;
+errout:
+	if (proxy_rule) {
+		_dns_rule_put(&proxy_rule->head);
+	}
+
+	tlog(TLOG_ERROR, "add proxy %s, %s failed", domain, proxy_name);
+	return 0;
+}
+
+int _conf_domain_rule_tproxy(const char *domain, const char *proxy_name)
+{
+	return _conf_domain_rule_proxy(domain, proxy_name, PROXY_TYPE_TPROXY);
+}
+
+
+int _config_tproxy(void *data, int argc, char *argv[])
+{
+	char *value = argv[1];
+	char domain[DNS_MAX_CONF_CNAME_LEN];
+
+	if (argc <= 1) {
+		goto errout;
+	}
+
+	if (_get_domain(value, domain, DNS_MAX_CONF_CNAME_LEN, &value) != 0) {
+		goto errout;
+	}
+
+	return _conf_domain_rule_tproxy(domain, value);
+errout:
+	tlog(TLOG_ERROR, "add tproxy %s:%s failed", domain, value);
+	return 0;
+}
+
+int _conf_domain_rule_sniproxy(const char *domain, const char *proxy_name)
+{
+	return _conf_domain_rule_proxy(domain, proxy_name, PROXY_TYPE_SNI_PROXY);
+}
+
+
+int _config_sni_proxy(void *data, int argc, char *argv[])
+{
+	char *value = argv[1];
+	char domain[DNS_MAX_CONF_CNAME_LEN];
+
+	if (argc <= 1) {
+		goto errout;
+	}
+
+	if (_get_domain(value, domain, DNS_MAX_CONF_CNAME_LEN, &value) != 0) {
+		goto errout;
+	}
+
+	return _conf_domain_rule_sniproxy(domain, value);
+errout:
+	tlog(TLOG_ERROR, "add sni-proxy %s:%s failed", domain, value);
+	return 0;
+}
+
+
 static int _conf_domain_rule_dualstack_selection(char *domain, const char *yesno)
 {
 	if (strncmp(yesno, "yes", sizeof("yes")) == 0 || strncmp(yesno, "Yes", sizeof("Yes")) == 0) {
@@ -914,6 +1001,8 @@ int _config_domain_rules(void *data, int argc, char *argv[])
 		{"no-ip-alias", no_argument, NULL, 257},
 		{"enable-cache", no_argument, NULL, 258},
 		{"no-ignore-ip", no_argument, NULL, 259},
+		{"tproxy", required_argument, NULL, 260},
+		{"sni-proxy", required_argument, NULL, 261},
 		{NULL, no_argument, NULL, 0}
 	};
 	/* clang-format on */
@@ -1128,6 +1217,32 @@ int _config_domain_rules(void *data, int argc, char *argv[])
 		case 259: {
 			if (_conf_domain_rule_no_ignore_ip(domain) != 0) {
 				tlog(TLOG_ERROR, "set no-ignore-ip rule failed.");
+				goto errout;
+			}
+
+			break;
+		}
+		case 260: {
+			const char *proxy_name = optarg;
+			if (proxy_name == NULL) {
+				goto errout;
+			}
+
+			if (_conf_domain_rule_tproxy(domain, proxy_name) != 0) {
+				tlog(TLOG_ERROR, "add tproxy rule failed.");
+				goto errout;
+			}
+
+			break;
+		}
+		case 261: {
+			const char *proxy_name = optarg;
+			if (proxy_name == NULL) {
+				goto errout;
+			}
+
+			if (_conf_domain_rule_sniproxy(domain, proxy_name) != 0) {
+				tlog(TLOG_ERROR, "add sni-proxy rule failed.");
 				goto errout;
 			}
 

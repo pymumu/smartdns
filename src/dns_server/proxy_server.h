@@ -16,20 +16,21 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef _DNS_CONF_PROXY_SERVER_H_
-#define _DNS_CONF_PROXY_SERVER_H_
+#ifndef _DNS_SERVER_PROXY_SERVER_
+#define _DNS_SERVER_PROXY_SERVER_
 
-#include "dns_conf.h"
-#include "smartdns/dns_conf.h"
+#include "dns_server.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif /*__cplusplus */
 
-int _config_proxy_server(void *data, int argc, char *argv[]);
-int _config_tproxy_server(void *data, int argc, char *argv[]);
-int _config_sniproxy_server(void *data, int argc, char *argv[]);
-int _config_proxy_server_table_destroy(void);
+
+void _dns_server_request_set_no_proxyserver(struct dns_request *request);
+
+int _dns_server_process_proxyserver(struct dns_request *request);
+
+const char *_dns_server_get_proxy_server_groupname(struct dns_request *request);
 
 #ifdef __cplusplus
 }

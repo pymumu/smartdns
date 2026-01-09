@@ -46,6 +46,7 @@
 #include "server_http2.h"
 #include "soa.h"
 #include "speed_check.h"
+#include "proxy_server.h"
 
 #include "smartdns/dns_cache.h"
 #include "smartdns/dns_client.h"
@@ -313,6 +314,13 @@ int _dns_server_do_query(struct dns_request *request, int skip_notify_event)
 
 	/* check and set passthrough */
 	_dns_server_check_set_passthrough(request);
+
+	/* process domain sni-proxy */
+	if (request->noproxy == 0) {
+		if (_dns_server_process_proxyserver(request) == 0) {
+			goto clean_exit;
+		}
+	}
 
 	/* process ptr */
 	if (_dns_server_process_ptr_query(request) == 0) {

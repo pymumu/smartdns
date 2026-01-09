@@ -27,7 +27,6 @@ extern "C" {
 #endif /*__cplusplus */
 
 int _dns_conf_proxy_servers_add(const char *proxy_name, struct dns_proxy_servers *server);
-const char *_dns_conf_get_proxy_name(const char *proxy_name);
 
 void _config_proxy_table_destroy(void);
 

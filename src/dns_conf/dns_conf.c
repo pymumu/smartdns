@@ -237,6 +237,10 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("group-end", _config_group_end, NULL),
 	CONF_CUSTOM("group-match", _config_group_match, NULL),
 	CONF_CUSTOM("client-rules", _config_client_rules, NULL),
+	CONF_CUSTOM("tproxy", _config_tproxy, NULL),
+	CONF_CUSTOM("sni-proxy", _config_sni_proxy, NULL),
+	CONF_CUSTOM("tproxy-server", _config_tproxy_server, NULL),
+	CONF_CUSTOM("sni-proxy-server", _config_sniproxy_server, NULL),
 	CONF_STRING("ca-file", (char *)&dns_conf.ca_file, DNS_MAX_PATH),
 	CONF_STRING("ca-path", (char *)&dns_conf.ca_path, DNS_MAX_PATH),
 	CONF_STRING("user", (char *)&dns_conf.user, sizeof(dns_conf.user)),
@@ -350,6 +354,7 @@ void dns_server_load_exit(void)
 	_config_ptr_table_destroy(0);
 	_config_host_table_destroy(0);
 	_config_proxy_table_destroy();
+	_config_proxy_server_table_destroy();
 	_config_plugin_table_destroy();
 	_config_plugin_table_conf_destroy();
 

@@ -48,6 +48,13 @@ extern "C" {
 
 #define DNS_NAX_GROUP_NUMBER 16
 #define DNS_MAX_IPLEN 64
+
+enum firewall_type {
+	FIREWALL_NONE,
+	FIREWALL_AUTO,
+	FIREWALL_NFTABLES,
+	FIREWALL_IPTABLES
+};
 #define DNS_PROXY_MAX_LEN 128
 #define DNS_CONF_USERNAME_LEN 32
 #define DNS_MAX_SPKI_LEN 64
@@ -100,6 +107,8 @@ enum domain_rule {
 	DOMAIN_RULE_CNAME,         /* CNAME rule */
 	DOMAIN_RULE_TTL,           /* TTL control */
 
+	DOMAIN_RULE_PROXY,					 /* Proxy rule */
+	
 	DOMAIN_RULE_MAX,
 };
 
@@ -154,6 +163,7 @@ typedef enum {
 #define DOMAIN_FLAG_ADDR_HTTPS_SOA (1 << 21)
 #define DOMAIN_FLAG_ADDR_HTTPS_IGN (1 << 22)
 #define DOMAIN_FLAG_NO_IGNORE_IP (1 << 23)
+#define DOMAIN_FLAG_PROXY_IGNORE (1 << 24)
 
 #define IP_RULE_FLAG_BLACKLIST (1 << 0)
 #define IP_RULE_FLAG_WHITELIST (1 << 1)
@@ -186,6 +196,11 @@ enum response_mode_type {
 	DNS_RESPONSE_MODE_FIRST_PING_IP = 0,
 	DNS_RESPONSE_MODE_FASTEST_IP,
 	DNS_RESPONSE_MODE_FASTEST_RESPONSE,
+};
+
+enum proxy_type {
+	PROXY_TYPE_SNI_PROXY = 0,
+	PROXY_TYPE_TPROXY,
 };
 
 struct dns_rule {
@@ -244,6 +259,12 @@ struct dns_ttl_rule {
 	int ttl;
 	int ttl_max;
 	int ttl_min;
+};
+
+struct dns_proxy_rule {
+	struct dns_rule head;
+	const char *proxy_name;
+	enum proxy_type proxy_type;
 };
 
 struct dns_nftset_name {
@@ -391,6 +412,10 @@ struct dns_proxy_names {
 
 struct dns_proxy_table {
 	DECLARE_HASHTABLE(proxy, 4);
+	DECLARE_HASHTABLE(tproxy, 4);
+	int tproxy_num;
+	DECLARE_HASHTABLE(sniproxy, 4);
+	int sniproxy_num;
 };
 extern struct dns_proxy_table dns_proxy_table;
 
@@ -424,7 +449,6 @@ struct dns_servers {
 	struct dns_edns_client_subnet ipv4_ecs;
 	struct dns_edns_client_subnet ipv6_ecs;
 };
-
 struct dns_proxy_servers {
 	struct list_head list;
 	char server[DNS_MAX_IPLEN];
@@ -432,7 +456,35 @@ struct dns_proxy_servers {
 	unsigned short port;
 	char username[DNS_PROXY_MAX_LEN];
 	char password[DNS_PROXY_MAX_LEN];
-	int use_domain;
+};
+
+struct dns_tproxy_server_conf {
+	struct hlist_node node;
+	char name[PROXY_NAME_LEN];
+	char server[DNS_MAX_IPLEN];
+	char proxy_name[PROXY_NAME_LEN];
+	char group_name[PROXY_NAME_LEN];
+	char firewall[16];
+	enum firewall_type firewall_type;
+	int udp_support;
+	int so_mark;
+	int output_chain_enable;
+	int speed_check;
+	int force_aaaa_soa;
+	struct dns_nftset_names nftset_names;
+	struct dns_ipset_names ipset_names;
+};
+
+struct dns_sniproxy_server_conf {
+	struct hlist_node node;
+	char name[PROXY_NAME_LEN];
+	char server[DNS_MAX_IPLEN];
+	char proxy_name[PROXY_NAME_LEN];
+	char group_name[PROXY_NAME_LEN];
+	int remote_dns;
+	int so_mark;
+	int speed_check;
+	int force_aaaa_soa;
 };
 
 /* ip address lists of domain */
@@ -752,7 +804,6 @@ struct dns_config {
 
 	char user[DNS_CONF_USERNAME_LEN];
 
-	char sni_proxy_ip[DNS_MAX_IPLEN];
 	int resolv_hostname;
 
 	int expand_ptr_from_address;
@@ -765,6 +816,7 @@ struct dns_config {
 	int dns_no_daemon;
 	int dns_restart_on_crash;
 	size_t dns_socket_buff_size;
+
 };
 extern struct dns_config dns_conf;
 
@@ -776,6 +828,9 @@ int dns_server_check_update_hosts(void);
 
 struct dns_proxy_names *dns_server_get_proxy_names(const char *proxyname);
 
+struct dns_tproxy_server_conf *dns_conf_get_tproxy_server(const char *name);
+
+struct dns_sniproxy_server_conf *dns_conf_get_sniproxy_server(const char *name);
 
 struct dns_conf_group *dns_server_get_rule_group(const char *group_name);
 
@@ -794,6 +849,16 @@ const char *dns_conf_get_cache_dir(void);
 const char *dns_conf_get_data_dir(void);
 
 const char *dns_conf_get_ddns_domain(void);
+
+struct dns_tproxy_server_conf *dns_conf_get_tproxy_server(const char *name);
+
+struct dns_sniproxy_server_conf *dns_conf_get_sniproxy_server(const char *name);
+
+int dns_conf_tproxy_server_num(void);
+
+int dns_conf_sniproxy_server_num(void);
+
+const char *_dns_conf_get_proxy_name(const char *proxy_name);
 
 #ifdef __cplusplus
 }

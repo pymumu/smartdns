@@ -163,7 +163,7 @@ errout:
 	return -1;
 }
 
-static int _bind_is_ip_valid(const char *ip)
+int _bind_is_ip_valid(const char *ip)
 {
 	struct sockaddr_storage addr;
 	socklen_t addr_len = sizeof(addr);

@@ -88,6 +88,8 @@ struct proxy_conn {
 	socklen_t udp_dest_addrlen;
 	struct proxy_conn_buffer buffer;
 	struct proxy_server_info *server_info;
+	struct sockaddr_storage addr;
+	socklen_t addrlen;
 };
 
 /* upstream server groups */
@@ -194,18 +196,18 @@ int proxy_add(const char *proxy_name, struct proxy_info *info)
 
 	memcpy(&server_info->info, info, sizeof(struct proxy_info));
 
-	if (parse_ip(info->server, ip_str, &port) != 0) {
-		goto errout;
+	if (info->type != PROXY_PASSTHROUGH) {
+		if (parse_ip(info->server, ip_str, &port) != 0) {
+			goto errout;
+		}
+		port = info->port;
+		gai = _proxy_getaddr(info->server, port, SOCK_STREAM, 0);
+		if (gai == NULL) {
+			goto errout;
+		}
+		server_info->server_addrlen = gai->ai_addrlen;
+		memcpy(&server_info->server_addr, gai->ai_addr, gai->ai_addrlen);
 	}
-
-	port = info->port;
-	gai = _proxy_getaddr(info->server, port, SOCK_STREAM, 0);
-	if (gai == NULL) {
-		goto errout;
-	}
-
-	server_info->server_addrlen = gai->ai_addrlen;
-	memcpy(&server_info->server_addr, gai->ai_addr, gai->ai_addrlen);
 
 	safe_strncpy(server_info->proxy_name, proxy_name, PROXY_NAME_LEN);
 	key = hash_string(server_info->proxy_name);
@@ -275,7 +277,26 @@ struct proxy_conn *proxy_conn_new(const char *proxy_name, const char *host, int 
 		goto errout;
 	}
 
-	fd = socket(server_info->server_addr.ss_family, SOCK_STREAM | SOCK_CLOEXEC, 0);
+	if (server_info->info.type != PROXY_PASSTHROUGH) {
+		if (server_info->server_addr.ss_family == 0) {
+			tlog(TLOG_ERROR, "proxy server addr not set");
+			goto errout;
+		}
+		fd = socket(server_info->server_addr.ss_family, SOCK_STREAM | SOCK_CLOEXEC, 0);
+	} else {
+		const char *connect_host = host;
+		int connect_port = port;
+		if (server_info->info.server[0] != '\0') {
+			connect_host = server_info->info.server;
+			connect_port = server_info->info.port;
+		}
+		gai = _proxy_getaddr(connect_host, connect_port, SOCK_STREAM, 0);
+		if (gai == NULL) {
+			goto errout;
+		}
+		fd = socket(gai->ai_family, gai->ai_socktype | SOCK_CLOEXEC, 0);
+	}
+
 	if (fd < 0) {
 		goto errout;
 	}
@@ -291,12 +312,24 @@ struct proxy_conn *proxy_conn_new(const char *proxy_name, const char *host, int 
 	proxy_conn->state = PROXY_CONN_INIT;
 	proxy_conn->server_info = server_info;
 	proxy_conn->fd = fd;
+	if (server_info->info.type != PROXY_PASSTHROUGH) {
+		proxy_conn->addrlen = server_info->server_addrlen;
+		memcpy(&proxy_conn->addr, &server_info->server_addr, server_info->server_addrlen);
+	} else {
+		proxy_conn->addrlen = gai->ai_addrlen;
+		memcpy(&proxy_conn->addr, gai->ai_addr, gai->ai_addrlen);
+	}
 	proxy_conn->udp_fd = -1;
 	proxy_conn->is_udp = is_udp;
 	proxy_conn->non_block = non_block;
 
 	if (non_block) {
 		set_fd_nonblock(fd, 1);
+	}
+
+	/* Free addrinfo if it was allocated */
+	if (gai) {
+		freeaddrinfo(gai);
 	}
 
 	return proxy_conn;
@@ -339,8 +372,7 @@ int proxy_conn_connect(struct proxy_conn *proxy_conn)
 		return -1;
 	}
 
-	return connect(proxy_conn->fd, (struct sockaddr *)&proxy_conn->server_info->server_addr,
-				   proxy_conn->server_info->server_addrlen);
+	return connect(proxy_conn->fd, (struct sockaddr *)&proxy_conn->addr, proxy_conn->addrlen);
 }
 
 static int _proxy_handshake_socks5_create_udp_fd(struct proxy_conn *proxy_conn)
@@ -430,7 +462,7 @@ static proxy_handshake_state _proxy_handshake_socks5_reply_connect_addr(struct p
 
 	buff[2] = 0x0;
 	ptr = buff + 3;
-	if (proxy_conn->server_info->info.use_domain) {
+	if (!check_is_ipaddr(proxy_conn->host)) {
 		*ptr = PROXY_SOCKS5_TYPE_DOMAIN;
 		ptr++;
 
@@ -801,7 +833,7 @@ static int _proxy_handshake_http(struct proxy_conn *proxy_conn)
 		socklen_t addr_len = sizeof(addr);
 		getaddr_by_host(proxy_conn->host, (struct sockaddr *)&addr, &addr_len);
 
-		if (proxy_conn->server_info->info.use_domain) {
+		if (!check_is_ipaddr(proxy_conn->host)) {
 			snprintf(connecthost, sizeof(connecthost), "%s:%d", proxy_conn->host, proxy_conn->port);
 		} else {
 			struct sockaddr_in *addr_in;
@@ -923,6 +955,8 @@ proxy_handshake_state proxy_conn_handshake(struct proxy_conn *proxy_conn)
 	}
 
 	switch (proxy_conn->type) {
+	case PROXY_PASSTHROUGH:
+		return PROXY_HANDSHAKE_CONNECTED;
 	case PROXY_SOCKS5:
 		return _proxy_handshake_socks5(proxy_conn);
 	case PROXY_HTTP:

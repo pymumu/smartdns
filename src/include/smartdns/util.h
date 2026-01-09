@@ -215,6 +215,10 @@ static inline void *zalloc(size_t count, size_t size)
 
 int encode_alpn_protos(const char *alpn, uint8_t *alpn_data, int alpn_data_max);
 
+int check_tool(const char *tool);
+
+const char *detect_firewall_type(void);
+
 #ifdef __cplusplus
 }
 #endif /*__cplusplus */

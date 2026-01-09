@@ -363,6 +363,8 @@ struct dns_request {
 	int prefetch;
 	int prefetch_flags;
 
+	int noproxy;
+
 	int dualstack_selection;
 	int dualstack_selection_force_soa;
 	int dualstack_selection_query;

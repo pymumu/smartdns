@@ -77,6 +77,10 @@ int _dns_server_process_address(struct dns_request *request)
 		goto errout;
 	}
 
+	if (request->noproxy == 0 && request->domain_rule.rules[DOMAIN_RULE_PROXY]) {
+		goto errout;
+	}
+
 	/* address /domain/ rule */
 	switch (request->qtype) {
 	case DNS_T_A:

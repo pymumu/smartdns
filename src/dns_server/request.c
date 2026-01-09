@@ -26,6 +26,7 @@
 #include "dualstack.h"
 #include "mdns.h"
 #include "neighbor.h"
+#include "proxy_server.h"
 #include "ptr.h"
 #include "request_pending.h"
 #include "rules.h"
@@ -1238,6 +1239,11 @@ void _dns_server_setup_dns_group_name(struct dns_request *request, const char **
 	const char *temp_group_name = NULL;
 
 	temp_group_name = _dns_server_get_request_server_groupname(request);
+	if (temp_group_name != NULL) {
+		group_name = temp_group_name;
+	}
+
+	temp_group_name = _dns_server_get_proxy_server_groupname(request);
 	if (temp_group_name != NULL) {
 		group_name = temp_group_name;
 	}

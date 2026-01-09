@@ -45,6 +45,13 @@ int _config_domain_rule_free(struct dns_domain_rule *domain_rule);
 int _conf_domain_rule_speed_check(char *domain, const char *mode);
 int _conf_domain_rule_response_mode(char *domain, const char *mode);
 
+int _config_tproxy(void *data, int argc, char *argv[]);
+int _config_sni_proxy(void *data, int argc, char *argv[]);
+int _conf_domain_rule_tproxy(const char *domain, const char *proxy_name);
+int _conf_domain_rule_sniproxy(const char *domain, const char *proxy_name);
+int _config_tproxy_server(void *data, int argc, char *argv[]);
+int _config_sniproxy_server(void *data, int argc, char *argv[]);
+
 #ifdef __cplusplus
 }
 #endif /*__cplusplus */

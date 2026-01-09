@@ -25,6 +25,7 @@
 #include "smartdns/lib/hashtable.h"
 #include "smartdns/lib/list.h"
 #include "smartdns/lib/rbtree.h"
+#include "smartdns/proxy_server.h"
 #include "smartdns/timer.h"
 #include "smartdns/tlog.h"
 
@@ -333,7 +334,6 @@ static int _proxy_add_servers(void)
 			safe_strncpy(info.server, server->server, PROXY_MAX_IPLEN);
 			safe_strncpy(info.username, server->username, PROXY_MAX_NAMELEN);
 			safe_strncpy(info.password, server->password, PROXY_MAX_NAMELEN);
-			info.use_domain = server->use_domain;
 			proxy_add(proxy->proxy_name, &info);
 		}
 	}
@@ -688,6 +688,12 @@ static int _smartdns_init(void)
 		goto errout;
 	}
 
+	ret = proxy_server_init();
+	if (ret != 0) {
+		tlog(TLOG_ERROR, "start proxy server failed (check if running as root for TPROXY features).\n");
+		goto errout;
+	}
+
 	ret = _smartdns_add_servers();
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "add servers failed.");
@@ -714,6 +720,7 @@ static int _smartdns_run(void)
 static void _smartdns_exit(void)
 {
 	_smartdns_plugin_exit();
+	proxy_server_exit();
 	proxy_exit();
 	fast_ping_exit();
 	dns_server_exit();

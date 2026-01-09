@@ -30,6 +30,7 @@ extern "C" {
 #endif /*__cplusplus */
 
 typedef enum {
+	PROXY_PASSTHROUGH,
 	PROXY_SOCKS5,
 	PROXY_HTTP,
 	PROXY_TYPE_END,
@@ -47,7 +48,6 @@ struct proxy_info {
 	proxy_type_t type;
 	char server[PROXY_MAX_IPLEN];
 	unsigned short port;
-	int use_domain;
 	char username[PROXY_MAX_NAMELEN];
 	char password[PROXY_MAX_NAMELEN];
 };

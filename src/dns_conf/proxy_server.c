@@ -16,11 +16,44 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "proxy_server.h"
+#include "smartdns/proxy_server.h"
+#include "bind.h"
 #include "proxy_names.h"
+#include "proxy_server.h"
 #include "smartdns/util.h"
 
 #include <getopt.h>
+#include <unistd.h> // for access
+
+static enum firewall_type _detect_firewall_type_enum(void)
+{
+	if (check_tool("nft")) {
+		return FIREWALL_NFTABLES;
+	} else if (check_tool("iptables")) {
+		return FIREWALL_IPTABLES;
+	}
+	return FIREWALL_NONE;
+}
+
+static int _config_proxy_detect_speed_check(const char *proxy_name)
+{
+	struct dns_proxy_servers *server;
+	struct dns_proxy_names *proxy = dns_server_get_proxy_names(proxy_name);
+
+	if (proxy == NULL) {
+		return 1;
+	}
+
+	list_for_each_entry(server, &proxy->server_list, list)
+	{
+		if (server->type == PROXY_PASSTHROUGH) {
+			return 1;
+		}
+
+		return 0;
+	}
+	return 1;
+}
 
 int _config_proxy_server(void *data, int argc, char *argv[])
 {
@@ -30,14 +63,12 @@ int _config_proxy_server(void *data, int argc, char *argv[])
 
 	char *ip = NULL;
 	int opt = 0;
-	int use_domain = 0;
 	char scheme[DNS_MAX_CNAME_LEN] = {0};
 	int port = PORT_NOT_DEFINED;
 
 	/* clang-format off */
 	static struct option long_options[] = {
 		{"name", required_argument, NULL, 'n'}, 
-		{"use-domain", no_argument, NULL, 'd'},
 		{NULL, no_argument, NULL, 0}
 	};
 	/* clang-format on */
@@ -60,7 +91,7 @@ int _config_proxy_server(void *data, int argc, char *argv[])
 	/* process extra options */
 	optind = 1;
 	while (1) {
-		opt = getopt_long_only(argc, argv, "n:d", long_options, NULL);
+		opt = getopt_long_only(argc, argv, "n:", long_options, NULL);
 		if (opt == -1) {
 			break;
 		}
@@ -68,10 +99,6 @@ int _config_proxy_server(void *data, int argc, char *argv[])
 		switch (opt) {
 		case 'n': {
 			servers_name = optarg;
-			break;
-		}
-		case 'd': {
-			use_domain = 1;
 			break;
 		}
 		default:
@@ -91,6 +118,11 @@ int _config_proxy_server(void *data, int argc, char *argv[])
 		}
 
 		type = PROXY_HTTP;
+	} else if (strcasecmp(scheme, "passthrough") == 0 || strcasecmp(scheme, "direct") == 0) {
+		if (port == PORT_NOT_DEFINED) {
+			port = -1;
+		}
+		type = PROXY_PASSTHROUGH;
 	} else {
 		tlog(TLOG_ERROR, "invalid scheme %s", scheme);
 		return -1;
@@ -109,7 +141,6 @@ int _config_proxy_server(void *data, int argc, char *argv[])
 	/* add new server */
 	server->type = type;
 	server->port = port;
-	server->use_domain = use_domain;
 	tlog(TLOG_DEBUG, "add proxy server %s", ip);
 
 	return 0;
@@ -120,4 +151,344 @@ errout:
 	}
 
 	return -1;
+}
+
+int _config_tproxy_server(void *data, int argc, char *argv[])
+{
+	struct dns_tproxy_server_conf *conf = NULL;
+	struct dns_tproxy_server_conf *old_conf = NULL;
+	int opt = 0;
+	char *ip = NULL;
+	int speed_check = 0;
+
+	static struct option long_options[] = {{"name", required_argument, NULL, 'n'},
+										   {"proxy", required_argument, NULL, 'p'},
+										   {"group", required_argument, NULL, 'g'},
+										   {"firewall", required_argument, NULL, 'f'},
+										   {"udp", no_argument, NULL, 'u'},
+										   {"set-mark", required_argument, NULL, 'm'},
+										   {"outbound-tproxy", required_argument, NULL, 'o'},
+										   {"speed-check", required_argument, NULL, 's'},
+										   {"force-aaaa-soa", no_argument, NULL, 'F'},
+										   {NULL, no_argument, NULL, 0}};
+
+	if (argc < 2) {
+		tlog(TLOG_ERROR, "invalid parameter, usage: tproxy-server [IP]:port -name name -proxy proxyname [-set-mark "
+						 "mark] [-outbound-tproxy enable|disable] [-speed-test yes|no|auto] [-force-aaaa-soa]");
+		return -1;
+	}
+
+	conf = zalloc(1, sizeof(*conf));
+	if (conf == NULL) {
+		return -1;
+	}
+
+	// Set default values
+	conf->output_chain_enable = 1; // Default to enable OUTPUT chain
+
+	ip = argv[1];
+
+	if (_bind_is_ip_valid(ip) != 0) {
+		tlog(TLOG_ERROR, "tproxy-server ip address invalid: %s", ip);
+		goto errout;
+	}
+
+	optind = 1;
+	while (1) {
+		opt = getopt_long_only(argc, argv, "n:p:g:f:u:m:o:s:", long_options, NULL);
+		if (opt == -1) {
+			break;
+		}
+
+		switch (opt) {
+		case 'n':
+			safe_strncpy(conf->name, optarg, sizeof(conf->name));
+			break;
+		case 'p':
+			safe_strncpy(conf->proxy_name, optarg, sizeof(conf->proxy_name));
+			break;
+		case 'g':
+			safe_strncpy(conf->group_name, optarg, sizeof(conf->group_name));
+			break;
+		case 'f':
+			safe_strncpy(conf->firewall, optarg, sizeof(conf->firewall));
+			break;
+		case 'u':
+			conf->udp_support = 1;
+			break;
+		case 'm':
+			conf->so_mark = atoi(optarg);
+			break;
+		case 'o':
+			if (strcmp(optarg, "enable") == 0 || strcmp(optarg, "yes") == 0 || strcmp(optarg, "1") == 0) {
+				conf->output_chain_enable = 1;
+			} else if (strcmp(optarg, "disable") == 0 || strcmp(optarg, "no") == 0 || strcmp(optarg, "0") == 0) {
+				conf->output_chain_enable = 0;
+			} else {
+				tlog(TLOG_ERROR, "invalid outbound-tproxy value: %s, use 'enable' or 'disable'", optarg);
+				goto errout;
+			}
+			break;
+		case 's':
+			if (strcmp(optarg, "yes") == 0) {
+				speed_check = 1;
+			} else if (strcmp(optarg, "no") == 0) {
+				speed_check = 0;
+			} else if (strcmp(optarg, "auto") == 0) {
+				speed_check = -1;
+			} else {
+				tlog(TLOG_ERROR, "invalid speed-test value: %s", optarg);
+				goto errout;
+			}
+			break;
+		case 'F':
+			conf->force_aaaa_soa = 1;
+			break;
+		default:
+			break;
+		}
+	}
+
+	if (conf->name[0] == '\0') {
+		tlog(TLOG_ERROR, "please set tproxy-server name");
+		goto errout;
+	}
+
+	if (conf->firewall[0] == '\0') {
+		safe_strncpy(conf->firewall, "auto", sizeof(conf->firewall));
+	}
+
+	// Set firewall_type based on firewall string
+	if (strncmp(conf->firewall, "none", 4) == 0) {
+		conf->firewall_type = FIREWALL_NONE;
+	} else if (strncmp(conf->firewall, "auto", 4) == 0) {
+		conf->firewall_type = _detect_firewall_type_enum();
+		if (conf->firewall_type == FIREWALL_NONE) {
+			tlog(TLOG_WARN, "no firewall tool detected, disabling firewall for tproxy-server %s", conf->name);
+			conf->firewall_type = FIREWALL_NONE;
+		}
+	} else if (strncmp(conf->firewall, "nftables", 8) == 0) {
+		conf->firewall_type = FIREWALL_NFTABLES;
+	} else if (strncmp(conf->firewall, "iptables", 8) == 0) {
+		conf->firewall_type = FIREWALL_IPTABLES;
+	} else {
+		conf->firewall_type = FIREWALL_AUTO; // Default to auto, but should not happen
+	}
+
+	if (conf->so_mark == 0) {
+		conf->so_mark = 1;
+	}
+
+	if (speed_check == -1) {
+		// Auto-detect speed check based on proxy servers
+		conf->speed_check = _config_proxy_detect_speed_check(conf->proxy_name);
+	} else {
+		conf->speed_check = speed_check;
+	}
+
+	old_conf = dns_conf_get_tproxy_server(conf->name);
+	if (old_conf) {
+		hash_del(&old_conf->node);
+		dns_proxy_table.tproxy_num--;
+		free(old_conf);
+	}
+
+	uint32_t key = hash_string(conf->name);
+	safe_strncpy(conf->server, ip, sizeof(conf->server));
+	hash_add(dns_proxy_table.tproxy, &conf->node, key);
+	dns_proxy_table.tproxy_num++;
+	return 0;
+
+errout:
+	if (conf) {
+		free(conf);
+	}
+	return -1;
+}
+
+int _config_sniproxy_server(void *data, int argc, char *argv[])
+{
+	struct dns_sniproxy_server_conf *conf = NULL;
+	struct dns_sniproxy_server_conf *old_conf = NULL;
+	int opt = 0;
+	char *ip = NULL;
+	int speed_check = 0;
+
+	static struct option long_options[] = {{"name", required_argument, NULL, 'n'},
+										   {"proxy", required_argument, NULL, 'p'},
+										   {"group", required_argument, NULL, 'g'},
+										   {"remote-dns", no_argument, NULL, 'r'},
+										   {"set-mark", required_argument, NULL, 'm'},
+										   {"speed-check", required_argument, NULL, 's'},
+										   {"force-aaaa-soa", no_argument, NULL, 'F'},
+										   {NULL, no_argument, NULL, 0}};
+
+	if (argc < 2) {
+		tlog(TLOG_ERROR, "invalid parameter, usage: sni-proxy-server [IP]:port -name name -proxy proxyname "
+						 "[-speed-test yes|no|auto]");
+		return -1;
+	}
+
+	conf = zalloc(1, sizeof(*conf));
+	if (conf == NULL) {
+		return -1;
+	}
+
+	ip = argv[1];
+
+	if (_bind_is_ip_valid(ip) != 0) {
+		tlog(TLOG_ERROR, "sni-proxy-server ip address invalid: %s", ip);
+		goto errout;
+	}
+
+	optind = 1;
+	while (1) {
+		opt = getopt_long_only(argc, argv, "n:p:g:r:s", long_options, NULL);
+		if (opt == -1) {
+			break;
+		}
+
+		switch (opt) {
+		case 'n':
+			safe_strncpy(conf->name, optarg, sizeof(conf->name));
+			break;
+		case 'p':
+			safe_strncpy(conf->proxy_name, optarg, sizeof(conf->proxy_name));
+			break;
+		case 'g':
+			safe_strncpy(conf->group_name, optarg, sizeof(conf->group_name));
+			break;
+		case 'r':
+			conf->remote_dns = 1;
+			break;
+		case 'm':
+			conf->so_mark = atoi(optarg);
+			break;
+		case 's':
+			if (strcmp(optarg, "yes") == 0) {
+				speed_check = 1;
+			} else if (strcmp(optarg, "no") == 0) {
+				speed_check = 0;
+			} else if (strcmp(optarg, "auto") == 0) {
+				speed_check = -1;
+			} else {
+				tlog(TLOG_ERROR, "invalid speed-test value: %s", optarg);
+				goto errout;
+			}
+			break;
+		case 'F':
+			conf->force_aaaa_soa = 1;;
+			break;
+		default:
+			break;
+		}
+	}
+
+	if (conf->name[0] == '\0') {
+		tlog(TLOG_ERROR, "please set sni-proxy-server name");
+		goto errout;
+	}
+
+	old_conf = dns_conf_get_sniproxy_server(conf->name);
+	if (old_conf) {
+		hash_del(&old_conf->node);
+		dns_proxy_table.sniproxy_num--;
+		free(old_conf);
+	}
+
+	if (conf->so_mark == 0) {
+		conf->so_mark = 1;
+	}
+
+	if (speed_check == -1) {
+		// Auto-detect speed check based on proxy servers
+		conf->speed_check = _config_proxy_detect_speed_check(conf->proxy_name);
+	} else {
+		conf->speed_check = speed_check;
+	}
+
+	safe_strncpy(conf->server, ip, sizeof(conf->server));
+	uint32_t key = hash_string(conf->name);
+	hash_add(dns_proxy_table.sniproxy, &conf->node, key);
+	dns_proxy_table.sniproxy_num++;
+	return 0;
+
+errout:
+	if (conf) {
+		free(conf);
+	}
+	return -1;
+}
+
+struct dns_tproxy_server_conf *dns_conf_get_tproxy_server(const char *name)
+{
+	uint32_t key = hash_string(name);
+	struct dns_tproxy_server_conf *conf = NULL;
+
+	hash_for_each_possible(dns_proxy_table.tproxy, conf, node, key)
+	{
+		if (strncmp(conf->name, name, PROXY_NAME_LEN) == 0) {
+			return conf;
+		}
+	}
+
+	return NULL;
+}
+
+struct dns_sniproxy_server_conf *dns_conf_get_sniproxy_server(const char *name)
+{
+	uint32_t key = hash_string(name);
+	struct dns_sniproxy_server_conf *conf = NULL;
+
+	hash_for_each_possible(dns_proxy_table.sniproxy, conf, node, key)
+	{
+		if (strncmp(conf->name, name, PROXY_NAME_LEN) == 0) {
+			return conf;
+		}
+	}
+
+	return NULL;
+}
+
+static void _config_proxy_tproxy_table_destroy(void)
+{
+	struct dns_tproxy_server_conf *t_conf = NULL;
+	struct hlist_node *tmp = NULL;
+	unsigned long i = 0;
+
+	hash_for_each_safe(dns_proxy_table.tproxy, i, tmp, t_conf, node)
+	{
+		hlist_del_init(&t_conf->node);
+		free(t_conf);
+	}
+}
+
+static void _config_proxy_sniproxy_table_destroy(void)
+{
+	struct dns_sniproxy_server_conf *s_conf = NULL;
+	struct hlist_node *tmp = NULL;
+	unsigned long i = 0;
+
+	hash_for_each_safe(dns_proxy_table.sniproxy, i, tmp, s_conf, node)
+	{
+		hlist_del_init(&s_conf->node);
+		free(s_conf);
+	}
+}
+
+int _config_proxy_server_table_destroy(void)
+{
+	_config_proxy_sniproxy_table_destroy();
+	_config_proxy_tproxy_table_destroy();
+	return 0;
+}
+
+int dns_conf_tproxy_server_num(void)
+{
+	return dns_proxy_table.tproxy_num;
+}
+
+int dns_conf_sniproxy_server_num(void)
+{
+	return dns_proxy_table.sniproxy_num;
 }
