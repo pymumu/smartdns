@@ -213,7 +213,9 @@ int proxy_add(const char *proxy_name, struct proxy_info *info)
 	key = hash_string(server_info->proxy_name);
 	hash_add(proxy.proxy_server, &server_info->node, key);
 
-	freeaddrinfo(gai);
+	if (gai) {
+		freeaddrinfo(gai);
+	}
 	return 0;
 errout:
 	if (server_info) {

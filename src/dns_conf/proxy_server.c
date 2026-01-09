@@ -25,6 +25,8 @@
 #include <getopt.h>
 #include <unistd.h> // for access
 
+static int _default_so_mark = 1104;
+
 static enum firewall_type _detect_firewall_type_enum(void)
 {
 	if (check_tool("nft")) {
@@ -160,21 +162,31 @@ int _config_tproxy_server(void *data, int argc, char *argv[])
 	int opt = 0;
 	char *ip = NULL;
 	int speed_check = 0;
+	char firewall_type[32] = {0};
 
 	static struct option long_options[] = {{"name", required_argument, NULL, 'n'},
 										   {"proxy", required_argument, NULL, 'p'},
 										   {"group", required_argument, NULL, 'g'},
-										   {"firewall", required_argument, NULL, 'f'},
+										   {"firewall-type", required_argument, NULL, 'f'},
 										   {"udp", no_argument, NULL, 'u'},
 										   {"set-mark", required_argument, NULL, 'm'},
 										   {"outbound-tproxy", required_argument, NULL, 'o'},
 										   {"speed-check", required_argument, NULL, 's'},
 										   {"force-aaaa-soa", no_argument, NULL, 'F'},
+										   {"no-rule", no_argument, NULL, 'R'},
+										   {"no-server", no_argument, NULL, 'S'},
+										   {"no-rule-clean", no_argument, NULL, 'L'},
+										   {"remote-dns", no_argument, NULL, 'r'},
+										   {"rule-script", required_argument, NULL, 'C'},
+										   {"start-rule", required_argument, NULL, 'T'},
+										   {"stop-rule", required_argument, NULL, 'P'},
 										   {NULL, no_argument, NULL, 0}};
 
 	if (argc < 2) {
 		tlog(TLOG_ERROR, "invalid parameter, usage: tproxy-server [IP]:port -name name -proxy proxyname [-set-mark "
-						 "mark] [-outbound-tproxy enable|disable] [-speed-test yes|no|auto] [-force-aaaa-soa]");
+						 "mark] [-outbound-tproxy enable|disable] [-speed-test yes|no|auto] [-force-aaaa-soa] "
+						 "[-no-rule] [-no-server] [-no-rule-clean] [-remote-dns] [-rule-script script] [-start-rule command] [-stop-rule command] "
+						 "[-firewall-type none|auto|nftables|iptables|iptables-redirect|iptables-tproxy]");
 		return -1;
 	}
 
@@ -195,7 +207,7 @@ int _config_tproxy_server(void *data, int argc, char *argv[])
 
 	optind = 1;
 	while (1) {
-		opt = getopt_long_only(argc, argv, "n:p:g:f:u:m:o:s:", long_options, NULL);
+		opt = getopt_long_only(argc, argv, "n:p:g:f:u:m:o:s:FRSL:rC:TP:", long_options, NULL);
 		if (opt == -1) {
 			break;
 		}
@@ -211,7 +223,7 @@ int _config_tproxy_server(void *data, int argc, char *argv[])
 			safe_strncpy(conf->group_name, optarg, sizeof(conf->group_name));
 			break;
 		case 'f':
-			safe_strncpy(conf->firewall, optarg, sizeof(conf->firewall));
+			safe_strncpy(firewall_type, optarg, sizeof(firewall_type));
 			break;
 		case 'u':
 			conf->udp_support = 1;
@@ -244,6 +256,29 @@ int _config_tproxy_server(void *data, int argc, char *argv[])
 		case 'F':
 			conf->force_aaaa_soa = 1;
 			break;
+		case 'R':
+			conf->no_rules = 1;
+			break;
+		case 'S':
+			conf->no_server = 1;
+			break;
+		case 'L':
+			conf->no_rule_clean = 1;
+			break;
+		case 'r':
+			conf->remote_dns = 1;
+			break;
+		case 'C':
+			safe_strncpy(conf->rule_script, optarg, sizeof(conf->rule_script));
+			conf->no_rules = 1; // rule-script implies no internal rules
+			break;
+		case 'T':
+			safe_strncpy(conf->start_rule, optarg, sizeof(conf->start_rule));
+			conf->no_rules = 1; // start-rule implies no internal rules
+			break;
+		case 'P':
+			safe_strncpy(conf->stop_rule, optarg, sizeof(conf->stop_rule));
+			break;
 		default:
 			break;
 		}
@@ -254,29 +289,40 @@ int _config_tproxy_server(void *data, int argc, char *argv[])
 		goto errout;
 	}
 
-	if (conf->firewall[0] == '\0') {
-		safe_strncpy(conf->firewall, "auto", sizeof(conf->firewall));
+	if (firewall_type[0] == '\0') {
+		safe_strncpy(firewall_type, "auto", sizeof(firewall_type));
 	}
 
 	// Set firewall_type based on firewall string
-	if (strncmp(conf->firewall, "none", 4) == 0) {
+	if (strncmp(firewall_type, "none", sizeof("none") - 1) == 0) {
 		conf->firewall_type = FIREWALL_NONE;
-	} else if (strncmp(conf->firewall, "auto", 4) == 0) {
+	} else if (strncmp(firewall_type, "auto", sizeof("auto") - 1) == 0) {
 		conf->firewall_type = _detect_firewall_type_enum();
 		if (conf->firewall_type == FIREWALL_NONE) {
 			tlog(TLOG_WARN, "no firewall tool detected, disabling firewall for tproxy-server %s", conf->name);
 			conf->firewall_type = FIREWALL_NONE;
+		} else if (conf->firewall_type == FIREWALL_IPTABLES) {
+			// For iptables, choose redirect or tproxy based on UDP support
+			if (conf->udp_support) {
+				conf->firewall_type = FIREWALL_IPTABLES_TPROXY;
+			} else {
+				conf->firewall_type = FIREWALL_IPTABLES_REDIRECT;
+			}
 		}
-	} else if (strncmp(conf->firewall, "nftables", 8) == 0) {
+	} else if (strncmp(firewall_type, "nftables", sizeof("nftables") - 1) == 0) {
 		conf->firewall_type = FIREWALL_NFTABLES;
-	} else if (strncmp(conf->firewall, "iptables", 8) == 0) {
+	} else if (strncmp(firewall_type, "iptables-redirect", sizeof("iptables-redirect") - 1) == 0) {
+		conf->firewall_type = FIREWALL_IPTABLES_REDIRECT;
+	} else if (strncmp(firewall_type, "iptables-tproxy", sizeof("iptables-tproxy") - 1) == 0) {
+		conf->firewall_type = FIREWALL_IPTABLES_TPROXY;
+	} else if (strncmp(firewall_type, "iptables", sizeof("iptables") - 1) == 0) {
 		conf->firewall_type = FIREWALL_IPTABLES;
 	} else {
 		conf->firewall_type = FIREWALL_AUTO; // Default to auto, but should not happen
 	}
 
 	if (conf->so_mark == 0) {
-		conf->so_mark = 1;
+		conf->so_mark = _default_so_mark++;
 	}
 
 	if (speed_check == -1) {
@@ -397,7 +443,7 @@ int _config_sniproxy_server(void *data, int argc, char *argv[])
 	}
 
 	if (conf->so_mark == 0) {
-		conf->so_mark = 1;
+		conf->so_mark = _default_so_mark++;
 	}
 
 	if (speed_check == -1) {

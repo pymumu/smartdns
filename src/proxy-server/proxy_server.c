@@ -186,76 +186,12 @@ static struct dns_proxy_server dns_proxy_server;
 static int _proxy_server_setup_firewall_rules(void)
 {
 	struct dns_tproxy_server_conf *t_conf = NULL;
-	char ip[64];
-	char port[16];
 	unsigned long i;
-	int port_int;
 
 	hash_for_each(dns_proxy_table.tproxy, i, t_conf, node)
 	{
-		if (parse_ip(t_conf->server, ip, &port_int) != 0) {
-			if (ip[0] != '\0') {
-				tlog(TLOG_ERROR, "invalid tproxy server address: %s", t_conf->server);
-				return -1;
-			}
-			safe_strncpy(ip, "[::1]", sizeof(ip));
-		}
-		snprintf(port, sizeof(port), "%d", port_int);
-
-		if (t_conf->firewall_type == FIREWALL_NONE) {
-			continue;
-		}
-
-		// Initialize firewall set names
-		memset(&t_conf->nftset_names, 0, sizeof(t_conf->nftset_names));
-		memset(&t_conf->ipset_names, 0, sizeof(t_conf->ipset_names));
-
-		if (t_conf->firewall_type == FIREWALL_NFTABLES) {
-
-			_cleanup_nftables_rules(t_conf);
-	
-			// nftables
-			char ipv4_set_name[256];
-			char ipv6_set_name[256];
-
-			snprintf(ipv4_set_name, sizeof(ipv4_set_name), "%s", t_conf->name);
-			snprintf(ipv6_set_name, sizeof(ipv6_set_name), "%s", t_conf->name);
-
-			// IPv4
-			if (_setup_nftables_rules("smartdns", ipv4_set_name, ip, port, 0, t_conf->udp_support, t_conf->so_mark,
-									  t_conf) != 0) {
-				tlog(TLOG_ERROR, "failed to setup nftables rules for %s", t_conf->name);
-				return -1;
-			}
-
-			// IPv6
-			if (_setup_nftables_rules("smartdns", ipv6_set_name, ip, port, 1, t_conf->udp_support, t_conf->so_mark,
-									  t_conf) != 0) {
-				tlog(TLOG_ERROR, "failed to setup nftables rules for %s", t_conf->name);
-				return -1;
-			}
-		} else if (t_conf->firewall_type == FIREWALL_IPTABLES) {
-
-			_cleanup_iptables_rules(t_conf);
-
-			// iptables with ipset
-			char ipv4_set_name[256];
-			char ipv6_set_name[256];
-
-			snprintf(ipv4_set_name, sizeof(ipv4_set_name), "smartdns_ipv4_%s", t_conf->name);
-			snprintf(ipv6_set_name, sizeof(ipv6_set_name), "smartdns_ipv6_%s", t_conf->name);
-
-			// IPv4
-			if (_setup_iptables_rules(ipv4_set_name, ip, port, 0, t_conf->udp_support, t_conf->so_mark, t_conf) != 0) {
-				tlog(TLOG_ERROR, "failed to setup iptables rules for %s", t_conf->name);
-				return -1;
-			}
-
-			// IPv6
-			if (_setup_iptables_rules(ipv6_set_name, ip, port, 1, t_conf->udp_support, t_conf->so_mark, t_conf) != 0) {
-				tlog(TLOG_ERROR, "failed to setup iptables rules for %s", t_conf->name);
-				return -1;
-			}
+		if (firewall_setup_rules(t_conf) != 0) {
+			return -1;
 		}
 	}
 
@@ -270,17 +206,7 @@ static void _proxy_server_cleanup_firewall_rules(void)
 	// 遍历所有 tproxy-server
 	hash_for_each(dns_proxy_table.tproxy, i, t_conf, node)
 	{
-		if (t_conf->firewall_type == FIREWALL_NONE) {
-			continue;
-		}
-
-		if (t_conf->firewall_type == FIREWALL_NFTABLES) {
-			// nftables
-			_cleanup_nftables_rules(t_conf);
-		} else if (t_conf->firewall_type == FIREWALL_IPTABLES) {
-			// iptables
-			_cleanup_iptables_rules(t_conf);
-		}
+		firewall_cleanup_rules(t_conf);
 	}
 }
 
@@ -888,7 +814,8 @@ int tproxy_server_get_firewall_sets(const char *proxy_name, struct firewall_sets
 		if (t_conf->nftset_names.ip6_enable) {
 			sets->nftset_ipv6 = &t_conf->nftset_names.ip6;
 		}
-	} else if (t_conf->firewall_type == FIREWALL_IPTABLES) {
+	} else if (t_conf->firewall_type == FIREWALL_IPTABLES || t_conf->firewall_type == FIREWALL_IPTABLES_REDIRECT ||
+			   t_conf->firewall_type == FIREWALL_IPTABLES_TPROXY) {
 		// iptables: set pointers to embedded structures
 		if (t_conf->ipset_names.ipv4_enable) {
 			sets->ipset_ipv4 = &t_conf->ipset_names.ipv4;
@@ -1142,7 +1069,6 @@ static int _proxy_server_check_sniproxy_rule(struct proxy_server_conn *conn,
 
 	proxy_rule = (struct dns_proxy_rule *)sni_domain_rule->rules[DOMAIN_RULE_PROXY];
 	if (proxy_rule == NULL) {
-		tlog(TLOG_DEBUG, "no proxy rule found in domain rules");
 		return -1;
 	}
 
@@ -1190,7 +1116,6 @@ static int _proxy_server_check_tproxy_rule(struct proxy_server_conn *conn,
 
 	proxy_rule = (struct dns_proxy_rule *)sni_domain_rule->rules[DOMAIN_RULE_PROXY];
 	if (proxy_rule == NULL) {
-		tlog(TLOG_DEBUG, "no proxy rule found in domain rules");
 		return -1;
 	}
 
@@ -1557,7 +1482,17 @@ static int _proxy_server_conn_process_protocol(struct proxy_server_conn *conn)
 
 	safe_strncpy(conn->client.domain, query_domain, DNS_MAX_CNAME_LEN);
 	conn->client.proxy = proxy_server;
-	if (conn->client.remote_dns) {
+
+	union {
+		struct sockaddr_in sin;
+		struct sockaddr_in6 sin6;
+	} addr;
+
+	if (inet_pton(AF_INET, query_domain, &addr.sin.sin_addr) == 1 ||
+		inet_pton(AF_INET6, query_domain, &addr.sin6.sin6_addr) == 1) {
+		const char *ips[1] = {query_domain};
+		ret = _proxy_server_conn_start_all_conn(conn, proxy_server, ips, 1);
+	} else if (conn->client.remote_dns) {
 		ret = _proxy_server_conn_start_conn_proxy_server(conn, proxy_server, query_domain);
 	} else {
 		struct dns_server_query_option server_query_option;
@@ -2362,6 +2297,11 @@ static int _proxy_server_create_tproxy_sockets(void)
 	size_t i;
 	hash_for_each(dns_proxy_table.tproxy, i, t_conf, node)
 	{
+		// Skip if no_server is set
+		if (t_conf->no_server) {
+			continue;
+		}
+
 		int fd = -1;
 		struct proxy_server_conn *t_conn = NULL;
 		char host_ip[DNS_MAX_IPLEN + 8];
@@ -2397,6 +2337,7 @@ static int _proxy_server_create_tproxy_sockets(void)
 		safe_strncpy(t_conn->client.listener_name, t_conf->name, PROXY_NAME_LEN);
 		safe_strncpy(t_conn->client.proxy_name, t_conf->proxy_name, PROXY_NAME_LEN);
 		safe_strncpy(t_conn->client.group_name, t_conf->group_name, PROXY_NAME_LEN);
+		t_conn->client.remote_dns = t_conf->remote_dns;
 		t_conn->client.force_aaaa_soa = t_conf->force_aaaa_soa;
 		list_add_tail(&t_conn->list, &dns_proxy_server.listeners);
 
@@ -2471,8 +2412,7 @@ static int _proxy_server_socket(void)
 	}
 
 	return 0;
-errout:
-{
+errout: {
 	/* Clean up any listeners that were added */
 	struct proxy_server_conn *conn = NULL;
 	struct proxy_server_conn *tmp = NULL;
@@ -2599,23 +2539,19 @@ int proxy_server_init(void)
 		goto errout;
 	}
 
-	if (list_empty(&dns_proxy_server.listeners)) {
-		tlog(TLOG_ERROR, "no proxy server listener created.");
-		goto errout;
-	}
+	if (!list_empty(&dns_proxy_server.listeners)) {
+		/* start work task */
+		ret = pthread_create(&dns_proxy_server.tid, &attr, _proxy_server_work, NULL);
+		if (ret != 0) {
+			tlog(TLOG_ERROR, "create client work thread failed, %s\n", strerror(errno));
+			goto errout;
+		}
 
-	/* start work task */
-	ret = pthread_create(&dns_proxy_server.tid, &attr, _proxy_server_work, NULL);
-	if (ret != 0) {
-		tlog(TLOG_ERROR, "create client work thread failed, %s\n", strerror(errno));
-		goto errout;
+		if (_proxy_server_start() != 0) {
+			tlog(TLOG_ERROR, "start sni proxy server failed.");
+			goto errout;
+		}
 	}
-
-	if (_proxy_server_start() != 0) {
-		tlog(TLOG_ERROR, "start sni proxy server failed.");
-		goto errout;
-	}
-
 	is_proxy_server_init = 1;
 	return 0;
 errout:
@@ -2650,21 +2586,24 @@ void proxy_server_exit(void)
 	// 清理防火墙规则
 	_proxy_server_cleanup_firewall_rules();
 
-	if (dns_proxy_server.tid) {
-		void *ret = NULL;
-		atomic_set(&dns_proxy_server.run, 0);
-		struct proxy_server_conn *conn = NULL;
-		list_for_each_entry(conn, &dns_proxy_server.listeners, list)
-		{
-			shutdown(conn->fd, SHUT_RDWR);
+	if (!list_empty(&dns_proxy_server.listeners)) {
+		tlog(TLOG_INFO, "shutting down proxy server...");
+		if (dns_proxy_server.tid) {
+			void *ret = NULL;
+			atomic_set(&dns_proxy_server.run, 0);
+			struct proxy_server_conn *conn = NULL;
+			list_for_each_entry(conn, &dns_proxy_server.listeners, list)
+			{
+				shutdown(conn->fd, SHUT_RDWR);
+			}
+			pthread_join(dns_proxy_server.tid, &ret);
+			dns_proxy_server.tid = 0;
 		}
-		pthread_join(dns_proxy_server.tid, &ret);
-		dns_proxy_server.tid = 0;
-	}
 
-	_proxy_server_close();
-	_proxy_server_conn_close_all();
-	_proxy_server_free_proxy_cache();
+		_proxy_server_close();
+		_proxy_server_conn_close_all();
+		_proxy_server_free_proxy_cache();
+	}
 
 	if (dns_proxy_server.epoll_fd > 0) {
 		close(dns_proxy_server.epoll_fd);

@@ -53,7 +53,9 @@ enum firewall_type {
 	FIREWALL_NONE,
 	FIREWALL_AUTO,
 	FIREWALL_NFTABLES,
-	FIREWALL_IPTABLES
+	FIREWALL_IPTABLES,
+	FIREWALL_IPTABLES_REDIRECT,
+	FIREWALL_IPTABLES_TPROXY
 };
 #define DNS_PROXY_MAX_LEN 128
 #define DNS_CONF_USERNAME_LEN 32
@@ -464,13 +466,19 @@ struct dns_tproxy_server_conf {
 	char server[DNS_MAX_IPLEN];
 	char proxy_name[PROXY_NAME_LEN];
 	char group_name[PROXY_NAME_LEN];
-	char firewall[16];
 	enum firewall_type firewall_type;
 	int udp_support;
 	int so_mark;
 	int output_chain_enable;
 	int speed_check;
 	int force_aaaa_soa;
+	int no_rules;
+	int no_server;
+	int no_rule_clean;
+	int remote_dns;
+	char rule_script[2048];
+	char start_rule[2048];
+	char stop_rule[2048];
 	struct dns_nftset_names nftset_names;
 	struct dns_ipset_names ipset_names;
 };
