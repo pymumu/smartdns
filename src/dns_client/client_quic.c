@@ -602,16 +602,16 @@ static int _dns_client_quic_pending_data(struct dns_conn_stream *stream, struct 
 		goto errout;
 	}
 
+	stream->server_info = server_info;
 	if (list_empty(&stream->server_list)) {
 		list_add_tail(&stream->server_list, &server_info->conn_stream_list);
 		_dns_client_conn_stream_get(stream);
 	}
-	stream->server_info = server_info;
 
 	if (list_empty(&stream->query_list)) {
 		pthread_mutex_lock(&query->lock);
-		list_add_tail(&stream->query_list, &query->conn_stream_list);
 		stream->query = query;
+		list_add_tail(&stream->query_list, &query->conn_stream_list);
 		pthread_mutex_unlock(&query->lock);
 		_dns_client_conn_stream_get(stream);
 	}
@@ -703,13 +703,13 @@ int _dns_client_send_quic_data(struct dns_query_struct *query, struct dns_server
 	}
 
 	pthread_mutex_lock(&server_info->lock);
+	stream->server_info = server_info;
 	list_add_tail(&stream->server_list, &server_info->conn_stream_list);
 	_dns_client_conn_stream_get(stream);
-	stream->server_info = server_info;
 
 	pthread_mutex_lock(&query->lock);
-	list_add_tail(&stream->query_list, &query->conn_stream_list);
 	stream->query = query;
+	list_add_tail(&stream->query_list, &query->conn_stream_list);
 	pthread_mutex_unlock(&query->lock);
 	_dns_client_conn_stream_get(stream);
 	pthread_mutex_unlock(&server_info->lock);
