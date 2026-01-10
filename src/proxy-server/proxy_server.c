@@ -2375,9 +2375,11 @@ static int _proxy_server_create_sniproxy_sockets(void)
 
 		// Set SO_MARK to match the firewall rule mark
 		unsigned int so_mark = s_conf->so_mark;
-		if (setsockopt(fd, SOL_SOCKET, SO_MARK, &so_mark, sizeof(so_mark)) != 0) {
-			tlog(TLOG_ERROR, "set SO_MARK failed (requires root privileges), %s", strerror(errno));
-			goto errout;
+		if (so_mark > 0) {
+			if (setsockopt(fd, SOL_SOCKET, SO_MARK, &so_mark, sizeof(so_mark)) != 0) {
+				tlog(TLOG_ERROR, "set SO_MARK failed (requires root privileges), %s", strerror(errno));
+				goto errout;
+			}
 		}
 
 		s_conn = _proxy_server_conn_new(PROXY_SERVER_CONN_SNIPROXY_SERVER);

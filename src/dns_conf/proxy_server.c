@@ -455,10 +455,6 @@ int _config_sniproxy_server(void *data, int argc, char *argv[])
 		free(old_conf);
 	}
 
-	if (conf->so_mark == 0) {
-		conf->so_mark = _default_so_mark++;
-	}
-
 	if (speed_check == -1) {
 		// Auto-detect speed check based on proxy servers
 		conf->speed_check = _config_proxy_detect_speed_check(conf->proxy_name);
