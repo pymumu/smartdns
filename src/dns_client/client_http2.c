@@ -116,17 +116,6 @@ static void _dns_client_release_stream_on_error(struct dns_server_info *server_i
 		_dns_client_conn_stream_put(stream);
 	}
 
-	/* Remove from query list and release reference */
-	if (!list_empty(&stream->query_list)) {
-		if (stream->query) {
-			pthread_mutex_lock(&stream->query->lock);
-			list_del_init(&stream->query_list);
-			pthread_mutex_unlock(&stream->query->lock);
-			stream->query = NULL;
-		}
-		_dns_client_conn_stream_put(stream);
-	}
-
 	pthread_mutex_unlock(&server_info->lock);
 
 	/* Release the initial reference from creation */
