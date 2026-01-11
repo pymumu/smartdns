@@ -84,6 +84,8 @@ proxy_handshake_state proxy_conn_handshake(struct proxy_conn *proxy_conn);
 
 int proxy_conn_get_last_error(struct proxy_conn *proxy_conn);
 
+const char *proxy_handshake_error_to_string(int error_code);
+
 int proxy_conn_is_ipv6_target(struct proxy_conn *proxy_conn);
 
 #ifdef __cplusplus

@@ -916,6 +916,7 @@ static int _proxy_handshake_http(struct proxy_conn *proxy_conn)
 		}
 
 		if (http_head_get_httpcode(http_head) != 200) {
+			proxy_conn->last_error = http_head_get_httpcode(http_head);
 			tlog(TLOG_WARN, "http server %s query failed, server return http code : %d, %s",
 				 proxy_conn->server_info->proxy_name, http_head_get_httpcode(http_head),
 				 http_head_get_httpcode_msg(http_head));
@@ -1190,4 +1191,51 @@ int proxy_conn_is_ipv6_target(struct proxy_conn *proxy_conn)
 	}
 
 	return check_is_ipv6(proxy_conn->host) == 0;
+}
+
+const char *proxy_handshake_error_to_string(int error_code)
+{
+	if (error_code >= 100 && error_code < 600) {
+		switch (error_code) {
+		case 403:
+			return "HTTP Forbidden";
+		case 404:
+			return "HTTP Not Found";
+		case 407:
+			return "HTTP Proxy Authentication Required";
+		case 502:
+			return "HTTP Bad Gateway";
+		case 503:
+			return "HTTP Service Unavailable";
+		case 504:
+			return "HTTP Gateway Timeout";
+		default:
+			return "HTTP Error";
+		}
+	}
+
+	switch (error_code) {
+	case 0x00:
+		return "succeeded";
+	case 0x01:
+		return "general SOCKS server failure";
+	case 0x02:
+		return "connection not allowed by ruleset";
+	case 0x03:
+		return "Network unreachable";
+	case 0x04:
+		return "Host unreachable";
+	case 0x05:
+		return "Connection refused";
+	case 0x06:
+		return "TTL expired";
+	case 0x07:
+		return "Command not supported";
+	case 0x08:
+		return "Address type not supported";
+	case 0xFF:
+		return "unassigned";
+	default:
+		return "unknown error";
+	}
 }

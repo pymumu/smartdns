@@ -1880,7 +1880,8 @@ static int _proxy_server_remote_handshake(struct proxy_server_conn *conn, struct
 		return 1;
 	}
 
-	tlog(TLOG_ERROR, "proxy handshake failed, state=%d", state);
+	int last_error = proxy_conn_get_last_error(conn->remote.pconn);
+	tlog(TLOG_ERROR, "proxy handshake failed, state=%d, error=%s", state, proxy_handshake_error_to_string(last_error));
 	if (_proxy_server_handshake_fallback(conn, state) == 1) {
 		return -2;
 	}
