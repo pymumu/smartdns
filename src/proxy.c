@@ -855,7 +855,8 @@ static int _proxy_handshake_http(struct proxy_conn *proxy_conn)
 				   sizeof(proxy_conn->buffer.buffer), 0);
 		if (len <= 0) {
 			if (errno == EAGAIN || errno == EWOULDBLOCK) {
-				return PROXY_HANDSHAKE_WANT_READ;
+				ret = PROXY_HANDSHAKE_WANT_READ;
+				goto out;
 			}
 
 			if (len == 0) {
