@@ -80,7 +80,7 @@ const char *SCRIPT_IPTABLES_TPROXY_SETUP =
 	"    ip ${family_opt} rule add fwmark ${mark} lookup ${mark}\n"
 	"fi\n"
 	// IP Route: Avoid duplicates
-	"if ! ip ${family_opt} route show table ${mark} | grep -q 'local'; then\n"
+	"if ! ip ${family_opt} route show table ${mark} 2>/dev/null | grep -q 'local'; then\n"
 	"    ip ${family_opt} route add local ${local_range} dev lo table ${mark}\n"
 	"fi\n"
 	// Define Helper Args

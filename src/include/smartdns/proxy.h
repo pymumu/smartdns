@@ -82,6 +82,10 @@ int proxy_conn_recvfrom(struct proxy_conn *proxy_conn, void *buf, size_t len, in
 
 proxy_handshake_state proxy_conn_handshake(struct proxy_conn *proxy_conn);
 
+int proxy_conn_get_last_error(struct proxy_conn *proxy_conn);
+
+int proxy_conn_is_ipv6_target(struct proxy_conn *proxy_conn);
+
 #ifdef __cplusplus
 }
 #endif /*__cplusplus */

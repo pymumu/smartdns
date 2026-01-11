@@ -644,6 +644,7 @@ static struct proxy_server_conn *_proxy_server_conn_open_remote(struct proxy_ser
 	remote->fd = proxy_conn_get_fd(pconn);
 	remote->remote.pconn = pconn;
 	remote->remote.peer = client;
+	client->client.retry_all_server = 0;
 	_proxy_server_conn_get(client);
 	remote->conn_state = PROXY_SERVER_CONN_STAT_CONNECTING;
 	remote->timeout = PROXY_SERVER_CONN_TIMEOUT;
@@ -694,7 +695,9 @@ static void _proxy_server_conn_remote_shutdown(struct proxy_server_conn *conn)
 			pthread_mutex_lock(&client->client.peer_list_lock);
 			list_del_init(&conn->remote.peer_list);
 			if (client->client.peer == conn || list_empty(&client->client.peer_list_head)) {
-				shutdown(client->fd, SHUT_RDWR);
+				if (client->client.retry_all_server == 0) {
+					shutdown(client->fd, SHUT_RDWR);
+				}
 				client->client.peer = NULL;
 			}
 			pthread_mutex_unlock(&client->client.peer_list_lock);
@@ -1293,10 +1296,14 @@ static int _proxy_server_get_domain_ip(const struct dns_result *result, void *us
 			memset(&server_query_option, 0, sizeof(server_query_option));
 			server_query_option.dns_group_name = conn->client.group_name;
 			server_query_option.server_flags = BIND_FLAG_NO_SPEED_CHECK | BIND_FLAG_NO_DUALSTACK_SELECTION;
+			if (conn->client.force_aaaa_soa) {
+				server_query_option.server_flags |= BIND_FLAG_FORCE_AAAA_SOA;
+			}
 
 			tlog(TLOG_DEBUG, "fallback query domain %s A, group %s", result->domain, conn->client.group_name);
 			ret = dns_server_query(result->domain, DNS_T_A, &server_query_option, _proxy_server_get_domain_ip, conn);
 			if (ret != 0) {
+				conn->client.retry_all_server = 0;
 				_proxy_server_conn_put(conn);
 			}
 
@@ -1354,6 +1361,7 @@ static int _proxy_server_get_domain_ip(const struct dns_result *result, void *us
 
 			ret = dns_server_query(result->domain, DNS_T_A, &server_query_option, _proxy_server_get_domain_ip, conn);
 			if (ret != 0) {
+				conn->client.retry_all_server = 0;
 				_proxy_server_conn_put(conn);
 			}
 
@@ -1372,17 +1380,49 @@ errout:
 	return -1;
 }
 
+static int _proxy_server_conn_query_domain(struct proxy_server_conn *conn, const char *domain)
+{
+	struct dns_server_query_option server_query_option;
+
+	memset(&server_query_option, 0, sizeof(server_query_option));
+	server_query_option.dns_group_name = conn->client.group_name;
+	server_query_option.server_flags = BIND_FLAG_NO_SPEED_CHECK | BIND_FLAG_NO_DUALSTACK_SELECTION;
+	if (conn->client.force_aaaa_soa) {
+		server_query_option.server_flags |= BIND_FLAG_FORCE_AAAA_SOA;
+	}
+
+	tlog(TLOG_DEBUG, "starting local resolution for domain %s, group %s", domain, conn->client.group_name);
+	_proxy_server_conn_get(conn);
+	int ret = dns_server_query(domain, DNS_T_AAAA, &server_query_option, _proxy_server_get_domain_ip, conn);
+	if (ret != 0) {
+		conn->client.retry_all_server = 0;
+		_proxy_server_conn_put(conn);
+	}
+	return ret;
+}
+
 static int _proxy_server_conn_start_conn_proxy_server(struct proxy_server_conn *conn, struct proxy_server *proxy_server,
 													  char *query_domain)
 {
+	int ret = 0;
 	if (proxy_server == NULL) {
 		return -1;
+	}
+
+	if (!conn->client.remote_dns) {
+		tlog(TLOG_DEBUG, "retry connection with local resolution for domain %s via proxy %s", query_domain,
+			 proxy_server->proxy_name);
+		return _proxy_server_conn_query_domain(conn, query_domain);
 	}
 
 	tlog(TLOG_DEBUG, "starting connection for domain %s via proxy %s", query_domain, proxy_server->proxy_name);
 
 	/* Directly start connection - proxy.h will handle all proxy logic */
-	return _proxy_server_conn_start_all_conn(conn, proxy_server, NULL, 0);
+	ret = _proxy_server_conn_start_all_conn(conn, proxy_server, NULL, 0);
+	if (ret != 0) {
+		conn->client.retry_all_server = 0;
+	}
+	return ret;
 }
 
 static int _proxy_server_conn_process_protocol(struct proxy_server_conn *conn)
@@ -1495,20 +1535,7 @@ static int _proxy_server_conn_process_protocol(struct proxy_server_conn *conn)
 	} else if (conn->client.remote_dns) {
 		ret = _proxy_server_conn_start_conn_proxy_server(conn, proxy_server, query_domain);
 	} else {
-		struct dns_server_query_option server_query_option;
-		memset(&server_query_option, 0, sizeof(server_query_option));
-		server_query_option.dns_group_name = conn->client.group_name;
-		server_query_option.server_flags = BIND_FLAG_NO_SPEED_CHECK | BIND_FLAG_NO_DUALSTACK_SELECTION;
-		if (conn->client.force_aaaa_soa) {
-			server_query_option.server_flags |= BIND_FLAG_FORCE_AAAA_SOA;
-		}
-
-		tlog(TLOG_DEBUG, "starting local resolution for domain %s, group %s", query_domain, conn->client.group_name);
-		_proxy_server_conn_get(conn);
-		ret = dns_server_query(query_domain, DNS_T_AAAA, &server_query_option, _proxy_server_get_domain_ip, conn);
-		if (ret != 0) {
-			_proxy_server_conn_put(conn);
-		}
+		ret = _proxy_server_conn_query_domain(conn, query_domain);
 	}
 	if (ret != 0) {
 		shutdown(conn->fd, SHUT_RDWR);
@@ -1726,14 +1753,74 @@ static int _proxy_server_retry_all_server(struct proxy_server_conn *remote)
 	}
 
 	client->client.peer = NULL;
-	/* Removed best_server tracking */
-	client->client.retry_all_server = 0;
 	ret = _proxy_server_conn_start_conn_proxy_server(client, client->client.proxy, client->client.domain);
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "retry connect all proxy server failed.");
 	}
 
 	return ret;
+}
+
+static int _proxy_server_handshake_fallback(struct proxy_server_conn *conn, int state)
+{
+	if (state != PROXY_HANDSHAKE_ERR) {
+		return 0;
+	}
+
+	int last_error = proxy_conn_get_last_error(conn->remote.pconn);
+	/* Check for SOCKS5 "Host unreachable" (0x04) */
+	if (last_error != 0x04) {
+		return 0;
+	}
+
+	/* Check if target is IPv6 */
+	if (!proxy_conn_is_ipv6_target(conn->remote.pconn)) {
+		return 0;
+	}
+
+	struct proxy_server_conn *client = conn->remote.peer;
+	if (client && (client->client.listener_type == PROXY_SERVER_CONN_TPROXY_SERVER ||
+				   client->client.listener_type == PROXY_SERVER_CONN_SNIPROXY_SERVER)) {
+		const char *listener_name = client->client.listener_name;
+		int updated = 0;
+
+		if (client->client.listener_type == PROXY_SERVER_CONN_TPROXY_SERVER) {
+			struct dns_tproxy_server_conf *t_conf = dns_conf_get_tproxy_server(listener_name);
+			if (t_conf && t_conf->force_aaaa_soa == 0) {
+				t_conf->force_aaaa_soa = 1;
+				updated = 1;
+			}
+		} else {
+			struct dns_sniproxy_server_conf *s_conf = dns_conf_get_sniproxy_server(listener_name);
+			if (s_conf && s_conf->force_aaaa_soa == 0) {
+				s_conf->force_aaaa_soa = 1;
+				updated = 1;
+			}
+		}
+
+		if (updated) {
+			tlog(TLOG_WARN,
+				 "SOCKS5 server returned 'Host unreachable' for IPv6 target. "
+				 "Forcing force-aaaa-soa=yes for %s '%s' to disable IPv6 resolution. "
+				 "Please configure 'force-aaaa-soa yes' in your config.",
+				 (client->client.listener_type == PROXY_SERVER_CONN_TPROXY_SERVER) ? "tproxy-server" : "sni-proxy",
+				 listener_name);
+
+			/* Propagate to all matching listeners and update the current client */
+			struct proxy_server_conn *l_conn = NULL;
+			list_for_each_entry(l_conn, &dns_proxy_server.listeners, list)
+			{
+				if (l_conn->type == client->client.listener_type &&
+					strcmp(l_conn->client.listener_name, listener_name) == 0) {
+					l_conn->client.force_aaaa_soa = 1;
+				}
+			}
+			client->client.force_aaaa_soa = 1;
+			client->client.retry_all_server = 1;
+			return 1;
+		}
+	}
+	return 0;
 }
 
 static int _proxy_server_remote_handshake(struct proxy_server_conn *conn, struct epoll_event *event)
@@ -1794,6 +1881,9 @@ static int _proxy_server_remote_handshake(struct proxy_server_conn *conn, struct
 	}
 
 	tlog(TLOG_ERROR, "proxy handshake failed, state=%d", state);
+	if (_proxy_server_handshake_fallback(conn, state) == 1) {
+		return -2;
+	}
 	return -1;
 }
 
@@ -1812,6 +1902,8 @@ static int _proxy_server_process_conn_remote(struct proxy_server_conn *conn, str
 	ret = _proxy_server_remote_handshake(conn, event);
 	if (ret == 1) {
 		return 0;
+	} else if (ret == -2) {
+		goto errout1;
 	} else if (ret <= -1) {
 		goto errout;
 	}

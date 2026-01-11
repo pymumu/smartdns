@@ -90,6 +90,7 @@ struct proxy_conn {
 	struct proxy_server_info *server_info;
 	struct sockaddr_storage addr;
 	socklen_t addrlen;
+	int last_error;
 };
 
 /* upstream server groups */
@@ -711,6 +712,7 @@ static proxy_handshake_state _proxy_handshake_socks5(struct proxy_conn *proxy_co
 		}
 
 		if (recv_buff[1] != 0) {
+			proxy_conn->last_error = recv_buff[1];
 			if (recv_buff[1] <= (sizeof(proxy_socks5_status_code) / sizeof(proxy_socks5_status_code[0]))) {
 				PROXY_THROTTLED_ERROR_LOG(last_error_log_time, "server %s reply failed, error-code: %s",
 										  proxy_conn->server_info->proxy_name,
@@ -1170,4 +1172,22 @@ void proxy_exit(void)
 	is_proxy_init = 0;
 
 	return;
+}
+
+int proxy_conn_get_last_error(struct proxy_conn *proxy_conn)
+{
+	if (proxy_conn == NULL) {
+		return 0;
+	}
+
+	return proxy_conn->last_error;
+}
+
+int proxy_conn_is_ipv6_target(struct proxy_conn *proxy_conn)
+{
+	if (proxy_conn == NULL) {
+		return 0;
+	}
+
+	return check_is_ipv6(proxy_conn->host) == 0;
 }

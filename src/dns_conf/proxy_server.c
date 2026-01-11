@@ -37,8 +37,6 @@ static enum firewall_type _detect_firewall_type_enum(void)
 	return FIREWALL_NONE;
 }
 
-
-
 static int _config_proxy_detect_speed_check(const char *proxy_name)
 {
 	struct dns_proxy_servers *server;
@@ -301,9 +299,9 @@ int _config_tproxy_server(void *data, int argc, char *argv[])
 	}
 
 	// Set firewall_type based on firewall string
-	if (strncmp(firewall_type, "none", sizeof("none") - 1) == 0) {
+	if (strcmp(firewall_type, "none") == 0) {
 		conf->firewall_type = FIREWALL_NONE;
-	} else if (strncmp(firewall_type, "auto", sizeof("auto") - 1) == 0) {
+	} else if (strcmp(firewall_type, "auto") == 0) {
 		conf->firewall_type = _detect_firewall_type_enum();
 		if (conf->firewall_type == FIREWALL_NONE) {
 			tlog(TLOG_WARN, "no firewall tool detected, disabling firewall for tproxy-server %s", conf->name);
@@ -316,14 +314,14 @@ int _config_tproxy_server(void *data, int argc, char *argv[])
 				conf->firewall_type = FIREWALL_IPTABLES_REDIRECT;
 			}
 		}
-	} else if (strncmp(firewall_type, "nftables", sizeof("nftables") - 1) == 0) {
+	} else if (strcmp(firewall_type, "nftables") == 0) {
 		conf->firewall_type = FIREWALL_NFTABLES;
-	} else if (strncmp(firewall_type, "iptables-redirect", sizeof("iptables-redirect") - 1) == 0) {
-		conf->firewall_type = FIREWALL_IPTABLES_REDIRECT;
-	} else if (strncmp(firewall_type, "iptables-tproxy", sizeof("iptables-tproxy") - 1) == 0) {
-		conf->firewall_type = FIREWALL_IPTABLES_TPROXY;
-	} else if (strncmp(firewall_type, "iptables", sizeof("iptables") - 1) == 0) {
-		conf->firewall_type = FIREWALL_IPTABLES;
+	} else if (strcmp(firewall_type, "iptables") == 0) {
+		if (conf->udp_support) {
+			conf->firewall_type = FIREWALL_IPTABLES_TPROXY;
+		} else {
+			conf->firewall_type = FIREWALL_IPTABLES_REDIRECT;
+		}
 	} else {
 		tlog(TLOG_ERROR, "invalid firewall type %s", firewall_type);
 		goto errout;
