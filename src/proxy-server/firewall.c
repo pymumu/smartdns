@@ -27,26 +27,36 @@ static int _prepare_firewall_names(struct dns_tproxy_server_conf *t_conf);
 // clang-format off
 const char *SCRIPT_NFTABLES_SETUP =
 	"set -e\n"
+	// IP Rule: Avoid duplicates
+	"if ! ip ${family_opt} rule show | grep -q 'fwmark ${mark}'; then\n"
+	"    ip ${family_opt} rule add fwmark ${mark} lookup ${mark}\n"
+	"fi\n"
+	// IP Route: Avoid duplicates
+	"if ! ip ${family_opt} route show table ${mark} 2>/dev/null | grep -q 'local'; then\n"
+	"    ip ${family_opt} route add local ${local_range} dev lo table ${mark}\n"
+	"fi\n"
 	"nft add table ${family} ${table_name}\n"
-	"nft add set ${family} ${table_name} ${set_name} { type ${addr_type}; flags interval; auto-merge; }\n"
-	"nft add chain ${family} ${table_name} ${chain_name} { type filter hook prerouting priority mangle; }\n"
-	"nft add rule ${family} ${table_name} ${chain_name} meta l4proto tcp ${daddr} @${set_name} tproxy to ${tproxy_addr} mark set ${mark}\n"
+	"nft add set ${family} ${table_name} ${set_name} '{ type ${addr_type}; flags interval; auto-merge; }'\n"
+	"nft add chain ${family} ${table_name} ${chain_name} '{ type filter hook prerouting priority mangle; }'\n"
+	"nft add rule ${family} ${table_name} ${chain_name} iifname != \"lo\" meta l4proto tcp ${daddr} @${set_name} tproxy to ${tproxy_addr} mark set ${mark} accept\n"
 	// Optional UDP
 	"if [ \"${udp_support}\" = \"1\" ]; then\n"
-	"    nft add rule ${family} ${table_name} ${chain_name} meta l4proto udp ${daddr} @${set_name} tproxy to ${tproxy_addr} mark set ${mark}\n"
+	"    nft add rule ${family} ${table_name} ${chain_name} iifname != \"lo\" meta l4proto udp ${daddr} @${set_name} tproxy to ${tproxy_addr} mark set ${mark} accept\n"
 	"fi\n"
 	// Output Chain (Conditional)
 	"if [ \"${output_chain_enable}\" = \"1\" ]; then\n"
 	"    OUTPUT_CHAIN=\"${chain_name}_output\"\n"
-	"    nft add chain ${family} ${table_name} ${OUTPUT_CHAIN} { type filter hook output priority mangle; }\n"
-	"    nft add rule ${family} ${table_name} ${OUTPUT_CHAIN} meta l4proto tcp ${daddr} @${set_name} tproxy to ${tproxy_addr} mark set ${mark}\n"
+	"    nft add chain ${family} ${table_name} ${OUTPUT_CHAIN} '{ type filter hook output priority mangle; }'\n"
+	"    nft add rule ${family} ${table_name} ${OUTPUT_CHAIN} meta l4proto tcp ${daddr} @${set_name} tproxy to ${tproxy_addr} mark set ${mark} accept\n"
 	"    if [ \"${udp_support}\" = \"1\" ]; then\n"
-	"        nft add rule ${family} ${table_name} ${OUTPUT_CHAIN} meta l4proto udp ${daddr} @${set_name} tproxy to ${tproxy_addr} mark set ${mark}\n"
+	"        nft add rule ${family} ${table_name} ${OUTPUT_CHAIN} meta l4proto udp ${daddr} @${set_name} tproxy to ${tproxy_addr} mark set ${mark} accept\n"
 	"    fi\n"
 	"fi\n";
 
 const char *SCRIPT_NFTABLES_CLEANUP =
-	"nft delete table ${family} ${table_name} 2>/dev/null || true\n";
+	"nft delete table ${family} ${table_name} 2>/dev/null || true\n"
+	"ip ${family_opt} route del local ${local_range} dev lo table ${mark} 2>/dev/null || true\n"
+	"ip ${family_opt} rule del fwmark ${mark} lookup ${mark} 2>/dev/null || true\n";
 
 const char *SCRIPT_IPTABLES_REDIRECT_SETUP =
 	"set -e\n"
@@ -221,12 +231,20 @@ static int _run_shell_script_wrap(const char *script, int timeout)
 	return run_shell_script(script, timeout);
 }
 
-static void _cleanup_nftables_family(const char *family, const char *table_name)
+static void _cleanup_nftables_family(const char *family, const char *table_name, const char *family_opt,
+									const char *local_range, int mark)
 {
 	if (table_name == NULL)
 		return;
 	char script[4096];
-	struct script_param params[] = {{"family", family}, {"table_name", table_name}};
+	char mark_str[32];
+	snprintf(mark_str, sizeof(mark_str), "%d", mark);
+
+	struct script_param params[] = {{"family", family},
+									{"table_name", table_name},
+									{"family_opt", family_opt},
+									{"local_range", local_range},
+									{"mark", mark_str}};
 	if (_resolve_script_params(SCRIPT_NFTABLES_CLEANUP, params, sizeof(params) / sizeof(params[0]), script,
 							   sizeof(script)) == 0) {
 		_run_shell_script_wrap(script, 3000);
@@ -247,6 +265,8 @@ int _setup_nftables_rules(const char *table_name, const char *set_name, const ch
 	const char *ip_family = is_ipv6 ? "ip6" : "ip";
 	const char *addr_type = is_ipv6 ? "ipv6_addr" : "ipv4_addr";
 	const char *daddr = is_ipv6 ? "ip6 daddr" : "ip daddr";
+	const char *family_opt = is_ipv6 ? "-6" : "";
+	const char *local_range = is_ipv6 ? "::/0" : "0.0.0.0/0";
 
 	// Get nftset from pre-prepared configuration
 	const struct dns_nftset_rule *nftset;
@@ -261,7 +281,7 @@ int _setup_nftables_rules(const char *table_name, const char *set_name, const ch
 	}
 
 	// Clean up existing rules first (only for this family)
-	_cleanup_nftables_family(ip_family, table_name);
+	_cleanup_nftables_family(ip_family, table_name, family_opt, local_range, so_mark);
 
 	// Parse IP address
 	if (_parse_tproxy_ip(ip, port, is_ipv6, tproxy_ip, sizeof(tproxy_ip)) != 0) {
@@ -284,7 +304,9 @@ int _setup_nftables_rules(const char *table_name, const char *set_name, const ch
 									{"tproxy_addr", tproxy_addr},
 									{"mark", mark_str},
 									{"udp_support", udp_support_str},
-									{"output_chain_enable", output_chain_enable_str}};
+									{"output_chain_enable", output_chain_enable_str},
+									{"family_opt", family_opt},
+									{"local_range", local_range}};
 
 	if (_resolve_script_params(SCRIPT_NFTABLES_SETUP, params, sizeof(params) / sizeof(params[0]), script,
 							   sizeof(script)) != 0) {
@@ -391,10 +413,10 @@ int _setup_iptables_tproxy_rules(const char *set_name, const char *ip, const cha
 void _cleanup_nftables_rules(struct dns_tproxy_server_conf *t_conf)
 {
 	if (t_conf->nftset_names.ip.nfttablename) {
-		_cleanup_nftables_family("ip", t_conf->nftset_names.ip.nfttablename);
+		_cleanup_nftables_family("ip", t_conf->nftset_names.ip.nfttablename, "", "0.0.0.0/0", t_conf->so_mark);
 	}
 	if (t_conf->nftset_names.ip6.nfttablename) {
-		_cleanup_nftables_family("ip6", t_conf->nftset_names.ip6.nfttablename);
+		_cleanup_nftables_family("ip6", t_conf->nftset_names.ip6.nfttablename, "-6", "::/0", t_conf->so_mark);
 	}
 }
 

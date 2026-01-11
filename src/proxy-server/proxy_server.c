@@ -2205,19 +2205,82 @@ static void *_proxy_server_work(void *arg)
 	return NULL;
 }
 
-static int _proxy_server_create_socket(const char *host_ip, int default_port, int type, int tproxy)
+static int _proxy_server_bind_socket_addr(struct addrinfo *gai, int tproxy)
 {
 	int fd = -1;
+	int optval = 1;
+	int yes = 1;
+	const int priority = 6;
+	const int ip_tos = IPTOS_LOWDELAY | IPTOS_RELIABILITY;
+
+	fd = socket(gai->ai_family, gai->ai_socktype, gai->ai_protocol);
+	if (fd < 0) {
+		tlog(TLOG_ERROR, "create socket failed, family = %d, type = %d, proto = %d, %s\n", gai->ai_family,
+			 gai->ai_socktype, gai->ai_protocol, strerror(errno));
+		return -1;
+	}
+
+	if (gai->ai_socktype == SOCK_STREAM) {
+		if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) != 0) {
+			tlog(TLOG_ERROR, "set socket opt failed.");
+			goto errout;
+		}
+		/* enable TCP_FASTOPEN */
+		setsockopt(fd, SOL_TCP, TCP_FASTOPEN, &optval, sizeof(optval));
+		setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
+	} else {
+		setsockopt(fd, IPPROTO_IP, IP_PKTINFO, &optval, sizeof(optval));
+		setsockopt(fd, IPPROTO_IPV6, IPV6_RECVPKTINFO, &optval, sizeof(optval));
+	}
+
+	if (gai->ai_family == AF_INET6) {
+		setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &yes, sizeof(yes));
+	}
+
+	if (tproxy) {
+		if (setsockopt(fd, SOL_IP, IP_TRANSPARENT, &yes, sizeof(yes)) != 0) {
+			tlog(TLOG_ERROR, "set IP_TRANSPARENT failed (requires root privileges), %s", strerror(errno));
+		}
+		// Try IPv6 transparent
+		setsockopt(fd, SOL_IPV6, IPV6_TRANSPARENT, &yes, sizeof(yes));
+	}
+	setsockopt(fd, SOL_SOCKET, SO_PRIORITY, &priority, sizeof(priority));
+	setsockopt(fd, IPPROTO_IP, IP_TOS, &ip_tos, sizeof(ip_tos));
+	if (dns_conf.dns_socket_buff_size > 0) {
+		setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &dns_conf.dns_socket_buff_size, sizeof(dns_conf.dns_socket_buff_size));
+		setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &dns_conf.dns_socket_buff_size, sizeof(dns_conf.dns_socket_buff_size));
+	}
+
+	if (bind(fd, gai->ai_addr, gai->ai_addrlen) != 0) {
+		tlog(TLOG_ERROR, "bind failed, %s\n", strerror(errno));
+		goto errout;
+	}
+
+	if (gai->ai_socktype == SOCK_STREAM) {
+		if (listen(fd, 256) != 0) {
+			tlog(TLOG_ERROR, "listen failed.\n");
+			goto errout;
+		}
+	}
+
+	fcntl(fd, F_SETFD, fcntl(fd, F_GETFD) | FD_CLOEXEC);
+
+	return fd;
+errout:
+	if (fd > 0) {
+		close(fd);
+	}
+	return -1;
+}
+
+static int _proxy_server_create_socket(const char *host_ip, int default_port, int type, int tproxy)
+{
 	struct addrinfo *gai = NULL;
 	char port_str[16];
 	char ip[MAX_IP_LEN];
 	char host_ip_device[MAX_IP_LEN * 2];
 	int port = 0;
 	char *host = NULL;
-	int optval = 1;
-	int yes = 1;
-	const int priority = 6;
-	const int ip_tos = IPTOS_LOWDELAY | IPTOS_RELIABILITY;
 	const char *ifname = NULL;
 
 	safe_strncpy(host_ip_device, host_ip, sizeof(host_ip_device));
@@ -2239,82 +2302,26 @@ static int _proxy_server_create_socket(const char *host_ip, int default_port, in
 	gai = _proxy_server_getaddr(host, atoi(port_str), type, 0);
 	if (gai == NULL) {
 		tlog(TLOG_ERROR, "get address failed.");
-		goto errout;
+		return -1;
 	}
 
-	fd = socket(gai->ai_family, gai->ai_socktype, gai->ai_protocol);
-	if (fd < 0) {
-		tlog(TLOG_ERROR, "create socket failed, family = %d, type = %d, proto = %d, %s\n", gai->ai_family,
-			 gai->ai_socktype, gai->ai_protocol, strerror(errno));
-		goto errout;
-	}
+	int fd = _proxy_server_bind_socket_addr(gai, tproxy);
 
-	if (type == SOCK_STREAM) {
-		if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) != 0) {
-			tlog(TLOG_ERROR, "set socket opt failed.");
-			goto errout;
-		}
-		/* enable TCP_FASTOPEN */
-		setsockopt(fd, SOL_TCP, TCP_FASTOPEN, &optval, sizeof(optval));
-		setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
-	} else {
-		setsockopt(fd, IPPROTO_IP, IP_PKTINFO, &optval, sizeof(optval));
-		setsockopt(fd, IPPROTO_IPV6, IPV6_RECVPKTINFO, &optval, sizeof(optval));
-	}
-
-	if (tproxy) {
-		if (setsockopt(fd, SOL_IP, IP_TRANSPARENT, &yes, sizeof(yes)) != 0) {
-			tlog(TLOG_ERROR, "set IP_TRANSPARENT failed (requires root privileges), %s", strerror(errno));
-		}
-		// Try IPv6 transparent if simple bind
-		setsockopt(fd, SOL_IPV6, IPV6_TRANSPARENT, &yes, sizeof(yes));
-	}
-	setsockopt(fd, SOL_SOCKET, SO_PRIORITY, &priority, sizeof(priority));
-	setsockopt(fd, IPPROTO_IP, IP_TOS, &ip_tos, sizeof(ip_tos));
-	if (dns_conf.dns_socket_buff_size > 0) {
-		setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &dns_conf.dns_socket_buff_size, sizeof(dns_conf.dns_socket_buff_size));
-		setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &dns_conf.dns_socket_buff_size, sizeof(dns_conf.dns_socket_buff_size));
-	}
-
-	if (ifname != NULL) {
+	if (fd >= 0 && ifname != NULL) {
 		struct ifreq ifr;
 		memset(&ifr, 0, sizeof(struct ifreq));
 		safe_strncpy(ifr.ifr_name, ifname, sizeof(ifr.ifr_name));
 		ioctl(fd, SIOCGIFINDEX, &ifr);
 		if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, (void *)&ifr, sizeof(struct ifreq)) < 0) {
 			tlog(TLOG_ERROR, "bind socket to device %s failed, %s\n", ifr.ifr_name, strerror(errno));
-			goto errout;
+			close(fd);
+			fd = -1;
 		}
 	}
-
-	if (bind(fd, gai->ai_addr, gai->ai_addrlen) != 0) {
-		tlog(TLOG_ERROR, "bind service %s failed, %s\n", host_ip, strerror(errno));
-		goto errout;
-	}
-
-	if (type == SOCK_STREAM) {
-		if (listen(fd, 256) != 0) {
-			tlog(TLOG_ERROR, "listen failed.\n");
-			goto errout;
-		}
-	}
-
-	fcntl(fd, F_SETFD, fcntl(fd, F_GETFD) | FD_CLOEXEC);
 
 	freeaddrinfo(gai);
 
 	return fd;
-errout:
-	if (fd > 0) {
-		close(fd);
-	}
-
-	if (gai) {
-		freeaddrinfo(gai);
-	}
-
-	tlog(TLOG_ERROR, "add server failed, host-ip: %s, type: %d", host_ip, type);
-	return -1;
 }
 
 static int _proxy_server_start(void)
@@ -2336,49 +2343,51 @@ static int _proxy_server_start(void)
 	return 0;
 }
 
-static int _proxy_server_create_tproxy_udp_socket(struct dns_tproxy_server_conf *t_conf, struct sockaddr_storage *addr)
+static int _proxy_server_create_tproxy_udp_socket(struct dns_tproxy_server_conf *t_conf)
 {
-	int fd_udp = -1;
-	struct proxy_server_conn *t_conn_udp = NULL;
-	char host_ip[DNS_MAX_IPLEN + 8];
-	int yes_opt = 1;
+	struct addrinfo *gai = NULL;
+	struct addrinfo *p = NULL;
+	char port_str[16];
+	char ip[MAX_IP_LEN];
+	int port = 0;
+	char *host = NULL;
 
-	fd_udp = _proxy_server_create_socket(t_conf->server, 1088, SOCK_DGRAM, 1);
-	if (fd_udp < 0) {
-		tlog(TLOG_ERROR, "create tproxy UDP socket for %s failed", host_ip);
+	if (parse_ip(t_conf->server, ip, &port) == 0) {
+		host = ip;
+	}
+
+	if (port <= 0) {
+		port = 1088;
+	}
+
+	snprintf(port_str, sizeof(port_str), "%d", port);
+	gai = _proxy_server_getaddr(host, atoi(port_str), SOCK_DGRAM, 0);
+	if (gai == NULL) {
+		tlog(TLOG_ERROR, "get address failed.");
 		return -1;
 	}
 
-	// Set SO_MARK to match the firewall rule mark
-	unsigned int so_mark = t_conf->so_mark;
-	if (setsockopt(fd_udp, SOL_SOCKET, SO_MARK, &so_mark, sizeof(so_mark)) != 0) {
-		tlog(TLOG_ERROR, "set SO_MARK for UDP failed (requires root privileges), %s", strerror(errno));
-		close(fd_udp);
-		return -1;
-	}
-
-	// For IPv6, also set IPV6_TRANSPARENT
-	if (addr->ss_family == AF_INET6) {
-		if (setsockopt(fd_udp, SOL_IPV6, IPV6_TRANSPARENT, &yes_opt, sizeof(yes_opt)) != 0) {
-			tlog(TLOG_ERROR, "set IPV6_TRANSPARENT for UDP failed (requires root privileges), %s", strerror(errno));
-			close(fd_udp);
-			return -1;
+	for (p = gai; p != NULL; p = p->ai_next) {
+		int fd_udp = _proxy_server_bind_socket_addr(p, 1);
+		if (fd_udp < 0) {
+			continue;
 		}
+
+		struct proxy_server_conn *t_conn_udp = _proxy_server_conn_new(PROXY_SERVER_CONN_TPROXY_SERVER_UDP);
+		if (t_conn_udp == NULL) {
+			close(fd_udp);
+			continue;
+		}
+
+		t_conn_udp->fd = fd_udp;
+		safe_strncpy(t_conn_udp->client.listener_name, t_conf->name, PROXY_NAME_LEN);
+		safe_strncpy(t_conn_udp->client.proxy_name, t_conf->proxy_name, PROXY_NAME_LEN);
+		safe_strncpy(t_conn_udp->client.group_name, t_conf->group_name, PROXY_NAME_LEN);
+
+		list_add_tail(&t_conn_udp->list, &dns_proxy_server.listeners);
 	}
 
-	t_conn_udp = _proxy_server_conn_new(PROXY_SERVER_CONN_TPROXY_SERVER_UDP);
-	if (t_conn_udp == NULL) {
-		close(fd_udp);
-		tlog(TLOG_ERROR, "create tproxy UDP conn for %s failed", host_ip);
-		return -1;
-	}
-
-	t_conn_udp->fd = fd_udp;
-	safe_strncpy(t_conn_udp->client.listener_name, t_conf->name, PROXY_NAME_LEN);
-	safe_strncpy(t_conn_udp->client.proxy_name, t_conf->proxy_name, PROXY_NAME_LEN);
-	safe_strncpy(t_conn_udp->client.group_name, t_conf->group_name, PROXY_NAME_LEN);
-
-	list_add_tail(&t_conn_udp->list, &dns_proxy_server.listeners);
+	freeaddrinfo(gai);
 
 	return 0;
 }
@@ -2395,56 +2404,63 @@ static int _proxy_server_create_tproxy_sockets(void)
 			continue;
 		}
 
-		int fd = -1;
 		struct proxy_server_conn *t_conn = NULL;
-		char host_ip[DNS_MAX_IPLEN + 8];
+		int fd = -1;
 
 		tlog(TLOG_INFO, "create tproxy server for %s", t_conf->server);
 
-		// Create TCP socket
-		fd = _proxy_server_create_socket(t_conf->server, 1088, SOCK_STREAM, 1);
-		if (fd < 0) {
-			tlog(TLOG_ERROR, "create tproxy TCP socket for %s failed", host_ip);
-			goto errout;
+		struct addrinfo *gai = NULL;
+		struct addrinfo *p = NULL;
+		char port_str[16];
+		char ip[MAX_IP_LEN];
+		int port = 0;
+		char *host = NULL;
+
+		if (parse_ip(t_conf->server, ip, &port) == 0) {
+			host = ip;
 		}
 
-		// Set SO_MARK to match the firewall rule mark
-		unsigned int so_mark = t_conf->so_mark;
-		if (setsockopt(fd, SOL_SOCKET, SO_MARK, &so_mark, sizeof(so_mark)) != 0) {
-			tlog(TLOG_ERROR, "set SO_MARK failed (requires root privileges), %s", strerror(errno));
-			goto errout;
+		if (port <= 0) {
+			port = 1088;
 		}
 
-		struct sockaddr_storage addr;
-		socklen_t addr_len = sizeof(addr);
-		getsockname(fd, (struct sockaddr *)&addr, &addr_len);
-
-		t_conn = _proxy_server_conn_new(PROXY_SERVER_CONN_TPROXY_SERVER);
-		if (t_conn == NULL) {
-			close(fd);
-			tlog(TLOG_ERROR, "create tproxy TCP conn for %s failed", host_ip);
-			goto errout;
+		snprintf(port_str, sizeof(port_str), "%d", port);
+		gai = _proxy_server_getaddr(host, atoi(port_str), SOCK_STREAM, 0);
+		if (gai == NULL) {
+			tlog(TLOG_ERROR, "get address failed.");
+			continue;
 		}
 
-		t_conn->fd = fd;
-		safe_strncpy(t_conn->client.listener_name, t_conf->name, PROXY_NAME_LEN);
-		safe_strncpy(t_conn->client.proxy_name, t_conf->proxy_name, PROXY_NAME_LEN);
-		safe_strncpy(t_conn->client.group_name, t_conf->group_name, PROXY_NAME_LEN);
-		t_conn->client.remote_dns = t_conf->remote_dns;
-		t_conn->client.force_aaaa_soa = t_conf->force_aaaa_soa;
-		list_add_tail(&t_conn->list, &dns_proxy_server.listeners);
+		for (p = gai; p != NULL; p = p->ai_next) {
+			fd = _proxy_server_bind_socket_addr(p, 1);
+			if (fd < 0) {
+				continue;
+			}
+
+			t_conn = _proxy_server_conn_new(PROXY_SERVER_CONN_TPROXY_SERVER);
+			if (t_conn == NULL) {
+				close(fd);
+				continue;
+			}
+
+			t_conn->fd = fd;
+			safe_strncpy(t_conn->client.listener_name, t_conf->name, PROXY_NAME_LEN);
+			safe_strncpy(t_conn->client.proxy_name, t_conf->proxy_name, PROXY_NAME_LEN);
+			safe_strncpy(t_conn->client.group_name, t_conf->group_name, PROXY_NAME_LEN);
+			t_conn->client.remote_dns = t_conf->remote_dns;
+			t_conn->client.force_aaaa_soa = t_conf->force_aaaa_soa;
+			list_add_tail(&t_conn->list, &dns_proxy_server.listeners);
+		}
+
+		freeaddrinfo(gai);
 
 		// Create UDP socket if UDP support is enabled
 		if (t_conf->udp_support) {
-			if (_proxy_server_create_tproxy_udp_socket(t_conf, &addr) != 0) {
-				goto errout;
-			}
+			_proxy_server_create_tproxy_udp_socket(t_conf);
 		}
 	}
 
 	return 0;
-errout:
-	return -1;
 }
 
 static int _proxy_server_create_sniproxy_sockets(void)
