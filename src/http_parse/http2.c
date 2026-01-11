@@ -1548,8 +1548,16 @@ static int _http2_ctx_poll(struct http2_ctx *ctx, struct http2_poll_item *items,
 						   int check_writable)
 {
 	pthread_mutex_lock(&ctx->mutex);
+	if (ret_count) {
+		*ret_count = 0;
+	}
 
 	int ret = _http2_ctx_io_process(ctx);
+
+	if (items == NULL || max_items <= 0) {
+		pthread_mutex_unlock(&ctx->mutex);
+		return ret;
+	}
 
 	/* Note: We continue even if http2_process_frames returns error (like EOF),
 	   because we might have received data that made streams readable.
@@ -1560,13 +1568,28 @@ static int _http2_ctx_poll(struct http2_ctx *ctx, struct http2_poll_item *items,
 	_http2_ctx_check_new_streams(ctx, items, max_items, &count);
 	_http2_ctx_collect_ready_streams(ctx, items, max_items, &count, check_writable);
 
-	*ret_count = count;
-	pthread_mutex_unlock(&ctx->mutex);
+	if (ret_count) {
+		*ret_count = count;
+	}
 
-	/* If we have an error, return it even if there are ready items */
+	/* If we have an error, return it even if there ready items.
+	   BUT we must release references collected in items before returning. */
 	if (ret < 0 && ret != HTTP2_ERR_EAGAIN) {
+		int i;
+		for (i = 0; i < count; i++) {
+			if (items[i].stream) {
+				http2_stream_put(items[i].stream);
+				items[i].stream = NULL;
+			}
+		}
+		if (ret_count) {
+			*ret_count = 0;
+		}
+		pthread_mutex_unlock(&ctx->mutex);
 		return ret;
 	}
+
+	pthread_mutex_unlock(&ctx->mutex);
 
 	if (count > 0) {
 		return 0;
@@ -1581,7 +1604,11 @@ static int _http2_ctx_poll(struct http2_ctx *ctx, struct http2_poll_item *items,
 
 int http2_ctx_poll(struct http2_ctx *ctx, struct http2_poll_item *items, int max_items, int *ret_count)
 {
-	if (!ctx || !items || !ret_count || max_items <= 0) {
+	if (!ctx) {
+		return -1;
+	}
+
+	if (items != NULL && (max_items <= 0 || !ret_count)) {
 		return -1;
 	}
 	return _http2_ctx_poll(ctx, items, max_items, ret_count, 1);
@@ -1589,7 +1616,11 @@ int http2_ctx_poll(struct http2_ctx *ctx, struct http2_poll_item *items, int max
 
 int http2_ctx_poll_readable(struct http2_ctx *ctx, struct http2_poll_item *items, int max_items, int *ret_count)
 {
-	if (!ctx || !items || !ret_count || max_items <= 0) {
+	if (!ctx) {
+		return -1;
+	}
+
+	if (items != NULL && (max_items <= 0 || !ret_count)) {
 		return -1;
 	}
 	return _http2_ctx_poll(ctx, items, max_items, ret_count, 0);

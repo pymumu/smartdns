@@ -236,16 +236,10 @@ int _dns_server_process_http2(struct dns_server_conn_tls_client *tls_client, str
 
 	/* Handle EPOLLOUT - flush pending writes */
 	if (event->events & EPOLLOUT) {
-		struct http2_poll_item poll_items[1];
-		int poll_count = 0;
 		int loop = 0;
 		while (http2_ctx_want_write(ctx) && loop++ < 10) {
-			ret = http2_ctx_poll(ctx, poll_items, 1, &poll_count);
-			if (ret < 0) {
+			if (http2_ctx_poll(ctx, NULL, 0, NULL) < 0) {
 				break;
-			}
-			if (poll_count > 0 && poll_items[0].stream) {
-				http2_stream_put(poll_items[0].stream);
 			}
 		}
 	}

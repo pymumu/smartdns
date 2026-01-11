@@ -125,12 +125,12 @@ static void _dns_client_release_stream_on_error(struct dns_server_info *server_i
 /* Helper function to flush pending HTTP/2 writes */
 static void _dns_client_flush_http2_writes(struct http2_ctx *http2_ctx)
 {
-	struct http2_poll_item poll_items[1];
-	int poll_count = 0;
 	int loop = 0;
 
 	while (http2_ctx_want_write(http2_ctx) && loop++ < 10) {
-		http2_ctx_poll(http2_ctx, poll_items, 1, &poll_count);
+		if (http2_ctx_poll(http2_ctx, NULL, 0, NULL) < 0) {
+			break;
+		}
 	}
 }
 
@@ -307,11 +307,11 @@ int _dns_client_send_http2(struct dns_server_info *server_info, struct dns_query
 	pthread_mutex_unlock(&server_info->lock);
 
 	/* Flush data immediately */
-	struct http2_poll_item poll_items[1];
-	int poll_count = 0;
 	int loop = 0;
 	while (http2_ctx_want_write(http2_ctx) && loop++ < 10) {
-		http2_ctx_poll(http2_ctx, poll_items, 1, &poll_count);
+		if (http2_ctx_poll(http2_ctx, NULL, 0, NULL) < 0) {
+			break;
+		}
 	}
 
 	/* Check if there's pending write data, if so add EPOLLOUT event */
