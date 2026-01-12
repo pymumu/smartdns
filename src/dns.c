@@ -1759,6 +1759,11 @@ static int _dns_decode_rr_head(struct dns_context *context, char *domain, int do
 		return -1;
 	}
 
+	if (*rr_len > _dns_left_len(context)) {
+		tlog(TLOG_DEBUG, "rr len exceeds remaining buffer.");
+		return -1;
+	}
+
 	return 0;
 }
 
@@ -2454,6 +2459,11 @@ static int _dns_decode_SVCB_HTTPS(struct dns_context *context, const char *domai
 
 	if (rr_len < 2) {
 		tlog(TLOG_DEBUG, "https len is invalid.");
+		return -1;
+	}
+
+	if (_dns_left_len(context) < rr_len) {
+		tlog(TLOG_DEBUG, "https data length exceeds buffer.");
 		return -1;
 	}
 
