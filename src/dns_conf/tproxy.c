@@ -25,6 +25,7 @@ int _config_tproxy(void *data, int argc, char *argv[])
 {
 	char *value = argv[1];
 	char domain[DNS_MAX_CONF_CNAME_LEN];
+	char *slash_pos = NULL;
 
 	if (argc <= 1) {
 		goto errout;
@@ -34,8 +35,17 @@ int _config_tproxy(void *data, int argc, char *argv[])
 		goto errout;
 	}
 
-	/* Check if domain is actually an IP address */
-	if (check_is_ipaddr(domain) == 0) {
+	slash_pos = strchr(value, '/');
+	if (slash_pos != NULL) {
+		const char *tmp_value = value;
+		value = slash_pos + 1;
+		*(char *)slash_pos = 0;
+		strncat(domain, "/", DNS_MAX_CONF_CNAME_LEN - strlen(domain) - 1);
+		strncat(domain, tmp_value, DNS_MAX_CONF_CNAME_LEN - strlen(domain) - 1);
+	}
+
+	/* Check if domain is actually an IP address or an IP set */
+	if (check_is_ipaddr(domain) == 0 || strncmp(domain, "ip-set:", sizeof("ip-set:") - 1) == 0) {
 		/* It's an IP address, add to ip-rule */
 		return _conf_ip_proxy(domain, value, PROXY_TYPE_TPROXY);
 	} else {
@@ -52,6 +62,7 @@ int _config_sni_proxy(void *data, int argc, char *argv[])
 {
 	char *value = argv[1];
 	char domain[DNS_MAX_CONF_CNAME_LEN];
+	char *slash_pos = NULL;
 
 	if (argc <= 1) {
 		goto errout;
@@ -61,8 +72,17 @@ int _config_sni_proxy(void *data, int argc, char *argv[])
 		goto errout;
 	}
 
+	slash_pos = strchr(value, '/');
+	if (slash_pos != NULL) {
+		const char *tmp_value = value;
+		value = slash_pos + 1;
+		*(char *)slash_pos = 0;
+		strncat(domain, "/", DNS_MAX_CONF_CNAME_LEN - strlen(domain) - 1);
+		strncat(domain, tmp_value, DNS_MAX_CONF_CNAME_LEN - strlen(domain) - 1);
+	}
+
 	/* Check if domain is actually an IP address */
-	if (check_is_ipaddr(domain) == 0) {
+	if (check_is_ipaddr(domain) == 0 || strncmp(domain, "ip-set:", sizeof("ip-set:") - 1) == 0) {
 		/* It's an IP address, add to ip-rule */
 		return _conf_ip_proxy(domain, value, PROXY_TYPE_SNI_PROXY);
 	} else {

@@ -29,6 +29,7 @@
 #include "smartdns/proxy.h"
 #include "smartdns/tlog.h"
 #include "smartdns/util.h"
+#include "smartdns/lib/jhash.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -57,9 +58,12 @@
 #define DEFAULT_SNI_PROXY_REDIRECT 80
 #define DEFAULT_SNI_PROXY_PORT 443
 #define DEFAULT_TPROXY_SERVER_PORT 1088
-#define CONN_BUFF_SIZE (32 * 1024)
+#define CONN_BUFF_SIZE (64 * 1024)
+#define PROXY_SERVER_CONN_TIMEOUT 5
 #define PROXY_SERVER_CONN_TIMEOUT 5
 #define PROXY_SERVER_IDLE_TIMEOUT 600
+#define PROXY_SERVER_UDP_SESSION_TIMEOUT                                                                               \
+	60 /* 60 seconds for UDP is standard for NAT, unreplied is often 30s. We use 60s for simplicity. */
 #define SOCKET_IP_TOS (IPTOS_RELIABILITY | IPTOS_THROUGHPUT | IPTOS_LOWCOST)
 
 struct rule_walk_args {
@@ -85,6 +89,7 @@ typedef enum PROXY_SERVER_CONN_TYPE {
 	PROXY_SERVER_CONN_CLIENT,
 	PROXY_SERVER_CONN_CLIENT_REDIRECT,
 	PROXY_SERVER_CONN_REMOTE,
+	PROXY_SERVER_CONN_UDP_SESSION,
 } PROXY_SERVER_CONN_TYPE;
 
 typedef enum PROXY_SERVER_CONN_STATE {
@@ -98,6 +103,7 @@ struct conn_buffer {
 	char data[CONN_BUFF_SIZE];
 	int size;
 	int len;
+	struct conn_buffer *next;
 };
 
 /* proxy server cache - just stores the proxy name */
@@ -144,6 +150,25 @@ struct proxy_server_conn_redirect {
 	struct conn_buffer *send_buff;
 };
 
+struct proxy_server_conn_udp_session {
+	struct proxy_server_udp_session *session_hash; /* back pointer to hash table entry */
+	struct proxy_conn *pconn;
+	struct conn_buffer *pending_packet_head;
+	struct conn_buffer *pending_packet_tail;
+	int connected;
+	int spoof_fd;
+};
+
+struct proxy_server_udp_session {
+	struct hlist_node node;
+	struct sockaddr_storage src_addr;
+	struct sockaddr_storage dst_addr;
+	struct proxy_server_conn *conn;
+	struct proxy_server_conn *listener;
+	int ifindex; /* Interface index where packet received */
+	time_t last_active;
+};
+
 struct proxy_server_conn {
 	struct list_head list;
 	struct list_head check_list;
@@ -162,6 +187,7 @@ struct proxy_server_conn {
 		struct proxy_server_conn_remote remote;
 		struct proxy_server_conn_client client;
 		struct proxy_server_conn_redirect redirect;
+		struct proxy_server_conn_udp_session udp_session;
 	};
 };
 
@@ -178,6 +204,7 @@ struct dns_proxy_server {
 	struct proxy_server default_proxy_server;
 
 	DECLARE_HASHTABLE(proxy_server, 4);
+	DECLARE_HASHTABLE(udp_sessions, 8);
 };
 
 static int is_proxy_server_init;
@@ -270,7 +297,7 @@ static struct proxy_server *_proxy_server_get_proxy_by_name(const char *proxy_na
 	}
 
 	/* Create proxy_server structure and add to cache */
-	proxy_server = malloc(sizeof(*proxy_server));
+	proxy_server = zalloc(1, sizeof(*proxy_server));
 	if (proxy_server == NULL) {
 		tlog(TLOG_ERROR, "malloc proxy_server failed");
 		return NULL;
@@ -460,12 +487,11 @@ errout:
 static struct conn_buffer *_proxy_server_new_conn_buffer(void)
 {
 	struct conn_buffer *buffer = NULL;
-	buffer = malloc(sizeof(*buffer));
+	buffer = zalloc(1, sizeof(*buffer));
 	if (buffer == NULL) {
 		goto errout;
 	}
 
-	memset(buffer, 0, sizeof(*buffer));
 	buffer->size = sizeof(buffer->data);
 
 	return buffer;
@@ -517,10 +543,36 @@ static void _proxy_server_conn_put(struct proxy_server_conn *conn)
 			proxy_conn_free(conn->remote.pconn);
 			conn->remote.pconn = NULL;
 		}
-	} else if (conn->type == PROXY_SERVER_CONN_CLIENT_REDIRECT) {
-		if (conn->redirect.send_buff) {
-			free(conn->redirect.send_buff);
-			conn->redirect.send_buff = NULL;
+	} else if (conn->type == PROXY_SERVER_CONN_UDP_SESSION) {
+		if (conn->udp_session.pconn) {
+			int udp_fd = proxy_conn_get_udpfd(conn->udp_session.pconn);
+			if (udp_fd > 0) {
+				epoll_ctl(dns_proxy_server.epoll_fd, EPOLL_CTL_DEL, udp_fd, NULL);
+			}
+			proxy_conn_free(conn->udp_session.pconn);
+			conn->udp_session.pconn = NULL;
+		}
+		struct conn_buffer *curr = conn->udp_session.pending_packet_head;
+		while (curr) {
+			struct conn_buffer *next = curr->next;
+			if (conn->udp_session.pconn) {
+				/* Try to send or just drop? Drop is safer on close. */
+			}
+			free(curr);
+			curr = next;
+		}
+		conn->udp_session.pending_packet_head = NULL;
+		conn->udp_session.pending_packet_tail = NULL;
+		/* Remove from hash if still linked */
+		if (conn->udp_session.session_hash) {
+			hash_del(&conn->udp_session.session_hash->node);
+			free(conn->udp_session.session_hash);
+			conn->udp_session.session_hash = NULL;
+		}
+
+		if (conn->udp_session.spoof_fd > 0) {
+			close(conn->udp_session.spoof_fd);
+			conn->udp_session.spoof_fd = -1;
 		}
 	}
 
@@ -532,16 +584,16 @@ static struct proxy_server_conn *_proxy_server_conn_new(PROXY_SERVER_CONN_TYPE t
 	struct proxy_server_conn *conn = NULL;
 	struct conn_buffer *buffer = NULL;
 
-	conn = malloc(sizeof(*conn));
+	conn = zalloc(1, sizeof(*conn));
 	if (conn == NULL) {
 		goto errout;
 	}
-	memset(conn, 0, sizeof(*conn));
 	atomic_set(&conn->refcnt, 1);
 	conn->type = type;
 	INIT_LIST_HEAD(&conn->list);
 	INIT_LIST_HEAD(&conn->check_list);
 
+	conn->udp_session.spoof_fd = -1;
 	switch (type) {
 	case PROXY_SERVER_CONN_SERVER_REDIRECT:
 		break;
@@ -1149,7 +1201,6 @@ static int _proxy_server_check_tproxy_rule(struct proxy_server_conn *conn,
 		return -1;
 	}
 
-	tlog(TLOG_INFO, "tproxy rule matched, using proxy: %s", (*proxy_server)->proxy_name);
 	return 0;
 }
 
@@ -1517,7 +1568,7 @@ static int _proxy_server_conn_process_protocol(struct proxy_server_conn *conn)
 		tlog(TLOG_DEBUG, "using default proxy server");
 		proxy_server = &dns_proxy_server.default_proxy_server;
 	} else {
-		tlog(TLOG_INFO, "using proxy server: %s for domain %s", proxy_server->proxy_name, query_domain);
+		tlog(TLOG_DEBUG, "using proxy server: %s for domain %s", proxy_server->proxy_name, query_domain);
 	}
 
 	safe_strncpy(conn->client.domain, query_domain, DNS_MAX_CNAME_LEN);
@@ -2044,12 +2095,11 @@ static int _proxy_server_accept_redirect(struct proxy_server_conn *conn, struct 
 		return -1;
 	}
 
-	buffer = malloc(sizeof(*buffer));
+	buffer = zalloc(1, sizeof(*buffer));
 	if (buffer == NULL) {
 		goto errout;
 	}
 
-	memset(buffer, 0, sizeof(*buffer));
 	buffer->size = sizeof(buffer->data);
 	client->redirect.send_buff = buffer;
 
@@ -2068,17 +2118,495 @@ errout:
 	return -1;
 }
 
+static void _proxy_server_send_spoofed_udp_reply(struct proxy_server_conn *conn, void *data, int len,
+												 struct sockaddr *dest, struct sockaddr *src, int ifindex);
+
+static socklen_t get_sockaddr_len(struct sockaddr *addr)
+{
+	if (addr->sa_family == AF_INET) {
+		return sizeof(struct sockaddr_in);
+	} else if (addr->sa_family == AF_INET6) {
+		return sizeof(struct sockaddr_in6);
+	}
+	return sizeof(struct sockaddr);
+}
+
+static int get_sockaddr_port(struct sockaddr *addr)
+{
+	if (addr->sa_family == AF_INET) {
+		return ntohs(((struct sockaddr_in *)addr)->sin_port);
+	} else if (addr->sa_family == AF_INET6) {
+		return ntohs(((struct sockaddr_in6 *)addr)->sin6_port);
+	}
+	return 0;
+}
+
+static int sockaddr_cmp(struct sockaddr *x, struct sockaddr *y)
+{
+	if (x->sa_family != y->sa_family)
+		return -1;
+
+	if (x->sa_family == AF_INET) {
+		struct sockaddr_in *xin = (struct sockaddr_in *)x;
+		struct sockaddr_in *yin = (struct sockaddr_in *)y;
+		if (xin->sin_addr.s_addr != yin->sin_addr.s_addr)
+			return -1;
+		if (xin->sin_port != yin->sin_port)
+			return -1;
+		return 0;
+	} else if (x->sa_family == AF_INET6) {
+		struct sockaddr_in6 *xin6 = (struct sockaddr_in6 *)x;
+		struct sockaddr_in6 *yin6 = (struct sockaddr_in6 *)y;
+		if (memcmp(&xin6->sin6_addr, &yin6->sin6_addr, sizeof(xin6->sin6_addr)) != 0)
+			return -1;
+		if (xin6->sin6_port != yin6->sin6_port)
+			return -1;
+		return 0;
+	}
+	return -1;
+}
+
+static uint32_t _proxy_server_udp_session_key(struct sockaddr *src, struct sockaddr *dst)
+{
+	uint32_t key = 0;
+	if (src->sa_family == AF_INET) {
+		struct sockaddr_in *s = (struct sockaddr_in *)src;
+		struct sockaddr_in *d = (struct sockaddr_in *)dst;
+		key = jhash_2words(s->sin_addr.s_addr, s->sin_port, key);
+		key = jhash_2words(d->sin_addr.s_addr, d->sin_port, key);
+	} else {
+		struct sockaddr_in6 *s = (struct sockaddr_in6 *)src;
+		struct sockaddr_in6 *d = (struct sockaddr_in6 *)dst;
+		key = jhash(&s->sin6_addr, sizeof(s->sin6_addr), key);
+		key = jhash_2words(s->sin6_port, 0, key);
+		key = jhash(&d->sin6_addr, sizeof(d->sin6_addr), key);
+		key = jhash_2words(d->sin6_port, 0, key);
+	}
+	return key;
+}
+
+static struct proxy_server_conn *_proxy_server_udp_session_get_conn(struct sockaddr *src, struct sockaddr *dst,
+																	int *new_session)
+{
+	uint32_t key = _proxy_server_udp_session_key(src, dst);
+	struct proxy_server_udp_session *session = NULL;
+	struct hlist_node *tmp = NULL;
+
+	hash_for_each_possible_safe(dns_proxy_server.udp_sessions, session, tmp, node, key)
+	{
+		if (sockaddr_cmp((struct sockaddr *)&session->src_addr, src) == 0 &&
+			sockaddr_cmp((struct sockaddr *)&session->dst_addr, dst) == 0) {
+			*new_session = 0;
+			if (session->conn) {
+				return session->conn;
+			}
+			tlog(TLOG_WARN, "Found zombie UDP session, removing");
+			hash_del(&session->node);
+			free(session);
+			break;
+		}
+	}
+
+	/* Create new session */
+	session = zalloc(1, sizeof(*session));
+	if (session == NULL) {
+		return NULL;
+	}
+
+	memcpy(&session->src_addr, src, get_sockaddr_len(src));
+	memcpy(&session->dst_addr, dst, get_sockaddr_len(dst));
+	time(&session->last_active);
+
+	/* Create connection */
+	struct proxy_server_conn *conn = _proxy_server_conn_new(PROXY_SERVER_CONN_UDP_SESSION);
+	if (conn == NULL) {
+		free(session);
+		return NULL;
+	}
+
+	session->conn = conn;
+	conn->udp_session.session_hash = session;
+	conn->timeout = PROXY_SERVER_UDP_SESSION_TIMEOUT;
+
+	hash_add(dns_proxy_server.udp_sessions, &session->node, key);
+	*new_session = 1;
+	return conn;
+}
+
+static void _proxy_server_flush_pending_packets(struct proxy_server_conn *conn)
+{
+	struct conn_buffer *curr = conn->udp_session.pending_packet_head;
+	while (curr) {
+		struct conn_buffer *next = curr->next;
+		int rc = proxy_conn_sendto(conn->udp_session.pconn, curr->data, curr->len, 0,
+								   (struct sockaddr *)&conn->udp_session.session_hash->dst_addr,
+								   sizeof(conn->udp_session.session_hash->dst_addr));
+		if (rc < 0) {
+			tlog(TLOG_ERROR, "Failed to send pending packet to proxy: %s", strerror(errno));
+		}
+		free(curr);
+		curr = next;
+	}
+	conn->udp_session.pending_packet_head = NULL;
+	conn->udp_session.pending_packet_tail = NULL;
+}
+
+static int _proxy_server_handle_udp_handshake(struct proxy_server_conn *conn)
+{
+	int ret = proxy_conn_handshake(conn->udp_session.pconn);
+	if (ret != PROXY_HANDSHAKE_CONNECTED) {
+		if (ret == PROXY_HANDSHAKE_ERR) {
+			return -1;
+		}
+		return 0;
+	}
+
+	int udp_fd = proxy_conn_get_udpfd(conn->udp_session.pconn);
+	if (udp_fd > 0) {
+		struct epoll_event ev_udp;
+		ev_udp.events = EPOLLIN | EPOLLET;
+		ev_udp.data.ptr = conn;
+		if (epoll_ctl(dns_proxy_server.epoll_fd, EPOLL_CTL_ADD, udp_fd, &ev_udp) != 0) {
+			tlog(TLOG_ERROR, "Failed to add UDP FD %d to epoll: %s", udp_fd, strerror(errno));
+		}
+
+		struct epoll_event ev_tcp;
+		ev_tcp.events = EPOLLIN | EPOLLET | EPOLLRDHUP;
+		ev_tcp.data.ptr = conn;
+		epoll_ctl(dns_proxy_server.epoll_fd, EPOLL_CTL_MOD, conn->fd, &ev_tcp);
+	}
+
+	conn->udp_session.connected = 1;
+	_proxy_server_flush_pending_packets(conn);
+
+	return 0;
+}
+
+static int _proxy_server_process_udp_session(struct proxy_server_conn *conn, struct epoll_event *event,
+											 unsigned long now)
+{
+	int ret;
+	if (conn->type != PROXY_SERVER_CONN_UDP_SESSION)
+		return -1;
+
+	/* Refresh timeout */
+	if (conn->udp_session.session_hash) {
+		time(&conn->udp_session.session_hash->last_active);
+	}
+	time(&conn->last);
+
+	/* Handle handshake if not connected */
+	if (!conn->udp_session.connected) {
+		ret = _proxy_server_handle_udp_handshake(conn);
+		if (ret < 0) {
+			return -1;
+		}
+		return 0;
+	}
+
+	/* Connected state */
+	if (conn->udp_session.connected) {
+		unsigned char buf[DNS_IN_PACKSIZE];
+		struct sockaddr_storage src_addr;
+		socklen_t addrlen = sizeof(src_addr);
+		int len;
+
+		/* Try receiving from UDP */
+		while ((len = proxy_conn_recvfrom(conn->udp_session.pconn, buf, sizeof(buf), 0, (struct sockaddr *)&src_addr,
+										  &addrlen)) > 0) {
+			/* Forward back to client (the spoofer) */
+			struct proxy_server_conn *listener = conn->udp_session.session_hash->listener;
+			if (listener) {
+				struct sockaddr_storage src = conn->udp_session.session_hash->src_addr;
+				struct sockaddr_storage dst = conn->udp_session.session_hash->dst_addr;
+				_proxy_server_send_spoofed_udp_reply(conn, buf, len, (struct sockaddr *)&src, (struct sockaddr *)&dst,
+													 conn->udp_session.session_hash->ifindex);
+			} else {
+				tlog(TLOG_ERROR, "Missing listener for UDP session reply");
+			}
+		}
+		if (len < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+			tlog(TLOG_DEBUG, "proxy_conn_recvfrom failed: %s", strerror(errno));
+		}
+
+		if (event->events & (EPOLLRDHUP | EPOLLHUP | EPOLLERR)) {
+			tlog(TLOG_DEBUG, "UDP session TCP control channel closed/error, events=0x%x", event->events);
+			return -1;
+		}
+	}
+
+	return 0;
+}
+
+static void _proxy_server_send_spoofed_udp_reply(struct proxy_server_conn *conn, void *data, int len,
+												 struct sockaddr *dest, struct sockaddr *src, int ifindex)
+{
+	int fd = conn->udp_session.spoof_fd;
+
+	if (fd < 0) {
+		fd = socket(dest->sa_family, SOCK_DGRAM, 0);
+		if (fd < 0) {
+			tlog(TLOG_ERROR, "Failed to create spoof socket: %s", strerror(errno));
+			return;
+		}
+
+		int yes = 1;
+
+		setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+		setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &yes, sizeof(yes));
+
+		if (setsockopt(fd, SOL_IP, IP_TRANSPARENT, &yes, sizeof(yes)) < 0) {
+			tlog(TLOG_ERROR, "Failed to set IP_TRANSPARENT on spoof socket: %s", strerror(errno));
+			close(fd);
+			return;
+		}
+
+		/* Bind to INADDR_ANY but with the correct SOURCE PORT to spoof the port */
+		struct sockaddr_storage bind_addr;
+		memcpy(&bind_addr, src, sizeof(bind_addr));
+		if (bind_addr.ss_family == AF_INET) {
+			((struct sockaddr_in *)&bind_addr)->sin_addr.s_addr = htonl(INADDR_ANY);
+		} else if (bind_addr.ss_family == AF_INET6) {
+			((struct sockaddr_in6 *)&bind_addr)->sin6_addr = in6addr_any;
+		}
+
+		if (bind(fd, (struct sockaddr *)&bind_addr, get_sockaddr_len((struct sockaddr *)&bind_addr)) < 0) {
+			tlog(TLOG_ERROR, "Failed to bind spoof socket (local): %s", strerror(errno));
+			close(fd);
+			return;
+		}
+
+		/* Force the reply out of the correct interface */
+		int mark = 0;
+		setsockopt(fd, SOL_SOCKET, SO_MARK, &mark, sizeof(mark));
+
+		/* Cache the FD */
+		conn->udp_session.spoof_fd = fd;
+	}
+
+	/* Send explicitly to destination */
+	/* We use sendto directly since we bound the source */
+	struct msghdr msg = {0};
+	struct iovec iov;
+	char control[256];
+	struct cmsghdr *cmsg;
+
+	iov.iov_base = data;
+	iov.iov_len = len;
+	msg.msg_name = dest;
+	msg.msg_namelen = get_sockaddr_len(dest);
+	msg.msg_iov = &iov;
+	msg.msg_iovlen = 1;
+
+	/* Setup IP_PKTINFO to specify outgoing interface */
+	if (ifindex > 0) {
+		msg.msg_control = control;
+		msg.msg_controllen = sizeof(control);
+
+		if (src->sa_family == AF_INET) {
+
+			cmsg = CMSG_FIRSTHDR(&msg);
+			cmsg->cmsg_level = IPPROTO_IP;
+			cmsg->cmsg_type = IP_PKTINFO;
+			cmsg->cmsg_len = CMSG_LEN(sizeof(struct in_pktinfo));
+			struct in_pktinfo *pktinfo = (struct in_pktinfo *)CMSG_DATA(cmsg);
+			memset(pktinfo, 0, sizeof(*pktinfo));
+			/* Set Source IP via PKTINFO since we bound to ANY */
+			pktinfo->ipi_spec_dst = ((struct sockaddr_in *)src)->sin_addr;
+			pktinfo->ipi_ifindex = ifindex;
+			msg.msg_controllen = cmsg->cmsg_len;
+		} else if (src->sa_family == AF_INET6) {
+
+			cmsg = CMSG_FIRSTHDR(&msg);
+			cmsg->cmsg_level = IPPROTO_IPV6;
+			cmsg->cmsg_type = IPV6_PKTINFO;
+			cmsg->cmsg_len = CMSG_LEN(sizeof(struct in6_pktinfo));
+			struct in6_pktinfo *pktinfo = (struct in6_pktinfo *)CMSG_DATA(cmsg);
+			memset(pktinfo, 0, sizeof(*pktinfo));
+			pktinfo->ipi6_addr = ((struct sockaddr_in6 *)src)->sin6_addr;
+			pktinfo->ipi6_ifindex = ifindex;
+			msg.msg_controllen = cmsg->cmsg_len;
+		}
+	}
+
+	int retry = 2;
+	int sent = 0;
+	while (retry-- > 0) {
+		if (sendmsg(fd, &msg, MSG_NOSIGNAL) >= 0) {
+			sent = 1;
+			break;
+		}
+		if (retry == 0) {
+			tlog(TLOG_ERROR, "Failed to send spoofed reply after retries: %s", strerror(errno));
+		} else {
+			tlog(TLOG_WARN, "Failed to send spoofed reply, retrying: %s", strerror(errno));
+			usleep(1000); // 1ms delay
+		}
+	}
+	if (!sent) {
+		/* If send fails, maybe the socket is bad? Close it so we retry next time. */
+		close(fd);
+		conn->udp_session.spoof_fd = -1;
+	}
+}
+
 static int _proxy_server_process_tproxy_udp(struct proxy_server_conn *conn, struct epoll_event *event,
 											unsigned long now)
 {
-	// TODO: Implement UDP TPROXY processing
-	// This requires:
-	// 1. Use recvmsg to receive UDP packets with auxiliary data
-	// 2. Extract original destination from IP_ORIGDSTADDR
-	// 3. Create client connection and forward the packet
-	// 4. Handle SOCKS5 UDP ASSOCIATE for UDP forwarding
+	struct sockaddr_storage src_addr;
+	struct sockaddr_storage dst_addr;
+	struct iovec iov;
+	struct msghdr msg;
+	char buf[DNS_IN_PACKSIZE];
+	char control[1024];
+	struct cmsghdr *cmsg;
+	int len;
+	struct proxy_server_conn *session_conn = NULL;
+	int new_session = 0;
 
-	tlog(TLOG_DEBUG, "UDP TPROXY processing not yet implemented");
+	if (!(event->events & EPOLLIN)) {
+		return 0;
+	}
+
+	iov.iov_base = buf;
+	iov.iov_len = sizeof(buf);
+	memset(&msg, 0, sizeof(msg));
+	msg.msg_name = &src_addr;
+	msg.msg_namelen = sizeof(src_addr);
+	msg.msg_iov = &iov;
+	msg.msg_iovlen = 1;
+	msg.msg_control = control;
+	msg.msg_controllen = sizeof(control);
+
+	len = recvmsg(conn->fd, &msg, 0);
+	if (len < 0) {
+		if (errno == EAGAIN || errno == EWOULDBLOCK) {
+			return 0;
+		}
+		tlog(TLOG_ERROR, "recvmsg failed: %s", strerror(errno));
+		return -1;
+	}
+
+	char src_ip[64];
+	get_host_by_addr(src_ip, sizeof(src_ip), (struct sockaddr *)&src_addr);
+	memset(&dst_addr, 0, sizeof(dst_addr));
+
+	int ifindex = 0;
+	for (cmsg = CMSG_FIRSTHDR(&msg); cmsg != NULL; cmsg = CMSG_NXTHDR(&msg, cmsg)) {
+		if (cmsg->cmsg_level == SOL_IP && cmsg->cmsg_type == IP_RECVORIGDSTADDR) {
+			struct sockaddr_in *sin = (struct sockaddr_in *)CMSG_DATA(cmsg);
+			memcpy(&dst_addr, sin, sizeof(*sin));
+			dst_addr.ss_family = AF_INET;
+		} else if (cmsg->cmsg_level == SOL_IPV6 && cmsg->cmsg_type == IPV6_RECVORIGDSTADDR) {
+			struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)CMSG_DATA(cmsg);
+			memcpy(&dst_addr, sin6, sizeof(*sin6));
+			dst_addr.ss_family = AF_INET6;
+		} else if (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_PKTINFO) {
+			struct in_pktinfo *pktinfo = (struct in_pktinfo *)CMSG_DATA(cmsg);
+			ifindex = pktinfo->ipi_ifindex;
+		} else if (cmsg->cmsg_level == IPPROTO_IPV6 && cmsg->cmsg_type == IPV6_PKTINFO) {
+			struct in6_pktinfo *pktinfo = (struct in6_pktinfo *)CMSG_DATA(cmsg);
+			ifindex = pktinfo->ipi6_ifindex;
+		}
+	}
+
+	if (dst_addr.ss_family == 0) {
+		socklen_t slen = sizeof(dst_addr);
+		getsockname(conn->fd, (struct sockaddr *)&dst_addr, &slen);
+	}
+
+	session_conn =
+		_proxy_server_udp_session_get_conn((struct sockaddr *)&src_addr, (struct sockaddr *)&dst_addr, &new_session);
+	if (!session_conn) {
+		tlog(TLOG_ERROR, "Failed to create/get udp session conn");
+		return -1;
+	}
+
+	/* Update listener reference and ifindex */
+	session_conn->udp_session.session_hash->listener = conn;
+	if (ifindex > 0) {
+		session_conn->udp_session.session_hash->ifindex = ifindex;
+	}
+	time(&session_conn->udp_session.session_hash->last_active);
+
+	if (new_session) {
+		char proxy_name[PROXY_NAME_LEN];
+		char host[MAX_IP_LEN];
+		int port;
+
+		get_host_by_addr(host, sizeof(host), (struct sockaddr *)&dst_addr);
+		port = get_sockaddr_port((struct sockaddr *)&dst_addr);
+		safe_strncpy(proxy_name, conn->client.proxy_name, sizeof(proxy_name));
+
+		int src_port = get_sockaddr_port((struct sockaddr *)&src_addr);
+		tlog(TLOG_DEBUG, "Creating new UDP session from %s:%d to %s:%d via %s", src_ip, src_port, host, port,
+			 proxy_name);
+
+		session_conn->udp_session.pconn = proxy_conn_new(proxy_name, host, port, 1, 1);
+		if (!session_conn->udp_session.pconn) {
+			tlog(TLOG_ERROR, "create proxy conn failed");
+			_proxy_server_conn_put(session_conn); /* Will cleanup session via free */
+			return -1;
+		}
+
+		if (proxy_conn_connect(session_conn->udp_session.pconn) != 0 && errno != EINPROGRESS) {
+			tlog(TLOG_ERROR, "proxy conn connect failed: %s", strerror(errno));
+			_proxy_server_conn_put(session_conn);
+			return -1;
+		}
+
+		session_conn->fd = proxy_conn_get_fd(session_conn->udp_session.pconn);
+		/* Note: We assigned `fd` of the conn to TCP FD. unique management. */
+
+		session_conn->udp_session.pending_packet_head = _proxy_server_new_conn_buffer();
+		if (session_conn->udp_session.pending_packet_head) {
+			if ((size_t)len > sizeof(session_conn->udp_session.pending_packet_head->data))
+				len = sizeof(session_conn->udp_session.pending_packet_head->data);
+			memcpy(session_conn->udp_session.pending_packet_head->data, buf, len);
+			session_conn->udp_session.pending_packet_head->len = len;
+			session_conn->udp_session.pending_packet_tail = session_conn->udp_session.pending_packet_head;
+		}
+
+		/* Start connection (add to epoll, add to global list) */
+		_proxy_server_conn_start(session_conn);
+
+		pthread_mutex_lock(&dns_proxy_server.conn_list_lock);
+		list_add(&session_conn->list, &dns_proxy_server.conn_list);
+		pthread_mutex_unlock(&dns_proxy_server.conn_list_lock);
+
+	} else {
+		/* Forward packet if connected */
+		if (session_conn->udp_session.connected) {
+			int ret = proxy_conn_sendto(session_conn->udp_session.pconn, buf, len, 0, (struct sockaddr *)&dst_addr,
+										sizeof(dst_addr));
+			if (ret < 0) {
+				tlog(TLOG_ERROR, "Failed to forward packet to proxy: %s", strerror(errno));
+			}
+			_proxy_server_conn_touch(session_conn);
+		} else {
+
+			/* Queue pending packet */
+			struct conn_buffer *new_buf = _proxy_server_new_conn_buffer();
+			if (new_buf) {
+				if ((size_t)len > sizeof(new_buf->data))
+					len = sizeof(new_buf->data);
+				memcpy(new_buf->data, buf, len);
+				new_buf->len = len;
+				new_buf->next = NULL;
+
+				if (session_conn->udp_session.pending_packet_tail) {
+					session_conn->udp_session.pending_packet_tail->next = new_buf;
+					session_conn->udp_session.pending_packet_tail = new_buf;
+				} else {
+					session_conn->udp_session.pending_packet_head = new_buf;
+					session_conn->udp_session.pending_packet_tail = new_buf;
+				}
+			} else {
+				tlog(TLOG_ERROR, "Failed to allocate buffer for pending packet");
+			}
+		}
+	}
+
 	return 0;
 }
 
@@ -2100,6 +2628,8 @@ static int _proxy_server_process(struct proxy_server_conn *conn, struct epoll_ev
 		return _proxy_server_process_conn_remote(conn, event, now);
 	} else if (conn->type == PROXY_SERVER_CONN_CLIENT_REDIRECT) {
 		return _proxy_server_process_conn_redirect(conn, event, now);
+	} else if (conn->type == PROXY_SERVER_CONN_UDP_SESSION) {
+		return _proxy_server_process_udp_session(conn, event, now);
 	}
 
 	return -1;
@@ -2242,8 +2772,11 @@ static int _proxy_server_bind_socket_addr(struct addrinfo *gai, int tproxy)
 		if (setsockopt(fd, SOL_IP, IP_TRANSPARENT, &yes, sizeof(yes)) != 0) {
 			tlog(TLOG_ERROR, "set IP_TRANSPARENT failed (requires root privileges), %s", strerror(errno));
 		}
+		setsockopt(fd, SOL_IP, IP_RECVORIGDSTADDR, &yes, sizeof(yes));
+
 		// Try IPv6 transparent
 		setsockopt(fd, SOL_IPV6, IPV6_TRANSPARENT, &yes, sizeof(yes));
+		setsockopt(fd, SOL_IPV6, IPV6_RECVORIGDSTADDR, &yes, sizeof(yes));
 	}
 	setsockopt(fd, SOL_SOCKET, SO_PRIORITY, &priority, sizeof(priority));
 	setsockopt(fd, IPPROTO_IP, IP_TOS, &ip_tos, sizeof(ip_tos));
@@ -2617,7 +3150,8 @@ int proxy_server_init(void)
 	if (dns_conf_tproxy_server_num() > 0) {
 		if (has_network_admin_cap() == 0) {
 			tlog(TLOG_ERROR, "TPROXY requires CAP_NET_ADMIN capability, proxy server start failed.");
-			tlog(TLOG_ERROR, "Please run as root or use 'setcap cap_net_admin+ep <path_to_smartdns>' to grant the capability.");
+			tlog(TLOG_ERROR,
+				 "Please run as root or use 'setcap cap_net_admin+ep <path_to_smartdns>' to grant the capability.");
 			return -1;
 		}
 	}
@@ -2635,6 +3169,7 @@ int proxy_server_init(void)
 	pthread_mutex_init(&dns_proxy_server.conn_list_lock, NULL);
 	INIT_LIST_HEAD(&dns_proxy_server.conn_list);
 	hash_init(dns_proxy_server.proxy_server);
+	hash_init(dns_proxy_server.udp_sessions);
 	INIT_LIST_HEAD(&dns_proxy_server.listeners);
 	proxy_server_init_default_proxy_info();
 
