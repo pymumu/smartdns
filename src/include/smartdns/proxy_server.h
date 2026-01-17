@@ -28,7 +28,6 @@ extern "C" {
 
 #define PROXY_SERVER_MAX_IPLEN 64
 #define PROXY_SERVER_NAME_LEN 32
-#define PROXY_SERVER_PASS_THROUGH "-"
 
 typedef enum {
 	PROXY_SERVER_PASSTHROUGH,
@@ -41,6 +40,8 @@ struct proxy_server_info {
 	proxy_server_type_t type;
 	char host[PROXY_SERVER_MAX_IPLEN];
 	int port;
+	char user[64];
+	char pass[64];
 };
 
 struct proxy_server_conn;

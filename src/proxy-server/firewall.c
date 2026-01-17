@@ -535,8 +535,8 @@ static int _prepare_firewall_names(struct dns_tproxy_server_conf *t_conf)
 		}
 	} else if (t_conf->firewall_type == FIREWALL_IPTABLES_REDIRECT ||
 			   t_conf->firewall_type == FIREWALL_IPTABLES_TPROXY || t_conf->firewall_type == FIREWALL_IPTABLES) {
-		char ipv4_set_name[64];
-		char ipv6_set_name[64];
+		char ipv4_set_name[256];
+		char ipv6_set_name[256];
 		snprintf(ipv4_set_name, sizeof(ipv4_set_name), "smartdns_ipv4_%s", t_conf->name);
 		snprintf(ipv6_set_name, sizeof(ipv6_set_name), "smartdns_ipv6_%s", t_conf->name);
 		const char *ipset_ipv4 = _dns_conf_get_ipset(ipv4_set_name);

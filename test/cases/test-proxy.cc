@@ -78,3 +78,263 @@ cache-persist no)""");
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
 	std::cout << "Test completed successfully." << std::endl;
 }
+
+TEST_F(ProxyTest, ProxySocks5Self)
+{
+	smartdns::Server server_upstream;
+	smartdns::Server server_proxy;
+
+	// 1. Upstream server returning 5.6.7.8 for example.com
+	// Use TCP for upstream to allow testing SOCKS5 TCP CONNECT
+    server_upstream.Start(R"""(bind-tcp [::]:62054
+address /example.com/5.6.7.8
+log-console yes
+log-level debug)""");
+
+	// 2. SmartDNS Configured as SOCKS5 Server AND using it for upstream
+	server_proxy.Start(R"""(bind [::]:60054
+socks5-proxy-server 0.0.0.0:11080 -name socks5-svr
+proxy-server socks5://127.0.0.1:11080 -name socks5-local
+server-tcp 127.0.0.1:62054 -proxy socks5-local
+log-console yes
+log-level debug
+cache-persist no)""");
+
+	smartdns::Client client;
+	std::cout << "Starting query for example.com A via SOCKS5..." << std::endl;
+	ASSERT_TRUE(client.Query("example.com A", 60054));
+	std::cout << "Query result: " << client.GetResult() << std::endl;
+	
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "example.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "5.6.7.8");
+	std::cout << "SOCKS5 Proxy Test completed successfully." << std::endl;
+}
+
+TEST_F(ProxyTest, ProxySocks5Auth)
+{
+	smartdns::Server server_upstream;
+	smartdns::Server server_proxy;
+
+	// Upstream
+	server_upstream.Start(R"""(bind-tcp [::]:62055
+address /example.com/1.1.1.1)""");
+
+	// 1. Correct credentials
+	server_proxy.Start(R"""(bind [::]:60055
+socks5-proxy-server 0.0.0.0:11081 -name socks5-auth -user "user1" -pass "pass1"
+proxy-server socks5://user1:pass1@127.0.0.1:11081 -name socks5-local-auth
+server-tcp 127.0.0.1:62055 -proxy socks5-local-auth
+log-console yes
+log-level debug)""");
+
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("example.com A", 60055));
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	if (client.GetAnswerNum() > 0) {
+		EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.1.1.1");
+	} else {
+		ADD_FAILURE() << "No answer records returned";
+	}
+
+	server_proxy.Stop();
+
+	// 2. Incorrect credentials
+	server_proxy.Start(R"""(bind [::]:60055
+socks5-proxy-server 0.0.0.0:11081 -name socks5-auth -user "user1" -pass "pass1"
+proxy-server socks5://user1:WRONG@127.0.0.1:11081 -name socks5-local-wrong
+server-tcp 127.0.0.1:62055 -proxy socks5-local-wrong
+log-console yes
+log-level debug)""");
+
+	ASSERT_TRUE(client.Query("example.com A", 60055));
+	EXPECT_EQ(client.GetStatus(), "SERVFAIL");
+
+	std::cout << "SOCKS5 Auth Test completed successfully." << std::endl;
+}
+
+TEST_F(ProxyTest, ProxyUplinkTCP)
+{
+	smartdns::Server server_upstream;
+	smartdns::Server server_proxy;
+
+	server_upstream.Start(R"""(bind-tcp [::]:62056
+address /example.com/2.2.2.2)""");
+
+	server_proxy.Start(R"""(bind [::]:60056
+socks5-proxy-server 0.0.0.0:11082 -name socks5-svr
+proxy-server socks5://127.0.0.1:11082 -name socks5-local
+server-tcp 127.0.0.1:62056 -proxy socks5-local
+log-console yes
+log-level debug)""");
+
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("example.com A", 60056));
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "2.2.2.2");
+}
+
+TEST_F(ProxyTest, ProxyUplinkTLS)
+{
+	smartdns::Server server_upstream;
+	smartdns::Server server_proxy;
+
+	server_upstream.Start(R"""(bind-tls [::]:62057
+address /example.com/3.3.3.3)""");
+
+	server_proxy.Start(R"""(bind [::]:60057
+socks5-proxy-server 0.0.0.0:11083 -name socks5-svr
+proxy-server socks5://127.0.0.1:11083 -name socks5-local
+server-tls 127.0.0.1:62057 -proxy socks5-local -k
+log-console yes
+log-level debug)""");
+
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("example.com A", 60057));
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "3.3.3.3");
+}
+
+TEST_F(ProxyTest, ProxyUplinkHTTPS)
+{
+	smartdns::Server server_upstream;
+	smartdns::Server server_proxy;
+
+	server_upstream.Start(R"""(bind-https [::]:62058
+address /example.com/4.4.4.4)""");
+
+	server_proxy.Start(R"""(bind [::]:60058
+socks5-proxy-server 0.0.0.0:11084 -name socks5-svr
+proxy-server socks5://127.0.0.1:11084 -name socks5-local
+server-https https://127.0.0.1:62058 -proxy socks5-local -k
+log-level debug)""");
+
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("example.com A", 60058));
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "4.4.4.4");
+}
+
+TEST_F(ProxyTest, ProxyUplinkPassthrough)
+{
+	smartdns::Server server_upstream;
+	smartdns::Server server_proxy;
+
+	// Upstream
+	server_upstream.Start(R"""(bind-tcp [::]:62059
+address /example.com/5.5.5.5)""");
+
+	// Proxy server with passthrough (direct upstream)
+	server_proxy.Start(R"""(bind [::]:60059
+proxy-server passthrough://127.0.0.1:62059 -name pass-local
+server-tcp 1.2.3.4:53 -proxy pass-local
+log-level debug)""");
+
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("example.com A", 60059));
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "5.5.5.5");
+}
+
+TEST_F(ProxyTest, ProxyConcurrency)
+{
+    smartdns::Server server_upstream;
+    smartdns::Server server_proxy;
+
+    server_upstream.Start(R"""(bind-tcp [::]:62060
+address /example.com/6.6.6.6)""");
+
+    server_proxy.Start(R"""(bind [::]:60060
+socks5-proxy-server 0.0.0.0:11085 -name socks5-svr
+proxy-server socks5://127.0.0.1:11085 -name socks5-local
+server-tcp 127.0.0.1:62060 -proxy socks5-local
+log-level info)""");
+
+    const int concurrency = 50;
+    std::vector<std::thread> threads;
+    std::atomic<int> success_count{0};
+
+    for (int i = 0; i < concurrency; ++i) {
+        threads.emplace_back([&]() {
+            smartdns::Client client;
+            if (client.Query("example.com A", 60060)) {
+                if (client.GetStatus() == "NOERROR") {
+                    success_count++;
+                }
+            }
+        });
+    }
+
+    for (auto &t : threads) {
+        t.join();
+    }
+
+    EXPECT_EQ(success_count, concurrency);
+}
+
+TEST_F(ProxyTest, ProxyGroupTwoSuccess)
+{
+	smartdns::Server server_upstream;
+	smartdns::Server server_proxy;
+
+	server_upstream.Start(R"""(bind-tcp [::]:62061
+address /example.com/7.7.7.7)""");
+
+	// Two working SOCKS5 servers in one group
+	server_proxy.Start(R"""(bind [::]:60061
+socks5-proxy-server 0.0.0.0:11086 -name socks5-svr1
+socks5-proxy-server 0.0.0.0:11087 -name socks5-svr2
+proxy-server socks5://127.0.0.1:11086 -name group-dual
+proxy-server socks5://127.0.0.1:11087 -name group-dual
+server-tcp 127.0.0.1:62061 -proxy group-dual
+log-level debug)""");
+
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("example.com A", 60061));
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "7.7.7.7");
+}
+
+TEST_F(ProxyTest, ProxyGroupTwoFail)
+{
+	smartdns::Server server_upstream;
+	smartdns::Server server_proxy;
+
+	server_upstream.Start(R"""(bind-tcp [::]:62062
+address /example.com/8.8.8.8)""");
+
+	// Two non-existent SOCKS5 servers in one group
+	server_proxy.Start(R"""(bind [::]:60062
+proxy-server socks5://127.0.0.1:11098 -name group-fail
+proxy-server socks5://127.0.0.1:11099 -name group-fail
+server-tcp 127.0.0.1:62062 -proxy group-fail
+log-level debug)""");
+
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("example.com A", 60062));
+	EXPECT_EQ(client.GetStatus(), "SERVFAIL");
+}
+
+TEST_F(ProxyTest, ProxyFallback)
+{
+	smartdns::Server server_upstream;
+	smartdns::Server server_proxy;
+
+	server_upstream.Start(R"""(bind-tcp [::]:62063
+address /example.com/9.9.9.9)""");
+
+	// Group with one failing primary and one working fallback
+	// The working fallback (11088) is hosted by the same server instance
+	server_proxy.Start(R"""(bind [::]:60063
+socks5-proxy-server 0.0.0.0:11088 -name socks5-bk
+proxy-server socks5://127.0.0.1:11097 -name group-fallback
+proxy-server socks5://127.0.0.1:11088 -name group-fallback -fallback
+server-tcp 127.0.0.1:62063 -proxy group-fallback
+log-level debug)""");
+
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("example.com A", 60063));
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "9.9.9.9");
+}

@@ -43,7 +43,7 @@ extern "C" {
 #define DNS_MAX_NFTSET_NAMELEN 256
 #define DNS_GROUP_NAME_LEN 32
 
-#define PROXY_NAME_LEN 32
+#define PROXY_NAME_LEN 128
 #define PROXY_MAX_SERVERS 128
 
 #define DNS_NAX_GROUP_NUMBER 16
@@ -419,6 +419,10 @@ struct dns_proxy_table {
 	int tproxy_num;
 	DECLARE_HASHTABLE(sniproxy, 4);
 	int sniproxy_num;
+	DECLARE_HASHTABLE(socks5_proxy, 4);
+	int socks5_proxy_num;
+	DECLARE_HASHTABLE(http_proxy, 4);
+	int http_proxy_num;
 };
 extern struct dns_proxy_table dns_proxy_table;
 
@@ -495,6 +499,34 @@ struct dns_sniproxy_server_conf {
 	int so_mark;
 	int speed_check;
 	int force_aaaa_soa;
+};
+
+struct dns_socks5_proxy_server_conf {
+	struct hlist_node node;
+	char name[PROXY_NAME_LEN];
+	char server[DNS_MAX_IPLEN];
+	char proxy_name[PROXY_NAME_LEN];
+	char group_name[PROXY_NAME_LEN];
+	int remote_dns;
+	int so_mark;
+	int speed_check;
+	int force_aaaa_soa;
+	char username[DNS_PROXY_MAX_LEN];
+	char password[DNS_PROXY_MAX_LEN];
+};
+
+struct dns_http_proxy_server_conf {
+	struct hlist_node node;
+	char name[PROXY_NAME_LEN];
+	char server[DNS_MAX_IPLEN];
+	char proxy_name[PROXY_NAME_LEN];
+	char group_name[PROXY_NAME_LEN];
+	int remote_dns;
+	int so_mark;
+	int speed_check;
+	int force_aaaa_soa;
+	char username[DNS_PROXY_MAX_LEN];
+	char password[DNS_PROXY_MAX_LEN];
 };
 
 /* ip address lists of domain */
@@ -873,6 +905,11 @@ struct dns_sniproxy_server_conf *dns_conf_get_sniproxy_server(const char *name);
 int dns_conf_tproxy_server_num(void);
 
 int dns_conf_sniproxy_server_num(void);
+
+struct dns_socks5_proxy_server_conf *dns_conf_get_socks5_proxy_server(const char *name);
+struct dns_http_proxy_server_conf *dns_conf_get_http_proxy_server(const char *name);
+int dns_conf_socks5_proxy_server_num(void);
+int dns_conf_http_proxy_server_num(void);
 
 const char *_dns_conf_get_proxy_name(const char *proxy_name);
 

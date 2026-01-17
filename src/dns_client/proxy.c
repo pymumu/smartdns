@@ -49,7 +49,7 @@ int _dns_proxy_handshake(struct dns_server_info *server_info, int epoll_fd, stru
 		return -1;
 	}
 
-	ret = proxy_conn_handshake(channel, epoll_fd);
+	ret = proxy_channel_handshake(channel, epoll_fd);
 	if (ret == PROXY_HANDSHAKE_OK) {
 		pthread_mutex_unlock(&server_info->lock);
 		return 0;

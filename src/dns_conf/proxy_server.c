@@ -136,19 +136,18 @@ int _config_proxy_server(void *data, int argc, char *argv[])
 	}
 
 	if (servers_name == NULL) {
-		tlog(TLOG_ERROR, "please set name");
-		goto errout;
-	}
-
-	if (_dns_conf_proxy_servers_add(servers_name, server) != 0) {
-		tlog(TLOG_ERROR, "add group failed.");
+		tlog(TLOG_ERROR, "please set name for proxy-server %s", ip);
 		goto errout;
 	}
 
 	/* add new server */
 	server->type = type;
 	server->port = port;
-	tlog(TLOG_DEBUG, "add proxy server %s", ip);
+
+	if (_dns_conf_proxy_servers_add(servers_name, server) != 0) {
+		tlog(TLOG_ERROR, "add group failed.");
+		goto errout;
+	}
 
 	return 0;
 
@@ -190,7 +189,8 @@ int _config_tproxy_server(void *data, int argc, char *argv[])
 	if (argc < 2) {
 		tlog(TLOG_ERROR, "invalid parameter, usage: tproxy-server [IP]:port -name name -proxy proxyname [-set-mark "
 						 "mark] [-outbound-tproxy enable|disable] [-speed-test yes|no|auto] [-force-aaaa-soa] "
-						 "[-no-rule] [-no-server] [-no-rule-clean] [-remote-dns] [-rule-script script] [-start-rule command] [-stop-rule command] "
+						 "[-no-rule] [-no-server] [-no-rule-clean] [-remote-dns] [-rule-script script] [-start-rule "
+						 "command] [-stop-rule command] "
 						 "[-firewall-type none|auto|nftables|iptables|iptables-redirect|iptables-tproxy]");
 		return -1;
 	}
@@ -371,6 +371,7 @@ int _config_sniproxy_server(void *data, int argc, char *argv[])
 	char *ip = NULL;
 	int speed_check = 0;
 
+	/* clang-format off */
 	static struct option long_options[] = {{"name", required_argument, NULL, 'n'},
 										   {"proxy", required_argument, NULL, 'p'},
 										   {"group", required_argument, NULL, 'g'},
@@ -379,6 +380,7 @@ int _config_sniproxy_server(void *data, int argc, char *argv[])
 										   {"speed-check", required_argument, NULL, 's'},
 										   {"force-aaaa-soa", no_argument, NULL, 'F'},
 										   {NULL, no_argument, NULL, 0}};
+	/* clang-format on */
 
 	if (argc < 2) {
 		tlog(TLOG_ERROR, "invalid parameter, usage: sni-proxy-server [IP]:port -name name -proxy proxyname "
@@ -434,7 +436,8 @@ int _config_sniproxy_server(void *data, int argc, char *argv[])
 			}
 			break;
 		case 'F':
-			conf->force_aaaa_soa = 1;;
+			conf->force_aaaa_soa = 1;
+			;
 			break;
 		default:
 			break;
@@ -478,6 +481,257 @@ errout:
 	return -1;
 }
 
+int _config_socks5_proxy_server(void *data, int argc, char *argv[])
+{
+	struct dns_socks5_proxy_server_conf *conf = NULL;
+	struct dns_socks5_proxy_server_conf *old_conf = NULL;
+	int opt = 0;
+	char *ip = NULL;
+	int speed_check = 0;
+
+	/* clang-format off */
+	static struct option long_options[] = {{"name", required_argument, NULL, 'n'},
+										   {"proxy", required_argument, NULL, 'p'},
+										   {"group", required_argument, NULL, 'g'},
+										   {"remote-dns", no_argument, NULL, 'r'},
+										   {"set-mark", required_argument, NULL, 'm'},
+										   {"speed-check", required_argument, NULL, 's'},
+										   {"force-aaaa-soa", no_argument, NULL, 'F'},
+										   {"user", required_argument, NULL, 'u'},
+										   {"pass", required_argument, NULL, 'a'},
+										   {NULL, no_argument, NULL, 0}};
+	/* clang-format on */
+
+	if (argc < 2) {
+		tlog(TLOG_ERROR, "invalid parameter, usage: socks5-proxy-server [IP]:port -name name -proxy proxyname "
+						 "[-speed-test yes|no|auto] [-user user -pass pass]");
+		return -1;
+	}
+
+	conf = zalloc(1, sizeof(*conf));
+	if (conf == NULL) {
+		return -1;
+	}
+
+	ip = argv[1];
+
+	if (_bind_is_ip_valid(ip) != 0) {
+		tlog(TLOG_ERROR, "socks5-proxy-server ip address invalid: %s", ip);
+		goto errout;
+	}
+
+	optind = 1;
+	while (1) {
+		opt = getopt_long_only(argc, argv, "n:p:g:r:s:u:a:", long_options, NULL);
+		if (opt == -1) {
+			break;
+		}
+
+		switch (opt) {
+		case 'n':
+			safe_strncpy(conf->name, optarg, sizeof(conf->name));
+			break;
+		case 'u':
+			safe_strncpy(conf->username, optarg, sizeof(conf->username));
+			break;
+		case 'a':
+			safe_strncpy(conf->password, optarg, sizeof(conf->password));
+			break;
+		case 'p':
+			safe_strncpy(conf->proxy_name, optarg, sizeof(conf->proxy_name));
+			break;
+		case 'g':
+			safe_strncpy(conf->group_name, optarg, sizeof(conf->group_name));
+			break;
+		case 'r':
+			conf->remote_dns = 1;
+			break;
+		case 'm':
+			conf->so_mark = atoi(optarg);
+			break;
+		case 's':
+			if (strcmp(optarg, "yes") == 0) {
+				speed_check = 1;
+			} else if (strcmp(optarg, "no") == 0) {
+				speed_check = 0;
+			} else if (strcmp(optarg, "auto") == 0) {
+				speed_check = -1;
+			} else {
+				tlog(TLOG_ERROR, "invalid speed-test value: %s", optarg);
+				goto errout;
+			}
+			break;
+		case 'F':
+			conf->force_aaaa_soa = 1;
+			;
+			break;
+		default:
+			break;
+		}
+	}
+
+	if (conf->name[0] == '\0') {
+		tlog(TLOG_ERROR, "please set socks5-proxy-server name");
+		goto errout;
+	}
+
+	if (check_is_valid_config_name(conf->name) == 0) {
+		tlog(TLOG_ERROR, "socks5-proxy-server name %s is invalid, only support [a-zA-Z0-9_-]", conf->name);
+		goto errout;
+	}
+
+	old_conf = dns_conf_get_socks5_proxy_server(conf->name);
+	if (old_conf) {
+		hash_del(&old_conf->node);
+		dns_proxy_table.socks5_proxy_num--;
+		free(old_conf);
+	}
+
+	if (speed_check == -1) {
+		// Auto-detect speed check based on proxy servers
+		conf->speed_check = _config_proxy_detect_speed_check(conf->proxy_name);
+	} else {
+		conf->speed_check = speed_check;
+	}
+
+	safe_strncpy(conf->server, ip, sizeof(conf->server));
+	uint32_t key = hash_string(conf->name);
+	hash_add(dns_proxy_table.socks5_proxy, &conf->node, key);
+	dns_proxy_table.socks5_proxy_num++;
+	return 0;
+
+errout:
+	if (conf) {
+		free(conf);
+	}
+	return -1;
+}
+
+int _config_http_proxy_server(void *data, int argc, char *argv[])
+{
+	struct dns_http_proxy_server_conf *conf = NULL;
+	struct dns_http_proxy_server_conf *old_conf = NULL;
+	int opt = 0;
+	char *ip = NULL;
+	int speed_check = 0;
+
+	/* clang-format off */
+	static struct option long_options[] = {{"name", required_argument, NULL, 'n'},
+										   {"proxy", required_argument, NULL, 'p'},
+										   {"group", required_argument, NULL, 'g'},
+										   {"remote-dns", no_argument, NULL, 'r'},
+										   {"set-mark", required_argument, NULL, 'm'},
+										   {"speed-check", required_argument, NULL, 's'},
+										   {"force-aaaa-soa", no_argument, NULL, 'F'},
+										   {"user", required_argument, NULL, 'u'},
+										   {"pass", required_argument, NULL, 'a'},
+										   {NULL, no_argument, NULL, 0}};
+	/* clang-format on */
+
+	if (argc < 2) {
+		tlog(TLOG_ERROR, "invalid parameter, usage: http-proxy-server [IP]:port -name name -proxy proxyname "
+						 "[-speed-test yes|no|auto] [-user user -pass pass]");
+		return -1;
+	}
+
+	conf = zalloc(1, sizeof(*conf));
+	if (conf == NULL) {
+		return -1;
+	}
+
+	ip = argv[1];
+
+	if (_bind_is_ip_valid(ip) != 0) {
+		tlog(TLOG_ERROR, "http-proxy-server ip address invalid: %s", ip);
+		goto errout;
+	}
+
+	optind = 1;
+	while (1) {
+		opt = getopt_long_only(argc, argv, "n:p:g:r:s:u:a:", long_options, NULL);
+		if (opt == -1) {
+			break;
+		}
+
+		switch (opt) {
+		case 'n':
+			safe_strncpy(conf->name, optarg, sizeof(conf->name));
+			break;
+		case 'u':
+			safe_strncpy(conf->username, optarg, sizeof(conf->username));
+			break;
+		case 'a':
+			safe_strncpy(conf->password, optarg, sizeof(conf->password));
+			break;
+		case 'p':
+			safe_strncpy(conf->proxy_name, optarg, sizeof(conf->proxy_name));
+			break;
+		case 'g':
+			safe_strncpy(conf->group_name, optarg, sizeof(conf->group_name));
+			break;
+		case 'r':
+			conf->remote_dns = 1;
+			break;
+		case 'm':
+			conf->so_mark = atoi(optarg);
+			break;
+		case 's':
+			if (strcmp(optarg, "yes") == 0) {
+				speed_check = 1;
+			} else if (strcmp(optarg, "no") == 0) {
+				speed_check = 0;
+			} else if (strcmp(optarg, "auto") == 0) {
+				speed_check = -1;
+			} else {
+				tlog(TLOG_ERROR, "invalid speed-check value: %s", optarg);
+				goto errout;
+			}
+			break;
+		case 'F':
+			conf->force_aaaa_soa = 1;
+			break;
+		default:
+			break;
+		}
+	}
+
+	if (conf->name[0] == '\0') {
+		tlog(TLOG_ERROR, "please set http-proxy-server name");
+		goto errout;
+	}
+
+	if (check_is_valid_config_name(conf->name) == 0) {
+		tlog(TLOG_ERROR, "http-proxy-server name %s is invalid, only support [a-zA-Z0-9_-]", conf->name);
+		goto errout;
+	}
+
+	old_conf = dns_conf_get_http_proxy_server(conf->name);
+	if (old_conf) {
+		hash_del(&old_conf->node);
+		dns_proxy_table.http_proxy_num--;
+		free(old_conf);
+	}
+
+	if (speed_check == -1) {
+		// Auto-detect speed check based on proxy servers
+		conf->speed_check = _config_proxy_detect_speed_check(conf->proxy_name);
+	} else {
+		conf->speed_check = speed_check;
+	}
+
+	safe_strncpy(conf->server, ip, sizeof(conf->server));
+	uint32_t key = hash_string(conf->name);
+	hash_add(dns_proxy_table.http_proxy, &conf->node, key);
+	dns_proxy_table.http_proxy_num++;
+	return 0;
+
+errout:
+	if (conf) {
+		free(conf);
+	}
+	return -1;
+}
+
 struct dns_tproxy_server_conf *dns_conf_get_tproxy_server(const char *name)
 {
 	uint32_t key = hash_string(name);
@@ -499,6 +753,36 @@ struct dns_sniproxy_server_conf *dns_conf_get_sniproxy_server(const char *name)
 	struct dns_sniproxy_server_conf *conf = NULL;
 
 	hash_for_each_possible(dns_proxy_table.sniproxy, conf, node, key)
+	{
+		if (strncmp(conf->name, name, PROXY_NAME_LEN) == 0) {
+			return conf;
+		}
+	}
+
+	return NULL;
+}
+
+struct dns_socks5_proxy_server_conf *dns_conf_get_socks5_proxy_server(const char *name)
+{
+	uint32_t key = hash_string(name);
+	struct dns_socks5_proxy_server_conf *conf = NULL;
+
+	hash_for_each_possible(dns_proxy_table.socks5_proxy, conf, node, key)
+	{
+		if (strncmp(conf->name, name, PROXY_NAME_LEN) == 0) {
+			return conf;
+		}
+	}
+
+	return NULL;
+}
+
+struct dns_http_proxy_server_conf *dns_conf_get_http_proxy_server(const char *name)
+{
+	uint32_t key = hash_string(name);
+	struct dns_http_proxy_server_conf *conf = NULL;
+
+	hash_for_each_possible(dns_proxy_table.http_proxy, conf, node, key)
 	{
 		if (strncmp(conf->name, name, PROXY_NAME_LEN) == 0) {
 			return conf;
@@ -534,10 +818,38 @@ static void _config_proxy_sniproxy_table_destroy(void)
 	}
 }
 
+static void _config_proxy_socks5_proxy_table_destroy(void)
+{
+	struct dns_socks5_proxy_server_conf *s_conf = NULL;
+	struct hlist_node *tmp = NULL;
+	unsigned long i = 0;
+
+	hash_for_each_safe(dns_proxy_table.socks5_proxy, i, tmp, s_conf, node)
+	{
+		hlist_del_init(&s_conf->node);
+		free(s_conf);
+	}
+}
+
+static void _config_proxy_http_proxy_table_destroy(void)
+{
+	struct dns_http_proxy_server_conf *h_conf = NULL;
+	struct hlist_node *tmp = NULL;
+	unsigned long i = 0;
+
+	hash_for_each_safe(dns_proxy_table.http_proxy, i, tmp, h_conf, node)
+	{
+		hlist_del_init(&h_conf->node);
+		free(h_conf);
+	}
+}
+
 int _config_proxy_server_table_destroy(void)
 {
 	_config_proxy_sniproxy_table_destroy();
 	_config_proxy_tproxy_table_destroy();
+	_config_proxy_socks5_proxy_table_destroy();
+	_config_proxy_http_proxy_table_destroy();
 	return 0;
 }
 
@@ -549,4 +861,14 @@ int dns_conf_tproxy_server_num(void)
 int dns_conf_sniproxy_server_num(void)
 {
 	return dns_proxy_table.sniproxy_num;
+}
+
+int dns_conf_socks5_proxy_server_num(void)
+{
+	return dns_proxy_table.socks5_proxy_num;
+}
+
+int dns_conf_http_proxy_server_num(void)
+{
+	return dns_proxy_table.http_proxy_num;
 }
