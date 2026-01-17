@@ -27,7 +27,9 @@
 extern "C" {
 #endif /*__cplusplus */
 
-int _dns_proxy_handshake(struct dns_server_info *server_info, struct epoll_event *event, unsigned long now);
+int _dns_proxy_handshake(struct dns_server_info *server_info, int epoll_fd, struct epoll_event *event, unsigned long now);
+
+int _dns_client_setup_proxy_bio(struct dns_server_info *server_info, SSL *ssl, int fd);
 
 #ifdef __cplusplus
 }

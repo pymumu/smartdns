@@ -71,6 +71,7 @@ int _config_proxy_server(void *data, int argc, char *argv[])
 	/* clang-format off */
 	static struct option long_options[] = {
 		{"name", required_argument, NULL, 'n'}, 
+		{"fallback", no_argument, NULL, 'k'},
 		{NULL, no_argument, NULL, 0}
 	};
 	/* clang-format on */
@@ -93,7 +94,7 @@ int _config_proxy_server(void *data, int argc, char *argv[])
 	/* process extra options */
 	optind = 1;
 	while (1) {
-		opt = getopt_long_only(argc, argv, "n:", long_options, NULL);
+		opt = getopt_long_only(argc, argv, "n:k", long_options, NULL);
 		if (opt == -1) {
 			break;
 		}
@@ -101,6 +102,10 @@ int _config_proxy_server(void *data, int argc, char *argv[])
 		switch (opt) {
 		case 'n': {
 			servers_name = optarg;
+			break;
+		}
+		case 'k': {
+			server->fallback = 1;
 			break;
 		}
 		default:

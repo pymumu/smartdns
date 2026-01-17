@@ -29,6 +29,7 @@
 #include "smartdns/lib/stringutil.h"
 #include "smartdns/util.h"
 
+#include "proxy.h"
 #include <net/if.h>
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
@@ -388,24 +389,65 @@ int _dns_client_create_socket_tls(struct dns_server_info *server_info, const cha
 			tlog(TLOG_ERROR, "create proxy failed, %s, proxy: %s", server_info->ip, server_info->proxy_name);
 			goto errout;
 		}
-		fd = proxy_conn_get_fd(proxy);
+
+		if (server_info->flags.ifname[0] != '\0') {
+			proxy_conn_set_ifname(proxy, server_info->flags.ifname);
+		}
+
+		if (server_info->so_mark >= 0) {
+			proxy_conn_set_so_mark(proxy, server_info->so_mark);
+		}
+
+		proxy_conn_set_keepalive(proxy, 30, 3, 5);
+		proxy_conn_set_tcp_fastopen(proxy, 1);
+
+		fd = -1;
 	} else {
 		fd = socket(server_info->ai_family, SOCK_STREAM, 0);
-	}
-
-	if (fd < 0) {
-		tlog(TLOG_ERROR, "create socket failed, %s", strerror(errno));
-		goto errout;
-	}
-
-	if (server_info->flags.ifname[0] != '\0') {
-		struct ifreq ifr;
-		memset(&ifr, 0, sizeof(struct ifreq));
-		safe_strncpy(ifr.ifr_name, server_info->flags.ifname, sizeof(ifr.ifr_name));
-		ioctl(fd, SIOCGIFINDEX, &ifr);
-		if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, (void *)&ifr, sizeof(struct ifreq)) < 0) {
-			tlog(TLOG_ERROR, "bind socket to device %s failed, %s\n", ifr.ifr_name, strerror(errno));
+		if (fd < 0) {
+			tlog(TLOG_ERROR, "create socket failed, %s", strerror(errno));
 			goto errout;
+		}
+
+		if (server_info->flags.ifname[0] != '\0') {
+			struct ifreq ifr;
+			memset(&ifr, 0, sizeof(struct ifreq));
+			safe_strncpy(ifr.ifr_name, server_info->flags.ifname, sizeof(ifr.ifr_name));
+			ioctl(fd, SIOCGIFINDEX, &ifr);
+			if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, (void *)&ifr, sizeof(struct ifreq)) < 0) {
+				tlog(TLOG_ERROR, "bind socket to device %s failed, %s\n", ifr.ifr_name, strerror(errno));
+				goto errout;
+			}
+		}
+
+		if (set_fd_nonblock(fd, 1) != 0) {
+			tlog(TLOG_ERROR, "set socket non block failed, %s", strerror(errno));
+			goto errout;
+		}
+
+		if (server_info->so_mark >= 0) {
+			unsigned int so_mark = server_info->so_mark;
+			if (setsockopt(fd, SOL_SOCKET, SO_MARK, &so_mark, sizeof(so_mark)) != 0) {
+				tlog(TLOG_DEBUG, "set socket mark failed, %s", strerror(errno));
+			}
+		}
+
+		if (setsockopt(fd, IPPROTO_TCP, TCP_FASTOPEN_CONNECT, &yes, sizeof(yes)) != 0) {
+			tlog(TLOG_DEBUG, "enable TCP fast open failed.");
+		}
+
+		// ? this cause ssl crash ?
+		setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
+		setsockopt(fd, IPPROTO_TCP, TCP_THIN_DUPACK, &yes, sizeof(yes));
+		setsockopt(fd, IPPROTO_TCP, TCP_THIN_LINEAR_TIMEOUTS, &yes, sizeof(yes));
+		set_sock_keepalive(fd, 30, 3, 5);
+		setsockopt(fd, SOL_SOCKET, SO_PRIORITY, &priority, sizeof(priority));
+		setsockopt(fd, IPPROTO_IP, IP_TOS, &ip_tos, sizeof(ip_tos));
+		if (dns_conf.dns_socket_buff_size > 0) {
+			setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &dns_conf.dns_socket_buff_size,
+					   sizeof(dns_conf.dns_socket_buff_size));
+			setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &dns_conf.dns_socket_buff_size,
+					   sizeof(dns_conf.dns_socket_buff_size));
 		}
 	}
 
@@ -413,34 +455,6 @@ int _dns_client_create_socket_tls(struct dns_server_info *server_info, const cha
 	if (ssl == NULL) {
 		tlog(TLOG_ERROR, "new ssl failed, %s", server_info->ip);
 		goto errout;
-	}
-
-	if (set_fd_nonblock(fd, 1) != 0) {
-		tlog(TLOG_ERROR, "set socket non block failed, %s", strerror(errno));
-		goto errout;
-	}
-
-	if (server_info->so_mark >= 0) {
-		unsigned int so_mark = server_info->so_mark;
-		if (setsockopt(fd, SOL_SOCKET, SO_MARK, &so_mark, sizeof(so_mark)) != 0) {
-			tlog(TLOG_DEBUG, "set socket mark failed, %s", strerror(errno));
-		}
-	}
-
-	if (setsockopt(fd, IPPROTO_TCP, TCP_FASTOPEN_CONNECT, &yes, sizeof(yes)) != 0) {
-		tlog(TLOG_DEBUG, "enable TCP fast open failed.");
-	}
-
-	// ? this cause ssl crash ?
-	setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
-	setsockopt(fd, IPPROTO_TCP, TCP_THIN_DUPACK, &yes, sizeof(yes));
-	setsockopt(fd, IPPROTO_TCP, TCP_THIN_LINEAR_TIMEOUTS, &yes, sizeof(yes));
-	set_sock_keepalive(fd, 30, 3, 5);
-	setsockopt(fd, SOL_SOCKET, SO_PRIORITY, &priority, sizeof(priority));
-	setsockopt(fd, IPPROTO_IP, IP_TOS, &ip_tos, sizeof(ip_tos));
-	if (dns_conf.dns_socket_buff_size > 0) {
-		setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &dns_conf.dns_socket_buff_size, sizeof(dns_conf.dns_socket_buff_size));
-		setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &dns_conf.dns_socket_buff_size, sizeof(dns_conf.dns_socket_buff_size));
 	}
 
 	if (proxy) {
@@ -457,7 +471,7 @@ int _dns_client_create_socket_tls(struct dns_server_info *server_info, const cha
 	}
 
 	SSL_set_connect_state(ssl);
-	if (SSL_set_fd(ssl, fd) == 0) {
+	if (_dns_client_setup_proxy_bio(server_info, ssl, fd) != 0) {
 		tlog(TLOG_ERROR, "ssl set fd failed.");
 		goto errout;
 	}
@@ -498,7 +512,7 @@ int _dns_client_create_socket_tls(struct dns_server_info *server_info, const cha
 	memset(&event, 0, sizeof(event));
 	event.events = EPOLLIN | EPOLLOUT;
 	event.data.ptr = server_info;
-	if (epoll_ctl(client.epoll_fd, EPOLL_CTL_ADD, fd, &event) != 0) {
+	if (_dns_client_epoll_ctl(server_info, client.epoll_fd, EPOLL_CTL_ADD, &event) != 0) {
 		tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
 		goto errout;
 	}
@@ -693,12 +707,12 @@ int _dns_client_ssl_poll_event(struct dns_server_info *server_info, int ssl_ret)
 		goto errout;
 	}
 
-	if (server_info->fd < 0) {
+	if (_dns_client_is_conn_valid(server_info) == 0) {
 		goto errout;
 	}
 
 	fd_event.data.ptr = server_info;
-	if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &fd_event) != 0) {
+	if (_dns_client_epoll_ctl(server_info, client.epoll_fd, EPOLL_CTL_MOD, &fd_event) != 0) {
 		tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
 		goto errout;
 	}
@@ -1081,13 +1095,14 @@ int _dns_client_process_tls(struct dns_server_info *server_info, struct epoll_ev
 
 		server_info->status = DNS_SERVER_STATUS_CONNECTED;
 		memset(&fd_event, 0, sizeof(fd_event));
-		fd_event.events = EPOLLIN | EPOLLOUT;
+		fd_event.events = EPOLLIN;
+		if (server_info->send_buff.len > 0) {
+			fd_event.events |= EPOLLOUT;
+		}
 		fd_event.data.ptr = server_info;
-		if (server_info->fd > 0) {
-			if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &fd_event) != 0) {
-				tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
-				goto errout;
-			}
+		if (_dns_client_epoll_ctl(server_info, client.epoll_fd, EPOLL_CTL_MOD, &fd_event) != 0) {
+			tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
+			goto errout;
 		}
 
 		event->events = EPOLLOUT;

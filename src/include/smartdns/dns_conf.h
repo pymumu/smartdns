@@ -459,6 +459,7 @@ struct dns_proxy_servers {
 	unsigned short port;
 	char username[DNS_PROXY_MAX_LEN];
 	char password[DNS_PROXY_MAX_LEN];
+	int fallback;
 };
 
 struct dns_tproxy_server_conf {

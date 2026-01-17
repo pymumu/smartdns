@@ -41,6 +41,11 @@ void _dns_client_close_socket_ext(struct dns_server_info *server_info, int no_de
 
 void _dns_client_shutdown_socket(struct dns_server_info *server_info);
 
+int _dns_client_epoll_ctl(struct dns_server_info *server_info, int epoll_fd, int op, struct epoll_event *event);
+
+int _dns_client_is_conn_valid(struct dns_server_info *server_info);
+
+
 #ifdef __cplusplus
 }
 #endif /*__cplusplus */

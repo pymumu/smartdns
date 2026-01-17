@@ -198,7 +198,7 @@ static int _dns_client_http2_pending_data(struct dns_conn_stream *stream, struct
 	stream->send_buff.len += len;
 
 	pthread_mutex_lock(&server_info->lock);
-	if (server_info->fd <= 0) {
+	if (_dns_client_is_conn_valid(server_info) == 0) {
 		pthread_mutex_unlock(&server_info->lock);
 		errno = ECONNRESET;
 		goto errout;
@@ -221,7 +221,7 @@ static int _dns_client_http2_pending_data(struct dns_conn_stream *stream, struct
 	memset(&event, 0, sizeof(event));
 	event.events = EPOLLIN | EPOLLOUT;
 	event.data.ptr = server_info;
-	if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &event) != 0) {
+	if (_dns_client_epoll_ctl(server_info, client.epoll_fd, EPOLL_CTL_MOD, &event) != 0) {
 		tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
 		pthread_mutex_unlock(&server_info->lock);
 		goto errout_put;
@@ -316,15 +316,18 @@ int _dns_client_send_http2(struct dns_server_info *server_info, struct dns_query
 
 	/* Check if there's pending write data, if so add EPOLLOUT event */
 	if (http2_ctx_want_write(http2_ctx)) {
+		if (_dns_client_is_conn_valid(server_info) == 0) {
+			ret = 0;
+			goto out;
+		}
+
 		struct epoll_event event;
 		memset(&event, 0, sizeof(event));
 		event.events = EPOLLIN | EPOLLOUT;
 		event.data.ptr = server_info;
-		if (server_info->fd > 0) {
-			if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &event) != 0) {
-				tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
-				/* Continue anyway, data will be sent on next EPOLLIN */
-			}
+		if (_dns_client_epoll_ctl(server_info, client.epoll_fd, EPOLL_CTL_MOD, &event) != 0) {
+			tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
+			/* Continue anyway, data will be sent on next EPOLLIN */
 		}
 	}
 
@@ -397,12 +400,12 @@ static int _dns_client_http2_process_write(struct dns_server_info *server_info)
 		epoll_events |= EPOLLOUT;
 	}
 
-	if (server_info->fd > 0) {
+	if (_dns_client_is_conn_valid(server_info)) {
 		struct epoll_event mod_event;
 		memset(&mod_event, 0, sizeof(mod_event));
 		mod_event.events = epoll_events;
 		mod_event.data.ptr = server_info;
-		if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &mod_event) != 0) {
+		if (_dns_client_epoll_ctl(server_info, client.epoll_fd, EPOLL_CTL_MOD, &mod_event) != 0) {
 			tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
 			http2_ctx_put(http2_ctx);
 			return -1;

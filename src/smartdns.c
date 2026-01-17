@@ -334,6 +334,7 @@ static int _proxy_add_servers(void)
 			safe_strncpy(info.server, server->server, PROXY_MAX_IPLEN);
 			safe_strncpy(info.username, server->username, PROXY_MAX_NAMELEN);
 			safe_strncpy(info.password, server->password, PROXY_MAX_NAMELEN);
+			info.fallback = server->fallback;
 			proxy_add(proxy->proxy_name, &info);
 		}
 	}

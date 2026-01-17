@@ -85,6 +85,7 @@ struct dns_server_info {
 	dns_server_type_t type;
 	long long so_mark;
 	int drop_packet_latency_ms;
+	int tcp_keepalive;
 
 	/* client socket */
 	int fd;

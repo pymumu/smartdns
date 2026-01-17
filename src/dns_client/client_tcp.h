@@ -29,6 +29,10 @@ extern "C" {
 
 int _dns_client_create_socket_tcp(struct dns_server_info *server_info);
 
+int _dns_client_socket_tcp_send(struct dns_server_info *server_info);
+
+int _dns_client_socket_tcp_recv(struct dns_server_info *server_info);
+
 int _dns_client_process_tcp(struct dns_server_info *server_info, struct epoll_event *event, unsigned long now);
 
 int _dns_client_send_tcp(struct dns_server_info *server_info, void *packet, unsigned short len);

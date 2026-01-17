@@ -42,36 +42,16 @@ static int _dns_client_create_socket_udp_proxy(struct dns_server_info *server_in
 		goto errout;
 	}
 
-	fd = proxy_conn_get_fd(proxy);
-	if (fd < 0) {
-		tlog(TLOG_ERROR, "get proxy fd failed, %s", server_info->ip);
-		goto errout;
-	}
-
 	if (server_info->so_mark >= 0) {
-		unsigned int so_mark = server_info->so_mark;
-		if (setsockopt(fd, SOL_SOCKET, SO_MARK, &so_mark, sizeof(so_mark)) != 0) {
-			tlog(TLOG_DEBUG, "set socket mark failed, %s", strerror(errno));
-		}
+		proxy_conn_set_so_mark(proxy, server_info->so_mark);
 	}
 
 	if (server_info->flags.ifname[0] != '\0') {
-		struct ifreq ifr;
-		memset(&ifr, 0, sizeof(struct ifreq));
-		safe_strncpy(ifr.ifr_name, server_info->flags.ifname, sizeof(ifr.ifr_name));
-		ioctl(fd, SIOCGIFINDEX, &ifr);
-		if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, (void *)&ifr, sizeof(struct ifreq)) < 0) {
-			tlog(TLOG_ERROR, "bind socket to device %s failed, %s\n", ifr.ifr_name, strerror(errno));
-			goto errout;
-		}
+		proxy_conn_set_ifname(proxy, server_info->flags.ifname);
 	}
 
-	set_fd_nonblock(fd, 1);
-	set_sock_keepalive(fd, 30, 3, 5);
-	if (dns_conf.dns_socket_buff_size > 0) {
-		setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &dns_conf.dns_socket_buff_size, sizeof(dns_conf.dns_socket_buff_size));
-		setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &dns_conf.dns_socket_buff_size, sizeof(dns_conf.dns_socket_buff_size));
-	}
+	proxy_conn_set_keepalive(proxy, 30, 3, 5);
+	proxy_conn_set_tcp_fastopen(proxy, 1);
 
 	ret = proxy_conn_connect(proxy);
 	if (ret != 0) {
@@ -88,9 +68,9 @@ static int _dns_client_create_socket_udp_proxy(struct dns_server_info *server_in
 	memset(&event, 0, sizeof(event));
 	event.events = EPOLLIN | EPOLLOUT;
 	event.data.ptr = server_info;
-	if (epoll_ctl(client.epoll_fd, EPOLL_CTL_ADD, fd, &event) != 0) {
+	if (proxy_conn_ctl(proxy, client.epoll_fd, EPOLL_CTL_ADD, &event) != 0) {
 		tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
-		return -1;
+		goto errout;
 	}
 
 	return 0;
@@ -410,7 +390,7 @@ int _dns_client_send_udp(struct dns_server_info *server_info, void *packet, int 
 	socklen_t addrlen = server_info->ai_addrlen;
 	int ret = 0;
 
-	if (server_info->fd <= 0) {
+	if (_dns_client_is_conn_valid(server_info) == 0) {
 		return -1;
 	}
 

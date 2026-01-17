@@ -21,6 +21,7 @@
 
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/epoll.h>
 
 #define PROXY_MAX_IPLEN 256
 #define PROXY_MAX_NAMELEN 128
@@ -50,9 +51,11 @@ struct proxy_info {
 	unsigned short port;
 	char username[PROXY_MAX_NAMELEN];
 	char password[PROXY_MAX_NAMELEN];
+	int fallback;
 };
 
 struct proxy_conn;
+struct proxy_channel;
 
 int proxy_init(void);
 
@@ -64,15 +67,16 @@ int proxy_remove(const char *proxy_name);
 
 struct proxy_conn *proxy_conn_new(const char *proxy_name, const char *host, int port, int is_udp, int non_block);
 
-int proxy_conn_get_fd(struct proxy_conn *proxy_conn);
-
-int proxy_conn_get_udpfd(struct proxy_conn *proxy_conn);
-
 int proxy_conn_is_udp(struct proxy_conn *proxy_conn);
 
 void proxy_conn_free(struct proxy_conn *proxy_conn);
 
 int proxy_conn_connect(struct proxy_conn *proxy_conn);
+
+/* I/O functions that don't expose FDs */
+int proxy_conn_send(struct proxy_conn *proxy_conn, const void *buf, size_t len, int flags);
+
+int proxy_conn_recv(struct proxy_conn *proxy_conn, void *buf, size_t len, int flags);
 
 int proxy_conn_sendto(struct proxy_conn *proxy_conn, const void *buf, size_t len, int flags,
 					  const struct sockaddr *dest_addr, socklen_t addrlen);
@@ -80,13 +84,31 @@ int proxy_conn_sendto(struct proxy_conn *proxy_conn, const void *buf, size_t len
 int proxy_conn_recvfrom(struct proxy_conn *proxy_conn, void *buf, size_t len, int flags, struct sockaddr *src_addr,
 						socklen_t *addrlen);
 
-proxy_handshake_state proxy_conn_handshake(struct proxy_conn *proxy_conn);
+proxy_handshake_state proxy_conn_handshake(struct proxy_channel *channel, int epoll_fd);
 
 int proxy_conn_get_last_error(struct proxy_conn *proxy_conn);
 
 const char *proxy_handshake_error_to_string(int error_code);
 
 int proxy_conn_is_ipv6_target(struct proxy_conn *proxy_conn);
+
+/* Epoll management - matches epoll_ctl signature for easy migration */
+int proxy_conn_ctl(struct proxy_conn *proxy_conn, int epoll_fd, int op, struct epoll_event *event);
+int proxy_conn_set_so_mark(struct proxy_conn *proxy_conn, int mark);
+int proxy_conn_set_ifname(struct proxy_conn *proxy_conn, const char *ifname);
+int proxy_conn_set_tcp_fastopen(struct proxy_conn *proxy_conn, int enable);
+int proxy_conn_set_keepalive(struct proxy_conn *proxy_conn, int idle, int intvl, int cnt);
+
+/* Check if epoll event belongs to proxy channel */
+int proxy_conn_is_epoll_event(void *ptr);
+
+/* Get proxy_channel from epoll event */
+struct proxy_channel *proxy_channel_get_from_event(void *ptr);
+
+/* Get user data (e.g., server_info) from epoll event */
+void *proxy_conn_get_event_userdata(void *ptr);
+
+int proxy_conn_ctl(struct proxy_conn *proxy_conn, int epoll_fd, int op, struct epoll_event *event);
 
 #ifdef __cplusplus
 }

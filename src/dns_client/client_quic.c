@@ -35,186 +35,11 @@
 #include <sys/epoll.h>
 #include <sys/ioctl.h>
 
-#if defined(OSSL_QUIC1_VERSION) && !defined (OPENSSL_NO_QUIC)
-static int _dns_client_quic_bio_recvmmsg(BIO *bio, BIO_MSG *msg, size_t stride, size_t num_msg, uint64_t flags,
-										 size_t *msgs_processed)
-{
-	struct dns_server_info *server_info = NULL;
-	int total_len = 0;
-	int len = 0;
-	struct sockaddr_storage from;
-	socklen_t from_len = sizeof(from);
-
-	server_info = (struct dns_server_info *)BIO_get_data(bio);
-	if (server_info == NULL) {
-		tlog(TLOG_ERROR, "server info is null, %s", server_info->ip);
-		return 0;
-	}
-
-	*msgs_processed = 0;
-	for (size_t i = 0; i < num_msg; i++) {
-		len = proxy_conn_recvfrom(server_info->proxy, msg[i].data, msg[i].data_len, 0, (struct sockaddr *)&from,
-								  &from_len);
-		if (len < 0) {
-			if (*msgs_processed == 0) {
-				ERR_raise(ERR_LIB_SYS, errno);
-				total_len = 0;
-			}
-
-			if (errno == EAGAIN || errno == EWOULDBLOCK) {
-				break;
-			}
-
-			if (errno == EPIPE || errno == ECONNRESET) {
-				/* Ignore broken pipe and connection reset errors */
-				tlog(TLOG_DEBUG, "recvmsg broken pipe or connection reset, %s", server_info->ip);
-				return total_len;
-			}
-
-			tlog(TLOG_ERROR, "recvmsg failed, %s", strerror(errno));
-			return 0;
-		}
-
-		msg[i].data_len = len;
-		total_len += len;
-		*msgs_processed += 1;
-	}
-
-	return total_len;
-}
-
-static int _dns_client_quic_bio_sendmmsg(BIO *bio, BIO_MSG *msg, size_t stride, size_t num_msg, uint64_t flags,
-										 size_t *msgs_processed)
-{
-	struct dns_server_info *server_info = NULL;
-	int total_len = 0;
-	int len = 0;
-	const struct sockaddr *addr = NULL;
-	socklen_t addrlen = 0;
-
-	*msgs_processed = 0;
-	server_info = (struct dns_server_info *)BIO_get_data(bio);
-	if (server_info == NULL) {
-		tlog(TLOG_ERROR, "server info is null, %s", server_info->ip);
-		return 0;
-	}
-
-	addr = &server_info->addr;
-	addrlen = server_info->ai_addrlen;
-	for (size_t i = 0; i < num_msg; i++) {
-		len = proxy_conn_sendto(server_info->proxy, msg[i].data, msg[i].data_len, 0, addr, addrlen);
-		if (len < 0) {
-			if (*msgs_processed == 0) {
-				ERR_raise(ERR_LIB_SYS, errno);
-				total_len = 0;
-			}
-
-			if (errno == EAGAIN || errno == EWOULDBLOCK) {
-				break;
-			}
-
-			if (errno == EPIPE || errno == ECONNRESET) {
-				/* Ignore broken pipe and connection reset errors */
-				tlog(TLOG_DEBUG, "sendmsg broken pipe or connection reset, %s", server_info->ip);
-				return total_len;
-			}
-
-			tlog(TLOG_ERROR, "sendmsg failed, %s", strerror(errno));
-			return 0;
-		}
-
-		total_len += len;
-		*msgs_processed += 1;
-	}
-
-	return total_len;
-}
-
-static long _dns_client_quic_bio_ctrl(BIO *bio, int cmd, long num, void *ptr)
-{
-	struct dns_server_info *server_info = NULL;
-	long ret = 0;
-
-	server_info = (struct dns_server_info *)BIO_get_data(bio);
-	if (server_info == NULL) {
-		tlog(TLOG_ERROR, "server info is null.");
-		return -1;
-	}
-
-	switch (cmd) {
-	case BIO_CTRL_DGRAM_GET_MTU:
-		break;
-	default:
-		break;
-	}
-
-	return ret;
-}
-
-static int _dns_client_setup_quic_ssl_bio(struct dns_server_info *server_info, SSL *ssl, int fd,
-										  struct proxy_conn *proxy)
-{
-	BIO_METHOD *bio_method_alloc = NULL;
-	BIO_METHOD *bio_method = server_info->bio_method;
-	BIO *udp_socket_bio = NULL;
-
-	if (ssl == NULL) {
-		tlog(TLOG_ERROR, "ssl is null, %s", server_info->ip);
-		return -1;
-	}
-
-	if (proxy == NULL) {
-		if (SSL_set_fd(ssl, fd) == 0) {
-			tlog(TLOG_ERROR, "ssl set fd failed.");
-			goto errout;
-		}
-
-		return 0;
-	}
-
-	if (bio_method == NULL) {
-		bio_method_alloc = BIO_meth_new(BIO_TYPE_SOURCE_SINK, "udp-proxy");
-		if (bio_method_alloc == NULL) {
-			tlog(TLOG_ERROR, "create bio method failed.");
-			goto errout;
-		}
-
-		bio_method = bio_method_alloc;
-		BIO_meth_set_sendmmsg(bio_method, _dns_client_quic_bio_sendmmsg);
-		BIO_meth_set_recvmmsg(bio_method, _dns_client_quic_bio_recvmmsg);
-		BIO_meth_set_ctrl(bio_method, _dns_client_quic_bio_ctrl);
-	}
-
-	udp_socket_bio = BIO_new(bio_method);
-	if (udp_socket_bio == NULL) {
-		tlog(TLOG_ERROR, "create udp_socket_bio failed.");
-		goto errout;
-	}
-	BIO_set_data(udp_socket_bio, (void *)server_info);
-	BIO_set_init(udp_socket_bio, 1);
-
-	SSL_set_bio(ssl, udp_socket_bio, udp_socket_bio);
-	server_info->bio_method = bio_method;
-
-	return 0;
-
-errout:
-	if (bio_method_alloc) {
-		BIO_meth_free(bio_method_alloc);
-	}
-
-	if (udp_socket_bio) {
-		BIO_free(udp_socket_bio);
-	}
-
-	return -1;
-}
-
-#endif
+#include "proxy.h"
 
 int _dns_client_create_socket_quic(struct dns_server_info *server_info, const char *hostname, const char *alpn)
 {
-#if defined(OSSL_QUIC1_VERSION) && !defined (OPENSSL_NO_QUIC)
+#if defined(OSSL_QUIC1_VERSION) && !defined(OPENSSL_NO_QUIC)
 	int fd = -1;
 	unsigned char alpn_data[DNS_MAX_ALPN_LEN];
 	int32_t alpn_len = 0;
@@ -234,32 +59,43 @@ int _dns_client_create_socket_quic(struct dns_server_info *server_info, const ch
 			tlog(TLOG_ERROR, "create proxy failed, %s, proxy: %s", server_info->ip, server_info->proxy_name);
 			goto errout;
 		}
-		fd = proxy_conn_get_fd(proxy);
+
+		if (server_info->flags.ifname[0] != '\0') {
+			proxy_conn_set_ifname(proxy, server_info->flags.ifname);
+		}
+
+		if (server_info->so_mark >= 0) {
+			proxy_conn_set_so_mark(proxy, server_info->so_mark);
+		}
+
+		proxy_conn_set_keepalive(proxy, 30, 3, 5);
+		proxy_conn_set_tcp_fastopen(proxy, 1);
+
+		fd = -1;
 	} else {
 		fd = socket(server_info->ai_family, SOCK_DGRAM, IPPROTO_UDP);
-	}
+		if (fd < 0) {
+			tlog(TLOG_ERROR, "create socket failed, %s", strerror(errno));
+			goto errout;
+		}
 
-	if (fd < 0) {
-		tlog(TLOG_ERROR, "create socket failed, %s", strerror(errno));
-		goto errout;
-	}
+		if (set_fd_nonblock(fd, 1) != 0) {
+			tlog(TLOG_ERROR, "set socket non block failed, %s", strerror(errno));
+			goto errout;
+		}
 
-	if (set_fd_nonblock(fd, 1) != 0) {
-		tlog(TLOG_ERROR, "set socket non block failed, %s", strerror(errno));
-		goto errout;
+		if (server_info->so_mark >= 0) {
+			unsigned int so_mark = server_info->so_mark;
+			if (setsockopt(fd, SOL_SOCKET, SO_MARK, &so_mark, sizeof(so_mark)) != 0) {
+				tlog(TLOG_DEBUG, "set socket mark failed, %s", strerror(errno));
+			}
+		}
 	}
 
 	ssl = SSL_new(server_info->ssl_ctx);
 	if (ssl == NULL) {
 		tlog(TLOG_ERROR, "new ssl failed, %s", server_info->ip);
 		goto errout;
-	}
-
-	if (server_info->so_mark >= 0) {
-		unsigned int so_mark = server_info->so_mark;
-		if (setsockopt(fd, SOL_SOCKET, SO_MARK, &so_mark, sizeof(so_mark)) != 0) {
-			tlog(TLOG_DEBUG, "set socket mark failed, %s", strerror(errno));
-		}
 	}
 
 	if (proxy) {
@@ -277,7 +113,7 @@ int _dns_client_create_socket_quic(struct dns_server_info *server_info, const ch
 
 	SSL_set_blocking_mode(ssl, 0);
 	SSL_set_default_stream_mode(ssl, SSL_DEFAULT_STREAM_MODE_NONE);
-	if (_dns_client_setup_quic_ssl_bio(server_info, ssl, fd, proxy) != 0) {
+	if (_dns_client_setup_proxy_bio(server_info, ssl, fd) != 0) {
 		tlog(TLOG_ERROR, "ssl set fd failed.");
 		goto errout;
 	}
@@ -324,7 +160,7 @@ int _dns_client_create_socket_quic(struct dns_server_info *server_info, const ch
 	memset(&event, 0, sizeof(event));
 	event.events = EPOLLIN | EPOLLOUT;
 	event.data.ptr = server_info;
-	if (epoll_ctl(client.epoll_fd, EPOLL_CTL_ADD, fd, &event) != 0) {
+	if (_dns_client_epoll_ctl(server_info, client.epoll_fd, EPOLL_CTL_ADD, &event) != 0) {
 		tlog(TLOG_ERROR, "epoll ctl failed.");
 		goto errout;
 	}
@@ -363,7 +199,7 @@ errout:
 #endif
 }
 
-#if defined(OSSL_QUIC1_VERSION) && !defined (OPENSSL_NO_QUIC)
+#if defined(OSSL_QUIC1_VERSION) && !defined(OPENSSL_NO_QUIC)
 static int _dns_client_process_quic_poll(struct dns_server_info *server_info)
 {
 	LIST_HEAD(processed_list);
@@ -601,13 +437,13 @@ int _dns_client_process_quic(struct dns_server_info *server_info, struct epoll_e
 		}
 		pthread_mutex_unlock(&server_info->lock);
 
-		if (server_info->fd > 0) {
+		if (_dns_client_is_conn_valid(server_info)) {
 			/* clear epollout event */
 			struct epoll_event mod_event;
 			memset(&mod_event, 0, sizeof(mod_event));
 			mod_event.events = epoll_events;
 			mod_event.data.ptr = server_info;
-			if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &mod_event) != 0) {
+			if (_dns_client_epoll_ctl(server_info, client.epoll_fd, EPOLL_CTL_MOD, &mod_event) != 0) {
 				tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
 				goto errout;
 			}
@@ -619,7 +455,7 @@ errout:
 }
 #endif
 
-#if defined(OSSL_QUIC1_VERSION) && !defined (OPENSSL_NO_QUIC)
+#if defined(OSSL_QUIC1_VERSION) && !defined(OPENSSL_NO_QUIC)
 static int _dns_client_quic_pending_data(struct dns_conn_stream *stream, struct dns_server_info *server_info,
 										 struct dns_query_struct *query, void *packet, int len)
 {
@@ -638,7 +474,7 @@ static int _dns_client_quic_pending_data(struct dns_conn_stream *stream, struct 
 	stream->send_buff.len += len;
 
 	pthread_mutex_lock(&server_info->lock);
-	if (server_info->fd <= 0) {
+	if (_dns_client_is_conn_valid(server_info) == 0) {
 		pthread_mutex_unlock(&server_info->lock);
 		errno = ECONNRESET;
 		goto errout;
@@ -661,7 +497,7 @@ static int _dns_client_quic_pending_data(struct dns_conn_stream *stream, struct 
 	memset(&event, 0, sizeof(event));
 	event.events = EPOLLIN | EPOLLOUT;
 	event.data.ptr = server_info;
-	if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &event) != 0) {
+	if (_dns_client_epoll_ctl(server_info, client.epoll_fd, EPOLL_CTL_MOD, &event) != 0) {
 		tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
 		pthread_mutex_unlock(&server_info->lock);
 		goto errout_put;
@@ -734,7 +570,7 @@ int _dns_client_send_quic_data(struct dns_query_struct *query, struct dns_server
 		memset(&event, 0, sizeof(event));
 		event.events = EPOLLIN;
 		event.data.ptr = server_info;
-		if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &event) != 0) {
+		if (_dns_client_epoll_ctl(server_info, client.epoll_fd, EPOLL_CTL_MOD, &event) != 0) {
 			if (errno == ENOENT) {
 				goto out;
 			}
@@ -788,7 +624,7 @@ out:
 int _dns_client_send_quic(struct dns_query_struct *query, struct dns_server_info *server_info, void *packet,
 						  unsigned short len)
 {
-#if defined(OSSL_QUIC1_VERSION) && !defined (OPENSSL_NO_QUIC)
+#if defined(OSSL_QUIC1_VERSION) && !defined(OPENSSL_NO_QUIC)
 	unsigned char inpacket_data[DNS_IN_PACKSIZE];
 	unsigned char *inpacket = inpacket_data;
 

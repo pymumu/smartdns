@@ -26,8 +26,39 @@
 #include "client_udp.h"
 #include "conn_stream.h"
 
+#include "smartdns/proxy.h"
 #include <openssl/ssl.h>
 #include <sys/epoll.h>
+
+/* Unified epoll control function that handles both proxy and non-proxy connections */
+int _dns_client_epoll_ctl(struct dns_server_info *server_info, int epoll_fd, int op, struct epoll_event *event)
+{
+	if (server_info->proxy) {
+		/* Use proxy_conn_ctl for proxy connections */
+		return proxy_conn_ctl(server_info->proxy, epoll_fd, op, event);
+	}
+
+	if (server_info->fd <= 0) {
+		return -1;
+	}
+
+	return epoll_ctl(epoll_fd, op, server_info->fd, event);
+}
+
+/* Helper function to check if the connection is valid (fd or proxy) */
+int _dns_client_is_conn_valid(struct dns_server_info *server_info)
+{
+	/* Direct connection: fd must be valid */
+	if (server_info->fd > 0) {
+		return 1;
+	}
+
+	if (server_info->proxy) {
+		return 1;
+	}
+
+	return 0;
+}
 
 int _dns_client_create_socket(struct dns_server_info *server_info)
 {
@@ -232,7 +263,7 @@ int _dns_client_socket_send(struct dns_server_info *server_info)
 	if (server_info->type == DNS_SERVER_UDP) {
 		return -1;
 	} else if (server_info->type == DNS_SERVER_TCP) {
-		return send(server_info->fd, server_info->send_buff.data, server_info->send_buff.len, MSG_NOSIGNAL);
+		return _dns_client_socket_tcp_send(server_info);
 	} else if (server_info->type == DNS_SERVER_TLS || server_info->type == DNS_SERVER_HTTPS ||
 			   server_info->type == DNS_SERVER_QUIC || server_info->type == DNS_SERVER_HTTP3) {
 		int write_len = server_info->send_buff.len;
@@ -262,8 +293,7 @@ int _dns_client_socket_recv(struct dns_server_info *server_info)
 	if (server_info->type == DNS_SERVER_UDP) {
 		return -1;
 	} else if (server_info->type == DNS_SERVER_TCP) {
-		return recv(server_info->fd, server_info->recv_buff.data + server_info->recv_buff.len,
-					DNS_TCP_BUFFER - server_info->recv_buff.len, 0);
+		return _dns_client_socket_tcp_recv(server_info);
 	} else if (server_info->type == DNS_SERVER_TLS || server_info->type == DNS_SERVER_HTTPS ||
 			   server_info->type == DNS_SERVER_QUIC || server_info->type == DNS_SERVER_HTTP3) {
 		int ret = _dns_client_socket_ssl_recv(server_info, server_info->recv_buff.data + server_info->recv_buff.len,
@@ -308,7 +338,7 @@ int _dns_client_send_data_to_buffer(struct dns_server_info *server_info, void *p
 	memcpy(server_info->send_buff.data + server_info->send_buff.len, packet, len);
 	server_info->send_buff.len += len;
 
-	if (server_info->fd <= 0) {
+	if (_dns_client_is_conn_valid(server_info) == 0) {
 		errno = ECONNRESET;
 		return -1;
 	}
@@ -316,7 +346,7 @@ int _dns_client_send_data_to_buffer(struct dns_server_info *server_info, void *p
 	memset(&event, 0, sizeof(event));
 	event.events = EPOLLIN | EPOLLOUT;
 	event.data.ptr = server_info;
-	if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &event) != 0) {
+	if (_dns_client_epoll_ctl(server_info, client.epoll_fd, EPOLL_CTL_MOD, &event) != 0) {
 		if (errno == ENOENT) {
 			/* fd not found, ignore */
 			return 0;

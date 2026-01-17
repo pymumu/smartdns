@@ -326,11 +326,12 @@ static void _proxy_server_free_proxy_cache(void)
 	}
 }
 
-static int _proxy_server_recv_data(int fd, struct conn_buffer *buff)
+static int _proxy_server_recv_data(struct proxy_server_conn *conn, struct conn_buffer *buff)
 {
 	int n = 0;
+	int fd = conn->fd;
 
-	if (fd <= 0) {
+	if (fd <= 0 && (conn->type != PROXY_SERVER_CONN_REMOTE || conn->remote.pconn == NULL)) {
 		return -1;
 	}
 
@@ -340,7 +341,12 @@ static int _proxy_server_recv_data(int fd, struct conn_buffer *buff)
 		}
 
 		/* 复制模式，读取数据到缓冲区 */
-		n = recv(fd, buff->data + buff->len, buff->size - buff->len, 0);
+		if (conn->type == PROXY_SERVER_CONN_REMOTE && conn->remote.pconn) {
+			n = proxy_conn_recv(conn->remote.pconn, buff->data + buff->len, buff->size - buff->len, 0);
+		} else {
+			n = recv(fd, buff->data + buff->len, buff->size - buff->len, 0);
+		}
+
 		if (n > 0) {
 			buff->len += n;
 		}
@@ -359,11 +365,12 @@ static int _proxy_server_recv_data(int fd, struct conn_buffer *buff)
 	return 0;
 }
 
-static int _proxy_server_send_data(struct conn_buffer *buff, int fd)
+static int _proxy_server_send_data(struct proxy_server_conn *conn, struct conn_buffer *buff)
 {
 	int n = 0;
+	int fd = conn->fd;
 
-	if (fd <= 0) {
+	if (fd <= 0 && (conn->type != PROXY_SERVER_CONN_REMOTE || conn->remote.pconn == NULL)) {
 		return -1;
 	}
 
@@ -373,7 +380,12 @@ static int _proxy_server_send_data(struct conn_buffer *buff, int fd)
 			len = buff->size;
 		}
 
-		n = send(fd, buff->data, len, MSG_NOSIGNAL);
+		if (conn->type == PROXY_SERVER_CONN_REMOTE && conn->remote.pconn) {
+			n = proxy_conn_send(conn->remote.pconn, buff->data, len, 0);
+		} else {
+			n = send(fd, buff->data, len, MSG_NOSIGNAL);
+		}
+
 		if (n == 0) {
 			break;
 		}
@@ -401,7 +413,7 @@ static int _proxy_server_pipe_data(struct proxy_server_conn *from, struct proxy_
 	int out = 0;
 
 	if (from->buff->len > 0) {
-		out = _proxy_server_send_data(from->buff, to->fd);
+		out = _proxy_server_send_data(to, from->buff);
 		if (out < 0) {
 			return -1;
 		} else if (out == 1) {
@@ -411,14 +423,14 @@ static int _proxy_server_pipe_data(struct proxy_server_conn *from, struct proxy_
 
 	for (;;) {
 		if (in == 0) {
-			in = _proxy_server_recv_data(from->fd, from->buff);
+			in = _proxy_server_recv_data(from, from->buff);
 			if (in < 0) {
 				break;
 			}
 		}
 
 		if (out == 0) {
-			out = _proxy_server_send_data(from->buff, to->fd);
+			out = _proxy_server_send_data(to, from->buff);
 			if (out < 0) {
 				break;
 			}
@@ -436,7 +448,7 @@ static int _proxy_server_conn_recv(struct proxy_server_conn *conn)
 {
 	int ret = 0;
 
-	ret = _proxy_server_recv_data(conn->fd, conn->buff);
+	ret = _proxy_server_recv_data(conn, conn->buff);
 	if (ret < 0) {
 		return -1;
 	}
@@ -456,9 +468,16 @@ static int _proxy_server_conn_start(struct proxy_server_conn *conn)
 	event_client.data.ptr = conn;
 	event_client.events = EPOLLIN | EPOLLOUT | EPOLLET;
 
-	if (epoll_ctl(dns_proxy_server.epoll_fd, EPOLL_CTL_ADD, conn->fd, &event_client) != 0) {
-		tlog(TLOG_ERROR, "epoll add failed, %s", strerror(errno));
-		goto errout;
+	if (conn->type == PROXY_SERVER_CONN_REMOTE && conn->remote.pconn) {
+		if (proxy_conn_ctl(conn->remote.pconn, dns_proxy_server.epoll_fd, EPOLL_CTL_ADD, &event_client) != 0) {
+			tlog(TLOG_ERROR, "epoll add failed, %s", strerror(errno));
+			goto errout;
+		}
+	} else {
+		if (epoll_ctl(dns_proxy_server.epoll_fd, EPOLL_CTL_ADD, conn->fd, &event_client) != 0) {
+			tlog(TLOG_ERROR, "epoll add failed, %s", strerror(errno));
+			goto errout;
+		}
 	}
 
 	return 0;
@@ -469,13 +488,20 @@ errout:
 
 static int _proxy_server_conn_stop(struct proxy_server_conn *conn)
 {
-	if (conn->fd <= 0) {
+	if (conn->fd <= 0 && (conn->type != PROXY_SERVER_CONN_REMOTE || conn->remote.pconn == NULL)) {
 		return -1;
 	}
 
-	if (epoll_ctl(dns_proxy_server.epoll_fd, EPOLL_CTL_DEL, conn->fd, NULL) != 0) {
-		tlog(TLOG_ERROR, "epoll del failed, %d, %s", conn->fd, strerror(errno));
-		goto errout;
+	if (conn->type == PROXY_SERVER_CONN_REMOTE && conn->remote.pconn) {
+		if (proxy_conn_ctl(conn->remote.pconn, dns_proxy_server.epoll_fd, EPOLL_CTL_DEL, NULL) != 0) {
+			tlog(TLOG_ERROR, "epoll del failed, %s", strerror(errno));
+			goto errout;
+		}
+	} else {
+		if (epoll_ctl(dns_proxy_server.epoll_fd, EPOLL_CTL_DEL, conn->fd, NULL) != 0) {
+			tlog(TLOG_ERROR, "epoll del failed, %d, %s", conn->fd, strerror(errno));
+			goto errout;
+		}
 	}
 
 	return 0;
@@ -545,10 +571,8 @@ static void _proxy_server_conn_put(struct proxy_server_conn *conn)
 		}
 	} else if (conn->type == PROXY_SERVER_CONN_UDP_SESSION) {
 		if (conn->udp_session.pconn) {
-			int udp_fd = proxy_conn_get_udpfd(conn->udp_session.pconn);
-			if (udp_fd > 0) {
-				epoll_ctl(dns_proxy_server.epoll_fd, EPOLL_CTL_DEL, udp_fd, NULL);
-			}
+			proxy_conn_ctl(conn->udp_session.pconn, dns_proxy_server.epoll_fd, EPOLL_CTL_DEL, NULL);
+
 			proxy_conn_free(conn->udp_session.pconn);
 			conn->udp_session.pconn = NULL;
 		}
@@ -693,7 +717,7 @@ static struct proxy_server_conn *_proxy_server_conn_open_remote(struct proxy_ser
 	}
 
 	/* Setup remote connection */
-	remote->fd = proxy_conn_get_fd(pconn);
+	remote->fd = -1;
 	remote->remote.pconn = pconn;
 	remote->remote.peer = client;
 	client->client.retry_all_server = 0;
@@ -1889,7 +1913,12 @@ static int _proxy_server_remote_handshake(struct proxy_server_conn *conn, struct
 	}
 
 	/* Perform proxy handshake using src/proxy.c interface */
-	state = proxy_conn_handshake(conn->remote.pconn);
+	struct proxy_channel *channel = proxy_channel_get_from_event(event->data.ptr);
+	if (channel == NULL) {
+		tlog(TLOG_ERROR, "epoll event is not a proxy channel event during handshake");
+		return -1;
+	}
+	state = proxy_conn_handshake(channel, dns_proxy_server.epoll_fd);
 
 	if (state == PROXY_HANDSHAKE_OK || state == PROXY_HANDSHAKE_CONNECTED) {
 		time(&conn->remote.proxy->last_alive);
@@ -2012,7 +2041,7 @@ static int _proxy_server_process_conn_redirect(struct proxy_server_conn *conn, s
 			}
 		}
 
-		if (_proxy_server_send_data(conn->redirect.send_buff, conn->fd) < 0) {
+		if (_proxy_server_send_data(conn, conn->redirect.send_buff) < 0) {
 			_proxy_server_conn_close(conn);
 			return -1;
 		}
@@ -2052,7 +2081,7 @@ static int _proxy_server_process_conn_redirect(struct proxy_server_conn *conn, s
 						   msg_len, http_head_get_fields_value(head, "Host"), http_head_get_url(head), msg);
 		safe_strncpy(conn->redirect.send_buff->data, data, len);
 		conn->redirect.send_buff->len = len;
-		_proxy_server_send_data(conn->redirect.send_buff, conn->fd);
+		_proxy_server_send_data(conn, conn->redirect.send_buff);
 		shutdown(conn->fd, SHUT_RDWR);
 		http_head_destroy(head);
 	}
@@ -2251,9 +2280,15 @@ static void _proxy_server_flush_pending_packets(struct proxy_server_conn *conn)
 	conn->udp_session.pending_packet_tail = NULL;
 }
 
-static int _proxy_server_handle_udp_handshake(struct proxy_server_conn *conn)
+static int _proxy_server_handle_udp_handshake(struct proxy_server_conn *conn, struct epoll_event *event)
 {
-	int ret = proxy_conn_handshake(conn->udp_session.pconn);
+	/* Perform proxy handshake using src/proxy.c interface */
+	struct proxy_channel *channel = proxy_channel_get_from_event(event->data.ptr);
+	if (channel == NULL) {
+		tlog(TLOG_ERROR, "epoll event is not a proxy channel event during udp handshake");
+		return -1;
+	}
+	int ret = proxy_conn_handshake(channel, dns_proxy_server.epoll_fd);
 	if (ret != PROXY_HANDSHAKE_CONNECTED) {
 		if (ret == PROXY_HANDSHAKE_ERR) {
 			return -1;
@@ -2261,20 +2296,15 @@ static int _proxy_server_handle_udp_handshake(struct proxy_server_conn *conn)
 		return 0;
 	}
 
-	int udp_fd = proxy_conn_get_udpfd(conn->udp_session.pconn);
-	if (udp_fd > 0) {
-		struct epoll_event ev_udp;
-		ev_udp.events = EPOLLIN | EPOLLET;
-		ev_udp.data.ptr = conn;
-		if (epoll_ctl(dns_proxy_server.epoll_fd, EPOLL_CTL_ADD, udp_fd, &ev_udp) != 0) {
-			tlog(TLOG_ERROR, "Failed to add UDP FD %d to epoll: %s", udp_fd, strerror(errno));
-		}
+	struct epoll_event ev_udp;
+	ev_udp.events = EPOLLIN | EPOLLET;
+	ev_udp.data.ptr = conn;
+	if (proxy_conn_ctl(conn->udp_session.pconn, dns_proxy_server.epoll_fd, EPOLL_CTL_ADD, &ev_udp) != 0) {
+		tlog(TLOG_ERROR, "Failed to add UDP proxy conn to epoll: %s", strerror(errno));
+	}
 
 		struct epoll_event ev_tcp;
-		ev_tcp.events = EPOLLIN | EPOLLET | EPOLLRDHUP;
-		ev_tcp.data.ptr = conn;
 		epoll_ctl(dns_proxy_server.epoll_fd, EPOLL_CTL_MOD, conn->fd, &ev_tcp);
-	}
 
 	conn->udp_session.connected = 1;
 	_proxy_server_flush_pending_packets(conn);
@@ -2297,7 +2327,7 @@ static int _proxy_server_process_udp_session(struct proxy_server_conn *conn, str
 
 	/* Handle handshake if not connected */
 	if (!conn->udp_session.connected) {
-		ret = _proxy_server_handle_udp_handshake(conn);
+		ret = _proxy_server_handle_udp_handshake(conn, event);
 		if (ret < 0) {
 			return -1;
 		}
@@ -2555,7 +2585,7 @@ static int _proxy_server_process_tproxy_udp(struct proxy_server_conn *conn, stru
 			return -1;
 		}
 
-		session_conn->fd = proxy_conn_get_fd(session_conn->udp_session.pconn);
+		session_conn->fd = -1;
 		/* Note: We assigned `fd` of the conn to TCP FD. unique management. */
 
 		session_conn->udp_session.pending_packet_head = _proxy_server_new_conn_buffer();
@@ -2723,7 +2753,14 @@ static void *_proxy_server_work(void *arg)
 
 		for (i = 0; i < num; i++) {
 			struct epoll_event *event = &events[i];
-			struct proxy_server_conn *conn = (struct proxy_server_conn *)event->data.ptr;
+			struct proxy_server_conn *conn = NULL;
+			
+			if (proxy_conn_is_epoll_event(event->data.ptr)) {
+				conn = (struct proxy_server_conn *)proxy_conn_get_event_userdata(event->data.ptr);
+			} else {
+				conn = (struct proxy_server_conn *)event->data.ptr;
+			}
+
 			if (conn == NULL) {
 				tlog(TLOG_WARN, "server info is invalid.");
 				continue;
