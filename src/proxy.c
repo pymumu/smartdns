@@ -136,6 +136,7 @@ struct proxy_conn {
 	int fallback_count;
 
 	pthread_mutex_t lock;
+	void *userdata;
 };
 
 /* upstream server groups */
@@ -342,7 +343,7 @@ static struct proxy_channel *_proxy_channel_new(struct proxy_server_info *server
 		if (server_info->info.port > 0) {
 			connect_port = server_info->info.port;
 		}
-		gai = _proxy_getaddr(connect_host, connect_port, SOCK_STREAM, 0);
+		gai = _proxy_getaddr(connect_host, connect_port, is_udp ? SOCK_DGRAM : SOCK_STREAM, 0);
 		if (gai == NULL) {
 			goto errout;
 		}
@@ -453,6 +454,9 @@ static int _proxy_channel_connect(struct proxy_channel *channel)
 	}
 
 	channel->state = PROXY_STATE_CONNECTING;
+	if (channel->type == PROXY_PASSTHROUGH && channel->is_udp) {
+		return 0;
+	}
 	int ret = connect(channel->fd, (struct sockaddr *)&channel->addr, channel->addrlen);
 	char addr_str[128];
 	get_host_by_addr(addr_str, sizeof(addr_str), (struct sockaddr *)&channel->addr);
@@ -1123,8 +1127,8 @@ static proxy_handshake_state _proxy_handshake_socks5(struct proxy_channel *chann
 			memcpy(addr, recv_buff + 4, addr_len);
 			port = ntohs(*((short *)(recv_buff + 4 + addr_len)));
 			addr_in->sin_family = AF_INET;
-			addr_in->sin_addr.s_addr = *((int *)addr);
-			addr_in->sin_port = *((short *)(recv_buff + 4 + addr_len));
+			memcpy(&addr_in->sin_addr.s_addr, recv_buff + 4, 4);
+			memcpy(&addr_in->sin_port, recv_buff + 8, 2);
 			if (addr[0] == 0 && addr[1] == 0 && addr[2] == 0 && addr[3] == 0) {
 				use_dest_ip = 1;
 			}
@@ -1144,8 +1148,8 @@ static proxy_handshake_state _proxy_handshake_socks5(struct proxy_channel *chann
 			memcpy(addr, recv_buff + 4, addr_len);
 			port = ntohs(*((short *)(recv_buff + 4 + addr_len)));
 			addr_in6->sin6_family = AF_INET6;
-			memcpy(addr_in6->sin6_addr.s6_addr, addr, addr_len);
-			addr_in6->sin6_port = *((short *)(recv_buff + 4 + addr_len));
+			memcpy(addr_in6->sin6_addr.s6_addr, recv_buff + 4, 16);
+			memcpy(&addr_in6->sin6_port, recv_buff + 20, 2);
 
 			if (addr[0] == 0 && addr[1] == 0 && addr[2] == 0 && addr[3] == 0 && addr[4] == 0 && addr[5] == 0 &&
 				addr[6] == 0 && addr[7] == 0 && addr[8] == 0 && addr[9] == 0 && addr[10] == 0 && addr[11] == 0 &&
@@ -1482,7 +1486,7 @@ proxy_handshake_state proxy_channel_handshake(struct proxy_channel *channel, int
 			return PROXY_HANDSHAKE_ERR;
 		}
 
-		ret = PROXY_HANDSHAKE_OK;
+		ret = PROXY_HANDSHAKE_CONNECTED;
 	} else if (ret == PROXY_HANDSHAKE_ERR) {
 		if (_proxy_channel_handshake_group_fail(channel, epoll_fd)) {
 			pthread_mutex_unlock(&proxy_conn->lock);
@@ -1513,37 +1517,46 @@ static int proxy_channel_sendto(struct proxy_channel *channel, const void *buf, 
 		return -1;
 	}
 
-	/* Build SOCKS5 UDP header */
-	buffer[0] = 0x00;
-	buffer[1] = 0x00;
-	buffer[2] = 0x00;
-	buffer_len += 3;
+	if (channel->type == PROXY_SOCKS5) {
+		/* Build SOCKS5 UDP header */
+		buffer[0] = 0x00;
+		buffer[1] = 0x00;
+		buffer[2] = 0x00;
+		buffer_len += 3;
 
-	switch (dest_addr->sa_family) {
-	case AF_INET:
-		buffer[3] = PROXY_SOCKS5_TYPE_IPV4;
-		memcpy(buffer + 4, &((struct sockaddr_in *)dest_addr)->sin_addr.s_addr, 4);
-		memcpy(buffer + 8, &((struct sockaddr_in *)dest_addr)->sin_port, 2);
-		buffer_len += 7;
-		break;
-	case AF_INET6:
-		buffer[3] = PROXY_SOCKS5_TYPE_IPV6;
-		memcpy(buffer + 4, &((struct sockaddr_in6 *)dest_addr)->sin6_addr.s6_addr, 16);
-		memcpy(buffer + 20, &((struct sockaddr_in6 *)dest_addr)->sin6_port, 2);
-		buffer_len += 19;
-		break;
-	default:
-		errno = EAFNOSUPPORT;
-		return -1;
+		switch (dest_addr->sa_family) {
+		case AF_INET:
+			buffer[3] = PROXY_SOCKS5_TYPE_IPV4;
+			memcpy(buffer + 4, &((struct sockaddr_in *)dest_addr)->sin_addr.s_addr, 4);
+			memcpy(buffer + 8, &((struct sockaddr_in *)dest_addr)->sin_port, 2);
+			buffer_len += 7;
+			break;
+		case AF_INET6:
+			buffer[3] = PROXY_SOCKS5_TYPE_IPV6;
+			memcpy(buffer + 4, &((struct sockaddr_in6 *)dest_addr)->sin6_addr.s6_addr, 16);
+			memcpy(buffer + 20, &((struct sockaddr_in6 *)dest_addr)->sin6_port, 2);
+			buffer_len += 19;
+			break;
+		default:
+			errno = EAFNOSUPPORT;
+			return -1;
+		}
+
+		if (sizeof(buffer) - buffer_len <= len) {
+			errno = ENOSPC;
+			return -1;
+		}
+
+		memcpy(buffer + buffer_len, buf, len);
+		buffer_len += len;
+	} else {
+		if (sizeof(buffer) <= len) {
+			errno = ENOSPC;
+			return -1;
+		}
+		memcpy(buffer, buf, len);
+		buffer_len = len;
 	}
-
-	if (sizeof(buffer) - buffer_len <= len) {
-		errno = ENOSPC;
-		return -1;
-	}
-
-	memcpy(buffer + buffer_len, buf, len);
-	buffer_len += len;
 
 	ret = sendto(channel->udp_fd, buffer, buffer_len, MSG_NOSIGNAL, (struct sockaddr *)&channel->udp_dest_addr,
 				 channel->udp_dest_addrlen);
@@ -1561,72 +1574,94 @@ static int proxy_channel_recvfrom(struct proxy_channel *channel, void *buf, size
 	int buffer_len = 0;
 	int ret = 0;
 
-	if (channel == NULL || channel->udp_fd < 0) {
+	if (channel == NULL) {
+		return -1;
+	}
+
+	int fd = channel->fd;
+	if (channel->udp_fd >= 0) {
+		fd = channel->udp_fd;
+	}
+
+	if (fd < 0) {
 		errno = ENOTCONN;
 		return -1;
 	}
 
-	ret = recvfrom(channel->udp_fd, buffer, sizeof(buffer), MSG_NOSIGNAL, NULL, NULL);
+	if (channel->type == PROXY_PASSTHROUGH) {
+		return recvfrom(fd, buf, len, flags, src_addr, addrlen);
+	}
+
+	ret = recvfrom(fd, buffer, sizeof(buffer), MSG_NOSIGNAL, NULL, NULL);
 	if (ret <= 0) {
 		return -1;
 	}
 
-	/* Parse SOCKS5 UDP header */
-	if (buffer[0] != 0x00 || buffer[1] != 0x00 || buffer[2] != 0x00) {
-		errno = EPROTO;
-		return -1;
-	}
-
-	switch (buffer[3]) {
-	case PROXY_SOCKS5_TYPE_IPV4:
-		if (ret < 10) {
+	if (channel->type == PROXY_SOCKS5) {
+		/* Parse SOCKS5 UDP header */
+		if (buffer[0] != 0x00 || buffer[1] != 0x00 || buffer[2] != 0x00) {
 			errno = EPROTO;
 			return -1;
 		}
 
-		if (src_addr) {
-			memset(src_addr, 0, sizeof(struct sockaddr_in));
-			((struct sockaddr_in *)src_addr)->sin_family = AF_INET;
-			memcpy(&((struct sockaddr_in *)src_addr)->sin_addr.s_addr, buffer + 4, 4);
-			memcpy(&((struct sockaddr_in *)src_addr)->sin_port, buffer + 8, 2);
-		}
+		switch (buffer[3]) {
+		case PROXY_SOCKS5_TYPE_IPV4:
+			if (ret < 10) {
+				errno = EPROTO;
+				return -1;
+			}
 
-		if (addrlen) {
-			*addrlen = sizeof(struct sockaddr_in);
-		}
+			if (src_addr) {
+				memset(src_addr, 0, sizeof(struct sockaddr_in));
+				((struct sockaddr_in *)src_addr)->sin_family = AF_INET;
+				memcpy(&((struct sockaddr_in *)src_addr)->sin_addr.s_addr, buffer + 4, 4);
+				memcpy(&((struct sockaddr_in *)src_addr)->sin_port, buffer + 8, 2);
+			}
 
-		buffer_len = 10;
-		break;
-	case PROXY_SOCKS5_TYPE_IPV6:
-		if (ret < 22) {
+			if (addrlen) {
+				*addrlen = sizeof(struct sockaddr_in);
+			}
+
+			buffer_len = 10;
+			break;
+		case PROXY_SOCKS5_TYPE_IPV6:
+			if (ret < 22) {
+				errno = EPROTO;
+				return -1;
+			}
+
+			if (src_addr) {
+				memset(src_addr, 0, sizeof(struct sockaddr_in6));
+				((struct sockaddr_in6 *)src_addr)->sin6_family = AF_INET6;
+				memcpy(&((struct sockaddr_in6 *)src_addr)->sin6_addr.s6_addr, buffer + 4, 16);
+				memcpy(&((struct sockaddr_in6 *)src_addr)->sin6_port, buffer + 20, 2);
+			}
+
+			if (addrlen) {
+				*addrlen = sizeof(struct sockaddr_in6);
+			}
+
+			buffer_len = 22;
+			break;
+		default:
 			errno = EPROTO;
 			return -1;
 		}
 
-		if (src_addr) {
-			memset(src_addr, 0, sizeof(struct sockaddr_in6));
-			((struct sockaddr_in6 *)src_addr)->sin6_family = AF_INET6;
-			memcpy(&((struct sockaddr_in6 *)src_addr)->sin6_addr.s6_addr, buffer + 4, 16);
-			memcpy(&((struct sockaddr_in6 *)src_addr)->sin6_port, buffer + 20, 2);
+		if (ret - buffer_len > (int)len) {
+			errno = EMSGSIZE;
+			return -1;
 		}
-
-		if (addrlen) {
-			*addrlen = sizeof(struct sockaddr_in6);
+		memcpy(buf, buffer + buffer_len, ret - buffer_len);
+		return ret - buffer_len;
+	} else {
+		if (ret > (int)len) {
+			errno = EMSGSIZE;
+			return -1;
 		}
-
-		buffer_len = 22;
-		break;
-	default:
-		errno = EPROTO;
-		return -1;
+		memcpy(buf, buffer, ret);
+		return ret;
 	}
-
-	if (ret - buffer_len > (int)len) {
-		errno = EMSGSIZE;
-		return -1;
-	}
-	memcpy(buf, buffer + buffer_len, ret - buffer_len);
-	return ret - buffer_len;
 }
 
 int proxy_channel_get_last_error(struct proxy_channel *channel)
@@ -2096,6 +2131,22 @@ void *proxy_conn_get_event_userdata(void *ptr)
 	return NULL;
 }
 
+void proxy_conn_set_event_userdata(struct proxy_conn *proxy_conn, void *userdata)
+{
+	struct proxy_channel *channel = NULL;
+	if (proxy_conn == NULL) {
+		return;
+	}
+
+	pthread_mutex_lock(&proxy_conn->lock);
+	proxy_conn->userdata = userdata;
+	list_for_each_entry(channel, &proxy_conn->channel_list, list)
+	{
+		channel->userdata = userdata;
+	}
+	pthread_mutex_unlock(&proxy_conn->lock);
+}
+
 void proxy_channel_set_server_auth(struct proxy_channel *channel, const char *user, const char *pass)
 {
 	if (channel == NULL) {
@@ -2113,6 +2164,14 @@ void proxy_channel_set_server_auth(struct proxy_channel *channel, const char *us
 	} else {
 		channel->server_pass[0] = '\0';
 	}
+}
+
+int proxy_channel_is_udp(struct proxy_channel *channel)
+{
+	if (channel == NULL) {
+		return 0;
+	}
+	return channel->is_udp;
 }
 
 static proxy_handshake_state _proxy_channel_server_send_auth_method(struct proxy_channel *channel, int method)
@@ -2265,8 +2324,16 @@ static proxy_handshake_state _proxy_handshake_socks5_server(struct proxy_channel
 			return PROXY_HANDSHAKE_WANT_READ;
 		}
 
-		if (buff[0] != PROXY_SOCKS5_VERSION || buff[1] != PROXY_SOCKS5_CONNECT_TCP) {
-			/* We only support CONNECT for now */
+		if (buff[0] != PROXY_SOCKS5_VERSION) {
+			return PROXY_HANDSHAKE_ERR;
+		}
+
+		if (buff[1] == PROXY_SOCKS5_CONNECT_TCP) {
+			channel->is_udp = 0;
+		} else if (buff[1] == PROXY_SOCKS5_CONNECT_UDP) {
+			channel->is_udp = 1;
+		} else {
+			/* We only support CONNECT and UDP ASSOCIATE */
 			/* TODO: Send error reply? */
 			return PROXY_HANDSHAKE_ERR;
 		}
@@ -2587,6 +2654,14 @@ int proxy_channel_send(struct proxy_channel *channel, const void *buf, size_t le
 	}
 
 	int ret = send(fd, buf, len, flags);
+	if (ret < 0 && (errno == ENOTCONN || errno == EDESTADDRREQ || errno == ENOTSUP) && channel->is_udp) {
+		ret = sendto(fd, buf, len, flags, (struct sockaddr *)&channel->addr, channel->addrlen);
+	}
+
+	if (ret < 0) {
+		int err = errno;
+		errno = err;
+	}
 	return ret;
 }
 

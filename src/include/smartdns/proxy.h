@@ -81,6 +81,7 @@ int proxy_channel_recv(struct proxy_channel *channel, void *buf, size_t len, int
 int proxy_channel_send(struct proxy_channel *channel, const void *buf, size_t len, int flags);
 
 void proxy_channel_get_target(struct proxy_channel *channel, char *host, int host_len, unsigned short *port);
+int proxy_channel_is_udp(struct proxy_channel *channel);
 void proxy_channel_get_addr(struct proxy_channel *channel, struct sockaddr *addr, socklen_t *addrlen);
 const char *proxy_channel_get_last_error_str(struct proxy_channel *channel);
 int proxy_channel_get_opt_error(struct proxy_channel *channel);
@@ -138,6 +139,7 @@ struct proxy_channel *proxy_channel_get_from_event(void *ptr);
 
 /* Get user data (e.g., server_info) from epoll event */
 void *proxy_conn_get_event_userdata(void *ptr);
+void proxy_conn_set_event_userdata(struct proxy_conn *proxy_conn, void *userdata);
 
 void proxy_channel_set_server_auth(struct proxy_channel *channel, const char *user, const char *pass);
 

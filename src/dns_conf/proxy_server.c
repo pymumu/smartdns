@@ -23,6 +23,7 @@
 #include "smartdns/util.h"
 
 #include <getopt.h>
+#include <stdio.h>
 #include <unistd.h> // for access
 
 static int _default_so_mark = 1104;
@@ -792,6 +793,109 @@ struct dns_http_proxy_server_conf *dns_conf_get_http_proxy_server(const char *na
 	return NULL;
 }
 
+struct dns_forward_server_conf *dns_conf_get_forward_server(const char *name)
+{
+	uint32_t key = hash_string(name);
+	struct dns_forward_server_conf *conf = NULL;
+
+	hash_for_each_possible(dns_proxy_table.forward, conf, node, key)
+	{
+		if (strncmp(conf->name, name, PROXY_NAME_LEN) == 0) {
+			return conf;
+		}
+	}
+
+	return NULL;
+}
+
+int _config_forward_server(void *data, int argc, char *argv[])
+{
+	struct dns_forward_server_conf *conf = NULL;
+	struct dns_forward_server_conf *old_conf = NULL;
+	int opt = 0;
+	char *ip = NULL;
+
+	static struct option long_options[] = {{"name", required_argument, NULL, 'n'},
+										   {"proxy", required_argument, NULL, 'p'},
+										   {"target", required_argument, NULL, 't'},
+										   {"udp", no_argument, NULL, 'u'},
+										   {"set-mark", required_argument, NULL, 'm'},
+										   {NULL, no_argument, NULL, 0}};
+
+	if (argc < 2) {
+		tlog(TLOG_ERROR, "invalid parameter, usage: forward-server [IP]:port -target [IP]:port [-name name] [-proxy proxyname] [-udp] [-set-mark mark]");
+		return -1;
+	}
+
+	conf = zalloc(1, sizeof(*conf));
+	if (conf == NULL) {
+		return -1;
+	}
+
+	ip = argv[1];
+	if (_bind_is_ip_valid(ip) != 0) {
+		tlog(TLOG_ERROR, "forward-server ip address invalid: %s", ip);
+		goto errout;
+	}
+	safe_strncpy(conf->server, ip, sizeof(conf->server));
+	tlog(TLOG_NOTICE, "parsed forward-server %s", ip);
+
+	optind = 1;
+	while (1) {
+		opt = getopt_long_only(argc, argv, "n:p:t:um:", long_options, NULL);
+		if (opt == -1) {
+			break;
+		}
+
+		switch (opt) {
+		case 'n':
+			safe_strncpy(conf->name, optarg, sizeof(conf->name));
+			break;
+		case 'p':
+			safe_strncpy(conf->proxy_name, optarg, sizeof(conf->proxy_name));
+			break;
+		case 't':
+			safe_strncpy(conf->target, optarg, sizeof(conf->target));
+			break;
+		case 'u':
+			conf->udp_support = 1;
+			break;
+		case 'm':
+			conf->so_mark = atoi(optarg);
+			break;
+		default:
+			break;
+		}
+	}
+
+	if (conf->target[0] == '\0') {
+		tlog(TLOG_ERROR, "forward-server target must be set");
+		goto errout;
+	}
+
+	if (conf->name[0] == '\0') {
+		snprintf(conf->name, sizeof(conf->name), "forward-%s", ip);
+	}
+
+	old_conf = dns_conf_get_forward_server(conf->name);
+	if (old_conf) {
+		tlog(TLOG_ERROR, "forward-server name %s already exist", conf->name);
+		goto errout;
+	}
+
+	uint32_t key = hash_string(conf->name);
+	hash_add(dns_proxy_table.forward, &conf->node, key);
+	dns_proxy_table.forward_num++;
+
+	return 0;
+
+errout:
+	if (conf) {
+		free(conf);
+	}
+	return -1;
+}
+
 static void _config_proxy_tproxy_table_destroy(void)
 {
 	struct dns_tproxy_server_conf *t_conf = NULL;
@@ -844,12 +948,26 @@ static void _config_proxy_http_proxy_table_destroy(void)
 	}
 }
 
+static void _config_proxy_forward_table_destroy(void)
+{
+	struct dns_forward_server_conf *f_conf = NULL;
+	struct hlist_node *tmp = NULL;
+	unsigned long i = 0;
+
+	hash_for_each_safe(dns_proxy_table.forward, i, tmp, f_conf, node)
+	{
+		hlist_del_init(&f_conf->node);
+		free(f_conf);
+	}
+}
+
 int _config_proxy_server_table_destroy(void)
 {
 	_config_proxy_sniproxy_table_destroy();
 	_config_proxy_tproxy_table_destroy();
 	_config_proxy_socks5_proxy_table_destroy();
 	_config_proxy_http_proxy_table_destroy();
+	_config_proxy_forward_table_destroy();
 	return 0;
 }
 
@@ -871,4 +989,9 @@ int dns_conf_socks5_proxy_server_num(void)
 int dns_conf_http_proxy_server_num(void)
 {
 	return dns_proxy_table.http_proxy_num;
+}
+
+int dns_conf_forward_server_num(void)
+{
+	return dns_proxy_table.forward_num;
 }

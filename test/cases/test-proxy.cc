@@ -338,3 +338,98 @@ log-level debug)""");
 	EXPECT_EQ(client.GetStatus(), "NOERROR");
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "9.9.9.9");
 }
+
+TEST_F(ProxyTest, ForwardServer_TCP)
+{
+	smartdns::Server server_upstream;
+	smartdns::Server server_forwarder;
+
+	// 1. Upstream server that forwarder will point to
+	server_upstream.Start(R"""(bind-tcp [::]:62055
+address /example.com/7.8.9.0
+log-console yes
+log-level debug)""");
+
+	// 2. Forward server that forwards TCP 60055 to 62055
+	server_forwarder.Start(R"""(bind [::]:63055
+forward-server 127.0.0.1:60055 -target 127.0.0.1:62055
+log-console yes
+log-level debug)""");
+
+	smartdns::Client client;
+	// Query the forwarder port via TCP. 
+	// Since forwarder just pipes data, we send a DNS query via TCP to 60055.
+	// It should reach 62055 and get response.
+	std::cout << "Starting TCP query for example.com A via forward-server..." << std::endl;
+	ASSERT_TRUE(client.Query("+tcp example.com A", 60055));
+	std::cout << "Query result: " << client.GetResult() << std::endl;
+	
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "7.8.9.0");
+	std::cout << "ForwardServer TCP test completed successfully." << std::endl;
+}
+
+TEST_F(ProxyTest, ForwardServer_UDP)
+{
+	smartdns::Server server_upstream;
+	smartdns::Server server_forwarder;
+
+	// 1. Upstream server
+	server_upstream.Start(R"""(bind 127.0.0.1:62056
+address /example.com/8.9.0.1
+log-console yes
+log-level debug)""");
+
+	// 2. Forward server with UDP support
+	server_forwarder.Start(R"""(bind [::]:63056
+forward-server 127.0.0.1:60056 -target 127.0.0.1:62056 -udp
+log-console yes
+log-level debug)""");
+
+	smartdns::Client client;
+	// Query the forwarder port via UDP.
+	std::cout << "Starting UDP query for example.com A via forward-server..." << std::endl;
+	ASSERT_TRUE(client.Query("example.com A", 60056));
+	std::cout << "Query result: " << client.GetResult() << std::endl;
+	
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "8.9.0.1");
+	std::cout << "ForwardServer UDP test completed successfully." << std::endl;
+}
+
+TEST_F(ProxyTest, ForwardServer_ViaProxy)
+{
+	smartdns::Server server_upstream;
+	smartdns::Server server_proxy_socks5;
+	smartdns::Server server_forwarder;
+
+	// 1. Upstream
+	server_upstream.Start(R"""(bind-tcp [::]:62057
+address /example.com/9.0.1.2
+log-console yes
+log-level debug)""");
+
+	// 2. SOCKS5 Proxy
+	server_proxy_socks5.Start(R"""(bind [::]:61081
+socks5-proxy-server 127.0.0.1:11081 -name proxy1
+log-console yes
+log-level debug)""");
+
+	// 3. Forward server using the SOCKS5 proxy
+	server_forwarder.Start(R"""(bind [::]:63057
+proxy-server socks5://127.0.0.1:11081 -name myproxy
+forward-server 127.0.0.1:60057 -target 127.0.0.1:62057 -proxy myproxy
+log-console yes
+log-level debug)""");
+
+	smartdns::Client client;
+	std::cout << "Starting TCP query via forward-server and SOCKS5 proxy..." << std::endl;
+	ASSERT_TRUE(client.Query("+tcp example.com A", 60057));
+	std::cout << "Query result: " << client.GetResult() << std::endl;
+	
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "9.0.1.2");
+}

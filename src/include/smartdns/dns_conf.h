@@ -423,6 +423,8 @@ struct dns_proxy_table {
 	int socks5_proxy_num;
 	DECLARE_HASHTABLE(http_proxy, 4);
 	int http_proxy_num;
+	DECLARE_HASHTABLE(forward, 4);
+	int forward_num;
 };
 extern struct dns_proxy_table dns_proxy_table;
 
@@ -527,6 +529,16 @@ struct dns_http_proxy_server_conf {
 	int force_aaaa_soa;
 	char username[DNS_PROXY_MAX_LEN];
 	char password[DNS_PROXY_MAX_LEN];
+};
+
+struct dns_forward_server_conf {
+	struct hlist_node node;
+	char name[PROXY_NAME_LEN];
+	char server[DNS_MAX_IPLEN];
+	char target[DNS_MAX_IPLEN];
+	char proxy_name[PROXY_NAME_LEN];
+	int udp_support;
+	int so_mark;
 };
 
 /* ip address lists of domain */
@@ -899,17 +911,16 @@ const char *dns_conf_get_data_dir(void);
 const char *dns_conf_get_ddns_domain(void);
 
 struct dns_tproxy_server_conf *dns_conf_get_tproxy_server(const char *name);
-
 struct dns_sniproxy_server_conf *dns_conf_get_sniproxy_server(const char *name);
-
-int dns_conf_tproxy_server_num(void);
-
-int dns_conf_sniproxy_server_num(void);
-
 struct dns_socks5_proxy_server_conf *dns_conf_get_socks5_proxy_server(const char *name);
 struct dns_http_proxy_server_conf *dns_conf_get_http_proxy_server(const char *name);
+struct dns_forward_server_conf *dns_conf_get_forward_server(const char *name);
+
+int dns_conf_tproxy_server_num(void);
+int dns_conf_sniproxy_server_num(void);
 int dns_conf_socks5_proxy_server_num(void);
 int dns_conf_http_proxy_server_num(void);
+int dns_conf_forward_server_num(void);
 
 const char *_dns_conf_get_proxy_name(const char *proxy_name);
 

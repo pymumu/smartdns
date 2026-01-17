@@ -50,17 +50,8 @@ int _dns_proxy_handshake(struct dns_server_info *server_info, int epoll_fd, stru
 	}
 
 	ret = proxy_channel_handshake(channel, epoll_fd);
-	if (ret == PROXY_HANDSHAKE_OK) {
-		pthread_mutex_unlock(&server_info->lock);
-		return 0;
-	}
-
-	if (ret == PROXY_HANDSHAKE_ERR) {
-		goto errout;
-	}
-
-	memset(&fd_event, 0, sizeof(fd_event));
-	if (ret == PROXY_HANDSHAKE_CONNECTED) {
+	if (ret == PROXY_HANDSHAKE_OK || ret == PROXY_HANDSHAKE_CONNECTED) {
+		memset(&fd_event, 0, sizeof(fd_event));
 		fd_event.events = EPOLLIN;
 		/* proxy connection established */
 
@@ -80,11 +71,12 @@ int _dns_proxy_handshake(struct dns_server_info *server_info, int epoll_fd, stru
 				fd_event.events |= EPOLLOUT;
 			}
 			/* If no pending data, only EPOLLIN to avoid infinite EPOLLOUT triggers */
+			server_info->status = DNS_SERVER_STATUS_CONNECTED;
 		}
 		retval = 0;
-	}
-
-	if (ret == PROXY_HANDSHAKE_WANT_READ) {
+	} else if (ret == PROXY_HANDSHAKE_ERR) {
+		goto errout;
+	} else if (ret == PROXY_HANDSHAKE_WANT_READ) {
 		fd_event.events = EPOLLIN;
 	} else if (ret == PROXY_HANDSHAKE_WANT_WRITE) {
 		fd_event.events = EPOLLOUT | EPOLLIN;
