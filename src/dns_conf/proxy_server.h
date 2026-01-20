@@ -28,6 +28,7 @@ extern "C" {
 
 int _config_proxy_server(void *data, int argc, char *argv[]);
 int _config_tproxy_server(void *data, int argc, char *argv[]);
+int _config_proxy_bind(void *data, int argc, char *argv[]);
 int _config_sniproxy_server(void *data, int argc, char *argv[]);
 int _config_socks5_proxy_server(void *data, int argc, char *argv[]);
 int _config_http_proxy_server(void *data, int argc, char *argv[]);

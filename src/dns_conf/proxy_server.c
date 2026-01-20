@@ -838,7 +838,6 @@ int _config_forward_server(void *data, int argc, char *argv[])
 		goto errout;
 	}
 	safe_strncpy(conf->server, ip, sizeof(conf->server));
-	tlog(TLOG_NOTICE, "parsed forward-server %s", ip);
 
 	optind = 1;
 	while (1) {
@@ -894,6 +893,35 @@ errout:
 		free(conf);
 	}
 	return -1;
+}
+
+int _config_proxy_bind(void *data, int argc, char *argv[])
+{
+	if (argc < 2) {
+		tlog(TLOG_ERROR, "invalid parameter, usage: proxy-bind [scheme://]IP:PORT ...");
+		return -1;
+	}
+
+	char *arg = argv[1];
+	if (strncmp(arg, "tproxy://", 9) == 0) {
+		argv[1] = arg + 9;
+		return _config_tproxy_server(data, argc, argv);
+	} else if (strncmp(arg, "sni://", 6) == 0) {
+		argv[1] = arg + 6;
+		return _config_sniproxy_server(data, argc, argv);
+	} else if (strncmp(arg, "socks5://", 9) == 0) {
+		argv[1] = arg + 9;
+		return _config_socks5_proxy_server(data, argc, argv);
+	} else if (strncmp(arg, "http://", 7) == 0) {
+		argv[1] = arg + 7;
+		return _config_http_proxy_server(data, argc, argv);
+	} else if (strncmp(arg, "forward://", 10) == 0) {
+		argv[1] = arg + 10;
+		return _config_forward_server(data, argc, argv);
+	} else {
+		tlog(TLOG_ERROR, "unknown scheme in proxy-bind: %s", arg);
+		return -1;
+	}
 }
 
 static void _config_proxy_tproxy_table_destroy(void)

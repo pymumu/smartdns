@@ -244,6 +244,7 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("socks5-proxy-server", _config_socks5_proxy_server, NULL),
 	CONF_CUSTOM("http-proxy-server", _config_http_proxy_server, NULL),
 	CONF_CUSTOM("forward-server", _config_forward_server, NULL),
+	CONF_CUSTOM("proxy-bind", _config_proxy_bind, NULL),
 	CONF_STRING("ca-file", (char *)&dns_conf.ca_file, DNS_MAX_PATH),
 	CONF_STRING("ca-path", (char *)&dns_conf.ca_path, DNS_MAX_PATH),
 	CONF_STRING("user", (char *)&dns_conf.user, sizeof(dns_conf.user)),

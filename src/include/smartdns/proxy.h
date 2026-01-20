@@ -79,6 +79,7 @@ void proxy_channel_free(struct proxy_channel *channel);
 int proxy_channel_ctl(struct proxy_channel *channel, int epoll_fd, int op, struct epoll_event *event);
 int proxy_channel_recv(struct proxy_channel *channel, void *buf, size_t len, int flags);
 int proxy_channel_send(struct proxy_channel *channel, const void *buf, size_t len, int flags);
+int proxy_channel_shutdown(struct proxy_channel *channel, int how);
 
 void proxy_channel_get_target(struct proxy_channel *channel, char *host, int host_len, unsigned short *port);
 int proxy_channel_is_udp(struct proxy_channel *channel);
@@ -116,6 +117,8 @@ int proxy_conn_sendto(struct proxy_conn *proxy_conn, const void *buf, size_t len
 int proxy_conn_recvfrom(struct proxy_conn *proxy_conn, void *buf, size_t len, int flags, struct sockaddr *src_addr,
 						socklen_t *addrlen);
 
+int proxy_conn_shutdown(struct proxy_conn *proxy_conn, int how);
+
 proxy_handshake_state proxy_channel_handshake(struct proxy_channel *channel, int epoll_fd);
 
 int proxy_conn_get_last_error(struct proxy_conn *proxy_conn);
@@ -142,6 +145,11 @@ void *proxy_conn_get_event_userdata(void *ptr);
 void proxy_conn_set_event_userdata(struct proxy_conn *proxy_conn, void *userdata);
 
 void proxy_channel_set_server_auth(struct proxy_channel *channel, const char *user, const char *pass);
+
+void proxy_channel_get_peeraddr(struct proxy_channel *channel, struct sockaddr *addr, socklen_t *addrlen);
+void proxy_conn_get_peeraddr(struct proxy_conn *proxy_conn, struct sockaddr *addr, socklen_t *addrlen);
+void proxy_conn_get_target(struct proxy_conn *proxy_conn, char *host, int host_len, unsigned short *port);
+int proxy_conn_get_state(struct proxy_conn *proxy_conn);
 
 #ifdef __cplusplus
 }

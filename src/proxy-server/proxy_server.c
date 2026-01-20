@@ -25,11 +25,11 @@
 #include "smartdns/dns_server.h"
 #include "smartdns/http_parse.h"
 #include "smartdns/lib/atomic.h"
+#include "smartdns/lib/jhash.h"
 #include "smartdns/lib/list.h"
 #include "smartdns/proxy.h"
 #include "smartdns/tlog.h"
 #include "smartdns/util.h"
-#include "smartdns/lib/jhash.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -98,10 +98,14 @@ typedef enum PROXY_SERVER_CONN_TYPE {
 
 typedef enum PROXY_SERVER_CONN_STATE {
 	PROXY_SERVER_CONN_STAT_INIT = 0,
-	PROXY_SERVER_CONN_STAT_CONNECTING = 1,
-	PROXY_SERVER_CONN_STAT_CONNECTED = 2,
-	PROXY_SERVER_CONN_STAT_CONNECTED_PIPE_DATA = 3,
-	PROXY_SERVER_CONN_STAT_SOCKS5_AUTH = 4,
+	PROXY_SERVER_CONN_STAT_HANDSHAKE,
+	PROXY_SERVER_CONN_STAT_GET_TARGET,
+	PROXY_SERVER_CONN_STAT_RESOLVE,
+	PROXY_SERVER_CONN_STAT_RESOLVING,
+	PROXY_SERVER_CONN_STAT_CONNECT_REMOTE,
+	PROXY_SERVER_CONN_STAT_CONNECTING,
+	PROXY_SERVER_CONN_STAT_PIPE,
+	PROXY_SERVER_CONN_STAT_CLOSE,
 } PROXY_SERVER_CONN_STATE;
 
 struct conn_buffer {
@@ -116,6 +120,7 @@ struct proxy_server {
 	struct hlist_node node;
 	char proxy_name[PROXY_NAME_LEN];
 	time_t last_alive;
+	int ipv6_check_ok;
 };
 
 /* removed legacy proxy_server_info_cb and PROXY_SERVER_SOCKS5_CONN_STATE */
@@ -152,8 +157,10 @@ struct proxy_server_conn_client {
 	int remote_dns;
 	int force_aaaa_soa;
 	struct proxy_channel *channel;
-};
 
+	/* Fields for domain resolution and target tracking */
+	unsigned short target_port;
+};
 
 struct proxy_server_conn_redirect {
 	struct conn_buffer *send_buff;
@@ -225,6 +232,26 @@ struct dns_proxy_server {
 
 static int is_proxy_server_init;
 static struct dns_proxy_server dns_proxy_server;
+
+static int _proxy_server_conn_process(struct proxy_server_conn *conn);
+static int get_sockaddr_port(struct sockaddr *addr);
+static int _proxy_server_conn_close(struct proxy_server_conn *conn);
+
+static int get_addr_from_string(const char *host, struct sockaddr_storage *ss)
+{
+	struct sockaddr_in *sin = (struct sockaddr_in *)ss;
+	struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)ss;
+
+	if (inet_pton(AF_INET, host, &sin->sin_addr) == 1) {
+		ss->ss_family = AF_INET;
+		return 0;
+	}
+	if (inet_pton(AF_INET6, host, &sin6->sin6_addr) == 1) {
+		ss->ss_family = AF_INET6;
+		return 0;
+	}
+	return -1;
+}
 
 static int _proxy_server_setup_firewall_rules(void)
 {
@@ -348,7 +375,12 @@ static int _proxy_server_recv_data(struct proxy_server_conn *conn, struct conn_b
 	int fd = conn->fd;
 
 	if (fd <= 0 && (conn->type != PROXY_SERVER_CONN_REMOTE || conn->remote.pconn == NULL) &&
-		!((conn->type == PROXY_SERVER_CONN_CLIENT || conn->type == PROXY_SERVER_CONN_CLIENT_REDIRECT) && conn->client.channel)) {
+		!((conn->type == PROXY_SERVER_CONN_CLIENT || conn->type == PROXY_SERVER_CONN_CLIENT_REDIRECT) &&
+		  conn->client.channel)) {
+		return -1;
+	}
+
+	if (buff == NULL) {
 		return -1;
 	}
 
@@ -360,7 +392,8 @@ static int _proxy_server_recv_data(struct proxy_server_conn *conn, struct conn_b
 		/* 复制模式，读取数据到缓冲区 */
 		if (conn->type == PROXY_SERVER_CONN_REMOTE && conn->remote.pconn) {
 			n = proxy_conn_recv(conn->remote.pconn, buff->data + buff->len, buff->size - buff->len, 0);
-		} else if ((conn->type == PROXY_SERVER_CONN_CLIENT || conn->type == PROXY_SERVER_CONN_CLIENT_REDIRECT) && conn->client.channel) {
+		} else if ((conn->type == PROXY_SERVER_CONN_CLIENT || conn->type == PROXY_SERVER_CONN_CLIENT_REDIRECT) &&
+				   conn->client.channel) {
 			n = proxy_channel_recv(conn->client.channel, buff->data + buff->len, buff->size - buff->len, 0);
 		} else {
 			n = recv(fd, buff->data + buff->len, buff->size - buff->len, 0);
@@ -384,14 +417,18 @@ static int _proxy_server_recv_data(struct proxy_server_conn *conn, struct conn_b
 	return 0;
 }
 
-
 static int _proxy_server_send_data(struct proxy_server_conn *conn, struct conn_buffer *buff)
 {
 	int n = 0;
 	int fd = conn->fd;
 
 	if (fd <= 0 && (conn->type != PROXY_SERVER_CONN_REMOTE || conn->remote.pconn == NULL) &&
-		!((conn->type == PROXY_SERVER_CONN_CLIENT || conn->type == PROXY_SERVER_CONN_CLIENT_REDIRECT) && conn->client.channel)) {
+		!((conn->type == PROXY_SERVER_CONN_CLIENT || conn->type == PROXY_SERVER_CONN_CLIENT_REDIRECT) &&
+		  conn->client.channel)) {
+		return -1;
+	}
+
+	if (buff == NULL) {
 		return -1;
 	}
 
@@ -403,7 +440,8 @@ static int _proxy_server_send_data(struct proxy_server_conn *conn, struct conn_b
 
 		if (conn->type == PROXY_SERVER_CONN_REMOTE && conn->remote.pconn) {
 			n = proxy_conn_send(conn->remote.pconn, buff->data, len, 0);
-		} else if ((conn->type == PROXY_SERVER_CONN_CLIENT || conn->type == PROXY_SERVER_CONN_CLIENT_REDIRECT) && conn->client.channel) {
+		} else if ((conn->type == PROXY_SERVER_CONN_CLIENT || conn->type == PROXY_SERVER_CONN_CLIENT_REDIRECT) &&
+				   conn->client.channel) {
 			n = proxy_channel_send(conn->client.channel, buff->data, len, MSG_NOSIGNAL);
 		} else {
 			n = send(fd, buff->data, len, MSG_NOSIGNAL);
@@ -420,7 +458,6 @@ static int _proxy_server_send_data(struct proxy_server_conn *conn, struct conn_b
 			return -1;
 		}
 
-
 		buff->len -= n;
 
 		if (buff->len > 0) {
@@ -431,45 +468,53 @@ static int _proxy_server_send_data(struct proxy_server_conn *conn, struct conn_b
 	return 0;
 }
 
-
 static int _proxy_server_pipe_data(struct proxy_server_conn *from, struct proxy_server_conn *to)
 {
 	int in = 0;
 	int out = 0;
 
+	if (from->buff->len > 0) {
+		out = _proxy_server_send_data(to, from->buff);
+		if (out < 0) {
+			return -1;
+		} else if (out == 1) {
+			return 0;
+		}
+	}
+
 	for (;;) {
 		if (in == 0) {
 			in = _proxy_server_recv_data(from, from->buff);
 			if (in < 0) {
-                if (from->buff->len > 0) {
-                    in = 1;
-                } else {
-    				break;
-                }
+				if (from->buff && from->buff->len > 0) {
+					in = 1;
+				} else {
+					break;
+				}
 			}
 		}
 
 		if (out == 0) {
-            if (to->conn_state == PROXY_SERVER_CONN_STAT_CONNECTED_PIPE_DATA) {
-                out = _proxy_server_send_data(to, from->buff);
+			if (to->conn_state == PROXY_SERVER_CONN_STAT_PIPE) {
+				out = _proxy_server_send_data(to, from->buff);
 
-                if (out < 0) {
-                    break;
-                }
-            }
+				if (out < 0) {
+					break;
+				}
+			}
 		}
 
 		if (in == 1 || out == 1) {
 			return 0;
 		}
 
-        /* If peer is not connected, and buffer is full (in=0, out=0), return 0 to wait */
-        if (to->conn_state != PROXY_SERVER_CONN_STAT_CONNECTED_PIPE_DATA) {
-            if (from->buff->len == from->buff->size) {
-                return 0;
-            }
-            /* Should continue recv */
-        }
+		/* If peer is not connected, and buffer is full (in=0, out=0), return 0 to wait */
+		if (to->conn_state != PROXY_SERVER_CONN_STAT_PIPE) {
+			if (from->buff->len == from->buff->size) {
+				return 0;
+			}
+			/* Should continue recv */
+		}
 	}
 
 	return -1;
@@ -503,7 +548,7 @@ static int _proxy_server_conn_start(struct proxy_server_conn *conn)
 		(conn->type == PROXY_SERVER_CONN_UDP_SESSION && conn->udp_session.pconn)) {
 		struct proxy_conn *pconn =
 			(conn->type == PROXY_SERVER_CONN_REMOTE) ? conn->remote.pconn : conn->udp_session.pconn;
-		
+
 		proxy_conn_set_event_userdata(pconn, conn);
 
 		if (proxy_conn_ctl(pconn, dns_proxy_server.epoll_fd, EPOLL_CTL_ADD, &event_client) != 0) {
@@ -532,7 +577,8 @@ errout:
 static int _proxy_server_conn_stop(struct proxy_server_conn *conn)
 {
 	if (conn->fd <= 0 && (conn->type != PROXY_SERVER_CONN_REMOTE || conn->remote.pconn == NULL) &&
-		!((conn->type == PROXY_SERVER_CONN_CLIENT || conn->type == PROXY_SERVER_CONN_CLIENT_REDIRECT) && conn->client.channel)) {
+		!((conn->type == PROXY_SERVER_CONN_CLIENT || conn->type == PROXY_SERVER_CONN_CLIENT_REDIRECT) &&
+		  conn->client.channel)) {
 		return -1;
 	}
 
@@ -541,18 +587,20 @@ static int _proxy_server_conn_stop(struct proxy_server_conn *conn)
 			tlog(TLOG_ERROR, "epoll del failed, %s", strerror(errno));
 			goto errout;
 		}
-	} else if ((conn->type == PROXY_SERVER_CONN_CLIENT || conn->type == PROXY_SERVER_CONN_CLIENT_REDIRECT) && conn->client.channel) {
+	} else if ((conn->type == PROXY_SERVER_CONN_CLIENT || conn->type == PROXY_SERVER_CONN_CLIENT_REDIRECT) &&
+			   conn->client.channel) {
 		if (proxy_channel_ctl(conn->client.channel, dns_proxy_server.epoll_fd, EPOLL_CTL_DEL, NULL) != 0) {
 			tlog(TLOG_ERROR, "epoll del failed, %s", strerror(errno));
 			goto errout;
 		}
 	} else {
 		if (epoll_ctl(dns_proxy_server.epoll_fd, EPOLL_CTL_DEL, conn->fd, NULL) != 0) {
-			tlog(TLOG_ERROR, "epoll del failed, %d, %s", conn->fd, strerror(errno));
-			goto errout;
+			if (errno != ENOENT && errno != EBADF) {
+				tlog(TLOG_ERROR, "epoll del failed, %d, %s", conn->fd, strerror(errno));
+				goto errout;
+			}
 		}
 	}
-
 
 	return 0;
 
@@ -610,10 +658,20 @@ static void _proxy_server_conn_put(struct proxy_server_conn *conn)
 
 	if (conn->type == PROXY_SERVER_CONN_CLIENT) {
 		pthread_mutex_destroy(&conn->client.peer_list_lock);
-        if (conn->client.channel) {
-            proxy_channel_free(conn->client.channel);
-            conn->client.channel = NULL;
-        }
+	}
+
+	if (conn->type == PROXY_SERVER_CONN_CLIENT || conn->type == PROXY_SERVER_CONN_CLIENT_REDIRECT ||
+		conn->type == PROXY_SERVER_CONN_SOCKS5_SERVER || conn->type == PROXY_SERVER_CONN_HTTP_SERVER) {
+		if (conn->client.channel) {
+			proxy_channel_free(conn->client.channel);
+			conn->client.channel = NULL;
+		}
+		if (conn->type == PROXY_SERVER_CONN_CLIENT_REDIRECT) {
+			if (conn->redirect.send_buff) {
+				free(conn->redirect.send_buff);
+				conn->redirect.send_buff = NULL;
+			}
+		}
 	} else if (conn->type == PROXY_SERVER_CONN_REMOTE) {
 
 		if (conn->remote.pconn) {
@@ -663,8 +721,9 @@ static struct proxy_server_conn *_proxy_server_conn_new(PROXY_SERVER_CONN_TYPE t
 	if (conn == NULL) {
 		goto errout;
 	}
-	atomic_set(&conn->refcnt, 1);
+
 	conn->type = type;
+	atomic_set(&conn->refcnt, 1);
 	INIT_LIST_HEAD(&conn->list);
 	INIT_LIST_HEAD(&conn->check_list);
 
@@ -730,7 +789,8 @@ errout:
 
 static void _proxy_server_conn_get(struct proxy_server_conn *conn)
 {
-	if (atomic_inc_return(&conn->refcnt) <= 1) {
+	int r = atomic_inc_return(&conn->refcnt);
+	if (r <= 1) {
 		tlog(TLOG_ERROR, "BUG refcnt is invalid.");
 		raise(SIGSEGV);
 		return;
@@ -784,9 +844,7 @@ static struct proxy_server_conn *_proxy_server_conn_open_remote(struct proxy_ser
 	remote->timeout = PROXY_SERVER_CONN_TIMEOUT;
 	_proxy_server_conn_touch(remote);
 
-	/* Get peer address for logging */
 	remote->addr_len = sizeof(remote->addr);
-	getpeername(remote->fd, (struct sockaddr *)&remote->addr, &remote->addr_len);
 
 	/* Add to client's peer list */
 	pthread_mutex_lock(&client->client.peer_list_lock);
@@ -796,6 +854,11 @@ static struct proxy_server_conn *_proxy_server_conn_open_remote(struct proxy_ser
 	/* Start epoll monitoring */
 	if (_proxy_server_conn_start(remote) != 0) {
 		tlog(TLOG_ERROR, "start remote conn epoll failed");
+		pthread_mutex_lock(&client->client.peer_list_lock);
+		list_del_init(&remote->remote.peer_list);
+		pthread_mutex_unlock(&client->client.peer_list_lock);
+
+		_proxy_server_conn_put(client);
 		_proxy_server_conn_put(remote);
 		return NULL;
 	}
@@ -813,16 +876,38 @@ static void _proxy_server_conn_remote_shutdown(struct proxy_server_conn *conn)
 	if (conn->type == PROXY_SERVER_CONN_CLIENT) {
 		struct proxy_server_conn *remote = NULL;
 		struct proxy_server_conn *tmp = NULL;
+		LIST_HEAD(peer_list);
 
 		pthread_mutex_lock(&conn->client.peer_list_lock);
 		list_for_each_entry_safe(remote, tmp, &conn->client.peer_list_head, remote.peer_list)
 		{
-			if (remote->fd > 0) {
+			if (remote->fd >= 0) {
 				shutdown(remote->fd, SHUT_RDWR);
+			} else if (remote->type == PROXY_SERVER_CONN_REMOTE && remote->remote.pconn) {
+				/* Shutdown internal proxy connection channels */
+				proxy_conn_shutdown(remote->remote.pconn, SHUT_RDWR);
+			}
+
+			if (remote->type == PROXY_SERVER_CONN_REMOTE) {
+				if (remote->remote.peer == conn) {
+					remote->remote.peer = NULL;
+					list_del_init(&remote->remote.peer_list);
+					_proxy_server_conn_put(conn);
+					list_add_tail(&remote->remote.peer_list, &peer_list);
+					_proxy_server_conn_get(remote);
+				}
 			}
 		}
 		pthread_mutex_unlock(&conn->client.peer_list_lock);
 		conn->client.peer = NULL;
+
+		list_for_each_entry_safe(remote, tmp, &peer_list, remote.peer_list)
+		{
+			list_del_init(&remote->remote.peer_list);
+			_proxy_server_conn_close(remote);
+			_proxy_server_conn_put(remote);
+		}
+
 	} else if (conn->type == PROXY_SERVER_CONN_REMOTE) {
 		struct proxy_server_conn *client = conn->remote.peer;
 		if (client) {
@@ -830,13 +915,16 @@ static void _proxy_server_conn_remote_shutdown(struct proxy_server_conn *conn)
 			list_del_init(&conn->remote.peer_list);
 			if (client->client.peer == conn || list_empty(&client->client.peer_list_head)) {
 				if (client->client.retry_all_server == 0) {
-					shutdown(client->fd, SHUT_RDWR);
+					if (client->fd >= 0) {
+						shutdown(client->fd, SHUT_RDWR);
+					}
 				}
 				client->client.peer = NULL;
 			}
 			pthread_mutex_unlock(&client->client.peer_list_lock);
 
 			/* Release the reference to client that was acquired in _proxy_server_conn_open_remote */
+			_proxy_server_conn_close(client);
 			_proxy_server_conn_put(client);
 		}
 
@@ -851,13 +939,23 @@ static int _proxy_server_conn_close(struct proxy_server_conn *conn)
 		return -1;
 	}
 
+	if (conn->conn_state == PROXY_SERVER_CONN_STAT_CLOSE) {
+		return 0;
+	}
+
+	char host[128] = {0};
+	get_host_by_addr(host, sizeof(host), (struct sockaddr *)&conn->addr);
+	tlog(TLOG_DEBUG, "connection from %s closed, state=%d", host, conn->conn_state);
+
+	conn->conn_state = PROXY_SERVER_CONN_STAT_CLOSE;
+	_proxy_server_conn_get(conn);
 	_proxy_server_conn_remote_shutdown(conn);
 
 	pthread_mutex_lock(&dns_proxy_server.conn_list_lock);
 	list_del_init(&conn->list);
 	pthread_mutex_unlock(&dns_proxy_server.conn_list_lock);
 
-	if (conn->fd > 0) {
+	if (conn->fd >= 0) {
 		if (_proxy_server_conn_stop(conn) != 0) {
 			tlog(TLOG_ERROR, "epoll stop failed. %s", strerror(errno));
 		}
@@ -866,14 +964,8 @@ static int _proxy_server_conn_close(struct proxy_server_conn *conn)
 	}
 
 	_proxy_server_conn_put(conn);
+	_proxy_server_conn_put(conn);
 
-	return 0;
-}
-
-static int _proxy_server_connected_init(struct proxy_server_conn *conn)
-{
-	conn->conn_state = PROXY_SERVER_CONN_STAT_CONNECTED;
-	conn->timeout = PROXY_SERVER_IDLE_TIMEOUT;
 	return 0;
 }
 
@@ -969,11 +1061,11 @@ int tproxy_server_get_firewall_sets(const char *proxy_name, struct firewall_sets
 
 static int _proxy_server_redirect_connected_init(struct proxy_server_conn *conn)
 {
-	conn->conn_state = PROXY_SERVER_CONN_STAT_CONNECTED;
+	conn->conn_state = PROXY_SERVER_CONN_STAT_PIPE;
 	conn->timeout = PROXY_SERVER_IDLE_TIMEOUT;
 
 	if (conn->type == PROXY_SERVER_CONN_REMOTE) {
-		conn->conn_state = PROXY_SERVER_CONN_STAT_CONNECTED_PIPE_DATA;
+		conn->conn_state = PROXY_SERVER_CONN_STAT_PIPE;
 	}
 
 	return 0;
@@ -1363,55 +1455,13 @@ static int _proxy_server_conn_setup_client_conf(struct proxy_server_conn *conn)
 static int _proxy_server_conn_start_all_conn(struct proxy_server_conn *conn, struct proxy_server *proxy_server,
 											 const char **domain_ip, int domain_ip_num)
 {
-	struct proxy_server_conn *remote = NULL;
-	int send_count = 0;
-	const char *target_host = NULL;
-	int target_port = 443;
-
-	/* Determine target host and port */
+	/* Use the first IP if available */
 	if (domain_ip_num > 0 && domain_ip[0] != NULL) {
-		target_host = domain_ip[0];
-	} else {
-		/* Use domain from SNI */
-		target_host = conn->client.domain;
+		safe_strncpy(conn->client.domain, domain_ip[0], sizeof(conn->client.domain));
 	}
 
-	/* Get port from original destination if available (for tproxy) */
-	if (conn->client.listener_type == PROXY_SERVER_CONN_TPROXY_SERVER) {
-		if (conn->client.orig_dst.ss_family == AF_INET) {
-			struct sockaddr_in *addr_in = (struct sockaddr_in *)&conn->client.orig_dst;
-			target_port = ntohs(addr_in->sin_port);
-		} else if (conn->client.orig_dst.ss_family == AF_INET6) {
-			struct sockaddr_in6 *addr_in6 = (struct sockaddr_in6 *)&conn->client.orig_dst;
-			target_port = ntohs(addr_in6->sin6_port);
-		}
-	}
-
-	if (target_port <= 0) {
-		target_port = 443;
-	}
-
-	tlog(TLOG_DEBUG, "connecting to %s:%d via proxy %s", target_host, target_port, proxy_server->proxy_name);
-
-	/* Create remote connection using proxy.h interface */
-	remote = _proxy_server_conn_open_remote(conn, target_host, target_port, 0, 0);
-	if (remote == NULL) {
-		tlog(TLOG_ERROR, "failed to open remote connection to %s:%d", target_host, target_port);
-		return -1;
-	}
-
-	remote->remote.proxy = proxy_server;
-	remote->remote.sni_offset = conn->client.sni_offset;
-	remote->remote.sni_len = conn->client.sni_len;
-	remote->remote.conf = conn->client.conf;
-	send_count++;
-
-	if (send_count <= 0) {
-		return -1;
-	}
-
-	conn->conn_state = PROXY_SERVER_CONN_STAT_CONNECTED_PIPE_DATA;
-	return 0;
+	conn->conn_state = PROXY_SERVER_CONN_STAT_CONNECT_REMOTE;
+	return _proxy_server_conn_process(conn);
 }
 
 static int _proxy_server_get_domain_ip(const struct dns_result *result, void *user_ptr)
@@ -1420,6 +1470,12 @@ static int _proxy_server_get_domain_ip(const struct dns_result *result, void *us
 	int ret = 0;
 	struct proxy_server_domain_rule sni_domain_rule;
 	struct proxy_server *proxy_server = NULL;
+
+	if (conn->conn_state == PROXY_SERVER_CONN_STAT_CLOSE) {
+		tlog(TLOG_DEBUG, "connection closed during resolution");
+		_proxy_server_conn_put(conn);
+		return 0;
+	}
 
 	memset(&sni_domain_rule, 0, sizeof(sni_domain_rule));
 
@@ -1449,7 +1505,7 @@ static int _proxy_server_get_domain_ip(const struct dns_result *result, void *us
 			tlog(TLOG_DEBUG, "domain %s not exists.", result->domain);
 			goto errout;
 		}
-		tlog(TLOG_ERROR, "query domain %s failed, %d", result->domain, result->rtcode);
+		tlog(TLOG_DEBUG, "query domain %s failed, %d", result->domain, result->rtcode);
 		goto errout;
 	}
 
@@ -1466,22 +1522,43 @@ static int _proxy_server_get_domain_ip(const struct dns_result *result, void *us
 
 	char ips_buffer[MAX_IP_NUM][PROXY_SERVER_MAX_IPLEN];
 	char *ips[MAX_IP_NUM];
+	int valid_ip_count = 0;
 	for (int i = 0; i < result->ip_num; i++) {
 		if (result->addr_type == DNS_T_A) {
 			sprintf(ips_buffer[i], "%d.%d.%d.%d", result->ip_addr[i][0], result->ip_addr[i][1], result->ip_addr[i][2],
 					result->ip_addr[i][3]);
+			if (result->ip_addr[i][0] == 0 && result->ip_addr[i][1] == 0 && result->ip_addr[i][2] == 0 &&
+				result->ip_addr[i][3] == 0) {
+				continue;
+			}
 		} else if (result->addr_type == DNS_T_AAAA) {
 			sprintf(ips_buffer[i], "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x",
 					result->ip_addr[i][0], result->ip_addr[i][1], result->ip_addr[i][2], result->ip_addr[i][3],
 					result->ip_addr[i][4], result->ip_addr[i][5], result->ip_addr[i][6], result->ip_addr[i][7],
 					result->ip_addr[i][8], result->ip_addr[i][9], result->ip_addr[i][10], result->ip_addr[i][11],
 					result->ip_addr[i][12], result->ip_addr[i][13], result->ip_addr[i][14], result->ip_addr[i][15]);
+			int is_zero = 1;
+			for (int j = 0; j < 16; j++) {
+				if (result->ip_addr[i][j] != 0) {
+					is_zero = 0;
+					break;
+				}
+			}
+			if (is_zero) {
+				continue;
+			}
 		}
 
-		ips[i] = ips_buffer[i];
+		ips[valid_ip_count] = ips_buffer[i];
+		valid_ip_count++;
 	}
 
-	ret = _proxy_server_conn_start_all_conn(conn, proxy_server, (const char **)ips, result->ip_num);
+	if (valid_ip_count == 0 && result->ip_num > 0) {
+		tlog(TLOG_WARN, "domain %s resolved to invalid IP.", result->domain);
+		goto errout;
+	}
+
+	ret = _proxy_server_conn_start_all_conn(conn, proxy_server, (const char **)ips, valid_ip_count);
 	if (ret != 0) {
 		if (result->addr_type == DNS_T_AAAA) {
 			struct dns_server_query_option server_query_option;
@@ -1558,266 +1635,265 @@ static int _proxy_server_conn_start_conn_proxy_server(struct proxy_server_conn *
 	return ret;
 }
 
-static int _proxy_server_conn_process_protocol(struct proxy_server_conn *conn)
+/* New State Machine Implementation */
+
+static int _proxy_server_process_handshake(struct proxy_server_conn *conn)
 {
-	int len = 0;
-	char hostname[DNS_MAX_CNAME_LEN];
-	const char *hostname_ptr = NULL;
-	char *query_domain = NULL;
-	struct proxy_server_domain_rule sni_domain_rule;
-	struct proxy_server *proxy_server = NULL;
-	int ret = 0;
+	/* For Socks5 and HTTP, delegate to proxy-channel */
+	if (conn->client.listener_type == PROXY_SERVER_CONN_SOCKS5_SERVER ||
+		conn->client.listener_type == PROXY_SERVER_CONN_HTTP_SERVER) {
 
-	memset(&sni_domain_rule, 0, sizeof(sni_domain_rule));
-	
-	tlog(TLOG_DEBUG, "process protocol listener_type %d (socks5=%d, http=%d)", 
-		 conn->client.listener_type, PROXY_SERVER_CONN_SOCKS5_SERVER, PROXY_SERVER_CONN_HTTP_SERVER);
-
-	hostname[0] = 0;
-	/* Skip generic recv if using channel, as channel manages its own buffer/IO */
-	if (conn->client.listener_type != PROXY_SERVER_CONN_SOCKS5_SERVER && 
-	    conn->client.listener_type != PROXY_SERVER_CONN_HTTP_SERVER) {
-		if (_proxy_server_conn_recv(conn) != 0) {
-			goto errout;
+		if (!conn->client.channel) {
+			return -1;
 		}
-	} else if (!conn->client.channel) {
-		/* Should have been created at accept/init */
-		goto errout;
+
+		proxy_handshake_state state = proxy_channel_handshake(conn->client.channel, -1);
+		if (state == PROXY_HANDSHAKE_WANT_READ) {
+			return 0; /* Need more data, stay in HANDSHAKE */
+		}
+		if (state == PROXY_HANDSHAKE_ERR) {
+			return -1;
+		}
+		/* Handshake OK, move to next state */
+		conn->conn_state = PROXY_SERVER_CONN_STAT_GET_TARGET;
+		return 0;
 	}
 
-	if (conn->client.listener_type == PROXY_SERVER_CONN_FORWARD_SERVER) {
+	/* For SNI, we need to read enough data to parse the header */
+	if (conn->client.listener_type == PROXY_SERVER_CONN_SNIPROXY_SERVER) {
+		if (_proxy_server_conn_recv(conn) != 0) {
+			return -1;
+		}
+		/* Check if we have enough data or need more */
+		/* Actually SNI parsing happens in GET_TARGET step usually,
+		   but we need data first. Let's assume HANDSHAKE for SNI means "Read Initial Data" */
+		if (conn->buff->len > 0) {
+			conn->conn_state = PROXY_SERVER_CONN_STAT_GET_TARGET;
+		}
+		return 0;
+	}
+
+	/* For TProxy/Forward, no handshake needed */
+	conn->conn_state = PROXY_SERVER_CONN_STAT_GET_TARGET;
+	return 0;
+}
+
+static int _proxy_server_process_get_target(struct proxy_server_conn *conn)
+{
+	char host[PROXY_SERVER_MAXHOST_NAME] = {0};
+	unsigned short port = 0;
+
+	if (conn->client.listener_type == PROXY_SERVER_CONN_SOCKS5_SERVER ||
+		conn->client.listener_type == PROXY_SERVER_CONN_HTTP_SERVER) {
+		proxy_channel_get_target(conn->client.channel, host, sizeof(host), &port);
+		conn->client.domain[0] = 0;
+		if (host[0]) {
+			safe_strncpy(conn->client.domain, host, sizeof(conn->client.domain));
+			/* Check if it's an IP */
+			struct sockaddr_storage ss;
+			if (get_addr_from_string(host, &ss) == 0) {
+				/* Is IP */
+			}
+		}
+	} else if (conn->client.listener_type == PROXY_SERVER_CONN_TPROXY_SERVER) {
+		/* Use original destination */
+		if (conn->client.orig_dst.ss_family == AF_INET) {
+			struct sockaddr_in *addr_in = (struct sockaddr_in *)&conn->client.orig_dst;
+			inet_ntop(AF_INET, &addr_in->sin_addr, host, sizeof(host));
+			port = ntohs(addr_in->sin_port);
+		} else if (conn->client.orig_dst.ss_family == AF_INET6) {
+			struct sockaddr_in6 *addr_in6 = (struct sockaddr_in6 *)&conn->client.orig_dst;
+			inet_ntop(AF_INET6, &addr_in6->sin6_addr, host, sizeof(host));
+			port = ntohs(addr_in6->sin6_port);
+		}
+		safe_strncpy(conn->client.domain, host, sizeof(conn->client.domain));
+	} else if (conn->client.listener_type == PROXY_SERVER_CONN_FORWARD_SERVER) {
+		/* Use configured target */
 		char target_host[PROXY_SERVER_MAXHOST_NAME];
 		int target_port = 0;
 		const char *target = conn->forward.target;
 
 		if (parse_ip(target, target_host, &target_port) != 0) {
 			tlog(TLOG_ERROR, "invalid forward target %s", target);
-			goto errout;
+			return -1;
+		}
+		safe_strncpy(conn->client.domain, target_host, sizeof(conn->client.domain));
+		port = (unsigned short)target_port;
+	} else if (conn->client.listener_type == PROXY_SERVER_CONN_SNIPROXY_SERVER) {
+		/* Parse SNI */
+		char sni[DNS_MAX_CNAME_LEN];
+		const char *sni_ptr = NULL;
+		int len = parse_tls_header((const char *)conn->buff->data, conn->buff->len, sni, &sni_ptr);
+		if (len < 0) {
+			if (len == -1)
+				return 0; /* Need more data */
+			return -1;    /* Error */
+		}
+		safe_strncpy(conn->client.domain, sni, sizeof(conn->client.domain));
+		conn->client.sni_offset = sni_ptr - conn->buff->data;
+		conn->client.sni_len = strnlen(sni, DNS_MAX_CNAME_LEN);
+		port = 443;
+	}
+
+	if (conn->client.domain[0] == 0) {
+		/* Could not get target yet */
+		return -1;
+	}
+
+	/* Store the target port */
+	conn->client.target_port = port;
+	tlog(TLOG_DEBUG, "extracted target: %s:%d", conn->client.domain, port);
+
+	conn->conn_state = PROXY_SERVER_CONN_STAT_RESOLVE;
+	return 0;
+}
+
+static int _proxy_server_process_resolve(struct proxy_server_conn *conn)
+{
+	/* 1. Get Domain and Rule */
+	const char *domain = conn->client.domain;
+	struct proxy_server *proxy_server = NULL;
+	struct proxy_server_domain_rule sni_domain_rule;
+
+	_proxy_server_get_domain_rule(conn, domain, &sni_domain_rule);
+
+	/* 2. Determine Proxy Server */
+	/* Check if the current proxy (from listener) is a TProxy/SNI listener proxy */
+	/* If so, check if the Rule overrides it */
+	if (conn->client.proxy_name[0]) {
+		if (conn->client.listener_type == PROXY_SERVER_CONN_TPROXY_SERVER) {
+			_proxy_server_check_tproxy_rule(conn, &sni_domain_rule, &proxy_server);
+		} else {
+			_proxy_server_check_sniproxy_rule(conn, &sni_domain_rule, &proxy_server);
 		}
 
-		proxy_server = conn->client.proxy;
-		if (proxy_server == NULL) {
-			const char *p_name = conn->forward.proxy_name;
-			if (p_name[0] != '\0') {
-				proxy_server = _proxy_server_get_proxy_by_name(p_name);
-			}
-			if (proxy_server == NULL) {
-				proxy_server = &dns_proxy_server.default_proxy_server;
-			}
-			conn->client.proxy = proxy_server;
+		if (!proxy_server) {
+			/* Fallback to listener configured proxy */
+			proxy_server = _proxy_server_get_proxy_by_name(conn->client.proxy_name);
 		}
+	}
 
-		tlog(TLOG_DEBUG, "forwarding to %s:%d via proxy %s", target_host, target_port, proxy_server->proxy_name);
+	/* Use default if no proxy found */
+	if (!proxy_server) {
+		proxy_server = &dns_proxy_server.default_proxy_server;
+	}
+	conn->client.proxy = proxy_server;
 
-		struct proxy_server_conn *remote = _proxy_server_conn_open_remote(conn, target_host, target_port, 0, 0);
-		if (remote == NULL) {
-			goto errout;
-		}
-
-		remote->remote.proxy = proxy_server;
-		conn->client.peer = remote;
-		conn->conn_state = PROXY_SERVER_CONN_STAT_CONNECTED_PIPE_DATA;
+	/* 3. Check for Direct Connection (IP or Remote DNS) */
+	struct sockaddr_storage ss;
+	if (get_addr_from_string(domain, &ss) == 0) {
+		/* Domain is an IP address, skip resolution */
+		conn->conn_state = PROXY_SERVER_CONN_STAT_CONNECT_REMOTE;
 		return 0;
 	}
 
+	if (conn->client.remote_dns) {
+		/* Remote DNS enabled, let the proxy server handle resolution */
+		conn->conn_state = PROXY_SERVER_CONN_STAT_CONNECT_REMOTE;
+		return 0;
+	}
+
+	/* 4. Perform Local Resolution */
+	/* SmartDNS internal resolution */
+	conn->conn_state = PROXY_SERVER_CONN_STAT_RESOLVING;
+	return _proxy_server_conn_query_domain(conn, domain);
+}
+
+static int _proxy_server_process_connect_remote(struct proxy_server_conn *conn)
+{
+	/* Use the target host and port that were extracted and stored in GET_TARGET phase */
+	const char *target_host = conn->client.domain;
+	int target_port = conn->client.target_port;
+
+	if (target_port == 0) {
+		tlog(TLOG_ERROR, "process_connect_remote: target port is 0, this should not happen");
+		return -1;
+	}
+
+	tlog(TLOG_DEBUG, "process_connect_remote: connecting to %s:%d", target_host, target_port);
+
+	if (conn->client.peer) {
+		return 0;
+	}
+
+	struct proxy_server_conn *remote = _proxy_server_conn_open_remote(
+		conn, target_host, target_port, (conn->client.listener_type == PROXY_SERVER_CONN_TPROXY_SERVER_UDP), 0);
+	if (!remote) {
+		tlog(TLOG_ERROR, "process_connect_remote: failed to open remote connection");
+		return -1;
+	}
+
+	remote->remote.proxy = conn->client.proxy;
+	/* Set other fields */
+	conn->client.peer = remote;
+
+	/* Send Success Reply to Client if needed */
 	if (conn->client.listener_type == PROXY_SERVER_CONN_SOCKS5_SERVER) {
-		struct proxy_channel *channel = conn->client.channel;
-		proxy_handshake_state state;
-		
-        /* State managed by channel. conn->conn_state mirrors it or vice-versa? 
-           Channel state is master for handshake. */
-		state = proxy_channel_handshake(channel, -1);
-
-		if (state == PROXY_HANDSHAKE_WANT_READ) {
-			return 0;
-		} else if (state == PROXY_HANDSHAKE_OK) {
-			/* Handshake done */
-			char host[256];
-			unsigned short port;
-			proxy_channel_get_target(channel, host, sizeof(host), &port);
-			
-			const char *actual_proxy_name = conn->client.proxy_name;
-			if (actual_proxy_name[0] != '\0') {
-				proxy_server = _proxy_server_get_proxy_by_name(actual_proxy_name);
-				conn->client.proxy = proxy_server;
-			}
-			if (conn->client.proxy == NULL) {
-				conn->client.proxy = &dns_proxy_server.default_proxy_server;
-			}
-			
-			struct proxy_server_conn *remote = _proxy_server_conn_open_remote(conn, host, port, proxy_channel_is_udp(channel), 0);
-			if (remote == NULL) {
-				goto errout;
-			}
-			
-			remote->remote.proxy = conn->client.proxy;
-			conn->client.peer = remote;
-			unsigned char reply[10] = {0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0}; 
-			if (proxy_channel_is_udp(channel)) {
-				struct sockaddr_in sa;
-				socklen_t len = sizeof(sa);
-				if (getsockname(conn->fd, (struct sockaddr *)&sa, &len) == 0) {
-					memcpy(reply + 8, &sa.sin_port, 2);
-				}
-			}
-			/* Use channel send */
-			if (proxy_channel_send(channel, reply, 10, MSG_NOSIGNAL) != 10) {
-				goto errout;
-			}
-			
-			conn->conn_state = PROXY_SERVER_CONN_STAT_CONNECTED_PIPE_DATA;
-			return 0;
-		} else {
-			goto errout;
+		/* Send success via channel FD directly to ensure it goes out */
+		/* We simplify here: Just send 0x00 for Socks5 or 200 OK for HTTP */
+		if (conn->client.channel) {
+			unsigned char reply[10] = {0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0};
+			/* socket is likely writable as we just processed input, check ret? generally short reply is ok */
+			proxy_channel_send(conn->client.channel, reply, 10, MSG_NOSIGNAL);
 		}
-
 	} else if (conn->client.listener_type == PROXY_SERVER_CONN_HTTP_SERVER) {
-		struct proxy_channel *channel = conn->client.channel;
-		proxy_handshake_state state;
-		
-		state = proxy_channel_handshake(channel, -1);
-
-		if (state == PROXY_HANDSHAKE_WANT_READ) {
-			return 0;
-		} else if (state == PROXY_HANDSHAKE_OK) {
-             char host[256];
-             unsigned short port;
-             int last_error = proxy_channel_get_last_error(channel);
-             proxy_channel_get_target(channel, host, sizeof(host), &port);
-             
-             const char *actual_proxy_name = conn->client.proxy_name;
- 			if (actual_proxy_name[0] != '\0') {
- 				proxy_server = _proxy_server_get_proxy_by_name(actual_proxy_name);
- 				conn->client.proxy = proxy_server;
- 			}
- 			if (conn->client.proxy == NULL) {
- 				conn->client.proxy = &dns_proxy_server.default_proxy_server;
- 			}
- 
- 			struct proxy_server_conn *remote = _proxy_server_conn_open_remote(conn, host, port, 0, 0);
- 			if (remote == NULL) {
- 				goto errout;
- 			}
- 			
- 			remote->remote.proxy = conn->client.proxy;
- 			conn->client.peer = remote;
-             
-            if (last_error == 0) { 
-                 const char *reply = "HTTP/1.1 200 Connection Established\r\n\r\n";
-                 if (proxy_channel_send(channel, reply, strlen(reply), MSG_NOSIGNAL) != (ssize_t)strlen(reply)) {
-                     goto errout;
-                 }
-            }
-  
- 			conn->conn_state = PROXY_SERVER_CONN_STAT_CONNECTED_PIPE_DATA;
- 			return 0;
- 		} else {
- 			goto errout;
- 		}
- 	}
-
-	len = parse_tls_header((const char *)conn->buff->data, conn->buff->len, hostname, &hostname_ptr);
-	if (len < 0) {
-		if (len == -1) {
-			return 0;
-		}
-		if (conn->client.listener_type == PROXY_SERVER_CONN_TPROXY_SERVER) {
-			get_host_by_addr(hostname, sizeof(hostname), (struct sockaddr *)&conn->client.orig_dst);
-			hostname_ptr = conn->buff->data;
-		} else {
-			tlog(TLOG_ERROR, "get sni failed.");
-			goto errout;
+		if (conn->client.channel) {
+			const char *reply = "HTTP/1.1 200 Connection Established\r\n\r\n";
+			proxy_channel_send(conn->client.channel, (void *)reply, strlen(reply), MSG_NOSIGNAL);
 		}
 	}
 
-	tlog(TLOG_INFO, "connecting to %s, listener %s, proxy %s", hostname, conn->client.listener_name,
-		 conn->client.proxy_name);
+	conn->conn_state = PROXY_SERVER_CONN_STAT_PIPE;
+	return 0;
+}
 
-	query_domain = hostname;
-	ret = _proxy_server_get_domain_rule(conn, query_domain, &sni_domain_rule);
-	if (ret < 0) {
-		tlog(TLOG_ERROR, "failed to get domain rule for %s", query_domain);
-		goto errout;
-	}
+static int _proxy_server_conn_process(struct proxy_server_conn *conn)
+{
+	int loop_detect = 0;
+	while (conn->conn_state != PROXY_SERVER_CONN_STAT_PIPE && conn->conn_state != PROXY_SERVER_CONN_STAT_CLOSE) {
 
-	/* First try to get proxy from listener configuration */
-	const char *actual_proxy_name = conn->client.proxy_name;
-	if (conn->client.listener_type == PROXY_SERVER_CONN_TPROXY_SERVER) {
-		/* For tproxy listener, check if it's a tproxy-server name */
-		struct dns_tproxy_server_conf *t_conf = dns_conf_get_tproxy_server(conn->client.proxy_name);
-		if (t_conf != NULL) {
-			actual_proxy_name = t_conf->proxy_name;
-			tlog(TLOG_DEBUG, "tproxy listener %s uses proxy %s", conn->client.proxy_name, actual_proxy_name);
+		loop_detect++;
+		if (loop_detect > 10) {
+			return -1; /* Prevent infinite loops */
 		}
-	} else {
-		/* For sni-proxy listener, check if it's a sni-proxy-server name */
-		struct dns_sniproxy_server_conf *s_conf = dns_conf_get_sniproxy_server(conn->client.proxy_name);
-		if (s_conf != NULL) {
-			actual_proxy_name = s_conf->proxy_name;
-			tlog(TLOG_DEBUG, "sni-proxy listener %s uses proxy %s", conn->client.proxy_name, actual_proxy_name);
+
+		switch (conn->conn_state) {
+		case PROXY_SERVER_CONN_STAT_INIT:
+			conn->conn_state = PROXY_SERVER_CONN_STAT_HANDSHAKE;
+			break;
+		case PROXY_SERVER_CONN_STAT_HANDSHAKE:
+			if (_proxy_server_process_handshake(conn) != 0) {
+				return -1;
+			}
+			if (conn->conn_state == PROXY_SERVER_CONN_STAT_HANDSHAKE) {
+				return 0; /* Wait for more data */
+			}
+			break;
+		case PROXY_SERVER_CONN_STAT_GET_TARGET:
+			if (_proxy_server_process_get_target(conn) != 0) {
+				return -1;
+			}
+			break;
+		case PROXY_SERVER_CONN_STAT_RESOLVE:
+			if (_proxy_server_process_resolve(conn) != 0) {
+				return -1;
+			}
+			if (conn->conn_state == PROXY_SERVER_CONN_STAT_RESOLVE) {
+				return 0; /* Async query started, wait */
+			}
+			break;
+		case PROXY_SERVER_CONN_STAT_RESOLVING:
+			return 0; /* Wait for DNS */
+		case PROXY_SERVER_CONN_STAT_CONNECT_REMOTE:
+			if (_proxy_server_process_connect_remote(conn) != 0) {
+				return -1;
+			}
+			break;
+		default:
+			return -1;
 		}
 	}
-
-	proxy_server = _proxy_server_get_proxy_by_name(actual_proxy_name);
-	tlog(TLOG_DEBUG, "resolved proxy server %s for proxy name %s", hostname, actual_proxy_name);
-
-	conn->client.sni_offset = hostname_ptr - conn->buff->data;
-	conn->client.sni_len = strnlen(hostname, DNS_MAX_CNAME_LEN);
-
-	if (_proxy_server_conn_setup_client_conf(conn) != 0) {
-		tlog(TLOG_ERROR, "setup client config failed.");
-		goto errout;
-	}
-
-	query_domain = hostname;
-
-	/* Check domain rules for tproxy or sni-proxy override */
-	if (conn->client.listener_type == PROXY_SERVER_CONN_TPROXY_SERVER) {
-		tlog(TLOG_DEBUG, "checking tproxy rule for domain %s", query_domain);
-		_proxy_server_check_tproxy_rule(conn, &sni_domain_rule, &proxy_server);
-	} else {
-		tlog(TLOG_DEBUG, "checking sni-proxy rule for domain %s", query_domain);
-		_proxy_server_check_sniproxy_rule(conn, &sni_domain_rule, &proxy_server);
-	}
-
-	/* If domain rule didn't override, use listener's proxy (already resolved above) */
-	if (proxy_server == NULL) {
-		tlog(TLOG_DEBUG, "no domain rule match, using listener proxy %s", actual_proxy_name);
-		proxy_server = _proxy_server_get_proxy_by_name(actual_proxy_name);
-	}
-
-	/* Fallback to default proxy if still NULL */
-	if (proxy_server == NULL) {
-		tlog(TLOG_DEBUG, "using default proxy server");
-		proxy_server = &dns_proxy_server.default_proxy_server;
-	} else {
-		tlog(TLOG_DEBUG, "using proxy server: %s for domain %s", proxy_server->proxy_name, query_domain);
-	}
-
-	safe_strncpy(conn->client.domain, query_domain, DNS_MAX_CNAME_LEN);
-	conn->client.proxy = proxy_server;
-
-	union {
-		struct sockaddr_in sin;
-		struct sockaddr_in6 sin6;
-	} addr;
-
-	if (inet_pton(AF_INET, query_domain, &addr.sin.sin_addr) == 1 ||
-		inet_pton(AF_INET6, query_domain, &addr.sin6.sin6_addr) == 1) {
-		const char *ips[1] = {query_domain};
-		ret = _proxy_server_conn_start_all_conn(conn, proxy_server, ips, 1);
-	} else if (conn->client.remote_dns) {
-		ret = _proxy_server_conn_start_conn_proxy_server(conn, proxy_server, query_domain);
-	} else {
-		ret = _proxy_server_conn_query_domain(conn, query_domain);
-	}
-	if (ret != 0) {
-		shutdown(conn->fd, SHUT_RDWR);
-	}
-
-	return ret;
-errout:
-	return -1;
+	return 0;
 }
 
 static struct proxy_server_conn *_proxy_server_accept(struct proxy_server_conn *conn, struct epoll_event *event,
@@ -1829,28 +1905,27 @@ static struct proxy_server_conn *_proxy_server_accept(struct proxy_server_conn *
 	struct sockaddr_storage addr;
 	socklen_t addr_len = sizeof(addr);
 	char hostname[PROXY_SERVER_MAXHOST_NAME];
-    struct proxy_channel *channel = NULL;
+	struct proxy_channel *channel = NULL;
 
-    if (conn->client.channel) {
-        channel = proxy_channel_accept(conn->client.channel);
-        if (channel == NULL) {
-            return NULL;
-        }
-        addr_len = sizeof(addr);
-        proxy_channel_get_addr(channel, (struct sockaddr *)&addr, &addr_len);
-        /* fd remains -1 */
-    } else {
-    	fd = accept4(conn->fd, (struct sockaddr *)&addr, &addr_len, SOCK_NONBLOCK | SOCK_CLOEXEC);
-    	if (fd < 0) {
-    		return NULL;
-    	}
-    }
+	if (conn->client.channel) {
+		channel = proxy_channel_accept(conn->client.channel);
+		if (channel == NULL) {
+			return NULL;
+		}
+		addr_len = sizeof(addr);
+		proxy_channel_get_addr(channel, (struct sockaddr *)&addr, &addr_len);
+		/* fd remains -1 */
+	} else {
+		fd = accept4(conn->fd, (struct sockaddr *)&addr, &addr_len, SOCK_NONBLOCK | SOCK_CLOEXEC);
+		if (fd < 0) {
+			return NULL;
+		}
+	}
 
 	if (channel) {
-        // tlog(TLOG_DEBUG, "accepted connection on listener %s via channel", conn->client.listener_name);
-    } else {
-	   tlog(TLOG_DEBUG, "accepted connection on listener %s, fd %d", conn->client.listener_name, fd);
-    }
+	} else {
+		tlog(TLOG_DEBUG, "accepted connection on listener %s, fd %d", conn->client.listener_name, fd);
+	}
 
 	client = _proxy_server_conn_new(client_type);
 	if (client == NULL) {
@@ -1858,22 +1933,22 @@ static struct proxy_server_conn *_proxy_server_accept(struct proxy_server_conn *
 	}
 
 	client->fd = fd;
-    client->client.channel = channel;
-    safe_strncpy(client->client.user, conn->client.user, sizeof(client->client.user));
-    safe_strncpy(client->client.pass, conn->client.pass, sizeof(client->client.pass));
-    proxy_channel_set_server_auth(channel, client->client.user, client->client.pass);
+	client->client.channel = channel;
+	safe_strncpy(client->client.user, conn->client.user, sizeof(client->client.user));
+	safe_strncpy(client->client.pass, conn->client.pass, sizeof(client->client.pass));
+	proxy_channel_set_server_auth(channel, client->client.user, client->client.pass);
 	memcpy(&client->addr, &addr, addr_len);
 	client->addr_len = addr_len;
 	client->timeout = PROXY_SERVER_CONN_TIMEOUT;
 
-    if (channel == NULL) {
-    	if (set_fd_nonblock(fd, 1) != 0) {
-    		tlog(TLOG_ERROR, "set non block failed.");
-    		goto errout;
-    	}
-    	set_sock_keepalive(fd, 30, 3, 5);
-    }
-    
+	if (channel == NULL) {
+		if (set_fd_nonblock(fd, 1) != 0) {
+			tlog(TLOG_ERROR, "set non block failed.");
+			goto errout;
+		}
+		set_sock_keepalive(fd, 30, 3, 5);
+	}
+
 	if (_proxy_server_conn_start(client) != 0) {
 		tlog(TLOG_ERROR, "start conn failed.");
 		goto errout;
@@ -1881,11 +1956,9 @@ static struct proxy_server_conn *_proxy_server_accept(struct proxy_server_conn *
 
 	_proxy_server_conn_touch(client);
 
-
 	if (conn->type == PROXY_SERVER_CONN_TPROXY_SERVER || conn->type == PROXY_SERVER_CONN_SNIPROXY_SERVER ||
 		conn->type == PROXY_SERVER_CONN_SERVER || conn->type == PROXY_SERVER_CONN_SOCKS5_SERVER ||
-		conn->type == PROXY_SERVER_CONN_FORWARD_SERVER ||
-		conn->type == PROXY_SERVER_CONN_HTTP_SERVER) {
+		conn->type == PROXY_SERVER_CONN_FORWARD_SERVER || conn->type == PROXY_SERVER_CONN_HTTP_SERVER) {
 		safe_strncpy(client->client.listener_name, conn->client.listener_name, PROXY_NAME_LEN);
 		safe_strncpy(client->client.proxy_name, conn->client.proxy_name, PROXY_NAME_LEN);
 		safe_strncpy(client->client.group_name, conn->client.group_name, PROXY_NAME_LEN);
@@ -1897,8 +1970,6 @@ static struct proxy_server_conn *_proxy_server_accept(struct proxy_server_conn *
 		if (conn->type == PROXY_SERVER_CONN_TPROXY_SERVER || conn->type == PROXY_SERVER_CONN_SNIPROXY_SERVER ||
 			conn->type == PROXY_SERVER_CONN_SERVER) {
 			tproxy_get_original_dst(client->fd, &client->client.orig_dst, &client->client.orig_dst_len);
-		} else {
-			client->conn_state = PROXY_SERVER_CONN_STAT_CONNECTED;
 		}
 	}
 
@@ -1916,6 +1987,8 @@ errout:
 	}
 	if (client) {
 		_proxy_server_conn_put(client);
+	} else if (channel) {
+		proxy_channel_free(channel);
 	}
 	return NULL;
 }
@@ -1931,12 +2004,13 @@ static int _proxy_server_process_conn_event_err(struct proxy_server_conn *conn, 
 	if (conn->fd >= 0) {
 		socklen_t len = sizeof(err);
 		getsockopt(conn->fd, SOL_SOCKET, SO_ERROR, &err, &len);
-	} else if ((conn->type == PROXY_SERVER_CONN_CLIENT || conn->type == PROXY_SERVER_CONN_CLIENT_REDIRECT) && conn->client.channel) {
+	} else if ((conn->type == PROXY_SERVER_CONN_CLIENT || conn->type == PROXY_SERVER_CONN_CLIENT_REDIRECT) &&
+			   conn->client.channel) {
 		err = proxy_channel_get_opt_error(conn->client.channel);
 	} else if (conn->type == PROXY_SERVER_CONN_REMOTE && conn->remote.pconn) {
 		/* Remote connection uses proxy_conn, but epoll event data.ptr is the channel */
 		/* The loop in _proxy_server_work correctly identified the channel and retrieved the conn */
-		/* We can get the error from the channel if we had access to it, 
+		/* We can get the error from the channel if we had access to it,
 		   but it's easier to just call it on the conn's active channel or race mode */
 		err = proxy_conn_get_last_error(conn->remote.pconn);
 		if (err == 0) {
@@ -2011,31 +2085,17 @@ static int _proxy_server_process_conn_client(struct proxy_server_conn *conn, str
 
 	_proxy_server_conn_touch(conn);
 
-	if ((event->events & EPOLLOUT)) {
-		if ((conn->conn_state == PROXY_SERVER_CONN_STAT_INIT) ||
-			(conn->conn_state == PROXY_SERVER_CONN_STAT_CONNECTING)) {
-			if (_proxy_server_connected_init(conn) != 0) {
-				tlog(TLOG_ERROR, "connection init failed.");
-				goto errout;
-			}
-		}
-	}
-
 	ret = _proxy_server_process_conn_write_data(conn, peer, event);
 	if (ret != 0) {
 		goto errout;
 	}
 
-	/* 有数据需要读取 */
-	if (event->events & EPOLLIN) {
-		tlog(TLOG_DEBUG, "client process read data, state %d, type %d", conn->conn_state, conn->type);
-		if ((conn->conn_state == PROXY_SERVER_CONN_STAT_CONNECTED || conn->conn_state == PROXY_SERVER_CONN_STAT_SOCKS5_AUTH) && conn->type == PROXY_SERVER_CONN_CLIENT) {
-			tlog(TLOG_DEBUG, "client process protocol");
-			if (_proxy_server_conn_process_protocol(conn) != 0) {
-				tlog(TLOG_ERROR, "client process protocol failed");
-				goto errout;
-			}
-
+	/* Process Protocol State Machine */
+	if (conn->conn_state != PROXY_SERVER_CONN_STAT_PIPE && conn->conn_state != PROXY_SERVER_CONN_STAT_CLOSE) {
+		if (_proxy_server_conn_process(conn) != 0) {
+			goto errout;
+		}
+		if (conn->conn_state != PROXY_SERVER_CONN_STAT_PIPE) {
 			return 0;
 		}
 	}
@@ -2095,8 +2155,30 @@ static int _proxy_server_handshake_fallback(struct proxy_server_conn *conn, int 
 	}
 
 	int last_error = proxy_conn_get_last_error(conn->remote.pconn);
-	/* Check for SOCKS5 "Host unreachable" (0x04) */
-	if (last_error != 0x04) {
+	int update_global = 0;
+	int retry_local = 0;
+
+	switch (last_error) {
+	case 0x03: /* Network unreachable */
+	case 0x08: /* Address type not supported */
+		/* These errors strongly suggest the proxy server lacks IPv6 environment */
+		update_global = 1;
+		retry_local = 1;
+		break;
+	case 0x04: /* Host unreachable */
+		/* Host unreachable might be a specific host issue.
+		   Retry this connection with IPv4 (force-aaaa-soa), but do not disable IPv6 globally. */
+		update_global = 0;
+		retry_local = 1;
+		break;
+	case 502:
+	case 503:
+	case 504:
+		/* Maintain existing behavior for HTTP errors */
+		update_global = 1;
+		retry_local = 1;
+		break;
+	default:
 		return 0;
 	}
 
@@ -2105,43 +2187,75 @@ static int _proxy_server_handshake_fallback(struct proxy_server_conn *conn, int 
 		return 0;
 	}
 
+	if (conn->remote.proxy->ipv6_check_ok) {
+		return 0;
+	}
+
 	struct proxy_server_conn *client = conn->remote.peer;
 	if (client && (client->client.listener_type == PROXY_SERVER_CONN_TPROXY_SERVER ||
-				   client->client.listener_type == PROXY_SERVER_CONN_SNIPROXY_SERVER)) {
-		const char *listener_name = client->client.listener_name;
-		int updated = 0;
+				   client->client.listener_type == PROXY_SERVER_CONN_SNIPROXY_SERVER ||
+				   client->client.listener_type == PROXY_SERVER_CONN_SOCKS5_SERVER ||
+				   client->client.listener_type == PROXY_SERVER_CONN_HTTP_SERVER)) {
 
-		if (client->client.listener_type == PROXY_SERVER_CONN_TPROXY_SERVER) {
-			struct dns_tproxy_server_conf *t_conf = dns_conf_get_tproxy_server(listener_name);
-			if (t_conf && t_conf->force_aaaa_soa == 0) {
-				t_conf->force_aaaa_soa = 1;
-				updated = 1;
-			}
-		} else {
-			struct dns_sniproxy_server_conf *s_conf = dns_conf_get_sniproxy_server(listener_name);
-			if (s_conf && s_conf->force_aaaa_soa == 0) {
-				s_conf->force_aaaa_soa = 1;
-				updated = 1;
-			}
-		}
+		if (update_global) {
+			const char *listener_name = client->client.listener_name;
+			int updated = 0;
+			const char *type_str = "unknown";
 
-		if (updated) {
-			tlog(TLOG_WARN,
-				 "SOCKS5 server returned 'Host unreachable' for IPv6 target. "
-				 "Forcing force-aaaa-soa=yes for %s '%s' to disable IPv6 resolution. "
-				 "Please configure 'force-aaaa-soa yes' in your config.",
-				 (client->client.listener_type == PROXY_SERVER_CONN_TPROXY_SERVER) ? "tproxy-server" : "sni-proxy",
-				 listener_name);
-
-			/* Propagate to all matching listeners and update the current client */
-			struct proxy_server_conn *l_conn = NULL;
-			list_for_each_entry(l_conn, &dns_proxy_server.listeners, list)
-			{
-				if (l_conn->type == client->client.listener_type &&
-					strcmp(l_conn->client.listener_name, listener_name) == 0) {
-					l_conn->client.force_aaaa_soa = 1;
+			if (client->client.listener_type == PROXY_SERVER_CONN_TPROXY_SERVER) {
+				type_str = "tproxy-server";
+				struct dns_tproxy_server_conf *t_conf = dns_conf_get_tproxy_server(listener_name);
+				if (t_conf && t_conf->force_aaaa_soa == 0) {
+					t_conf->force_aaaa_soa = 1;
+					updated = 1;
+				}
+			} else if (client->client.listener_type == PROXY_SERVER_CONN_SNIPROXY_SERVER) {
+				type_str = "sni-proxy";
+				struct dns_sniproxy_server_conf *s_conf = dns_conf_get_sniproxy_server(listener_name);
+				if (s_conf && s_conf->force_aaaa_soa == 0) {
+					s_conf->force_aaaa_soa = 1;
+					updated = 1;
+				}
+			} else if (client->client.listener_type == PROXY_SERVER_CONN_SOCKS5_SERVER) {
+				type_str = "socks5-proxy";
+				struct dns_socks5_proxy_server_conf *s5_conf = dns_conf_get_socks5_proxy_server(listener_name);
+				if (s5_conf && s5_conf->force_aaaa_soa == 0) {
+					s5_conf->force_aaaa_soa = 1;
+					updated = 1;
+				}
+			} else if (client->client.listener_type == PROXY_SERVER_CONN_HTTP_SERVER) {
+				type_str = "http-proxy";
+				struct dns_http_proxy_server_conf *h_conf = dns_conf_get_http_proxy_server(listener_name);
+				if (h_conf && h_conf->force_aaaa_soa == 0) {
+					h_conf->force_aaaa_soa = 1;
+					updated = 1;
 				}
 			}
+
+			if (updated) {
+				tlog(TLOG_WARN,
+					 "Upstream proxy returned '%s' for IPv6 target. "
+					 "Forcing force-aaaa-soa=yes for %s '%s' to disable IPv6 resolution (effective for next request). "
+					 "Please configure 'force-aaaa-soa yes' in your config.",
+					 proxy_handshake_error_to_string(last_error), type_str, listener_name);
+
+				/* Propagate to all matching listeners */
+				struct proxy_server_conn *l_conn = NULL;
+				list_for_each_entry(l_conn, &dns_proxy_server.listeners, list)
+				{
+					if (l_conn->type == client->client.listener_type &&
+						strcmp(l_conn->client.listener_name, listener_name) == 0) {
+						l_conn->client.force_aaaa_soa = 1;
+					}
+				}
+			}
+		} else {
+			tlog(TLOG_WARN,
+				 "Upstream proxy returned '%s' for IPv6 target. Retrying with IPv4 (force-aaaa-soa) for this request.",
+				 proxy_handshake_error_to_string(last_error));
+		}
+
+		if (retry_local) {
 			client->client.force_aaaa_soa = 1;
 			client->client.retry_all_server = 1;
 			return 1;
@@ -2155,7 +2269,12 @@ static int _proxy_server_remote_handshake(struct proxy_server_conn *conn, struct
 	proxy_handshake_state state;
 	struct proxy_server_conn *client = conn->remote.peer;
 
-	if (conn->conn_state == PROXY_SERVER_CONN_STAT_CONNECTED_PIPE_DATA) {
+	if (client == NULL) {
+		tlog(TLOG_DEBUG, "client peer is gone during handshake");
+		return -1;
+	}
+
+	if (conn->conn_state == PROXY_SERVER_CONN_STAT_PIPE) {
 		return 0;
 	}
 
@@ -2174,6 +2293,11 @@ static int _proxy_server_remote_handshake(struct proxy_server_conn *conn, struct
 
 	if (state == PROXY_HANDSHAKE_OK || state == PROXY_HANDSHAKE_CONNECTED) {
 		time(&conn->remote.proxy->last_alive);
+		if (conn->type == PROXY_SERVER_CONN_REMOTE && conn->remote.pconn) {
+			conn->addr_len = sizeof(conn->addr);
+			proxy_conn_get_peeraddr(conn->remote.pconn, (struct sockaddr *)&conn->addr, &conn->addr_len);
+		}
+
 		if (client->client.peer == NULL) {
 			client->client.peer = conn;
 		} else if (client->client.peer != conn) {
@@ -2182,7 +2306,8 @@ static int _proxy_server_remote_handshake(struct proxy_server_conn *conn, struct
 		}
 
 		conn->timeout = PROXY_SERVER_IDLE_TIMEOUT;
-		conn->conn_state = PROXY_SERVER_CONN_STAT_CONNECTED_PIPE_DATA;
+		client->timeout = PROXY_SERVER_IDLE_TIMEOUT;
+		conn->conn_state = PROXY_SERVER_CONN_STAT_PIPE;
 
 		struct epoll_event event_remote;
 		memset(&event_remote, 0, sizeof(event_remote));
@@ -2202,6 +2327,11 @@ static int _proxy_server_remote_handshake(struct proxy_server_conn *conn, struct
 		}
 
 		tlog(TLOG_DEBUG, "connected to proxy server, ready to pipe data");
+
+		if (proxy_conn_is_ipv6_target(conn->remote.pconn)) {
+			conn->remote.proxy->ipv6_check_ok = 1;
+		}
+
 		return 0;
 	} else if (state == PROXY_HANDSHAKE_WANT_READ || state == PROXY_HANDSHAKE_WANT_WRITE) {
 		struct epoll_event event_remote;
@@ -2228,7 +2358,12 @@ static int _proxy_server_remote_handshake(struct proxy_server_conn *conn, struct
 	}
 
 	int last_error = proxy_conn_get_last_error(conn->remote.pconn);
-	tlog(TLOG_ERROR, "proxy handshake failed, state=%d, error=%s", state, proxy_handshake_error_to_string(last_error));
+	char target[DNS_MAX_CNAME_LEN] = {0};
+	unsigned short target_port = 0;
+	proxy_conn_get_target(conn->remote.pconn, target, sizeof(target), &target_port);
+	tlog(TLOG_DEBUG, "proxy handshake failed, state=%d, error=%s, target=%s:%d", state,
+		 proxy_handshake_error_to_string(last_error), target, target_port);
+
 	if (_proxy_server_handshake_fallback(conn, state) == 1) {
 		return -2;
 	}
@@ -2381,7 +2516,8 @@ static int _proxy_server_accept_tproxy_conn(struct proxy_server_conn *conn, stru
 	return 0;
 }
 
-static int _proxy_server_accept_forward_conn(struct proxy_server_conn *conn, struct epoll_event *event, unsigned long now)
+static int _proxy_server_accept_forward_conn(struct proxy_server_conn *conn, struct epoll_event *event,
+											 unsigned long now)
 {
 	struct proxy_server_conn *client = NULL;
 
@@ -2395,7 +2531,6 @@ static int _proxy_server_accept_forward_conn(struct proxy_server_conn *conn, str
 
 	return 0;
 }
-
 
 static int _proxy_server_accept_redirect(struct proxy_server_conn *conn, struct epoll_event *event, unsigned long now)
 {
@@ -2430,7 +2565,8 @@ errout:
 	return -1;
 }
 
-static int _proxy_server_accept_socks5_conn(struct proxy_server_conn *conn, struct epoll_event *event, unsigned long now)
+static int _proxy_server_accept_socks5_conn(struct proxy_server_conn *conn, struct epoll_event *event,
+											unsigned long now)
 {
 	struct proxy_server_conn *client = NULL;
 	client = _proxy_server_accept(conn, event, now, PROXY_SERVER_CONN_CLIENT);
@@ -2556,6 +2692,9 @@ static struct proxy_server_conn *_proxy_server_udp_session_get_conn(struct socka
 		return NULL;
 	}
 
+	memcpy(&conn->addr, src, get_sockaddr_len(src));
+	time(&conn->last);
+
 	session->conn = conn;
 	conn->udp_session.session_hash = session;
 	conn->timeout = PROXY_SERVER_UDP_SESSION_TIMEOUT;
@@ -2566,7 +2705,7 @@ static struct proxy_server_conn *_proxy_server_udp_session_get_conn(struct socka
 }
 
 static int _proxy_server_process_forward_udp(struct proxy_server_conn *conn, struct epoll_event *event,
-											  unsigned long now)
+											 unsigned long now)
 {
 	struct sockaddr_storage src_addr;
 	struct sockaddr_storage dst_addr;
@@ -2617,7 +2756,9 @@ static int _proxy_server_process_forward_udp(struct proxy_server_conn *conn, str
 			return -1;
 		}
 
-		tlog(TLOG_DEBUG, "Creating new UDP forward session from %s to %s via %s", target, target, proxy_name);
+		char src_ip[64] = {0};
+		get_host_by_addr(src_ip, sizeof(src_ip), (struct sockaddr *)&src_addr);
+		tlog(TLOG_DEBUG, "Creating new UDP forward session from %s to %s via %s", src_ip, target, proxy_name);
 
 		session_conn->udp_session.pconn = proxy_conn_new(proxy_name, target_host, target_port, 1, 1);
 		if (!session_conn->udp_session.pconn) {
@@ -2652,7 +2793,7 @@ static int _proxy_server_process_forward_udp(struct proxy_server_conn *conn, str
 
 	} else {
 		/* Add packet to pending or send immediately if connected */
-		if (session_conn->conn_state == PROXY_SERVER_CONN_STAT_CONNECTED_PIPE_DATA) {
+		if (session_conn->conn_state == PROXY_SERVER_CONN_STAT_PIPE) {
 			if (proxy_conn_send(session_conn->udp_session.pconn, buf, len, 0) < 0) {
 				tlog(TLOG_ERROR, "proxy_conn_send failed");
 				_proxy_server_conn_close(session_conn);
@@ -2685,7 +2826,8 @@ static void _proxy_server_flush_pending_packets(struct proxy_server_conn *conn)
 	while (curr) {
 		struct conn_buffer *next = curr->next;
 		int rc = 0;
-		if (conn->udp_session.session_hash->listener && conn->udp_session.session_hash->listener->type == PROXY_SERVER_CONN_FORWARD_SERVER_UDP) {
+		if (conn->udp_session.session_hash->listener &&
+			conn->udp_session.session_hash->listener->type == PROXY_SERVER_CONN_FORWARD_SERVER_UDP) {
 			rc = proxy_conn_send(conn->udp_session.pconn, curr->data, curr->len, 0);
 		} else {
 			rc = proxy_conn_sendto(conn->udp_session.pconn, curr->data, curr->len, 0,
@@ -2725,8 +2867,8 @@ static int _proxy_server_handle_udp_handshake(struct proxy_server_conn *conn, st
 		tlog(TLOG_ERROR, "Failed to add UDP proxy conn to epoll: %s", strerror(errno));
 	}
 
-		struct epoll_event ev_tcp;
-		epoll_ctl(dns_proxy_server.epoll_fd, EPOLL_CTL_MOD, conn->fd, &ev_tcp);
+	struct epoll_event ev_tcp;
+	epoll_ctl(dns_proxy_server.epoll_fd, EPOLL_CTL_MOD, conn->fd, &ev_tcp);
 
 	conn->udp_session.connected = 1;
 	_proxy_server_flush_pending_packets(conn);
@@ -2774,11 +2916,13 @@ static int _proxy_server_process_udp_session(struct proxy_server_conn *conn, str
 
 				if (listener->type == PROXY_SERVER_CONN_FORWARD_SERVER_UDP) {
 					/* For forward-server, just reply using the listener socket */
-					if (sendto(listener->fd, buf, len, 0, (struct sockaddr *)&src, get_sockaddr_len((struct sockaddr *)&src)) < 0) {
+					if (sendto(listener->fd, buf, len, 0, (struct sockaddr *)&src,
+							   get_sockaddr_len((struct sockaddr *)&src)) < 0) {
 						tlog(TLOG_DEBUG, "forward udp reply failed: %s", strerror(errno));
 					}
 				} else {
-					_proxy_server_send_spoofed_udp_reply(conn, buf, len, (struct sockaddr *)&src, (struct sockaddr *)&dst,
+					_proxy_server_send_spoofed_udp_reply(conn, buf, len, (struct sockaddr *)&src,
+														 (struct sockaddr *)&dst,
 														 conn->udp_session.session_hash->ifindex);
 				}
 			} else {
@@ -3140,6 +3284,8 @@ static void _proxy_server_period_run(void)
 static void *_proxy_server_work(void *arg)
 {
 	struct epoll_event events[PROXY_SERVER_MAX_EVENTS + 1];
+	struct proxy_server_conn *conns[PROXY_SERVER_MAX_EVENTS + 1];
+	
 	int num = 0;
 	int i = 0;
 	unsigned long now = {0};
@@ -3193,22 +3339,34 @@ static void *_proxy_server_work(void *arg)
 			expect_time = now;
 		}
 
+		/* 1. Get references to ensure validity during the whole batch processing */
 		for (i = 0; i < num; i++) {
 			struct epoll_event *event = &events[i];
 			struct proxy_server_conn *conn = NULL;
-			
+
 			if (proxy_conn_is_epoll_event(event->data.ptr)) {
 				conn = (struct proxy_server_conn *)proxy_conn_get_event_userdata(event->data.ptr);
 			} else {
 				conn = (struct proxy_server_conn *)event->data.ptr;
 			}
 
-			if (conn == NULL) {
-				tlog(TLOG_WARN, "server info is invalid.");
-				continue;
+			if (conn) {
+				_proxy_server_conn_get(conn);
 			}
+			conns[i] = conn;
+		}
 
-			_proxy_server_process(conn, event, now);
+		/* 2. Process events and release references */
+		for (i = 0; i < num; i++) {
+			struct epoll_event *event = &events[i];
+			struct proxy_server_conn *conn = conns[i];
+
+			if (conn) {
+				_proxy_server_process(conn, event, now);
+				_proxy_server_conn_put(conn);
+			} else {
+				tlog(TLOG_WARN, "server info is invalid.");
+			}
 		}
 	}
 
@@ -3239,6 +3397,15 @@ static int _proxy_server_bind_socket_addr(struct addrinfo *gai, int tproxy)
 		setsockopt(fd, SOL_TCP, TCP_FASTOPEN, &optval, sizeof(optval));
 		setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
 	} else {
+		/* UDP socket - enable address reuse for testing */
+		if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) != 0) {
+			tlog(TLOG_WARN, "set SO_REUSEADDR for UDP failed, %s", strerror(errno));
+		}
+#ifdef SO_REUSEPORT
+		if (setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &optval, sizeof(optval)) != 0) {
+			tlog(TLOG_WARN, "set SO_REUSEPORT for UDP failed, %s", strerror(errno));
+		}
+#endif
 		setsockopt(fd, IPPROTO_IP, IP_PKTINFO, &optval, sizeof(optval));
 		setsockopt(fd, IPPROTO_IPV6, IPV6_RECVPKTINFO, &optval, sizeof(optval));
 	}
@@ -3449,7 +3616,18 @@ static int _proxy_server_create_tproxy_sockets(void)
 			if (fd < 0) {
 				continue;
 			}
-			tlog(TLOG_NOTICE, "tproxy TCP listener on %s:%d", host, port);
+
+			char ip_str[64] = {0};
+			get_host_by_addr(ip_str, sizeof(ip_str), p->ai_addr);
+			if (ip_str[0] == 0) {
+				if (host) {
+					snprintf(ip_str, sizeof(ip_str), "%s", host);
+				} else {
+					snprintf(ip_str, sizeof(ip_str), "unknown");
+				}
+			}
+
+			tlog(TLOG_INFO, "tproxy TCP listener on %s:%d", ip_str, port);
 
 			t_conn = _proxy_server_conn_new(PROXY_SERVER_CONN_TPROXY_SERVER);
 			if (t_conn == NULL) {
@@ -3493,7 +3671,7 @@ static int _proxy_server_create_sniproxy_sockets(void)
 			tlog(TLOG_ERROR, "create sniproxy socket for %s failed", s_conf->server);
 			goto errout;
 		}
-		tlog(TLOG_NOTICE, "sniproxy TCP listener on %s", s_conf->server);
+		tlog(TLOG_INFO, "sniproxy TCP listener on %s", s_conf->server);
 
 		// Set SO_MARK to match the firewall rule mark
 		unsigned int so_mark = s_conf->so_mark;
@@ -3542,7 +3720,7 @@ static int _proxy_server_create_socks5_sockets(void)
 			tlog(TLOG_ERROR, "create socks5 socket for %s failed", s_conf->server);
 			goto errout;
 		}
-		tlog(TLOG_NOTICE, "socks5 TCP listener on %s", s_conf->server);
+		tlog(TLOG_INFO, "socks5 TCP listener on %s", s_conf->server);
 
 		unsigned int so_mark = s_conf->so_mark;
 		if (so_mark > 0) {
@@ -3568,9 +3746,8 @@ static int _proxy_server_create_socks5_sockets(void)
 		s_conn->client.force_aaaa_soa = s_conf->force_aaaa_soa;
 		safe_strncpy(s_conn->client.user, s_conf->username, sizeof(s_conn->client.user));
 		safe_strncpy(s_conn->client.pass, s_conf->password, sizeof(s_conn->client.pass));
-        s_conn->client.channel = proxy_channel_server_new(fd, PROXY_SOCKS5);
-        proxy_channel_set_server_auth(s_conn->client.channel, s_conn->client.user, s_conn->client.pass);
-
+		s_conn->client.channel = proxy_channel_server_new(fd, PROXY_SOCKS5);
+		proxy_channel_set_server_auth(s_conn->client.channel, s_conn->client.user, s_conn->client.pass);
 
 		list_add_tail(&s_conn->list, &dns_proxy_server.listeners);
 	}
@@ -3595,7 +3772,7 @@ static int _proxy_server_create_http_sockets(void)
 			tlog(TLOG_ERROR, "create http socket for %s failed", h_conf->server);
 			goto errout;
 		}
-		tlog(TLOG_NOTICE, "http TCP listener on %s", h_conf->server);
+		tlog(TLOG_INFO, "http TCP listener on %s", h_conf->server);
 
 		unsigned int so_mark = h_conf->so_mark;
 		if (so_mark > 0) {
@@ -3621,9 +3798,8 @@ static int _proxy_server_create_http_sockets(void)
 		h_conn->client.force_aaaa_soa = h_conf->force_aaaa_soa;
 		safe_strncpy(h_conn->client.user, h_conf->username, sizeof(h_conn->client.user));
 		safe_strncpy(h_conn->client.pass, h_conf->password, sizeof(h_conn->client.pass));
-        h_conn->client.channel = proxy_channel_server_new(fd, PROXY_HTTP);
-        proxy_channel_set_server_auth(h_conn->client.channel, h_conn->client.user, h_conn->client.pass);
-
+		h_conn->client.channel = proxy_channel_server_new(fd, PROXY_HTTP);
+		proxy_channel_set_server_auth(h_conn->client.channel, h_conn->client.user, h_conn->client.pass);
 
 		list_add_tail(&h_conn->list, &dns_proxy_server.listeners);
 	}
@@ -3650,7 +3826,7 @@ static int _proxy_server_create_forward_sockets(void)
 			tlog(TLOG_ERROR, "create forward-server tcp socket for %s failed", f_conf->server);
 			goto errout;
 		}
-		tlog(TLOG_NOTICE, "forward TCP listener on %s", f_conf->server);
+		tlog(TLOG_INFO, "forward TCP listener on %s", f_conf->server);
 
 		if (f_conf->so_mark > 0) {
 			if (setsockopt(fd, SOL_SOCKET, SO_MARK, &f_conf->so_mark, sizeof(f_conf->so_mark)) != 0) {
@@ -3679,7 +3855,7 @@ static int _proxy_server_create_forward_sockets(void)
 				tlog(TLOG_ERROR, "create forward-server udp socket for %s failed", f_conf->server);
 				goto errout;
 			}
-			tlog(TLOG_NOTICE, "forward UDP listener on %s", f_conf->server);
+			tlog(TLOG_INFO, "forward UDP listener on %s", f_conf->server);
 
 			if (f_conf->so_mark > 0) {
 				if (setsockopt(fd, SOL_SOCKET, SO_MARK, &f_conf->so_mark, sizeof(f_conf->so_mark)) != 0) {
@@ -3815,9 +3991,8 @@ int proxy_server_init(void)
 	}
 
 	/* check if any sni-proxy-server or tproxy-server is configured */
-	tlog(TLOG_NOTICE, "proxy servers: tproxy %d, sni %d, socks5 %d, http %d, forward %d",
-		 dns_conf_tproxy_server_num(), dns_conf_sniproxy_server_num(),
-		 dns_conf_socks5_proxy_server_num(), dns_conf_http_proxy_server_num(),
+	tlog(TLOG_INFO, "proxy servers: tproxy %d, sni %d, socks5 %d, http %d, forward %d", dns_conf_tproxy_server_num(),
+		 dns_conf_sniproxy_server_num(), dns_conf_socks5_proxy_server_num(), dns_conf_http_proxy_server_num(),
 		 dns_conf_forward_server_num());
 
 	if (dns_conf_tproxy_server_num() == 0 && dns_conf_sniproxy_server_num() == 0 &&

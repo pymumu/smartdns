@@ -60,10 +60,17 @@ int _dns_proxy_handshake(struct dns_server_info *server_info, int epoll_fd, stru
 		}
 
 		if (server_info->type == DNS_SERVER_UDP) {
-			server_info->status = DNS_SERVER_STATUS_CONNECTED;
-		} else if (server_info->type == DNS_SERVER_HTTP3 || server_info->type == DNS_SERVER_QUIC) {
-			/* do handshake for quic */
-			server_info->status = DNS_SERVER_STATUS_CONNECTING;
+			if (ret == PROXY_HANDSHAKE_OK) {
+				server_info->status = DNS_SERVER_STATUS_CONNECTED;
+			}
+		} else if (server_info->type == DNS_SERVER_HTTP3 || server_info->type == DNS_SERVER_QUIC ||
+				   server_info->type == DNS_SERVER_HTTPS || server_info->type == DNS_SERVER_TLS) {
+			/* do handshake for quic/tls/https */
+			if (ret == PROXY_HANDSHAKE_OK) {
+				if (server_info->status != DNS_SERVER_STATUS_CONNECTED) {
+					server_info->status = DNS_SERVER_STATUS_CONNECTING;
+				}
+			}
 			fd_event.events |= EPOLLOUT;
 		} else {
 			if (server_info->send_buff.len > 0) {
@@ -71,7 +78,9 @@ int _dns_proxy_handshake(struct dns_server_info *server_info, int epoll_fd, stru
 				fd_event.events |= EPOLLOUT;
 			}
 			/* If no pending data, only EPOLLIN to avoid infinite EPOLLOUT triggers */
-			server_info->status = DNS_SERVER_STATUS_CONNECTED;
+			if (ret == PROXY_HANDSHAKE_OK) {
+				server_info->status = DNS_SERVER_STATUS_CONNECTED;
+			}
 		}
 		retval = 0;
 	} else if (ret == PROXY_HANDSHAKE_ERR) {

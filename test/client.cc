@@ -146,7 +146,6 @@ bool Client::Query(const std::string &dig_cmds, int port, const std::string &ip)
 	std::shared_ptr<FILE> pipe(fp, pclose);
 	result_.clear();
 	char buffer[4096];
-	usleep(10000);
 	while (fgets(buffer, 4096, pipe.get())) {
 		result_ += buffer;
 	}

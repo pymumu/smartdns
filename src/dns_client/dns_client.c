@@ -598,6 +598,8 @@ static void _dns_client_period_run(unsigned int msec)
 static void *_dns_client_work(void *arg)
 {
 	struct epoll_event events[DNS_MAX_EVENTS + 1];
+	struct dns_server_info *server_infos[DNS_MAX_EVENTS + 1];
+
 	int num = 0;
 	int i = 0;
 	unsigned long now = {0};
@@ -648,11 +650,13 @@ static void *_dns_client_work(void *arg)
 			continue;
 		}
 
+		/* 1. Get references */
 		for (i = 0; i < num; i++) {
 			struct epoll_event *event = &events[i];
 			struct dns_server_info *server_info = NULL;
+
 			if (event->data.fd == client.fd_wakeup) {
-				_dns_client_clear_wakeup_event();
+				server_infos[i] = NULL;
 				continue;
 			}
 
@@ -662,12 +666,28 @@ static void *_dns_client_work(void *arg)
 				server_info = (struct dns_server_info *)event->data.ptr;
 			}
 
-			if (server_info == NULL) {
-				tlog(TLOG_WARN, "server info is invalid.");
+			if (server_info) {
+				dns_client_server_info_get(server_info);
+			}
+			server_infos[i] = server_info;
+		}
+
+		/* 2. Process events */
+		for (i = 0; i < num; i++) {
+			struct epoll_event *event = &events[i];
+			struct dns_server_info *server_info = server_infos[i];
+
+			if (event->data.fd == client.fd_wakeup) {
+				_dns_client_clear_wakeup_event();
 				continue;
 			}
 
-			_dns_client_process(server_info, event, now);
+			if (server_info) {
+				_dns_client_process(server_info, event, now);
+				dns_client_server_info_release(server_info);
+			} else {
+				tlog(TLOG_WARN, "server info is invalid.");
+			}
 		}
 	}
 

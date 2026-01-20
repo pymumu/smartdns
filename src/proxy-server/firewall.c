@@ -105,11 +105,13 @@ const char *SCRIPT_IPTABLES_TPROXY_SETUP =
 	"fi\n"
 	// Output Chain (Conditional)
 	"if [ \"${output_chain_enable}\" = \"1\" ]; then\n"
-	"    ${iptables_cmd} -t mangle -C OUTPUT -p tcp -m set --match-set ${set_name} dst -j TPROXY ${TPROXY_ARGS} 2>/dev/null || \\\n"
-	"    ${iptables_cmd} -t mangle -A OUTPUT -p tcp -m set --match-set ${set_name} dst -j TPROXY ${TPROXY_ARGS}\n"
+	"    MARK_OPT=\"\"\n"
+	"    if [ \"${mark}\" != \"0\" ]; then MARK_OPT=\"-m mark ! --mark ${mark}\"; fi\n"
+	"    ${iptables_cmd} -t mangle -C OUTPUT -p tcp -m set --match-set ${set_name} dst ${MARK_OPT} -j MARK --set-mark ${mark} 2>/dev/null || \\\n"
+	"    ${iptables_cmd} -t mangle -A OUTPUT -p tcp -m set --match-set ${set_name} dst ${MARK_OPT} -j MARK --set-mark ${mark}\n"
 	"    if [ \"${udp_support}\" = \"1\" ]; then\n"
-	"        ${iptables_cmd} -t mangle -C OUTPUT -p udp -m set --match-set ${set_name} dst -j TPROXY ${TPROXY_ARGS} 2>/dev/null || \\\n"
-	"        ${iptables_cmd} -t mangle -A OUTPUT -p udp -m set --match-set ${set_name} dst -j TPROXY ${TPROXY_ARGS}\n"
+	"        ${iptables_cmd} -t mangle -C OUTPUT -p udp -m set --match-set ${set_name} dst ${MARK_OPT} -j MARK --set-mark ${mark} 2>/dev/null || \\\n"
+	"        ${iptables_cmd} -t mangle -A OUTPUT -p udp -m set --match-set ${set_name} dst ${MARK_OPT} -j MARK --set-mark ${mark}\n"
 	"    fi\n"
 	"fi\n";
 
@@ -119,8 +121,10 @@ const char *SCRIPT_IPTABLES_TPROXY_CLEANUP =
 	// Delete rules
 	"${iptables_cmd} -t mangle -D PREROUTING -p tcp -m set --match-set ${set_name} dst -j TPROXY ${TPROXY_ARGS} 2>/dev/null || true\n"
 	"${iptables_cmd} -t mangle -D PREROUTING -p udp -m set --match-set ${set_name} dst -j TPROXY ${TPROXY_ARGS} 2>/dev/null || true\n"
-	"${iptables_cmd} -t mangle -D OUTPUT -p tcp -m set --match-set ${set_name} dst -j TPROXY ${TPROXY_ARGS} 2>/dev/null || true\n"
-	"${iptables_cmd} -t mangle -D OUTPUT -p udp -m set --match-set ${set_name} dst -j TPROXY ${TPROXY_ARGS} 2>/dev/null || true\n"
+	"MARK_OPT=\"\"\n"
+	"if [ \"${mark}\" != \"0\" ]; then MARK_OPT=\"-m mark ! --mark ${mark}\"; fi\n"
+	"${iptables_cmd} -t mangle -D OUTPUT -p tcp -m set --match-set ${set_name} dst ${MARK_OPT} -j MARK --set-mark ${mark} 2>/dev/null || true\n"
+	"${iptables_cmd} -t mangle -D OUTPUT -p udp -m set --match-set ${set_name} dst ${MARK_OPT} -j MARK --set-mark ${mark} 2>/dev/null || true\n"
 	"ipset destroy ${set_name} 2>/dev/null || true\n"
 	"ip ${family_opt} route del local ${local_range} dev lo table ${mark} 2>/dev/null || true\n"
 	"ip ${family_opt} rule del fwmark ${mark} lookup ${mark} 2>/dev/null || true\n";

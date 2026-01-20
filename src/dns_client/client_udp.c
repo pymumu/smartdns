@@ -224,6 +224,12 @@ static int _dns_client_process_udp_proxy(struct dns_server_info *server_info, st
 	int len = 0;
 	int ret = 0;
 
+	if (server_info->status == DNS_SERVER_STATUS_CONNECTING) {
+		if (proxy_conn_get_state(server_info->proxy) == PROXY_STATE_CONNECTED) {
+			server_info->status = DNS_SERVER_STATUS_CONNECTED;
+		}
+	}
+
 	_dns_client_process_send_udp_buffer(server_info, event, now);
 
 	if (!(event->events & EPOLLIN)) {

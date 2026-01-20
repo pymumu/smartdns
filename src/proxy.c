@@ -29,6 +29,7 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <net/if.h>
+#include <netinet/tcp.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <sys/epoll.h>
@@ -65,7 +66,7 @@ typedef enum {
 	PROXY_PHASE_SERVER_SOCKS5_REQ = 12,
 } PROXY_PHASE;
 
-#define PROXY_ERROR_LOG_THROTTLE_SEC 60
+#define PROXY_ERROR_LOG_THROTTLE_SEC 120
 
 #define PROXY_CHANNEL_MAGIC 0x50524F58 /* "PROX" */
 
@@ -136,6 +137,7 @@ struct proxy_conn {
 	int fallback_count;
 
 	pthread_mutex_t lock;
+	int last_error;
 	void *userdata;
 };
 
@@ -217,8 +219,8 @@ static struct addrinfo *_proxy_getaddr(const char *host, int port, int type, int
 
 	ret = getaddrinfo(host, port_str, &hints, &result);
 	if (ret != 0) {
-		tlog(TLOG_ERROR, "get addr info failed. %s\n", gai_strerror(ret));
-		tlog(TLOG_ERROR, "host: %s, port: %d, type: %d, protocol: %d", host, port, type, protocol);
+		tlog(TLOG_DEBUG, "get addr info failed. %s\n", gai_strerror(ret));
+		tlog(TLOG_DEBUG, "host: %s, port: %d, type: %d, protocol: %d", host, port, type, protocol);
 		goto errout;
 	}
 
@@ -385,6 +387,9 @@ static struct proxy_channel *_proxy_channel_new(struct proxy_server_info *server
 		set_fd_nonblock(fd, 1);
 	}
 
+	int yes = 1;
+	setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
+
 	if (gai) {
 		freeaddrinfo(gai);
 	}
@@ -432,6 +437,16 @@ static void _proxy_channel_shutdown(struct proxy_channel *channel, int epoll_fd)
 		channel->udp_fd = -1;
 	}
 
+	if (channel->parent) {
+		if (channel->last_error != 0) {
+			channel->parent->last_error = channel->last_error;
+		} else if (errno != 0 && errno != EINPROGRESS &&
+				   channel->state != PROXY_STATE_CONNECTED && channel->state != PROXY_STATE_DISCONNECTED) {
+			// If no explicit error set but errno is relevant (connect failed), use it
+			channel->parent->last_error = errno;
+		}
+	}
+
 	channel->state = PROXY_STATE_DISCONNECTED;
 }
 
@@ -460,7 +475,9 @@ static int _proxy_channel_connect(struct proxy_channel *channel)
 	int ret = connect(channel->fd, (struct sockaddr *)&channel->addr, channel->addrlen);
 	char addr_str[128];
 	get_host_by_addr(addr_str, sizeof(addr_str), (struct sockaddr *)&channel->addr);
-	tlog(TLOG_DEBUG, "connect fd=%d addr=%s ret=%d errno=%d", channel->fd, addr_str, ret, errno);
+	if (errno != EINPROGRESS) {
+		tlog(TLOG_DEBUG, "connect fd=%d addr=%s ret=%d errno=%d", channel->fd, addr_str, ret, errno);
+	}
 	return ret;
 }
 
@@ -900,7 +917,13 @@ static proxy_handshake_state _proxy_handshake_socks5_reply_connect_addr(struct p
 			return PROXY_HANDSHAKE_ERR;
 		}
 	}
-	*((short *)(ptr)) = htons(channel->port);
+	/* If UDP, we must set port to 0 as we haven't bound the UDP socket yet.
+	 * Using channel->port (target port) would imply we bind to that, which is false. */
+	if (channel->is_udp) {
+		*((short *)(ptr)) = 0;
+	} else {
+		*((short *)(ptr)) = htons(channel->port);
+	}
 	ptr += 2;
 
 	len = send(channel->fd, buff, ptr - buff, MSG_NOSIGNAL);
@@ -1031,6 +1054,7 @@ static proxy_handshake_state _proxy_handshake_socks5(struct proxy_channel *chann
 				return PROXY_HANDSHAKE_WANT_READ;
 			}
 
+			channel->last_error = (len == 0) ? EIO : errno;
 			PROXY_THROTTLED_ERROR_LOG(last_error_log_time, "recv socks5 auth ack from %s failed, %s",
 									  channel->server_info->proxy_name, strerror(errno));
 			return PROXY_HANDSHAKE_ERR;
@@ -1079,9 +1103,11 @@ static proxy_handshake_state _proxy_handshake_socks5(struct proxy_channel *chann
 			}
 
 			if (len == 0) {
+				channel->last_error = EIO; // Connection closed
 				PROXY_THROTTLED_ERROR_LOG(last_error_log_time, "server %s closed connection",
 										  channel->server_info->proxy_name);
 			} else {
+				channel->last_error = errno;
 				PROXY_THROTTLED_ERROR_LOG(last_error_log_time, "recv socks5 connect ack from %s failed, %s",
 										  channel->server_info->proxy_name, strerror(errno));
 			}
@@ -1104,12 +1130,14 @@ static proxy_handshake_state _proxy_handshake_socks5(struct proxy_channel *chann
 		if (recv_buff[1] != 0) {
 			channel->last_error = recv_buff[1];
 			if (recv_buff[1] <= (sizeof(proxy_socks5_status_code) / sizeof(proxy_socks5_status_code[0]))) {
-				PROXY_THROTTLED_ERROR_LOG(last_error_log_time, "server %s reply failed, error-code: %s",
+				PROXY_THROTTLED_ERROR_LOG(last_error_log_time, "server %s reply failed, error-code: %s, target: %s:%d",
 										  channel->server_info->proxy_name,
-										  proxy_socks5_status_code[(int)recv_buff[1]]);
+										  proxy_socks5_status_code[(int)recv_buff[1]],
+										  channel->host, channel->port);
 			} else {
-				PROXY_THROTTLED_ERROR_LOG(last_error_log_time, "server %s reply failed, error-code: %x",
-										  channel->server_info->proxy_name, recv_buff[1]);
+				PROXY_THROTTLED_ERROR_LOG(last_error_log_time, "server %s reply failed, error-code: %x, target: %s:%d",
+										  channel->server_info->proxy_name, recv_buff[1],
+										  channel->host, channel->port);
 			}
 			return PROXY_HANDSHAKE_ERR;
 		}
@@ -1332,6 +1360,7 @@ static proxy_handshake_state _proxy_handshake_http(struct proxy_channel *channel
 		}
 		tlog(TLOG_DEBUG, "successfully connect to target: %s:%d", channel->host, channel->port);
 		channel->state = PROXY_STATE_CONNECTED;
+		http_head_destroy(http_head);
 		return PROXY_HANDSHAKE_OK;
 	} break;
 	default:
@@ -1802,8 +1831,12 @@ int proxy_conn_recv(struct proxy_conn *proxy_conn, void *buf, size_t len, int fl
 	ret = proxy_channel_recv(channel, buf, len, flags);
 
 	/* On error, mark channel as failed */
-	if (ret < 0 && (errno == ECONNRESET || errno == EPIPE || errno == ENOTCONN)) {
-		tlog(TLOG_DEBUG, "proxy %s: active channel recv failed", proxy_conn->proxy_name);
+	if (ret == 0 || (ret < 0 && (errno == ECONNRESET || errno == EPIPE || errno == ENOTCONN))) {
+		if (ret == 0) {
+			tlog(TLOG_DEBUG, "proxy %s closed", proxy_conn->proxy_name);
+		} else {
+			tlog(TLOG_DEBUG, "proxy %s: active channel recv failed", proxy_conn->proxy_name);
+		}
 		channel->state = PROXY_STATE_DISCONNECTED;
 	}
 
@@ -1861,6 +1894,24 @@ int proxy_conn_recvfrom(struct proxy_conn *proxy_conn, void *buf, size_t len, in
 	return ret;
 }
 
+int proxy_conn_shutdown(struct proxy_conn *proxy_conn, int how)
+{
+	struct proxy_channel *channel = NULL;
+
+	if (proxy_conn == NULL) {
+		return -1;
+	}
+
+	pthread_mutex_lock(&proxy_conn->lock);
+	list_for_each_entry(channel, &proxy_conn->channel_list, list)
+	{
+		proxy_channel_shutdown(channel, how);
+	}
+	pthread_mutex_unlock(&proxy_conn->lock);
+
+	return 0;
+}
+
 int proxy_conn_is_udp(struct proxy_conn *proxy_conn)
 {
 	if (proxy_conn == NULL) {
@@ -1868,6 +1919,26 @@ int proxy_conn_is_udp(struct proxy_conn *proxy_conn)
 	}
 
 	return proxy_conn->is_udp;
+}
+
+int proxy_conn_get_state(struct proxy_conn *proxy_conn)
+{
+	struct proxy_channel *channel = NULL;
+	int state = PROXY_STATE_DISCONNECTED;
+
+	if (proxy_conn == NULL) {
+		return PROXY_STATE_DISCONNECTED;
+	}
+
+	pthread_mutex_lock(&proxy_conn->lock);
+
+	channel = proxy_conn->active_channel;
+	if (channel) {
+		state = channel->state;
+	}
+
+	pthread_mutex_unlock(&proxy_conn->lock);
+	return state;
 }
 
 int proxy_init(void)
@@ -1901,8 +1972,8 @@ int proxy_conn_get_last_error(struct proxy_conn *proxy_conn)
 	}
 
 	pthread_mutex_lock(&proxy_conn->lock);
-	int err = 0;
-	if (proxy_conn->active_channel) {
+	int err = proxy_conn->last_error;
+	if (err == 0 && proxy_conn->active_channel) {
 		err = proxy_conn->active_channel->last_error;
 	}
 	pthread_mutex_unlock(&proxy_conn->lock);
@@ -2332,9 +2403,35 @@ static proxy_handshake_state _proxy_handshake_socks5_server(struct proxy_channel
 			channel->is_udp = 0;
 		} else if (buff[1] == PROXY_SOCKS5_CONNECT_UDP) {
 			channel->is_udp = 1;
+			struct sockaddr_storage addr;
+			socklen_t addrlen = sizeof(addr);
+			if (getsockname(channel->fd, (struct sockaddr *)&addr, &addrlen) == 0) {
+				unsigned char resp[22] = {0x05, 0x00, 0x00, 0x01};
+				int resp_len = 4;
+				if (addr.ss_family == AF_INET) {
+					struct sockaddr_in *sin = (struct sockaddr_in *)&addr;
+					memcpy(resp + 4, &sin->sin_addr, 4);
+					memcpy(resp + 8, &sin->sin_port, 2);
+					resp_len += 6;
+				} else if (addr.ss_family == AF_INET6) {
+					struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)&addr;
+					resp[3] = 0x04; // ATYP IPv6
+					memcpy(resp + 4, &sin6->sin6_addr, 16);
+					memcpy(resp + 20, &sin6->sin6_port, 2);
+					resp_len += 18;
+				}
+				send(channel->fd, resp, resp_len, MSG_NOSIGNAL);
+			} else {
+				/* Failed to get sockname, send success with 0.0.0.0:0 */
+				unsigned char resp[] = {0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+				send(channel->fd, resp, sizeof(resp), MSG_NOSIGNAL);
+			}
 		} else {
 			/* We only support CONNECT and UDP ASSOCIATE */
-			/* TODO: Send error reply? */
+			tlog(TLOG_DEBUG, "socks5 cmd %d not supported", buff[1]);
+			/* Version 5, Rep 0x07 (Command not supported), Rsv 0, Atyp 1 (IPv4), Addr 0, Port 0 */
+			unsigned char resp[] = {0x05, 0x07, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+			send(channel->fd, resp, sizeof(resp), 0);
 			return PROXY_HANDSHAKE_ERR;
 		}
 
@@ -2437,6 +2534,30 @@ static proxy_handshake_state _proxy_handshake_http_server(struct proxy_channel *
 	HTTP_METHOD method = http_head_get_method(head);
 	char *url = (char *)http_head_get_url(head);
 	tlog(TLOG_DEBUG, "http handshake method %d, url %s", method, url ? url : "null");
+
+	/* Check Proxy Authentication */
+	if (channel->server_user[0] != '\0') {
+		const char *auth_val = http_head_get_fields_value(head, "Proxy-Authorization");
+		char auth_str[512];
+		char auth_base64[1024];
+		
+		snprintf(auth_str, sizeof(auth_str), "%s:%s", channel->server_user, channel->server_pass);
+		SSL_base64_encode(auth_str, strlen(auth_str), auth_base64);
+		
+		char expected_auth[2048];
+		snprintf(expected_auth, sizeof(expected_auth), "Basic %s", auth_base64);
+
+		if (auth_val == NULL || strcmp(auth_val, expected_auth) != 0) {
+			tlog(TLOG_DEBUG, "http proxy auth failed from %s", channel->host); // Host might not be populated yet if CONNECT parse comes later, but usually addr is set.
+			/* Send 407 */
+			const char *resp = "HTTP/1.1 407 Proxy Authentication Required\r\n"
+							   "Proxy-Authenticate: Basic realm=\"SmartDNS\"\r\n"
+							   "Content-Length: 0\r\n\r\n";
+			send(channel->fd, resp, strlen(resp), MSG_NOSIGNAL);
+			http_head_destroy(head);
+			return PROXY_HANDSHAKE_ERR;
+		}
+	}
 
 	if (method == HTTP_METHOD_INVALID || !url) {
 		tlog(TLOG_ERROR, "http handshake invalid method %d or url %s", method, url ? url : "null");
@@ -2665,6 +2786,19 @@ int proxy_channel_send(struct proxy_channel *channel, const void *buf, size_t le
 	return ret;
 }
 
+int proxy_channel_shutdown(struct proxy_channel *channel, int how)
+{
+	if (!channel || channel->fd < 0) {
+		return -1;
+	}
+
+	if (channel->udp_fd > 0) {
+		shutdown(channel->udp_fd, how);
+	}
+
+	return shutdown(channel->fd, how);
+}
+
 void proxy_channel_get_target(struct proxy_channel *channel, char *host, int host_len, unsigned short *port)
 {
 	if (channel) {
@@ -2685,3 +2819,33 @@ void proxy_channel_get_addr(struct proxy_channel *channel, struct sockaddr *addr
 		*addrlen = channel->addrlen;
 	}
 }
+
+void proxy_channel_get_peeraddr(struct proxy_channel *channel, struct sockaddr *addr, socklen_t *addrlen)
+{
+	if (channel && channel->fd >= 0 && addr && addrlen) {
+		getpeername(channel->fd, addr, addrlen);
+	}
+}
+
+void proxy_conn_get_peeraddr(struct proxy_conn *proxy_conn, struct sockaddr *addr, socklen_t *addrlen)
+{
+	if (proxy_conn && proxy_conn->active_channel) {
+		proxy_channel_get_peeraddr(proxy_conn->active_channel, addr, addrlen);
+	}
+}
+
+void proxy_conn_get_target(struct proxy_conn *proxy_conn, char *host, int host_len, unsigned short *port)
+{
+	if (proxy_conn) {
+		if (host && proxy_conn->active_channel && proxy_conn->active_channel->addrlen > 0) {
+			get_host_by_addr(host, host_len, (struct sockaddr *)&proxy_conn->active_channel->addr);
+		} else if (host) {
+			strncpy(host, proxy_conn->host, host_len);
+			host[host_len - 1] = 0;
+		}
+		if (port) {
+			*port = proxy_conn->port;
+		}
+	}
+}
+
