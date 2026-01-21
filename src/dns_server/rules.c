@@ -360,6 +360,16 @@ int _dns_server_passthrough_rule_check(struct dns_request *request, const char *
 			case DNS_T_CNAME: {
 				dns_get_CNAME(rrs, name, DNS_MAX_CNAME_LEN, &ttl, cname, DNS_MAX_CNAME_LEN);
 			} break;
+			case DNS_T_HTTPS: {
+				struct dns_https_record_rule *https_record_rule = _dns_server_get_dns_rule(request, DOMAIN_RULE_HTTPS);
+				if (https_record_rule) {
+					if (https_record_rule->filter.no_ipv4hint || https_record_rule->filter.no_ipv6hint || 
+						https_record_rule->filter.no_ech) {
+						/* Need to filter, do not passthrough */
+						return 0;
+					}
+				}
+			} break;
 			default:
 				if (ttl == 0) {
 					/* Get TTL */
