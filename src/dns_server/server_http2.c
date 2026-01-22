@@ -294,6 +294,7 @@ int _dns_server_process_http2(struct dns_server_conn_tls_client *tls_client, str
 						if (stream) {
 							/* Accept and immediately process new HTTP/2 stream */
 							_dns_server_http2_process_stream(tls_client, stream);
+							http2_stream_put(stream);
 						}
 					}
 					continue;
