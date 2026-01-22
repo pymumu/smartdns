@@ -142,6 +142,10 @@ struct http2_ctx {
 	http2_bio_write_fn bio_write;
 	void *private_data;
 
+	/* Exdata reference callbacks for safe refcounting of external objects stored in stream->ex_data */
+	void (*exdata_inc)(void *);
+	void (*exdata_dec)(void *);
+
 	/* Connection state */
 	int status; /* 0: connected, <0: error code */
 	int handshake_complete;
@@ -690,12 +694,22 @@ static int _http2_remove_stream(struct http2_stream *stream, int do_put)
 
 	/* Try to remove from list */
 	if (!list_empty(&stream->node)) {
+		/* If there's external ex_data, release it while holding ctx->mutex to avoid leaks.
+		   This must be done before clearing stream->ctx so that http2_stream_put won't miss it. */
+		if (stream->ex_data && ctx && ctx->exdata_dec) {
+			ctx->exdata_dec(stream->ex_data);
+			stream->ex_data = NULL;
+		}
+
 		list_del_init(&stream->node);
-		stream->ctx = NULL; /* Break link to ctx to prevent UAF if ctx dies first */
+
 		if (ctx) {
 			ctx->active_streams--;
 		}
-		
+
+		/* Break link to ctx after exdata has been decremented */
+		stream->ctx = NULL;
+
 		/* Only release ownership if we successfully removed it from the list.
 		   This prevents double-free if called concurrently or recursively. */
 		if (do_put) {
@@ -1291,6 +1305,17 @@ void http2_stream_put(struct http2_stream *stream)
 		return;
 	}
 
+	/* Ensure any external ex_data reference is released so external object can be freed.
+	   We do this under ctx->mutex to synchronize with http2_stream_set_ex_data. */
+	if (stream->ctx) {
+		pthread_mutex_lock(&stream->ctx->mutex);
+		if (stream->ex_data && stream->ctx->exdata_dec) {
+			stream->ctx->exdata_dec(stream->ex_data);
+		}
+		stream->ex_data = NULL;
+		pthread_mutex_unlock(&stream->ctx->mutex);
+	}
+
 	if (!list_empty(&stream->node)) {
 		_http2_remove_stream(stream, 0);
 	}
@@ -1329,6 +1354,10 @@ static void _http2_ctx_init_common(struct http2_ctx *ctx, const struct http2_ctx
 	ctx->pending_write_buffer = NULL;
 	ctx->pending_write_len = 0;
 	ctx->pending_write_capacity = 0;
+
+	/* init exdata callbacks to NULL by default */
+	ctx->exdata_inc = NULL;
+	ctx->exdata_dec = NULL;
 
 	hpack_init_context(&ctx->encoder);
 	hpack_init_context(&ctx->decoder);
@@ -1382,6 +1411,23 @@ struct http2_ctx *http2_ctx_server_new(const char *server, http2_bio_read_fn bio
 		return NULL;
 	}
 	return http2_ctx_new(0, server, bio_read, bio_write, private_data, settings);
+}
+
+/* Allow caller to register exdata inc/dec callbacks.
+   These callbacks will be invoked while holding ctx->mutex:
+   - http2_stream_set_ex_data will call inc(new) then dec(old)
+   - http2_stream_get_ex_data_ref will call inc(ex)
+   - http2_stream_put has a fallback to call dec on remaining ex_data
+*/
+void http2_ctx_set_exdata_ref_callbacks(struct http2_ctx *ctx, void (*inc)(void *), void (*dec)(void *))
+{
+	if (!ctx) {
+		return;
+	}
+	pthread_mutex_lock(&ctx->mutex);
+	ctx->exdata_inc = inc;
+	ctx->exdata_dec = dec;
+	pthread_mutex_unlock(&ctx->mutex);
 }
 
 int http2_ctx_handshake(struct http2_ctx *ctx)
@@ -1686,6 +1732,84 @@ int http2_stream_get_id(struct http2_stream *stream)
 		return -1;
 	}
 	return stream->stream_id;
+}
+
+/* Set ex_data on stream with safe inc/dec under ctx->mutex */
+void http2_stream_set_ex_data(struct http2_stream *stream, void *data)
+{
+	if (!stream) {
+		return;
+	}
+
+	struct http2_ctx *ctx = stream->ctx;
+	if (ctx) {
+		pthread_mutex_lock(&ctx->mutex);
+	}
+
+	void *old = stream->ex_data;
+	if (old == data) {
+		if (ctx) {
+			pthread_mutex_unlock(&ctx->mutex);
+		}
+		return;
+	}
+
+	/* Increment new first (if callback provided) */
+	if (data && ctx && ctx->exdata_inc) {
+		ctx->exdata_inc(data);
+	}
+	stream->ex_data = data;
+	/* Decrement old after switching */
+	if (old && ctx && ctx->exdata_dec) {
+		ctx->exdata_dec(old);
+	}
+
+	if (ctx) {
+		pthread_mutex_unlock(&ctx->mutex);
+	}
+}
+
+/* New helper: atomically obtain ex_data and increment its ref via registered callback.
+   Returned pointer must be released by caller by calling the external put (e.g. _dns_client_conn_stream_put).
+*/
+void *http2_stream_get_ex_data_ref(struct http2_stream *stream)
+{
+	if (!stream) {
+		return NULL;
+	}
+
+	struct http2_ctx *ctx = stream->ctx;
+	if (!ctx) {
+		return NULL;
+	}
+
+	pthread_mutex_lock(&ctx->mutex);
+	void *ex = stream->ex_data;
+	if (ex && ctx->exdata_inc) {
+		ctx->exdata_inc(ex);
+	}
+	pthread_mutex_unlock(&ctx->mutex);
+	return ex;
+}
+
+/* Legacy getter (no ref change) kept for compatibility */
+void *http2_stream_get_ex_data(struct http2_stream *stream)
+{
+	if (!stream) {
+		return NULL;
+	}
+
+	struct http2_ctx *ctx = stream->ctx;
+	if (ctx) {
+		pthread_mutex_lock(&ctx->mutex);
+	}
+
+	void *data = stream->ex_data;
+
+	if (ctx) {
+		pthread_mutex_unlock(&ctx->mutex);
+	}
+	return data;
 }
 
 int http2_stream_set_request(struct http2_stream *stream, const char *method, const char *path, const char *scheme,
@@ -2189,82 +2313,43 @@ int http2_stream_is_end(struct http2_stream *stream)
 	return is_end;
 }
 
-void http2_stream_set_ex_data(struct http2_stream *stream, void *data)
-{
-	if (!stream) {
-		return;
-	}
-
-	struct http2_ctx *ctx = stream->ctx;
-	if (ctx) {
-		pthread_mutex_lock(&ctx->mutex);
-	}
-
-	stream->ex_data = data;
-
-	if (ctx) {
-		pthread_mutex_unlock(&ctx->mutex);
-	}
-}
-
-void *http2_stream_get_ex_data(struct http2_stream *stream)
-{
-	if (!stream) {
-		return NULL;
-	}
-
-	struct http2_ctx *ctx = stream->ctx;
-	if (ctx) {
-		pthread_mutex_lock(&ctx->mutex);
-	}
-
-	void *data = stream->ex_data;
-
-	if (ctx) {
-		pthread_mutex_unlock(&ctx->mutex);
-	}
-	return data;
-}
-
+/* Return whether ctx wants read */
 int http2_ctx_want_read(struct http2_ctx *ctx)
 {
 	if (!ctx) {
 		return 0;
 	}
-
 	pthread_mutex_lock(&ctx->mutex);
-	int want_read = ctx->want_read;
+	int want = ctx->want_read;
 	pthread_mutex_unlock(&ctx->mutex);
-
-	return want_read;
+	return want;
 }
 
+/* Return whether ctx wants write */
 int http2_ctx_want_write(struct http2_ctx *ctx)
 {
 	if (!ctx) {
 		return 0;
 	}
-
 	pthread_mutex_lock(&ctx->mutex);
-	int want_write = ctx->want_write;
+	int want = ctx->want_write;
 	pthread_mutex_unlock(&ctx->mutex);
-
-	return want_write;
+	return want;
 }
 
+/* Return whether ctx is closed (error state) */
 int http2_ctx_is_closed(struct http2_ctx *ctx)
 {
 	if (!ctx) {
 		return 1;
 	}
-
 	pthread_mutex_lock(&ctx->mutex);
-	int is_closed = (ctx->status < 0);
+	int closed = (ctx->status < 0);
 	pthread_mutex_unlock(&ctx->mutex);
-
-	return is_closed;
+	return closed;
 }
 
+/* http2_stream_get_query_param unchanged (kept from original) */
 char *http2_stream_get_query_param(struct http2_stream *stream, const char *name)
 {
 	const char *path = NULL;
