@@ -87,10 +87,18 @@ static int _dns_client_send_http2_stream(struct dns_server_info *server_info, st
 		goto errout;
 	}
 
+	/* Link conn_stream <-> http2_stream
+	   1) save http2_stream into conn_stream (under server_info lock)
+	   2) set ex_data on http2_stream (this will atomically inc conn_stream ref via registered callback)
+	*/
 	pthread_mutex_lock(&server_info->lock);
 	conn_stream->http2_stream = http2_stream;
 	pthread_mutex_unlock(&server_info->lock);
+
+	/* http2_stream_set_ex_data will call the registered exdata_inc callback (if any),
+	   so it will increment conn_stream ref atomically under ctx->mutex. */
 	http2_stream_set_ex_data(http2_stream, conn_stream);
+
 	http2_ctx_put(http2_ctx);
 	return 0;
 
@@ -103,11 +111,26 @@ errout:
 /* Helper function to release a conn_stream and its references on error */
 static void _dns_client_release_stream_on_error(struct dns_server_info *server_info, struct dns_conn_stream *stream)
 {
+	struct http2_stream *tmp_http2_stream = NULL;
+
 	if (!stream) {
 		return;
 	}
 
+	/* We must NOT call http2_stream_set_ex_data while holding server_info->lock,
+	   because that would take ctx->mutex while holding server_info->lock and can
+	   deadlock with HTTP/2 code which holds ctx->mutex and calls bio_write -> acquires server_info->lock.
+	   So: collect the http2_stream pointer under the lock, clear conn_stream fields,
+	   then after unlocking call http2_stream_set_ex_data(tmp_http2_stream, NULL). */
+
 	pthread_mutex_lock(&server_info->lock);
+
+	/* If associated with an http2_stream, take pointer but do NOT call set_ex_data now */
+	if (stream->http2_stream) {
+		tmp_http2_stream = stream->http2_stream;
+		/* keep stream->http2_stream as-is for now (we cleared it below after removal from lists) */
+		/* We'll clear ex_data after unlocking to avoid inversion with ctx->mutex */
+	}
 
 	/* Remove from server list and release reference */
 	if (!list_empty(&stream->server_list)) {
@@ -116,7 +139,17 @@ static void _dns_client_release_stream_on_error(struct dns_server_info *server_i
 		_dns_client_conn_stream_put(stream);
 	}
 
+	/* Clear the conn_stream->http2_stream under server lock to prevent further server-side use */
+	stream->http2_stream = NULL;
+
 	pthread_mutex_unlock(&server_info->lock);
+
+	/* Clear http2->ex_data outside server_info lock to avoid lock-order inversion.
+	   http2_stream_set_ex_data will call the registered exdata_dec callback (if any)
+	   to release the conn_stream reference atomically. */
+	if (tmp_http2_stream) {
+		http2_stream_set_ex_data(tmp_http2_stream, NULL);
+	}
 
 	/* Release the initial reference from creation */
 	_dns_client_conn_stream_put(stream);
@@ -306,26 +339,41 @@ int _dns_client_send_http2(struct dns_server_info *server_info, struct dns_query
 	pthread_mutex_unlock(&query->lock);
 	pthread_mutex_unlock(&server_info->lock);
 
-	/* Flush data immediately */
-	int loop = 0;
-	while (http2_ctx_want_write(http2_ctx) && loop++ < 10) {
-		if (http2_ctx_poll(http2_ctx, NULL, 0, NULL) < 0) {
-			break;
+	/* Try to flush pending HTTP/2 writes on the server's context (if any) */
+	{
+		struct http2_ctx *ctx = NULL;
+		pthread_mutex_lock(&server_info->lock);
+		ctx = server_info->http2_ctx;
+		if (ctx) http2_ctx_get(ctx);
+		pthread_mutex_unlock(&server_info->lock);
+
+		if (ctx) {
+			_dns_client_flush_http2_writes(ctx);
+			http2_ctx_put(ctx);
 		}
 	}
 
-	/* Check if there's pending write data, if so add EPOLLOUT event */
-	if (http2_ctx_want_write(http2_ctx)) {
-		struct epoll_event event;
-		memset(&event, 0, sizeof(event));
-		event.events = EPOLLIN | EPOLLOUT;
-		event.data.ptr = server_info;
-		if (server_info->fd > 0) {
-			if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &event) != 0) {
-				tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
-				/* Continue anyway, data will be sent on next EPOLLIN */
+	{
+		struct http2_ctx *ctx = NULL;
+		pthread_mutex_lock(&server_info->lock);
+		ctx = server_info->http2_ctx;
+		if (ctx) http2_ctx_get(ctx);
+		pthread_mutex_unlock(&server_info->lock);
+
+		if (ctx && http2_ctx_want_write(ctx)) {
+			struct epoll_event event;
+			memset(&event, 0, sizeof(event));
+			event.events = EPOLLIN | EPOLLOUT;
+			event.data.ptr = server_info;
+			if (server_info->fd > 0) {
+				if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &event) != 0) {
+					tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
+					/* Continue anyway, data will be sent on next EPOLLIN */
+				}
 			}
 		}
+
+		if (ctx) http2_ctx_put(ctx);
 	}
 
 	ret = 0;
@@ -358,6 +406,12 @@ static int _dns_client_http2_init_ctx(struct dns_server_info *server_info)
 		server_info->http2_ctx = http2_ctx;
 		/* server_info now owns the context (refcount=1 from _new) */
 		pthread_mutex_unlock(&server_info->lock);
+
+		/* register exdata ref callbacks so http2 layer can inc/dec conn_stream refs atomically */
+		/* cast function pointers to generic void(*)(void*) */
+		http2_ctx_set_exdata_ref_callbacks(http2_ctx,
+										   (void (*)(void *))_dns_client_conn_stream_get,
+										   (void (*)(void *))_dns_client_conn_stream_put);
 
 		/* Perform HTTP/2 handshake */
 		ret = http2_ctx_handshake(http2_ctx);
@@ -415,6 +469,10 @@ static int _dns_client_http2_process_write(struct dns_server_info *server_info)
 static int _dns_client_http2_process_stream_one(struct dns_server_info *server_info,
 												struct dns_conn_stream *conn_stream)
 {
+	if (conn_stream == NULL) {
+		return 1;
+	}
+
 	struct http2_stream *http2_stream = conn_stream->http2_stream;
 	uint8_t response_body[DNS_IN_PACKSIZE];
 	int response_len = 0;
@@ -509,7 +567,9 @@ static int _dns_client_http2_process_read(struct dns_server_info *server_info)
 				continue;
 			}
 
-			conn_stream = (struct dns_conn_stream *)http2_stream_get_ex_data(stream);
+			/* Atomically get ex_data with increment: guarantees returned conn_stream won't be freed
+			   concurrently because registered exdata_inc will increment its ref under ctx->mutex. */
+			conn_stream = (struct dns_conn_stream *)http2_stream_get_ex_data_ref(stream);
 			if (conn_stream == NULL) {
 				http2_stream_put(stream);
 				continue;
@@ -519,19 +579,41 @@ static int _dns_client_http2_process_read(struct dns_server_info *server_info)
 				int stream_ended = _dns_client_http2_process_stream_one(server_info, conn_stream);
 				if (stream_ended) {
 					int need_put = 0;
+					struct http2_stream *tmp_http2 = NULL;
+
+					/* Remove association and clear http2 ex_data to avoid UAF:
+					   collect http2_stream pointer under server_info->lock, clear conn_stream fields,
+					   then after unlocking clear ex_data on http2_stream. */
 					pthread_mutex_lock(&server_info->lock);
 					if (!list_empty(&conn_stream->server_list)) {
+						/* detach from server list */
 						list_del_init(&conn_stream->server_list);
 						conn_stream->server_info = NULL;
+
+						/* If this conn_stream still has an http2_stream, grab pointer and clear field */
+						if (conn_stream->http2_stream) {
+							tmp_http2 = conn_stream->http2_stream;
+							conn_stream->http2_stream = NULL;
+						}
+
 						need_put = 1;
 					}
 					pthread_mutex_unlock(&server_info->lock);
 
+					/* Clear http2 ex_data outside server_info lock to avoid lock-order inversion */
+					if (tmp_http2) {
+						http2_stream_set_ex_data(tmp_http2, NULL);
+					}
+
+					/* release the reference which corresponded to server_list ownership */
 					if (need_put) {
 						_dns_client_conn_stream_put(conn_stream);
 					}
 				}
 			}
+
+			/* release the reference acquired by http2_stream_get_ex_data_ref */
+			_dns_client_conn_stream_put(conn_stream);
 			http2_stream_put(stream);
 		}
 
