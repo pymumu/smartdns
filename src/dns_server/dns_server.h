@@ -250,6 +250,7 @@ typedef DNS_CHILD_POST_RESULT (*child_request_callback)(struct dns_request *requ
 														int is_first_resp);
 
 struct dns_request_https {
+	struct list_head list;
 	char domain[DNS_MAX_CNAME_LEN];
 	char target[DNS_MAX_CNAME_LEN];
 	int ttl;
@@ -259,6 +260,19 @@ struct dns_request_https {
 	int port;
 	char ech[DNS_MAX_ECH_LEN];
 	int ech_len;
+	
+	int has_ipv4;
+	unsigned char ipv4_addr[DNS_RR_A_LEN];
+	int has_ipv6;
+	unsigned char ipv6_addr[DNS_RR_AAAA_LEN];
+};
+
+struct dns_request_srv {
+	struct list_head list;
+	char host[DNS_MAX_CNAME_LEN];
+	unsigned short priority;
+	unsigned short weight;
+	unsigned short port;
 };
 
 struct dns_request {
@@ -300,7 +314,7 @@ struct dns_request {
 	struct dns_opt_ecs ecs;
 	int edns0_do;
 
-	struct dns_request_https *https_svcb;
+	struct list_head https_svcb_list;
 
 	dns_result_callback result_callback;
 	void *user_ptr;
@@ -328,7 +342,7 @@ struct dns_request {
 
 	int is_cache_reply;
 
-	struct dns_srv_records *srv_records;
+	struct list_head srv_list;
 
 	atomic_t notified;
 	atomic_t do_callback;

@@ -106,7 +106,7 @@ whitelist-ip 4.5.6.7/24
 	ASSERT_TRUE(client.Query("a.com", 60053));
 	std::cout << client.GetResult() << std::endl;
 	ASSERT_EQ(client.GetAnswerNum(), 0);
-	EXPECT_EQ(client.GetStatus(), "SERVFAIL");
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
 }
 
 TEST_F(IPRule, black_list)

@@ -63,6 +63,7 @@ static int _conf_domain_rule_https_copy_alpn(char *alpn_data, int max_alpn_len, 
 int _conf_domain_rule_https_record(const char *domain, const char *host)
 {
 	struct dns_https_record_rule *https_record_rule = NULL;
+	struct dns_https_record *record = NULL;
 	enum domain_rule type = DOMAIN_RULE_HTTPS;
 	char buff[4096];
 	int key_num = 0;
@@ -71,11 +72,22 @@ int _conf_domain_rule_https_record(const char *domain, const char *host)
 	int priority = -1;
 	/*mode_type, 0: alias mode, 1: service mode */
 	int mode_type = 0;
+	int is_new = 0;
 
 	safe_strncpy(buff, host, sizeof(buff));
 
-	https_record_rule = _new_dns_rule(type);
+	https_record_rule = dns_conf_get_domain_rule(domain, type);
 	if (https_record_rule == NULL) {
+		https_record_rule = _new_dns_rule(type);
+		if (https_record_rule == NULL) {
+			goto errout;
+		}
+		INIT_LIST_HEAD(&https_record_rule->record_list);
+		is_new = 1;
+	}
+
+	record = zalloc(1, sizeof(*record));
+	if (record == NULL) {
 		goto errout;
 	}
 
@@ -107,8 +119,8 @@ int _conf_domain_rule_https_record(const char *domain, const char *host)
 			}
 
 		} else if (strncmp(key, "target", sizeof("target")) == 0) {
-			safe_strncpy(https_record_rule->record.target, val, DNS_MAX_CONF_CNAME_LEN);
-			https_record_rule->record.enable = 1;
+			safe_strncpy(record->target, val, DNS_MAX_CONF_CNAME_LEN);
+			record->enable = 1;
 		} else if (strncmp(key, "noipv4hint", sizeof("noipv4hint")) == 0) {
 			https_record_rule->filter.no_ipv4hint = 1;
 		} else if (strncmp(key, "noipv6hint", sizeof("noipv6hint")) == 0) {
@@ -120,29 +132,29 @@ int _conf_domain_rule_https_record(const char *domain, const char *host)
 			https_record_rule->filter.no_ech = 1;
 		} else {
 			mode_type = 1;
-			https_record_rule->record.enable = 1;
+			record->enable = 1;
 			if (strncmp(key, "priority", sizeof("priority")) == 0) {
 				priority = atoi(val);
 			} else if (strncmp(key, "port", sizeof("port")) == 0) {
-				https_record_rule->record.port = atoi(val);
+				record->port = atoi(val);
 
 			} else if (strncmp(key, "alpn", sizeof("alpn")) == 0) {
-				int alpn_len = _conf_domain_rule_https_copy_alpn(https_record_rule->record.alpn, DNS_MAX_ALPN_LEN, val);
+				int alpn_len = _conf_domain_rule_https_copy_alpn(record->alpn, DNS_MAX_ALPN_LEN, val);
 				if (alpn_len <= 0) {
 					tlog(TLOG_ERROR, "invalid option value for %s.", key);
 					goto errout;
 				}
-				https_record_rule->record.alpn_len = alpn_len;
+				record->alpn_len = alpn_len;
 			} else if (strncmp(key, "ech", sizeof("ech")) == 0) {
-				int ech_len = SSL_base64_decode(val, https_record_rule->record.ech, DNS_MAX_ECH_LEN);
+				int ech_len = SSL_base64_decode(val, record->ech, DNS_MAX_ECH_LEN);
 				if (ech_len < 0) {
 					tlog(TLOG_ERROR, "invalid option value for %s.", key);
 					goto errout;
 				}
-				https_record_rule->record.ech_len = ech_len;
+				record->ech_len = ech_len;
 			} else if (strncmp(key, "ipv4hint", sizeof("ipv4hint")) == 0) {
 				int addr_len = DNS_RR_A_LEN;
-				if (get_raw_addr_by_ip(val, https_record_rule->record.ipv4_addr, &addr_len) != 0) {
+				if (get_raw_addr_by_ip(val, record->ipv4_addr, &addr_len) != 0) {
 					tlog(TLOG_ERROR, "invalid option value for %s, value: %s", key, val);
 					goto errout;
 				}
@@ -151,10 +163,10 @@ int _conf_domain_rule_https_record(const char *domain, const char *host)
 					tlog(TLOG_ERROR, "invalid option value for %s, value: %s", key, val);
 					goto errout;
 				}
-				https_record_rule->record.has_ipv4 = 1;
+				record->has_ipv4 = 1;
 			} else if (strncmp(key, "ipv6hint", sizeof("ipv6hint")) == 0) {
 				int addr_len = DNS_RR_AAAA_LEN;
-				if (get_raw_addr_by_ip(val, https_record_rule->record.ipv6_addr, &addr_len) != 0) {
+				if (get_raw_addr_by_ip(val, record->ipv6_addr, &addr_len) != 0) {
 					tlog(TLOG_ERROR, "invalid option value for %s, value: %s", key, val);
 					goto errout;
 				}
@@ -163,7 +175,7 @@ int _conf_domain_rule_https_record(const char *domain, const char *host)
 					tlog(TLOG_ERROR, "invalid option value for %s, value: %s", key, val);
 					goto errout;
 				}
-				https_record_rule->record.has_ipv6 = 1;
+				record->has_ipv6 = 1;
 			} else {
 				tlog(TLOG_WARN, "invalid parameter %s for https-record.", key);
 				continue;
@@ -184,19 +196,24 @@ int _conf_domain_rule_https_record(const char *domain, const char *host)
 		}
 	}
 
-	https_record_rule->record.priority = priority;
+	record->priority = priority;
+	list_add_tail(&record->list, &https_record_rule->record_list);
 
-	if (_config_domain_rule_add(domain, type, https_record_rule) != 0) {
-		goto errout;
+	if (is_new) {
+		if (_config_domain_rule_add(domain, type, https_record_rule) != 0) {
+			goto errout;
+		}
+		_dns_rule_put(&https_record_rule->head);
+		https_record_rule = NULL;
 	}
-
-	_dns_rule_put(&https_record_rule->head);
-	https_record_rule = NULL;
 
 	return 0;
 errout:
-	if (https_record_rule) {
+	if (is_new && https_record_rule) {
 		_dns_rule_put(&https_record_rule->head);
+	}
+	if (record && record->list.next == NULL) {
+		free(record);
 	}
 
 	return -1;

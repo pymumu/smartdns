@@ -28,8 +28,6 @@ extern "C" {
 
 int _config_srv_record(void *data, int argc, char *argv[]);
 
-void _config_srv_record_table_init(void);
-void _config_srv_record_table_destroy(void);
 
 #ifdef __cplusplus
 }

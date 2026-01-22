@@ -330,7 +330,6 @@ static int _dns_server_load_conf_init(void)
 	_config_ptr_table_init();
 	_config_domain_set_name_table_init();
 	_config_ip_set_name_table_init();
-	_config_srv_record_table_init();
 	_config_plugin_table_init();
 
 	if (_config_current_group_push_default() != 0) {
@@ -351,7 +350,6 @@ void dns_server_load_exit(void)
 	_config_ptr_table_destroy(0);
 	_config_host_table_destroy(0);
 	_config_proxy_table_destroy();
-	_config_srv_record_table_destroy();
 	_config_plugin_table_destroy();
 	_config_plugin_table_conf_destroy();
 

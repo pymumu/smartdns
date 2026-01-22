@@ -517,6 +517,43 @@ cache-persist no)""");
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1 a.com. alpn=\"h2,h3-19\" port=443 ipv4hint=1.2.3.4 ech=AEX+DQA=");
 }
 
+TEST_F(HTTPS, multi_https_record)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::Server server;
+
+	server_upstream.Start("udp://0.0.0.0:61053",
+						  [&](struct smartdns::ServerRequestContext *request) { return smartdns::SERVER_REQUEST_SOA; });
+
+	server.Start(R"""(bind [::]:60053
+server 127.0.0.1:61053
+log-console yes
+dualstack-ip-selection no
+force-qtype-SOA 65
+https-record /a.com/target=b.com,priority=1,port=1443,alpn=\"h2,h3-19\",ech=\"AEX+DQA=\",ipv4hint=1.2.3.4
+https-record /a.com/target=b.com,priority=2,port=2443,alpn=\"h2,h3-19\",ech=\"AEX+DQA=\",ipv4hint=1.2.3.4
+log-level debug
+cache-persist no)""");
+	smartdns::Client client;
+
+	ASSERT_TRUE(client.Query("b.com HTTPS", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAuthorityNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAuthority()[0].GetName(), "b.com");
+	EXPECT_EQ(client.GetAuthority()[0].GetTTL(), 30);
+	EXPECT_EQ(client.GetAuthority()[0].GetType(), "SOA");
+
+	ASSERT_TRUE(client.Query("a.com HTTPS", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 2);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetType(), "HTTPS");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1 b.com. alpn=\"h2,h3-19\" port=1443 ipv4hint=1.2.3.4 ech=AEX+DQA=");
+	EXPECT_EQ(client.GetAnswer()[1].GetData(), "2 b.com. alpn=\"h2,h3-19\" port=2443 ipv4hint=1.2.3.4 ech=AEX+DQA=");
+}
+
 TEST_F(HTTPS, https_record)
 {
 	smartdns::MockServer server_upstream;
@@ -602,7 +639,7 @@ cache-persist no)""");
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1 b.com. alpn=\"h2,h3-19\" port=443 ech=AEX+DQA=");
 }
 
-TEST_F(HTTPS, multi_not_support)
+TEST_F(HTTPS, multi_filter_ip)
 {
 	smartdns::MockServer server_upstream;
 	smartdns::Server server;
@@ -616,7 +653,7 @@ TEST_F(HTTPS, multi_not_support)
 		struct dns_rr_nested svcparam_buffer;
 
 		{
-			dns_add_HTTPS_start(&svcparam_buffer, packet, DNS_RRS_AN, request->domain.c_str(), 3, 1, "b.com");
+			dns_add_HTTPS_start(&svcparam_buffer, packet, DNS_RRS_AN, request->domain.c_str(), 300, 1, "b.com");
 			const char alph[] = "\x02h2\x05h3-19";
 			int alph_len = sizeof(alph) - 1;
 			dns_HTTPS_add_alpn(&svcparam_buffer, alph, alph_len);
@@ -634,7 +671,7 @@ TEST_F(HTTPS, multi_not_support)
 
 		{
 
-			dns_add_HTTPS_start(&svcparam_buffer, packet, DNS_RRS_AN, request->domain.c_str(), 3, 1, "c.com");
+			dns_add_HTTPS_start(&svcparam_buffer, packet, DNS_RRS_AN, request->domain.c_str(), 300, 2, "c.com");
 			const char alph[] = "\x02h2\x05h3-19";
 			int alph_len = sizeof(alph) - 1;
 			dns_HTTPS_add_alpn(&svcparam_buffer, alph, alph_len);
@@ -668,18 +705,18 @@ cache-persist no)""");
 	ASSERT_EQ(client.GetAnswerNum(), 2);
 	EXPECT_EQ(client.GetStatus(), "NOERROR");
 	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
-	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 600);
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 3);
 	EXPECT_EQ(client.GetAnswer()[0].GetType(), "HTTPS");
 	EXPECT_EQ(
 		client.GetAnswer()[0].GetData(),
-		"1 b.com. alpn=\"h2,h3-19\" port=443 ipv4hint=1.2.3.4 ech=AEX+DQA= ipv6hint=102:304:506:708:90a:b0c:d0e:f10");
+		"1 b.com. alpn=\"h2,h3-19\" port=443");
 
 	EXPECT_EQ(client.GetAnswer()[1].GetName(), "a.com");
-	EXPECT_EQ(client.GetAnswer()[1].GetTTL(), 600);
+	EXPECT_EQ(client.GetAnswer()[1].GetTTL(), 3);
 	EXPECT_EQ(client.GetAnswer()[1].GetType(), "HTTPS");
 	EXPECT_EQ(
 		client.GetAnswer()[1].GetData(),
-		"1 c.com. alpn=\"h2,h3-19\" port=443 ipv4hint=5.6.7.8 ech=AEX+DQA= ipv6hint=102:304:506:708:90a:b0c:d0e:f11");
+		"2 c.com. alpn=\"h2,h3-19\" port=443");
 }
 
 TEST_F(HTTPS, BIND_FORCE_SOA)

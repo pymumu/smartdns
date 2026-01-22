@@ -158,6 +158,9 @@ void *_new_dns_rule_ext(enum domain_rule domain_rule, int ext_size)
 	case DOMAIN_RULE_HTTPS:
 		size = sizeof(struct dns_https_record_rule);
 		break;
+	case DOMAIN_RULE_SRV:
+		size = sizeof(struct dns_srv_record_rule);
+		break;
 	case DOMAIN_RULE_TTL:
 		size = sizeof(struct dns_ttl_rule);
 		break;
@@ -185,10 +188,36 @@ void _dns_rule_get(struct dns_rule *rule)
 	atomic_inc(&rule->refcnt);
 }
 
+static void _dns_rule_free(struct dns_rule *rule)
+{
+	if (rule->rule == DOMAIN_RULE_HTTPS) {
+		struct dns_https_record_rule *https_rule = (struct dns_https_record_rule *)rule;
+		struct dns_https_record *record, *tmp;
+		if (https_rule->record_list.next != NULL && https_rule->record_list.prev != NULL) {
+			list_for_each_entry_safe(record, tmp, &https_rule->record_list, list)
+			{
+				list_del(&record->list);
+				free(record);
+			}
+		}
+	} else if (rule->rule == DOMAIN_RULE_SRV) {
+		struct dns_srv_record_rule *srv_rule = (struct dns_srv_record_rule *)rule;
+		struct dns_srv_record *record, *tmp;
+		if (srv_rule->record_list.next != NULL && srv_rule->record_list.prev != NULL) {
+			list_for_each_entry_safe(record, tmp, &srv_rule->record_list, list)
+			{
+				list_del(&record->list);
+				free(record);
+			}
+		}
+	}
+	free(rule);
+}
+
 void _dns_rule_put(struct dns_rule *rule)
 {
 	if (atomic_dec_and_test(&rule->refcnt)) {
-		free(rule);
+		_dns_rule_free(rule);
 	}
 }
 
@@ -1033,4 +1062,28 @@ errout:
 		_config_current_group_pop();
 	}
 	return -1;
+}
+
+void *dns_conf_get_domain_rule(const char *domain, enum domain_rule type)
+{
+	struct dns_domain_rule *domain_rule = NULL;
+	char domain_key[DNS_MAX_CONF_CNAME_LEN] = {0};
+	int len = 0;
+	int sub_rule_only = 0;
+	int root_rule_only = 0;
+
+	if (_config_setup_domain_key(domain, domain_key, sizeof(domain_key), &len, &root_rule_only, &sub_rule_only) != 0) {
+		return NULL;
+	}
+
+	domain_rule = art_search(&_config_current_rule_group()->domain_rule.tree, (unsigned char *)domain_key, len);
+	if (domain_rule == NULL) {
+		return NULL;
+	}
+
+	if (type >= DOMAIN_RULE_MAX || type >= domain_rule->capacity) {
+		return NULL;
+	}
+
+	return domain_rule->rules[type];
 }

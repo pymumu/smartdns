@@ -154,8 +154,18 @@ static void _dns_server_delete_request(struct dns_request *request)
 
 	pthread_mutex_destroy(&request->ip_map_lock);
 
-	if (request->https_svcb) {
-		free(request->https_svcb);
+	struct dns_request_https *https_svcb, *tmp_https;
+	list_for_each_entry_safe(https_svcb, tmp_https, &request->https_svcb_list, list)
+	{
+		list_del(&https_svcb->list);
+		free(https_svcb);
+	}
+
+	struct dns_request_srv *srv, *tmp_srv;
+	list_for_each_entry_safe(srv, tmp_srv, &request->srv_list, list)
+	{
+		list_del(&srv->list);
+		free(srv);
 	}
 
 	if (request->original_domain) {
@@ -478,6 +488,8 @@ struct dns_request *_dns_server_new_request(void)
 	INIT_LIST_HEAD(&request->list);
 	INIT_LIST_HEAD(&request->pending_list);
 	INIT_LIST_HEAD(&request->check_list);
+	INIT_LIST_HEAD(&request->https_svcb_list);
+	INIT_LIST_HEAD(&request->srv_list);
 	hash_init(request->ip_map);
 	_dns_server_request_get(request);
 	atomic_add(1, &server.request_num);
@@ -658,14 +670,29 @@ static int _dns_server_process_local_SOA(struct dns_request *request)
 
 int _dns_server_process_srv(struct dns_request *request)
 {
-	struct dns_srv_records *srv_records = dns_server_get_srv_record(request->domain);
-	if (srv_records == NULL) {
+	struct dns_srv_record *srv_record;
+	struct dns_request_srv *srv;
+	struct dns_srv_record_rule *srv_rule =
+		(struct dns_srv_record_rule *)_dns_server_get_dns_rule(request, DOMAIN_RULE_SRV);
+	if (srv_rule == NULL) {
 		return -1;
 	}
 
 	request->rcode = DNS_RC_NOERROR;
 	request->ip_ttl = _dns_server_get_local_ttl(request);
-	request->srv_records = srv_records;
+
+	list_for_each_entry(srv_record, &srv_rule->record_list, list)
+	{
+		srv = zalloc(1, sizeof(*srv));
+		if (srv == NULL) {
+			continue;
+		}
+		safe_strncpy(srv->host, srv_record->host, sizeof(srv->host));
+		srv->priority = srv_record->priority;
+		srv->weight = srv_record->weight;
+		srv->port = srv_record->port;
+		list_add_tail(&srv->list, &request->srv_list);
+	}
 
 	struct dns_server_post_context context;
 	_dns_server_post_context_init(&context, request);
@@ -849,49 +876,62 @@ int _dns_server_get_expired_ttl_reply(struct dns_request *request, struct dns_ca
 int _dns_server_process_https_svcb(struct dns_request *request)
 {
 	struct dns_https_record_rule *https_record_rule = _dns_server_get_dns_rule(request, DOMAIN_RULE_HTTPS);
+	struct dns_https_record *record;
+	struct dns_request_https *svcb;
 
 	if (request->qtype != DNS_T_HTTPS) {
 		return 0;
 	}
 
-	if (request->https_svcb != NULL) {
+	if (!list_empty(&request->https_svcb_list)) {
 		return 0;
-	}
-
-	request->https_svcb = zalloc(1, sizeof(*request->https_svcb));
-	if (request->https_svcb == NULL) {
-		return -1;
 	}
 
 	if (https_record_rule == NULL) {
 		return 0;
 	}
 
-	if (https_record_rule->record.enable == 0) {
-		return 0;
+	list_for_each_entry(record, &https_record_rule->record_list, list)
+	{
+		if (record->enable == 0) {
+			continue;
+		}
+
+		svcb = zalloc(1, sizeof(*svcb));
+		if (svcb == NULL) {
+			continue;
+		}
+
+		safe_strncpy(svcb->domain, request->domain, sizeof(svcb->domain));
+		safe_strncpy(svcb->target, record->target, sizeof(svcb->target));
+		svcb->priority = record->priority;
+		svcb->port = record->port;
+		memcpy(svcb->ech, record->ech, record->ech_len);
+		svcb->ech_len = record->ech_len;
+		memcpy(svcb->alpn, record->alpn, sizeof(svcb->alpn));
+		svcb->alpn_len = record->alpn_len;
+
+		if (record->has_ipv4) {
+			svcb->has_ipv4 = 1;
+			memcpy(svcb->ipv4_addr, record->ipv4_addr, sizeof(svcb->ipv4_addr));
+			request->has_ip = 1;
+		}
+
+		if (record->has_ipv6) {
+			svcb->has_ipv6 = 1;
+			memcpy(svcb->ipv6_addr, record->ipv6_addr, sizeof(svcb->ipv6_addr));
+			request->has_ip = 1;
+		}
+
+		list_add_tail(&svcb->list, &request->https_svcb_list);
 	}
 
-	safe_strncpy(request->https_svcb->domain, request->domain, sizeof(request->https_svcb->domain));
-	safe_strncpy(request->https_svcb->target, https_record_rule->record.target, sizeof(request->https_svcb->target));
-	request->https_svcb->priority = https_record_rule->record.priority;
-	request->https_svcb->port = https_record_rule->record.port;
-	memcpy(request->https_svcb->ech, https_record_rule->record.ech, https_record_rule->record.ech_len);
-	request->https_svcb->ech_len = https_record_rule->record.ech_len;
-	memcpy(request->https_svcb->alpn, https_record_rule->record.alpn, sizeof(request->https_svcb->alpn));
-	request->https_svcb->alpn_len = https_record_rule->record.alpn_len;
-	if (https_record_rule->record.has_ipv4) {
-		memcpy(request->ip_addr, https_record_rule->record.ipv4_addr, DNS_RR_A_LEN);
-		request->ip_addr_type = DNS_T_A;
-		request->has_ip = 1;
-	} else if (https_record_rule->record.has_ipv6) {
-		memcpy(request->ip_addr, https_record_rule->record.ipv6_addr, DNS_RR_AAAA_LEN);
-		request->ip_addr_type = DNS_T_AAAA;
-		request->has_ip = 1;
+	if (!list_empty(&request->https_svcb_list)) {
+		request->rcode = DNS_RC_NOERROR;
+		return -1;
 	}
 
-	request->rcode = DNS_RC_NOERROR;
-
-	return -1;
+	return 0;
 }
 
 void _dns_server_request_set_client(struct dns_request *request, struct dns_server_conn_head *conn)

@@ -20,43 +20,25 @@
 #include "set_file.h"
 #include "smartdns/lib/stringutil.h"
 #include "smartdns/util.h"
+#include "domain_rule.h"
 
-/* SRV-HOST */
-struct dns_srv_record_table dns_conf_srv_record_table;
-
-struct dns_srv_records *dns_server_get_srv_record(const char *domain)
-{
-	uint32_t key = 0;
-
-	key = hash_string(domain);
-	struct dns_srv_records *srv_records = NULL;
-	hash_for_each_possible(dns_conf_srv_record_table.srv, srv_records, node, key)
-	{
-		if (strncmp(srv_records->domain, domain, DNS_MAX_CONF_CNAME_LEN) == 0) {
-			return srv_records;
-		}
-	}
-
-	return NULL;
-}
 
 static int _confg_srv_record_add(const char *domain, const char *host, unsigned short priority, unsigned short weight,
 								 unsigned short port)
 {
-	struct dns_srv_records *srv_records = NULL;
+	struct dns_srv_record_rule *srv_rule = NULL;
 	struct dns_srv_record *srv_record = NULL;
-	uint32_t key = 0;
+	int is_new = 0;
+	enum domain_rule type = DOMAIN_RULE_SRV;
 
-	srv_records = dns_server_get_srv_record(domain);
-	if (srv_records == NULL) {
-		srv_records = zalloc(1, sizeof(*srv_records));
-		if (srv_records == NULL) {
+	srv_rule = dns_conf_get_domain_rule(domain, type);
+	if (srv_rule == NULL) {
+		srv_rule = _new_dns_rule(type);
+		if (srv_rule == NULL) {
 			goto errout;
 		}
-		safe_strncpy(srv_records->domain, domain, DNS_MAX_CONF_CNAME_LEN);
-		INIT_LIST_HEAD(&srv_records->list);
-		key = hash_string(domain);
-		hash_add(dns_conf_srv_record_table.srv, &srv_records->node, key);
+		INIT_LIST_HEAD(&srv_rule->record_list);
+		is_new = 1;
 	}
 
 	srv_record = zalloc(1, sizeof(*srv_record));
@@ -67,11 +49,22 @@ static int _confg_srv_record_add(const char *domain, const char *host, unsigned 
 	srv_record->priority = priority;
 	srv_record->weight = weight;
 	srv_record->port = port;
-	list_add_tail(&srv_record->list, &srv_records->list);
+	list_add_tail(&srv_record->list, &srv_rule->record_list);
+
+	if (is_new) {
+		if (_config_domain_rule_add(domain, type, srv_rule) != 0) {
+			goto errout;
+		}
+		_dns_rule_put(&srv_rule->head);
+		srv_rule = NULL;
+	}
 
 	return 0;
 errout:
-	if (srv_record != NULL) {
+	if (is_new && srv_rule != NULL) {
+		_dns_rule_put(&srv_rule->head);
+	}
+	if (srv_record && srv_record->list.next == NULL) {
 		free(srv_record);
 	}
 	return -1;
@@ -136,29 +129,4 @@ out:
 errout:
 	tlog(TLOG_ERROR, "add srv-record %s:%s failed", domain, value);
 	return -1;
-}
-
-void _config_srv_record_table_init(void)
-{
-	hash_init(dns_conf_srv_record_table.srv);
-}
-
-void _config_srv_record_table_destroy(void)
-{
-	struct dns_srv_records *srv_records = NULL;
-	struct dns_srv_record *srv_record, *tmp1 = NULL;
-	struct hlist_node *tmp = NULL;
-	unsigned int i;
-
-	hash_for_each_safe(dns_conf_srv_record_table.srv, i, tmp, srv_records, node)
-	{
-		list_for_each_entry_safe(srv_record, tmp1, &srv_records->list, list)
-		{
-			list_del(&srv_record->list);
-			free(srv_record);
-		}
-
-		hlist_del_init(&srv_records->node);
-		free(srv_records);
-	}
 }

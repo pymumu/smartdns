@@ -257,12 +257,12 @@ static int _dns_server_process_answer_HTTPS(struct dns_rrs *rrs, struct dns_requ
 		return -1;
 	}
 
-	https_svcb = request->https_svcb;
+	https_svcb = zalloc(1, sizeof(*https_svcb));
 	if (https_svcb == NULL) {
-		/* ignore non-matched query type */
-		tlog(TLOG_WARN, "https svcb not set");
 		return -1;
 	}
+	INIT_LIST_HEAD(&https_svcb->list);
+	list_add_tail(&https_svcb->list, &request->https_svcb_list);
 
 	tlog(TLOG_DEBUG, "domain: %s HTTPS: %s TTL: %d priority: %d", name, target, ttl, priority);
 	https_svcb->ttl = ttl;
@@ -383,30 +383,6 @@ int _dns_server_process_answer(struct dns_request *request, const char *domain, 
 		return DNS_CLIENT_ACTION_UNDEFINE;
 	}
 
-	/* when QTYPE is HTTPS, check if support */
-	if (request->qtype == DNS_T_HTTPS) {
-		int https_svcb_record_num = 0;
-		for (j = 1; j < DNS_RRS_OPT; j++) {
-			rrs = dns_get_rrs_start(packet, j, &rr_count);
-			for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
-				switch (rrs->type) {
-				case DNS_T_HTTPS: {
-					https_svcb_record_num++;
-					if (https_svcb_record_num <= 1) {
-						continue;
-					}
-
-					/* CURRENT NOT SUPPORT MUTI HTTPS RECORD */
-					*need_passthrouh = 1;
-					return DNS_CLIENT_ACTION_OK;
-				}
-				default:
-					break;
-				}
-			}
-		}
-	}
-
 	for (j = 1; j < DNS_RRS_OPT; j++) {
 		rrs = dns_get_rrs_start(packet, j, &rr_count);
 		for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
@@ -465,10 +441,6 @@ int _dns_server_process_answer(struct dns_request *request, const char *domain, 
 				}
 				request->rcode = packet->head.rcode;
 				is_rcode_set = 1;
-				if (request->has_ip == 0) {
-					request->passthrough = 1;
-					_dns_server_request_complete(request);
-				}
 			} break;
 			case DNS_T_SOA: {
 				/* if DNS64 enabled, skip check SOA. */
