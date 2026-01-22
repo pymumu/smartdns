@@ -484,6 +484,11 @@ int _dns_server_process_answer(struct dns_request *request, const char *domain, 
 		request->rcode = packet->head.rcode;
 	}
 
+	/* return NOERROR if all ips are skipped */
+	if (request->rcode == DNS_RC_SERVFAIL && has_result == 1 && is_skip == 1) {
+		request->rcode = DNS_RC_NOERROR;
+	}
+
 	if (has_result == 0 && request->rcode == DNS_RC_NOERROR && packet->head.tc == 1 && request->has_ip == 0 &&
 		request->has_soa == 0) {
 		tlog(TLOG_DEBUG, "result is truncated, %s qtype: %d, rcode: %d, id: %d, retry.", domain, request->qtype,
