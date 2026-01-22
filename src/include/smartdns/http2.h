@@ -330,6 +330,21 @@ void http2_stream_set_ex_data(struct http2_stream *stream, void *data);
  */
 void *http2_stream_get_ex_data(struct http2_stream *stream);
 
+/**
+ * Set callbacks for incrementing and decrementing reference count of ex_data
+ * @param ctx HTTP/2 context
+ * @param inc Callback to increment reference count (can be NULL)
+ * @param dec Callback to decrement reference count (can be NULL)
+ */
+void http2_ctx_set_exdata_ref_callbacks(struct http2_ctx *ctx, void (*inc)(void *), void (*dec)(void *));
+
+/**
+ * Get ex_data from stream and increment its reference count using registered callback
+ * @param stream Stream
+ * @return ex_data pointer (with reference count incremented) or NULL
+ */
+void *http2_stream_get_ex_data_ref(struct http2_stream *stream);
+
 #ifdef __cplusplus
 }
 #endif
