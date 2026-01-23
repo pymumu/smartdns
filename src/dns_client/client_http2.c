@@ -415,11 +415,16 @@ static int _dns_client_http2_process_write(struct dns_server_info *server_info)
 static int _dns_client_http2_process_stream_one(struct dns_server_info *server_info,
 												struct dns_conn_stream *conn_stream)
 {
-	struct http2_stream *http2_stream = conn_stream->http2_stream;
+	struct http2_stream *http2_stream = NULL;
 	uint8_t response_body[DNS_IN_PACKSIZE];
 	int response_len = 0;
 	int ret = 0;
 
+	if (conn_stream == NULL) {
+		return 1;
+	}
+
+	http2_stream = conn_stream->http2_stream;
 	if (http2_stream == NULL || conn_stream->query == NULL) {
 		return 1;
 	}
@@ -515,6 +520,8 @@ static int _dns_client_http2_process_read(struct dns_server_info *server_info)
 				continue;
 			}
 
+			/* Get reference to conn_stream to prevent it from being freed while we use it */
+			_dns_client_conn_stream_get(conn_stream);
 			if (poll_items[i].readable) {
 				int stream_ended = _dns_client_http2_process_stream_one(server_info, conn_stream);
 				if (stream_ended) {
@@ -532,6 +539,9 @@ static int _dns_client_http2_process_read(struct dns_server_info *server_info)
 					}
 				}
 			}
+
+			/* Release our reference */
+			_dns_client_conn_stream_put(conn_stream);
 			http2_stream_put(stream);
 		}
 
