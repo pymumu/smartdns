@@ -19,6 +19,7 @@
 #include "ip_rule.h"
 #include "dns_server.h"
 #include "neighbor.h"
+#include "rules.h"
 #include "soa.h"
 
 struct dns_client_rules *_dns_server_get_client_rules(struct sockaddr_storage *addr, socklen_t addr_len)
@@ -120,6 +121,10 @@ static int _dns_server_ip_rule_check(struct dns_request *request, struct dns_ip_
 
 			/* ignore-ip */
 			if (rule_flags->flags & IP_RULE_FLAG_IP_IGNORE) {
+				uint32_t domain_flags = _dns_server_get_rule_flags(request);
+				if (domain_flags & DOMAIN_FLAG_NO_IGNORE_IP) {
+					goto rule_not_found;
+				}
 				goto skip;
 			}
 		}

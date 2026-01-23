@@ -153,6 +153,7 @@ typedef enum {
 #define DOMAIN_FLAG_ENABLE_CACHE (1 << 20)
 #define DOMAIN_FLAG_ADDR_HTTPS_SOA (1 << 21)
 #define DOMAIN_FLAG_ADDR_HTTPS_IGN (1 << 22)
+#define DOMAIN_FLAG_NO_IGNORE_IP (1 << 23)
 
 #define IP_RULE_FLAG_BLACKLIST (1 << 0)
 #define IP_RULE_FLAG_WHITELIST (1 << 1)
