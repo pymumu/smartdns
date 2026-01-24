@@ -85,9 +85,55 @@ static uint32_t _dns_cache_crc32(uint32_t crc, const void *data, size_t len)
 	return crc ^ 0xffffffff;
 }
 
+/* Incremental CRC32 calculation for streaming (no init/final XOR) */
+static void _dns_cache_crc32_incremental(uint32_t *crc, const void *data, size_t len)
+{
+	const uint8_t *byte_data = (const uint8_t *)data;
+	while (len--) {
+		*crc = (*crc >> 8) ^ CRC32_TABLE[(*crc ^ *byte_data++) & 0xff];
+	}
+}
+
 static uint32_t dns_cache_calc_checksum(const void *data, size_t len)
 {
 	return _dns_cache_crc32(0, data, len);
+}
+
+/* Stream CRC32 calculation to avoid large memory allocation for big files */
+static uint32_t _dns_cache_streaming_crc32(int fd, off_t offset, size_t len)
+{
+	char buffer[8192];
+	ssize_t bytes_read;
+	off_t orig_pos;
+	uint32_t crc = 0xffffffff;
+
+	if (len == 0) {
+		return 0;
+	}
+
+	orig_pos = lseek(fd, 0, SEEK_CUR);
+	if (orig_pos < 0) {
+		return 0;
+	}
+
+	if (lseek(fd, offset, SEEK_SET) < 0) {
+		return 0;
+	}
+
+	size_t remaining = len;
+	while (remaining > 0) {
+		size_t chunk_size = remaining < sizeof(buffer) ? remaining : sizeof(buffer);
+		bytes_read = read(fd, buffer, chunk_size);
+		if (bytes_read <= 0) {
+			lseek(fd, orig_pos, SEEK_SET);
+			return 0;
+		}
+		_dns_cache_crc32_incremental(&crc, buffer, bytes_read);
+		remaining -= bytes_read;
+	}
+
+	lseek(fd, orig_pos, SEEK_SET);
+	return crc ^ 0xffffffff;
 }
 
 struct dns_cache_head {
@@ -894,25 +940,14 @@ static int _dns_cache_file_read(const char *file, dns_cache_read_callback callba
 		goto errout;
 	}
 
-	void *data_buffer = NULL;
+	/* Use streaming CRC32 calculation to avoid large memory allocation for big files */
 	uint32_t stored_checksum = cache_file.checksum;
 	if (data_size > 0) {
-		data_buffer = malloc(data_size);
-		if (data_buffer == NULL) {
-			tlog(TLOG_ERROR, "allocate buffer for checksum verification failed");
+		uint32_t calc_checksum = _dns_cache_streaming_crc32(fd, data_offset, data_size);
+		if (calc_checksum == 0 && data_size > 0) {
+			tlog(TLOG_ERROR, "streaming CRC32 calculation failed");
 			goto errout;
 		}
-
-		ssize_t read_len = pread(fd, data_buffer, data_size, data_offset);
-		if (read_len != data_size) {
-			tlog(TLOG_ERROR, "read data for checksum verification failed");
-			free(data_buffer);
-			goto errout;
-		}
-
-		uint32_t calc_checksum = dns_cache_calc_checksum(data_buffer, data_size);
-		free(data_buffer);
-		data_buffer = NULL;
 
 		if (calc_checksum != stored_checksum) {
 			tlog(TLOG_ERROR, "cache file checksum mismatch: stored=0x%08x, calculated=0x%08x",
@@ -990,6 +1025,78 @@ static int _dns_cache_write_records(int fd, uint32_t *cache_number)
 	return 0;
 }
 
+/* Write cache records with incremental CRC32 calculation to eliminate double I/O */
+static int _dns_cache_write_record_with_crc32(int fd, uint32_t *cache_number,
+                                               struct list_head *head, uint32_t *crc)
+{
+	struct dns_cache *dns_cache = NULL;
+	struct dns_cache *tmp = NULL;
+	struct dns_cache_record cache_record;
+	ssize_t ret;
+	size_t total_len;
+
+	memset(&cache_record, 0, sizeof(cache_record));
+
+	pthread_mutex_lock(&dns_cache_head.lock);
+	list_for_each_entry_safe(dns_cache, tmp, head, list)
+	{
+		struct dns_cache_data *cache_data = dns_cache->cache_data;
+		if (cache_data == NULL) {
+			continue;
+		}
+
+		cache_record.magic = MAGIC_RECORD;
+		memcpy(&cache_record.info, &dns_cache->info, sizeof(struct dns_cache_info));
+
+		/* Write record header and accumulate CRC32 */
+		total_len = sizeof(cache_record);
+		ret = write(fd, &cache_record, total_len);
+		if (ret != total_len) {
+			tlog(TLOG_ERROR, "write cache failed, %s", strerror(errno));
+			goto errout;
+		}
+		if (crc) {
+			_dns_cache_crc32_incremental(crc, &cache_record, total_len);
+		}
+
+		/* Write cache data and accumulate CRC32 */
+		total_len = sizeof(*cache_data) + cache_data->head.size;
+		ret = write(fd, cache_data, total_len);
+		if (ret != total_len) {
+			tlog(TLOG_ERROR, "write cache data failed, %s", strerror(errno));
+			goto errout;
+		}
+		if (crc) {
+			_dns_cache_crc32_incremental(crc, cache_data, total_len);
+		}
+
+		(*cache_number)++;
+	}
+
+	pthread_mutex_unlock(&dns_cache_head.lock);
+	return 0;
+
+errout:
+	pthread_mutex_unlock(&dns_cache_head.lock);
+	return -1;
+}
+
+static int _dns_cache_write_records_with_crc32(int fd, uint32_t *cache_number, uint32_t *checksum)
+{
+	if (checksum == NULL) {
+		return -1;
+	}
+
+	*checksum = 0xffffffff;
+
+	if (_dns_cache_write_record_with_crc32(fd, cache_number,
+                                             &dns_cache_head.cache_list, checksum) != 0) {
+		return -1;
+	}
+
+	return 0;
+}
+
 int dns_cache_save(const char *file, int check_lock)
 {
 	int fd = -1;
@@ -1033,40 +1140,13 @@ int dns_cache_save(const char *file, int check_lock)
 		goto errout;
 	}
 
-	if (_dns_cache_write_records(fd, &cache_number) != 0) {
+	/* Write all cache records with incremental CRC32 calculation */
+	if (_dns_cache_write_records_with_crc32(fd, &cache_number, &checksum) != 0) {
 		tlog(TLOG_ERROR, "write record to file %s failed.", tmp_file);
 		goto errout;
 	}
 
-	/* Calculate checksum of the data section */
-	off_t data_size = lseek(fd, 0, SEEK_CUR);
-	if (data_size < 0) {
-		tlog(TLOG_ERROR, "get file position failed, %s", strerror(errno));
-		goto errout;
-	}
-
-	void *data_buffer = malloc(data_size);
-	if (data_buffer == NULL) {
-		tlog(TLOG_ERROR, "allocate buffer for checksum failed");
-		goto errout;
-	}
-
-	if (lseek(fd, data_offset, SEEK_SET) < 0) {
-		tlog(TLOG_ERROR, "seek file failed, %s", strerror(errno));
-		free(data_buffer);
-		goto errout;
-	}
-
-	ssize_t read_len = read(fd, data_buffer, data_size);
-	if (read_len != data_size) {
-		tlog(TLOG_ERROR, "read data for checksum failed");
-		free(data_buffer);
-		goto errout;
-	}
-
-	checksum = dns_cache_calc_checksum(data_buffer, data_size);
-	free(data_buffer);
-
+	/* Seek to beginning of file to write header */
 	if (lseek(fd, 0, SEEK_SET) < 0) {
 		tlog(TLOG_ERROR, "seek file %s failed, %s", tmp_file, strerror(errno));
 		goto errout;
