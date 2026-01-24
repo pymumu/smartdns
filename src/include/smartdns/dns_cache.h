@@ -96,6 +96,8 @@ struct dns_cache {
 	struct list_head list;
 	struct list_head check_list;
 
+	pthread_mutex_t ref_lock; /* Lock for reference count and destroying state */
+	int destroying; /* Flag indicating cache is being destroyed */
 	atomic_t ref;
 
 	struct dns_cache_info info;

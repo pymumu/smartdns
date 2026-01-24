@@ -158,15 +158,15 @@ void _dns_client_close_socket_ext(struct dns_server_info *server_info, int no_de
 		server_info->bio_method = NULL;
 	}
 
+	if (server_info->fd > 0) {
+		epoll_ctl(client.epoll_fd, EPOLL_CTL_DEL, server_info->fd, NULL);
+	}
+
 	if (server_info->proxy) {
 		proxy_conn_free(server_info->proxy);
 		server_info->proxy = NULL;
 	} else if (server_info->fd > 0) {
 		close(server_info->fd);
-	}
-
-	if (server_info->fd > 0) {
-		epoll_ctl(client.epoll_fd, EPOLL_CTL_DEL, server_info->fd, NULL);
 	}
 
 	server_info->fd = -1;

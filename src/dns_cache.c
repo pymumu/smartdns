@@ -26,10 +26,12 @@
 #include "smartdns/util.h"
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/types.h>
+#include <unistd.h>
 
 #define DNS_CACHE_MAX_HITNUM 6000
 #define DNS_CACHE_HITNUM_STEP 3
@@ -110,6 +112,8 @@ static void _dns_cache_delete(struct dns_cache *dns_cache)
 	}
 
 	dns_cache->cache_data = NULL;
+	/* Destroy reference lock */
+	pthread_mutex_destroy(&dns_cache->ref_lock);
 	free(dns_cache);
 }
 
@@ -136,6 +140,27 @@ void dns_cache_release(struct dns_cache *dns_cache)
 		return;
 	}
 
+	/* Acquire reference lock to check and set destroying flag */
+	pthread_mutex_lock(&dns_cache->ref_lock);
+	/* Double-check reference count after acquiring lock */
+	refcnt = atomic_read(&dns_cache->ref);
+	if (refcnt > 0) {
+		/* Another thread has already added a reference, restore and return */
+		atomic_inc(&dns_cache->ref);
+		pthread_mutex_unlock(&dns_cache->ref_lock);
+		return;
+	}
+
+	/* Check if already being destroyed */
+	if (dns_cache->destroying) {
+		pthread_mutex_unlock(&dns_cache->ref_lock);
+		return;
+	}
+
+	/* Mark as being destroyed to prevent new references */
+	dns_cache->destroying = 1;
+	pthread_mutex_unlock(&dns_cache->ref_lock);
+
 	_dns_cache_delete(dns_cache);
 }
 
@@ -152,10 +177,11 @@ static void _dns_cache_remove(struct dns_cache *dns_cache)
 
 	hash_del(&dns_cache->node);
 	list_del_init(&dns_cache->list);
-	if (dns_timer_del(&dns_cache->timer)) {
-		dns_cache_release(dns_cache);
+	/* If dns_timer_del returns 0, it succeeded and we need to release timer's reference */
+	if (dns_timer_del(&dns_cache->timer) == 0) {
+		dns_cache_release(dns_cache); // Release timer reference
 	}
-	dns_cache_release(dns_cache);
+	dns_cache_release(dns_cache);     // Release cache entry reference
 }
 
 uint32_t dns_cache_get_query_flag(struct dns_cache *dns_cache)
@@ -411,6 +437,10 @@ static int _dns_cache_insert(struct dns_cache_info *info, struct dns_cache_data 
 	key = jhash(&info->qtype, sizeof(info->qtype), key);
 	key = hash_string_initval(info->dns_group_name, key);
 	key = jhash(&info->query_flag, sizeof(info->query_flag), key);
+	
+	/* Initialize reference lock and destroying flag */
+	pthread_mutex_init(&dns_cache->ref_lock, NULL);
+	dns_cache->destroying = 0;
 	atomic_set(&dns_cache->ref, 1);
 	memcpy(&dns_cache->info, info, sizeof(*info));
 	dns_cache->cache_data = cache_data;
@@ -871,6 +901,7 @@ int dns_cache_save(const char *file, int check_lock)
 {
 	int fd = -1;
 	uint32_t cache_number = 0;
+	char tmp_file[PATH_MAX];
 	tlog(TLOG_DEBUG, "write cache file %s", file);
 
 	/* check lock */
@@ -881,9 +912,13 @@ int dns_cache_save(const char *file, int check_lock)
 		pthread_mutex_unlock(&dns_cache_head.lock);
 	}
 
-	fd = open(file, O_TRUNC | O_CREAT | O_WRONLY, 0640);
+	/* Generate temporary filename for mkstemp */
+	snprintf(tmp_file, sizeof(tmp_file), "%s.XXXXXX", file);
+
+	/* Create temporary file securely with mkstemp */
+	fd = mkstemp(tmp_file);
 	if (fd < 0) {
-		tlog(TLOG_ERROR, "create file %s failed, %s", file, strerror(errno));
+		tlog(TLOG_ERROR, "create temp file %s failed, %s", tmp_file, strerror(errno));
 		goto errout;
 	}
 
@@ -894,34 +929,56 @@ int dns_cache_save(const char *file, int check_lock)
 	cache_file.cache_number = 0;
 
 	if (lseek(fd, sizeof(cache_file), SEEK_SET) < 0) {
-		tlog(TLOG_ERROR, "seek file %s failed, %s", file, strerror(errno));
+		tlog(TLOG_ERROR, "seek file %s failed, %s", tmp_file, strerror(errno));
 		goto errout;
 	}
 
 	if (_dns_cache_write_records(fd, &cache_number) != 0) {
-		tlog(TLOG_ERROR, "write record to file %s failed.", file);
+		tlog(TLOG_ERROR, "write record to file %s failed.", tmp_file);
 		goto errout;
 	}
 
 	if (lseek(fd, 0, SEEK_SET) < 0) {
-		tlog(TLOG_ERROR, "seek file %s failed, %s", file, strerror(errno));
+		tlog(TLOG_ERROR, "seek file %s failed, %s", tmp_file, strerror(errno));
 		goto errout;
 	}
 
 	cache_file.cache_number = cache_number;
 	if (write(fd, &cache_file, sizeof(cache_file)) != sizeof(cache_file)) {
-		tlog(TLOG_ERROR, "write file head %s failed, %s, %d", file, strerror(errno), fd);
+		tlog(TLOG_ERROR, "write file head %s failed, %s, %d", tmp_file, strerror(errno), fd);
+		goto errout;
+	}
+
+	/* Ensure all data is written to disk */
+	if (fsync(fd) < 0) {
+		tlog(TLOG_ERROR, "fsync temp file %s failed, %s", tmp_file, strerror(errno));
+		goto errout;
+	}
+
+	/* Close the temporary file */
+	if (close(fd) < 0) {
+		tlog(TLOG_ERROR, "close temp file %s failed, %s", tmp_file, strerror(errno));
+		fd = -1;
+		goto errout;
+	}
+	fd = -1;
+
+	/* Atomically rename temporary file to original file */
+	if (rename(tmp_file, file) < 0) {
+		tlog(TLOG_ERROR, "rename temp file %s to %s failed, %s", tmp_file, file, strerror(errno));
 		goto errout;
 	}
 
 	tlog(TLOG_DEBUG, "wrote total %d records.", cache_number);
 
-	close(fd);
 	return 0;
 errout:
 	if (fd > 0) {
 		close(fd);
 	}
+	
+	/* Clean up temporary file if it exists */
+	unlink(tmp_file);
 
 	return -1;
 }

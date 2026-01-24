@@ -135,7 +135,9 @@ struct http2_stream {
 /* HTTP/2 context */
 struct http2_ctx {
 	pthread_mutex_t mutex;
+	pthread_mutex_t ref_lock; /* Lock for reference count and destroying state */
 	int refcount; /* Atomic reference count */
+	int destroying; /* Flag indicating context is being destroyed */
 	int is_client;
 	char *server;
 	http2_bio_read_fn bio_read;
@@ -1211,6 +1213,27 @@ void http2_ctx_put(struct http2_ctx *ctx)
 		return;
 	}
 
+	/* Acquire reference lock to check and set destroying flag */
+	pthread_mutex_lock(&ctx->ref_lock);
+	/* Double-check reference count after acquiring lock */
+	refcnt = ctx->refcount;
+	if (refcnt > 0) {
+		/* Another thread has already added a reference, restore and return */
+		ctx->refcount++;
+		pthread_mutex_unlock(&ctx->ref_lock);
+		return;
+	}
+
+	/* Check if already being destroyed */
+	if (ctx->destroying) {
+		pthread_mutex_unlock(&ctx->ref_lock);
+		return;
+	}
+
+	/* Mark as being destroyed to prevent new references */
+	ctx->destroying = 1;
+	pthread_mutex_unlock(&ctx->ref_lock);
+
 	/* Reference count reached zero, free the context */
 	pthread_mutex_lock(&ctx->mutex);
 
@@ -1235,6 +1258,7 @@ void http2_ctx_put(struct http2_ctx *ctx)
 
 	pthread_mutex_unlock(&ctx->mutex);
 	pthread_mutex_destroy(&ctx->mutex);
+	pthread_mutex_destroy(&ctx->ref_lock);
 
 	free(ctx);
 }
@@ -1291,9 +1315,16 @@ void http2_stream_put(struct http2_stream *stream)
 		return;
 	}
 
-	if (!list_empty(&stream->node)) {
-		_http2_remove_stream(stream, 0);
+	/* Check if stream is still in context's list - protect with mutex */
+	struct http2_ctx *ctx = stream->ctx;
+	if (ctx) {
+		pthread_mutex_lock(&ctx->mutex);
+		if (!list_empty(&stream->node)) {
+			_http2_remove_stream(stream, 0);
+		}
+		pthread_mutex_unlock(&ctx->mutex);
 	}
+
 	_http2_free_headers(stream);
 	free(stream->body_buffer);
 	free(stream);
@@ -1306,6 +1337,10 @@ static void _http2_ctx_init_common(struct http2_ctx *ctx, const struct http2_ctx
 	pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
 	pthread_mutex_init(&ctx->mutex, &attr);
 	pthread_mutexattr_destroy(&attr);
+	
+	/* Initialize reference count lock and destroying flag */
+	pthread_mutex_init(&ctx->ref_lock, NULL);
+	ctx->destroying = 0;
 	ctx->refcount = 1; /* Initial reference count */
 	ctx->is_client = params->is_client;
 	ctx->server = strdup(params->server ? params->server : "");
