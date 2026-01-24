@@ -27,6 +27,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1193,7 +1194,7 @@ struct http2_ctx *http2_ctx_get(struct http2_ctx *ctx)
 	if (!ctx) {
 		return NULL;
 	}
-	__sync_add_and_fetch(&ctx->refcount, 1);
+	atomic_fetch_add_explicit(&ctx->refcount, 1, memory_order_acq_rel);
 	return ctx;
 }
 
@@ -1203,9 +1204,9 @@ void http2_ctx_put(struct http2_ctx *ctx)
 		return;
 	}
 
-	int refcnt = __sync_sub_and_fetch(&ctx->refcount, 1);
+	int refcnt = atomic_fetch_sub_explicit(&ctx->refcount, 1, memory_order_acq_rel);
 	if (refcnt > 0) {
-		return; /* Still has references */
+		return;
 	}
 
 	if (refcnt < 0) {
@@ -1216,10 +1217,10 @@ void http2_ctx_put(struct http2_ctx *ctx)
 	/* Acquire reference lock to check and set destroying flag */
 	pthread_mutex_lock(&ctx->ref_lock);
 	/* Double-check reference count after acquiring lock */
-	refcnt = ctx->refcount;
+	refcnt = atomic_load_explicit(&ctx->refcount, memory_order_acquire);
 	if (refcnt > 0) {
 		/* Another thread has already added a reference, restore and return */
-		ctx->refcount++;
+		atomic_fetch_add_explicit(&ctx->refcount, 1, memory_order_acq_rel);
 		pthread_mutex_unlock(&ctx->ref_lock);
 		return;
 	}
@@ -1241,6 +1242,8 @@ void http2_ctx_put(struct http2_ctx *ctx)
 	struct http2_stream *stream, *tmp;
 	list_for_each_entry_safe(stream, tmp, &ctx->streams, node)
 	{
+		/* Break link to ctx before removal to prevent http2_stream_put from accessing ctx */
+		stream->ctx = NULL;
 		_http2_remove_stream(stream, 1);
 	}
 
@@ -1261,6 +1264,30 @@ void http2_ctx_put(struct http2_ctx *ctx)
 	pthread_mutex_destroy(&ctx->ref_lock);
 
 	free(ctx);
+}
+
+static void _http2_ctx_cleanup_partial(struct http2_ctx *ctx, int init_state)
+{
+	if (init_state & (1 << 5)) {
+		hpack_free_context(&ctx->decoder);
+	}
+	if (init_state & (1 << 4)) {
+		hpack_free_context(&ctx->encoder);
+	}
+	if (init_state & (1 << 3)) {
+		if (ctx->pending_write_buffer) {
+			free(ctx->pending_write_buffer);
+		}
+	}
+	if (init_state & (1 << 2)) {
+		pthread_mutex_destroy(&ctx->ref_lock);
+	}
+	if (init_state & (1 << 1)) {
+		pthread_mutex_destroy(&ctx->mutex);
+	}
+	if (init_state & (1 << 0) && ctx->server) {
+		free(ctx->server);
+	}
 }
 
 void http2_ctx_close(struct http2_ctx *ctx)
@@ -1295,7 +1322,7 @@ struct http2_stream *http2_stream_get(struct http2_stream *stream)
 	if (!stream) {
 		return NULL;
 	}
-	__sync_add_and_fetch(&stream->refcount, 1);
+	atomic_fetch_add_explicit(&stream->refcount, 1, memory_order_acq_rel);
 	return stream;
 }
 
@@ -1305,9 +1332,9 @@ void http2_stream_put(struct http2_stream *stream)
 		return;
 	}
 
-	int refcnt = __sync_sub_and_fetch(&stream->refcount, 1);
+	int refcnt = atomic_fetch_sub_explicit(&stream->refcount, 1, memory_order_acq_rel);
 	if (refcnt > 0) {
-		return; /* Still has references */
+		return;
 	}
 
 	if (refcnt < 0) {
@@ -1330,20 +1357,37 @@ void http2_stream_put(struct http2_stream *stream)
 	free(stream);
 }
 
-static void _http2_ctx_init_common(struct http2_ctx *ctx, const struct http2_ctx_init_params *params)
+static int _http2_ctx_init_common(struct http2_ctx *ctx, const struct http2_ctx_init_params *params)
 {
+	int init_state = 0;
 	pthread_mutexattr_t attr;
 	pthread_mutexattr_init(&attr);
 	pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
-	pthread_mutex_init(&ctx->mutex, &attr);
+	if (pthread_mutex_init(&ctx->mutex, &attr) != 0) {
+		pthread_mutexattr_destroy(&attr);
+		return -1;
+	}
+	init_state |= (1 << 1);
 	pthread_mutexattr_destroy(&attr);
-	
+
 	/* Initialize reference count lock and destroying flag */
-	pthread_mutex_init(&ctx->ref_lock, NULL);
+	if (pthread_mutex_init(&ctx->ref_lock, NULL) != 0) {
+		_http2_ctx_cleanup_partial(ctx, init_state);
+		return -1;
+	}
+	init_state |= (1 << 2);
+
 	ctx->destroying = 0;
-	ctx->refcount = 1; /* Initial reference count */
-	ctx->is_client = params->is_client;
+	atomic_init(&ctx->refcount, 1);
+
 	ctx->server = strdup(params->server ? params->server : "");
+	if (ctx->server == NULL) {
+		_http2_ctx_cleanup_partial(ctx, init_state);
+		return -1;
+	}
+	init_state |= (1 << 0);
+
+	ctx->is_client = params->is_client;
 	ctx->bio_read = params->bio_read;
 	ctx->bio_write = params->bio_write;
 	ctx->private_data = params->private_data;
@@ -1364,12 +1408,18 @@ static void _http2_ctx_init_common(struct http2_ctx *ctx, const struct http2_ctx
 	ctx->pending_write_buffer = NULL;
 	ctx->pending_write_len = 0;
 	ctx->pending_write_capacity = 0;
+	init_state |= (1 << 3);
 
 	hpack_init_context(&ctx->encoder);
+	init_state |= (1 << 4);
+
 	hpack_init_context(&ctx->decoder);
+	init_state |= (1 << 5);
 
 	hash_init(ctx->stream_map);
 	INIT_LIST_HEAD(&ctx->streams);
+
+	return 0;
 }
 
 static struct http2_ctx *http2_ctx_new(int is_client, const char *server, http2_bio_read_fn bio_read,
@@ -1388,7 +1438,10 @@ static struct http2_ctx *http2_ctx_new(int is_client, const char *server, http2_
 										   .settings = settings,
 										   .is_client = is_client,
 										   .next_stream_id = is_client ? 1 : 2};
-	_http2_ctx_init_common(ctx, &params);
+	if (_http2_ctx_init_common(ctx, &params) != 0) {
+		free(ctx);
+		return NULL;
+	}
 
 	if (is_client) {
 		/* Send connection preface - may return EAGAIN, will be buffered */

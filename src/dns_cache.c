@@ -40,6 +40,56 @@
 #define DNS_CACHE_FAIL_TIMEOUT (60 * 5)
 #define EXPIRED_DOMAIN_PREFETCH_TIME (3600 * 8)
 
+static const uint32_t CRC32_TABLE[256] = {
+	0x00000000, 0x77073096, 0xee0e612c, 0x990951ba, 0x076dc419, 0x706af48f, 0xe963a535, 0x9e6495a3,
+	0x0edb8832, 0x79dcb8a4, 0xe0d5e91e, 0x97d2d988, 0x09b64c2b, 0x7eb17cbd, 0xe7b82d07, 0x90bf1d91,
+	0x1db71064, 0x6ab020f2, 0xf3b97148, 0x84be41de, 0x1adad47d, 0x6ddde4eb, 0xf4d4b551, 0x83d385c7,
+	0x136c9856, 0x646ba8c0, 0xfd62f97a, 0x8a65c9ec, 0x14015c4f, 0x63066cd9, 0xfa0f3d63, 0x8d080df5,
+	0x3b6e20c8, 0x4c69105e, 0xd56041e4, 0xa2677172, 0x3c03e4d1, 0x4b04d447, 0xd20d85fd, 0xa50ab56b,
+	0x35b5a8fa, 0x42b2986c, 0xded1c9d6, 0xa9d6f940, 0x37b26ce3, 0x40b55c75, 0xd9bc0dcf, 0xaebb3d59,
+	0x26e3e024, 0x51e4d0b2, 0xc8ed8108, 0xbfea919e, 0x218a243d, 0x568d14ab, 0xcf844511, 0xb8837587,
+	0x283c6816, 0x5f3b5880, 0xc632093a, 0xb13539ac, 0x2f51ac0f, 0x58569c99, 0xc15fcd23, 0xb658bdb5,
+	0x76dc4190, 0x01db7106, 0x98d220bc, 0xefd5102a, 0x71b18589, 0x06b6b51f, 0x9fbfe4a5, 0xe8b8d433,
+	0x7807c9a2, 0x0f00f934, 0x9609a88e, 0xe10e9818, 0x7f6a0dbb, 0x086d3d2d, 0x91646c97, 0xe6635c01,
+	0x6b6b51f4, 0x1c6c6162, 0x856530d8, 0xf262004e, 0x6c0695ed, 0x1b01a57b, 0x8208f4c1, 0xf50fc457,
+	0x65b0d9c6, 0x12b7e950, 0x8bbeb8ea, 0xfcb9887c, 0x62dd1ddf, 0x15da2d49, 0x8cd37cf3, 0xfbd44c65,
+	0x4db261d0, 0x3ab55146, 0xa3bc00fc, 0xd4bb306a, 0x4adfa5c9, 0x3dd8955f, 0xa4d1c4e5, 0xd3d6f473,
+	0x4369f9e2, 0x346ec974, 0xad6798ce, 0xda60a858, 0x44043dfb, 0x33030d6d, 0xaa0a5cd7, 0xdd0d6c41,
+	0x50056134, 0x270251a2, 0xbe0b0018, 0xc90c308e, 0x5768a52d, 0x206f95bb, 0xb966c401, 0xce61f497,
+	0x5eded506, 0x29d9e590, 0xb0d0b42a, 0xc7d784bc, 0x59b3111f, 0x2eb42189, 0xb7bd7033, 0xc0ba40a5,
+	0xedb88320, 0x9abfb3b6, 0x03b6e20c, 0x74b1d29a, 0xead54739, 0x9dd277af, 0x04db2615, 0x73dc1683,
+	0xe3630b12, 0x94643b84, 0x0d6d6a3e, 0x7a6a5aa8, 0xe40ecf0b, 0x9309ff9d, 0x0a00ae27, 0x7d079eb1,
+	0xf00f9344, 0x8708a3d2, 0x1e01f268, 0x6906c2fe, 0xf762575d, 0x806567cb, 0x196c3671, 0x6e6b06e7,
+	0xfed41b76, 0x89d32be0, 0x10da7a5a, 0x67dd4acc, 0xf9b9df6f, 0x8ebeeff9, 0x17b7be43, 0x60b08ed5,
+	0xd6dbf260, 0xa1dcc2f6, 0x38d5934c, 0x4fd2a3da, 0xd1b63679, 0xa6b106ef, 0x3fb85755, 0x48bf67c3,
+	0xd8007a52, 0xaf0d4ac4, 0x36041b7e, 0x41032be8, 0xdf67be4b, 0xa8608edd, 0x3169df67, 0x466eeff1,
+	0xca66e264, 0xbd61d2f2, 0x24688348, 0x536fb3de, 0xcd0b267d, 0xba0c16eb, 0x23054751, 0x540277c7,
+	0xc4bd6a5c, 0xb3ba5aca, 0x2ab31b70, 0x5db42be6, 0xc3d0be45, 0xb4d78ed3, 0x2dcede9d, 0x5ac93e4f,
+	0x95b1c1ca, 0xe2b6f15c, 0x7bbfa0e6, 0x0cb89070, 0x92dc05d3, 0xe5db3545, 0x7cd264ff, 0x0bd55469,
+	0x9b6a49f8, 0xec6d796e, 0x756428d4, 0x02631842, 0x9c078de1, 0xeb00bd77, 0x7209eccd, 0x050edc5b,
+	0x8806d1ce, 0xff01e158, 0x6608b0e2, 0x110f8074, 0x8f6b15d7, 0xf86c2541, 0x616574fb, 0x1662446d,
+	0x86dd59fc, 0xf1da696a, 0x68d338d0, 0x1fd40846, 0x81b09de5, 0xf6b7ad73, 0x6fbefcc9, 0x18b9cc5f,
+	0x7e144d20, 0x09137db6, 0x901a2c0c, 0xe71d1c9a, 0x79798939, 0x0e7eb9af, 0x9777e815, 0xe070d883,
+	0x70cfc512, 0x07c8f584, 0x9ec1a43e, 0xe9c694a8, 0x77a2010b, 0x00a5319d, 0x99ac6027, 0xeeab50b1,
+	0x63a35d24, 0x14a46db2, 0x8dad3c08, 0xfaaa0c9e, 0x64ce993d, 0x13c9a9ab, 0x8ac0f811, 0xfdc7c887,
+	0x6d78d516, 0x1a7fe580, 0x8376b43a, 0xf47184ac, 0x6a15110f, 0x1d122199, 0x841b5023, 0xf31c60b5
+};
+
+static uint32_t _dns_cache_crc32(uint32_t crc, const void *data, size_t len)
+{
+	const uint8_t *byte_data = (const uint8_t *)data;
+	crc = crc ^ 0xffffffff;
+	while (len--) {
+		crc = (crc >> 8) ^ CRC32_TABLE[(crc ^ *byte_data++) & 0xff];
+	}
+	return crc ^ 0xffffffff;
+}
+
+static uint32_t dns_cache_calc_checksum(const void *data, size_t len)
+{
+	return _dns_cache_crc32(0, data, len);
+}
+
 struct dns_cache_head {
 	struct hash_table cache_hash;
 	struct list_head cache_list;
@@ -222,6 +272,14 @@ static void dns_cache_expired(struct tw_base *base, struct tw_timer_list *timer,
 {
 	struct dns_cache *dns_cache = data;
 	int mod_ret = 0;
+
+	/* Check if cache is being destroyed to avoid race condition */
+	pthread_mutex_lock(&dns_cache->ref_lock);
+	if (dns_cache->destroying) {
+		pthread_mutex_unlock(&dns_cache->ref_lock);
+		return;
+	}
+	pthread_mutex_unlock(&dns_cache->ref_lock);
 
 	if (dns_cache_head.timeout_callback) {
 		dns_cache_tmout_action_t tmout_act = dns_cache_head.timeout_callback(dns_cache);
@@ -828,6 +886,41 @@ static int _dns_cache_file_read(const char *file, dns_cache_read_callback callba
 	}
 
 	tlog(TLOG_INFO, "load cache file %s, total %d records", file, cache_file.cache_number);
+
+	off_t data_offset = sizeof(cache_file);
+	off_t data_size = filesize - data_offset;
+	if (data_size < 0) {
+		tlog(TLOG_ERROR, "cache file size invalid");
+		goto errout;
+	}
+
+	void *data_buffer = NULL;
+	uint32_t stored_checksum = cache_file.checksum;
+	if (data_size > 0) {
+		data_buffer = malloc(data_size);
+		if (data_buffer == NULL) {
+			tlog(TLOG_ERROR, "allocate buffer for checksum verification failed");
+			goto errout;
+		}
+
+		ssize_t read_len = pread(fd, data_buffer, data_size, data_offset);
+		if (read_len != data_size) {
+			tlog(TLOG_ERROR, "read data for checksum verification failed");
+			free(data_buffer);
+			goto errout;
+		}
+
+		uint32_t calc_checksum = dns_cache_calc_checksum(data_buffer, data_size);
+		free(data_buffer);
+		data_buffer = NULL;
+
+		if (calc_checksum != stored_checksum) {
+			tlog(TLOG_ERROR, "cache file checksum mismatch: stored=0x%08x, calculated=0x%08x",
+				 stored_checksum, calc_checksum);
+			goto errout;
+		}
+	}
+
 	if (_dns_cache_read_record(fd, cache_file.cache_number, callback) != 0) {
 		goto errout;
 	}
@@ -902,6 +995,9 @@ int dns_cache_save(const char *file, int check_lock)
 	int fd = -1;
 	uint32_t cache_number = 0;
 	char tmp_file[PATH_MAX];
+	struct dns_cache_file cache_file;
+	uint32_t checksum = 0;
+	off_t data_offset = 0;
 	tlog(TLOG_DEBUG, "write cache file %s", file);
 
 	/* check lock */
@@ -913,6 +1009,10 @@ int dns_cache_save(const char *file, int check_lock)
 	}
 
 	/* Generate temporary filename for mkstemp */
+	if (strlen(file) >= PATH_MAX - 7) {
+		tlog(TLOG_ERROR, "cache file path too long");
+		goto errout;
+	}
 	snprintf(tmp_file, sizeof(tmp_file), "%s.XXXXXX", file);
 
 	/* Create temporary file securely with mkstemp */
@@ -922,13 +1022,13 @@ int dns_cache_save(const char *file, int check_lock)
 		goto errout;
 	}
 
-	struct dns_cache_file cache_file;
 	memset(&cache_file, 0, sizeof(cache_file));
 	cache_file.magic = MAGIC_NUMBER;
 	safe_strncpy(cache_file.version, dns_cache_file_version(), DNS_CACHE_VERSION_LEN);
 	cache_file.cache_number = 0;
 
-	if (lseek(fd, sizeof(cache_file), SEEK_SET) < 0) {
+	data_offset = sizeof(cache_file);
+	if (lseek(fd, data_offset, SEEK_SET) < 0) {
 		tlog(TLOG_ERROR, "seek file %s failed, %s", tmp_file, strerror(errno));
 		goto errout;
 	}
@@ -938,12 +1038,42 @@ int dns_cache_save(const char *file, int check_lock)
 		goto errout;
 	}
 
+	/* Calculate checksum of the data section */
+	off_t data_size = lseek(fd, 0, SEEK_CUR);
+	if (data_size < 0) {
+		tlog(TLOG_ERROR, "get file position failed, %s", strerror(errno));
+		goto errout;
+	}
+
+	void *data_buffer = malloc(data_size);
+	if (data_buffer == NULL) {
+		tlog(TLOG_ERROR, "allocate buffer for checksum failed");
+		goto errout;
+	}
+
+	if (lseek(fd, data_offset, SEEK_SET) < 0) {
+		tlog(TLOG_ERROR, "seek file failed, %s", strerror(errno));
+		free(data_buffer);
+		goto errout;
+	}
+
+	ssize_t read_len = read(fd, data_buffer, data_size);
+	if (read_len != data_size) {
+		tlog(TLOG_ERROR, "read data for checksum failed");
+		free(data_buffer);
+		goto errout;
+	}
+
+	checksum = dns_cache_calc_checksum(data_buffer, data_size);
+	free(data_buffer);
+
 	if (lseek(fd, 0, SEEK_SET) < 0) {
 		tlog(TLOG_ERROR, "seek file %s failed, %s", tmp_file, strerror(errno));
 		goto errout;
 	}
 
 	cache_file.cache_number = cache_number;
+	cache_file.checksum = checksum;
 	if (write(fd, &cache_file, sizeof(cache_file)) != sizeof(cache_file)) {
 		tlog(TLOG_ERROR, "write file head %s failed, %s, %d", tmp_file, strerror(errno), fd);
 		goto errout;

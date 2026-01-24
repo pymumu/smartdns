@@ -110,6 +110,7 @@ struct dns_cache_file {
 	uint64_t magic;
 	char version[DNS_CACHE_VERSION_LEN];
 	uint32_t cache_number;
+	uint32_t checksum;
 };
 
 struct dns_cache_key {
