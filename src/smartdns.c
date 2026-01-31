@@ -714,10 +714,10 @@ static int _smartdns_run(void)
 static void _smartdns_exit(void)
 {
 	_smartdns_plugin_exit();
-	dns_client_exit();
 	proxy_exit();
 	fast_ping_exit();
 	dns_server_exit();
+	dns_client_exit();
 	dns_stats_exit();
 	_smartdns_destroy_ssl();
 	dns_timer_destroy();
