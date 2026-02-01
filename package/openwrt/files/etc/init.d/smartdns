@@ -10,13 +10,6 @@ START=19
 STOP=82
 NAME=smartdns
 USE_PROCD=1
-SERVICE_USE_PID=1
-SERVICE_WRITE_PID=1
-SERVICE_DAEMONIZE=1
-SERVICE_PID_FILE="/run/smartdns.pid"
-if [ ! -d "/run" ]; then
-	SERVICE_PID_FILE="/var/run/smartdns.pid"
-fi
 
 SMARTDNS_DOWNLOAD_TMP_DIR="/tmp/smartdns-download"
 SMARTDNS_DEFAULT_FORWARDING_FILE="/etc/smartdns/domain-forwarding.list"
