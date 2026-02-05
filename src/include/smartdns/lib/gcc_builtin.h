@@ -32,8 +32,8 @@
 # define __always_inline	inline __attribute__((always_inline))
 #endif
 
-#ifndef noinline
-#define noinline
+#ifndef _noinline
+#define _noinline
 #endif
 
 /* Are two types/vars the same type (ignoring qualifiers)? */
@@ -92,8 +92,8 @@
 # define __init
 #endif
 
-#ifndef noinline
-# define noinline
+#ifndef _noinline
+# define _noinline
 #endif
 
 #define uninitialized_var(x) x = *(&(x))
@@ -102,26 +102,26 @@
 # define __fallthrough
 #endif
 
-#define DIV_ROUND_UP(n,d) (((n) + (d) - 1) / (d))
+#define _DIV_ROUND_UP(n,d) (((n) + (d) - 1) / (d))
 
-#ifndef max
-#define max(x, y) ({				\
+#ifndef _max
+#define _max(x, y) ({				\
 	typeof(x) _max1 = (x);			\
 	typeof(y) _max2 = (y);			\
 	(void) (&_max1 == &_max2);		\
 	_max1 > _max2 ? _max1 : _max2; })
 #endif
 
-#ifndef min
-#define min(x, y) ({				\
+#ifndef _min
+#define _min(x, y) ({				\
 	typeof(x) _min1 = (x);			\
 	typeof(y) _min2 = (y);			\
 	(void) (&_min1 == &_min2);		\
 	_min1 < _min2 ? _min1 : _min2; })
 #endif
 
-#ifndef roundup
-#define roundup(x, y) (                                \
+#ifndef _roundup
+#define _roundup(x, y) (                                \
 {                                                      \
 	const typeof(y) __y = y;		       \
 	(((x) + (__y - 1)) / __y) * __y;	       \

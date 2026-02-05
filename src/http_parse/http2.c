@@ -862,7 +862,8 @@ static int _http2_process_headers_frame(struct http2_ctx *ctx, int stream_id, co
 	}
 
 	if (len > 0) { /* Only decode if there's data */
-		if (hpack_decode_headers(&ctx->decoder, data, len, _http2_on_header, stream) < 0) {
+		int decode_ret = hpack_decode_headers(&ctx->decoder, data, len, _http2_on_header, stream);
+		if (decode_ret < 0) {
 			http2_send_rst_stream(ctx, stream_id, HTTP2_RST_COMPRESSION_ERROR);
 			return -1;
 		}
@@ -871,6 +872,7 @@ static int _http2_process_headers_frame(struct http2_ctx *ctx, int stream_id, co
 	if (stream->state == HTTP2_STREAM_IDLE) {
 		stream->state = HTTP2_STREAM_OPEN;
 	}
+
 
 	if (flags & HTTP2_FLAG_END_STREAM) {
 		stream->end_stream_received = 1;
@@ -1866,7 +1868,8 @@ const char *http2_stream_get_header(struct http2_stream *stream, const char *nam
 
 int http2_stream_write_body(struct http2_stream *stream, const uint8_t *data, int len, int end_stream)
 {
-	if (!stream || len <= 0 || !data) {
+	/* Allow len=0 if end_stream is set (to send empty DATA frame with END_STREAM flag) */
+	if (!stream || len < 0 || (len > 0 && !data)) {
 		return -1;
 	}
 
@@ -1875,6 +1878,18 @@ int http2_stream_write_body(struct http2_stream *stream, const uint8_t *data, in
 		return -1;
 	}
 	pthread_mutex_lock(&ctx->mutex);
+
+	if (len == 0 && end_stream) {
+		_http2_send_data_frame(ctx, stream->stream_id, data, 0, 1);
+		stream->end_stream_sent = 1;
+		if (stream->state == HTTP2_STREAM_OPEN) {
+			stream->state = HTTP2_STREAM_HALF_CLOSED_LOCAL;
+		} else if (stream->state == HTTP2_STREAM_HALF_CLOSED_REMOTE) {
+			stream->state = HTTP2_STREAM_CLOSED;
+		}
+		pthread_mutex_unlock(&ctx->mutex);
+		return 0;
+	}
 
 	int total_sent = 0;
 	while (len > 0) {
@@ -1916,10 +1931,11 @@ int http2_stream_write_body(struct http2_stream *stream, const uint8_t *data, in
 			pthread_mutex_unlock(&ctx->mutex);
 			return ret;
 		}
-		total_sent += ret;
-		len -= ret;
-		stream->window_size -= ret;
-		ctx->connection_window_size -= ret;
+		
+		total_sent += to_send;
+		len -= to_send;
+		stream->window_size -= to_send;
+		ctx->connection_window_size -= to_send;
 
 		if (end_stream && len == 0) {
 			stream->end_stream_sent = 1;

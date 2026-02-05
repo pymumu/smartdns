@@ -17,10 +17,10 @@
  */
 
 #include "smartdns/http_parse.h"
-#include "smartdns/util.h"
 #include "http1_parse.h"
 #include "http3_parse.h"
 #include "http_parse.h"
+#include "smartdns/util.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -198,6 +198,19 @@ const unsigned char *http_head_get_data(struct http_head *http_head)
 int http_head_get_data_len(struct http_head *http_head)
 {
 	return http_head->data_len;
+}
+
+int http_head_get_head_len(struct http_head *http_head)
+{
+	if (http_head->data && http_head->buff) {
+		return (int)(http_head->data - http_head->buff);
+	}
+	return http_head->head_len;
+}
+
+int http_head_is_ok(struct http_head *http_head)
+{
+	return http_head->head_ok;
 }
 
 int _http_head_buffer_left_len(struct http_head *http_head)
@@ -473,7 +486,7 @@ int http_head_serialize(struct http_head *http_head, void *buffer, int buffer_le
 	return -2;
 }
 
-void http_head_destroy(struct http_head *http_head)
+void http_head_clear(struct http_head *http_head)
 {
 	struct http_head_fields *fields = NULL, *tmp;
 	struct http_params *params = NULL, *tmp_params;
@@ -483,13 +496,33 @@ void http_head_destroy(struct http_head *http_head)
 		list_del(&fields->list);
 		free(fields);
 	}
+	INIT_LIST_HEAD(&http_head->field_head.list);
+	hash_init(http_head->field_map);
 
 	list_for_each_entry_safe(params, tmp_params, &http_head->params.list, list)
 	{
 		list_del(&params->list);
 		free(params);
 	}
+	INIT_LIST_HEAD(&http_head->params.list);
+	hash_init(http_head->params_map);
 
+	http_head->buff_len = 0;
+	http_head->data = NULL;
+	http_head->data_len = 0;
+	http_head->url = NULL;
+	http_head->code = 0;
+	http_head->code_msg = NULL;
+	http_head->head_ok = 0;
+	http_head->head_len = 0;
+	http_head->method = HTTP_METHOD_INVALID;
+}
+
+void http_head_destroy(struct http_head *http_head)
+{
+	if (http_head == NULL)
+		return;
+	http_head_clear(http_head);
 	if (http_head->buff) {
 		free(http_head->buff);
 	}

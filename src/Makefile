@@ -17,7 +17,7 @@ BIN=smartdns
 SMARTDNS_LIB=libsmartdns.a
 SMARTDNS_TEST_LIB=libsmartdns-test.a
 # libs without main.o
-OBJS=$(filter-out main.o, $(patsubst %.c,%.o,$(wildcard *.c)) $(patsubst %.c,%.o,$(wildcard */*.c)))
+OBJS=$(filter-out main.o, $(patsubst %.c,%.o,$(wildcard *.c)) $(patsubst %.c,%.o,$(wildcard */*.c)) $(patsubst %.c,%.o,$(wildcard */*/*.c)))
 # libs without lib/%.o
 LINT_OBJS=$(filter-out lib/%.o, $(OBJS))
 TEST_OBJS=$(patsubst %.o,%_test.o,$(OBJS))

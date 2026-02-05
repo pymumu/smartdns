@@ -85,6 +85,8 @@ const char *http_head_get_httpcode_msg(struct http_head *http_head);
 const unsigned char *http_head_get_data(struct http_head *http_head);
 
 int http_head_get_data_len(struct http_head *http_head);
+int http_head_get_head_len(struct http_head *http_head);
+int http_head_is_ok(struct http_head *http_head);
 
 struct http_head_fields *http_head_first_fields(struct http_head *http_head);
 
@@ -111,6 +113,7 @@ int http_head_parse(struct http_head *http_head, const unsigned char *data, int 
 
 int http_head_serialize(struct http_head *http_head, void *buffer, int buffer_len);
 
+void http_head_clear(struct http_head *http_head);
 void http_head_destroy(struct http_head *http_head);
 
 #ifdef __cplusplus

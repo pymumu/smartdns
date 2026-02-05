@@ -55,7 +55,7 @@ static inline unsigned long _find_next_bit(const unsigned long *addr1,
 		tmp ^= invert;
 	}
 
-	return min(start + __ffs(tmp), nbits);
+	return _min(start + __ffs(tmp), nbits);
 }
 
 /*
@@ -76,7 +76,7 @@ unsigned long find_first_bit(const unsigned long *addr, unsigned long size)
 
 	for (idx = 0; idx * BITS_PER_LONG < size; idx++) {
 		if (addr[idx])
-			return min(idx * BITS_PER_LONG + __ffs(addr[idx]), size);
+			return _min(idx * BITS_PER_LONG + __ffs(addr[idx]), size);
 	}
 
 	return size;
@@ -91,7 +91,7 @@ unsigned long find_first_zero_bit(const unsigned long *addr, unsigned long size)
 
 	for (idx = 0; idx * BITS_PER_LONG < size; idx++) {
 		if (addr[idx] != ~0UL)
-			return min(idx * BITS_PER_LONG + ffz(addr[idx]), size);
+			return _min(idx * BITS_PER_LONG + ffz(addr[idx]), size);
 	}
 
 	return size;
