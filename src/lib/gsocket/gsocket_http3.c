@@ -33,6 +33,7 @@ struct gsocket_http3_ctx {
 	int is_listener;   /* 1 if this IO is a listener */
 	int status_code;
 	int headers_sent;
+	int handshake_done;
 	size_t content_length;
 	char *extra_headers;
 	int extra_headers_len;
@@ -49,6 +50,19 @@ static int _http3_conn_getsockname(struct gsocket_io *io, struct sockaddr *addr,
 static int _http3_conn_getpeername(struct gsocket_io *io, struct sockaddr *addr, socklen_t *len);
 static int _http3_conn_setsockopt(struct gsocket_io *io, int level, int optname, const void *optval, socklen_t optlen);
 static int _http3_conn_getsockopt(struct gsocket_io *io, int level, int optname, void *optval, socklen_t *optlen);
+
+/* Ops Forward Declarations */
+static void *_h3_ops_create_stream(void *conn_data, int type);
+static void _h3_ops_close_stream(void *stream_handle);
+static int _h3_ops_read(void *stream_handle, uint8_t *buf, int len);
+static int _h3_ops_write(void *stream_handle, const uint8_t *buf, int len, int eof);
+
+static const struct http3_conn_ops _h3_ops = {
+	.create_stream = _h3_ops_create_stream,
+	.close_stream = _h3_ops_close_stream,
+	.read = _h3_ops_read,
+	.write = _h3_ops_write,
+};
 
 /* BIO Callbacks to bridge http3_stream -> gsocket_io (lower) */
 static int _http3_bio_read(void *private_data, uint8_t *buf, int len)
@@ -70,14 +84,19 @@ static int _http3_bio_read(void *private_data, uint8_t *buf, int len)
 	return (int)ret;
 }
 
-static int _http3_bio_write(void *private_data, const uint8_t *buf, int len)
+static int _http3_bio_write(void *private_data, const uint8_t *buf, int len, int eos)
 {
 	struct gsocket_io *lower = (struct gsocket_io *)private_data;
 	if (!lower || !lower->send) {
 		return -1;
 	}
 
-	ssize_t ret = lower->send(lower, buf, len, MSG_NOSIGNAL);
+	int flags = MSG_NOSIGNAL;
+	if (eos) {
+		flags |= GS_MSG_FIN;
+	}
+
+	ssize_t ret = lower->send(lower, buf, len, flags);
 	if (ret < 0) {
 		if (errno == EAGAIN || errno == EWOULDBLOCK) {
 			return 0;
@@ -94,6 +113,9 @@ static void _http3_ctx_free(struct gsocket_io *io)
 	struct gsocket_http3_ctx *ctx = (struct gsocket_http3_ctx *)io->ctx;
 	if (ctx) {
 		if (ctx->h3_stream) {
+			/* Clear bio_data to prevent http3_stream_put from calling _h3_ops_close_stream
+			 * on the lower layer. gsocket_free() already traverses and frees it. */
+			http3_stream_set_bio(ctx->h3_stream, NULL, NULL, NULL);
 			http3_stream_close(ctx->h3_stream);
 			http3_stream_put(ctx->h3_stream);
 		}
@@ -102,7 +124,6 @@ static void _http3_ctx_free(struct gsocket_io *io)
 			/* If we own the context (connection level), put it?
 			   Usually context is refcounted if shared.
 			   For now, assume 1:1 for connection io. */
-			http3_ctx_close(ctx->h3_ctx);
 			http3_ctx_put(ctx->h3_ctx);
 		}
 
@@ -110,6 +131,9 @@ static void _http3_ctx_free(struct gsocket_io *io)
 			free(ctx->extra_headers);
 		}
 		free(ctx);
+		io->ctx = NULL;
+
+		/* DO NOT free io->lower here. gsocket_free() automatically traverses and frees layers. */
 	}
 
 	free(io);
@@ -130,9 +154,23 @@ static int _http3_handshake(struct gsocket_io *io)
 	/* 2. HTTP/3 Handshake (Settings exchange etc - if implemented) */
 	/* Only done on connection level */
 	if (ctx->is_connection && ctx->h3_ctx) {
+        if (!ctx->is_listener) {
+        } else {
+        }
+
+        /* PROHIBIT handshake on Listener (Server Socket) */
+        if (ctx->is_listener) {
+             return GSOCKET_HANDSHAKE_DONE;
+        }
+
+        if (ctx->handshake_done) {
+            return GSOCKET_HANDSHAKE_DONE;
+        }
+        
 		int ret = http3_ctx_handshake(ctx->h3_ctx);
 		if (ret == 0) {
-			return GSOCKET_HANDSHAKE_WANT_READ;
+            ctx->handshake_done = 1;
+			return GSOCKET_HANDSHAKE_DONE;
 		}
 
 		if (ret < 0) {
@@ -188,11 +226,13 @@ static ssize_t _http3_send(struct gsocket_io *io, const void *buf, size_t len, i
 		return -1;
 	}
 
+    char *h = NULL;
 	if (!ctx->headers_sent) {
 		if (ctx->is_server) {
 			struct http3_header_pair pairs[16];
 			int count = 0;
 			char cl_str[32];
+			
 			if (ctx->content_length > 0) {
 				snprintf(cl_str, sizeof(cl_str), "%zu", ctx->content_length);
 				pairs[count].name = "content-length";
@@ -201,20 +241,18 @@ static ssize_t _http3_send(struct gsocket_io *io, const void *buf, size_t len, i
 			}
 
 			if (ctx->extra_headers) {
-				char *h = strdup(ctx->extra_headers);
+				h = strdup(ctx->extra_headers);
 				char *p = strstr(h, ": ");
 				if (p) {
 					*p = 0;
 					char *v = p + 2;
 					char *e = strstr(v, "\r\n");
 					if (e) *e = 0;
-					pairs[count].name = strdup(h);
-					pairs[count].value = strdup(v);
+					pairs[count].name = h;
+					pairs[count].value = v;
 					count++;
 				}
-				free(h);
 			}
-
 			http3_stream_set_response(ctx->h3_stream, ctx->status_code, pairs, count);
 		} else {
 			/* For client, we assume method/url set via setsockopt or defaults */
@@ -235,6 +273,8 @@ static ssize_t _http3_send(struct gsocket_io *io, const void *buf, size_t len, i
 	/* Write body wraps data in DATA frames and sends via BIO */
 	int end_stream = (flags & GS_MSG_FIN) ? 1 : 0;
 	int ret = http3_stream_write_body(ctx->h3_stream, (const uint8_t *)buf, len, end_stream);
+    
+    if (h) free(h);
 	if (ret < 0) {
 		return -1;
 	}
@@ -364,7 +404,7 @@ static int _http3_stream_get_fd(struct gsocket_io *io)
 }
 
 /* Helper to setup new stream IO */
-static struct gsocket_io *_http3_create_stream_io(struct gsocket_io *lower_stream_io, struct http3_ctx *h3_ctx_ref)
+static struct gsocket_io *_http3_create_stream_io(struct gsocket_io *lower_stream_io, struct http3_ctx *h3_ctx_ref, int is_server)
 {
 	struct gsocket_io *io = calloc(1, sizeof(struct gsocket_io));
 	struct gsocket_http3_ctx *ctx = calloc(1, sizeof(struct gsocket_http3_ctx));
@@ -374,6 +414,7 @@ static struct gsocket_io *_http3_create_stream_io(struct gsocket_io *lower_strea
 	}
 
 	ctx->is_connection = 0;
+	ctx->is_server = is_server;  // Inherit from connection
 	ctx->h3_ctx = http3_ctx_get(h3_ctx_ref); /* Ref counting if needed */
 	ctx->h3_stream = http3_stream_new(ctx->h3_ctx);
 	ctx->status_code = 200;
@@ -419,9 +460,9 @@ static struct gsocket_io *_http3_create_connection_io(struct gsocket_io *lower_c
 	ctx->is_server = is_server;
 
 	if (is_server) {
-		ctx->h3_ctx = http3_ctx_server_new(NULL, NULL);
+		ctx->h3_ctx = http3_ctx_server_new(io, &_h3_ops, NULL);
 	} else {
-		ctx->h3_ctx = http3_ctx_client_new(NULL, NULL);
+		ctx->h3_ctx = http3_ctx_client_new(io, &_h3_ops, NULL);
 	}
 
 	io->ctx = ctx;
@@ -452,7 +493,6 @@ _err:
 
 static struct gsocket_io *_http3_accept(struct gsocket_io *io, struct sockaddr *addr, socklen_t *addrlen)
 {
-
 	struct gsocket_http3_ctx *ctx = (struct gsocket_http3_ctx *)io->ctx;
 
 	/* Accept QUIC object from lower */
@@ -478,7 +518,7 @@ static struct gsocket_io *_http3_accept(struct gsocket_io *io, struct sockaddr *
 		return h3_conn_io;
 	} else {
 		/* Accepted a new Stream from Connection */
-		struct gsocket_io *h3_stream_io = _http3_create_stream_io(lower_io, ctx->h3_ctx);
+		struct gsocket_io *h3_stream_io = _http3_create_stream_io(lower_io, ctx->h3_ctx, ctx->is_server);
 		if (!h3_stream_io) {
 			if (lower_io->free) {
 				lower_io->free(lower_io);
@@ -505,7 +545,7 @@ static struct gsocket_io *_http3_open_stream(struct gsocket_io *io)
 	}
 
 	/* Wrap in HTTP/3 Stream IO */
-	struct gsocket_io *h3_stream_io = _http3_create_stream_io(quic_stream_io, ctx->h3_ctx);
+	struct gsocket_io *h3_stream_io = _http3_create_stream_io(quic_stream_io, ctx->h3_ctx, ctx->is_server);
 	if (!h3_stream_io) {
 		if (quic_stream_io->free) {
 			quic_stream_io->free(quic_stream_io);
@@ -535,6 +575,15 @@ static int _http3_get_poll_events(struct gsocket_io *io)
 	return EPOLLIN;
 }
 
+static int _http3_listen(struct gsocket_io *io, int backlog)
+{
+	/* Delegate listen to lower layer (SSL/QUIC) */
+	if (io->lower && io->lower->listen) {
+		return io->lower->listen(io->lower, backlog);
+	}
+	return -1;
+}
+
 struct gsocket_io *gsocket_io_http3_new(int is_server)
 {
 	struct gsocket_io *io = calloc(1, sizeof(struct gsocket_io));
@@ -549,9 +598,9 @@ struct gsocket_io *gsocket_io_http3_new(int is_server)
 	ctx->is_listener = is_server; /* If server, assuming it's a listener initially */
 
 	if (is_server) {
-		ctx->h3_ctx = http3_ctx_server_new(NULL, NULL);
+		ctx->h3_ctx = http3_ctx_server_new(io, &_h3_ops, NULL);
 	} else {
-		ctx->h3_ctx = http3_ctx_client_new(NULL, NULL);
+		ctx->h3_ctx = http3_ctx_client_new(io, &_h3_ops, NULL);
 	}
 
 	io->ctx = ctx;
@@ -567,6 +616,7 @@ struct gsocket_io *gsocket_io_http3_new(int is_server)
 	io->setsockopt = _http3_conn_setsockopt;
 	io->getsockopt = _http3_conn_getsockopt;
 	io->get_poll_events = _http3_get_poll_events;
+    io->listen = _http3_listen;
 
 	return io;
 
@@ -611,6 +661,61 @@ static int _http3_conn_getsockopt(struct gsocket_io *io, int level, int optname,
 {
 	if (io->lower && io->lower->getsockopt) {
 		return io->lower->getsockopt(io->lower, level, optname, optval, optlen);
+	}
+	return -1;
+}
+
+/* Ops Implementations */
+static void *_h3_ops_create_stream(void *conn_data, int type)
+{
+	struct gsocket_io *io = (struct gsocket_io *)conn_data;
+	if (!io || !io->lower || !io->lower->open_stream) {
+		return NULL;
+	}
+	/* NOTE: We might need to pass 'type' to lower layer if it supports Uni/Bi distinction. 
+	   For now, we assume open_stream returns a bidirectional stream unless configured otherwise.
+	   If handshake needs Uni, we hope the transport handles it or we flag it later. 
+	*/
+	struct gsocket_io *stream_io = io->lower->open_stream(io->lower);
+	/* Setup stream type if possible */
+	
+	return stream_io;
+}
+
+static void _h3_ops_close_stream(void *stream_handle)
+{
+	struct gsocket_io *io = (struct gsocket_io *)stream_handle;
+	if (io && io->free) {
+		io->free(io);
+	}
+}
+
+static int _h3_ops_read(void *stream_handle, uint8_t *buf, int len)
+{
+	struct gsocket_io *io = (struct gsocket_io *)stream_handle;
+	if (io && io->recv) {
+		ssize_t ret = io->recv(io, buf, len, 0);
+		if (ret < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+			return 0; /* BIO retry */
+		}
+		return (int)ret;
+	}
+	return -1;
+}
+
+static int _h3_ops_write(void *stream_handle, const uint8_t *buf, int len, int eos)
+{
+	struct gsocket_io *io = (struct gsocket_io *)stream_handle;
+	if (io && io->send) {
+		int flags = MSG_NOSIGNAL;
+		if (eos) {
+			flags |= GS_MSG_FIN;
+		}
+		ssize_t ret = io->send(io, buf, len, flags);
+		if (ret < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+			return 0; /* BIO retry */
+		}
+		return (int)ret;
 	}
 	return -1;
 }

@@ -48,7 +48,7 @@ enum {
 
 /* BIO callback types - Abstraction for reading/writing underlying QUIC streams */
 typedef int (*http3_bio_read_fn)(void *private_data, uint8_t *buf, int len);
-typedef int (*http3_bio_write_fn)(void *private_data, const uint8_t *buf, int len);
+typedef int (*http3_bio_write_fn)(void *private_data, const uint8_t *buf, int len, int eos);
 
 /* Poll item */
 struct http3_poll_item {
@@ -57,10 +57,24 @@ struct http3_poll_item {
 	int writable;
 };
 
+/* Connection Operations - Abstract Interface to Transport */
+struct http3_conn_ops {
+	/* Create a new stream on the underlying connection */
+	/* type: 0 = Bidirectional, 1 = Unidirectional */
+	void *(*create_stream)(void *conn_data, int type);
+
+	/* Close a stream handle associated with the transport */
+	void (*close_stream)(void *stream_handle);
+
+	/* BIO callbacks for the stream handles */
+	int (*read)(void *stream_handle, uint8_t *buf, int len);
+	int (*write)(void *stream_handle, const uint8_t *buf, int len, int eos);
+};
+
 /* Connection Lifecycle APIs */
 
-struct http3_ctx *http3_ctx_client_new(void *private_data, const struct http3_settings *settings);
-struct http3_ctx *http3_ctx_server_new(void *private_data, const struct http3_settings *settings);
+struct http3_ctx *http3_ctx_client_new(void *conn_data, const struct http3_conn_ops *ops, const struct http3_settings *settings);
+struct http3_ctx *http3_ctx_server_new(void *conn_data, const struct http3_conn_ops *ops, const struct http3_settings *settings);
 
 void http3_ctx_close(struct http3_ctx *ctx);
 struct http3_ctx *http3_ctx_get(struct http3_ctx *ctx);

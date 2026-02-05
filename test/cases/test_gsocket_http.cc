@@ -482,6 +482,10 @@ void gsocket_generic_server_thread_with_config(int port, int type, ServerSync *s
 	}
 
 	if (push_layers) push_layers(listener);
+	
+	/* Ensure we listen (activates QUIC listener state if applicable) */
+	if (gsocket_listen(listener, 50) != 0) {
+	}
 
 	struct gepoll *ep = gepoll_create(0);
 	gepoll_add(ep, listener, type == SOCK_DGRAM ? (EPOLLIN | EPOLLOUT) : EPOLLIN, listener);
@@ -503,6 +507,8 @@ void gsocket_generic_server_thread_with_config(int port, int type, ServerSync *s
 			if (sock != listener && clients.count(sock) == 0) {
 				continue;
 			}
+			
+			/* 1. Drive Network I/O for ALL sockets (TCP and UDP/Listener) */
 			int hr = gsocket_handshake(sock);
 
 			if (hr != GSOCKET_HANDSHAKE_DONE) {
@@ -556,6 +562,9 @@ void gsocket_generic_server_thread_with_config(int port, int type, ServerSync *s
 						if (type == SOCK_STREAM) {
 							gepoll_add(ep, client, EPOLLIN | EPOLLOUT, client);
 						}
+                        /* Drive handshake immediately for new connection */
+                        gsocket_handshake(client);
+
 						clients.insert(client);
 						struct gstream_poll *sp = gstream_poll_create(client);
 						gstream_poll_add(sp, client, POLLIN, client);
@@ -578,16 +587,15 @@ void gsocket_generic_server_thread_with_config(int port, int type, ServerSync *s
 			std::vector<struct gsocket *> drive_list;
 			if (type == SOCK_DGRAM) drive_list.push_back(listener);
 			drive_list.insert(drive_list.end(), clients.begin(), clients.end());
-			
+
 			for (auto sock : drive_list) {
 				if (sock != listener && clients.count(sock) == 0) continue;
 
-				/* Drive handshake for all sockets. For QUIC, driving the listener first
-				   dispatches packets to connections, which then process them here. */
+				/* Drive handshake */
 				int hr = gsocket_handshake(sock);
 				if (hr == GSOCKET_HANDSHAKE_ERR) {
 					if (sock != listener) {
-						/* Handle client error as before */
+						/* Cleanup Client */
 						struct gstream_poll *sp = client_polls[sock];
 						gstream_poll_destroy(sp);
 						client_polls.erase(sock);
@@ -605,18 +613,16 @@ void gsocket_generic_server_thread_with_config(int port, int type, ServerSync *s
 					continue;
 				}
 
-				if (sock != listener) {
-					process_stream_events_generic(sock, client_polls[sock], ep, clients, conn_streams, handler, user_data);
-					if (type == SOCK_STREAM && clients.count(sock)) {
-						int evs = gstream_poll_get_net_events(client_polls[sock]);
-						gepoll_mod(ep, sock, evs, sock);
-					}
-				} else if (type == SOCK_DGRAM) {
-					/* For QUIC, accept new connections from the driven listener */
+				/* For Listener (QUIC), accept new connections */
+				if (sock == listener && type == SOCK_DGRAM) {
 					while (true) {
 						struct gsocket *client = gsocket_accept(listener, NULL, NULL);
 						if (client) {
 							gsocket_set_nonblock(client, 1);
+
+							/* CRITICAL: Trigger handshake immediately for new QUIC connection */
+							gsocket_handshake(client);
+
 							clients.insert(client);
 							struct gstream_poll *sp = gstream_poll_create(client);
 							gstream_poll_add(sp, client, POLLIN, client);
@@ -625,6 +631,11 @@ void gsocket_generic_server_thread_with_config(int port, int type, ServerSync *s
 							break;
 						}
 					}
+				}
+
+				/* For Clients, process streams */
+				if (sock != listener && clients.count(sock)) {
+					process_stream_events_generic(sock, client_polls[sock], ep, clients, conn_streams, handler, user_data);
 				}
 			}
 		}
@@ -1452,7 +1463,7 @@ TEST_F(GSocketHTTPTest, HTTP1FileServer)
 	int port = sync.port;
 	ASSERT_GT(port, 0);
 	printf("HTTPS File Server running on port %d\n", port);
-	sleep(600);
+	// sleep(600);
 
 	struct gsocket *sock = gsocket_new(socket(AF_INET, SOCK_STREAM, 0));
 	gsocket_push_layer(sock, gsocket_io_http1_new(0));
@@ -1539,7 +1550,7 @@ TEST_F(GSocketHTTPTest, HTTP2FileServer)
 	int port = sync.port;
 	ASSERT_GT(port, 0);
 	printf("HTTPS File Server running on port %d\n", port);
-	sleep(600);
+	// sleep(600);
 
 
 	struct gsocket *sock = gsocket_new(socket(AF_INET, SOCK_STREAM, 0));
@@ -1663,7 +1674,7 @@ TEST_F(GSocketHTTPTest, HTTPSFileServer)
 	sync.wait();
 	int port = sync.port;
 	printf("HTTPS File Server running on port %d\n", port);
-	sleep(600);
+	// sleep(600);
 
 	SSL_CTX *ssl_ctx = init_ssl_ctx(false);
 	struct gsocket *sock = gsocket_new(socket(AF_INET, SOCK_STREAM, 0));
@@ -1748,6 +1759,20 @@ TEST_F(GSocketHTTPTest, HTTPSFileServer)
 	cleanup_test_www_dir(root);
 }
 
+// ALPN Callback for H3
+static int h3_alpn_select_cb(SSL *ssl, const unsigned char **out, unsigned char *outlen,
+                          const unsigned char *in, unsigned int inlen, void *arg)
+{
+    static const unsigned char server_protos[] = {
+        2, 'h', '3'
+    };
+
+    if (SSL_select_next_proto((unsigned char **)out, outlen, server_protos, sizeof(server_protos), in, inlen) != OPENSSL_NPN_NEGOTIATED) {
+        return SSL_TLSEXT_ERR_NOACK;
+    }
+    return SSL_TLSEXT_ERR_OK;
+}
+
 // HTTP3 File Server Thread
 void gsocket_http3_file_server_thread(int port, const char *root, ServerSync *sync, std::atomic<bool> &running)
 {
@@ -1760,9 +1785,8 @@ void gsocket_http3_file_server_thread(int port, const char *root, ServerSync *sy
 	SSL_CTX_use_PrivateKey_file(ssl_ctx, key, SSL_FILETYPE_PEM);
 	SSL_CTX_use_certificate_file(ssl_ctx, cert, SSL_FILETYPE_PEM);
 	
-	// For HTTP3, use "h3" ALPN
-	unsigned char alpn[] = {2, 'h', '3'};
-	SSL_CTX_set_alpn_protos(ssl_ctx, alpn, sizeof(alpn));
+	// For HTTP3, use callback for server selection
+	SSL_CTX_set_alpn_select_cb(ssl_ctx, h3_alpn_select_cb, NULL);
 	SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_NONE, NULL);
 
 	gsocket_generic_server_thread_with_config(port, SOCK_DGRAM, sync, running,
@@ -1787,11 +1811,13 @@ TEST_F(GSocketHTTPTest, HTTP3FileServer)
 	int port = sync.port;
 	ASSERT_GT(port, 0);
 	printf("HTTP3 File Server running on port %d\n", port);
-	sleep(600);
-
-	// Use proven client_h3_task to test server
-	std::thread c(client_h3_task, port, 0, "/", (const char *)NULL);
-	c.join();
+    
+	std::string cmd = "curl --connect-timeout 2 -k -v --http3 https://127.0.0.1:";
+	cmd += std::to_string(port);
+	cmd += "/index.html";
+	printf("curl command: %s\n", cmd.c_str());
+	int ret = system(cmd.c_str());
+	ASSERT_EQ(ret, 0);
 
 	running = false;
 	s.join();

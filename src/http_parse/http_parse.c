@@ -299,6 +299,7 @@ int http_head_set_httpcode(struct http_head *http_head, int code, const char *ms
 
 	http_head->code = code;
 	http_head->code_msg = msg;
+	http_head->head_type = HTTP_HEAD_RESPONSE;  // Mark as response to ensure :status is sent
 
 	return 0;
 }

@@ -37,6 +37,11 @@ struct http3_ctx {
 	atomic_t refcount;
 	int is_server;
 	struct http3_settings settings;
+	void *conn_data;
+	struct http3_conn_ops ops;
+
+	/* Handshake State */
+	struct http3_stream *control_stream; /* Local Control Stream (Uni) */
 };
 
 struct http3_stream {
@@ -480,25 +485,33 @@ static int http3_parse_headers_payload(struct http_head *http_head, const uint8_
 	return 0;
 }
 
-struct http3_ctx *http3_ctx_client_new(void *private_data, const struct http3_settings *settings)
+struct http3_ctx *http3_ctx_client_new(void *conn_data, const struct http3_conn_ops *ops,
+									 const struct http3_settings *settings)
 {
 	struct http3_ctx *ctx = (struct http3_ctx *)calloc(1, sizeof(struct http3_ctx));
 	if (!ctx)
 		return NULL;
 	atomic_set(&ctx->refcount, 1);
 	ctx->is_server = 0;
+	ctx->conn_data = conn_data;
+	if (ops)
+		ctx->ops = *ops;
 	if (settings)
 		ctx->settings = *settings;
 	return ctx;
 }
 
-struct http3_ctx *http3_ctx_server_new(void *private_data, const struct http3_settings *settings)
+struct http3_ctx *http3_ctx_server_new(void *conn_data, const struct http3_conn_ops *ops,
+									 const struct http3_settings *settings)
 {
 	struct http3_ctx *ctx = (struct http3_ctx *)calloc(1, sizeof(struct http3_ctx));
 	if (!ctx)
 		return NULL;
 	atomic_set(&ctx->refcount, 1);
 	ctx->is_server = 1;
+	ctx->conn_data = conn_data;
+	if (ops)
+		ctx->ops = *ops;
 	if (settings)
 		ctx->settings = *settings;
 	return ctx;
@@ -506,7 +519,11 @@ struct http3_ctx *http3_ctx_server_new(void *private_data, const struct http3_se
 
 void http3_ctx_close(struct http3_ctx *ctx)
 {
-	/* Close streams if tracked */
+	if (!ctx) return;
+	if (ctx->control_stream) {
+		http3_stream_put(ctx->control_stream);
+		ctx->control_stream = NULL;
+	}
 }
 
 struct http3_ctx *http3_ctx_get(struct http3_ctx *ctx)
@@ -521,6 +538,7 @@ void http3_ctx_put(struct http3_ctx *ctx)
 {
 	if (ctx) {
 		if (atomic_dec_and_test(&ctx->refcount)) {
+			http3_ctx_close(ctx);
 			free(ctx);
 		}
 	}
@@ -528,7 +546,80 @@ void http3_ctx_put(struct http3_ctx *ctx)
 
 int http3_ctx_handshake(struct http3_ctx *ctx)
 {
-	return 1;
+	if (!ctx) {
+        fprintf(stderr, "DEBUG-XYZ: http3_ctx_handshake: ctx is NULL\n");
+        return -1;
+    }
+	if (!ctx->ops.create_stream) {
+        fprintf(stderr, "DEBUG-XYZ: http3_ctx_handshake: ops.create_stream is NULL, returning 0\n");
+        abort(); /* Force crash */
+        return HTTP3_ERR_NONE; /* No ops, assume manual management? or error */
+    }
+	if (ctx->control_stream) {
+        fprintf(stderr, "DEBUG-XYZ: http3_ctx_handshake: control_stream already exists, returning 0\n");
+        abort(); /* Force crash */
+        return HTTP3_ERR_NONE; /* Already done */
+    }
+
+	/* 1. Create Control Stream (Unidirectional) */
+	/* Stream Type 0x02 = HTTP/3 Control Stream? No, Stream Type is payload inside the stream.
+	   QUIC Stream Type is just Uni/Bi. We ask for Uni. */
+	void *stream_handle = ctx->ops.create_stream(ctx->conn_data, 1 /* UNI */);
+	if (!stream_handle) {
+		printf("DEBUG: http3_ctx_handshake: failed to create control stream, skipping\n");
+		return HTTP3_ERR_NONE; /* Skip control stream, pretend done */
+	}
+
+	/* 2. Wrap in http3_stream */
+	/* We use a private helper or expose logic to link handle */
+	struct http3_stream *s = http3_stream_new(ctx);
+	if (!s) {
+		if (ctx->ops.close_stream) ctx->ops.close_stream(stream_handle);
+		return HTTP3_ERR_IO;
+	}
+	/* Link BIOs */
+	http3_stream_set_bio(s, (http3_bio_read_fn)ctx->ops.read, (http3_bio_write_fn)ctx->ops.write, stream_handle);
+	ctx->control_stream = s;
+
+	/* 3. Send SETTINGS Frame */
+	/* Frame Type 0x04 = SETTINGS */
+	/* Payload: Identifier (Varint) + Value (Varint) ... */
+	
+	/* First, Write Stream Type (0x00 = Control Stream) */
+	uint8_t type_buf[8];
+	int ret = http3_varint_encode(0x00, type_buf, sizeof(type_buf));
+	if (ret <= 0) return HTTP3_ERR_PROTOCOL;
+	if (s->bio_write(s->bio_data, type_buf, ret, 0) != ret) return HTTP3_ERR_IO;
+
+	/* Prepare SETTINGS payload */
+	/* We usually send MAX_TABLE_CAPACITY etc. For now, empty or basic. */
+	/* Frame Header: Type=0x04, Length=... */
+	/* Let's construct a simple SETTINGS frame with 0 settings for now, or copy from ctx->settings */
+	
+	uint8_t settings_buf[128];
+	int offset = 0;
+	
+	/* SETTINGS_MAX_HEADER_LIST_SIZE (0x06) */
+	/* SETTINGS_QPACK_MAX_TABLE_CAPACITY (0x01) */
+	/* SETTINGS_QPACK_BLOCKED_STREAMS (0x07) */
+
+	/* For verification, we just send empty settings to say "Hello" */
+	/* Frame Payload is empty if no settings */
+	int payload_len = 0; 
+
+	/* Frame Header */
+	uint8_t frame_head[16];
+	int h_off = 0;
+	int r = http3_varint_encode(0x04, frame_head, sizeof(frame_head)); /* Type = SETTINGS */
+	h_off += r;
+	r = http3_varint_encode(payload_len, frame_head + h_off, sizeof(frame_head) - h_off);
+	h_off += r;
+
+	if (s->bio_write(s->bio_data, frame_head, h_off, 0) != h_off) return HTTP3_ERR_IO;
+	
+	/* Send Payload (0 bytes) */
+
+	return HTTP3_ERR_NONE;
 }
 
 struct http3_stream *http3_ctx_accept_stream(struct http3_ctx *ctx)
@@ -549,6 +640,10 @@ struct http3_stream *http3_stream_new(struct http3_ctx *ctx)
 	s->ctx = ctx;
 	atomic_set(&s->refcount, 1);
 	s->open = 1;
+	/* If ctx has default ops, maybe we should not set them here?
+	   The caller usually calls http3_stream_set_bio next.
+	   For now, leave empty.
+	*/
 	return s;
 }
 
@@ -556,6 +651,10 @@ void http3_stream_close(struct http3_stream *stream)
 {
 	if (stream) {
 		stream->open = 0;
+		if (stream->ctx && stream->ctx->ops.close_stream && stream->bio_data) {
+			stream->ctx->ops.close_stream(stream->bio_data);
+			stream->bio_data = NULL;
+		}
 		if (stream->head) {
 			http_head_destroy(stream->head);
 			stream->head = NULL;
@@ -632,6 +731,10 @@ int http3_stream_set_response(struct http3_stream *stream, int status, const str
 	if (!stream->head)
 		stream->head = http_head_init(1024, HTTP_VERSION_3_0);
 	http_head_set_httpcode(stream->head, status, "OK");
+    
+    for (int i = 0; i < header_count; i++) {
+        http_head_add_fields(stream->head, headers[i].name, headers[i].value);
+    }
 	return 0;
 }
 
@@ -645,13 +748,14 @@ int http3_stream_write_body(struct http3_stream *stream, const uint8_t *data, in
 		/* Use legacy helper inside the same file */
 		int hlen = http_head_serialize_http3_0(stream->head, (unsigned char *)head_buf, sizeof(head_buf));
 		if (hlen > 0 && stream->bio_write) {
-			stream->bio_write(stream->bio_data, (const uint8_t *)head_buf, hlen);
+			stream->bio_write(stream->bio_data, (const uint8_t *)head_buf, hlen, 0);
 		}
 
 		http_head_destroy(stream->head);
 		stream->head = NULL;
 	}
 
+	int written = 0;
 	if (len > 0 && stream->bio_write) {
 		uint8_t header[16];
 		int offset = 0;
@@ -662,11 +766,16 @@ int http3_stream_write_body(struct http3_stream *stream, const uint8_t *data, in
 		if (ret > 0)
 			offset += ret;
 
-		stream->bio_write(stream->bio_data, header, offset);
-		int written = stream->bio_write(stream->bio_data, data, len);
-		return written;
+		stream->bio_write(stream->bio_data, header, offset, 0);
+		
+		/* Write DATA frame payload with eos flag */
+		written = stream->bio_write(stream->bio_data, data, len, end_stream);
+	} else if (end_stream && len == 0 && stream->bio_write) {
+		/* Send FIN only, no data */
+		written = stream->bio_write(stream->bio_data, NULL, 0, 1);
 	}
-	return 0;
+
+	return written;
 }
 
 int http3_stream_read_body(struct http3_stream *stream, uint8_t *data, int len)

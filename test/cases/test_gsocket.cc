@@ -2384,7 +2384,7 @@ TEST(GSocketTest, QuicOverSocks5)
 		int net = gstream_poll_get_net_events(sp);
 		if (net)
 			gepoll_mod(ep, sock, net, nullptr);
-		// usleep(1000); // Removed sleep, relying on gepoll_wait timeout
+		// usleep(1000);
 	}
 	if (stream) {
 		gsocket_close(stream);
@@ -3884,6 +3884,7 @@ TEST(GSocketTest, QuicEcho)
 		int net = gstream_poll_get_net_events(sp);
 		if (net)
 			gepoll_mod(ep, sock, net, nullptr);
+		usleep(1000);
 	}
 	if (recved_len > 0) {
 		buf[recved_len > 1023 ? 1023 : recved_len] = 0;
@@ -4009,7 +4010,7 @@ TEST(GSocketTest, QuicMultiStream)
 				}
 			}
 		}
-		// usleep(1000);
+		usleep(1000);
 	}
 	for (auto s : streams)
 		delete s;
