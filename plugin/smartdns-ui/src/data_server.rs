@@ -454,6 +454,13 @@ impl DataServer {
         self.db.get_domain_top_list(count.unwrap_or(10))
     }
 
+    pub fn get_top_domain_top_blocked_list(
+        &self,
+        count: Option<u32>,
+    ) -> Result<Vec<DomainQueryCount>, Box<dyn Error>> {
+        self.db.get_domain_top_blocked_list(count.unwrap_or(10))
+    }
+
     pub fn get_hourly_query_count(
         &self,
         past_hours: Option<u32>,
