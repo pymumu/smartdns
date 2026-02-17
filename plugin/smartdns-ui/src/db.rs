@@ -204,7 +204,7 @@ impl DB {
     pub fn new() -> Self {
         DB {
             conn: Mutex::new(None),
-            version: 10000, /* x: major version, xx: minor version, xx: patch version */
+            version: 10100, /* x: major version, xx: minor version, xx: patch version */
             query_plan: std::env::var("SMARTDNS_DEBUG_SQL").is_ok(),
         }
     }
