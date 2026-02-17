@@ -106,6 +106,7 @@ impl API {
         api.register(Method::PUT, "/api/stats/refresh", true, APIRoute!(API::api_stats_refresh));
         api.register(Method::GET, "/api/whois", true, APIRoute!(API::api_whois));
         api.register(Method::GET, "/api/tool/term", true, APIRoute!(API::api_tool_term));
+        api.register(Method::GET, "/api/stats/top/domain_blocked", true, APIRoute!(API::api_stats_get_top_domain_blocked));
         api
     }
 
@@ -1032,6 +1033,40 @@ impl API {
 
         let ret = API::call_blocking(this, move || {
             let ret = data_server.get_top_domain_top_list(count);
+            if let Err(e) = ret {
+                return Err(e.to_string());
+            }
+
+            let ret = ret.unwrap();
+
+            return Ok(ret);
+        })
+        .await;
+
+        if let Err(e) = ret {
+            return API::response_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().as_str());
+        }
+
+        let ret = ret.unwrap();
+        if let Err(e) = ret {
+            return API::response_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().as_str());
+        }
+
+        let body = api_msg_gen_top_domain_list(&ret.unwrap());
+        API::response_build(StatusCode::OK, body)
+    }
+
+    async fn api_stats_get_top_domain_blocked(
+        this: Arc<HttpServer>,
+        _param: APIRouteParam,
+        _req: Request<body::Incoming>,
+    ) -> Result<Response<Full<Bytes>>, HttpError> {
+        let data_server = this.get_data_server();
+        let params = API::get_params(&_req);
+        let count = API::params_get_value(&params, "count");
+
+        let ret = API::call_blocking(this, move || {
+            let ret = data_server.get_top_domain_top_blocked_list(count);
             if let Err(e) = ret {
                 return Err(e.to_string());
             }
