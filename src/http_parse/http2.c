@@ -739,6 +739,13 @@ static int _http2_process_data_frame(struct http2_ctx *ctx, int stream_id, const
 		return -1;
 	}
 
+	/* Limit body buffer to 1MB to prevent OOM DOS */
+	if (stream->body_buffer_len + len > 1024 * 1024) {
+		http2_send_rst_stream(ctx, stream_id, HTTP2_RST_INTERNAL_ERROR);
+		ctx->status = HTTP2_ERR_PROTOCOL;
+		return -1;
+	}
+
 	/* Check flow control */
 	if (len < 0 || stream->window_size <= 0 || ctx->connection_window_size <= 0) {
 		http2_send_rst_stream(ctx, stream_id, HTTP2_RST_FLOW_CONTROL_ERROR);
@@ -1523,7 +1530,7 @@ static void _http2_ctx_collect_ready_streams(struct http2_ctx *ctx, struct http2
 		 * 2. Stream has ended (all data including headers received)
 		 */
 		int has_body_data = stream->body_buffer_len > stream->body_read_offset;
-		int stream_ended = stream->end_stream_received && !stream->end_stream_read_handled;
+		int stream_ended = (stream->end_stream_received || stream->state == HTTP2_STREAM_CLOSED) && !stream->end_stream_read_handled;
 
 		int readable = has_body_data || stream_ended;
 		int writable = stream->state == HTTP2_STREAM_OPEN || stream->state == HTTP2_STREAM_HALF_CLOSED_REMOTE;
@@ -2109,7 +2116,7 @@ int http2_stream_read_body(struct http2_stream *stream, uint8_t *data, int len)
 		}
 
 		/* If stream ended or connection has error, return 0 (EOF) */
-		if (stream->end_stream_received || (!ctx || ctx->status < 0)) {
+		if (stream->end_stream_received || stream->state == HTTP2_STREAM_CLOSED || (!ctx || ctx->status < 0)) {
 			stream->end_stream_read_handled = 1;
 			return 0;
 		}
@@ -2178,7 +2185,7 @@ int http2_stream_is_end(struct http2_stream *stream)
 	/* Try to decompress if needed - this might change body_buffer_len */
 	http2_try_decompress_body(stream);
 
-	int is_end = stream->end_stream_received && (stream->body_read_offset >= stream->body_buffer_len);
+	int is_end = (stream->end_stream_received || stream->state == HTTP2_STREAM_CLOSED) && (stream->body_read_offset >= stream->body_buffer_len);
 
 	/* If connection is closed/error, and we have read all buffered data, consider stream ended */
 	if (!is_end && (!ctx || ctx->status < 0) && stream->body_read_offset >= stream->body_buffer_len) {

@@ -171,7 +171,7 @@ static void _dns_server_http2_process_stream(struct dns_server_conn_tls_client *
 
 		/* Initialize the fake connection */
 		_dns_server_conn_head_init(&stream_conn->head, -1, DNS_CONN_TYPE_HTTP2_STREAM);
-		stream_conn->stream = stream;
+		stream_conn->stream = http2_stream_get(stream);
 		stream_conn->tls_client = tls_client;
 
 		/* Copy properties from parent connection */
@@ -196,6 +196,7 @@ static void _dns_server_http2_process_stream(struct dns_server_conn_tls_client *
 close_out:
 	if (stream != NULL) {
 		/* Close stream on error */
+		http2_stream_get(stream);
 		http2_stream_close(stream);
 	}
 }
@@ -294,6 +295,7 @@ int _dns_server_process_http2(struct dns_server_conn_tls_client *tls_client, str
 						if (stream) {
 							/* Accept and immediately process new HTTP/2 stream */
 							_dns_server_http2_process_stream(tls_client, stream);
+							http2_stream_put(stream);
 						}
 					}
 					continue;

@@ -574,6 +574,9 @@ TEST_F(LIBHTTP2, ServerLoopTerminationOnDisconnect)
 						data_read = 1;
 					}
 				}
+				if (items[i].stream) {
+					http2_stream_put(items[i].stream);
+				}
 			}
 
 			if (!data_read && http2_stream_is_end(stream)) {
@@ -850,6 +853,9 @@ TEST_F(LIBHTTP2, StressTest)
 						server_processed++;
 					}
 				}
+				if (items[i].stream) {
+					http2_stream_put(items[i].stream);
+				}
 			}
 		}
 
@@ -904,6 +910,9 @@ TEST_F(LIBHTTP2, StressTest)
 							client_completed++;
 						}
 					}
+				}
+				if (items[i].stream) {
+					http2_stream_put(items[i].stream);
 				}
 			}
 		};
