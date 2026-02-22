@@ -99,10 +99,6 @@ int _dns_server_is_return_soa_qtype(struct dns_request *request, dns_type_t qtyp
 			request->domain_rule.rules[DOMAIN_RULE_ADDRESS_IPV4] == NULL) {
 			return 1;
 		}
-	} else if (qtype == DNS_T_HTTPS) {
-		if (request->domain_rule.rules[DOMAIN_RULE_HTTPS] == NULL) {
-			return 1;
-		}
 	}
 
 	return 0;
