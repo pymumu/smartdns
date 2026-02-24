@@ -905,7 +905,6 @@ return view.extend({
 		o = s.taboption("advanced", form.Value, "host_name", _("TLS SNI name"),
 			_("Sets the server name indication for query. '-' for disable SNI name."))
 		o.default = ""
-		o.datatype = "hostname"
 		o.rempty = true
 		o.modalonly = true;
 		o.depends("type", "tls")
