@@ -119,7 +119,7 @@ int ipset_add(const char *ipset_name, const unsigned char addr[], int addr_len, 
 
 int ipset_del(const char *ipset_name, const unsigned char addr[], int addr_len);
 
-int netlink_get_neighbors(int family,
+int netlink_get_neighbors(int family, const uint8_t *target_ip, int target_ip_len,
 						  int (*callback)(const uint8_t *net_addr, int net_addr_len, const uint8_t mac[6], void *arg),
 						  void *arg);
 

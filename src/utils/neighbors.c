@@ -26,7 +26,7 @@
 
 static int netlink_neighbor_fd;
 
-int netlink_get_neighbors(int family,
+int netlink_get_neighbors(int family, const uint8_t *target_ip, int target_ip_len,
 						  int (*callback)(const uint8_t *net_addr, int net_addr_len, const uint8_t mac[6], void *arg),
 						  void *arg)
 {
@@ -61,13 +61,21 @@ int netlink_get_neighbors(int family,
 	nlh = (struct nlmsghdr *)buf;
 	nlh->nlmsg_len = NLMSG_LENGTH(sizeof(struct ndmsg));
 	nlh->nlmsg_type = RTM_GETNEIGH;
-	nlh->nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
+	nlh->nlmsg_flags = NLM_F_REQUEST;
 	nlh->nlmsg_seq = time(NULL);
 	nlh->nlmsg_pid = getpid();
 
 	ndm = NLMSG_DATA(nlh);
 	memset(ndm, 0, sizeof(struct ndmsg));
 	ndm->ndm_family = family;
+
+	if (target_ip_len > 0 && target_ip != NULL) {
+		struct rtattr *rta = (struct rtattr *)(((char *)nlh) + NLMSG_ALIGN(nlh->nlmsg_len));
+		rta->rta_type = NDA_DST;
+		rta->rta_len = RTA_LENGTH(target_ip_len);
+		memcpy(RTA_DATA(rta), target_ip, target_ip_len);
+		nlh->nlmsg_len = NLMSG_ALIGN(nlh->nlmsg_len) + RTA_ALIGN(rta->rta_len);
+	}
 
 	while (1) {
 		if (send_count > 5) {

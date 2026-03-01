@@ -231,7 +231,7 @@ struct dns_client_rules *_dns_server_get_client_rules_by_mac(uint8_t *netaddr, i
 	args.netaddr_len = netaddr_len;
 
 	for (int i = 0; i < 1; i++) {
-		ret = netlink_get_neighbors(family, _dns_server_neighbors_callback, &args);
+		ret = netlink_get_neighbors(family, netaddr, netaddr_len, _dns_server_neighbors_callback, &args);
 		if (ret < 0) {
 			goto add_cache;
 		}
@@ -245,5 +245,24 @@ struct dns_client_rules *_dns_server_get_client_rules_by_mac(uint8_t *netaddr, i
 
 add_cache:
 	_dns_server_neighbor_cache_add(netaddr, netaddr_len, NULL);
+	int probe_fd = socket(family, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+	if (probe_fd >= 0) {
+		struct sockaddr_storage dest;
+		memset(&dest, 0, sizeof(dest));
+		dest.ss_family = family;
+		if (family == AF_INET) {
+			struct sockaddr_in *in = (struct sockaddr_in *)&dest;
+			memcpy(&in->sin_addr, netaddr, 4);
+			in->sin_port = htons(53); /* dummy port */
+			connect(probe_fd, (struct sockaddr *)&dest, sizeof(struct sockaddr_in));
+		} else if (family == AF_INET6) {
+			struct sockaddr_in6 *in6 = (struct sockaddr_in6 *)&dest;
+			memcpy(&in6->sin6_addr, netaddr, 16);
+			in6->sin6_port = htons(53); /* dummy port */
+			connect(probe_fd, (struct sockaddr *)&dest, sizeof(struct sockaddr_in6));
+		}
+		close(probe_fd);
+	}
+
 	return NULL;
 }

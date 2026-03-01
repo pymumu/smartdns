@@ -269,6 +269,8 @@ pub struct DataServer {
     whois: whois::WhoIs,
     startup_timestamp: u64,
     recv_in_batch: Mutex<bool>,
+    mac_cache: Mutex<HashMap<String, String>>,
+    client_pending_list: Mutex<HashMap<String, (u64, ClientData)>>,
 }
 
 impl DataServer {
@@ -290,6 +292,8 @@ impl DataServer {
             startup_timestamp: get_utc_time_ms(),
             disable_handle_request: AtomicBool::new(false),
             recv_in_batch: Mutex::new(true),
+            mac_cache: Mutex::new(HashMap::new()),
+            client_pending_list: Mutex::new(HashMap::new()),
         };
 
         let (tx, rx) = mpsc::channel(100);
@@ -543,6 +547,26 @@ impl DataServer {
         let mut failed_num = 0;
         let timestamp_now = get_utc_time_ms();
 
+        // Pass 1: populate cache from incoming requests
+        {
+            let mut mac_cache = this.mac_cache.lock().unwrap();
+            if mac_cache.len() > 10000 {
+                mac_cache.clear();
+            }
+
+            for req in req_list {
+                let mac_str = req
+                    .get_remote_mac()
+                    .iter()
+                    .map(|byte| format!("{:02x}", byte))
+                    .collect::<Vec<String>>()
+                    .join(":");
+                if mac_str != "00:00:00:00:00:00" {
+                    mac_cache.insert(req.get_remote_addr(), mac_str);
+                }
+            }
+        }
+
         for req in req_list {
             if req.is_prefetch_request() {
                 continue;
@@ -582,22 +606,51 @@ impl DataServer {
 
             domain_data_list.push(domain_data);
 
-            let mac_str = req
+            let client_ip = req.get_remote_addr();
+            let mut mac_str = req
                 .get_remote_mac()
                 .iter()
                 .map(|byte| format!("{:02x}", byte))
                 .collect::<Vec<String>>()
                 .join(":");
 
-            let client_data = ClientData {
-                id: 0,
-                client_ip: req.get_remote_addr(),
-                hostname: "".to_string(),
-                mac: mac_str,
-                last_query_timestamp: timestamp_now,
-            };
+            if mac_str == "00:00:00:00:00:00" {
+                if let Some(cached_mac) = this.mac_cache.lock().unwrap().get(&client_ip) {
+                    mac_str = cached_mac.clone();
+                }
+            }
 
-            client_data_list.push(client_data);
+            let mut pending = this.client_pending_list.lock().unwrap();
+            if let Some(existing) = pending.get_mut(&client_ip) {
+                if mac_str != "00:00:00:00:00:00" {
+                    existing.1.mac = mac_str;
+                }
+                existing.1.last_query_timestamp = timestamp_now;
+            } else {
+                let client_data = ClientData {
+                    id: 0,
+                    client_ip: client_ip.clone(),
+                    hostname: "".to_string(),
+                    mac: mac_str,
+                    last_query_timestamp: timestamp_now,
+                };
+                pending.insert(client_ip, (timestamp_now, client_data));
+            }
+        }
+
+        {
+            let mut pending = this.client_pending_list.lock().unwrap();
+            let mut to_remove = Vec::new();
+            for (ip, (first_seen, data)) in pending.iter() {
+                if timestamp_now - *first_seen > 3000 || data.mac != "00:00:00:00:00:00" {
+                    to_remove.push(ip.clone());
+                }
+            }
+            for ip in to_remove {
+                if let Some((_, data)) = pending.remove(&ip) {
+                    client_data_list.push(data);
+                }
+            }
         }
 
         this.stat.add_total_request(domain_data_list.len() as u64);
@@ -706,6 +759,7 @@ impl DataServer {
         let mut recv_buffer = Vec::with_capacity(batch_size);
         let mut batch_timer: Option<tokio::time::Interval> = None;
         let mut check_timer = tokio::time::interval(Duration::from_secs(60));
+        let mut client_flush_timer = tokio::time::interval(Duration::from_secs(10));
         let is_check_timer_running = Arc::new(AtomicBool::new(false));
 
         dns_log!(LogLevel::DEBUG, "data server start.");
@@ -714,6 +768,31 @@ impl DataServer {
             tokio::select! {
                 _ = rx.recv() => {
                     break;
+                }
+                _ = client_flush_timer.tick() => {
+                    let mut flush_list = Vec::new();
+                    let timestamp_now = get_utc_time_ms();
+                    {
+                        let mut pending = this.client_pending_list.lock().unwrap();
+                        let mut to_remove = Vec::new();
+                        for (ip, (first_seen, data)) in pending.iter() {
+                            if timestamp_now - *first_seen > 10000 || data.mac != "00:00:00:00:00:00" {
+                                to_remove.push(ip.clone());
+                            }
+                        }
+                        for ip in to_remove {
+                            if let Some((_, data)) = pending.remove(&ip) {
+                                flush_list.push(data);
+                            }
+                        }
+                    }
+                    if !flush_list.is_empty() {
+                        let this_clone = this.clone();
+                        let _ = DataServer::call_blocking(this.clone(), move || {
+                            let _ = this_clone.insert_client_by_list(&flush_list);
+                            Ok::<(), String>(())
+                        }).await;
+                    }
                 }
                 _ = check_timer.tick() => {
                     if is_check_timer_running.fetch_xor(true, std::sync::atomic::Ordering::Relaxed) {
@@ -769,6 +848,23 @@ impl DataServer {
                     DataServer::data_server_handle_dns_request(this.clone(), &req_list).await;
                     req_list.clear();
                 }
+            }
+        }
+
+        {
+            let mut flush_list = Vec::new();
+            {
+                let mut pending = this.client_pending_list.lock().unwrap();
+                for (_, (_, data)) in pending.drain() {
+                    flush_list.push(data);
+                }
+            }
+            if !flush_list.is_empty() {
+                let this_clone = this.clone();
+                let _ = DataServer::call_blocking(this.clone(), move || {
+                    let _ = this_clone.insert_client_by_list(&flush_list);
+                    Ok::<(), String>(())
+                }).await;
             }
         }
 
