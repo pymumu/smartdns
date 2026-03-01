@@ -549,6 +549,19 @@ fn test_rest_api_stats_top() {
     assert_eq!(list[0].count, 512);
     assert_eq!(list[2].domain, "c.com");
     assert_eq!(list[2].count, 128);
+
+    let c = client.get("/api/stats/top/domain_blocked");
+    assert!(c.is_ok());
+    let (code, body) = c.unwrap();
+    assert_eq!(code, 200);
+    let list = http_api_msg::api_msg_parse_top_domain_list(&body);
+    assert!(list.is_ok());
+    let list = list.unwrap();
+    assert_eq!(list.len(), 3);
+    assert_eq!(list[0].domain, "a.com");
+    assert_eq!(list[0].count, 512);
+    assert_eq!(list[2].domain, "c.com");
+    assert_eq!(list[2].count, 128);
 }
 
 #[test]

@@ -204,7 +204,7 @@ impl DB {
     pub fn new() -> Self {
         DB {
             conn: Mutex::new(None),
-            version: 10000, /* x: major version, xx: minor version, xx: patch version */
+            version: 10100, /* x: major version, xx: minor version, xx: patch version */
             query_plan: std::env::var("SMARTDNS_DEBUG_SQL").is_ok(),
         }
     }
@@ -255,6 +255,16 @@ impl DB {
 
         conn.execute(
             "CREATE TABLE IF NOT EXISTS top_domain_list (
+                domain TEXT PRIMARY KEY,
+                count INTEGER DEFAULT 0,
+                timestamp_start BIGINT DEFAULT 0,
+                timestamp_end BIGINT DEFAULT 0
+            );",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS top_domain_blocked_list (
                 domain TEXT PRIMARY KEY,
                 count INTEGER DEFAULT 0,
                 timestamp_start BIGINT DEFAULT 0,
@@ -1290,6 +1300,36 @@ impl DB {
         Ok(())
     }
 
+pub fn refresh_domain_top_blocked_list(&self, timestamp: u64) -> Result<(), Box<dyn Error>> {
+    let timestamp_now = smartdns::get_utc_time_ms();
+
+    let mut conn = self.conn.lock().unwrap();
+    let conn = conn.as_mut().ok_or("db is not open")?;
+    let tx = conn.transaction()?;
+    tx.execute("DELETE FROM top_domain_blocked_list", [])?;
+    tx.execute(
+        r#"
+        INSERT INTO top_domain_blocked_list
+        (domain, count, timestamp_start, timestamp_end)
+        SELECT
+            domain,
+            COUNT(*) AS count,
+            ?1,
+            ?2
+        FROM domain
+        WHERE is_blocked = 1
+          AND timestamp >= ?3
+        GROUP BY domain
+        ORDER BY count DESC
+        LIMIT 20
+        "#,
+        rusqlite::params![timestamp, timestamp_now, timestamp],
+    )?;
+
+    tx.commit()?;
+    Ok(())
+}
+
     pub fn get_domain_top_list(&self, count: u32) -> Result<Vec<DomainQueryCount>, Box<dyn Error>> {
         let mut ret = Vec::new();
         let conn = self.get_readonly_conn();
@@ -1300,6 +1340,40 @@ impl DB {
         let conn = conn.as_ref().unwrap();
 
         let mut stmt = conn.prepare("SELECT domain, count, timestamp_start, timestamp_end FROM top_domain_list DESC LIMIT ?")?;
+        let rows = stmt.query_map([count.to_string()], |row| {
+            Ok(DomainQueryCount {
+                domain: row.get(0)?,
+                count: row.get(1)?,
+                timestamp_start: row.get(2)?,
+                timestamp_end: row.get(3)?,
+            })
+        });
+
+        if let Err(e) = rows {
+            return Err(Box::new(e));
+        }
+
+        if let Ok(rows) = rows {
+            for row in rows {
+                if let Ok(row) = row {
+                    ret.push(row);
+                }
+            }
+        }
+
+        Ok(ret)
+    }
+
+    pub fn get_domain_top_blocked_list(&self, count: u32) -> Result<Vec<DomainQueryCount>, Box<dyn Error>> {
+        let mut ret = Vec::new();
+        let conn = self.get_readonly_conn();
+        if conn.as_ref().is_none() {
+            return Err("db is not open".into());
+        }
+
+        let conn = conn.as_ref().unwrap();
+
+        let mut stmt = conn.prepare("SELECT domain, count, timestamp_start, timestamp_end FROM top_domain_blocked_list DESC LIMIT ?")?;
         let rows = stmt.query_map([count.to_string()], |row| {
             Ok(DomainQueryCount {
                 domain: row.get(0)?,
