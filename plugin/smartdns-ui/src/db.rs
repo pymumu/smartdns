@@ -1505,7 +1505,7 @@ impl DB {
             Some(v) => v,
             None => return Ok((String::new(), String::new(), Vec::new())),
         };
-        let mut order_timestamp_first = false;
+        let mut order_timestamp_first = true;
         let mut cusor_with_timestamp = false;
 
         let mut sql_where = Vec::new();
