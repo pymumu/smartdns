@@ -306,26 +306,37 @@ int _dns_client_send_http2(struct dns_server_info *server_info, struct dns_query
 	pthread_mutex_unlock(&query->lock);
 	pthread_mutex_unlock(&server_info->lock);
 
-	/* Flush data immediately */
-	int loop = 0;
-	while (http2_ctx_want_write(http2_ctx) && loop++ < 10) {
-		if (http2_ctx_poll(http2_ctx, NULL, 0, NULL) < 0) {
-			break;
-		}
+	/* Get HTTP/2 context with reference for flushing */
+	pthread_mutex_lock(&server_info->lock);
+	http2_ctx = server_info->http2_ctx;
+	if (http2_ctx) {
+		http2_ctx_get(http2_ctx);
 	}
+	pthread_mutex_unlock(&server_info->lock);
 
-	/* Check if there's pending write data, if so add EPOLLOUT event */
-	if (http2_ctx_want_write(http2_ctx)) {
-		struct epoll_event event;
-		memset(&event, 0, sizeof(event));
-		event.events = EPOLLIN | EPOLLOUT;
-		event.data.ptr = server_info;
-		if (server_info->fd > 0) {
-			if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &event) != 0) {
-				tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
-				/* Continue anyway, data will be sent on next EPOLLIN */
+	/* Flush data immediately */
+	if (http2_ctx) {
+		int loop = 0;
+		while (http2_ctx_want_write(http2_ctx) && loop++ < 10) {
+			if (http2_ctx_poll(http2_ctx, NULL, 0, NULL) < 0) {
+				break;
 			}
 		}
+
+		/* Check if there's pending write data, if so add EPOLLOUT event */
+		if (http2_ctx_want_write(http2_ctx)) {
+			struct epoll_event event;
+			memset(&event, 0, sizeof(event));
+			event.events = EPOLLIN | EPOLLOUT;
+			event.data.ptr = server_info;
+			if (server_info->fd > 0) {
+				if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &event) != 0) {
+					tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
+					/* Continue anyway, data will be sent on next EPOLLIN */
+				}
+			}
+		}
+		http2_ctx_put(http2_ctx);
 	}
 
 	ret = 0;
