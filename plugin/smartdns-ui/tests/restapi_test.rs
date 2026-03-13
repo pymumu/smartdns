@@ -479,6 +479,7 @@ fn test_rest_api_get_client() {
         let mut request = TestDnsRequest::new();
         request.domain = format!("{}.com", i);
         request.remote_addr = format!("client-{}", i);
+        request.remote_mac = [1, 2, 3, 4, 5, i as u8];
         request.id = i as u16;
         assert!(server.send_test_dnsrequest(request).is_ok());
     }
