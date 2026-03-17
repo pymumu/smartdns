@@ -47,8 +47,15 @@ int _config_set_rule_each_from_list(const char *file, set_rule_add_func callback
 
 	line_no = 0;
 	while (fgets(line, MAX_LINE_LEN, fp)) {
+		char *p = line;
 		line_no++;
-		filed_num = sscanf(line, "%255s", value);
+
+		/* skip UTF-8 BOM */
+		if (line_no == 1 && (unsigned char)line[0] == 0xEF && (unsigned char)line[1] == 0xBB && (unsigned char)line[2] == 0xBF) {
+			p += 3;
+		}
+
+		filed_num = sscanf(p, "%255s", value);
 		if (filed_num <= 0) {
 			continue;
 		}
@@ -57,7 +64,23 @@ int _config_set_rule_each_from_list(const char *file, set_rule_add_func callback
 			continue;
 		}
 
-		ret = callback(value, priv);
+		/* Normalize domain */
+		char domain[DNS_MAX_CNAME_LEN];
+		char *d_ptr = value;
+		/* remove prefix . */
+		while (*d_ptr == '.') {
+			if (*(d_ptr + 1) == '\0') {
+				break;
+			}
+			d_ptr++;
+		}
+
+		if (utf8_to_punycode(d_ptr, strlen(d_ptr), domain, sizeof(domain)) <= 0) {
+			tlog(TLOG_WARN, "process file %s failed at line %d, invalid domain %s.", file, line_no, d_ptr);
+			continue;
+		}
+
+		ret = callback(domain, priv);
 		if (ret != 0) {
 			tlog(TLOG_WARN, "process file %s failed at line %d.", file, line_no);
 			continue;

@@ -39,13 +39,7 @@ fn test_rest_api_login() {
     assert!(result.is_ok());
     let token = result.unwrap();
     assert!(!token.token.is_empty());
-    let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256);
-    validation.insecure_disable_signature_validation();
-    let calims = jsonwebtoken::decode::<JwtClaims>(
-        &token.token,
-        &jsonwebtoken::DecodingKey::from_secret(&[]),
-        &validation,
-    );
+    let calims = jsonwebtoken::dangerous::insecure_decode::<JwtClaims>(&token.token);
     println!("calims: {:?}", calims);
     assert_eq!(token.expires_in, "600");
     assert!(calims.is_ok());

@@ -210,6 +210,7 @@ TEST_F(Rule, RootDomainMatchOnly)
 server 127.0.0.1:61053
 speed-check-mode none
 address /-.a.com/5.6.7.8
+address /b.com/3.4.5.6
 )""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("a.com A", 60053));
@@ -247,6 +248,15 @@ address /-.a.com/5.6.7.8
 	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 700);
 	EXPECT_EQ(client.GetAnswer()[0].GetType(), "A");
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+
+	ASSERT_TRUE(client.Query("b.com A", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "b.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 600);
+	EXPECT_EQ(client.GetAnswer()[0].GetType(), "A");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "3.4.5.6");
 }
 
 TEST_F(Rule, AAAA_SOA)
