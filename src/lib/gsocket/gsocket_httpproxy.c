@@ -85,6 +85,38 @@ static int _io_proxy_shutdown(struct gsocket_io *io, int h)
 	return io->lower->shutdown(io->lower, h);
 }
 
+static int _io_proxy_getsockname(struct gsocket_io *io, struct sockaddr *addr, socklen_t *len)
+{
+	if (!io->lower || !io->lower->getsockname) {
+		return -1;
+	}
+	return io->lower->getsockname(io->lower, addr, len);
+}
+
+static int _io_proxy_getpeername(struct gsocket_io *io, struct sockaddr *addr, socklen_t *len)
+{
+	if (!io->lower || !io->lower->getpeername) {
+		return -1;
+	}
+	return io->lower->getpeername(io->lower, addr, len);
+}
+
+static int _io_proxy_getsockopt(struct gsocket_io *io, int level, int optname, void *optval, socklen_t *optlen)
+{
+	if (!io->lower || !io->lower->getsockopt) {
+		return -1;
+	}
+	return io->lower->getsockopt(io->lower, level, optname, optval, optlen);
+}
+
+static int _io_proxy_setsockopt(struct gsocket_io *io, int level, int optname, const void *optval, socklen_t optlen)
+{
+	if (!io->lower || !io->lower->setsockopt) {
+		return -1;
+	}
+	return io->lower->setsockopt(io->lower, level, optname, optval, optlen);
+}
+
 static int _httpproxy_server_handshake(struct gsocket_io *io)
 {
 	struct httpproxy_ctx *ctx = (struct httpproxy_ctx *)io->ctx;
@@ -120,14 +152,28 @@ static int _httpproxy_server_handshake(struct gsocket_io *io)
 					ctx->target_host[sizeof(ctx->target_host) - 1] = '\0';
 					ctx->target_port = (uint16_t)port;
 				} else {
-					http_head_destroy(head);
-					return GSOCKET_HANDSHAKE_ERR;
+					const char *host_val = http_head_get_fields_value(head, "Host");
+					if (host_val && parse_ip(host_val, host, &port) == 0) {
+						strncpy(ctx->target_host, host, sizeof(ctx->target_host) - 1);
+						ctx->target_host[sizeof(ctx->target_host) - 1] = '\0';
+						ctx->target_port = (uint16_t)port;
+					} else {
+						http_head_destroy(head);
+						return GSOCKET_HANDSHAKE_ERR;
+					}
 				}
 			}
 
 			if (ctx->user && ctx->pass) {
 				const char *auth = http_head_get_fields_value(head, "Proxy-Authorization");
-				if (!auth || strncmp(auth, "Basic ", 6) != 0) {
+				char expected_auth[1024];
+				char user_pass[256];
+				snprintf(user_pass, sizeof(user_pass), "%s:%s", ctx->user, ctx->pass);
+				char encoded[512];
+				SSL_base64_encode((unsigned char *)user_pass, strlen(user_pass), (char *)encoded);
+				snprintf(expected_auth, sizeof(expected_auth), "Basic %s", encoded);
+
+				if (!auth || strcmp(auth, expected_auth) != 0) {
 					char *fail = "HTTP/1.1 407 Proxy Authentication Required\r\n\r\n";
 					io->lower->send(io->lower, fail, strlen(fail), MSG_NOSIGNAL);
 					http_head_destroy(head);
@@ -159,14 +205,28 @@ static int _httpproxy_server_handshake(struct gsocket_io *io)
 					ctx->target_host[sizeof(ctx->target_host) - 1] = '\0';
 					ctx->target_port = (port == PORT_NOT_DEFINED) ? 80 : (uint16_t)port;
 				} else {
-					http_head_destroy(head);
-					return GSOCKET_HANDSHAKE_ERR;
+					const char *host_val = http_head_get_fields_value(head, "Host");
+					if (host_val && parse_ip(host_val, host, &port) == 0) {
+						strncpy(ctx->target_host, host, sizeof(ctx->target_host) - 1);
+						ctx->target_host[sizeof(ctx->target_host) - 1] = '\0';
+						ctx->target_port = (port == PORT_NOT_DEFINED) ? 80 : (uint16_t)port;
+					} else {
+						http_head_destroy(head);
+						return GSOCKET_HANDSHAKE_ERR;
+					}
 				}
 			}
 
 			if (ctx->user && ctx->pass) {
 				const char *auth = http_head_get_fields_value(head, "Proxy-Authorization");
-				if (!auth || strncmp(auth, "Basic ", 6) != 0) {
+				char expected_auth[1024];
+				char user_pass[256];
+				snprintf(user_pass, sizeof(user_pass), "%s:%s", ctx->user, ctx->pass);
+				char encoded[512];
+				SSL_base64_encode((unsigned char *)user_pass, strlen(user_pass), (char *)encoded);
+				snprintf(expected_auth, sizeof(expected_auth), "Basic %s", encoded);
+
+				if (!auth || strcmp(auth, expected_auth) != 0) {
 					char *fail = "HTTP/1.1 407 Proxy Authentication Required\r\n\r\n";
 					io->lower->send(io->lower, fail, strlen(fail), MSG_NOSIGNAL);
 					http_head_destroy(head);
@@ -306,6 +366,14 @@ static int _httpproxy_client_handshake(struct gsocket_io *io)
 static int _httpproxy_handshake(struct gsocket_io *io)
 {
 	struct httpproxy_ctx *ctx = (struct httpproxy_ctx *)io->ctx;
+
+	if (io->lower && io->lower->handshake) {
+		int res = io->lower->handshake(io->lower);
+		if (res != GSOCKET_HANDSHAKE_DONE) {
+			return res;
+		}
+	}
+
 	return ctx->is_server ? _httpproxy_server_handshake(io) : _httpproxy_client_handshake(io);
 }
 
@@ -576,6 +644,10 @@ struct gsocket_io *gsocket_io_httpproxy_server_new(const char *user, const char 
 	io->get_proxy_target = _httpproxy_get_target;
 	io->get_error = _httpproxy_get_error;
 	io->accept = _httpproxy_accept;
+	io->getpeername = _io_proxy_getpeername;
+	io->getsockname = _io_proxy_getsockname;
+	io->getsockopt = _io_proxy_getsockopt;
+	io->setsockopt = _io_proxy_setsockopt;
 
 	return io;
 

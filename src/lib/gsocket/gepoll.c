@@ -23,11 +23,13 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <pthread.h>
 
 /* Internal wrapper */
 struct gepoll {
 	int efd;
 	struct rb_root registry;
+	pthread_mutex_t lock;
 };
 
 struct gepoll_entry {
@@ -94,6 +96,7 @@ struct gepoll *gepoll_create(int flags)
 		return NULL;
 	}
 	ep->registry = RB_ROOT;
+	pthread_mutex_init(&ep->lock, NULL);
 	return ep;
 }
 
@@ -112,7 +115,9 @@ void gepoll_destroy(struct gepoll *ep)
 
 	if (ep->efd >= 0) {
 		close(ep->efd);
+		ep->efd = -1;
 	}
+	pthread_mutex_destroy(&ep->lock);
 	free(ep);
 }
 
@@ -129,10 +134,13 @@ int gepoll_add(struct gepoll *ep, struct gsocket *sock, int events, void *user_d
 	entry->user_data = user_data;
 	entry->user_events = events;
 
+	pthread_mutex_lock(&ep->lock);
 	if (_gepoll_insert(&ep->registry, entry) != 0) {
+		pthread_mutex_unlock(&ep->lock);
 		free(entry);
 		return -1;
 	}
+	pthread_mutex_unlock(&ep->lock);
 
 	struct epoll_event ev;
 	ev.events = events;
@@ -150,13 +158,16 @@ int gepoll_add(struct gepoll *ep, struct gsocket *sock, int events, void *user_d
 int gepoll_mod(struct gepoll *ep, struct gsocket *sock, int events, void *user_data)
 {
 	int fd = gsocket_get_fd(sock);
+	pthread_mutex_lock(&ep->lock);
 	struct gepoll_entry *entry = _gepoll_find(&ep->registry, fd);
 	if (!entry) {
+		pthread_mutex_unlock(&ep->lock);
 		return -1;
 	}
 
 	entry->user_events = events;
 	entry->user_data = user_data;
+	pthread_mutex_unlock(&ep->lock);
 
 	struct epoll_event ev;
 	ev.data.ptr = entry;
@@ -167,13 +178,16 @@ int gepoll_mod(struct gepoll *ep, struct gsocket *sock, int events, void *user_d
 int gepoll_del(struct gepoll *ep, struct gsocket *sock)
 {
 	int fd = gsocket_get_fd(sock);
+	pthread_mutex_lock(&ep->lock);
 	struct gepoll_entry *entry = _gepoll_find(&ep->registry, fd);
 	if (!entry) {
+		pthread_mutex_unlock(&ep->lock);
 		return -1;
 	}
 
 	epoll_ctl(ep->efd, EPOLL_CTL_DEL, fd, NULL);
 	rb_erase(&entry->_node, &ep->registry);
+	pthread_mutex_unlock(&ep->lock);
 	free(entry);
 	return 0;
 }

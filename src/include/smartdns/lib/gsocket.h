@@ -143,6 +143,12 @@ int gsocket_getsockopt(struct gsocket *sock, int level, int optname, void *optva
 int gsocket_setsockopt(struct gsocket *sock, int level, int optname, const void *optval, socklen_t optlen);
 int gsocket_set_nonblock(struct gsocket *sock, int enable);
 int gsocket_set_fastopen(struct gsocket *sock, int enable);
+int gsocket_set_keepalive(struct gsocket *sock, int idle, int intvl, int cnt);
+int gsocket_set_reuseport(struct gsocket *sock, int enable);
+int gsocket_set_reuseaddr(struct gsocket *sock, int enable);
+int gsocket_set_mark(struct gsocket *sock, int mark);
+int gsocket_set_defer_accept(struct gsocket *sock, int enable);
+int gsocket_set_quickack(struct gsocket *sock, int enable);
 
 /* Handshake Return Codes */
 #define GSOCKET_HANDSHAKE_DONE 0
@@ -166,7 +172,7 @@ struct gsocket_io *gsocket_io_httpproxy_new(const char *proxy_ip, int proxy_port
 struct gsocket_io *gsocket_io_socks5_server_new(const char *user, const char *pass);
 struct gsocket_io *gsocket_io_httpproxy_server_new(const char *user, const char *pass);
 struct gsocket_io *gsocket_io_tproxy_server_new(void);
-struct gsocket_io *gsocket_io_sniproxy_server_new(void);
+struct gsocket_io *gsocket_io_sniproxy_server_new(uint16_t target_port);
 
 struct gsocket_io *gsocket_io_http1_new(int is_server);
 struct gsocket_io *gsocket_io_http2_new(int is_server);

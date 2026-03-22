@@ -465,7 +465,9 @@ struct dns_proxy_servers {
 	unsigned short port;
 	char username[DNS_PROXY_MAX_LEN];
 	char password[DNS_PROXY_MAX_LEN];
+	char tls_host[DNS_MAX_CNAME_LEN];
 	int fallback;
+	int skip_cert_verify;
 };
 
 struct dns_tproxy_server_conf {
@@ -476,6 +478,7 @@ struct dns_tproxy_server_conf {
 	char group_name[PROXY_NAME_LEN];
 	enum firewall_type firewall_type;
 	int udp_support;
+	int tcp_support;
 	int so_mark;
 	int output_chain_enable;
 	int speed_check;
@@ -501,6 +504,7 @@ struct dns_sniproxy_server_conf {
 	int so_mark;
 	int speed_check;
 	int force_aaaa_soa;
+	int target_port;
 };
 
 struct dns_socks5_proxy_server_conf {
@@ -513,8 +517,11 @@ struct dns_socks5_proxy_server_conf {
 	int so_mark;
 	int speed_check;
 	int force_aaaa_soa;
+	int ssl_support;
+	char tls_host[DNS_MAX_CNAME_LEN];
 	char username[DNS_PROXY_MAX_LEN];
 	char password[DNS_PROXY_MAX_LEN];
+	int skip_cert_verify;
 };
 
 struct dns_http_proxy_server_conf {
@@ -527,8 +534,11 @@ struct dns_http_proxy_server_conf {
 	int so_mark;
 	int speed_check;
 	int force_aaaa_soa;
+	int ssl_support;
+	char tls_host[DNS_MAX_CNAME_LEN];
 	char username[DNS_PROXY_MAX_LEN];
 	char password[DNS_PROXY_MAX_LEN];
+	int skip_cert_verify;
 };
 
 struct dns_forward_server_conf {
@@ -537,8 +547,13 @@ struct dns_forward_server_conf {
 	char server[DNS_MAX_IPLEN];
 	char target[DNS_MAX_IPLEN];
 	char proxy_name[PROXY_NAME_LEN];
+	char tls_host[DNS_MAX_CNAME_LEN];
 	int udp_support;
+	int tcp_support;
 	int so_mark;
+	int ssl_listen;
+	int ssl_target;
+	int skip_cert_verify;
 };
 
 /* ip address lists of domain */
@@ -813,6 +828,8 @@ struct dns_config {
 	/* proxy servers */
 	struct dns_proxy_servers proxy_servers[PROXY_MAX_SERVERS];
 	int proxy_server_num;
+	int proxy_server_workers;
+	int proxy_server_idle_timeout;
 
 	int log_level;
 	char log_file[DNS_MAX_PATH];

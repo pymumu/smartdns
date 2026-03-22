@@ -16,6 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "smartdns/lib/gsocket.h"
+#include "smartdns/util.h"
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -148,6 +149,7 @@ static int _sock_connect(struct gsocket_io *io, const char *host, int port)
 	char port_str[16];
 	snprintf(port_str, sizeof(port_str), "%d", port);
 
+	if (host && host[0] == '\0') host = NULL;
 	if (getaddrinfo(host, port_str, &hints, &res) != 0) {
 		return -1;
 	}
@@ -175,6 +177,7 @@ static int _sock_bind(struct gsocket_io *io, const char *host, int port)
 
 	snprintf(port_str, sizeof(port_str), "%d", port);
 
+	if (host && host[0] == '\0') host = NULL;
 	if (getaddrinfo(host, port_str, &hints, &res) != 0) {
 		return -1;
 	}
@@ -196,6 +199,7 @@ static int _sock_close(struct gsocket_io *io)
 	/* Only close the FD. The io struct itself is freed by the wrapper or caller */
 	if (ctx->fd >= 0) {
 		close(ctx->fd);
+		ctx->fd = GS_INVALID_FD;
 	}
 	return 0;
 }
@@ -240,11 +244,11 @@ static int _sock_shutdown(struct gsocket_io *io, int how)
 /* Helper to create default layer */
 static struct gsocket_io *gsocket_io_socket_new(int fd)
 {
-	struct gsocket_io *io = calloc(1, sizeof(struct gsocket_io));
+	struct gsocket_io *io = zalloc(1, sizeof(struct gsocket_io));
 	if (!io) {
 		return NULL;
 	}
-	struct socket_io_ctx *ctx = calloc(1, sizeof(struct socket_io_ctx));
+	struct socket_io_ctx *ctx = zalloc(1, sizeof(struct socket_io_ctx));
 	if (!ctx) {
 		goto err;
 	}
@@ -288,7 +292,7 @@ err:
 
 struct gsocket *gsocket_new(int fd)
 {
-	struct gsocket *sock = calloc(1, sizeof(struct gsocket));
+	struct gsocket *sock = zalloc(1, sizeof(struct gsocket));
 	if (!sock) {
 		return NULL;
 	}
@@ -526,11 +530,11 @@ static struct gsocket_io *_sock_accept(struct gsocket_io *io, struct sockaddr *a
 	}
 
 	/* Create a new IO layer for the accepted FD */
-	struct gsocket_io *new_io = calloc(1, sizeof(struct gsocket_io));
+	struct gsocket_io *new_io = zalloc(1, sizeof(struct gsocket_io));
 	if (!new_io) {
 		goto err;
 	}
-	struct socket_io_ctx *new_ctx = calloc(1, sizeof(struct socket_io_ctx));
+	struct socket_io_ctx *new_ctx = zalloc(1, sizeof(struct socket_io_ctx));
 	if (!new_ctx) {
 		goto err;
 	}
@@ -591,7 +595,7 @@ struct gsocket *gsocket_accept(struct gsocket *sock, struct sockaddr *addr, sock
 	}
 
 	/* Wrap the returned layer in a new gsocket container */
-	struct gsocket *client_sock = calloc(1, sizeof(struct gsocket));
+	struct gsocket *client_sock = zalloc(1, sizeof(struct gsocket));
 	if (!client_sock) {
 		/* Free all layers that were just created */
 		struct gsocket_io *curr = new_layer;
@@ -604,11 +608,10 @@ struct gsocket *gsocket_accept(struct gsocket *sock, struct sockaddr *addr, sock
 		}
 		return NULL;
 	}
+	client_sock->fd = GS_INVALID_FD; /* FD is managed by the layer */
 	client_sock->top_layer = new_layer;
 	if (new_layer->get_fd) {
 		client_sock->fd = new_layer->get_fd(new_layer);
-	} else {
-		client_sock->fd = GS_INVALID_FD;
 	}
 	return client_sock;
 }
@@ -628,7 +631,7 @@ struct gsocket *gsocket_open_stream(struct gsocket *sock)
 		return NULL;
 	}
 
-	struct gsocket *stream_sock = calloc(1, sizeof(struct gsocket));
+	struct gsocket *stream_sock = zalloc(1, sizeof(struct gsocket));
 	if (!stream_sock) {
 		new_layer->free(new_layer);
 		return NULL;
@@ -794,4 +797,56 @@ int gsocket_get_poll_events(struct gsocket *sock)
 	}
 
 	return EPOLLIN; /* Default */
+}
+
+int gsocket_set_reuseaddr(struct gsocket *sock, int enable)
+{
+	return gsocket_setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable));
+}
+
+int gsocket_set_mark(struct gsocket *sock, int mark)
+{
+	return gsocket_setsockopt(sock, SOL_SOCKET, SO_MARK, &mark, sizeof(mark));
+}
+
+int gsocket_set_defer_accept(struct gsocket *sock, int enable)
+{
+#ifdef TCP_DEFER_ACCEPT
+	return gsocket_setsockopt(sock, IPPROTO_TCP, TCP_DEFER_ACCEPT, &enable, sizeof(enable));
+#else
+	return 0;
+#endif
+}
+
+int gsocket_set_quickack(struct gsocket *sock, int enable)
+{
+#ifdef TCP_QUICKACK
+	return gsocket_setsockopt(sock, IPPROTO_TCP, TCP_QUICKACK, &enable, sizeof(enable));
+#else
+	return 0;
+#endif
+}
+
+int gsocket_set_keepalive(struct gsocket *sock, int idle, int intvl, int cnt)
+{
+	int fd = gsocket_get_fd(sock);
+	if (fd < 0) {
+		return -1;
+	}
+	return set_sock_keepalive(fd, idle, intvl, cnt);
+}
+
+int gsocket_set_reuseport(struct gsocket *sock, int enable)
+{
+	int fd = gsocket_get_fd(sock);
+	if (fd < 0) {
+		return -1;
+	}
+
+#ifdef SO_REUSEPORT
+	int val = enable ? 1 : 0;
+	return setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &val, sizeof(val));
+#else
+	return -1;
+#endif
 }

@@ -162,6 +162,8 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("srv-record", _config_srv_record, NULL),
 	CONF_CUSTOM("https-record", _config_https_record, NULL),
 	CONF_CUSTOM("proxy-server", _config_proxy_server, NULL),
+	CONF_INT("proxy-server-workers", &dns_conf.proxy_server_workers, 1, 64),
+	CONF_INT("proxy-server-idle-timeout", &dns_conf.proxy_server_idle_timeout, 0, 86400),
 	CONF_YESNO_FUNC("ipset-timeout", _dns_conf_group_yesno, group_member(ipset_nftset.ipset_timeout_enable)),
 	CONF_CUSTOM("ipset", _config_ipset, NULL),
 	CONF_CUSTOM("ipset-no-speed", _config_ipset_no_speed, NULL),
@@ -396,6 +398,8 @@ static void _dns_conf_default_value_init(void)
 	dns_conf.resolv_hostname = 1;
 	dns_conf.cachesize = -1;
 	dns_conf.cache_max_memsize = -1;
+	dns_conf.proxy_server_workers = 2;
+	dns_conf.proxy_server_idle_timeout = 0;
 
 	dns_conf.default_check_orders.orders[0].type = DOMAIN_CHECK_ICMP;
 	dns_conf.default_check_orders.orders[0].tcp_port = 0;

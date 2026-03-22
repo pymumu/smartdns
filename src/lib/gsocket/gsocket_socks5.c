@@ -16,6 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "smartdns/lib/gsocket.h"
+#include "smartdns/tlog.h"
 #include "smartdns/util.h"
 #include <arpa/inet.h>
 #include <errno.h>
@@ -116,6 +117,22 @@ static int _io_proxy_shutdown(struct gsocket_io *io, int h)
 	return io->lower->shutdown(io->lower, h);
 }
 
+static int _io_proxy_getsockname(struct gsocket_io *io, struct sockaddr *addr, socklen_t *len)
+{
+	if (!io->lower || !io->lower->getsockname) {
+		return -1;
+	}
+	return io->lower->getsockname(io->lower, addr, len);
+}
+
+static int _io_proxy_getpeername(struct gsocket_io *io, struct sockaddr *addr, socklen_t *len)
+{
+	if (!io->lower || !io->lower->getpeername) {
+		return -1;
+	}
+	return io->lower->getpeername(io->lower, addr, len);
+}
+
 /* SOCKS5 Header Parsing Helpers */
 static int _socks5_parse_address(const char *buf, size_t len, struct sockaddr_storage *addr, int *header_len)
 {
@@ -195,7 +212,7 @@ static ssize_t _s5_hs_recv(struct gsocket_io *io, void *buf, size_t len, int fla
 {
 	struct socks5_ctx *ctx = (struct socks5_ctx *)io->ctx;
 
-	if (ctx->is_udp && ctx->control_fd != -1) {
+	if (ctx->is_udp && ctx->control_fd >= 0) {
 		return recv(ctx->control_fd, buf, len, flags);
 	}
 	return io->lower->recv(io->lower, buf, len, flags);
@@ -205,7 +222,7 @@ static ssize_t _s5_hs_send(struct gsocket_io *io, const void *buf, size_t len, i
 {
 	struct socks5_ctx *ctx = (struct socks5_ctx *)io->ctx;
 
-	if (ctx->is_udp && ctx->control_fd != -1) {
+	if (ctx->is_udp && ctx->control_fd >= 0) {
 		return send(ctx->control_fd, buf, len, flags);
 	}
 	return io->lower->send(io->lower, buf, len, flags);
@@ -227,6 +244,7 @@ static int _s5_srv_recv_buffer(struct gsocket_io *io, struct socks5_ctx *ctx, in
 	} else if (ret < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
 		return GSOCKET_HANDSHAKE_WANT_READ;
 	} else {
+		snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Connection closed by client");
 		return GSOCKET_HANDSHAKE_ERR;
 	}
 }
@@ -239,6 +257,7 @@ static int _s5_srv_handle_init(struct gsocket_io *io, struct socks5_ctx *ctx)
 	}
 
 	if (ctx->buffer[0] != SOCKS5_VERSION) {
+		snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Unsupported SOCKS version: 0x%02x", ctx->buffer[0]);
 		return GSOCKET_HANDSHAKE_ERR;
 	}
 
@@ -266,6 +285,7 @@ static int _s5_srv_handle_init(struct gsocket_io *io, struct socks5_ctx *ctx)
 	}
 
 	if (method == SOCKS5_AUTH_INVALID) {
+		snprintf(ctx->error_msg, sizeof(ctx->error_msg), "No supported auth method found in %d methods", nmethods);
 		return GSOCKET_HANDSHAKE_ERR;
 	}
 
@@ -328,6 +348,7 @@ static int _s5_srv_handle_auth(struct gsocket_io *io, struct socks5_ctx *ctx)
 	}
 
 	if (ctx->buffer[0] != SOCKS5_USERPASS_VER) {
+		snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Invalid auth version: 0x%02x", ctx->buffer[0]);
 		return GSOCKET_HANDSHAKE_ERR;
 	}
 
@@ -482,6 +503,7 @@ static int _s5_srv_handle_req(struct gsocket_io *io, struct socks5_ctx *ctx)
 	}
 
 	if (ctx->buffer[1] != SOCKS5_CMD_CONNECT && ctx->buffer[1] != SOCKS5_CMD_UDP_ASSOCIATE) {
+		snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Unsupported SOCKS command: 0x%02x", ctx->buffer[1]);
 		return GSOCKET_HANDSHAKE_ERR;
 	}
 
@@ -638,6 +660,7 @@ static int _s5_cli_recv_buffer(struct gsocket_io *io, struct socks5_ctx *ctx, in
 	} else if (ret < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
 		return GSOCKET_HANDSHAKE_WANT_READ;
 	} else {
+		snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Connection closed by proxy server");
 		return GSOCKET_HANDSHAKE_ERR;
 	}
 }
@@ -894,14 +917,16 @@ static int _s5_cli_handle_req_ack(struct gsocket_io *io, struct socks5_ctx *ctx)
 	if (ctx->is_udp) {
 		if (res == 0 && raddr.ss_family == AF_INET) {
 			ctx->relay_addr = *(struct sockaddr_in *)&raddr;
-			char relay_host[256];
-			int relay_port;
-			if (ctx->relay_addr.sin_family == AF_INET) {
-				inet_ntop(AF_INET, &ctx->relay_addr.sin_addr, relay_host, sizeof(relay_host));
-				relay_port = ntohs(ctx->relay_addr.sin_port);
-				io->lower->connect(io->lower, relay_host, relay_port);
-			} else {
-				// TODO: IPv6 support for relay
+
+			/* NAT Traversal for SOCKS5 Client:
+			   Override returned IP with the address we connected to */
+			if (inet_pton(AF_INET, ctx->proxy_host, &ctx->relay_addr.sin_addr) != 1) {
+				struct sockaddr_storage peer;
+				socklen_t plen = sizeof(peer);
+				int _fd = io->lower->get_fd(io->lower);
+				if (getpeername(_fd, (struct sockaddr *)&peer, &plen) == 0 && peer.ss_family == AF_INET) {
+					ctx->relay_addr.sin_addr = ((struct sockaddr_in *)&peer)->sin_addr;
+				}
 			}
 		}
 	}
@@ -958,6 +983,13 @@ static int _socks5_client_handshake(struct gsocket_io *io)
 static int _socks5_handshake(struct gsocket_io *io)
 {
 	struct socks5_ctx *ctx = (struct socks5_ctx *)io->ctx;
+
+	if (io->lower && io->lower->handshake) {
+		int res = io->lower->handshake(io->lower);
+		if (res != GSOCKET_HANDSHAKE_DONE) {
+			return res;
+		}
+	}
 
 	if (ctx->is_server) {
 		return _socks5_server_handshake(io);
@@ -1071,12 +1103,14 @@ static void _socks5_free(struct gsocket_io *io)
 {
 	struct socks5_ctx *ctx = (struct socks5_ctx *)io->ctx;
 
-	if (ctx->control_fd != -1) {
+	if (ctx->control_fd >= 0) {
 		close(ctx->control_fd);
+		ctx->control_fd = -1;
 	}
 
-	if (ctx->udp_fd != -1) {
+	if (ctx->udp_fd >= 0) {
 		close(ctx->udp_fd);
+		ctx->udp_fd = -1;
 	}
 
 	if (ctx->user) {
@@ -1144,6 +1178,18 @@ static int _socks5_getsockopt(struct gsocket_io *io, int level, int optname, voi
 			*(int *)optval = ctx->udp_fd;
 			return 0;
 		}
+	} else if (level == SOL_PROTO_ERROR) {
+		if (optname == SO_ERROR_DETAIL) {
+			if (*optlen < sizeof(struct gsocket_error)) {
+				return -1;
+			}
+			struct gsocket_error *err = (struct gsocket_error *)optval;
+			memset(err, 0, sizeof(*err));
+			err->layer = SOL_SOCKS5;
+			err->error_code = ctx->last_error_code;
+			safe_strncpy(err->message, ctx->error_msg, sizeof(err->message));
+			return 0;
+		}
 	}
 
 	if (io->lower && io->lower->getsockopt) {
@@ -1167,14 +1213,14 @@ static ssize_t _socks5_recvfrom(struct gsocket_io *io, void *buf, size_t len, in
 	socklen_t slen = sizeof(saddr);
 
 	if (ctx->is_server) {
-		if (ctx->udp_fd != -1) {
+		if (ctx->udp_fd >= 0) {
 			n = recvfrom(ctx->udp_fd, packet, sizeof(packet), flags, (struct sockaddr *)&saddr, &slen);
 			if (n > 0 && saddr.ss_family == AF_INET) {
 				ctx->relay_addr = *(struct sockaddr_in *)&saddr;
 			}
 		}
 	} else {
-		if (ctx->udp_fd != -1) {
+		if (ctx->udp_fd >= 0) {
 			n = recvfrom(ctx->udp_fd, packet, sizeof(packet), flags, (struct sockaddr *)&saddr, &slen);
 		} else {
 			n = io->lower->recvfrom(io->lower, packet, sizeof(packet), flags, (struct sockaddr *)&saddr, &slen);
@@ -1254,12 +1300,12 @@ static ssize_t _socks5_sendto(struct gsocket_io *io, const void *buf, size_t len
 		if (ctx->relay_addr.sin_port == 0) {
 			return -1;
 		}
-		if (ctx->udp_fd != -1) {
+		if (ctx->udp_fd >= 0) {
 			return sendto(ctx->udp_fd, packet, offset + len, flags, (struct sockaddr *)&ctx->relay_addr,
 						  sizeof(ctx->relay_addr));
 		}
 	} else {
-		if (ctx->udp_fd != -1) {
+		if (ctx->udp_fd >= 0) {
 			return sendto(ctx->udp_fd, packet, offset + len, flags, (struct sockaddr *)&ctx->relay_addr,
 						  sizeof(ctx->relay_addr));
 		} else {
@@ -1280,13 +1326,16 @@ static ssize_t _socks5_recv(struct gsocket_io *io, void *buf, size_t len, int fl
 		memcpy(buf, ctx->buffer, copy);
 		memmove(ctx->buffer, ctx->buffer + copy, ctx->buf_len - copy);
 		ctx->buf_len -= (int)copy;
+		tlog(TLOG_DEBUG, "[SOCKS5] _socks5_recv pulled %zu bytes from internal buffer, remaining: %d", copy, ctx->buf_len);
 		return (ssize_t)copy;
 	}
 
 	if (ctx->is_udp) {
 		return _socks5_recvfrom(io, buf, len, flags, NULL, NULL);
 	}
-	return io->lower->recv(io->lower, buf, len, flags);
+
+	ssize_t ret = io->lower->recv(io->lower, buf, len, flags);
+	return ret;
 }
 
 static ssize_t _socks5_recvmsg(struct gsocket_io *io, struct msghdr *msg, int flags)
@@ -1383,6 +1432,8 @@ struct gsocket_io *gsocket_io_socks5_new(const char *proxy_ip, int proxy_port, c
 	io->free = _socks5_free;
 	io->get_proxy_target = _socks5_get_target;
 	io->getsockopt = _socks5_getsockopt;
+	io->getpeername = _io_proxy_getpeername;
+	io->getsockname = _io_proxy_getsockname;
 	io->get_error = _socks5_get_error;
 
 	return io;
@@ -1428,17 +1479,18 @@ static struct gsocket_io *_socks5_accept(struct gsocket_io *io, struct sockaddr 
 
 struct gsocket_io *gsocket_io_socks5_server_new(const char *user, const char *pass)
 {
-	struct gsocket_io *io = calloc(1, sizeof(struct gsocket_io));
+	struct gsocket_io *io = zalloc(1, sizeof(struct gsocket_io));
 	if (!io) {
 		return NULL;
 	}
-	struct socks5_ctx *ctx = calloc(1, sizeof(struct socks5_ctx));
+	struct socks5_ctx *ctx = zalloc(1, sizeof(struct socks5_ctx));
 	if (!ctx) {
 		goto err;
 	}
 
 	ctx->is_server = 1;
 	ctx->state = S5_SRV_INIT;
+	ctx->control_fd = -1;
 	ctx->udp_fd = -1;
 
 	if (user) {
@@ -1470,6 +1522,9 @@ struct gsocket_io *gsocket_io_socks5_server_new(const char *user, const char *pa
 	io->get_proxy_target = _socks5_get_target;
 	io->accept = _socks5_accept;
 	io->getsockopt = _socks5_getsockopt;
+	io->getpeername = _io_proxy_getpeername;
+	io->getsockname = _io_proxy_getsockname;
+	io->get_error = _socks5_get_error;
 
 	return io;
 

@@ -71,8 +71,11 @@ int _config_proxy_server(void *data, int argc, char *argv[])
 
 	/* clang-format off */
 	static struct option long_options[] = {
-		{"name", required_argument, NULL, 'n'}, 
-		{"fallback", no_argument, NULL, 'k'},
+		{"name", required_argument, NULL, 'n'},
+		{"fallback", no_argument, NULL, 'f'},
+		{"ssl", no_argument, NULL, 'L'},
+		{"tls-host", required_argument, NULL, 'T'},
+		{"skip-cert-verify", no_argument, NULL, 'k'},
 		{NULL, no_argument, NULL, 0}
 	};
 	/* clang-format on */
@@ -92,10 +95,12 @@ int _config_proxy_server(void *data, int argc, char *argv[])
 		goto errout;
 	}
 
+	int ssl = 0;
+
 	/* process extra options */
 	optind = 1;
 	while (1) {
-		opt = getopt_long_only(argc, argv, "n:k", long_options, NULL);
+		opt = getopt_long_only(argc, argv, "n:fkLT:", long_options, NULL);
 		if (opt == -1) {
 			break;
 		}
@@ -105,8 +110,20 @@ int _config_proxy_server(void *data, int argc, char *argv[])
 			servers_name = optarg;
 			break;
 		}
-		case 'k': {
+		case 'f': {
 			server->fallback = 1;
+			break;
+		}
+		case 'k': {
+			server->skip_cert_verify = 1;
+			break;
+		}
+		case 'L': {
+			ssl = 1;
+			break;
+		}
+		case 'T': {
+			safe_strncpy(server->tls_host, optarg, sizeof(server->tls_host));
 			break;
 		}
 		default:
@@ -114,18 +131,26 @@ int _config_proxy_server(void *data, int argc, char *argv[])
 		}
 	}
 
-	if (strcasecmp(scheme, "socks5") == 0) {
+	if (strcasecmp(scheme, "socks5") == 0 || strcasecmp(scheme, "socks5s") == 0) {
 		if (port == PORT_NOT_DEFINED) {
 			port = 1080;
 		}
 
-		type = PROXY_SOCKS5;
-	} else if (strcasecmp(scheme, "http") == 0) {
+		if (strcasecmp(scheme, "socks5s") == 0 || ssl) {
+			type = PROXY_SOCKS5S;
+		} else {
+			type = PROXY_SOCKS5;
+		}
+	} else if (strcasecmp(scheme, "http") == 0 || strcasecmp(scheme, "https") == 0) {
 		if (port == PORT_NOT_DEFINED) {
 			port = 3128;
 		}
 
-		type = PROXY_HTTP;
+		if (strcasecmp(scheme, "https") == 0 || ssl) {
+			type = PROXY_HTTPS;
+		} else {
+			type = PROXY_HTTP;
+		}
 	} else if (strcasecmp(scheme, "passthrough") == 0 || strcasecmp(scheme, "direct") == 0) {
 		if (port == PORT_NOT_DEFINED) {
 			port = -1;
@@ -174,6 +199,7 @@ int _config_tproxy_server(void *data, int argc, char *argv[])
 										   {"group", required_argument, NULL, 'g'},
 										   {"firewall-type", required_argument, NULL, 'f'},
 										   {"udp", no_argument, NULL, 'u'},
+										   {"udp-only", no_argument, NULL, 'U'},
 										   {"set-mark", required_argument, NULL, 'm'},
 										   {"outbound-tproxy", required_argument, NULL, 'o'},
 										   {"speed-check", required_argument, NULL, 's'},
@@ -200,6 +226,7 @@ int _config_tproxy_server(void *data, int argc, char *argv[])
 	if (conf == NULL) {
 		return -1;
 	}
+	conf->tcp_support = 1;
 
 	// Set default values
 	conf->output_chain_enable = 1; // Default to enable OUTPUT chain
@@ -213,7 +240,7 @@ int _config_tproxy_server(void *data, int argc, char *argv[])
 
 	optind = 1;
 	while (1) {
-		opt = getopt_long_only(argc, argv, "n:p:g:f:u:m:o:s:FRSL:rC:TP:", long_options, NULL);
+		opt = getopt_long_only(argc, argv, "n:p:g:f:u:m:o:s:FRSL:rC:TP:U", long_options, NULL);
 		if (opt == -1) {
 			break;
 		}
@@ -233,6 +260,10 @@ int _config_tproxy_server(void *data, int argc, char *argv[])
 			break;
 		case 'u':
 			conf->udp_support = 1;
+			break;
+		case 'U':
+			conf->udp_support = 1;
+			conf->tcp_support = 0;
 			break;
 		case 'm':
 			conf->so_mark = atoi(optarg);
@@ -380,6 +411,7 @@ int _config_sniproxy_server(void *data, int argc, char *argv[])
 										   {"set-mark", required_argument, NULL, 'm'},
 										   {"speed-check", required_argument, NULL, 's'},
 										   {"force-aaaa-soa", no_argument, NULL, 'F'},
+										   {"target-port", required_argument, NULL, 'T'},
 										   {NULL, no_argument, NULL, 0}};
 	/* clang-format on */
 
@@ -403,7 +435,7 @@ int _config_sniproxy_server(void *data, int argc, char *argv[])
 
 	optind = 1;
 	while (1) {
-		opt = getopt_long_only(argc, argv, "n:p:g:r:s", long_options, NULL);
+		opt = getopt_long_only(argc, argv, "n:p:g:r:m:s:FT:", long_options, NULL);
 		if (opt == -1) {
 			break;
 		}
@@ -439,6 +471,9 @@ int _config_sniproxy_server(void *data, int argc, char *argv[])
 		case 'F':
 			conf->force_aaaa_soa = 1;
 			;
+			break;
+		case 'T':
+			conf->target_port = atoi(optarg);
 			break;
 		default:
 			break;
@@ -500,12 +535,15 @@ int _config_socks5_proxy_server(void *data, int argc, char *argv[])
 										   {"force-aaaa-soa", no_argument, NULL, 'F'},
 										   {"user", required_argument, NULL, 'u'},
 										   {"pass", required_argument, NULL, 'a'},
+										   {"ssl", no_argument, NULL, 'L'},
+										   {"tls-host", required_argument, NULL, 'T'},
+										   {"skip-cert-verify", no_argument, NULL, 'k'},
 										   {NULL, no_argument, NULL, 0}};
 	/* clang-format on */
 
 	if (argc < 2) {
 		tlog(TLOG_ERROR, "invalid parameter, usage: socks5-proxy-server [IP]:port -name name -proxy proxyname "
-						 "[-speed-test yes|no|auto] [-user user -pass pass]");
+						 "[-speed-test yes|no|auto] [-user user -pass pass] [-ssl]");
 		return -1;
 	}
 
@@ -523,7 +561,7 @@ int _config_socks5_proxy_server(void *data, int argc, char *argv[])
 
 	optind = 1;
 	while (1) {
-		opt = getopt_long_only(argc, argv, "n:p:g:r:s:u:a:", long_options, NULL);
+		opt = getopt_long_only(argc, argv, "n:p:g:r:m:s:u:a:LT:k", long_options, NULL);
 		if (opt == -1) {
 			break;
 		}
@@ -564,7 +602,15 @@ int _config_socks5_proxy_server(void *data, int argc, char *argv[])
 			break;
 		case 'F':
 			conf->force_aaaa_soa = 1;
-			;
+			break;
+		case 'L':
+			conf->ssl_support = 1;
+			break;
+		case 'k':
+			conf->skip_cert_verify = 1;
+			break;
+		case 'T':
+			safe_strncpy(conf->tls_host, optarg, sizeof(conf->tls_host));
 			break;
 		default:
 			break;
@@ -626,12 +672,15 @@ int _config_http_proxy_server(void *data, int argc, char *argv[])
 										   {"force-aaaa-soa", no_argument, NULL, 'F'},
 										   {"user", required_argument, NULL, 'u'},
 										   {"pass", required_argument, NULL, 'a'},
+										   {"ssl", no_argument, NULL, 'L'},
+										   {"tls-host", required_argument, NULL, 'T'},
+										   {"skip-cert-verify", no_argument, NULL, 'k'},
 										   {NULL, no_argument, NULL, 0}};
 	/* clang-format on */
 
 	if (argc < 2) {
 		tlog(TLOG_ERROR, "invalid parameter, usage: http-proxy-server [IP]:port -name name -proxy proxyname "
-						 "[-speed-test yes|no|auto] [-user user -pass pass]");
+						 "[-speed-test yes|no|auto] [-user user -pass pass] [-ssl]");
 		return -1;
 	}
 
@@ -649,7 +698,7 @@ int _config_http_proxy_server(void *data, int argc, char *argv[])
 
 	optind = 1;
 	while (1) {
-		opt = getopt_long_only(argc, argv, "n:p:g:r:s:u:a:", long_options, NULL);
+		opt = getopt_long_only(argc, argv, "n:p:g:r:m:s:u:a:LT:k", long_options, NULL);
 		if (opt == -1) {
 			break;
 		}
@@ -690,6 +739,15 @@ int _config_http_proxy_server(void *data, int argc, char *argv[])
 			break;
 		case 'F':
 			conf->force_aaaa_soa = 1;
+			break;
+		case 'L':
+			conf->ssl_support = 1;
+			break;
+		case 'k':
+			conf->skip_cert_verify = 1;
+			break;
+		case 'T':
+			safe_strncpy(conf->tls_host, optarg, sizeof(conf->tls_host));
 			break;
 		default:
 			break;
@@ -818,19 +876,24 @@ int _config_forward_server(void *data, int argc, char *argv[])
 	static struct option long_options[] = {{"name", required_argument, NULL, 'n'},
 										   {"proxy", required_argument, NULL, 'p'},
 										   {"target", required_argument, NULL, 't'},
+										   {"targets", required_argument, NULL, 'T'},
 										   {"udp", no_argument, NULL, 'u'},
+										   {"udp-only", no_argument, NULL, 'U'},
 										   {"set-mark", required_argument, NULL, 'm'},
+										   {"tls-host", required_argument, NULL, 'H'},
+										   {"skip-cert-verify", no_argument, NULL, 'k'},
 										   {NULL, no_argument, NULL, 0}};
 
 	if (argc < 2) {
-		tlog(TLOG_ERROR, "invalid parameter, usage: forward-server [IP]:port -target [IP]:port [-name name] [-proxy proxyname] [-udp] [-set-mark mark]");
+		tlog(TLOG_ERROR, "invalid parameter, usage: forward-server [IP]:port [-target [IP]:port] [-targets [IP]:port] [-name name] [-proxy proxyname] [-udp] [-set-mark mark]");
 		return -1;
 	}
 
 	conf = zalloc(1, sizeof(*conf));
 	if (conf == NULL) {
 		return -1;
-	}
+}
+	conf->tcp_support = 1;
 
 	ip = argv[1];
 	if (_bind_is_ip_valid(ip) != 0) {
@@ -841,7 +904,7 @@ int _config_forward_server(void *data, int argc, char *argv[])
 
 	optind = 1;
 	while (1) {
-		opt = getopt_long_only(argc, argv, "n:p:t:um:", long_options, NULL);
+		opt = getopt_long_only(argc, argv, "n:p:t:um:H:k", long_options, NULL);
 		if (opt == -1) {
 			break;
 		}
@@ -855,12 +918,26 @@ int _config_forward_server(void *data, int argc, char *argv[])
 			break;
 		case 't':
 			safe_strncpy(conf->target, optarg, sizeof(conf->target));
+			conf->ssl_target = 0;
+			break;
+		case 'T':
+			safe_strncpy(conf->target, optarg, sizeof(conf->target));
+			conf->ssl_target = 1;
 			break;
 		case 'u':
 			conf->udp_support = 1;
-			break;
-		case 'm':
+break;
+		case 'U':
+			conf->udp_support = 1;
+			conf->tcp_support = 0;
+			break;		case 'm':
 			conf->so_mark = atoi(optarg);
+			break;
+		case 'H':
+			safe_strncpy(conf->tls_host, optarg, sizeof(conf->tls_host));
+			break;
+		case 'k':
+			conf->skip_cert_verify = 1;
 			break;
 		default:
 			break;
@@ -895,6 +972,35 @@ errout:
 	return -1;
 }
 
+static char *_get_config_name_from_argv(int argc, char *argv[])
+{
+	for (int i = 0; i < argc; i++) {
+		if (argv[i] && (strcmp(argv[i], "-n") == 0 || strcmp(argv[i], "-name") == 0)) {
+			if (i + 1 < argc) {
+				return argv[i + 1];
+			}
+		}
+	}
+	return NULL;
+}
+
+static void _enable_proxy_ssl(const char *name, int is_socks5)
+{
+	if (is_socks5) {
+		struct dns_socks5_proxy_server_conf *conf = dns_conf_get_socks5_proxy_server(name);
+		if (conf) {
+			conf->ssl_support = 1;
+			dns_conf.need_cert = 1;
+		}
+	} else {
+		struct dns_http_proxy_server_conf *conf = dns_conf_get_http_proxy_server(name);
+		if (conf) {
+			conf->ssl_support = 1;
+			dns_conf.need_cert = 1;
+		}
+	}
+}
+
 int _config_proxy_bind(void *data, int argc, char *argv[])
 {
 	if (argc < 2) {
@@ -909,12 +1015,41 @@ int _config_proxy_bind(void *data, int argc, char *argv[])
 	} else if (strncmp(arg, "sni://", 6) == 0) {
 		argv[1] = arg + 6;
 		return _config_sniproxy_server(data, argc, argv);
+	} else if (strncmp(arg, "socks5s://", 10) == 0) {
+		argv[1] = arg + 10;
+		int ret = _config_socks5_proxy_server(data, argc, argv);
+		if (ret == 0) {
+			_enable_proxy_ssl(_get_config_name_from_argv(argc, argv), 1);
+		}
+		return ret;
 	} else if (strncmp(arg, "socks5://", 9) == 0) {
 		argv[1] = arg + 9;
 		return _config_socks5_proxy_server(data, argc, argv);
+	} else if (strncmp(arg, "https://", 8) == 0) {
+		argv[1] = arg + 8;
+		int ret = _config_http_proxy_server(data, argc, argv);
+		if (ret == 0) {
+			_enable_proxy_ssl(_get_config_name_from_argv(argc, argv), 0);
+		}
+		return ret;
 	} else if (strncmp(arg, "http://", 7) == 0) {
 		argv[1] = arg + 7;
 		return _config_http_proxy_server(data, argc, argv);
+	} else if (strncmp(arg, "forwards://", 11) == 0) {
+		argv[1] = arg + 11;
+		int ret = _config_forward_server(data, argc, argv);
+		if (ret == 0) {
+			unsigned long idx;
+			struct dns_forward_server_conf *f_conf;
+			hash_for_each(dns_proxy_table.forward, idx, f_conf, node)
+			{
+				if (strcmp(f_conf->server, arg + 11) == 0) {
+					f_conf->ssl_listen = 1;
+					dns_conf.need_cert = 1;
+				}
+			}
+		}
+		return ret;
 	} else if (strncmp(arg, "forward://", 10) == 0) {
 		argv[1] = arg + 10;
 		return _config_forward_server(data, argc, argv);

@@ -34,7 +34,9 @@ extern "C" {
 typedef enum {
 	PROXY_PASSTHROUGH,
 	PROXY_SOCKS5,
+	PROXY_SOCKS5S,
 	PROXY_HTTP,
+	PROXY_HTTPS,
 	PROXY_TYPE_END,
 } proxy_type_t;
 

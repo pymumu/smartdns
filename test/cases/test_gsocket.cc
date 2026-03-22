@@ -2924,7 +2924,7 @@ TEST(GSocketTest, TProxyOrigDst)
 TEST(GSocketTest, SNIProxy)
 {
 	struct gsocket *s = gsocket_new(socket(AF_INET, SOCK_STREAM, 0));
-	gsocket_push_layer(s, gsocket_io_sniproxy_server_new());
+	gsocket_push_layer(s, gsocket_io_sniproxy_server_new(80));
 	gsocket_bind(s, "127.0.0.1", 0);
 	int port = get_socket_port(s);
 	gsocket_listen(s, 1);
@@ -5329,7 +5329,7 @@ TEST(GSocketTest, SNIProxyHandshakePassThrough)
 	struct gsocket_io *mock_listener = _mock_listener_new();
 	gsocket_push_layer(listener_gs, mock_listener);
 
-	struct gsocket_io *sniproxy_listener = gsocket_io_sniproxy_server_new();
+	struct gsocket_io *sniproxy_listener = gsocket_io_sniproxy_server_new(80);
 	gsocket_push_layer(listener_gs, sniproxy_listener);
 
 	/* Accept a connection */

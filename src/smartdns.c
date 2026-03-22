@@ -695,7 +695,7 @@ static int _smartdns_init(void)
 
 	ret = proxy_server_init();
 	if (ret != 0) {
-		tlog(TLOG_ERROR, "start proxy server failed (check if running as root for TPROXY features).\n");
+		tlog(TLOG_ERROR, "start proxy server failed.\n");
 		goto errout;
 	}
 

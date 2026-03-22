@@ -462,7 +462,7 @@ int generate_cert_key(const char *key_path, const char *cert_path, const char *r
 	server_key_file = BIO_new_file(key_path, "wb");
 	server_cert_file = BIO_new_file(cert_path, "wb");
 	if (server_key_file == NULL || server_cert_file == NULL) {
-		tlog(TLOG_ERROR, "create key/cert file failed.");
+		tlog(TLOG_ERROR, "create key/cert file failed, key_path: %s, cert_path: %s", key_path, cert_path);
 		return -1;
 	}
 

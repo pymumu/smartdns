@@ -33,10 +33,6 @@ struct sniproxy_ctx {
 	int sni_parsed;
 };
 
-static ssize_t _sniproxy_recv(struct gsocket_io *io, void *buf, size_t len, int flags)
-{
-	return io->lower->recv(io->lower, buf, len, flags);
-}
 
 static ssize_t _sniproxy_send(struct gsocket_io *io, const void *buf, size_t len, int flags)
 {
@@ -84,7 +80,7 @@ static int _sniproxy_handshake(struct gsocket_io *io)
 
 	/* SNI Found */
 	safe_strncpy(ctx->target.host, sni, sizeof(ctx->target.host));
-	ctx->target.port = 443;
+	ctx->target.port = ctx->target.port ? ctx->target.port : 443;
 	ctx->target_valid = 1;
 	ctx->sni_parsed = 1;
 
@@ -107,6 +103,20 @@ static ssize_t _sniproxy_recv_wrapper(struct gsocket_io *io, void *buf, size_t l
 	}
 
 	return io->lower->recv(io->lower, buf, len, flags);
+}
+
+static int _sniproxy_get_poll_events(struct gsocket_io *io)
+{
+	struct sniproxy_ctx *ctx = (struct sniproxy_ctx *)io->ctx;
+	int events = 0;
+	if (io->lower && io->lower->get_poll_events) {
+		events = io->lower->get_poll_events(io->lower);
+	}
+
+	if (ctx->buf_len > 0) {
+		events |= EPOLLIN;
+	}
+	return events;
 }
 
 static int _sniproxy_get_proxy_target(struct gsocket_io *io, struct gsocket_address *target)
@@ -202,6 +212,9 @@ static struct gsocket_io *_sniproxy_accept(struct gsocket_io *io, struct sockadd
 	sni_io->ctx = ctx;
 	sni_io->lower = client_io;
 
+	struct sniproxy_ctx *srv_ctx = (struct sniproxy_ctx *)io->ctx;
+	ctx->target.port = srv_ctx->target.port;
+
 	sni_io->handshake = _sniproxy_handshake;
 	sni_io->recv = _sniproxy_recv_wrapper; /* Specific wrapper to handle buffered data */
 	sni_io->send = _sniproxy_send;
@@ -231,7 +244,7 @@ err:
 	return NULL;
 }
 
-struct gsocket_io *gsocket_io_sniproxy_server_new(void)
+struct gsocket_io *gsocket_io_sniproxy_server_new(uint16_t target_port)
 {
 	struct gsocket_io *io = calloc(1, sizeof(struct gsocket_io));
 	if (!io) {
@@ -243,6 +256,7 @@ struct gsocket_io *gsocket_io_sniproxy_server_new(void)
 		goto err;
 	}
 	io->ctx = ctx;
+	ctx->target.port = target_port;
 
 	io->accept = _sniproxy_accept;
 
@@ -257,10 +271,11 @@ struct gsocket_io *gsocket_io_sniproxy_server_new(void)
 	io->getpeername = _sniproxy_getpeername;
 	io->getsockopt = _sniproxy_getsockopt;
 	io->setsockopt = _sniproxy_setsockopt;
-	io->recv = _sniproxy_recv;
+	io->recv = _sniproxy_recv_wrapper; /* Fix: use wrapper to handle buffered data */
 	io->send = _sniproxy_send;
 	io->recvmsg = _sniproxy_recvmsg;
 	io->sendmsg = _sniproxy_sendmsg;
+	io->get_poll_events = _sniproxy_get_poll_events;
 
 	return io;
 

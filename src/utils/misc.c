@@ -158,6 +158,7 @@ char *to_lower_case(char *output, const char *input, int len)
 int full_path(char *normalized_path, int normalized_path_len, const char *path)
 {
 	const char *p = path;
+	char buf[PATH_MAX];
 
 	if (path == NULL || normalized_path == NULL) {
 		return -1;
@@ -171,7 +172,6 @@ int full_path(char *normalized_path, int normalized_path_len, const char *path)
 		return -1;
 	}
 
-	char buf[PATH_MAX];
 	snprintf(normalized_path, normalized_path_len, "%s/%s", getcwd(buf, sizeof(buf)), path);
 	return 0;
 }

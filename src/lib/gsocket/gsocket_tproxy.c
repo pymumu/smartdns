@@ -41,6 +41,14 @@
 #define IP6T_SO_ORIGINAL_DST 80
 #endif
 
+#ifndef IPV6_RECVORIGDSTADDR
+#define IPV6_RECVORIGDSTADDR 74
+#endif
+
+#ifndef IPV6_TRANSPARENT
+#define IPV6_TRANSPARENT 75
+#endif
+
 struct tproxy_ctx {
 	struct gsocket_address client_addr;
 	struct gsocket_address original_dst;
@@ -80,16 +88,18 @@ static ssize_t _tproxy_recvmsg(struct gsocket_io *io, struct msghdr *msg, int fl
 	struct tproxy_ctx *ctx = (struct tproxy_ctx *)io->ctx;
 	struct cmsghdr *cmsg;
 
+	/* For UDP, each packet has its own original destination. Reset valid flag. */
+	ctx->original_dst_valid = 0;
+
 	/* Save original control buffer to avoid dangling pointer */
 	void *saved_control = msg->msg_control;
 	socklen_t saved_controllen = msg->msg_controllen;
 	char control_tmp[256];
 
-	if (!ctx->original_dst_valid) {
-		if (msg->msg_control == NULL || msg->msg_controllen < sizeof(control_tmp)) {
-			msg->msg_control = control_tmp;
-			msg->msg_controllen = sizeof(control_tmp);
-		}
+	/* If caller didn't provide enough control buffer, use our temporary one to capture TProxy info */
+	if (msg->msg_control == NULL || msg->msg_controllen < sizeof(control_tmp)) {
+		msg->msg_control = control_tmp;
+		msg->msg_controllen = sizeof(control_tmp);
 	}
 
 	ssize_t ret = io->lower->recvmsg(io->lower, msg, flags);
@@ -100,7 +110,7 @@ static ssize_t _tproxy_recvmsg(struct gsocket_io *io, struct msghdr *msg, int fl
 	}
 
 	/* Extract original destination from CMSG if available */
-	if (!ctx->original_dst_valid && msg->msg_controllen > 0) {
+	if (msg->msg_controllen > 0) {
 		for (cmsg = CMSG_FIRSTHDR(msg); cmsg != NULL; cmsg = CMSG_NXTHDR(msg, cmsg)) {
 			if (cmsg->cmsg_level == SOL_IP && cmsg->cmsg_type == IP_RECVORIGDSTADDR) {
 				struct sockaddr_in *sin = (struct sockaddr_in *)CMSG_DATA(cmsg);
@@ -118,10 +128,11 @@ static ssize_t _tproxy_recvmsg(struct gsocket_io *io, struct msghdr *msg, int fl
 		}
 	}
 
-	/* Restore original pointers, though any control data received is now inaccessible to the caller
-	   if we overrode it. This is a compromise to ensure safety. */
+	/* Restore original pointers */
 	msg->msg_control = saved_control;
-	msg->msg_controllen = saved_controllen;
+	if (msg->msg_control != control_tmp) {
+		msg->msg_controllen = saved_controllen;
+	}
 
 	return ret;
 }
@@ -139,6 +150,7 @@ static int _tproxy_bind(struct gsocket_io *io, const char *host, int port)
 		setsockopt(fd, SOL_IP, IP_RECVORIGDSTADDR, &opt, sizeof(opt));
 		setsockopt(fd, SOL_IPV6, IPV6_RECVORIGDSTADDR, &opt, sizeof(opt));
 		setsockopt(fd, SOL_IP, IP_TRANSPARENT, &opt, sizeof(opt));
+		setsockopt(fd, SOL_IPV6, IPV6_TRANSPARENT, &opt, sizeof(opt));
 	}
 	return io->lower->bind(io->lower, host, port);
 }
@@ -256,6 +268,24 @@ static struct gsocket_io *_tproxy_accept(struct gsocket_io *io, struct sockaddr 
 			inet_ntop(AF_INET6, &sin6->sin6_addr, ctx->original_dst.host, sizeof(ctx->original_dst.host));
 			ctx->original_dst.port = ntohs(sin6->sin6_port);
 			ctx->original_dst_valid = 1;
+		}
+
+		/* Fallback to getsockname for TProxy (non-NAT) connections */
+		if (!ctx->original_dst_valid) {
+			dst_len = sizeof(dst_addr);
+			if (getsockname(client_fd, (struct sockaddr *)&dst_addr, &dst_len) == 0) {
+				if (dst_addr.ss_family == AF_INET) {
+					struct sockaddr_in *sin = (struct sockaddr_in *)&dst_addr;
+					inet_ntop(AF_INET, &sin->sin_addr, ctx->original_dst.host, sizeof(ctx->original_dst.host));
+					ctx->original_dst.port = ntohs(sin->sin_port);
+					ctx->original_dst_valid = 1;
+				} else if (dst_addr.ss_family == AF_INET6) {
+					struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)&dst_addr;
+					inet_ntop(AF_INET6, &sin6->sin6_addr, ctx->original_dst.host, sizeof(ctx->original_dst.host));
+					ctx->original_dst.port = ntohs(sin6->sin6_port);
+					ctx->original_dst_valid = 1;
+				}
+			}
 		}
 	}
 

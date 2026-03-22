@@ -108,11 +108,15 @@ int _dns_create_socket(const char *host_ip, int type)
 		goto errout;
 	}
 
+	if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) != 0) {
+		tlog(TLOG_ERROR, "set socket SO_REUSEADDR failed.");
+		goto errout;
+	}
+#ifdef SO_REUSEPORT
+	setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &optval, sizeof(optval));
+#endif
+
 	if (type == SOCK_STREAM) {
-		if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) != 0) {
-			tlog(TLOG_ERROR, "set socket opt failed.");
-			goto errout;
-		}
 		/* enable TCP_FASTOPEN */
 		setsockopt(fd, SOL_TCP, TCP_FASTOPEN, &optval, sizeof(optval));
 		setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
