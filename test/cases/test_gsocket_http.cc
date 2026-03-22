@@ -15,8 +15,8 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-#include <gtest/gtest.h>
 #include <errno.h>
+#include <gtest/gtest.h>
 
 #include "smartdns/lib/gepoll.h"
 #include "smartdns/lib/gsocket.h"
@@ -52,8 +52,9 @@ namespace GSocketHTTPTestUtils
 static struct gsocket *create_listener(int port, int type)
 {
 	struct gsocket *sock = gsocket_new(socket(AF_INET, type, 0));
-	if (!sock)
+	if (!sock) {
 		return NULL;
+	}
 
 	int opt = 1;
 	gsocket_setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
@@ -85,19 +86,16 @@ static int get_socket_port(struct gsocket *sock)
 	return 0;
 }
 
-
-static int alpn_select_cb(SSL *ssl, const unsigned char **out, unsigned char *outlen,
-                          const unsigned char *in, unsigned int inlen, void *arg)
+static int alpn_select_cb(SSL *ssl, const unsigned char **out, unsigned char *outlen, const unsigned char *in,
+						  unsigned int inlen, void *arg)
 {
-    static const unsigned char server_protos[] = {
-        8, 'h', 't', 't', 'p', '/', '1', '.', '1',
-        2, 'h', '2'
-    };
+	static const unsigned char server_protos[] = {8, 'h', 't', 't', 'p', '/', '1', '.', '1', 2, 'h', '2'};
 
-    if (SSL_select_next_proto((unsigned char **)out, outlen, server_protos, sizeof(server_protos), in, inlen) != OPENSSL_NPN_NEGOTIATED) {
-        return SSL_TLSEXT_ERR_NOACK;
-    }
-    return SSL_TLSEXT_ERR_OK;
+	if (SSL_select_next_proto((unsigned char **)out, outlen, server_protos, sizeof(server_protos), in, inlen) !=
+		OPENSSL_NPN_NEGOTIATED) {
+		return SSL_TLSEXT_ERR_NOACK;
+	}
+	return SSL_TLSEXT_ERR_OK;
 }
 
 static SSL_CTX *init_ssl_ctx(bool server)
@@ -146,8 +144,10 @@ static std::string setup_test_www_dir(size_t index_html_size = 5000)
 	size_t written = ftell(fp);
 	size_t line_num = 0;
 	while (written < index_html_size - 200) {
-		fprintf(fp, "<p>Test content line %zu: Lorem ipsum dolor sit amet, consectetur adipiscing elit. "
-				"Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>\n", line_num++);
+		fprintf(fp,
+				"<p>Test content line %zu: Lorem ipsum dolor sit amet, consectetur adipiscing elit. "
+				"Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>\n",
+				line_num++);
 		written = ftell(fp);
 	}
 
@@ -165,7 +165,6 @@ static void cleanup_test_www_dir(const std::string &dir)
 	std::string cmd = "rm -rf " + dir;
 	system(cmd.c_str());
 }
-
 
 /* Helper to handle I/O for a stream. Returns true if stream should be closed/removed. */
 static bool handle_stream_io(struct gsocket *stream, struct gstream_poll *sp, void *user_data)
@@ -214,9 +213,9 @@ static bool handle_file_request(struct gsocket *stream, struct gstream_poll *sp,
 {
 	const char *root = (const char *)user_data;
 	char buf[1024];
-	
+
 	ssize_t n = gsocket_recv(stream, buf, sizeof(buf) - 1, 0);
-	
+
 	if (n < 0) {
 		if (errno == EAGAIN || errno == EWOULDBLOCK) {
 			return false;
@@ -299,17 +298,29 @@ static bool handle_file_request(struct gsocket *stream, struct gstream_poll *sp,
 		} else {
 			/* Set Content-Type */
 			const char *content_type = "application/octet-stream";
-			if (strstr(path, ".html")) content_type = "text/html";
-			else if (strstr(path, ".js")) content_type = "application/javascript";
-			else if (strstr(path, ".css")) content_type = "text/css";
-			else if (strstr(path, ".png")) content_type = "image/png";
-			else if (strstr(path, ".jpg")) content_type = "image/jpeg";
-			else if (strstr(path, ".ico")) content_type = "image/x-icon";
-			else if (strstr(path, ".svg")) content_type = "image/svg+xml";
-			else if (strstr(path, ".json")) content_type = "application/json";
-			else if (strstr(path, ".woff2")) content_type = "font/woff2";
-			else if (strstr(path, ".woff")) content_type = "font/woff";
-			else if (strstr(path, ".ttf")) content_type = "font/ttf";
+			if (strstr(path, ".html")) {
+				content_type = "text/html";
+			} else if (strstr(path, ".js")) {
+				content_type = "application/javascript";
+			} else if (strstr(path, ".css")) {
+				content_type = "text/css";
+			} else if (strstr(path, ".png")) {
+				content_type = "image/png";
+			} else if (strstr(path, ".jpg")) {
+				content_type = "image/jpeg";
+			} else if (strstr(path, ".ico")) {
+				content_type = "image/x-icon";
+			} else if (strstr(path, ".svg")) {
+				content_type = "image/svg+xml";
+			} else if (strstr(path, ".json")) {
+				content_type = "application/json";
+			} else if (strstr(path, ".woff2")) {
+				content_type = "font/woff2";
+			} else if (strstr(path, ".woff")) {
+				content_type = "font/woff";
+			} else if (strstr(path, ".ttf")) {
+				content_type = "font/ttf";
+			}
 
 			char header[128];
 			int hlen = snprintf(header, sizeof(header), "content-type: %s", content_type);
@@ -323,28 +334,28 @@ static bool handle_file_request(struct gsocket *stream, struct gstream_poll *sp,
 			size_t sent = 0;
 			if (content) {
 				fread(content, 1, size, fp);
-			/* Send all content - loop until everything is sent */
-			printf("Starting to send file: size=%ld\n", size);
-			while (sent < size) {
-				size_t remaining = size - sent;
-				int flags = MSG_NOSIGNAL;
-				/* Set GS_MSG_FIN on the last send */
-				if (remaining > 0 && sent + remaining == size) { // Only set FIN on the very last chunk
-					flags |= GS_MSG_FIN;
-				}
-				ssize_t s = gsocket_send(stream, content + sent, remaining, flags);
-				if (s <= 0) {
-					if (errno == EAGAIN || errno == EWOULDBLOCK) {
-						/* Process pending events (e.g. WINDOW_UPDATE) during backpressure */
-						struct gstream_event events[1];
-						gstream_poll_wait(sp, events, 1, 10);
-						continue;
+				/* Send all content - loop until everything is sent */
+				printf("Starting to send file: size=%ld\n", size);
+				while (sent < size) {
+					size_t remaining = size - sent;
+					int flags = MSG_NOSIGNAL;
+					/* Set GS_MSG_FIN on the last send */
+					if (remaining > 0 && sent + remaining == size) { // Only set FIN on the very last chunk
+						flags |= GS_MSG_FIN;
 					}
-					break;
+					ssize_t s = gsocket_send(stream, content + sent, remaining, flags);
+					if (s <= 0) {
+						if (errno == EAGAIN || errno == EWOULDBLOCK) {
+							/* Process pending events (e.g. WINDOW_UPDATE) during backpressure */
+							struct gstream_event events[1];
+							gstream_poll_wait(sp, events, 1, 10);
+							continue;
+						}
+						break;
+					}
+					sent += s;
 				}
-				sent += s;
-			}
-			free(content);
+				free(content);
 			}
 		}
 		fclose(fp);
@@ -374,7 +385,9 @@ static void process_stream_events_generic(struct gsocket *conn, struct gstream_p
 	while (true) {
 		struct gstream_event stream_events[64];
 		int ret = gstream_poll_wait(sp, stream_events, 64, 0);
-		if (ret <= 0) break;
+		if (ret <= 0) {
+			break;
+		}
 
 		for (int i = 0; i < ret; i++) {
 			struct gsocket *s = stream_events[i].stream;
@@ -409,14 +422,15 @@ static void process_stream_events(struct gsocket *conn, struct gstream_poll *sp,
 }
 
 void process_file_stream_events(struct gsocket *conn, struct gstream_poll *sp, struct gepoll *ep,
-									std::set<struct gsocket *> &clients,
-									std::map<struct gsocket *, std::set<struct gsocket *>> &conn_streams,
-									const char *root)
+								std::set<struct gsocket *> &clients,
+								std::map<struct gsocket *, std::set<struct gsocket *>> &conn_streams, const char *root)
 {
 	while (true) {
 		struct gstream_event stream_events[64];
 		int ret = gstream_poll_wait(sp, stream_events, 64, 0);
-		if (ret <= 0) break;
+		if (ret <= 0) {
+			break;
+		}
 
 		for (int i = 0; i < ret; i++) {
 			struct gsocket *s = stream_events[i].stream;
@@ -462,8 +476,9 @@ struct ServerSync {
 	{
 		std::lock_guard<std::mutex> lk(m);
 		ready = true;
-		if (p > 0)
+		if (p > 0) {
 			port = p;
+		}
 		cv.notify_one();
 	}
 	void wait()
@@ -473,7 +488,9 @@ struct ServerSync {
 	}
 };
 
-void gsocket_generic_server_thread_with_config(int port, int type, ServerSync *sync, std::atomic<bool> &running, std::function<void(struct gsocket*)> push_layers, StreamHandler handler, void *user_data)
+void gsocket_generic_server_thread_with_config(int port, int type, ServerSync *sync, std::atomic<bool> &running,
+											   std::function<void(struct gsocket *)> push_layers, StreamHandler handler,
+											   void *user_data)
 {
 	struct gsocket *listener = create_listener(port, type);
 	if (!listener) {
@@ -481,8 +498,10 @@ void gsocket_generic_server_thread_with_config(int port, int type, ServerSync *s
 		return;
 	}
 
-	if (push_layers) push_layers(listener);
-	
+	if (push_layers) {
+		push_layers(listener);
+	}
+
 	/* Ensure we listen (activates QUIC listener state if applicable) */
 	if (gsocket_listen(listener, 50) != 0) {
 	}
@@ -507,7 +526,7 @@ void gsocket_generic_server_thread_with_config(int port, int type, ServerSync *s
 			if (sock != listener && clients.count(sock) == 0) {
 				continue;
 			}
-			
+
 			/* 1. Drive Network I/O for ALL sockets (TCP and UDP/Listener) */
 			int hr = gsocket_handshake(sock);
 
@@ -522,7 +541,7 @@ void gsocket_generic_server_thread_with_config(int port, int type, ServerSync *s
 						} else {
 							evs = EPOLLIN;
 						}
-						
+
 						if (hr == GSOCKET_HANDSHAKE_WANT_WRITE) {
 							evs |= EPOLLOUT;
 						} else if (hr == GSOCKET_HANDSHAKE_WANT_READ) {
@@ -548,7 +567,7 @@ void gsocket_generic_server_thread_with_config(int port, int type, ServerSync *s
 						clients.erase(sock);
 					}
 				}
-				
+
 				if (sock != listener) {
 					continue;
 				}
@@ -562,8 +581,8 @@ void gsocket_generic_server_thread_with_config(int port, int type, ServerSync *s
 						if (type == SOCK_STREAM) {
 							gepoll_add(ep, client, EPOLLIN | EPOLLOUT, client);
 						}
-                        /* Drive handshake immediately for new connection */
-                        gsocket_handshake(client);
+						/* Drive handshake immediately for new connection */
+						gsocket_handshake(client);
 
 						clients.insert(client);
 						struct gstream_poll *sp = gstream_poll_create(client);
@@ -585,11 +604,15 @@ void gsocket_generic_server_thread_with_config(int port, int type, ServerSync *s
 
 		if (type == SOCK_DGRAM || n == 0) {
 			std::vector<struct gsocket *> drive_list;
-			if (type == SOCK_DGRAM) drive_list.push_back(listener);
+			if (type == SOCK_DGRAM) {
+				drive_list.push_back(listener);
+			}
 			drive_list.insert(drive_list.end(), clients.begin(), clients.end());
 
 			for (auto sock : drive_list) {
-				if (sock != listener && clients.count(sock) == 0) continue;
+				if (sock != listener && clients.count(sock) == 0) {
+					continue;
+				}
 
 				/* Drive handshake */
 				int hr = gsocket_handshake(sock);
@@ -635,7 +658,8 @@ void gsocket_generic_server_thread_with_config(int port, int type, ServerSync *s
 
 				/* For Clients, process streams */
 				if (sock != listener && clients.count(sock)) {
-					process_stream_events_generic(sock, client_polls[sock], ep, clients, conn_streams, handler, user_data);
+					process_stream_events_generic(sock, client_polls[sock], ep, clients, conn_streams, handler,
+												  user_data);
 				}
 			}
 		}
@@ -660,8 +684,8 @@ void gsocket_generic_server_thread_with_config(int port, int type, ServerSync *s
 
 void gsocket_generic_server_thread(int port, ServerSync *sync, std::atomic<bool> &running, LayerCreator layer_fn)
 {
-	gsocket_generic_server_thread_with_config(port, SOCK_STREAM, sync, running, 
-		[layer_fn](struct gsocket *l) { gsocket_push_layer(l, layer_fn(1)); },
+	gsocket_generic_server_thread_with_config(
+		port, SOCK_STREAM, sync, running, [layer_fn](struct gsocket *l) { gsocket_push_layer(l, layer_fn(1)); },
 		handle_stream_io, (void *)"Response");
 }
 
@@ -677,7 +701,8 @@ void gsocket_http3_server_thread(int port, ServerSync *sync, std::atomic<bool> &
 	SSL_CTX_use_PrivateKey_file(ssl_ctx, key, SSL_FILETYPE_PEM);
 	SSL_CTX_use_certificate_file(ssl_ctx, cert, SSL_FILETYPE_PEM);
 
-	gsocket_generic_server_thread_with_config(port, SOCK_DGRAM, sync, running,
+	gsocket_generic_server_thread_with_config(
+		port, SOCK_DGRAM, sync, running,
 		[ssl_ctx](struct gsocket *l) {
 			gsocket_push_layer(l, gsocket_io_ssl_quic_new(ssl_ctx, 1));
 			gsocket_push_layer(l, gsocket_io_http3_new(1));
@@ -704,15 +729,15 @@ static bool handle_http2_status_test(struct gsocket *stream, struct gstream_poll
 
 void gsocket_http2_status_server_thread(int port, ServerSync *sync, std::atomic<bool> &running)
 {
-	gsocket_generic_server_thread_with_config(port, SOCK_STREAM, sync, running,
-		[](struct gsocket *l) { gsocket_push_layer(l, gsocket_io_http2_new(1)); },
+	gsocket_generic_server_thread_with_config(
+		port, SOCK_STREAM, sync, running, [](struct gsocket *l) { gsocket_push_layer(l, gsocket_io_http2_new(1)); },
 		handle_http2_status_test, NULL);
 }
 
 void gsocket_http1_file_server_thread(int port, const char *root, ServerSync *sync, std::atomic<bool> &running)
 {
-	gsocket_generic_server_thread_with_config(port, SOCK_STREAM, sync, running,
-		[](struct gsocket *l) { gsocket_push_layer(l, gsocket_io_http1_new(1)); },
+	gsocket_generic_server_thread_with_config(
+		port, SOCK_STREAM, sync, running, [](struct gsocket *l) { gsocket_push_layer(l, gsocket_io_http1_new(1)); },
 		handle_file_request, (void *)root);
 }
 
@@ -721,7 +746,8 @@ void gsocket_http2_file_server_thread(int port, const char *root, ServerSync *sy
 	SSL_CTX *ssl_ctx = init_ssl_ctx(true);
 	const char *protos = "h2";
 
-	gsocket_generic_server_thread_with_config(port, SOCK_STREAM, sync, running,
+	gsocket_generic_server_thread_with_config(
+		port, SOCK_STREAM, sync, running,
 		[ssl_ctx, protos](struct gsocket *l) {
 			gsocket_push_layer(l, gsocket_io_ssl_new(ssl_ctx, 1));
 			gsocket_push_layer(l, gsocket_io_http2_new(1));
@@ -808,8 +834,9 @@ static void client_h3_task(int port, int id, const char *path = "/", const char 
 		/* Wait for handshake */
 		int retries = 0;
 		while (retries++ < 100) {
-			if (gsocket_handshake(sock) == GSOCKET_HANDSHAKE_DONE)
+			if (gsocket_handshake(sock) == GSOCKET_HANDSHAKE_DONE) {
 				break;
+			}
 			struct gepoll_event ev;
 			gepoll_wait(ep, &ev, 1, 100);
 		}
@@ -951,8 +978,9 @@ TEST_F(GSocketHTTPTest, HTTP1LargeDataTransfer)
 	ssize_t sent = 0;
 	while (sent < (ssize_t)total) {
 		ssize_t n = gsocket_send(stream, data + sent, total - sent, 0);
-		if (n <= 0)
+		if (n <= 0) {
 			break;
+		}
 		sent += n;
 	}
 	ASSERT_EQ(sent, (ssize_t)total);
@@ -1107,8 +1135,9 @@ TEST_F(GSocketHTTPTest, ALPN_Negotiation)
 			if (gsocket_handshake(c) == GSOCKET_HANDSHAKE_DONE) {
 				char buf[128];
 				int n = gsocket_recv(c, buf, sizeof(buf), 0);
-				if (n > 0)
+				if (n > 0) {
 					gsocket_send(c, buf, n, 0);
+				}
 			}
 			gsocket_close(c);
 			gsocket_free(c);
@@ -1269,8 +1298,9 @@ TEST_F(GSocketHTTPTest, HTTP3StatusSetGet)
 			if (gsocket_connect(sock, "127.0.0.1", p) == 0 || errno == EINPROGRESS) {
 				int retries = 0;
 				while (retries++ < 100) {
-					if (gsocket_handshake(sock) == GSOCKET_HANDSHAKE_DONE)
+					if (gsocket_handshake(sock) == GSOCKET_HANDSHAKE_DONE) {
 						break;
+					}
 					struct gepoll_event ev;
 					gepoll_wait(ep, &ev, 1, 100);
 				}
@@ -1456,7 +1486,7 @@ TEST_F(GSocketHTTPTest, HTTP1FileServer)
 {
 	ServerSync sync;
 	std::atomic<bool> running(true);
-	std::string root = "/home/rock/code/smartdns/.vscode/www/";  // 32KB file
+	std::string root = "/home/rock/code/smartdns/.vscode/www/"; // 32KB file
 	ASSERT_FALSE(root.empty());
 	std::thread s(gsocket_http1_file_server_thread, 0, root.c_str(), &sync, std::ref(running));
 	sync.wait();
@@ -1476,14 +1506,16 @@ TEST_F(GSocketHTTPTest, HTTP1FileServer)
 	gsocket_setsockopt(stream, SOL_HTTP, SO_HTTP_URL, "/", 1);
 	gsocket_send(stream, NULL, 0, MSG_NOSIGNAL);
 
-	char *buf = (char *)malloc(256 * 1024);  // 256KB buffer for large files
+	char *buf = (char *)malloc(256 * 1024); // 256KB buffer for large files
 	ASSERT_NE(buf, nullptr);
-	
+
 	// Read all data (may require multiple recv calls for large files)
 	int total = 0;
 	while (total < 256 * 1024 - 1) {
 		int n = gsocket_recv(stream, buf + total, 256 * 1024 - 1 - total, 0);
-		if (n <= 0) break;
+		if (n <= 0) {
+			break;
+		}
 		total += n;
 	}
 	ASSERT_GT(total, 0);
@@ -1506,7 +1538,7 @@ TEST_F(GSocketHTTPTest, HTTP1FileServer)
 	ASSERT_EQ(total, size);
 	ASSERT_STREQ(buf, expected);
 	free(expected);
-	free(buf);  // Free the dynamically allocated buffer
+	free(buf); // Free the dynamically allocated buffer
 
 	gsocket_close(stream);
 	gsocket_free(stream);
@@ -1518,7 +1550,7 @@ TEST_F(GSocketHTTPTest, HTTP1FileServer)
 	gsocket_setsockopt(stream, SOL_HTTP, SO_HTTP_URL, "/not_exists", 11);
 	gsocket_send(stream, NULL, 0, MSG_NOSIGNAL);
 
-	char buf404[256];  // Small buffer for 404 response
+	char buf404[256]; // Small buffer for 404 response
 	int n = gsocket_recv(stream, buf404, sizeof(buf404) - 1, 0);
 	ASSERT_GT(n, 0);
 	buf404[n] = 0;
@@ -1543,7 +1575,7 @@ TEST_F(GSocketHTTPTest, HTTP2FileServer)
 {
 	ServerSync sync;
 	std::atomic<bool> running(true);
-	std::string root = "/home/rock/code/smartdns/.vscode/www/";  // 32KB file
+	std::string root = "/home/rock/code/smartdns/.vscode/www/"; // 32KB file
 	ASSERT_FALSE(root.empty());
 	std::thread s(gsocket_http2_file_server_thread, 0, root.c_str(), &sync, std::ref(running));
 	sync.wait();
@@ -1552,16 +1584,16 @@ TEST_F(GSocketHTTPTest, HTTP2FileServer)
 	printf("HTTPS File Server running on port %d\n", port);
 	// sleep(600);
 
-
 	struct gsocket *sock = gsocket_new(socket(AF_INET, SOCK_STREAM, 0));
 	SSL_CTX *ssl_ctx = init_ssl_ctx(false);
 	const char *protos = "h2";
-	
+
 	gsocket_push_layer(sock, gsocket_io_ssl_new(ssl_ctx, 0));
 	gsocket_push_layer(sock, gsocket_io_http2_new(0));
 	gsocket_setsockopt(sock, SOL_SSL, SO_SSL_ALPN, protos, strlen(protos));
 
-	printf("Connecting to 127.0.0.1:%d\n", port); fflush(stdout);
+	printf("Connecting to 127.0.0.1:%d\n", port);
+	fflush(stdout);
 	gsocket_set_nonblock(sock, 1);
 	int cr = gsocket_connect(sock, "127.0.0.1", port);
 	if (cr < 0 && errno == EINPROGRESS) {
@@ -1569,23 +1601,28 @@ TEST_F(GSocketHTTPTest, HTTP2FileServer)
 		struct pollfd pfd = {gsocket_get_fd(sock), POLLOUT, 0};
 		poll(&pfd, 1, 1000);
 	}
-	
-	printf("Driving client handshake...\n"); fflush(stdout);
+
+	printf("Driving client handshake...\n");
+	fflush(stdout);
 	int hr;
 	int retry = 0;
 	while ((hr = gsocket_handshake(sock)) != GSOCKET_HANDSHAKE_DONE && retry++ < 30000) {
 		if (hr == GSOCKET_HANDSHAKE_ERR) {
-			printf("Client handshake error!\n"); fflush(stdout);
+			printf("Client handshake error!\n");
+			fflush(stdout);
 			break;
 		}
 		if (retry % 100 == 0) {
-			printf("Client handshake: still in progress (hr=%d)...\n", hr); fflush(stdout);
+			printf("Client handshake: still in progress (hr=%d)...\n", hr);
+			fflush(stdout);
 		}
 		usleep(1000);
 	}
-	printf("Client handshake exited with %d (retry=%d).\n", hr, retry); fflush(stdout);
+	printf("Client handshake exited with %d (retry=%d).\n", hr, retry);
+	fflush(stdout);
 	ASSERT_EQ(hr, GSOCKET_HANDSHAKE_DONE);
-	printf("Client handshake done.\n"); fflush(stdout);
+	printf("Client handshake done.\n");
+	fflush(stdout);
 
 	/* Request index.html */
 	printf("Opening stream...\n");
@@ -1598,7 +1635,7 @@ TEST_F(GSocketHTTPTest, HTTP2FileServer)
 	gsocket_send(stream, NULL, 0, MSG_NOSIGNAL | GS_MSG_FIN);
 
 	printf("Waiting for response...\n");
-	
+
 	/* Get expected file size first */
 	std::string index_path = root + "/_next/static/chunks/1a5bd2cda26bbf61.js";
 	FILE *fp = fopen(index_path.c_str(), "rb");
@@ -1612,10 +1649,10 @@ TEST_F(GSocketHTTPTest, HTTP2FileServer)
 		expected[expected_size] = 0;
 	}
 	fclose(fp);
-	
-	char *buf = (char *)malloc(256 * 1024);  // 256KB buffer for large files
+
+	char *buf = (char *)malloc(256 * 1024); // 256KB buffer for large files
 	ASSERT_NE(buf, nullptr);
-	
+
 	// HTTP/2 may need multiple recv calls for large files
 	int total = 0;
 	while (total < expected_size) {
@@ -1640,7 +1677,7 @@ TEST_F(GSocketHTTPTest, HTTP2FileServer)
 	ASSERT_EQ(total, expected_size);
 	ASSERT_STREQ(buf, expected);
 	free(expected);
-	free(buf);  // Free the dynamically allocated buffer
+	free(buf); // Free the dynamically allocated buffer
 
 	gsocket_close(stream);
 	gsocket_free(stream);
@@ -1655,7 +1692,8 @@ TEST_F(GSocketHTTPTest, HTTP2FileServer)
 void gsocket_https_file_server_thread(int port, const char *root, ServerSync *sync, std::atomic<bool> &running)
 {
 	SSL_CTX *ssl_ctx = init_ssl_ctx(true);
-	gsocket_generic_server_thread_with_config(port, SOCK_STREAM, sync, running,
+	gsocket_generic_server_thread_with_config(
+		port, SOCK_STREAM, sync, running,
 		[ssl_ctx](struct gsocket *l) {
 			gsocket_push_layer(l, gsocket_io_ssl_new(ssl_ctx, 1));
 			gsocket_push_layer(l, gsocket_io_http1_new(1));
@@ -1668,7 +1706,7 @@ TEST_F(GSocketHTTPTest, HTTPSFileServer)
 {
 	ServerSync sync;
 	std::atomic<bool> running(true);
-	std::string root = "/home/rock/code/smartdns/.vscode/www/";  // 32KB file
+	std::string root = "/home/rock/code/smartdns/.vscode/www/"; // 32KB file
 	ASSERT_FALSE(root.empty());
 	std::thread s(gsocket_https_file_server_thread, 0, root.c_str(), &sync, std::ref(running));
 	sync.wait();
@@ -1703,9 +1741,9 @@ TEST_F(GSocketHTTPTest, HTTPSFileServer)
 	}
 	fclose(fp);
 
-	char *buf = (char *)malloc(256 * 1024);  // 256KB buffer for large files
+	char *buf = (char *)malloc(256 * 1024); // 256KB buffer for large files
 	ASSERT_NE(buf, nullptr);
-	
+
 	// HTTPS may need multiple recv calls for large files
 	int total = 0;
 	while (total < expected_size) {
@@ -1724,7 +1762,7 @@ TEST_F(GSocketHTTPTest, HTTPSFileServer)
 	ASSERT_EQ(total, expected_size);
 	ASSERT_STREQ(buf, expected);
 	free(expected);
-	free(buf);  // Free the dynamically allocated buffer
+	free(buf); // Free the dynamically allocated buffer
 
 	gsocket_close(stream);
 	gsocket_free(stream);
@@ -1736,7 +1774,7 @@ TEST_F(GSocketHTTPTest, HTTPSFileServer)
 	gsocket_setsockopt(stream, SOL_HTTP, SO_HTTP_URL, "/not_exists", 11);
 	gsocket_send(stream, NULL, 0, MSG_NOSIGNAL);
 
-	char buf404[256];  // Small buffer for 404 response
+	char buf404[256]; // Small buffer for 404 response
 	int n = gsocket_recv(stream, buf404, sizeof(buf404) - 1, 0);
 	ASSERT_GT(n, 0);
 	buf404[n] = 0;
@@ -1760,39 +1798,39 @@ TEST_F(GSocketHTTPTest, HTTPSFileServer)
 }
 
 // ALPN Callback for H3
-static int h3_alpn_select_cb(SSL *ssl, const unsigned char **out, unsigned char *outlen,
-                          const unsigned char *in, unsigned int inlen, void *arg)
+static int h3_alpn_select_cb(SSL *ssl, const unsigned char **out, unsigned char *outlen, const unsigned char *in,
+							 unsigned int inlen, void *arg)
 {
-    static const unsigned char server_protos[] = {
-        2, 'h', '3'
-    };
+	static const unsigned char server_protos[] = {2, 'h', '3'};
 
-    if (SSL_select_next_proto((unsigned char **)out, outlen, server_protos, sizeof(server_protos), in, inlen) != OPENSSL_NPN_NEGOTIATED) {
-        return SSL_TLSEXT_ERR_NOACK;
-    }
-    return SSL_TLSEXT_ERR_OK;
+	if (SSL_select_next_proto((unsigned char **)out, outlen, server_protos, sizeof(server_protos), in, inlen) !=
+		OPENSSL_NPN_NEGOTIATED) {
+		return SSL_TLSEXT_ERR_NOACK;
+	}
+	return SSL_TLSEXT_ERR_OK;
 }
 
 // HTTP3 File Server Thread
 void gsocket_http3_file_server_thread(int port, const char *root, ServerSync *sync, std::atomic<bool> &running)
 {
 	SSL_CTX *ssl_ctx = SSL_CTX_new(OSSL_QUIC_server_method());
-	
+
 	// Use correct HTTP3 ALPN setup
 	char key[PATH_MAX];
 	char cert[PATH_MAX];
 	smartdns_get_cert(key, cert);
 	SSL_CTX_use_PrivateKey_file(ssl_ctx, key, SSL_FILETYPE_PEM);
 	SSL_CTX_use_certificate_file(ssl_ctx, cert, SSL_FILETYPE_PEM);
-	
+
 	// For HTTP3, use callback for server selection
 	SSL_CTX_set_alpn_select_cb(ssl_ctx, h3_alpn_select_cb, NULL);
 	SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_NONE, NULL);
 
-	gsocket_generic_server_thread_with_config(port, SOCK_DGRAM, sync, running,
+	gsocket_generic_server_thread_with_config(
+		port, SOCK_DGRAM, sync, running,
 		[ssl_ctx](struct gsocket *l) {
 			gsocket_push_layer(l, gsocket_io_ssl_quic_new(ssl_ctx, 1));
-			gsocket_push_layer(l, gsocket_io_http3_new(1));  // Re-enable HTTP3
+			gsocket_push_layer(l, gsocket_io_http3_new(1)); // Re-enable HTTP3
 		},
 		handle_file_request, (void *)root);
 	SSL_CTX_free(ssl_ctx);
@@ -1803,7 +1841,7 @@ TEST_F(GSocketHTTPTest, HTTP3FileServer)
 #if defined(OSSL_QUIC1_VERSION) && !defined(OPENSSL_NO_QUIC)
 	ServerSync sync;
 	std::atomic<bool> running(true);
-	std::string root = "/home/rock/code/smartdns/.vscode/www/";  // 32KB file
+	std::string root = "/home/rock/code/smartdns/.vscode/www/"; // 32KB file
 	ASSERT_FALSE(root.empty());
 	// Use 0 to pick random port
 	std::thread s(gsocket_http3_file_server_thread, 0, root.c_str(), &sync, std::ref(running));
@@ -1811,7 +1849,7 @@ TEST_F(GSocketHTTPTest, HTTP3FileServer)
 	int port = sync.port;
 	ASSERT_GT(port, 0);
 	printf("HTTP3 File Server running on port %d\n", port);
-    
+
 	std::string cmd = "curl --connect-timeout 2 -k -v --http3 https://127.0.0.1:";
 	cmd += std::to_string(port);
 	cmd += "/index.html";
@@ -1850,12 +1888,13 @@ TEST_F(GSocketHTTPTest, HTTP3FileServer)
 void gsocket_alpn_http2_server_thread(int port, const char *root, ServerSync *sync, std::atomic<bool> &running)
 {
 	SSL_CTX *ssl_ctx = init_ssl_ctx(true);
-	const char *protos = "h2,http/1.1";  // Server supports both protocols
-	
-	gsocket_generic_server_thread_with_config(port, SOCK_STREAM, sync, running,
+	const char *protos = "h2,http/1.1"; // Server supports both protocols
+
+	gsocket_generic_server_thread_with_config(
+		port, SOCK_STREAM, sync, running,
 		[ssl_ctx, protos](struct gsocket *l) {
 			gsocket_push_layer(l, gsocket_io_ssl_new(ssl_ctx, 1));
-			gsocket_push_layer(l, gsocket_io_http2_new(1));  // HTTP/2 layer with auto-fallback
+			gsocket_push_layer(l, gsocket_io_http2_new(1)); // HTTP/2 layer with auto-fallback
 			gsocket_setsockopt(l, SOL_SSL, SO_SSL_ALPN, protos, strlen(protos));
 		},
 		handle_file_request, (void *)root);
@@ -1866,30 +1905,30 @@ TEST_F(GSocketHTTPTest, ALPN_HTTP2_Negotiation)
 {
 	ServerSync sync;
 	std::atomic<bool> running(true);
-	std::string root = setup_test_www_dir(5000);  // 5KB file
+	std::string root = setup_test_www_dir(5000); // 5KB file
 	ASSERT_FALSE(root.empty());
-	
+
 	std::thread s(gsocket_alpn_http2_server_thread, 0, root.c_str(), &sync, std::ref(running));
 	sync.wait();
 	int port = sync.port;
 	ASSERT_GT(port, 0);
-	
+
 	// Client requests h2 protocol
 	struct gsocket *sock = gsocket_new(socket(AF_INET, SOCK_STREAM, 0));
 	SSL_CTX *ssl_ctx = init_ssl_ctx(false);
-	const char *client_protos = "h2";  // Client prefers h2
-	
+	const char *client_protos = "h2"; // Client prefers h2
+
 	gsocket_push_layer(sock, gsocket_io_ssl_new(ssl_ctx, 0));
 	gsocket_push_layer(sock, gsocket_io_http2_new(0));
 	gsocket_setsockopt(sock, SOL_SSL, SO_SSL_ALPN, client_protos, strlen(client_protos));
-	
+
 	gsocket_set_nonblock(sock, 1);
 	int cr = gsocket_connect(sock, "127.0.0.1", port);
 	if (cr < 0 && errno == EINPROGRESS) {
 		struct pollfd pfd = {gsocket_get_fd(sock), POLLOUT, 0};
 		poll(&pfd, 1, 1000);
 	}
-	
+
 	// Drive handshake
 	int hr;
 	int retry = 0;
@@ -1900,40 +1939,42 @@ TEST_F(GSocketHTTPTest, ALPN_HTTP2_Negotiation)
 		usleep(1000);
 	}
 	ASSERT_EQ(hr, GSOCKET_HANDSHAKE_DONE);
-	
+
 	// Verify ALPN negotiated to h2
 	char negotiated_alpn[32] = {0};
 	socklen_t alpn_len = sizeof(negotiated_alpn) - 1;
 	gsocket_getsockopt(sock, SOL_SSL, SO_SSL_ALPN, negotiated_alpn, &alpn_len);
 	ASSERT_STREQ(negotiated_alpn, "h2");
-	
+
 	// Send HTTP/2 request
 	struct gsocket *stream = gsocket_open_stream(sock);
 	ASSERT_NE(stream, nullptr);
 	gsocket_setsockopt(stream, SOL_HTTP, SO_HTTP_METHOD, "GET", 4);
 	gsocket_setsockopt(stream, SOL_HTTP, SO_HTTP_URL, "/", 1);
 	gsocket_send(stream, NULL, 0, MSG_NOSIGNAL | GS_MSG_FIN);
-	
+
 	// Receive response
 	char buf[8192];
 	int total = 0;
 	while (total < (int)sizeof(buf) - 1) {
 		int n = gsocket_recv(stream, buf + total, sizeof(buf) - 1 - total, 0);
-		if (n <= 0) break;
+		if (n <= 0) {
+			break;
+		}
 		total += n;
 	}
 	ASSERT_GT(total, 0);
 	buf[total] = 0;
-	
+
 	// Verify response contains expected content
 	ASSERT_TRUE(strstr(buf, "SmartDNS Test Server") != NULL);
-	
+
 	gsocket_close(stream);
 	gsocket_free(stream);
 	gsocket_close(sock);
 	gsocket_free(sock);
 	SSL_CTX_free(ssl_ctx);
-	
+
 	running = false;
 	s.join();
 	cleanup_test_www_dir(root);
@@ -1943,31 +1984,31 @@ TEST_F(GSocketHTTPTest, ALPN_HTTP1_Fallback)
 {
 	ServerSync sync;
 	std::atomic<bool> running(true);
-	std::string root = setup_test_www_dir(5000);  // 5KB file
+	std::string root = setup_test_www_dir(5000); // 5KB file
 	ASSERT_FALSE(root.empty());
-	
+
 	// IDENTICAL server code as ALPN_HTTP2_Negotiation test
 	std::thread s(gsocket_alpn_http2_server_thread, 0, root.c_str(), &sync, std::ref(running));
 	sync.wait();
 	int port = sync.port;
 	ASSERT_GT(port, 0);
-	
+
 	// Client requests http/1.1 protocol
 	struct gsocket *sock = gsocket_new(socket(AF_INET, SOCK_STREAM, 0));
 	SSL_CTX *ssl_ctx = init_ssl_ctx(false);
-	const char *client_protos = "http/1.1";  // Client prefers http/1.1
-	
+	const char *client_protos = "http/1.1"; // Client prefers http/1.1
+
 	gsocket_push_layer(sock, gsocket_io_ssl_new(ssl_ctx, 0));
-	gsocket_push_layer(sock, gsocket_io_http2_new(0));  // Same HTTP/2 layer, will fallback internally
+	gsocket_push_layer(sock, gsocket_io_http2_new(0)); // Same HTTP/2 layer, will fallback internally
 	gsocket_setsockopt(sock, SOL_SSL, SO_SSL_ALPN, client_protos, strlen(client_protos));
-	
+
 	gsocket_set_nonblock(sock, 1);
 	int cr = gsocket_connect(sock, "127.0.0.1", port);
 	if (cr < 0 && errno == EINPROGRESS) {
 		struct pollfd pfd = {gsocket_get_fd(sock), POLLOUT, 0};
 		poll(&pfd, 1, 1000);
 	}
-	
+
 	// Drive handshake
 	int hr;
 	int retry = 0;
@@ -1978,20 +2019,20 @@ TEST_F(GSocketHTTPTest, ALPN_HTTP1_Fallback)
 		usleep(1000);
 	}
 	ASSERT_EQ(hr, GSOCKET_HANDSHAKE_DONE);
-	
+
 	// Verify ALPN negotiated to http/1.1
 	char negotiated_alpn[32] = {0};
 	socklen_t alpn_len = sizeof(negotiated_alpn) - 1;
 	gsocket_getsockopt(sock, SOL_SSL, SO_SSL_ALPN, negotiated_alpn, &alpn_len);
 	ASSERT_STREQ(negotiated_alpn, "http/1.1");
-	
+
 	// Send request using same HTTP/2 API (will use HTTP/1.1 internally)
 	struct gsocket *stream = gsocket_open_stream(sock);
 	ASSERT_NE(stream, nullptr);
 	gsocket_setsockopt(stream, SOL_HTTP, SO_HTTP_METHOD, "GET", 4);
 	gsocket_setsockopt(stream, SOL_HTTP, SO_HTTP_URL, "/", 1);
 	gsocket_send(stream, NULL, 0, MSG_NOSIGNAL);
-	
+
 	// Receive response
 	char buf[8192];
 	int total = 0;
@@ -2011,16 +2052,16 @@ TEST_F(GSocketHTTPTest, ALPN_HTTP1_Fallback)
 	}
 	ASSERT_GT(total, 0);
 	buf[total] = 0;
-	
+
 	// Verify response contains expected content
 	ASSERT_TRUE(strstr(buf, "SmartDNS Test Server") != NULL);
-	
+
 	gsocket_close(stream);
 	gsocket_free(stream);
 	gsocket_close(sock);
 	gsocket_free(sock);
 	SSL_CTX_free(ssl_ctx);
-	
+
 	running = false;
 	s.join();
 	cleanup_test_www_dir(root);

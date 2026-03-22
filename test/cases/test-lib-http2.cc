@@ -36,10 +36,12 @@ class LIBHTTP2 : public ::testing::Test
 
 	void TearDown() override
 	{
-		if (client_sock != -1)
+		if (client_sock != -1) {
 			close(client_sock);
-		if (server_sock != -1)
+		}
+		if (server_sock != -1) {
 			close(server_sock);
+		}
 	}
 
 	int socks[2];
@@ -87,10 +89,12 @@ TEST_F(LIBHTTP2, Integrated)
 				continue;
 			}
 			ret = http2_ctx_handshake(ctx);
-			if (ret == 1)
+			if (ret == 1) {
 				break;
-			if (ret < 0)
+			}
+			if (ret < 0) {
 				break;
+			}
 		}
 
 		ASSERT_EQ(ret, 1) << "Server handshake failed";
@@ -107,8 +111,9 @@ TEST_F(LIBHTTP2, Integrated)
 			for (int i = 0; i < count; i++) {
 				if (items[i].stream == nullptr && items[i].readable) {
 					stream = http2_ctx_accept_stream(ctx);
-					if (stream)
+					if (stream) {
 						break;
+					}
 				}
 			}
 			usleep(20000);
@@ -156,10 +161,12 @@ TEST_F(LIBHTTP2, Integrated)
 			struct pollfd pfd = {client_sock, POLLIN, 0};
 			poll(&pfd, 1, 10);
 			ret = http2_ctx_handshake(ctx);
-			if (ret == 1)
+			if (ret == 1) {
 				break;
-			if (ret < 0)
+			}
+			if (ret < 0) {
 				break;
+			}
 		}
 		ASSERT_EQ(ret, 1) << "Client handshake failed";
 
@@ -183,8 +190,9 @@ TEST_F(LIBHTTP2, Integrated)
 			struct http2_poll_item items[10];
 			int count = 0;
 			http2_ctx_poll(ctx, items, 10, &count);
-			if (http2_stream_get_status(stream) > 0)
+			if (http2_stream_get_status(stream) > 0) {
 				break;
+			}
 
 			usleep(20000);
 		}
@@ -230,10 +238,12 @@ TEST_F(LIBHTTP2, MultiStream)
 			struct pollfd pfd = {server_sock, POLLIN, 0};
 			poll(&pfd, 1, 10);
 			ret = http2_ctx_handshake(ctx);
-			if (ret == 1)
+			if (ret == 1) {
 				break;
-			if (ret < 0)
+			}
+			if (ret < 0) {
 				break;
+			}
 		}
 		ASSERT_EQ(ret, 1) << "Server handshake failed";
 
@@ -295,10 +305,12 @@ TEST_F(LIBHTTP2, MultiStream)
 			struct pollfd pfd = {client_sock, POLLIN, 0};
 			poll(&pfd, 1, 10);
 			ret = http2_ctx_handshake(ctx);
-			if (ret == 1)
+			if (ret == 1) {
 				break;
-			if (ret < 0)
+			}
+			if (ret < 0) {
 				break;
+			}
 		}
 		ASSERT_EQ(ret, 1) << "Client handshake failed";
 
@@ -377,10 +389,12 @@ TEST_F(LIBHTTP2, EarlyStreamCreation)
 				continue;
 			}
 			ret = http2_ctx_handshake(ctx);
-			if (ret == 1)
+			if (ret == 1) {
 				break;
-			if (ret < 0)
+			}
+			if (ret < 0) {
 				break;
+			}
 		}
 
 		ASSERT_EQ(ret, 1) << "Server handshake failed";
@@ -397,8 +411,9 @@ TEST_F(LIBHTTP2, EarlyStreamCreation)
 			for (int i = 0; i < count; i++) {
 				if (items[i].stream == nullptr && items[i].readable) {
 					stream = http2_ctx_accept_stream(ctx);
-					if (stream)
+					if (stream) {
 						break;
+					}
 				}
 			}
 			usleep(20000);
@@ -463,10 +478,12 @@ TEST_F(LIBHTTP2, EarlyStreamCreation)
 			struct pollfd pfd = {client_sock, POLLIN, 0};
 			poll(&pfd, 1, 10);
 			ret = http2_ctx_handshake(ctx);
-			if (ret == 1)
+			if (ret == 1) {
 				break;
-			if (ret < 0)
+			}
+			if (ret < 0) {
 				break;
+			}
 		}
 		ASSERT_EQ(ret, 1) << "Client handshake failed";
 
@@ -479,8 +496,9 @@ TEST_F(LIBHTTP2, EarlyStreamCreation)
 			struct http2_poll_item items[10];
 			int count = 0;
 			http2_ctx_poll(ctx, items, 10, &count);
-			if (http2_stream_get_status(stream) > 0)
+			if (http2_stream_get_status(stream) > 0) {
 				break;
+			}
 
 			usleep(20000);
 		}
@@ -528,10 +546,12 @@ TEST_F(LIBHTTP2, ServerLoopTerminationOnDisconnect)
 				continue;
 			}
 			ret = http2_ctx_handshake(ctx);
-			if (ret == 1)
+			if (ret == 1) {
 				break;
-			if (ret < 0)
+			}
+			if (ret < 0) {
 				break;
+			}
 		}
 		ASSERT_EQ(ret, 1) << "Server handshake failed";
 
@@ -547,8 +567,9 @@ TEST_F(LIBHTTP2, ServerLoopTerminationOnDisconnect)
 			for (int i = 0; i < count; i++) {
 				if (items[i].stream == nullptr && items[i].readable) {
 					stream = http2_ctx_accept_stream(ctx);
-					if (stream)
+					if (stream) {
 						break;
+					}
 				}
 			}
 			usleep(20000);
@@ -641,10 +662,12 @@ TEST_F(LIBHTTP2, StreamClose)
 				continue;
 			}
 			ret = http2_ctx_handshake(ctx);
-			if (ret == 1)
+			if (ret == 1) {
 				break;
-			if (ret < 0)
+			}
+			if (ret < 0) {
 				break;
+			}
 		}
 		ASSERT_EQ(ret, 1) << "Server handshake failed";
 
@@ -660,8 +683,9 @@ TEST_F(LIBHTTP2, StreamClose)
 			for (int i = 0; i < count; i++) {
 				if (items[i].stream == nullptr && items[i].readable) {
 					stream = http2_ctx_accept_stream(ctx);
-					if (stream)
+					if (stream) {
 						break;
+					}
 				}
 			}
 			usleep(20000);
@@ -690,10 +714,12 @@ TEST_F(LIBHTTP2, StreamClose)
 			struct pollfd pfd = {client_sock, POLLIN, 0};
 			poll(&pfd, 1, 10);
 			ret = http2_ctx_handshake(ctx);
-			if (ret == 1)
+			if (ret == 1) {
 				break;
-			if (ret < 0)
+			}
+			if (ret < 0) {
 				break;
+			}
 		}
 		ASSERT_EQ(ret, 1) << "Client handshake failed";
 
@@ -713,8 +739,9 @@ TEST_F(LIBHTTP2, StreamClose)
 			struct http2_poll_item items[10];
 			int count = 0;
 			http2_ctx_poll(ctx, items, 10, &count);
-			if (http2_stream_get_status(stream) > 0)
+			if (http2_stream_get_status(stream) > 0) {
 				break;
+			}
 			usleep(20000);
 		}
 
@@ -812,10 +839,12 @@ TEST_F(LIBHTTP2, StressTest)
 				continue;
 			}
 			ret = http2_ctx_handshake(ctx);
-			if (ret == 1)
+			if (ret == 1) {
 				break;
-			if (ret < 0)
+			}
+			if (ret < 0) {
 				break;
+			}
 		}
 		ASSERT_EQ(ret, 1) << "Server handshake failed";
 
@@ -877,10 +906,12 @@ TEST_F(LIBHTTP2, StressTest)
 			struct pollfd pfd = {client_sock, POLLIN, 0};
 			poll(&pfd, 1, 10);
 			ret = http2_ctx_handshake(ctx);
-			if (ret == 1)
+			if (ret == 1) {
 				break;
-			if (ret < 0)
+			}
+			if (ret < 0) {
 				break;
+			}
 		}
 		ASSERT_EQ(ret, 1) << "Client handshake failed";
 

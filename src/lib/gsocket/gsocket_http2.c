@@ -29,7 +29,7 @@ struct gsocket_http2_ctx {
 	struct http2_ctx *h2_ctx;
 	struct gsocket_io *ready_stream; /* Accepted stream waiting to be picked up */
 	int is_server;
-	char alpn_protocol[32]; /* Negotiated ALPN protocol */
+	char alpn_protocol[32];               /* Negotiated ALPN protocol */
 	struct gsocket_io *http1_fallback_io; /* HTTP/1.1 fallback layer if ALPN negotiates to http/1.1 */
 };
 
@@ -148,7 +148,6 @@ static ssize_t _http2_stream_send(struct gsocket_io *io, const void *buf, size_t
 		return -1;
 	}
 
-
 	if (!s_ctx->headers_sent) {
 		/* Send headers first */
 		struct gsocket_http2_ctx *ctx = (struct gsocket_http2_ctx *)s_ctx->conn_io->ctx;
@@ -171,7 +170,9 @@ static ssize_t _http2_stream_send(struct gsocket_io *io, const void *buf, size_t
 					*p = 0;
 					char *v = p + 2;
 					char *e = strstr(v, "\r\n");
-					if (e) *e = 0;
+					if (e) {
+						*e = 0;
+					}
 					pairs[count].name = strdup(h);
 					pairs[count].value = strdup(v);
 					count++;
@@ -183,11 +184,11 @@ static ssize_t _http2_stream_send(struct gsocket_io *io, const void *buf, size_t
 
 			/* Free temporary strdups if we added any */
 			if (s_ctx->extra_headers) {
-                int extra_idx = (s_ctx->content_length > 0) ? 1 : 0;
-                if (count > extra_idx) {
-                    free((void *)pairs[extra_idx].name);
-                    free((void *)pairs[extra_idx].value);
-                }
+				int extra_idx = (s_ctx->content_length > 0) ? 1 : 0;
+				if (count > extra_idx) {
+					free((void *)pairs[extra_idx].name);
+					free((void *)pairs[extra_idx].value);
+				}
 			}
 		} else {
 			/* Client Side: Send Request Headers */
@@ -197,7 +198,7 @@ static ssize_t _http2_stream_send(struct gsocket_io *io, const void *buf, size_t
 
 			struct http2_header_pair pairs[16];
 			int count = 0;
-			
+
 			/* Simple parsing for extra_headers (assume one for now or add more logic) */
 			if (s_ctx->extra_headers) {
 				char *h = strdup(s_ctx->extra_headers);
@@ -206,7 +207,9 @@ static ssize_t _http2_stream_send(struct gsocket_io *io, const void *buf, size_t
 					*p = 0;
 					char *v = p + 2;
 					char *e = strstr(v, "\r\n");
-					if (e) *e = 0;
+					if (e) {
+						*e = 0;
+					}
 					pairs[count].name = strdup(h);
 					pairs[count].value = strdup(v);
 					count++;
@@ -219,7 +222,7 @@ static ssize_t _http2_stream_send(struct gsocket_io *io, const void *buf, size_t
 			pairs[count].value = NULL;
 
 			http2_stream_set_request(s_ctx->h2_stream, method, path, scheme, count > 0 ? pairs : NULL);
-			
+
 			/* Free temporary strdups if we added any */
 			if (s_ctx->extra_headers && count > 0) {
 				free((void *)pairs[0].name);
@@ -398,17 +401,16 @@ static int _http2_conn_process(struct gsocket_io *io)
 		if (ret != GSOCKET_HANDSHAKE_DONE) {
 			return ret;
 		}
-		
+
 		/* After SSL handshake completes, check ALPN protocol */
 		if (ctx->alpn_protocol[0] == 0) {
 			char alpn[32] = {0};
 			socklen_t alpn_len = sizeof(alpn) - 1;
-			if (io->lower->getsockopt && 
-			    io->lower->getsockopt(io->lower, SOL_SSL, SO_SSL_ALPN, alpn, &alpn_len) == 0) {
+			if (io->lower->getsockopt && io->lower->getsockopt(io->lower, SOL_SSL, SO_SSL_ALPN, alpn, &alpn_len) == 0) {
 				alpn[alpn_len] = 0;
 				strncpy(ctx->alpn_protocol, alpn, sizeof(ctx->alpn_protocol) - 1);
 				ctx->alpn_protocol[sizeof(ctx->alpn_protocol) - 1] = '\0';
-				
+
 				/* If ALPN is http/1.1, set up fallback */
 				if (strcmp(alpn, "http/1.1") == 0) {
 					if (!ctx->http1_fallback_io) {
@@ -436,7 +438,7 @@ static int _http2_conn_process(struct gsocket_io *io)
 			}
 		}
 	}
-	
+
 	/* If in HTTP/1.1 fallback mode, delegate to HTTP/1.1 */
 	if (ctx->http1_fallback_io) {
 		if (ctx->http1_fallback_io->handshake) {
@@ -444,7 +446,7 @@ static int _http2_conn_process(struct gsocket_io *io)
 		}
 		return GSOCKET_HANDSHAKE_DONE;
 	}
-	
+
 	/* For clients without SSL (no ALPN), create HTTP/2 context if not exists */
 	if (!ctx->is_server && !ctx->h2_ctx) {
 		struct http2_settings settings = {0};
@@ -533,12 +535,12 @@ _err:
 static struct gsocket_io *_http2_conn_open_stream(struct gsocket_io *io)
 {
 	struct gsocket_http2_ctx *ctx = (struct gsocket_http2_ctx *)io->ctx;
-	
+
 	/* If in HTTP/1.1 fallback mode, delegate to HTTP/1.1 */
 	if (ctx->http1_fallback_io && ctx->http1_fallback_io->open_stream) {
 		return ctx->http1_fallback_io->open_stream(ctx->http1_fallback_io);
 	}
-	
+
 	if (!ctx->h2_ctx) {
 		return NULL;
 	}
@@ -554,12 +556,12 @@ static struct gsocket_io *_http2_conn_open_stream(struct gsocket_io *io)
 static struct gsocket_io *_http2_conn_accept(struct gsocket_io *io, struct sockaddr *addr, socklen_t *addrlen)
 {
 	struct gsocket_http2_ctx *ctx = (struct gsocket_http2_ctx *)io->ctx;
-	
+
 	/* If in HTTP/1.1 fallback mode, delegate to HTTP/1.1 */
 	if (ctx->http1_fallback_io && ctx->http1_fallback_io->accept) {
 		return ctx->http1_fallback_io->accept(ctx->http1_fallback_io, addr, addrlen);
 	}
-	
+
 	if (!ctx->is_server) {
 		return NULL;
 	}
@@ -653,12 +655,12 @@ static int _http2_conn_stream_poll(struct gsocket_io *io, struct gstream_poll_it
 	   This requires finding the underlying http2_stream for each gsocket_io stream.
 	*/
 	struct gsocket_http2_ctx *ctx = (struct gsocket_http2_ctx *)io->ctx;
-	
+
 	/* If in HTTP/1.1 fallback mode, delegate to HTTP/1.1 */
 	if (ctx->http1_fallback_io && ctx->http1_fallback_io->stream_poll) {
 		return ctx->http1_fallback_io->stream_poll(ctx->http1_fallback_io, items, count, timeout_ms);
 	}
-	
+
 	if (!ctx->h2_ctx) {
 		return -1;
 	}

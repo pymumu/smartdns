@@ -80,8 +80,10 @@ static int _gepoll_insert(struct rb_root *root, struct gepoll_entry *data)
 struct gepoll *gepoll_create(int flags)
 {
 	struct gepoll *ep = calloc(1, sizeof(struct gepoll));
-	if (!ep)
+	if (!ep) {
 		return NULL;
+	}
+
 	if (flags > 0 && flags != EPOLL_CLOEXEC) {
 		ep->efd = epoll_create(flags);
 	} else {

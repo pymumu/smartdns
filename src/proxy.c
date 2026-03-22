@@ -418,12 +418,10 @@ static void _proxy_channel_shutdown(struct proxy_channel *channel, int epoll_fd)
 	}
 
 	if (epoll_fd >= 0) {
-		if (channel->fd >= 0 && channel->state != PROXY_STATE_INIT &&
-			channel->state != PROXY_STATE_DISCONNECTED) {
+		if (channel->fd >= 0 && channel->state != PROXY_STATE_INIT && channel->state != PROXY_STATE_DISCONNECTED) {
 			epoll_ctl(epoll_fd, EPOLL_CTL_DEL, channel->fd, NULL);
 		}
-		if (channel->udp_fd >= 0 && channel->state != PROXY_STATE_INIT &&
-			channel->state != PROXY_STATE_DISCONNECTED) {
+		if (channel->udp_fd >= 0 && channel->state != PROXY_STATE_INIT && channel->state != PROXY_STATE_DISCONNECTED) {
 			epoll_ctl(epoll_fd, EPOLL_CTL_DEL, channel->udp_fd, NULL);
 		}
 	}
@@ -440,8 +438,8 @@ static void _proxy_channel_shutdown(struct proxy_channel *channel, int epoll_fd)
 	if (channel->parent) {
 		if (channel->last_error != 0) {
 			channel->parent->last_error = channel->last_error;
-		} else if (errno != 0 && errno != EINPROGRESS &&
-				   channel->state != PROXY_STATE_CONNECTED && channel->state != PROXY_STATE_DISCONNECTED) {
+		} else if (errno != 0 && errno != EINPROGRESS && channel->state != PROXY_STATE_CONNECTED &&
+				   channel->state != PROXY_STATE_DISCONNECTED) {
 			// If no explicit error set but errno is relevant (connect failed), use it
 			channel->parent->last_error = errno;
 		}
@@ -499,8 +497,7 @@ static proxy_handshake_state _proxy_channel_handshake(struct proxy_channel *chan
 				errno = err;
 			}
 			channel->last_error = err;
-			tlog(TLOG_DEBUG, "proxy connect failed for fd %d, error %d: %s", channel->fd, err,
-				 strerror(err));
+			tlog(TLOG_DEBUG, "proxy connect failed for fd %d, error %d: %s", channel->fd, err, strerror(err));
 			channel->state = PROXY_STATE_DISCONNECTED;
 			return PROXY_HANDSHAKE_ERR;
 		}
@@ -1131,13 +1128,11 @@ static proxy_handshake_state _proxy_handshake_socks5(struct proxy_channel *chann
 			channel->last_error = recv_buff[1];
 			if (recv_buff[1] <= (sizeof(proxy_socks5_status_code) / sizeof(proxy_socks5_status_code[0]))) {
 				PROXY_THROTTLED_ERROR_LOG(last_error_log_time, "server %s reply failed, error-code: %s, target: %s:%d",
-										  channel->server_info->proxy_name,
-										  proxy_socks5_status_code[(int)recv_buff[1]],
+										  channel->server_info->proxy_name, proxy_socks5_status_code[(int)recv_buff[1]],
 										  channel->host, channel->port);
 			} else {
 				PROXY_THROTTLED_ERROR_LOG(last_error_log_time, "server %s reply failed, error-code: %x, target: %s:%d",
-										  channel->server_info->proxy_name, recv_buff[1],
-										  channel->host, channel->port);
+										  channel->server_info->proxy_name, recv_buff[1], channel->host, channel->port);
 			}
 			return PROXY_HANDSHAKE_ERR;
 		}
@@ -1413,8 +1408,7 @@ static int _proxy_channel_handshake_group_fail(struct proxy_channel *channel, in
 	/* Check if any other primary channel is still viable or if we should trigger fallback */
 	list_for_each_entry(other, &proxy_conn->channel_list, list)
 	{
-		if (other->state == PROXY_STATE_CONNECTED ||
-			(other->fd >= 0 && other->state >= PROXY_STATE_CONNECTING)) {
+		if (other->state == PROXY_STATE_CONNECTED || (other->fd >= 0 && other->state >= PROXY_STATE_CONNECTING)) {
 			viable = 1;
 		}
 		if (other->is_fallback && other->fd >= 0 && other->state == PROXY_STATE_INIT) {
@@ -1459,11 +1453,12 @@ proxy_handshake_state proxy_channel_handshake(struct proxy_channel *channel, int
 				epoll_ctl(epoll_fd, EPOLL_CTL_DEL, channel->fd, NULL);
 			}
 			if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, channel->udp_fd, &ev) != 0) {
-				tlog(TLOG_ERROR, "proxy_channel_handshake (server): failed to add UDP FD to epoll, %s", strerror(errno));
+				tlog(TLOG_ERROR, "proxy_channel_handshake (server): failed to add UDP FD to epoll, %s",
+					 strerror(errno));
 				return PROXY_HANDSHAKE_ERR;
 			}
 		}
-		
+
 		return ret;
 	}
 
@@ -2540,15 +2535,17 @@ static proxy_handshake_state _proxy_handshake_http_server(struct proxy_channel *
 		const char *auth_val = http_head_get_fields_value(head, "Proxy-Authorization");
 		char auth_str[512];
 		char auth_base64[1024];
-		
+
 		snprintf(auth_str, sizeof(auth_str), "%s:%s", channel->server_user, channel->server_pass);
 		SSL_base64_encode(auth_str, strlen(auth_str), auth_base64);
-		
+
 		char expected_auth[2048];
 		snprintf(expected_auth, sizeof(expected_auth), "Basic %s", auth_base64);
 
 		if (auth_val == NULL || strcmp(auth_val, expected_auth) != 0) {
-			tlog(TLOG_DEBUG, "http proxy auth failed from %s", channel->host); // Host might not be populated yet if CONNECT parse comes later, but usually addr is set.
+			tlog(TLOG_DEBUG, "http proxy auth failed from %s",
+				 channel
+					 ->host); // Host might not be populated yet if CONNECT parse comes later, but usually addr is set.
 			/* Send 407 */
 			const char *resp = "HTTP/1.1 407 Proxy Authentication Required\r\n"
 							   "Proxy-Authenticate: Basic realm=\"SmartDNS\"\r\n"
@@ -2743,8 +2740,9 @@ int proxy_channel_recv(struct proxy_channel *channel, void *buf, size_t len, int
 
 	if (channel->buffer.len > 0) {
 		int copy_len = channel->buffer.len;
-		if (copy_len > (int)len)
+		if (copy_len > (int)len) {
 			copy_len = (int)len;
+		}
 		memcpy(buf, channel->buffer.buffer, copy_len);
 
 		if (copy_len < channel->buffer.len) {

@@ -54,8 +54,9 @@ class TestServerFixed
 		running_ = false;
 		uint64_t u = 1;
 		write(stop_fd_, &u, sizeof(uint64_t));
-		if (thread_.joinable())
+		if (thread_.joinable()) {
 			thread_.join();
+		}
 		close(stop_fd_);
 	}
 
@@ -76,8 +77,9 @@ namespace GSocketTestUtils
 static struct gsocket *create_listener(int port, int type, int family = AF_INET)
 {
 	struct gsocket *sock = gsocket_new(socket(family, type, 0));
-	if (!sock)
+	if (!sock) {
 		return NULL;
+	}
 
 	int opt = 1;
 	gsocket_setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
@@ -138,8 +140,9 @@ struct ServerSync {
 	{
 		std::lock_guard<std::mutex> lk(m);
 		ready = true;
-		if (p > 0)
+		if (p > 0) {
 			port = p;
+		}
 		cv.notify_one();
 	}
 	void wait()
@@ -164,8 +167,9 @@ class TestServerThread
 	~TestServerThread()
 	{
 		running = false;
-		if (t.joinable())
+		if (t.joinable()) {
 			t.join();
+		}
 	}
 };
 
@@ -320,8 +324,9 @@ static void GenericEchoServer(int port, ServerSync *sync, std::atomic<bool> &run
 {
 	struct gsocket *tcp = create_listener(port, SOCK_STREAM, family);
 	if (!tcp) {
-		if (sync)
+		if (sync) {
 			sync->notify(0);
+		}
 		return;
 	}
 
@@ -333,8 +338,9 @@ static void GenericEchoServer(int port, ServerSync *sync, std::atomic<bool> &run
 		if (!udp) {
 			gsocket_close(tcp);
 			gsocket_free(tcp);
-			if (sync)
+			if (sync) {
 				sync->notify(0);
+			}
 			return;
 		}
 	}
@@ -345,11 +351,13 @@ static void GenericEchoServer(int port, ServerSync *sync, std::atomic<bool> &run
 
 	struct gepoll *ep = gepoll_create(0);
 	gepoll_add(ep, tcp, EPOLLIN, tcp);
-	if (udp)
+	if (udp) {
 		gepoll_add(ep, udp, EPOLLIN, udp);
+	}
 
-	if (sync)
+	if (sync) {
 		sync->notify(actual_port);
+	}
 
 	struct gepoll_event events[64];
 	std::set<struct gsocket *> clients;
@@ -387,8 +395,9 @@ static void GenericEchoServer(int port, ServerSync *sync, std::atomic<bool> &run
 				struct sockaddr_in from;
 				socklen_t flen = sizeof(from);
 				int rn = gsocket_recvfrom(udp, buf, sizeof(buf), 0, (struct sockaddr *)&from, &flen);
-				if (rn > 0)
+				if (rn > 0) {
 					gsocket_sendto(udp, buf, rn, MSG_NOSIGNAL, (struct sockaddr *)&from, flen);
+				}
 			} else {
 				/* Client Socket */
 				char buf[2048];
@@ -432,22 +441,25 @@ static void ResetServer(int port, ServerSync *sync, std::atomic<bool> &running, 
 {
 	struct gsocket *listener = create_listener(port, SOCK_STREAM, family);
 	if (!listener) {
-		if (sync)
+		if (sync) {
 			sync->notify(0);
+		}
 		return;
 	}
 	int actual_port = get_socket_port(listener);
 
-	if (setup)
+	if (setup) {
 		setup(listener);
+	}
 
 	struct gepoll *ep = gepoll_create(0);
 	gepoll_add(ep, listener, EPOLLIN, listener);
 	struct gsocket *stop_sock = gsocket_new(eventfd(0, EFD_NONBLOCK));
 	gepoll_add(ep, stop_sock, EPOLLIN, stop_sock);
 
-	if (sync)
+	if (sync) {
 		sync->notify(actual_port);
+	}
 
 	struct gepoll_event events[10];
 	bool client_handled = false;
@@ -457,8 +469,9 @@ static void ResetServer(int port, ServerSync *sync, std::atomic<bool> &running, 
 		for (int i = 0; i < n; i++) {
 			struct gsocket *s = (struct gsocket *)events[i].user_data;
 
-			if (s == stop_sock)
+			if (s == stop_sock) {
 				goto cleanup;
+			}
 
 			if (s == listener) {
 				struct gsocket *client = gsocket_accept(listener, NULL, NULL);
@@ -495,22 +508,25 @@ static void CloseServer(int port, ServerSync *sync, std::atomic<bool> &running, 
 {
 	struct gsocket *listener = create_listener(port, SOCK_STREAM, family);
 	if (!listener) {
-		if (sync)
+		if (sync) {
 			sync->notify(0);
+		}
 		return;
 	}
 	int actual_port = get_socket_port(listener);
 
-	if (setup)
+	if (setup) {
 		setup(listener);
+	}
 
 	struct gepoll *ep = gepoll_create(0);
 	gepoll_add(ep, listener, EPOLLIN, listener);
 	struct gsocket *stop_sock = gsocket_new(eventfd(0, EFD_NONBLOCK));
 	gepoll_add(ep, stop_sock, EPOLLIN, stop_sock);
 
-	if (sync)
+	if (sync) {
 		sync->notify(actual_port);
+	}
 
 	struct gepoll_event events[10];
 	bool client_handled = false;
@@ -520,8 +536,9 @@ static void CloseServer(int port, ServerSync *sync, std::atomic<bool> &running, 
 		for (int i = 0; i < n; i++) {
 			struct gsocket *s = (struct gsocket *)events[i].user_data;
 
-			if (s == stop_sock)
+			if (s == stop_sock) {
 				goto cleanup;
+			}
 
 			if (s == listener) {
 				struct gsocket *client = gsocket_accept(listener, NULL, NULL);
@@ -562,8 +579,9 @@ static void GenericProxyServer(int port, ServerSync *sync, std::atomic<bool> &ru
 {
 	struct gsocket *listener = create_listener(port, SOCK_STREAM);
 	if (!listener) {
-		if (sync)
+		if (sync) {
 			sync->notify(0);
+		}
 		return;
 	}
 	int actual_port = get_socket_port(listener);
@@ -575,17 +593,18 @@ static void GenericProxyServer(int port, ServerSync *sync, std::atomic<bool> &ru
 	}
 
 	struct gsocket_io *proxy_layer;
-	if (is_socks5)
+	if (is_socks5) {
 		proxy_layer = gsocket_io_socks5_server_new(user, pass);
-	else
+	} else
 		proxy_layer = gsocket_io_httpproxy_server_new(user, pass);
 	gsocket_push_layer(listener, proxy_layer);
 
 	struct gepoll *ep = gepoll_create(0);
 	gepoll_add(ep, listener, EPOLLIN, listener);
 
-	if (sync)
+	if (sync) {
 		sync->notify(actual_port);
+	}
 
 	struct gepoll_event events[64];
 
@@ -634,9 +653,9 @@ static void GenericProxyServer(int port, ServerSync *sync, std::atomic<bool> &ru
 								if (rev[k].events & EPOLLIN) {
 									char buf[4096];
 									int bn = gsocket_recv(S, buf, sizeof(buf), 0);
-									if (bn > 0)
+									if (bn > 0) {
 										gsocket_send(D, buf, bn, MSG_NOSIGNAL);
-									else
+									} else
 										active = false;
 								} else if (rev[k].events & (EPOLLHUP | EPOLLERR)) {
 									active = false;
@@ -654,8 +673,9 @@ static void GenericProxyServer(int port, ServerSync *sync, std::atomic<bool> &ru
 			}
 		}
 	}
-	if (ssl_ctx)
+	if (ssl_ctx) {
 		SSL_CTX_free(ssl_ctx);
+	}
 	gsocket_close(listener);
 	gsocket_free(listener);
 	gepoll_destroy(ep);
@@ -724,8 +744,9 @@ TEST(GSocketTest, LayerStackingAndEpoll)
 		n = gepoll_wait(ep, events, 5, 200);
 		if (n > 0) {
 			for (int i = 0; i < n; i++) {
-				if (events[i].events & EPOLLIN)
+				if (events[i].events & EPOLLIN) {
 					goto got_input;
+				}
 			}
 		}
 		retries++;
@@ -779,8 +800,9 @@ TEST(GSocketTest, UDPStacking)
 	int retries = 0;
 	do {
 		ret = gsocket_recvfrom(gs, buf, 10, 0, (struct sockaddr *)&addr, &len);
-		if (ret > 0)
+		if (ret > 0) {
 			break;
+		}
 		struct pollfd pfd = {gsocket_get_fd(gs), POLLIN, 0};
 		poll(&pfd, 1, 10);
 	} while (retries++ < 100);
@@ -1075,8 +1097,9 @@ TEST(GSocketTest, HttpProxyServerChunked)
 		ssize_t n = gsocket_recv(gs_srv, buf, sizeof(buf), 0);
 		if (n > 0) {
 			received.append(buf, n);
-			if (received.find("0\r\n\r\n") != std::string::npos)
+			if (received.find("0\r\n\r\n") != std::string::npos) {
 				break;
+			}
 		} else
 			break;
 	}
@@ -1243,10 +1266,11 @@ TEST(GSocketTest, Balance)
 		gsocket_group_add(g, gb, 1);
 		ASSERT_EQ(gsocket_connect(g, "127.0.0.1", 0), 0);
 		int fd = gsocket_get_fd(g);
-		if (fd == 1001)
+		if (fd == 1001) {
 			ca++;
-		else if (fd == 1002)
+		} else if (fd == 1002) {
 			cb++;
+		}
 		gsocket_free(g);
 	}
 	ASSERT_GT(ca, 0);
@@ -1422,8 +1446,9 @@ TEST(GSocketTest, BindDevice)
 TEST(GSocketTest, IPv6Support)
 {
 	int fd = socket(AF_INET6, SOCK_STREAM, 0);
-	if (fd < 0)
+	if (fd < 0) {
 		return;
+	}
 	ServerSync sync;
 	std::atomic<bool> run(true);
 	TestServerThread s(run, GenericEchoServer, 0, &sync, std::ref(run), nullptr, false, AF_INET6);
@@ -1525,15 +1550,17 @@ static SSL_CTX *init_quic_ctx(bool server)
 {
 	SSL_CTX *ctx = NULL;
 	const SSL_METHOD *method = NULL;
-	if (server)
+	if (server) {
 		method = OSSL_QUIC_server_method();
-	else
+	} else
 		method = OSSL_QUIC_client_method();
-	if (!method)
+	if (!method) {
 		return NULL;
+	}
 	ctx = SSL_CTX_new(method);
-	if (!ctx)
+	if (!ctx) {
 		return NULL;
+	}
 	if (server) {
 		char key[PATH_MAX];
 		char cert[PATH_MAX];
@@ -1569,8 +1596,9 @@ static void quic_over_socks5_server(int port, int stop_fd, std::atomic<bool> *re
 	gstream_poll_add(sp, listener, POLLIN, nullptr);
 	gepoll_add(ep, listener, EPOLLIN, nullptr);
 
-	if (ready)
+	if (ready) {
 		*ready = true;
+	}
 
 	struct gsocket *client = NULL;
 	struct gsocket *stream = NULL;
@@ -1585,15 +1613,17 @@ static void quic_over_socks5_server(int port, int stop_fd, std::atomic<bool> *re
 	while (running && *running && exit_ticks < 100) {
 		struct gepoll_event gep_ev;
 		gepoll_wait(ep, &gep_ev, 1, 0);
-		if (poll(&pfd, 1, 0) > 0)
+		if (poll(&pfd, 1, 0) > 0) {
 			break;
+		}
 
 		struct gstream_poll *current_sp = client_sp ? client_sp : sp;
 		struct gstream_event events[8];
 		int n = gstream_poll_wait(current_sp, events, 8, 0);
 
-		if (finished)
+		if (finished) {
 			exit_ticks++;
+		}
 
 		for (int i = 0; i < n; i++) {
 			if (events[i].stream == listener) {
@@ -1607,8 +1637,9 @@ static void quic_over_socks5_server(int port, int stop_fd, std::atomic<bool> *re
 			} else if (events[i].stream == client) {
 				if (!stream) {
 					stream = gsocket_accept(client, NULL, NULL);
-					if (stream)
+					if (stream) {
 						gstream_poll_add(client_sp, stream, POLLIN, nullptr);
+					}
 				}
 			} else if (events[i].stream == stream) {
 				if (events[i].revents & POLLIN && !finished) {
@@ -1617,16 +1648,18 @@ static void quic_over_socks5_server(int port, int stop_fd, std::atomic<bool> *re
 					if (rn > 0) {
 						gsocket_send(stream, buf, rn, MSG_NOSIGNAL | GS_MSG_FIN);
 						finished = true;
-					} else if (rn == 0)
+					} else if (rn == 0) {
 						finished = true;
+					}
 				}
 			}
 		}
 		int net = gstream_poll_get_net_events(current_sp);
-		if (net != 0)
+		if (net != 0) {
 			gepoll_mod(ep, listener, net, nullptr);
-		else if (finished)
+		} else if (finished) {
 			break;
+		}
 	}
 	if (stream) {
 		gsocket_close(stream);
@@ -1635,8 +1668,9 @@ static void quic_over_socks5_server(int port, int stop_fd, std::atomic<bool> *re
 	if (client) {
 		gsocket_close(client);
 		gsocket_free(client);
-		if (client_sp)
+		if (client_sp) {
 			gstream_poll_destroy(client_sp);
+		}
 	}
 	gstream_poll_destroy(sp);
 	gepoll_destroy(ep);
@@ -1663,8 +1697,9 @@ static void socks5_udp_client_thread(int i, std::atomic<int> *success, int proxy
 	if (gepoll_wait(ep, events, 1, 3000) > 0) {
 		char buf[1024];
 		int n = gsocket_recv(udp, buf, sizeof(buf), 0);
-		if (n >= 4 && memcmp(buf, "PING", 4) == 0)
+		if (n >= 4 && memcmp(buf, "PING", 4) == 0) {
 			(*success)++;
+		}
 	}
 	gepoll_destroy(ep);
 	gsocket_close(udp);
@@ -1680,8 +1715,9 @@ static void tls_gepoll_echo_server(int port, int stop_fd, std::atomic<bool> *rea
 	gepoll_add(ep, listener, EPOLLIN, listener);
 	struct gsocket *stop_sock = gsocket_new(stop_fd);
 	gepoll_add(ep, stop_sock, EPOLLIN, stop_sock);
-	if (ready)
+	if (ready) {
 		*ready = true;
+	}
 
 	struct client_state {
 		struct gsocket *sock;
@@ -1694,8 +1730,9 @@ static void tls_gepoll_echo_server(int port, int stop_fd, std::atomic<bool> *rea
 		int n = gepoll_wait(ep, events, 64, 100);
 		for (int i = 0; i < n; i++) {
 			struct gsocket *sock = (struct gsocket *)events[i].user_data;
-			if (sock == stop_sock)
+			if (sock == stop_sock) {
 				goto out;
+			}
 			if (sock == listener) {
 				struct gsocket *client = gsocket_accept(listener, NULL, NULL);
 				if (client) {
@@ -1705,19 +1742,20 @@ static void tls_gepoll_echo_server(int port, int stop_fd, std::atomic<bool> *rea
 					gepoll_add(ep, client, EPOLLIN, client);
 				}
 			} else {
-				if (states.find(sock) == states.end())
+				if (states.find(sock) == states.end()) {
 					continue;
+				}
 				client_state *s = states[sock];
 				if (!s->handshake_done) {
 					int ret = gsocket_handshake(sock);
 					if (ret == GSOCKET_HANDSHAKE_DONE) {
 						s->handshake_done = 1;
 						gepoll_mod(ep, sock, EPOLLIN, sock);
-					} else if (ret == GSOCKET_HANDSHAKE_WANT_READ)
+					} else if (ret == GSOCKET_HANDSHAKE_WANT_READ) {
 						gepoll_mod(ep, sock, EPOLLIN, sock);
-					else if (ret == GSOCKET_HANDSHAKE_WANT_WRITE)
+					} else if (ret == GSOCKET_HANDSHAKE_WANT_WRITE) {
 						gepoll_mod(ep, sock, EPOLLOUT, sock);
-					else {
+					} else {
 						gepoll_del(ep, sock);
 						gsocket_close(sock);
 						gsocket_free(sock);
@@ -1727,9 +1765,9 @@ static void tls_gepoll_echo_server(int port, int stop_fd, std::atomic<bool> *rea
 				} else {
 					char buf[1024];
 					int ret = gsocket_recv(sock, buf, sizeof(buf), 0);
-					if (ret > 0)
+					if (ret > 0) {
 						gsocket_send(sock, buf, ret, MSG_NOSIGNAL);
-					else if (ret == 0 || (ret < 0 && errno != EAGAIN)) {
+					} else if (ret == 0 || (ret < 0 && errno != EAGAIN)) {
 						gepoll_del(ep, sock);
 						gsocket_close(sock);
 						gsocket_free(sock);
@@ -1762,8 +1800,9 @@ static void socks5_proxy_server_async(int port, const char *target_ip, int targe
 	gepoll_add(ep, listener, EPOLLIN, listener);
 	struct gsocket *stop_sock = gsocket_new(stop_fd);
 	gepoll_add(ep, stop_sock, EPOLLIN, stop_sock);
-	if (ready)
+	if (ready) {
 		*ready = true;
+	}
 
 	struct proxy_session {
 		struct gsocket *c;
@@ -1782,8 +1821,9 @@ static void socks5_proxy_server_async(int port, const char *target_ip, int targe
 		int n = gepoll_wait(ep, events, 64, 10);
 		for (int i = 0; i < n; i++) {
 			struct gsocket *s = (struct gsocket *)events[i].user_data;
-			if (s == stop_sock)
+			if (s == stop_sock) {
 				goto out;
+			}
 			if (s == listener) {
 				struct gsocket *c = gsocket_accept(listener, NULL, NULL);
 				if (c) {
@@ -1794,8 +1834,9 @@ static void socks5_proxy_server_async(int port, const char *target_ip, int targe
 				}
 				continue;
 			}
-			if (sessions.find(s) == sessions.end())
+			if (sessions.find(s) == sessions.end()) {
 				continue;
+			}
 			proxy_session *sess = sessions[s];
 
 			if (sess->state == 0) { // Handshake
@@ -1823,8 +1864,9 @@ static void socks5_proxy_server_async(int port, const char *target_ip, int targe
 						sess->state = cr == 0 ? 2 : 1;
 						gepoll_add(ep, sess->t, cr == 0 ? EPOLLIN : EPOLLOUT, sess->t);
 						sessions[sess->t] = sess;
-						if (cr != 0)
+						if (cr != 0) {
 							gepoll_del(ep, sess->c);
+						}
 					} else
 						goto close_sess;
 				}
@@ -1843,16 +1885,18 @@ static void socks5_proxy_server_async(int port, const char *target_ip, int targe
 			} else if (sess->state == 2) { // Relay
 				if (s == sess->c && (events[i].events & EPOLLIN)) {
 					int r = gsocket_recv(sess->c, sess->cb, sizeof(sess->cb), 0);
-					if (r > 0)
+					if (r > 0) {
 						gsocket_send(sess->t, sess->cb, r, MSG_NOSIGNAL);
-					else if (r == 0 || errno != EAGAIN)
+					} else if (r == 0 || errno != EAGAIN) {
 						goto close_sess;
+					}
 				} else if (s == sess->t && (events[i].events & EPOLLIN)) {
 					int r = gsocket_recv(sess->t, sess->tb, sizeof(sess->tb), 0);
-					if (r > 0)
+					if (r > 0) {
 						gsocket_send(sess->c, sess->tb, r, MSG_NOSIGNAL);
-					else if (r == 0 || errno != EAGAIN)
+					} else if (r == 0 || errno != EAGAIN) {
 						goto close_sess;
+					}
 				}
 			}
 			continue;
@@ -1900,8 +1944,9 @@ static void tfo_echo_server(int port, int stop_fd, std::atomic<bool> *ready = nu
 {
 	struct gsocket *listener = create_listener(port, SOCK_STREAM);
 	gsocket_set_fastopen(listener, 1);
-	if (ready)
+	if (ready) {
 		*ready = true;
+	}
 	struct pollfd fds[2];
 	fds[0].fd = gsocket_get_fd(listener);
 	fds[0].events = POLLIN;
@@ -1913,8 +1958,9 @@ static void tfo_echo_server(int port, int stop_fd, std::atomic<bool> *ready = nu
 			if (c) {
 				char buf[1024];
 				int n = gsocket_recv(c, buf, sizeof(buf), 0);
-				if (n > 0)
+				if (n > 0) {
 					gsocket_send(c, buf, n, 0);
+				}
 				gsocket_close(c);
 				gsocket_free(c);
 			}
@@ -1934,8 +1980,9 @@ static void tfo_resumption_server(int port, int stop_fd, std::atomic<bool> *read
 #endif
 	struct gsocket *listener = create_listener(port, SOCK_STREAM);
 	gsocket_push_layer(listener, gsocket_io_ssl_new(ctx, 1));
-	if (ready)
+	if (ready) {
 		*ready = true;
+	}
 	struct pollfd fds[2];
 	fds[0].fd = gsocket_get_fd(listener);
 	fds[0].events = POLLIN;
@@ -1950,10 +1997,12 @@ static void tfo_resumption_server(int port, int stop_fd, std::atomic<bool> *read
 				int res;
 				while ((res = gsocket_handshake(c)) > 0)
 					;
-				if (n <= 0 && res == GSOCKET_HANDSHAKE_DONE)
+				if (n <= 0 && res == GSOCKET_HANDSHAKE_DONE) {
 					n = gsocket_recv(c, buf, sizeof(buf), 0);
-				if (n > 0)
+				}
+				if (n > 0) {
 					gsocket_send(c, buf, n, 0);
+				}
 				gsocket_close(c);
 				gsocket_free(c);
 			}
@@ -1983,8 +2032,9 @@ static void quic_resumption_server(int port, int stop_fd, std::atomic<bool> *rea
 	struct gstream_poll *sp = gstream_poll_create(listener);
 	gstream_poll_add(sp, listener, POLLIN, nullptr);
 	gepoll_add(ep, listener, EPOLLIN, nullptr);
-	if (ready)
+	if (ready) {
 		*ready = true;
+	}
 
 	struct pollfd pfd;
 	pfd.fd = stop_fd;
@@ -1997,8 +2047,9 @@ static void quic_resumption_server(int port, int stop_fd, std::atomic<bool> *rea
 	while (running && *running) {
 		struct gepoll_event gep_ev;
 		gepoll_wait(ep, &gep_ev, 1, 0);
-		if (poll(&pfd, 1, 0) > 0)
+		if (poll(&pfd, 1, 0) > 0) {
 			break;
+		}
 
 		struct gstream_poll *current_sp = client_sp ? client_sp : sp;
 		struct gstream_event events[8];
@@ -2012,8 +2063,9 @@ static void quic_resumption_server(int port, int stop_fd, std::atomic<bool> *rea
 				}
 			} else if (events[i].stream == client && !stream) {
 				stream = gsocket_accept(client, NULL, NULL);
-				if (stream)
+				if (stream) {
 					gstream_poll_add(client_sp, stream, POLLIN, nullptr);
+				}
 			} else if (events[i].stream == stream) {
 				if (events[i].revents & POLLIN) {
 					char buf[1024];
@@ -2026,10 +2078,12 @@ static void quic_resumption_server(int port, int stop_fd, std::atomic<bool> *rea
 			}
 		}
 		int net = gstream_poll_get_net_events(current_sp);
-		if (net != 0)
+		if (net != 0) {
 			gepoll_mod(ep, listener, net, nullptr);
-		if (finished)
-			break; // One shot
+		}
+		if (finished) {
+			break;
+		} // One shot
 	}
 	if (stream) {
 		gsocket_close(stream);
@@ -2038,8 +2092,9 @@ static void quic_resumption_server(int port, int stop_fd, std::atomic<bool> *rea
 	if (client) {
 		gsocket_close(client);
 		gsocket_free(client);
-		if (client_sp)
+		if (client_sp) {
 			gstream_poll_destroy(client_sp);
+		}
 	}
 	gstream_poll_destroy(sp);
 	gepoll_destroy(ep);
@@ -2114,8 +2169,9 @@ static void socks5_udp_proxy_server(int port, int stop_fd, std::atomic<bool> *re
 	struct gsocket *stop_sock = gsocket_new(stop_fd);
 	gepoll_add(ep, stop_sock, EPOLLIN, stop_sock);
 
-	if (ready)
+	if (ready) {
 		*ready = true;
+	}
 
 	struct gepoll_event events[64];
 	std::set<ClientCtx *> active_ctxs;
@@ -2123,18 +2179,21 @@ static void socks5_udp_proxy_server(int port, int stop_fd, std::atomic<bool> *re
 		int n = gepoll_wait(ep, events, 64, 100);
 		for (int i = 0; i < n; i++) {
 			void *ptr = events[i].user_data;
-			if (!ptr)
+			if (!ptr) {
 				continue;
-			if (ptr == stop_sock)
+			}
+			if (ptr == stop_sock) {
 				goto out;
+			}
 
 			if (ptr == listener) {
 				while (true) {
 					struct sockaddr_in caddr;
 					socklen_t clen = sizeof(caddr);
 					struct gsocket *client = gsocket_accept(listener, (struct sockaddr *)&caddr, &clen);
-					if (!client)
+					if (!client) {
 						break;
+					}
 					gsocket_set_nonblock(client, 1);
 					ClientCtx *ctx = new ClientCtx();
 					ctx->tcp = client;
@@ -2201,8 +2260,9 @@ static void socks5_udp_proxy_server(int port, int stop_fd, std::atomic<bool> *re
 				} else {
 					char buf[1024];
 					int rn = gsocket_recv(ctx->tcp, buf, sizeof(buf), 0);
-					if (rn <= 0 && errno != EAGAIN && errno != EWOULDBLOCK)
+					if (rn <= 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
 						goto close_ctx;
+					}
 				}
 			} else if (h->type == 1) { // UDP Client -> Proxy
 				char buf[4096];
@@ -2210,10 +2270,12 @@ static void socks5_udp_proxy_server(int port, int stop_fd, std::atomic<bool> *re
 				socklen_t slen = sizeof(src);
 				int rn = gsocket_recvfrom(ctx->tcp, buf, sizeof(buf), 0, (struct sockaddr *)&src, &slen);
 				if (rn > 0) {
-					if (ctx->remote_udp)
+					if (ctx->remote_udp) {
 						gsocket_sendto(ctx->remote_udp, buf, rn, MSG_NOSIGNAL, (struct sockaddr *)&src, slen);
-				} else if (rn <= 0 && errno != EAGAIN)
+					}
+				} else if (rn <= 0 && errno != EAGAIN) {
 					goto close_ctx;
+				}
 			} else if (h->type == 2) { // UDP Remote -> Proxy
 				char buf[4096];
 				struct sockaddr_in src;
@@ -2222,15 +2284,17 @@ static void socks5_udp_proxy_server(int port, int stop_fd, std::atomic<bool> *re
 				if (rn > 0) {
 					// Forward to Client (encapsulated by SOCKS5 layer automatically via sendto dest)
 					gsocket_sendto(ctx->tcp, buf, rn, MSG_NOSIGNAL, (struct sockaddr *)&src, slen);
-				} else if (rn <= 0 && errno != EAGAIN)
+				} else if (rn <= 0 && errno != EAGAIN) {
 					goto close_ctx;
+				}
 			}
 			continue;
 		close_ctx:
 			for (int j = i + 1; j < n; j++) {
 				if (events[j].user_data == &ctx->h_tcp || events[j].user_data == &ctx->h_udp ||
-					events[j].user_data == &ctx->h_remote)
+					events[j].user_data == &ctx->h_remote) {
 					events[j].user_data = NULL;
+				}
 			}
 			active_ctxs.erase(ctx);
 			delete ctx;
@@ -2250,10 +2314,12 @@ static void udp_echo_server_simple(int port, int stop_fd, std::atomic<bool> *rea
 	struct gsocket *sock = gsocket_new(socket(AF_INET, SOCK_DGRAM, 0));
 	int opt = 1;
 	gsocket_setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-	if (gsocket_bind(sock, "0.0.0.0", port) != 0)
+	if (gsocket_bind(sock, "0.0.0.0", port) != 0) {
 		exit(1);
-	if (ready)
+	}
+	if (ready) {
 		*ready = true;
+	}
 	struct pollfd fds[2];
 	fds[0].fd = gsocket_get_fd(sock);
 	fds[0].events = POLLIN;
@@ -2265,8 +2331,9 @@ static void udp_echo_server_simple(int port, int stop_fd, std::atomic<bool> *rea
 			struct sockaddr_in from;
 			socklen_t len = sizeof(from);
 			int n = gsocket_recvfrom(sock, buf, sizeof(buf), 0, (struct sockaddr *)&from, &len);
-			if (n > 0)
+			if (n > 0) {
 				gsocket_sendto(sock, buf, n, 0, (struct sockaddr *)&from, len);
+			}
 		}
 	}
 	gsocket_close(sock);
@@ -2301,8 +2368,9 @@ TEST(GSocketTest, Socks5Udp)
 	int n;
 	do {
 		n = gsocket_recv(sock, buf, sizeof(buf), MSG_DONTWAIT);
-		if (n > 0)
+		if (n > 0) {
 			break;
+		}
 		struct pollfd pfd = {gsocket_get_fd(sock), POLLIN, 0};
 		poll(&pfd, 1, 10);
 	} while (tries++ < 3000);
@@ -2334,8 +2402,9 @@ TEST(GSocketTest, QuicOverSocks5)
 	TestServerFixed qserver(quic_over_socks5_server, 29096);
 
 	SSL_CTX *ctx = init_quic_ctx(false);
-	if (!ctx)
+	if (!ctx) {
 		return;
+	}
 	struct gsocket *sock = gsocket_new(socket(AF_INET, SOCK_DGRAM, 0));
 	gsocket_push_layer(sock, gsocket_io_socks5_new("127.0.0.1", 29095, NULL, NULL));
 	gsocket_push_layer(sock, gsocket_io_ssl_quic_new(ctx, 0));
@@ -2359,9 +2428,9 @@ TEST(GSocketTest, QuicOverSocks5)
 		int n = gstream_poll_wait(sp, events, 8, 0);
 		if (!stream) {
 			stream = gsocket_open_stream(sock);
-			if (stream)
+			if (stream) {
 				gstream_poll_add(sp, stream, POLLIN | POLLOUT, nullptr);
-			else
+			} else
 				gsocket_handshake(sock);
 		}
 		for (int i = 0; i < n; i++) {
@@ -2376,14 +2445,16 @@ TEST(GSocketTest, QuicOverSocks5)
 					if (r > 0) {
 						recved_len = r;
 						recv_data = true;
-					} else if (r == 0)
+					} else if (r == 0) {
 						tries = 4000;
+					}
 				}
 			}
 		}
 		int net = gstream_poll_get_net_events(sp);
-		if (net)
+		if (net) {
 			gepoll_mod(ep, sock, net, nullptr);
+		}
 		// usleep(1000);
 	}
 	if (stream) {
@@ -2438,13 +2509,15 @@ TEST(GSocketTest, TcpAsyncEcho)
 	int finished = 0;
 	struct gepoll_event events[64];
 	for (int i = 0; i < 2000; i++) {
-		if (finished == clients.size())
+		if (finished == clients.size()) {
 			break;
+		}
 		int n = gepoll_wait(ep, events, 64, 10);
 		for (int j = 0; j < n; j++) {
 			client_ctx *ctx = (client_ctx *)events[j].user_data;
-			if (!ctx)
+			if (!ctx) {
 				continue;
+			}
 			if (ctx->state == 0) { // Connecting
 				if (events[j].events & (EPOLLOUT | EPOLLIN)) {
 					int err = 0;
@@ -2548,13 +2621,15 @@ TEST(GSocketTest, TlsAsyncEcho)
 	int finished = 0;
 	struct gepoll_event ev[64];
 	for (int i = 0; i < 2000; i++) {
-		if (finished == clients.size())
+		if (finished == clients.size()) {
 			break;
+		}
 		int n = gepoll_wait(ep, ev, 64, 10);
 		for (int j = 0; j < n; j++) {
 			client_ctx *c = (client_ctx *)ev[j].user_data;
-			if (!c)
+			if (!c) {
 				continue;
+			}
 			if (c->state == 0) { // Connect
 				if (ev[j].events & (EPOLLOUT | EPOLLIN)) {
 					int err = 0;
@@ -2577,19 +2652,20 @@ TEST(GSocketTest, TlsAsyncEcho)
 				if (ret == GSOCKET_HANDSHAKE_DONE) {
 					c->state = 2;
 					gepoll_mod(ep, c->sock, EPOLLOUT, c);
-				} else if (ret == GSOCKET_HANDSHAKE_WANT_READ)
+				} else if (ret == GSOCKET_HANDSHAKE_WANT_READ) {
 					gepoll_mod(ep, c->sock, EPOLLIN, c);
-				else if (ret == GSOCKET_HANDSHAKE_WANT_WRITE)
+				} else if (ret == GSOCKET_HANDSHAKE_WANT_WRITE) {
 					gepoll_mod(ep, c->sock, EPOLLOUT, c);
-				else {
+				} else {
 					c->state = 4;
 					finished++;
 					gepoll_del(ep, c->sock);
 					gsocket_close(c->sock);
 					gsocket_free(c->sock);
 				}
-				if (ret != GSOCKET_HANDSHAKE_DONE)
+				if (ret != GSOCKET_HANDSHAKE_DONE) {
 					continue;
+				}
 			}
 			if (c->state == 2 && (ev[j].events & EPOLLOUT)) {
 				int r = gsocket_send(c->sock, c->sb + c->ts, strlen(c->sb) - c->ts, 0);
@@ -2675,23 +2751,25 @@ TEST(GSocketTest, TlsOverSocks5Async)
 	int finished = 0;
 	struct gepoll_event ev[64];
 	for (int i = 0; i < 5000; i++) {
-		if (finished == clients.size())
+		if (finished == clients.size()) {
 			break;
+		}
 		int n = gepoll_wait(ep, ev, 64, 100);
 		for (int j = 0; j < n; j++) {
 			client_ctx *c = (client_ctx *)ev[j].user_data;
-			if (!c)
+			if (!c) {
 				continue;
+			}
 			if (c->state == 1) {
 				int ret = gsocket_handshake(c->sock);
 				if (ret == GSOCKET_HANDSHAKE_DONE) {
 					c->state = 2;
 				} // TO TLS
-				else if (ret == GSOCKET_HANDSHAKE_WANT_READ)
+				else if (ret == GSOCKET_HANDSHAKE_WANT_READ) {
 					gepoll_mod(ep, c->sock, EPOLLIN, c);
-				else if (ret == GSOCKET_HANDSHAKE_WANT_WRITE)
+				} else if (ret == GSOCKET_HANDSHAKE_WANT_WRITE) {
 					gepoll_mod(ep, c->sock, EPOLLOUT, c);
-				else {
+				} else {
 					c->state = 6;
 					finished++;
 					gepoll_del(ep, c->sock);
@@ -2707,11 +2785,11 @@ TEST(GSocketTest, TlsOverSocks5Async)
 				if (ret == GSOCKET_HANDSHAKE_DONE) {
 					c->state = 4;
 					gepoll_mod(ep, c->sock, EPOLLOUT, c);
-				} else if (ret == GSOCKET_HANDSHAKE_WANT_READ)
+				} else if (ret == GSOCKET_HANDSHAKE_WANT_READ) {
 					gepoll_mod(ep, c->sock, EPOLLIN, c);
-				else if (ret == GSOCKET_HANDSHAKE_WANT_WRITE)
+				} else if (ret == GSOCKET_HANDSHAKE_WANT_WRITE) {
 					gepoll_mod(ep, c->sock, EPOLLOUT, c);
-				else {
+				} else {
 					c->state = 6;
 					finished++;
 					gepoll_del(ep, c->sock);
@@ -2788,8 +2866,9 @@ TEST(GSocketTest, ProxyTargetDomain_Socks5)
 		struct pollfd pfd;
 		pfd.fd = gsocket_get_fd(sk);
 		pfd.events = POLLOUT;
-		if (res == GSOCKET_HANDSHAKE_WANT_READ)
+		if (res == GSOCKET_HANDSHAKE_WANT_READ) {
 			pfd.events = POLLIN;
+		}
 		poll(&pfd, 1, 10);
 	}
 	struct gsocket_address t;
@@ -2860,8 +2939,9 @@ TEST(GSocketTest, SNIProxy)
 	struct gsocket *ac = NULL;
 	for (int i = 0; i < 500; i++) {
 		ac = gsocket_accept(s, NULL, NULL);
-		if (ac)
+		if (ac) {
 			break;
+		}
 		struct pollfd pfd = {gsocket_get_fd(s), POLLIN, 0};
 		poll(&pfd, 1, 10);
 	}
@@ -2870,8 +2950,9 @@ TEST(GSocketTest, SNIProxy)
 	for (int i = 0; i < 500; i++) {
 		int rc = gsocket_handshake(c);
 		int rac = gsocket_handshake(ac);
-		if (rac == GSOCKET_HANDSHAKE_DONE)
+		if (rac == GSOCKET_HANDSHAKE_DONE) {
 			break;
+		}
 		struct pollfd pfds[2];
 		pfds[0].fd = gsocket_get_fd(c);
 		pfds[0].events = (rc == GSOCKET_HANDSHAKE_WANT_READ) ? POLLIN : POLLOUT;
@@ -3004,8 +3085,9 @@ TEST(GSocketTest, QUIC0RTT)
 	while (!ready)
 		std::this_thread::yield();
 	SSL_CTX *ctx = init_quic_ctx(false);
-	if (!ctx)
+	if (!ctx) {
 		return;
+	}
 	SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_CLIENT);
 	int rtt0 = 1;
 	SSL_SESSION *sess = NULL;
@@ -3074,8 +3156,9 @@ static ssize_t _mock_proxy_recvfrom(struct gsocket_io *io, void *buf, size_t len
 }
 static void _mock_proxy_free(struct gsocket_io *io)
 {
-	if (io->ctx)
+	if (io->ctx) {
 		free(io->ctx);
+	}
 	free(io);
 }
 static int mock_proxy_connect(struct gsocket_io *io, const char *host, int port)
@@ -3119,8 +3202,9 @@ static void tcp_echo_server(int port, int stop_fd, std::atomic<bool> *ready = nu
 
 	std::set<struct gsocket *> clients;
 
-	if (ready)
+	if (ready) {
 		*ready = true;
+	}
 
 	bool client_served = false;
 	while (running && *running && !client_served) {
@@ -3130,8 +3214,9 @@ static void tcp_echo_server(int port, int stop_fd, std::atomic<bool> *ready = nu
 		for (int i = 0; i < n; i++) {
 			struct gsocket *s = (struct gsocket *)events[i].user_data;
 
-			if (s == stop_sock)
+			if (s == stop_sock) {
 				goto cleanup;
+			}
 
 			if (s == listener) {
 				struct gsocket *c = gsocket_accept(listener, NULL, NULL);
@@ -3145,9 +3230,10 @@ static void tcp_echo_server(int port, int stop_fd, std::atomic<bool> *ready = nu
 
 			char buf[1024];
 			int n = gsocket_recv(s, buf, sizeof(buf), 0);
-			if (n > 0)
+			if (n > 0) {
 				gsocket_send(s, buf, n, MSG_NOSIGNAL);
-			
+			}
+
 			gepoll_del(ep, s);
 			clients.erase(s);
 			gsocket_close(s);
@@ -3185,8 +3271,9 @@ static void tls_echo_server(int port, int stop_fd, std::atomic<bool> *ready = nu
 	struct gsocket *stop_sock = gsocket_new(stop_fd);
 	gepoll_add(ep, stop_sock, EPOLLIN, stop_sock);
 
-	if (ready)
+	if (ready) {
 		*ready = true;
+	}
 
 	bool client_served = false;
 	while (running && *running && !client_served) {
@@ -3196,8 +3283,9 @@ static void tls_echo_server(int port, int stop_fd, std::atomic<bool> *ready = nu
 		for (int i = 0; i < n; i++) {
 			struct gsocket *s = (struct gsocket *)events[i].user_data;
 
-			if (s == stop_sock)
+			if (s == stop_sock) {
 				goto cleanup;
+			}
 
 			if (s == listener) {
 				struct gsocket *c = gsocket_accept(listener, NULL, NULL);
@@ -3258,16 +3346,17 @@ static void tls_proxy_server_thread(int port, const char *target_ip, int target_
 	gsocket_setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 	if (gsocket_bind(listener, "0.0.0.0", port) != 0) {
 		gsocket_free(listener);
-		if (ready)
+		if (ready) {
 			*ready = true;
+		}
 		return;
 	}
 	gsocket_listen(listener, 5);
 	SSL_CTX *ssl_ctx = init_ssl_ctx(true);
 	gsocket_push_layer(listener, gsocket_io_ssl_new(ssl_ctx, 1));
-	if (is_socks5)
+	if (is_socks5) {
 		gsocket_push_layer(listener, gsocket_io_socks5_server_new(NULL, NULL));
-	else
+	} else
 		gsocket_push_layer(listener, gsocket_io_httpproxy_server_new(NULL, NULL));
 	gsocket_set_nonblock(listener, 1);
 
@@ -3276,21 +3365,24 @@ static void tls_proxy_server_thread(int port, const char *target_ip, int target_
 	gepoll_add(ep_srv, listener, EPOLLIN, listener);
 	gepoll_add(ep_srv, stop_sock, EPOLLIN, stop_sock);
 
-	if (ready)
+	if (ready) {
 		*ready = true;
+	}
 
 	struct gepoll_event srv_events[10];
 	while (running && *running) {
 		int nfds = gepoll_wait(ep_srv, srv_events, 10, 100);
 		for (int i = 0; i < nfds; i++) {
 			struct gsocket *s = (struct gsocket *)srv_events[i].user_data;
-			if (s == stop_sock)
+			if (s == stop_sock) {
 				goto out;
+			}
 
 			if (s == listener) {
 				struct gsocket *client = gsocket_accept(listener, NULL, NULL);
-				if (!client)
+				if (!client) {
 					continue;
+				}
 				gsocket_set_nonblock(client, 1);
 				gepoll_add(ep_srv, client, EPOLLIN, client);
 				continue;
@@ -3373,8 +3465,9 @@ static void quic_echo_server(int port, int stop_fd, std::atomic<bool> *ready = n
 {
 	SSL_CTX *ctx = init_quic_ctx(true);
 	if (!ctx) {
-		if (ready)
+		if (ready) {
 			*ready = true;
+		}
 		return;
 	}
 
@@ -3396,8 +3489,9 @@ static void quic_echo_server(int port, int stop_fd, std::atomic<bool> *ready = n
 	struct gstream_poll *sp = gstream_poll_create(listener);
 	gstream_poll_add(sp, listener, POLLIN, nullptr);
 
-	if (ready)
+	if (ready) {
 		*ready = true;
+	}
 
 	struct gsocket *connection = NULL;
 	struct gsocket *stream = NULL;
@@ -3411,10 +3505,12 @@ static void quic_echo_server(int port, int stop_fd, std::atomic<bool> *ready = n
 		struct pollfd pfd;
 		pfd.fd = stop_fd;
 		pfd.events = POLLIN;
-		if (poll(&pfd, 1, 0) > 0)
+		if (poll(&pfd, 1, 0) > 0) {
 			break;
-		if (finished)
+		}
+		if (finished) {
 			exit_ticks++;
+		}
 
 		// Step 1: gepoll_wait - manage socket events
 		struct gepoll_event events[10];
@@ -3422,8 +3518,9 @@ static void quic_echo_server(int port, int stop_fd, std::atomic<bool> *ready = n
 
 		for (int i = 0; i < nev; i++) {
 			struct gsocket *s = (struct gsocket *)events[i].user_data;
-			if (s == stop_sock)
+			if (s == stop_sock) {
 				goto cleanup;
+			}
 
 			// Step 2: handshake (re-entrant)
 			int r = gsocket_handshake(s);
@@ -3493,8 +3590,9 @@ cleanup:
 		gsocket_free(stream);
 	}
 	if (connection) {
-		if (connection_sp)
+		if (connection_sp) {
 			gstream_poll_destroy(connection_sp);
+		}
 		gsocket_close(connection);
 		gsocket_free(connection);
 	}
@@ -3511,8 +3609,9 @@ static void quic_multistream_echo_server(int port, int stop_fd, std::atomic<bool
 {
 	SSL_CTX *ctx = init_quic_ctx(true);
 	if (!ctx) {
-		if (ready)
+		if (ready) {
 			*ready = true;
+		}
 		return;
 	}
 
@@ -3534,8 +3633,9 @@ static void quic_multistream_echo_server(int port, int stop_fd, std::atomic<bool
 	struct gstream_poll *sp = gstream_poll_create(listener);
 	gstream_poll_add(sp, listener, POLLIN, nullptr);
 
-	if (ready)
+	if (ready) {
 		*ready = true;
+	}
 
 	// Stream context for multistream handling
 	struct stream_ctx {
@@ -3558,10 +3658,12 @@ static void quic_multistream_echo_server(int port, int stop_fd, std::atomic<bool
 		struct pollfd pfd;
 		pfd.fd = stop_fd;
 		pfd.events = POLLIN;
-		if (poll(&pfd, 1, 0) > 0)
+		if (poll(&pfd, 1, 0) > 0) {
 			break;
-		if (finished_count >= expected_streams)
+		}
+		if (finished_count >= expected_streams) {
 			exit_ticks++;
+		}
 
 		// Step 1: gepoll_wait - manage socket events
 		struct gepoll_event events[10];
@@ -3569,8 +3671,9 @@ static void quic_multistream_echo_server(int port, int stop_fd, std::atomic<bool
 
 		for (int i = 0; i < nev; i++) {
 			struct gsocket *s = (struct gsocket *)events[i].user_data;
-			if (s == stop_sock)
+			if (s == stop_sock) {
 				goto cleanup;
+			}
 
 			// Step 2: handshake (re-entrant)
 			int r = gsocket_handshake(s);
@@ -3650,8 +3753,9 @@ cleanup:
 		delete sc;
 	}
 	if (connection) {
-		if (connection_sp)
+		if (connection_sp) {
 			gstream_poll_destroy(connection_sp);
+		}
 		gsocket_close(connection);
 		gsocket_free(connection);
 	}
@@ -3778,9 +3882,9 @@ TEST(GSocketTest, ErrorHandlingEAGAIN)
 	}
 	const char *msg = "EAGAIN";
 	ret = gsocket_send(gs, msg, 6, MSG_NOSIGNAL);
-	if (ret < 0 && errno == EAGAIN)
+	if (ret < 0 && errno == EAGAIN) {
 		ASSERT_EQ(errno, EAGAIN);
-	else
+	} else
 		ASSERT_EQ(ret, 6);
 	gsocket_close(gs);
 	gsocket_free(gs);
@@ -3836,8 +3940,9 @@ TEST(GSocketTest, QuicEcho)
 	TestServerFixed server(quic_echo_server, 29094);
 	bool recv_data = false;
 	SSL_CTX *ctx = init_quic_ctx(false);
-	if (!ctx)
+	if (!ctx) {
 		return;
+	}
 	struct gsocket *sock = gsocket_new(socket(AF_INET, SOCK_DGRAM, 0));
 	gsocket_push_layer(sock, gsocket_io_ssl_quic_new(ctx, 0));
 	gsocket_set_nonblock(sock, 1);
@@ -3858,9 +3963,9 @@ TEST(GSocketTest, QuicEcho)
 		int n = gstream_poll_wait(sp, events, 8, 0);
 		if (!stream) {
 			stream = gsocket_open_stream(sock);
-			if (stream)
+			if (stream) {
 				gstream_poll_add(sp, stream, POLLIN | POLLOUT, nullptr);
-			else
+			} else
 				gsocket_handshake(sock);
 		}
 		for (int i = 0; i < n; i++) {
@@ -3876,20 +3981,23 @@ TEST(GSocketTest, QuicEcho)
 					if (r > 0) {
 						memcpy(buf, tmp, r);
 						recved_len = r;
-					} else if (r == 0)
+					} else if (r == 0) {
 						tries = 4000;
+					}
 				}
 			}
 		}
 		int net = gstream_poll_get_net_events(sp);
-		if (net)
+		if (net) {
 			gepoll_mod(ep, sock, net, nullptr);
+		}
 		usleep(1000);
 	}
 	if (recved_len > 0) {
 		buf[recved_len > 1023 ? 1023 : recved_len] = 0;
-		if (recved_len == 4 && memcmp(buf, "quic", 4) == 0)
+		if (recved_len == 4 && memcmp(buf, "quic", 4) == 0) {
 			recv_data = true;
+		}
 	}
 	if (stream) {
 		gsocket_close(stream);
@@ -3907,8 +4015,9 @@ TEST(GSocketTest, QuicMultiStream)
 {
 	TestServerFixed qserver(quic_multistream_echo_server, 29098);
 	SSL_CTX *ctx = init_quic_ctx(false);
-	if (!ctx)
+	if (!ctx) {
 		return;
+	}
 	struct gsocket *sock = gsocket_new(socket(AF_INET, SOCK_DGRAM, 0));
 	gsocket_push_layer(sock, gsocket_io_ssl_quic_new(ctx, 0));
 	gsocket_set_nonblock(sock, 1);
@@ -3916,15 +4025,18 @@ TEST(GSocketTest, QuicMultiStream)
 	int ret;
 	int retries = 0;
 	while ((ret = gsocket_handshake(sock)) != GSOCKET_HANDSHAKE_DONE && retries++ < 500) {
-		if (ret == GSOCKET_HANDSHAKE_ERR)
+		if (ret == GSOCKET_HANDSHAKE_ERR) {
 			break;
+		}
 		struct pollfd pfd;
 		pfd.fd = gsocket_get_fd(sock);
 		pfd.events = 0;
-		if (ret == GSOCKET_HANDSHAKE_WANT_READ)
+		if (ret == GSOCKET_HANDSHAKE_WANT_READ) {
 			pfd.events |= POLLIN;
-		if (ret == GSOCKET_HANDSHAKE_WANT_WRITE)
+		}
+		if (ret == GSOCKET_HANDSHAKE_WANT_WRITE) {
 			pfd.events |= POLLOUT;
+		}
 		poll(&pfd, 1, 1);
 	}
 	if (ret != GSOCKET_HANDSHAKE_DONE) {
@@ -3978,11 +4090,13 @@ TEST(GSocketTest, QuicMultiStream)
 		int n = gstream_poll_wait(sp, events, 32, 100);
 		if (n > 0) {
 			for (int j = 0; j < n; j++) {
-				if (events[j].stream == sock)
+				if (events[j].stream == sock) {
 					continue;
+				}
 				stream_ctx *s = (stream_ctx *)events[j].user_data;
-				if (!s)
+				if (!s) {
 					continue;
+				}
 				if (s->state == 0 && (events[j].revents & POLLOUT)) {
 					int ret = gsocket_send(s->sock, s->send_buf, strlen(s->send_buf), GS_MSG_FIN);
 					if (ret > 0) {
@@ -3993,8 +4107,9 @@ TEST(GSocketTest, QuicMultiStream)
 					int ret = gsocket_recv(s->sock, s->recv_buf, sizeof(s->recv_buf) - 1, 0);
 					if (ret > 0) {
 						s->recv_buf[ret] = 0;
-						if (strncmp(s->recv_buf, s->send_buf, strlen(s->send_buf)) == 0)
+						if (strncmp(s->recv_buf, s->send_buf, strlen(s->send_buf)) == 0) {
 							success++;
+						}
 						s->state = 2;
 						finished++;
 						gstream_poll_del(sp, s->sock);
@@ -4059,8 +4174,9 @@ TEST(GSocketTest, TProxyUDP)
 		struct pollfd pfd = {gsocket_get_fd(server_sock), POLLIN, 0};
 		if (poll(&pfd, 1, 100) > 0) {
 			received = gsocket_recvmsg(server_sock, &msg, 0);
-			if (received > 0)
+			if (received > 0) {
 				break;
+			}
 		}
 	}
 	ASSERT_GT(received, 0);
@@ -4154,9 +4270,7 @@ TEST(GSocketTest, StressConcurrentConnections)
 	/* Echo server with TLS to handle inner TLS layer from clients */
 	// Use shared_ptr to automatically free SSL_CTX
 	auto ctx_ptr = std::shared_ptr<SSL_CTX>(init_ssl_ctx(true), SSL_CTX_free);
-	auto tls_setup = [ctx_ptr](struct gsocket *s) {
-		gsocket_push_layer(s, gsocket_io_ssl_new(ctx_ptr.get(), 1));
-	};
+	auto tls_setup = [ctx_ptr](struct gsocket *s) { gsocket_push_layer(s, gsocket_io_ssl_new(ctx_ptr.get(), 1)); };
 	std::thread echo(GenericEchoServer, 0, &s_sync, std::ref(running), tls_setup, false, AF_INET);
 	s_sync.wait();
 	int echo_port = s_sync.port;
@@ -4508,9 +4622,7 @@ TEST(GSocketTest, TLSReset)
 {
 	// Use shared_ptr to automatically free SSL_CTX
 	auto ctx_ptr = std::shared_ptr<SSL_CTX>(init_ssl_ctx(true), SSL_CTX_free);
-	auto tls_setup = [ctx_ptr](struct gsocket *s) {
-		gsocket_push_layer(s, gsocket_io_ssl_new(ctx_ptr.get(), 1));
-	};
+	auto tls_setup = [ctx_ptr](struct gsocket *s) { gsocket_push_layer(s, gsocket_io_ssl_new(ctx_ptr.get(), 1)); };
 
 	ServerSync sync;
 	std::atomic<bool> running(true);
@@ -4548,9 +4660,7 @@ TEST(GSocketTest, TLSNormalClose)
 {
 	// Use shared_ptr to automatically free SSL_CTX
 	auto ctx_ptr = std::shared_ptr<SSL_CTX>(init_ssl_ctx(true), SSL_CTX_free);
-	auto tls_setup = [ctx_ptr](struct gsocket *s) {
-		gsocket_push_layer(s, gsocket_io_ssl_new(ctx_ptr.get(), 1));
-	};
+	auto tls_setup = [ctx_ptr](struct gsocket *s) { gsocket_push_layer(s, gsocket_io_ssl_new(ctx_ptr.get(), 1)); };
 
 	ServerSync sync;
 	std::atomic<bool> running(true);
@@ -4797,8 +4907,9 @@ TEST(GSocketTest, HTTPProxyNormalClose)
 TEST(GSocketTest, QUICRefused)
 {
 	SSL_CTX *ctx = init_quic_ctx(false);
-	if (!ctx)
-		return; // QUIC not supported
+	if (!ctx) {
+		return;
+	} // QUIC not supported
 
 	struct gsocket *sock = gsocket_new(socket(AF_INET, SOCK_DGRAM, 0));
 	gsocket_push_layer(sock, gsocket_io_ssl_quic_new(ctx, 0));
@@ -4816,8 +4927,9 @@ TEST(GSocketTest, QUICRefused)
 		struct gepoll_event ev;
 		gepoll_wait(ep, &ev, 1, 100);
 		hs_result = gsocket_handshake(sock);
-		if (hs_result == GSOCKET_HANDSHAKE_ERR || hs_result == GSOCKET_HANDSHAKE_DONE)
+		if (hs_result == GSOCKET_HANDSHAKE_ERR || hs_result == GSOCKET_HANDSHAKE_DONE) {
 			break;
+		}
 	}
 
 	// If handshake completed, recv should fail
@@ -4841,8 +4953,9 @@ TEST(GSocketTest, QUICReset)
 	// QUIC doesn't have RST like TCP, but can close connection
 	// This test verifies handling of connection close
 	SSL_CTX *ctx = init_quic_ctx(false);
-	if (!ctx)
+	if (!ctx) {
 		return;
+	}
 
 	// For QUIC, we'd need a QUIC server that closes the connection
 	// Skipping detailed implementation as QUIC close is complex
@@ -4853,8 +4966,9 @@ TEST(GSocketTest, QUICNormalClose)
 {
 	// QUIC stream FIN handling
 	SSL_CTX *ctx = init_quic_ctx(false);
-	if (!ctx)
+	if (!ctx) {
 		return;
+	}
 
 	// Would need QUIC server that sends FIN
 	// Skipping detailed implementation
@@ -4870,8 +4984,9 @@ using namespace GSocketTestUtils;
 static void StartMockServer(int *port, ServerSync *sync, std::function<void(struct gsocket *)> handler)
 {
 	struct gsocket *sock = gsocket_new(socket(AF_INET, SOCK_STREAM, 0));
-	if (!sock)
+	if (!sock) {
 		return;
+	}
 
 	int opt = 1;
 	gsocket_setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
@@ -4880,8 +4995,9 @@ static void StartMockServer(int *port, ServerSync *sync, std::function<void(stru
 		perror("gsocket_bind");
 		gsocket_close(sock);
 		gsocket_free(sock);
-		if (sync)
+		if (sync) {
 			sync->notify();
+		}
 		return;
 	}
 
@@ -4889,8 +5005,9 @@ static void StartMockServer(int *port, ServerSync *sync, std::function<void(stru
 		perror("gsocket_listen");
 		gsocket_close(sock);
 		gsocket_free(sock);
-		if (sync)
+		if (sync) {
 			sync->notify();
+		}
 		return;
 	}
 
@@ -4904,8 +5021,9 @@ static void StartMockServer(int *port, ServerSync *sync, std::function<void(stru
 		perror("gsocket_getsockname");
 	}
 
-	if (sync)
+	if (sync) {
 		sync->notify(*port);
+	}
 
 	/* Accept one connection then exit */
 	struct gsocket *client = gsocket_accept(sock, NULL, NULL);
@@ -4924,8 +5042,9 @@ static void StartEchoServer(int *port, ServerSync *sync)
 		char buf[1024];
 		while (true) {
 			ssize_t n = gsocket_recv(gs, buf, sizeof(buf), 0);
-			if (n <= 0)
+			if (n <= 0) {
 				break;
+			}
 			gsocket_send(gs, buf, n, 0);
 		}
 	});
@@ -5066,7 +5185,7 @@ TEST(GSocketTest, SSLErrorReporting)
 
 	gsocket_close(gs);
 	gsocket_free(gs);
-	SSL_CTX_free(ctx);  // Fix memory leak
+	SSL_CTX_free(ctx); // Fix memory leak
 	server.join();
 }
 /* ========================================================================= */

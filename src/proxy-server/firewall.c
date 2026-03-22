@@ -236,10 +236,11 @@ static int _run_shell_script_wrap(const char *script, int timeout)
 }
 
 static void _cleanup_nftables_family(const char *family, const char *table_name, const char *family_opt,
-									const char *local_range, int mark)
+									 const char *local_range, int mark)
 {
-	if (table_name == NULL)
+	if (table_name == NULL) {
 		return;
+	}
 	char script[4096];
 	char mark_str[32];
 	snprintf(mark_str, sizeof(mark_str), "%d", mark);
@@ -662,7 +663,6 @@ int firewall_setup_rules(struct dns_tproxy_server_conf *t_conf)
 		tlog(TLOG_INFO, "executing custom rule script %s for %s", t_conf->rule_script, t_conf->name);
 		// Construct the "setup" command template for compatibility with old script format
 		// Old format was: script setup mark setname ip port ipv6 udp_support
-
 
 		// Need to pass the script path itself as a param for this special case
 		// Or simpler: just use _run_custom_script but we need to inject the script path logic.

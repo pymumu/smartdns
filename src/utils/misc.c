@@ -378,8 +378,9 @@ int run_shell_script(const char *script, int timeout)
 	while (written < len) {
 		ssize_t n = write(pipe_in[1], script + written, len - written);
 		if (n < 0) {
-			if (errno == EINTR)
+			if (errno == EINTR) {
 				continue;
+			}
 			break;
 		}
 		written += n;
@@ -407,8 +408,9 @@ int run_shell_script(const char *script, int timeout)
 		}
 
 		if (poll(fds, 2, remaining) < 0) {
-			if (errno == EINTR)
+			if (errno == EINTR) {
 				continue;
+			}
 			break;
 		}
 
@@ -429,9 +431,9 @@ int run_shell_script(const char *script, int timeout)
 					while (p >= buffer && (*p == '\n' || *p == '\r'))
 						*p-- = 0;
 					if (buffer[0]) {
-						if (i == 0)
+						if (i == 0) {
 							tlog(TLOG_DEBUG, "%s", buffer);
-						else
+						} else
 							tlog(TLOG_ERROR, "%s", buffer);
 					}
 				} else if (n == 0 || (n < 0 && errno != EINTR)) {
@@ -447,17 +449,23 @@ int run_shell_script(const char *script, int timeout)
 	}
 
 cleanup:
-	if (pipe_in[0] != -1)
+	if (pipe_in[0] != -1) {
 		close(pipe_in[0]);
-	if (pipe_in[1] != -1)
+	}
+	if (pipe_in[1] != -1) {
 		close(pipe_in[1]);
-	if (pipe_out[0] != -1)
+	}
+	if (pipe_out[0] != -1) {
 		close(pipe_out[0]);
-	if (pipe_out[1] != -1)
+	}
+	if (pipe_out[1] != -1) {
 		close(pipe_out[1]);
-	if (pipe_err[0] != -1)
+	}
+	if (pipe_err[0] != -1) {
 		close(pipe_err[0]);
-	if (pipe_err[1] != -1)
+	}
+	if (pipe_err[1] != -1) {
 		close(pipe_err[1]);
+	}
 	return ret;
 }

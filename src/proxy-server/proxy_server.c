@@ -1725,9 +1725,11 @@ static int _proxy_server_process_get_target(struct proxy_server_conn *conn)
 		const char *sni_ptr = NULL;
 		int len = parse_tls_header((const char *)conn->buff->data, conn->buff->len, sni, &sni_ptr);
 		if (len < 0) {
-			if (len == -1)
-				return 0; /* Need more data */
-			return -1;    /* Error */
+			if (len == -1) {
+				return 0;
+			}
+			/* Need more data */
+			return -1; /* Error */
 		}
 		safe_strncpy(conn->client.domain, sni, sizeof(conn->client.domain));
 		conn->client.sni_offset = sni_ptr - conn->buff->data;
@@ -2611,24 +2613,29 @@ static int get_sockaddr_port(struct sockaddr *addr)
 
 static int sockaddr_cmp(struct sockaddr *x, struct sockaddr *y)
 {
-	if (x->sa_family != y->sa_family)
+	if (x->sa_family != y->sa_family) {
 		return -1;
+	}
 
 	if (x->sa_family == AF_INET) {
 		struct sockaddr_in *xin = (struct sockaddr_in *)x;
 		struct sockaddr_in *yin = (struct sockaddr_in *)y;
-		if (xin->sin_addr.s_addr != yin->sin_addr.s_addr)
+		if (xin->sin_addr.s_addr != yin->sin_addr.s_addr) {
 			return -1;
-		if (xin->sin_port != yin->sin_port)
+		}
+		if (xin->sin_port != yin->sin_port) {
 			return -1;
+		}
 		return 0;
 	} else if (x->sa_family == AF_INET6) {
 		struct sockaddr_in6 *xin6 = (struct sockaddr_in6 *)x;
 		struct sockaddr_in6 *yin6 = (struct sockaddr_in6 *)y;
-		if (memcmp(&xin6->sin6_addr, &yin6->sin6_addr, sizeof(xin6->sin6_addr)) != 0)
+		if (memcmp(&xin6->sin6_addr, &yin6->sin6_addr, sizeof(xin6->sin6_addr)) != 0) {
 			return -1;
-		if (xin6->sin6_port != yin6->sin6_port)
+		}
+		if (xin6->sin6_port != yin6->sin6_port) {
 			return -1;
+		}
 		return 0;
 	}
 	return -1;
@@ -2778,8 +2785,9 @@ static int _proxy_server_process_forward_udp(struct proxy_server_conn *conn, str
 		session_conn->fd = -1;
 		session_conn->udp_session.pending_packet_head = _proxy_server_new_conn_buffer();
 		if (session_conn->udp_session.pending_packet_head) {
-			if ((size_t)len > sizeof(session_conn->udp_session.pending_packet_head->data))
+			if ((size_t)len > sizeof(session_conn->udp_session.pending_packet_head->data)) {
 				len = sizeof(session_conn->udp_session.pending_packet_head->data);
+			}
 			memcpy(session_conn->udp_session.pending_packet_head->data, buf, len);
 			session_conn->udp_session.pending_packet_head->len = len;
 			session_conn->udp_session.pending_packet_tail = session_conn->udp_session.pending_packet_head;
@@ -2802,8 +2810,9 @@ static int _proxy_server_process_forward_udp(struct proxy_server_conn *conn, str
 		} else {
 			struct conn_buffer *buffer = _proxy_server_new_conn_buffer();
 			if (buffer) {
-				if ((size_t)len > sizeof(buffer->data))
+				if ((size_t)len > sizeof(buffer->data)) {
 					len = sizeof(buffer->data);
+				}
 				memcpy(buffer->data, buf, len);
 				buffer->len = len;
 				if (session_conn->udp_session.pending_packet_tail) {
@@ -2880,8 +2889,9 @@ static int _proxy_server_process_udp_session(struct proxy_server_conn *conn, str
 											 unsigned long now)
 {
 	int ret;
-	if (conn->type != PROXY_SERVER_CONN_UDP_SESSION)
+	if (conn->type != PROXY_SERVER_CONN_UDP_SESSION) {
 		return -1;
+	}
 
 	/* Refresh timeout */
 	if (conn->udp_session.session_hash) {
@@ -3168,8 +3178,9 @@ static int _proxy_server_process_tproxy_udp(struct proxy_server_conn *conn, stru
 
 		session_conn->udp_session.pending_packet_head = _proxy_server_new_conn_buffer();
 		if (session_conn->udp_session.pending_packet_head) {
-			if ((size_t)len > sizeof(session_conn->udp_session.pending_packet_head->data))
+			if ((size_t)len > sizeof(session_conn->udp_session.pending_packet_head->data)) {
 				len = sizeof(session_conn->udp_session.pending_packet_head->data);
+			}
 			memcpy(session_conn->udp_session.pending_packet_head->data, buf, len);
 			session_conn->udp_session.pending_packet_head->len = len;
 			session_conn->udp_session.pending_packet_tail = session_conn->udp_session.pending_packet_head;
@@ -3196,8 +3207,9 @@ static int _proxy_server_process_tproxy_udp(struct proxy_server_conn *conn, stru
 			/* Queue pending packet */
 			struct conn_buffer *new_buf = _proxy_server_new_conn_buffer();
 			if (new_buf) {
-				if ((size_t)len > sizeof(new_buf->data))
+				if ((size_t)len > sizeof(new_buf->data)) {
 					len = sizeof(new_buf->data);
+				}
 				memcpy(new_buf->data, buf, len);
 				new_buf->len = len;
 				new_buf->next = NULL;
@@ -3285,7 +3297,7 @@ static void *_proxy_server_work(void *arg)
 {
 	struct epoll_event events[PROXY_SERVER_MAX_EVENTS + 1];
 	struct proxy_server_conn *conns[PROXY_SERVER_MAX_EVENTS + 1];
-	
+
 	int num = 0;
 	int i = 0;
 	unsigned long now = {0};

@@ -30,7 +30,6 @@
 #define HTTP3_HEADER_FRAME 1
 #define HTTP3_DATA_FRAME 0
 
-
 /* Structs */
 
 struct http3_ctx {
@@ -66,7 +65,6 @@ struct http3_stream {
 	int open;
 };
 
-
 /* Internal Helpers (Static) */
 static int _http_head_setup_http3_0_httpcode(struct http_head *http_head);
 static int http3_parse_headers_payload(struct http_head *http_head, const uint8_t *data, int data_len);
@@ -74,27 +72,31 @@ static int http3_parse_headers_payload(struct http_head *http_head, const uint8_
 static int http3_varint_encode(uint64_t value, uint8_t *buffer, int buffer_size)
 {
 	if (value <= 63) {
-		if (buffer_size < 1)
+		if (buffer_size < 1) {
 			return -1;
+		}
 		buffer[0] = (uint8_t)value;
 		return 1;
 	} else if (value <= 16383) {
-		if (buffer_size < 2)
+		if (buffer_size < 2) {
 			return -1;
+		}
 		buffer[0] = (uint8_t)((value >> 8) | 0x40);
 		buffer[1] = (uint8_t)value;
 		return 2;
 	} else if (value <= 1073741823) {
-		if (buffer_size < 4)
+		if (buffer_size < 4) {
 			return -1;
+		}
 		buffer[0] = (uint8_t)((value >> 24) | 0x80);
 		buffer[1] = (uint8_t)(value >> 16);
 		buffer[2] = (uint8_t)(value >> 8);
 		buffer[3] = (uint8_t)value;
 		return 4;
 	} else {
-		if (buffer_size < 8)
+		if (buffer_size < 8) {
 			return -1;
+		}
 		buffer[0] = (uint8_t)((value >> 56) | 0xC0);
 		buffer[1] = (uint8_t)(value >> 48);
 		buffer[2] = (uint8_t)(value >> 40);
@@ -110,24 +112,28 @@ static int http3_varint_encode(uint64_t value, uint8_t *buffer, int buffer_size)
 static int http3_varint_decode(const uint8_t *buffer, int buffer_len, uint64_t *value)
 {
 	if ((buffer[0] & 0xC0) == 0x00) {
-		if (buffer_len < 1)
+		if (buffer_len < 1) {
 			return -1;
+		}
 		*value = buffer[0];
 		return 1;
 	} else if ((buffer[0] & 0xC0) == 0x40) {
-		if (buffer_len < 2)
+		if (buffer_len < 2) {
 			return -1;
+		}
 		*value = ((uint64_t)(buffer[0] & 0x3F) << 8) | buffer[1];
 		return 2;
 	} else if ((buffer[0] & 0xC0) == 0x80) {
-		if (buffer_len < 4)
+		if (buffer_len < 4) {
 			return -1;
+		}
 		*value =
 			((uint64_t)(buffer[0] & 0x3F) << 24) | ((uint64_t)buffer[1] << 16) | ((uint64_t)buffer[2] << 8) | buffer[3];
 		return 4;
 	} else {
-		if (buffer_len < 8)
+		if (buffer_len < 8) {
 			return -1;
+		}
 		*value = ((uint64_t)(buffer[0] & 0x3F) << 56) | ((uint64_t)buffer[1] << 48) | ((uint64_t)buffer[2] << 40) |
 				 ((uint64_t)buffer[3] << 32) | ((uint64_t)buffer[4] << 24) | ((uint64_t)buffer[5] << 16) |
 				 ((uint64_t)buffer[6] << 8) | buffer[7];
@@ -142,8 +148,9 @@ static int _qpack_build_header(const char *name, const char *value, uint8_t *buf
 	int name_len = strlen(name);
 	int value_len = strlen(value);
 
-	if (buffer_size - offset < 2)
+	if (buffer_size - offset < 2) {
 		return -1;
+	}
 
 	if (name_len < 7) {
 		buffer[offset++] = 0x20 | name_len;
@@ -152,22 +159,26 @@ static int _qpack_build_header(const char *name, const char *value, uint8_t *buf
 		buffer[offset++] = name_len - 7;
 	}
 
-	if (buffer_size - offset < name_len)
+	if (buffer_size - offset < name_len) {
 		return -1;
+	}
 
 	memcpy(buffer + offset, name, name_len);
 	offset += name_len;
 
-	if (buffer_size - offset < 2)
+	if (buffer_size - offset < 2) {
 		return -1;
+	}
 
 	offset_ret = http3_varint_encode(value_len, buffer + offset, buffer_size - offset);
-	if (offset_ret < 0)
+	if (offset_ret < 0) {
 		return -1;
+	}
 	offset += offset_ret;
 
-	if (buffer_size - offset < value_len)
+	if (buffer_size - offset < value_len) {
 		return -1;
+	}
 
 	memcpy(buffer + offset, value, value_len);
 	offset += value_len;
@@ -183,8 +194,9 @@ static int http3_build_headers_payload(struct http_head *http_head, uint8_t *buf
 	struct http_params *params = NULL;
 
 	/* Insert count and delta base */
-	if (buffer_len - offset < 2)
+	if (buffer_len - offset < 2) {
 		return -1;
+	}
 
 	buffer[offset++] = 0;
 	buffer[offset++] = 0;
@@ -195,8 +207,9 @@ static int http3_build_headers_payload(struct http_head *http_head, uint8_t *buf
 		int request_path_buffer_len = sizeof(request_path);
 
 		int request_path_len = snprintf(request_path, sizeof(request_path), "%s", http_head->url);
-		if (request_path_len < 0)
+		if (request_path_len < 0) {
 			return -1;
+		}
 
 		request_path_buffer += request_path_len;
 		request_path_buffer_len -= request_path_len;
@@ -216,38 +229,44 @@ static int http3_build_headers_payload(struct http_head *http_head, uint8_t *buf
 			request_path_buffer += request_path_len;
 			request_path_buffer_len -= request_path_len;
 
-			if (request_path_buffer_len < 2)
+			if (request_path_buffer_len < 2) {
 				return -3;
+			}
 		}
 
 		offset_ret =
 			_qpack_build_header(":method", http_method_str(http_head->method), buffer + offset, buffer_len - offset);
-		if (offset_ret < 0)
+		if (offset_ret < 0) {
 			return -1;
+		}
 		offset += offset_ret;
 
 		offset_ret = _qpack_build_header(":path", request_path, buffer + offset, buffer_len - offset);
-		if (offset_ret < 0)
+		if (offset_ret < 0) {
 			return -1;
+		}
 		offset += offset_ret;
 		offset_ret = _qpack_build_header(":scheme", "https", buffer + offset, buffer_len - offset);
-		if (offset_ret < 0)
+		if (offset_ret < 0) {
 			return -1;
+		}
 		offset += offset_ret;
 	} else if (http_head->head_type == HTTP_HEAD_RESPONSE) {
 		char status_str[12];
 		snprintf(status_str, sizeof(status_str), "%d", http_head->code);
 		offset_ret = _qpack_build_header(":status", status_str, buffer + offset, buffer_len - offset);
-		if (offset_ret < 0)
+		if (offset_ret < 0) {
 			return -1;
+		}
 		offset += offset_ret;
 	}
 
 	list_for_each_entry(fields, &http_head->field_head.list, list)
 	{
 		offset_ret = _qpack_build_header(fields->name, fields->value, buffer + offset, buffer_len - offset);
-		if (offset_ret < 0)
+		if (offset_ret < 0) {
 			return -1;
+		}
 		offset += offset_ret;
 	}
 
@@ -255,8 +274,9 @@ static int http3_build_headers_payload(struct http_head *http_head, uint8_t *buf
 		char len_str[12];
 		snprintf(len_str, sizeof(len_str), "%d", http_head->data_len);
 		offset_ret = _qpack_build_header("content-length", len_str, buffer + offset, buffer_len - offset);
-		if (offset_ret < 0)
+		if (offset_ret < 0) {
 			return -1;
+		}
 		offset += offset_ret;
 	}
 	return offset;
@@ -268,12 +288,14 @@ static int http3_build_body_payload(const uint8_t *body, int body_len, uint8_t *
 	int offset_ret = 0;
 
 	offset_ret = http3_varint_encode(body_len, buffer + offset, buffer_len - offset);
-	if (offset_ret < 0)
+	if (offset_ret < 0) {
 		return -1;
+	}
 	offset += offset_ret;
 
-	if (buffer_len - offset < body_len)
+	if (buffer_len - offset < body_len) {
 		return -1;
+	}
 
 	memcpy(buffer + offset, body, body_len);
 	offset += body_len;
@@ -286,15 +308,19 @@ static int http3_build_body_payload(const uint8_t *body, int body_len, uint8_t *
 static int _quic_read_varint(const uint8_t *buffer, int buffer_len, uint64_t *value, int n)
 {
 	uint64_t i;
-	if (n < 1 || n > 8)
+	if (n < 1 || n > 8) {
 		return -2;
-	if (buffer_len == 0)
+	}
+
+	if (buffer_len == 0) {
 		return -1;
+	}
 
 	const uint8_t *p = buffer;
 	i = *p;
-	if (n < 8)
+	if (n < 8) {
 		i &= (1 << (uint64_t)n) - 1;
+	}
 
 	if (i < (uint64_t)(1 << (uint64_t)n) - 1) {
 		*value = i;
@@ -312,8 +338,9 @@ static int _quic_read_varint(const uint8_t *buffer, int buffer_len, uint64_t *va
 			return p - buffer + 1;
 		}
 		m += 7;
-		if (m >= 63)
+		if (m >= 63) {
 			return -1;
+		}
 		p++;
 	}
 
@@ -328,14 +355,17 @@ static int _quic_read_string(const uint8_t *buffer, int buffer_len, char *str, i
 	int offset_ret = 0;
 
 	offset_ret = _quic_read_varint(buffer, buffer_len, &len, n);
-	if (offset_ret < 0)
+	if (offset_ret < 0) {
 		return -1;
+	}
 	offset += offset_ret;
 
-	if ((uint64_t)(buffer_len - offset) < len)
+	if ((uint64_t)(buffer_len - offset) < len) {
 		return -1;
-	if ((uint64_t)max_str_len < len)
+	}
+	if ((uint64_t)max_str_len < len) {
 		return -3;
+	}
 
 	if (huffman) {
 		size_t char_len = 0;
@@ -369,14 +399,16 @@ static int http3_parse_headers_payload(struct http_head *http_head, const uint8_
 	size_t str_len = 0;
 	int buffer_left_len = 0;
 
-	if (data_len < 2)
+	if (data_len < 2) {
 		return -1;
+	}
 
 	insert_count = data[0];
 	delta_base = data[1];
 
-	if (insert_count != 0 || delta_base != 0)
+	if (insert_count != 0 || delta_base != 0) {
 		return -2;
+	}
 
 	offset += 2;
 
@@ -394,132 +426,161 @@ static int http3_parse_headers_payload(struct http_head *http_head, const uint8_
 
 		if (b & 0x80) {
 			/* indexed header*/
-			if ((b & 0x40) == 0)
+			if ((b & 0x40) == 0) {
 				return -2;
+			}
 
 			offset_ret = _quic_read_varint(data + offset, data_len - offset, &index, 6);
-			if (offset_ret < 0)
+			if (offset_ret < 0) {
 				return -1;
+			}
 			offset += offset_ret;
 
 			header = qpack_get_static_header_field(index);
-			if (header == NULL)
+			if (header == NULL) {
 				return -2;
+			}
 
 			name = header->name;
 			value = header->value;
 		} else if (b & 0x40) {
 			/* literal header with indexing */
-			if ((b & 0x10) == 0)
+			if ((b & 0x10) == 0) {
 				return -2;
+			}
 			offset_ret = _quic_read_varint(data + offset, data_len - offset, &index, 4);
-			if (offset_ret < 0)
+			if (offset_ret < 0) {
 				return -1;
+			}
 			offset += offset_ret;
 
 			header = qpack_get_static_header_field(index);
-			if (header == NULL)
+			if (header == NULL) {
 				return -2;
+			}
 
 			name = header->name;
 
 			b = data[offset];
-			if ((b & 0x80) > 0)
+			if ((b & 0x80) > 0) {
 				use_huffman = 1;
+			}
 
 			buffer_value = (char *)_http_head_buffer_get_end(http_head);
 			buffer_left_len = _http_head_buffer_left_len(http_head);
 
 			offset_ret = _quic_read_string(data + offset, data_len - offset, buffer_value, buffer_left_len - 1,
 										   &str_len, 7, use_huffman);
-			if (offset_ret < 0)
+			if (offset_ret < 0) {
 				return offset_ret;
+			}
 
 			offset += offset_ret;
 			buffer_value[str_len] = '\0';
-			if (_http_head_buffer_append(http_head, NULL, str_len + 1) == NULL)
+			if (_http_head_buffer_append(http_head, NULL, str_len + 1) == NULL) {
 				return -3;
+			}
 			value = buffer_value;
 		} else if (b & 0x20) {
 			/* literal header without indexing */
 			b = data[offset];
-			if ((b & 0x8) > 0)
+			if ((b & 0x8) > 0) {
 				use_huffman = 1;
+			}
 
 			buffer_name = (char *)_http_head_buffer_get_end(http_head);
 			buffer_left_len = _http_head_buffer_left_len(http_head);
 
 			offset_ret = _quic_read_string(data + offset, data_len - offset, buffer_name, buffer_left_len - 1, &str_len,
 										   3, use_huffman);
-			if (offset_ret < 0)
+			if (offset_ret < 0) {
 				return offset_ret;
+			}
 			offset += offset_ret;
 			buffer_name[str_len] = '\0';
-			if (_http_head_buffer_append(http_head, NULL, str_len + 1) == NULL)
+			if (_http_head_buffer_append(http_head, NULL, str_len + 1) == NULL) {
 				return -3;
+			}
 			name = buffer_name;
 
 			b = data[offset];
-			if ((b & 0x80) > 0)
+			if ((b & 0x80) > 0) {
 				use_huffman = 1;
+			}
 
 			buffer_value = (char *)_http_head_buffer_get_end(http_head);
 			buffer_left_len = _http_head_buffer_left_len(http_head);
 			offset_ret = _quic_read_string(data + offset, data_len - offset, buffer_value, buffer_left_len - 1,
 										   &str_len, 7, use_huffman);
-			if (offset_ret < 0)
+			if (offset_ret < 0) {
 				return offset_ret;
+			}
 			offset += offset_ret;
 			buffer_value[str_len] = '\0';
-			if (_http_head_buffer_append(http_head, NULL, str_len + 1) == NULL)
+			if (_http_head_buffer_append(http_head, NULL, str_len + 1) == NULL) {
 				return -3;
+			}
 			value = buffer_value;
 		} else {
 			return -2;
 		}
 
-		if (http_head_add_fields(http_head, name, value) != 0)
+		if (http_head_add_fields(http_head, name, value) != 0) {
 			break;
+		}
 	}
 
 	return 0;
 }
 
 struct http3_ctx *http3_ctx_client_new(void *conn_data, const struct http3_conn_ops *ops,
-									 const struct http3_settings *settings)
+									   const struct http3_settings *settings)
 {
 	struct http3_ctx *ctx = (struct http3_ctx *)calloc(1, sizeof(struct http3_ctx));
-	if (!ctx)
+	if (!ctx) {
 		return NULL;
+	}
+
 	atomic_set(&ctx->refcount, 1);
 	ctx->is_server = 0;
 	ctx->conn_data = conn_data;
-	if (ops)
+	if (ops) {
 		ctx->ops = *ops;
-	if (settings)
+	}
+
+	if (settings) {
 		ctx->settings = *settings;
+	}
 	return ctx;
 }
 
 struct http3_ctx *http3_ctx_server_new(void *conn_data, const struct http3_conn_ops *ops,
-									 const struct http3_settings *settings)
+									   const struct http3_settings *settings)
 {
 	struct http3_ctx *ctx = (struct http3_ctx *)calloc(1, sizeof(struct http3_ctx));
-	if (!ctx)
+	if (!ctx) {
 		return NULL;
+	}
+
 	atomic_set(&ctx->refcount, 1);
 	ctx->is_server = 1;
 	ctx->conn_data = conn_data;
-	if (ops)
+	if (ops) {
 		ctx->ops = *ops;
-	if (settings)
+	}
+
+	if (settings) {
 		ctx->settings = *settings;
+	}
 	return ctx;
 }
 
 void http3_ctx_close(struct http3_ctx *ctx)
 {
-	if (!ctx) return;
+	if (!ctx) {
+		return;
+	}
+
 	if (ctx->control_stream) {
 		http3_stream_put(ctx->control_stream);
 		ctx->control_stream = NULL;
@@ -547,19 +608,19 @@ void http3_ctx_put(struct http3_ctx *ctx)
 int http3_ctx_handshake(struct http3_ctx *ctx)
 {
 	if (!ctx) {
-        fprintf(stderr, "DEBUG-XYZ: http3_ctx_handshake: ctx is NULL\n");
-        return -1;
-    }
+		fprintf(stderr, "DEBUG-XYZ: http3_ctx_handshake: ctx is NULL\n");
+		return -1;
+	}
 	if (!ctx->ops.create_stream) {
-        fprintf(stderr, "DEBUG-XYZ: http3_ctx_handshake: ops.create_stream is NULL, returning 0\n");
-        abort(); /* Force crash */
-        return HTTP3_ERR_NONE; /* No ops, assume manual management? or error */
-    }
+		fprintf(stderr, "DEBUG-XYZ: http3_ctx_handshake: ops.create_stream is NULL, returning 0\n");
+		abort();               /* Force crash */
+		return HTTP3_ERR_NONE; /* No ops, assume manual management? or error */
+	}
 	if (ctx->control_stream) {
-        fprintf(stderr, "DEBUG-XYZ: http3_ctx_handshake: control_stream already exists, returning 0\n");
-        abort(); /* Force crash */
-        return HTTP3_ERR_NONE; /* Already done */
-    }
+		fprintf(stderr, "DEBUG-XYZ: http3_ctx_handshake: control_stream already exists, returning 0\n");
+		abort();               /* Force crash */
+		return HTTP3_ERR_NONE; /* Already done */
+	}
 
 	/* 1. Create Control Stream (Unidirectional) */
 	/* Stream Type 0x02 = HTTP/3 Control Stream? No, Stream Type is payload inside the stream.
@@ -574,7 +635,9 @@ int http3_ctx_handshake(struct http3_ctx *ctx)
 	/* We use a private helper or expose logic to link handle */
 	struct http3_stream *s = http3_stream_new(ctx);
 	if (!s) {
-		if (ctx->ops.close_stream) ctx->ops.close_stream(stream_handle);
+		if (ctx->ops.close_stream) {
+			ctx->ops.close_stream(stream_handle);
+		}
 		return HTTP3_ERR_IO;
 	}
 	/* Link BIOs */
@@ -584,28 +647,21 @@ int http3_ctx_handshake(struct http3_ctx *ctx)
 	/* 3. Send SETTINGS Frame */
 	/* Frame Type 0x04 = SETTINGS */
 	/* Payload: Identifier (Varint) + Value (Varint) ... */
-	
+
 	/* First, Write Stream Type (0x00 = Control Stream) */
 	uint8_t type_buf[8];
 	int ret = http3_varint_encode(0x00, type_buf, sizeof(type_buf));
-	if (ret <= 0) return HTTP3_ERR_PROTOCOL;
-	if (s->bio_write(s->bio_data, type_buf, ret, 0) != ret) return HTTP3_ERR_IO;
+	if (ret <= 0) {
+		return HTTP3_ERR_PROTOCOL;
+	}
 
-	/* Prepare SETTINGS payload */
-	/* We usually send MAX_TABLE_CAPACITY etc. For now, empty or basic. */
-	/* Frame Header: Type=0x04, Length=... */
-	/* Let's construct a simple SETTINGS frame with 0 settings for now, or copy from ctx->settings */
-	
-	uint8_t settings_buf[128];
-	int offset = 0;
-	
-	/* SETTINGS_MAX_HEADER_LIST_SIZE (0x06) */
-	/* SETTINGS_QPACK_MAX_TABLE_CAPACITY (0x01) */
-	/* SETTINGS_QPACK_BLOCKED_STREAMS (0x07) */
+	if (s->bio_write(s->bio_data, type_buf, ret, 0) != ret) {
+		return HTTP3_ERR_IO;
+	}
 
 	/* For verification, we just send empty settings to say "Hello" */
 	/* Frame Payload is empty if no settings */
-	int payload_len = 0; 
+	int payload_len = 0;
 
 	/* Frame Header */
 	uint8_t frame_head[16];
@@ -615,8 +671,10 @@ int http3_ctx_handshake(struct http3_ctx *ctx)
 	r = http3_varint_encode(payload_len, frame_head + h_off, sizeof(frame_head) - h_off);
 	h_off += r;
 
-	if (s->bio_write(s->bio_data, frame_head, h_off, 0) != h_off) return HTTP3_ERR_IO;
-	
+	if (s->bio_write(s->bio_data, frame_head, h_off, 0) != h_off) {
+		return HTTP3_ERR_IO;
+	}
+
 	/* Send Payload (0 bytes) */
 
 	return HTTP3_ERR_NONE;
@@ -635,8 +693,9 @@ int http3_ctx_poll(struct http3_ctx *ctx, struct http3_poll_item *items, int max
 struct http3_stream *http3_stream_new(struct http3_ctx *ctx)
 {
 	struct http3_stream *s = (struct http3_stream *)calloc(1, sizeof(struct http3_stream));
-	if (!s)
+	if (!s) {
 		return NULL;
+	}
 	s->ctx = ctx;
 	atomic_set(&s->refcount, 1);
 	s->open = 1;
@@ -708,12 +767,14 @@ void http3_stream_set_bio(struct http3_stream *stream, http3_bio_read_fn read, h
 int http3_stream_set_request(struct http3_stream *stream, const char *method, const char *path, const char *scheme,
 							 const struct http3_header_pair *headers)
 {
-	if (!stream->head)
+	if (!stream->head) {
 		stream->head = http_head_init(1024, HTTP_VERSION_3_0);
+	}
 
 	int m = HTTP_METHOD_GET;
-	if (method && strcmp(method, "POST") == 0)
+	if (method && strcmp(method, "POST") == 0) {
 		m = HTTP_METHOD_POST;
+	}
 
 	http_head_set_method(stream->head, m);
 	http_head_set_url(stream->head, path);
@@ -728,13 +789,14 @@ int http3_stream_set_request(struct http3_stream *stream, const char *method, co
 int http3_stream_set_response(struct http3_stream *stream, int status, const struct http3_header_pair *headers,
 							  int header_count)
 {
-	if (!stream->head)
+	if (!stream->head) {
 		stream->head = http_head_init(1024, HTTP_VERSION_3_0);
+	}
 	http_head_set_httpcode(stream->head, status, "OK");
-    
-    for (int i = 0; i < header_count; i++) {
-        http_head_add_fields(stream->head, headers[i].name, headers[i].value);
-    }
+
+	for (int i = 0; i < header_count; i++) {
+		http_head_add_fields(stream->head, headers[i].name, headers[i].value);
+	}
 	return 0;
 }
 
@@ -760,14 +822,16 @@ int http3_stream_write_body(struct http3_stream *stream, const uint8_t *data, in
 		uint8_t header[16];
 		int offset = 0;
 		int ret = http3_varint_encode(0x00, header + offset, sizeof(header) - offset);
-		if (ret > 0)
+		if (ret > 0) {
 			offset += ret;
+		}
 		ret = http3_varint_encode(len, header + offset, sizeof(header) - offset);
-		if (ret > 0)
+		if (ret > 0) {
 			offset += ret;
+		}
 
 		stream->bio_write(stream->bio_data, header, offset, 0);
-		
+
 		/* Write DATA frame payload with eos flag */
 		written = stream->bio_write(stream->bio_data, data, len, end_stream);
 	} else if (end_stream && len == 0 && stream->bio_write) {
@@ -782,8 +846,9 @@ int http3_stream_read_body(struct http3_stream *stream, uint8_t *data, int len)
 {
 	/* 1. Pull from bio */
 	uint8_t tmp[4096];
-	if (!stream->bio_read)
+	if (!stream->bio_read) {
 		return -1;
+	}
 	int r = stream->bio_read(stream->bio_data, tmp, sizeof(tmp));
 	if (r > 0) {
 		void *new_buf = realloc(stream->rx_raw_buffer, stream->rx_raw_buffer_len + r);
@@ -793,26 +858,31 @@ int http3_stream_read_body(struct http3_stream *stream, uint8_t *data, int len)
 			stream->rx_raw_buffer_len += r;
 		}
 	} else if (r < 0) {
-		if (errno != EAGAIN && errno != EWOULDBLOCK)
+		if (errno != EAGAIN && errno != EWOULDBLOCK) {
 			return -1;
+		}
 	}
 
 	/* 2. Parse frames individually from raw buffer */
 	while (stream->rx_raw_buffer_len > 0) {
 		uint64_t type = 0, flen = 0;
 		int r1 = http3_varint_decode((uint8_t *)stream->rx_raw_buffer, stream->rx_raw_buffer_len, &type);
-		if (r1 < 0)
+		if (r1 < 0) {
 			break;
+		}
 		int r2 = http3_varint_decode((uint8_t *)stream->rx_raw_buffer + r1, stream->rx_raw_buffer_len - r1, &flen);
-		if (r2 < 0)
+		if (r2 < 0) {
 			break;
-		if ((uint64_t)stream->rx_raw_buffer_len < (uint64_t)r1 + r2 + flen)
+		}
+		if ((uint64_t)stream->rx_raw_buffer_len < (uint64_t)r1 + r2 + flen) {
 			break;
+		}
 
 		uint8_t *payload = (uint8_t *)stream->rx_raw_buffer + r1 + r2;
 		if (type == 0x01) { /* HEADERS */
-			if (!stream->rx_head)
+			if (!stream->rx_head) {
 				stream->rx_head = http_head_init(4096, HTTP_VERSION_3_0);
+			}
 			http3_parse_headers_payload(stream->rx_head, payload, flen);
 			_http_head_setup_http3_0_httpcode(stream->rx_head);
 		} else if (type == 0x00) { /* DATA */
@@ -852,8 +922,9 @@ int http3_stream_read_body(struct http3_stream *stream, uint8_t *data, int len)
 		return to_copy;
 	}
 
-	if (r == 0 && stream->rx_raw_buffer_len == 0)
+	if (r == 0 && stream->rx_raw_buffer_len == 0) {
 		return 0;
+	}
 
 	errno = EAGAIN;
 	return -1;
@@ -861,28 +932,32 @@ int http3_stream_read_body(struct http3_stream *stream, uint8_t *data, int len)
 
 const char *http3_stream_get_path(struct http3_stream *stream)
 {
-	if (stream->rx_head)
+	if (stream->rx_head) {
 		return http_head_get_url(stream->rx_head);
+	}
 	return NULL;
 }
 const char *http3_stream_get_method(struct http3_stream *stream)
 {
-	if (stream->rx_head)
+	if (stream->rx_head) {
 		return http_method_str(http_head_get_method(stream->rx_head));
+	}
 	return NULL;
 }
 
 int http3_stream_get_status(struct http3_stream *stream)
 {
-	if (stream->rx_head)
+	if (stream->rx_head) {
 		return http_head_get_httpcode(stream->rx_head);
+	}
 	return 0;
 }
 
 const char *http3_stream_get_header(struct http3_stream *stream, const char *name)
 {
-	if (stream->rx_head)
+	if (stream->rx_head) {
 		return http_head_get_fields_value(stream->rx_head, name);
+	}
 	return NULL;
 }
 

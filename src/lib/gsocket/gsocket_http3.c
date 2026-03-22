@@ -21,8 +21,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 #include <sys/epoll.h>
+#include <unistd.h>
 
 /* Context for the gsocket_io */
 struct gsocket_http3_ctx {
@@ -154,22 +154,22 @@ static int _http3_handshake(struct gsocket_io *io)
 	/* 2. HTTP/3 Handshake (Settings exchange etc - if implemented) */
 	/* Only done on connection level */
 	if (ctx->is_connection && ctx->h3_ctx) {
-        if (!ctx->is_listener) {
-        } else {
-        }
+		if (!ctx->is_listener) {
+		} else {
+		}
 
-        /* PROHIBIT handshake on Listener (Server Socket) */
-        if (ctx->is_listener) {
-             return GSOCKET_HANDSHAKE_DONE;
-        }
+		/* PROHIBIT handshake on Listener (Server Socket) */
+		if (ctx->is_listener) {
+			return GSOCKET_HANDSHAKE_DONE;
+		}
 
-        if (ctx->handshake_done) {
-            return GSOCKET_HANDSHAKE_DONE;
-        }
-        
+		if (ctx->handshake_done) {
+			return GSOCKET_HANDSHAKE_DONE;
+		}
+
 		int ret = http3_ctx_handshake(ctx->h3_ctx);
 		if (ret == 0) {
-            ctx->handshake_done = 1;
+			ctx->handshake_done = 1;
 			return GSOCKET_HANDSHAKE_DONE;
 		}
 
@@ -226,13 +226,13 @@ static ssize_t _http3_send(struct gsocket_io *io, const void *buf, size_t len, i
 		return -1;
 	}
 
-    char *h = NULL;
+	char *h = NULL;
 	if (!ctx->headers_sent) {
 		if (ctx->is_server) {
 			struct http3_header_pair pairs[16];
 			int count = 0;
 			char cl_str[32];
-			
+
 			if (ctx->content_length > 0) {
 				snprintf(cl_str, sizeof(cl_str), "%zu", ctx->content_length);
 				pairs[count].name = "content-length";
@@ -247,7 +247,9 @@ static ssize_t _http3_send(struct gsocket_io *io, const void *buf, size_t len, i
 					*p = 0;
 					char *v = p + 2;
 					char *e = strstr(v, "\r\n");
-					if (e) *e = 0;
+					if (e) {
+						*e = 0;
+					}
 					pairs[count].name = h;
 					pairs[count].value = v;
 					count++;
@@ -273,8 +275,10 @@ static ssize_t _http3_send(struct gsocket_io *io, const void *buf, size_t len, i
 	/* Write body wraps data in DATA frames and sends via BIO */
 	int end_stream = (flags & GS_MSG_FIN) ? 1 : 0;
 	int ret = http3_stream_write_body(ctx->h3_stream, (const uint8_t *)buf, len, end_stream);
-    
-    if (h) free(h);
+
+	if (h) {
+		free(h);
+	}
 	if (ret < 0) {
 		return -1;
 	}
@@ -404,7 +408,8 @@ static int _http3_stream_get_fd(struct gsocket_io *io)
 }
 
 /* Helper to setup new stream IO */
-static struct gsocket_io *_http3_create_stream_io(struct gsocket_io *lower_stream_io, struct http3_ctx *h3_ctx_ref, int is_server)
+static struct gsocket_io *_http3_create_stream_io(struct gsocket_io *lower_stream_io, struct http3_ctx *h3_ctx_ref,
+												  int is_server)
 {
 	struct gsocket_io *io = calloc(1, sizeof(struct gsocket_io));
 	struct gsocket_http3_ctx *ctx = calloc(1, sizeof(struct gsocket_http3_ctx));
@@ -414,7 +419,7 @@ static struct gsocket_io *_http3_create_stream_io(struct gsocket_io *lower_strea
 	}
 
 	ctx->is_connection = 0;
-	ctx->is_server = is_server;  // Inherit from connection
+	ctx->is_server = is_server;              // Inherit from connection
 	ctx->h3_ctx = http3_ctx_get(h3_ctx_ref); /* Ref counting if needed */
 	ctx->h3_stream = http3_stream_new(ctx->h3_ctx);
 	ctx->status_code = 200;
@@ -616,7 +621,7 @@ struct gsocket_io *gsocket_io_http3_new(int is_server)
 	io->setsockopt = _http3_conn_setsockopt;
 	io->getsockopt = _http3_conn_getsockopt;
 	io->get_poll_events = _http3_get_poll_events;
-    io->listen = _http3_listen;
+	io->listen = _http3_listen;
 
 	return io;
 
@@ -656,7 +661,6 @@ static int _http3_conn_setsockopt(struct gsocket_io *io, int level, int optname,
 	return -1;
 }
 
-
 static int _http3_conn_getsockopt(struct gsocket_io *io, int level, int optname, void *optval, socklen_t *optlen)
 {
 	if (io->lower && io->lower->getsockopt) {
@@ -672,13 +676,13 @@ static void *_h3_ops_create_stream(void *conn_data, int type)
 	if (!io || !io->lower || !io->lower->open_stream) {
 		return NULL;
 	}
-	/* NOTE: We might need to pass 'type' to lower layer if it supports Uni/Bi distinction. 
+	/* NOTE: We might need to pass 'type' to lower layer if it supports Uni/Bi distinction.
 	   For now, we assume open_stream returns a bidirectional stream unless configured otherwise.
-	   If handshake needs Uni, we hope the transport handles it or we flag it later. 
+	   If handshake needs Uni, we hope the transport handles it or we flag it later.
 	*/
 	struct gsocket_io *stream_io = io->lower->open_stream(io->lower);
 	/* Setup stream type if possible */
-	
+
 	return stream_io;
 }
 
