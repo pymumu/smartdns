@@ -79,26 +79,29 @@ static int _http_head_parse_request(struct http_head *http_head, char *key, char
 		return _http_head_parse_response(http_head, key, value);
 	}
 
-	for (tmp_ptr = value; *tmp_ptr != 0; tmp_ptr++) {
-		if (field_start == NULL) {
+	version = strstr(value, "HTTP/");
+	if (version == NULL) {
+		return -2;
+	}
+
+	for (tmp_ptr = value; tmp_ptr < version; tmp_ptr++) {
+		if (*tmp_ptr != ' ' && field_start == NULL) {
 			field_start = tmp_ptr;
 		}
-		if (*tmp_ptr == ' ') {
+		if (*tmp_ptr == ' ' && field_start != NULL) {
 			*tmp_ptr = '\0';
 			if (url == NULL) {
 				url = field_start;
 			}
-
 			field_start = NULL;
 		}
 	}
 
-	if (field_start && version == NULL) {
-		version = field_start;
-		tmp_ptr = field_start;
+	if (url == NULL || version == NULL) {
+		return -2;
 	}
 
-	if (_http_head_parse_params(http_head, url, tmp_ptr - url) != 0) {
+	if (_http_head_parse_params(http_head, url, strlen(url)) != 0) {
 		return -2;
 	}
 
@@ -391,6 +394,10 @@ int http_head_serialize_http1_1(struct http_head *http_head, char *buffer, int b
 			return -2;
 		}
 
+		if (len >= buffer_len) {
+			return -3;
+		}
+
 		buffer += len;
 		buffer_len -= len;
 
@@ -402,18 +409,30 @@ int http_head_serialize_http1_1(struct http_head *http_head, char *buffer, int b
 		list_for_each_entry(params, &http_head->params.list, list)
 		{
 			if (count == 0) {
-				len = snprintf(buffer, buffer_len, "?%s=%s", params->name, params->value);
+				if (params->value && params->value[0] != '\0') {
+					len = snprintf(buffer, buffer_len, "?%s=%s", params->name, params->value);
+				} else {
+					len = snprintf(buffer, buffer_len, "?%s", params->name);
+				}
 			} else {
-				len = snprintf(buffer, buffer_len, "&%s=%s", params->name, params->value);
+				if (params->value && params->value[0] != '\0') {
+					len = snprintf(buffer, buffer_len, "&%s=%s", params->name, params->value);
+				} else {
+					len = snprintf(buffer, buffer_len, "&%s", params->name);
+				}
+			}
+
+			if (len < 0) {
+				return -2;
+			}
+
+			if (len >= buffer_len) {
+				return -3;
 			}
 
 			count++;
 			buffer += len;
 			buffer_len -= len;
-
-			if (buffer_len < 2) {
-				return -3;
-			}
 		}
 
 		if (buffer_len < 2) {
@@ -423,6 +442,10 @@ int http_head_serialize_http1_1(struct http_head *http_head, char *buffer, int b
 		len = snprintf(buffer, buffer_len, " %s\r\n", http_head->version);
 		if (len < 0) {
 			return -2;
+		}
+
+		if (len >= buffer_len) {
+			return -3;
 		}
 		buffer += len;
 		buffer_len -= len;
@@ -438,11 +461,12 @@ int http_head_serialize_http1_1(struct http_head *http_head, char *buffer, int b
 			return -2;
 		}
 
-		buffer += len;
-		buffer_len -= len;
-		if (buffer_len < 2) {
+		if (len >= buffer_len) {
 			return -3;
 		}
+
+		buffer += len;
+		buffer_len -= len;
 	}
 
 	list_for_each_entry(fields, &http_head->field_head.list, list)
@@ -452,11 +476,12 @@ int http_head_serialize_http1_1(struct http_head *http_head, char *buffer, int b
 			return -2;
 		}
 
-		buffer += len;
-		buffer_len -= len;
-		if (buffer_len < 2) {
+		if (len >= buffer_len) {
 			return -3;
 		}
+
+		buffer += len;
+		buffer_len -= len;
 	}
 
 	if (buffer_len < 2) {

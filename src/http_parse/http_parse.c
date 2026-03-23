@@ -223,8 +223,9 @@ uint8_t *_http_head_buffer_get_end(struct http_head *http_head)
 	return http_head->buff + http_head->buff_len;
 }
 
-uint8_t *_http_head_buffer_append(struct http_head *http_head, const uint8_t *data, int data_len)
+unsigned char *http_head_buffer_append(struct http_head *http_head, const unsigned char *data, int data_len)
 {
+	unsigned char *res = NULL;
 	if (http_head == NULL || data_len < 0) {
 		return NULL;
 	}
@@ -233,12 +234,13 @@ uint8_t *_http_head_buffer_append(struct http_head *http_head, const uint8_t *da
 		return NULL;
 	}
 
+	res = http_head->buff + http_head->buff_len;
 	if (data != NULL) {
-		memcpy(http_head->buff + http_head->buff_len, data, data_len);
+		memcpy(res, data, data_len);
 	}
 	http_head->buff_len += data_len;
 
-	return (http_head->buff + http_head->buff_len);
+	return res;
 }
 
 int _http_head_add_param(struct http_head *http_head, const char *name, const char *value)
@@ -366,6 +368,29 @@ int http_head_add_fields(struct http_head *http_head, const char *name, const ch
 	return _http_head_add_fields(http_head, name, value);
 }
 
+int http_head_del_fields(struct http_head *http_head, const char *name)
+{
+	uint32_t key = 0;
+	struct http_head_fields *fields = NULL;
+	struct hlist_node *tmp;
+
+	if (http_head == NULL || name == NULL) {
+		return -1;
+	}
+
+	key = hash_string_case(name);
+	hash_for_each_possible_safe(http_head->field_map, fields, tmp, node, key)
+	{
+		if (strncasecmp(fields->name, name, 128) == 0) {
+			list_del(&fields->list);
+			hash_del(&fields->node);
+			free(fields);
+		}
+	}
+
+	return 0;
+}
+
 int _http_head_parse_params(struct http_head *http_head, char *url, int url_len)
 {
 	char *tmp_ptr = NULL;
@@ -373,6 +398,7 @@ int _http_head_parse_params(struct http_head *http_head, char *url, int url_len)
 	char *param_start = NULL;
 	char *field = NULL;
 	char *value = NULL;
+	char *url_end = url + url_len;
 
 	if (url == NULL) {
 		return -1;
@@ -386,31 +412,44 @@ int _http_head_parse_params(struct http_head *http_head, char *url, int url_len)
 	*param_start = '\0';
 	param_start++;
 
-	for (tmp_ptr = param_start; tmp_ptr < url + url_len; tmp_ptr++) {
-		if (field_start == NULL) {
+	for (tmp_ptr = param_start; tmp_ptr <= url_end; tmp_ptr++) {
+		if (tmp_ptr < url_end && field_start == NULL) {
 			field_start = tmp_ptr;
 		}
 
 		if (field == NULL) {
-			if (*tmp_ptr == '=') {
+			if (tmp_ptr < url_end && *tmp_ptr == '=') {
 				*tmp_ptr = '\0';
 				field = field_start;
+				field_start = NULL;
+			} else if (tmp_ptr == url_end || *tmp_ptr == '&') {
+				if (tmp_ptr < url_end) {
+					*tmp_ptr = '\0';
+				}
+				field = field_start;
+				value = "";
+				if (_http_head_add_param(http_head, field, value) != 0) {
+					return -2;
+				}
+				field = NULL;
+				value = NULL;
 				field_start = NULL;
 			}
 			continue;
 		}
 
 		if (value == NULL) {
-			if (*tmp_ptr == '&' || tmp_ptr == url + url_len - 1) {
-				*tmp_ptr = '\0';
+			if (tmp_ptr == url_end || *tmp_ptr == '&') {
+				if (tmp_ptr < url_end) {
+					*tmp_ptr = '\0';
+				}
 				value = field_start;
-				field_start = NULL;
-
 				if (_http_head_add_param(http_head, field, value) != 0) {
 					return -2;
 				}
 				field = NULL;
 				value = NULL;
+				field_start = NULL;
 			}
 			continue;
 		}
@@ -431,6 +470,10 @@ const char *http_method_str(HTTP_METHOD method)
 		return "DELETE";
 	case HTTP_METHOD_TRACE:
 		return "TRACE";
+	case HTTP_METHOD_OPTIONS:
+		return "OPTIONS";
+	case HTTP_METHOD_PATCH:
+		return "PATCH";
 	case HTTP_METHOD_CONNECT:
 		return "CONNECT";
 	default:
@@ -444,17 +487,21 @@ HTTP_METHOD _http_method_parse(const char *method)
 		return HTTP_METHOD_INVALID;
 	}
 
-	if (strncmp(method, "GET", sizeof("GET")) == 0) {
+	if (strcmp(method, "GET") == 0) {
 		return HTTP_METHOD_GET;
-	} else if (strncmp(method, "POST", sizeof("POST")) == 0) {
+	} else if (strcmp(method, "POST") == 0) {
 		return HTTP_METHOD_POST;
-	} else if (strncmp(method, "PUT", sizeof("PUT")) == 0) {
+	} else if (strcmp(method, "PUT") == 0) {
 		return HTTP_METHOD_PUT;
-	} else if (strncmp(method, "DELETE", sizeof("DELETE")) == 0) {
+	} else if (strcmp(method, "DELETE") == 0) {
 		return HTTP_METHOD_DELETE;
-	} else if (strncmp(method, "TRACE", sizeof("TRACE")) == 0) {
+	} else if (strcmp(method, "TRACE") == 0) {
 		return HTTP_METHOD_TRACE;
-	} else if (strncmp(method, "CONNECT", sizeof("CONNECT")) == 0) {
+	} else if (strcmp(method, "OPTIONS") == 0) {
+		return HTTP_METHOD_OPTIONS;
+	} else if (strcmp(method, "PATCH") == 0) {
+		return HTTP_METHOD_PATCH;
+	} else if (strcmp(method, "CONNECT") == 0) {
 		return HTTP_METHOD_CONNECT;
 	}
 

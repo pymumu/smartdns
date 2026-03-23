@@ -41,6 +41,8 @@ typedef enum HTTP_METHOD {
 	HTTP_METHOD_PUT,
 	HTTP_METHOD_DELETE,
 	HTTP_METHOD_TRACE,
+	HTTP_METHOD_OPTIONS,
+	HTTP_METHOD_PATCH,
 	HTTP_METHOD_CONNECT,
 } HTTP_METHOD;
 
@@ -55,6 +57,10 @@ struct http_head *http_head_init(int buffsize, HTTP_VERSION version);
 const char *http_method_str(HTTP_METHOD method);
 
 int http_head_add_fields(struct http_head *http_head, const char *name, const char *value);
+
+int http_head_del_fields(struct http_head *http_head, const char *name);
+
+unsigned char *http_head_buffer_append(struct http_head *http_head, const unsigned char *data, int data_len);
 
 int http_head_add_param(struct http_head *http_head, const char *name, const char *value);
 

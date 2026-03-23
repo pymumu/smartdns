@@ -1122,12 +1122,12 @@ TEST(GSocketTest, HttpProxyServerForwarding)
 	ASSERT_EQ(write(sv[1], req, strlen(req)), (ssize_t)strlen(req));
 
 	char buf[1024];
-	ssize_t n = gsocket_recv(gs_srv, buf, sizeof(buf), 0);
+	ssize_t n = gsocket_recv(gs_srv, buf, sizeof(buf) - 1, 0);
 	ASSERT_GT(n, 0);
 	buf[n] = 0;
 
-	EXPECT_EQ(strstr(buf, "GET /index.html"), (char *)NULL);
-	EXPECT_NE(strstr(buf, "http://example.com"), (char *)NULL);
+	EXPECT_NE(strstr(buf, "GET /index.html"), (char *)NULL);
+	EXPECT_EQ(strstr(buf, "http://example.com"), (char *)NULL);
 
 	struct gsocket_address target;
 	ASSERT_EQ(gsocket_get_proxy_target(gs_srv, &target), 0);

@@ -1402,20 +1402,6 @@ static void _proxy_handle_event(struct relay_gsock *rg, uint32_t events)
 	conn->last_active = worker->now;
 	list_move_tail(&conn->node, &worker->conns);
 
-	if (events & (EPOLLHUP | EPOLLERR)) {
-		char ip[DNS_MAX_IPLEN] = "unknown";
-		int port = 0;
-		if (!rg->is_remote) {
-			safe_strncpy(ip, conn->client_ip, sizeof(ip));
-			port = conn->client_port;
-		} else {
-			safe_strncpy(ip, conn->target.host, sizeof(ip));
-			port = conn->target.port;
-		}
-		tlog(TLOG_DEBUG, "proxy connection event error %s:%d, events: 0x%x, is_remote: %d", ip, port, events, rg->is_remote);
-		goto close_conn;
-	}
-
 	if (conn->state != PSTATE_PIPE) {
 		if (conn->state == PSTATE_CONNECTING && rg->is_remote) {
 			if (events & EPOLLOUT) {
@@ -1445,6 +1431,18 @@ static void _proxy_handle_event(struct relay_gsock *rg, uint32_t events)
 	}
 
 	/* Regular PIPE state logic - handle subsequent epoll events */
+	if (conn->closing) {
+		/* If closing, only handle write events to drain buffers */
+		pthread_mutex_unlock(&worker->lock);
+		if (events & EPOLLOUT) {
+			if (!rg->is_remote) {
+				_proxy_relay_data(&conn->remote, &conn->client, 0);
+			} else {
+				_proxy_relay_data(&conn->client, &conn->remote, 0);
+			}
+		}
+		return;
+	}
 	pthread_mutex_unlock(&worker->lock);
 
 	if (events & EPOLLIN) {
@@ -1483,8 +1481,25 @@ static void _proxy_server_cleanup(struct proxy_worker *worker)
 	/* 1. Promptly clean up connections already marked for closing */
 	list_for_each_entry_safe(conn, tmp, &worker->closing_conns, node)
 	{
-		list_del(&conn->node);
-		__proxy_conn_free(conn);
+		if (conn->client.buf_len == 0 && conn->remote.buf_len == 0) {
+			list_del(&conn->node);
+			__proxy_conn_free(conn);
+		} else {
+			/* Still has data to drain, check for timeout */
+			if (worker->now - conn->last_active > 10) {
+				tlog(TLOG_DEBUG, "proxy %p connection closed, reason: drain timeout", conn);
+				list_del(&conn->node);
+				__proxy_conn_free(conn);
+			} else {
+				/* Try to flush again */
+				if (conn->client.buf_len > 0) {
+					_proxy_flush_buffer(&conn->remote, &conn->client);
+				}
+				if (conn->remote.buf_len > 0) {
+					_proxy_flush_buffer(&conn->client, &conn->remote);
+				}
+			}
+		}
 	}
 
 	/* 2. Throttled scan for idle/connect timeouts (1Hz) */

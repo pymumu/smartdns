@@ -70,7 +70,7 @@ struct http_head {
 
 int _http_head_buffer_left_len(struct http_head *http_head);
 uint8_t *_http_head_buffer_get_end(struct http_head *http_head);
-uint8_t *_http_head_buffer_append(struct http_head *http_head, const uint8_t *data, int data_len);
+uint8_t *http_head_buffer_append(struct http_head *http_head, const uint8_t *data, int data_len);
 
 int _http_head_add_param(struct http_head *http_head, const char *name, const char *value);
 int _http_head_parse_params(struct http_head *http_head, char *url, int url_len);

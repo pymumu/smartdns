@@ -477,7 +477,7 @@ static int http3_parse_headers_payload(struct http_head *http_head, const uint8_
 
 			offset += offset_ret;
 			buffer_value[str_len] = '\0';
-			if (_http_head_buffer_append(http_head, NULL, str_len + 1) == NULL) {
+			if (http_head_buffer_append(http_head, NULL, str_len + 1) == NULL) {
 				return -3;
 			}
 			value = buffer_value;
@@ -498,7 +498,7 @@ static int http3_parse_headers_payload(struct http_head *http_head, const uint8_
 			}
 			offset += offset_ret;
 			buffer_name[str_len] = '\0';
-			if (_http_head_buffer_append(http_head, NULL, str_len + 1) == NULL) {
+			if (http_head_buffer_append(http_head, NULL, str_len + 1) == NULL) {
 				return -3;
 			}
 			name = buffer_name;
@@ -517,7 +517,7 @@ static int http3_parse_headers_payload(struct http_head *http_head, const uint8_
 			}
 			offset += offset_ret;
 			buffer_value[str_len] = '\0';
-			if (_http_head_buffer_append(http_head, NULL, str_len + 1) == NULL) {
+			if (http_head_buffer_append(http_head, NULL, str_len + 1) == NULL) {
 				return -3;
 			}
 			value = buffer_value;
@@ -1066,7 +1066,7 @@ int http_head_parse_http3_0(struct http_head *http_head, const uint8_t *data, in
 					http_head->data = _http_head_buffer_get_end(http_head);
 				}
 
-				if (_http_head_buffer_append(http_head, data + offset, frame_len) == NULL) {
+				if (http_head_buffer_append(http_head, data + offset, frame_len) == NULL) {
 					http_head->code_msg = "Receive Buffer Insufficient";
 					http_head->code = 500;
 					http_head->data_len = 0;

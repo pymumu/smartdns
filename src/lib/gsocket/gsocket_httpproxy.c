@@ -192,6 +192,7 @@ static int _httpproxy_server_handshake(struct gsocket_io *io)
 			}
 			ctx->buf_len = 0;
 		} else {
+			/* regular HTTP request, normalize URL and headers */
 			if (url) {
 				char scheme[32];
 				char host[256];
@@ -199,12 +200,36 @@ static int _httpproxy_server_handshake(struct gsocket_io *io)
 				char path[1024];
 
 				int parse_ret = parse_uri(url, scheme, host, &port, path);
-
 				if (parse_ret == 0) {
+					/* Absolute URL, convert to relative */
+					const char *final_path = path[0] == '\0' ? "/" : path;
+					char *new_url = (char *)http_head_buffer_append(head, (const uint8_t *)final_path, strlen(final_path) + 1);
+					if (new_url) {
+						http_head_set_url(head, new_url);
+					}
+					if (host[0] != '\0') {
+						char host_val[300];
+						if (port != PORT_NOT_DEFINED && port != 80 && port != 443) {
+							snprintf(host_val, sizeof(host_val), "%s:%d", host, port);
+						} else {
+							snprintf(host_val, sizeof(host_val), "%s", host);
+						}
+						/* Only set Host if not already set or if it's an IP and we have a domain */
+						const char *existing_host = http_head_get_fields_value(head, "Host");
+						if (!existing_host || (check_is_ipaddr(existing_host) == 0 && check_is_ipaddr(host) != 0)) {
+							char *new_host_name = (char *)http_head_buffer_append(head, (const unsigned char *)"Host", 5);
+							char *new_host_val = (char *)http_head_buffer_append(head, (const unsigned char *)host_val, strlen(host_val) + 1);
+							if (new_host_name && new_host_val) {
+								http_head_del_fields(head, "Host");
+								http_head_add_fields(head, new_host_name, new_host_val);
+							}
+						}
+					}
 					strncpy(ctx->target_host, host, sizeof(ctx->target_host) - 1);
 					ctx->target_host[sizeof(ctx->target_host) - 1] = '\0';
 					ctx->target_port = (port == PORT_NOT_DEFINED) ? 80 : (uint16_t)port;
 				} else {
+					/* Relative URL, use Host header */
 					const char *host_val = http_head_get_fields_value(head, "Host");
 					if (host_val && parse_ip(host_val, host, &port) == 0) {
 						strncpy(ctx->target_host, host, sizeof(ctx->target_host) - 1);
@@ -216,6 +241,11 @@ static int _httpproxy_server_handshake(struct gsocket_io *io)
 					}
 				}
 			}
+
+			/* Remove Hop-by-Hop headers */
+			http_head_del_fields(head, "Proxy-Connection");
+			http_head_del_fields(head, "Connection");
+			http_head_add_fields(head, "Connection", "close");
 
 			if (ctx->user && ctx->pass) {
 				const char *auth = http_head_get_fields_value(head, "Proxy-Authorization");
@@ -232,8 +262,33 @@ static int _httpproxy_server_handshake(struct gsocket_io *io)
 					http_head_destroy(head);
 					return GSOCKET_HANDSHAKE_ERR;
 				}
+				http_head_del_fields(head, "Proxy-Authorization");
 			}
-			/* Forward the original request, data remains in buffer */
+
+			/* Re-serialize the normalized request */
+			int header_len = http_head_get_head_len(head);
+			int body_len = ctx->buf_len - header_len;
+			char *body_ptr = ctx->buffer + header_len;
+			char new_headers[4096];
+
+			int new_header_len = http_head_serialize(head, new_headers, sizeof(new_headers));
+			if (new_header_len < 0) {
+				http_head_destroy(head);
+				return GSOCKET_HANDSHAKE_ERR;
+			}
+
+			if (new_header_len + body_len >= (int)sizeof(ctx->buffer)) {
+				http_head_destroy(head);
+				return GSOCKET_HANDSHAKE_ERR;
+			}
+
+			if (body_len > 0) {
+				memmove(ctx->buffer + new_header_len, body_ptr, body_len);
+			}
+			memcpy(ctx->buffer, new_headers, new_header_len);
+			ctx->buf_len = new_header_len + body_len;
+			ctx->buffer[ctx->buf_len] = '\0';
+
 			http_head_destroy(head);
 		}
 
