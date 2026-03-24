@@ -61,7 +61,7 @@ int netlink_get_neighbors(int family, const uint8_t *target_ip, int target_ip_le
 	nlh = (struct nlmsghdr *)buf;
 	nlh->nlmsg_len = NLMSG_LENGTH(sizeof(struct ndmsg));
 	nlh->nlmsg_type = RTM_GETNEIGH;
-	nlh->nlmsg_flags = NLM_F_REQUEST;
+	nlh->nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
 	nlh->nlmsg_seq = time(NULL);
 	nlh->nlmsg_pid = getpid();
 
@@ -84,7 +84,7 @@ int netlink_get_neighbors(int family, const uint8_t *target_ip, int target_ip_le
 		}
 
 		send_count++;
-		if (send(netlink_neighbor_fd, buf, NLMSG_SPACE(sizeof(struct ndmsg)), 0) < 0) {
+		if (send(netlink_neighbor_fd, buf, NLMSG_ALIGN(nlh->nlmsg_len), 0) < 0) {
 			if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
 				struct timespec waiter;
 				waiter.tv_sec = 0;
