@@ -421,15 +421,13 @@ impl DataStats {
             .db
             .delete_domain_before_timestamp(now - self.conf.read().unwrap().max_log_age_ms as u64);
         if let Err(e) = ret {
-            if e.to_string() == "Query returned no rows" {
-                return;
-            }
-
-            dns_log!(
+            if e.to_string() != "Query returned no rows" {
+              dns_log!(
                 LogLevel::WARN,
                 "delete domain before timestamp error: {}",
                 e
-            );
+              );
+            }
         }
 
         let ret = self.db.refresh_client_top_list(now - 7 * 24 * 3600 * 1000);
