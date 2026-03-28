@@ -959,20 +959,23 @@ impl Plugin {
 }
 
 #[derive(Serialize)]
-pub struct CachedDomainInfo { pub id: u64, pub domain: String, pub qtype: u16 }
+pub struct CachedDomainInfo { pub id: u64, pub domain: String, pub qtype: u16, pub cached_time: i64, pub ttl_remaining: i32 }
 
-extern "C" fn cache_foreach_cb(domain: *const c_char, qtype: u16, _ttl: i32, order_id: u64, userdata: *mut c_void) {
+extern "C" fn cache_foreach_cb(domain: *const c_char, qtype: u16, ttl_remaining: i32, insert_time: i64, userdata: *mut c_void) {
     let domains = unsafe { &mut *(userdata as *mut Vec<CachedDomainInfo>) };
     let domain_str = unsafe { CStr::from_ptr(domain).to_string_lossy().into_owned() };
-    domains.push(CachedDomainInfo { id: order_id, domain: domain_str, qtype });
+    domains.push(CachedDomainInfo { id: 0, domain: domain_str, qtype, cached_time: insert_time, ttl_remaining });
 }
 
 pub fn get_cached_domains() -> Vec<CachedDomainInfo> {
-    let mut domains = Vec::new();
+    let mut domains: Vec<CachedDomainInfo> = Vec::new();
     unsafe {
         let count = smartdns_c::dns_cache_foreach(Some(cache_foreach_cb), &mut domains as *mut _ as *mut c_void);
         if count < 0 {
             return Vec::new();
+        }
+        for (idx, item) in domains.iter_mut().enumerate() {
+            item.id = (idx + 1) as u64;
         }
     }
     domains
