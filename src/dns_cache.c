@@ -53,7 +53,6 @@ typedef int (*dns_cache_read_callback)(struct dns_cache_record *cache_record, st
 
 static int is_cache_init;
 static struct dns_cache_head dns_cache_head;
-static atomic_t dns_cache_id_counter = ATOMIC_INIT(1);
 
 int dns_cache_init(int size, int mem_size, dns_cache_callback timeout_callback)
 {
@@ -413,7 +412,6 @@ static int _dns_cache_insert(struct dns_cache_info *info, struct dns_cache_data 
 	key = hash_string_initval(info->dns_group_name, key);
 	key = jhash(&info->query_flag, sizeof(info->query_flag), key);
 	atomic_set(&dns_cache->ref, 1);
-	info->order_id = atomic_inc_return(&dns_cache_id_counter);
 	memcpy(&dns_cache->info, info, sizeof(*info));
 	dns_cache->cache_data = cache_data;
 	dns_cache->timer.function = dns_cache_expired;
@@ -1048,7 +1046,8 @@ int dns_cache_foreach(dns_cache_foreach_cb cb, void *userdata)
 	pthread_mutex_lock(&dns_cache_head.lock);
 	list_for_each_entry(dns_cache, &dns_cache_head.cache_list, list) {
 		dns_cache_get(dns_cache);
-		cb(dns_cache->info.domain, dns_cache->info.qtype, dns_cache->info.ttl, dns_cache->info.order_id, userdata);
+		int remaining_ttl = dns_cache_get_ttl(dns_cache);
+		cb(dns_cache->info.domain, dns_cache->info.qtype, remaining_ttl, dns_cache->info.insert_time, userdata);
 		dns_cache_release(dns_cache);
 		count++;
 	}
