@@ -82,7 +82,6 @@ struct dns_cache_info {
 	int timeout;
 	int hitnum_update_add;
 	int is_visited;
-	uint64_t order_id;
 	time_t insert_time;
 	time_t replace_time;
 };
@@ -133,7 +132,7 @@ typedef enum DNS_CACHE_TMOUT_ACTION {
 
 typedef dns_cache_tmout_action_t (*dns_cache_callback)(struct dns_cache *dns_cache);
 
-typedef void (*dns_cache_foreach_cb)(const char *domain, uint16_t qtype, int ttl, uint64_t order_id, void *userdata);
+typedef void (*dns_cache_foreach_cb)(const char *domain, uint16_t qtype, int ttl_remaining, time_t insert_time, void *userdata);
 
 int dns_cache_foreach(dns_cache_foreach_cb cb, void *userdata);
 
