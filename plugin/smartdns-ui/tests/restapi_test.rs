@@ -687,3 +687,30 @@ fn test_rest_api_server_status() {
     let exists = server_list.iter().any(|server| server.ip == "1.2.3.4");
     assert!(exists);
 }
+
+#[test]
+fn test_rest_api_cache_domains() {
+    let mut server = common::TestServer::new();
+    server.set_log_level(LogLevel::DEBUG);
+    assert!(server.start().is_ok());
+
+    let mut client = common::TestClient::new(&server.get_host());
+    let login_res = client.login("admin", "password");
+    assert!(login_res.is_ok());
+
+    for i in 0..2 {
+        let mut request = TestDnsRequest::new();
+        request.domain = format!("test{}.com", i);
+        request.id = i as u16;
+        assert!(server.send_test_dnsrequest(request).is_ok());
+    }
+
+    let get_res = client.get("/api/cache/domains");
+    assert!(get_res.is_ok());
+    let (code, body) = get_res.unwrap();
+    assert_eq!(code, 200);
+
+    let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let domains = json["domains"].as_array().unwrap();
+    assert_eq!(domains.len(), 2);
+}
