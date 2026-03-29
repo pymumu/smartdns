@@ -484,9 +484,13 @@ int _dns_server_process_answer(struct dns_request *request, const char *domain, 
 		request->rcode = packet->head.rcode;
 	}
 
-	/* return NOERROR if all ips are skipped */
+	/* retry if all ips are skipped */
 	if (request->rcode == DNS_RC_SERVFAIL && has_result == 1 && is_skip == 1) {
-		request->rcode = DNS_RC_NOERROR;
+		/*request->rcode = DNS_RC_NOERROR;*/
+		tlog(TLOG_DEBUG, "all result is ignored, %s qtype: %d, rcode: %d, id: %d, retry.", domain, request->qtype,
+			 packet->head.rcode, packet->head.id);
+		request->passthrough = 1;
+		return DNS_CLIENT_ACTION_RETRY;
 	}
 
 	if (has_result == 0 && request->rcode == DNS_RC_NOERROR && packet->head.tc == 1 && request->has_ip == 0 &&
