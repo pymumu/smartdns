@@ -22,6 +22,7 @@
 #![allow(dead_code)]
 #![allow(unused_imports)]
 #![allow(improper_ctypes)]
+#![allow(unused_unsafe)]
 pub mod smartdns_c {
     include!(concat!(env!("OUT_DIR"), "/smartdns_bindings.rs"));
 }
@@ -30,6 +31,8 @@ use std::error::Error;
 use std::ffi::CString;
 use std::fmt;
 use std::os::raw::*;
+use std::ffi::CStr;
+use serde::Serialize;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq)]
