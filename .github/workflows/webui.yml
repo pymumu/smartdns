@@ -19,4 +19,4 @@ jobs:
         toolchain: stable
     - name: test
       run: |
-        EXTRA_CFLAGS=-fPIC make -C plugin/smartdns-ui test -j8
+        EXTRA_CFLAGS=-fPIC make -C plugin/smartdns-ui test -j1
