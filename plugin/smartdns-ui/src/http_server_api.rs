@@ -435,6 +435,17 @@ impl API {
         API::response_build(StatusCode::NO_CONTENT, "".to_string())
     }
 
+    /// API: GET /api/cache/domains
+    async fn api_cache_domains(
+        _this: Arc<HttpServer>,
+        _param: APIRouteParam,
+        _req: Request<body::Incoming>,
+    ) -> Result<Response<Full<Bytes>>, HttpError> {
+        let domains = smartdns::get_cached_domains();
+        let json = serde_json::json!({ "domains": domains }).to_string();
+        API::response_build(StatusCode::OK, json)
+    }
+
     /// Restart the service <br>
     /// API: PUT /api/service/restart
     ///
