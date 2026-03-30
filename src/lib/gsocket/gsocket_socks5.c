@@ -533,9 +533,9 @@ static int _s5_srv_handle_req(struct gsocket_io *io, struct socks5_ctx *ctx)
 	}
 
 	/* Store target information */
-	if (res == 0 && target_addr_storage.ss_family == AF_INET) {
+	if (res == 0) {
 		memcpy(&ctx->target_addr, &target_addr_storage, sizeof(target_addr_storage));
-		ctx->target_type = 0; /* IP */
+		ctx->target_type = (target_addr_storage.ss_family == AF_INET6) ? 2 : 0;
 	} else if (res == 1) {
 		/* Domain name */
 		ctx->target_type = 1;
@@ -548,14 +548,6 @@ static int _s5_srv_handle_req(struct gsocket_io *io, struct socks5_ctx *ctx)
 		uint16_t port;
 		memcpy(&port, ctx->buffer + 5 + dlen, 2);
 		ctx->target_port = ntohs(port);
-
-		if (target_addr_storage.ss_family == AF_INET) {
-			struct sockaddr_in *sin = (struct sockaddr_in *)&target_addr_storage;
-			struct sockaddr_in *target = (struct sockaddr_in *)&ctx->target_addr;
-			memcpy(target, sin, sizeof(struct sockaddr_in));
-		} else {
-			memcpy(&ctx->target_addr, &target_addr_storage, sizeof(struct sockaddr_storage));
-		}
 	}
 
 	char reply[22]; /* Max possible reply size (IPv6) */

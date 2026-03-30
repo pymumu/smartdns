@@ -916,6 +916,10 @@ static int _proxy_server_process_connect_remote(struct proxy_conn *conn)
 				if (ps->type == PROXY_SOCKS5 || ps->type == PROXY_SOCKS5S) {
 					is_udp_to_socket = 0; /* SOCKS5 UDP requires TCP control node streams! */
 				}
+
+				if (get_addr_from_string(ps->server, &ss) == 0) {
+					family = ss.ss_family;
+				}
 			}
 		}
 
