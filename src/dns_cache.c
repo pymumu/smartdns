@@ -1039,7 +1039,9 @@ int dns_cache_foreach(dns_cache_foreach_cb cb, void *userdata)
 	struct dns_cache *dns_cache = NULL;
 	int count = 0;
 
-	if (!is_cache_init) return -1;
+	if (!is_cache_init) {
+		return -1;
+	}
 
 	if (cb == NULL) {
 		return -1;
