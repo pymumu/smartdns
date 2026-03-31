@@ -1034,6 +1034,32 @@ void dns_cache_destroy(void)
 	is_cache_init = 0;
 }
 
+int dns_cache_foreach(dns_cache_foreach_cb cb, void *userdata)
+{
+	struct dns_cache *dns_cache = NULL;
+	int count = 0;
+
+	if (!is_cache_init) {
+		return -1;
+	}
+
+	if (cb == NULL) {
+		return -1;
+	}
+
+	pthread_mutex_lock(&dns_cache_head.lock);
+	list_for_each_entry(dns_cache, &dns_cache_head.cache_list, list) {
+		dns_cache_get(dns_cache);
+		int remaining_ttl = dns_cache_get_ttl(dns_cache);
+		cb(dns_cache->info.domain, dns_cache->info.qtype, remaining_ttl, dns_cache->info.insert_time, userdata);
+		dns_cache_release(dns_cache);
+		count++;
+	}
+	pthread_mutex_unlock(&dns_cache_head.lock);
+
+	return count;
+}
+
 const char *dns_cache_file_version(void)
 {
 	const char *version = "cache ver 1.3";

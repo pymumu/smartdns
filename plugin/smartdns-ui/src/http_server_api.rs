@@ -77,6 +77,7 @@ impl API {
         api.register(Method::PUT, "/api/service/restart",  true, APIRoute!(API::api_service_restart));
         api.register(Method::PUT, "/api/cache/flush",  true, APIRoute!(API::api_cache_flush));
         api.register(Method::GET, "/api/cache/count",  true, APIRoute!(API::api_cache_count));
+        api.register(Method::GET, "/api/cache/domains",  true, APIRoute!(API::api_cache_domains));
         api.register(Method::POST, "/api/auth/login",  false, APIRoute!(API::api_auth_login));
         api.register(Method::POST, "/api/auth/logout",  false, APIRoute!(API::api_auth_logout));
         api.register(Method::GET, "/api/auth/check",  true, APIRoute!(API::api_auth_check));
@@ -356,6 +357,17 @@ impl API {
             .insert(hyper::header::SET_COOKIE, cookie.parse().unwrap());
 
         resp
+    }
+
+    /// API: GET /api/cache/domains
+    async fn api_cache_domains(
+        _this: Arc<HttpServer>,
+        _param: APIRouteParam,
+        _req: Request<body::Incoming>,
+    ) -> Result<Response<Full<Bytes>>, HttpError> {
+        let domains = smartdns::get_cached_domains();
+        let json = serde_json::json!({ "domains": domains }).to_string();
+        API::response_build(StatusCode::OK, json)
     }
 
     async fn api_auth_logout(

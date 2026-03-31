@@ -687,3 +687,31 @@ fn test_rest_api_server_status() {
     let exists = server_list.iter().any(|server| server.ip == "1.2.3.4");
     assert!(exists);
 }
+
+#[test]
+fn test_rest_api_cache_domains() {
+    let mut server = common::TestServer::new();
+    server.set_log_level(LogLevel::DEBUG);
+    assert!(server.start().is_ok());
+
+    let mut client = common::TestClient::new(&server.get_host());
+    let res = client.login("admin", "password");
+    assert!(res.is_ok());
+
+    let c = client.get("/api/cache/domains");
+    assert!(c.is_ok());
+    let (code, body) = c.unwrap();
+    assert_eq!(code, 200, "Expected 200 OK, got {}", code);
+
+    let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert!(json.get("domains").is_some(), "Response missing 'domains' field");
+    let domains = json["domains"].as_array().unwrap();
+
+    for domain in domains {
+        assert!(domain.get("id").is_some());
+        assert!(domain.get("domain").is_some());
+        assert!(domain.get("qtype").is_some());
+        assert!(domain.get("cached_time").is_some());
+        assert!(domain.get("ttl_remaining").is_some());
+    }
+}
