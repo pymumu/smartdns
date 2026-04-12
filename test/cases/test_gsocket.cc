@@ -124,7 +124,7 @@ static SSL_CTX *init_ssl_ctx(bool server)
 	if (server) {
 		char key[PATH_MAX];
 		char cert[PATH_MAX];
-		smartdns_get_cert(key, cert);
+		smartdns_get_cert(key, cert, NULL);
 		SSL_CTX_use_PrivateKey_file(ctx, key, SSL_FILETYPE_PEM);
 		SSL_CTX_use_certificate_file(ctx, cert, SSL_FILETYPE_PEM);
 	}
@@ -1564,7 +1564,7 @@ static SSL_CTX *init_quic_ctx(bool server)
 	if (server) {
 		char key[PATH_MAX];
 		char cert[PATH_MAX];
-		smartdns_get_cert(key, cert);
+		smartdns_get_cert(key, cert, NULL);
 		SSL_CTX_use_PrivateKey_file(ctx, key, SSL_FILETYPE_PEM);
 		SSL_CTX_use_certificate_file(ctx, cert, SSL_FILETYPE_PEM);
 		static const unsigned char alpn[] = {4, 'q', 'u', 'i', 'c'};

@@ -106,7 +106,7 @@ static SSL_CTX *init_ssl_ctx(bool server)
 	if (server) {
 		char key[PATH_MAX];
 		char cert[PATH_MAX];
-		smartdns_get_cert(key, cert);
+		smartdns_get_cert(key, cert, NULL);
 		if (SSL_CTX_use_PrivateKey_file(ctx, key, SSL_FILETYPE_PEM) <= 0) {
 			/* Check for error, printing stderr might help debug */
 			ERR_print_errors_fp(stderr);
@@ -697,7 +697,7 @@ void gsocket_http3_server_thread(int port, ServerSync *sync, std::atomic<bool> &
 
 	char key[PATH_MAX];
 	char cert[PATH_MAX];
-	smartdns_get_cert(key, cert);
+	smartdns_get_cert(key, cert, NULL);
 	SSL_CTX_use_PrivateKey_file(ssl_ctx, key, SSL_FILETYPE_PEM);
 	SSL_CTX_use_certificate_file(ssl_ctx, cert, SSL_FILETYPE_PEM);
 
@@ -1284,7 +1284,7 @@ TEST_F(GSocketHTTPTest, HTTP3StatusSetGet)
 
 			char key[PATH_MAX];
 			char cert[PATH_MAX];
-			smartdns_get_cert(key, cert);
+			smartdns_get_cert(key, cert, NULL);
 			SSL_CTX_use_PrivateKey_file(ctx, key, SSL_FILETYPE_PEM);
 			SSL_CTX_use_certificate_file(ctx, cert, SSL_FILETYPE_PEM);
 
@@ -1818,7 +1818,7 @@ void gsocket_http3_file_server_thread(int port, const char *root, ServerSync *sy
 	// Use correct HTTP3 ALPN setup
 	char key[PATH_MAX];
 	char cert[PATH_MAX];
-	smartdns_get_cert(key, cert);
+	smartdns_get_cert(key, cert, NULL);
 	SSL_CTX_use_PrivateKey_file(ssl_ctx, key, SSL_FILETYPE_PEM);
 	SSL_CTX_use_certificate_file(ssl_ctx, cert, SSL_FILETYPE_PEM);
 

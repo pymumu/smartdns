@@ -36,7 +36,9 @@ void smartdns_exit(int status);
 
 void smartdns_restart(void);
 
-int smartdns_get_cert(char *key, char *cert);
+int smartdns_get_cert(char *key, char *cert, char *root_ca);
+
+int smartdns_get_cert_path(char *key, char *cert, char *root_ca);
 
 int smartdns_main(int argc, char *argv[]);
 

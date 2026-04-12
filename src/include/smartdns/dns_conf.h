@@ -468,6 +468,9 @@ struct dns_proxy_servers {
 	char tls_host[DNS_MAX_CNAME_LEN];
 	int fallback;
 	int skip_cert_verify;
+	int use_cert;
+	unsigned int is_skip_cert_verify_set : 1;
+	unsigned int is_use_cert_set : 1;
 };
 
 struct dns_tproxy_server_conf {
@@ -522,6 +525,10 @@ struct dns_socks5_proxy_server_conf {
 	char username[DNS_PROXY_MAX_LEN];
 	char password[DNS_PROXY_MAX_LEN];
 	int skip_cert_verify;
+	int verify_client;
+	int use_cert;
+unsigned int is_skip_cert_verify_set : 1;
+unsigned int is_use_cert_set : 1;
 };
 
 struct dns_http_proxy_server_conf {
@@ -539,6 +546,10 @@ struct dns_http_proxy_server_conf {
 	char username[DNS_PROXY_MAX_LEN];
 	char password[DNS_PROXY_MAX_LEN];
 	int skip_cert_verify;
+	int verify_client;
+	int use_cert;
+unsigned int is_skip_cert_verify_set : 1;
+unsigned int is_use_cert_set : 1;
 };
 
 struct dns_forward_server_conf {
@@ -554,6 +565,10 @@ struct dns_forward_server_conf {
 	int ssl_listen;
 	int ssl_target;
 	int skip_cert_verify;
+	int verify_client;
+	int use_cert;
+unsigned int is_skip_cert_verify_set : 1;
+unsigned int is_use_cert_set : 1;
 };
 
 /* ip address lists of domain */
@@ -816,6 +831,7 @@ struct dns_config {
 	char bind_ca_file[DNS_MAX_PATH];
 	char bind_ca_key_file[DNS_MAX_PATH];
 	char bind_root_ca_key_file[DNS_MAX_PATH];
+	char bind_root_ca_file[DNS_MAX_PATH];
 	char bind_ca_key_pass[DNS_MAX_PATH];
 	int bind_ca_validity_days;
 	char need_cert;

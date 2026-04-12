@@ -823,6 +823,7 @@ pub struct Plugin {
 pub struct SmartdnsCert {
     pub key: String,
     pub cert: String,
+    pub root_ca: String,
     pub password: String,
 }
 
@@ -856,9 +857,11 @@ impl Plugin {
         unsafe {
             let mut key = [0u8; 4096];
             let mut cert = [0u8; 4096];
+            let mut root_ca = [0u8; 4096];
             let ret = smartdns_c::smartdns_get_cert(
                 key.as_mut_ptr() as *mut c_char,
                 cert.as_mut_ptr() as *mut c_char,
+                root_ca.as_mut_ptr() as *mut c_char,
             );
             if ret != 0 {
                 return Err("get cert error".to_string());
@@ -870,9 +873,13 @@ impl Plugin {
             let cert = std::ffi::CStr::from_ptr(cert.as_ptr() as *const c_char)
                 .to_string_lossy()
                 .into_owned();
+            let root_ca = std::ffi::CStr::from_ptr(root_ca.as_ptr() as *const c_char)
+                .to_string_lossy()
+                .into_owned();
             Ok(SmartdnsCert {
                 key,
                 cert,
+                root_ca,
                 password: "".to_string(),
             })
         }

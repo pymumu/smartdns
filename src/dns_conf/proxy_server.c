@@ -76,6 +76,7 @@ int _config_proxy_server(void *data, int argc, char *argv[])
 		{"ssl", no_argument, NULL, 'L'},
 		{"tls-host", required_argument, NULL, 'T'},
 		{"skip-cert-verify", no_argument, NULL, 'k'},
+		{"use-cert", no_argument, NULL, 'C'},
 		{NULL, no_argument, NULL, 0}
 	};
 	/* clang-format on */
@@ -100,7 +101,7 @@ int _config_proxy_server(void *data, int argc, char *argv[])
 	/* process extra options */
 	optind = 1;
 	while (1) {
-		opt = getopt_long_only(argc, argv, "n:fkLT:", long_options, NULL);
+		opt = getopt_long_only(argc, argv, "n:fkLT:kC", long_options, NULL);
 		if (opt == -1) {
 			break;
 		}
@@ -116,6 +117,7 @@ int _config_proxy_server(void *data, int argc, char *argv[])
 		}
 		case 'k': {
 			server->skip_cert_verify = 1;
+			server->is_skip_cert_verify_set = 1;
 			break;
 		}
 		case 'L': {
@@ -124,6 +126,11 @@ int _config_proxy_server(void *data, int argc, char *argv[])
 		}
 		case 'T': {
 			safe_strncpy(server->tls_host, optarg, sizeof(server->tls_host));
+			break;
+		}
+		case 'C': {
+			server->use_cert = 1;
+			server->is_use_cert_set = 1;
 			break;
 		}
 		default:
@@ -538,6 +545,8 @@ int _config_socks5_proxy_server(void *data, int argc, char *argv[])
 										   {"ssl", no_argument, NULL, 'L'},
 										   {"tls-host", required_argument, NULL, 'T'},
 										   {"skip-cert-verify", no_argument, NULL, 'k'},
+										   {"verify-client", no_argument, NULL, 'V'},
+										   {"use-cert", no_argument, NULL, 'C'},
 										   {NULL, no_argument, NULL, 0}};
 	/* clang-format on */
 
@@ -561,7 +570,7 @@ int _config_socks5_proxy_server(void *data, int argc, char *argv[])
 
 	optind = 1;
 	while (1) {
-		opt = getopt_long_only(argc, argv, "n:p:g:r:m:s:u:a:LT:k", long_options, NULL);
+		opt = getopt_long_only(argc, argv, "n:p:g:r:m:s:u:a:LT:kVC", long_options, NULL);
 		if (opt == -1) {
 			break;
 		}
@@ -608,9 +617,17 @@ int _config_socks5_proxy_server(void *data, int argc, char *argv[])
 			break;
 		case 'k':
 			conf->skip_cert_verify = 1;
+			conf->is_skip_cert_verify_set = 1;
 			break;
 		case 'T':
 			safe_strncpy(conf->tls_host, optarg, sizeof(conf->tls_host));
+			break;
+		case 'V':
+			conf->verify_client = 1;
+			break;
+		case 'C':
+			conf->use_cert = 1;
+			conf->is_use_cert_set = 1;
 			break;
 		default:
 			break;
@@ -675,6 +692,8 @@ int _config_http_proxy_server(void *data, int argc, char *argv[])
 										   {"ssl", no_argument, NULL, 'L'},
 										   {"tls-host", required_argument, NULL, 'T'},
 										   {"skip-cert-verify", no_argument, NULL, 'k'},
+										   {"verify-client", no_argument, NULL, 'V'},
+										   {"use-cert", no_argument, NULL, 'C'},
 										   {NULL, no_argument, NULL, 0}};
 	/* clang-format on */
 
@@ -698,7 +717,7 @@ int _config_http_proxy_server(void *data, int argc, char *argv[])
 
 	optind = 1;
 	while (1) {
-		opt = getopt_long_only(argc, argv, "n:p:g:r:m:s:u:a:LT:k", long_options, NULL);
+		opt = getopt_long_only(argc, argv, "n:p:g:r:m:s:u:a:LT:kVC", long_options, NULL);
 		if (opt == -1) {
 			break;
 		}
@@ -745,9 +764,17 @@ int _config_http_proxy_server(void *data, int argc, char *argv[])
 			break;
 		case 'k':
 			conf->skip_cert_verify = 1;
+			conf->is_skip_cert_verify_set = 1;
 			break;
 		case 'T':
 			safe_strncpy(conf->tls_host, optarg, sizeof(conf->tls_host));
+			break;
+		case 'V':
+			conf->verify_client = 1;
+			break;
+		case 'C':
+			conf->use_cert = 1;
+			conf->is_use_cert_set = 1;
 			break;
 		default:
 			break;
@@ -882,6 +909,8 @@ int _config_forward_server(void *data, int argc, char *argv[])
 										   {"set-mark", required_argument, NULL, 'm'},
 										   {"tls-host", required_argument, NULL, 'H'},
 										   {"skip-cert-verify", no_argument, NULL, 'k'},
+										   {"verify-client", no_argument, NULL, 'V'},
+										   {"use-cert", no_argument, NULL, 'C'},
 										   {NULL, no_argument, NULL, 0}};
 
 	if (argc < 2) {
@@ -892,7 +921,7 @@ int _config_forward_server(void *data, int argc, char *argv[])
 	conf = zalloc(1, sizeof(*conf));
 	if (conf == NULL) {
 		return -1;
-}
+	}
 	conf->tcp_support = 1;
 
 	ip = argv[1];
@@ -904,7 +933,7 @@ int _config_forward_server(void *data, int argc, char *argv[])
 
 	optind = 1;
 	while (1) {
-		opt = getopt_long_only(argc, argv, "n:p:t:um:H:k", long_options, NULL);
+		opt = getopt_long_only(argc, argv, "n:p:t:um:H:kVC", long_options, NULL);
 		if (opt == -1) {
 			break;
 		}
@@ -926,11 +955,12 @@ int _config_forward_server(void *data, int argc, char *argv[])
 			break;
 		case 'u':
 			conf->udp_support = 1;
-break;
+			break;
 		case 'U':
 			conf->udp_support = 1;
 			conf->tcp_support = 0;
-			break;		case 'm':
+			break;
+		case 'm':
 			conf->so_mark = atoi(optarg);
 			break;
 		case 'H':
@@ -938,6 +968,14 @@ break;
 			break;
 		case 'k':
 			conf->skip_cert_verify = 1;
+			conf->is_skip_cert_verify_set = 1;
+			break;
+		case 'V':
+			conf->verify_client = 1;
+			break;
+		case 'C':
+			conf->use_cert = 1;
+			conf->is_use_cert_set = 1;
 			break;
 		default:
 			break;

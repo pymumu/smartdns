@@ -28,6 +28,8 @@
 #include "smartdns/tlog.h"
 #include "smartdns/util.h"
 #include "smartdns/lib/jhash.h"
+#include <openssl/err.h>
+#include <openssl/ssl.h>
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -108,6 +110,9 @@ struct proxy_conn {
 	int skip_cert_verify;
 	int force_aaaa_soa;
 	char proxy_server[DNS_MAX_IPLEN];
+	int use_cert;
+	unsigned int is_skip_cert_verify_set : 1;
+	unsigned int is_use_cert_set : 1;
 	int ref_count;
 };
 
@@ -130,6 +135,10 @@ struct proxy_listener {
 	int skip_cert_verify;
 	int force_aaaa_soa;
 	int target_port;
+	int verify_client;
+	int use_cert;
+	unsigned int is_skip_cert_verify_set : 1;
+	unsigned int is_use_cert_set : 1;
 	char proxy_server[DNS_MAX_IPLEN];
 };
 
@@ -156,7 +165,9 @@ struct proxy_server_ctx {
 	int worker_num;
 	int run;
 	SSL_CTX *ssl_srv_ctx;
+	SSL_CTX *ssl_srv_verify_ctx;
 	SSL_CTX *ssl_cli_ctx;
+	SSL_CTX *ssl_cli_cert_ctx;
 };
 
 static struct proxy_server_ctx g_proxy_ctx;
@@ -412,6 +423,7 @@ static struct gsocket *_create_gsocket_listener(const char *host, int port, int 
 {
 	int fd = socket(AF_INET, type, 0);
 	if (fd < 0) {
+		tlog(TLOG_ERROR, "create %s listener socket failed: %s", (type == SOCK_STREAM) ? "tcp" : "udp", strerror(errno));
 		return NULL;
 	}
 
@@ -449,6 +461,7 @@ static struct gsocket *_create_gsocket_listener(const char *host, int port, int 
 
 	const char *bind_ip = (ip[0] == '\0') ? NULL : ip;
 	if (gsocket_bind(gs, bind_ip, port) != 0) {
+		tlog(TLOG_ERROR, "proxy-server bind %s:%d failed: %s", bind_ip ? bind_ip : "0.0.0.0", port, strerror(errno));
 		gsocket_close(gs);
 		gsocket_free(gs);
 		return NULL;
@@ -481,6 +494,10 @@ struct listener_args {
 	int skip_cert_verify;
 	int force_aaaa_soa;
 	int target_port;
+	int verify_client;
+	int use_cert;
+	unsigned int is_skip_cert_verify_set : 1;
+	unsigned int is_use_cert_set : 1;
 };
 
 static int _add_listener(struct listener_args *args)
@@ -522,6 +539,10 @@ static int _add_listener(struct listener_args *args)
 	l->target_ssl = args->target_ssl;
 	l->is_udp = args->is_udp;
 	l->skip_cert_verify = args->skip_cert_verify;
+	l->is_skip_cert_verify_set = args->is_skip_cert_verify_set;
+	l->verify_client = args->verify_client;
+	l->use_cert = args->use_cert;
+	l->is_use_cert_set = args->is_use_cert_set;
 	l->force_aaaa_soa = args->force_aaaa_soa;
 	l->target_port = args->target_port;
 	safe_strncpy(l->proxy_name, args->proxy_name, sizeof(l->proxy_name));
@@ -742,9 +763,9 @@ static int _proxy_server_process_handshake(struct proxy_conn *conn)
 	struct gsocket_error err = {0};
 	socklen_t len = sizeof(err);
 	if (gsocket_getsockopt(conn->client.gs, SOL_PROTO_ERROR, SO_ERROR_DETAIL, &err, &len) == 0 && err.message[0] != '\0') {
-		tlog(TLOG_DEBUG, "proxy client handshake failed, error: %s", err.message);
+		tlog(TLOG_ERROR, "proxy client %s handshake failed, error: %s", conn->client_ip, err.message);
 	} else {
-		tlog(TLOG_DEBUG, "proxy client handshake failed");
+		tlog(TLOG_ERROR, "proxy client %s handshake failed", conn->client_ip);
 	}
 	return -1; /* Error */
 }
@@ -867,8 +888,11 @@ static void _proxy_server_push_outbound_proxy(struct proxy_conn *conn)
 		if (ps->tls_host[0] != '\0') {
 			gsocket_setsockopt(conn->remote.gs, SOL_SSL, SO_SSL_SNI, ps->tls_host, strlen(ps->tls_host));
 		}
-		gsocket_push_layer(conn->remote.gs, gsocket_io_ssl_new(g_proxy_ctx.ssl_cli_ctx, 0));
-		if (conn->skip_cert_verify) {
+		int use_cert = conn->is_use_cert_set ? conn->use_cert : ps->use_cert;
+		SSL_CTX *ctx = (use_cert && g_proxy_ctx.ssl_cli_cert_ctx) ? g_proxy_ctx.ssl_cli_cert_ctx : g_proxy_ctx.ssl_cli_ctx;
+		gsocket_push_layer(conn->remote.gs, gsocket_io_ssl_new(ctx, 0));
+		int skip_cert_verify = conn->is_skip_cert_verify_set ? conn->skip_cert_verify : ps->skip_cert_verify;
+		if (skip_cert_verify) {
 			int verify = 0;
 			gsocket_setsockopt(conn->remote.gs, SOL_SSL, SO_SSL_VERIFY, &verify, sizeof(verify));
 		}
@@ -883,8 +907,11 @@ static void _proxy_server_push_outbound_proxy(struct proxy_conn *conn)
 		if (ps->tls_host[0] != '\0') {
 			gsocket_setsockopt(conn->remote.gs, SOL_SSL, SO_SSL_SNI, ps->tls_host, strlen(ps->tls_host));
 		}
-		gsocket_push_layer(conn->remote.gs, gsocket_io_ssl_new(g_proxy_ctx.ssl_cli_ctx, 0));
-		if (conn->skip_cert_verify) {
+		int use_cert = conn->is_use_cert_set ? conn->use_cert : ps->use_cert;
+		SSL_CTX *ctx = (use_cert && g_proxy_ctx.ssl_cli_cert_ctx) ? g_proxy_ctx.ssl_cli_cert_ctx : g_proxy_ctx.ssl_cli_ctx;
+		gsocket_push_layer(conn->remote.gs, gsocket_io_ssl_new(ctx, 0));
+		int skip_cert_verify = conn->is_skip_cert_verify_set ? conn->skip_cert_verify : ps->skip_cert_verify;
+		if (skip_cert_verify) {
 			int verify = 0;
 			gsocket_setsockopt(conn->remote.gs, SOL_SSL, SO_SSL_VERIFY, &verify, sizeof(verify));
 		}
@@ -949,7 +976,13 @@ static int _proxy_server_process_connect_remote(struct proxy_conn *conn)
 			if (conn->tls_host[0] != '\0') {
 				gsocket_setsockopt(conn->remote.gs, SOL_SSL, SO_SSL_SNI, conn->tls_host, strlen(conn->tls_host));
 			}
-			gsocket_push_layer(conn->remote.gs, gsocket_io_ssl_new(g_proxy_ctx.ssl_cli_ctx, 0));
+			int use_cert = conn->use_cert;
+			SSL_CTX *ctx = (use_cert && g_proxy_ctx.ssl_cli_cert_ctx) ? g_proxy_ctx.ssl_cli_cert_ctx : g_proxy_ctx.ssl_cli_ctx;
+			gsocket_push_layer(conn->remote.gs, gsocket_io_ssl_new(ctx, 0));
+			if (conn->skip_cert_verify) {
+				int verify = 0;
+				gsocket_setsockopt(conn->remote.gs, SOL_SSL, SO_SSL_VERIFY, &verify, sizeof(verify));
+			}
 		}
 
 		gsocket_set_nonblock(conn->remote.gs, 1);
@@ -1002,11 +1035,12 @@ static int _proxy_server_process_remote_handshake(struct proxy_conn *conn)
 		gepoll_mod(conn->worker->gepoll, conn->remote.gs, events, &conn->remote);
 		return 1; /* Still handshaking */
 	}
-	tlog(TLOG_DEBUG, "proxy remote handshake failed");
 	struct gsocket_error err = {0};
 	socklen_t len = sizeof(err);
-	if (gsocket_getsockopt(conn->remote.gs, SOL_PROTO_ERROR, SO_ERROR_DETAIL, &err, &len) == 0) {
-		tlog(TLOG_DEBUG, "proxy remote handshake error: %s", err.message);
+	if (gsocket_getsockopt(conn->remote.gs, SOL_PROTO_ERROR, SO_ERROR_DETAIL, &err, &len) == 0 && err.message[0] != '\0') {
+		tlog(TLOG_ERROR, "proxy remote handshake failed to %s:%d (state: %d), error: %s", conn->target.host, conn->target.port, conn->state, err.message);
+	} else {
+		tlog(TLOG_ERROR, "proxy remote handshake failed to %s:%d (state: %d)", conn->target.host, conn->target.port, conn->state);
 	}
 	return -1; /* Error */
 }
@@ -1137,6 +1171,9 @@ static struct proxy_conn *__proxy_conn_init_from_listener(struct proxy_worker *w
 	conn->so_mark = l->so_mark;
 	conn->target_ssl = l->target_ssl;
 	conn->skip_cert_verify = l->skip_cert_verify;
+	conn->is_skip_cert_verify_set = l->is_skip_cert_verify_set;
+	conn->use_cert = l->use_cert;
+	conn->is_use_cert_set = l->is_use_cert_set;
 	conn->force_aaaa_soa = l->force_aaaa_soa;
 	safe_strncpy(conn->tls_host, l->tls_host, sizeof(conn->tls_host));
 	conn->last_active = worker->now;
@@ -1597,10 +1634,10 @@ static void *_proxy_server_work(void *arg)
 	return NULL;
 }
 
-static SSL_CTX *_init_ssl_server_ctx(void)
+static SSL_CTX *_init_ssl_server_ctx(int verify_client)
 {
-	char key[PATH_MAX] = {0}, cert[PATH_MAX] = {0};
-	smartdns_get_cert(key, cert);
+	char key[PATH_MAX] = {0}, cert[PATH_MAX] = {0}, root_ca[PATH_MAX] = {0};
+	smartdns_get_cert(key, cert, root_ca);
 	if (key[0] == '\0' || cert[0] == '\0') {
 		return NULL;
 	}
@@ -1609,15 +1646,45 @@ static SSL_CTX *_init_ssl_server_ctx(void)
 	if (!ctx) {
 		return NULL;
 	}
-	if (SSL_CTX_use_PrivateKey_file(ctx, key, SSL_FILETYPE_PEM) <= 0 ||
-		SSL_CTX_use_certificate_file(ctx, cert, SSL_FILETYPE_PEM) <= 0) {
+	/* Load certificate before private key - required for correct TLS 1.3 sigalg selection */
+	if (SSL_CTX_use_certificate_file(ctx, cert, SSL_FILETYPE_PEM) <= 0 ||
+		SSL_CTX_use_PrivateKey_file(ctx, key, SSL_FILETYPE_PEM) <= 0) {
+		unsigned long e = ERR_get_error();
+		tlog(TLOG_WARN, "ssl server ctx: load cert/key failed: %s", ERR_reason_error_string(e));
 		SSL_CTX_free(ctx);
 		return NULL;
 	}
+
+	if (verify_client) {
+		/* Load our own root CA FIRST to prioritize it during validation. */
+		if (root_ca[0] && access(root_ca, R_OK) == 0) {
+			tlog(TLOG_INFO, "ssl server ctx verify: loading root_ca=%s", root_ca);
+			SSL_CTX_load_verify_locations(ctx, root_ca, NULL);
+			SSL_CTX_set_client_CA_list(ctx, SSL_load_client_CA_file(root_ca));
+		} else {
+			tlog(TLOG_WARN, "ssl server ctx verify: root_ca not found: '%s'", root_ca);
+		}
+
+		/* Do NOT call SSL_CTX_set_default_verify_paths here: the system CA store
+		 * may contain stale smartdns root CAs with the same subject but a different
+		 * key, which causes RSA invalid-padding failures when verifying client certs.
+		 * We only trust the explicitly configured ca_file and our own root CA. */
+		if (dns_conf.ca_file[0] && access(dns_conf.ca_file, R_OK) == 0) {
+			tlog(TLOG_INFO, "ssl server ctx verify: loading ca_file=%s", dns_conf.ca_file);
+			SSL_CTX_load_verify_locations(ctx, dns_conf.ca_file, NULL);
+		}
+		if (dns_conf.ca_path[0] && access(dns_conf.ca_path, R_OK) == 0) {
+			SSL_CTX_load_verify_locations(ctx, NULL, dns_conf.ca_path);
+		}
+
+		SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
+		X509_STORE_set_flags(SSL_CTX_get_cert_store(ctx), X509_V_FLAG_TRUSTED_FIRST | X509_V_FLAG_PARTIAL_CHAIN);
+	}
+
 	return ctx;
 }
 
-static void _proxy_server_need_ssl(int *server, int *client)
+static void _proxy_server_need_ssl(int *server, int *server_verify, int *client, int *client_cert)
 {
 	unsigned long idx;
 	struct dns_socks5_proxy_server_conf *s_conf;
@@ -1627,27 +1694,47 @@ static void _proxy_server_need_ssl(int *server, int *client)
 	struct dns_proxy_servers *ps;
 
 	*server = 0;
+	*server_verify = 0;
 	*client = 0;
+	*client_cert = 0;
 
 	hash_for_each(dns_proxy_table.socks5_proxy, idx, s_conf, node)
 	{
 		if (s_conf->ssl_support) {
 			*server = 1;
+			if (s_conf->verify_client) {
+				*server_verify = 1;
+			}
+		}
+		if (s_conf->use_cert) {
+			*client_cert = 1;
 		}
 	}
 	hash_for_each(dns_proxy_table.http_proxy, idx, h_conf, node)
 	{
 		if (h_conf->ssl_support) {
 			*server = 1;
+			if (h_conf->verify_client) {
+				*server_verify = 1;
+			}
+		}
+		if (h_conf->use_cert) {
+			*client_cert = 1;
 		}
 	}
 	hash_for_each(dns_proxy_table.forward, idx, f_conf, node)
 	{
 		if (f_conf->ssl_listen) {
 			*server = 1;
+			if (f_conf->verify_client) {
+				*server_verify = 1;
+			}
 		}
 		if (f_conf->ssl_target) {
 			*client = 1;
+		}
+		if (f_conf->use_cert) {
+			*client_cert = 1;
 		}
 	}
 	hash_for_each(dns_proxy_table.proxy, idx, pn, node)
@@ -1657,11 +1744,14 @@ static void _proxy_server_need_ssl(int *server, int *client)
 			if (ps->type == PROXY_SOCKS5S || ps->type == PROXY_HTTPS) {
 				*client = 1;
 			}
+			if (ps->use_cert) {
+				*client_cert = 1;
+			}
 		}
 	}
 }
 
-static int _proxy_server_init_listeners(struct proxy_worker *worker, SSL_CTX *ssl_srv_ctx)
+static int _proxy_server_init_listeners(struct proxy_worker *worker, SSL_CTX *ssl_srv_ctx, SSL_CTX *ssl_srv_verify_ctx)
 {
 	struct listener_args args = {0};
 	unsigned long idx;
@@ -1741,8 +1831,9 @@ static int _proxy_server_init_listeners(struct proxy_worker *worker, SSL_CTX *ss
 		const char *pass = (s_conf->password[0] == '\0') ? NULL : s_conf->password;
 		args.gs = _create_gsocket_listener(s_conf->server, 0, SOCK_STREAM, 1, 0);
 		args.proto_layer = gsocket_io_socks5_server_new(user, pass);
-		args.ssl_ctx = s_conf->ssl_support ? ssl_srv_ctx : NULL;
-		if (s_conf->ssl_support && !ssl_srv_ctx) {
+		args.ssl_ctx = s_conf->ssl_support ? (s_conf->verify_client ? ssl_srv_verify_ctx : ssl_srv_ctx) : NULL;
+		args.verify_client = s_conf->verify_client;
+		if (s_conf->ssl_support && !args.ssl_ctx) {
 			tlog(TLOG_WARN, "socks5s listener configured but no certificate found, check server-cert");
 		}
 		args.type = LISTENER_SOCKS5;
@@ -1755,6 +1846,9 @@ static int _proxy_server_init_listeners(struct proxy_worker *worker, SSL_CTX *ss
 		args.so_mark = s_conf->so_mark;
 		args.tls_host = s_conf->tls_host;
 		args.skip_cert_verify = s_conf->skip_cert_verify;
+		args.is_skip_cert_verify_set = s_conf->is_skip_cert_verify_set;
+		args.use_cert = s_conf->use_cert;
+		args.is_use_cert_set = s_conf->is_use_cert_set;
 		args.worker = worker;
 		args.force_aaaa_soa = s_conf->force_aaaa_soa;
 		if (_add_listener(&args) != 0) {
@@ -1769,8 +1863,9 @@ static int _proxy_server_init_listeners(struct proxy_worker *worker, SSL_CTX *ss
 		const char *pass = (h_conf->password[0] == '\0') ? NULL : h_conf->password;
 		args.gs = _create_gsocket_listener(h_conf->server, 0, SOCK_STREAM, 1, 0);
 		args.proto_layer = gsocket_io_httpproxy_server_new(user, pass);
-		args.ssl_ctx = h_conf->ssl_support ? ssl_srv_ctx : NULL;
-		if (h_conf->ssl_support && !ssl_srv_ctx) {
+		args.ssl_ctx = h_conf->ssl_support ? (h_conf->verify_client ? ssl_srv_verify_ctx : ssl_srv_ctx) : NULL;
+		args.verify_client = h_conf->verify_client;
+		if (h_conf->ssl_support && !args.ssl_ctx) {
 			tlog(TLOG_WARN, "https listener configured but no certificate found, check server-cert");
 		}
 		args.type = LISTENER_HTTP;
@@ -1783,6 +1878,9 @@ static int _proxy_server_init_listeners(struct proxy_worker *worker, SSL_CTX *ss
 		args.so_mark = h_conf->so_mark;
 		args.tls_host = h_conf->tls_host;
 		args.skip_cert_verify = h_conf->skip_cert_verify;
+		args.is_skip_cert_verify_set = h_conf->is_skip_cert_verify_set;
+		args.use_cert = h_conf->use_cert;
+		args.is_use_cert_set = h_conf->is_use_cert_set;
 		args.worker = worker;
 		args.force_aaaa_soa = h_conf->force_aaaa_soa;
 		if (_add_listener(&args) != 0) {
@@ -1795,8 +1893,9 @@ static int _proxy_server_init_listeners(struct proxy_worker *worker, SSL_CTX *ss
 		if (f_conf->tcp_support) {
 			memset(&args, 0, sizeof(args));
 			args.gs = _create_gsocket_listener(f_conf->server, 0, SOCK_STREAM, 1, 0);
-			args.ssl_ctx = f_conf->ssl_listen ? ssl_srv_ctx : NULL;
-			if (f_conf->ssl_listen && !ssl_srv_ctx) {
+			args.ssl_ctx = f_conf->ssl_listen ? (f_conf->verify_client ? ssl_srv_verify_ctx : ssl_srv_ctx) : NULL;
+			args.verify_client = f_conf->verify_client;
+			if (f_conf->ssl_listen && !args.ssl_ctx) {
 				tlog(TLOG_WARN, "forwards listener configured but no certificate found, check server-cert");
 			}
 			args.type = LISTENER_FORWARD;
@@ -1809,6 +1908,9 @@ static int _proxy_server_init_listeners(struct proxy_worker *worker, SSL_CTX *ss
 			args.tls_host = f_conf->tls_host;
 			args.forward_target = f_conf->target;
 			args.skip_cert_verify = f_conf->skip_cert_verify;
+args.is_skip_cert_verify_set = f_conf->is_skip_cert_verify_set;
+			args.use_cert = f_conf->use_cert;
+args.is_use_cert_set = f_conf->is_use_cert_set;
 			args.worker = worker;
 			if (_add_listener(&args) != 0) {
 				return -1;
@@ -1828,6 +1930,9 @@ static int _proxy_server_init_listeners(struct proxy_worker *worker, SSL_CTX *ss
 			args.tls_host = f_conf->tls_host;
 			args.forward_target = f_conf->target;
 			args.skip_cert_verify = f_conf->skip_cert_verify;
+args.is_skip_cert_verify_set = f_conf->is_skip_cert_verify_set;
+			args.use_cert = f_conf->use_cert;
+args.is_use_cert_set = f_conf->is_use_cert_set;
 			args.worker = worker;
 			args.is_udp = 1;
 			if (_add_listener(&args) != 0) {
@@ -1837,7 +1942,7 @@ static int _proxy_server_init_listeners(struct proxy_worker *worker, SSL_CTX *ss
 	}
 	return 0;
 }
-static int _proxy_worker_create(struct proxy_worker *worker, int id, SSL_CTX *ssl_srv_ctx)
+static int _proxy_worker_create(struct proxy_worker *worker, int id, SSL_CTX *ssl_srv_ctx, SSL_CTX *ssl_srv_verify_ctx)
 {
 	if (worker == NULL) {
 		return -1;
@@ -1880,7 +1985,7 @@ static int _proxy_worker_create(struct proxy_worker *worker, int id, SSL_CTX *ss
 	}
 	gepoll_add(worker->gepoll, worker->gs_wakeup, EPOLLIN, worker->gs_wakeup);
 
-	if (_proxy_server_init_listeners(worker, ssl_srv_ctx) != 0) {
+	if (_proxy_server_init_listeners(worker, ssl_srv_ctx, ssl_srv_verify_ctx) != 0) {
 		return -1;
 	}
 
@@ -1912,7 +2017,7 @@ static int _proxy_worker_create(struct proxy_worker *worker, int id, SSL_CTX *ss
 
 static void _proxy_worker_free(struct proxy_worker *worker)
 {
-	if (worker == NULL) {
+	if (worker == NULL || worker->listeners.next == NULL) {
 		return;
 	}
 
@@ -1969,26 +2074,86 @@ static void _proxy_worker_free(struct proxy_worker *worker)
 	}
 }
 
+static int _proxy_server_load_verify_locations(SSL_CTX *ctx, const char *file, const char *path, const char *name)
+{
+	if ((file && file[0] && access(file, R_OK) == 0) || (path && path[0] && access(path, R_OK) == 0)) {
+		if (SSL_CTX_load_verify_locations(ctx, file, path)) {
+			return 1;
+		}
+
+		unsigned long ssl_err = ERR_get_error();
+		char ssl_err_buf[256];
+		ERR_error_string_n(ssl_err, ssl_err_buf, sizeof(ssl_err_buf));
+		tlog(TLOG_ERROR, "load %s %s failed: %s", name, file ? file : path, ssl_err_buf);
+	}
+	return 0;
+}
+
 int proxy_server_init(void)
 {
+	if (is_proxy_server_init) {
+		return 0;
+	}
+	is_proxy_server_init = 1;
 	memset(&g_proxy_ctx, 0, sizeof(g_proxy_ctx));
 
-	int need_srv_ssl = 0, need_cli_ssl = 0;
-	_proxy_server_need_ssl(&need_srv_ssl, &need_cli_ssl);
+	int need_srv_ssl = 0, need_srv_verify = 0, need_cli_ssl = 0, need_cli_cert = 0;
+	_proxy_server_need_ssl(&need_srv_ssl, &need_srv_verify, &need_cli_ssl, &need_cli_cert);
+
+	char root_ca_path[PATH_MAX] = {0};
+	smartdns_get_cert_path(NULL, NULL, root_ca_path);
 
 	if (need_srv_ssl) {
-		g_proxy_ctx.ssl_srv_ctx = _init_ssl_server_ctx();
+		g_proxy_ctx.ssl_srv_ctx = _init_ssl_server_ctx(0);
 	}
+
+	if (need_srv_verify) {
+		g_proxy_ctx.ssl_srv_verify_ctx = _init_ssl_server_ctx(1);
+	}
+	
 	if (need_cli_ssl) {
 		g_proxy_ctx.ssl_cli_ctx = SSL_CTX_new(TLS_client_method());
 		if (g_proxy_ctx.ssl_cli_ctx) {
-			if (dns_conf.ca_file[0] || dns_conf.ca_path[0]) {
-				SSL_CTX_load_verify_locations(g_proxy_ctx.ssl_cli_ctx,
-											  dns_conf.ca_file[0] ? dns_conf.ca_file : NULL,
-											  dns_conf.ca_path[0] ? dns_conf.ca_path : NULL);
-				SSL_CTX_set_verify(g_proxy_ctx.ssl_cli_ctx, SSL_VERIFY_PEER, NULL);
-			} else {
-				SSL_CTX_set_verify(g_proxy_ctx.ssl_cli_ctx, SSL_VERIFY_NONE, NULL);
+			/* Load internal root-ca FIRST to prioritize it. */
+			if (root_ca_path[0] != '\0') {
+				_proxy_server_load_verify_locations(g_proxy_ctx.ssl_cli_ctx, root_ca_path, NULL, "root-ca-file");
+			}
+			SSL_CTX_set_default_verify_paths(g_proxy_ctx.ssl_cli_ctx);
+			_proxy_server_load_verify_locations(g_proxy_ctx.ssl_cli_ctx, dns_conf.ca_file, NULL, "ca-file");
+			_proxy_server_load_verify_locations(g_proxy_ctx.ssl_cli_ctx, NULL, dns_conf.ca_path, "ca-path");
+
+			SSL_CTX_set_verify(g_proxy_ctx.ssl_cli_ctx, SSL_VERIFY_PEER, NULL);
+			X509_STORE_set_flags(SSL_CTX_get_cert_store(g_proxy_ctx.ssl_cli_ctx), X509_V_FLAG_TRUSTED_FIRST | X509_V_FLAG_PARTIAL_CHAIN);
+		}
+	}
+
+	if (need_cli_cert) {
+		char key[PATH_MAX] = {0}, cert[PATH_MAX] = {0};
+		smartdns_get_cert(key, cert, NULL);
+		if (key[0] != '\0' && cert[0] != '\0') {
+			g_proxy_ctx.ssl_cli_cert_ctx = SSL_CTX_new(TLS_client_method());
+			if (g_proxy_ctx.ssl_cli_cert_ctx) {
+				/* Load certificate before private key - required for correct TLS 1.3 sigalg selection */
+				if (SSL_CTX_use_certificate_file(g_proxy_ctx.ssl_cli_cert_ctx, cert, SSL_FILETYPE_PEM) <= 0 ||
+					SSL_CTX_use_PrivateKey_file(g_proxy_ctx.ssl_cli_cert_ctx, key, SSL_FILETYPE_PEM) <= 0) {
+					tlog(TLOG_WARN, "load client certificate failed, check %s and %s", cert, key);
+					SSL_CTX_free(g_proxy_ctx.ssl_cli_cert_ctx);
+					g_proxy_ctx.ssl_cli_cert_ctx = NULL;
+				} else {
+					/* Load internal root-ca FIRST to prioritize it. */
+					if (root_ca_path[0] != '\0') {
+						_proxy_server_load_verify_locations(g_proxy_ctx.ssl_cli_cert_ctx, root_ca_path, NULL, "root-ca-file");
+					}
+
+					/* Do NOT call SSL_CTX_set_default_verify_paths: system CA store may
+					 * contain stale smartdns root CAs (same subject, different key) that
+					 * cause RSA invalid-padding errors when verifying the peer certificate. */
+					_proxy_server_load_verify_locations(g_proxy_ctx.ssl_cli_cert_ctx, dns_conf.ca_file, NULL, "ca-file");
+					_proxy_server_load_verify_locations(g_proxy_ctx.ssl_cli_cert_ctx, NULL, dns_conf.ca_path, "ca-path");
+
+					SSL_CTX_set_verify(g_proxy_ctx.ssl_cli_cert_ctx, SSL_VERIFY_PEER, NULL);
+					X509_STORE_set_flags(SSL_CTX_get_cert_store(g_proxy_ctx.ssl_cli_cert_ctx), X509_V_FLAG_TRUSTED_FIRST | X509_V_FLAG_PARTIAL_CHAIN);
+				}
 			}
 		}
 	}
@@ -2005,7 +2170,7 @@ int proxy_server_init(void)
 
 	g_proxy_ctx.run = 1;
 	for (int i = 0; i < g_proxy_ctx.worker_num; i++) {
-		if (_proxy_worker_create(&g_proxy_ctx.workers[i], i, g_proxy_ctx.ssl_srv_ctx) != 0) {
+		if (_proxy_worker_create(&g_proxy_ctx.workers[i], i, g_proxy_ctx.ssl_srv_ctx, g_proxy_ctx.ssl_srv_verify_ctx) != 0) {
 			proxy_server_exit();
 			return -1;
 		}
@@ -2016,7 +2181,6 @@ int proxy_server_init(void)
 		return -1;
 	}
 
-	is_proxy_server_init = 1;
 	return 0;
 }
 
@@ -2028,9 +2192,11 @@ void proxy_server_exit(void)
 	g_proxy_ctx.run = 0;
 
 	for (int i = 0; i < g_proxy_ctx.worker_num; i++) {
-		uint64_t val = 1;
-		int unused __attribute__((unused));
-		unused = write(g_proxy_ctx.workers[i].wakeup_fd, &val, sizeof(val));
+		if (g_proxy_ctx.workers[i].wakeup_fd > 0) {
+			uint64_t val = 1;
+			int unused __attribute__((unused));
+			unused = write(g_proxy_ctx.workers[i].wakeup_fd, &val, sizeof(val));
+		}
 	}
 
 	for (int i = 0; i < g_proxy_ctx.worker_num; i++) {
@@ -2045,6 +2211,10 @@ void proxy_server_exit(void)
 	if (g_proxy_ctx.ssl_srv_ctx != NULL) {
 		SSL_CTX_free(g_proxy_ctx.ssl_srv_ctx);
 		g_proxy_ctx.ssl_srv_ctx = NULL;
+	}
+	if (g_proxy_ctx.ssl_srv_verify_ctx != NULL) {
+		SSL_CTX_free(g_proxy_ctx.ssl_srv_verify_ctx);
+		g_proxy_ctx.ssl_srv_verify_ctx = NULL;
 	}
 	if (g_proxy_ctx.ssl_cli_ctx != NULL) {
 		SSL_CTX_free(g_proxy_ctx.ssl_cli_ctx);

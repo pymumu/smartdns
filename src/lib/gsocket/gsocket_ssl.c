@@ -741,12 +741,26 @@ static int _ssl_handshake(struct gsocket_io *io)
 
 	/* Log error if desired */
 	unsigned long last_err = ERR_get_error();
-	char buf[256];
-	ERR_error_string_n(last_err, buf, sizeof(buf));
 
 	/* Store error code and message */
 	ctx->last_error_code = last_err;
-	strncpy(ctx->error_msg, buf, sizeof(ctx->error_msg) - 1);
+	if (last_err != 0) {
+		ERR_error_string_n(last_err, ctx->error_msg, sizeof(ctx->error_msg) - 1);
+	} else if (err == SSL_ERROR_SYSCALL) {
+		if (errno != 0) {
+			snprintf(ctx->error_msg, sizeof(ctx->error_msg), "syscall error: %s", strerror(errno));
+		} else if (ret == 0) {
+			snprintf(ctx->error_msg, sizeof(ctx->error_msg), "unexpected EOF (connection reset by peer)");
+		} else {
+			snprintf(ctx->error_msg, sizeof(ctx->error_msg), "unknown syscall error");
+		}
+	} else if (err == SSL_ERROR_SSL) {
+		snprintf(ctx->error_msg, sizeof(ctx->error_msg), "SSL protocol error");
+	} else if (err == SSL_ERROR_ZERO_RETURN) {
+		snprintf(ctx->error_msg, sizeof(ctx->error_msg), "SSL connection closed cleanly");
+	} else {
+		snprintf(ctx->error_msg, sizeof(ctx->error_msg), "SSL error code: %d", err);
+	}
 	ctx->error_msg[sizeof(ctx->error_msg) - 1] = '\0';
 
 	/* Map OpenSSL error to errno */

@@ -346,7 +346,7 @@ static X509 *_generate_smartdns_cert(EVP_PKEY *pkey, X509 *issuer_cert, EVP_PKEY
 	const unsigned char *common_name = (unsigned char *)(is_ca ? "SmartDNS Root" : "smartdns");
 	const char *CA_BASIC_CONSTRAINTS = is_ca ? "CA:TRUE" : "CA:FALSE";
 	const char *KEY_USAGE = is_ca ? "keyCertSign,cRLSign" : "digitalSignature,keyEncipherment";
-	const char *EXT_KEY_USAGE = is_ca ? "clientAuth,serverAuth,codeSigning,timeStamping" : "serverAuth";
+	const char *EXT_KEY_USAGE = is_ca ? "clientAuth,serverAuth,codeSigning,timeStamping" : "serverAuth,clientAuth";
 
 	X509_NAME_add_entry_by_txt(name, "C", MBSTRING_ASC, country, -1, -1, 0);
 	X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC, common_name, -1, -1, 0);
@@ -397,14 +397,63 @@ errout:
 	return NULL;
 }
 
-int generate_cert_key(const char *key_path, const char *cert_path, const char *root_key_path, const char *san, int days)
+static X509 *_read_cert_from_file(const char *cert_path)
+{
+	BIO *cert_file = BIO_new_file(cert_path, "r");
+	if (cert_file == NULL) {
+		return NULL;
+	}
+
+	X509 *cert = PEM_read_bio_X509(cert_file, NULL, NULL, NULL);
+	BIO_free(cert_file);
+	return cert;
+}
+
+int is_cert_signed_by_ca(const char *cert_path, const char *ca_path)
+{
+	X509 *cert = NULL;
+	X509 *ca = NULL;
+	EVP_PKEY *pubkey = NULL;
+	int ret = 0;
+
+	if (cert_path == NULL || ca_path == NULL) {
+		return 0;
+	}
+
+	cert = _read_cert_from_file(cert_path);
+	ca = _read_cert_from_file(ca_path);
+
+	if (cert && ca) {
+		pubkey = X509_get_pubkey(ca);
+		if (pubkey) {
+			if (X509_verify(cert, pubkey) == 1) {
+				ret = 1;
+			}
+			EVP_PKEY_free(pubkey);
+		}
+	}
+
+	if (cert) {
+		X509_free(cert);
+	}
+	if (ca) {
+		X509_free(ca);
+	}
+	return ret;
+}
+
+int generate_cert_key(const char *key_path, const char *cert_path, const char *root_key_path, const char *root_cert_path,
+					  const char *san, int days)
 {
 	char root_key_path_buff[PATH_MAX * 2] = {0};
+	char root_cert_path_buff[PATH_MAX * 2] = {0};
 	char server_key_path[PATH_MAX] = {0};
 	BIO *server_key_file = NULL;
 	BIO *server_cert_file = NULL;
 	BIO *root_key_file = NULL;
+	BIO *root_cert_file = NULL;
 	int create_root_key = 0;
+	int create_root_cert = 0;
 	X509 *ca_cert = NULL;
 	X509 *server_cert = NULL;
 	struct DNS_EVP_PKEY_CTX *server_key_ctx = NULL;
@@ -425,6 +474,17 @@ int generate_cert_key(const char *key_path, const char *cert_path, const char *r
 		root_key_path = root_key_path_buff;
 	}
 
+	if (root_cert_path == NULL || root_cert_path[0] == '\0') {
+		safe_strncpy(server_key_path, key_path, sizeof(server_key_path));
+		if (dir_name(server_key_path) == NULL) {
+			tlog(TLOG_ERROR, "get server key path failed.");
+			return -1;
+		}
+
+		snprintf(root_cert_path_buff, sizeof(root_cert_path_buff), "%s/root-ca.pem", server_key_path);
+		root_cert_path = root_cert_path_buff;
+	}
+
 	if (access(root_key_path, F_OK) == 0) {
 		ca_key_ctx = _read_key_from_file(root_key_path);
 		if (ca_key_ctx == NULL) {
@@ -442,10 +502,25 @@ int generate_cert_key(const char *key_path, const char *cert_path, const char *r
 		goto errout;
 	}
 
-	ca_cert = _generate_smartdns_cert(ca_key_ctx->pkey, NULL, NULL, NULL, 365 * 10);
+	if (access(root_cert_path, F_OK) == 0 && is_cert_valid(root_cert_path)) {
+		ca_cert = _read_cert_from_file(root_cert_path);
+		if (ca_cert != NULL) {
+			if (X509_check_private_key(ca_cert, ca_key_ctx->pkey) == 1) {
+				create_root_cert = 0;
+			} else {
+				X509_free(ca_cert);
+				ca_cert = NULL;
+			}
+		}
+	}
+
 	if (ca_cert == NULL) {
-		tlog(TLOG_ERROR, "generate root ca cert failed.");
-		goto errout;
+		ca_cert = _generate_smartdns_cert(ca_key_ctx->pkey, NULL, NULL, NULL, 365 * 10);
+		if (ca_cert == NULL) {
+			tlog(TLOG_ERROR, "generate root ca cert failed.");
+			goto errout;
+		}
+		create_root_cert = 1;
 	}
 
 	server_key_ctx = _generate_key();
@@ -476,6 +551,21 @@ int generate_cert_key(const char *key_path, const char *cert_path, const char *r
 
 	if (PEM_write_bio_X509(server_cert_file, ca_cert) != 1) {
 		return -1;
+	}
+
+	if (create_root_cert) {
+		root_cert_file = BIO_new_file(root_cert_path, "wb");
+		if (root_cert_file == NULL) {
+			tlog(TLOG_ERROR, "create root ca cert file failed.");
+			goto errout;
+		}
+
+		if (PEM_write_bio_X509(root_cert_file, ca_cert) != 1) {
+			goto errout;
+		}
+		BIO_free_all(root_cert_file);
+		root_cert_file = NULL;
+		chmod(root_cert_path, S_IRUSR);
 	}
 
 	if (create_root_key == 0) {
@@ -515,6 +605,10 @@ errout:
 
 	if (root_key_file) {
 		BIO_free_all(root_key_file);
+	}
+
+	if (root_cert_file) {
+		BIO_free_all(root_cert_file);
 	}
 
 	if (ca_cert) {

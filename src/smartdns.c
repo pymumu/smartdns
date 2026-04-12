@@ -374,6 +374,24 @@ static int _smartdns_plugin_exit(void)
 	return 0;
 }
 
+static void _smartdns_init_cert_path(void)
+{
+	if (dns_conf.bind_ca_file[0] == 0) {
+		conf_get_conf_fullpath("smartdns-cert.pem", dns_conf.bind_ca_file, sizeof(dns_conf.bind_ca_file));
+	}
+	if (dns_conf.bind_ca_key_file[0] == 0) {
+		conf_get_conf_fullpath("smartdns-key.pem", dns_conf.bind_ca_key_file, sizeof(dns_conf.bind_ca_key_file));
+	}
+	if (dns_conf.bind_root_ca_key_file[0] == 0) {
+		conf_get_conf_fullpath("smartdns-root-key.pem", dns_conf.bind_root_ca_key_file,
+							   sizeof(dns_conf.bind_root_ca_key_file));
+	}
+	if (dns_conf.bind_root_ca_file[0] == 0) {
+		conf_get_conf_fullpath("smartdns-root-ca.pem", dns_conf.bind_root_ca_file,
+							   sizeof(dns_conf.bind_root_ca_file));
+	}
+}
+
 static int _smartdns_create_cert(void)
 {
 	uid_t uid = 0;
@@ -387,16 +405,11 @@ static int _smartdns_create_cert(void)
 		return 0;
 	}
 
-	if (dns_conf.bind_ca_file[0] != 0 && dns_conf.bind_ca_key_file[0] != 0) {
-		return 0;
-	}
+	_smartdns_init_cert_path();
 
-	conf_get_conf_fullpath("smartdns-cert.pem", dns_conf.bind_ca_file, sizeof(dns_conf.bind_ca_file));
-	conf_get_conf_fullpath("smartdns-key.pem", dns_conf.bind_ca_key_file, sizeof(dns_conf.bind_ca_key_file));
-	conf_get_conf_fullpath("smartdns-root-key.pem", dns_conf.bind_root_ca_key_file,
-						   sizeof(dns_conf.bind_root_ca_key_file));
 	if (access(dns_conf.bind_ca_file, F_OK) == 0 && access(dns_conf.bind_ca_key_file, F_OK) == 0) {
-		if (is_cert_valid(dns_conf.bind_ca_file)) {
+		if (is_cert_valid(dns_conf.bind_ca_file) &&
+			is_cert_signed_by_ca(dns_conf.bind_ca_file, dns_conf.bind_root_ca_file)) {
 			return 0;
 		}
 
@@ -407,6 +420,7 @@ static int _smartdns_create_cert(void)
 		}
 		unlink(dns_conf.bind_ca_file);
 		unlink(dns_conf.bind_ca_key_file);
+		unlink(dns_conf.bind_root_ca_file);
 		tlog(TLOG_WARN, "regenerate cert with root ca key %s", dns_conf.bind_root_ca_key_file);
 	}
 
@@ -423,8 +437,8 @@ static int _smartdns_create_cert(void)
 		validity_days = dns_conf.bind_ca_validity_days;
 	}
 
-	if (generate_cert_key(dns_conf.bind_ca_key_file, dns_conf.bind_ca_file, dns_conf.bind_root_ca_key_file, san,
-						  validity_days) != 0) {
+	if (generate_cert_key(dns_conf.bind_ca_key_file, dns_conf.bind_ca_file, dns_conf.bind_root_ca_key_file,
+						  dns_conf.bind_root_ca_file, san, validity_days) != 0) {
 		tlog(TLOG_WARN, "Generate default ssl cert and key file failed. %s", strerror(errno));
 		return -1;
 	}
@@ -437,11 +451,12 @@ static int _smartdns_create_cert(void)
 
 	unused = chown(dns_conf.bind_ca_file, uid, gid);
 	unused = chown(dns_conf.bind_ca_key_file, uid, gid);
+	unused = chown(dns_conf.bind_root_ca_file, uid, gid);
 
 	return 0;
 }
 
-int smartdns_get_cert(char *key, char *cert)
+int smartdns_get_cert(char *key, char *cert, char *root_ca)
 {
 	if (dns_conf.need_cert == 0) {
 		dns_conf.need_cert = 1;
@@ -452,12 +467,23 @@ int smartdns_get_cert(char *key, char *cert)
 		return -1;
 	}
 
+	return smartdns_get_cert_path(key, cert, root_ca);
+}
+
+int smartdns_get_cert_path(char *key, char *cert, char *root_ca)
+{
+	_smartdns_init_cert_path();
+
 	if (key != NULL) {
 		safe_strncpy(key, dns_conf.bind_ca_key_file, PATH_MAX);
 	}
 
 	if (cert != NULL) {
 		safe_strncpy(cert, dns_conf.bind_ca_file, PATH_MAX);
+	}
+
+	if (root_ca != NULL) {
+		safe_strncpy(root_ca, dns_conf.bind_root_ca_file, PATH_MAX);
 	}
 
 	return 0;
@@ -728,8 +754,8 @@ static void _smartdns_exit(void)
 	proxy_server_exit();
 	proxy_exit();
 	fast_ping_exit();
-	dns_server_exit();
 	dns_client_exit();
+	dns_server_exit();
 	dns_stats_exit();
 	_smartdns_destroy_ssl();
 	dns_timer_destroy();

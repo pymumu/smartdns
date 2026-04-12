@@ -558,6 +558,10 @@ static int _httpproxy_get_error(struct gsocket_io *io, void *err_struct)
 	struct httpproxy_ctx *ctx = (struct httpproxy_ctx *)io->ctx;
 	struct gsocket_error *err = (struct gsocket_error *)err_struct;
 
+	if (ctx->error_msg[0] == '\0' && io->lower && io->lower->get_error) {
+		return io->lower->get_error(io->lower, err_struct);
+	}
+
 	err->layer = SOL_HTTP;
 	err->error_code = ctx->last_error_code;
 	err->errno_val = errno;
