@@ -936,6 +936,15 @@ int _dns_server_process_https_svcb(struct dns_request *request)
 
 	if (!list_empty(&request->https_svcb_list)) {
 		request->rcode = DNS_RC_NOERROR;
+
+		struct dns_server_post_context context;
+		_dns_server_post_context_init(&context, request);
+		context.do_reply = 1;
+		context.do_audit = 1;
+		context.do_ipset = 1;
+		context.do_cache = 1;
+		_dns_request_post(&context);
+
 		return -1;
 	}
 
