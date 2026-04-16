@@ -56,7 +56,7 @@ set_forward_dnsmasq()
 	uci_batch="$uci_batch set dhcp.@dnsmasq[0].domainneeded=0\n"
 	echo -e "$uci_batch" | uci batch -q -
 	uci commit dhcp
-	/etc/init.d/dnsmasq reload
+	/etc/init.d/dnsmasq restart
 }
 
 stop_forward_dnsmasq()
@@ -76,7 +76,7 @@ stop_forward_dnsmasq()
 	uci_batch="$uci_batch set dhcp.@dnsmasq[0].domainneeded=1\n"
 	echo -e "$uci_batch" | uci batch -q -
 	uci commit dhcp
-	[ "$norestart" != "1" ] && /etc/init.d/dnsmasq reload
+	[ "$norestart" != "1" ] && /etc/init.d/dnsmasq restart
 }
 
 set_main_dns()
@@ -107,7 +107,7 @@ set_main_dns()
 
 	echo -e "$uci_batch" | uci batch -q -
 	uci commit dhcp
-	/etc/init.d/dnsmasq reload
+	/etc/init.d/dnsmasq restart
 }
 
 stop_main_dns()
@@ -127,7 +127,7 @@ stop_main_dns()
 	uci_batch="$uci_batch del_list dhcp.lan.dhcp_option=\"6,$hostip\"\n"
 	echo -e "$uci_batch" | uci batch -q -
 	uci commit dhcp
-	[ "$norestart" != "1" ] && /etc/init.d/dnsmasq reload
+	[ "$norestart" != "1" ] && /etc/init.d/dnsmasq restart
 }
 
 clear_iptable()
