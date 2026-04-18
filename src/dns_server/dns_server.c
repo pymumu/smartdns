@@ -141,6 +141,10 @@ static int dns_server_resolve_callback(const char *domain, dns_result_type rtype
 	int need_passthrouh = 0;
 	unsigned long result_flag = dns_client_server_result_flag(server_info);
 
+	if (is_server_init == 0) {
+		return -1;
+	}
+
 	if (request == NULL) {
 		return -1;
 	}
@@ -964,6 +968,8 @@ void dns_server_exit(void)
 		return;
 	}
 
+	is_server_init = 0;
+
 	if (server.event_fd > 0) {
 		close(server.event_fd);
 		server.event_fd = -1;
@@ -981,6 +987,4 @@ void dns_server_exit(void)
 	_dns_server_request_remove_all();
 	pthread_mutex_destroy(&server.request_list_lock);
 	dns_cache_destroy();
-
-	is_server_init = 0;
 }

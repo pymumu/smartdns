@@ -1869,7 +1869,7 @@ const char *http2_stream_get_header(struct http2_stream *stream, const char *nam
 int http2_stream_write_body(struct http2_stream *stream, const uint8_t *data, int len, int end_stream)
 {
 	/* Allow len=0 if end_stream is set (to send empty DATA frame with END_STREAM flag) */
-	if (!stream || len < 0 || (len > 0 && !data)) {
+	if (!stream || len <= 0 || !data) {
 		return -1;
 	}
 

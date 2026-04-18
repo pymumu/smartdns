@@ -754,8 +754,8 @@ static void _smartdns_exit(void)
 	proxy_server_exit();
 	proxy_exit();
 	fast_ping_exit();
-	dns_client_exit();
 	dns_server_exit();
+	dns_client_exit();
 	dns_stats_exit();
 	_smartdns_destroy_ssl();
 	dns_timer_destroy();
