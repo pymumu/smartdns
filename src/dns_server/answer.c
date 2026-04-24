@@ -492,9 +492,9 @@ int _dns_server_process_answer(struct dns_request *request, const char *domain, 
 
 	/* retry if all ips are skipped */
 	if (request->rcode == DNS_RC_SERVFAIL && has_result == 1 && is_skip == 1) {
-		/*request->rcode = DNS_RC_NOERROR;*/
 		tlog(TLOG_DEBUG, "all result is ignored, %s qtype: %d, rcode: %d, id: %d, retry.", domain, request->qtype,
 			 packet->head.rcode, packet->head.id);
+		request->rcode = DNS_RC_NOERROR;
 		request->passthrough = 1;
 		return DNS_CLIENT_ACTION_RETRY;
 	}
@@ -507,6 +507,10 @@ int _dns_server_process_answer(struct dns_request *request, const char *domain, 
 	}
 
 	if (is_rcode_set == 0 && has_result == 1 && is_skip == 0) {
+		if (cname[0] != '\0') {
+			return DNS_CLIENT_ACTION_OK;
+		}
+
 		/* need retry for some server. */
 		return DNS_CLIENT_ACTION_MAY_RETRY;
 	}
