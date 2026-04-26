@@ -428,7 +428,13 @@ int _dns_server_process_answer(struct dns_request *request, const char *domain, 
 					continue;
 				}
 				safe_strncpy(cname, domain_cname, DNS_MAX_CNAME_LEN);
+				if (request->conf->dns_force_no_cname == 0) {
+					request->has_cname = 1;
+					safe_strncpy(request->cname, cname, sizeof(request->cname));
+				}
 				request->ttl_cname = _dns_server_get_conf_ttl(request, ttl);
+				request->rcode = packet->head.rcode;
+				is_rcode_set = 1;
 				tlog(TLOG_DEBUG, "name: %s ttl: %d cname: %s\n", domain_name, ttl, cname);
 			} break;
 			case DNS_T_HTTPS: {
@@ -484,9 +490,13 @@ int _dns_server_process_answer(struct dns_request *request, const char *domain, 
 		request->rcode = packet->head.rcode;
 	}
 
-	/* return NOERROR if all ips are skipped */
+	/* retry if all ips are skipped */
 	if (request->rcode == DNS_RC_SERVFAIL && has_result == 1 && is_skip == 1) {
+		tlog(TLOG_DEBUG, "all result is ignored, %s qtype: %d, rcode: %d, id: %d, retry.", domain, request->qtype,
+			 packet->head.rcode, packet->head.id);
 		request->rcode = DNS_RC_NOERROR;
+		request->passthrough = 1;
+		return DNS_CLIENT_ACTION_RETRY;
 	}
 
 	if (has_result == 0 && request->rcode == DNS_RC_NOERROR && packet->head.tc == 1 && request->has_ip == 0 &&
@@ -497,6 +507,10 @@ int _dns_server_process_answer(struct dns_request *request, const char *domain, 
 	}
 
 	if (is_rcode_set == 0 && has_result == 1 && is_skip == 0) {
+		if (cname[0] != '\0') {
+			return DNS_CLIENT_ACTION_OK;
+		}
+
 		/* need retry for some server. */
 		return DNS_CLIENT_ACTION_MAY_RETRY;
 	}
