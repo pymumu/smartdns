@@ -83,6 +83,12 @@ set_main_dns()
 {
 	local hostip
 	hostip="$(uci -q get network.lan.ipaddr | sed 's/\/.*//g')"
+	case "$hostip" in
+	 */*)
+	  hostip="${hostip%%/*}"
+	  ;;
+	esac
+
 	dnsmasq_port="$(uci -q get dhcp.@dnsmasq[0].port)"
 	[ -z "$dnsmasq_port" ] && dnsmasq_port="53"
 	
