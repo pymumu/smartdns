@@ -49,7 +49,7 @@
 #include "proxy_server.h"
 #include "ptr.h"
 #include "qtype_soa.h"
-#include "regexp.h"
+#include "smartdns/regexp.h"
 #include "server.h"
 #include "server_group.h"
 #include "smartdns_domain.h"
