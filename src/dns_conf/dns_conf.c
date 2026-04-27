@@ -49,6 +49,7 @@
 #include "proxy_server.h"
 #include "ptr.h"
 #include "qtype_soa.h"
+#include "regexp.h"
 #include "server.h"
 #include "server_group.h"
 #include "smartdns_domain.h"
@@ -331,6 +332,7 @@ static int _dns_server_load_conf_init(void)
 	_config_domain_set_name_table_init();
 	_config_ip_set_name_table_init();
 	_config_plugin_table_init();
+	dns_regexp_init();
 
 	if (_config_current_group_push_default() != 0) {
 		tlog(TLOG_ERROR, "init default group failed.");
@@ -352,6 +354,7 @@ void dns_server_load_exit(void)
 	_config_proxy_table_destroy();
 	_config_plugin_table_destroy();
 	_config_plugin_table_conf_destroy();
+	dns_regexp_destroy();
 
 	dns_conf.server_num = 0;
 	dns_server_bind_destroy();
