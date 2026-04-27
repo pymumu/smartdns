@@ -72,6 +72,11 @@ int dns_cache_init(int size, int mem_size, dns_cache_callback timeout_callback)
 	}
 
 	hash_table_init(dns_cache_head.cache_hash, bits);
+	if (dns_cache_head.cache_hash.table == NULL) {
+		tlog(TLOG_ERROR, "init dns cache failed, alloc hash table failed, bits = %d", bits);
+		return -1;
+	}
+
 	atomic_set(&dns_cache_head.num, 0);
 	atomic_set(&dns_cache_head.mem_size, 0);
 	dns_cache_head.size = size;
