@@ -1031,12 +1031,12 @@ void dns_cache_destroy(void)
 		return;
 	}
 
+	is_cache_init = 0;
+
 	dns_cache_flush();
 
 	pthread_mutex_destroy(&dns_cache_head.lock);
 	hash_table_free(dns_cache_head.cache_hash, free);
-
-	is_cache_init = 0;
 }
 
 int dns_cache_foreach(dns_cache_foreach_cb cb, void *userdata)
