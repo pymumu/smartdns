@@ -72,6 +72,11 @@ int dns_cache_init(int size, int mem_size, dns_cache_callback timeout_callback)
 	}
 
 	hash_table_init(dns_cache_head.cache_hash, bits);
+	if (dns_cache_head.cache_hash.table == NULL) {
+		tlog(TLOG_ERROR, "init dns cache failed, alloc hash table failed, bits = %d", bits);
+		return -1;
+	}
+
 	atomic_set(&dns_cache_head.num, 0);
 	atomic_set(&dns_cache_head.mem_size, 0);
 	dns_cache_head.size = size;
@@ -501,6 +506,10 @@ int dns_cache_insert(struct dns_cache_key *cache_key, int rcode, int ttl, int sp
 
 int dns_cache_update_timer(struct dns_cache_key *key, int timeout)
 {
+	if (dns_cache_head.size <= 0) {
+		return -1;
+	}
+
 	struct dns_cache *dns_cache = _dns_cache_lookup(key);
 	if (dns_cache == NULL) {
 		return -1;
@@ -1026,6 +1035,7 @@ void dns_cache_destroy(void)
 		return;
 	}
 
+	dns_cache_head.size = 0;
 	dns_cache_flush();
 
 	pthread_mutex_destroy(&dns_cache_head.lock);
