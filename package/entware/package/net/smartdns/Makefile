@@ -10,7 +10,7 @@ PKG_VERSION:=47.1.72
 PKG_RELEASE:=1
 
 PKG_SOURCE_PROTO:=git
-PKG_SOURCE_URL:=https://github.com/weiping/smartdns.git
+PKG_SOURCE_URL:=https://github.com/weiping/smartdns-with-geosite.git
 PKG_SOURCE_VERSION:=505c27d4f9452a3f88b80a78207c7ead849de020
 PKG_MIRROR_HASH:=505c27d4f9452a3f88b80a78207c7ead849de020
 
