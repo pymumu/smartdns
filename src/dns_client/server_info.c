@@ -449,14 +449,6 @@ int _dns_client_server_add(const char *server_ip, const char *server_host, int p
 		goto errout;
 	}
 
-	/* exclude this server from default group */
-	if ((server_info->flags.server_flag & SERVER_FLAG_EXCLUDE_DEFAULT) == 0) {
-		if (_dns_client_add_to_group(DNS_SERVER_GROUP_DEFAULT, server_info) != 0) {
-			tlog(TLOG_ERROR, "add server %s to default group failed.", server_ip);
-			goto errout;
-		}
-	}
-
 	/* if server type is TLS, create ssl context */
 	if (server_type == DNS_SERVER_TLS || server_type == DNS_SERVER_HTTPS || server_type == DNS_SERVER_QUIC ||
 		server_type == DNS_SERVER_HTTP3) {
@@ -507,6 +499,16 @@ int _dns_client_server_add(const char *server_ip, const char *server_host, int p
 
 	_dns_server_inc_server_num(server_info);
 	freeaddrinfo(gai);
+	gai = NULL;
+
+	/* exclude this server from default group */
+	if ((server_info->flags.server_flag & SERVER_FLAG_EXCLUDE_DEFAULT) == 0) {
+		if (_dns_client_add_to_group(DNS_SERVER_GROUP_DEFAULT, server_info) != 0) {
+			tlog(TLOG_ERROR, "add server %s to default group failed.", server_ip);
+			_dns_client_server_info_remove(server_info);
+			return -1;
+		}
+	}
 
 	if (flags->ifname[0]) {
 		snprintf(ifname, sizeof(ifname), "@%s", flags->ifname);

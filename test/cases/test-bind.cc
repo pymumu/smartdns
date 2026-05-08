@@ -74,6 +74,33 @@ address /example.com/1.2.3.4
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
 }
 
+TEST(Bind, tls_invalid_ca_file_fail_closed)
+{
+	Defer
+	{
+		unlink("/tmp/smartdns-cert.pem");
+		unlink("/tmp/smartdns-key.pem");
+	};
+
+	smartdns::Server server_wrap;
+	smartdns::Server server;
+
+	ASSERT_TRUE(server_wrap.Start(R"""(
+bind-tls [::]:60053
+address /example.com/1.2.3.4
+)"""));
+	if (server.Start(R"""(
+bind [::]:61053
+ca-file /nonexistent/smartdns-test-ca.pem
+server-tls 127.0.0.1:60053
+)""") == false) {
+		return;
+	}
+
+	smartdns::Client client;
+	ASSERT_FALSE(client.Query("example.com +time=1", 61053));
+}
+
 TEST(Bind, udp_tcp)
 {
 	smartdns::MockServer server_upstream;
