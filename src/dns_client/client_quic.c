@@ -491,6 +491,74 @@ out:
 	return poll_ret;
 }
 
+static void _dns_client_quic_consume_send_buffer(struct dns_conn_stream *conn_stream, int send_len)
+{
+	if (send_len <= 0 || conn_stream->send_buff.len <= 0) {
+		return;
+	}
+
+	if (send_len >= conn_stream->send_buff.len) {
+		conn_stream->send_buff.len = 0;
+		return;
+	}
+
+	conn_stream->send_buff.len -= send_len;
+	memmove(conn_stream->send_buff.data, conn_stream->send_buff.data + send_len, conn_stream->send_buff.len);
+}
+
+static int _dns_client_quic_handle_send_result(struct dns_conn_stream *conn_stream, int send_len, int *epoll_events)
+{
+	if (send_len < 0) {
+		if (errno == EAGAIN) {
+			*epoll_events = EPOLLIN | EPOLLOUT;
+			return 0;
+		}
+		return -1;
+	}
+
+	if (send_len == 0) {
+		*epoll_events = EPOLLIN | EPOLLOUT;
+		return 0;
+	}
+
+	_dns_client_quic_consume_send_buffer(conn_stream, send_len);
+	if (conn_stream->send_buff.len > 0) {
+		*epoll_events = EPOLLIN | EPOLLOUT;
+	}
+
+	return 0;
+}
+
+static int _dns_client_quic_flush_stream(struct dns_server_info *server_info, struct dns_conn_stream *conn_stream,
+										 int *epoll_events)
+{
+	if (conn_stream->send_buff.len <= 0) {
+		return 0;
+	}
+
+	if (conn_stream->quic_stream == NULL) {
+		conn_stream->quic_stream = SSL_new_stream(server_info->ssl, 0);
+		if (conn_stream->quic_stream == NULL) {
+			return -1;
+		}
+
+		SSL_set_ex_data(conn_stream->quic_stream, 0, conn_stream);
+	}
+
+	int send_len = _dns_client_socket_ssl_send_ext(server_info, conn_stream->quic_stream, conn_stream->send_buff.data,
+												   conn_stream->send_buff.len, SSL_WRITE_FLAG_CONCLUDE);
+	int send_errno = errno;
+	if (_dns_client_quic_handle_send_result(conn_stream, send_len, epoll_events) != 0) {
+		return -1;
+	}
+
+	if (send_len < 0 && send_errno == EAGAIN) {
+		_ssl_do_handevent(server_info);
+	}
+
+	return 0;
+}
+
 int _dns_client_process_quic(struct dns_server_info *server_info, struct epoll_event *event, unsigned long now)
 {
 	if (event->events & EPOLLIN) {
@@ -522,39 +590,13 @@ int _dns_client_process_quic(struct dns_server_info *server_info, struct epoll_e
 		pthread_mutex_lock(&server_info->lock);
 		list_for_each_entry(conn_stream, &server_info->conn_stream_list, server_list)
 		{
-			if (conn_stream->quic_stream != NULL) {
-				continue;
-			}
-
 			if (conn_stream->send_buff.len <= 0) {
 				continue;
 			}
 
-			conn_stream->quic_stream = SSL_new_stream(server_info->ssl, 0);
-			if (conn_stream->quic_stream == NULL) {
+			if (_dns_client_quic_flush_stream(server_info, conn_stream, &epoll_events) != 0) {
 				pthread_mutex_unlock(&server_info->lock);
 				goto errout;
-			}
-
-			SSL_set_ex_data(conn_stream->quic_stream, 0, conn_stream);
-
-			int send_len =
-				_dns_client_socket_ssl_send_ext(server_info, conn_stream->quic_stream, conn_stream->send_buff.data,
-												conn_stream->send_buff.len, SSL_WRITE_FLAG_CONCLUDE);
-			if (send_len < 0) {
-				if (errno == EAGAIN) {
-					epoll_events = EPOLLIN | EPOLLOUT;
-					_ssl_do_handevent(server_info);
-				}
-			}
-
-			if (send_len < conn_stream->send_buff.len) {
-				conn_stream->send_buff.len -= send_len;
-				memmove(conn_stream->send_buff.data, conn_stream->send_buff.data + send_len,
-						conn_stream->send_buff.len);
-				epoll_events = EPOLLIN | EPOLLOUT;
-			} else {
-				conn_stream->send_buff.len = 0;
 			}
 		}
 		pthread_mutex_unlock(&server_info->lock);
