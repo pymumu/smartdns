@@ -295,9 +295,15 @@ static int _dns_client_set_trusted_cert(SSL_CTX *ssl_ctx)
 	return 0;
 }
 
+static int _dns_client_has_explicit_ca_config(void)
+{
+	return dns_conf.ca_file[0] || dns_conf.ca_path[0];
+}
+
 SSL_CTX *_ssl_ctx_get(int is_quic)
 {
 	SSL_CTX **ssl_ctx = NULL;
+	int explicit_ca_config = _dns_client_has_explicit_ca_config();
 	pthread_mutex_lock(&client.server_list_lock);
 	if (is_quic) {
 		ssl_ctx = &client.ssl_quic_ctx;
@@ -336,6 +342,12 @@ SSL_CTX *_ssl_ctx_get(int is_quic)
 	SSL_CTX_set_session_cache_mode(*ssl_ctx, SSL_SESS_CACHE_CLIENT);
 	SSL_CTX_sess_set_cache_size(*ssl_ctx, DNS_MAX_SERVERS);
 	if (_dns_client_set_trusted_cert(*ssl_ctx) != 0) {
+		if (explicit_ca_config) {
+			tlog(TLOG_ERROR, "load configured CA certificate failed.");
+			goto errout;
+		}
+
+		tlog(TLOG_WARN, "load system CA certificate failed, disable upstream certificate verification.");
 		SSL_CTX_set_verify(*ssl_ctx, SSL_VERIFY_NONE, NULL);
 		client.ssl_verify_skip = 1;
 	}
