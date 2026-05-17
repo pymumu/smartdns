@@ -367,7 +367,8 @@ static int _config_bind_ip(int argc, char *argv[], DNS_BIND_TYPE type)
 	bind_ip->flags = server_flag;
 	bind_ip->group = group;
 	dns_conf.bind_ip_num++;
-	if (bind_ip->type == DNS_BIND_TYPE_TLS || bind_ip->type == DNS_BIND_TYPE_HTTPS) {
+	if (bind_ip->type == DNS_BIND_TYPE_TLS || bind_ip->type == DNS_BIND_TYPE_HTTPS ||
+		bind_ip->type == DNS_BIND_TYPE_HTTPS3 || bind_ip->type == DNS_BIND_TYPE_QUIC) {
 		if (bind_ip->ssl_cert_file == NULL || bind_ip->ssl_cert_key_file == NULL) {
 			bind_ip->ssl_cert_file = dns_conf.bind_ca_file;
 			bind_ip->ssl_cert_key_file = dns_conf.bind_ca_key_file;
@@ -442,4 +443,14 @@ int _config_bind_ip_tls(void *data, int argc, char *argv[])
 int _config_bind_ip_https(void *data, int argc, char *argv[])
 {
 	return _config_bind_ip(argc, argv, DNS_BIND_TYPE_HTTPS);
+}
+
+int _config_bind_ip_https3(void *data, int argc, char *argv[])
+{
+	return _config_bind_ip(argc, argv, DNS_BIND_TYPE_HTTPS3);
+}
+
+int _config_bind_ip_quic(void *data, int argc, char *argv[])
+{
+	return _config_bind_ip(argc, argv, DNS_BIND_TYPE_QUIC);
 }

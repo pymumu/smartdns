@@ -37,6 +37,8 @@ struct gsocket_http3_ctx {
 	size_t content_length;
 	char *extra_headers;
 	int extra_headers_len;
+	char *request_method;
+	char *request_path;
 };
 
 /* Forward Declarations */
@@ -51,6 +53,118 @@ static int _http3_conn_getpeername(struct gsocket_io *io, struct sockaddr *addr,
 static int _http3_conn_setsockopt(struct gsocket_io *io, int level, int optname, const void *optval, socklen_t optlen);
 static int _http3_conn_getsockopt(struct gsocket_io *io, int level, int optname, void *optval, socklen_t *optlen);
 
+static int _http3_parse_extra_headers(const char *headers, struct http3_header_pair *pairs, char **owned_names,
+									  char **owned_values, int max_pairs)
+{
+	int count = 0;
+	const char *p = headers;
+
+	while (p && *p && count < max_pairs) {
+		const char *line_end = strstr(p, "\r\n");
+		const char *next = NULL;
+		int end_is_terminator = 0;
+		size_t line_len = 0;
+		char *line = NULL;
+		char *name_dup = NULL;
+		char *value_dup = NULL;
+
+		if (line_end) {
+			line_len = (size_t)(line_end - p);
+		} else {
+			line_end = strchr(p, '\n');
+			if (line_end) {
+				line_len = (size_t)(line_end - p);
+			} else {
+				line_len = strlen(p);
+				line_end = p + line_len;
+				end_is_terminator = 1;
+			}
+		}
+
+		if (!end_is_terminator && *line_end != '\0') {
+			next = line_end + ((line_end[0] == '\r' && line_end[1] == '\n') ? 2 : 1);
+		}
+
+		if (line_len == 0) {
+			if (!next) {
+				break;
+			}
+			p = next;
+			continue;
+		}
+
+		line = strndup(p, line_len);
+		if (line == NULL) {
+			break;
+		}
+
+		char *sep = strchr(line, ':');
+		if (sep) {
+			*sep = '\0';
+			char *name = line;
+			char *value = sep + 1;
+
+			while (*value == ' ' || *value == '\t') {
+				value++;
+			}
+
+			if (name[0] != '\0' && value[0] != '\0') {
+				name_dup = strdup(name);
+				value_dup = strdup(value);
+				if (!name_dup || !value_dup) {
+					goto next_line;
+				}
+
+				owned_names[count] = name_dup;
+				owned_values[count] = value_dup;
+				pairs[count].name = owned_names[count];
+				pairs[count].value = owned_values[count];
+				name_dup = NULL;
+				value_dup = NULL;
+				count++;
+			}
+		}
+
+	next_line:
+		free(name_dup);
+		free(value_dup);
+		free(line);
+		if (!next) {
+			break;
+		}
+		p = next;
+	}
+
+	return count;
+}
+
+static void _http3_free_parsed_headers(char **owned_names, char **owned_values, int count)
+{
+	for (int i = 0; i < count; i++) {
+		free(owned_names[i]);
+		free(owned_values[i]);
+	}
+}
+
+static int _http3_copy_string_opt(const char *value, void *optval, socklen_t *optlen)
+{
+	size_t len = 0;
+
+	if (!value || !optval || !optlen || *optlen == 0) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	len = strlen(value);
+	if (len >= (size_t)*optlen) {
+		len = (size_t)*optlen - 1;
+	}
+	memcpy(optval, value, len);
+	((char *)optval)[len] = 0;
+	*optlen = (socklen_t)len;
+	return 0;
+}
+
 /* Ops Forward Declarations */
 static void *_h3_ops_create_stream(void *conn_data, int type);
 static void _h3_ops_close_stream(void *stream_handle);
@@ -63,6 +177,13 @@ static const struct http3_conn_ops _h3_ops = {
 	.read = _h3_ops_read,
 	.write = _h3_ops_write,
 };
+
+static void _http3_lower_free(struct gsocket_io *io)
+{
+	if (io && io->free) {
+		io->free(io);
+	}
+}
 
 /* BIO Callbacks to bridge http3_stream -> gsocket_io (lower) */
 static int _http3_bio_read(void *private_data, uint8_t *buf, int len)
@@ -98,10 +219,6 @@ static int _http3_bio_write(void *private_data, const uint8_t *buf, int len, int
 
 	ssize_t ret = lower->send(lower, buf, len, flags);
 	if (ret < 0) {
-		if (errno == EAGAIN || errno == EWOULDBLOCK) {
-			return 0;
-		}
-
 		return -1;
 	}
 
@@ -116,7 +233,6 @@ static void _http3_ctx_free(struct gsocket_io *io)
 			/* Clear bio_data to prevent http3_stream_put from calling _h3_ops_close_stream
 			 * on the lower layer. gsocket_free() already traverses and frees it. */
 			http3_stream_set_bio(ctx->h3_stream, NULL, NULL, NULL);
-			http3_stream_close(ctx->h3_stream);
 			http3_stream_put(ctx->h3_stream);
 		}
 
@@ -129,6 +245,12 @@ static void _http3_ctx_free(struct gsocket_io *io)
 
 		if (ctx->extra_headers) {
 			free(ctx->extra_headers);
+		}
+		if (ctx->request_method) {
+			free(ctx->request_method);
+		}
+		if (ctx->request_path) {
+			free(ctx->request_path);
 		}
 		free(ctx);
 		io->ctx = NULL;
@@ -154,10 +276,6 @@ static int _http3_handshake(struct gsocket_io *io)
 	/* 2. HTTP/3 Handshake (Settings exchange etc - if implemented) */
 	/* Only done on connection level */
 	if (ctx->is_connection && ctx->h3_ctx) {
-		if (!ctx->is_listener) {
-		} else {
-		}
-
 		/* PROHIBIT handshake on Listener (Server Socket) */
 		if (ctx->is_listener) {
 			return GSOCKET_HANDSHAKE_DONE;
@@ -221,17 +339,21 @@ static ssize_t _http3_recv(struct gsocket_io *io, void *buf, size_t len, int fla
 static ssize_t _http3_send(struct gsocket_io *io, const void *buf, size_t len, int flags)
 {
 	struct gsocket_http3_ctx *ctx = (struct gsocket_http3_ctx *)io->ctx;
+	struct http3_header_pair pairs[16] = {0};
+	char *owned_names[16] = {0};
+	char *owned_values[16] = {0};
+	int owned_count = (int)(sizeof(owned_names) / sizeof(owned_names[0]));
+	char cl_str[32];
+	int ret = -1;
+
 	if (!ctx->h3_stream) {
 		errno = EINVAL;
-		return -1;
+		goto out;
 	}
 
-	char *h = NULL;
 	if (!ctx->headers_sent) {
 		if (ctx->is_server) {
-			struct http3_header_pair pairs[16];
 			int count = 0;
-			char cl_str[32];
 
 			if (ctx->content_length > 0) {
 				snprintf(cl_str, sizeof(cl_str), "%zu", ctx->content_length);
@@ -240,26 +362,18 @@ static ssize_t _http3_send(struct gsocket_io *io, const void *buf, size_t len, i
 				count++;
 			}
 
-			if (ctx->extra_headers) {
-				h = strdup(ctx->extra_headers);
-				char *p = strstr(h, ": ");
-				if (p) {
-					*p = 0;
-					char *v = p + 2;
-					char *e = strstr(v, "\r\n");
-					if (e) {
-						*e = 0;
-					}
-					pairs[count].name = h;
-					pairs[count].value = v;
-					count++;
-				}
+			if (ctx->extra_headers && count < (int)(sizeof(pairs) / sizeof(pairs[0]))) {
+				count +=
+					_http3_parse_extra_headers(ctx->extra_headers, &pairs[count], &owned_names[count],
+											   &owned_values[count], (int)(sizeof(pairs) / sizeof(pairs[0])) - count);
 			}
-			http3_stream_set_response(ctx->h3_stream, ctx->status_code, pairs, count);
+			if (http3_stream_set_response(ctx->h3_stream, ctx->status_code, pairs, count) != 0) {
+				goto out;
+			}
 		} else {
 			/* For client, we assume method/url set via setsockopt or defaults */
-			const char *method = http3_stream_get_method(ctx->h3_stream);
-			const char *path = http3_stream_get_path(ctx->h3_stream);
+			const char *method = ctx->request_method;
+			const char *path = ctx->request_path;
 			if (!method) {
 				method = "GET";
 			}
@@ -267,22 +381,26 @@ static ssize_t _http3_send(struct gsocket_io *io, const void *buf, size_t len, i
 			if (!path) {
 				path = "/";
 			}
-			http3_stream_set_request(ctx->h3_stream, method, path, "https", NULL);
+
+			int count = 0;
+			if (ctx->extra_headers) {
+				count = _http3_parse_extra_headers(ctx->extra_headers, pairs, owned_names, owned_values,
+												   (int)(sizeof(pairs) / sizeof(pairs[0])) - 1);
+			}
+
+			if (http3_stream_set_request(ctx->h3_stream, method, path, "https", count > 0 ? pairs : NULL) != 0) {
+				goto out;
+			}
 		}
 		ctx->headers_sent = 1;
 	}
 
 	/* Write body wraps data in DATA frames and sends via BIO */
 	int end_stream = (flags & GS_MSG_FIN) ? 1 : 0;
-	int ret = http3_stream_write_body(ctx->h3_stream, (const uint8_t *)buf, len, end_stream);
+	ret = http3_stream_write_body(ctx->h3_stream, (const uint8_t *)buf, len, end_stream);
 
-	if (h) {
-		free(h);
-	}
-	if (ret < 0) {
-		return -1;
-	}
-
+out:
+	_http3_free_parsed_headers(owned_names, owned_values, owned_count);
 	return ret;
 }
 
@@ -297,32 +415,63 @@ static int _http3_setsockopt(struct gsocket_io *io, int level, int optname, cons
 		}
 
 		switch (optname) {
-		case SO_HTTP_METHOD:
-			http3_stream_set_request(ctx->h3_stream, (const char *)optval, NULL, NULL, NULL);
-			return 0;
+		case SO_HTTP_METHOD: {
+			if (!optval) {
+				errno = EINVAL;
+				return -1;
+			}
+			char *method = strndup((const char *)optval, optlen);
+			if (!method) {
+				return -1;
+			}
+			free(ctx->request_method);
+			ctx->request_method = method;
+			return http3_stream_set_request(ctx->h3_stream, ctx->request_method, ctx->request_path, NULL, NULL);
+		}
 		case SO_HTTP_URL:
 			/* Assuming method set previously or defaults to GET */
 			{
-				const char *method = http3_stream_get_method(ctx->h3_stream);
-				http3_stream_set_request(ctx->h3_stream, method, (const char *)optval, "https", NULL);
+				if (!optval) {
+					errno = EINVAL;
+					return -1;
+				}
+				char *path = strndup((const char *)optval, optlen);
+				if (!path) {
+					return -1;
+				}
+				free(ctx->request_path);
+				ctx->request_path = path;
+				return http3_stream_set_request(ctx->h3_stream, ctx->request_method, ctx->request_path, "https", NULL);
 			}
-			return 0;
 		case SO_HTTP_STATUS:
+			if (!optval || optlen < sizeof(ctx->status_code)) {
+				errno = EINVAL;
+				return -1;
+			}
 			ctx->status_code = *(int *)optval;
 			return 0;
 		case SO_HTTP_BODY_LEN:
+			if (!optval || optlen < sizeof(ctx->content_length)) {
+				errno = EINVAL;
+				return -1;
+			}
 			ctx->content_length = *(size_t *)optval;
 			return 0;
-		case SO_HTTP_HEADER:
-			if (ctx->extra_headers) {
-				free(ctx->extra_headers);
+		case SO_HTTP_HEADER: {
+			if (!optval) {
+				errno = EINVAL;
+				return -1;
 			}
-			ctx->extra_headers = (char *)malloc(optlen + 1);
-			if (ctx->extra_headers) {
-				memcpy(ctx->extra_headers, optval, optlen);
-				ctx->extra_headers[optlen] = 0;
-				ctx->extra_headers_len = optlen;
+			char *headers = malloc(optlen + 1);
+			if (!headers) {
+				return -1;
 			}
+			memcpy(headers, optval, optlen);
+			headers[optlen] = 0;
+			free(ctx->extra_headers);
+			ctx->extra_headers = headers;
+			ctx->extra_headers_len = optlen;
+		}
 			return 0;
 		}
 	}
@@ -343,6 +492,10 @@ static int _http3_getsockopt(struct gsocket_io *io, int level, int optname, void
 		}
 
 		if (optname == SO_HTTP_STATUS) {
+			if (!optval || !optlen || *optlen < sizeof(ctx->status_code)) {
+				errno = EINVAL;
+				return -1;
+			}
 			if (ctx->h3_stream) {
 				int status = http3_stream_get_status(ctx->h3_stream);
 				if (status > 0) {
@@ -355,6 +508,18 @@ static int _http3_getsockopt(struct gsocket_io *io, int level, int optname, void
 		}
 
 		if (optname == SO_HTTP_BODY_LEN) {
+			if (!optval || !optlen || *optlen < sizeof(ctx->content_length)) {
+				errno = EINVAL;
+				return -1;
+			}
+			const char *content_length = http3_stream_get_header(ctx->h3_stream, "content-length");
+			if (content_length && content_length[0]) {
+				char *end = NULL;
+				unsigned long long value = strtoull(content_length, &end, 10);
+				if (end != content_length && *end == '\0') {
+					ctx->content_length = (size_t)value;
+				}
+			}
 			*(size_t *)optval = ctx->content_length;
 			*optlen = sizeof(size_t);
 			return 0;
@@ -363,14 +528,7 @@ static int _http3_getsockopt(struct gsocket_io *io, int level, int optname, void
 		if (optname == SO_HTTP_METHOD) {
 			const char *method = http3_stream_get_method(ctx->h3_stream);
 			if (method) {
-				size_t len = strlen(method);
-				if (len >= *optlen) {
-					len = *optlen - 1;
-				}
-				memcpy(optval, method, len);
-				((char *)optval)[len] = 0;
-				*optlen = len;
-				return 0;
+				return _http3_copy_string_opt(method, optval, optlen);
 			}
 			return -1;
 		}
@@ -378,14 +536,7 @@ static int _http3_getsockopt(struct gsocket_io *io, int level, int optname, void
 		if (optname == SO_HTTP_URL) {
 			const char *path = http3_stream_get_path(ctx->h3_stream);
 			if (path) {
-				size_t len = strlen(path);
-				if (len >= *optlen) {
-					len = *optlen - 1;
-				}
-				memcpy(optval, path, len);
-				((char *)optval)[len] = 0;
-				*optlen = len;
-				return 0;
+				return _http3_copy_string_opt(path, optval, optlen);
 			}
 			return -1;
 		}
@@ -411,17 +562,26 @@ static int _http3_stream_get_fd(struct gsocket_io *io)
 static struct gsocket_io *_http3_create_stream_io(struct gsocket_io *lower_stream_io, struct http3_ctx *h3_ctx_ref,
 												  int is_server)
 {
-	struct gsocket_io *io = calloc(1, sizeof(struct gsocket_io));
-	struct gsocket_http3_ctx *ctx = calloc(1, sizeof(struct gsocket_http3_ctx));
+	struct gsocket_io *io = NULL;
+	struct gsocket_http3_ctx *ctx = NULL;
+
+	io = calloc(1, sizeof(*io));
+	ctx = calloc(1, sizeof(*ctx));
 
 	if (!io || !ctx) {
-		goto _err;
+		goto err;
 	}
 
 	ctx->is_connection = 0;
-	ctx->is_server = is_server;              // Inherit from connection
+	ctx->is_server = is_server;
 	ctx->h3_ctx = http3_ctx_get(h3_ctx_ref); /* Ref counting if needed */
+	if (!ctx->h3_ctx) {
+		goto err;
+	}
 	ctx->h3_stream = http3_stream_new(ctx->h3_ctx);
+	if (!ctx->h3_stream) {
+		goto err;
+	}
 	ctx->status_code = 200;
 
 	io->ctx = ctx;
@@ -439,26 +599,30 @@ static struct gsocket_io *_http3_create_stream_io(struct gsocket_io *lower_strea
 
 	return io;
 
-_err:
-	if (io) {
-		free(io);
+err:
+	if (ctx && ctx->h3_ctx) {
+		http3_ctx_put(ctx->h3_ctx);
 	}
-
-	if (ctx) {
-		free(ctx);
-	}
+	free(ctx);
+	free(io);
 
 	return NULL;
 }
 
 static struct gsocket_io *_http3_create_connection_io(struct gsocket_io *lower_conn_io, int is_server)
 {
-	struct gsocket_io *io = calloc(1, sizeof(struct gsocket_io));
-	struct gsocket_http3_ctx *ctx = calloc(1, sizeof(struct gsocket_http3_ctx));
+	struct gsocket_io *io = NULL;
+	struct gsocket_http3_ctx *ctx = NULL;
+
+	io = calloc(1, sizeof(*io));
+	ctx = calloc(1, sizeof(*ctx));
 
 	if (!io || !ctx) {
-		goto _err;
+		goto err;
 	}
+
+	io->ctx = ctx;
+	io->lower = lower_conn_io;
 
 	ctx->is_connection = 1;
 	ctx->is_listener = 0;
@@ -469,9 +633,9 @@ static struct gsocket_io *_http3_create_connection_io(struct gsocket_io *lower_c
 	} else {
 		ctx->h3_ctx = http3_ctx_client_new(io, &_h3_ops, NULL);
 	}
-
-	io->ctx = ctx;
-	io->lower = lower_conn_io;
+	if (!ctx->h3_ctx) {
+		goto err;
+	}
 
 	/* Connection IO supports accept (streams) and handshake */
 	io->handshake = _http3_handshake;
@@ -484,14 +648,9 @@ static struct gsocket_io *_http3_create_connection_io(struct gsocket_io *lower_c
 
 	return io;
 
-_err:
-	if (io) {
-		free(io);
-	}
-
-	if (ctx) {
-		free(ctx);
-	}
+err:
+	free(ctx);
+	free(io);
 
 	return NULL;
 }
@@ -514,9 +673,7 @@ static struct gsocket_io *_http3_accept(struct gsocket_io *io, struct sockaddr *
 		/* Accepted a new Connection from Listener */
 		struct gsocket_io *h3_conn_io = _http3_create_connection_io(lower_io, ctx->is_server);
 		if (!h3_conn_io) {
-			if (lower_io->free) {
-				lower_io->free(lower_io);
-			}
+			_http3_lower_free(lower_io);
 			return NULL;
 		}
 
@@ -525,9 +682,7 @@ static struct gsocket_io *_http3_accept(struct gsocket_io *io, struct sockaddr *
 		/* Accepted a new Stream from Connection */
 		struct gsocket_io *h3_stream_io = _http3_create_stream_io(lower_io, ctx->h3_ctx, ctx->is_server);
 		if (!h3_stream_io) {
-			if (lower_io->free) {
-				lower_io->free(lower_io);
-			}
+			_http3_lower_free(lower_io);
 			return NULL;
 		}
 
@@ -552,10 +707,7 @@ static struct gsocket_io *_http3_open_stream(struct gsocket_io *io)
 	/* Wrap in HTTP/3 Stream IO */
 	struct gsocket_io *h3_stream_io = _http3_create_stream_io(quic_stream_io, ctx->h3_ctx, ctx->is_server);
 	if (!h3_stream_io) {
-		if (quic_stream_io->free) {
-			quic_stream_io->free(quic_stream_io);
-		}
-
+		_http3_lower_free(quic_stream_io);
 		return NULL;
 	}
 
@@ -591,12 +743,17 @@ static int _http3_listen(struct gsocket_io *io, int backlog)
 
 struct gsocket_io *gsocket_io_http3_new(int is_server)
 {
-	struct gsocket_io *io = calloc(1, sizeof(struct gsocket_io));
-	struct gsocket_http3_ctx *ctx = calloc(1, sizeof(struct gsocket_http3_ctx));
+	struct gsocket_io *io = NULL;
+	struct gsocket_http3_ctx *ctx = NULL;
+
+	io = calloc(1, sizeof(*io));
+	ctx = calloc(1, sizeof(*ctx));
 
 	if (!io || !ctx) {
-		goto _err;
+		goto err;
 	}
+
+	io->ctx = ctx;
 
 	ctx->is_server = is_server;
 	ctx->is_connection = 1;
@@ -607,8 +764,10 @@ struct gsocket_io *gsocket_io_http3_new(int is_server)
 	} else {
 		ctx->h3_ctx = http3_ctx_client_new(io, &_h3_ops, NULL);
 	}
+	if (!ctx->h3_ctx) {
+		goto err;
+	}
 
-	io->ctx = ctx;
 	io->handshake = _http3_handshake;
 	io->connect = _http3_connect;
 	io->accept = _http3_accept;
@@ -625,14 +784,9 @@ struct gsocket_io *gsocket_io_http3_new(int is_server)
 
 	return io;
 
-_err:
-	if (io) {
-		free(io);
-	}
-
-	if (ctx) {
-		free(ctx);
-	}
+err:
+	free(ctx);
+	free(io);
 
 	return NULL;
 }
@@ -676,12 +830,11 @@ static void *_h3_ops_create_stream(void *conn_data, int type)
 	if (!io || !io->lower || !io->lower->open_stream) {
 		return NULL;
 	}
-	/* NOTE: We might need to pass 'type' to lower layer if it supports Uni/Bi distinction.
-	   For now, we assume open_stream returns a bidirectional stream unless configured otherwise.
-	   If handshake needs Uni, we hope the transport handles it or we flag it later.
-	*/
+	if (type != 0) {
+		errno = EOPNOTSUPP;
+		return NULL;
+	}
 	struct gsocket_io *stream_io = io->lower->open_stream(io->lower);
-	/* Setup stream type if possible */
 
 	return stream_io;
 }
@@ -716,9 +869,6 @@ static int _h3_ops_write(void *stream_handle, const uint8_t *buf, int len, int e
 			flags |= GS_MSG_FIN;
 		}
 		ssize_t ret = io->send(io, buf, len, flags);
-		if (ret < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-			return 0; /* BIO retry */
-		}
 		return (int)ret;
 	}
 	return -1;

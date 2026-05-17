@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2025 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2026 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,22 +16,15 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef _DNS_CLIENT_PROXY_
-#define _DNS_CLIENT_PROXY_
+#ifndef _DNS_CLIENT_DOQ_GSOCKET_H_
+#define _DNS_CLIENT_DOQ_GSOCKET_H_
 
 #include "dns_client.h"
 
-#include <sys/epoll.h>
+int dns_client_doq_send_query(struct dns_query_struct *query, struct dns_server_info *server_info, void *packet,
+							  int packet_data_len);
 
-#ifdef __cplusplus
-extern "C" {
-#endif /*__cplusplus */
+int dns_client_doq_process_stream(struct dns_server_info *server_info, struct gsocket *stream_gs,
+								  struct dns_conn_stream *conn_stream);
 
-int _dns_proxy_handshake(struct dns_server_info *server_info, int epoll_fd, struct epoll_event *event, unsigned long now);
-
-int _dns_client_setup_proxy_bio(struct dns_server_info *server_info, SSL *ssl, int fd);
-
-#ifdef __cplusplus
-}
-#endif /*__cplusplus */
 #endif

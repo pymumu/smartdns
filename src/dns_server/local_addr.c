@@ -19,11 +19,13 @@
 #include "local_addr.h"
 #include "dns_server.h"
 
+#include "smartdns/lib/gepoll.h"
+#include "smartdns/lib/gsocket.h"
+
 #include <errno.h>
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
 #include <string.h>
-#include <sys/epoll.h>
 #include <sys/eventfd.h>
 
 static void _dns_server_local_addr_cache_add(unsigned char *netaddr, int netaddr_len, int prefix_len)
@@ -173,7 +175,16 @@ int _dns_server_local_addr_cache_destroy(void)
 		server.local_addr_cache.addr = NULL;
 	}
 
-	if (server.local_addr_cache.fd_netlink > 0) {
+	if (server.netlink_gs != NULL) {
+		if (server.gepoll != NULL) {
+			gepoll_del(server.gepoll, server.netlink_gs);
+		}
+		/* The underlying fd will be closed by gsocket_close */
+		gsocket_close(server.netlink_gs);
+		gsocket_free(server.netlink_gs);
+		server.netlink_gs = NULL;
+		server.local_addr_cache.fd_netlink = -1;
+	} else if (server.local_addr_cache.fd_netlink > 0) {
 		close(server.local_addr_cache.fd_netlink);
 		server.local_addr_cache.fd_netlink = -1;
 	}
@@ -184,6 +195,7 @@ int _dns_server_local_addr_cache_destroy(void)
 int _dns_server_local_addr_cache_init(void)
 {
 	int fd = -1;
+	struct gsocket *nl_gs = NULL;
 	struct sockaddr_nl sa;
 
 	server.local_addr_cache.fd_netlink = -1;
@@ -207,17 +219,25 @@ int _dns_server_local_addr_cache_init(void)
 		goto errout;
 	}
 
-	struct epoll_event event;
-	memset(&event, 0, sizeof(event));
-	event.events = EPOLLIN | EPOLLERR;
-	event.data.fd = fd;
-	if (epoll_ctl(server.epoll_fd, EPOLL_CTL_ADD, fd, &event) != 0) {
-		tlog(TLOG_ERROR, "set eventfd failed, %s\n", strerror(errno));
+	/* Wrap the fd in a gsocket for gepoll and set server.netlink_gs */
+	nl_gs = gsocket_new(fd);
+	if (nl_gs == NULL) {
+		tlog(TLOG_ERROR, "gsocket_new for netlink failed");
+		goto errout;
+	}
+	server.netlink_gs = nl_gs;
+
+	if (gepoll_add(server.gepoll, nl_gs, EPOLLIN | EPOLLERR, nl_gs) != 0) {
+		tlog(TLOG_ERROR, "gepoll add netlink failed, %s\n", strerror(errno));
 		goto errout;
 	}
 
 	server.local_addr_cache.fd_netlink = fd;
 	server.local_addr_cache.addr = New_Radix();
+	if (server.local_addr_cache.addr == NULL) {
+		tlog(TLOG_WARN, "create local addr cache failed");
+		goto errout;
+	}
 
 	struct {
 		struct nlmsghdr nh;
@@ -237,9 +257,25 @@ int _dns_server_local_addr_cache_init(void)
 
 	return 0;
 errout:
-	if (fd > 0) {
+	if (server.local_addr_cache.addr != NULL) {
+		Destroy_Radix(server.local_addr_cache.addr, _dns_server_local_addr_cache_item_free, NULL);
+		server.local_addr_cache.addr = NULL;
+	}
+	if (nl_gs != NULL) {
+		if (server.gepoll != NULL) {
+			gepoll_del(server.gepoll, nl_gs);
+		}
+		gsocket_close(nl_gs);
+		gsocket_free(nl_gs);
+		if (server.netlink_gs == nl_gs) {
+			server.netlink_gs = NULL;
+		}
+		fd = -1;
+	}
+	if (fd >= 0) {
 		close(fd);
 	}
+	server.local_addr_cache.fd_netlink = -1;
 
 	return -1;
 }

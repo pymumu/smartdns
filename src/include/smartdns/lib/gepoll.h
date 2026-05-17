@@ -35,17 +35,16 @@ struct gepoll_event {
 struct gepoll *gepoll_create(int flags);
 void gepoll_destroy(struct gepoll *ep);
 
-/* Wrappers for epoll_ctl. 
-   user_data is passed back in gepoll_event. 
-   Internal mapping handles the gsocket -> FD translation and handshake state tracking. 
+/* Wrappers for epoll_ctl.
+   user_data is passed back in gepoll_event.
+   Internal mapping handles gsocket -> FD translation only.
 */
 int gepoll_add(struct gepoll *ep, struct gsocket *sock, int events, void *user_data);
 int gepoll_mod(struct gepoll *ep, struct gsocket *sock, int events, void *user_data);
 int gepoll_del(struct gepoll *ep, struct gsocket *sock);
 
-/* Waits for events. 
-   Automatically advances handshake states for sockets that are not ready.
-   Only returns events for sockets that are functionally ready or have encountered an error. 
+/* Waits for events and returns the underlying epoll readiness.
+   Handshake/protocol state progression is handled by callers.
 */
 int gepoll_wait(struct gepoll *ep, struct gepoll_event *events, int maxevents, int timeout);
 

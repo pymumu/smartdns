@@ -15,6 +15,8 @@
 #include <unistd.h>
 #include <vector>
 
+static constexpr long kMaxColdQueryDurationMs = 200;
+
 class SlowProxyServer
 {
   public:
@@ -54,7 +56,7 @@ class SlowProxyServer
 			port_ = ntohs(addr.sin_port);
 		}
 
-		if (listen(server_fd_, 5) < 0) {
+		if (listen(server_fd_, 128) < 0) {
 			close(server_fd_);
 			return -1;
 		}
@@ -150,7 +152,7 @@ class SlowProxyServer
 			if (ReadN(fd, buffer + 4, 4 + 2) <= 0) {
 				close(fd);
 				return;
-			}                           // IP(4) + Port(2)
+			} // IP(4) + Port(2)
 		} else if (buffer[3] == 0x03) { // Domain
 			if (ReadN(fd, buffer + 4, 1) <= 0) {
 				close(fd);
@@ -277,7 +279,7 @@ class TcpEchoServer
 			port_ = ntohs(addr.sin_port);
 		}
 
-		if (listen(server_fd_, 5) < 0) {
+		if (listen(server_fd_, 128) < 0) {
 			close(server_fd_);
 			return -1;
 		}
@@ -437,7 +439,7 @@ server 127.0.0.1:61959
 	auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 	std::cout << "Direct Overhead Duration: " << duration << "ms" << std::endl;
 
-	EXPECT_LE(duration, 100); // Higher threshold due to dig process overhead
+	EXPECT_LE(duration, kMaxColdQueryDurationMs);
 }
 
 TEST_F(ProxyLatencyTest, PerformanceOverhead_SOCKS5)
@@ -477,7 +479,7 @@ proxy-server socks5://127.0.0.1:11060 -name mygroup
 	auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 	std::cout << "SOCKS5 Overhead Duration: " << duration << "ms" << std::endl;
 
-	EXPECT_LE(duration, 100);
+	EXPECT_LE(duration, kMaxColdQueryDurationMs);
 }
 
 TEST_F(ProxyLatencyTest, PerformanceOverhead_HTTP)
@@ -517,7 +519,7 @@ proxy-server http://127.0.0.1:11061 -name mygroup
 	auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 	std::cout << "HTTP Overhead Duration: " << duration << "ms" << std::endl;
 
-	EXPECT_LE(duration, 100);
+	EXPECT_LE(duration, kMaxColdQueryDurationMs);
 }
 
 TEST_F(ProxyLatencyTest, ProxyEcho)

@@ -17,7 +17,6 @@
  */
 
 #include "context.h"
-#include "smartdns/dns_conf.h"
 #include "address.h"
 #include "audit.h"
 #include "cache.h"
@@ -27,8 +26,11 @@
 #include "request.h"
 #include "request_pending.h"
 #include "rules.h"
+#include "smartdns/dns_conf.h"
 #include "smartdns/proxy_server.h"
 #include "soa.h"
+
+#include <stdio.h>
 
 void _dns_server_post_context_init(struct dns_server_post_context *context, struct dns_request *request)
 {
@@ -182,7 +184,8 @@ static int _dns_server_add_srv(struct dns_server_post_context *context)
 	struct dns_request_srv *srv = NULL;
 	int ret = 0;
 
-	list_for_each_entry(srv, &request->srv_list, list) {
+	list_for_each_entry(srv, &request->srv_list, list)
+	{
 		ret = dns_add_SRV(context->packet, DNS_RRS_AN, request->domain, request->ip_ttl, srv->priority, srv->weight,
 						  srv->port, srv->host);
 		if (ret != 0) {
@@ -266,7 +269,8 @@ static int _dns_add_rrs_HTTPS(struct dns_server_post_context *context)
 		return 0;
 	}
 
-	list_for_each_entry(https_svcb, &request->https_svcb_list, list) {
+	list_for_each_entry(https_svcb, &request->https_svcb_list, list)
+	{
 		ret = dns_add_HTTPS_start(&param, context->packet, DNS_RRS_AN, https_svcb->domain, https_svcb->ttl,
 								  https_svcb->priority, https_svcb->target);
 		if (ret != 0) {

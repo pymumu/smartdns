@@ -261,6 +261,7 @@ int gstream_poll_get_net_events(struct gstream_poll *sp)
 
 	/* Get SSL layer's network requirements */
 	int ssl_events = gsocket_get_poll_events(sp->quic_connection);
+	ssl_events |= EPOLLIN;
 
 	/* If any stream wants to write, ensure EPOLLOUT is set
 	 * This ensures the underlying socket is monitored for writability

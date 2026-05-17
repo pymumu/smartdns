@@ -21,6 +21,7 @@
 #include "conn_stream.h"
 #include "ecs.h"
 #include "query.h"
+#include <openssl/rand.h>
 
 void _dns_client_query_get(struct dns_query_struct *query)
 {
@@ -107,6 +108,81 @@ void _dns_client_query_remove_all(void)
 		list_del_init(&query->period_list);
 		_dns_client_query_remove(query);
 	}
+}
+
+static void _dns_client_query_cancel_pending(struct dns_query_struct *query)
+{
+	struct dns_server_info *server_info = NULL;
+	struct dns_http2_pending *pend = NULL;
+	struct dns_http2_pending *ptmp = NULL;
+	LIST_HEAD(cancel_list);
+
+	pthread_mutex_lock(&client.server_list_lock);
+	list_for_each_entry(server_info, &client.dns_server_list, list)
+	{
+		pthread_mutex_lock(&server_info->lock);
+		list_for_each_entry_safe(pend, ptmp, &server_info->http2_pending_list, list)
+		{
+			if (pend->query != query) {
+				continue;
+			}
+
+			list_move_tail(&pend->list, &cancel_list);
+		}
+		pthread_mutex_unlock(&server_info->lock);
+	}
+	pthread_mutex_unlock(&client.server_list_lock);
+
+	list_for_each_entry_safe(pend, ptmp, &cancel_list, list)
+	{
+		struct dns_query_struct *pending_query = pend->query;
+
+		tlog(TLOG_DEBUG,
+			 "cancel pending before retry: domain=%s qtype=%d id=%d sent=%ld pending=%ld retry=%ld data_len=%d",
+			 pending_query->domain, pending_query->qtype, pending_query->sid,
+			 atomic_read(&pending_query->dns_request_sent), atomic_read(&pending_query->stream_pending_count),
+			 atomic_read(&pending_query->retry_count), pend->data_len);
+		list_del_init(&pend->list);
+		atomic_dec(&pending_query->dns_request_sent);
+		atomic_dec(&pending_query->stream_pending_count);
+		_dns_client_query_release(pending_query);
+		free(pend);
+	}
+}
+
+static int _dns_client_query_has_active_pending(struct dns_query_struct *query, unsigned long now)
+{
+	struct dns_server_info *server_info = NULL;
+	struct dns_http2_pending *pend = NULL;
+	int has_active_pending = 0;
+
+	if (atomic_read(&query->stream_pending_count) <= 0) {
+		return 0;
+	}
+
+	pthread_mutex_lock(&client.server_list_lock);
+	list_for_each_entry(server_info, &client.dns_server_list, list)
+	{
+		pthread_mutex_lock(&server_info->lock);
+		list_for_each_entry(pend, &server_info->http2_pending_list, list)
+		{
+			if (pend->query != query) {
+				continue;
+			}
+
+			if (pend->active_tick > 0 && now - DNS_QUERY_TIMEOUT < pend->active_tick) {
+				has_active_pending = 1;
+				break;
+			}
+		}
+		pthread_mutex_unlock(&server_info->lock);
+		if (has_active_pending) {
+			break;
+		}
+	}
+	pthread_mutex_unlock(&client.server_list_lock);
+
+	return has_active_pending;
 }
 
 int _dns_client_send_query(struct dns_query_struct *query)
@@ -312,13 +388,22 @@ int _dns_client_query_parser_options(struct dns_query_struct *query, struct dns_
 
 void _dns_client_retry_dns_query(struct dns_query_struct *query)
 {
+	if (_dns_client_query_has_active_pending(query, get_tick_count())) {
+		return;
+	}
+
+	_dns_client_query_cancel_pending(query);
 	if (atomic_dec_and_test(&query->retry_count) || (query->has_result != 0)) {
-		_dns_client_query_remove(query);
 		if (query->has_result == 0) {
-			tlog(TLOG_DEBUG, "retry query %s, type: %d, id: %d failed", query->domain, query->qtype, query->sid);
+			tlog(TLOG_DEBUG, "retry query %s, type: %d, id: %d failed, sent=%ld pending=%ld retry=%ld",
+				 query->domain, query->qtype, query->sid, atomic_read(&query->dns_request_sent),
+				 atomic_read(&query->stream_pending_count), atomic_read(&query->retry_count));
 		}
+		_dns_client_query_remove(query);
 	} else {
-		tlog(TLOG_DEBUG, "retry query %s, type: %d, id: %d", query->domain, query->qtype, query->sid);
+		tlog(TLOG_DEBUG, "retry query %s, type: %d, id: %d, sent=%ld pending=%ld retry=%ld", query->domain,
+			 query->qtype, query->sid, atomic_read(&query->dns_request_sent),
+			 atomic_read(&query->stream_pending_count), atomic_read(&query->retry_count));
 		_dns_client_send_query(query);
 	}
 }

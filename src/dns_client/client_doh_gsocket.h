@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2025 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2026 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,27 +16,17 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef _DNS_CLIENT_QUIC_H_
-#define _DNS_CLIENT_QUIC_H_
+#ifndef _DNS_CLIENT_DOH_GSOCKET_H_
+#define _DNS_CLIENT_DOH_GSOCKET_H_
 
 #include "dns_client.h"
 
-#include <sys/epoll.h>
+int dns_client_doh_send_query(struct dns_server_info *server_info, struct dns_query_struct *query, void *packet,
+							  int packet_data_len, dns_server_type_t type);
 
-#ifdef __cplusplus
-extern "C" {
-#endif /*__cplusplus */
+int dns_client_doh_send_http1(struct dns_server_info *server_info, void *packet, int packet_data_len);
 
-int _dns_client_create_socket_quic(struct dns_server_info *server_info, const char *hostname, const char *alpn);
+int dns_client_doh_process_stream(struct dns_server_info *server_info, struct gsocket *stream_gs,
+								  struct dns_conn_stream *conn_stream);
 
-int _dns_client_send_quic(struct dns_query_struct *query, struct dns_server_info *server_info, void *packet,
-						  unsigned short len);
-
-int _dns_client_send_quic_data(struct dns_query_struct *query, struct dns_server_info *server_info, void *packet,
-							   unsigned short len);
-
-int _dns_client_process_quic(struct dns_server_info *server_info, struct epoll_event *event, unsigned long now);
-#ifdef __cplusplus
-}
-#endif /*__cplusplus */
 #endif

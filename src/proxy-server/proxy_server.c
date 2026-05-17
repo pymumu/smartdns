@@ -23,13 +23,11 @@
 #include "smartdns/dns_server.h"
 #include "smartdns/lib/gepoll.h"
 #include "smartdns/lib/gsocket.h"
+#include "smartdns/lib/jhash.h"
 #include "smartdns/proxy.h"
 #include "smartdns/smartdns.h"
 #include "smartdns/tlog.h"
 #include "smartdns/util.h"
-#include "smartdns/lib/jhash.h"
-#include <openssl/err.h>
-#include <openssl/ssl.h>
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -37,6 +35,7 @@
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
+#include <openssl/err.h>
 #include <openssl/ssl.h>
 #include <pthread.h>
 #include <stdlib.h>
@@ -105,7 +104,6 @@ struct proxy_conn {
 	int is_udp;
 	struct sockaddr_storage client_addr;
 	struct sockaddr_storage target_addr;
-	struct gsocket *remote_udp_gs;
 	struct hlist_node h_node;
 	int skip_cert_verify;
 	int force_aaaa_soa;
@@ -190,8 +188,6 @@ static int get_addr_from_string(const char *host, struct sockaddr_storage *ss)
 }
 
 /* --- Firewall Helpers --- */
-
-static void _proxy_conn_setup_remote_udp_gs(struct proxy_worker *worker, struct proxy_conn *conn);
 
 static int _proxy_server_setup_firewall_rules(void)
 {
@@ -326,7 +322,6 @@ static struct proxy_conn *__proxy_conn_get(struct proxy_worker *worker)
 	return conn;
 }
 
-
 static void __proxy_conn_put(struct proxy_worker *worker, struct proxy_conn *conn)
 {
 	if (!conn) {
@@ -350,7 +345,6 @@ static void __proxy_conn_put(struct proxy_worker *worker, struct proxy_conn *con
 		free(conn);
 	}
 }
-
 
 static void _proxy_conn_pool_clear(struct proxy_worker *worker)
 {
@@ -393,15 +387,6 @@ static void __proxy_conn_free(struct proxy_conn *conn)
 		gsocket_free(conn->remote.gs);
 		conn->remote.gs = NULL;
 	}
-	
-	if (conn->remote_udp_gs) {
-		if (worker) {
-			gepoll_del(worker->gepoll, conn->remote_udp_gs);
-		}
-		gsocket_close(conn->remote_udp_gs);
-		gsocket_free(conn->remote_udp_gs);
-		conn->remote_udp_gs = NULL;
-	}
 
 	if (conn->is_udp) {
 		hash_del(&conn->h_node);
@@ -423,7 +408,8 @@ static struct gsocket *_create_gsocket_listener(const char *host, int port, int 
 {
 	int fd = socket(AF_INET, type, 0);
 	if (fd < 0) {
-		tlog(TLOG_ERROR, "create %s listener socket failed: %s", (type == SOCK_STREAM) ? "tcp" : "udp", strerror(errno));
+		tlog(TLOG_ERROR, "create %s listener socket failed: %s", (type == SOCK_STREAM) ? "tcp" : "udp",
+			 strerror(errno));
 		return NULL;
 	}
 
@@ -500,10 +486,53 @@ struct listener_args {
 	unsigned int is_use_cert_set : 1;
 };
 
+static void _proxy_free_io_layer(struct gsocket_io **layer)
+{
+	if (layer == NULL || *layer == NULL) {
+		return;
+	}
+
+	if ((*layer)->free) {
+		(*layer)->free(*layer);
+	}
+	*layer = NULL;
+}
+
+static void _proxy_free_listener_args(struct listener_args *args)
+{
+	_proxy_free_io_layer(&args->proto_layer);
+
+	if (args->gs) {
+		gsocket_close(args->gs);
+		gsocket_free(args->gs);
+		args->gs = NULL;
+	}
+}
+
+static int _proxy_push_layer(struct gsocket *gs, struct gsocket_io **layer, const char *name)
+{
+	if (layer == NULL || gsocket_push_layer(gs, *layer) != 0) {
+		tlog(TLOG_ERROR, "create %s layer failed", name);
+		if (layer != NULL) {
+			*layer = NULL;
+		}
+		return -1;
+	}
+
+	*layer = NULL;
+	return 0;
+}
+
+static int _proxy_push_new_layer(struct gsocket *gs, struct gsocket_io *layer, const char *name)
+{
+	return _proxy_push_layer(gs, &layer, name);
+}
+
 static int _add_listener(struct listener_args *args)
 {
 	if (!args->gs) {
 		tlog(TLOG_ERROR, "%s: create proxy listener %s failed", args->type_name, args->proxy_server);
+		_proxy_free_listener_args(args);
 		return -1;
 	}
 
@@ -518,16 +547,30 @@ static int _add_listener(struct listener_args *args)
 		gsocket_set_mark(args->gs, args->so_mark);
 	}
 
+	if (args->type != LISTENER_FORWARD && args->proto_layer == NULL) {
+		tlog(TLOG_ERROR, "%s: create protocol layer failed for proxy listener %s", args->type_name, args->proxy_server);
+		_proxy_free_listener_args(args);
+		return -1;
+	}
+
 	if (args->ssl_ctx) {
-		gsocket_push_layer(args->gs, gsocket_io_ssl_new(args->ssl_ctx, 1));
+		struct gsocket_io *ssl_layer = gsocket_io_ssl_new(args->ssl_ctx, 1);
+		if (_proxy_push_layer(args->gs, &ssl_layer, "proxy listener ssl") != 0) {
+			_proxy_free_listener_args(args);
+			return -1;
+		}
 	}
 	if (args->proto_layer) {
-		gsocket_push_layer(args->gs, args->proto_layer);
+		if (_proxy_push_layer(args->gs, &args->proto_layer, "proxy listener protocol") != 0) {
+			_proxy_free_listener_args(args);
+			return -1;
+		}
 	}
 
 	struct proxy_listener *l = zalloc(1, sizeof(*l));
 	if (!l) {
 		tlog(TLOG_ERROR, "zalloc for proxy listener failed");
+		_proxy_free_listener_args(args);
 		return -1;
 	}
 	l->head.magic = PROXY_MAGIC;
@@ -579,10 +622,12 @@ static int _add_listener(struct listener_args *args)
 		tlog(TLOG_ERROR, "%s: gepoll add failed for proxy listener %s", args->type_name, args->proxy_server);
 		list_del(&l->node);
 		pthread_mutex_unlock(&l->worker->lock);
+		_proxy_free_listener_args(args);
 		free(l);
 		return -1;
 	}
 	pthread_mutex_unlock(&l->worker->lock);
+	args->gs = NULL;
 	return 0;
 }
 
@@ -630,10 +675,6 @@ static void _proxy_relay_data(struct relay_gsock *src, struct relay_gsock *dst, 
 	ssize_t n;
 	int received = 0;
 	struct gsocket *read_gs = src->gs;
-	
-	if (src->is_remote && src->conn->is_udp && src->conn->remote_udp_gs) {
-		read_gs = src->conn->remote_udp_gs;
-	}
 
 	int loops = 0;
 	while (loops < 16 && (n = gsocket_recv(read_gs, worker->io_buf, PROXY_WORKER_BUF_SIZE, 0)) > 0) {
@@ -651,9 +692,11 @@ static void _proxy_relay_data(struct relay_gsock *src, struct relay_gsock *dst, 
 			if (errno == EAGAIN || errno == EWOULDBLOCK) {
 				sent = 0;
 			} else {
-				if (!caller_locked) pthread_mutex_lock(&src->conn->worker->lock);
+				if (!caller_locked)
+					pthread_mutex_lock(&src->conn->worker->lock);
 				_proxy_conn_set_closing(src->conn);
-				if (!caller_locked) pthread_mutex_unlock(&src->conn->worker->lock);
+				if (!caller_locked)
+					pthread_mutex_unlock(&src->conn->worker->lock);
 				return; /* Error */
 			}
 		}
@@ -693,9 +736,11 @@ static void _proxy_relay_data(struct relay_gsock *src, struct relay_gsock *dst, 
 	}
 
 	if (n == 0 || (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK)) {
-		if (!caller_locked) pthread_mutex_lock(&src->conn->worker->lock);
+		if (!caller_locked)
+			pthread_mutex_lock(&src->conn->worker->lock);
 		_proxy_conn_set_closing(src->conn);
-		if (!caller_locked) pthread_mutex_unlock(&src->conn->worker->lock);
+		if (!caller_locked)
+			pthread_mutex_unlock(&src->conn->worker->lock);
 	}
 }
 
@@ -731,7 +776,7 @@ static int _dns_resolve_callback(const struct dns_result *result, void *user_ptr
 		if (conn->force_aaaa_soa) {
 			opt.server_flags |= BIND_FLAG_FORCE_AAAA_SOA;
 		}
-		
+
 		pthread_mutex_unlock(&conn->worker->lock);
 		dns_server_query(conn->target.host, DNS_T_A, &opt, _dns_resolve_callback, conn);
 		return 0;
@@ -751,6 +796,13 @@ static int _proxy_server_process_handshake(struct proxy_conn *conn)
 {
 	int ret = gsocket_handshake(conn->client.gs);
 	if (ret == GSOCKET_HANDSHAKE_DONE) {
+		int socks5_cmd = 0;
+		socklen_t socks5_cmd_len = sizeof(socks5_cmd);
+		if (conn->type == LISTENER_SOCKS5 &&
+			gsocket_getsockopt(conn->client.gs, SOL_SOCKS5, SO_SOCKS5_CMD, &socks5_cmd, &socks5_cmd_len) == 0 &&
+			socks5_cmd == SOCKS5_CMD_UDP_ASSOCIATE) {
+			conn->is_udp = 1;
+		}
 		conn->state = PSTATE_GET_TARGET;
 		conn->connect_start = conn->worker->now;
 		list_move_tail(&conn->node, &conn->worker->connecting_conns);
@@ -762,7 +814,8 @@ static int _proxy_server_process_handshake(struct proxy_conn *conn)
 	}
 	struct gsocket_error err = {0};
 	socklen_t len = sizeof(err);
-	if (gsocket_getsockopt(conn->client.gs, SOL_PROTO_ERROR, SO_ERROR_DETAIL, &err, &len) == 0 && err.message[0] != '\0') {
+	if (gsocket_getsockopt(conn->client.gs, SOL_PROTO_ERROR, SO_ERROR_DETAIL, &err, &len) == 0 &&
+		err.message[0] != '\0') {
 		tlog(TLOG_ERROR, "proxy client %s handshake failed, error: %s", conn->client_ip, err.message);
 	} else {
 		tlog(TLOG_ERROR, "proxy client %s handshake failed", conn->client_ip);
@@ -824,7 +877,7 @@ static int _proxy_server_process_resolve(struct proxy_conn *conn)
 	pthread_mutex_unlock(&conn->worker->lock);
 	int ret = dns_server_query(conn->target.host, DNS_T_AAAA, &opt, _dns_resolve_callback, conn);
 	pthread_mutex_lock(&conn->worker->lock);
-	
+
 	if (ret != 0) {
 		conn->ref_count--;
 		return -1;
@@ -862,60 +915,89 @@ static void _proxy_conn_print_log(struct proxy_conn *conn)
 		 conn->target.port, conn->proxy_name[0] ? conn->proxy_name : "direct");
 }
 
-static void _proxy_server_push_outbound_proxy(struct proxy_conn *conn)
+static int _proxy_push_client_ssl_layer(struct gsocket *gs, SSL_CTX *ctx, const char *tls_host, int skip_cert_verify)
 {
-	if (!conn->proxy_name[0]) {
-		return;
+	if (ctx == NULL) {
+		tlog(TLOG_ERROR, "create client SSL layer failed: ssl ctx is null");
+		return -1;
 	}
-	struct dns_proxy_names *pn = dns_server_get_proxy_names(conn->proxy_name);
-	if (!pn || list_empty(&pn->server_list)) {
-		return;
+
+	if (_proxy_push_new_layer(gs, gsocket_io_ssl_new(ctx, 0), "client ssl") != 0) {
+		return -1;
 	}
-	struct dns_proxy_servers *ps = list_first_entry(&pn->server_list, struct dns_proxy_servers, list);
-	if (conn->is_udp && ps->type != PROXY_SOCKS5 && ps->type != PROXY_SOCKS5S) {
-		return; /* UDP is only supported over SOCKS5, fallback to 1:1 forward */
+
+	if (skip_cert_verify) {
+		int verify = 0;
+		gsocket_setsockopt(gs, SOL_SSL, SO_SSL_VERIFY, &verify, sizeof(verify));
 	}
+	if (tls_host != NULL && tls_host[0] != '\0') {
+		gsocket_setsockopt(gs, SOL_SSL, SO_SSL_SNI, tls_host, strlen(tls_host));
+	}
+
+	return 0;
+}
+
+static SSL_CTX *_proxy_get_client_ssl_ctx(int use_cert)
+{
+	return (use_cert && g_proxy_ctx.ssl_cli_cert_ctx) ? g_proxy_ctx.ssl_cli_cert_ctx : g_proxy_ctx.ssl_cli_ctx;
+}
+
+static struct gsocket_io *_proxy_create_socks5_client_layer(struct dns_proxy_servers *ps, int is_udp)
+{
 	const char *user = (ps->username[0] == '\0') ? NULL : ps->username;
 	const char *pass = (ps->password[0] == '\0') ? NULL : ps->password;
 
+	if (is_udp) {
+		return gsocket_io_socks5_udp_new(ps->server, ps->port, user, pass);
+	}
+
+	return gsocket_io_socks5_new(ps->server, ps->port, user, pass);
+}
+
+static struct gsocket_io *_proxy_create_http_client_layer(struct dns_proxy_servers *ps)
+{
+	const char *user = (ps->username[0] == '\0') ? NULL : ps->username;
+	const char *pass = (ps->password[0] == '\0') ? NULL : ps->password;
+
+	return gsocket_io_httpproxy_new(ps->server, ps->port, user, pass);
+}
+
+static int _proxy_server_push_outbound_proxy(struct proxy_conn *conn)
+{
+	if (!conn->proxy_name[0]) {
+		return 0;
+	}
+	struct dns_proxy_names *pn = dns_server_get_proxy_names(conn->proxy_name);
+	if (!pn || list_empty(&pn->server_list)) {
+		return 0;
+	}
+	struct dns_proxy_servers *ps = list_first_entry(&pn->server_list, struct dns_proxy_servers, list);
+	if (conn->is_udp && ps->type != PROXY_SOCKS5 && ps->type != PROXY_SOCKS5S) {
+		return 0;
+	}
+
 	if (ps->type == PROXY_SOCKS5) {
-		if (conn->is_udp) {
-			gsocket_push_layer(conn->remote.gs, gsocket_io_socks5_udp_new(ps->server, ps->port, user, pass));
-		} else {
-			gsocket_push_layer(conn->remote.gs, gsocket_io_socks5_new(ps->server, ps->port, user, pass));
-		}
+		return _proxy_push_new_layer(conn->remote.gs, _proxy_create_socks5_client_layer(ps, conn->is_udp),
+									 "socks5 client");
 	} else if (ps->type == PROXY_SOCKS5S) {
-		if (ps->tls_host[0] != '\0') {
-			gsocket_setsockopt(conn->remote.gs, SOL_SSL, SO_SSL_SNI, ps->tls_host, strlen(ps->tls_host));
-		}
 		int use_cert = conn->is_use_cert_set ? conn->use_cert : ps->use_cert;
-		SSL_CTX *ctx = (use_cert && g_proxy_ctx.ssl_cli_cert_ctx) ? g_proxy_ctx.ssl_cli_cert_ctx : g_proxy_ctx.ssl_cli_ctx;
-		gsocket_push_layer(conn->remote.gs, gsocket_io_ssl_new(ctx, 0));
 		int skip_cert_verify = conn->is_skip_cert_verify_set ? conn->skip_cert_verify : ps->skip_cert_verify;
-		if (skip_cert_verify) {
-			int verify = 0;
-			gsocket_setsockopt(conn->remote.gs, SOL_SSL, SO_SSL_VERIFY, &verify, sizeof(verify));
+		if (_proxy_push_client_ssl_layer(conn->remote.gs, _proxy_get_client_ssl_ctx(use_cert), ps->tls_host,
+										 skip_cert_verify) != 0) {
+			return -1;
 		}
-		if (conn->is_udp) {
-			gsocket_push_layer(conn->remote.gs, gsocket_io_socks5_udp_new(ps->server, ps->port, user, pass));
-		} else {
-			gsocket_push_layer(conn->remote.gs, gsocket_io_socks5_new(ps->server, ps->port, user, pass));
-		}
+		return _proxy_push_new_layer(conn->remote.gs, _proxy_create_socks5_client_layer(ps, conn->is_udp),
+									 "socks5 client");
 	} else if (ps->type == PROXY_HTTP) {
-		gsocket_push_layer(conn->remote.gs, gsocket_io_httpproxy_new(ps->server, ps->port, user, pass));
+		return _proxy_push_new_layer(conn->remote.gs, _proxy_create_http_client_layer(ps), "http proxy client");
 	} else if (ps->type == PROXY_HTTPS) {
-		if (ps->tls_host[0] != '\0') {
-			gsocket_setsockopt(conn->remote.gs, SOL_SSL, SO_SSL_SNI, ps->tls_host, strlen(ps->tls_host));
-		}
 		int use_cert = conn->is_use_cert_set ? conn->use_cert : ps->use_cert;
-		SSL_CTX *ctx = (use_cert && g_proxy_ctx.ssl_cli_cert_ctx) ? g_proxy_ctx.ssl_cli_cert_ctx : g_proxy_ctx.ssl_cli_ctx;
-		gsocket_push_layer(conn->remote.gs, gsocket_io_ssl_new(ctx, 0));
 		int skip_cert_verify = conn->is_skip_cert_verify_set ? conn->skip_cert_verify : ps->skip_cert_verify;
-		if (skip_cert_verify) {
-			int verify = 0;
-			gsocket_setsockopt(conn->remote.gs, SOL_SSL, SO_SSL_VERIFY, &verify, sizeof(verify));
+		if (_proxy_push_client_ssl_layer(conn->remote.gs, _proxy_get_client_ssl_ctx(use_cert), ps->tls_host,
+										 skip_cert_verify) != 0) {
+			return -1;
 		}
-		gsocket_push_layer(conn->remote.gs, gsocket_io_httpproxy_new(ps->server, ps->port, user, pass));
+		return _proxy_push_new_layer(conn->remote.gs, _proxy_create_http_client_layer(ps), "http proxy client");
 	} else if (ps->type == PROXY_PASSTHROUGH) {
 		if (ps->server[0] != '\0' && strcmp(ps->server, "0.0.0.0") != 0) {
 			safe_strncpy(conn->target.host, ps->server, sizeof(conn->target.host));
@@ -924,6 +1006,8 @@ static void _proxy_server_push_outbound_proxy(struct proxy_conn *conn)
 			conn->target.port = ps->port;
 		}
 	}
+
+	return 0;
 }
 
 static int _proxy_server_process_connect_remote(struct proxy_conn *conn)
@@ -969,19 +1053,15 @@ static int _proxy_server_process_connect_remote(struct proxy_conn *conn)
 		conn->remote.is_remote = 1;
 		_proxy_optimize_gsocket(conn->remote.gs, 0);
 
-		/* Setup Outbound Proxy Chaining */
-		_proxy_server_push_outbound_proxy(conn);
+		if (_proxy_server_push_outbound_proxy(conn) != 0) {
+			return -1;
+		}
 
 		if (conn->type == LISTENER_FORWARD && conn->target_ssl) {
-			if (conn->tls_host[0] != '\0') {
-				gsocket_setsockopt(conn->remote.gs, SOL_SSL, SO_SSL_SNI, conn->tls_host, strlen(conn->tls_host));
-			}
 			int use_cert = conn->use_cert;
-			SSL_CTX *ctx = (use_cert && g_proxy_ctx.ssl_cli_cert_ctx) ? g_proxy_ctx.ssl_cli_cert_ctx : g_proxy_ctx.ssl_cli_ctx;
-			gsocket_push_layer(conn->remote.gs, gsocket_io_ssl_new(ctx, 0));
-			if (conn->skip_cert_verify) {
-				int verify = 0;
-				gsocket_setsockopt(conn->remote.gs, SOL_SSL, SO_SSL_VERIFY, &verify, sizeof(verify));
+			if (_proxy_push_client_ssl_layer(conn->remote.gs, _proxy_get_client_ssl_ctx(use_cert), conn->tls_host,
+											 conn->skip_cert_verify) != 0) {
+				return -1;
 			}
 		}
 
@@ -1021,14 +1101,15 @@ static int _proxy_server_process_remote_handshake(struct proxy_conn *conn)
 	if (ret == GSOCKET_HANDSHAKE_DONE) {
 		conn->state = PSTATE_PIPE;
 		list_move_tail(&conn->node, &conn->worker->conns);
-		_proxy_conn_setup_remote_udp_gs(conn->worker, conn);
 
 		/* Trigger initial relay pump immediately upon establishing link */
 		_proxy_relay_data(&conn->client, &conn->remote, 1);
 		_proxy_relay_data(&conn->remote, &conn->client, 1);
 
-		gepoll_mod(conn->worker->gepoll, conn->client.gs, (conn->client.buf_len > 0) ? (EPOLLIN | EPOLLOUT) : EPOLLIN, &conn->client);
-		gepoll_mod(conn->worker->gepoll, conn->remote.gs, (conn->remote.buf_len > 0) ? (EPOLLIN | EPOLLOUT) : EPOLLIN, &conn->remote);
+		gepoll_mod(conn->worker->gepoll, conn->client.gs, (conn->client.buf_len > 0) ? (EPOLLIN | EPOLLOUT) : EPOLLIN,
+				   &conn->client);
+		gepoll_mod(conn->worker->gepoll, conn->remote.gs, (conn->remote.buf_len > 0) ? (EPOLLIN | EPOLLOUT) : EPOLLIN,
+				   &conn->remote);
 		return 0;
 	} else if (ret == GSOCKET_HANDSHAKE_WANT_READ || ret == GSOCKET_HANDSHAKE_WANT_WRITE) {
 		int events = (ret == GSOCKET_HANDSHAKE_WANT_READ) ? EPOLLIN : EPOLLOUT;
@@ -1037,10 +1118,13 @@ static int _proxy_server_process_remote_handshake(struct proxy_conn *conn)
 	}
 	struct gsocket_error err = {0};
 	socklen_t len = sizeof(err);
-	if (gsocket_getsockopt(conn->remote.gs, SOL_PROTO_ERROR, SO_ERROR_DETAIL, &err, &len) == 0 && err.message[0] != '\0') {
-		tlog(TLOG_ERROR, "proxy remote handshake failed to %s:%d (state: %d), error: %s", conn->target.host, conn->target.port, conn->state, err.message);
+	if (gsocket_getsockopt(conn->remote.gs, SOL_PROTO_ERROR, SO_ERROR_DETAIL, &err, &len) == 0 &&
+		err.message[0] != '\0') {
+		tlog(TLOG_ERROR, "proxy remote handshake failed to %s:%d (state: %d), error: %s", conn->target.host,
+			 conn->target.port, conn->state, err.message);
 	} else {
-		tlog(TLOG_ERROR, "proxy remote handshake failed to %s:%d (state: %d)", conn->target.host, conn->target.port, conn->state);
+		tlog(TLOG_ERROR, "proxy remote handshake failed to %s:%d (state: %d)", conn->target.host, conn->target.port,
+			 conn->state);
 	}
 	return -1; /* Error */
 }
@@ -1099,16 +1183,19 @@ static void _proxy_conn_set_client_addr(struct proxy_conn *conn, struct sockaddr
 
 static int _sockaddr_cmp(const struct sockaddr_storage *a, const struct sockaddr_storage *b)
 {
-	if (a->ss_family != b->ss_family) return -1;
+	if (a->ss_family != b->ss_family)
+		return -1;
 	if (a->ss_family == AF_INET) {
 		struct sockaddr_in *sin_a = (struct sockaddr_in *)a;
 		struct sockaddr_in *sin_b = (struct sockaddr_in *)b;
-		if (sin_a->sin_port != sin_b->sin_port) return -1;
+		if (sin_a->sin_port != sin_b->sin_port)
+			return -1;
 		return memcmp(&sin_a->sin_addr, &sin_b->sin_addr, sizeof(sin_a->sin_addr));
 	} else if (a->ss_family == AF_INET6) {
 		struct sockaddr_in6 *sin6_a = (struct sockaddr_in6 *)a;
 		struct sockaddr_in6 *sin6_b = (struct sockaddr_in6 *)b;
-		if (sin6_a->sin6_port != sin6_b->sin6_port) return -1;
+		if (sin6_a->sin6_port != sin6_b->sin6_port)
+			return -1;
 		return memcmp(&sin6_a->sin6_addr, &sin6_b->sin6_addr, sizeof(sin6_a->sin6_addr));
 	}
 	return -1;
@@ -1127,11 +1214,13 @@ static inline uint32_t _sockaddr_hash(const struct sockaddr_storage *addr)
 	return 0;
 }
 
-static struct proxy_conn *_proxy_conn_find_udp(struct proxy_worker *worker, const struct sockaddr_storage *client_addr, const struct sockaddr_storage *target_addr)
+static struct proxy_conn *_proxy_conn_find_udp(struct proxy_worker *worker, const struct sockaddr_storage *client_addr,
+											   const struct sockaddr_storage *target_addr)
 {
 	struct proxy_conn *conn;
 	uint32_t key = _sockaddr_hash(client_addr) ^ _sockaddr_hash(target_addr);
-	hash_for_each_possible(worker->udp_sessions, conn, h_node, key) {
+	hash_for_each_possible(worker->udp_sessions, conn, h_node, key)
+	{
 		if (conn->is_udp && _sockaddr_cmp(&conn->client_addr, client_addr) == 0 &&
 			_sockaddr_cmp(&conn->target_addr, target_addr) == 0) {
 			return conn;
@@ -1140,7 +1229,8 @@ static struct proxy_conn *_proxy_conn_find_udp(struct proxy_worker *worker, cons
 	return NULL;
 }
 
-static struct proxy_conn *__proxy_conn_init_from_listener(struct proxy_worker *worker, struct proxy_listener *l, const struct sockaddr *addr)
+static struct proxy_conn *__proxy_conn_init_from_listener(struct proxy_worker *worker, struct proxy_listener *l,
+														  const struct sockaddr *addr)
 {
 	struct proxy_conn *conn = __proxy_conn_get(worker);
 	if (!conn) {
@@ -1181,7 +1271,8 @@ static struct proxy_conn *__proxy_conn_init_from_listener(struct proxy_worker *w
 	return conn;
 }
 
-static struct proxy_conn *_proxy_conn_init_from_listener(struct proxy_worker *worker, struct proxy_listener *l, const struct sockaddr *addr)
+static struct proxy_conn *_proxy_conn_init_from_listener(struct proxy_worker *worker, struct proxy_listener *l,
+														 const struct sockaddr *addr)
 {
 	struct proxy_conn *conn;
 	pthread_mutex_lock(&worker->lock);
@@ -1203,7 +1294,7 @@ static int _proxy_conn_create_udp_client_gs(struct proxy_conn *conn, const struc
 	if (conn->type == LISTENER_TPROXY) {
 		setsockopt(fd, SOL_IP, IP_TRANSPARENT, &opt, sizeof(opt));
 	}
-	
+
 	conn->client.gs = gsocket_new(fd);
 	if (!conn->client.gs) {
 		tlog(TLOG_DEBUG, "gsocket_new failed for client_gs");
@@ -1213,7 +1304,8 @@ static int _proxy_conn_create_udp_client_gs(struct proxy_conn *conn, const struc
 
 	if (conn->type == LISTENER_TPROXY) {
 		if (gsocket_bind(conn->client.gs, conn->target.host, conn->target.port) != 0) {
-			tlog(TLOG_DEBUG, "gsocket_bind failed for target %s:%d, errno: %s", conn->target.host, conn->target.port, strerror(errno));
+			tlog(TLOG_DEBUG, "gsocket_bind failed for target %s:%d, errno: %s", conn->target.host, conn->target.port,
+				 strerror(errno));
 			gsocket_close(conn->client.gs);
 			gsocket_free(conn->client.gs);
 			conn->client.gs = NULL;
@@ -1224,7 +1316,8 @@ static int _proxy_conn_create_udp_client_gs(struct proxy_conn *conn, const struc
 		int listen_port = 0;
 		parse_ip(conn->proxy_server, listen_ip, &listen_port);
 		if (gsocket_bind(conn->client.gs, listen_ip, listen_port) != 0) {
-			tlog(TLOG_DEBUG, "gsocket_bind failed for Forward listener %s:%d, errno: %s", listen_ip, listen_port, strerror(errno));
+			tlog(TLOG_DEBUG, "gsocket_bind failed for Forward listener %s:%d, errno: %s", listen_ip, listen_port,
+				 strerror(errno));
 			gsocket_close(conn->client.gs);
 			gsocket_free(conn->client.gs);
 			conn->client.gs = NULL;
@@ -1233,7 +1326,8 @@ static int _proxy_conn_create_udp_client_gs(struct proxy_conn *conn, const struc
 	}
 
 	if (gsocket_connect(conn->client.gs, conn->client_ip, conn->client_port) != 0) {
-		tlog(TLOG_DEBUG, "gsocket_connect failed for client %s:%d, errno: %s", conn->client_ip, conn->client_port, strerror(errno));
+		tlog(TLOG_DEBUG, "gsocket_connect failed for client %s:%d, errno: %s", conn->client_ip, conn->client_port,
+			 strerror(errno));
 		gsocket_close(conn->client.gs);
 		gsocket_free(conn->client.gs);
 		conn->client.gs = NULL;
@@ -1243,7 +1337,9 @@ static int _proxy_conn_create_udp_client_gs(struct proxy_conn *conn, const struc
 	return 0;
 }
 
-static struct proxy_conn *_proxy_conn_create_udp_session(struct proxy_worker *worker, struct proxy_listener *found_l, struct sockaddr *addr, struct sockaddr_storage *original_dst, void *buf, ssize_t n)
+static struct proxy_conn *_proxy_conn_create_udp_session(struct proxy_worker *worker, struct proxy_listener *found_l,
+														 struct sockaddr *addr, struct sockaddr_storage *original_dst,
+														 void *buf, ssize_t n)
 {
 	/* worker->lock is held by caller */
 	struct proxy_conn *conn = __proxy_conn_init_from_listener(worker, found_l, addr);
@@ -1272,7 +1368,9 @@ static struct proxy_conn *_proxy_conn_create_udp_session(struct proxy_worker *wo
 	}
 
 	if (_proxy_conn_create_udp_client_gs(conn, addr) != 0) {
-		tlog(TLOG_DEBUG, "_proxy_conn_create_udp_client_gs failed for target %s:%d", conn->target.host, conn->target.port);
+		tlog(TLOG_DEBUG, "_proxy_conn_create_udp_client_gs failed for target %s:%d", conn->target.host,
+			 conn->target.port);
+		conn->is_udp = 0;
 		__proxy_conn_free(conn);
 		return NULL;
 	}
@@ -1290,6 +1388,7 @@ static struct proxy_conn *_proxy_conn_create_udp_session(struct proxy_worker *wo
 			conn->remote.buf_size = (int)n;
 		} else {
 			tlog(TLOG_DEBUG, "realloc failed for UDP initial packet buffer");
+			list_del(&conn->node);
 			__proxy_conn_free(conn);
 			return NULL;
 		}
@@ -1297,7 +1396,12 @@ static struct proxy_conn *_proxy_conn_create_udp_session(struct proxy_worker *wo
 	memcpy(conn->remote.buf, buf, n);
 	conn->remote.buf_len = (int)n;
 
-	_proxy_server_conn_process(conn);
+	if (_proxy_server_conn_process(conn) != 0) {
+		list_del(&conn->node);
+		__proxy_conn_free(conn);
+		return NULL;
+	}
+
 	return conn;
 }
 
@@ -1401,32 +1505,11 @@ static void _proxy_server_accept_conn(struct proxy_listener *found_l)
 	list_add_tail(&conn->node, &worker->conns);
 	gsocket_set_nonblock(client, 1);
 	gepoll_add(worker->gepoll, client, EPOLLIN, &conn->client);
-	_proxy_server_conn_process(conn);
-	pthread_mutex_unlock(&worker->lock);
-}
-
-static void _proxy_conn_setup_remote_udp_gs(struct proxy_worker *worker, struct proxy_conn *conn)
-{
-	if (conn->is_udp && !conn->remote_udp_gs) {
-		int udp_fd = -1;
-		socklen_t len = sizeof(udp_fd);
-		if (gsocket_getsockopt(conn->remote.gs, SOL_SOCKS5, SO_SOCKS5_UDP_FD, &udp_fd, &len) == 0 && udp_fd != -1) {
-			int dup_fd = dup(udp_fd);
-			if (dup_fd >= 0) {
-				conn->remote_udp_gs = gsocket_new(dup_fd);
-				if (conn->remote_udp_gs) {
-					gsocket_set_nonblock(conn->remote_udp_gs, 1);
-					gepoll_add(worker->gepoll, conn->remote_udp_gs, EPOLLIN, &conn->remote);
-				} else {
-					close(dup_fd);
-				}
-			}
-		}
-		/* Flush any buffered UDP packets immediately upon connection setup */
-		if (conn->remote.buf_len > 0) {
-			_proxy_relay_data(&conn->client, &conn->remote, 0);
-		}
+	if (_proxy_server_conn_process(conn) != 0) {
+		list_del(&conn->node);
+		__proxy_conn_free(conn);
 	}
+	pthread_mutex_unlock(&worker->lock);
 }
 
 static void _proxy_handle_event(struct relay_gsock *rg, uint32_t events)
@@ -1441,7 +1524,9 @@ static void _proxy_handle_event(struct relay_gsock *rg, uint32_t events)
 	}
 
 	conn->last_active = worker->now;
-	list_move_tail(&conn->node, &worker->conns);
+	if (conn->state == PSTATE_PIPE) {
+		list_move_tail(&conn->node, &worker->conns);
+	}
 
 	if (conn->state != PSTATE_PIPE) {
 		if (conn->state == PSTATE_CONNECTING && rg->is_remote) {
@@ -1551,8 +1636,8 @@ static void _proxy_server_cleanup(struct proxy_worker *worker)
 		list_for_each_entry_safe(conn, tmp, &worker->connecting_conns, node)
 		{
 			if (worker->now - conn->connect_start > 10) {
-				tlog(TLOG_DEBUG, "proxy %p connection closed, reason: connect timeout, state %d, age %ld", 
-					conn, conn->state, worker->now - conn->connect_start);
+				tlog(TLOG_DEBUG, "proxy %p connection closed, reason: connect timeout, state %d, age %ld", conn,
+					 conn->state, worker->now - conn->connect_start);
 				list_del(&conn->node);
 				__proxy_conn_free(conn);
 			}
@@ -1908,9 +1993,9 @@ static int _proxy_server_init_listeners(struct proxy_worker *worker, SSL_CTX *ss
 			args.tls_host = f_conf->tls_host;
 			args.forward_target = f_conf->target;
 			args.skip_cert_verify = f_conf->skip_cert_verify;
-args.is_skip_cert_verify_set = f_conf->is_skip_cert_verify_set;
+			args.is_skip_cert_verify_set = f_conf->is_skip_cert_verify_set;
 			args.use_cert = f_conf->use_cert;
-args.is_use_cert_set = f_conf->is_use_cert_set;
+			args.is_use_cert_set = f_conf->is_use_cert_set;
 			args.worker = worker;
 			if (_add_listener(&args) != 0) {
 				return -1;
@@ -1930,9 +2015,9 @@ args.is_use_cert_set = f_conf->is_use_cert_set;
 			args.tls_host = f_conf->tls_host;
 			args.forward_target = f_conf->target;
 			args.skip_cert_verify = f_conf->skip_cert_verify;
-args.is_skip_cert_verify_set = f_conf->is_skip_cert_verify_set;
+			args.is_skip_cert_verify_set = f_conf->is_skip_cert_verify_set;
 			args.use_cert = f_conf->use_cert;
-args.is_use_cert_set = f_conf->is_use_cert_set;
+			args.is_use_cert_set = f_conf->is_use_cert_set;
 			args.worker = worker;
 			args.is_udp = 1;
 			if (_add_listener(&args) != 0) {
@@ -2110,7 +2195,7 @@ int proxy_server_init(void)
 	if (need_srv_verify) {
 		g_proxy_ctx.ssl_srv_verify_ctx = _init_ssl_server_ctx(1);
 	}
-	
+
 	if (need_cli_ssl) {
 		g_proxy_ctx.ssl_cli_ctx = SSL_CTX_new(TLS_client_method());
 		if (g_proxy_ctx.ssl_cli_ctx) {
@@ -2123,7 +2208,8 @@ int proxy_server_init(void)
 			_proxy_server_load_verify_locations(g_proxy_ctx.ssl_cli_ctx, NULL, dns_conf.ca_path, "ca-path");
 
 			SSL_CTX_set_verify(g_proxy_ctx.ssl_cli_ctx, SSL_VERIFY_PEER, NULL);
-			X509_STORE_set_flags(SSL_CTX_get_cert_store(g_proxy_ctx.ssl_cli_ctx), X509_V_FLAG_TRUSTED_FIRST | X509_V_FLAG_PARTIAL_CHAIN);
+			X509_STORE_set_flags(SSL_CTX_get_cert_store(g_proxy_ctx.ssl_cli_ctx),
+								 X509_V_FLAG_TRUSTED_FIRST | X509_V_FLAG_PARTIAL_CHAIN);
 		}
 	}
 
@@ -2142,17 +2228,21 @@ int proxy_server_init(void)
 				} else {
 					/* Load internal root-ca FIRST to prioritize it. */
 					if (root_ca_path[0] != '\0') {
-						_proxy_server_load_verify_locations(g_proxy_ctx.ssl_cli_cert_ctx, root_ca_path, NULL, "root-ca-file");
+						_proxy_server_load_verify_locations(g_proxy_ctx.ssl_cli_cert_ctx, root_ca_path, NULL,
+															"root-ca-file");
 					}
 
 					/* Do NOT call SSL_CTX_set_default_verify_paths: system CA store may
 					 * contain stale smartdns root CAs (same subject, different key) that
 					 * cause RSA invalid-padding errors when verifying the peer certificate. */
-					_proxy_server_load_verify_locations(g_proxy_ctx.ssl_cli_cert_ctx, dns_conf.ca_file, NULL, "ca-file");
-					_proxy_server_load_verify_locations(g_proxy_ctx.ssl_cli_cert_ctx, NULL, dns_conf.ca_path, "ca-path");
+					_proxy_server_load_verify_locations(g_proxy_ctx.ssl_cli_cert_ctx, dns_conf.ca_file, NULL,
+														"ca-file");
+					_proxy_server_load_verify_locations(g_proxy_ctx.ssl_cli_cert_ctx, NULL, dns_conf.ca_path,
+														"ca-path");
 
 					SSL_CTX_set_verify(g_proxy_ctx.ssl_cli_cert_ctx, SSL_VERIFY_PEER, NULL);
-					X509_STORE_set_flags(SSL_CTX_get_cert_store(g_proxy_ctx.ssl_cli_cert_ctx), X509_V_FLAG_TRUSTED_FIRST | X509_V_FLAG_PARTIAL_CHAIN);
+					X509_STORE_set_flags(SSL_CTX_get_cert_store(g_proxy_ctx.ssl_cli_cert_ctx),
+										 X509_V_FLAG_TRUSTED_FIRST | X509_V_FLAG_PARTIAL_CHAIN);
 				}
 			}
 		}
@@ -2170,7 +2260,8 @@ int proxy_server_init(void)
 
 	g_proxy_ctx.run = 1;
 	for (int i = 0; i < g_proxy_ctx.worker_num; i++) {
-		if (_proxy_worker_create(&g_proxy_ctx.workers[i], i, g_proxy_ctx.ssl_srv_ctx, g_proxy_ctx.ssl_srv_verify_ctx) != 0) {
+		if (_proxy_worker_create(&g_proxy_ctx.workers[i], i, g_proxy_ctx.ssl_srv_ctx, g_proxy_ctx.ssl_srv_verify_ctx) !=
+			0) {
 			proxy_server_exit();
 			return -1;
 		}
@@ -2178,6 +2269,7 @@ int proxy_server_init(void)
 
 	if (_proxy_server_setup_firewall_rules() != 0) {
 		tlog(TLOG_ERROR, "failed to setup firewall rules for transparent proxying");
+		proxy_server_exit();
 		return -1;
 	}
 
@@ -2219,6 +2311,10 @@ void proxy_server_exit(void)
 	if (g_proxy_ctx.ssl_cli_ctx != NULL) {
 		SSL_CTX_free(g_proxy_ctx.ssl_cli_ctx);
 		g_proxy_ctx.ssl_cli_ctx = NULL;
+	}
+	if (g_proxy_ctx.ssl_cli_cert_ctx != NULL) {
+		SSL_CTX_free(g_proxy_ctx.ssl_cli_cert_ctx);
+		g_proxy_ctx.ssl_cli_cert_ctx = NULL;
 	}
 
 	/* Cleanup firewall rules */

@@ -22,16 +22,15 @@
 #include "smartdns/dns.h"
 #include "smartdns/dns_conf.h"
 #include "smartdns/dns_stats.h"
-#include "smartdns/http2.h"
 #include "smartdns/lib/atomic.h"
+#include "smartdns/lib/gepoll.h"
+#include "smartdns/lib/gsocket.h"
 #include "smartdns/lib/hashtable.h"
 #include "smartdns/lib/list.h"
 #include "smartdns/tlog.h"
 
-#include <openssl/err.h>
-#include <openssl/rand.h>
+#include <netinet/ip.h>
 #include <openssl/ssl.h>
-#include <openssl/x509v3.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -45,6 +44,7 @@ extern "C" {
 #define DNS_TCP_CONNECT_TIMEOUT (5)
 #define DNS_QUERY_TIMEOUT (500)
 #define DNS_QUERY_RETRY (4)
+#define DNS_SEND_RET_NON_FATAL (-2)
 #define DNS_PENDING_SERVER_RETRY 60
 #define SOCKET_PRIORITY (6)
 #define SOCKET_IP_TOS (IPTOS_LOWDELAY | IPTOS_RELIABILITY)
@@ -53,6 +53,15 @@ extern "C" {
 struct dns_client_ecs {
 	int enable;
 	struct dns_opt_ecs ecs;
+};
+
+/* Pending HTTP/2 query (buffered before handshake completes) */
+struct dns_http2_pending {
+	struct list_head list;
+	struct dns_query_struct *query;
+	unsigned long active_tick;
+	int data_len;
+	unsigned char data[]; /* flexible array */
 };
 
 /* TCP/TLS buffer */
@@ -81,24 +90,18 @@ struct dns_server_info {
 	char ip[DNS_MAX_HOSTNAME];
 	int port;
 	char proxy_name[DNS_HOSTNAME_LEN];
+	int proxy_attempt; /* incremented on each failed connection attempt, cycles through proxy group */
 	/* server type */
 	dns_server_type_t type;
 	long long so_mark;
 	int drop_packet_latency_ms;
 	int tcp_keepalive;
 
-	/* client socket */
-	int fd;
+	/* gsocket-based connection */
+	struct gsocket *gs;
+	struct gstream_poll *sp; /* for QUIC/HTTP2 stream management */
 	int ttl;
 	int ttl_range;
-	SSL *ssl;
-	int ssl_write_len;
-	int ssl_want_write;
-	SSL_CTX *ssl_ctx;
-	SSL_SESSION *ssl_session;
-	BIO_METHOD *bio_method;
-
-	struct proxy_conn *proxy;
 
 	pthread_mutex_t lock;
 	char skip_check_cert;
@@ -132,10 +135,7 @@ struct dns_server_info {
 
 	struct dns_server_stats stats;
 	struct list_head conn_stream_list;
-
-	/* HTTP/2 context - connection level, shared across requests */
-	struct http2_ctx *http2_ctx;
-	char alpn_selected[32];
+	struct list_head http2_pending_list; /* buffered pre-handshake HTTP/2 queries */
 
 	dns_server_security_status security_status;
 };
@@ -190,7 +190,7 @@ struct dns_server_group {
 struct dns_client {
 	pthread_t tid;
 	atomic_t run;
-	int epoll_fd;
+	struct gepoll *gepoll;
 
 	/* dns server list */
 	pthread_mutex_t server_list_lock;
@@ -213,6 +213,7 @@ struct dns_client {
 	DECLARE_HASHTABLE(group, 4);
 
 	int fd_wakeup;
+	struct gsocket *wakeup_gs;
 };
 
 /* dns replied server info */
@@ -231,9 +232,9 @@ struct dns_conn_stream {
 	struct dns_query_struct *query;
 	struct dns_server_info *server_info;
 
-	SSL *quic_stream;
-	struct http2_stream *http2_stream;
+	struct gsocket *stream_gs; /* gsocket stream (replaces quic_stream + http2_stream) */
 	dns_server_type_t type;
+	int response_done;
 };
 
 /* query struct */
@@ -258,6 +259,10 @@ struct dns_query_struct {
 
 	/* dns query number */
 	atomic_t dns_request_sent;
+
+	/* number of entries in any server's http2_pending_list for this query */
+	atomic_t stream_pending_count;
+
 	unsigned long send_tick;
 
 	/* caller notification */

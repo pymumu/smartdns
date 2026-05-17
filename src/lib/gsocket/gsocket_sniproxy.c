@@ -33,7 +33,6 @@ struct sniproxy_ctx {
 	int sni_parsed;
 };
 
-
 static ssize_t _sniproxy_send(struct gsocket_io *io, const void *buf, size_t len, int flags)
 {
 	return io->lower->send(io->lower, buf, len, flags);
@@ -59,7 +58,9 @@ static int _sniproxy_handshake(struct gsocket_io *io)
 		ctx->buf_len += ret;
 	} else if (ret < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
 		return GSOCKET_HANDSHAKE_WANT_READ;
-	} else if (ret <= 0) {
+	} else if (ret == 0) {
+		return GSOCKET_HANDSHAKE_EOF;
+	} else {
 		return GSOCKET_HANDSHAKE_ERR;
 	}
 

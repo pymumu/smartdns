@@ -33,7 +33,7 @@ void _dns_server_client_touch(struct dns_server_conn_head *conn);
 
 int _dns_server_set_flags(struct dns_server_conn_head *head, struct dns_bind_ip *bind_ip);
 
-void _dns_server_conn_head_init(struct dns_server_conn_head *conn, int fd, int type);
+void _dns_server_conn_head_init(struct dns_server_conn_head *conn, struct gsocket *gs, int type);
 
 void _dns_server_conn_get(struct dns_server_conn_head *conn);
 

@@ -14,34 +14,16 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- *
- *************************************************************************/
+ */
 
-#ifndef _SERVER_HTTP2_H_
-#define _SERVER_HTTP2_H_
+#ifndef _DNS_SERVER_GSOCKET_FACTORY_H_
+#define _DNS_SERVER_GSOCKET_FACTORY_H_
 
 #include "dns_server.h"
-#include "smartdns/http2.h"
-#include <sys/epoll.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include <openssl/ssl.h>
 
-struct dns_server_conn_http2_stream {
-	struct dns_server_conn_head head;
-	struct http2_stream *stream;
-	struct dns_server_conn_tls_client *tls_client;
-};
+SSL_CTX *_dns_server_gsocket_create_ssl_ctx(struct dns_bind_ip *bind_ip, int is_quic, int is_http3);
+int _dns_server_gsocket_create_socket(const char *host_ip, int type);
 
-int _dns_server_process_http2(struct dns_server_conn_tls_client *tls_client, struct epoll_event *event,
-							  unsigned long now);
-
-int _dns_server_reply_http2(struct dns_request *request, struct dns_server_conn_http2_stream *stream_conn,
-							unsigned char *inpacket, int inpacket_len);
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif
+#endif /* _DNS_SERVER_GSOCKET_FACTORY_H_ */

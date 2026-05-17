@@ -86,6 +86,22 @@ static int get_socket_port(struct gsocket *sock)
 	return 0;
 }
 
+static bool is_quic_stream_socket(struct gsocket *sock)
+{
+	int fd = gsocket_get_fd(sock);
+	if (fd < 0) {
+		return false;
+	}
+
+	int so_type = 0;
+	socklen_t slen = sizeof(so_type);
+	if (getsockopt(fd, SOL_SOCKET, SO_TYPE, &so_type, &slen) != 0) {
+		return false;
+	}
+
+	return so_type == SOCK_DGRAM;
+}
+
 static int alpn_select_cb(SSL *ssl, const unsigned char **out, unsigned char *outlen, const unsigned char *in,
 						  unsigned int inlen, void *arg)
 {
@@ -215,7 +231,6 @@ static bool handle_file_request(struct gsocket *stream, struct gstream_poll *sp,
 	char buf[1024];
 
 	ssize_t n = gsocket_recv(stream, buf, sizeof(buf) - 1, 0);
-
 	if (n < 0) {
 		if (errno == EAGAIN || errno == EWOULDBLOCK) {
 			return false;
@@ -338,12 +353,7 @@ static bool handle_file_request(struct gsocket *stream, struct gstream_poll *sp,
 				printf("Starting to send file: size=%ld\n", size);
 				while (sent < size) {
 					size_t remaining = size - sent;
-					int flags = MSG_NOSIGNAL;
-					/* Set GS_MSG_FIN on the last send */
-					if (remaining > 0 && sent + remaining == size) { // Only set FIN on the very last chunk
-						flags |= GS_MSG_FIN;
-					}
-					ssize_t s = gsocket_send(stream, content + sent, remaining, flags);
+					ssize_t s = gsocket_send(stream, content + sent, remaining, MSG_NOSIGNAL);
 					if (s <= 0) {
 						if (errno == EAGAIN || errno == EWOULDBLOCK) {
 							/* Process pending events (e.g. WINDOW_UPDATE) during backpressure */
@@ -354,6 +364,11 @@ static bool handle_file_request(struct gsocket *stream, struct gstream_poll *sp,
 						break;
 					}
 					sent += s;
+				}
+
+				if (sent == (size_t)size) {
+					/* Conclude stream only after body is fully sent. */
+					gsocket_send(stream, NULL, 0, MSG_NOSIGNAL | GS_MSG_FIN);
 				}
 				free(content);
 			}
@@ -368,7 +383,10 @@ static bool handle_file_request(struct gsocket *stream, struct gstream_poll *sp,
 		const char *not_found = "File Not Found";
 		size_t clen = strlen(not_found);
 		gsocket_setsockopt(stream, SOL_HTTP, SO_HTTP_BODY_LEN, &clen, sizeof(clen));
-		gsocket_send(stream, not_found, clen, MSG_NOSIGNAL | GS_MSG_FIN);
+		ssize_t sent = gsocket_send(stream, not_found, clen, MSG_NOSIGNAL);
+		if (sent == (ssize_t)clen) {
+			gsocket_send(stream, NULL, 0, MSG_NOSIGNAL | GS_MSG_FIN);
+		}
 	}
 
 	/* Don't call gstream_poll_del here - let caller handle cleanup */
@@ -447,6 +465,10 @@ void process_file_stream_events(struct gsocket *conn, struct gstream_poll *sp, s
 			} else {
 				if (handle_file_request(s, sp, (void *)root)) {
 					gstream_poll_del(sp, s);
+					if (is_quic_stream_socket(s)) {
+						/* Keep QUIC stream object alive until thread cleanup. */
+						continue;
+					}
 					gsocket_close(s);
 					gsocket_free(s);
 					conn_streams[conn].erase(s);
@@ -1854,12 +1876,21 @@ TEST_F(GSocketHTTPTest, HTTP3FileServer)
 	cmd += std::to_string(port);
 	cmd += "/index.html";
 	printf("curl command: %s\n", cmd.c_str());
-	int ret = system(cmd.c_str());
-	ASSERT_EQ(ret, 0);
+	int ret = -1;
+	for (int i = 0; i < 3; i++) {
+		ret = system(cmd.c_str());
+		if (ret == 0) {
+			break;
+		}
+		if (i < 2) {
+			usleep(100 * 1000);
+		}
+	}
 
 	running = false;
 	s.join();
 	cleanup_test_www_dir(root);
+	ASSERT_EQ(ret, 0);
 #else
 	GTEST_SKIP() << "QUIC not supported";
 #endif

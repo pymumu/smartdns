@@ -25,6 +25,17 @@
 extern "C" {
 #endif /*__cplusplus */
 
+struct dns_client_close_error {
+	const char *reason;
+	int err;
+};
+
+static inline void _dns_client_set_close_error(struct dns_client_close_error *close_error, const char *reason, int err)
+{
+	close_error->reason = reason;
+	close_error->err = err;
+}
+
 int _dns_client_send_data_to_buffer(struct dns_server_info *server_info, void *packet, int len);
 
 int _dns_client_copy_data_to_buffer(struct dns_server_info *server_info, void *packet, int len);
@@ -36,6 +47,12 @@ int _dns_client_socket_recv(struct dns_server_info *server_info);
 int _dns_client_create_socket(struct dns_server_info *server_info);
 
 void _dns_client_close_socket(struct dns_server_info *server_info);
+
+void _dns_client_close_socket_with_reason(struct dns_server_info *server_info, const char *reason, int err,
+										  const char *file, int line);
+
+#define DNS_CLIENT_CLOSE_SOCKET_REASON(server_info, reason, err) \
+	_dns_client_close_socket_with_reason((server_info), (reason), (err), __FILE__, __LINE__)
 
 void _dns_client_close_socket_ext(struct dns_server_info *server_info, int no_del_conn_list);
 

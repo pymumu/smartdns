@@ -26,6 +26,7 @@
 #include "speed_check.h"
 
 #include <math.h>
+#include <stdio.h>
 
 static int _dns_server_process_answer_A_IP(struct dns_request *request, char *cname, unsigned char addr[4], int ttl,
 										   unsigned int result_flag)

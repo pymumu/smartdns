@@ -18,6 +18,7 @@
 
 #include "conn_stream.h"
 
+#include "smartdns/lib/gsocket.h"
 #include "smartdns/util.h"
 
 struct dns_conn_stream *_dns_client_conn_stream_new(void)
@@ -31,8 +32,7 @@ struct dns_conn_stream *_dns_client_conn_stream_new(void)
 	}
 	INIT_LIST_HEAD(&stream->server_list);
 	INIT_LIST_HEAD(&stream->query_list);
-	stream->quic_stream = NULL;
-	stream->http2_stream = NULL;
+	stream->stream_gs = NULL;
 	stream->server_info = NULL;
 	stream->query = NULL;
 	atomic_set(&stream->refcnt, 1);
@@ -57,16 +57,10 @@ void _dns_client_conn_stream_put(struct dns_conn_stream *stream)
 		return;
 	}
 
-	if (stream->quic_stream) {
-		SSL_free(stream->quic_stream);
-		stream->quic_stream = NULL;
-	}
-
-	if (stream->http2_stream) {
-		struct http2_stream *http2_stream = stream->http2_stream;
-		stream->http2_stream = NULL;
-		http2_stream_close(http2_stream);
-		stream->server_info = NULL;
+	if (stream->stream_gs) {
+		gsocket_close(stream->stream_gs);
+		gsocket_free(stream->stream_gs);
+		stream->stream_gs = NULL;
 	}
 
 	if (stream->query) {
@@ -100,17 +94,13 @@ void _dns_client_conn_server_streams_free(struct dns_server_info *server_info, s
 
 		list_del_init(&stream->server_list);
 		stream->server_info = NULL;
-		if (stream->quic_stream) {
-#if defined(OSSL_QUIC1_VERSION) && !defined(OPENSSL_NO_QUIC)
-			SSL_stream_reset(stream->quic_stream, NULL, 0);
-#endif
-			SSL_free(stream->quic_stream);
-			stream->quic_stream = NULL;
-		}
-
-		if (stream->http2_stream) {
-			http2_stream_close(stream->http2_stream);
-			stream->http2_stream = NULL;
+		if (stream->stream_gs) {
+			if (server_info->sp) {
+				gstream_poll_del(server_info->sp, stream->stream_gs);
+			}
+			gsocket_close(stream->stream_gs);
+			gsocket_free(stream->stream_gs);
+			stream->stream_gs = NULL;
 		}
 
 		_dns_client_conn_stream_put(stream);

@@ -21,6 +21,7 @@
 
 #include "smartdns/dns_plugin.h"
 
+#include <stdio.h>
 #include <syslog.h>
 
 static tlog_log *dns_audit;

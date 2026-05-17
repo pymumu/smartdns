@@ -70,6 +70,15 @@ class LIBHTTP2 : public ::testing::Test
 		}
 		return ret;
 	}
+
+	static void release_poll_items(struct http2_poll_item *items, int count)
+	{
+		for (int i = 0; i < count; i++) {
+			if (items[i].stream) {
+				http2_stream_put(items[i].stream);
+			}
+		}
+	}
 };
 
 TEST_F(LIBHTTP2, Integrated)
@@ -116,6 +125,7 @@ TEST_F(LIBHTTP2, Integrated)
 					}
 				}
 			}
+			release_poll_items(items, count);
 			usleep(20000);
 		}
 		if (!stream) {
@@ -191,8 +201,10 @@ TEST_F(LIBHTTP2, Integrated)
 			int count = 0;
 			http2_ctx_poll(ctx, items, 10, &count);
 			if (http2_stream_get_status(stream) > 0) {
+				release_poll_items(items, count);
 				break;
 			}
+			release_poll_items(items, count);
 
 			usleep(20000);
 		}
@@ -261,6 +273,9 @@ TEST_F(LIBHTTP2, MultiStream)
 			for (int i = 0; i < count; i++) {
 				if (items[i].stream == nullptr && items[i].readable) {
 					struct http2_stream *s = http2_ctx_accept_stream(ctx);
+					if (s) {
+						http2_stream_put(s);
+					}
 				} else if (items[i].stream && items[i].readable) {
 					struct http2_stream *stream = items[i].stream;
 					uint8_t buf[1024];
@@ -278,11 +293,13 @@ TEST_F(LIBHTTP2, MultiStream)
 							http2_stream_set_response(stream, 200, headers, 2);
 							http2_stream_write_body(stream, (const uint8_t *)response, response_len, 1);
 							streams_completed++;
+							http2_stream_get(stream);
 							processed_streams.insert(stream);
 						}
 					}
 				}
 			}
+			release_poll_items(items, count);
 			usleep(2000);
 		}
 
@@ -357,6 +374,7 @@ TEST_F(LIBHTTP2, MultiStream)
 					}
 				}
 			}
+			release_poll_items(items, count);
 			usleep(2000);
 		}
 
@@ -416,6 +434,7 @@ TEST_F(LIBHTTP2, EarlyStreamCreation)
 					}
 				}
 			}
+			release_poll_items(items, count);
 			usleep(20000);
 		}
 		ASSERT_NE(stream, nullptr) << "Server failed to accept stream";
@@ -497,8 +516,10 @@ TEST_F(LIBHTTP2, EarlyStreamCreation)
 			int count = 0;
 			http2_ctx_poll(ctx, items, 10, &count);
 			if (http2_stream_get_status(stream) > 0) {
+				release_poll_items(items, count);
 				break;
 			}
+			release_poll_items(items, count);
 
 			usleep(20000);
 		}
@@ -572,6 +593,7 @@ TEST_F(LIBHTTP2, ServerLoopTerminationOnDisconnect)
 					}
 				}
 			}
+			release_poll_items(items, count);
 			usleep(20000);
 		}
 		ASSERT_NE(stream, nullptr) << "Server failed to accept stream";
@@ -612,6 +634,7 @@ TEST_F(LIBHTTP2, ServerLoopTerminationOnDisconnect)
 
 		EXPECT_LT(loop_count, 100) << "Server loop did not terminate (infinite loop detected)";
 
+		http2_stream_close(stream);
 		http2_ctx_close(ctx);
 	});
 
@@ -688,6 +711,7 @@ TEST_F(LIBHTTP2, StreamClose)
 					}
 				}
 			}
+			release_poll_items(items, count);
 			usleep(20000);
 		}
 		ASSERT_NE(stream, nullptr) << "Server failed to accept stream";
@@ -740,8 +764,10 @@ TEST_F(LIBHTTP2, StreamClose)
 			int count = 0;
 			http2_ctx_poll(ctx, items, 10, &count);
 			if (http2_stream_get_status(stream) > 0) {
+				release_poll_items(items, count);
 				break;
 			}
+			release_poll_items(items, count);
 			usleep(20000);
 		}
 

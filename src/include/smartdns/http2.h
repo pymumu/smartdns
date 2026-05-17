@@ -123,7 +123,8 @@ struct http2_stream *http2_ctx_accept_stream(struct http2_ctx *ctx);
 /**
  * Poll streams for readiness
  * @param ctx HTTP/2 context
- * @param items Array to fill with poll results
+ * @param items Array to fill with poll results. Non-NULL stream entries hold a reference; release with
+ * http2_stream_put().
  * @param max_items Maximum number of items to return
  * @param ret_count Output: number of items returned
  * @return 0 on success, -1 on error
@@ -133,7 +134,8 @@ int http2_ctx_poll(struct http2_ctx *ctx, struct http2_poll_item *items, int max
 /**
  * Poll streams for readiness (only readable streams)
  * @param ctx HTTP/2 context
- * @param items Array to fill with poll results
+ * @param items Array to fill with poll results. Non-NULL stream entries hold a reference; release with
+ * http2_stream_put().
  * @param max_items Maximum number of items to return
  * @param ret_count Output: number of items returned
  * @return 0 on success, -1 on error
@@ -219,8 +221,8 @@ struct http2_header_pair {
  * @param headers Array of additional headers (NULL-terminated, last element must have name=NULL)
  * @return 0 on success, -1 on error
  */
-int http2_stream_set_request(struct http2_stream *stream, const char *method, const char *path,
-							 const char *scheme, const struct http2_header_pair *headers);
+int http2_stream_set_request(struct http2_stream *stream, const char *method, const char *path, const char *scheme,
+							 const struct http2_header_pair *headers);
 
 /**
  * Server: Set response headers

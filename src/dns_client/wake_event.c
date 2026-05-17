@@ -18,15 +18,23 @@
 
 #include "wake_event.h"
 
-#include <sys/epoll.h>
+#include "smartdns/lib/gepoll.h"
+#include "smartdns/lib/gsocket.h"
+#include <errno.h>
+#include <string.h>
 #include <sys/eventfd.h>
 
 void _dns_client_close_wakeup_event(void)
 {
-	if (client.fd_wakeup > 0) {
-		close(client.fd_wakeup);
-		client.fd_wakeup = -1;
+	if (client.wakeup_gs) {
+		if (client.gepoll) {
+			gepoll_del(client.gepoll, client.wakeup_gs);
+		}
+		gsocket_close(client.wakeup_gs);
+		gsocket_free(client.wakeup_gs);
+		client.wakeup_gs = NULL;
 	}
+	client.fd_wakeup = -1;
 }
 
 void _dns_client_clear_wakeup_event(void)
@@ -34,7 +42,7 @@ void _dns_client_clear_wakeup_event(void)
 	uint64_t val = 0;
 	int unused __attribute__((unused));
 
-	if (client.fd_wakeup <= 0) {
+	if (client.fd_wakeup < 0) {
 		return;
 	}
 
@@ -45,7 +53,7 @@ void _dns_client_do_wakeup_event(void)
 {
 	uint64_t val = 1;
 	int unused __attribute__((unused));
-	if (client.fd_wakeup <= 0) {
+	if (client.fd_wakeup < 0) {
 		return;
 	}
 
@@ -55,6 +63,7 @@ void _dns_client_do_wakeup_event(void)
 int _dns_client_create_wakeup_event(void)
 {
 	int fd_wakeup = -1;
+	struct gsocket *wakeup_gs = NULL;
 
 	fd_wakeup = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
 	if (fd_wakeup < 0) {
@@ -62,21 +71,28 @@ int _dns_client_create_wakeup_event(void)
 		goto errout;
 	}
 
-	struct epoll_event event;
-	memset(&event, 0, sizeof(event));
-	event.events = EPOLLIN;
-	event.data.fd = fd_wakeup;
-	if (epoll_ctl(client.epoll_fd, EPOLL_CTL_ADD, fd_wakeup, &event) < 0) {
-		tlog(TLOG_ERROR, "add eventfd to epoll failed, %s\n", strerror(errno));
+	wakeup_gs = gsocket_new(fd_wakeup);
+	if (wakeup_gs == NULL) {
+		tlog(TLOG_ERROR, "create wakeup gsocket failed\n");
 		goto errout;
 	}
 
+	if (gepoll_add(client.gepoll, wakeup_gs, EPOLLIN, NULL) < 0) {
+		tlog(TLOG_ERROR, "add eventfd to gepoll failed, %s\n", strerror(errno));
+		goto errout;
+	}
+
+	client.wakeup_gs = wakeup_gs;
 	return fd_wakeup;
 
 errout:
-	if (fd_wakeup > 0) {
+	if (wakeup_gs != NULL) {
+		gsocket_close(wakeup_gs);
+		gsocket_free(wakeup_gs);
+	} else if (fd_wakeup >= 0) {
 		close(fd_wakeup);
 	}
+	client.wakeup_gs = NULL;
 
 	return -1;
 }

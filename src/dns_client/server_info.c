@@ -19,9 +19,8 @@
 #define _GNU_SOURCE
 
 #include "server_info.h"
+#include "client_gsocket.h"
 #include "client_socket.h"
-#include "client_tls.h"
-#include "conn_stream.h"
 #include "ecs.h"
 #include "group.h"
 #include "pending_server.h"
@@ -32,7 +31,6 @@
 
 #include <net/if.h>
 #include <pthread.h>
-#include <sys/epoll.h>
 
 unsigned int dns_client_server_result_flag(struct dns_server_info *server_info)
 {
@@ -413,7 +411,7 @@ int _dns_client_server_add(const char *server_ip, const char *server_host, int p
 	server_info->ai_family = gai->ai_family;
 	server_info->ai_addrlen = gai->ai_addrlen;
 	server_info->type = server_type;
-	server_info->fd = -1;
+	server_info->gs = NULL;
 	server_info->status = DNS_SERVER_STATUS_INIT;
 	server_info->ttl = ttl;
 	server_info->ttl_range = 0;
@@ -443,6 +441,7 @@ int _dns_client_server_add(const char *server_ip, const char *server_host, int p
 	memcpy(&server_info->flags, flags, sizeof(server_info->flags));
 	INIT_LIST_HEAD(&server_info->list);
 	INIT_LIST_HEAD(&server_info->conn_stream_list);
+	INIT_LIST_HEAD(&server_info->http2_pending_list);
 
 	if (_dns_client_server_add_ecs(server_info, flags) != 0) {
 		tlog(TLOG_ERROR, "add %s ecs failed.", server_ip);
@@ -452,12 +451,8 @@ int _dns_client_server_add(const char *server_ip, const char *server_host, int p
 	/* if server type is TLS, create ssl context */
 	if (server_type == DNS_SERVER_TLS || server_type == DNS_SERVER_HTTPS || server_type == DNS_SERVER_QUIC ||
 		server_type == DNS_SERVER_HTTP3) {
-		if (server_type == DNS_SERVER_QUIC || server_type == DNS_SERVER_HTTP3) {
-			server_info->ssl_ctx = _ssl_ctx_get(1);
-		} else {
-			server_info->ssl_ctx = _ssl_ctx_get(0);
-		}
-		if (server_info->ssl_ctx == NULL) {
+		int is_quic = (server_type == DNS_SERVER_QUIC || server_type == DNS_SERVER_HTTP3);
+		if (_ssl_ctx_get(is_quic) == NULL) {
 			tlog(TLOG_ERROR, "init ssl failed.");
 			goto errout;
 		}
@@ -580,13 +575,6 @@ void _dns_client_server_close(struct dns_server_info *server_info)
 	}
 
 	_dns_client_close_socket(server_info);
-
-	if (server_info->ssl_session) {
-		SSL_SESSION_free(server_info->ssl_session);
-		server_info->ssl_session = NULL;
-	}
-
-	server_info->ssl_ctx = NULL;
 }
 
 /* remove all servers information */

@@ -34,19 +34,14 @@
 #include "local_addr.h"
 #include "mdns.h"
 #include "neighbor.h"
+#include "proxy_server.h"
 #include "ptr.h"
 #include "request.h"
 #include "request_pending.h"
 #include "rules.h"
-#include "server_https.h"
-#include "server_socket.h"
-#include "server_tcp.h"
-#include "server_tls.h"
-#include "server_udp.h"
-#include "server_http2.h"
+#include "server_gsocket.h"
 #include "soa.h"
 #include "speed_check.h"
-#include "proxy_server.h"
 
 #include "smartdns/dns_cache.h"
 #include "smartdns/dns_client.h"
@@ -63,8 +58,8 @@
 
 #include <errno.h>
 #include <signal.h>
+#include <stdio.h>
 #include <string.h>
-#include <sys/epoll.h>
 #include <sys/eventfd.h>
 
 static int is_server_init;
@@ -94,14 +89,10 @@ int _dns_reply_inpacket(struct dns_request *request, unsigned char *inpacket, in
 
 	if (conn->type == DNS_CONN_TYPE_UDP_SERVER) {
 		ret = _dns_server_reply_udp(request, (struct dns_server_conn_udp *)conn, inpacket, inpacket_len);
-	} else if (conn->type == DNS_CONN_TYPE_TCP_CLIENT) {
-		ret = _dns_server_reply_tcp(request, (struct dns_server_conn_tcp_client *)conn, inpacket, inpacket_len);
-	} else if (conn->type == DNS_CONN_TYPE_TLS_CLIENT) {
-		ret = _dns_server_reply_tcp(request, (struct dns_server_conn_tcp_client *)conn, inpacket, inpacket_len);
-	} else if (conn->type == DNS_CONN_TYPE_HTTPS_CLIENT) {
-		ret = _dns_server_reply_https(request, (struct dns_server_conn_tcp_client *)conn, inpacket, inpacket_len);
-	} else if (conn->type == DNS_CONN_TYPE_HTTP2_STREAM) {
-		ret = _dns_server_reply_http2(request, (struct dns_server_conn_http2_stream *)conn, inpacket, inpacket_len);
+	} else if (conn->type == DNS_CONN_TYPE_TCP_CLIENT || conn->type == DNS_CONN_TYPE_TLS_CLIENT) {
+		ret = _dns_server_reply_tcp(request, (struct dns_server_conn_gsocket *)conn, inpacket, inpacket_len);
+	} else if (conn->type == DNS_CONN_TYPE_HTTP2_STREAM || conn->type == DNS_CONN_TYPE_QUIC_STREAM) {
+		ret = _dns_server_reply_stream(request, (struct dns_server_conn_stream *)conn, inpacket, inpacket_len);
 	} else {
 		ret = -1;
 	}
@@ -565,36 +556,23 @@ errout:
 	return ret;
 }
 
-static int _dns_server_process(struct dns_server_conn_head *conn, struct epoll_event *event, unsigned long now)
+static int _dns_server_process(struct dns_server_conn_head *conn, struct gepoll_event *event, unsigned long now)
 {
 	int ret = 0;
 	_dns_server_client_touch(conn);
 	_dns_server_conn_get(conn);
 	if (conn->type == DNS_CONN_TYPE_UDP_SERVER) {
 		struct dns_server_conn_udp *udpconn = (struct dns_server_conn_udp *)conn;
-		ret = _dns_server_process_udp(udpconn, event, now);
-	} else if (conn->type == DNS_CONN_TYPE_TCP_SERVER) {
-		struct dns_server_conn_tcp_server *tcpserver = (struct dns_server_conn_tcp_server *)conn;
-		ret = _dns_server_tcp_accept(tcpserver, event, now);
-	} else if (conn->type == DNS_CONN_TYPE_TCP_CLIENT) {
-		struct dns_server_conn_tcp_client *tcpclient = (struct dns_server_conn_tcp_client *)conn;
-		ret = _dns_server_process_tcp(tcpclient, event, now);
-		if (ret != 0) {
-			char name[DNS_MAX_CNAME_LEN];
-			tlog(TLOG_DEBUG, "process TCP packet from %s failed.",
-				 get_host_by_addr(name, sizeof(name), (struct sockaddr *)&tcpclient->addr));
-		}
-	} else if (conn->type == DNS_CONN_TYPE_TLS_SERVER || conn->type == DNS_CONN_TYPE_HTTPS_SERVER) {
-		struct dns_server_conn_tls_server *tls_server = (struct dns_server_conn_tls_server *)conn;
-		ret = _dns_server_tls_accept(tls_server, event, now);
-	} else if (conn->type == DNS_CONN_TYPE_TLS_CLIENT || conn->type == DNS_CONN_TYPE_HTTPS_CLIENT) {
-		struct dns_server_conn_tls_client *tls_client = (struct dns_server_conn_tls_client *)conn;
-		ret = _dns_server_process_tls(tls_client, event, now);
-		if (ret != 0) {
-			char name[DNS_MAX_CNAME_LEN];
-			tlog(TLOG_DEBUG, "process TLS packet from %s failed.",
-				 get_host_by_addr(name, sizeof(name), (struct sockaddr *)&tls_client->tcp.addr));
-		}
+		ret = _dns_server_gsocket_process_udp(udpconn, event, now);
+	} else if (conn->type == DNS_CONN_TYPE_TCP_SERVER || conn->type == DNS_CONN_TYPE_TLS_SERVER ||
+			   conn->type == DNS_CONN_TYPE_HTTPS_SERVER || conn->type == DNS_CONN_TYPE_HTTPS3_SERVER ||
+			   conn->type == DNS_CONN_TYPE_QUIC_SERVER) {
+		ret = _dns_server_gsocket_process_listener(conn, event, now);
+	} else if (conn->type == DNS_CONN_TYPE_TCP_CLIENT || conn->type == DNS_CONN_TYPE_TLS_CLIENT ||
+			   conn->type == DNS_CONN_TYPE_HTTPS_CLIENT || conn->type == DNS_CONN_TYPE_HTTPS3_CLIENT ||
+			   conn->type == DNS_CONN_TYPE_QUIC_CLIENT) {
+		struct dns_server_conn_gsocket *gclient = (struct dns_server_conn_gsocket *)conn;
+		ret = _dns_server_gsocket_process_client(gclient, event, now);
 	} else {
 		tlog(TLOG_ERROR, "unsupported dns server type %d", conn->type);
 		_dns_server_client_close(conn);
@@ -616,30 +594,8 @@ static int _dns_server_socket(void)
 	for (i = 0; i < dns_conf.bind_ip_num; i++) {
 		struct dns_bind_ip *bind_ip = &dns_conf.bind_ip[i];
 		tlog(TLOG_INFO, "bind ip %s, type %d", bind_ip->ip, bind_ip->type);
-
-		switch (bind_ip->type) {
-		case DNS_BIND_TYPE_UDP:
-			if (_dns_server_socket_udp(bind_ip) != 0) {
-				goto errout;
-			}
-			break;
-		case DNS_BIND_TYPE_TCP:
-			if (_dns_server_socket_tcp(bind_ip) != 0) {
-				goto errout;
-			}
-			break;
-		case DNS_BIND_TYPE_HTTPS:
-			if (_dns_server_socket_tls(bind_ip, DNS_CONN_TYPE_HTTPS_SERVER) != 0) {
-				goto errout;
-			}
-			break;
-		case DNS_BIND_TYPE_TLS:
-			if (_dns_server_socket_tls(bind_ip, DNS_CONN_TYPE_TLS_SERVER) != 0) {
-				goto errout;
-			}
-			break;
-		default:
-			break;
+		if (_dns_server_gsocket_bind(bind_ip) != 0) {
+			goto errout;
 		}
 	}
 
@@ -671,7 +627,7 @@ static void _dns_server_period_run_second(void)
 	static unsigned int sec = 0;
 	sec++;
 
-	_dns_server_tcp_idle_check();
+	_dns_server_gsocket_tcp_idle_check();
 	_dns_server_check_need_exit();
 
 	if (sec % IPV6_READY_CHECK_TIME == 0 && is_ipv6_ready == 0) {
@@ -729,7 +685,7 @@ static void _dns_server_period_run(unsigned int msec)
 
 int dns_server_run(void)
 {
-	struct epoll_event events[DNS_MAX_EVENTS + 1];
+	struct gepoll_event events[DNS_MAX_EVENTS + 1];
 	int num = 0;
 	int i = 0;
 	unsigned long now = {0};
@@ -774,7 +730,7 @@ int dns_server_run(void)
 			sleep_time = 0;
 		}
 
-		num = epoll_wait(server.epoll_fd, events, DNS_MAX_EVENTS, sleep_time);
+		num = gepoll_wait(server.gepoll, events, DNS_MAX_EVENTS, sleep_time);
 		if (num < 0) {
 			usleep(100000);
 			continue;
@@ -785,23 +741,25 @@ int dns_server_run(void)
 		}
 
 		for (i = 0; i < num; i++) {
-			struct epoll_event *event = &events[i];
-			/* read event */
-			if (unlikely(event->data.fd == server.event_fd)) {
+			struct gepoll_event *event = &events[i];
+
+			/* wakeup event */
+			if (event->user_data == server.wakeup_gs) {
 				uint64_t value;
 				int unused __attribute__((unused));
 				unused = read(server.event_fd, &value, sizeof(uint64_t));
 				continue;
 			}
 
-			if (unlikely(event->data.fd == server.local_addr_cache.fd_netlink)) {
-				_dns_server_process_local_addr_cache(event->data.fd, event, now);
+			/* netlink event */
+			if (event->user_data == server.netlink_gs) {
+				_dns_server_process_local_addr_cache(gsocket_get_fd(server.netlink_gs), NULL, now);
 				continue;
 			}
 
-			struct dns_server_conn_head *conn_head = event->data.ptr;
+			struct dns_server_conn_head *conn_head = event->user_data;
 			if (conn_head == NULL) {
-				tlog(TLOG_ERROR, "invalid fd\n");
+				tlog(TLOG_ERROR, "invalid event user_data\n");
 				continue;
 			}
 
@@ -812,24 +770,40 @@ int dns_server_run(void)
 	}
 
 	_dns_server_close_socket_server();
-	close(server.epoll_fd);
-	server.epoll_fd = -1;
+	gepoll_destroy(server.gepoll);
+	server.gepoll = NULL;
 
 	return 0;
 }
 
 int dns_server_start(void)
 {
-	struct dns_server_conn_head *conn = NULL;
-
-	list_for_each_entry(conn, &server.conn_list, list)
+	/* Add all listeners to gepoll */
+	struct dns_server_listener *listener = NULL;
+	list_for_each_entry(listener, &server.listener_list, list)
 	{
-		if (conn->fd <= 0) {
+		if (listener->head.gs == NULL) {
 			continue;
 		}
+		int ev_flags = EPOLLIN;
+		if (gepoll_add(server.gepoll, listener->head.gs, ev_flags, &listener->head) != 0) {
+			tlog(TLOG_ERROR, "gepoll add listener failed.");
+			return -1;
+		}
+	}
 
-		if (_dns_server_epoll_ctl(conn, EPOLL_CTL_ADD, EPOLLIN) != 0) {
-			tlog(TLOG_ERROR, "epoll ctl failed.");
+	/* Add all UDP conn_list entries to gepoll */
+	struct dns_server_conn_head *conn = NULL;
+	list_for_each_entry(conn, &server.conn_list, list)
+	{
+		if (conn->type != DNS_CONN_TYPE_UDP_SERVER) {
+			continue;
+		}
+		if (conn->gs == NULL) {
+			continue;
+		}
+		if (gepoll_add(server.gepoll, conn->gs, EPOLLIN, conn) != 0) {
+			tlog(TLOG_ERROR, "gepoll add UDP failed.");
 			return -1;
 		}
 	}
@@ -840,32 +814,64 @@ int dns_server_start(void)
 static int _dns_server_init_wakeup_event(void)
 {
 	int fdevent = -1;
+	struct gsocket *gs = NULL;
+
 	fdevent = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
 	if (fdevent < 0) {
 		tlog(TLOG_ERROR, "create eventfd failed, %s\n", strerror(errno));
 		goto errout;
 	}
 
-	struct epoll_event event;
-	memset(&event, 0, sizeof(event));
-	event.events = EPOLLIN | EPOLLERR;
-	event.data.fd = fdevent;
-	if (epoll_ctl(server.epoll_fd, EPOLL_CTL_ADD, fdevent, &event) != 0) {
-		tlog(TLOG_ERROR, "set eventfd failed, %s\n", strerror(errno));
+	gs = gsocket_new(fdevent);
+	if (gs == NULL) {
+		tlog(TLOG_ERROR, "gsocket_new for eventfd failed");
+		goto errout;
+	}
+
+	if (gepoll_add(server.gepoll, gs, EPOLLIN | EPOLLERR, gs) != 0) {
+		tlog(TLOG_ERROR, "gepoll add eventfd failed, %s\n", strerror(errno));
 		goto errout;
 	}
 
 	server.event_fd = fdevent;
-
+	server.wakeup_gs = gs;
 	return 0;
+
 errout:
+	if (gs != NULL) {
+		gsocket_close(gs);
+		gsocket_free(gs);
+	} else if (fdevent >= 0) {
+		close(fdevent);
+	}
+	server.event_fd = -1;
+	server.wakeup_gs = NULL;
 	return -1;
+}
+
+static void _dns_server_close_wakeup_event(void)
+{
+	if (server.wakeup_gs != NULL) {
+		if (server.gepoll != NULL) {
+			gepoll_del(server.gepoll, server.wakeup_gs);
+		}
+		gsocket_close(server.wakeup_gs);
+		gsocket_free(server.wakeup_gs);
+		server.wakeup_gs = NULL;
+		server.event_fd = -1;
+		return;
+	}
+
+	if (server.event_fd >= 0) {
+		close(server.event_fd);
+		server.event_fd = -1;
+	}
 }
 
 int dns_server_init(void)
 {
 	pthread_mutexattr_t attr;
-	int epollfd = -1;
+	struct gepoll *gepoll = NULL;
 	int ret = -1;
 
 	_dns_server_check_need_exit();
@@ -874,7 +880,7 @@ int dns_server_init(void)
 		return -1;
 	}
 
-	if (server.epoll_fd > 0) {
+	if (server.gepoll != NULL) {
 		return -1;
 	}
 
@@ -884,11 +890,13 @@ int dns_server_init(void)
 	}
 
 	memset(&server, 0, sizeof(server));
+	server.event_fd = -1;
 
 	pthread_mutexattr_init(&attr);
 	pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
 
 	INIT_LIST_HEAD(&server.conn_list);
+	INIT_LIST_HEAD(&server.listener_list);
 	time(&server.cache_save_time);
 	atomic_set(&server.request_num, 0);
 	pthread_mutex_init(&server.request_list_lock, NULL);
@@ -896,9 +904,9 @@ int dns_server_init(void)
 	INIT_LIST_HEAD(&server.request_list);
 	pthread_mutexattr_destroy(&attr);
 
-	epollfd = epoll_create1(EPOLL_CLOEXEC);
-	if (epollfd < 0) {
-		tlog(TLOG_ERROR, "create epoll failed, %s\n", strerror(errno));
+	gepoll = gepoll_create(DNS_MAX_EVENTS);
+	if (gepoll == NULL) {
+		tlog(TLOG_ERROR, "create gepoll failed, %s\n", strerror(errno));
 		goto errout;
 	}
 
@@ -908,7 +916,7 @@ int dns_server_init(void)
 		goto errout;
 	}
 
-	server.epoll_fd = epollfd;
+	server.gepoll = gepoll;
 	atomic_set(&server.run, 1);
 
 	if (dns_server_start() != 0) {
@@ -945,12 +953,15 @@ int dns_server_init(void)
 	return 0;
 errout:
 	atomic_set(&server.run, 0);
-
-	if (epollfd) {
-		close(epollfd);
-	}
-
+	_dns_server_close_wakeup_event();
+	_dns_server_local_addr_cache_destroy();
+	_dns_server_close_socket_server();
 	_dns_server_close_socket();
+
+	if (gepoll) {
+		gepoll_destroy(gepoll);
+		server.gepoll = NULL;
+	}
 	pthread_mutex_destroy(&server.request_list_lock);
 
 	return -1;
@@ -970,16 +981,14 @@ void dns_server_exit(void)
 
 	is_server_init = 0;
 
-	if (server.event_fd > 0) {
-		close(server.event_fd);
-		server.event_fd = -1;
-	}
+	_dns_server_close_wakeup_event();
 
 	if (server.cache_save_pid > 0) {
 		kill(server.cache_save_pid, SIGKILL);
 		server.cache_save_pid = 0;
 	}
 
+	_dns_server_close_socket_server();
 	_dns_server_close_socket();
 	_dns_server_local_addr_cache_destroy();
 	_dns_server_neighbor_cache_remove_all();

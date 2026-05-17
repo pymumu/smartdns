@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2025 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2026 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,20 +16,16 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef _DNS_CLIENT_HTTP3_H_
-#define _DNS_CLIENT_HTTP3_H_
+#ifndef _DNS_SERVER_GSOCKET_STREAM_H_
+#define _DNS_SERVER_GSOCKET_STREAM_H_
 
-#include "dns_client.h"
+#include "server_gsocket.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif /*__cplusplus */
+struct dns_server_conn_stream *dns_server_gstream_adopt(struct dns_server_conn_gsocket *parent,
+														struct gsocket *stream_gs, DNS_CONN_TYPE stream_type);
 
-int _dns_client_send_http3(struct dns_query_struct *query, struct dns_server_info *server_info, void *packet,
-						   unsigned short len);
+int dns_server_gstream_dispatch_query(struct dns_server_conn_gsocket *parent, struct gsocket *stream_gs,
+									  DNS_CONN_TYPE stream_type, unsigned char *packet, int packet_len);
+int dns_server_gstream_process_client_events(struct dns_server_conn_gsocket *conn);
 
-int _dns_client_process_recv_http3(struct dns_server_info *server_info, struct dns_conn_stream *conn_stream);
-#ifdef __cplusplus
-}
-#endif /*__cplusplus */
 #endif

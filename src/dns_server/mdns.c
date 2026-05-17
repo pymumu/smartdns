@@ -20,6 +20,8 @@
 #include "dns_server.h"
 #include "request.h"
 
+#include <stdio.h>
+
 void _dns_server_need_append_mdns_local_cname(struct dns_request *request)
 {
 	if (request->is_mdns_lookup == 0) {

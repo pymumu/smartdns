@@ -23,7 +23,7 @@ class ProxyStressTest : public ::testing::Test
 	virtual void TearDown() {}
 };
 
-enum Protocol { PROTO_HTTP, PROTO_SOCKS5, PROTO_FORWARD, PROTO_RAW_TCP };
+enum Protocol { PROTO_HTTP, PROTO_SOCKS5, PROTO_RAW_TCP };
 
 static void set_nonblocking(int fd)
 {

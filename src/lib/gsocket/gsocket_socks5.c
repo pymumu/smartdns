@@ -112,6 +112,21 @@ static int _io_proxy_get_fd(struct gsocket_io *io)
 	return io->lower->get_fd(io->lower);
 }
 
+static int _socks5_get_fd(struct gsocket_io *io)
+{
+	struct socks5_ctx *ctx = (struct socks5_ctx *)io->ctx;
+
+	if (ctx->is_udp && ctx->state != S5_DONE && ctx->control_fd >= 0) {
+		return ctx->control_fd;
+	}
+
+	if (ctx->is_udp && ctx->state == S5_DONE && ctx->udp_fd >= 0) {
+		return ctx->udp_fd;
+	}
+
+	return _io_proxy_get_fd(io);
+}
+
 static int _io_proxy_shutdown(struct gsocket_io *io, int h)
 {
 	return io->lower->shutdown(io->lower, h);
@@ -243,8 +258,10 @@ static int _s5_srv_recv_buffer(struct gsocket_io *io, struct socks5_ctx *ctx, in
 		return GSOCKET_HANDSHAKE_WANT_READ;
 	} else if (ret < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
 		return GSOCKET_HANDSHAKE_WANT_READ;
-	} else {
+	} else if (ret == 0) {
 		snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Connection closed by client");
+		return GSOCKET_HANDSHAKE_EOF;
+	} else {
 		return GSOCKET_HANDSHAKE_ERR;
 	}
 }
@@ -523,6 +540,8 @@ static int _s5_srv_handle_req(struct gsocket_io *io, struct socks5_ctx *ctx)
 			res = _socks5_parse_address(ctx->buffer + 3, ctx->buf_len - 3, &target_addr_storage, &header_len);
 		} else if (r < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
 			return GSOCKET_HANDSHAKE_WANT_READ;
+		} else if (r == 0) {
+			return GSOCKET_HANDSHAKE_EOF;
 		} else {
 			return GSOCKET_HANDSHAKE_ERR;
 		}
@@ -651,8 +670,10 @@ static int _s5_cli_recv_buffer(struct gsocket_io *io, struct socks5_ctx *ctx, in
 		return GSOCKET_HANDSHAKE_WANT_READ;
 	} else if (ret < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
 		return GSOCKET_HANDSHAKE_WANT_READ;
-	} else {
+	} else if (ret == 0) {
 		snprintf(ctx->error_msg, sizeof(ctx->error_msg), "Connection closed by proxy server");
+		return GSOCKET_HANDSHAKE_EOF;
+	} else {
 		return GSOCKET_HANDSHAKE_ERR;
 	}
 }
@@ -798,24 +819,14 @@ static int _s5_cli_handle_req(struct gsocket_io *io, struct socks5_ctx *ctx)
 		} else if (ctx->target_type == 2) { /* IPv6 */
 			ctx->buffer[3] = SOCKS5_ATYP_IPV6;
 			struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)&ctx->target_addr;
-			if (ctx->is_udp) {
-				memset(ctx->buffer + 4, 0, 16);
-				memset(ctx->buffer + 20, 0, 2);
-			} else {
-				memcpy(ctx->buffer + 4, &addr6->sin6_addr, 16);
-				memcpy(ctx->buffer + 20, &addr6->sin6_port, 2);
-			}
+			memcpy(ctx->buffer + 4, &addr6->sin6_addr, 16);
+			memcpy(ctx->buffer + 20, &addr6->sin6_port, 2);
 			ctx->buf_len = 22;
 		} else { /* IPv4 */
 			ctx->buffer[3] = SOCKS5_ATYP_IPV4;
 			struct sockaddr_in *addr4 = (struct sockaddr_in *)&ctx->target_addr;
-			if (ctx->is_udp) {
-				memset(ctx->buffer + 4, 0, 4);
-				memset(ctx->buffer + 8, 0, 2);
-			} else {
-				memcpy(ctx->buffer + 4, &addr4->sin_addr, 4);
-				memcpy(ctx->buffer + 8, &addr4->sin_port, 2);
-			}
+			memcpy(ctx->buffer + 4, &addr4->sin_addr, 4);
+			memcpy(ctx->buffer + 8, &addr4->sin_port, 2);
 			ctx->buf_len = 10;
 		}
 	}
@@ -901,6 +912,8 @@ static int _s5_cli_handle_req_ack(struct gsocket_io *io, struct socks5_ctx *ctx)
 			return 0; /* Try Loop Again */
 		} else if (r < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
 			return GSOCKET_HANDSHAKE_WANT_READ;
+		} else if (r == 0) {
+			return GSOCKET_HANDSHAKE_EOF;
 		} else {
 			return GSOCKET_HANDSHAKE_ERR;
 		}
@@ -1074,8 +1087,8 @@ static int _socks5_connect(struct gsocket_io *io, const char *host, int port)
 	if (!(flags & O_NONBLOCK)) {
 		while (ctx->state != S5_DONE) {
 			int res = _socks5_handshake(io);
-			if (res == GSOCKET_HANDSHAKE_ERR) {
-				errno = EPROTO;
+			if (res < 0) {
+				errno = (res == GSOCKET_HANDSHAKE_EOF) ? ECONNRESET : EPROTO;
 				return -1;
 			}
 
@@ -1318,7 +1331,8 @@ static ssize_t _socks5_recv(struct gsocket_io *io, void *buf, size_t len, int fl
 		memcpy(buf, ctx->buffer, copy);
 		memmove(ctx->buffer, ctx->buffer + copy, ctx->buf_len - copy);
 		ctx->buf_len -= (int)copy;
-		tlog(TLOG_DEBUG, "[SOCKS5] _socks5_recv pulled %zu bytes from internal buffer, remaining: %d", copy, ctx->buf_len);
+		tlog(TLOG_DEBUG, "[SOCKS5] _socks5_recv pulled %zu bytes from internal buffer, remaining: %d", copy,
+			 ctx->buf_len);
 		return (ssize_t)copy;
 	}
 
@@ -1361,6 +1375,10 @@ static ssize_t _socks5_send(struct gsocket_io *io, const void *b, size_t l, int 
 
 	if (ctx->is_udp) {
 		return _socks5_sendto(io, b, l, f, (struct sockaddr *)&ctx->target_addr, sizeof(ctx->target_addr));
+	}
+	if (ctx->state != S5_DONE) {
+		errno = EAGAIN;
+		return -1;
 	}
 	return io->lower->send(io->lower, b, l, f);
 }
@@ -1423,7 +1441,7 @@ struct gsocket_io *gsocket_io_socks5_new(const char *proxy_ip, int proxy_port, c
 	io->recvmsg = _socks5_recvmsg;
 	io->sendmsg = _io_proxy_sendmsg;
 	io->close = _io_proxy_close;
-	io->get_fd = _io_proxy_get_fd;
+	io->get_fd = _socks5_get_fd;
 	io->shutdown = _io_proxy_shutdown;
 	io->free = _socks5_free;
 	io->get_proxy_target = _socks5_get_target;
@@ -1512,7 +1530,7 @@ struct gsocket_io *gsocket_io_socks5_server_new(const char *user, const char *pa
 	io->recvmsg = _socks5_recvmsg;
 	io->sendmsg = _io_proxy_sendmsg;
 	io->close = _io_proxy_close;
-	io->get_fd = _io_proxy_get_fd;
+	io->get_fd = _socks5_get_fd;
 	io->shutdown = _io_proxy_shutdown;
 	io->free = _socks5_free;
 	io->get_proxy_target = _socks5_get_target;

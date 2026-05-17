@@ -19,12 +19,121 @@
 #include "client.h"
 #include "include/utils.h"
 #include "server.h"
+#include "smartdns/util.h"
 #include "gtest/gtest.h"
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <openssl/evp.h>
+#include <openssl/pem.h>
 #include <openssl/rand.h>
+#include <openssl/sha.h>
 #include <sys/socket.h>
+#include <unistd.h>
+
+static std::string get_cert_spki_pin_b64(const char *cert_file)
+{
+	std::string pin;
+	FILE *fp = fopen(cert_file, "r");
+	if (fp == nullptr) {
+		return pin;
+	}
+
+	X509 *cert = PEM_read_X509(fp, nullptr, nullptr, nullptr);
+	fclose(fp);
+	if (cert == nullptr) {
+		return pin;
+	}
+
+	X509_PUBKEY *pubkey = X509_get_X509_PUBKEY(cert);
+	if (pubkey == nullptr) {
+		X509_free(cert);
+		return pin;
+	}
+
+	unsigned char *der = nullptr;
+	int der_len = i2d_X509_PUBKEY(pubkey, &der);
+	if (der_len <= 0 || der == nullptr) {
+		X509_free(cert);
+		return pin;
+	}
+
+	unsigned char hash[SHA256_DIGEST_LENGTH];
+	SHA256(der, der_len, hash);
+	OPENSSL_free(der);
+	X509_free(cert);
+
+	unsigned char b64[128] = {0};
+	int b64_len = EVP_EncodeBlock(b64, hash, SHA256_DIGEST_LENGTH);
+	if (b64_len <= 0) {
+		return pin;
+	}
+
+	pin.assign((char *)b64, b64_len);
+	return pin;
+}
+
+static std::string resolve_test_asset_path(const char *name)
+{
+	char full[PATH_MAX] = {0};
+	std::string c1 = std::string("test/") + name;
+	std::string c2 = std::string("../test/") + name;
+	const char *candidates[] = {c1.c_str(), c2.c_str(), name};
+
+	for (unsigned int i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++) {
+		if (realpath(candidates[i], full) != nullptr) {
+			return std::string(full);
+		}
+	}
+
+	return std::string();
+}
+
+TEST(Bind, udp)
+{
+	smartdns::Server server_wrap;
+	smartdns::Server server;
+
+	server.Start(R"""(bind [::]:61053
+server 127.0.0.1:60053 -no-check-certificate
+)""");
+	server_wrap.Start(R"""(bind [::]:60053
+address /example.com/1.2.3.4
+)""");
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("example.com", 61053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_LT(client.GetQueryTime(), 15);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+}
+
+TEST(Bind, tcp)
+{
+	Defer
+	{
+		unlink("/tmp/smartdns-cert.pem");
+		unlink("/tmp/smartdns-key.pem");
+	};
+
+	smartdns::Server server_wrap;
+	smartdns::Server server;
+
+	server.Start(R"""(bind [::]:61053
+server-tcp 127.0.0.1:60053 -no-check-certificate
+)""");
+	server_wrap.Start(R"""(bind-tcp [::]:60053
+address /example.com/1.2.3.4
+)""");
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("example.com", 61053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_LT(client.GetQueryTime(), 15);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+}
 
 TEST(Bind, tls)
 {
@@ -38,6 +147,8 @@ TEST(Bind, tls)
 	smartdns::Server server;
 
 	server.Start(R"""(bind [::]:61053
+speed-check-mode none
+dualstack-ip-selection no
 server-tls 127.0.0.1:60053 -no-check-certificate
 )""");
 	server_wrap.Start(R"""(bind-tls [::]:60053
@@ -45,8 +156,10 @@ address /example.com/1.2.3.4
 )""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("example.com", 61053));
+	std::cout << client.GetResult() << std::endl;
 	ASSERT_EQ(client.GetAnswerNum(), 1);
 	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_LT(client.GetQueryTime(), 30);
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
 }
 
@@ -69,8 +182,10 @@ address /example.com/1.2.3.4
 )""");
 	smartdns::Client client;
 	ASSERT_TRUE(client.Query("example.com", 61053));
+	std::cout << client.GetResult() << std::endl;
 	ASSERT_EQ(client.GetAnswerNum(), 1);
 	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_LT(client.GetQueryTime(), 50);
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
 }
 
@@ -101,6 +216,82 @@ server-tls 127.0.0.1:60053
 	ASSERT_FALSE(client.Query("example.com +time=1", 61053));
 }
 
+TEST(Bind, quic_spki_pin)
+{
+	Defer
+	{
+		unlink("/tmp/smartdns-cert.pem");
+		unlink("/tmp/smartdns-key.pem");
+	};
+
+	if (dns_is_quic_supported() == 0) {
+		GTEST_SKIP() << "QUIC is not supported by OpenSSL in current build/runtime";
+	}
+
+	smartdns::Server upstream;
+	smartdns::Server server;
+
+	std::string upstream_conf = "bind-quic [::]:62053\n"
+								"address /example.com/1.2.3.4\n";
+	ASSERT_TRUE(upstream.Start(upstream_conf));
+
+	std::string spki_pin = get_cert_spki_pin_b64("/tmp/smartdns-cert.pem");
+	ASSERT_FALSE(spki_pin.empty());
+
+	std::string conf = "bind [::]:61053\n"
+					   "speed-check-mode none\n"
+					   "dualstack-ip-selection no\n"
+					   "server quic://[::1]:62053 -host-name smartdns -spki-pin " +
+					   spki_pin + "\n";
+	ASSERT_TRUE(server.Start(conf));
+
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("example.com", 61053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_LT(client.GetQueryTime(), 50);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+}
+
+TEST(Bind, http3_spki_pin)
+{
+	Defer
+	{
+		unlink("/tmp/smartdns-cert.pem");
+		unlink("/tmp/smartdns-key.pem");
+	};
+
+	if (dns_is_quic_supported() == 0) {
+		GTEST_SKIP() << "QUIC/HTTP3 is not supported by OpenSSL in current build/runtime";
+	}
+
+	smartdns::Server upstream;
+	smartdns::Server server;
+
+	std::string upstream_conf = "bind-http3 [::]:62054\n"
+								"address /example.com/1.2.3.4\n";
+	ASSERT_TRUE(upstream.Start(upstream_conf));
+
+	std::string spki_pin = get_cert_spki_pin_b64("/tmp/smartdns-cert.pem");
+	ASSERT_FALSE(spki_pin.empty());
+
+	std::string conf = "bind [::]:61054\n"
+					   "speed-check-mode none\n"
+					   "dualstack-ip-selection no\n"
+					   "server http3://[::1]:62054/dns-query -host-name smartdns -spki-pin " +
+					   spki_pin + "\n";
+	ASSERT_TRUE(server.Start(conf));
+
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("example.com", 61054));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_LT(client.GetQueryTime(), 50);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+}
+
 TEST(Bind, udp_tcp)
 {
 	smartdns::MockServer server_upstream;
@@ -108,6 +299,9 @@ TEST(Bind, udp_tcp)
 	smartdns::Server server;
 
 	server_upstream.Start("udp://0.0.0.0:61053", [](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype != DNS_T_A) {
+			return smartdns::SERVER_REQUEST_SOA;
+		}
 		unsigned char addr[4] = {1, 2, 3, 4};
 		dns_add_A(request->response_packet, DNS_RRS_AN, request->domain.c_str(), 611, addr);
 		request->response_packet->head.rcode = DNS_RC_NOERROR;
@@ -124,6 +318,7 @@ server 127.0.0.1:61053
 	std::cout << client.GetResult() << std::endl;
 	ASSERT_EQ(client.GetAnswerNum(), 1);
 	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_LT(client.GetQueryTime(), 50);
 	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 3);
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
 
@@ -350,21 +545,23 @@ server 127.0.0.1:63053 -group g2 -exclude-default-group
 
 TEST(Bind, Get)
 {
-    smartdns::Server server;
+	smartdns::Server server;
 
 	int ret = system("which curl > /dev/null 2>&1");
 	if (ret != 0) {
 		GTEST_SKIP() << "curl not found, skip test";
 	}
 
-    // Start server with bind-https and logging to file
-    server.Start(R"""(bind-https [::]:60053 -alpn h2
+	// Start server with bind-https and logging to file
+	server.Start(R"""(bind-https [::]:60053 -alpn h2
 address /example.com/1.2.3.4
 log-level debug
 )""");
 
-    // Send GET request using curl
-    std::string cmd = "curl -k --http2 'https://127.0.0.1:60053/dns-query?dns=AAABAAABAAAAAAAAB2V4YW1wbGUDY29tAAABAAE=' > /dev/null 2>&1";
-    ret = system(cmd.c_str());
-    ASSERT_EQ(ret, 0);
+	// Send GET request using curl
+	std::string cmd =
+		"curl -k --http2 'https://127.0.0.1:60053/dns-query?dns=AAABAAABAAAAAAAAB2V4YW1wbGUDY29tAAABAAE=' > /dev/null "
+		"2>&1";
+	ret = system(cmd.c_str());
+	ASSERT_EQ(ret, 0);
 }

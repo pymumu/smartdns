@@ -19,8 +19,8 @@
 #define _GNU_SOURCE
 
 #include "smartdns/http2.h"
-#include "smartdns/util.h"
 #include "smartdns/tlog.h"
+#include "smartdns/util.h"
 
 #include "hpack.h"
 #include "http_parse.h"
@@ -30,6 +30,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #ifdef WITH_ZLIB
 #include <zlib.h>
@@ -125,7 +126,8 @@ struct http2_stream {
 	int end_stream_sent;
 	int end_stream_read_handled; /* Flag to track if EOF has been reported to app */
 	int accepted;                /* Flag to track if stream has been accepted by app */
-	int window_size;
+	int send_window_size;
+	int recv_window_size;
 	int body_decompressed; /* Flag to track if body has been decompressed */
 	void *ex_data;
 	struct hlist_node hash_node;
@@ -148,9 +150,11 @@ struct http2_ctx {
 	int settings_received;
 	int preface_received; /* Server: has received client preface */
 	uint32_t next_stream_id;
-	int connection_window_size;
+	int send_conn_window_size;
+	int recv_conn_window_size;
 	uint32_t peer_max_frame_size;
-	int peer_initial_window_size;
+	int send_initial_window_size;
+	int recv_initial_window_size;
 	int active_streams;
 	struct http2_settings settings; /* HTTP/2 settings */
 
@@ -358,6 +362,7 @@ static int _http2_send_frame(struct http2_ctx *ctx, const uint8_t *data, int len
 				goto buffer_new_data;
 			}
 			/* Real error */
+			ctx->status = HTTP2_ERR_IO;
 			pthread_mutex_unlock(&ctx->mutex);
 			return -1;
 		}
@@ -393,6 +398,7 @@ static int _http2_send_frame(struct http2_ctx *ctx, const uint8_t *data, int len
 				goto buffer_new_data;
 			}
 			/* Real error */
+			ctx->status = HTTP2_ERR_IO;
 			pthread_mutex_unlock(&ctx->mutex);
 			return -1;
 		}
@@ -560,8 +566,10 @@ static int _http2_send_headers_frame(struct http2_ctx *ctx, uint32_t stream_id, 
 	}
 
 	/* Encode headers */
+	int header_count = 0;
 	list_for_each_entry(field, &stream->header_list.list, list)
 	{
+		header_count++;
 		if (header_block_len + 4096 > header_block_size) {
 			int new_size = safe_buffer_size(header_block_size, 2);
 			if (new_size < 0) {
@@ -649,7 +657,8 @@ static struct http2_stream *_http2_create_stream(struct http2_ctx *ctx, uint32_t
 		stream->accepted = (stream_id % 2) == 0;
 	}
 
-	stream->window_size = ctx->peer_initial_window_size;
+	stream->send_window_size = ctx->send_initial_window_size;
+	stream->recv_window_size = ctx->recv_initial_window_size;
 	stream->body_buffer_size = 8192;
 	stream->body_buffer = zalloc(1, stream->body_buffer_size);
 	if (!stream->body_buffer) {
@@ -695,7 +704,7 @@ static int _http2_remove_stream(struct http2_stream *stream, int do_put)
 		if (ctx) {
 			ctx->active_streams--;
 		}
-		
+
 		/* Only release ownership if we successfully removed it from the list.
 		   This prevents double-free if called concurrently or recursively. */
 		if (do_put) {
@@ -723,6 +732,7 @@ static int _http2_process_data_frame(struct http2_ctx *ctx, int stream_id, const
 	if (stream_id == 0) {
 		_http2_send_goaway(ctx, 0, HTTP2_RST_PROTOCOL_ERROR, NULL, 0);
 		ctx->status = HTTP2_ERR_PROTOCOL;
+		tlog(TLOG_DEBUG, "PROTOCOL_ERROR at %s:%d ctx=%p is_client=%d", __FILE__, __LINE__, ctx, ctx->is_client);
 		return -1;
 	}
 
@@ -730,6 +740,7 @@ static int _http2_process_data_frame(struct http2_ctx *ctx, int stream_id, const
 	if (len < 0) {
 		http2_send_rst_stream(ctx, stream_id, HTTP2_RST_PROTOCOL_ERROR);
 		ctx->status = HTTP2_ERR_PROTOCOL;
+		tlog(TLOG_DEBUG, "PROTOCOL_ERROR at %s:%d ctx=%p is_client=%d", __FILE__, __LINE__, ctx, ctx->is_client);
 		return -1;
 	}
 
@@ -743,18 +754,15 @@ static int _http2_process_data_frame(struct http2_ctx *ctx, int stream_id, const
 	if (stream->body_buffer_len + len > 1024 * 1024) {
 		http2_send_rst_stream(ctx, stream_id, HTTP2_RST_INTERNAL_ERROR);
 		ctx->status = HTTP2_ERR_PROTOCOL;
+		tlog(TLOG_DEBUG, "PROTOCOL_ERROR at %s:%d ctx=%p is_client=%d", __FILE__, __LINE__, ctx, ctx->is_client);
 		return -1;
 	}
 
 	/* Check flow control */
-	if (len < 0 || stream->window_size <= 0 || ctx->connection_window_size <= 0) {
+	if (len < 0 || stream->recv_window_size < len || ctx->recv_conn_window_size < len) {
 		http2_send_rst_stream(ctx, stream_id, HTTP2_RST_FLOW_CONTROL_ERROR);
 		ctx->status = HTTP2_ERR_PROTOCOL;
-		return -1;
-	}
-	if (len > stream->window_size || len > ctx->connection_window_size) {
-		http2_send_rst_stream(ctx, stream_id, HTTP2_RST_FLOW_CONTROL_ERROR);
-		ctx->status = HTTP2_ERR_PROTOCOL;
+		tlog(TLOG_DEBUG, "PROTOCOL_ERROR at %s:%d ctx=%p is_client=%d", __FILE__, __LINE__, ctx, ctx->is_client);
 		return -1;
 	}
 
@@ -785,6 +793,10 @@ static int _http2_process_data_frame(struct http2_ctx *ctx, int stream_id, const
 	memcpy(stream->body_buffer + stream->body_buffer_len, data, len);
 	stream->body_buffer_len += len;
 
+	/* Decrease receive windows */
+	stream->recv_window_size -= len;
+	ctx->recv_conn_window_size -= len;
+
 	if (flags & HTTP2_FLAG_END_STREAM) {
 		stream->end_stream_received = 1;
 		if (stream->state == HTTP2_STREAM_OPEN) {
@@ -794,20 +806,22 @@ static int _http2_process_data_frame(struct http2_ctx *ctx, int stream_id, const
 		}
 	}
 
-	/* Update flow control */
-	/* Send WINDOW_UPDATE immediately to prevent flow control deadlock */
-	/* Connection-level WINDOW_UPDATE */
-	if (_http2_send_window_update(ctx, 0, len) < 0) {
-		return -1;
-	}
-	ctx->connection_window_size += len;
+	if (len > 0) {
+		/* Update connection flow control. */
+		if (_http2_send_window_update(ctx, 0, len) < 0) {
+			return -1;
+		}
+		ctx->recv_conn_window_size += len;
 
-	/* Stream-level WINDOW_UPDATE */
-	if (_http2_send_window_update(ctx, stream_id, len) < 0) {
-		ctx->connection_window_size -= len;
-		return -1;
+		/* No more DATA can arrive on a stream after END_STREAM. */
+		if (!stream->end_stream_received && stream->state != HTTP2_STREAM_CLOSED) {
+			if (_http2_send_window_update(ctx, stream_id, len) < 0) {
+				ctx->recv_conn_window_size -= len;
+				return -1;
+			}
+			stream->recv_window_size += len;
+		}
 	}
-	stream->window_size += len;
 
 	return 0;
 }
@@ -839,6 +853,7 @@ static int _http2_process_headers_frame(struct http2_ctx *ctx, int stream_id, co
 		if (flags & (HTTP2_FLAG_PADDED | HTTP2_FLAG_PRIORITY)) {
 			_http2_send_goaway(ctx, 0, HTTP2_RST_PROTOCOL_ERROR, NULL, 0);
 			ctx->status = HTTP2_ERR_PROTOCOL;
+			tlog(TLOG_DEBUG, "PROTOCOL_ERROR at %s:%d ctx=%p is_client=%d", __FILE__, __LINE__, ctx, ctx->is_client);
 			return -1;
 		}
 	}
@@ -873,11 +888,12 @@ static int _http2_process_headers_frame(struct http2_ctx *ctx, int stream_id, co
 		stream->state = HTTP2_STREAM_OPEN;
 	}
 
-
 	if (flags & HTTP2_FLAG_END_STREAM) {
 		stream->end_stream_received = 1;
 		if (stream->state == HTTP2_STREAM_OPEN) {
 			stream->state = HTTP2_STREAM_HALF_CLOSED_REMOTE;
+		} else if (stream->state == HTTP2_STREAM_HALF_CLOSED_LOCAL) {
+			stream->state = HTTP2_STREAM_CLOSED;
 		}
 	}
 
@@ -897,6 +913,7 @@ static int _http2_process_settings_frame(struct http2_ctx *ctx, const uint8_t *d
 	if (len < 0 || len % 6 != 0) {
 		_http2_send_goaway(ctx, 0, HTTP2_RST_PROTOCOL_ERROR, NULL, 0);
 		ctx->status = HTTP2_ERR_PROTOCOL;
+		tlog(TLOG_DEBUG, "PROTOCOL_ERROR at %s:%d ctx=%p is_client=%d", __FILE__, __LINE__, ctx, ctx->is_client);
 		return -1;
 	}
 
@@ -918,7 +935,7 @@ static int _http2_process_settings_frame(struct http2_ctx *ctx, const uint8_t *d
 			ctx->settings.max_concurrent_streams = value;
 			break;
 		case HTTP2_SETTINGS_INITIAL_WINDOW_SIZE:
-			ctx->peer_initial_window_size = value > INT_MAX ? INT_MAX : value;
+			ctx->send_initial_window_size = value > INT_MAX ? INT_MAX : value;
 			break;
 		case HTTP2_SETTINGS_MAX_FRAME_SIZE:
 			ctx->peer_max_frame_size = value > HTTP2_DEFAULT_MAX_FRAME_SIZE ? HTTP2_DEFAULT_MAX_FRAME_SIZE : value;
@@ -942,6 +959,7 @@ static int _http2_process_window_update_frame(struct http2_ctx *ctx, int stream_
 	if (len != 4) {
 		_http2_send_goaway(ctx, 0, HTTP2_RST_PROTOCOL_ERROR, NULL, 0);
 		ctx->status = HTTP2_ERR_PROTOCOL;
+		tlog(TLOG_DEBUG, "PROTOCOL_ERROR at %s:%d ctx=%p is_client=%d", __FILE__, __LINE__, ctx, ctx->is_client);
 		return -1;
 	}
 
@@ -956,24 +974,26 @@ static int _http2_process_window_update_frame(struct http2_ctx *ctx, int stream_
 			http2_send_rst_stream(ctx, stream_id, HTTP2_RST_PROTOCOL_ERROR);
 		}
 		ctx->status = HTTP2_ERR_PROTOCOL;
+		tlog(TLOG_DEBUG, "PROTOCOL_ERROR at %s:%d ctx=%p is_client=%d", __FILE__, __LINE__, ctx, ctx->is_client);
 		return -1;
 	}
 
 	if (stream_id == 0) {
-		if (ctx->connection_window_size > INT_MAX - (int)increment) {
+		if (ctx->send_conn_window_size > INT_MAX - (int)increment) {
 			_http2_send_goaway(ctx, 0, HTTP2_RST_FLOW_CONTROL_ERROR, NULL, 0);
 			ctx->status = HTTP2_ERR_PROTOCOL;
+			tlog(TLOG_DEBUG, "PROTOCOL_ERROR at %s:%d ctx=%p is_client=%d", __FILE__, __LINE__, ctx, ctx->is_client);
 			return -1;
 		}
-		ctx->connection_window_size += (int)increment;
+		ctx->send_conn_window_size += (int)increment;
 	} else {
 		struct http2_stream *stream = _http2_find_stream(ctx, stream_id);
 		if (stream) {
-			if (stream->window_size > INT_MAX - (int)increment) {
+			if (stream->send_window_size > INT_MAX - (int)increment) {
 				http2_send_rst_stream(ctx, stream_id, HTTP2_RST_FLOW_CONTROL_ERROR);
 				return -1;
 			}
-			stream->window_size += (int)increment;
+			stream->send_window_size += (int)increment;
 		}
 	}
 
@@ -1029,6 +1049,7 @@ static int http2_verify_connection_preface(struct http2_ctx *ctx)
 			return HTTP2_ERR_HTTP1;
 		}
 		ctx->status = HTTP2_ERR_PROTOCOL;
+		tlog(TLOG_DEBUG, "PROTOCOL_ERROR at %s:%d ctx=%p is_client=%d", __FILE__, __LINE__, ctx, ctx->is_client);
 		return HTTP2_ERR_PROTOCOL;
 	}
 
@@ -1094,6 +1115,8 @@ static int _http2_process_frames(struct http2_ctx *ctx)
 		/* Validate frame length */
 		if (length > ctx->peer_max_frame_size || length > INT_MAX) {
 			ctx->status = HTTP2_ERR_PROTOCOL;
+			tlog(TLOG_DEBUG, "PROTOCOL_ERROR at %s:%d ctx=%p is_client=%d", __FILE__, __LINE__, ctx,
+				 ctx->is_client);
 			return HTTP2_ERR_PROTOCOL;
 		}
 
@@ -1127,23 +1150,24 @@ static int _http2_process_frames(struct http2_ctx *ctx)
 
 		/* Process frame */
 		const uint8_t *payload = ctx->read_buffer + HTTP2_FRAME_HEADER_SIZE;
+		int frame_ret = 0;
 
 		switch (type) {
 		case HTTP2_FRAME_DATA:
-			_http2_process_data_frame(ctx, stream_id, payload, length, flags);
+			frame_ret = _http2_process_data_frame(ctx, stream_id, payload, length, flags);
 			break;
 		case HTTP2_FRAME_HEADERS:
-			_http2_process_headers_frame(ctx, stream_id, payload, length, flags, HTTP2_FRAME_HEADERS);
+			frame_ret = _http2_process_headers_frame(ctx, stream_id, payload, length, flags, HTTP2_FRAME_HEADERS);
 			break;
 		case HTTP2_FRAME_CONTINUATION:
 			/* CONTINUATION frames continue a HEADERS frame */
-			_http2_process_headers_frame(ctx, stream_id, payload, length, flags, HTTP2_FRAME_CONTINUATION);
+			frame_ret = _http2_process_headers_frame(ctx, stream_id, payload, length, flags, HTTP2_FRAME_CONTINUATION);
 			break;
 		case HTTP2_FRAME_SETTINGS:
-			_http2_process_settings_frame(ctx, payload, length, flags);
+			frame_ret = _http2_process_settings_frame(ctx, payload, length, flags);
 			break;
 		case HTTP2_FRAME_WINDOW_UPDATE:
-			_http2_process_window_update_frame(ctx, stream_id, payload, length);
+			frame_ret = _http2_process_window_update_frame(ctx, stream_id, payload, length);
 			break;
 		case HTTP2_FRAME_PING:
 			/* Echo PING */
@@ -1158,6 +1182,8 @@ static int _http2_process_frames(struct http2_ctx *ctx)
 			if (length != 4) {
 				_http2_send_goaway(ctx, 0, HTTP2_RST_PROTOCOL_ERROR, NULL, 0);
 				ctx->status = HTTP2_ERR_PROTOCOL;
+				tlog(TLOG_DEBUG, "PROTOCOL_ERROR at %s:%d ctx=%p is_client=%d", __FILE__, __LINE__, ctx,
+					 ctx->is_client);
 				return -1;
 			}
 			/* Close the stream */
@@ -1171,6 +1197,8 @@ static int _http2_process_frames(struct http2_ctx *ctx)
 		case HTTP2_FRAME_GOAWAY:
 			if (length < 8) {
 				ctx->status = HTTP2_ERR_PROTOCOL;
+				tlog(TLOG_DEBUG, "PROTOCOL_ERROR at %s:%d ctx=%p is_client=%d", __FILE__, __LINE__, ctx,
+					 ctx->is_client);
 				return -1;
 			}
 			ctx->status = HTTP2_ERR_EOF;
@@ -1178,6 +1206,9 @@ static int _http2_process_frames(struct http2_ctx *ctx)
 		default:
 			/* Ignore unknown frames */
 			break;
+		}
+		if (frame_ret < 0) {
+			return ctx->status < 0 ? ctx->status : HTTP2_ERR_PROTOCOL;
 		}
 
 		/* Move remaining data to beginning of buffer */
@@ -1296,7 +1327,7 @@ void http2_stream_put(struct http2_stream *stream)
 	}
 
 	if (refcnt < 0) {
-		BUG("http2_stream_put: negative reference count %d", refcnt);
+		tlog(TLOG_ERROR, "http2_stream_put: negative reference count %d for stream %d", refcnt, stream->stream_id);
 		return;
 	}
 
@@ -1317,14 +1348,17 @@ static void _http2_ctx_init_common(struct http2_ctx *ctx, const struct http2_ctx
 	pthread_mutexattr_destroy(&attr);
 	ctx->refcount = 1; /* Initial reference count */
 	ctx->is_client = params->is_client;
+	ctx->preface_received = ctx->is_client; /* Clients don't need to verify preface from server */
 	ctx->server = strdup(params->server ? params->server : "");
 	ctx->bio_read = params->bio_read;
 	ctx->bio_write = params->bio_write;
 	ctx->private_data = params->private_data;
 	ctx->next_stream_id = params->next_stream_id;
-	ctx->connection_window_size = HTTP2_DEFAULT_WINDOW_SIZE;
+	ctx->send_conn_window_size = HTTP2_DEFAULT_WINDOW_SIZE;
+	ctx->recv_conn_window_size = HTTP2_DEFAULT_WINDOW_SIZE;
 	ctx->peer_max_frame_size = HTTP2_DEFAULT_MAX_FRAME_SIZE;
-	ctx->peer_initial_window_size = HTTP2_DEFAULT_WINDOW_SIZE;
+	ctx->send_initial_window_size = HTTP2_DEFAULT_WINDOW_SIZE;
+	ctx->recv_initial_window_size = HTTP2_DEFAULT_WINDOW_SIZE;
 	ctx->active_streams = 0;
 
 	/* Initialize settings with defaults or provided values */
@@ -1410,7 +1444,9 @@ int http2_ctx_handshake(struct http2_ctx *ctx)
 	if (ctx->pending_write_len > 0) {
 		/* Trigger flush by calling send_frame with empty data */
 		uint8_t dummy = 0;
-		_http2_send_frame(ctx, &dummy, 0);
+		if (_http2_send_frame(ctx, &dummy, 0) < 0) {
+			return HTTP2_ERR_IO;
+		}
 	}
 
 	/* Process incoming frames */
@@ -1443,7 +1479,11 @@ struct http2_stream *http2_ctx_accept_stream(struct http2_ctx *ctx)
 	/* Try to flush any pending writes first */
 	if (ctx->pending_write_len > 0) {
 		uint8_t dummy = 0;
-		_http2_send_frame(ctx, &dummy, 0);
+		if (_http2_send_frame(ctx, &dummy, 0) < 0) {
+			ctx->status = HTTP2_ERR_IO;
+			pthread_mutex_unlock(&ctx->mutex);
+			return NULL;
+		}
 	}
 
 	/* Process frames to get new streams */
@@ -1475,7 +1515,9 @@ static int _http2_ctx_io_process(struct http2_ctx *ctx)
 	/* Try to flush any pending writes first */
 	if (ctx->pending_write_len > 0) {
 		uint8_t dummy = 0;
-		_http2_send_frame(ctx, &dummy, 0);
+		if (_http2_send_frame(ctx, &dummy, 0) < 0) {
+			return HTTP2_ERR_IO;
+		}
 	}
 
 	/* Process frames */
@@ -1532,7 +1574,8 @@ static void _http2_ctx_collect_ready_streams(struct http2_ctx *ctx, struct http2
 		 * 2. Stream has ended (all data including headers received)
 		 */
 		int has_body_data = stream->body_buffer_len > stream->body_read_offset;
-		int stream_ended = (stream->end_stream_received || stream->state == HTTP2_STREAM_CLOSED) && !stream->end_stream_read_handled;
+		int stream_ended =
+			(stream->end_stream_received || stream->state == HTTP2_STREAM_CLOSED) && !stream->end_stream_read_handled;
 
 		int readable = has_body_data || stream_ended;
 		int writable = stream->state == HTTP2_STREAM_OPEN || stream->state == HTTP2_STREAM_HALF_CLOSED_REMOTE;
@@ -1581,19 +1624,7 @@ static int _http2_ctx_poll(struct http2_ctx *ctx, struct http2_poll_item *items,
 		*ret_count = count;
 	}
 
-	/* If we have an error, return it even if there ready items.
-	   BUT we must release references collected in items before returning. */
-	if (ret < 0 && ret != HTTP2_ERR_EAGAIN) {
-		int i;
-		for (i = 0; i < count; i++) {
-			if (items[i].stream) {
-				http2_stream_put(items[i].stream);
-				items[i].stream = NULL;
-			}
-		}
-		if (ret_count) {
-			*ret_count = 0;
-		}
+	if (ret < 0 && ret != HTTP2_ERR_EAGAIN && count == 0) {
 		pthread_mutex_unlock(&ctx->mutex);
 		return ret;
 	}
@@ -1680,8 +1711,10 @@ void http2_stream_close(struct http2_stream *stream)
 	struct http2_ctx *ctx = stream->ctx;
 	if (ctx) {
 		pthread_mutex_lock(&ctx->mutex);
-		/* Send RST_STREAM to close the stream */
-		http2_send_rst_stream(ctx, stream->stream_id, 0); /* NO_ERROR */
+		int send_rst = ctx->status >= 0 && !(stream->end_stream_sent && stream->end_stream_received);
+		if (send_rst) {
+			http2_send_rst_stream(ctx, stream->stream_id, 0); /* NO_ERROR */
+		}
 		pthread_mutex_unlock(&ctx->mutex);
 
 		_http2_remove_stream(stream, 1);
@@ -1718,10 +1751,26 @@ int http2_stream_set_request(struct http2_stream *stream, const char *method, co
 	_http2_free_headers(stream);
 
 	/* Add pseudo-headers */
+	const char *authority = ctx->server ? ctx->server : "localhost";
+	if (headers) {
+		for (int i = 0; headers[i].name != NULL; i++) {
+			if (headers[i].value == NULL) {
+				continue;
+			}
+			if (strcmp(headers[i].name, ":authority") == 0) {
+				authority = headers[i].value;
+				break;
+			}
+			if (strcasecmp(headers[i].name, "host") == 0) {
+				authority = headers[i].value;
+			}
+		}
+	}
+
 	_http2_stream_add_header(stream, ":method", method);
 	_http2_stream_add_header(stream, ":path", path);
 	_http2_stream_add_header(stream, ":scheme", scheme ? scheme : "https");
-	_http2_stream_add_header(stream, ":authority", ctx->server ? ctx->server : "localhost");
+	_http2_stream_add_header(stream, ":authority", authority);
 
 	/* Add additional headers from array */
 	if (headers) {
@@ -1731,6 +1780,10 @@ int http2_stream_set_request(struct http2_stream *stream, const char *method, co
 			}
 
 			if (headers[i].name == NULL) {
+				continue;
+			}
+
+			if (strcmp(headers[i].name, ":authority") == 0 || strcasecmp(headers[i].name, "host") == 0) {
 				continue;
 			}
 
@@ -1894,7 +1947,7 @@ int http2_stream_write_body(struct http2_stream *stream, const uint8_t *data, in
 	int total_sent = 0;
 	while (len > 0) {
 		/* Check flow control */
-		if (stream->window_size <= 0 || ctx->connection_window_size <= 0) {
+		if (stream->send_window_size <= 0 || ctx->send_conn_window_size <= 0) {
 			if (total_sent > 0) {
 				break; /* Partial send */
 			}
@@ -1903,11 +1956,11 @@ int http2_stream_write_body(struct http2_stream *stream, const uint8_t *data, in
 			return -1;
 		}
 		int to_send = len;
-		if (to_send > stream->window_size) {
-			to_send = stream->window_size;
+		if (to_send > stream->send_window_size) {
+			to_send = stream->send_window_size;
 		}
-		if (to_send > ctx->connection_window_size) {
-			to_send = ctx->connection_window_size;
+		if (to_send > ctx->send_conn_window_size) {
+			to_send = ctx->send_conn_window_size;
 		}
 		if ((uint32_t)to_send > (uint32_t)ctx->peer_max_frame_size) {
 			to_send = ctx->peer_max_frame_size;
@@ -1931,11 +1984,11 @@ int http2_stream_write_body(struct http2_stream *stream, const uint8_t *data, in
 			pthread_mutex_unlock(&ctx->mutex);
 			return ret;
 		}
-		
+
 		total_sent += to_send;
 		len -= to_send;
-		stream->window_size -= to_send;
-		ctx->connection_window_size -= to_send;
+		stream->send_window_size -= to_send;
+		ctx->send_conn_window_size -= to_send;
 
 		if (end_stream && len == 0) {
 			stream->end_stream_sent = 1;
@@ -2201,7 +2254,8 @@ int http2_stream_is_end(struct http2_stream *stream)
 	/* Try to decompress if needed - this might change body_buffer_len */
 	http2_try_decompress_body(stream);
 
-	int is_end = (stream->end_stream_received || stream->state == HTTP2_STREAM_CLOSED) && (stream->body_read_offset >= stream->body_buffer_len);
+	int is_end = (stream->end_stream_received || stream->state == HTTP2_STREAM_CLOSED) &&
+				 (stream->body_read_offset >= stream->body_buffer_len);
 
 	/* If connection is closed/error, and we have read all buffered data, consider stream ended */
 	if (!is_end && (!ctx || ctx->status < 0) && stream->body_read_offset >= stream->body_buffer_len) {

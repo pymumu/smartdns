@@ -1067,8 +1067,8 @@ void dns_cache_destroy(void)
 		return;
 	}
 
-	is_cache_init = 0;
 	dns_cache_flush();
+	is_cache_init = 0;
 
 	pthread_mutex_destroy(&dns_cache_head.lock);
 	hash_table_free(dns_cache_head.cache_hash, free);
@@ -1088,7 +1088,8 @@ int dns_cache_foreach(dns_cache_foreach_cb cb, void *userdata)
 	}
 
 	pthread_mutex_lock(&dns_cache_head.lock);
-	list_for_each_entry(dns_cache, &dns_cache_head.cache_list, list) {
+	list_for_each_entry(dns_cache, &dns_cache_head.cache_list, list)
+	{
 		dns_cache_get(dns_cache);
 		int remaining_ttl = dns_cache_get_ttl(dns_cache);
 		cb(dns_cache->info.domain, dns_cache->info.qtype, remaining_ttl, dns_cache->info.insert_time, userdata);

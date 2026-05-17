@@ -1,6 +1,6 @@
 /*************************************************************************
  *
- * Copyright (C) 2018-2025 Ruilin Peng (Nick) <pymumu@gmail.com>.
+ * Copyright (C) 2018-2026 Ruilin Peng (Nick) <pymumu@gmail.com>.
  *
  * smartdns is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,23 +16,12 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef _DNS_SERVER_HTTPS_
-#define _DNS_SERVER_HTTPS_
+#ifndef _DNS_SERVER_DOQ_GSOCKET_H_
+#define _DNS_SERVER_DOQ_GSOCKET_H_
 
-#include "dns_server.h"
-#include <sys/epoll.h>
+#include "server_gsocket.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif /*__cplusplus */
+int dns_server_doq_process_request(struct dns_server_conn_gsocket *parent, struct gsocket *stream_gs);
+int dns_server_doq_reply(struct gsocket *stream, unsigned char *inpacket, int inpacket_len);
 
-int _dns_server_reply_http_error(struct dns_server_conn_tcp_client *tcpclient, int code, const char *code_msg,
-								 const char *message);
-
-int _dns_server_reply_https(struct dns_request *request, struct dns_server_conn_tcp_client *tcpclient, void *packet,
-							unsigned short len);
-
-#ifdef __cplusplus
-}
-#endif /*__cplusplus */
 #endif

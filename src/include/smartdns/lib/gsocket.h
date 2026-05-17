@@ -94,14 +94,14 @@ struct gsocket *gsocket_new(int fd);
 void gsocket_free(struct gsocket *sock);
 int gsocket_close(struct gsocket *sock);
 
-/* 
+/*
  * Note: no call this function for gsocket poll or socket operations
  * call gsocket_*() instead
- */ 
+ */
 int gsocket_get_fd(struct gsocket *sock);
 
 /* Layer Management */
-void gsocket_push_layer(struct gsocket *sock, struct gsocket_io *layer);
+int gsocket_push_layer(struct gsocket *sock, struct gsocket_io *layer);
 struct gsocket_io *gsocket_get_top_layer(struct gsocket *sock);
 
 /* Standard Socket Wrappers */
@@ -114,6 +114,7 @@ int gsocket_shutdown(struct gsocket *sock, int how);
 
 ssize_t gsocket_recv(struct gsocket *sock, void *buf, size_t len, int flags);
 ssize_t gsocket_send(struct gsocket *sock, const void *buf, size_t len, int flags);
+int gsocket_send_all(struct gsocket *sock, const void *buf, int len, int flags);
 ssize_t gsocket_recvfrom(struct gsocket *sock, void *buf, size_t len, int flags, struct sockaddr *src_addr,
 						 socklen_t *addrlen);
 ssize_t gsocket_sendto(struct gsocket *sock, const void *buf, size_t len, int flags, const struct sockaddr *dest_addr,
@@ -155,6 +156,7 @@ int gsocket_set_quickack(struct gsocket *sock, int enable);
 #define GSOCKET_HANDSHAKE_WANT_READ 1
 #define GSOCKET_HANDSHAKE_WANT_WRITE 2
 #define GSOCKET_HANDSHAKE_ERR -1
+#define GSOCKET_HANDSHAKE_EOF -2
 
 #define GS_INVALID_FD -1
 

@@ -149,14 +149,14 @@ TEST_F(HTTP, http3_0_parse)
 	http_head_add_param(http_head, "lang", "cn");
 	unsigned char buffer[1024];
 	int ret = http_head_serialize(http_head, buffer, 1024);
-	ASSERT_EQ(ret, 149);
+	ASSERT_EQ(ret, 177);
 	http_head_destroy(http_head);
 
 	http_head = http_head_init(1024, HTTP_VERSION_3_0);
 	ASSERT_NE(http_head, nullptr);
 
 	ret = http_head_parse(http_head, buffer, ret);
-	ASSERT_EQ(ret, 149);
+	ASSERT_EQ(ret, 177);
 	EXPECT_STREQ(http_head_get_httpversion(http_head), "HTTP/3.0");
 	EXPECT_EQ(http_head_get_method(http_head), HTTP_METHOD_GET);
 	EXPECT_STREQ(http_head_get_url(http_head), "/");
@@ -201,7 +201,7 @@ TEST_F(HTTP, http3_small_buffer)
 	http_head_add_param(http_head, "lang", "cn");
 	unsigned char buffer[1024];
 	int buffer_len = http_head_serialize(http_head, buffer, 1024);
-	ASSERT_EQ(buffer_len, 149);
+	ASSERT_EQ(buffer_len, 177);
 	http_head_destroy(http_head);
 
 	http_head = http_head_init(5, HTTP_VERSION_3_0);

@@ -109,8 +109,8 @@ enum domain_rule {
 	DOMAIN_RULE_CNAME,         /* CNAME rule */
 	DOMAIN_RULE_TTL,           /* TTL control */
 
-	DOMAIN_RULE_PROXY,					 /* Proxy rule */
-	
+	DOMAIN_RULE_PROXY, /* Proxy rule */
+
 	DOMAIN_RULE_MAX,
 };
 
@@ -132,6 +132,8 @@ typedef enum {
 	DNS_BIND_TYPE_TCP,
 	DNS_BIND_TYPE_TLS,
 	DNS_BIND_TYPE_HTTPS,
+	DNS_BIND_TYPE_HTTPS3, /* DNS over HTTPS/HTTP3 */
+	DNS_BIND_TYPE_QUIC,   /* DNS over QUIC (DoQ, RFC 9250) */
 } DNS_BIND_TYPE;
 
 typedef enum {
@@ -527,8 +529,8 @@ struct dns_socks5_proxy_server_conf {
 	int skip_cert_verify;
 	int verify_client;
 	int use_cert;
-unsigned int is_skip_cert_verify_set : 1;
-unsigned int is_use_cert_set : 1;
+	unsigned int is_skip_cert_verify_set : 1;
+	unsigned int is_use_cert_set : 1;
 };
 
 struct dns_http_proxy_server_conf {
@@ -548,8 +550,8 @@ struct dns_http_proxy_server_conf {
 	int skip_cert_verify;
 	int verify_client;
 	int use_cert;
-unsigned int is_skip_cert_verify_set : 1;
-unsigned int is_use_cert_set : 1;
+	unsigned int is_skip_cert_verify_set : 1;
+	unsigned int is_use_cert_set : 1;
 };
 
 struct dns_forward_server_conf {
@@ -567,8 +569,8 @@ struct dns_forward_server_conf {
 	int skip_cert_verify;
 	int verify_client;
 	int use_cert;
-unsigned int is_skip_cert_verify_set : 1;
-unsigned int is_use_cert_set : 1;
+	unsigned int is_skip_cert_verify_set : 1;
+	unsigned int is_use_cert_set : 1;
 };
 
 /* ip address lists of domain */
@@ -806,7 +808,6 @@ struct dns_srv_record {
 	unsigned short port;
 };
 
-
 struct dns_conf_plugin {
 	struct hlist_node node;
 	char name[DNS_MAX_CNAME_LEN];
@@ -909,7 +910,6 @@ struct dns_config {
 	int dns_no_daemon;
 	int dns_restart_on_crash;
 	size_t dns_socket_buff_size;
-
 };
 extern struct dns_config dns_conf;
 

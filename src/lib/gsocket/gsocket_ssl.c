@@ -324,6 +324,7 @@ static inline ssize_t _bio_quic_send_one(struct bio_quic_data *data, const void 
 	socklen_t salen = 0;
 
 	if (peer) {
+		memset(&ss, 0, sizeof(ss));
 		if (BIO_ADDR_family(peer) == AF_INET) {
 			struct sockaddr_in *sin = (struct sockaddr_in *)&ss;
 			sin->sin_family = AF_INET;
@@ -457,6 +458,33 @@ static BIO_METHOD *get_gs_quic_bio_method(void)
 	return _gs_quic_bio_method;
 }
 
+static int _ssl_quic_set_custom_bio(struct gsocket_io *io, int is_server)
+{
+	struct ssl_io_ctx *ctx = io ? io->ctx : NULL;
+	if (!ctx || !ctx->ssl) {
+		return -1;
+	}
+
+	struct bio_quic_data *bio_data = calloc(1, sizeof(struct bio_quic_data));
+	if (!bio_data) {
+		return -1;
+	}
+
+	BIO *bio = BIO_new(get_gs_quic_bio_method());
+	if (!bio) {
+		free(bio_data);
+		return -1;
+	}
+
+	bio_data->io = io;
+	bio_data->is_server = is_server;
+	bio_data->peer_len = 0;
+	BIO_set_data(bio, bio_data);
+	BIO_set_init(bio, 1);
+	SSL_set_bio(ctx->ssl, bio, bio);
+	return 0;
+}
+
 static int _bio_gs_sendmmsg(BIO *b, BIO_MSG *msg, size_t stride, size_t num_msg, uint64_t flags, size_t *msgs_processed)
 {
 	struct bio_quic_data *data = (struct bio_quic_data *)BIO_get_data(b);
@@ -465,17 +493,13 @@ static int _bio_gs_sendmmsg(BIO *b, BIO_MSG *msg, size_t stride, size_t num_msg,
 	}
 
 	size_t processed = 0;
-	int total_len = 0;
 	for (size_t i = 0; i < num_msg; i++) {
-		BIO_MSG *m = &msg[i];
+		BIO_MSG *m = (BIO_MSG *)((unsigned char *)msg + i * stride);
 		ssize_t ret = _bio_quic_send_one(data, m->data, m->data_len, m->peer);
 
 		if (ret < 0) {
-			if (processed == 0) {
-				total_len = 0;
-			}
 			if (errno == EAGAIN || errno == EWOULDBLOCK) {
-				/* OpenSSL expects 1 (success) if we simply have no buffer space but didn't error */
+				/* OpenSSL treats this as a successful no-progress poll when the socket would block. */
 				if (processed == 0) {
 					*msgs_processed = 0;
 					return 1;
@@ -486,12 +510,12 @@ static int _bio_gs_sendmmsg(BIO *b, BIO_MSG *msg, size_t stride, size_t num_msg,
 			return 0;
 		}
 
-		total_len += ret;
+		m->data_len = ret;
 		processed++;
 	}
 
 	*msgs_processed = processed;
-	return total_len;
+	return 1;
 }
 
 static int _bio_gs_recvmmsg(BIO *b, BIO_MSG *msg, size_t stride, size_t num_msg, uint64_t flags, size_t *msgs_processed)
@@ -503,19 +527,16 @@ static int _bio_gs_recvmmsg(BIO *b, BIO_MSG *msg, size_t stride, size_t num_msg,
 	}
 
 	size_t processed = 0;
-	int total_len = 0;
 	for (size_t i = 0; i < num_msg; i++) {
-		BIO_MSG *m = &msg[i];
+		BIO_MSG *m = (BIO_MSG *)((unsigned char *)msg + i * stride);
 		ssize_t ret = _bio_quic_recv_one(data, m->data, m->data_len, m->peer);
 		if (ret < 0) {
 			if (processed == 0) {
 				// ERR_raise(ERR_LIB_SYS, errno); // Don't raise error for EAGAIN
-				total_len = 0;
 			}
 			if (errno == EAGAIN || errno == EWOULDBLOCK) {
-				/* OpenSSL expects 1 (success) if we simply have no data but didn't error */
+				/* OpenSSL treats this as a successful no-progress poll when the socket would block. */
 				if (processed == 0) {
-
 					*msgs_processed = 0;
 					return 1;
 				}
@@ -525,12 +546,11 @@ static int _bio_gs_recvmmsg(BIO *b, BIO_MSG *msg, size_t stride, size_t num_msg,
 		}
 
 		m->data_len = ret;
-		total_len += ret;
 		processed++;
 	}
 
 	*msgs_processed = processed;
-	return total_len; // Can be 0 if nothing processed
+	return 1;
 }
 
 static long _bio_gs_ctrl_dgram(BIO *b, int cmd, long num, void *ptr)
@@ -578,13 +598,13 @@ static long _bio_gs_ctrl_dgram(BIO *b, int cmd, long num, void *ptr)
 				struct sockaddr_in *sin = (struct sockaddr_in *)&data->peer;
 				sin->sin_family = AF_INET;
 				sin->sin_port = htons(BIO_ADDR_rawport((BIO_ADDR *)ptr));
-				size_t l = 0;
+				size_t l = sizeof(sin->sin_addr);
 				BIO_ADDR_rawaddress((BIO_ADDR *)ptr, &sin->sin_addr, &l);
 			} else if (BIO_ADDR_family((BIO_ADDR *)ptr) == AF_INET6) {
 				struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)&data->peer;
 				sin6->sin6_family = AF_INET6;
 				sin6->sin6_port = htons(BIO_ADDR_rawport((BIO_ADDR *)ptr));
-				size_t l = 0;
+				size_t l = sizeof(sin6->sin6_addr);
 				BIO_ADDR_rawaddress((BIO_ADDR *)ptr, &sin6->sin6_addr, &l);
 			}
 		}
@@ -626,7 +646,16 @@ static int _ssl_check_spki(struct ssl_io_ctx *ctx)
 		return 0; // No check needed
 	}
 
-	X509 *cert = SSL_get_peer_certificate(ctx->ssl);
+	X509 *cert = NULL;
+	int cert_need_free = 0;
+
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+	cert = (X509 *)SSL_get0_peer_certificate(ctx->ssl);
+#endif
+	if (!cert) {
+		cert = SSL_get_peer_certificate(ctx->ssl);
+		cert_need_free = (cert != NULL);
+	}
 	if (!cert) {
 		return -1; // No cert to verify?
 	}
@@ -634,14 +663,18 @@ static int _ssl_check_spki(struct ssl_io_ctx *ctx)
 	/* Extract Public Key */
 	X509_PUBKEY *pubkey = X509_get_X509_PUBKEY(cert);
 	if (!pubkey) {
-		X509_free(cert);
+		if (cert_need_free) {
+			X509_free(cert);
+		}
 		return -1;
 	}
 
 	unsigned char *p = NULL;
 	int len = i2d_X509_PUBKEY(pubkey, &p);
 	if (len <= 0 || !p) {
-		X509_free(cert);
+		if (cert_need_free) {
+			X509_free(cert);
+		}
 		return -1;
 	}
 
@@ -657,7 +690,9 @@ static int _ssl_check_spki(struct ssl_io_ctx *ctx)
 	SHA256((unsigned char *)p, len, hash);
 #endif
 	OPENSSL_free(p);
-	X509_free(cert);
+	if (cert_need_free) {
+		X509_free(cert);
+	}
 
 	/* Compare with expected */
 	if (ctx->spki_len == SHA256_DIGEST_LENGTH) {
@@ -709,9 +744,9 @@ static int _ssl_handshake(struct gsocket_io *io)
 		SSL_handle_events(ctx->ssl);
 
 		if (SSL_is_init_finished(ctx->ssl)) {
-			return GSOCKET_HANDSHAKE_DONE;
-		}
-		if (SSL_get_accept_stream_queue_len(ctx->ssl) > 0) {
+			if (_ssl_check_spki(ctx) != 0) {
+				return GSOCKET_HANDSHAKE_ERR;
+			}
 			return GSOCKET_HANDSHAKE_DONE;
 		}
 	}
@@ -750,7 +785,7 @@ static int _ssl_handshake(struct gsocket_io *io)
 		if (errno != 0) {
 			snprintf(ctx->error_msg, sizeof(ctx->error_msg), "syscall error: %s", strerror(errno));
 		} else if (ret == 0) {
-			snprintf(ctx->error_msg, sizeof(ctx->error_msg), "unexpected EOF (connection reset by peer)");
+			snprintf(ctx->error_msg, sizeof(ctx->error_msg), "EOF");
 		} else {
 			snprintf(ctx->error_msg, sizeof(ctx->error_msg), "unknown syscall error");
 		}
@@ -767,8 +802,10 @@ static int _ssl_handshake(struct gsocket_io *io)
 	if (err == SSL_ERROR_SYSCALL) {
 		/* errno is already set by the system call */
 		if (errno == 0 && ret == 0) {
-			errno = ECONNRESET; /* Unexpected EOF */
+			return GSOCKET_HANDSHAKE_EOF;
 		}
+	} else if (err == SSL_ERROR_ZERO_RETURN) {
+		return GSOCKET_HANDSHAKE_EOF;
 	} else if (err == SSL_ERROR_SSL) {
 		errno = EPROTO; /* Protocol error */
 	} else {
@@ -816,7 +853,7 @@ static ssize_t _ssl_recv(struct gsocket_io *io, void *buf, size_t len, int flags
 		return -1;
 	}
 	if (err == SSL_ERROR_ZERO_RETURN) {
-		errno = EPIPE;
+		errno = 0;
 		return 0; // EOF
 	}
 	if (err == SSL_ERROR_SYSCALL) {
@@ -856,6 +893,34 @@ static ssize_t _ssl_send(struct gsocket_io *io, const void *buf, size_t len, int
 
 	int ret;
 
+#if defined(OSSL_QUIC1_VERSION) && !defined(OPENSSL_NO_QUIC)
+	if (is_quic && (flags & GS_MSG_FIN) && len == 0) {
+		ret = SSL_stream_conclude(ctx->ssl, 0);
+		if (ret > 0) {
+			SSL_handle_events(ctx->ssl);
+			return 0;
+		}
+
+		int err = SSL_get_error(ctx->ssl, ret);
+		switch (err) {
+		case SSL_ERROR_WANT_READ:
+		case SSL_ERROR_WANT_WRITE:
+			errno = EAGAIN;
+			break;
+		case SSL_ERROR_ZERO_RETURN:
+			errno = EPIPE;
+			break;
+		case SSL_ERROR_SSL:
+			errno = EPROTO;
+			break;
+		default:
+			errno = EIO;
+			break;
+		}
+		return -1;
+	}
+#endif
+
 #if OPENSSL_VERSION_NUMBER >= 0x10101000L
 	if (!is_quic && ctx->enable_0rtt && !ctx->early_data_sent && !SSL_is_init_finished(ctx->ssl)) {
 		ret = SSL_write_early_data(ctx->ssl, buf, len, &written);
@@ -882,6 +947,11 @@ static ssize_t _ssl_send(struct gsocket_io *io, const void *buf, size_t len, int
 #endif
 
 	if (ret > 0) {
+#if defined(OSSL_QUIC1_VERSION) && !defined(OPENSSL_NO_QUIC)
+		if (is_quic) {
+			SSL_handle_events(ctx->ssl);
+		}
+#endif
 		return (ssize_t)written;
 	}
 
@@ -994,6 +1064,11 @@ static ssize_t _ssl_sendmsg(struct gsocket_io *io, const struct msghdr *msg, int
 
 		if (ret > 0) {
 			total_written += written;
+#if defined(OSSL_QUIC1_VERSION) && !defined(OPENSSL_NO_QUIC)
+			if (ctx->ssl && SSL_is_quic(ctx->ssl)) {
+				SSL_handle_events(ctx->ssl);
+			}
+#endif
 			if (written < msg->msg_iov[i].iov_len) {
 				break;
 			}
@@ -1019,6 +1094,8 @@ static int _ssl_close(struct gsocket_io *io)
 	   which requires access to lower layer that may not be available during cleanup */
 	if (ctx->ssl_type != SSL_TYPE_QUIC_STREAM && ctx->ssl_type != SSL_TYPE_QUIC_CONNECTION) {
 		SSL_shutdown(ctx->ssl);
+		/* SSL_shutdown() return is intentionally ignored here; avoid leaking its errors into later SSL_get_error(). */
+		ERR_clear_error();
 	}
 	/* Only close lower for Listener and traditional TLS, not for QUIC connection/stream */
 	if (io->lower && io->lower->close) {
@@ -1051,12 +1128,6 @@ static void _ssl_free(struct gsocket_io *io)
 static int _ssl_connect(struct gsocket_io *io, const char *host, int port)
 {
 	struct ssl_io_ctx *ctx = io->ctx;
-#if defined(OSSL_QUIC1_VERSION) && !defined(OPENSSL_NO_QUIC)
-	if (ctx && ctx->ssl && SSL_is_quic(ctx->ssl) && !ctx->is_server) {
-		/* Set explicit auto-stream mode */
-		SSL_set_default_stream_mode(ctx->ssl, SSL_DEFAULT_STREAM_MODE_NONE);
-	}
-#endif
 
 	/* Set SNI if host is not an IP */
 	struct sockaddr_storage tmp_addr;
@@ -1070,6 +1141,52 @@ static int _ssl_connect(struct gsocket_io *io, const char *host, int port)
 
 	if (io->lower && io->lower->connect) {
 		int ret = io->lower->connect(io->lower, host, port);
+#if defined(OSSL_QUIC1_VERSION) && !defined(OPENSSL_NO_QUIC)
+		if ((ret == 0 || errno == EINPROGRESS) && ctx && ctx->ssl && SSL_is_quic(ctx->ssl) && !ctx->is_server) {
+			int use_custom_peer = 1;
+
+			/* Match OpenSSL's native QUIC fd path for direct UDP sockets; keep custom BIO for proxy layers. */
+			if (io->lower && io->lower->lower == NULL && io->lower->get_fd) {
+				int fd = io->lower->get_fd(io->lower);
+				if (fd >= 0) {
+					SSL_set_default_stream_mode(ctx->ssl, SSL_DEFAULT_STREAM_MODE_NONE);
+					if (SSL_set_fd(ctx->ssl, fd) == 1) {
+						BIO *rbio = SSL_get_rbio(ctx->ssl);
+						BIO *wbio = SSL_get_wbio(ctx->ssl);
+						if (rbio) {
+							BIO_set_close(rbio, BIO_NOCLOSE);
+						}
+						if (wbio && wbio != rbio) {
+							BIO_set_close(wbio, BIO_NOCLOSE);
+						}
+						use_custom_peer = 0;
+					}
+				}
+			}
+
+			/* Stream 0 must not be used for application traffic. */
+			SSL_set_default_stream_mode(ctx->ssl, SSL_DEFAULT_STREAM_MODE_NONE);
+
+			if (use_custom_peer) {
+				if (SSL_get_rbio(ctx->ssl) == NULL && _ssl_quic_set_custom_bio(io, 0) != 0) {
+					return -1;
+				}
+				BIO_ADDR *peer = BIO_ADDR_new();
+				if (peer) {
+					struct in_addr peer_addr4;
+					struct in6_addr peer_addr6;
+					if (host && inet_pton(AF_INET, host, &peer_addr4) == 1) {
+						BIO_ADDR_rawmake(peer, AF_INET, &peer_addr4, sizeof(peer_addr4), port);
+						SSL_set1_initial_peer_addr(ctx->ssl, peer);
+					} else if (host && inet_pton(AF_INET6, host, &peer_addr6) == 1) {
+						BIO_ADDR_rawmake(peer, AF_INET6, &peer_addr6, sizeof(peer_addr6), port);
+						SSL_set1_initial_peer_addr(ctx->ssl, peer);
+					}
+					BIO_ADDR_free(peer);
+				}
+			}
+		}
+#endif
 		if (ret == 0 && ctx->reuse_session && host && host[0]) {
 			char *new_host = strdup(host);
 			if (new_host) {
@@ -1102,6 +1219,10 @@ static int _ssl_get_fd(struct gsocket_io *io)
 
 static int _ssl_parse_alpn_protos(const char *protos, size_t protos_len, unsigned char **out, size_t *outlen)
 {
+	if (protos_len > 0 && protos[protos_len - 1] == '\0') {
+		protos_len--;
+	}
+
 	if (protos_len == 0) {
 		return -1;
 	}
@@ -1441,6 +1562,14 @@ static struct gsocket_io *_ssl_open_stream(struct gsocket_io *io)
 		return NULL;
 	}
 
+	if (io->lower && io->lower->handshake) {
+		int hs = io->lower->handshake(io->lower);
+		if (hs != GSOCKET_HANDSHAKE_DONE) {
+			errno = EAGAIN;
+			return NULL;
+		}
+	}
+
 	/* OpenSSL QUIC: Create new stream from connection SSL */
 	SSL *stream_ssl = SSL_new_stream(ctx->ssl, 0);
 	if (!stream_ssl) {
@@ -1481,6 +1610,22 @@ static int _ssl_stream_poll(struct gsocket_io *io, struct gstream_poll_item *ite
 
 	/* Prepare poll items */
 	struct ssl_io_ctx *io_ctx = io->ctx;
+
+	if (io->lower && io->lower->handshake) {
+		int hs = io->lower->handshake(io->lower);
+		if (hs < 0) {
+			free(ssl_items);
+			errno = EIO;
+			return -1;
+		}
+		if (hs != GSOCKET_HANDSHAKE_DONE) {
+			for (int i = 0; i < count; i++) {
+				items[i].revents = 0;
+			}
+			free(ssl_items);
+			return 0;
+		}
+	}
 
 	/* For QUIC, call SSL_handle_events first to process any pending network I/O */
 	if (io_ctx && io_ctx->ssl && SSL_is_quic(io_ctx->ssl)) {
@@ -1631,6 +1776,10 @@ static struct gsocket_io *_ssl_accept(struct gsocket_io *io, struct sockaddr *ad
 		/* Accept based on SSL object type */
 		if (ctx->ssl_type == SSL_TYPE_QUIC_LISTENER) {
 			/* Listener can only accept connections */
+			if (SSL_get_accept_connection_queue_len(ctx->ssl) == 0) {
+				errno = EAGAIN;
+				return NULL;
+			}
 			new_ssl = SSL_accept_connection(ctx->ssl, 0);
 			if (new_ssl) {
 				/* Set non-blocking mode for the connection */
@@ -1657,6 +1806,10 @@ static struct gsocket_io *_ssl_accept(struct gsocket_io *io, struct sockaddr *ad
 			}
 		} else if (ctx->ssl_type == SSL_TYPE_QUIC_CONNECTION) {
 			/* Connection can accept streams */
+			if (SSL_get_accept_stream_queue_len(ctx->ssl) == 0) {
+				errno = EAGAIN;
+				return NULL;
+			}
 			new_ssl = SSL_accept_stream(ctx->ssl, 0);
 			if (new_ssl) {
 				/* Create IO wrapper for the stream */
@@ -1740,14 +1893,11 @@ static int _ssl_get_poll_events(struct gsocket_io *io)
 
 	/* Only for QUIC connections/listeners, check what network I/O is needed */
 	if (SSL_is_quic(ctx->ssl)) {
-		int events = 0;
-		if (SSL_net_read_desired(ctx->ssl)) {
-			events |= EPOLLIN;
-		}
+		int events = EPOLLIN;
 		if (SSL_net_write_desired(ctx->ssl)) {
 			events |= EPOLLOUT;
 		}
-		return events ? events : (int)EPOLLIN;
+		return events;
 	}
 #endif
 	return (int)EPOLLIN; /* For non-QUIC, always monitor read */
@@ -1868,8 +2018,6 @@ struct gsocket_io *gsocket_io_ssl_quic_new(void *ssl_ctx_void, int is_server)
 	SSL *ssl = NULL;
 	struct gsocket_io *io = NULL;
 	struct ssl_io_ctx *ctx = NULL;
-	struct bio_quic_data *bio_data = NULL;
-	BIO *bio = NULL;
 
 	if (is_server) {
 		/* Server: use SSL_new_listener */
@@ -1932,29 +2080,13 @@ struct gsocket_io *gsocket_io_ssl_quic_new(void *ssl_ctx_void, int is_server)
 	io->get_error = _ssl_get_error;
 	io->listen = _ssl_listen;
 
-	/* Create BIO with quic data */
-	bio_data = calloc(1, sizeof(struct bio_quic_data));
-	if (!bio_data) {
+	if (is_server && _ssl_quic_set_custom_bio(io, is_server) != 0) {
 		goto err;
 	}
-	bio_data->io = io;
-	bio_data->is_server = is_server;
-	bio_data->peer_len = 0;
-
-	bio = BIO_new(get_gs_quic_bio_method());
-	if (!bio) {
-		goto err;
-	}
-	BIO_set_data(bio, bio_data);
-	BIO_set_init(bio, 1);
-	SSL_set_bio(ssl, bio, bio);
 
 	return io;
 
 err:
-	if (bio_data) {
-		free(bio_data);
-	}
 	if (ctx) {
 		free(ctx);
 	}

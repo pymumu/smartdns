@@ -36,6 +36,8 @@ static const char *_ddr_get_alpn(const struct dns_bind_ip *bind_ip)
 		return "dot";
 	case DNS_BIND_TYPE_HTTPS:
 		return "h2,http/1.1";
+	case DNS_BIND_TYPE_HTTPS3:
+		return "h3";
 	default:
 		return NULL;
 	}

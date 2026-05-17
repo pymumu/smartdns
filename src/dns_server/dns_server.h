@@ -20,17 +20,17 @@
 #define _DNS_SERVER_H_
 
 #include "smartdns/lib/atomic.h"
+#include "smartdns/lib/gepoll.h"
+#include "smartdns/lib/gsocket.h"
 #include "smartdns/lib/hashtable.h"
 #include "smartdns/lib/list.h"
 
 #include "smartdns/dns.h"
 #include "smartdns/dns_conf.h"
 #include "smartdns/dns_server.h"
-#include "smartdns/http2.h"
 #include "smartdns/tlog.h"
 #include "smartdns/util.h"
 
-#include <openssl/ssl.h>
 #include <pthread.h>
 
 #ifdef __cplusplus
@@ -54,7 +54,7 @@ extern "C" {
 #define CACHE_AUTO_ENABLE_SIZE (1024 * 1024 * 128)
 #define EXPIRED_DOMAIN_PREFETCH_TIME (3600 * 8)
 #define DNS_MAX_DOMAIN_REFETCH_NUM 64
-#define DNS_SERVER_NEIGHBOR_CACHE_TIMEOUT       1200
+#define DNS_SERVER_NEIGHBOR_CACHE_TIMEOUT 1200
 #define DNS_SERVER_NEIGHBOR_CACHE_NOMAC_TIMEOUT 60
 #define DNS_SERVER_NEIGHBOR_CACHE_MAX_NUM (1024 * 16)
 
@@ -77,7 +77,12 @@ typedef enum {
 	DNS_CONN_TYPE_TLS_CLIENT,
 	DNS_CONN_TYPE_HTTPS_SERVER,
 	DNS_CONN_TYPE_HTTPS_CLIENT,
+	DNS_CONN_TYPE_HTTPS3_SERVER,
+	DNS_CONN_TYPE_HTTPS3_CLIENT,
 	DNS_CONN_TYPE_HTTP2_STREAM,
+	DNS_CONN_TYPE_QUIC_SERVER,
+	DNS_CONN_TYPE_QUIC_CLIENT,
+	DNS_CONN_TYPE_QUIC_STREAM,
 } DNS_CONN_TYPE;
 
 typedef enum DNS_CHILD_POST_RESULT {
@@ -137,7 +142,7 @@ struct dns_conn_buf {
 
 struct dns_server_conn_head {
 	DNS_CONN_TYPE type;
-	int fd;
+	struct gsocket *gs;
 	struct list_head list;
 	time_t last_request_time;
 	atomic_t refcnt;
@@ -185,38 +190,35 @@ struct dns_server_conn_udp {
 	struct dns_server_conn_head head;
 	socklen_t addr_len;
 	struct sockaddr_storage addr;
+
+	socklen_t localaddr_len;
+	struct sockaddr_storage localaddr;
 };
 
-struct dns_server_conn_tcp_server {
-	struct dns_server_conn_head head;
+/* Listener socket for TCP/TLS/HTTPS/QUIC (not in conn_list) */
+struct dns_server_listener {
+	struct dns_server_conn_head head; /* head.type = TCP_SERVER/TLS_SERVER/HTTPS_SERVER/QUIC_SERVER */
+	struct list_head list;            /* in server.listener_list */
+	void *ssl_ctx;                    /* SSL_CTX owned by TLS/HTTPS/QUIC listener */
 };
 
-struct dns_server_conn_tls_server {
-	struct dns_server_conn_head head;
-	SSL_CTX *ssl_ctx;
-};
-
-struct dns_server_conn_tcp_client {
-	struct dns_server_conn_head head;
+/* Unified client connection (replaces tcp_client, tls_client for TCP/TLS/HTTPS/QUIC) */
+struct dns_server_conn_gsocket {
+	struct dns_server_conn_head head; /* head.gs = client gsocket */
+	struct gstream_poll *sp;          /* non-NULL for HTTP2/H3/QUIC – stream management */
+	int conn_idle_timeout;
 	struct dns_conn_buf recvbuff;
 	struct dns_conn_buf sndbuff;
 	socklen_t addr_len;
 	struct sockaddr_storage addr;
-
 	socklen_t localaddr_len;
 	struct sockaddr_storage localaddr;
-
-	int conn_idle_timeout;
-	dns_server_client_status status;
 };
 
-struct dns_server_conn_tls_client {
-	struct dns_server_conn_tcp_client tcp;
-	SSL *ssl;
-	int ssl_want_write;
-	pthread_mutex_t ssl_lock;
-	void *http2_ctx;
-	char alpn_selected[32];
+/* Stream connection (for HTTP2/H3/DoQ streams) */
+struct dns_server_conn_stream {
+	struct dns_server_conn_head head;       /* head.gs = stream gsocket */
+	struct dns_server_conn_gsocket *parent; /* parent connection */
 };
 
 /* ip address lists of domain */
@@ -260,7 +262,7 @@ struct dns_request_https {
 	int port;
 	char ech[DNS_MAX_ECH_LEN];
 	int ech_len;
-	
+
 	int has_ipv4;
 	unsigned char ipv4_addr[DNS_RR_A_LEN];
 	int has_ipv6;
@@ -409,9 +411,12 @@ struct dns_request {
 /* dns server data */
 struct dns_server {
 	atomic_t run;
-	int epoll_fd;
-	int event_fd;
-	struct list_head conn_list;
+	struct gepoll *gepoll;          /* replaces epoll_fd */
+	struct gsocket *wakeup_gs;      /* wraps event_fd for gepoll */
+	struct gsocket *netlink_gs;     /* wraps fd_netlink */
+	int event_fd;                   /* raw eventfd for wakeup writes */
+	struct list_head conn_list;     /* active client connections */
+	struct list_head listener_list; /* listener sockets (dns_server_listener) */
 	pthread_mutex_t conn_list_lock;
 
 	pid_t cache_save_pid;

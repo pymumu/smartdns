@@ -352,6 +352,41 @@ static int _dns_client_add_pendings(struct dns_server_pending *pending, char *ip
 	return 0;
 }
 
+static int _dns_client_pending_server_start_query(struct dns_server_pending *pending, dns_type_t qtype)
+{
+	unsigned int *query_flag = NULL;
+
+	switch (qtype) {
+	case DNS_T_A:
+		query_flag = &pending->query_v4;
+		break;
+	case DNS_T_AAAA:
+		query_flag = &pending->query_v6;
+		break;
+	default:
+		return 0;
+	}
+
+	if (*query_flag != 0) {
+		return 0;
+	}
+
+	*query_flag = 1;
+	if (dns_server_num() == 0) {
+		*query_flag = 0;
+		return 0;
+	}
+
+	_dns_client_server_pending_get(pending);
+	if (dns_server_query(pending->host, qtype, NULL, _dns_client_pending_server_resolve, pending) != 0) {
+		_dns_client_server_pending_release(pending);
+		*query_flag = 0;
+		return 0;
+	}
+
+	return 1;
+}
+
 void _dns_client_remove_all_pending_servers(void)
 {
 	struct dns_server_pending *pending = NULL;
@@ -413,41 +448,33 @@ void _dns_client_add_pending_servers(void)
 		int add_success = 0;
 		char *dnsserver_ip = NULL;
 
-		/* if has no bootstrap DNS, just call getaddrinfo to get address */
+		/* Prefer smartdns rules even when no default bootstrap server exists. */
 		if (dns_client_has_bootstrap_dns == 0) {
-			list_del_init(&pending->retry_list);
-			_dns_client_server_pending_release(pending);
-			pending->retry_cnt++;
-			if (_dns_client_add_pendings(pending, pending->host) != 0) {
-				pthread_mutex_unlock(&pending_server_mutex);
-				tlog(TLOG_INFO, "add pending DNS server %s from resolv.conf failed, retry %d...", pending->host,
-					 pending->retry_cnt - 1);
-				if (pending->retry_cnt - 1 > DNS_PENDING_SERVER_RETRY) {
-					tlog(TLOG_WARN, "add pending DNS server %s from resolv.conf failed, exit...", pending->host);
-					exit(1);
+			int query_started = 0;
+
+			query_started += _dns_client_pending_server_start_query(pending, DNS_T_A);
+			query_started += _dns_client_pending_server_start_query(pending, DNS_T_AAAA);
+
+			if (query_started == 0 && pending->query_v4 == 0 && pending->query_v6 == 0 && pending->has_v4 == 0 &&
+				pending->has_v6 == 0 && pending->has_soa_v4 == 0 && pending->has_soa_v6 == 0) {
+				list_del_init(&pending->retry_list);
+				_dns_client_server_pending_release(pending);
+				pending->retry_cnt++;
+				if (_dns_client_add_pendings(pending, pending->host) != 0) {
+					tlog(TLOG_INFO, "add pending DNS server %s from resolv.conf failed, retry %d...", pending->host,
+						 pending->retry_cnt - 1);
+					if (pending->retry_cnt - 1 > DNS_PENDING_SERVER_RETRY) {
+						tlog(TLOG_WARN, "add pending DNS server %s from resolv.conf failed, exit...", pending->host);
+						exit(1);
+					}
+					continue;
 				}
+				_dns_client_server_pending_release(pending);
 				continue;
 			}
-			_dns_client_server_pending_release(pending);
-			continue;
-		}
-
-		if (pending->query_v4 == 0) {
-			pending->query_v4 = 1;
-			_dns_client_server_pending_get(pending);
-			if (dns_server_query(pending->host, DNS_T_A, NULL, _dns_client_pending_server_resolve, pending) != 0) {
-				_dns_client_server_pending_release(pending);
-				pending->query_v4 = 0;
-			}
-		}
-
-		if (pending->query_v6 == 0) {
-			pending->query_v6 = 1;
-			_dns_client_server_pending_get(pending);
-			if (dns_server_query(pending->host, DNS_T_AAAA, NULL, _dns_client_pending_server_resolve, pending) != 0) {
-				_dns_client_server_pending_release(pending);
-				pending->query_v6 = 0;
-			}
+		} else {
+			_dns_client_pending_server_start_query(pending, DNS_T_A);
+			_dns_client_pending_server_start_query(pending, DNS_T_AAAA);
 		}
 
 		list_del_init(&pending->retry_list);

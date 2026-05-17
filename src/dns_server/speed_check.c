@@ -24,6 +24,7 @@
 
 #include "smartdns/fast_ping.h"
 #include <errno.h>
+#include <stdio.h>
 #include <string.h>
 
 static void _dns_server_ping_result(struct ping_host_struct *ping_host, const char *host, FAST_PING_RESULT result,

@@ -21,9 +21,9 @@
 #include "smartdns/lib/list.h"
 #include "smartdns/lib/rbtree.h"
 #include <errno.h>
+#include <pthread.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <pthread.h>
 
 /* Internal wrapper */
 struct gepoll {
@@ -54,6 +54,21 @@ static struct gepoll_entry *_gepoll_find(struct rb_root *root, int fd)
 			return data;
 		}
 	}
+	return NULL;
+}
+
+static struct gepoll_entry *_gepoll_find_by_sock(struct rb_root *root, struct gsocket *sock)
+{
+	struct rb_node *node = rb_first(root);
+
+	while (node) {
+		struct gepoll_entry *data = rb_entry(node, struct gepoll_entry, _node);
+		if (data->sock == sock) {
+			return data;
+		}
+		node = rb_next(node);
+	}
+
 	return NULL;
 }
 
@@ -129,10 +144,17 @@ int gepoll_add(struct gepoll *ep, struct gsocket *sock, int events, void *user_d
 	}
 
 	struct gepoll_entry *entry = calloc(1, sizeof(struct gepoll_entry));
+	if (entry == NULL) {
+		return -1;
+	}
 	entry->fd = fd;
 	entry->sock = sock;
 	entry->user_data = user_data;
 	entry->user_events = events;
+
+	struct epoll_event ev;
+	ev.events = events;
+	ev.data.ptr = entry;
 
 	pthread_mutex_lock(&ep->lock);
 	if (_gepoll_insert(&ep->registry, entry) != 0) {
@@ -140,17 +162,14 @@ int gepoll_add(struct gepoll *ep, struct gsocket *sock, int events, void *user_d
 		free(entry);
 		return -1;
 	}
-	pthread_mutex_unlock(&ep->lock);
-
-	struct epoll_event ev;
-	ev.events = events;
-	ev.data.ptr = entry;
 
 	if (epoll_ctl(ep->efd, EPOLL_CTL_ADD, fd, &ev) < 0) {
 		rb_erase(&entry->_node, &ep->registry);
+		pthread_mutex_unlock(&ep->lock);
 		free(entry);
 		return -1;
 	}
+	pthread_mutex_unlock(&ep->lock);
 
 	return 0;
 }
@@ -161,18 +180,34 @@ int gepoll_mod(struct gepoll *ep, struct gsocket *sock, int events, void *user_d
 	pthread_mutex_lock(&ep->lock);
 	struct gepoll_entry *entry = _gepoll_find(&ep->registry, fd);
 	if (!entry) {
-		pthread_mutex_unlock(&ep->lock);
-		return -1;
+		entry = _gepoll_find_by_sock(&ep->registry, sock);
+		if (!entry) {
+			pthread_mutex_unlock(&ep->lock);
+			return -1;
+		}
 	}
 
 	entry->user_events = events;
 	entry->user_data = user_data;
-	pthread_mutex_unlock(&ep->lock);
 
 	struct epoll_event ev;
 	ev.data.ptr = entry;
 	ev.events = events;
-	return epoll_ctl(ep->efd, EPOLL_CTL_MOD, fd, &ev);
+	if (entry->fd == fd) {
+		pthread_mutex_unlock(&ep->lock);
+		return epoll_ctl(ep->efd, EPOLL_CTL_MOD, fd, &ev);
+	}
+
+	epoll_ctl(ep->efd, EPOLL_CTL_DEL, entry->fd, NULL);
+	rb_erase(&entry->_node, &ep->registry);
+	entry->fd = fd;
+	if (_gepoll_insert(&ep->registry, entry) != 0) {
+		pthread_mutex_unlock(&ep->lock);
+		return -1;
+	}
+	pthread_mutex_unlock(&ep->lock);
+
+	return epoll_ctl(ep->efd, EPOLL_CTL_ADD, fd, &ev);
 }
 
 int gepoll_del(struct gepoll *ep, struct gsocket *sock)
@@ -181,8 +216,12 @@ int gepoll_del(struct gepoll *ep, struct gsocket *sock)
 	pthread_mutex_lock(&ep->lock);
 	struct gepoll_entry *entry = _gepoll_find(&ep->registry, fd);
 	if (!entry) {
-		pthread_mutex_unlock(&ep->lock);
-		return -1;
+		entry = _gepoll_find_by_sock(&ep->registry, sock);
+		if (!entry) {
+			pthread_mutex_unlock(&ep->lock);
+			return -1;
+		}
+		fd = entry->fd;
 	}
 
 	epoll_ctl(ep->efd, EPOLL_CTL_DEL, fd, NULL);

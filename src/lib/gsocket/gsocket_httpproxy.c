@@ -51,6 +51,11 @@ enum { HTTPPROXY_INIT = 0, HTTPPROXY_AUTH_ACK, HTTPPROXY_DONE, HTTPPROXY_ERR, HT
 /* --- Generic IO Proxies --- */
 static ssize_t _io_proxy_send(struct gsocket_io *io, const void *b, size_t l, int f)
 {
+	struct httpproxy_ctx *ctx = io->ctx;
+	if (ctx->state != HTTPPROXY_DONE) {
+		errno = EAGAIN;
+		return -1;
+	}
 	return io->lower->send(io->lower, b, l, f);
 }
 static ssize_t _io_proxy_recvfrom(struct gsocket_io *io, void *b, size_t l, int f, struct sockaddr *s, socklen_t *sl)
@@ -127,7 +132,7 @@ static int _httpproxy_server_handshake(struct gsocket_io *io)
 			if (ret < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
 				return GSOCKET_HANDSHAKE_WANT_READ;
 			}
-			return GSOCKET_HANDSHAKE_ERR;
+			return ret == 0 ? GSOCKET_HANDSHAKE_EOF : GSOCKET_HANDSHAKE_ERR;
 		}
 
 		ctx->buf_len += ret;
@@ -203,7 +208,8 @@ static int _httpproxy_server_handshake(struct gsocket_io *io)
 				if (parse_ret == 0) {
 					/* Absolute URL, convert to relative */
 					const char *final_path = path[0] == '\0' ? "/" : path;
-					char *new_url = (char *)http_head_buffer_append(head, (const uint8_t *)final_path, strlen(final_path) + 1);
+					char *new_url =
+						(char *)http_head_buffer_append(head, (const uint8_t *)final_path, strlen(final_path) + 1);
 					if (new_url) {
 						http_head_set_url(head, new_url);
 					}
@@ -217,8 +223,10 @@ static int _httpproxy_server_handshake(struct gsocket_io *io)
 						/* Only set Host if not already set or if it's an IP and we have a domain */
 						const char *existing_host = http_head_get_fields_value(head, "Host");
 						if (!existing_host || (check_is_ipaddr(existing_host) == 0 && check_is_ipaddr(host) != 0)) {
-							char *new_host_name = (char *)http_head_buffer_append(head, (const unsigned char *)"Host", 5);
-							char *new_host_val = (char *)http_head_buffer_append(head, (const unsigned char *)host_val, strlen(host_val) + 1);
+							char *new_host_name =
+								(char *)http_head_buffer_append(head, (const unsigned char *)"Host", 5);
+							char *new_host_val = (char *)http_head_buffer_append(head, (const unsigned char *)host_val,
+																				 strlen(host_val) + 1);
 							if (new_host_name && new_host_val) {
 								http_head_del_fields(head, "Host");
 								http_head_add_fields(head, new_host_name, new_host_val);
@@ -352,7 +360,7 @@ static int _httpproxy_client_handshake(struct gsocket_io *io)
 			if (ret < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
 				return GSOCKET_HANDSHAKE_WANT_READ;
 			}
-			return GSOCKET_HANDSHAKE_ERR;
+			return ret == 0 ? GSOCKET_HANDSHAKE_EOF : GSOCKET_HANDSHAKE_ERR;
 		}
 		ctx->buf_len += ret;
 		ctx->buffer[ctx->buf_len] = 0;
@@ -443,6 +451,9 @@ static ssize_t _httpproxy_recv(struct gsocket_io *io, void *buf, size_t len, int
 				errno = EAGAIN;
 				return -1;
 			}
+			if (ret == GSOCKET_HANDSHAKE_EOF) {
+				return 0;
+			}
 			return -1;
 		}
 	}
@@ -467,6 +478,9 @@ static ssize_t _httpproxy_recvmsg(struct gsocket_io *io, struct msghdr *msg, int
 			if (ret == GSOCKET_HANDSHAKE_WANT_READ || ret == GSOCKET_HANDSHAKE_WANT_WRITE) {
 				errno = EAGAIN;
 				return -1;
+			}
+			if (ret == GSOCKET_HANDSHAKE_EOF) {
+				return 0;
 			}
 			return -1;
 		}
@@ -517,8 +531,8 @@ static int _httpproxy_connect(struct gsocket_io *io, const char *host, int port)
 	if (!(flags & O_NONBLOCK)) {
 		while (ctx->state != HTTPPROXY_DONE) {
 			int res = _httpproxy_handshake(io);
-			if (res == GSOCKET_HANDSHAKE_ERR) {
-				errno = EPROTO;
+			if (res < 0) {
+				errno = (res == GSOCKET_HANDSHAKE_EOF) ? ECONNRESET : EPROTO;
 				return -1;
 			}
 			if (res == GSOCKET_HANDSHAKE_DONE) {

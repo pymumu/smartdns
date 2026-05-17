@@ -233,11 +233,8 @@ static int _http1_recv_header(struct http1_ctx *ctx, struct http_head **head_ret
 							flags);
 		if (n > 0) {
 			ctx->unused_len += n;
-		}
-		else if (n == 0) {
-			/* EOF - don't create EOF stream, just return WANT_READ */
-			/* The connection will be closed by the client/test code */
-			return GSOCKET_HANDSHAKE_WANT_READ;
+		} else if (n == 0) {
+			return GSOCKET_HANDSHAKE_EOF;
 		} else if (errno != EAGAIN && errno != EWOULDBLOCK) {
 			return GSOCKET_HANDSHAKE_ERR;
 		}
@@ -493,11 +490,11 @@ static int _http1_conn_handshake(struct gsocket_io *io)
 			return GSOCKET_HANDSHAKE_ERR;
 		}
 		struct http1_stream_ctx *s_ctx = (struct http1_stream_ctx *)s_io->ctx;
-		
+
 		/* Populate stream with request metadata */
 		s_ctx->header_received = 1;
 		_http1_populate_metadata(s_ctx, head);
-		
+
 		ctx->default_stream = s_io;
 		ctx->ready_stream = s_io;
 		return GSOCKET_HANDSHAKE_DONE;
@@ -555,7 +552,7 @@ static int _http1_conn_stream_poll(struct gsocket_io *io, struct gstream_poll_it
 	if (ctx->is_server && !ctx->ready_stream) {
 		_http1_conn_handshake(io);
 	}
-	
+
 	/* Check if underlying network socket has data available */
 	int network_ready = 0;
 	if (io->lower && io->lower->get_fd) {
@@ -570,12 +567,11 @@ static int _http1_conn_stream_poll(struct gsocket_io *io, struct gstream_poll_it
 			}
 		}
 	}
-	
-	
+
 	int signaled = 0;
 	for (int i = 0; i < count; i++) {
 		struct gsocket_io *s_io = gsocket_get_top_layer(items[i].stream);
-		
+
 		if (s_io == io || (s_io->lower && io->lower && s_io->lower == io->lower)) {
 			/* Polling the connection itself - check if new stream is ready to accept */
 			if (ctx->ready_stream && (items[i].events & POLLIN)) {
@@ -586,15 +582,16 @@ static int _http1_conn_stream_poll(struct gsocket_io *io, struct gstream_poll_it
 		} else {
 			/* Polling an existing stream */
 			struct http1_stream_ctx *s_ctx = (struct http1_stream_ctx *)s_io->ctx;
-			
+
 			/* Check POLLIN: stream needs to read request body */
-			int need_read = (s_ctx->header_received && !s_ctx->eof_mode && s_ctx->read_length < s_ctx->content_length) ||
-			                ctx->unused_len > 0 || network_ready;
+			int need_read =
+				(s_ctx->header_received && !s_ctx->eof_mode && s_ctx->read_length < s_ctx->content_length) ||
+				ctx->unused_len > 0 || network_ready;
 			if (need_read && (items[i].events & POLLIN)) {
 				items[i].revents |= POLLIN;
 				signaled++;
 			}
-			
+
 			/* Check POLLOUT: stream is ready to send response (header received, can write) */
 			if (s_ctx->header_received && (items[i].events & POLLOUT)) {
 				items[i].revents |= POLLOUT;
@@ -602,7 +599,7 @@ static int _http1_conn_stream_poll(struct gsocket_io *io, struct gstream_poll_it
 			}
 		}
 	}
-	
+
 	return signaled;
 }
 
@@ -685,6 +682,8 @@ static ssize_t _http1_conn_recv(struct gsocket_io *io, void *b, size_t l, int f)
 		if (r != GSOCKET_HANDSHAKE_DONE) {
 			if (r == GSOCKET_HANDSHAKE_WANT_READ) {
 				errno = EAGAIN;
+			} else if (r == GSOCKET_HANDSHAKE_EOF) {
+				return 0;
 			}
 
 			return -1;

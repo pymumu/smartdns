@@ -62,6 +62,7 @@ static int _sock_shutdown(struct gsocket_io *io, int how);
 /* Default Socket Layer (Bottom Layer) */
 struct socket_io_ctx {
 	int fd;
+	int connect_pending;
 };
 
 static ssize_t _sock_recv(struct gsocket_io *io, void *buf, size_t len, int flags)
@@ -114,8 +115,35 @@ static int _sock_get_fd(struct gsocket_io *io)
 
 static int _sock_handshake(struct gsocket_io *io)
 {
-	/* Plain sockets don't have a handshake */
+	struct socket_io_ctx *ctx = io->ctx;
+	if (ctx->connect_pending) {
+		int err = 0;
+		socklen_t err_len = sizeof(err);
+		if (getsockopt(ctx->fd, SOL_SOCKET, SO_ERROR, &err, &err_len) != 0) {
+			return GSOCKET_HANDSHAKE_ERR;
+		}
+		if (err != 0) {
+			errno = err;
+			return GSOCKET_HANDSHAKE_ERR;
+		}
+		ctx->connect_pending = 0;
+	}
+
 	return GSOCKET_HANDSHAKE_DONE;
+}
+
+static int _sock_connect_ret(struct socket_io_ctx *ctx, int ret)
+{
+	if (ret == 0) {
+		ctx->connect_pending = 0;
+		return 0;
+	}
+
+	if (errno == EINPROGRESS) {
+		ctx->connect_pending = 1;
+	}
+
+	return ret;
 }
 
 static int _sock_connect(struct gsocket_io *io, const char *host, int port)
@@ -130,14 +158,14 @@ static int _sock_connect(struct gsocket_io *io, const char *host, int port)
 	if (inet_pton(AF_INET, host, &addr4->sin_addr) == 1) {
 		addr4->sin_family = AF_INET;
 		addr4->sin_port = htons(port);
-		return connect(fd, (struct sockaddr *)addr4, sizeof(struct sockaddr_in));
+		return _sock_connect_ret(ctx, connect(fd, (struct sockaddr *)addr4, sizeof(struct sockaddr_in)));
 	}
 
 	struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)&addr;
 	if (inet_pton(AF_INET6, host, &addr6->sin6_addr) == 1) {
 		addr6->sin6_family = AF_INET6;
 		addr6->sin6_port = htons(port);
-		return connect(fd, (struct sockaddr *)addr6, sizeof(struct sockaddr_in6));
+		return _sock_connect_ret(ctx, connect(fd, (struct sockaddr *)addr6, sizeof(struct sockaddr_in6)));
 	}
 
 	// Resolve host
@@ -149,7 +177,8 @@ static int _sock_connect(struct gsocket_io *io, const char *host, int port)
 	char port_str[16];
 	snprintf(port_str, sizeof(port_str), "%d", port);
 
-	if (host && host[0] == '\0') host = NULL;
+	if (host && host[0] == '\0')
+		host = NULL;
 	if (getaddrinfo(host, port_str, &hints, &res) != 0) {
 		return -1;
 	}
@@ -159,7 +188,7 @@ static int _sock_connect(struct gsocket_io *io, const char *host, int port)
 		ret = connect(fd, res->ai_addr, res->ai_addrlen);
 		freeaddrinfo(res);
 	}
-	return ret;
+	return _sock_connect_ret(ctx, ret);
 }
 
 static int _sock_bind(struct gsocket_io *io, const char *host, int port)
@@ -177,7 +206,8 @@ static int _sock_bind(struct gsocket_io *io, const char *host, int port)
 
 	snprintf(port_str, sizeof(port_str), "%d", port);
 
-	if (host && host[0] == '\0') host = NULL;
+	if (host && host[0] == '\0')
+		host = NULL;
 	if (getaddrinfo(host, port_str, &hints, &res) != 0) {
 		return -1;
 	}
@@ -332,18 +362,36 @@ void gsocket_free(struct gsocket *sock)
 int gsocket_close(struct gsocket *sock)
 {
 	if (!sock || !sock->top_layer || !sock->top_layer->close) {
-		return -1;
+		if (!sock || !sock->top_layer) {
+			return -1;
+		}
 	}
-	return sock->top_layer->close(sock->top_layer);
+
+	int ret = 0;
+	struct gsocket_io *curr = sock->top_layer;
+	while (curr) {
+		if (curr->close && curr->close(curr) != 0) {
+			ret = -1;
+		}
+		curr = curr->lower;
+	}
+
+	return ret;
 }
 
-void gsocket_push_layer(struct gsocket *sock, struct gsocket_io *layer)
+int gsocket_push_layer(struct gsocket *sock, struct gsocket_io *layer)
 {
-	if (!sock || !layer) {
-		return;
+	if (sock == NULL || layer == NULL) {
+		if (layer != NULL && layer->free) {
+			layer->free(layer);
+		}
+		errno = EINVAL;
+		return -1;
 	}
+
 	layer->lower = sock->top_layer;
 	sock->top_layer = layer;
+	return 0;
 }
 
 struct gsocket_io *gsocket_get_top_layer(struct gsocket *sock)
@@ -356,7 +404,7 @@ int gsocket_get_fd(struct gsocket *sock)
 	if (!sock) {
 		return -1;
 	}
-	
+
 	if (sock->top_layer && sock->top_layer->get_fd) {
 		return sock->top_layer->get_fd(sock->top_layer);
 	}
@@ -372,7 +420,7 @@ ssize_t gsocket_recv(struct gsocket *sock, void *buf, size_t len, int flags)
 		errno = EINVAL;
 		return -1;
 	}
-	
+
 	if (!sock->top_layer || !sock->top_layer->recv) {
 		return -1;
 	}
@@ -385,11 +433,40 @@ ssize_t gsocket_send(struct gsocket *sock, const void *buf, size_t len, int flag
 		errno = EINVAL;
 		return -1;
 	}
-	
+
 	if (!sock->top_layer || !sock->top_layer->send) {
 		return -1;
 	}
 	return sock->top_layer->send(sock->top_layer, buf, len, flags);
+}
+
+int gsocket_send_all(struct gsocket *sock, const void *buf, int len, int flags)
+{
+	const unsigned char *data = buf;
+	int offset = 0;
+
+	if (len < 0 || (len > 0 && buf == NULL)) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	if (len == 0) {
+		return gsocket_send(sock, NULL, 0, flags) >= 0 ? 0 : -1;
+	}
+
+	while (offset < len) {
+		ssize_t sent = gsocket_send(sock, data + offset, len - offset, flags);
+		if (sent < 0) {
+			return -1;
+		}
+		if (sent == 0) {
+			errno = EAGAIN;
+			return -1;
+		}
+		offset += (int)sent;
+	}
+
+	return 0;
 }
 
 ssize_t gsocket_recvfrom(struct gsocket *sock, void *buf, size_t len, int flags, struct sockaddr *src_addr,
@@ -399,7 +476,7 @@ ssize_t gsocket_recvfrom(struct gsocket *sock, void *buf, size_t len, int flags,
 		errno = EINVAL;
 		return -1;
 	}
-	
+
 	if (!sock->top_layer || !sock->top_layer->recvfrom) {
 		return -1;
 	}
@@ -413,7 +490,7 @@ ssize_t gsocket_sendto(struct gsocket *sock, const void *buf, size_t len, int fl
 		errno = EINVAL;
 		return -1;
 	}
-	
+
 	if (!sock->top_layer || !sock->top_layer->sendto) {
 		return -1;
 	}
@@ -426,7 +503,7 @@ ssize_t gsocket_recvmsg(struct gsocket *sock, struct msghdr *msg, int flags)
 		errno = EINVAL;
 		return -1;
 	}
-	
+
 	if (!sock->top_layer || !sock->top_layer->recvmsg) {
 		return -1;
 	}
@@ -439,7 +516,7 @@ ssize_t gsocket_sendmsg(struct gsocket *sock, const struct msghdr *msg, int flag
 		errno = EINVAL;
 		return -1;
 	}
-	
+
 	if (!sock->top_layer || !sock->top_layer->sendmsg) {
 		return -1;
 	}
@@ -471,7 +548,7 @@ int gsocket_handshake(struct gsocket *sock)
 	if (!sock) {
 		return GSOCKET_HANDSHAKE_ERR;
 	}
-	
+
 	if (!sock->top_layer || !sock->top_layer->handshake) {
 		return GSOCKET_HANDSHAKE_DONE;
 	}
@@ -514,7 +591,7 @@ int gsocket_listen(struct gsocket *sock, int backlog)
 	if (!sock) {
 		return -1;
 	}
-	
+
 	if (!sock->top_layer || !sock->top_layer->listen) {
 		return -1;
 	}
@@ -568,11 +645,11 @@ err:
 	if (new_fd >= 0) {
 		close(new_fd);
 	}
-	
+
 	if (new_ctx) {
 		free(new_ctx);
 	}
-	
+
 	if (new_io) {
 		free(new_io);
 	}
@@ -584,7 +661,7 @@ struct gsocket *gsocket_accept(struct gsocket *sock, struct sockaddr *addr, sock
 	if (!sock) {
 		return NULL;
 	}
-	
+
 	if (!sock->top_layer || !sock->top_layer->accept) {
 		return NULL;
 	}
@@ -621,7 +698,7 @@ struct gsocket *gsocket_open_stream(struct gsocket *sock)
 	if (!sock) {
 		return NULL;
 	}
-	
+
 	if (!sock->top_layer || !sock->top_layer->open_stream) {
 		return NULL;
 	}
@@ -648,7 +725,7 @@ int gsocket_shutdown(struct gsocket *sock, int how)
 	if (!sock) {
 		return -1;
 	}
-	
+
 	if (!sock->top_layer || !sock->top_layer->shutdown) {
 		return -1;
 	}
@@ -661,7 +738,7 @@ int gsocket_getsockname(struct gsocket *sock, struct sockaddr *addr, socklen_t *
 	if (!sock) {
 		return -1;
 	}
-	
+
 	if (!sock->top_layer || !sock->top_layer->getsockname) {
 		return -1;
 	}
@@ -672,7 +749,7 @@ int gsocket_getpeername(struct gsocket *sock, struct sockaddr *addr, socklen_t *
 	if (!sock) {
 		return -1;
 	}
-	
+
 	if (!sock->top_layer || !sock->top_layer->getpeername) {
 		return -1;
 	}
@@ -708,7 +785,7 @@ int gsocket_setsockopt(struct gsocket *sock, int level, int optname, const void 
 	if (!sock) {
 		return -1;
 	}
-	
+
 	if (!sock->top_layer || !sock->top_layer->setsockopt) {
 		return -1;
 	}

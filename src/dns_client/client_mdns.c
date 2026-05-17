@@ -24,17 +24,18 @@
 #include "smartdns/lib/stringutil.h"
 #include "smartdns/util.h"
 
+#include "smartdns/lib/gepoll.h"
+#include "smartdns/lib/gsocket.h"
+#include <errno.h>
 #include <ifaddrs.h>
 #include <net/if.h>
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
-#include <sys/epoll.h>
 #include <sys/ioctl.h>
 
 int _dns_client_create_socket_udp_mdns(struct dns_server_info *server_info)
 {
 	int fd = -1;
-	struct epoll_event event;
 	const int on = 1;
 	const int val = 1;
 	const int priority = SOCKET_PRIORITY;
@@ -60,38 +61,41 @@ int _dns_client_create_socket_udp_mdns(struct dns_server_info *server_info)
 		goto errout;
 	}
 
-	server_info->fd = fd;
+	server_info->gs = gsocket_new(fd);
+	if (server_info->gs == NULL) {
+		tlog(TLOG_ERROR, "create gsocket failed");
+		goto errout;
+	}
 	server_info->status = DNS_SERVER_STATUS_CONNECTIONLESS;
 	server_info->security_status = DNS_CLIENT_SERVER_SECURITY_NOT_APPLICABLE;
 
-	memset(&event, 0, sizeof(event));
-	event.events = EPOLLIN;
-	event.data.ptr = server_info;
-	if (epoll_ctl(client.epoll_fd, EPOLL_CTL_ADD, fd, &event) != 0) {
-		tlog(TLOG_ERROR, "epoll ctl failed.");
-		return -1;
+	if (gepoll_add(client.gepoll, server_info->gs, EPOLLIN, server_info) != 0) {
+		tlog(TLOG_ERROR, "gepoll add failed.");
+		goto errout;
 	}
 
-	setsockopt(server_info->fd, IPPROTO_IP, IP_RECVTTL, &on, sizeof(on));
-	setsockopt(server_info->fd, SOL_IP, IP_TTL, &val, sizeof(val));
-	setsockopt(server_info->fd, SOL_SOCKET, SO_PRIORITY, &priority, sizeof(priority));
-	setsockopt(server_info->fd, IPPROTO_IP, IP_TOS, &ip_tos, sizeof(ip_tos));
-	setsockopt(server_info->fd, IPPROTO_IP, IP_MULTICAST_TTL, &val, sizeof(val));
+	setsockopt(fd, IPPROTO_IP, IP_RECVTTL, &on, sizeof(on));
+	setsockopt(fd, SOL_IP, IP_TTL, &val, sizeof(val));
+	setsockopt(fd, SOL_SOCKET, SO_PRIORITY, &priority, sizeof(priority));
+	setsockopt(fd, IPPROTO_IP, IP_TOS, &ip_tos, sizeof(ip_tos));
+	setsockopt(fd, IPPROTO_IP, IP_MULTICAST_TTL, &val, sizeof(val));
 	if (server_info->ai_family == AF_INET6) {
 		/* for receiving ip ttl value */
-		setsockopt(server_info->fd, IPPROTO_IPV6, IPV6_RECVHOPLIMIT, &on, sizeof(on));
-		setsockopt(server_info->fd, IPPROTO_IPV6, IPV6_2292HOPLIMIT, &on, sizeof(on));
-		setsockopt(server_info->fd, IPPROTO_IPV6, IPV6_HOPLIMIT, &on, sizeof(on));
-		setsockopt(server_info->fd, IPPROTO_IPV6, IPV6_MULTICAST_HOPS, &val, sizeof(val));
+		setsockopt(fd, IPPROTO_IPV6, IPV6_RECVHOPLIMIT, &on, sizeof(on));
+		setsockopt(fd, IPPROTO_IPV6, IPV6_2292HOPLIMIT, &on, sizeof(on));
+		setsockopt(fd, IPPROTO_IPV6, IPV6_HOPLIMIT, &on, sizeof(on));
+		setsockopt(fd, IPPROTO_IPV6, IPV6_MULTICAST_HOPS, &val, sizeof(val));
 	}
 
 	return 0;
 errout:
-	if (fd > 0) {
+	if (server_info->gs) {
+		gsocket_free(server_info->gs);
+		server_info->gs = NULL;
+	} else if (fd > 0) {
 		close(fd);
 	}
 
-	server_info->fd = -1;
 	server_info->status = DNS_SERVER_STATUS_DISCONNECTED;
 
 	return -1;
@@ -103,11 +107,11 @@ int _dns_client_send_udp_mdns(struct dns_server_info *server_info, void *packet,
 	const struct sockaddr *addr = &server_info->addr;
 	socklen_t addrlen = server_info->ai_addrlen;
 
-	if (server_info->fd <= 0) {
+	if (server_info->gs == NULL) {
 		return -1;
 	}
 
-	send_len = sendto(server_info->fd, packet, len, 0, addr, addrlen);
+	send_len = sendto(gsocket_get_fd(server_info->gs), packet, len, 0, addr, addrlen);
 	if (send_len != len) {
 		goto errout;
 	}

@@ -25,6 +25,7 @@
 #include "soa.h"
 
 #include <ifaddrs.h>
+#include <stdio.h>
 
 static int _dns_server_is_private_address(const unsigned char *addr, int addr_len)
 {

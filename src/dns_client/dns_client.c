@@ -20,26 +20,19 @@
 
 #include "smartdns/util.h"
 
-#include "client_http2.h"
-#include "client_http3.h"
-#include "client_https.h"
+#include "client_gsocket.h"
 #include "client_mdns.h"
-#include "client_quic.h"
 #include "client_socket.h"
-#include "client_tcp.h"
-#include "client_tls.h"
-#include "client_udp.h"
 #include "conn_stream.h"
 #include "dns_client.h"
 #include "ecs.h"
 #include "group.h"
 #include "packet.h"
 #include "pending_server.h"
-#include "proxy.h"
 #include "query.h"
 #include "server_info.h"
-#include "proxy.h"
 #include "wake_event.h"
+#include <errno.h>
 
 static int is_client_init;
 struct dns_client client;
@@ -198,15 +191,8 @@ int _dns_client_recv(struct dns_server_info *server_info, unsigned char *inpacke
 	return 0;
 }
 
-static int _dns_client_process(struct dns_server_info *server_info, struct epoll_event *event, unsigned long now)
+static int _dns_client_process(struct dns_server_info *server_info, struct gepoll_event *event, unsigned long now)
 {
-	if (server_info->proxy) {
-		int ret = _dns_proxy_handshake(server_info, client.epoll_fd, event, now);
-		if (ret != 0) {
-			return ret;
-		}
-	}
-
 	if (server_info->type == DNS_SERVER_UDP || server_info->type == DNS_SERVER_MDNS) {
 		/* receive from udp */
 		return _dns_client_process_udp(server_info, event, now);
@@ -227,14 +213,12 @@ static int _dns_client_process(struct dns_server_info *server_info, struct epoll
 static int _dns_client_send_http(struct dns_server_info *server_info, struct dns_query_struct *query, void *packet_data,
 								 int packet_data_len)
 {
-	/* If ALPN is negotiated and is NOT h2, use HTTP/1.1 */
-	if (server_info->alpn_selected[0] != '\0' && strncmp(server_info->alpn_selected, "h2", 2) != 0) {
-		return _dns_client_send_http1(server_info, packet_data, packet_data_len);
-	}
-
-	/* Default to HTTP/2 buffering (stream-based).
-	   If ALPN later turns out to be H1, _dns_client_process_https_streams will handle it. */
 	return _dns_client_send_http2(server_info, query, packet_data, packet_data_len);
+}
+
+static int _dns_client_server_can_keep_socket_on_prohibit(struct dns_server_info *server_info)
+{
+	return server_info->type == DNS_SERVER_UDP || server_info->type == DNS_SERVER_MDNS;
 }
 
 static int _dns_client_check_server_prohibit(struct dns_server_info *server_info, int prohibit_time)
@@ -246,21 +230,36 @@ static int _dns_client_check_server_prohibit(struct dns_server_info *server_info
 			time(&server_info->last_send);
 			time(&server_info->last_recv);
 			if (server_info->type != DNS_SERVER_MDNS) {
-				tlog(TLOG_INFO, "server %s not alive, prohibit", server_info->ip);
+				tlog(TLOG_INFO,
+					 "server %s:%d not alive, prohibit begin, type=%d status=%d prohibit_time=%d send_len=%d "
+					 "recv_len=%d",
+					 server_info->ip, server_info->port, server_info->type, server_info->status, prohibit_time,
+					 server_info->send_buff.len, server_info->recv_buff.len);
 			}
-			_dns_client_shutdown_socket(server_info);
+			if (_dns_client_server_can_keep_socket_on_prohibit(server_info)) {
+				_dns_client_shutdown_socket(server_info);
+			} else {
+				DNS_CLIENT_CLOSE_SOCKET_REASON(server_info, "server prohibit begin", 0);
+			}
 		}
 
 		time_t now = 0;
 		time(&now);
 		if ((now - prohibit_time < server_info->last_send)) {
+			tlog(TLOG_DEBUG,
+				 "server %s:%d skip by prohibit, remain=%ld, type=%d status=%d last_send=%ld now=%ld",
+				 server_info->ip, server_info->port, (long)(server_info->last_send + prohibit_time - now),
+				 server_info->type, server_info->status, (long)server_info->last_send, (long)now);
 			return 1;
 		}
+		tlog(TLOG_DEBUG, "server %s:%d prohibit expired, retry allowed, type=%d status=%d", server_info->ip,
+			 server_info->port, server_info->type, server_info->status);
 		server_info->prohibit = 0;
 		server_info->is_already_prohibit = 0;
 		_dns_server_dec_prohibit_server_num(server_info);
-		if (now - prohibit_time >= server_info->last_send) {
-			_dns_client_close_socket(server_info);
+		if (_dns_client_server_can_keep_socket_on_prohibit(server_info) &&
+			now - prohibit_time >= server_info->last_send) {
+			DNS_CLIENT_CLOSE_SOCKET_REASON(server_info, "server prohibit expired udp close", 0);
 		}
 	}
 	return 0;
@@ -307,12 +306,12 @@ static int _dns_client_send_one_packet(struct dns_server_info *server_info, stru
 			break;
 		case DNS_SERVER_QUIC:
 			/* quic query */
-			ret = _dns_client_send_quic(query, server_info, packet_data, packet_data_len);
+			ret = _dns_client_send_quic(server_info, query, packet_data, packet_data_len);
 			send_err = errno;
 			break;
 		case DNS_SERVER_HTTP3:
 			/* http3 query */
-			ret = _dns_client_send_http3(query, server_info, packet_data, packet_data_len);
+			ret = _dns_client_send_http3(server_info, query, packet_data, packet_data_len);
 			send_err = errno;
 			break;
 		default:
@@ -331,13 +330,16 @@ static int _dns_client_send_one_packet(struct dns_server_info *server_info, stru
 			case EISCONN:
 			case ENOTCONN:
 			case ENOTSOCK:
-			case EOPNOTSUPP: {
+			case EOPNOTSUPP:
+			case EPROTO: {
 				tlog(TLOG_DEBUG, "send query to %s failed, %s, type: %d", server_info->ip, strerror(send_err),
 					 server_info->type);
-				_dns_client_close_socket(server_info);
+				DNS_CLIENT_CLOSE_SOCKET_REASON(server_info, "send fatal error", send_err);
 				if (retry == 0) {
 					retry = 1;
 					if (_dns_client_create_socket(server_info) == 0) {
+						tlog(TLOG_DEBUG, "send query to %s:%d retry with recreated socket, type=%d",
+							 server_info->ip, server_info->port, server_info->type);
 						continue;
 					}
 				}
@@ -352,7 +354,12 @@ static int _dns_client_send_one_packet(struct dns_server_info *server_info, stru
 				 server_info->type);
 			time_t now = 0;
 			time(&now);
-			if (now - 10 > server_info->last_recv || send_err != ENOMEM) {
+			if (now - 10 > server_info->last_recv ||
+				(send_err != ENOMEM && (send_err != ENOBUFS || ret != DNS_SEND_RET_NON_FATAL))) {
+				tlog(TLOG_DEBUG,
+					 "server %s:%d set prohibit by send failure, err=%d(%s), ret=%d, last_recv_age=%ld, type=%d",
+					 server_info->ip, server_info->port, send_err, strerror(send_err), ret,
+					 (long)(now - server_info->last_recv), server_info->type);
 				server_info->prohibit = 1;
 			}
 
@@ -416,8 +423,13 @@ int _dns_client_send_packet(struct dns_query_struct *query, void *packet, int le
 			tlog(TLOG_DEBUG, "send query to server %s:%d, type:%d", server_info->ip, server_info->port,
 				 server_info->type);
 			if (_dns_client_is_conn_valid(server_info) == 0) {
+				if (server_info->gs != NULL) {
+					DNS_CLIENT_CLOSE_SOCKET_REASON(server_info, "invalid cached connection before send", 0);
+				}
 				ret = _dns_client_create_socket(server_info);
 				if (ret != 0) {
+					tlog(TLOG_DEBUG, "server %s:%d set prohibit by create socket failure, type=%d errno=%d(%s)",
+						 server_info->ip, server_info->port, server_info->type, errno, strerror(errno));
 					server_info->prohibit = 1;
 					continue;
 				}
@@ -597,7 +609,7 @@ static void _dns_client_period_run(unsigned int msec)
 
 static void *_dns_client_work(void *arg)
 {
-	struct epoll_event events[DNS_MAX_EVENTS + 1];
+	struct gepoll_event events[DNS_MAX_EVENTS + 1];
 	struct dns_server_info *server_infos[DNS_MAX_EVENTS + 1];
 
 	int num = 0;
@@ -644,7 +656,7 @@ static void *_dns_client_work(void *arg)
 			sleep_time = 0;
 		}
 
-		num = epoll_wait(client.epoll_fd, events, DNS_MAX_EVENTS, sleep_time);
+		num = gepoll_wait(client.gepoll, events, DNS_MAX_EVENTS, sleep_time);
 		if (num < 0) {
 			usleep(100000);
 			continue;
@@ -652,19 +664,15 @@ static void *_dns_client_work(void *arg)
 
 		/* 1. Get references */
 		for (i = 0; i < num; i++) {
-			struct epoll_event *event = &events[i];
+			struct gepoll_event *event = &events[i];
 			struct dns_server_info *server_info = NULL;
 
-			if (event->data.fd == client.fd_wakeup) {
+			if (event->user_data == NULL) {
 				server_infos[i] = NULL;
 				continue;
 			}
 
-			if (proxy_conn_is_epoll_event(event->data.ptr)) {
-				server_info = (struct dns_server_info *)proxy_conn_get_event_userdata(event->data.ptr);
-			} else {
-				server_info = (struct dns_server_info *)event->data.ptr;
-			}
+			server_info = (struct dns_server_info *)event->user_data;
 
 			if (server_info) {
 				dns_client_server_info_get(server_info);
@@ -674,11 +682,12 @@ static void *_dns_client_work(void *arg)
 
 		/* 2. Process events */
 		for (i = 0; i < num; i++) {
-			struct epoll_event *event = &events[i];
+			struct gepoll_event *event = &events[i];
 			struct dns_server_info *server_info = server_infos[i];
 
-			if (event->data.fd == client.fd_wakeup) {
+			if (event->user_data == NULL) {
 				_dns_client_clear_wakeup_event();
+				expect_time = get_tick_count();
 				continue;
 			}
 
@@ -691,8 +700,8 @@ static void *_dns_client_work(void *arg)
 		}
 	}
 
-	close(client.epoll_fd);
-	client.epoll_fd = -1;
+	gepoll_destroy(client.gepoll);
+	client.gepoll = NULL;
 
 	return NULL;
 }
@@ -700,7 +709,6 @@ static void *_dns_client_work(void *arg)
 int dns_client_init(void)
 {
 	pthread_attr_t attr;
-	int epollfd = -1;
 	int fd_wakeup = -1;
 	int ret = 0;
 
@@ -708,19 +716,20 @@ int dns_client_init(void)
 		return -1;
 	}
 
-	if (client.epoll_fd > 0) {
+	if (client.gepoll != NULL) {
 		return -1;
 	}
 
 	memset(&client, 0, sizeof(client));
+	client.fd_wakeup = -1;
 	pthread_attr_init(&attr);
 	atomic_set(&client.dns_server_num, 0);
 	atomic_set(&client.dns_server_prohibit_num, 0);
 	atomic_set(&client.run_period, 0);
 
-	epollfd = epoll_create1(EPOLL_CLOEXEC);
-	if (epollfd < 0) {
-		tlog(TLOG_ERROR, "create epoll failed, %s\n", strerror(errno));
+	client.gepoll = gepoll_create(0);
+	if (client.gepoll == NULL) {
+		tlog(TLOG_ERROR, "create gepoll failed, %s\n", strerror(errno));
 		goto errout;
 	}
 
@@ -743,7 +752,6 @@ int dns_client_init(void)
 	}
 
 	client.default_group = _dns_client_get_group(DNS_SERVER_GROUP_DEFAULT);
-	client.epoll_fd = epollfd;
 	atomic_set(&client.run, 1);
 
 	/* start work task */
@@ -771,8 +779,9 @@ errout:
 		client.tid = 0;
 	}
 
-	if (epollfd > 0) {
-		close(epollfd);
+	if (client.gepoll != NULL) {
+		gepoll_destroy(client.gepoll);
+		client.gepoll = NULL;
 	}
 
 	if (fd_wakeup > 0) {

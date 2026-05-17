@@ -233,7 +233,11 @@ struct gsocket *gsocket_group_new(enum gsocket_group_policy policy)
 	io->get_fd = _group_get_fd;
 
 	/* gsocket_new has already set a bottom layer. We push ours. */
-	gsocket_push_layer(group_sock, io);
+	if (gsocket_push_layer(group_sock, io) != 0) {
+		io = NULL;
+		ctx = NULL;
+		goto err;
+	}
 
 	return group_sock;
 
