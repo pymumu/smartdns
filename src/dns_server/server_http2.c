@@ -109,7 +109,7 @@ static void _dns_server_http2_process_stream(struct dns_server_conn_tls_client *
 		char *base64_query = NULL;
 
 		if (http2_stream_get_ex_data(stream)) {
-			goto close_out;
+			return;
 		}
 		http2_stream_set_ex_data(stream, (void *)1);
 
