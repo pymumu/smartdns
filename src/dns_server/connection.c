@@ -19,6 +19,7 @@
 #include "connection.h"
 #include "dns_server.h"
 #include "server_gsocket.h"
+#include "server_gsocket_stream.h"
 
 #include "smartdns/lib/gepoll.h"
 #include "smartdns/lib/gsocket.h"
@@ -60,6 +61,11 @@ void _dns_server_conn_release(struct dns_server_conn_head *conn)
 		return;
 	}
 
+	struct dns_server_conn_head *parent = NULL;
+	if (conn->type == DNS_CONN_TYPE_HTTP2_STREAM || conn->type == DNS_CONN_TYPE_QUIC_STREAM) {
+		parent = &((struct dns_server_conn_stream *)conn)->parent->head;
+	}
+
 	/* Close and free the gsocket */
 	if (conn->gs != NULL) {
 		if (conn->type == DNS_CONN_TYPE_TCP_CLIENT || conn->type == DNS_CONN_TYPE_TLS_CLIENT ||
@@ -67,8 +73,7 @@ void _dns_server_conn_release(struct dns_server_conn_head *conn)
 			conn->type == DNS_CONN_TYPE_QUIC_CLIENT) {
 			struct dns_server_conn_gsocket *gclient = (struct dns_server_conn_gsocket *)conn;
 			if (gclient->sp != NULL) {
-				gstream_poll_destroy(gclient->sp);
-				gclient->sp = NULL;
+				dns_server_gstream_poll_destroy(gclient);
 			}
 		}
 		gsocket_close(conn->gs);
@@ -79,6 +84,9 @@ void _dns_server_conn_release(struct dns_server_conn_head *conn)
 	pthread_mutex_lock(&server.conn_list_lock);
 	list_del_init(&conn->list);
 	pthread_mutex_unlock(&server.conn_list_lock);
+	if (parent != NULL) {
+		_dns_server_conn_release(parent);
+	}
 	free(conn);
 }
 

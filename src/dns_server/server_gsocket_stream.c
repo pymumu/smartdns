@@ -31,6 +31,7 @@
 #include <errno.h>
 #include <poll.h>
 #include <stddef.h>
+#include <stdlib.h>
 
 typedef int (*dns_server_gstream_request_fn)(struct dns_server_conn_gsocket *conn, struct gsocket *stream);
 
@@ -39,6 +40,12 @@ struct dns_server_gstream_proto_ops {
 	dns_server_gstream_request_fn process_request;
 	int stream_owned_ret;
 	int update_parent_events;
+};
+
+struct dns_server_pending_stream {
+	struct list_head list;
+	struct gsocket *stream;
+	atomic_t refcnt;
 };
 
 struct dns_server_conn_stream *dns_server_gstream_adopt(struct dns_server_conn_gsocket *parent,
@@ -55,6 +62,7 @@ struct dns_server_conn_stream *dns_server_gstream_adopt(struct dns_server_conn_g
 	sc->head.dns_group = parent->head.dns_group;
 	sc->head.ipset_nftset_rule = parent->head.ipset_nftset_rule;
 	sc->parent = parent;
+	_dns_server_conn_get(&parent->head);
 	atomic_set(&sc->head.refcnt, 0);
 	INIT_LIST_HEAD(&sc->head.list);
 
@@ -92,6 +100,55 @@ static void _dns_server_gstream_close_stream(struct gsocket **stream)
 	*stream = NULL;
 }
 
+static void _dns_server_gstream_pending_get(struct dns_server_pending_stream *pending)
+{
+	if (pending == NULL) {
+		return;
+	}
+
+	if (atomic_inc_return(&pending->refcnt) <= 0) {
+		BUG("BUG: server pending stream ref is invalid.");
+	}
+}
+
+static void _dns_server_gstream_pending_put(struct dns_server_pending_stream *pending)
+{
+	if (pending == NULL) {
+		return;
+	}
+
+	int refcnt = atomic_dec_return(&pending->refcnt);
+	if (refcnt) {
+		if (refcnt < 0) {
+			BUG("BUG: server pending stream refcnt is %d", refcnt);
+		}
+		return;
+	}
+
+	list_del_init(&pending->list);
+	_dns_server_gstream_close_stream(&pending->stream);
+	free(pending);
+}
+
+void dns_server_gstream_poll_destroy(struct dns_server_conn_gsocket *conn)
+{
+	if (conn == NULL) {
+		return;
+	}
+
+	if (conn->sp != NULL) {
+		gstream_poll_destroy(conn->sp);
+		conn->sp = NULL;
+	}
+
+	struct dns_server_pending_stream *pending = NULL;
+	struct dns_server_pending_stream *tmp = NULL;
+	list_for_each_entry_safe(pending, tmp, &conn->pending_stream_list, list)
+	{
+		_dns_server_gstream_pending_put(pending);
+	}
+}
+
 static void _dns_server_gstream_accept_pending(struct dns_server_conn_gsocket *conn)
 {
 	while (1) {
@@ -99,30 +156,49 @@ static void _dns_server_gstream_accept_pending(struct dns_server_conn_gsocket *c
 		if (!stream) {
 			break;
 		}
-		if (gstream_poll_add(conn->sp, stream, POLLIN, stream) != 0) {
+		struct dns_server_pending_stream *pending = zalloc(1, sizeof(*pending));
+		if (pending == NULL) {
 			_dns_server_gstream_close_stream(&stream);
+			break;
+		}
+		INIT_LIST_HEAD(&pending->list);
+		pending->stream = stream;
+		atomic_set(&pending->refcnt, 1);
+		list_add_tail(&pending->list, &conn->pending_stream_list);
+		if (gstream_poll_add(conn->sp, stream, POLLIN, pending) != 0) {
+			_dns_server_gstream_pending_put(pending);
 		}
 	}
 }
 
-static int _dns_server_gstream_process_stream_event(struct dns_server_conn_gsocket *conn, struct gsocket *stream,
+static int _dns_server_gstream_process_stream_event(struct dns_server_conn_gsocket *conn,
+													struct dns_server_pending_stream *pending,
 													dns_server_gstream_request_fn process_request, int stream_owned_ret)
 {
+	struct gsocket *stream = pending->stream;
 	gstream_poll_del(conn->sp, stream);
+	list_del_init(&pending->list);
 
 	int ret = process_request(conn, stream);
 	if (ret == -EAGAIN) {
-		if (gstream_poll_add(conn->sp, stream, POLLIN, stream) != 0) {
-			_dns_server_gstream_close_stream(&stream);
+		list_add_tail(&pending->list, &conn->pending_stream_list);
+		if (gstream_poll_add(conn->sp, stream, POLLIN, pending) != 0) {
+			_dns_server_gstream_pending_put(pending);
+			_dns_server_gstream_pending_put(pending);
 			return -1;
 		}
+		_dns_server_gstream_pending_put(pending);
 		return 0;
 	}
 
 	if (ret != stream_owned_ret) {
-		_dns_server_gstream_close_stream(&stream);
+		_dns_server_gstream_close_stream(&pending->stream);
+	} else {
+		pending->stream = NULL;
 	}
 
+	_dns_server_gstream_pending_put(pending);
+	_dns_server_gstream_pending_put(pending);
 	return 0;
 }
 
@@ -149,7 +225,12 @@ static int _dns_server_gstream_process_events(struct dns_server_conn_gsocket *co
 			if (s == conn->head.gs) {
 				_dns_server_gstream_accept_pending(conn);
 			} else if (events[i].revents & POLLIN) {
-				if (_dns_server_gstream_process_stream_event(conn, s, process_request, stream_owned_ret) != 0) {
+				struct dns_server_pending_stream *pending = events[i].user_data;
+				if (pending == NULL || pending->stream != s) {
+					continue;
+				}
+				_dns_server_gstream_pending_get(pending);
+				if (_dns_server_gstream_process_stream_event(conn, pending, process_request, stream_owned_ret) != 0) {
 					return -1;
 				}
 			}

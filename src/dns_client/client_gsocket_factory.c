@@ -469,6 +469,143 @@ static void _dns_client_set_ssl_opts(struct gsocket *gs, struct dns_server_info 
 	}
 }
 
+struct dns_client_socket_build_spec {
+	int socket_type;
+	int use_socket_family_from_proxy;
+	int is_quic;
+	int add_tls_layer;
+	int add_quic_layer;
+	int add_stream_poll;
+	const char *hostname;
+	const char *alpn;
+	const char *name;
+	int (*push_app_layer)(struct gsocket *gs);
+};
+
+static int _dns_client_push_http2_layer(struct gsocket *gs)
+{
+	return _dns_client_push_layer(gs, gsocket_io_http2_new(0), "http2");
+}
+
+static int _dns_client_push_http3_layer(struct gsocket *gs)
+{
+	return _dns_client_push_layer(gs, gsocket_io_http3_new(0), "http3");
+}
+
+static int _dns_client_socket_build_create_fd(struct dns_server_info *server_info,
+											  const struct dns_client_socket_build_spec *spec)
+{
+	int family = spec->use_socket_family_from_proxy ? _dns_client_get_socket_family(server_info) : server_info->ai_family;
+	int fd = socket(family, spec->socket_type, 0);
+	if (fd < 0) {
+		tlog(TLOG_ERROR, "create %s socket failed, %s", spec->name, strerror(errno));
+		return -1;
+	}
+
+	if (set_fd_nonblock(fd, 1) != 0) {
+		tlog(TLOG_ERROR, "set %s socket non block failed, %s", spec->name, strerror(errno));
+		close(fd);
+		return -1;
+	}
+
+	_dns_client_set_socket_opts(fd, server_info);
+	return fd;
+}
+
+static int _dns_client_socket_build_push_layers(struct dns_server_info *server_info,
+												struct gsocket *gs,
+												const struct dns_client_socket_build_spec *spec)
+{
+	if (_dns_client_push_proxy_layer(gs, server_info) != 0) {
+		return -1;
+	}
+
+	if (spec->add_tls_layer || spec->add_quic_layer) {
+		SSL_CTX *ssl_ctx = _ssl_ctx_get(spec->is_quic);
+		if (ssl_ctx == NULL) {
+			tlog(TLOG_ERROR, "get %s ssl ctx failed for %s", spec->name, server_info->ip);
+			return -1;
+		}
+
+		struct gsocket_io *crypto_io = spec->add_quic_layer ? gsocket_io_ssl_quic_new(ssl_ctx, 0)
+															 : gsocket_io_ssl_new(ssl_ctx, 0);
+		if (_dns_client_push_layer(gs, crypto_io, spec->add_quic_layer ? "quic" : "ssl") != 0) {
+			return -1;
+		}
+		_dns_client_set_ssl_opts(gs, server_info, spec->hostname, spec->alpn, server_info->type);
+	}
+
+	if (spec->push_app_layer != NULL && spec->push_app_layer(gs) != 0) {
+		return -1;
+	}
+
+	return 0;
+}
+
+static int _dns_client_create_socket_connected(struct dns_server_info *server_info,
+											   const struct dns_client_socket_build_spec *spec)
+{
+	int fd = -1;
+	struct gsocket *gs = NULL;
+	struct gstream_poll *sp = NULL;
+	const char *connect_host = NULL;
+	int connect_port = 0;
+
+	fd = _dns_client_socket_build_create_fd(server_info, spec);
+	if (fd < 0) {
+		goto errout;
+	}
+
+	gs = gsocket_new(fd);
+	if (gs == NULL) {
+		goto errout;
+	}
+	fd = -1;
+
+	if (server_info->type == DNS_SERVER_TCP && server_info->tcp_keepalive > 0) {
+		gsocket_set_keepalive(gs, server_info->tcp_keepalive, 3, 5);
+	}
+
+	if (_dns_client_socket_build_push_layers(server_info, gs, spec) != 0) {
+		goto errout;
+	}
+
+	_dns_client_get_connect_target(server_info, &connect_host, &connect_port);
+	if (gsocket_connect(gs, connect_host, connect_port) != 0 && errno != EINPROGRESS) {
+		tlog(TLOG_DEBUG, "connect %s %s failed, %s", spec->name, connect_host, strerror(errno));
+		goto errout;
+	}
+
+	if (spec->add_stream_poll) {
+		sp = gstream_poll_create(gs);
+		if (sp == NULL) {
+			tlog(TLOG_ERROR, "create gstream_poll for %s failed", server_info->ip);
+			goto errout;
+		}
+		server_info->sp = sp;
+	}
+
+	server_info->gs = gs;
+	server_info->status = DNS_SERVER_STATUS_CONNECTING;
+
+	if (gepoll_add(client.gepoll, gs, EPOLLIN | EPOLLOUT, server_info) != 0) {
+		tlog(TLOG_ERROR, "gepoll add %s failed.", spec->name);
+		goto errout;
+	}
+
+	return 0;
+
+errout:
+	if (server_info->sp == sp) {
+		server_info->sp = NULL;
+	}
+	if (sp != NULL) {
+		gstream_poll_destroy(sp);
+	}
+	_dns_client_socket_create_cleanup(server_info, &gs, &fd);
+	return -1;
+}
+
 int _dns_client_create_socket_udp(struct dns_server_info *server_info)
 {
 	const int on = 1;
@@ -531,209 +668,39 @@ errout:
 
 int _dns_client_create_socket_tcp(struct dns_server_info *server_info)
 {
-	struct gsocket *gs = NULL;
-	int fd = socket(_dns_client_get_socket_family(server_info), SOCK_STREAM, 0);
-	if (fd < 0) {
-		tlog(TLOG_ERROR, "create tcp socket failed, %s", strerror(errno));
-		goto errout;
-	}
-
-	if (set_fd_nonblock(fd, 1) != 0) {
-		tlog(TLOG_ERROR, "set tcp socket non block failed, %s", strerror(errno));
-		goto errout;
-	}
-
-	_dns_client_set_socket_opts(fd, server_info);
-
-	gs = gsocket_new(fd);
-	if (gs == NULL) {
-		goto errout;
-	}
-	fd = -1;
-
-	if (server_info->tcp_keepalive > 0) {
-		gsocket_set_keepalive(gs, server_info->tcp_keepalive, 3, 5);
-	}
-
-	if (_dns_client_push_proxy_layer(gs, server_info) != 0) {
-		goto errout;
-	}
-
-	const char *connect_host;
-	int connect_port;
-	_dns_client_get_connect_target(server_info, &connect_host, &connect_port);
-
-	if (gsocket_connect(gs, connect_host, connect_port) != 0 && errno != EINPROGRESS) {
-		tlog(TLOG_DEBUG, "connect tcp %s failed, %s", connect_host, strerror(errno));
-		goto errout;
-	}
-
-	server_info->gs = gs;
-	server_info->status = DNS_SERVER_STATUS_CONNECTING;
-
-	if (gepoll_add(client.gepoll, gs, EPOLLIN | EPOLLOUT, server_info) != 0) {
-		tlog(TLOG_ERROR, "gepoll add tcp failed.");
-		goto errout;
-	}
-
-	return 0;
-
-errout:
-	_dns_client_socket_create_cleanup(server_info, &gs, &fd);
-	return -1;
+	const struct dns_client_socket_build_spec spec = {
+		.socket_type = SOCK_STREAM,
+		.use_socket_family_from_proxy = 1,
+		.name = "tcp",
+	};
+	return _dns_client_create_socket_connected(server_info, &spec);
 }
 
 int _dns_client_create_socket_tls(struct dns_server_info *server_info, const char *hostname, const char *alpn)
 {
-	int fd = -1;
-	struct gsocket *gs = NULL;
-	SSL_CTX *ssl_ctx = _ssl_ctx_get(0);
-	if (ssl_ctx == NULL) {
-		tlog(TLOG_ERROR, "get ssl ctx failed for %s", server_info->ip);
-		goto errout;
-	}
-
-	fd = socket(_dns_client_get_socket_family(server_info), SOCK_STREAM, 0);
-	if (fd < 0) {
-		tlog(TLOG_ERROR, "create tls socket failed, %s", strerror(errno));
-		goto errout;
-	}
-
-	if (set_fd_nonblock(fd, 1) != 0) {
-		tlog(TLOG_ERROR, "set tls socket non block failed, %s", strerror(errno));
-		goto errout;
-	}
-
-	_dns_client_set_socket_opts(fd, server_info);
-
-	gs = gsocket_new(fd);
-	if (gs == NULL) {
-		goto errout;
-	}
-	fd = -1;
-
-	if (_dns_client_push_proxy_layer(gs, server_info) != 0) {
-		goto errout;
-	}
-
-	const char *connect_host;
-	int connect_port;
-	_dns_client_get_connect_target(server_info, &connect_host, &connect_port);
-
-	struct gsocket_io *ssl_io = gsocket_io_ssl_new(ssl_ctx, 0);
-	if (_dns_client_push_layer(gs, ssl_io, "ssl") != 0) {
-		goto errout;
-	}
-
-	_dns_client_set_ssl_opts(gs, server_info, hostname, alpn, server_info->type);
-
-	if (server_info->type == DNS_SERVER_HTTPS) {
-		struct gsocket_io *http2_io = gsocket_io_http2_new(0);
-		if (_dns_client_push_layer(gs, http2_io, "http2") != 0) {
-			goto errout;
-		}
-	}
-
-	if (gsocket_connect(gs, connect_host, connect_port) != 0 && errno != EINPROGRESS) {
-		tlog(TLOG_DEBUG, "connect tls %s failed, %s", connect_host, strerror(errno));
-		goto errout;
-	}
-
-	server_info->gs = gs;
-	server_info->status = DNS_SERVER_STATUS_CONNECTING;
-	if (gepoll_add(client.gepoll, gs, EPOLLIN | EPOLLOUT, server_info) != 0) {
-		tlog(TLOG_ERROR, "gepoll add tls failed.");
-		goto errout;
-	}
-
-	return 0;
-
-errout:
-	_dns_client_socket_create_cleanup(server_info, &gs, &fd);
-	return -1;
+	const struct dns_client_socket_build_spec spec = {
+		.socket_type = SOCK_STREAM,
+		.use_socket_family_from_proxy = 1,
+		.add_tls_layer = 1,
+		.hostname = hostname,
+		.alpn = alpn,
+		.name = "tls",
+		.push_app_layer = server_info->type == DNS_SERVER_HTTPS ? _dns_client_push_http2_layer : NULL,
+	};
+	return _dns_client_create_socket_connected(server_info, &spec);
 }
 
 int _dns_client_create_socket_quic(struct dns_server_info *server_info, const char *hostname, const char *alpn)
 {
-	int fd = -1;
-	struct gsocket *gs = NULL;
-	struct gstream_poll *sp = NULL;
-	SSL_CTX *ssl_ctx = _ssl_ctx_get(1);
-	if (ssl_ctx == NULL) {
-		tlog(TLOG_ERROR, "get quic ssl ctx failed for %s", server_info->ip);
-		goto errout;
-	}
-
-	fd = socket(server_info->ai_family, SOCK_DGRAM, 0);
-	if (fd < 0) {
-		tlog(TLOG_ERROR, "create quic socket failed, %s", strerror(errno));
-		goto errout;
-	}
-
-	if (set_fd_nonblock(fd, 1) != 0) {
-		tlog(TLOG_ERROR, "set quic socket non block failed, %s", strerror(errno));
-		goto errout;
-	}
-
-	_dns_client_set_socket_opts(fd, server_info);
-
-	gs = gsocket_new(fd);
-	if (gs == NULL) {
-		goto errout;
-	}
-	fd = -1;
-
-	if (_dns_client_push_proxy_layer(gs, server_info) != 0) {
-		goto errout;
-	}
-
-	struct gsocket_io *quic_io = gsocket_io_ssl_quic_new(ssl_ctx, 0);
-	if (_dns_client_push_layer(gs, quic_io, "quic") != 0) {
-		goto errout;
-	}
-
-	_dns_client_set_ssl_opts(gs, server_info, hostname, alpn, server_info->type);
-
-	if (server_info->type == DNS_SERVER_HTTP3) {
-		struct gsocket_io *http3_io = gsocket_io_http3_new(0);
-		if (_dns_client_push_layer(gs, http3_io, "http3") != 0) {
-			goto errout;
-		}
-	}
-
-	const char *connect_host;
-	int connect_port;
-	_dns_client_get_connect_target(server_info, &connect_host, &connect_port);
-
-	if (gsocket_connect(gs, connect_host, connect_port) != 0 && errno != EINPROGRESS) {
-		tlog(TLOG_DEBUG, "connect quic %s failed, %s", connect_host, strerror(errno));
-		goto errout;
-	}
-
-	sp = gstream_poll_create(gs);
-	if (sp == NULL) {
-		tlog(TLOG_ERROR, "create gstream_poll for %s failed", server_info->ip);
-		goto errout;
-	}
-
-	server_info->gs = gs;
-	server_info->sp = sp;
-	server_info->status = DNS_SERVER_STATUS_CONNECTING;
-
-	if (gepoll_add(client.gepoll, gs, EPOLLIN | EPOLLOUT, server_info) != 0) {
-		tlog(TLOG_ERROR, "gepoll add quic failed.");
-		goto errout;
-	}
-
-	return 0;
-
-errout:
-	if (server_info->sp == sp) {
-		server_info->sp = NULL;
-	}
-	if (sp != NULL) {
-		gstream_poll_destroy(sp);
-	}
-	_dns_client_socket_create_cleanup(server_info, &gs, &fd);
-	return -1;
+	const struct dns_client_socket_build_spec spec = {
+		.socket_type = SOCK_DGRAM,
+		.is_quic = 1,
+		.add_quic_layer = 1,
+		.add_stream_poll = 1,
+		.hostname = hostname,
+		.alpn = alpn,
+		.name = "quic",
+		.push_app_layer = server_info->type == DNS_SERVER_HTTP3 ? _dns_client_push_http3_layer : NULL,
+	};
+	return _dns_client_create_socket_connected(server_info, &spec);
 }

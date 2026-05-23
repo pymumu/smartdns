@@ -18,6 +18,7 @@
 
 #include "client_gsocket.h"
 
+#include "client_gsocket_proto.h"
 #include "client_socket.h"
 
 #include <arpa/inet.h>
@@ -71,19 +72,21 @@ int _dns_client_process_tcp(struct dns_server_info *server_info, struct gepoll_e
 
 	/* Drive proxy/SSL handshake (SOCKS5, HTTP-proxy, etc.) before data transfer */
 	if (server_info->status == DNS_SERVER_STATUS_CONNECTING) {
-		int hs = gsocket_handshake(server_info->gs);
+		struct dns_gsocket_conn conn;
+		int ev_flags = 0;
+		int hs = 0;
+
+		dns_gsocket_conn_init(&conn, DNS_GSOCKET_CLIENT, dns_client_gsocket_proto_get(server_info->type),
+							  server_info);
+		conn.gs = server_info->gs;
+		conn.status = server_info->status;
+
+		hs = dns_gsocket_driver_handshake(&conn, &ev_flags);
 		if (hs < 0) {
-			if (errno == 0) {
-				errno = ECONNRESET;
-			}
 			_dns_client_set_close_error(&close_error, "tcp handshake error", errno);
 			goto errout;
 		}
-		if (hs != GSOCKET_HANDSHAKE_DONE) {
-			int ev_flags = EPOLLIN;
-			if (hs == GSOCKET_HANDSHAKE_WANT_WRITE) {
-				ev_flags |= EPOLLOUT;
-			}
+		if (hs == 0) {
 			gepoll_mod(client.gepoll, server_info->gs, ev_flags, server_info);
 			pthread_mutex_unlock(&server_info->lock);
 			return 0;

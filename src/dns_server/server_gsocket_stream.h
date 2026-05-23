@@ -27,5 +27,6 @@ struct dns_server_conn_stream *dns_server_gstream_adopt(struct dns_server_conn_g
 int dns_server_gstream_dispatch_query(struct dns_server_conn_gsocket *parent, struct gsocket *stream_gs,
 									  DNS_CONN_TYPE stream_type, unsigned char *packet, int packet_len);
 int dns_server_gstream_process_client_events(struct dns_server_conn_gsocket *conn);
+void dns_server_gstream_poll_destroy(struct dns_server_conn_gsocket *conn);
 
 #endif

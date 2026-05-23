@@ -24,6 +24,8 @@
 
 #include "connection.h"
 #include "dns_server.h"
+#include "server_gsocket_proto.h"
+#include "server_gsocket_stream.h"
 
 #include "smartdns/dns_conf.h"
 #include "smartdns/util.h"
@@ -56,7 +58,7 @@ static void _dns_server_gsocket_process_udp_multiplex_clients(void)
 	pthread_mutex_lock(&server.conn_list_lock);
 	list_for_each_entry(conn, &server.conn_list, list)
 	{
-		if (conn->type != DNS_CONN_TYPE_QUIC_CLIENT && conn->type != DNS_CONN_TYPE_HTTPS3_CLIENT) {
+		if (!dns_server_gsocket_proto_is_udp_multiplex_client(conn->type)) {
 			continue;
 		}
 
@@ -82,10 +84,7 @@ static void _dns_server_gsocket_free_unlisted_conn(struct dns_server_conn_gsocke
 		return;
 	}
 
-	if (conn->sp) {
-		gstream_poll_destroy(conn->sp);
-		conn->sp = NULL;
-	}
+	dns_server_gstream_poll_destroy(conn);
 	_dns_server_gsocket_free_gsocket(&conn->head.gs);
 	free(conn);
 }
@@ -108,6 +107,7 @@ static struct dns_server_conn_gsocket *_dns_server_gsocket_new_client(struct dns
 	conn->localaddr_len = sizeof(conn->localaddr);
 	atomic_set(&conn->head.refcnt, 0);
 	INIT_LIST_HEAD(&conn->head.list);
+	INIT_LIST_HEAD(&conn->pending_stream_list);
 	time(&conn->head.last_request_time);
 
 	return conn;
@@ -149,8 +149,11 @@ static int _dns_server_gsocket_process_quic_listener(struct dns_server_listener 
 		gsocket_set_nonblock(conn_gs, 1);
 		gsocket_handshake(conn_gs);
 
-		DNS_CONN_TYPE client_type = (listener->head.type == DNS_CONN_TYPE_HTTPS3_SERVER) ? DNS_CONN_TYPE_HTTPS3_CLIENT
-																						 : DNS_CONN_TYPE_QUIC_CLIENT;
+		DNS_CONN_TYPE client_type;
+		if (dns_server_gsocket_proto_get_client_type(listener->head.type, &client_type) != 0) {
+			_dns_server_gsocket_free_gsocket(&conn_gs);
+			continue;
+		}
 		struct dns_server_conn_gsocket *conn = _dns_server_gsocket_new_client(listener, conn_gs, client_type);
 		if (!conn) {
 			_dns_server_gsocket_free_gsocket(&conn_gs);
@@ -175,7 +178,7 @@ int _dns_server_gsocket_process_listener(struct dns_server_conn_head *head, stru
 {
 	struct dns_server_listener *listener = (struct dns_server_listener *)head;
 
-	if (head->type == DNS_CONN_TYPE_QUIC_SERVER || head->type == DNS_CONN_TYPE_HTTPS3_SERVER) {
+	if (dns_server_gsocket_proto_is_quic_listener(head->type)) {
 		return _dns_server_gsocket_process_quic_listener(listener, now);
 	}
 
@@ -194,17 +197,7 @@ int _dns_server_gsocket_process_listener(struct dns_server_conn_head *head, stru
 		set_sock_keepalive(gsocket_get_fd(client_gs), 30, 3, 5);
 
 		DNS_CONN_TYPE client_type;
-		switch (head->type) {
-		case DNS_CONN_TYPE_TCP_SERVER:
-			client_type = DNS_CONN_TYPE_TCP_CLIENT;
-			break;
-		case DNS_CONN_TYPE_TLS_SERVER:
-			client_type = DNS_CONN_TYPE_TLS_CLIENT;
-			break;
-		case DNS_CONN_TYPE_HTTPS_SERVER:
-			client_type = DNS_CONN_TYPE_HTTPS_CLIENT;
-			break;
-		default:
+		if (dns_server_gsocket_proto_get_client_type(head->type, &client_type) != 0) {
 			_dns_server_gsocket_free_gsocket(&client_gs);
 			continue;
 		}
@@ -219,21 +212,23 @@ int _dns_server_gsocket_process_listener(struct dns_server_conn_head *head, stru
 		conn->addr_len = addr_len;
 		getsocket_inet(gsocket_get_fd(client_gs), (struct sockaddr *)&conn->localaddr, &conn->localaddr_len);
 
-		if (client_type == DNS_CONN_TYPE_HTTPS_CLIENT) {
+		if (dns_server_gsocket_proto_client_needs_stream_poll(client_type)) {
 			if (_dns_server_gsocket_init_stream_poll(conn, client_gs) != 0) {
 				_dns_server_gsocket_free_unlisted_conn(conn);
 				continue;
 			}
 		}
 
+		struct dns_gsocket_conn gconn;
 		int ev_flags = EPOLLIN;
-		int hs = gsocket_handshake(client_gs);
+		int hs = 0;
+
+		dns_gsocket_conn_init(&gconn, DNS_GSOCKET_SERVER_CLIENT, dns_server_gsocket_proto_get(client_type), conn);
+		gconn.gs = client_gs;
+		hs = dns_gsocket_driver_handshake(&gconn, &ev_flags);
 		if (hs < 0) {
 			_dns_server_gsocket_free_unlisted_conn(conn);
 			continue;
-		}
-		if (hs == GSOCKET_HANDSHAKE_WANT_WRITE) {
-			ev_flags |= EPOLLOUT;
 		}
 
 		if (gepoll_add(server.gepoll, client_gs, ev_flags, conn) != 0) {

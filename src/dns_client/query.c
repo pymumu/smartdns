@@ -21,6 +21,7 @@
 #include "conn_stream.h"
 #include "ecs.h"
 #include "query.h"
+#include "wake_event.h"
 #include <openssl/rand.h>
 
 void _dns_client_query_get(struct dns_query_struct *query)
@@ -145,9 +146,36 @@ static void _dns_client_query_cancel_pending(struct dns_query_struct *query)
 		list_del_init(&pend->list);
 		atomic_dec(&pending_query->dns_request_sent);
 		atomic_dec(&pending_query->stream_pending_count);
+		_dns_client_query_schedule_retry_on_send_failure(pending_query, "cancel pending before retry");
 		_dns_client_query_release(pending_query);
 		free(pend);
 	}
+}
+
+void _dns_client_query_schedule_retry_on_send_failure(struct dns_query_struct *query, const char *reason)
+{
+	if (query == NULL) {
+		return;
+	}
+
+	int request_num = atomic_dec_return(&query->dns_request_sent);
+	if (request_num < 0) {
+		tlog(TLOG_ERROR, "send count is invalid, %d", request_num);
+		return;
+	}
+
+	if (request_num == 0 && query->has_result == 0) {
+		tlog(TLOG_DEBUG, "%s: retry schedule: domain=%s qtype=%d id=%d sent=%d retry=%ld pending=%ld",
+			 reason ? reason : "send failure", query->domain, query->qtype, query->sid, request_num,
+			 atomic_read(&query->retry_count), atomic_read(&query->stream_pending_count));
+		query->send_tick = get_tick_count() - DNS_QUERY_TIMEOUT;
+		_dns_client_do_wakeup_event();
+		return;
+	}
+
+	tlog(TLOG_DEBUG, "%s: no retry yet: domain=%s qtype=%d id=%d sent=%d retry=%ld pending=%ld has_result=%d",
+		 reason ? reason : "send failure", query->domain, query->qtype, query->sid, request_num,
+		 atomic_read(&query->retry_count), atomic_read(&query->stream_pending_count), query->has_result);
 }
 
 static int _dns_client_query_has_active_pending(struct dns_query_struct *query, unsigned long now)

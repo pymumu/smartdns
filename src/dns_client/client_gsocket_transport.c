@@ -18,6 +18,7 @@
 
 #include "client_gsocket.h"
 
+#include "client_gsocket_proto.h"
 #include "client_gsocket_stream.h"
 #include "client_socket.h"
 
@@ -44,16 +45,39 @@ static void _dns_client_tls_close_server(struct dns_server_info *server_info,
 
 static int _dns_client_tls_flush_stream_pending_locked(struct dns_server_info *server_info)
 {
+	int need_close = 0;
+
 	if (list_empty(&server_info->http2_pending_list)) {
 		return 0;
 	}
 
-	/* Stream sends may lock server_info internally. */
+	/*
+	 * Stream sends open/attach sub-streams and may take server_info->lock.
+	 * Mark the connection busy before dropping the lock so close paths defer
+	 * freeing the underlying HTTP2/HTTP3/QUIC connection.
+	 */
+	server_info->gstream_processing++;
 	pthread_mutex_unlock(&server_info->lock);
 	_dns_client_flush_stream_pending(server_info);
 	pthread_mutex_lock(&server_info->lock);
 
+	if (server_info->gstream_processing > 0) {
+		server_info->gstream_processing--;
+	}
+	if (server_info->gstream_processing == 0 && server_info->gstream_close_pending) {
+		server_info->gstream_close_pending = 0;
+		need_close = 1;
+	}
+	if (need_close) {
+		pthread_mutex_unlock(&server_info->lock);
+		_dns_client_close_socket(server_info);
+		pthread_mutex_lock(&server_info->lock);
+		errno = ECONNRESET;
+		return -1;
+	}
+
 	if (server_info->gs == NULL) {
+		errno = ECONNRESET;
 		return -1;
 	}
 
@@ -150,26 +174,25 @@ static int _dns_client_tls_on_handshake_done_locked(struct dns_server_info *serv
 
 static int _dns_client_tls_drive_handshake_locked(struct dns_server_info *server_info)
 {
+	struct dns_gsocket_conn conn;
+	int ev_flags = 0;
+	int hs = 0;
+
 	if (server_info->status != DNS_SERVER_STATUS_CONNECTING) {
 		return 1;
 	}
 
-	int hs = gsocket_handshake(server_info->gs);
+	dns_gsocket_conn_init(&conn, DNS_GSOCKET_CLIENT, dns_client_gsocket_proto_get(server_info->type), server_info);
+	conn.gs = server_info->gs;
+	conn.sp = server_info->sp;
+	conn.status = server_info->status;
+
+	hs = dns_gsocket_driver_handshake(&conn, &ev_flags);
 	if (hs < 0) {
-		if (errno == 0) {
-			errno = ECONNRESET;
-		}
 		return -1;
 	}
 
-	if (hs != GSOCKET_HANDSHAKE_DONE) {
-		int ev_flags = EPOLLIN;
-		if (server_info->type == DNS_SERVER_QUIC || server_info->type == DNS_SERVER_HTTP3) {
-			/* QUIC needs periodic event driving (timers/PTO) even without socket readability. */
-			ev_flags |= EPOLLOUT;
-		} else if (hs == GSOCKET_HANDSHAKE_WANT_WRITE) {
-			ev_flags |= EPOLLOUT;
-		}
+	if (hs == 0) {
 		_dns_client_tls_touch_pending_locked(server_info);
 		gepoll_mod(client.gepoll, server_info->gs, ev_flags, server_info);
 		return 0;

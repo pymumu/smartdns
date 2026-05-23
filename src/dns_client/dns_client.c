@@ -21,6 +21,7 @@
 #include "smartdns/util.h"
 
 #include "client_gsocket.h"
+#include "client_gsocket_proto.h"
 #include "client_mdns.h"
 #include "client_socket.h"
 #include "conn_stream.h"
@@ -193,32 +194,12 @@ int _dns_client_recv(struct dns_server_info *server_info, unsigned char *inpacke
 
 static int _dns_client_process(struct dns_server_info *server_info, struct gepoll_event *event, unsigned long now)
 {
-	if (server_info->type == DNS_SERVER_UDP || server_info->type == DNS_SERVER_MDNS) {
-		/* receive from udp */
-		return _dns_client_process_udp(server_info, event, now);
-	} else if (server_info->type == DNS_SERVER_TCP) {
-		/* receive from tcp */
-		return _dns_client_process_tcp(server_info, event, now);
-	} else if (server_info->type == DNS_SERVER_TLS || server_info->type == DNS_SERVER_HTTPS ||
-			   server_info->type == DNS_SERVER_QUIC || server_info->type == DNS_SERVER_HTTP3) {
-		/* receive from tls */
-		return _dns_client_process_tls(server_info, event, now);
-	} else {
-		return -1;
-	}
-
-	return 0;
-}
-
-static int _dns_client_send_http(struct dns_server_info *server_info, struct dns_query_struct *query, void *packet_data,
-								 int packet_data_len)
-{
-	return _dns_client_send_http2(server_info, query, packet_data, packet_data_len);
+	return dns_client_gsocket_proto_process(server_info, event, now);
 }
 
 static int _dns_client_server_can_keep_socket_on_prohibit(struct dns_server_info *server_info)
 {
-	return server_info->type == DNS_SERVER_UDP || server_info->type == DNS_SERVER_MDNS;
+	return dns_client_gsocket_proto_can_keep_socket_on_prohibit(server_info);
 }
 
 static int _dns_client_check_server_prohibit(struct dns_server_info *server_info, int prohibit_time)
@@ -278,49 +259,18 @@ static int _dns_client_send_one_packet(struct dns_server_info *server_info, stru
 	server_info->send_tick = get_tick_count();
 
 	while (1) {
-		switch (server_info->type) {
-		case DNS_SERVER_UDP:
-			/* udp query */
-			ret = _dns_client_send_udp(server_info, packet_data, packet_data_len);
-			send_err = errno;
-			break;
-		case DNS_SERVER_TCP:
-			/* tcp query */
-			ret = _dns_client_send_tcp(server_info, packet_data, packet_data_len);
-			send_err = errno;
-			break;
-		case DNS_SERVER_TLS:
-			/* tls query */
-			ret = _dns_client_send_tls(server_info, packet_data, packet_data_len);
-			send_err = errno;
-			break;
-		case DNS_SERVER_HTTPS:
-			/* https query - buffer raw data in stream, protocol determined later */
-			ret = _dns_client_send_http(server_info, query, packet_data, packet_data_len);
-			send_err = errno;
-			break;
-		case DNS_SERVER_MDNS:
-			/* mdns query */
-			ret = _dns_client_send_udp_mdns(server_info, packet_data, packet_data_len);
-			send_err = errno;
-			break;
-		case DNS_SERVER_QUIC:
-			/* quic query */
-			ret = _dns_client_send_quic(server_info, query, packet_data, packet_data_len);
-			send_err = errno;
-			break;
-		case DNS_SERVER_HTTP3:
-			/* http3 query */
-			ret = _dns_client_send_http3(server_info, query, packet_data, packet_data_len);
-			send_err = errno;
-			break;
-		default:
-			/* unsupported query type */
-			ret = -1;
-			break;
-		}
+		ret = dns_client_gsocket_proto_send_query(server_info, query, packet_data, packet_data_len);
+		send_err = errno;
 
 		if (ret != 0) {
+			if (ret == DNS_SEND_RET_NON_FATAL &&
+				(send_err == EAGAIN || send_err == EWOULDBLOCK || send_err == ENOBUFS)) {
+				tlog(TLOG_DEBUG, "send query to %s deferred, %s, type: %d", server_info->ip, strerror(send_err),
+					 server_info->type);
+				atomic_dec(&query->dns_request_sent);
+				return -1;
+			}
+
 			switch (send_err) {
 			case EBADF:
 			case ECONNRESET:

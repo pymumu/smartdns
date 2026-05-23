@@ -24,6 +24,7 @@
 
 #include "connection.h"
 #include "dns_server.h"
+#include "server_gsocket_proto.h"
 #include "server_gsocket_stream.h"
 
 #include <errno.h>
@@ -100,16 +101,19 @@ static int _dns_server_gsocket_tcp_send_buffered(struct dns_server_conn_gsocket 
 
 static int _dns_server_gsocket_drive_client_handshake(struct dns_server_conn_gsocket *conn)
 {
-	int hs = gsocket_handshake(conn->head.gs);
+	struct dns_gsocket_conn gconn;
+	int ev_flags = 0;
+	int hs = 0;
+
+	dns_gsocket_conn_init(&gconn, DNS_GSOCKET_SERVER_CLIENT, dns_server_gsocket_proto_get(conn->head.type), conn);
+	gconn.gs = conn->head.gs;
+
+	hs = dns_gsocket_driver_handshake(&gconn, &ev_flags);
 	if (hs < 0) {
 		return -1;
 	}
 
-	if (hs != GSOCKET_HANDSHAKE_DONE) {
-		int ev_flags = EPOLLIN;
-		if (hs == GSOCKET_HANDSHAKE_WANT_WRITE) {
-			ev_flags |= EPOLLOUT;
-		}
+	if (hs == 0) {
 		gepoll_mod(server.gepoll, conn->head.gs, ev_flags, conn);
 		return 0;
 	}
@@ -154,27 +158,16 @@ int _dns_server_gsocket_process_client(struct dns_server_conn_gsocket *conn, str
 		return 0;
 	}
 
-	switch (conn->head.type) {
-	case DNS_CONN_TYPE_TCP_CLIENT:
-	case DNS_CONN_TYPE_TLS_CLIENT: {
-		if (_dns_server_gsocket_process_tcp_client_events(conn, events) != 0) {
-			_dns_server_client_close(&conn->head);
-			return 0;
-		}
-		break;
-	}
-
-	case DNS_CONN_TYPE_HTTPS_CLIENT:
-	case DNS_CONN_TYPE_HTTPS3_CLIENT:
-	case DNS_CONN_TYPE_QUIC_CLIENT:
+	if (dns_server_gsocket_proto_client_needs_stream_poll(conn->head.type)) {
 		if (dns_server_gstream_process_client_events(conn) != 0) {
 			_dns_server_client_close(&conn->head);
 			return 0;
 		}
-		break;
-
-	default:
-		break;
+	} else {
+		if (_dns_server_gsocket_process_tcp_client_events(conn, events) != 0) {
+			_dns_server_client_close(&conn->head);
+			return 0;
+		}
 	}
 
 	(void)now;
@@ -191,9 +184,7 @@ void _dns_server_gsocket_tcp_idle_check(void)
 	pthread_mutex_lock(&server.conn_list_lock);
 	list_for_each_entry_safe(conn, tmp, &server.conn_list, list)
 	{
-		if (conn->type != DNS_CONN_TYPE_TCP_CLIENT && conn->type != DNS_CONN_TYPE_TLS_CLIENT &&
-			conn->type != DNS_CONN_TYPE_HTTPS_CLIENT && conn->type != DNS_CONN_TYPE_HTTPS3_CLIENT &&
-			conn->type != DNS_CONN_TYPE_QUIC_CLIENT) {
+		if (!dns_server_gsocket_proto_is_idle_client(conn->type)) {
 			continue;
 		}
 		struct dns_server_conn_gsocket *gclient = (struct dns_server_conn_gsocket *)conn;

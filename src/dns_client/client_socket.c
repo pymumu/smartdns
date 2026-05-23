@@ -18,6 +18,7 @@
 
 #include "client_socket.h"
 #include "client_gsocket.h"
+#include "client_gsocket_proto.h"
 #include "client_mdns.h"
 #include "conn_stream.h"
 #include "query.h"
@@ -95,31 +96,6 @@ void _dns_client_close_socket_with_reason(struct dns_server_info *server_info, c
 	_dns_client_close_socket(server_info);
 }
 
-static void _dns_client_query_schedule_retry_on_disconnect(struct dns_query_struct *query)
-{
-	if (query == NULL) {
-		return;
-	}
-
-	int request_num = atomic_dec_return(&query->dns_request_sent);
-	if (request_num < 0) {
-		tlog(TLOG_ERROR, "send count is invalid, %d", request_num);
-		return;
-	}
-
-	if (request_num == 0 && query->has_result == 0) {
-		tlog(TLOG_DEBUG, "disconnect retry schedule: domain=%s qtype=%d id=%d sent=%d retry=%ld pending=%ld",
-			 query->domain, query->qtype, query->sid, request_num, atomic_read(&query->retry_count),
-			 atomic_read(&query->stream_pending_count));
-		query->send_tick = get_tick_count() - DNS_QUERY_TIMEOUT;
-		_dns_client_do_wakeup_event();
-	} else {
-		tlog(TLOG_DEBUG, "disconnect no retry yet: domain=%s qtype=%d id=%d sent=%d retry=%ld pending=%ld has_result=%d",
-			 query->domain, query->qtype, query->sid, request_num, atomic_read(&query->retry_count),
-			 atomic_read(&query->stream_pending_count), query->has_result);
-	}
-}
-
 /* Helper function to check if the connection is valid */
 int _dns_client_is_conn_valid(struct dns_server_info *server_info)
 {
@@ -127,12 +103,8 @@ int _dns_client_is_conn_valid(struct dns_server_info *server_info)
 		return 0;
 	}
 
-	switch (server_info->type) {
-	case DNS_SERVER_UDP:
-	case DNS_SERVER_MDNS:
+	if (dns_client_gsocket_proto_is_connectionless(server_info)) {
 		return 1;
-	default:
-		break;
 	}
 
 	return (server_info->status == DNS_SERVER_STATUS_CONNECTING || server_info->status == DNS_SERVER_STATUS_CONNECTED);
@@ -151,30 +123,7 @@ int _dns_client_create_socket(struct dns_server_info *server_info)
 	time(&server_info->last_send);
 	time(&server_info->last_recv);
 
-	if (server_info->type == DNS_SERVER_UDP) {
-		ret = _dns_client_create_socket_udp(server_info);
-	} else if (server_info->type == DNS_SERVER_MDNS) {
-		ret = _dns_client_create_socket_udp_mdns(server_info);
-	} else if (server_info->type == DNS_SERVER_TCP) {
-		ret = _dns_client_create_socket_tcp(server_info);
-	} else if (server_info->type == DNS_SERVER_TLS) {
-		struct client_dns_server_flag_tls *flag_tls = &server_info->flags.tls;
-		ret = _dns_client_create_socket_tls(server_info, flag_tls->hostname, flag_tls->alpn);
-	} else if (server_info->type == DNS_SERVER_QUIC) {
-		struct client_dns_server_flag_tls *flag_tls = &server_info->flags.tls;
-		const char *alpn = (flag_tls->alpn[0] != 0) ? flag_tls->alpn : "doq";
-		ret = _dns_client_create_socket_quic(server_info, flag_tls->hostname, alpn);
-	} else if (server_info->type == DNS_SERVER_HTTPS) {
-		struct client_dns_server_flag_https *flag_https = &server_info->flags.https;
-		const char *alpn = (flag_https->alpn[0] != 0) ? flag_https->alpn : "h2,http/1.1";
-		ret = _dns_client_create_socket_tls(server_info, flag_https->hostname, alpn);
-	} else if (server_info->type == DNS_SERVER_HTTP3) {
-		struct client_dns_server_flag_https *flag_https = &server_info->flags.https;
-		const char *alpn = (flag_https->alpn[0] != 0) ? flag_https->alpn : "h3";
-		ret = _dns_client_create_socket_quic(server_info, flag_https->hostname, alpn);
-	} else {
-		ret = -1;
-	}
+	ret = dns_client_gsocket_proto_create_socket(server_info);
 
 	pthread_mutex_unlock(&server_info->lock);
 	return ret;
@@ -185,6 +134,12 @@ void _dns_client_close_socket_ext(struct dns_server_info *server_info, int no_de
 	pthread_mutex_lock(&server_info->lock);
 	_dns_client_log_close_state(server_info, "before");
 	server_info->status = DNS_SERVER_STATUS_DISCONNECTED;
+	if (server_info->gstream_processing > 0) {
+		server_info->gstream_close_pending = 1;
+		pthread_mutex_unlock(&server_info->lock);
+		return;
+	}
+	server_info->gstream_close_pending = 0;
 
 	/* Free all conn_streams */
 	if (!no_del_conn_list) {
@@ -192,20 +147,34 @@ void _dns_client_close_socket_ext(struct dns_server_info *server_info, int no_de
 		struct dns_conn_stream *tmp = NULL;
 		list_for_each_entry_safe(conn_stream, tmp, &server_info->conn_stream_list, server_list)
 		{
+			struct dns_query_struct *query = conn_stream->query;
+
 			if (conn_stream->stream_gs) {
 				if (server_info->sp) {
 					gstream_poll_del(server_info->sp, conn_stream->stream_gs);
 				}
 				gsocket_close(conn_stream->stream_gs);
-				gsocket_free(conn_stream->stream_gs);
-				conn_stream->stream_gs = NULL;
 			}
-			if (conn_stream->query && conn_stream->response_done == 0) {
-				_dns_client_query_schedule_retry_on_disconnect(conn_stream->query);
+			_dns_client_conn_stream_put(conn_stream);
+
+			if (query && conn_stream->response_done == 0) {
+				_dns_client_query_schedule_retry_on_send_failure(query, "stream disconnect");
 			}
+
+			if (query) {
+				pthread_mutex_lock(&query->lock);
+				list_del_init(&conn_stream->query_list);
+				pthread_mutex_unlock(&query->lock);
+				conn_stream->query = NULL;
+			}
+
 			conn_stream->server_info = NULL;
 			list_del_init(&conn_stream->server_list);
 			_dns_client_conn_stream_put(conn_stream);
+
+			if (query) {
+				_dns_client_query_release(query);
+			}
 		}
 	}
 
@@ -215,8 +184,9 @@ void _dns_client_close_socket_ext(struct dns_server_info *server_info, int no_de
 		list_for_each_entry_safe(pend, ptmp, &server_info->http2_pending_list, list)
 		{
 			list_del(&pend->list);
-			_dns_client_query_schedule_retry_on_disconnect(pend->query);
 			atomic_dec(&pend->query->stream_pending_count);
+			atomic_dec(&pend->query->dns_request_sent);
+			_dns_client_query_schedule_retry_on_send_failure(pend->query, "pending disconnect");
 			_dns_client_query_release(pend->query);
 			free(pend);
 		}
@@ -262,29 +232,7 @@ void _dns_client_shutdown_socket(struct dns_server_info *server_info)
 		return;
 	}
 
-	switch (server_info->type) {
-	case DNS_SERVER_UDP:
-		server_info->status = DNS_SERVER_STATUS_CONNECTING;
-		atomic_set(&server_info->is_alive, 0);
-		break;
-	case DNS_SERVER_TCP:
-		gsocket_shutdown(server_info->gs, SHUT_RDWR);
-		break;
-	case DNS_SERVER_QUIC:
-	case DNS_SERVER_TLS:
-	case DNS_SERVER_HTTP3:
-	case DNS_SERVER_HTTPS:
-		if (server_info->status == DNS_SERVER_STATUS_CONNECTED) {
-			_ssl_shutdown(server_info);
-		}
-		gsocket_shutdown(server_info->gs, SHUT_RDWR);
-		atomic_set(&server_info->is_alive, 0);
-		break;
-	case DNS_SERVER_MDNS:
-		break;
-	default:
-		break;
-	}
+	dns_client_gsocket_proto_shutdown(server_info);
 }
 
 int _dns_client_socket_send(struct dns_server_info *server_info)
@@ -293,21 +241,7 @@ int _dns_client_socket_send(struct dns_server_info *server_info)
 		return -1;
 	}
 
-	if (server_info->type == DNS_SERVER_UDP || server_info->type == DNS_SERVER_MDNS) {
-		return -1;
-	} else if (server_info->type == DNS_SERVER_TCP) {
-		return _dns_client_socket_tcp_send(server_info);
-	} else {
-		/* TLS/HTTPS/QUIC/HTTP3: send via gsocket (layers handle SSL) */
-		int ret = _dns_client_socket_ssl_send(server_info, server_info->send_buff.data, server_info->send_buff.len);
-		if (ret > 0) {
-			server_info->send_buff.len -= ret;
-			if (server_info->send_buff.len > 0) {
-				memmove(server_info->send_buff.data, server_info->send_buff.data + ret, server_info->send_buff.len);
-			}
-		}
-		return ret;
-	}
+	return dns_client_gsocket_proto_socket_send(server_info);
 }
 
 int _dns_client_socket_recv(struct dns_server_info *server_info)
@@ -316,14 +250,7 @@ int _dns_client_socket_recv(struct dns_server_info *server_info)
 		return -1;
 	}
 
-	if (server_info->type == DNS_SERVER_UDP || server_info->type == DNS_SERVER_MDNS) {
-		return -1;
-	} else if (server_info->type == DNS_SERVER_TCP) {
-		return _dns_client_socket_tcp_recv(server_info);
-	} else {
-		return _dns_client_socket_ssl_recv(server_info, server_info->recv_buff.data + server_info->recv_buff.len,
-										   DNS_TCP_BUFFER - server_info->recv_buff.len);
-	}
+	return dns_client_gsocket_proto_socket_recv(server_info);
 }
 
 int _dns_client_copy_data_to_buffer(struct dns_server_info *server_info, void *packet, int len)

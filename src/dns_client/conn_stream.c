@@ -18,6 +18,8 @@
 
 #include "conn_stream.h"
 
+#include "query.h"
+
 #include "smartdns/lib/gsocket.h"
 #include "smartdns/util.h"
 
@@ -50,6 +52,7 @@ void _dns_client_conn_stream_get(struct dns_conn_stream *stream)
 void _dns_client_conn_stream_put(struct dns_conn_stream *stream)
 {
 	int refcnt = atomic_dec_return(&stream->refcnt);
+	struct dns_query_struct *query = NULL;
 	if (refcnt) {
 		if (refcnt < 0) {
 			BUG("BUG: stream  %p, refcnt is %d", stream, refcnt);
@@ -67,6 +70,7 @@ void _dns_client_conn_stream_put(struct dns_conn_stream *stream)
 		pthread_mutex_lock(&stream->query->lock);
 		list_del_init(&stream->query_list);
 		pthread_mutex_unlock(&stream->query->lock);
+		query = stream->query;
 		stream->query = NULL;
 	}
 
@@ -77,6 +81,10 @@ void _dns_client_conn_stream_put(struct dns_conn_stream *stream)
 	}
 
 	free(stream);
+
+	if (query) {
+		_dns_client_query_release(query);
+	}
 }
 
 void _dns_client_conn_server_streams_free(struct dns_server_info *server_info, struct dns_query_struct *query)
@@ -99,11 +107,16 @@ void _dns_client_conn_server_streams_free(struct dns_server_info *server_info, s
 				gstream_poll_del(server_info->sp, stream->stream_gs);
 			}
 			gsocket_close(stream->stream_gs);
-			gsocket_free(stream->stream_gs);
-			stream->stream_gs = NULL;
 		}
+		_dns_client_conn_stream_put(stream);
+
+		pthread_mutex_lock(&query->lock);
+		list_del_init(&stream->query_list);
+		pthread_mutex_unlock(&query->lock);
+		stream->query = NULL;
 
 		_dns_client_conn_stream_put(stream);
+		_dns_client_query_release(query);
 	}
 	pthread_mutex_unlock(&server_info->lock);
 }

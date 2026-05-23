@@ -136,6 +136,8 @@ struct dns_server_info {
 	struct dns_server_stats stats;
 	struct list_head conn_stream_list;
 	struct list_head http2_pending_list; /* buffered pre-handshake HTTP/2 queries */
+	int gstream_processing;
+	int gstream_close_pending;
 
 	dns_server_security_status security_status;
 };

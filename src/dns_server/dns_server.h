@@ -206,6 +206,7 @@ struct dns_server_listener {
 struct dns_server_conn_gsocket {
 	struct dns_server_conn_head head; /* head.gs = client gsocket */
 	struct gstream_poll *sp;          /* non-NULL for HTTP2/H3/QUIC – stream management */
+	struct list_head pending_stream_list;
 	int conn_idle_timeout;
 	struct dns_conn_buf recvbuff;
 	struct dns_conn_buf sndbuff;

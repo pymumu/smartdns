@@ -35,6 +35,8 @@ void _dns_client_query_get(struct dns_query_struct *query);
 
 void _dns_client_query_remove_all(void);
 
+void _dns_client_query_schedule_retry_on_send_failure(struct dns_query_struct *query, const char *reason);
+
 int _dns_client_send_query(struct dns_query_struct *query);
 
 struct dns_query_struct *_dns_client_get_request(char *domain, int qtype, unsigned short sid);

@@ -40,6 +40,7 @@
 #include "request_pending.h"
 #include "rules.h"
 #include "server_gsocket.h"
+#include "server_gsocket_proto.h"
 #include "soa.h"
 #include "speed_check.h"
 
@@ -87,15 +88,7 @@ int _dns_reply_inpacket(struct dns_request *request, unsigned char *inpacket, in
 		return -1;
 	}
 
-	if (conn->type == DNS_CONN_TYPE_UDP_SERVER) {
-		ret = _dns_server_reply_udp(request, (struct dns_server_conn_udp *)conn, inpacket, inpacket_len);
-	} else if (conn->type == DNS_CONN_TYPE_TCP_CLIENT || conn->type == DNS_CONN_TYPE_TLS_CLIENT) {
-		ret = _dns_server_reply_tcp(request, (struct dns_server_conn_gsocket *)conn, inpacket, inpacket_len);
-	} else if (conn->type == DNS_CONN_TYPE_HTTP2_STREAM || conn->type == DNS_CONN_TYPE_QUIC_STREAM) {
-		ret = _dns_server_reply_stream(request, (struct dns_server_conn_stream *)conn, inpacket, inpacket_len);
-	} else {
-		ret = -1;
-	}
+	ret = dns_server_gsocket_proto_reply(request, inpacket, inpacket_len);
 
 	return ret;
 }
@@ -561,22 +554,10 @@ static int _dns_server_process(struct dns_server_conn_head *conn, struct gepoll_
 	int ret = 0;
 	_dns_server_client_touch(conn);
 	_dns_server_conn_get(conn);
-	if (conn->type == DNS_CONN_TYPE_UDP_SERVER) {
-		struct dns_server_conn_udp *udpconn = (struct dns_server_conn_udp *)conn;
-		ret = _dns_server_gsocket_process_udp(udpconn, event, now);
-	} else if (conn->type == DNS_CONN_TYPE_TCP_SERVER || conn->type == DNS_CONN_TYPE_TLS_SERVER ||
-			   conn->type == DNS_CONN_TYPE_HTTPS_SERVER || conn->type == DNS_CONN_TYPE_HTTPS3_SERVER ||
-			   conn->type == DNS_CONN_TYPE_QUIC_SERVER) {
-		ret = _dns_server_gsocket_process_listener(conn, event, now);
-	} else if (conn->type == DNS_CONN_TYPE_TCP_CLIENT || conn->type == DNS_CONN_TYPE_TLS_CLIENT ||
-			   conn->type == DNS_CONN_TYPE_HTTPS_CLIENT || conn->type == DNS_CONN_TYPE_HTTPS3_CLIENT ||
-			   conn->type == DNS_CONN_TYPE_QUIC_CLIENT) {
-		struct dns_server_conn_gsocket *gclient = (struct dns_server_conn_gsocket *)conn;
-		ret = _dns_server_gsocket_process_client(gclient, event, now);
-	} else {
+	ret = dns_server_gsocket_proto_process(conn, event, now);
+	if (ret != 0 && errno == EPROTONOSUPPORT) {
 		tlog(TLOG_ERROR, "unsupported dns server type %d", conn->type);
 		_dns_server_client_close(conn);
-		ret = -1;
 	}
 	_dns_server_conn_release(conn);
 

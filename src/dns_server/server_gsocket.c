@@ -27,6 +27,7 @@
 #include "server_doh_gsocket.h"
 #include "server_doq_gsocket.h"
 #include "server_gsocket_factory.h"
+#include "server_gsocket_proto.h"
 #include "server_gsocket_stream.h"
 
 #include "smartdns/dns_conf.h"
@@ -84,61 +85,31 @@ static int _dns_server_gsocket_push_layer(struct gsocket *gs, struct gsocket_io 
 int _dns_server_gsocket_bind(struct dns_bind_ip *bind_ip)
 {
 	int fd = -1;
-	int sock_type = SOCK_STREAM;
-	DNS_CONN_TYPE server_type = DNS_CONN_TYPE_TCP_SERVER;
 	SSL_CTX *ssl_ctx = NULL;
 	struct gsocket *gs = NULL;
-	int is_quic = 0;
-	int need_ssl = 0;
+	const struct dns_server_gsocket_bind_proto *proto = dns_server_gsocket_bind_proto_get(bind_ip->type);
+	int need_tls = 0;
+	int need_quic = 0;
 	int need_http2 = 0;
 	int need_http3 = 0;
-
-	switch (bind_ip->type) {
-	case DNS_BIND_TYPE_UDP:
-		sock_type = SOCK_DGRAM;
-		server_type = DNS_CONN_TYPE_UDP_SERVER;
-		break;
-	case DNS_BIND_TYPE_TCP:
-		sock_type = SOCK_STREAM;
-		server_type = DNS_CONN_TYPE_TCP_SERVER;
-		break;
-	case DNS_BIND_TYPE_TLS:
-		sock_type = SOCK_STREAM;
-		server_type = DNS_CONN_TYPE_TLS_SERVER;
-		need_ssl = 1;
-		break;
-	case DNS_BIND_TYPE_HTTPS:
-		sock_type = SOCK_STREAM;
-		server_type = DNS_CONN_TYPE_HTTPS_SERVER;
-		need_ssl = 1;
-		need_http2 = 1;
-		break;
-	case DNS_BIND_TYPE_HTTPS3:
-		sock_type = SOCK_DGRAM;
-		server_type = DNS_CONN_TYPE_HTTPS3_SERVER;
-		need_ssl = 1;
-		is_quic = 1;
-		need_http3 = 1;
-		break;
-	case DNS_BIND_TYPE_QUIC:
-		sock_type = SOCK_DGRAM;
-		server_type = DNS_CONN_TYPE_QUIC_SERVER;
-		need_ssl = 1;
-		is_quic = 1;
-		break;
-	default:
+	if (proto == NULL) {
 		tlog(TLOG_WARN, "unknown bind type %d", bind_ip->type);
 		return 0;
 	}
 
-	if (need_ssl) {
-		ssl_ctx = _dns_server_gsocket_create_ssl_ctx(bind_ip, is_quic, need_http3);
+	need_tls = dns_gsocket_layer_spec_has(proto->layers, DNS_GSOCKET_LAYER_TLS);
+	need_quic = dns_gsocket_layer_spec_has(proto->layers, DNS_GSOCKET_LAYER_QUIC);
+	need_http2 = dns_gsocket_layer_spec_has(proto->layers, DNS_GSOCKET_LAYER_HTTP2);
+	need_http3 = dns_gsocket_layer_spec_has(proto->layers, DNS_GSOCKET_LAYER_HTTP3);
+
+	if (need_tls || need_quic) {
+		ssl_ctx = _dns_server_gsocket_create_ssl_ctx(bind_ip, need_quic, need_http3);
 		if (ssl_ctx == NULL) {
 			goto errout;
 		}
 	}
 
-	fd = _dns_server_gsocket_create_socket(bind_ip->ip, sock_type);
+	fd = _dns_server_gsocket_create_socket(bind_ip->ip, proto->socket_type);
 	if (fd < 0) {
 		goto errout;
 	}
@@ -149,9 +120,9 @@ int _dns_server_gsocket_bind(struct dns_bind_ip *bind_ip)
 	}
 	fd = -1;
 
-	if (need_ssl) {
+	if (need_tls || need_quic) {
 		struct gsocket_io *ssl_layer;
-		if (is_quic) {
+		if (need_quic) {
 			ssl_layer = gsocket_io_ssl_quic_new(ssl_ctx, 1 /*server*/);
 		} else {
 			ssl_layer = gsocket_io_ssl_new(ssl_ctx, 1 /*server*/);
@@ -175,7 +146,7 @@ int _dns_server_gsocket_bind(struct dns_bind_ip *bind_ip)
 		}
 	}
 
-	if (is_quic) {
+	if (need_quic) {
 		if (gsocket_listen(gs, 256) != 0) {
 			tlog(TLOG_ERROR, "QUIC listen failed");
 			goto errout;
@@ -203,7 +174,7 @@ int _dns_server_gsocket_bind(struct dns_bind_ip *bind_ip)
 		goto errout;
 	}
 
-	listener->head.type = server_type;
+	listener->head.type = proto->listener_type;
 	listener->head.gs = gs;
 	listener->ssl_ctx = ssl_ctx;
 	INIT_LIST_HEAD(&listener->head.list);
@@ -216,7 +187,7 @@ int _dns_server_gsocket_bind(struct dns_bind_ip *bind_ip)
 
 	list_add_tail(&listener->list, &server.listener_list);
 
-	tlog(TLOG_INFO, "bind %s %s type=%d", (sock_type == SOCK_STREAM) ? "TCP" : "UDP", bind_ip->ip, bind_ip->type);
+	tlog(TLOG_INFO, "bind %s %s type=%d", proto->name, bind_ip->ip, bind_ip->type);
 	gs = NULL;
 	ssl_ctx = NULL;
 	return 0;
