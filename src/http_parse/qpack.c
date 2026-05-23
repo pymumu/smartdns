@@ -581,8 +581,7 @@ int qpack_huffman_decode(const uint8_t *bytes, const uint8_t *bytes_max, uint8_t
 			index = 0;
 			was_all_ones = 1;
 		} else {
-			was_all_ones = 1;
-			break;
+			return -1;
 		}
 	}
 

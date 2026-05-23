@@ -98,7 +98,6 @@ int _dns_client_process_recv_http3(struct dns_server_info *server_info, struct d
 			/* repsone is too large */
 			tlog(TLOG_DEBUG, "http3 response is too large.");
 			conn_stream->recv_buff.len = 0;
-			_dns_client_conn_stream_put(conn_stream);
 			goto errout;
 		}
 

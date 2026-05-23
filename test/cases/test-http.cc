@@ -222,3 +222,17 @@ TEST_F(HTTP, http3_small_buffer)
 	EXPECT_GT(ret, 0);
 	http_head_destroy(http_head);
 }
+
+TEST_F(HTTP, http3_literal_header_fills_buffer)
+{
+	const unsigned char buffer[] = {
+		0x01, 0x08, 0x00, 0x00, 0x23, 'a', 'b', 'c', 0x01, 'z',
+	};
+
+	struct http_head *http_head = http_head_init(4, HTTP_VERSION_3_0);
+	ASSERT_NE(http_head, nullptr);
+
+	int ret = http_head_parse(http_head, buffer, sizeof(buffer));
+	EXPECT_EQ(ret, -3);
+	http_head_destroy(http_head);
+}

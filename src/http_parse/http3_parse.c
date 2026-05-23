@@ -309,6 +309,10 @@ static int _quic_read_string(const uint8_t *buffer, int buffer_len, char *str, i
 	int offset = 0;
 	int offset_ret = 0;
 
+	if (buffer == NULL || str == NULL || str_len == NULL || max_str_len < 0) {
+		return -3;
+	}
+
 	offset_ret = _quic_read_varint(buffer, buffer_len, &len, n);
 	if (offset_ret < 0) {
 		return -1;
