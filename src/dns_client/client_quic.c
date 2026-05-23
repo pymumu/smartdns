@@ -422,8 +422,17 @@ static int _dns_client_process_quic_poll(struct dns_server_info *server_info)
 					continue;
 				}
 
+				int recv_len = DNS_TCP_BUFFER - conn_stream->recv_buff.len;
+				if (recv_len <= 0) {
+					tlog(TLOG_DEBUG, "quic stream receive buffer is full.");
+					list_del_init(&conn_stream->server_list);
+					_dns_client_conn_stream_put(conn_stream);
+					continue;
+				}
+
 				int read_len = _dns_client_socket_ssl_recv_ext(server_info, poll_items[i].desc.value.ssl,
-															   conn_stream->recv_buff.data, DNS_TCP_BUFFER);
+															   conn_stream->recv_buff.data + conn_stream->recv_buff.len,
+															   recv_len);
 
 				if (read_len < 0) {
 					if (errno == EAGAIN) {
