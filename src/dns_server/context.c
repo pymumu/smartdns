@@ -990,6 +990,10 @@ int _dns_cache_reply_packet(struct dns_server_post_context *context)
 		return 0;
 	}
 
+	if (atomic_read(&server.run) == 0) {
+		return 0;
+	}
+
 	if (context->packet->head.rcode == DNS_RC_SERVFAIL || context->packet->head.rcode == DNS_RC_NXDOMAIN ||
 		context->packet->head.rcode == DNS_RC_NOTIMP) {
 		context->reply_ttl = DNS_SERVER_FAIL_TTL;
