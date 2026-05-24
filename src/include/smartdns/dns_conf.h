@@ -484,6 +484,7 @@ struct dns_tproxy_server_conf {
 	enum firewall_type firewall_type;
 	int udp_support;
 	int tcp_support;
+	int reject_h3;
 	int so_mark;
 	int output_chain_enable;
 	int speed_check;

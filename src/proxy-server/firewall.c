@@ -43,6 +43,12 @@ const char *SCRIPT_NFTABLES_SETUP =
 	"if [ \"${udp_support}\" = \"1\" ]; then\n"
 	"    nft add rule ${family} ${table_name} ${chain_name} iifname != \"lo\" meta l4proto udp ${daddr} @${set_name} tproxy to ${tproxy_addr} mark set ${mark} accept\n"
 	"fi\n"
+	// Reject HTTP/3 fallback probes when UDP cannot be proxied.
+	"if [ \"${reject_h3}\" = \"1\" ]; then\n"
+	"    H3_FORWARD_CHAIN=\"${chain_name}_h3_forward\"\n"
+	"    nft add chain ${family} ${table_name} ${H3_FORWARD_CHAIN} '{ type filter hook forward priority filter; }'\n"
+	"    nft add rule ${family} ${table_name} ${H3_FORWARD_CHAIN} iifname != \"lo\" meta l4proto udp udp dport 443 ${daddr} @${set_name} reject with ${reject_with}\n"
+	"fi\n"
 	// Output Chain (Conditional)
 	"if [ \"${output_chain_enable}\" = \"1\" ]; then\n"
 	"    OUTPUT_CHAIN=\"${chain_name}_output\"\n"
@@ -50,6 +56,11 @@ const char *SCRIPT_NFTABLES_SETUP =
 	"    nft add rule ${family} ${table_name} ${OUTPUT_CHAIN} meta l4proto tcp ${daddr} @${set_name} tproxy to ${tproxy_addr} mark set ${mark} accept\n"
 	"    if [ \"${udp_support}\" = \"1\" ]; then\n"
 	"        nft add rule ${family} ${table_name} ${OUTPUT_CHAIN} meta l4proto udp ${daddr} @${set_name} tproxy to ${tproxy_addr} mark set ${mark} accept\n"
+	"    fi\n"
+	"    if [ \"${reject_h3}\" = \"1\" ]; then\n"
+	"        H3_OUTPUT_CHAIN=\"${chain_name}_h3_output\"\n"
+	"        nft add chain ${family} ${table_name} ${H3_OUTPUT_CHAIN} '{ type filter hook output priority filter; }'\n"
+	"        nft add rule ${family} ${table_name} ${H3_OUTPUT_CHAIN} meta l4proto udp udp dport 443 ${daddr} @${set_name} reject with ${reject_with}\n"
 	"    fi\n"
 	"fi\n";
 
@@ -64,6 +75,10 @@ const char *SCRIPT_IPTABLES_REDIRECT_SETUP =
 	// PREROUTING
 	"${iptables_cmd} -t nat -C PREROUTING -p tcp -m set --match-set ${set_name} dst -j REDIRECT --to-ports ${port} 2>/dev/null || \\\n"
 	"${iptables_cmd} -t nat -I PREROUTING -p tcp -m set --match-set ${set_name} dst -j REDIRECT --to-ports ${port}\n"
+	"if [ \"${reject_h3}\" = \"1\" ]; then\n"
+	"    ${iptables_cmd} -t filter -C FORWARD -p udp --dport 443 -m set --match-set ${set_name} dst -j REJECT --reject-with ${reject_with} 2>/dev/null || \\\n"
+	"    ${iptables_cmd} -t filter -I FORWARD -p udp --dport 443 -m set --match-set ${set_name} dst -j REJECT --reject-with ${reject_with}\n"
+	"fi\n"
 	// OUTPUT (Conditional)
 	"if [ \"${output_chain_enable}\" = \"1\" ]; then\n"
 	// Logic to handle mark exclude. Since simple variable replacement doesn't support conditional string format easily without more advanced templates, 
@@ -73,13 +88,19 @@ const char *SCRIPT_IPTABLES_REDIRECT_SETUP =
 	"    if [ \"${mark}\" != \"0\" ]; then MARK_OPT=\"-m mark ! --mark ${mark}\"; fi\n"
 	"    ${iptables_cmd} -t nat -C OUTPUT -p tcp -m set --match-set ${set_name} dst ${MARK_OPT} -j REDIRECT --to-ports ${port} 2>/dev/null || \\\n"
 	"    ${iptables_cmd} -t nat -I OUTPUT -p tcp -m set --match-set ${set_name} dst ${MARK_OPT} -j REDIRECT --to-ports ${port}\n"
+	"    if [ \"${reject_h3}\" = \"1\" ]; then\n"
+	"        ${iptables_cmd} -t filter -C OUTPUT -p udp --dport 443 -m set --match-set ${set_name} dst -j REJECT --reject-with ${reject_with} 2>/dev/null || \\\n"
+	"        ${iptables_cmd} -t filter -I OUTPUT -p udp --dport 443 -m set --match-set ${set_name} dst -j REJECT --reject-with ${reject_with}\n"
+	"    fi\n"
 	"fi\n";
 
 const char *SCRIPT_IPTABLES_REDIRECT_CLEANUP =
 	"${iptables_cmd} -t nat -D PREROUTING -p tcp -m set --match-set ${set_name} dst -j REDIRECT --to-ports ${port} 2>/dev/null || true\n"
+	"${iptables_cmd} -t filter -D FORWARD -p udp --dport 443 -m set --match-set ${set_name} dst -j REJECT --reject-with ${reject_with} 2>/dev/null || true\n"
 	"MARK_OPT=\"\"\n"
 	"if [ \"${mark}\" != \"0\" ]; then MARK_OPT=\"-m mark ! --mark ${mark}\"; fi\n"
 	"${iptables_cmd} -t nat -D OUTPUT -p tcp -m set --match-set ${set_name} dst ${MARK_OPT} -j REDIRECT --to-ports ${port} 2>/dev/null || true\n"
+	"${iptables_cmd} -t filter -D OUTPUT -p udp --dport 443 -m set --match-set ${set_name} dst -j REJECT --reject-with ${reject_with} 2>/dev/null || true\n"
 	"ipset destroy ${set_name} 2>/dev/null || true\n";
 
 const char *SCRIPT_IPTABLES_TPROXY_SETUP =
@@ -103,6 +124,10 @@ const char *SCRIPT_IPTABLES_TPROXY_SETUP =
 	"    ${iptables_cmd} -t mangle -C PREROUTING -p udp -m set --match-set ${set_name} dst -j TPROXY ${TPROXY_ARGS} 2>/dev/null || \\\n"
 	"    ${iptables_cmd} -t mangle -A PREROUTING -p udp -m set --match-set ${set_name} dst -j TPROXY ${TPROXY_ARGS}\n"
 	"fi\n"
+	"if [ \"${reject_h3}\" = \"1\" ]; then\n"
+	"    ${iptables_cmd} -t filter -C FORWARD -p udp --dport 443 -m set --match-set ${set_name} dst -j REJECT --reject-with ${reject_with} 2>/dev/null || \\\n"
+	"    ${iptables_cmd} -t filter -I FORWARD -p udp --dport 443 -m set --match-set ${set_name} dst -j REJECT --reject-with ${reject_with}\n"
+	"fi\n"
 	// Output Chain (Conditional)
 	"if [ \"${output_chain_enable}\" = \"1\" ]; then\n"
 	"    MARK_OPT=\"\"\n"
@@ -113,6 +138,10 @@ const char *SCRIPT_IPTABLES_TPROXY_SETUP =
 	"        ${iptables_cmd} -t mangle -C OUTPUT -p udp -m set --match-set ${set_name} dst ${MARK_OPT} -j MARK --set-mark ${mark} 2>/dev/null || \\\n"
 	"        ${iptables_cmd} -t mangle -A OUTPUT -p udp -m set --match-set ${set_name} dst ${MARK_OPT} -j MARK --set-mark ${mark}\n"
 	"    fi\n"
+	"    if [ \"${reject_h3}\" = \"1\" ]; then\n"
+	"        ${iptables_cmd} -t filter -C OUTPUT -p udp --dport 443 -m set --match-set ${set_name} dst -j REJECT --reject-with ${reject_with} 2>/dev/null || \\\n"
+	"        ${iptables_cmd} -t filter -I OUTPUT -p udp --dport 443 -m set --match-set ${set_name} dst -j REJECT --reject-with ${reject_with}\n"
+	"    fi\n"
 	"fi\n";
 
 const char *SCRIPT_IPTABLES_TPROXY_CLEANUP =
@@ -121,10 +150,12 @@ const char *SCRIPT_IPTABLES_TPROXY_CLEANUP =
 	// Delete rules
 	"${iptables_cmd} -t mangle -D PREROUTING -p tcp -m set --match-set ${set_name} dst -j TPROXY ${TPROXY_ARGS} 2>/dev/null || true\n"
 	"${iptables_cmd} -t mangle -D PREROUTING -p udp -m set --match-set ${set_name} dst -j TPROXY ${TPROXY_ARGS} 2>/dev/null || true\n"
+	"${iptables_cmd} -t filter -D FORWARD -p udp --dport 443 -m set --match-set ${set_name} dst -j REJECT --reject-with ${reject_with} 2>/dev/null || true\n"
 	"MARK_OPT=\"\"\n"
 	"if [ \"${mark}\" != \"0\" ]; then MARK_OPT=\"-m mark ! --mark ${mark}\"; fi\n"
 	"${iptables_cmd} -t mangle -D OUTPUT -p tcp -m set --match-set ${set_name} dst ${MARK_OPT} -j MARK --set-mark ${mark} 2>/dev/null || true\n"
 	"${iptables_cmd} -t mangle -D OUTPUT -p udp -m set --match-set ${set_name} dst ${MARK_OPT} -j MARK --set-mark ${mark} 2>/dev/null || true\n"
+	"${iptables_cmd} -t filter -D OUTPUT -p udp --dport 443 -m set --match-set ${set_name} dst -j REJECT --reject-with ${reject_with} 2>/dev/null || true\n"
 	"ipset destroy ${set_name} 2>/dev/null || true\n"
 	"ip ${family_opt} route del local ${local_range} dev lo table ${mark} 2>/dev/null || true\n"
 	"ip ${family_opt} rule del fwmark ${mark} lookup ${mark} 2>/dev/null || true\n";
@@ -264,14 +295,16 @@ int _setup_nftables_rules(const char *table_name, const char *set_name, const ch
 	char chain_name[256];
 	char mark_str[32];
 	char udp_support_str[2];
+	char reject_h3_str[2];
 	char output_chain_enable_str[2];
-	char script[4096];
+	char script[8192];
 
 	const char *ip_family = is_ipv6 ? "ip6" : "ip";
 	const char *addr_type = is_ipv6 ? "ipv6_addr" : "ipv4_addr";
 	const char *daddr = is_ipv6 ? "ip6 daddr" : "ip daddr";
 	const char *family_opt = is_ipv6 ? "-6" : "";
 	const char *local_range = is_ipv6 ? "::/0" : "0.0.0.0/0";
+	const char *reject_with = is_ipv6 ? "icmpv6 type port-unreachable" : "icmp type port-unreachable";
 
 	// Get nftset from pre-prepared configuration
 	const struct dns_nftset_rule *nftset;
@@ -298,6 +331,7 @@ int _setup_nftables_rules(const char *table_name, const char *set_name, const ch
 	snprintf(chain_name, sizeof(chain_name), "%s", t_conf->name);
 	snprintf(mark_str, sizeof(mark_str), "%d", so_mark);
 	snprintf(udp_support_str, sizeof(udp_support_str), "%d", udp_support);
+	snprintf(reject_h3_str, sizeof(reject_h3_str), "%d", t_conf->reject_h3);
 	snprintf(output_chain_enable_str, sizeof(output_chain_enable_str), "%d", t_conf->output_chain_enable);
 
 	struct script_param params[] = {{"family", ip_family},
@@ -309,6 +343,8 @@ int _setup_nftables_rules(const char *table_name, const char *set_name, const ch
 									{"tproxy_addr", tproxy_addr},
 									{"mark", mark_str},
 									{"udp_support", udp_support_str},
+									{"reject_h3", reject_h3_str},
+									{"reject_with", reject_with},
 									{"output_chain_enable", output_chain_enable_str},
 									{"family_opt", family_opt},
 									{"local_range", local_range}};
@@ -325,11 +361,13 @@ int _setup_iptables_redirect_rules(const char *ip, const char *port, int so_mark
 								   struct dns_tproxy_server_conf *t_conf)
 {
 	char mark_str[32];
+	char reject_h3_str[2];
 	char output_chain_enable_str[2];
-	char script[4096];
+	char script[8192];
 
 	const char *iptables_cmd = is_ipv6 ? "ip6tables" : "iptables";
 	const char *family = is_ipv6 ? "inet6" : "inet";
+	const char *reject_with = is_ipv6 ? "icmp6-port-unreachable" : "icmp-port-unreachable";
 
 	// Get ipset name from pre-prepared configuration
 	const char *ipset_name;
@@ -347,11 +385,13 @@ int _setup_iptables_redirect_rules(const char *ip, const char *port, int so_mark
 	// Note: We don't need explicit _setup_ipset call anymore, the script handles it.
 
 	snprintf(mark_str, sizeof(mark_str), "0x%x", so_mark);
+	snprintf(reject_h3_str, sizeof(reject_h3_str), "%d", t_conf->reject_h3);
 	snprintf(output_chain_enable_str, sizeof(output_chain_enable_str), "%d", t_conf->output_chain_enable);
 
 	struct script_param params[] = {
 		{"set_name", ipset_name}, {"family", family}, {"iptables_cmd", iptables_cmd},
-		{"port", port},           {"mark", mark_str}, {"output_chain_enable", output_chain_enable_str}};
+		{"port", port},           {"mark", mark_str}, {"reject_h3", reject_h3_str},
+		{"reject_with", reject_with}, {"output_chain_enable", output_chain_enable_str}};
 
 	if (_resolve_script_params(SCRIPT_IPTABLES_REDIRECT_SETUP, params, sizeof(params) / sizeof(params[0]), script,
 							   sizeof(script)) != 0) {
@@ -367,13 +407,15 @@ int _setup_iptables_tproxy_rules(const char *set_name, const char *ip, const cha
 	char tproxy_ip[64];
 	char mark_str[32];
 	char udp_support_str[2];
+	char reject_h3_str[2];
 	char output_chain_enable_str[2];
-	char script[4096];
+	char script[8192];
 
 	const char *iptables_cmd = is_ipv6 ? "ip6tables" : "iptables";
 	const char *family = is_ipv6 ? "inet6" : "inet";
 	const char *family_opt = is_ipv6 ? "-6" : "";
 	const char *local_range = is_ipv6 ? "::/0" : "0.0.0.0/0";
+	const char *reject_with = is_ipv6 ? "icmp6-port-unreachable" : "icmp-port-unreachable";
 
 	// Get ipset name from pre-prepared configuration
 	const char *ipset_name;
@@ -394,6 +436,7 @@ int _setup_iptables_tproxy_rules(const char *set_name, const char *ip, const cha
 
 	snprintf(mark_str, sizeof(mark_str), "0x%x", so_mark);
 	snprintf(udp_support_str, sizeof(udp_support_str), "%d", udp_support);
+	snprintf(reject_h3_str, sizeof(reject_h3_str), "%d", t_conf->reject_h3);
 	snprintf(output_chain_enable_str, sizeof(output_chain_enable_str), "%d", t_conf->output_chain_enable);
 
 	struct script_param params[] = {{"set_name", set_name},
@@ -405,6 +448,8 @@ int _setup_iptables_tproxy_rules(const char *set_name, const char *ip, const cha
 									{"port", port},
 									{"tproxy_ip", tproxy_ip},
 									{"udp_support", udp_support_str},
+									{"reject_h3", reject_h3_str},
+									{"reject_with", reject_with},
 									{"output_chain_enable", output_chain_enable_str}};
 
 	if (_resolve_script_params(SCRIPT_IPTABLES_TPROXY_SETUP, params, sizeof(params) / sizeof(params[0]), script,
@@ -431,7 +476,7 @@ static void _cleanup_iptables_tproxy_family(int is_ipv6, const char *server_ip, 
 	char tproxy_ip[64];
 
 	char mark_str[32];
-	char script[4096];
+	char script[8192];
 	const char *ipset_name = ipset_conf->ipsetname;
 
 	if (!ipset_name) {
@@ -445,12 +490,13 @@ static void _cleanup_iptables_tproxy_family(int is_ipv6, const char *server_ip, 
 	const char *iptables_cmd = is_ipv6 ? "ip6tables" : "iptables";
 	const char *family_opt = is_ipv6 ? "-6" : "";
 	const char *local_range = is_ipv6 ? "::/0" : "0.0.0.0/0";
+	const char *reject_with = is_ipv6 ? "icmp6-port-unreachable" : "icmp-port-unreachable";
 
 	snprintf(mark_str, sizeof(mark_str), "0x%x", so_mark);
 
 	struct script_param params[] = {{"set_name", ipset_name},     {"family_opt", family_opt},     {"mark", mark_str},
 									{"local_range", local_range}, {"iptables_cmd", iptables_cmd}, {"port", port},
-									{"tproxy_ip", tproxy_ip}};
+									{"tproxy_ip", tproxy_ip},     {"reject_with", reject_with}};
 
 	if (_resolve_script_params(SCRIPT_IPTABLES_TPROXY_CLEANUP, params, sizeof(params) / sizeof(params[0]), script,
 							   sizeof(script)) == 0) {
@@ -477,7 +523,7 @@ static void _cleanup_iptables_redirect_family(int is_ipv6, int so_mark, const ch
 											  const struct dns_ipset_rule *ipset_conf)
 {
 	char mark_str[32];
-	char script[4096];
+	char script[8192];
 	const char *ipset_name = ipset_conf->ipsetname;
 
 	if (!ipset_name) {
@@ -485,11 +531,13 @@ static void _cleanup_iptables_redirect_family(int is_ipv6, int so_mark, const ch
 	}
 
 	const char *iptables_cmd = is_ipv6 ? "ip6tables" : "iptables";
+	const char *reject_with = is_ipv6 ? "icmp6-port-unreachable" : "icmp-port-unreachable";
 
 	snprintf(mark_str, sizeof(mark_str), "0x%x", so_mark);
 
 	struct script_param params[] = {
-		{"set_name", ipset_name}, {"iptables_cmd", iptables_cmd}, {"port", port}, {"mark", mark_str}};
+		{"set_name", ipset_name}, {"iptables_cmd", iptables_cmd}, {"port", port}, {"mark", mark_str},
+		{"reject_with", reject_with}};
 
 	if (_resolve_script_params(SCRIPT_IPTABLES_REDIRECT_CLEANUP, params, sizeof(params) / sizeof(params[0]), script,
 							   sizeof(script)) == 0) {
@@ -565,18 +613,21 @@ static int _run_custom_script(const char *script_template, struct dns_tproxy_ser
 	char setname[256];
 	char mark_str[32];
 	char udp_support_str[2];
+	char reject_h3_str[2];
 	char ipv6_str[2];
 
 	snprintf(setname, sizeof(setname), "%s", t_conf->name);
 	snprintf(mark_str, sizeof(mark_str), "%d", t_conf->so_mark);
 	snprintf(udp_support_str, sizeof(udp_support_str), "%d", t_conf->udp_support);
+	snprintf(reject_h3_str, sizeof(reject_h3_str), "%d", t_conf->reject_h3);
 
 	for (int i = 0; i < 2; i++) {
 		int is_ipv6 = i;
 		snprintf(ipv6_str, sizeof(ipv6_str), "%d", is_ipv6);
 
 		struct script_param params[] = {{"so_mark", mark_str}, {"setname", setname},  {"ip", ip},
-										{"port", port},        {"is_ipv6", ipv6_str}, {"udp_support", udp_support_str}};
+										{"port", port},        {"is_ipv6", ipv6_str}, {"udp_support", udp_support_str},
+										{"reject_h3", reject_h3_str}};
 
 		if (_resolve_script_params(script_template, params, sizeof(params) / sizeof(params[0]), cmd, sizeof(cmd)) ==
 			0) {

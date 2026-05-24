@@ -207,6 +207,7 @@ int _config_tproxy_server(void *data, int argc, char *argv[])
 										   {"firewall-type", required_argument, NULL, 'f'},
 										   {"udp", no_argument, NULL, 'u'},
 										   {"udp-only", no_argument, NULL, 'U'},
+										   {"reject-h3", no_argument, NULL, 300},
 										   {"set-mark", required_argument, NULL, 'm'},
 										   {"outbound-tproxy", required_argument, NULL, 'o'},
 										   {"speed-check", required_argument, NULL, 's'},
@@ -223,8 +224,8 @@ int _config_tproxy_server(void *data, int argc, char *argv[])
 	if (argc < 2) {
 		tlog(TLOG_ERROR, "invalid parameter, usage: tproxy-server [IP]:port -name name -proxy proxyname [-set-mark "
 						 "mark] [-outbound-tproxy enable|disable] [-speed-test yes|no|auto] [-force-aaaa-soa] "
-						 "[-no-rule] [-no-server] [-no-rule-clean] [-remote-dns] [-rule-script script] [-start-rule "
-						 "command] [-stop-rule command] "
+						 "[-reject-h3] [-no-rule] [-no-server] [-no-rule-clean] [-remote-dns] [-rule-script script] "
+						 "[-start-rule command] [-stop-rule command] "
 						 "[-firewall-type none|auto|nftables|iptables|iptables-redirect|iptables-tproxy]");
 		return -1;
 	}
@@ -271,6 +272,9 @@ int _config_tproxy_server(void *data, int argc, char *argv[])
 		case 'U':
 			conf->udp_support = 1;
 			conf->tcp_support = 0;
+			break;
+		case 300:
+			conf->reject_h3 = 1;
 			break;
 		case 'm':
 			conf->so_mark = atoi(optarg);
@@ -335,6 +339,11 @@ int _config_tproxy_server(void *data, int argc, char *argv[])
 
 	if (check_is_valid_config_name(conf->name) == 0) {
 		tlog(TLOG_ERROR, "tproxy-server name %s is invalid, only support [a-zA-Z0-9_-]", conf->name);
+		goto errout;
+	}
+
+	if (conf->reject_h3 && conf->udp_support) {
+		tlog(TLOG_ERROR, "tproxy-server %s: -reject-h3 conflicts with -udp and -udp-only", conf->name);
 		goto errout;
 	}
 
