@@ -388,6 +388,9 @@ static int _quic_read_string(const uint8_t *buffer, int buffer_len, char *str, i
 	if ((uint64_t)(buffer_len - offset) < len) {
 		return -1;
 	}
+	if (max_str_len < 0) {
+		return -3;
+	}
 	if ((uint64_t)max_str_len < len) {
 		return -3;
 	}

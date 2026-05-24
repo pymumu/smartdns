@@ -196,7 +196,8 @@ static int _http3_bio_read(void *private_data, uint8_t *buf, int len)
 	ssize_t ret = lower->recv(lower, buf, len, 0);
 	if (ret < 0) {
 		if (errno == EAGAIN || errno == EWOULDBLOCK) {
-			return 0;
+			errno = EAGAIN;
+			return -1;
 		}
 
 		return -1;
@@ -853,7 +854,8 @@ static int _h3_ops_read(void *stream_handle, uint8_t *buf, int len)
 	if (io && io->recv) {
 		ssize_t ret = io->recv(io, buf, len, 0);
 		if (ret < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-			return 0; /* BIO retry */
+			errno = EAGAIN;
+			return -1; /* BIO retry */
 		}
 		return (int)ret;
 	}
