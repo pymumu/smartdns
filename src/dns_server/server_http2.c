@@ -90,6 +90,10 @@ static void _dns_server_http2_process_stream(struct dns_server_conn_tls_client *
 	}
 
 	if (strcasecmp(method, "POST") == 0) {
+		if (!http2_stream_is_remote_end(stream)) {
+			return;
+		}
+
 		/* Read request body */
 		len = http2_stream_read_body(stream, buf, sizeof(buf));
 		if (len < 0) {
@@ -104,6 +108,11 @@ static void _dns_server_http2_process_stream(struct dns_server_conn_tls_client *
 			/* No data available but stream not ended */
 			return;
 		}
+
+		if (!http2_stream_is_end(stream)) {
+			_dns_server_http2_send_response(stream, 413, "text/plain", "Payload Too Large", 17);
+			goto close_out;
+		}
 	} else if (strcasecmp(method, "GET") == 0) {
 		const char *path = http2_stream_get_path(stream);
 		char *base64_query = NULL;
@@ -113,8 +122,9 @@ static void _dns_server_http2_process_stream(struct dns_server_conn_tls_client *
 		}
 		http2_stream_set_ex_data(stream, (void *)1);
 
-		/* Consume any body (should be empty for GET) to mark stream as read-handled */
-		http2_stream_read_body(stream, NULL, 0);
+		/* Consume any empty body state to mark stream as read-handled. */
+		uint8_t discard;
+		http2_stream_read_body(stream, &discard, sizeof(discard));
 
 		if (path == NULL) {
 			_dns_server_http2_send_response(stream, 404, "text/plain", "Not Found", 9);

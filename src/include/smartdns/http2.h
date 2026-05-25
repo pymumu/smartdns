@@ -126,7 +126,10 @@ struct http2_stream *http2_ctx_accept_stream(struct http2_ctx *ctx);
  * @param items Array to fill with poll results
  * @param max_items Maximum number of items to return
  * @param ret_count Output: number of items returned
- * @return 0 on success, -1 on error
+ * @return 0 on success, HTTP2_ERR_* on error
+ *
+ * Streams returned in items hold a reference for the caller. Release each
+ * non-NULL stream with http2_stream_put() after processing.
  */
 int http2_ctx_poll(struct http2_ctx *ctx, struct http2_poll_item *items, int max_items, int *ret_count);
 
@@ -136,7 +139,10 @@ int http2_ctx_poll(struct http2_ctx *ctx, struct http2_poll_item *items, int max
  * @param items Array to fill with poll results
  * @param max_items Maximum number of items to return
  * @param ret_count Output: number of items returned
- * @return 0 on success, -1 on error
+ * @return 0 on success, HTTP2_ERR_* on error
+ *
+ * Streams returned in items hold a reference for the caller. Release each
+ * non-NULL stream with http2_stream_put() after processing.
  */
 int http2_ctx_poll_readable(struct http2_ctx *ctx, struct http2_poll_item *items, int max_items, int *ret_count);
 
@@ -313,6 +319,13 @@ int http2_stream_body_available(struct http2_stream *stream);
  * @return 1 if stream ended, 0 otherwise
  */
 int http2_stream_is_end(struct http2_stream *stream);
+
+/**
+ * Check if peer has ended its side of the stream
+ * @param stream Stream
+ * @return 1 if peer sent END_STREAM or stream/connection is closed, 0 otherwise
+ */
+int http2_stream_is_remote_end(struct http2_stream *stream);
 
 /* Stream Metadata APIs */
 

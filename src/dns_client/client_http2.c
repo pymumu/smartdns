@@ -22,6 +22,7 @@
 #include "client_socket.h"
 #include "client_tls.h"
 #include "conn_stream.h"
+#include "query.h"
 #include "server_info.h"
 
 #include "smartdns/http2.h"
@@ -120,6 +121,85 @@ static void _dns_client_release_stream_on_error(struct dns_server_info *server_i
 
 	/* Release the initial reference from creation */
 	_dns_client_conn_stream_put(stream);
+}
+
+static void _dns_client_http2_retry_query(struct dns_query_struct *query)
+{
+	if (query == NULL) {
+		return;
+	}
+
+	int request_num = atomic_dec_return(&query->dns_request_sent);
+	if (request_num < 0) {
+		atomic_inc(&query->dns_request_sent);
+		tlog(TLOG_ERROR, "send count is invalid, %d", request_num);
+		goto out;
+	}
+
+	if (query->has_result != 0) {
+		if (request_num == 0) {
+			_dns_client_query_remove(query);
+		}
+		goto out;
+	}
+
+	_dns_client_retry_dns_query(query);
+
+out:
+	return;
+}
+
+static struct dns_query_struct *_dns_client_http2_detach_failed_stream(struct dns_server_info *server_info,
+																	   struct dns_conn_stream *conn_stream)
+{
+	struct dns_query_struct *query = NULL;
+	struct http2_stream *http2_stream = NULL;
+	int server_need_put = 0;
+	int query_need_put = 0;
+
+	if (conn_stream == NULL) {
+		return NULL;
+	}
+
+	if (conn_stream->query != NULL) {
+		query = conn_stream->query;
+		_dns_client_query_get(query);
+	}
+
+	pthread_mutex_lock(&server_info->lock);
+	if (!list_empty(&conn_stream->server_list)) {
+		list_del_init(&conn_stream->server_list);
+		conn_stream->server_info = NULL;
+		server_need_put = 1;
+	}
+
+	http2_stream = conn_stream->http2_stream;
+	conn_stream->http2_stream = NULL;
+	pthread_mutex_unlock(&server_info->lock);
+
+	if (http2_stream != NULL) {
+		http2_stream_close(http2_stream);
+	}
+
+	if (conn_stream->query != NULL) {
+		pthread_mutex_lock(&conn_stream->query->lock);
+		if (!list_empty(&conn_stream->query_list)) {
+			list_del_init(&conn_stream->query_list);
+			query_need_put = 1;
+		}
+		pthread_mutex_unlock(&conn_stream->query->lock);
+		conn_stream->query = NULL;
+	}
+
+	if (server_need_put) {
+		_dns_client_conn_stream_put(conn_stream);
+	}
+
+	if (query_need_put) {
+		_dns_client_conn_stream_put(conn_stream);
+	}
+
+	return query;
 }
 
 /* Helper function to flush pending HTTP/2 writes */
@@ -295,6 +375,10 @@ int _dns_client_send_http2(struct dns_server_info *server_info, struct dns_query
 
 	/* Now add stream to lists since HTTP/2 stream was successfully created */
 	pthread_mutex_lock(&server_info->lock);
+	http2_ctx = server_info->http2_ctx;
+	if (http2_ctx != NULL) {
+		http2_ctx_get(http2_ctx);
+	}
 	_dns_client_conn_stream_get(stream);
 	stream->server_info = server_info;
 	list_add_tail(&stream->server_list, &server_info->conn_stream_list);
@@ -307,15 +391,17 @@ int _dns_client_send_http2(struct dns_server_info *server_info, struct dns_query
 	pthread_mutex_unlock(&server_info->lock);
 
 	/* Flush data immediately */
-	int loop = 0;
-	while (http2_ctx_want_write(http2_ctx) && loop++ < 10) {
-		if (http2_ctx_poll(http2_ctx, NULL, 0, NULL) < 0) {
-			break;
+	if (http2_ctx != NULL) {
+		int loop = 0;
+		while (http2_ctx_want_write(http2_ctx) && loop++ < 10) {
+			if (http2_ctx_poll(http2_ctx, NULL, 0, NULL) < 0) {
+				break;
+			}
 		}
 	}
 
 	/* Check if there's pending write data, if so add EPOLLOUT event */
-	if (http2_ctx_want_write(http2_ctx)) {
+	if (http2_ctx != NULL && http2_ctx_want_write(http2_ctx)) {
 		struct epoll_event event;
 		memset(&event, 0, sizeof(event));
 		event.events = EPOLLIN | EPOLLOUT;
@@ -330,6 +416,9 @@ int _dns_client_send_http2(struct dns_server_info *server_info, struct dns_query
 
 	ret = 0;
 out:
+	if (http2_ctx != NULL) {
+		http2_ctx_put(http2_ctx);
+	}
 	if (stream) {
 		_dns_client_conn_stream_put(stream);
 	}
@@ -416,7 +505,6 @@ static int _dns_client_http2_process_stream_one(struct dns_server_info *server_i
 												struct dns_conn_stream *conn_stream)
 {
 	struct http2_stream *http2_stream = NULL;
-	uint8_t response_body[DNS_IN_PACKSIZE];
 	int response_len = 0;
 	int ret = 0;
 
@@ -435,28 +523,49 @@ static int _dns_client_http2_process_stream_one(struct dns_server_info *server_i
 		tlog(TLOG_WARN, "http2 server query from %s:%d failed, server return http code: %d", server_info->ip,
 			 server_info->port, status);
 		server_info->prohibit = 1;
-		return 1;
+		return -1;
 	}
 
-	/* Read response body */
-	response_len = http2_stream_read_body(http2_stream, response_body, sizeof(response_body));
-	if (response_len <= 0) {
-		/* Error or no data - check if stream has ended */
-		goto out;
+	while (1) {
+		int remain = DNS_TCP_BUFFER - conn_stream->recv_buff.len;
+		if (remain <= 0) {
+			tlog(TLOG_WARN, "http2 response from %s:%d is too large", server_info->ip, server_info->port);
+			server_info->prohibit = 1;
+			return -1;
+		}
+
+		response_len = http2_stream_read_body(http2_stream, conn_stream->recv_buff.data + conn_stream->recv_buff.len,
+											  remain);
+		if (response_len > 0) {
+			conn_stream->recv_buff.len += response_len;
+			continue;
+		}
+
+		if (response_len < 0 && errno == EAGAIN) {
+			break;
+		}
+		break;
+	}
+
+	if (!http2_stream_is_end(http2_stream)) {
+		return 0;
+	}
+
+	if (conn_stream->recv_buff.len <= 0) {
+		tlog(TLOG_DEBUG, "http2 stream ended without response body from %s:%d", server_info->ip, server_info->port);
+		return -1;
 	}
 
 	/* Process DNS response */
-	ret = _dns_client_recv(server_info, response_body, response_len, &server_info->addr, server_info->ai_addrlen);
+	ret = _dns_client_recv(server_info, conn_stream->recv_buff.data, conn_stream->recv_buff.len, &server_info->addr,
+						   server_info->ai_addrlen);
+	conn_stream->recv_buff.len = 0;
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "process dns response failed");
+		return -1;
 	}
 
-out:
-	if (http2_stream_is_end(http2_stream)) {
-		return 1;
-	}
-
-	return 0;
+	return 1;
 }
 
 static int _dns_client_http2_process_read(struct dns_server_info *server_info)
@@ -526,16 +635,26 @@ static int _dns_client_http2_process_read(struct dns_server_info *server_info)
 				int stream_ended = _dns_client_http2_process_stream_one(server_info, conn_stream);
 				if (stream_ended) {
 					int need_put = 0;
-					pthread_mutex_lock(&server_info->lock);
-					if (!list_empty(&conn_stream->server_list)) {
-						list_del_init(&conn_stream->server_list);
-						conn_stream->server_info = NULL;
-						need_put = 1;
+					struct dns_query_struct *retry_query = NULL;
+					if (stream_ended < 0) {
+						retry_query = _dns_client_http2_detach_failed_stream(server_info, conn_stream);
+					} else {
+						pthread_mutex_lock(&server_info->lock);
+						if (!list_empty(&conn_stream->server_list)) {
+							list_del_init(&conn_stream->server_list);
+							conn_stream->server_info = NULL;
+							need_put = 1;
+						}
+						pthread_mutex_unlock(&server_info->lock);
 					}
-					pthread_mutex_unlock(&server_info->lock);
 
 					if (need_put) {
 						_dns_client_conn_stream_put(conn_stream);
+					}
+
+					if (retry_query != NULL) {
+						_dns_client_http2_retry_query(retry_query);
+						_dns_client_query_release(retry_query);
 					}
 				}
 			}
