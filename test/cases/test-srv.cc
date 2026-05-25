@@ -22,6 +22,7 @@
 #include "server.h"
 #include "smartdns/util.h"
 #include "gtest/gtest.h"
+#include <atomic>
 #include <fstream>
 
 class SRV : public ::testing::Test
@@ -96,4 +97,56 @@ speed-check-mode none
 	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 600);
 	EXPECT_EQ(client.GetAnswer()[0].GetType(), "SRV");
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1 1 443 www.a.com.");
+}
+
+TEST_F(SRV, srv_record_default_priority_weight)
+{
+	smartdns::Server server;
+
+	server.Start(R"""(bind [::]:60053
+srv-record /_ldap._tcp.example.com/ldapserver.example.com,389
+speed-check-mode none
+)""");
+
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("_ldap._tcp.example.com SRV", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "_ldap._tcp.example.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 600);
+	EXPECT_EQ(client.GetAnswer()[0].GetType(), "SRV");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "0 0 389 ldapserver.example.com.");
+}
+
+TEST_F(SRV, srv_record_msdcs_ldap)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::Server server;
+	std::atomic<int> upstream_count{0};
+
+	server_upstream.Start("udp://0.0.0.0:61053", [&](struct smartdns::ServerRequestContext *request) {
+		upstream_count++;
+		usleep(200000);
+		return smartdns::SERVER_REQUEST_NO_RESPONSE;
+	});
+
+	server.Start(R"""(bind [::]:60053
+server 127.0.0.1:61053 -group ad
+srv-record /_ldap._tcp.dc._msdcs.xxx.com/xxx.com,389,0,100
+cname /_msdcs.xxx.com/xxx.com
+nameserver /-.xxx.com/ad
+speed-check-mode none
+)""");
+
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("_ldap._tcp.dc._msdcs.xxx.com SRV", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "_ldap._tcp.dc._msdcs.xxx.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 600);
+	EXPECT_EQ(client.GetAnswer()[0].GetType(), "SRV");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "0 100 389 xxx.com.");
+	EXPECT_EQ(upstream_count.load(), 0);
 }

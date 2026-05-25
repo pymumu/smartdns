@@ -20,6 +20,28 @@
 #include "request.h"
 #include "rules.h"
 
+static int _dns_server_has_exact_local_record(struct dns_request *request)
+{
+	enum domain_rule rule = DOMAIN_RULE_MAX;
+
+	switch (request->qtype) {
+	case DNS_T_SRV:
+		rule = DOMAIN_RULE_SRV;
+		break;
+	case DNS_T_HTTPS:
+		rule = DOMAIN_RULE_HTTPS;
+		break;
+	default:
+		return 0;
+	}
+
+	if (_dns_server_get_dns_rule(request, rule) == NULL) {
+		return 0;
+	}
+
+	return _dns_server_is_dns_rule_extract_match(request, rule);
+}
+
 static DNS_CHILD_POST_RESULT _dns_server_process_cname_callback(struct dns_request *request,
 																struct dns_request *child_request, int is_first_resp)
 {
@@ -45,6 +67,10 @@ int _dns_server_process_cname_pre(struct dns_request *request)
 	}
 
 	if (request->has_cname_loop == 1) {
+		return 0;
+	}
+
+	if (_dns_server_has_exact_local_record(request)) {
 		return 0;
 	}
 
