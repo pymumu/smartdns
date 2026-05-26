@@ -65,10 +65,18 @@ int create_dir_with_perm(const char *dir_path)
 	uid_t uid = 0;
 	gid_t gid = 0;
 	struct stat sb;
+	struct stat path_sb;
 	char data_dir[PATH_MAX] = {0};
 	int unused __attribute__((unused)) = 0;
 
 	safe_strncpy(data_dir, dir_path, PATH_MAX);
+
+	if (stat(dir_path, &path_sb) == 0) {
+		if (!S_ISREG(path_sb.st_mode) && !S_ISDIR(path_sb.st_mode)) {
+			return 0;
+		}
+	}
+
 	dir_name(data_dir);
 
 	if (get_uid_gid(&uid, &gid) != 0) {
