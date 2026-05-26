@@ -99,8 +99,8 @@ int drop_root_privilege(void)
 
 	prctl(PR_SET_KEEPCAPS, 1, 0, 0, 0);
 	for (int i = 0; i < 2; i++) {
-		cap[i].effective = (1 << CAP_NET_RAW | 1 << CAP_NET_ADMIN | 1 << CAP_NET_BIND_SERVICE);
-		cap[i].permitted = (1 << CAP_NET_RAW | 1 << CAP_NET_ADMIN | 1 << CAP_NET_BIND_SERVICE);
+		cap[i].effective = (1 << CAP_NET_RAW | 1 << CAP_NET_ADMIN | 1 << CAP_NET_BIND_SERVICE | 1 << CAP_DAC_READ_SEARCH);
+		cap[i].permitted = (1 << CAP_NET_RAW | 1 << CAP_NET_ADMIN | 1 << CAP_NET_BIND_SERVICE | 1 << CAP_DAC_READ_SEARCH);
 	}
 
 	unused = setgid(gid);
