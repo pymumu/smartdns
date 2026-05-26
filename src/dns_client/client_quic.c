@@ -453,9 +453,13 @@ static int _dns_client_process_quic_poll(struct dns_server_info *server_info)
 
 				if (server_info->type == DNS_SERVER_HTTP3) {
 					ret = _dns_client_process_recv_http3(server_info, conn_stream);
-					if (ret != 0) {
+					if (ret < 0) {
 						list_del_init(&conn_stream->server_list);
 						_dns_client_conn_stream_put(conn_stream);
+						continue;
+					}
+
+					if (ret > 0) {
 						continue;
 					}
 

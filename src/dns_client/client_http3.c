@@ -93,6 +93,8 @@ int _dns_client_process_recv_http3(struct dns_server_info *server_info, struct d
 	ret = http_head_parse(http_head, conn_stream->recv_buff.data, conn_stream->recv_buff.len);
 	if (ret < 0) {
 		if (ret == -1) {
+			errno = EAGAIN;
+			ret = 1;
 			goto out;
 		} else if (ret == -3) {
 			/* repsone is too large */
@@ -127,9 +129,10 @@ int _dns_client_process_recv_http3(struct dns_server_info *server_info, struct d
 	if (_dns_client_recv(server_info, pkg_data, pkg_len, &server_info->addr, server_info->ai_addrlen) != 0) {
 		goto errout;
 	}
+	ret = 0;
 out:
 	http_head_destroy(http_head);
-	return 0;
+	return ret;
 errout:
 
 	if (http_head) {
