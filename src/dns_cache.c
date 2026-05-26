@@ -54,6 +54,11 @@ typedef int (*dns_cache_read_callback)(struct dns_cache_record *cache_record, st
 static int is_cache_init;
 static struct dns_cache_head dns_cache_head;
 
+static int _dns_cache_is_ready(void)
+{
+	return is_cache_init != 0 && dns_cache_head.cache_hash.table != NULL && dns_cache_head.cache_hash.size > 0;
+}
+
 int dns_cache_init(int size, int mem_size, dns_cache_callback timeout_callback)
 {
 	int bits = 0;
@@ -231,7 +236,8 @@ static struct dns_cache *_dns_cache_lookup(struct dns_cache_key *cache_key)
 	struct dns_cache *dns_cache_ret = NULL;
 	time_t now = 0;
 
-	if (is_cache_init == 0) {
+	if (cache_key == NULL || cache_key->domain == NULL || cache_key->dns_group_name == NULL ||
+		_dns_cache_is_ready() == 0) {
 		return NULL;
 	}
 
@@ -243,6 +249,10 @@ static struct dns_cache *_dns_cache_lookup(struct dns_cache_key *cache_key)
 	time(&now);
 	/* find cache */
 	pthread_mutex_lock(&dns_cache_head.lock);
+	if (_dns_cache_is_ready() == 0) {
+		goto out;
+	}
+
 	hash_table_for_each_possible(dns_cache_head.cache_hash, dns_cache, node, key)
 	{
 		if (dns_cache->info.qtype != cache_key->qtype) {
@@ -269,6 +279,7 @@ static struct dns_cache *_dns_cache_lookup(struct dns_cache_key *cache_key)
 		dns_cache_get(dns_cache_ret);
 	}
 
+out:
 	pthread_mutex_unlock(&dns_cache_head.lock);
 
 	return dns_cache_ret;
@@ -1067,8 +1078,10 @@ void dns_cache_destroy(void)
 		return;
 	}
 
-	dns_cache_flush();
 	is_cache_init = 0;
+	dns_cache_head.size = 0;
+
+	dns_cache_flush();
 
 	pthread_mutex_destroy(&dns_cache_head.lock);
 	hash_table_free(dns_cache_head.cache_hash, free);
