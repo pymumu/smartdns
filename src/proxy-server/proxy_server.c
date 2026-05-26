@@ -1636,8 +1636,8 @@ static void _proxy_server_cleanup(struct proxy_worker *worker)
 		list_for_each_entry_safe(conn, tmp, &worker->connecting_conns, node)
 		{
 			if (worker->now - conn->connect_start > 10) {
-				tlog(TLOG_DEBUG, "proxy %p connection closed, reason: connect timeout, state %d, age %ld", conn,
-					 conn->state, worker->now - conn->connect_start);
+				tlog(TLOG_DEBUG, "proxy %p connection closed, reason: connect timeout, state %d, age %lld", conn,
+					 conn->state, (long long)(worker->now - conn->connect_start));
 				list_del(&conn->node);
 				__proxy_conn_free(conn);
 			}
