@@ -80,6 +80,21 @@ response-mode fastest-response
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
 }
 
+TEST_F(Cache, update_timer_after_destroy)
+{
+	struct dns_cache_key cache_key;
+
+	ASSERT_EQ(dns_cache_init(16, 0, NULL), 0);
+	dns_cache_destroy();
+
+	cache_key.domain = "shutdown.example";
+	cache_key.qtype = DNS_T_A;
+	cache_key.dns_group_name = "";
+	cache_key.query_flag = 0;
+
+	EXPECT_EQ(dns_cache_update_timer(&cache_key, 300), -1);
+}
+
 TEST_F(Cache, max_reply_ttl)
 {
 	smartdns::MockServer server_upstream;
