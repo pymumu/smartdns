@@ -387,8 +387,14 @@ int _dns_cache_specify_packet(struct dns_server_post_context *context)
 int _dns_cache_try_keep_old_cache(struct dns_request *request)
 {
 	struct dns_cache_key cache_key;
-	cache_key.dns_group_name = request->dns_group_name;
-	cache_key.domain = request->domain;
+	char domain[DNS_MAX_CNAME_LEN];
+	char dns_group_name[DNS_GROUP_NAME_LEN];
+
+	safe_strncpy(domain, request->domain, sizeof(domain));
+	safe_strncpy(dns_group_name, request->dns_group_name, sizeof(dns_group_name));
+
+	cache_key.dns_group_name = dns_group_name;
+	cache_key.domain = domain;
 	cache_key.qtype = request->qtype;
 	cache_key.query_flag = request->server_flags;
 	return dns_cache_update_timer(&cache_key, DNS_SERVER_TMOUT_TTL);
