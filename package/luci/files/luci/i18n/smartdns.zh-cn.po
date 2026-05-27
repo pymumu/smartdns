@@ -495,8 +495,8 @@ msgstr "停用证书校验"
 msgid "None"
 msgstr "无"
 
-msgid "Only socks5 proxy support udp server."
-msgstr "仅SOCKS5代理支持UDP服务器。"
+msgid "Only socks5 proxy support UDP, QUIC and HTTP3 server."
+msgstr "仅SOCKS5代理支持UDP、QUIC和HTTP3服务器。"
 
 msgid "Please check the system logs and check if the configuration is valid."
 msgstr "请检查系统日志，并检查配置是否合法。"
@@ -782,11 +782,12 @@ msgid "Upstream Servers"
 msgstr "上游服务器"
 
 msgid ""
-"Upstream Servers, support UDP, TCP protocol. Please configure multiple DNS "
-"servers, including multiple foreign DNS servers."
+"Upstream Servers, support UDP, TCP, TLS, HTTPS, QUIC and HTTP3 protocol. "
+"Please configure multiple DNS servers, including multiple foreign DNS "
+"servers."
 msgstr ""
-"上游 DNS 服务器，支持 UDP，TCP 协议。请配置多个上游 DNS 服务器，包括多个国内"
-"外服务器。"
+"上游 DNS 服务器，支持 UDP、TCP、TLS、HTTPS、QUIC 和 HTTP3 协议。请配置多个上"
+"游 DNS 服务器，包括多个国内外服务器。"
 
 msgid "Use Proxy"
 msgstr "使用代理"
@@ -826,6 +827,9 @@ msgstr "其它文件（/etc/smartdns/download）"
 msgid "https"
 msgstr "https"
 
+msgid "http3"
+msgstr "http3"
+
 msgid "ip"
 msgstr "ip"
 
@@ -840,6 +844,9 @@ msgstr "打开网站"
 
 msgid "port"
 msgstr "端口"
+
+msgid "quic"
+msgstr "quic"
 
 msgid "smartdns config (/etc/smartdns/conf.d)"
 msgstr "smartdns 配置文件（/etc/smartdns/conf.d）"

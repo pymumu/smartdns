@@ -210,8 +210,10 @@ msgid ""
 "server will be used."
 msgstr "启用家长控制且未配置上游服务器时，将使用默认服务器。"
 
-msgid "Upstream servers, format: [udp://|tcp://|tls://|https://][ip]."
-msgstr "上游服务器，格式：[udp://|tcp://|tls://|https://][ip]。"
+msgid ""
+"Upstream servers, format: [udp://|tcp://|tls://|https://|quic://|h3://][ip]."
+msgstr ""
+"上游服务器，格式：[udp://|tcp://|tls://|https://|quic://|h3://][ip]。"
 
 msgid "default"
 msgstr "默认"
