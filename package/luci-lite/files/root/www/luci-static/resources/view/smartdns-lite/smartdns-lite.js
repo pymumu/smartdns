@@ -144,7 +144,7 @@ return view.extend({
 		o.default = o.disabled;
 
 		o = s.taboption("settings", form.DynamicList, "servers", _("Upstream Server"),
-			_("Upstream servers, format: [udp://|tcp://|tls://|https://][ip]."));
+			_("Upstream servers, format: [udp://|tcp://|tls://|https://|quic://|h3://][ip]."));
 		o.rempty = true
 		o.rmempty = true;
 		o.validate = function (section_id, value) {
@@ -154,7 +154,7 @@ return view.extend({
 
 			var values = value.split(/\s+/);
 			for (var i = 0; i < values.length; i++) {
-				if (!values[i].match(/^(https?|udp|tcp|tls|quic):\/\/[0-9a-zA-Z\.\[\]:]+(\/[^\s]*)?$/)) {
+				if (!values[i].match(/^(https?|udp|tcp|tls|quic|h3):\/\/[0-9a-zA-Z\.\[\]:]+(\/[^\s]*)?$/)) {
 					return _('Invalid server address: %s').format(values[i]);
 				}
 			}
@@ -234,7 +234,7 @@ return view.extend({
 
 			var values = value.split(/\s+/);
 			for (var i = 0; i < values.length; i++) {
-				if (!values[i].match(/^(https?|udp|tcp|tls|quic):\/\/[0-9a-zA-Z\.\[\]:]+(\/[^\s]*)?$/)) {
+				if (!values[i].match(/^(https?|udp|tcp|tls|quic|h3):\/\/[0-9a-zA-Z\.\[\]:]+(\/[^\s]*)?$/)) {
 					return _('Invalid server address: %s').format(values[i]);
 				}
 			}
@@ -272,7 +272,7 @@ return view.extend({
 
 			var values = value.split(/\s+/);
 			for (var i = 0; i < values.length; i++) {
-				if (!values[i].match(/^(https?|udp|tcp|tls|quic):\/\/[0-9a-zA-Z\.\[\]:]+(\/[^\s]*)?$/)) {
+				if (!values[i].match(/^(https?|udp|tcp|tls|quic|h3):\/\/[0-9a-zA-Z\.\[\]:]+(\/[^\s]*)?$/)) {
 					return _('Invalid server address: %s').format(values[i]);
 				}
 			}
