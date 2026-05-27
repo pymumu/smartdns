@@ -48,6 +48,11 @@ struct dns_client_gstream_proto_ops {
 
 static __thread int dns_client_gstream_flushing_pending;
 
+static int _dns_client_gstream_is_retry_later_error(int err)
+{
+	return err == EAGAIN || err == EWOULDBLOCK || err == ENOBUFS || err == ENOSPC;
+}
+
 struct dns_conn_stream *dns_client_gstream_attach(struct dns_server_info *server_info, struct dns_query_struct *query,
 												  struct gsocket *stream_gs, dns_server_type_t type)
 {
@@ -309,7 +314,7 @@ void dns_client_gstream_pending_flush(struct dns_server_info *server_info)
 		dns_client_gstream_flushing_pending++;
 		if (proto->send_pending(server_info, q, pend->data, pend->data_len) != 0) {
 			dns_client_gstream_flushing_pending--;
-			if (errno == EAGAIN || errno == EWOULDBLOCK || errno == ENOBUFS) {
+			if (_dns_client_gstream_is_retry_later_error(errno)) {
 				_dns_client_gstream_pending_drop_for_retry(pend, "gstream pending flush deferred");
 				continue;
 			}
@@ -360,7 +365,7 @@ int dns_client_gstream_send_query(struct dns_server_info *server_info, struct dn
 
 	stream_gs = gsocket_open_stream(server_info->gs);
 	if (stream_gs == NULL) {
-		if (proto->queue_while_connecting && (errno == EAGAIN || errno == EWOULDBLOCK || errno == ENOBUFS)) {
+		if (proto->queue_while_connecting && _dns_client_gstream_is_retry_later_error(errno)) {
 			errno = EAGAIN;
 			return DNS_SEND_RET_NON_FATAL;
 		}
@@ -381,7 +386,7 @@ int dns_client_gstream_send_query(struct dns_server_info *server_info, struct dn
 			 "query=%s qtype=%d id=%d",
 			 server_info->ip, server_info->port, type, s_ret, errno, strerror(errno), query->domain, query->qtype,
 			 query->sid);
-		if (proto->queue_while_connecting && (errno == EAGAIN || errno == EWOULDBLOCK || errno == ENOBUFS)) {
+		if (proto->queue_while_connecting && _dns_client_gstream_is_retry_later_error(errno)) {
 			dns_client_gstream_close(&stream_gs);
 			errno = EAGAIN;
 			return DNS_SEND_RET_NON_FATAL;
@@ -410,7 +415,7 @@ int dns_client_gstream_send_query(struct dns_server_info *server_info, struct dn
 
 errout:
 	dns_client_gstream_close(&stream_gs);
-	if (errno == EAGAIN || errno == EWOULDBLOCK || errno == ENOBUFS) {
+	if (_dns_client_gstream_is_retry_later_error(errno)) {
 		return DNS_SEND_RET_NON_FATAL;
 	}
 	return -1;
