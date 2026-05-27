@@ -20,10 +20,41 @@
 #include "http_parse.h"
 #include "qpack.h"
 
+#include <limits.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #define HTTP3_HEADER_FRAME 1
 #define HTTP3_DATA_FRAME 0
+
+static int _http3_get_expected_data_len(struct http_head *http_head, int *expect_data_len)
+{
+	const char *content_len = NULL;
+	char *endptr = NULL;
+	long expect_len = 0;
+
+	if (expect_data_len == NULL) {
+		return -1;
+	}
+
+	*expect_data_len = -1;
+	if (http_head == NULL) {
+		return -1;
+	}
+
+	content_len = http_head_get_fields_value(http_head, "content-length");
+	if (content_len == NULL || content_len[0] == '\0') {
+		return 0;
+	}
+
+	expect_len = strtol(content_len, &endptr, 10);
+	if (endptr == NULL || *endptr != '\0' || expect_len < 0 || expect_len > INT_MAX) {
+		return -1;
+	}
+
+	*expect_data_len = (int)expect_len;
+	return 0;
+}
 
 static int _quicvarint_encode(uint64_t value, uint8_t *buffer, int buffer_size)
 {
@@ -548,6 +579,7 @@ int http_head_parse_http3_0(struct http_head *http_head, const uint8_t *data, in
 	uint64_t frame_len = 0;
 	int offset = 0;
 	int offset_ret = 0;
+	int expect_data_len = -1;
 
 	http_head->data_len = 0;
 	while (offset < data_len) {
@@ -582,6 +614,10 @@ int http_head_parse_http3_0(struct http_head *http_head, const uint8_t *data, in
 				return -1;
 			}
 
+			if (_http3_get_expected_data_len(http_head, &expect_data_len) != 0) {
+				return -2;
+			}
+
 		} else if (frame_type == HTTP3_DATA_FRAME) {
 			if (http_head->code != 200 && http_head->head_type == HTTP_HEAD_RESPONSE) {
 				if (frame_len > (uint64_t)(http_head->buff_size - http_head->buff_len)) {
@@ -604,15 +640,6 @@ int http_head_parse_http3_0(struct http_head *http_head, const uint8_t *data, in
 					http_head->buff_len = 0;
 					return -3;
 				}
-				/* Check buffer space before memcpy */
-				if ((uint64_t)http_head->buff_len + frame_len > (uint64_t)http_head->buff_size) {
-					http_head->code_msg = "Receive Buffer Insufficient";
-					http_head->code = 500;
-					http_head->data_len = 0;
-					http_head->buff_len = 0;
-					return -3;
-				}
-				memcpy(http_head->buff + http_head->buff_len, data + offset, frame_len);
 				http_head->data_len += frame_len;
 			}
 		} else {
@@ -621,6 +648,16 @@ int http_head_parse_http3_0(struct http_head *http_head, const uint8_t *data, in
 			continue;
 		}
 		offset += frame_len;
+	}
+
+	if (expect_data_len >= 0) {
+		if (http_head->data_len < expect_data_len) {
+			return -1;
+		}
+
+		if (http_head->data_len > expect_data_len) {
+			return -2;
+		}
 	}
 
 	if (offset >= http_head->buff_size) {

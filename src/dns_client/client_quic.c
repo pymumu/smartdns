@@ -364,6 +364,91 @@ errout:
 }
 
 #if defined(OSSL_QUIC1_VERSION) && !defined (OPENSSL_NO_QUIC)
+static int _dns_client_process_quic_stream_read(struct dns_server_info *server_info,
+												struct dns_conn_stream *conn_stream, SSL *quic_stream)
+{
+	int stream_ret = 1;
+
+	while (true) {
+		int recv_len = DNS_TCP_BUFFER - conn_stream->recv_buff.len;
+		if (recv_len <= 0) {
+			tlog(TLOG_DEBUG, "quic stream receive buffer is full.");
+			stream_ret = -1;
+			break;
+		}
+
+		int read_len = _dns_client_socket_ssl_recv_ext(
+			server_info, quic_stream, conn_stream->recv_buff.data + conn_stream->recv_buff.len, recv_len);
+		if (read_len < 0) {
+			if (errno == EAGAIN) {
+				break;
+			}
+
+			tlog(TLOG_ERROR, "recv failed, %s", strerror(errno));
+			break;
+		}
+
+		if (read_len == 0) {
+			conn_stream->recv_done = 1;
+			if (server_info->type == DNS_SERVER_HTTP3 && conn_stream->recv_buff.len > 0) {
+				stream_ret = _dns_client_process_recv_http3(server_info, conn_stream);
+				if (stream_ret > 0) {
+					stream_ret = -1;
+				}
+			} else {
+				stream_ret = -1;
+			}
+			break;
+		}
+
+		conn_stream->recv_buff.len += read_len;
+
+		if (conn_stream->query == NULL) {
+			stream_ret = -1;
+			break;
+		}
+
+		if (server_info->type == DNS_SERVER_HTTP3) {
+			stream_ret = _dns_client_process_recv_http3(server_info, conn_stream);
+			if (stream_ret <= 0) {
+				break;
+			}
+			continue;
+		}
+
+		if (server_info->type == DNS_SERVER_QUIC) {
+			unsigned short qid = htons(conn_stream->query->sid);
+			if (conn_stream->recv_buff.len < 2) {
+				errno = EAGAIN;
+				continue;
+			}
+
+			int msg_len = ntohs(*((unsigned short *)(conn_stream->recv_buff.data)));
+			if (msg_len <= 0 || msg_len >= DNS_IN_PACKSIZE) {
+				break;
+			}
+
+			if (msg_len > conn_stream->recv_buff.len - 2) {
+				errno = EAGAIN;
+				continue;
+			}
+
+			memcpy(conn_stream->recv_buff.data + 2, &qid, 2);
+			if (_dns_client_recv(server_info, conn_stream->recv_buff.data + 2, conn_stream->recv_buff.len - 2,
+								 &server_info->addr, server_info->ai_addrlen) != 0) {
+				break;
+			}
+			stream_ret = 0;
+			break;
+		}
+
+		stream_ret = -1;
+		break;
+	}
+
+	return stream_ret;
+}
+
 static int _dns_client_process_quic_poll(struct dns_server_info *server_info)
 {
 	LIST_HEAD(processed_list);
@@ -422,68 +507,12 @@ static int _dns_client_process_quic_poll(struct dns_server_info *server_info)
 					continue;
 				}
 
-				int recv_len = DNS_TCP_BUFFER - conn_stream->recv_buff.len;
-				if (recv_len <= 0) {
-					tlog(TLOG_DEBUG, "quic stream receive buffer is full.");
-					list_del_init(&conn_stream->server_list);
-					_dns_client_conn_stream_put(conn_stream);
+				int stream_ret =
+					_dns_client_process_quic_stream_read(server_info, conn_stream, poll_items[i].desc.value.ssl);
+				if (stream_ret > 0) {
 					continue;
 				}
 
-				int read_len = _dns_client_socket_ssl_recv_ext(server_info, poll_items[i].desc.value.ssl,
-															   conn_stream->recv_buff.data + conn_stream->recv_buff.len,
-															   recv_len);
-
-				if (read_len < 0) {
-					if (errno == EAGAIN) {
-						continue;
-					}
-
-					tlog(TLOG_ERROR, "recv failed, %s", strerror(errno));
-					continue;
-				}
-
-				conn_stream->recv_buff.len += read_len;
-
-				if (conn_stream->query == NULL) {
-					list_del_init(&conn_stream->server_list);
-					_dns_client_conn_stream_put(conn_stream);
-					continue;
-				}
-
-				if (server_info->type == DNS_SERVER_HTTP3) {
-					ret = _dns_client_process_recv_http3(server_info, conn_stream);
-					if (ret < 0) {
-						list_del_init(&conn_stream->server_list);
-						_dns_client_conn_stream_put(conn_stream);
-						continue;
-					}
-
-					if (ret > 0) {
-						continue;
-					}
-
-				} else if (server_info->type == DNS_SERVER_QUIC) {
-					unsigned short qid = htons(conn_stream->query->sid);
-					int msg_len = ntohs(*((unsigned short *)(conn_stream->recv_buff.data)));
-					if (msg_len <= 0 || msg_len >= DNS_IN_PACKSIZE) {
-						/* data len is invalid */
-						continue;
-					}
-
-					if (msg_len > conn_stream->recv_buff.len - 2) {
-						errno = EAGAIN;
-						/* len is not expected, wait and recv */
-						continue;
-					}
-
-					memcpy(conn_stream->recv_buff.data + 2, &qid, 2);
-					if (_dns_client_recv(server_info, conn_stream->recv_buff.data + 2, conn_stream->recv_buff.len - 2,
-										 &server_info->addr, server_info->ai_addrlen) != 0) {
-						continue;
-					}
-				}
-				/* process succeed, delete from processed_list*/
 				list_del_init(&conn_stream->server_list);
 				_dns_client_conn_stream_put(conn_stream);
 			}
@@ -577,6 +606,8 @@ static int _dns_client_quic_flush_stream(struct dns_server_info *server_info, st
 int _dns_client_process_quic(struct dns_server_info *server_info, struct epoll_event *event, unsigned long now)
 {
 	if (event->events & EPOLLIN) {
+		_ssl_do_handevent(server_info);
+
 		/* connection is closed, reconnect */
 		if (SSL_get_shutdown(server_info->ssl) != 0) {
 			int ret = 0;
