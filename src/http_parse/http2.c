@@ -379,6 +379,55 @@ static const char *_http2_stream_get_header_value(struct http2_stream *stream, c
 	return NULL;
 }
 
+static int _http2_get_content_length(struct http2_stream *stream, int *content_length)
+{
+	const char *content_length_str = NULL;
+	char *endptr = NULL;
+	long value = 0;
+
+	if (content_length == NULL) {
+		return -1;
+	}
+
+	*content_length = -1;
+	content_length_str = _http2_stream_get_header_value(stream, "content-length");
+	if (content_length_str == NULL || content_length_str[0] == '\0') {
+		return 0;
+	}
+
+	value = strtol(content_length_str, &endptr, 10);
+	if (endptr == NULL || *endptr != '\0' || value < 0 || value > INT_MAX) {
+		return -1;
+	}
+
+	*content_length = (int)value;
+	return 0;
+}
+
+static int _http2_check_content_length(struct http2_ctx *ctx, struct http2_stream *stream, uint32_t stream_id,
+									   int body_len, int end_stream)
+{
+	int content_length = -1;
+
+	if (_http2_get_content_length(stream, &content_length) != 0) {
+		http2_send_rst_stream(ctx, stream_id, HTTP2_RST_PROTOCOL_ERROR);
+		ctx->status = HTTP2_ERR_PROTOCOL;
+		return -1;
+	}
+
+	if (content_length < 0) {
+		return 0;
+	}
+
+	if (body_len > content_length || (end_stream && body_len != content_length)) {
+		http2_send_rst_stream(ctx, stream_id, HTTP2_RST_PROTOCOL_ERROR);
+		ctx->status = HTTP2_ERR_PROTOCOL;
+		return -1;
+	}
+
+	return 0;
+}
+
 void http2_stream_headers_walk(struct http2_stream *stream, header_walk_fn fn, void *arg)
 {
 	struct list_head *pos;
@@ -822,6 +871,11 @@ static int _http2_process_data_frame(struct http2_ctx *ctx, int stream_id, const
 		return -1;
 	}
 
+	if (_http2_check_content_length(ctx, stream, stream_id, stream->body_buffer_len + len,
+									flags & HTTP2_FLAG_END_STREAM) != 0) {
+		return -1;
+	}
+
 	/* Limit body buffer to 1MB to prevent OOM DOS */
 	if (stream->body_buffer_len + len > 1024 * 1024) {
 		http2_send_rst_stream(ctx, stream_id, HTTP2_RST_INTERNAL_ERROR);
@@ -1004,6 +1058,9 @@ static int _http2_process_headers_frame(struct http2_ctx *ctx, int stream_id, co
 	}
 
 	if (headers_flags & HTTP2_FLAG_END_STREAM) {
+		if (_http2_check_content_length(ctx, stream, stream_id, stream->body_buffer_len, 1) != 0) {
+			return -1;
+		}
 		stream->end_stream_received = 1;
 		if (stream->state == HTTP2_STREAM_OPEN) {
 			stream->state = HTTP2_STREAM_HALF_CLOSED_REMOTE;

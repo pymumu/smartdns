@@ -197,10 +197,12 @@ TEST_F(LIBHTTP2, Integrated)
 		ASSERT_NE(stream, nullptr);
 
 		// Send request
-		struct http2_header_pair headers[] = {
-			{"content-type", "application/json"}, {"content-length", "27"}, {NULL, NULL}};
-		http2_stream_set_request(stream, "POST", "/echo", NULL, headers);
 		const char *request_body = "{\"message\":\"Hello Echo!\"}";
+		char content_length[32];
+		snprintf(content_length, sizeof(content_length), "%zu", strlen(request_body));
+		struct http2_header_pair headers[] = {
+			{"content-type", "application/json"}, {"content-length", content_length}, {NULL, NULL}};
+		http2_stream_set_request(stream, "POST", "/echo", NULL, headers);
 		http2_stream_write_body(stream, (const uint8_t *)request_body, strlen(request_body), 1);
 
 		// Wait for response
@@ -287,6 +289,107 @@ TEST_F(LIBHTTP2, ResponseHeadersContinuation)
 
 	EXPECT_EQ(http2_stream_get_status(stream), 200);
 	EXPECT_TRUE(http2_stream_is_end(stream));
+
+	http2_stream_close(stream);
+	http2_ctx_close(ctx);
+}
+
+TEST_F(LIBHTTP2, ResponseDataFragmentsKeepStreamOpenUntilEndStream)
+{
+	struct http2_ctx *ctx = http2_ctx_client_new("test-client", bio_read, bio_write, &client_sock, NULL);
+	ASSERT_NE(ctx, nullptr);
+
+	struct http2_stream *stream = http2_stream_new(ctx);
+	ASSERT_NE(stream, nullptr);
+
+	StartClientWithServerSettings(ctx);
+
+	const uint8_t headers[] = {
+		0x08, 0x03, '2', '0', '0', /* :status: 200 */
+		0x0f, 0x0d, 0x01, '4'     /* content-length: 4 */
+	};
+	WriteServerFrame(0x01, 0x04, 1, headers, sizeof(headers));
+
+	const uint8_t first_fragment[] = {0xde, 0xad};
+	WriteServerFrame(0x00, 0, 1, first_fragment, sizeof(first_fragment));
+
+	struct http2_poll_item items[10] = {};
+	int count = 0;
+	ASSERT_EQ(http2_ctx_poll_readable(ctx, items, 10, &count), 0);
+	ASSERT_GT(count, 0);
+
+	bool found = false;
+	for (int i = 0; i < count; i++) {
+		if (items[i].stream == nullptr) {
+			continue;
+		}
+
+		if (http2_stream_get_id(items[i].stream) == http2_stream_get_id(stream)) {
+			found = true;
+			uint8_t body[4] = {};
+			EXPECT_EQ(http2_stream_get_status(items[i].stream), 200);
+			ASSERT_EQ(http2_stream_read_body(items[i].stream, body, sizeof(body)), (int)sizeof(first_fragment));
+			EXPECT_EQ(memcmp(body, first_fragment, sizeof(first_fragment)), 0);
+			EXPECT_FALSE(http2_stream_is_end(items[i].stream));
+		}
+		http2_stream_put(items[i].stream);
+	}
+	ASSERT_TRUE(found);
+
+	memset(items, 0, sizeof(items));
+	count = 0;
+	ASSERT_EQ(http2_ctx_poll_readable(ctx, items, 10, &count), 0);
+	EXPECT_EQ(count, 0);
+
+	const uint8_t second_fragment[] = {0xbe, 0xef};
+	WriteServerFrame(0x00, 0x01, 1, second_fragment, sizeof(second_fragment));
+
+	memset(items, 0, sizeof(items));
+	count = 0;
+	ASSERT_EQ(http2_ctx_poll_readable(ctx, items, 10, &count), 0);
+	ASSERT_GT(count, 0);
+
+	found = false;
+	for (int i = 0; i < count; i++) {
+		if (items[i].stream == nullptr) {
+			continue;
+		}
+
+		if (http2_stream_get_id(items[i].stream) == http2_stream_get_id(stream)) {
+			found = true;
+			uint8_t body[4] = {};
+			ASSERT_EQ(http2_stream_read_body(items[i].stream, body, sizeof(body)), (int)sizeof(second_fragment));
+			EXPECT_EQ(memcmp(body, second_fragment, sizeof(second_fragment)), 0);
+			EXPECT_TRUE(http2_stream_is_end(items[i].stream));
+		}
+		http2_stream_put(items[i].stream);
+	}
+	ASSERT_TRUE(found);
+
+	http2_stream_close(stream);
+	http2_ctx_close(ctx);
+}
+
+TEST_F(LIBHTTP2, ResponseEndStreamBeforeContentLengthFailsProtocol)
+{
+	struct http2_ctx *ctx = http2_ctx_client_new("test-client", bio_read, bio_write, &client_sock, NULL);
+	ASSERT_NE(ctx, nullptr);
+
+	struct http2_stream *stream = http2_stream_new(ctx);
+	ASSERT_NE(stream, nullptr);
+
+	StartClientWithServerSettings(ctx);
+
+	const uint8_t headers[] = {
+		0x08, 0x03, '2', '0', '0', /* :status: 200 */
+		0x0f, 0x0d, 0x01, '4'     /* content-length: 4 */
+	};
+	WriteServerFrame(0x01, 0x04, 1, headers, sizeof(headers));
+
+	const uint8_t short_body[] = {0xde, 0xad};
+	WriteServerFrame(0x00, 0x01, 1, short_body, sizeof(short_body));
+
+	EXPECT_EQ(http2_ctx_poll(ctx, NULL, 0, NULL), HTTP2_ERR_PROTOCOL);
 
 	http2_stream_close(stream);
 	http2_ctx_close(ctx);
