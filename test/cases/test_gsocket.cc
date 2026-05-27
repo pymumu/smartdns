@@ -309,6 +309,57 @@ static void _mock_fail_free(struct gsocket_io *io)
 	free(io);
 }
 
+struct MockStreamPollCtx {
+	std::atomic<int> calls;
+};
+
+static int mock_stream_poll(struct gsocket_io *io, struct gstream_poll_item *items, int count, int timeout_ms)
+{
+	(void)timeout_ms;
+	if (items == NULL || count < 0) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	MockStreamPollCtx *ctx = (MockStreamPollCtx *)io->ctx;
+	if (ctx) {
+		ctx->calls++;
+	}
+
+	for (int i = 0; i < count; i++) {
+		items[i].revents = items[i].events & (POLLIN | POLLOUT);
+	}
+
+	return count;
+}
+
+static int mock_stream_poll_get_events(struct gsocket_io *io)
+{
+	(void)io;
+	return EPOLLIN;
+}
+
+static void mock_stream_poll_free(struct gsocket_io *io)
+{
+	delete (MockStreamPollCtx *)io->ctx;
+	free(io);
+}
+
+static struct gsocket_io *mock_stream_poll_layer_new()
+{
+	struct gsocket_io *io = (struct gsocket_io *)calloc(1, sizeof(struct gsocket_io));
+	if (io == NULL) {
+		return NULL;
+	}
+
+	io->ctx = new MockStreamPollCtx;
+	((MockStreamPollCtx *)io->ctx)->calls = 0;
+	io->stream_poll = mock_stream_poll;
+	io->get_poll_events = mock_stream_poll_get_events;
+	io->free = mock_stream_poll_free;
+	return io;
+}
+
 } // namespace GSocketTestUtils
 
 using namespace GSocketTestUtils;
@@ -1321,6 +1372,90 @@ TEST(GSocketTest, API_Presence)
 	gstream_poll_destroy(sp);
 	gsocket_close(gs);
 	gsocket_free(gs);
+}
+
+TEST(GSocketTest, GStreamPollConcurrentAccess)
+{
+	const int worker_count = 4;
+	const int streams_per_worker = 16;
+	const int iterations = 4000;
+	std::atomic<bool> start(false);
+	std::atomic<bool> done(false);
+	std::atomic<int> errors(0);
+	std::vector<struct gsocket *> streams;
+
+	struct gsocket *conn = gsocket_new(GS_INVALID_FD);
+	ASSERT_TRUE(conn != NULL);
+	ASSERT_EQ(gsocket_push_layer(conn, mock_stream_poll_layer_new()), 0);
+
+	struct gstream_poll *sp = gstream_poll_create(conn);
+	ASSERT_TRUE(sp != NULL);
+
+	for (int i = 0; i < worker_count * streams_per_worker; i++) {
+		struct gsocket *stream = gsocket_new(GS_INVALID_FD);
+		ASSERT_TRUE(stream != NULL);
+		streams.push_back(stream);
+	}
+
+	std::thread waiter([&]() {
+		while (!start) {
+			std::this_thread::yield();
+		}
+
+		for (int i = 0; i < worker_count * iterations && !done; i++) {
+			struct gstream_event events[128];
+			if (gstream_poll_wait(sp, events, 128, 0) < 0) {
+				errors++;
+			}
+			if ((gstream_poll_get_net_events(sp) & EPOLLIN) == 0) {
+				errors++;
+			}
+		}
+	});
+
+	std::vector<std::thread> workers;
+	for (int w = 0; w < worker_count; w++) {
+		workers.emplace_back([&, w]() {
+			int base = w * streams_per_worker;
+			while (!start) {
+				std::this_thread::yield();
+			}
+
+			for (int i = 0; i < iterations; i++) {
+				struct gsocket *stream = streams[base + (i % streams_per_worker)];
+				int events = (i & 1) ? POLLIN : POLLOUT;
+
+				if (gstream_poll_add(sp, stream, POLLIN | POLLOUT, stream) != 0) {
+					errors++;
+					continue;
+				}
+				if (gstream_poll_mod(sp, stream, events, stream) != 0) {
+					errors++;
+				}
+				if (gstream_poll_del(sp, stream) != 0) {
+					errors++;
+				}
+			}
+		});
+	}
+
+	start = true;
+	for (auto &worker : workers) {
+		worker.join();
+	}
+	done = true;
+	waiter.join();
+
+	for (auto stream : streams) {
+		gstream_poll_del(sp, stream);
+		gsocket_close(stream);
+		gsocket_free(stream);
+	}
+	gstream_poll_destroy(sp);
+	gsocket_close(conn);
+	gsocket_free(conn);
+
+	ASSERT_EQ(errors.load(), 0);
 }
 
 TEST(GSocketTest, GEPollAPI)

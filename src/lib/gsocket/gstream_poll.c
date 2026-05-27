@@ -19,6 +19,7 @@
 #include "smartdns/lib/list.h"
 #include <errno.h>
 #include <poll.h>
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/epoll.h>
@@ -35,6 +36,7 @@ struct gstream_item {
 struct gstream_poll {
 	struct gsocket *quic_connection; /* Associated QUIC connection */
 	struct list_head streams;
+	pthread_mutex_t lock;
 	int count;
 	int has_pollout_streams; /* Track if any stream wants to write */
 };
@@ -53,12 +55,17 @@ struct gstream_poll *gstream_poll_create(struct gsocket *quic_connection)
 
 	sp->quic_connection = quic_connection;
 	INIT_LIST_HEAD(&sp->streams);
+	pthread_mutex_init(&sp->lock, NULL);
 	sp->count = 0;
 	sp->has_pollout_streams = 0;
 
 	/* Automatically add the connection itself to monitor for new stream arrivals */
 	/* The connection will have stream == quic_connection to indicate it's for accept */
-	gstream_poll_add(sp, quic_connection, POLLIN, NULL);
+	if (gstream_poll_add(sp, quic_connection, POLLIN, NULL) != 0) {
+		pthread_mutex_destroy(&sp->lock);
+		free(sp);
+		return NULL;
+	}
 
 	return sp;
 }
@@ -69,6 +76,8 @@ int gstream_poll_add(struct gstream_poll *sp, struct gsocket *stream, int events
 		errno = EINVAL;
 		return -1;
 	}
+
+	pthread_mutex_lock(&sp->lock);
 
 	/* Check if already exists */
 	struct gstream_item *item;
@@ -82,6 +91,7 @@ int gstream_poll_add(struct gstream_poll *sp, struct gsocket *stream, int events
 			if (events & POLLOUT) {
 				sp->has_pollout_streams = 1;
 			}
+			pthread_mutex_unlock(&sp->lock);
 			return 0;
 		}
 	}
@@ -89,6 +99,7 @@ int gstream_poll_add(struct gstream_poll *sp, struct gsocket *stream, int events
 	/* Add new item */
 	item = calloc(1, sizeof(struct gstream_item));
 	if (!item) {
+		pthread_mutex_unlock(&sp->lock);
 		return -1;
 	}
 
@@ -103,6 +114,7 @@ int gstream_poll_add(struct gstream_poll *sp, struct gsocket *stream, int events
 		sp->has_pollout_streams = 1;
 	}
 
+	pthread_mutex_unlock(&sp->lock);
 	return 0;
 }
 
@@ -127,6 +139,8 @@ int gstream_poll_mod(struct gstream_poll *sp, struct gsocket *stream, int events
 		return -1;
 	}
 
+	pthread_mutex_lock(&sp->lock);
+
 	/* Find and update existing item */
 	struct gstream_item *item;
 	list_for_each_entry(item, &sp->streams, list)
@@ -136,12 +150,14 @@ int gstream_poll_mod(struct gstream_poll *sp, struct gsocket *stream, int events
 			item->user_data = user_data;
 			/* Recalculate POLLOUT tracking */
 			_update_pollout_tracking(sp);
+			pthread_mutex_unlock(&sp->lock);
 			return 0;
 		}
 	}
 
 	/* Not found */
 	errno = ENOENT;
+	pthread_mutex_unlock(&sp->lock);
 	return -1;
 }
 
@@ -151,6 +167,8 @@ int gstream_poll_del(struct gstream_poll *sp, struct gsocket *stream)
 		errno = EINVAL;
 		return -1;
 	}
+
+	pthread_mutex_lock(&sp->lock);
 
 	struct gstream_item *item, *tmp;
 	list_for_each_entry_safe(item, tmp, &sp->streams, list)
@@ -164,11 +182,13 @@ int gstream_poll_del(struct gstream_poll *sp, struct gsocket *stream)
 			if (had_pollout) {
 				_update_pollout_tracking(sp);
 			}
+			pthread_mutex_unlock(&sp->lock);
 			return 0;
 		}
 	}
 
 	errno = ENOENT;
+	pthread_mutex_unlock(&sp->lock);
 	return -1;
 }
 
@@ -179,7 +199,10 @@ int gstream_poll_wait(struct gstream_poll *sp, struct gstream_event *events, int
 		return -1;
 	}
 
+	pthread_mutex_lock(&sp->lock);
+
 	if (sp->count == 0) {
+		pthread_mutex_unlock(&sp->lock);
 		return 0;
 	}
 
@@ -214,11 +237,13 @@ int gstream_poll_wait(struct gstream_poll *sp, struct gstream_event *events, int
 	struct gsocket_io *io = gsocket_get_top_layer(sp->quic_connection);
 	if (!io || !io->stream_poll) {
 		errno = ENOTSUP;
+		pthread_mutex_unlock(&sp->lock);
 		return -1;
 	}
 
 	int ret = io->stream_poll(io, items, idx, timeout_ms);
 	if (ret < 0) {
+		pthread_mutex_unlock(&sp->lock);
 		return ret;
 	}
 
@@ -234,6 +259,7 @@ int gstream_poll_wait(struct gstream_poll *sp, struct gstream_event *events, int
 		}
 	}
 
+	pthread_mutex_unlock(&sp->lock);
 	return ready;
 }
 
@@ -243,6 +269,8 @@ void gstream_poll_destroy(struct gstream_poll *sp)
 		return;
 	}
 
+	pthread_mutex_lock(&sp->lock);
+
 	struct gstream_item *item, *tmp;
 	list_for_each_entry_safe(item, tmp, &sp->streams, list)
 	{
@@ -250,6 +278,8 @@ void gstream_poll_destroy(struct gstream_poll *sp)
 		free(item);
 	}
 
+	pthread_mutex_unlock(&sp->lock);
+	pthread_mutex_destroy(&sp->lock);
 	free(sp);
 }
 
@@ -258,6 +288,8 @@ int gstream_poll_get_net_events(struct gstream_poll *sp)
 	if (!sp || !sp->quic_connection) {
 		return EPOLLIN;
 	}
+
+	pthread_mutex_lock(&sp->lock);
 
 	/* Get SSL layer's network requirements */
 	int ssl_events = gsocket_get_poll_events(sp->quic_connection);
@@ -270,5 +302,6 @@ int gstream_poll_get_net_events(struct gstream_poll *sp)
 		ssl_events |= EPOLLOUT;
 	}
 
+	pthread_mutex_unlock(&sp->lock);
 	return ssl_events;
 }
