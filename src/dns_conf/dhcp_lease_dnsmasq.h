@@ -27,6 +27,7 @@ extern "C" {
 #endif /*__cplusplus */
 
 int _conf_dhcp_lease_dnsmasq_file(void *data, int argc, char *argv[]);
+int _conf_dhcp_lease_odhcpd_file(void *data, int argc, char *argv[]);
 
 int dns_server_check_update_hosts(void);
 

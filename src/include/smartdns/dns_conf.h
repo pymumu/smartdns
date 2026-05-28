@@ -362,6 +362,7 @@ extern struct dns_ptr_table dns_ptr_table;
 typedef enum dns_hosts_type {
 	DNS_HOST_TYPE_HOST = 0,
 	DNS_HOST_TYPE_DNSMASQ = 1,
+	DNS_HOST_TYPE_ODHCPD = 2,
 } dns_hosts_type;
 
 struct dns_hosts {
