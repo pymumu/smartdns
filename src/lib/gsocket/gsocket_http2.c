@@ -318,9 +318,10 @@ static ssize_t _http2_stream_send(struct gsocket_io *io, const void *buf, size_t
 	int end_stream = (flags & GS_MSG_FIN) ? 1 : 0;
 	int ret = http2_stream_write_body(s_ctx->h2_stream, (const uint8_t *)buf, len, end_stream);
 
-	/* Flush connection immediately if possible */
+	/* Flush connection immediately if possible. This must not override the
+	 * stream write result; later connection errors are handled by the poll path. */
 	if (s_ctx->conn_io) {
-		if (_http2_conn_process(s_ctx->conn_io) < 0) {
+		if (_http2_conn_process(s_ctx->conn_io) < 0 && ret < 0) {
 			return -1;
 		}
 	}

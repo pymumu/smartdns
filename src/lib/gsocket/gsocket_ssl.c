@@ -561,7 +561,8 @@ static long _bio_gs_ctrl_dgram(BIO *b, int cmd, long num, void *ptr)
 	case BIO_CTRL_DGRAM_GET_MTU:
 	case BIO_CTRL_DGRAM_QUERY_MTU:
 	case BIO_CTRL_DGRAM_GET_FALLBACK_MTU:
-		return 1200;
+		/* QUIC peers can send 1280-byte Initial packets; keep the BIO recv buffer large enough. */
+		return 1500;
 	case BIO_CTRL_DGRAM_GET_MTU_OVERHEAD:
 		return 28; // IPv4(20) + UDP(8)
 	case BIO_CTRL_DGRAM_SET_NEXT_TIMEOUT:

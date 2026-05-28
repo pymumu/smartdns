@@ -26,28 +26,60 @@
 #include <errno.h>
 #include <string.h>
 
-int dns_server_doq_process_request(struct dns_server_conn_gsocket *parent, struct gsocket *stream_gs)
+int dns_server_doq_process_request(struct dns_server_conn_gsocket *parent, struct gsocket *stream_gs,
+								   struct dns_server_gstream_buffer *recv_buff)
 {
-	uint8_t buf[DNS_IN_PACKSIZE];
-	ssize_t n = gsocket_recv(stream_gs, buf, sizeof(buf), 0);
-	if (n <= 0) {
-		if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-			return -EAGAIN;
-		}
+	if (recv_buff == NULL) {
 		return -1;
 	}
 
-	uint8_t *packet = buf;
-	int packet_len = (int)n;
-	if (n >= 2) {
-		int doq_len = ntohs(*((unsigned short *)buf));
-		if (doq_len > 0 && doq_len <= n - 2) {
-			packet = buf + 2;
-			packet_len = doq_len;
+	while (recv_buff->len < (int)sizeof(recv_buff->data)) {
+		ssize_t n =
+			gsocket_recv(stream_gs, recv_buff->data + recv_buff->len, sizeof(recv_buff->data) - recv_buff->len, 0);
+		if (n < 0) {
+			if (errno == EAGAIN || errno == EWOULDBLOCK) {
+				break;
+			}
+			return -1;
+		}
+
+		if (n == 0) {
+			break;
+		}
+
+		recv_buff->len += n;
+		if (recv_buff->len >= 2) {
+			break;
 		}
 	}
 
-	if (dns_server_gstream_dispatch_query(parent, stream_gs, DNS_CONN_TYPE_QUIC_STREAM, packet, packet_len) != 0) {
+	if (recv_buff->len < 2) {
+		return -EAGAIN;
+	}
+
+	int doq_len = ((int)recv_buff->data[0] << 8) | recv_buff->data[1];
+	if (doq_len <= 0 || doq_len > DNS_IN_PACKSIZE - 2) {
+		return -1;
+	}
+
+	while (recv_buff->len < doq_len + 2) {
+		ssize_t n = gsocket_recv(stream_gs, recv_buff->data + recv_buff->len, doq_len + 2 - recv_buff->len, 0);
+		if (n < 0) {
+			if (errno == EAGAIN || errno == EWOULDBLOCK) {
+				return -EAGAIN;
+			}
+			return -1;
+		}
+
+		if (n == 0) {
+			return -1;
+		}
+
+		recv_buff->len += n;
+	}
+
+	if (dns_server_gstream_dispatch_query(parent, stream_gs, DNS_CONN_TYPE_QUIC_STREAM, recv_buff->data + 2,
+										  doq_len) != 0) {
 		return -1;
 	}
 

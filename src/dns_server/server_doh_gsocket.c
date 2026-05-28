@@ -34,8 +34,10 @@ static int _dns_server_doh_send_error(struct gsocket *stream_gs, int status, con
 	return gsocket_send_all(stream_gs, body, strlen(body), MSG_NOSIGNAL | GS_MSG_FIN);
 }
 
-int dns_server_doh_process_request(struct dns_server_conn_gsocket *parent, struct gsocket *stream_gs)
+int dns_server_doh_process_request(struct dns_server_conn_gsocket *parent, struct gsocket *stream_gs,
+								   struct dns_server_gstream_buffer *recv_buff)
 {
+	(void)recv_buff;
 	uint8_t buf[DNS_IN_PACKSIZE];
 	int len = 0;
 	ssize_t n = 0;

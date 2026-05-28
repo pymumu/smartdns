@@ -21,6 +21,13 @@
 
 #include "server_gsocket.h"
 
+#include "smartdns/dns.h"
+
+struct dns_server_gstream_buffer {
+	unsigned char data[DNS_IN_PACKSIZE];
+	int len;
+};
+
 struct dns_server_conn_stream *dns_server_gstream_adopt(struct dns_server_conn_gsocket *parent,
 														struct gsocket *stream_gs, DNS_CONN_TYPE stream_type);
 

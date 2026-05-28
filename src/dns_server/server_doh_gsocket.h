@@ -20,8 +20,10 @@
 #define _DNS_SERVER_DOH_GSOCKET_H_
 
 #include "server_gsocket.h"
+#include "server_gsocket_stream.h"
 
-int dns_server_doh_process_request(struct dns_server_conn_gsocket *parent, struct gsocket *stream_gs);
+int dns_server_doh_process_request(struct dns_server_conn_gsocket *parent, struct gsocket *stream_gs,
+								   struct dns_server_gstream_buffer *recv_buff);
 int dns_server_doh_reply(struct gsocket *stream, unsigned char *inpacket, int inpacket_len);
 
 #endif

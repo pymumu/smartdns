@@ -33,7 +33,8 @@
 #include <stddef.h>
 #include <stdlib.h>
 
-typedef int (*dns_server_gstream_request_fn)(struct dns_server_conn_gsocket *conn, struct gsocket *stream);
+typedef int (*dns_server_gstream_request_fn)(struct dns_server_conn_gsocket *conn, struct gsocket *stream,
+											 struct dns_server_gstream_buffer *recv_buff);
 
 struct dns_server_gstream_proto_ops {
 	DNS_CONN_TYPE conn_type;
@@ -45,6 +46,7 @@ struct dns_server_gstream_proto_ops {
 struct dns_server_pending_stream {
 	struct list_head list;
 	struct gsocket *stream;
+	struct dns_server_gstream_buffer recv_buff;
 	atomic_t refcnt;
 };
 
@@ -179,7 +181,7 @@ static int _dns_server_gstream_process_stream_event(struct dns_server_conn_gsock
 	gstream_poll_del(conn->sp, stream);
 	list_del_init(&pending->list);
 
-	int ret = process_request(conn, stream);
+	int ret = process_request(conn, stream, &pending->recv_buff);
 	if (ret == -EAGAIN) {
 		list_add_tail(&pending->list, &conn->pending_stream_list);
 		if (gstream_poll_add(conn->sp, stream, POLLIN, pending) != 0) {

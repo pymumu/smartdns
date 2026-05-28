@@ -565,3 +565,31 @@ log-level debug
 	ret = system(cmd.c_str());
 	ASSERT_EQ(ret, 0);
 }
+
+TEST(Bind, GetHTTP2ReuseAfterIdle)
+{
+	smartdns::Server server;
+
+	int ret = system("which curl > /dev/null 2>&1");
+	if (ret != 0) {
+		GTEST_SKIP() << "curl not found, skip test";
+	}
+
+	ret = system("curl --help all 2>/dev/null | grep -q -- '--rate'");
+	if (ret != 0) {
+		GTEST_SKIP() << "curl does not support --rate, skip test";
+	}
+
+	server.Start(R"""(bind-https [::]:60053 -alpn h2
+address /example.com/1.2.3.4
+log-level debug
+)""");
+
+	std::string cmd =
+		"curl --connect-timeout 2 --max-time 20 -k --http2 --rate 1/6s "
+		"'https://127.0.0.1:60053/dns-query?dns=AAABAAABAAAAAAAAB2V4YW1wbGUDY29tAAABAAE=' "
+		"'https://127.0.0.1:60053/dns-query?dns=AAABAAABAAAAAAAAB2V4YW1wbGUDY29tAAABAAE=' "
+		"> /dev/null 2>&1";
+	ret = system(cmd.c_str());
+	ASSERT_EQ(ret, 0);
+}
