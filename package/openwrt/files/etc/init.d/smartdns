@@ -626,11 +626,13 @@ load_service()
 	args=""
 	local device=""
 	dnsmasq_lease_file="$(uci -q get dhcp.@dnsmasq[0].leasefile)"
+	odhcpd_lease_file="$(uci -q get dhcp.odhcpd.leasefile)"
 	dnsmasq_port="$(uci -q get dhcp.@dnsmasq[0].port)"
 	resolve_file="$(uci -q get dhcp.@dnsmasq[0].resolvfile)"
 	lan_device="$(uci -q get network.lan.device)"
 
 	[ -z "$dnsmasq_lease_file" ] && dnsmasq_lease_file="/tmp/dhcp.leases"
+	[ -z "$odhcpd_lease_file" ] && odhcpd_lease_file="/tmp/odhcpd.leases"
 	[ -z "$dnsmasq_port" ] && dnsmasq_port="53"
 	[ -z "$resolve_file" ] && resolve_file="/tmp/resolv.conf.d/resolv.conf.auto"
 
@@ -682,7 +684,10 @@ load_service()
 	[ -z "$cache_size" ] || conf_append "cache-size" "$cache_size"
 
 	config_get resolve_local_hostnames "$section" "resolve_local_hostnames" "1"
-	[ "$resolve_local_hostnames" = "1" ] && conf_append "dnsmasq-lease-file" "$dnsmasq_lease_file"
+	[ "$resolve_local_hostnames" = "1" ] && {
+		conf_append "dnsmasq-lease-file" "$dnsmasq_lease_file"
+		conf_append "odhcpd-lease-file" "$odhcpd_lease_file"
+	}
 
 	config_get force_aaaa_soa "$section" "force_aaaa_soa" "0"
 	[ "$force_aaaa_soa" = "1" ] && qtype_soa_list="$qtype_soa_list 28"

@@ -239,7 +239,7 @@ o.cfgvalue    = function(...)
 end
 
 -- resolve local hostname
-o = s:taboption("advanced", Flag, "resolve_local_hostnames", translate("Resolve Local Hostnames"), translate("Resolve local hostnames by reading Dnsmasq lease file."))
+o = s:taboption("advanced", Flag, "resolve_local_hostnames", translate("Resolve Local Hostnames"), translate("Resolve local hostnames by reading Dnsmasq or odhcpd lease files."))
 o.rmempty     = false
 o.default     = o.enabled
 o.cfgvalue    = function(...)
