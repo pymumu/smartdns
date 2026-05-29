@@ -128,14 +128,14 @@ int _dns_client_process_recv_http3(struct dns_server_info *server_info, struct d
 
 	pkg_data = (uint8_t *)http_head_get_data(http_head);
 	pkg_len = http_head_get_data_len(http_head);
-	if (pkg_data == NULL || pkg_len <= 0) {
-		goto errout;
-	}
-
 	if (_dns_client_http3_has_content_length(http_head) == 0 && conn_stream->recv_done == 0) {
 		errno = EAGAIN;
 		ret = 1;
 		goto out;
+	}
+
+	if (pkg_data == NULL || pkg_len <= 0) {
+		goto errout;
 	}
 
 	if (_dns_client_recv(server_info, pkg_data, pkg_len, &server_info->addr, server_info->ai_addrlen) != 0) {

@@ -73,8 +73,8 @@ static int _dns_client_http2_send_result_from_errno(struct dns_server_info *serv
 
 	if (_dns_client_http2_is_conn_error(err)) {
 		ret = DNS_CLIENT_HTTP2_STREAM_SEND_CONN_ERROR;
-		tlog(TLOG_WARN, "%s failed, close connection, server=%s:%d, errno=%d(%s)", action, server_info->ip,
-			 server_info->port, err, strerror(err));
+		tlog(TLOG_DEBUG, "http2 connection unavailable during %s, reconnect, server=%s:%d, errno=%d(%s)", action,
+			 server_info->ip, server_info->port, err, strerror(err));
 	} else {
 		tlog(TLOG_WARN, "%s failed, server=%s:%d, errno=%d(%s)", action, server_info->ip, server_info->port, err,
 			 strerror(err));
