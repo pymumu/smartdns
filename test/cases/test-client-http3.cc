@@ -442,8 +442,23 @@ TEST_F(ClientHTTP3, response_without_content_length_incomplete_dns_body_waits_fo
 
 	struct http_head *http_head = http_head_init(1024, HTTP_VERSION_3_0);
 	ASSERT_NE(http_head, nullptr);
-	EXPECT_EQ(http_head_parse(http_head, response.data(), response.size()), -1);
+	EXPECT_GT(http_head_parse(http_head, response.data(), response.size()), 0);
 	http_head_destroy(http_head);
+
+	struct dns_server_info server_info;
+	memset(&server_info, 0, sizeof(server_info));
+	server_info.type = DNS_SERVER_HTTP3;
+
+	struct dns_conn_stream conn_stream;
+	memset(&conn_stream, 0, sizeof(conn_stream));
+	memcpy(conn_stream.recv_buff.data, response.data(), response.size());
+	conn_stream.recv_buff.len = response.size();
+	conn_stream.recv_done = 0;
+
+	errno = 0;
+	EXPECT_EQ(_dns_client_process_recv_http3(&server_info, &conn_stream), 1);
+	EXPECT_EQ(errno, EAGAIN);
+	EXPECT_EQ(conn_stream.recv_buff.len, (int)response.size());
 #else
 	GTEST_SKIP() << "OpenSSL QUIC support is not enabled";
 #endif

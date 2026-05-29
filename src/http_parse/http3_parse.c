@@ -20,39 +20,12 @@
 #include "http_parse.h"
 #include "qpack.h"
 
-#include "smartdns/dns.h"
-
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <strings.h>
 
 #define HTTP3_HEADER_FRAME 1
 #define HTTP3_DATA_FRAME 0
-
-static int _http3_body_is_dns_message(struct http_head *http_head)
-{
-	const char *content_type = NULL;
-
-	if (http_head == NULL) {
-		return 0;
-	}
-
-	content_type = http_head_get_fields_value(http_head, "content-type");
-	return content_type != NULL && strcasecmp(content_type, "application/dns-message") == 0;
-}
-
-static int _http3_body_is_complete_dns_message(const uint8_t *data, int data_len)
-{
-	unsigned char packet_buffer[DNS_PACKSIZE];
-	struct dns_packet *packet = (struct dns_packet *)packet_buffer;
-
-	if (data == NULL || data_len <= 0 || data_len > DNS_PACKSIZE) {
-		return 0;
-	}
-
-	return dns_decode(packet, DNS_PACKSIZE, (unsigned char *)data, data_len) == 0;
-}
 
 static int _http3_get_expected_data_len(struct http_head *http_head, int *expect_data_len)
 {
@@ -685,9 +658,6 @@ int http_head_parse_http3_0(struct http_head *http_head, const uint8_t *data, in
 		if (http_head->data_len > expect_data_len) {
 			return -2;
 		}
-	} else if (_http3_body_is_dns_message(http_head) &&
-			   _http3_body_is_complete_dns_message(http_head->data, http_head->data_len) == 0) {
-		return -1;
 	}
 
 	if (offset >= http_head->buff_size) {
