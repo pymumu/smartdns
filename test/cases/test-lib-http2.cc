@@ -370,7 +370,7 @@ TEST_F(LIBHTTP2, ResponseDataFragmentsKeepStreamOpenUntilEndStream)
 	http2_ctx_close(ctx);
 }
 
-TEST_F(LIBHTTP2, ResponseEndStreamBeforeContentLengthFailsProtocol)
+TEST_F(LIBHTTP2, ResponseEndStreamBeforeContentLengthResetsStreamOnly)
 {
 	struct http2_ctx *ctx = http2_ctx_client_new("test-client", bio_read, bio_write, &client_sock, NULL);
 	ASSERT_NE(ctx, nullptr);
@@ -389,8 +389,12 @@ TEST_F(LIBHTTP2, ResponseEndStreamBeforeContentLengthFailsProtocol)
 	const uint8_t short_body[] = {0xde, 0xad};
 	WriteServerFrame(0x00, 0x01, 1, short_body, sizeof(short_body));
 
-	EXPECT_EQ(http2_ctx_poll(ctx, NULL, 0, NULL), HTTP2_ERR_PROTOCOL);
+	EXPECT_EQ(http2_ctx_poll(ctx, NULL, 0, NULL), HTTP2_ERR_EAGAIN);
 
+	struct http2_stream *next_stream = http2_stream_new(ctx);
+	ASSERT_NE(next_stream, nullptr);
+
+	http2_stream_close(next_stream);
 	http2_stream_close(stream);
 	http2_ctx_close(ctx);
 }
