@@ -233,6 +233,83 @@ static std::vector<unsigned char> http3_response_without_content_length_fragment
 	return response;
 }
 
+static int http3_second_data_frame_offset(const unsigned char *response, int response_len)
+{
+	int offset = 0;
+	int data_frame_count = 0;
+	uint64_t frame_type = 0;
+	uint64_t frame_len = 0;
+
+	while (offset < response_len) {
+		int frame_start = offset;
+		int offset_ret = quic_varint_decode_for_test(response + offset, response_len - offset, &frame_type);
+		if (offset_ret < 0) {
+			return -1;
+		}
+		offset += offset_ret;
+
+		offset_ret = quic_varint_decode_for_test(response + offset, response_len - offset, &frame_len);
+		if (offset_ret < 0) {
+			return -1;
+		}
+		offset += offset_ret;
+
+		if (frame_len > (uint64_t)(response_len - offset)) {
+			return -1;
+		}
+
+		if (frame_type == 0 && ++data_frame_count == 2) {
+			return frame_start;
+		}
+
+		offset += frame_len;
+	}
+
+	return -1;
+}
+
+class MockHTTP3Server
+{
+  public:
+	bool SetNoContentLengthFragmentedDnsResponse(const unsigned char *body, int first_body_len, int body_len)
+	{
+		response_ = http3_response_without_content_length_fragmented_body(body, first_body_len, body_len);
+		if (response_.empty()) {
+			return false;
+		}
+
+		second_fragment_offset_ = http3_second_data_frame_offset(response_.data(), response_.size());
+		return second_fragment_offset_ > 0;
+	}
+
+	std::vector<unsigned char> ReadFirstResponseFragment() const
+	{
+		if (second_fragment_offset_ <= 0) {
+			return {};
+		}
+
+		return std::vector<unsigned char>(response_.begin(), response_.begin() + second_fragment_offset_);
+	}
+
+	std::vector<unsigned char> ReadDelayedFinalFragment() const
+	{
+		if (second_fragment_offset_ <= 0) {
+			return {};
+		}
+
+		return std::vector<unsigned char>(response_.begin() + second_fragment_offset_, response_.end());
+	}
+
+	const std::vector<unsigned char> &FullResponse() const
+	{
+		return response_;
+	}
+
+  private:
+	std::vector<unsigned char> response_;
+	int second_fragment_offset_{-1};
+};
+
 TEST_F(ClientHTTP3, incomplete_response_keeps_stream_pending)
 {
 #if defined(OSSL_QUIC1_VERSION) && !defined(OPENSSL_NO_QUIC)
@@ -398,7 +475,7 @@ TEST_F(ClientHTTP3, header_only_without_content_length_keeps_stream_pending)
 #endif
 }
 
-TEST_F(ClientHTTP3, response_without_content_length_waits_for_stream_finish)
+TEST_F(ClientHTTP3, response_without_content_length_accepts_complete_dns_message)
 {
 #if defined(OSSL_QUIC1_VERSION) && !defined(OPENSSL_NO_QUIC)
 	const unsigned char dns_payload[] = {0x12, 0x34, 0x81, 0x80, 0x00, 0x01, 0x00, 0x00,
@@ -423,8 +500,7 @@ TEST_F(ClientHTTP3, response_without_content_length_waits_for_stream_finish)
 	conn_stream.recv_done = 0;
 
 	errno = 0;
-	EXPECT_EQ(_dns_client_process_recv_http3(&server_info, &conn_stream), 1);
-	EXPECT_EQ(errno, EAGAIN);
+	EXPECT_EQ(_dns_client_process_recv_http3(&server_info, &conn_stream), 0);
 	EXPECT_EQ(conn_stream.recv_buff.len, (int)response.size());
 #else
 	GTEST_SKIP() << "OpenSSL QUIC support is not enabled";
@@ -470,15 +546,43 @@ TEST_F(ClientHTTP3, fragmented_response_without_content_length_accepts_delayed_f
 	const unsigned char dns_payload[] = {0x12, 0x34, 0x81, 0x80, 0x00, 0x01, 0x00, 0x00,
 										0x00, 0x00, 0x00, 0x00, 0x01, 'a',  0x03, 'c',
 										'o',  'm',  0x00, 0x00, 0x01, 0x00, 0x01};
-	std::vector<unsigned char> response =
-		http3_response_without_content_length_fragmented_body(dns_payload, 12, sizeof(dns_payload));
-	ASSERT_FALSE(response.empty());
+	MockHTTP3Server http3_server;
+	ASSERT_TRUE(http3_server.SetNoContentLengthFragmentedDnsResponse(dns_payload, 12, sizeof(dns_payload)));
+	const std::vector<unsigned char> &response = http3_server.FullResponse();
 
 	struct http_head *http_head = http_head_init(1024, HTTP_VERSION_3_0);
 	ASSERT_NE(http_head, nullptr);
 	EXPECT_GT(http_head_parse(http_head, response.data(), response.size()), 0);
 	EXPECT_EQ(http_head_get_data_len(http_head), (int)sizeof(dns_payload));
 	http_head_destroy(http_head);
+
+	struct dns_server_info server_info;
+	memset(&server_info, 0, sizeof(server_info));
+	server_info.type = DNS_SERVER_HTTP3;
+
+	struct dns_conn_stream conn_stream;
+	memset(&conn_stream, 0, sizeof(conn_stream));
+	ASSERT_LE(response.size(), sizeof(conn_stream.recv_buff.data));
+
+	std::vector<unsigned char> first_fragment = http3_server.ReadFirstResponseFragment();
+	ASSERT_FALSE(first_fragment.empty());
+	memcpy(conn_stream.recv_buff.data, first_fragment.data(), first_fragment.size());
+	conn_stream.recv_buff.len = first_fragment.size();
+	conn_stream.recv_done = 0;
+
+	errno = 0;
+	EXPECT_EQ(_dns_client_process_recv_http3(&server_info, &conn_stream), 1);
+	EXPECT_EQ(errno, EAGAIN);
+	EXPECT_EQ(conn_stream.recv_buff.len, (int)first_fragment.size());
+
+	std::vector<unsigned char> final_fragment = http3_server.ReadDelayedFinalFragment();
+	ASSERT_FALSE(final_fragment.empty());
+	memcpy(conn_stream.recv_buff.data + conn_stream.recv_buff.len, final_fragment.data(), final_fragment.size());
+	conn_stream.recv_buff.len = response.size();
+	conn_stream.recv_done = 0;
+
+	errno = 0;
+	EXPECT_EQ(_dns_client_process_recv_http3(&server_info, &conn_stream), 0);
 #else
 	GTEST_SKIP() << "OpenSSL QUIC support is not enabled";
 #endif

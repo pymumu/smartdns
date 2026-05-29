@@ -90,6 +90,7 @@ int _dns_client_process_recv_http3(struct dns_server_info *server_info, struct d
 	struct http_head *http_head = NULL;
 	uint8_t *pkg_data = NULL;
 	int pkg_len = 0;
+	int has_content_length = 0;
 
 	http_head = http_head_init(4096, HTTP_VERSION_3_0);
 	if (http_head == NULL) {
@@ -128,17 +129,23 @@ int _dns_client_process_recv_http3(struct dns_server_info *server_info, struct d
 
 	pkg_data = (uint8_t *)http_head_get_data(http_head);
 	pkg_len = http_head_get_data_len(http_head);
-	if (_dns_client_http3_has_content_length(http_head) == 0 && conn_stream->recv_done == 0) {
-		errno = EAGAIN;
-		ret = 1;
-		goto out;
-	}
-
+	has_content_length = _dns_client_http3_has_content_length(http_head);
 	if (pkg_data == NULL || pkg_len <= 0) {
+		if (has_content_length == 0 && conn_stream->recv_done == 0) {
+			errno = EAGAIN;
+			ret = 1;
+			goto out;
+		}
 		goto errout;
 	}
 
 	if (_dns_client_recv(server_info, pkg_data, pkg_len, &server_info->addr, server_info->ai_addrlen) != 0) {
+		if (has_content_length == 0 && conn_stream->recv_done == 0) {
+			errno = EAGAIN;
+			ret = 1;
+			goto out;
+		}
+
 		goto errout;
 	}
 	ret = 0;
