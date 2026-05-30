@@ -171,6 +171,16 @@ static SSL_SESSION *_ssl_get1_session(struct dns_server_info *server)
 	return ret;
 }
 
+static void _dns_client_tls_clear_session(struct dns_server_info *server_info)
+{
+	pthread_mutex_lock(&server_info->lock);
+	if (server_info->ssl_session) {
+		SSL_SESSION_free(server_info->ssl_session);
+		server_info->ssl_session = NULL;
+	}
+	pthread_mutex_unlock(&server_info->lock);
+}
+
 int dns_client_spki_decode(const char *spki, unsigned char *spki_data_out, int spki_data_out_max_len)
 {
 	int spki_data_len = -1;
@@ -1029,6 +1039,7 @@ int _dns_client_process_tls(struct dns_server_info *server_info, struct epoll_ev
 				return 0;
 			}
 
+			_dns_client_tls_clear_session(server_info);
 			if (ssl_ret != SSL_ERROR_SYSCALL) {
 				unsigned long ssl_err = ERR_get_error();
 				int ssl_reason = ERR_GET_REASON(ssl_err);

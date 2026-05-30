@@ -439,13 +439,55 @@ static int _dns_setup_dns_packet(struct dns_server_post_context *context)
 	return 0;
 }
 
+static int _dns_setup_truncated_dns_packet(struct dns_server_post_context *context)
+{
+	struct dns_head head;
+	struct dns_request *request = context->request;
+	int ret = 0;
+
+	memset(&head, 0, sizeof(head));
+	head.id = request->id;
+	head.qr = DNS_QR_ANSWER;
+	head.opcode = DNS_OP_QUERY;
+	head.rd = 1;
+	head.ra = 1;
+	head.tc = 1;
+	head.rcode = request->rcode;
+
+	ret = dns_packet_init(context->packet, context->packet_maxlen, &head);
+	if (ret != 0) {
+		return -1;
+	}
+
+	if (request->domain[0] == '\0') {
+		return 0;
+	}
+
+	return dns_add_domain(context->packet, request->domain, context->qtype, request->qclass);
+}
+
 static int _dns_setup_dns_raw_packet(struct dns_server_post_context *context)
 {
 	/* encode to binary data */
 	int encode_len = dns_encode(context->inpacket, context->inpacket_maxlen, context->packet);
 	if (encode_len <= 0) {
-		tlog(TLOG_DEBUG, "encode raw packet failed for %s", context->request->domain);
-		return -1;
+		unsigned char check_packet[DNS_PACKSIZE];
+
+		encode_len = dns_encode(check_packet, sizeof(check_packet), context->packet);
+		if (encode_len <= 0) {
+			tlog(TLOG_DEBUG, "encode raw packet failed for %s", context->request->domain);
+			return -1;
+		}
+
+		tlog(TLOG_DEBUG, "encode raw packet failed for %s, truncate response.", context->request->domain);
+		if (_dns_setup_truncated_dns_packet(context) != 0) {
+			return -1;
+		}
+
+		encode_len = dns_encode(context->inpacket, context->inpacket_maxlen, context->packet);
+		if (encode_len <= 0) {
+			return -1;
+		}
 	}
 
 	context->inpacket_len = encode_len;
