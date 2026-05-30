@@ -116,7 +116,15 @@ static int _get_gs_ex_index(void)
 
 static struct gsocket_ssl_ctx_cache *_get_session_cache(SSL_CTX *ctx)
 {
+	if (!ctx) {
+		return NULL;
+	}
+
 	int idx = _get_gs_ex_index();
+	if (idx < 0) {
+		return NULL;
+	}
+
 	struct gsocket_ssl_ctx_cache *cache = (struct gsocket_ssl_ctx_cache *)SSL_CTX_get_ex_data(ctx, idx);
 	if (!cache) {
 		cache = calloc(1, sizeof(struct gsocket_ssl_ctx_cache));
@@ -135,6 +143,20 @@ static struct gsocket_ssl_ctx_cache *_get_session_cache(SSL_CTX *ctx)
 		}
 	}
 	return cache;
+}
+
+static struct gsocket_ssl_ctx_cache *_lookup_session_cache(SSL_CTX *ctx)
+{
+	if (!ctx) {
+		return NULL;
+	}
+
+	int idx = _get_gs_ex_index();
+	if (idx < 0) {
+		return NULL;
+	}
+
+	return (struct gsocket_ssl_ctx_cache *)SSL_CTX_get_ex_data(ctx, idx);
 }
 
 static SSL_SESSION *_session_cache_get(SSL_CTX *ctx, const char *key)
@@ -216,6 +238,36 @@ static void _session_cache_set(SSL_CTX *ctx, const char *key, SSL_SESSION *sessi
 err:
 	if (sess) {
 		free(sess);
+	}
+	pthread_mutex_unlock(&cache->lock);
+}
+
+static void _session_cache_remove(SSL_CTX *ctx, const char *key)
+{
+	if (!key) {
+		return;
+	}
+
+	struct gsocket_ssl_ctx_cache *cache = _lookup_session_cache(ctx);
+	if (!cache) {
+		return;
+	}
+
+	uint32_t h = hash_string(key);
+	struct gsocket_ssl_session *sess;
+
+	pthread_mutex_lock(&cache->lock);
+	hash_table_for_each_possible(cache->ht, sess, node, h)
+	{
+		if (strcmp(sess->key, key) == 0) {
+			hash_del(&sess->node);
+			list_del(&sess->lru_node);
+			SSL_SESSION_free(sess->session);
+			free(sess->key);
+			free(sess);
+			cache->current_size--;
+			break;
+		}
 	}
 	pthread_mutex_unlock(&cache->lock);
 }
@@ -773,6 +825,12 @@ static int _ssl_handshake(struct gsocket_io *io)
 		return GSOCKET_HANDSHAKE_WANT_READ;
 	} else if (err == SSL_ERROR_WANT_WRITE) {
 		return GSOCKET_HANDSHAKE_WANT_WRITE;
+	}
+
+	if (ctx->reuse_session && ctx->cached_host) {
+		char key[2048];
+		snprintf(key, sizeof(key), "%s:%d", ctx->cached_host, ctx->cached_port);
+		_session_cache_remove(ctx->ssl_ctx, key);
 	}
 
 	/* Log error if desired */
