@@ -554,6 +554,31 @@ cache-persist no)""");
 	EXPECT_EQ(client.GetAnswer()[1].GetData(), "2 b.com. alpn=\"h2,h3-19\" port=2443 ipv4hint=1.2.3.4 ech=AEX+DQA=");
 }
 
+TEST_F(HTTPS, large_tcp_response_truncated)
+{
+	smartdns::Server server;
+	std::string ech(600, 'A');
+	std::string conf = R"""(bind [::]:60053
+bind-tcp [::]:60053
+speed-check-mode none
+cache-persist no
+)""";
+
+	for (int i = 0; i < 9; i++) {
+		conf += "https-record /large-response.com/target=target" + std::to_string(i) +
+				".example.com,priority=" + std::to_string(i + 1) + ",ech=\"" + ech + "\"\n";
+	}
+
+	server.Start(conf);
+
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("large-response.com HTTPS +tcp", 60053));
+	std::cout << client.GetResult() << std::endl;
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswerNum(), 0);
+	EXPECT_NE(client.GetFlags().find("tc"), std::string::npos);
+}
+
 TEST_F(HTTPS, https_record)
 {
 	smartdns::MockServer server_upstream;
