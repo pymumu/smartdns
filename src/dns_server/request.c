@@ -286,6 +286,30 @@ void _dns_server_request_get(struct dns_request *request)
 
 const struct sockaddr *dns_server_request_get_remote_addr(struct dns_request *request)
 {
+	if (request == NULL) {
+		return NULL;
+	}
+
+	/* ================= START: Prioritize ECS as the remote address for rules/logs ================= */
+	if (request->has_ecs) {
+		if (request->ecs.family == DNS_OPT_ECS_FAMILY_IPV4) {
+			struct sockaddr_in *sin = (struct sockaddr_in *)&request->in;
+			struct sockaddr_in *addr_in = (struct sockaddr_in *)&request->addr;
+			memset(addr_in, 0, sizeof(struct sockaddr_in));
+			addr_in->sin_family = AF_INET;
+			memcpy(&addr_in->sin_addr.s_addr, request->ecs.addr, DNS_RR_A_LEN);
+			return (const struct sockaddr *)addr_in;
+		} 
+		else if (request->ecs.family == DNS_OPT_ECS_FAMILY_IPV6) {
+			struct sockaddr_in6 *addr_in6 = (struct sockaddr_in6 *)&request->addr;
+			memset(addr_in6, 0, sizeof(struct sockaddr_in6));
+			addr_in6->sin6_family = AF_INET6;
+			memcpy(addr_in6->sin6_addr.s6_addr, request->ecs.addr, DNS_RR_AAAA_LEN);
+			return (const struct sockaddr *)addr_in6;
+		}
+	}
+	/* ================== END: Prioritize ECS as the remote address for rules/logs ================== */
+	
 	if (request->conn == NULL) {
 		return NULL;
 	}
@@ -1343,6 +1367,7 @@ int _dns_server_parser_request(struct dns_request *request, struct dns_packet *p
 				continue;
 			}
 			request->has_ecs = 1;
+			break;
 		default:
 			break;
 		}
