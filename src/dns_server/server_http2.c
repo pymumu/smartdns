@@ -295,7 +295,7 @@ int _dns_server_process_http2(struct dns_server_conn_tls_client *tls_client, str
 			}
 
 			if (poll_count == 0) {
-				continue;
+				break;
 			}
 
 			for (int i = 0; i < poll_count; i++) {
