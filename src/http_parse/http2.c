@@ -2450,14 +2450,17 @@ int http2_stream_read_body(struct http2_stream *stream, uint8_t *data, int len)
 
 	int available = stream->body_buffer_len - stream->body_read_offset;
 	if (available <= 0) {
-		if (ctx) {
-			pthread_mutex_unlock(&ctx->mutex);
-		}
-
 		/* If stream ended or connection has error, return 0 (EOF) */
 		if (stream->end_stream_received || stream->state == HTTP2_STREAM_CLOSED || (!ctx || ctx->status < 0)) {
 			stream->end_stream_read_handled = 1;
+			if (ctx) {
+				pthread_mutex_unlock(&ctx->mutex);
+			}
 			return 0;
+		}
+
+		if (ctx) {
+			pthread_mutex_unlock(&ctx->mutex);
 		}
 
 		/* No data available yet, return EAGAIN */
@@ -2468,6 +2471,10 @@ int http2_stream_read_body(struct http2_stream *stream, uint8_t *data, int len)
 	int to_read = available < len ? available : len;
 	memcpy(data, stream->body_buffer + stream->body_read_offset, to_read);
 	stream->body_read_offset += to_read;
+	if ((stream->end_stream_received || stream->state == HTTP2_STREAM_CLOSED) &&
+		stream->body_read_offset >= stream->body_buffer_len) {
+		stream->end_stream_read_handled = 1;
+	}
 
 	if (ctx) {
 		pthread_mutex_unlock(&ctx->mutex);
