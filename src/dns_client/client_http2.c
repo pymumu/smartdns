@@ -67,7 +67,7 @@ static int _dns_client_http2_send_result_from_errno(struct dns_server_info *serv
 	if (_dns_client_http2_is_retry_later_error(err)) {
 		tlog(TLOG_DEBUG, "%s deferred, server=%s:%d, errno=%d(%s)", action, server_info->ip, server_info->port, err,
 			 strerror(err));
-		errno = EAGAIN;
+		errno = err;
 		return DNS_CLIENT_HTTP2_STREAM_SEND_RETRY_LATER;
 	}
 
@@ -82,6 +82,41 @@ static int _dns_client_http2_send_result_from_errno(struct dns_server_info *serv
 
 	errno = err;
 	return ret;
+}
+
+static int _dns_client_http2_mod_epoll_events(struct dns_server_info *server_info, int epoll_events)
+{
+	struct epoll_event event;
+
+	if (server_info->fd <= 0) {
+		return 0;
+	}
+
+	memset(&event, 0, sizeof(event));
+	event.events = epoll_events;
+	event.data.ptr = server_info;
+	if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &event) != 0) {
+		tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
+		return -1;
+	}
+
+	return 0;
+}
+
+static int _dns_client_http2_retry_later_events(int err)
+{
+	return err == ENOSPC ? EPOLLIN : (EPOLLIN | EPOLLOUT);
+}
+
+static int _dns_client_http2_ctx_events(struct http2_ctx *http2_ctx)
+{
+	int epoll_events = EPOLLIN;
+
+	if (http2_ctx != NULL && http2_ctx_want_write(http2_ctx)) {
+		epoll_events |= EPOLLOUT;
+	}
+
+	return epoll_events;
 }
 
 /* BIO read callback for HTTP/2 */
@@ -153,7 +188,11 @@ static int _dns_client_send_http2_stream(struct dns_server_info *server_info, st
 
 errout:
 	{
-		int ret = _dns_client_http2_send_result_from_errno(server_info, "send http2 stream", errno);
+		int err = errno;
+		if ((err == EAGAIN || err == EWOULDBLOCK) && http2_ctx_want_write(http2_ctx) == 0) {
+			err = ENOSPC;
+		}
+		int ret = _dns_client_http2_send_result_from_errno(server_info, "send http2 stream", err);
 		http2_stream_close(http2_stream);
 		http2_ctx_put(http2_ctx);
 		return ret;
@@ -163,6 +202,8 @@ errout:
 /* Helper function to release a conn_stream and its references on error */
 static void _dns_client_release_stream_on_error(struct dns_server_info *server_info, struct dns_conn_stream *stream)
 {
+	int query_need_put = 0;
+
 	if (!stream) {
 		return;
 	}
@@ -178,8 +219,19 @@ static void _dns_client_release_stream_on_error(struct dns_server_info *server_i
 
 	pthread_mutex_unlock(&server_info->lock);
 
-	/* Release the initial reference from creation */
-	_dns_client_conn_stream_put(stream);
+	if (stream->query != NULL) {
+		pthread_mutex_lock(&stream->query->lock);
+		if (!list_empty(&stream->query_list)) {
+			list_del_init(&stream->query_list);
+			query_need_put = 1;
+		}
+		pthread_mutex_unlock(&stream->query->lock);
+		stream->query = NULL;
+	}
+
+	if (query_need_put) {
+		_dns_client_conn_stream_put(stream);
+	}
 }
 
 static void _dns_client_http2_retry_query(struct dns_query_struct *query)
@@ -356,7 +408,7 @@ static int _dns_client_http2_has_buffered_requests(struct dns_server_info *serve
 
 /* Helper function to buffer data for HTTP/2 when connection is not ready */
 static int _dns_client_http2_pending_data(struct dns_conn_stream *stream, struct dns_server_info *server_info,
-										  struct dns_query_struct *query, void *packet, int len)
+										  struct dns_query_struct *query, void *packet, int len, int epoll_events)
 {
 	struct epoll_event event;
 	
@@ -401,7 +453,7 @@ static int _dns_client_http2_pending_data(struct dns_conn_stream *stream, struct
 	}
 
 	memset(&event, 0, sizeof(event));
-	event.events = EPOLLIN | EPOLLOUT;
+	event.events = epoll_events;
 	event.data.ptr = server_info;
 	if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &event) != 0) {
 		tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
@@ -456,22 +508,24 @@ int _dns_client_send_http2(struct dns_server_info *server_info, struct dns_query
 
 	/* If not connected, buffer the data and return */
 	if (server_info->status != DNS_SERVER_STATUS_CONNECTED) {
-		ret = _dns_client_http2_pending_data(stream, server_info, query, packet, len);
+		ret = _dns_client_http2_pending_data(stream, server_info, query, packet, len, EPOLLIN | EPOLLOUT);
 		goto out;
 	}
 
 	/* If connected but context not ready, buffer it too (will be flushed in process_http2) */
 	if (server_info->http2_ctx == NULL) {
-		ret = _dns_client_http2_pending_data(stream, server_info, query, packet, len);
+		ret = _dns_client_http2_pending_data(stream, server_info, query, packet, len, EPOLLIN | EPOLLOUT);
 		goto out;
 	}
 
 	/* Send the request via HTTP/2 */
 	ret = _dns_client_send_http2_stream(server_info, stream, packet, len);
 	if (ret == DNS_CLIENT_HTTP2_STREAM_SEND_RETRY_LATER) {
+		int retry_errno = errno;
 		tlog(TLOG_DEBUG, "send http2 stream deferred.");
 		/* Fall back to buffering the data */
-		ret = _dns_client_http2_pending_data(stream, server_info, query, packet, len);
+		ret = _dns_client_http2_pending_data(stream, server_info, query, packet, len,
+											 _dns_client_http2_retry_later_events(retry_errno));
 		goto out;
 	}
 	if (ret == DNS_CLIENT_HTTP2_STREAM_SEND_CONN_ERROR) {
@@ -504,26 +558,11 @@ int _dns_client_send_http2(struct dns_server_info *server_info, struct dns_query
 
 	/* Flush data immediately */
 	if (http2_ctx != NULL) {
-		int loop = 0;
-		while (http2_ctx_want_write(http2_ctx) && loop++ < 10) {
-			if (http2_ctx_poll(http2_ctx, NULL, 0, NULL) < 0) {
-				break;
-			}
-		}
+		_dns_client_flush_http2_writes(http2_ctx);
 	}
 
-	/* Check if there's pending write data, if so add EPOLLOUT event */
-	if (http2_ctx != NULL && http2_ctx_want_write(http2_ctx)) {
-		struct epoll_event event;
-		memset(&event, 0, sizeof(event));
-		event.events = EPOLLIN | EPOLLOUT;
-		event.data.ptr = server_info;
-		if (server_info->fd > 0) {
-			if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &event) != 0) {
-				tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
-				/* Continue anyway, data will be sent on next EPOLLIN */
-			}
-		}
+	if (http2_ctx != NULL) {
+		_dns_client_http2_mod_epoll_events(server_info, _dns_client_http2_ctx_events(http2_ctx));
 	}
 
 	ret = 0;
@@ -576,7 +615,6 @@ static int _dns_client_http2_init_ctx(struct dns_server_info *server_info)
 static int _dns_client_http2_process_write(struct dns_server_info *server_info)
 {
 	struct http2_ctx *http2_ctx = NULL;
-	int epoll_events = EPOLLIN;
 
 	/* Send buffered requests */
 	if (_dns_client_send_buffered_http2_requests(server_info) != 0) {
@@ -595,22 +633,11 @@ static int _dns_client_http2_process_write(struct dns_server_info *server_info)
 	/* Flush pending writes */
 	_dns_client_flush_http2_writes(http2_ctx);
 
-	/* Update epoll events based on write status */
-	if (http2_ctx_want_write(http2_ctx)) {
-		epoll_events |= EPOLLOUT;
+	if (_dns_client_http2_mod_epoll_events(server_info, _dns_client_http2_ctx_events(http2_ctx)) != 0) {
+		http2_ctx_put(http2_ctx);
+		return -1;
 	}
 
-	if (server_info->fd > 0) {
-		struct epoll_event mod_event;
-		memset(&mod_event, 0, sizeof(mod_event));
-		mod_event.events = epoll_events;
-		mod_event.data.ptr = server_info;
-		if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &mod_event) != 0) {
-			tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
-			http2_ctx_put(http2_ctx);
-			return -1;
-		}
-	}
 	http2_ctx_put(http2_ctx);
 	return 0;
 }
