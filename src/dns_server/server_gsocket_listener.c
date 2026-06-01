@@ -142,7 +142,9 @@ static int _dns_server_gsocket_process_quic_listener(struct dns_server_listener 
 	gsocket_handshake(listener->head.gs);
 
 	while (1) {
-		struct gsocket *conn_gs = gsocket_accept(listener->head.gs, NULL, NULL);
+		struct sockaddr_storage addr = {0};
+		socklen_t addr_len = sizeof(addr);
+		struct gsocket *conn_gs = gsocket_accept(listener->head.gs, (struct sockaddr *)&addr, &addr_len);
 		if (!conn_gs) {
 			break;
 		}
@@ -158,6 +160,16 @@ static int _dns_server_gsocket_process_quic_listener(struct dns_server_listener 
 		if (!conn) {
 			_dns_server_gsocket_free_gsocket(&conn_gs);
 			continue;
+		}
+
+		if (addr.ss_family == AF_INET || addr.ss_family == AF_INET6) {
+			memcpy(&conn->addr, &addr, addr_len);
+			conn->addr_len = addr_len;
+		}
+		conn->localaddr_len = sizeof(conn->localaddr);
+		if (gsocket_getsockname(listener->head.gs, (struct sockaddr *)&conn->localaddr, &conn->localaddr_len) != 0) {
+			memset(&conn->localaddr, 0, sizeof(conn->localaddr));
+			conn->localaddr_len = 0;
 		}
 
 		if (_dns_server_gsocket_init_stream_poll(conn, conn_gs) != 0) {

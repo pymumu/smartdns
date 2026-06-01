@@ -3719,6 +3719,89 @@ cleanup:
 	SSL_CTX_free(ctx);
 }
 
+static void quic_peername_server(int port, std::atomic<bool> *peer_seen, int stop_fd,
+								 std::atomic<bool> *ready = nullptr, std::atomic<bool> *running = nullptr)
+{
+	SSL_CTX *ctx = init_quic_ctx(true);
+	if (!ctx) {
+		if (ready) {
+			*ready = true;
+		}
+		return;
+	}
+
+	struct gsocket *listener = gsocket_new(socket(AF_INET, SOCK_DGRAM, 0));
+	int opt = 1;
+	gsocket_setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+	gsocket_push_layer(listener, gsocket_io_ssl_quic_new(ctx, 1));
+	gsocket_set_nonblock(listener, 1);
+	gsocket_bind(listener, "0.0.0.0", port);
+
+	struct gepoll *ep = gepoll_create(0);
+	gepoll_add(ep, listener, EPOLLIN, listener);
+	struct gsocket *stop_sock = gsocket_new(stop_fd);
+	gepoll_add(ep, stop_sock, EPOLLIN, stop_sock);
+
+	struct gstream_poll *sp = gstream_poll_create(listener);
+	gstream_poll_add(sp, listener, POLLIN, nullptr);
+
+	if (ready) {
+		*ready = true;
+	}
+
+	struct gsocket *connection = NULL;
+	int tries = 0;
+	while (running && *running && tries++ < 200 && !*peer_seen) {
+		struct gepoll_event events[4];
+		int nev = gepoll_wait(ep, events, 4, 20);
+		for (int i = 0; i < nev; i++) {
+			struct gsocket *s = (struct gsocket *)events[i].user_data;
+			if (s == stop_sock) {
+				goto cleanup;
+			}
+			gsocket_handshake(s);
+		}
+
+		struct gstream_event gev[4];
+		int n = gstream_poll_wait(sp, gev, 4, 0);
+		for (int i = 0; i < n; i++) {
+			if (gev[i].stream != listener) {
+				continue;
+			}
+
+			struct sockaddr_storage addr = {0};
+			socklen_t addr_len = sizeof(addr);
+			connection = gsocket_accept(listener, (struct sockaddr *)&addr, &addr_len);
+			if (connection == NULL) {
+				continue;
+			}
+
+			struct sockaddr_storage peer = {0};
+			socklen_t peer_len = sizeof(peer);
+			if (gsocket_getpeername(connection, (struct sockaddr *)&peer, &peer_len) == 0 &&
+				addr.ss_family == AF_INET && peer.ss_family == AF_INET) {
+				*peer_seen = true;
+			}
+			break;
+		}
+
+		int net = gstream_poll_get_net_events(sp);
+		gepoll_mod(ep, listener, net ? net : EPOLLIN, listener);
+	}
+
+cleanup:
+	if (connection) {
+		gsocket_close(connection);
+		gsocket_free(connection);
+	}
+	gstream_poll_destroy(sp);
+	gsocket_free(stop_sock);
+	gepoll_destroy(ep);
+	gsocket_close(listener);
+	gsocket_free(listener);
+	SSL_CTX_free(ctx);
+}
+
 static void quic_multistream_echo_server(int port, int stop_fd, std::atomic<bool> *ready = nullptr,
 										 std::atomic<bool> *running = nullptr)
 {
@@ -4136,6 +4219,66 @@ TEST(GSocketTest, QuicEcho)
 	gsocket_free(sock);
 	SSL_CTX_free(ctx);
 	ASSERT_TRUE(recv_data);
+}
+
+TEST(GSocketTest, QuicAcceptPeerName)
+{
+	std::atomic<bool> peer_seen(false);
+	TestServerFixed server(quic_peername_server, 29111, &peer_seen);
+	SSL_CTX *ctx = init_quic_ctx(false);
+	if (!ctx) {
+		return;
+	}
+
+	struct gsocket *sock = gsocket_new(socket(AF_INET, SOCK_DGRAM, 0));
+	gsocket_push_layer(sock, gsocket_io_ssl_quic_new(ctx, 0));
+	gsocket_set_nonblock(sock, 1);
+	gsocket_connect(sock, "127.0.0.1", 29111);
+
+	struct gepoll *ep = gepoll_create(0);
+	struct gstream_poll *sp = gstream_poll_create(sock);
+	gstream_poll_add(sp, sock, POLLIN | POLLOUT, nullptr);
+	gepoll_add(ep, sock, POLLIN | POLLOUT, nullptr);
+	struct gsocket *stream = NULL;
+	bool sent = false;
+
+	for (int retries = 0; retries < 3000 && !peer_seen; retries++) {
+		struct gepoll_event gep_ev;
+		gepoll_wait(ep, &gep_ev, 1, 30);
+		struct gstream_event events[8];
+		int n = gstream_poll_wait(sp, events, 8, 0);
+		if (!stream) {
+			stream = gsocket_open_stream(sock);
+			if (stream) {
+				gstream_poll_add(sp, stream, POLLOUT, nullptr);
+			} else {
+				gsocket_handshake(sock);
+			}
+		}
+		for (int i = 0; i < n; i++) {
+			if (stream && events[i].stream == stream && !sent && (events[i].revents & POLLOUT)) {
+				if (gsocket_send(stream, "x", 1, MSG_NOSIGNAL | GS_MSG_FIN) == 1) {
+					sent = true;
+				}
+			}
+		}
+		int net = gstream_poll_get_net_events(sp);
+		if (net) {
+			gepoll_mod(ep, sock, net, nullptr);
+		}
+		usleep(1000);
+	}
+
+	if (stream) {
+		gsocket_close(stream);
+		gsocket_free(stream);
+	}
+	gstream_poll_destroy(sp);
+	gepoll_destroy(ep);
+	gsocket_close(sock);
+	gsocket_free(sock);
+	SSL_CTX_free(ctx);
+	ASSERT_TRUE(peer_seen);
 }
 
 TEST(GSocketTest, QuicMultiStream)

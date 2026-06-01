@@ -53,6 +53,8 @@ struct ssl_io_ctx {
 	int anti_replay;
 	unsigned char *alpn_protos;
 	size_t alpn_protos_len;
+	struct sockaddr_storage peer_addr;
+	socklen_t peer_addr_len;
 
 	/* Error Reporting */
 	unsigned long last_error_code; /* OpenSSL error code */
@@ -280,6 +282,85 @@ struct bio_quic_data {
 	struct sockaddr_storage peer;
 	socklen_t peer_len;
 };
+
+static void _ssl_ctx_set_peer_addr(struct ssl_io_ctx *ctx, const struct sockaddr_storage *addr, socklen_t addr_len)
+{
+	if (!ctx || !addr || addr_len <= 0) {
+		return;
+	}
+
+	switch (addr->ss_family) {
+	case AF_INET:
+		if (addr_len > sizeof(struct sockaddr_in)) {
+			addr_len = sizeof(struct sockaddr_in);
+		}
+		break;
+	case AF_INET6:
+		if (addr_len > sizeof(struct sockaddr_in6)) {
+			addr_len = sizeof(struct sockaddr_in6);
+		}
+		break;
+	default:
+		return;
+	}
+
+	memset(&ctx->peer_addr, 0, sizeof(ctx->peer_addr));
+	memcpy(&ctx->peer_addr, addr, addr_len);
+	ctx->peer_addr_len = addr_len;
+}
+
+static int _bio_addr_to_sockaddr(const BIO_ADDR *bio_addr, struct sockaddr_storage *addr, socklen_t *addr_len)
+{
+	if (!bio_addr || !addr || !addr_len) {
+		return -1;
+	}
+
+	memset(addr, 0, sizeof(*addr));
+	if (BIO_ADDR_family(bio_addr) == AF_INET) {
+		struct sockaddr_in *sin = (struct sockaddr_in *)addr;
+		sin->sin_family = AF_INET;
+		sin->sin_port = htons(BIO_ADDR_rawport(bio_addr));
+		size_t l = sizeof(sin->sin_addr);
+		BIO_ADDR_rawaddress(bio_addr, &sin->sin_addr, &l);
+		*addr_len = sizeof(*sin);
+		return 0;
+	} else if (BIO_ADDR_family(bio_addr) == AF_INET6) {
+		struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)addr;
+		sin6->sin6_family = AF_INET6;
+		sin6->sin6_port = htons(BIO_ADDR_rawport(bio_addr));
+		size_t l = sizeof(sin6->sin6_addr);
+		BIO_ADDR_rawaddress(bio_addr, &sin6->sin6_addr, &l);
+		*addr_len = sizeof(*sin6);
+		return 0;
+	}
+
+	return -1;
+}
+
+static int _ssl_get_quic_bio_peer(SSL *ssl, struct sockaddr_storage *addr, socklen_t *addr_len)
+{
+	if (!ssl || !addr || !addr_len) {
+		return -1;
+	}
+
+	BIO *bio = SSL_get_rbio(ssl);
+	if (!bio) {
+		return -1;
+	}
+
+	BIO_ADDR *peer = BIO_ADDR_new();
+	if (!peer) {
+		return -1;
+	}
+
+	int ret = -1;
+	if (BIO_ctrl(bio, BIO_CTRL_DGRAM_GET_PEER, 0, peer) == 1) {
+		ret = _bio_addr_to_sockaddr(peer, addr, addr_len);
+	}
+	BIO_ADDR_free(peer);
+
+	return ret;
+}
 #endif
 
 /* Custom BIO to bridge OpenSSL -> GSocket Lower Layer */
@@ -425,6 +506,9 @@ static inline ssize_t _bio_quic_recv_one(struct bio_quic_data *data, void *buf, 
 	if (data->io->lower->recvfrom) {
 		data->peer_len = sizeof(data->peer);
 		ret = data->io->lower->recvfrom(data->io->lower, buf, len, 0, (struct sockaddr *)&data->peer, &data->peer_len);
+		if (ret > 0) {
+			_ssl_ctx_set_peer_addr((struct ssl_io_ctx *)data->io->ctx, &data->peer, data->peer_len);
+		}
 
 		/* Set peer address in BIO_MSG for OpenSSL */
 		if (ret > 0 && peer) {
@@ -623,42 +707,18 @@ static long _bio_gs_ctrl_dgram(BIO *b, int cmd, long num, void *ptr)
 		return 1;
 	case BIO_CTRL_DGRAM_SET_CONNECTED:
 		if (ptr != NULL) {
-			// data->connected = 1;
-			/* ptr is expected to be BIO_ADDR* usually used by OpenSSL DGRAM */
-			// BIO_ADDR_copy(data->peer, (BIO_ADDR *)ptr);
-			// We need to convert BIO_ADDR to sockaddr_storage
-			if (BIO_ADDR_family((BIO_ADDR *)ptr) == AF_INET) {
-				struct sockaddr_in *sin = (struct sockaddr_in *)&data->peer;
-				sin->sin_family = AF_INET;
-				sin->sin_port = htons(BIO_ADDR_rawport((BIO_ADDR *)ptr));
-				size_t l = sizeof(sin->sin_addr);
-				BIO_ADDR_rawaddress((BIO_ADDR *)ptr, &sin->sin_addr, &l);
-			} else if (BIO_ADDR_family((BIO_ADDR *)ptr) == AF_INET6) {
-				struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)&data->peer;
-				sin6->sin6_family = AF_INET6;
-				sin6->sin6_port = htons(BIO_ADDR_rawport((BIO_ADDR *)ptr));
-				size_t l = sizeof(sin6->sin6_addr);
-				BIO_ADDR_rawaddress((BIO_ADDR *)ptr, &sin6->sin6_addr, &l);
+			if (_bio_addr_to_sockaddr((BIO_ADDR *)ptr, &data->peer, &data->peer_len) == 0) {
+				_ssl_ctx_set_peer_addr((struct ssl_io_ctx *)data->io->ctx, &data->peer, data->peer_len);
 			}
 		} else {
-			// data->connected = 0;
 			memset(&data->peer, 0, sizeof(data->peer));
+			data->peer_len = 0;
 		}
 		return 1;
 	case BIO_CTRL_DGRAM_SET_PEER:
 		if (ptr) {
-			if (BIO_ADDR_family((BIO_ADDR *)ptr) == AF_INET) {
-				struct sockaddr_in *sin = (struct sockaddr_in *)&data->peer;
-				sin->sin_family = AF_INET;
-				sin->sin_port = htons(BIO_ADDR_rawport((BIO_ADDR *)ptr));
-				size_t l = sizeof(sin->sin_addr);
-				BIO_ADDR_rawaddress((BIO_ADDR *)ptr, &sin->sin_addr, &l);
-			} else if (BIO_ADDR_family((BIO_ADDR *)ptr) == AF_INET6) {
-				struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)&data->peer;
-				sin6->sin6_family = AF_INET6;
-				sin6->sin6_port = htons(BIO_ADDR_rawport((BIO_ADDR *)ptr));
-				size_t l = sizeof(sin6->sin6_addr);
-				BIO_ADDR_rawaddress((BIO_ADDR *)ptr, &sin6->sin6_addr, &l);
+			if (_bio_addr_to_sockaddr((BIO_ADDR *)ptr, &data->peer, &data->peer_len) == 0) {
+				_ssl_ctx_set_peer_addr((struct ssl_io_ctx *)data->io->ctx, &data->peer, data->peer_len);
 			}
 		}
 		return 1;
@@ -1598,9 +1658,21 @@ static int _ssl_getsockname(struct gsocket_io *io, struct sockaddr *addr, sockle
 
 static int _ssl_getpeername(struct gsocket_io *io, struct sockaddr *addr, socklen_t *len)
 {
+	struct ssl_io_ctx *ctx = io->ctx;
+
 	if (io->lower && io->lower->getpeername) {
-		return io->lower->getpeername(io->lower, addr, len);
+		if (io->lower->getpeername(io->lower, addr, len) == 0) {
+			return 0;
+		}
 	}
+
+	if (ctx && (ctx->ssl_type == SSL_TYPE_QUIC_CONNECTION || ctx->ssl_type == SSL_TYPE_QUIC_STREAM) &&
+		ctx->peer_addr_len > 0 && addr && len && *len >= ctx->peer_addr_len) {
+		memcpy(addr, &ctx->peer_addr, ctx->peer_addr_len);
+		*len = ctx->peer_addr_len;
+		return 0;
+	}
+
 	return -1;
 }
 
@@ -1846,13 +1918,22 @@ static struct gsocket_io *_ssl_accept(struct gsocket_io *io, struct sockaddr *ad
 				/* Create IO wrapper for the connection */
 				struct gsocket_io *conn_io = gsocket_io_ssl_create_internal(new_ssl, 1, 1);
 				if (conn_io && conn_io->ctx) {
-					((struct ssl_io_ctx *)conn_io->ctx)->ssl_type = SSL_TYPE_QUIC_CONNECTION;
+					struct ssl_io_ctx *conn_ctx = (struct ssl_io_ctx *)conn_io->ctx;
+					conn_ctx->ssl_type = SSL_TYPE_QUIC_CONNECTION;
+					struct sockaddr_storage peer_addr = {0};
+					socklen_t peer_addr_len = sizeof(peer_addr);
+					if (_ssl_get_quic_bio_peer(new_ssl, &peer_addr, &peer_addr_len) == 0) {
+						_ssl_ctx_set_peer_addr(conn_ctx, &peer_addr, peer_addr_len);
+					} else {
+						_ssl_ctx_set_peer_addr(conn_ctx, &ctx->peer_addr, ctx->peer_addr_len);
+					}
 					/* Inherit ALPN config from listener */
 					if (ctx->alpn_protos) {
-						((struct ssl_io_ctx *)conn_io->ctx)->alpn_protos = malloc(ctx->alpn_protos_len);
-						memcpy(((struct ssl_io_ctx *)conn_io->ctx)->alpn_protos, ctx->alpn_protos,
-							   ctx->alpn_protos_len);
-						((struct ssl_io_ctx *)conn_io->ctx)->alpn_protos_len = ctx->alpn_protos_len;
+						conn_ctx->alpn_protos = malloc(ctx->alpn_protos_len);
+						if (conn_ctx->alpn_protos) {
+							memcpy(conn_ctx->alpn_protos, ctx->alpn_protos, ctx->alpn_protos_len);
+							conn_ctx->alpn_protos_len = ctx->alpn_protos_len;
+						}
 					}
 
 					/* NOTE: Don't set conn_io->lower - QUIC connections don't need it.
@@ -1860,6 +1941,14 @@ static struct gsocket_io *_ssl_accept(struct gsocket_io *io, struct sockaddr *ad
 
 					/* Automatically enable multi-stream mode for QUIC */
 					SSL_set_default_stream_mode(new_ssl, SSL_DEFAULT_STREAM_MODE_NONE);
+				}
+				if (conn_io && conn_io->ctx && addr && addrlen &&
+					((struct ssl_io_ctx *)conn_io->ctx)->peer_addr_len > 0) {
+					struct ssl_io_ctx *conn_ctx = (struct ssl_io_ctx *)conn_io->ctx;
+					if (*addrlen >= conn_ctx->peer_addr_len) {
+						memcpy(addr, &conn_ctx->peer_addr, conn_ctx->peer_addr_len);
+						*addrlen = conn_ctx->peer_addr_len;
+					}
 				}
 				return conn_io;
 			}
@@ -1874,7 +1963,9 @@ static struct gsocket_io *_ssl_accept(struct gsocket_io *io, struct sockaddr *ad
 				/* Create IO wrapper for the stream */
 				struct gsocket_io *stream_io = gsocket_io_ssl_create_internal(new_ssl, 1, 1);
 				if (stream_io && stream_io->ctx) {
-					((struct ssl_io_ctx *)stream_io->ctx)->ssl_type = SSL_TYPE_QUIC_STREAM;
+					struct ssl_io_ctx *stream_ctx = (struct ssl_io_ctx *)stream_io->ctx;
+					stream_ctx->ssl_type = SSL_TYPE_QUIC_STREAM;
+					_ssl_ctx_set_peer_addr(stream_ctx, &ctx->peer_addr, ctx->peer_addr_len);
 					/* Stream doesn't need lower - all I/O via QUIC engine */
 				}
 				return stream_io;
