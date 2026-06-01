@@ -281,6 +281,10 @@ int _dns_client_process_tls(struct dns_server_info *server_info, struct gepoll_e
 			if (server_info->sp == NULL && server_info->status == DNS_SERVER_STATUS_CONNECTED) {
 				server_info->sp = gstream_poll_create(server_info->gs);
 			}
+			if (_dns_client_tls_flush_stream_pending_locked(server_info) != 0) {
+				_dns_client_set_close_error(&close_error, "tls flush pending error", errno);
+				goto errout;
+			}
 			pthread_mutex_unlock(&server_info->lock);
 			ret = dns_client_process_gstream_events(server_info);
 			if (ret != 0) {
