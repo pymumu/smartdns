@@ -53,11 +53,6 @@ static int _dns_client_gstream_is_retry_later_error(int err)
 	return err == EAGAIN || err == EWOULDBLOCK || err == ENOBUFS || err == ENOSPC;
 }
 
-static int _dns_client_gstream_should_close_after_done(struct dns_server_info *server_info, int done)
-{
-	return done > 0 && server_info->type == DNS_SERVER_HTTP3;
-}
-
 struct dns_conn_stream *dns_client_gstream_attach(struct dns_server_info *server_info, struct dns_query_struct *query,
 												  struct gsocket *stream_gs, dns_server_type_t type)
 {
@@ -476,13 +471,6 @@ static int _dns_client_gstream_process_events(struct dns_server_info *server_inf
 			int done = process_stream(server_info, stream_gs, conn_stream);
 			if (done != 0) {
 				dns_client_gstream_detach(server_info, conn_stream);
-				if (_dns_client_gstream_should_close_after_done(server_info, done)) {
-					pthread_mutex_lock(&server_info->lock);
-					if (list_empty(&server_info->conn_stream_list) && list_empty(&server_info->http2_pending_list)) {
-						need_close = 1;
-					}
-					pthread_mutex_unlock(&server_info->lock);
-				}
 			}
 			_dns_client_conn_stream_put(conn_stream);
 		}

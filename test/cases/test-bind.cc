@@ -22,6 +22,7 @@
 #include "smartdns/util.h"
 #include "gtest/gtest.h"
 #include <arpa/inet.h>
+#include <fstream>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <openssl/evp.h>
@@ -71,6 +72,23 @@ static std::string get_cert_spki_pin_b64(const char *cert_file)
 
 	pin.assign((char *)b64, b64_len);
 	return pin;
+}
+
+static int count_file_occurrences(const std::string &path, const std::string &needle)
+{
+	std::ifstream file(path);
+	std::string line;
+	int count = 0;
+
+	while (std::getline(file, line)) {
+		size_t pos = 0;
+		while ((pos = line.find(needle, pos)) != std::string::npos) {
+			count++;
+			pos += needle.size();
+		}
+	}
+
+	return count;
 }
 
 static std::string resolve_test_asset_path(const char *name)
@@ -290,6 +308,110 @@ TEST(Bind, http3_spki_pin)
 	EXPECT_EQ(client.GetStatus(), "NOERROR");
 	EXPECT_LT(client.GetQueryTime(), 50);
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+}
+
+TEST(Bind, quic_upstream_connection_reuse)
+{
+	Defer
+	{
+		unlink("/tmp/smartdns-cert.pem");
+		unlink("/tmp/smartdns-key.pem");
+	};
+
+	if (dns_is_quic_supported() == 0) {
+		GTEST_SKIP() << "QUIC is not supported by OpenSSL in current build/runtime";
+	}
+
+	smartdns::TempFile log_file;
+	log_file.SetPattern("/tmp/smartdns_quic_reuse_log.XXXXXX");
+	ASSERT_TRUE(log_file.Write(""));
+
+	smartdns::Server upstream;
+	smartdns::Server server;
+
+	ASSERT_TRUE(upstream.Start(R"""(
+bind-quic :62153
+address /reuse-quic.example.com/1.2.3.4
+)"""));
+
+	std::string spki_pin = get_cert_spki_pin_b64("/tmp/smartdns-cert.pem");
+	ASSERT_FALSE(spki_pin.empty());
+
+	std::string conf = "bind :61153\n"
+					   "cache-size 0\n"
+					   "speed-check-mode none\n"
+					   "dualstack-ip-selection no\n"
+					   "log-file " +
+					   log_file.GetPath() +
+					   "\n"
+					   "log-num 1"
+					   "\n"
+					   "server quic://127.0.0.1:62153 -host-name smartdns -spki-pin " +
+					   spki_pin + "\n";
+	ASSERT_TRUE(server.Start(conf));
+
+	smartdns::Client client;
+	for (int i = 0; i < 3; i++) {
+		ASSERT_TRUE(client.Query("reuse-quic.example.com", 61153));
+		EXPECT_EQ(client.GetStatus(), "NOERROR");
+		ASSERT_EQ(client.GetAnswerNum(), 1);
+		EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+	}
+
+	server.Stop();
+	EXPECT_EQ(count_file_occurrences(log_file.GetPath(), "tls/quic server 127.0.0.1 connected"), 1);
+}
+
+TEST(Bind, http3_upstream_connection_reuse)
+{
+	Defer
+	{
+		unlink("/tmp/smartdns-cert.pem");
+		unlink("/tmp/smartdns-key.pem");
+	};
+
+	if (dns_is_quic_supported() == 0) {
+		GTEST_SKIP() << "QUIC/HTTP3 is not supported by OpenSSL in current build/runtime";
+	}
+
+	smartdns::TempFile log_file;
+	log_file.SetPattern("/tmp/smartdns_http3_reuse_log.XXXXXX");
+	ASSERT_TRUE(log_file.Write(""));
+
+	smartdns::Server upstream;
+	smartdns::Server server;
+
+	ASSERT_TRUE(upstream.Start(R"""(
+bind-http3 :62154
+address /reuse-http3.example.com/1.2.3.4
+)"""));
+
+	std::string spki_pin = get_cert_spki_pin_b64("/tmp/smartdns-cert.pem");
+	ASSERT_FALSE(spki_pin.empty());
+
+	std::string conf = "bind :61154\n"
+					   "cache-size 0\n"
+					   "speed-check-mode none\n"
+					   "dualstack-ip-selection no\n"
+					   "log-file " +
+					   log_file.GetPath() +
+					   "\n"
+					   "log-num 1"
+					   "\n"
+					   "server http3://127.0.0.1:62154/dns-query -host-name smartdns -spki-pin " +
+					   spki_pin + "\n";
+	ASSERT_TRUE(server.Start(conf));
+
+	smartdns::Client client;
+	for (int i = 0; i < 3; i++) {
+		ASSERT_TRUE(client.Query("reuse-http3.example.com", 61154));
+		EXPECT_EQ(client.GetStatus(), "NOERROR");
+		ASSERT_EQ(client.GetAnswerNum(), 1);
+		EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+	}
+
+	server.Stop();
+	EXPECT_EQ(count_file_occurrences(log_file.GetPath(), "tls/quic server 127.0.0.1 connected"), 1);
 }
 
 TEST(Bind, udp_tcp)
