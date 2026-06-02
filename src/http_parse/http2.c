@@ -2423,6 +2423,8 @@ int http2_stream_read_body(struct http2_stream *stream, uint8_t *data, int len)
 	int decompress_ret = http2_try_decompress_body(stream);
 	if (decompress_ret < 0) {
 		/* Decompression failed, return error */
+		stream->end_stream_read_handled = 1;
+		stream->body_read_offset = stream->body_buffer_len;
 		if (ctx) {
 			pthread_mutex_unlock(&ctx->mutex);
 		}
