@@ -49,6 +49,16 @@ fn link_rename_lib() {
     println!("cargo:rustc-link-arg={}", so_path);
 }
 
+fn should_link_zlib() -> bool {
+    matches!(
+        env::var("WITH_ZLIB")
+            .unwrap_or_default()
+            .to_lowercase()
+            .as_str(),
+        "1" | "yes" | "true" | "on"
+    )
+}
+
 fn link_smartdns_lib() {
     let curr_source_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let smartdns_src_dir = format!("{}/../../src", curr_source_dir);
@@ -95,6 +105,10 @@ fn link_smartdns_lib() {
         println!("cargo:rustc-link-lib=static=smartdns-test");
         println!("cargo:rustc-link-lib=ssl");
         println!("cargo:rustc-link-lib=crypto");
+        println!("cargo:rerun-if-env-changed=WITH_ZLIB");
+        if should_link_zlib() {
+            println!("cargo:rustc-link-lib=z");
+        }
         println!("cargo:rustc-link-search=native={}", smartdns_src_dir);
     }
 }
