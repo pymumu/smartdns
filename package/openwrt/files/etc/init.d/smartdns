@@ -682,7 +682,7 @@ load_service()
 	config_get cache_size "$section" "cache_size" ""
 	[ -z "$cache_size" ] || conf_append "cache-size" "$cache_size"
 
-	config_get resolve_local_hostnames "$section" "resolve_local_hostnames" "1"
+	config_get_bool resolve_local_hostnames "$section" "resolve_local_hostnames" "1"
 	[ "$resolve_local_hostnames" = "1" ] && {
 		conf_append "dnsmasq-lease-file" "$dnsmasq_lease_file"
 		[ -z "$odhcpd_lease_file" ] || conf_append "odhcpd-lease-file" "$odhcpd_lease_file"

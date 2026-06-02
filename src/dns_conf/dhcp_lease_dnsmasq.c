@@ -88,6 +88,13 @@ static int _conf_dhcp_lease_hostname_is_valid(const char *hostname)
 	return label_len > 0;
 }
 
+static void _conf_dhcp_lease_log_open_error(const char *file, int err)
+{
+	int log_level = (err == ENOENT) ? TLOG_DEBUG : TLOG_WARN;
+
+	tlog(log_level, "open file %s error, %s", file, strerror(err));
+}
+
 static int _conf_dhcp_lease_dnsmasq_add(const char *file)
 {
 	FILE *fp = NULL;
@@ -99,7 +106,7 @@ static int _conf_dhcp_lease_dnsmasq_add(const char *file)
 
 	fp = fopen(file, "r");
 	if (fp == NULL) {
-		tlog(TLOG_WARN, "open file %s error, %s", file, strerror(errno));
+		_conf_dhcp_lease_log_open_error(file, errno);
 		return 0;
 	}
 
@@ -133,7 +140,7 @@ static int _conf_dhcp_lease_odhcpd_add(const char *file)
 
 	fp = fopen(file, "r");
 	if (fp == NULL) {
-		tlog(TLOG_WARN, "open file %s error, %s", file, strerror(errno));
+		_conf_dhcp_lease_log_open_error(file, errno);
 		return 0;
 	}
 
