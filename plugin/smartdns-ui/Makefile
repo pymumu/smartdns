@@ -103,12 +103,12 @@ else
   SMARTDNS_BUILD_TYPE=
 endif
 
-.PHONY: all clean install $(BIN)
+.PHONY: all clean install test test-prepare $(BIN)
 
 all: $(BIN)
 
 test-prepare:
-	$(MAKE) -C $(SMARTDNS_SRC_DIR) libsmartdns-test.a
+	$(MAKE) WITH_ZLIB=0 -B -C $(SMARTDNS_SRC_DIR) libsmartdns-test.a
 
 $(BIN):
 	CXXFLAGS= CFLAGS= MAKEFLAGS= RUSTFLAGS="$(CARGO_RUSTFLAGS) $(RUSTFLAGS)" $(CARGO_BUILD_ENV) cargo build $(CARGO_BUILD_ARGS) --features "build-release"
@@ -118,7 +118,7 @@ install: $(BIN)
 	install -v -m 0644 -D -t $(DESTDIR)$(SLIBDIR)/smartdns target/smartdns_ui.so
 
 test: test-prepare
-	MAKEFLAGS= cargo test
+	MAKEFLAGS= WITH_ZLIB=0 cargo test
 
 clean:
 	cargo clean

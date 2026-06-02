@@ -43,6 +43,21 @@ ifeq ($(HAS_UNWIND), 1)
 override CFLAGS += -DHAVE_UNWIND_BACKTRACE
 endif
 
+WITH_ZLIB ?= auto
+HAS_ZLIB := $(shell printf '$(HASH)include <zlib.h>\nint main(void) { return zlibVersion()[0] == 0; }' | $(CC) -x c - -lz -o /dev/null >/dev/null 2>&1 && echo -n 1 || echo -n 0)
+ifeq ($(WITH_ZLIB), yes)
+override WITH_ZLIB := 1
+endif
+ifeq ($(WITH_ZLIB), auto)
+ ifeq ($(HAS_ZLIB), 1)
+  override CFLAGS += -DWITH_ZLIB
+  override LDFLAGS += -lz
+ endif
+else ifeq ($(WITH_ZLIB), 1)
+override CFLAGS += -DWITH_ZLIB
+override LDFLAGS += -lz
+endif
+
 override CFLAGS +=-Iinclude
 override CFLAGS += -DBASE_FILE_NAME='"$(notdir $<)"'
 override CFLAGS += $(EXTRA_CFLAGS)
@@ -118,4 +133,3 @@ clean:
 lint-files:
 	@echo "Specify FILES variable to lint specific files, e.g., make lint-files FILES='src/dns.c src/proxy.c'"
 	clang-tidy -p=. $(FILES) -- $(CFLAGS)
-

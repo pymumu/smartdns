@@ -170,6 +170,39 @@ TEST_F(HTTP, http3_0_parse)
 	http_head_destroy(http_head);
 }
 
+#ifdef WITH_ZLIB
+TEST_F(HTTP, http3_0_response_parse_gzip_body)
+{
+	const unsigned char gzip_body[] = {0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00,
+									   0x02, 0x03, 0xcb, 0x48, 0xcd, 0xc9, 0xc9, 0x57,
+									   0x28, 0xcf, 0x2f, 0xca, 0x49, 0x01, 0x00, 0x85,
+									   0x11, 0x4a, 0x0d, 0x0b, 0x00, 0x00, 0x00};
+	unsigned char buffer[1024];
+
+	struct http_head *http_head = http_head_init(1024, HTTP_VERSION_3_0);
+	ASSERT_NE(http_head, nullptr);
+	http_head_set_httpversion(http_head, "HTTP/3");
+	http_head_set_httpcode(http_head, 200, "OK");
+	http_head_add_fields(http_head, "content-type", "application/dns-message");
+	http_head_add_fields(http_head, "content-encoding", "gzip");
+	http_head_set_data(http_head, gzip_body, sizeof(gzip_body));
+	http_head_set_head_type(http_head, HTTP_HEAD_RESPONSE);
+
+	int buffer_len = http_head_serialize(http_head, buffer, sizeof(buffer));
+	ASSERT_GT(buffer_len, 0);
+	http_head_destroy(http_head);
+
+	http_head = http_head_init(1024, HTTP_VERSION_3_0);
+	ASSERT_NE(http_head, nullptr);
+	int ret = http_head_parse(http_head, buffer, buffer_len);
+	ASSERT_EQ(ret, buffer_len);
+	EXPECT_EQ(http_head_get_httpcode(http_head), 200);
+	ASSERT_EQ(http_head_get_data_len(http_head), (int)strlen("hello world"));
+	EXPECT_EQ(memcmp(http_head_get_data(http_head), "hello world", strlen("hello world")), 0);
+	http_head_destroy(http_head);
+}
+#endif
+
 TEST_F(HTTP, http1_1_small_buffer)
 {
 	const char *data = "HTTP/1.1 200 OK\r\n"
