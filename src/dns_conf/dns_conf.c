@@ -54,6 +54,7 @@
 #include "smartdns_domain.h"
 #include "speed_check_mode.h"
 #include "srv_record.h"
+#include "txt_record.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -166,6 +167,7 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("cname", _config_cname, NULL),
 	CONF_CUSTOM("srv-record", _config_srv_record, NULL),
 	CONF_CUSTOM("https-record", _config_https_record, NULL),
+	CONF_CUSTOM("txt-record", _config_txt_record, NULL),
 	CONF_CUSTOM("proxy-server", _config_proxy_server, NULL),
 	CONF_INT("proxy-server-workers", &dns_conf.proxy_server_workers, 1, 64),
 	CONF_INT("proxy-server-idle-timeout", &dns_conf.proxy_server_idle_timeout, 0, 86400),

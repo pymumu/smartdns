@@ -958,18 +958,16 @@ int dns_get_PTR(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, char *
 
 int dns_add_TXT(struct dns_packet *packet, dns_rr_type type, const char *domain, int ttl, const char *text)
 {
-	int rr_len = strnlen(text, DNS_MAX_CNAME_LEN);
-	char data[DNS_MAX_CNAME_LEN];
+	int text_len = strnlen(text, DNS_MAX_CNAME_LEN);
+	unsigned char data[DNS_MAX_CNAME_LEN];
 
-	if (rr_len > DNS_MAX_CNAME_LEN - 2) {
+	if (text_len > DNS_MAX_CNAME_LEN - 1) {
 		return -1;
 	}
 
-	data[0] = rr_len;
-	rr_len++;
-	memcpy(data + 1, text, rr_len);
-	data[rr_len] = 0;
-	return _dns_add_RAW(packet, type, DNS_T_TXT, domain, ttl, data, rr_len);
+	data[0] = text_len;
+	memcpy(data + 1, text, text_len);
+	return _dns_add_RAW(packet, type, DNS_T_TXT, domain, ttl, data, text_len + 1);
 }
 
 int dns_get_TXT(struct dns_rrs *rrs, char *domain, int maxsize, int *ttl, char *text, int txt_size)
