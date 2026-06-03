@@ -99,6 +99,7 @@ enum domain_rule {
 	DOMAIN_RULE_RESPONSE_MODE, /* Response mode */
 	DOMAIN_RULE_CNAME,         /* CNAME rule */
 	DOMAIN_RULE_TTL,           /* TTL control */
+	DOMAIN_RULE_TXT,           /* TXT record */
 
 	DOMAIN_RULE_MAX,
 };
@@ -337,6 +338,11 @@ struct dns_https_record_rule {
 };
 
 struct dns_srv_record_rule {
+	struct dns_rule head;
+	struct list_head record_list;
+};
+
+struct dns_txt_record_rule {
 	struct dns_rule head;
 	struct list_head record_list;
 };
@@ -665,6 +671,10 @@ struct dns_srv_record {
 	unsigned short port;
 };
 
+struct dns_txt_record {
+	struct list_head list;
+	char text[DNS_MAX_CNAME_LEN];
+};
 
 struct dns_conf_plugin {
 	struct hlist_node node;

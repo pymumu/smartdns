@@ -29,6 +29,7 @@
 #include "smartdns/lib/stringutil.h"
 #include "smartdns/util.h"
 #include "speed_check_mode.h"
+#include "txt_record.h"
 
 #include <getopt.h>
 
@@ -166,6 +167,25 @@ static void _rule_srv_clone(struct dns_rule *new_rule, struct dns_rule *old_rule
 	}
 }
 
+static void _rule_txt_clone(struct dns_rule *new_rule, struct dns_rule *old_rule)
+{
+	struct dns_txt_record_rule *new_txt = (struct dns_txt_record_rule *)new_rule;
+	struct dns_txt_record_rule *old_txt = (struct dns_txt_record_rule *)old_rule;
+	struct dns_txt_record *record;
+
+	INIT_LIST_HEAD(&new_txt->record_list);
+	if (old_txt->record_list.next != NULL && old_txt->record_list.prev != NULL) {
+		list_for_each_entry(record, &old_txt->record_list, list)
+		{
+			struct dns_txt_record *new_record = malloc(sizeof(struct dns_txt_record));
+			if (new_record) {
+				memcpy(new_record, record, sizeof(struct dns_txt_record));
+				list_add_tail(&new_record->list, &new_txt->record_list);
+			}
+		}
+	}
+}
+
 static struct dns_rule_info dns_rule_info_table[DOMAIN_RULE_MAX] = {
 	[DOMAIN_RULE_FLAGS] = {sizeof(struct dns_rule_flags), NULL, NULL},
 	[DOMAIN_RULE_ADDRESS_IPV4] = {sizeof(struct dns_rule_address_IPV4), _rule_address_ipv4_get_size, NULL},
@@ -183,6 +203,7 @@ static struct dns_rule_info dns_rule_info_table[DOMAIN_RULE_MAX] = {
 	[DOMAIN_RULE_RESPONSE_MODE] = {sizeof(struct dns_response_mode_rule), NULL, NULL},
 	[DOMAIN_RULE_CNAME] = {sizeof(struct dns_cname_rule), NULL, NULL},
 	[DOMAIN_RULE_TTL] = {sizeof(struct dns_ttl_rule), NULL, NULL},
+	[DOMAIN_RULE_TXT] = {sizeof(struct dns_txt_record_rule), NULL, _rule_txt_clone},
 };
 
 void *_new_dns_rule_ext(enum domain_rule domain_rule, int ext_size)
@@ -269,6 +290,16 @@ static void _dns_rule_free(struct dns_rule *rule)
 		struct dns_srv_record *record, *tmp;
 		if (srv_rule->record_list.next != NULL && srv_rule->record_list.prev != NULL) {
 			list_for_each_entry_safe(record, tmp, &srv_rule->record_list, list)
+			{
+				list_del(&record->list);
+				free(record);
+			}
+		}
+	} else if (rule->rule == DOMAIN_RULE_TXT) {
+		struct dns_txt_record_rule *txt_rule = (struct dns_txt_record_rule *)rule;
+		struct dns_txt_record *record, *tmp;
+		if (txt_rule->record_list.next != NULL && txt_rule->record_list.prev != NULL) {
+			list_for_each_entry_safe(record, tmp, &txt_rule->record_list, list)
 			{
 				list_del(&record->list);
 				free(record);
@@ -899,6 +930,7 @@ int _config_domain_rules(void *data, int argc, char *argv[])
 		{"response-mode", required_argument, NULL, 'r'},
 		{"address", required_argument, NULL, 'a'},
 		{"https-record", required_argument, NULL, 'h'},
+		{"txt-record", required_argument, NULL, 'T'},
 		{"ipset", required_argument, NULL, 'p'},
 		{"nftset", required_argument, NULL, 't'},
 		{"nameserver", required_argument, NULL, 'n'},
@@ -954,7 +986,7 @@ int _config_domain_rules(void *data, int argc, char *argv[])
 	optind = 1;
 	optind_last = 1;
 	while (1) {
-		opt = getopt_long_only(argc, argv, "c:a:p:t:n:d:A:r:g:h:", long_options, NULL);
+		opt = getopt_long_only(argc, argv, "c:a:p:t:n:d:A:r:g:h:T:", long_options, NULL);
 		if (opt == -1) {
 			break;
 		}
@@ -1007,6 +1039,19 @@ int _config_domain_rules(void *data, int argc, char *argv[])
 
 			if (_conf_domain_rule_https_record(domain, https_record) != 0) {
 				tlog(TLOG_ERROR, "add https-record rule failed.");
+				goto errout;
+			}
+
+			break;
+		}
+		case 'T': {
+			const char *txt_record = optarg;
+			if (txt_record == NULL) {
+				goto errout;
+			}
+
+			if (_conf_domain_rule_txt_record(domain, txt_record) != 0) {
+				tlog(TLOG_ERROR, "add txt-record rule failed.");
 				goto errout;
 			}
 

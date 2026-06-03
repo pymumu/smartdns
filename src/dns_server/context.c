@@ -192,6 +192,22 @@ static int _dns_server_add_srv(struct dns_server_post_context *context)
 	return 0;
 }
 
+static int _dns_server_add_txt(struct dns_server_post_context *context)
+{
+	struct dns_request *request = context->request;
+	struct dns_request_txt *txt = NULL;
+	int ret = 0;
+
+	list_for_each_entry(txt, &request->txt_list, list) {
+		ret = dns_add_TXT(context->packet, DNS_RRS_AN, request->domain, request->ip_ttl, txt->text);
+		if (ret != 0) {
+			return -1;
+		}
+	}
+
+	return 0;
+}
+
 static int _dns_add_rrs_ip_hint(struct dns_server_post_context *context, struct dns_rr_nested *param, dns_type_t qtype)
 {
 	typedef int (*addfunc)(struct dns_rr_nested *svcparam, unsigned char *addr[], int addr_num);
@@ -388,6 +404,10 @@ static int _dns_add_rrs(struct dns_server_post_context *context)
 
 	if (!list_empty(&request->srv_list)) {
 		ret |= _dns_server_add_srv(context);
+	}
+
+	if (!list_empty(&request->txt_list)) {
+		ret |= _dns_server_add_txt(context);
 	}
 
 	if (request->rcode != DNS_RC_NOERROR) {
