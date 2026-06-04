@@ -200,6 +200,236 @@ static void io_b_free(struct gsocket_io *io)
 	free(io);
 }
 
+struct MockGroupAsyncCtx {
+	int connect_calls;
+	int handshake_calls;
+	int getsockopt_calls;
+};
+
+static int mock_group_async_connect(struct gsocket_io *io, const char *host, int port)
+{
+	(void)host;
+	(void)port;
+	MockGroupAsyncCtx *ctx = (MockGroupAsyncCtx *)io->ctx;
+	ctx->connect_calls++;
+	errno = EINPROGRESS;
+	return -1;
+}
+
+static int mock_group_async_handshake(struct gsocket_io *io)
+{
+	MockGroupAsyncCtx *ctx = (MockGroupAsyncCtx *)io->ctx;
+	ctx->handshake_calls++;
+	return GSOCKET_HANDSHAKE_DONE;
+}
+
+static int mock_group_async_get_fd(struct gsocket_io *io)
+{
+	(void)io;
+	return 2001;
+}
+
+static int mock_group_async_getsockopt(struct gsocket_io *io, int level, int optname, void *optval, socklen_t *optlen)
+{
+	MockGroupAsyncCtx *ctx = (MockGroupAsyncCtx *)io->ctx;
+	ctx->getsockopt_calls++;
+
+	if (level == SOL_SOCKET && optname == SO_ERROR && optval != NULL && optlen != NULL && *optlen >= sizeof(int)) {
+		*(int *)optval = 0;
+		*optlen = sizeof(int);
+		return 0;
+	}
+
+	errno = ENOTSUP;
+	return -1;
+}
+
+static void mock_group_async_free(struct gsocket_io *io)
+{
+	free(io->ctx);
+	free(io);
+}
+
+static struct gsocket *mock_group_async_socket_new(MockGroupAsyncCtx **ctx_out)
+{
+	struct gsocket *gs = gsocket_new(GS_INVALID_FD);
+	struct gsocket_io *io = (struct gsocket_io *)calloc(1, sizeof(struct gsocket_io));
+	MockGroupAsyncCtx *ctx = (MockGroupAsyncCtx *)calloc(1, sizeof(MockGroupAsyncCtx));
+	io->ctx = ctx;
+	io->connect = mock_group_async_connect;
+	io->handshake = mock_group_async_handshake;
+	io->getsockopt = mock_group_async_getsockopt;
+	io->get_fd = mock_group_async_get_fd;
+	io->free = mock_group_async_free;
+	gsocket_push_layer(gs, io);
+	*ctx_out = ctx;
+	return gs;
+}
+
+struct MockGroupOptionCtx {
+	int fd;
+	int connect_calls;
+	int setsockopt_calls;
+	int last_optval;
+};
+
+static int mock_group_option_connect(struct gsocket_io *io, const char *host, int port)
+{
+	(void)host;
+	(void)port;
+	MockGroupOptionCtx *ctx = (MockGroupOptionCtx *)io->ctx;
+	ctx->connect_calls++;
+	return 0;
+}
+
+static int mock_group_option_setsockopt(struct gsocket_io *io, int level, int optname, const void *optval,
+										socklen_t optlen)
+{
+	MockGroupOptionCtx *ctx = (MockGroupOptionCtx *)io->ctx;
+	if (level != SOL_SOCKET || optname != SO_REUSEADDR || optval == NULL || optlen != sizeof(int)) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	ctx->setsockopt_calls++;
+	ctx->last_optval = *(const int *)optval;
+	return 0;
+}
+
+static int mock_group_option_get_fd(struct gsocket_io *io)
+{
+	MockGroupOptionCtx *ctx = (MockGroupOptionCtx *)io->ctx;
+	return ctx->fd;
+}
+
+static void mock_group_option_free(struct gsocket_io *io)
+{
+	free(io->ctx);
+	free(io);
+}
+
+static struct gsocket *mock_group_option_socket_new(int fd, MockGroupOptionCtx **ctx_out)
+{
+	struct gsocket *gs = gsocket_new(GS_INVALID_FD);
+	struct gsocket_io *io = (struct gsocket_io *)calloc(1, sizeof(struct gsocket_io));
+	MockGroupOptionCtx *ctx = (MockGroupOptionCtx *)calloc(1, sizeof(MockGroupOptionCtx));
+	ctx->fd = fd;
+	io->ctx = ctx;
+	io->connect = mock_group_option_connect;
+	io->setsockopt = mock_group_option_setsockopt;
+	io->get_fd = mock_group_option_get_fd;
+	io->free = mock_group_option_free;
+	gsocket_push_layer(gs, io);
+	*ctx_out = ctx;
+	return gs;
+}
+
+struct MockGroupInterfaceCtx {
+	int connect_calls;
+	int open_stream_calls;
+	int stream_poll_calls;
+	int get_proxy_target_calls;
+	int get_poll_events_calls;
+	int get_error_calls;
+};
+
+static int mock_group_interface_connect(struct gsocket_io *io, const char *host, int port)
+{
+	(void)host;
+	(void)port;
+	MockGroupInterfaceCtx *ctx = (MockGroupInterfaceCtx *)io->ctx;
+	ctx->connect_calls++;
+	return 0;
+}
+
+static ssize_t mock_group_child_send(struct gsocket_io *io, const void *buf, size_t len, int flags)
+{
+	(void)io;
+	(void)buf;
+	(void)flags;
+	return (ssize_t)len;
+}
+
+static void mock_group_child_free(struct gsocket_io *io)
+{
+	free(io);
+}
+
+static struct gsocket_io *mock_group_interface_open_stream(struct gsocket_io *io)
+{
+	MockGroupInterfaceCtx *ctx = (MockGroupInterfaceCtx *)io->ctx;
+	ctx->open_stream_calls++;
+
+	struct gsocket_io *child = (struct gsocket_io *)calloc(1, sizeof(struct gsocket_io));
+	child->send = mock_group_child_send;
+	child->free = mock_group_child_free;
+	return child;
+}
+
+static int mock_group_interface_stream_poll(struct gsocket_io *io, struct gstream_poll_item *items, int count,
+											int timeout_ms)
+{
+	(void)timeout_ms;
+	MockGroupInterfaceCtx *ctx = (MockGroupInterfaceCtx *)io->ctx;
+	ctx->stream_poll_calls++;
+	for (int i = 0; i < count; i++) {
+		items[i].revents = items[i].events;
+	}
+	return count;
+}
+
+static int mock_group_interface_get_proxy_target(struct gsocket_io *io, struct gsocket_address *addr)
+{
+	MockGroupInterfaceCtx *ctx = (MockGroupInterfaceCtx *)io->ctx;
+	ctx->get_proxy_target_calls++;
+	snprintf(addr->host, sizeof(addr->host), "203.0.113.9");
+	addr->port = 853;
+	return 0;
+}
+
+static int mock_group_interface_get_poll_events(struct gsocket_io *io)
+{
+	MockGroupInterfaceCtx *ctx = (MockGroupInterfaceCtx *)io->ctx;
+	ctx->get_poll_events_calls++;
+	return EPOLLIN | EPOLLOUT;
+}
+
+static int mock_group_interface_get_error(struct gsocket_io *io, void *err_struct)
+{
+	MockGroupInterfaceCtx *ctx = (MockGroupInterfaceCtx *)io->ctx;
+	ctx->get_error_calls++;
+	struct gsocket_error *err = (struct gsocket_error *)err_struct;
+	err->layer = SOL_PROTO_ERROR;
+	err->error_code = 321;
+	snprintf(err->message, sizeof(err->message), "group delegated error");
+	err->errno_val = ECONNRESET;
+	return 0;
+}
+
+static void mock_group_interface_free(struct gsocket_io *io)
+{
+	free(io->ctx);
+	free(io);
+}
+
+static struct gsocket *mock_group_interface_socket_new(MockGroupInterfaceCtx **ctx_out)
+{
+	struct gsocket *gs = gsocket_new(GS_INVALID_FD);
+	struct gsocket_io *io = (struct gsocket_io *)calloc(1, sizeof(struct gsocket_io));
+	MockGroupInterfaceCtx *ctx = (MockGroupInterfaceCtx *)calloc(1, sizeof(MockGroupInterfaceCtx));
+	io->ctx = ctx;
+	io->connect = mock_group_interface_connect;
+	io->open_stream = mock_group_interface_open_stream;
+	io->stream_poll = mock_group_interface_stream_poll;
+	io->get_proxy_target = mock_group_interface_get_proxy_target;
+	io->get_poll_events = mock_group_interface_get_poll_events;
+	io->get_error = mock_group_interface_get_error;
+	io->free = mock_group_interface_free;
+	gsocket_push_layer(gs, io);
+	*ctx_out = ctx;
+	return gs;
+}
+
 /* Mock Helpers for StreamLifecycle Test */
 struct MockRefCtx {
 	int *ref_counter;
@@ -1296,36 +1526,184 @@ TEST(GSocketTest, GroupNesting)
 
 TEST(GSocketTest, Balance)
 {
-	int ca = 0, cb = 0;
-	for (int i = 0; i < 20; i++) {
-		struct gsocket *ga = gsocket_new(GS_INVALID_FD);
-		struct gsocket_io *ia = (struct gsocket_io *)calloc(1, sizeof(struct gsocket_io));
-		ia->connect = io_a_connect;
-		ia->get_fd = io_a_get_fd;
-		ia->free = io_a_free;
-		gsocket_push_layer(ga, ia);
+	struct gsocket *ga = gsocket_new(GS_INVALID_FD);
+	struct gsocket_io *ia = (struct gsocket_io *)calloc(1, sizeof(struct gsocket_io));
+	ia->connect = io_a_connect;
+	ia->get_fd = io_a_get_fd;
+	ia->free = io_a_free;
+	gsocket_push_layer(ga, ia);
 
-		struct gsocket *gb = gsocket_new(GS_INVALID_FD);
-		struct gsocket_io *ib = (struct gsocket_io *)calloc(1, sizeof(struct gsocket_io));
-		ib->connect = io_b_connect;
-		ib->get_fd = io_b_get_fd;
-		ib->free = io_b_free;
-		gsocket_push_layer(gb, ib);
+	struct gsocket *gb = gsocket_new(GS_INVALID_FD);
+	struct gsocket_io *ib = (struct gsocket_io *)calloc(1, sizeof(struct gsocket_io));
+	ib->connect = io_b_connect;
+	ib->get_fd = io_b_get_fd;
+	ib->free = io_b_free;
+	gsocket_push_layer(gb, ib);
 
-		struct gsocket *g = gsocket_group_new(GSOCKET_GROUP_RR);
-		gsocket_group_add(g, ga, 1);
-		gsocket_group_add(g, gb, 1);
-		ASSERT_EQ(gsocket_connect(g, "127.0.0.1", 0), 0);
-		int fd = gsocket_get_fd(g);
-		if (fd == 1001) {
-			ca++;
-		} else if (fd == 1002) {
-			cb++;
-		}
-		gsocket_free(g);
-	}
-	ASSERT_GT(ca, 0);
-	ASSERT_GT(cb, 0);
+	struct gsocket *g = gsocket_group_new(GSOCKET_GROUP_RR);
+	gsocket_group_add(g, ga, 1);
+	gsocket_group_add(g, gb, 1);
+
+	ASSERT_EQ(gsocket_connect(g, "127.0.0.1", 0), 0);
+	ASSERT_EQ(gsocket_get_fd(g), 1001);
+	ASSERT_EQ(gsocket_connect(g, "127.0.0.1", 0), 0);
+	ASSERT_EQ(gsocket_get_fd(g), 1002);
+	ASSERT_EQ(gsocket_connect(g, "127.0.0.1", 0), 0);
+	ASSERT_EQ(gsocket_get_fd(g), 1001);
+
+	gsocket_free(g);
+}
+
+TEST(GSocketTest, GroupAsyncConnectDelegatesSelectedMember)
+{
+	MockGroupAsyncCtx *ctx = NULL;
+	struct gsocket *member = mock_group_async_socket_new(&ctx);
+	struct gsocket *g = gsocket_group_new(GSOCKET_GROUP_FAILOVER);
+	gsocket_group_add(g, member, 1);
+
+	errno = 0;
+	ASSERT_EQ(gsocket_connect(g, "127.0.0.1", 443), -1);
+	ASSERT_EQ(errno, EINPROGRESS);
+	ASSERT_EQ(ctx->connect_calls, 1);
+	ASSERT_EQ(gsocket_get_fd(g), 2001);
+
+	ASSERT_EQ(gsocket_handshake(g), GSOCKET_HANDSHAKE_DONE);
+	ASSERT_EQ(ctx->handshake_calls, 1);
+
+	int err = -1;
+	socklen_t len = sizeof(err);
+	ASSERT_EQ(gsocket_getsockopt(g, SOL_SOCKET, SO_ERROR, &err, &len), 0);
+	ASSERT_EQ(err, 0);
+	ASSERT_EQ(ctx->getsockopt_calls, 1);
+
+	gsocket_free(g);
+}
+
+TEST(GSocketTest, GroupNoActiveMemberErrors)
+{
+	struct gsocket *g = gsocket_group_new(GSOCKET_GROUP_FAILOVER);
+	ASSERT_TRUE(g != NULL);
+
+	errno = 0;
+	ASSERT_EQ(gsocket_get_fd(g), GS_INVALID_FD);
+
+	ASSERT_EQ(gsocket_send(g, "x", 1, 0), -1);
+	ASSERT_EQ(errno, ENOTCONN);
+
+	errno = 0;
+	ASSERT_EQ(gsocket_handshake(g), GSOCKET_HANDSHAKE_ERR);
+	ASSERT_EQ(errno, ENOTCONN);
+
+	int err = -1;
+	socklen_t len = sizeof(err);
+	errno = 0;
+	ASSERT_EQ(gsocket_getsockopt(g, SOL_SOCKET, SO_ERROR, &err, &len), -1);
+	ASSERT_EQ(errno, ENOTCONN);
+
+	errno = 0;
+	ASSERT_EQ(gsocket_get_poll_events(g), 0);
+	ASSERT_EQ(errno, ENOTCONN);
+
+	gsocket_free(g);
+}
+
+TEST(GSocketTest, GroupFailoverIgnoresStaleErrno)
+{
+	struct gsocket *g_fail = gsocket_new(GS_INVALID_FD);
+	struct gsocket_io *io = (struct gsocket_io *)calloc(1, sizeof(struct gsocket_io));
+	io->connect = _mock_fail_connect;
+	io->free = _mock_fail_free;
+	gsocket_push_layer(g_fail, io);
+
+	struct gsocket *g_ok = gsocket_new(GS_INVALID_FD);
+	struct gsocket_io *ok_io = (struct gsocket_io *)calloc(1, sizeof(struct gsocket_io));
+	ok_io->connect = io_a_connect;
+	ok_io->get_fd = io_a_get_fd;
+	ok_io->free = io_a_free;
+	gsocket_push_layer(g_ok, ok_io);
+
+	struct gsocket *g = gsocket_group_new(GSOCKET_GROUP_FAILOVER);
+	gsocket_group_add(g, g_fail, 1);
+	gsocket_group_add(g, g_ok, 1);
+
+	errno = EINPROGRESS;
+	ASSERT_EQ(gsocket_connect(g, "127.0.0.1", 0), 0);
+	ASSERT_EQ(gsocket_get_fd(g), 1001);
+
+	gsocket_free(g);
+}
+
+TEST(GSocketTest, GroupSetSockOptBeforeAndAfterConnect)
+{
+	MockGroupOptionCtx *ctx_a = NULL;
+	MockGroupOptionCtx *ctx_b = NULL;
+	struct gsocket *ga = mock_group_option_socket_new(3001, &ctx_a);
+	struct gsocket *gb = mock_group_option_socket_new(3002, &ctx_b);
+	struct gsocket *g = gsocket_group_new(GSOCKET_GROUP_FAILOVER);
+	gsocket_group_add(g, ga, 1);
+	gsocket_group_add(g, gb, 1);
+
+	int opt = 1;
+	ASSERT_EQ(gsocket_setsockopt(g, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)), 0);
+	ASSERT_EQ(ctx_a->setsockopt_calls, 1);
+	ASSERT_EQ(ctx_b->setsockopt_calls, 1);
+	ASSERT_EQ(ctx_a->last_optval, 1);
+	ASSERT_EQ(ctx_b->last_optval, 1);
+
+	ASSERT_EQ(gsocket_connect(g, "127.0.0.1", 0), 0);
+	ASSERT_EQ(gsocket_get_fd(g), 3001);
+
+	opt = 0;
+	ASSERT_EQ(gsocket_setsockopt(g, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)), 0);
+	ASSERT_EQ(ctx_a->setsockopt_calls, 2);
+	ASSERT_EQ(ctx_b->setsockopt_calls, 1);
+	ASSERT_EQ(ctx_a->last_optval, 0);
+
+	gsocket_free(g);
+}
+
+TEST(GSocketTest, GroupDelegatesStreamProxyAndErrorInterfaces)
+{
+	MockGroupInterfaceCtx *ctx = NULL;
+	struct gsocket *member = mock_group_interface_socket_new(&ctx);
+	struct gsocket *g = gsocket_group_new(GSOCKET_GROUP_FAILOVER);
+	gsocket_group_add(g, member, 1);
+
+	ASSERT_EQ(gsocket_connect(g, "127.0.0.1", 0), 0);
+	ASSERT_EQ(ctx->connect_calls, 1);
+
+	ASSERT_EQ(gsocket_get_poll_events(g), EPOLLIN | EPOLLOUT);
+	ASSERT_EQ(ctx->get_poll_events_calls, 1);
+
+	struct gsocket_address target = {};
+	ASSERT_EQ(gsocket_get_proxy_target(g, &target), 0);
+	ASSERT_STREQ(target.host, "203.0.113.9");
+	ASSERT_EQ(target.port, 853);
+	ASSERT_EQ(ctx->get_proxy_target_calls, 1);
+
+	struct gsocket_error detail = {};
+	socklen_t len = sizeof(detail);
+	ASSERT_EQ(gsocket_getsockopt(g, SOL_PROTO_ERROR, SO_ERROR_DETAIL, &detail, &len), 0);
+	ASSERT_EQ(detail.error_code, 321);
+	ASSERT_STREQ(detail.message, "group delegated error");
+	ASSERT_EQ(detail.errno_val, ECONNRESET);
+	ASSERT_EQ(ctx->get_error_calls, 1);
+
+	struct gsocket *stream = gsocket_open_stream(g);
+	ASSERT_TRUE(stream != NULL);
+	ASSERT_EQ(ctx->open_stream_calls, 1);
+	ASSERT_EQ(gsocket_send(stream, "abc", 3, 0), 3);
+	gsocket_free(stream);
+
+	struct gstream_poll *sp = gstream_poll_create(g);
+	ASSERT_TRUE(sp != NULL);
+	struct gstream_event events[2];
+	ASSERT_EQ(gstream_poll_wait(sp, events, 2, 0), 1);
+	ASSERT_EQ(events[0].revents, POLLIN);
+	ASSERT_EQ(ctx->stream_poll_calls, 1);
+	gstream_poll_destroy(sp);
+
+	gsocket_free(g);
 }
 
 TEST(GSocketTest, GroupPoll)
