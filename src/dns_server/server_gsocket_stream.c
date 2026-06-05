@@ -84,11 +84,11 @@ int dns_server_gstream_dispatch_query(struct dns_server_conn_gsocket *parent, st
 		return -1;
 	}
 
-	_dns_server_recv(&sc->head, packet, packet_len, &parent->localaddr, parent->localaddr_len, &parent->addr,
-					 parent->addr_len);
+	int ret = _dns_server_recv(&sc->head, packet, packet_len, &parent->localaddr, parent->localaddr_len, &parent->addr,
+							   parent->addr_len);
 
 	_dns_server_conn_release(&sc->head);
-	return 0;
+	return ret;
 }
 
 static void _dns_server_gstream_close_stream(struct gsocket **stream)

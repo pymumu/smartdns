@@ -28,10 +28,15 @@
 #include <openssl/ssl.h>
 #include <string.h>
 
+#define DNS_WIRE_HEADER_LEN 12
+
 static int _dns_server_doh_send_error(struct gsocket *stream_gs, int status, const char *body)
 {
+	size_t body_len = strlen(body);
+
 	gsocket_setsockopt(stream_gs, SOL_HTTP, SO_HTTP_STATUS, &status, sizeof(status));
-	return gsocket_send_all(stream_gs, body, strlen(body), MSG_NOSIGNAL | GS_MSG_FIN);
+	gsocket_setsockopt(stream_gs, SOL_HTTP, SO_HTTP_BODY_LEN, &body_len, sizeof(body_len));
+	return gsocket_send_all(stream_gs, body, body_len, MSG_NOSIGNAL | GS_MSG_FIN);
 }
 
 int dns_server_doh_process_request(struct dns_server_conn_gsocket *parent, struct gsocket *stream_gs,
@@ -69,11 +74,16 @@ int dns_server_doh_process_request(struct dns_server_conn_gsocket *parent, struc
 		if (n == 0) {
 			n = gsocket_recv(stream_gs, buf, sizeof(buf), 0);
 		}
-		if (n <= 0) {
-			if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+		if (n < 0) {
+			if (errno == EAGAIN || errno == EWOULDBLOCK) {
 				return -EAGAIN;
 			}
 			return -1;
+		}
+		if (n == 0) {
+			err_status = 400;
+			err_body = "Bad Request";
+			goto send_error;
 		}
 		len = (int)n;
 	} else if (strcasecmp(method, "GET") == 0) {
@@ -136,9 +146,15 @@ int dns_server_doh_process_request(struct dns_server_conn_gsocket *parent, struc
 	}
 
 	if (len > 0) {
+		if (len < DNS_WIRE_HEADER_LEN) {
+			err_status = 400;
+			err_body = "Bad Request";
+			goto send_error;
+		}
+
 		if (dns_server_gstream_dispatch_query(parent, stream_gs, DNS_CONN_TYPE_HTTP2_STREAM, buf, len) != 0) {
-			err_status = 500;
-			err_body = "Internal Server Error";
+			err_status = 400;
+			err_body = "Bad Request";
 			goto send_error;
 		}
 		return 1;
