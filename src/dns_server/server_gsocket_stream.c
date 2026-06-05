@@ -252,6 +252,7 @@ static int _dns_server_gstream_process_events(struct dns_server_conn_gsocket *co
 static const struct dns_server_gstream_proto_ops *_dns_server_gstream_get_proto(DNS_CONN_TYPE type)
 {
 	static const struct dns_server_gstream_proto_ops protos[] = {
+		{DNS_CONN_TYPE_HTTP_CLIENT, dns_server_doh_process_request, 1, 1},
 		{DNS_CONN_TYPE_HTTPS_CLIENT, dns_server_doh_process_request, 1, 1},
 		{DNS_CONN_TYPE_HTTPS3_CLIENT, dns_server_doh_process_request, 1, 0},
 		{DNS_CONN_TYPE_QUIC_CLIENT, dns_server_doq_process_request, 0, 0},

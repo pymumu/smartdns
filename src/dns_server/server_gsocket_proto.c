@@ -92,6 +92,12 @@ static const struct dns_gsocket_layer_spec _dns_server_layers_https[] = {
 	{DNS_GSOCKET_LAYER_NONE, NULL},
 };
 
+static const struct dns_gsocket_layer_spec _dns_server_layers_http[] = {
+	{DNS_GSOCKET_LAYER_BASE_TCP, NULL},
+	{DNS_GSOCKET_LAYER_HTTP1, NULL},
+	{DNS_GSOCKET_LAYER_NONE, NULL},
+};
+
 static const struct dns_gsocket_layer_spec _dns_server_layers_quic[] = {
 	{DNS_GSOCKET_LAYER_BASE_UDP, NULL},
 	{DNS_GSOCKET_LAYER_QUIC, "doq"},
@@ -112,6 +118,7 @@ static const struct dns_server_gsocket_bind_proto _dns_server_bind_protos[] = {
 	{DNS_BIND_TYPE_HTTPS, DNS_CONN_TYPE_HTTPS_SERVER, SOCK_STREAM, _dns_server_layers_https, "HTTPS"},
 	{DNS_BIND_TYPE_HTTPS3, DNS_CONN_TYPE_HTTPS3_SERVER, SOCK_DGRAM, _dns_server_layers_https3, "HTTPS3"},
 	{DNS_BIND_TYPE_QUIC, DNS_CONN_TYPE_QUIC_SERVER, SOCK_DGRAM, _dns_server_layers_quic, "QUIC"},
+	{DNS_BIND_TYPE_HTTP, DNS_CONN_TYPE_HTTP_SERVER, SOCK_STREAM, _dns_server_layers_http, "HTTP"},
 };
 
 static const struct dns_gsocket_proto _dns_server_conn_protos[] = {
@@ -144,6 +151,14 @@ static const struct dns_gsocket_proto _dns_server_conn_protos[] = {
 		.flags = DNS_GSOCKET_PROTO_LISTENER | DNS_GSOCKET_PROTO_TLS | DNS_GSOCKET_PROTO_HTTP,
 		.layers = _dns_server_layers_https,
 		.peer_type = DNS_CONN_TYPE_HTTPS_CLIENT,
+		.process = _dns_server_proto_process_listener,
+	},
+	{
+		.type = DNS_CONN_TYPE_HTTP_SERVER,
+		.name = "http-listener",
+		.flags = DNS_GSOCKET_PROTO_LISTENER | DNS_GSOCKET_PROTO_HTTP,
+		.layers = _dns_server_layers_http,
+		.peer_type = DNS_CONN_TYPE_HTTP_CLIENT,
 		.process = _dns_server_proto_process_listener,
 	},
 	{
@@ -184,6 +199,14 @@ static const struct dns_gsocket_proto _dns_server_conn_protos[] = {
 		.flags = DNS_GSOCKET_PROTO_CLIENT | DNS_GSOCKET_PROTO_STREAM | DNS_GSOCKET_PROTO_TLS |
 				 DNS_GSOCKET_PROTO_HTTP | DNS_GSOCKET_PROTO_IDLE_CLIENT,
 		.layers = _dns_server_layers_https,
+		.process = _dns_server_proto_process_client,
+	},
+	{
+		.type = DNS_CONN_TYPE_HTTP_CLIENT,
+		.name = "http-client",
+		.flags = DNS_GSOCKET_PROTO_CLIENT | DNS_GSOCKET_PROTO_STREAM | DNS_GSOCKET_PROTO_HTTP |
+				 DNS_GSOCKET_PROTO_IDLE_CLIENT,
+		.layers = _dns_server_layers_http,
 		.process = _dns_server_proto_process_client,
 	},
 	{

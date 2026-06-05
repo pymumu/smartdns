@@ -249,6 +249,9 @@ int _dns_server_gsocket_process_listener(struct dns_server_conn_head *head, stru
 		}
 
 		_dns_server_gsocket_activate_client(conn);
+		if (hs > 0 && dns_server_gsocket_proto_client_needs_stream_poll(client_type)) {
+			_dns_server_gsocket_process_client(conn, NULL, now);
+		}
 	}
 
 	return 0;

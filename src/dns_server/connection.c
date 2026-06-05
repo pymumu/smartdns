@@ -70,7 +70,7 @@ void _dns_server_conn_release(struct dns_server_conn_head *conn)
 	if (conn->gs != NULL) {
 		if (conn->type == DNS_CONN_TYPE_TCP_CLIENT || conn->type == DNS_CONN_TYPE_TLS_CLIENT ||
 			conn->type == DNS_CONN_TYPE_HTTPS_CLIENT || conn->type == DNS_CONN_TYPE_HTTPS3_CLIENT ||
-			conn->type == DNS_CONN_TYPE_QUIC_CLIENT) {
+			conn->type == DNS_CONN_TYPE_HTTP_CLIENT || conn->type == DNS_CONN_TYPE_QUIC_CLIENT) {
 			struct dns_server_conn_gsocket *gclient = (struct dns_server_conn_gsocket *)conn;
 			if (gclient->sp != NULL) {
 				dns_server_gstream_poll_destroy(gclient);
@@ -162,6 +162,7 @@ int _dns_server_update_request_connection_timeout(struct dns_server_conn_head *c
 
 	switch (conn->type) {
 	case DNS_CONN_TYPE_TCP_CLIENT:
+	case DNS_CONN_TYPE_HTTP_CLIENT:
 	case DNS_CONN_TYPE_TLS_CLIENT:
 	case DNS_CONN_TYPE_HTTPS_CLIENT:
 	case DNS_CONN_TYPE_HTTPS3_CLIENT:

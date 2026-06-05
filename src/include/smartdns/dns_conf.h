@@ -135,6 +135,7 @@ typedef enum {
 	DNS_BIND_TYPE_HTTPS,
 	DNS_BIND_TYPE_HTTPS3, /* DNS over HTTPS/HTTP3 */
 	DNS_BIND_TYPE_QUIC,   /* DNS over QUIC (DoQ, RFC 9250) */
+	DNS_BIND_TYPE_HTTP,
 } DNS_BIND_TYPE;
 
 typedef enum {

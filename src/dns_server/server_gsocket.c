@@ -90,6 +90,7 @@ int _dns_server_gsocket_bind(struct dns_bind_ip *bind_ip)
 	const struct dns_server_gsocket_bind_proto *proto = dns_server_gsocket_bind_proto_get(bind_ip->type);
 	int need_tls = 0;
 	int need_quic = 0;
+	int need_http1 = 0;
 	int need_http2 = 0;
 	int need_http3 = 0;
 	if (proto == NULL) {
@@ -99,6 +100,7 @@ int _dns_server_gsocket_bind(struct dns_bind_ip *bind_ip)
 
 	need_tls = dns_gsocket_layer_spec_has(proto->layers, DNS_GSOCKET_LAYER_TLS);
 	need_quic = dns_gsocket_layer_spec_has(proto->layers, DNS_GSOCKET_LAYER_QUIC);
+	need_http1 = dns_gsocket_layer_spec_has(proto->layers, DNS_GSOCKET_LAYER_HTTP1);
 	need_http2 = dns_gsocket_layer_spec_has(proto->layers, DNS_GSOCKET_LAYER_HTTP2);
 	need_http3 = dns_gsocket_layer_spec_has(proto->layers, DNS_GSOCKET_LAYER_HTTP3);
 
@@ -135,6 +137,13 @@ int _dns_server_gsocket_bind(struct dns_bind_ip *bind_ip)
 	if (need_http2) {
 		struct gsocket_io *http2_layer = gsocket_io_http2_new(1 /*server*/);
 		if (_dns_server_gsocket_push_layer(gs, http2_layer, "HTTP2") != 0) {
+			goto errout;
+		}
+	}
+
+	if (need_http1) {
+		struct gsocket_io *http1_layer = gsocket_io_http1_new(1 /*server*/);
+		if (_dns_server_gsocket_push_layer(gs, http1_layer, "HTTP1") != 0) {
 			goto errout;
 		}
 	}

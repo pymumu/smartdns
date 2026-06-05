@@ -146,6 +146,7 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("bind-quic", _config_bind_ip_quic, NULL),
 	CONF_CUSTOM("bind-h3", _config_bind_ip_https3, NULL),
 	CONF_CUSTOM("bind-http3", _config_bind_ip_https3, NULL),
+	CONF_CUSTOM("bind-http", _config_bind_ip_http, NULL),
 	CONF_CUSTOM("bind-cert-root-key-file", _config_option_parser_filepath, &dns_conf.bind_root_ca_key_file),
 	CONF_CUSTOM("bind-cert-root-ca-file", _config_option_parser_filepath, &dns_conf.bind_root_ca_file),
 	CONF_INT("bind-cert-validity-days", &dns_conf.bind_ca_validity_days, 0, 9999),
