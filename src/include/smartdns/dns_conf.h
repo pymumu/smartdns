@@ -121,6 +121,7 @@ typedef enum {
 	DNS_BIND_TYPE_TCP,
 	DNS_BIND_TYPE_TLS,
 	DNS_BIND_TYPE_HTTPS,
+	DNS_BIND_TYPE_HTTP,
 } DNS_BIND_TYPE;
 
 typedef enum {

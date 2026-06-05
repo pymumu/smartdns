@@ -16,24 +16,20 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef _DNS_CONF_BIND_H_
-#define _DNS_CONF_BIND_H_
+#ifndef _DNS_SERVER_HTTP_
+#define _DNS_SERVER_HTTP_
 
-#include "dns_conf.h"
-#include "smartdns/dns_conf.h"
+#include "dns_server.h"
+#include <sys/epoll.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif /*__cplusplus */
 
-int _config_add_default_server_if_needed(void);
-int _config_bind_ip_udp(void *data, int argc, char *argv[]);
-int _config_bind_ip_tcp(void *data, int argc, char *argv[]);
-int _config_bind_ip_tls(void *data, int argc, char *argv[]);
-int _config_bind_ip_https(void *data, int argc, char *argv[]);
-int _config_bind_ip_http(void *data, int argc, char *argv[]);
+int _dns_server_socket_http(struct dns_bind_ip *bind_ip);
 
-void dns_server_bind_destroy(void);
+int _dns_server_reply_http(struct dns_request *request, struct dns_server_conn_tcp_client *tcpclient, void *packet,
+						   unsigned short len);
 
 #ifdef __cplusplus
 }
