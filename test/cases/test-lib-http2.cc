@@ -844,6 +844,67 @@ TEST_F(LIBHTTP2, DataAfterEndStreamFailsProtocol)
 	http2_ctx_close(ctx);
 }
 
+TEST_F(LIBHTTP2, DataAfterLocallyClosedStreamDoesNotFailConnection)
+{
+	struct http2_ctx *ctx = http2_ctx_client_new("test-client", bio_read, bio_write, &client_sock, NULL);
+	ASSERT_NE(ctx, nullptr);
+	StartClientWithServerSettings(ctx);
+
+	struct http2_stream *stream = http2_stream_new(ctx);
+	ASSERT_NE(stream, nullptr);
+
+	const uint8_t headers_fragment[] = {0x08, 0x03, '2', '0', '0'};
+	const uint8_t data_payload[] = {0x2a};
+	WriteServerFrame(0x01, 0x04, 1, headers_fragment, sizeof(headers_fragment));
+	WriteServerFrame(0x00, 0x01, 1, data_payload, sizeof(data_payload));
+
+	uint8_t body[8] = {0};
+	int body_len = -1;
+	for (int i = 0; i < 20 && body_len <= 0; i++) {
+		http2_ctx_poll(ctx, NULL, 0, NULL);
+		body_len = http2_stream_read_body(stream, body, sizeof(body));
+		if (body_len <= 0) {
+			usleep(1000);
+		}
+	}
+	ASSERT_EQ(body_len, 1);
+	EXPECT_EQ(body[0], 0x2a);
+	EXPECT_EQ(http2_stream_read_body(stream, body, sizeof(body)), 0);
+
+	http2_stream_close(stream);
+
+	const uint8_t late_data[] = {0x11};
+	WriteServerFrame(0x00, 0, 1, late_data, sizeof(late_data));
+	int late_poll_ret = http2_ctx_poll(ctx, NULL, 0, NULL);
+	EXPECT_TRUE(late_poll_ret == 0 || late_poll_ret == HTTP2_ERR_EAGAIN) << http2_error_to_string(late_poll_ret);
+
+	struct http2_stream *next_stream = http2_stream_new(ctx);
+	ASSERT_NE(next_stream, nullptr);
+	const uint8_t next_headers_fragment[] = {0x08, 0x03, '2', '0', '0'};
+	WriteServerFrame(0x01, 0x05, 3, next_headers_fragment, sizeof(next_headers_fragment));
+	for (int i = 0; i < 20 && http2_stream_get_status(next_stream) != 200; i++) {
+		http2_ctx_poll(ctx, NULL, 0, NULL);
+		usleep(1000);
+	}
+	EXPECT_EQ(http2_stream_get_status(next_stream), 200);
+
+	http2_stream_close(next_stream);
+	http2_ctx_close(ctx);
+}
+
+TEST_F(LIBHTTP2, DataOnIdleStreamFailsProtocol)
+{
+	struct http2_ctx *ctx = http2_ctx_client_new("test-client", bio_read, bio_write, &client_sock, NULL);
+	ASSERT_NE(ctx, nullptr);
+	StartClientWithServerSettings(ctx);
+
+	const uint8_t data_payload[] = {0x01};
+	WriteServerFrame(0x00, 0, 1, data_payload, sizeof(data_payload));
+	EXPECT_EQ(http2_ctx_poll(ctx, NULL, 0, NULL), HTTP2_ERR_PROTOCOL);
+
+	http2_ctx_close(ctx);
+}
+
 TEST_F(LIBHTTP2, StreamNewAfterGoawayFails)
 {
 	struct http2_ctx *ctx = http2_ctx_client_new("test-client", bio_read, bio_write, &client_sock, NULL);

@@ -194,8 +194,12 @@ static void _dns_server_http2_process_stream(struct dns_server_conn_tls_client *
 
 		/* Process the packet */
 		/* Note: _dns_server_recv takes conn, inpacket, inpacket_len, local, local_len, from, from_len */
-		_dns_server_recv(&stream_conn->head, buf, len, &tls_client->tcp.localaddr, tls_client->tcp.localaddr_len,
-						 &tls_client->tcp.addr, tls_client->tcp.addr_len);
+		if (_dns_server_recv(&stream_conn->head, buf, len, &tls_client->tcp.localaddr, tls_client->tcp.localaddr_len,
+							 &tls_client->tcp.addr, tls_client->tcp.addr_len) != 0) {
+			_dns_server_http2_send_response(stream, 400, "text/plain", "Bad Request", 11);
+			_dns_server_conn_release(&stream_conn->head);
+			goto close_out;
+		}
 
 		/* Release our reference (request holds one now) */
 		_dns_server_conn_release(&stream_conn->head);
