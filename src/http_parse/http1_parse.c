@@ -20,8 +20,12 @@
 #include "http_parse.h"
 #include "smartdns/util.h"
 
+#include <limits.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <unistd.h>
+
+#define HTTP_MAX_CHUNK_SIZE INT32_MAX
 
 static int _http_head_parse_response(struct http_head *http_head, char *key, char *value)
 {
@@ -204,6 +208,10 @@ static int _http1_get_chunk_len(const uint8_t *data, int data_len, int32_t *chun
 			is_num_start = 1;
 		}
 
+		if (chunk_value > (HTTP_MAX_CHUNK_SIZE - value) / 16) {
+			return -2;
+		}
+
 		chunk_value = (chunk_value << 4) + value;
 	}
 
@@ -325,11 +333,11 @@ int http_head_parse_http1_1(struct http_head *http_head, const uint8_t *data, in
 					break;
 				}
 
-				if (data_len < chunk_len) {
+				if (chunk_len < 0 || data_len < chunk_len) {
 					return -1;
 				}
 
-				if (data_len < chunk_len + 2) {
+				if (chunk_len > data_len - 2) {
 					return -1;
 				}
 
@@ -338,7 +346,7 @@ int http_head_parse_http1_1(struct http_head *http_head, const uint8_t *data, in
 				}
 
 				/* Check buffer space */
-				if (http_head->buff_len + process_data_len + chunk_len >= http_head->buff_size) {
+				if (chunk_len >= http_head->buff_size - http_head->buff_len - process_data_len) {
 					return -3;
 				}
 
