@@ -16,6 +16,7 @@
 #include <poll.h>
 #include <string>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <thread>
 #include <unistd.h>
 #include <vector>
@@ -523,6 +524,59 @@ bool DnsResponseIsReply(const std::vector<uint8_t> &response)
 	return packet->head.qr == DNS_QR_ANSWER;
 }
 
+std::string DnsResponseSummary(const std::vector<uint8_t> &response)
+{
+	unsigned char packet_buff[DNS_PACKSIZE];
+	struct dns_packet *packet = (struct dns_packet *)packet_buff;
+
+	if (dns_decode(packet, sizeof(packet_buff), (unsigned char *)response.data(), response.size()) != 0) {
+		return "decode failed";
+	}
+
+	return "rcode=" + std::to_string(packet->head.rcode) + ", ancount=" + std::to_string(packet->head.ancount);
+}
+
+bool DnsResponseHasA(const std::vector<uint8_t> &response, const char *expected_ip, std::string *error)
+{
+	unsigned char packet_buff[DNS_PACKSIZE];
+	struct dns_packet *packet = (struct dns_packet *)packet_buff;
+	unsigned char expected_addr[DNS_RR_A_LEN];
+
+	if (inet_pton(AF_INET, expected_ip, expected_addr) != 1) {
+		*error = std::string("invalid expected IP: ") + expected_ip;
+		return false;
+	}
+
+	if (dns_decode(packet, sizeof(packet_buff), (unsigned char *)response.data(), response.size()) != 0) {
+		*error = "decode failed";
+		return false;
+	}
+
+	if (packet->head.qr != DNS_QR_ANSWER || packet->head.rcode != DNS_RC_NOERROR) {
+		*error = "unexpected response: " + DnsResponseSummary(response);
+		return false;
+	}
+
+	int answer_count = 0;
+	struct dns_rrs *rrs = dns_get_rrs_start(packet, DNS_RRS_AN, &answer_count);
+	for (int i = 0; i < answer_count && rrs != nullptr; i++, rrs = dns_get_rrs_next(packet, rrs)) {
+		char domain[DNS_MAX_CNAME_LEN] = {0};
+		unsigned char addr[DNS_RR_A_LEN];
+		int ttl = 0;
+
+		if (dns_get_A(rrs, domain, sizeof(domain), &ttl, addr) != 0) {
+			continue;
+		}
+
+		if (memcmp(addr, expected_addr, sizeof(addr)) == 0) {
+			return true;
+		}
+	}
+
+	*error = "expected A record not found: " + DnsResponseSummary(response);
+	return false;
+}
+
 bool AllPendingDone(const std::vector<std::vector<HTTP2DoHClient::PendingResponse>> &pending_by_client)
 {
 	for (const auto &pending_list : pending_by_client) {
@@ -539,6 +593,118 @@ bool AllPendingDone(const std::vector<std::vector<HTTP2DoHClient::PendingRespons
 std::string BuildConcurrentDomain(int client_index, int stream_index)
 {
 	return "h2-" + std::to_string(client_index) + "-" + std::to_string(stream_index) + ".example.com";
+}
+
+std::string BuildRandomComDomain(int index)
+{
+	uint32_t value = 0x9e3779b9u * (uint32_t)(index + 1) + 0x7f4a7c15u;
+	return "h2-chain-" + std::to_string(value) + "-" + std::to_string(index) + ".com";
+}
+
+bool UdpQueryHasA(const std::string &domain, int port, uint16_t id, const char *expected_ip, std::string *error)
+{
+	int fd = socket(AF_INET, SOCK_DGRAM, 0);
+	if (fd < 0) {
+		*error = std::string("socket failed: ") + strerror(errno);
+		return false;
+	}
+
+	struct timeval timeout = {};
+	timeout.tv_sec = 5;
+	setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+
+	struct sockaddr_in addr = {};
+	addr.sin_family = AF_INET;
+	addr.sin_port = htons(port);
+	if (inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr) != 1) {
+		*error = "inet_pton failed";
+		close(fd);
+		return false;
+	}
+
+	std::vector<uint8_t> query = BuildDnsQuery(domain.c_str(), id);
+	if (query.empty()) {
+		*error = "build DNS query failed";
+		close(fd);
+		return false;
+	}
+
+	ssize_t send_len = sendto(fd, query.data(), query.size(), 0, (struct sockaddr *)&addr, sizeof(addr));
+	if (send_len != (ssize_t)query.size()) {
+		*error = std::string("sendto failed: ") + strerror(errno);
+		close(fd);
+		return false;
+	}
+
+	unsigned char response[DNS_PACKSIZE];
+	ssize_t recv_len = recvfrom(fd, response, sizeof(response), 0, nullptr, nullptr);
+	if (recv_len <= 0) {
+		*error = std::string("recvfrom failed: ") + strerror(errno);
+		close(fd);
+		return false;
+	}
+
+	close(fd);
+
+	std::vector<uint8_t> response_data(response, response + recv_len);
+	return DnsResponseHasA(response_data, expected_ip, error);
+}
+
+struct ConcurrentUdpQueryStats {
+	int total = 0;
+	int success = 0;
+	int failure = 0;
+	long duration_ms = 0;
+	double qps = 0;
+	std::string first_failure;
+};
+
+ConcurrentUdpQueryStats RunConcurrentUdpAQueries(int query_count, int port, const char *expected_ip)
+{
+	std::atomic<int> total_queries{0};
+	std::atomic<int> success_count{0};
+	std::atomic<int> failure_count{0};
+	std::vector<std::string> failures(query_count);
+	std::vector<std::thread> client_threads;
+	client_threads.reserve(query_count);
+
+	auto start_time = std::chrono::steady_clock::now();
+	for (int i = 0; i < query_count; i++) {
+		client_threads.emplace_back([i, port, expected_ip, &total_queries, &success_count, &failure_count, &failures]() {
+			std::string domain = BuildRandomComDomain(i);
+			std::string error;
+			total_queries++;
+			if (UdpQueryHasA(domain, port, 0x8000 + i, expected_ip, &error)) {
+				success_count++;
+				return;
+			}
+
+			failures[i] = domain + ": " + error;
+			failure_count++;
+		});
+	}
+
+	for (auto &thread : client_threads) {
+		thread.join();
+	}
+
+	auto end_time = std::chrono::steady_clock::now();
+	auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+
+	ConcurrentUdpQueryStats stats;
+	stats.total = total_queries.load();
+	stats.success = success_count.load();
+	stats.failure = failure_count.load();
+	stats.duration_ms = duration.count();
+	stats.qps = duration.count() > 0 ? (query_count * 1000.0) / duration.count() : 0;
+	for (const auto &failure : failures) {
+		if (!failure.empty()) {
+			stats.first_failure = failure;
+			break;
+		}
+	}
+
+	return stats;
 }
 
 } // namespace
@@ -773,6 +939,115 @@ log-level error
 
 	EXPECT_EQ(completed, total_queries) << first_failure;
 	EXPECT_EQ(success, total_queries) << first_failure;
+}
+
+TEST(HTTP2, DownstreamDohServerToHttp2UpstreamSingleConnectionManyConcurrentStreams)
+{
+	Defer
+	{
+		unlink("/tmp/smartdns-cert.pem");
+		unlink("/tmp/smartdns-key.pem");
+	};
+
+	smartdns::Server server_wrap;
+	smartdns::Server server;
+
+	ASSERT_TRUE(server.Start(R"""(bind-https [::]:61053 -alpn h2
+server https://127.0.0.1:60053/dns-query -no-check-certificate -alpn h2
+speed-check-mode none
+log-level error
+)"""));
+
+	ASSERT_TRUE(server_wrap.Start(R"""(bind-https [::]:60053 -alpn h2
+address /com/1.2.3.4
+speed-check-mode none
+log-level error
+)"""));
+
+	usleep(500000);
+
+	const int stream_count = 1024;
+	HTTP2DoHClient client;
+	std::vector<HTTP2DoHClient::PendingResponse> pending(stream_count);
+
+	ASSERT_TRUE(client.Connect("127.0.0.1", 61053)) << client.LastError();
+	for (int stream_index = 0; stream_index < stream_count; stream_index++) {
+		uint16_t id = 0x9000 + stream_index;
+		std::string domain = BuildRandomComDomain(stream_index);
+		std::vector<uint8_t> query = BuildDnsQuery(domain.c_str(), id);
+		ASSERT_FALSE(query.empty());
+		ASSERT_TRUE(client.StartQuery(query, &pending[stream_index])) << client.LastError();
+	}
+
+	auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+	while (std::chrono::steady_clock::now() < deadline) {
+		ASSERT_TRUE(client.PumpPending(&pending, 1)) << client.LastError();
+		bool all_done = true;
+		for (const auto &item : pending) {
+			if (!item.done) {
+				all_done = false;
+				break;
+			}
+		}
+		if (all_done) {
+			break;
+		}
+	}
+
+	int completed = 0;
+	int success = 0;
+	std::string first_failure;
+	for (int stream_index = 0; stream_index < stream_count; stream_index++) {
+		auto &item = pending[stream_index];
+		if (item.done) {
+			completed++;
+			std::string error;
+			if (item.ok && DnsResponseHasA(item.response, "1.2.3.4", &error)) {
+				success++;
+			} else if (first_failure.empty()) {
+				first_failure = "stream " + std::to_string(stream_index) + ": " + item.error +
+								", bytes=" + std::to_string(item.response.size()) + ", " + error;
+			}
+		} else if (first_failure.empty()) {
+			first_failure = "stream " + std::to_string(stream_index) + ": not completed, bytes=" +
+							std::to_string(item.response.size());
+		}
+	}
+	client.ClosePending(&pending);
+
+	EXPECT_EQ(completed, stream_count) << first_failure;
+	EXPECT_EQ(success, stream_count) << first_failure;
+}
+
+TEST(HTTP2, UdpDownstreamToHttp2UpstreamManyConcurrentQueries)
+{
+	smartdns::Server server_wrap;
+	smartdns::Server server;
+
+	ASSERT_TRUE(server.Start(R"""(bind [::]:61053
+server https://127.0.0.1:60053/dns-query -no-check-certificate -alpn h2
+socket-buff-size 4M
+speed-check-mode none
+log-level error
+)"""));
+
+	ASSERT_TRUE(server_wrap.Start(R"""(bind-https [::]:60053 -alpn h2
+address /com/1.2.3.4
+speed-check-mode none
+log-level error
+)"""));
+
+	std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+	const int query_count = 1024;
+	ConcurrentUdpQueryStats stats = RunConcurrentUdpAQueries(query_count, 61053, "1.2.3.4");
+	std::cout << "HTTP2 upstream chained stress: total=" << stats.total << ", success=" << stats.success
+			  << ", failure=" << stats.failure << ", duration=" << stats.duration_ms << "ms, qps=" << stats.qps
+			  << std::endl;
+
+	EXPECT_EQ(stats.total, query_count);
+	EXPECT_EQ(stats.success, query_count) << stats.first_failure;
+	EXPECT_EQ(stats.failure, 0) << stats.first_failure;
 }
 
 TEST(HTTP2, DownstreamDohServerHighConcurrencyWithRetry)

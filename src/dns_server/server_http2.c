@@ -305,11 +305,15 @@ int _dns_server_process_http2(struct dns_server_conn_tls_client *tls_client, str
 			for (int i = 0; i < poll_count; i++) {
 				if (poll_items[i].stream == NULL) {
 					if (poll_items[i].readable) {
-						struct http2_stream *stream = http2_ctx_accept_stream(ctx);
-						if (stream) {
-							/* Accept and immediately process new HTTP/2 stream */
+						struct http2_stream *stream = NULL;
+						int accepted_count = 0;
+
+						while ((stream = http2_ctx_accept_stream(ctx)) != NULL) {
 							_dns_server_http2_process_stream(tls_client, stream);
 							http2_stream_put(stream);
+							if (++accepted_count >= DNS_SERVER_HTTP2_MAX_CONCURRENT_STREAMS) {
+								break;
+							}
 						}
 					}
 					continue;
