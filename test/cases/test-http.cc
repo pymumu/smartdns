@@ -225,6 +225,18 @@ TEST_F(HTTP, http1_1_small_buffer)
 	http_head_destroy(http_head);
 }
 
+TEST_F(HTTP, http1_1_chunk_size_overflow)
+{
+	const char *data = "HTTP/1.1 200 OK\r\n"
+					   "Transfer-Encoding: chunked\r\n"
+					   "\r\n"
+					   "80000000\r\n";
+	struct http_head *http_head = http_head_init(1024, HTTP_VERSION_1_1);
+	ASSERT_NE(http_head, nullptr);
+	EXPECT_EQ(http_head_parse(http_head, (const unsigned char *)data, strlen(data)), -2);
+	http_head_destroy(http_head);
+}
+
 TEST_F(HTTP, http3_small_buffer)
 {
 	struct http_head *http_head = http_head_init(1024, HTTP_VERSION_3_0);
