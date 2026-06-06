@@ -23,6 +23,8 @@
 #include <stdio.h>
 #include <unistd.h>
 
+#define HTTP_MAX_CHUNK_SIZE (64 * 1024)
+
 static int _http_head_parse_response(struct http_head *http_head, char *key, char *value)
 {
 	char *field_start = NULL;
@@ -204,6 +206,10 @@ static int _http1_get_chunk_len(const uint8_t *data, int data_len, int32_t *chun
 			is_num_start = 1;
 		}
 
+		if (chunk_value > (HTTP_MAX_CHUNK_SIZE >> 4)) {
+			return -2;
+		}
+		
 		chunk_value = (chunk_value << 4) + value;
 	}
 
