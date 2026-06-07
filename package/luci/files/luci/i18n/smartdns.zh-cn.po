@@ -158,6 +158,9 @@ msgstr "DNS64"
 msgid "DNS64 Server Settings"
 msgstr "DNS64服务器配置"
 
+msgid "DDR"
+msgstr "DDR"
+
 msgid "default"
 msgstr "默认"
 
@@ -247,6 +250,9 @@ msgstr "启用每日（每周）自动更新"
 
 msgid "Enable DOH DNS Server"
 msgstr "启用DOH服务器"
+
+msgid "Enable Discovery of Designated Resolvers for enabled local DNS services."
+msgstr "为当前启用的本地DNS服务启用指定解析器发现。"
 
 msgid "Enable DOT DNS Server"
 msgstr "启用DOT服务器"
