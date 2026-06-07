@@ -2,6 +2,7 @@
 #include "server.h"
 #include "smartdns/dns.h"
 #include "smartdns/http2.h"
+#include "smartdns/util.h"
 #include "gtest/gtest.h"
 #include <arpa/inet.h>
 #include <atomic>
@@ -24,12 +25,25 @@
 namespace
 {
 
+const char *HTTP2_TEST_CERT_FILE = "/tmp/smartdns-http2-test-cert.pem";
+const char *HTTP2_TEST_KEY_FILE = "/tmp/smartdns-http2-test-key.pem";
+
+bool EnsureHTTP2TestCert()
+{
+	if (access(HTTP2_TEST_CERT_FILE, F_OK) == 0 && access(HTTP2_TEST_KEY_FILE, F_OK) == 0) {
+		return true;
+	}
+
+	return generate_cert_key(HTTP2_TEST_KEY_FILE, HTTP2_TEST_CERT_FILE, NULL, "DNS:smartdns,IP:127.0.0.1", 1) == 0;
+}
+
 class HTTP2DoHClient
 {
   public:
 	struct PendingResponse {
 		struct http2_stream *stream = nullptr;
 		std::vector<uint8_t> response;
+		int status = 0;
 		bool done = false;
 		bool ok = false;
 		std::string error;
@@ -62,7 +76,7 @@ class HTTP2DoHClient
 	{
 		fd_ = socket(AF_INET, SOCK_STREAM, 0);
 		if (fd_ < 0) {
-			last_error_ = "socket failed";
+			last_error_ = std::string("socket failed: ") + strerror(errno);
 			return false;
 		}
 
@@ -75,7 +89,7 @@ class HTTP2DoHClient
 		}
 
 		if (connect(fd_, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
-			last_error_ = "connect failed";
+			last_error_ = std::string("connect failed: ") + strerror(errno);
 			return false;
 		}
 
@@ -209,6 +223,7 @@ class HTTP2DoHClient
 		}
 
 		pending->response.clear();
+		pending->status = 0;
 		pending->done = false;
 		pending->ok = false;
 		pending->error.clear();
@@ -279,6 +294,7 @@ class HTTP2DoHClient
 
 			if (pending.stream != nullptr && http2_stream_get_status(pending.stream) == 200 &&
 				http2_stream_is_end(pending.stream)) {
+				pending.status = http2_stream_get_status(pending.stream);
 				pending.done = true;
 				pending.ok = !pending.response.empty();
 				if (!pending.ok) {
@@ -291,6 +307,7 @@ class HTTP2DoHClient
 
 			if (pending.stream != nullptr && http2_stream_is_end(pending.stream) &&
 				http2_stream_get_status(pending.stream) != 200) {
+				pending.status = http2_stream_get_status(pending.stream);
 				pending.done = true;
 				pending.ok = false;
 				pending.error = std::string("stream ended without response, status=") +
@@ -528,12 +545,24 @@ std::string DnsResponseSummary(const std::vector<uint8_t> &response)
 {
 	unsigned char packet_buff[DNS_PACKSIZE];
 	struct dns_packet *packet = (struct dns_packet *)packet_buff;
+	char domain[DNS_MAX_CNAME_LEN] = {0};
+	int qtype = 0;
+	int qclass = 0;
+	int rr_count = 0;
+	struct dns_rrs *rrs = NULL;
 
 	if (dns_decode(packet, sizeof(packet_buff), (unsigned char *)response.data(), response.size()) != 0) {
 		return "decode failed";
 	}
 
-	return "rcode=" + std::to_string(packet->head.rcode) + ", ancount=" + std::to_string(packet->head.ancount);
+	rrs = dns_get_rrs_start(packet, DNS_RRS_QD, &rr_count);
+	if (rrs != NULL) {
+		dns_get_domain(rrs, domain, sizeof(domain), &qtype, &qclass);
+	}
+
+	return "id=" + std::to_string(packet->head.id) + ", qname=" + domain +
+		   ", rcode=" + std::to_string(packet->head.rcode) +
+		   ", ancount=" + std::to_string(packet->head.ancount);
 }
 
 bool DnsResponseHasA(const std::vector<uint8_t> &response, const char *expected_ip, std::string *error)
@@ -595,10 +624,106 @@ std::string BuildConcurrentDomain(int client_index, int stream_index)
 	return "h2-" + std::to_string(client_index) + "-" + std::to_string(stream_index) + ".example.com";
 }
 
+std::string BuildConcurrentDomain(const char *scenario, int client_index, int stream_index)
+{
+	return "h2-" + std::string(scenario) + "-" + std::to_string(client_index) + "-" +
+		   std::to_string(stream_index) + ".example.com";
+}
+
 std::string BuildRandomComDomain(int index)
 {
 	uint32_t value = 0x9e3779b9u * (uint32_t)(index + 1) + 0x7f4a7c15u;
 	return "h2-chain-" + std::to_string(value) + "-" + std::to_string(index) + ".com";
+}
+
+struct HTTP2DoHStressStats {
+	int total = 0;
+	int completed = 0;
+	int success = 0;
+	long duration_ms = 0;
+	std::string first_failure;
+};
+
+HTTP2DoHStressStats RunDownstreamDohManyConnectionsManyStreams(int client_count, int streams_per_client, int port,
+															   const char *scenario, int timeout_seconds)
+{
+	const int total_queries = client_count * streams_per_client;
+	std::vector<std::unique_ptr<HTTP2DoHClient>> clients;
+	std::vector<std::vector<HTTP2DoHClient::PendingResponse>> pending_by_client(client_count);
+	clients.reserve(client_count);
+
+	for (int client_index = 0; client_index < client_count; client_index++) {
+		std::unique_ptr<HTTP2DoHClient> client(new HTTP2DoHClient());
+		if (!client->Connect("127.0.0.1", port)) {
+			HTTP2DoHStressStats stats;
+			stats.total = total_queries;
+			stats.first_failure = std::string("connect failed: ") + client->LastError();
+			return stats;
+		}
+		pending_by_client[client_index].resize(streams_per_client);
+
+		for (int stream_index = 0; stream_index < streams_per_client; stream_index++) {
+			uint16_t id = (uint16_t)(0x4000 + client_index * streams_per_client + stream_index);
+			std::string domain = BuildConcurrentDomain(scenario, client_index, stream_index);
+			std::vector<uint8_t> query = BuildDnsQuery(domain.c_str(), id);
+			if (query.empty()) {
+				HTTP2DoHStressStats stats;
+				stats.total = total_queries;
+				stats.first_failure = domain + ": build DNS query failed";
+				return stats;
+			}
+			if (!client->StartQuery(query, &pending_by_client[client_index][stream_index])) {
+				HTTP2DoHStressStats stats;
+				stats.total = total_queries;
+				stats.first_failure = domain + ": start query failed: " + client->LastError();
+				return stats;
+			}
+		}
+
+		clients.push_back(std::move(client));
+	}
+
+	auto start = std::chrono::steady_clock::now();
+	auto deadline = start + std::chrono::seconds(timeout_seconds);
+	while (std::chrono::steady_clock::now() < deadline && !AllPendingDone(pending_by_client)) {
+		for (int client_index = 0; client_index < client_count; client_index++) {
+			if (!clients[client_index]->PumpPending(&pending_by_client[client_index], 1)) {
+				HTTP2DoHStressStats stats;
+				stats.total = total_queries;
+				stats.first_failure = std::string(scenario) + ": pump failed: " + clients[client_index]->LastError();
+				return stats;
+			}
+		}
+	}
+	auto end = std::chrono::steady_clock::now();
+
+	HTTP2DoHStressStats stats;
+	stats.total = total_queries;
+	stats.duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+
+	for (int client_index = 0; client_index < client_count; client_index++) {
+		for (int stream_index = 0; stream_index < streams_per_client; stream_index++) {
+			auto &pending = pending_by_client[client_index][stream_index];
+			std::string domain = BuildConcurrentDomain(scenario, client_index, stream_index);
+			if (pending.done) {
+				stats.completed++;
+				std::string dns_error;
+				if (pending.ok && DnsResponseHasA(pending.response, "1.2.3.4", &dns_error)) {
+					stats.success++;
+				} else if (stats.first_failure.empty()) {
+					stats.first_failure = domain + ": status=" + std::to_string(pending.status) +
+										  ", error=" + pending.error + ", bytes=" +
+										  std::to_string(pending.response.size()) + ", " + dns_error;
+				}
+			} else if (stats.first_failure.empty()) {
+				stats.first_failure = domain + ": not completed, status=" + std::to_string(pending.status) +
+									  ", bytes=" + std::to_string(pending.response.size());
+			}
+		}
+		clients[client_index]->ClosePending(&pending_by_client[client_index]);
+	}
+
+	return stats;
 }
 
 bool UdpQueryHasA(const std::string &domain, int port, uint16_t id, const char *expected_ip, std::string *error)
@@ -939,6 +1064,106 @@ log-level error
 
 	EXPECT_EQ(completed, total_queries) << first_failure;
 	EXPECT_EQ(success, total_queries) << first_failure;
+}
+
+TEST(HTTP2, DownstreamDohServerToHttp2UpstreamManyConnectionsManyStreams)
+{
+	Defer
+	{
+		unlink(HTTP2_TEST_CERT_FILE);
+		unlink(HTTP2_TEST_KEY_FILE);
+		unlink("/tmp/root-ca.key");
+	};
+
+	smartdns::Server server_wrap;
+	smartdns::Server server;
+
+	ASSERT_TRUE(EnsureHTTP2TestCert());
+	ASSERT_TRUE(server_wrap.Start(R"""(bind-https [::]:62054 -alpn h2
+bind-cert-file /tmp/smartdns-http2-test-cert.pem
+bind-cert-key-file /tmp/smartdns-http2-test-key.pem
+address /example.com/1.2.3.4
+speed-check-mode none
+log-level error
+)"""));
+
+	ASSERT_TRUE(server.Start(R"""(bind-https [::]:62053 -alpn h2
+bind-cert-file /tmp/smartdns-http2-test-cert.pem
+bind-cert-key-file /tmp/smartdns-http2-test-key.pem
+server https://127.0.0.1:62054/dns-query -no-check-certificate -alpn h2
+speed-check-mode none
+log-level error
+)"""));
+
+	usleep(2000000);
+
+	struct Scenario {
+		const char *name;
+		int client_count;
+		int streams_per_client;
+	};
+	const Scenario scenarios[] = {
+		{"upstream-20x500", 20, 500},
+		{"upstream-50x100", 50, 100},
+		{"upstream-100x50", 100, 50},
+	};
+
+	for (const auto &scenario : scenarios) {
+		HTTP2DoHStressStats stats = RunDownstreamDohManyConnectionsManyStreams(
+			scenario.client_count, scenario.streams_per_client, 62053, scenario.name, 30);
+		std::cout << "HTTP2 DoH upstream client stress " << scenario.name << ": total=" << stats.total
+				  << ", completed=" << stats.completed << ", success=" << stats.success
+				  << ", duration=" << stats.duration_ms << "ms" << std::endl;
+
+		ASSERT_EQ(stats.completed, stats.total) << stats.first_failure;
+		ASSERT_EQ(stats.success, stats.total) << stats.first_failure;
+	}
+}
+
+TEST(HTTP2, DownstreamDohServerRouterOSLikeConcurrency)
+{
+	Defer
+	{
+		unlink("/tmp/smartdns-cert.pem");
+		unlink("/tmp/smartdns-key.pem");
+	};
+
+	smartdns::Server server;
+	ASSERT_TRUE(server.Start(R"""(bind-https [::]:60053 -alpn h2
+address /example.com/1.2.3.4
+speed-check-mode none
+log-level error
+)"""));
+
+	usleep(200000);
+
+	struct Scenario {
+		const char *name;
+		int client_count;
+		int streams_per_client;
+	};
+	const Scenario scenarios[] = {
+		{"20x500", 20, 500},
+		{"20x1000", 20, 1000},
+		{"50x100", 50, 100},
+		{"50x500", 50, 500},
+		{"100x50", 100, 50},
+		{"100x200", 100, 200},
+		{"100x500", 100, 500},
+		{"200x100", 200, 100},
+		{"200x250", 200, 250},
+	};
+
+	for (const auto &scenario : scenarios) {
+		HTTP2DoHStressStats stats = RunDownstreamDohManyConnectionsManyStreams(
+			scenario.client_count, scenario.streams_per_client, 60053, scenario.name, 15);
+		std::cout << "HTTP2 DoH downstream RouterOS-like stress " << scenario.name << ": total=" << stats.total
+				  << ", completed=" << stats.completed << ", success=" << stats.success
+				  << ", duration=" << stats.duration_ms << "ms" << std::endl;
+
+		ASSERT_EQ(stats.completed, stats.total) << stats.first_failure;
+		ASSERT_EQ(stats.success, stats.total) << stats.first_failure;
+	}
 }
 
 TEST(HTTP2, DownstreamDohServerToHttp2UpstreamSingleConnectionManyConcurrentStreams)
