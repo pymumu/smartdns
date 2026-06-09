@@ -547,9 +547,15 @@ static int load_conf_file(const char *file, const struct config_item *items, con
 		if (filed_num <= 0) {
 			continue;
 		}
-
+		
 		/* remove suffix space of value */
-		value_len = value_end - value_begin;
+		if (filed_num == 1) {
+			value_len = 0;
+			value[0] = '\0';
+		} else {
+			value_len = value_end - value_begin;
+		}
+
 		if (value_len < 0) {
 			continue;
 		}
