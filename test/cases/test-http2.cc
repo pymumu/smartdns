@@ -8,6 +8,7 @@
 #include <atomic>
 #include <cerrno>
 #include <chrono>
+#include <cctype>
 #include <cstring>
 #include <fcntl.h>
 #include <memory>
@@ -541,6 +542,18 @@ bool DnsResponseIsReply(const std::vector<uint8_t> &response)
 	return packet->head.qr == DNS_QR_ANSWER;
 }
 
+std::string NormalizeDnsName(const std::string &name)
+{
+	std::string result(name);
+	while (!result.empty() && result.back() == '.') {
+		result.pop_back();
+	}
+	for (auto &c : result) {
+		c = std::tolower(static_cast<unsigned char>(c));
+	}
+	return result;
+}
+
 std::string DnsResponseSummary(const std::vector<uint8_t> &response)
 {
 	unsigned char packet_buff[DNS_PACKSIZE];
@@ -594,6 +607,90 @@ bool DnsResponseHasA(const std::vector<uint8_t> &response, const char *expected_
 		int ttl = 0;
 
 		if (dns_get_A(rrs, domain, sizeof(domain), &ttl, addr) != 0) {
+			continue;
+		}
+
+		if (memcmp(addr, expected_addr, sizeof(addr)) == 0) {
+			return true;
+		}
+	}
+
+	*error = "expected A record not found: " + DnsResponseSummary(response);
+	return false;
+}
+
+bool DnsResponseIsValidForQuery(const std::vector<uint8_t> &response, uint16_t expected_id,
+							   const std::string &expected_domain, const char *expected_ip, std::string *error)
+{
+	unsigned char packet_buff[DNS_PACKSIZE];
+	unsigned char encoded_buff[DNS_PACKSIZE];
+	struct dns_packet *packet = (struct dns_packet *)packet_buff;
+	unsigned char expected_addr[DNS_RR_A_LEN];
+	char domain[DNS_MAX_CNAME_LEN] = {0};
+	int qtype = 0;
+	int qclass = 0;
+	int qd_count = 0;
+
+	if (inet_pton(AF_INET, expected_ip, expected_addr) != 1) {
+		*error = std::string("invalid expected IP: ") + expected_ip;
+		return false;
+	}
+
+	if (dns_decode(packet, sizeof(packet_buff), (unsigned char *)response.data(), response.size()) != 0) {
+		*error = "decode failed";
+		return false;
+	}
+
+	if (packet->head.id != expected_id) {
+		*error = "query id mismatch: expect=" + std::to_string(expected_id) +
+				 ", actual=" + std::to_string(packet->head.id) + ", " + DnsResponseSummary(response);
+		return false;
+	}
+
+	struct dns_rrs *query_rrs = dns_get_rrs_start(packet, DNS_RRS_QD, &qd_count);
+	if (qd_count != 1 || query_rrs == nullptr) {
+		*error = "invalid question section: " + DnsResponseSummary(response);
+		return false;
+	}
+
+	if (dns_get_domain(query_rrs, domain, sizeof(domain), &qtype, &qclass) != 0 ||
+		qtype != DNS_T_A || qclass != DNS_C_IN) {
+		*error = "query parse failed: " + DnsResponseSummary(response);
+		return false;
+	}
+
+	std::string response_domain = NormalizeDnsName(domain);
+	std::string expected_domain_normalized = NormalizeDnsName(expected_domain);
+	if (expected_domain_normalized != response_domain) {
+		*error = "unexpected qname: expect=" + expected_domain_normalized + ", actual=" + response_domain +
+				 ", " + DnsResponseSummary(response);
+		return false;
+	}
+
+	if (packet->head.qr != DNS_QR_ANSWER || packet->head.rcode != DNS_RC_NOERROR) {
+		*error = "unexpected response: " + DnsResponseSummary(response);
+		return false;
+	}
+
+	int encoded_len = dns_encode(encoded_buff, sizeof(encoded_buff), packet);
+	if (encoded_len <= 0) {
+		*error = "dns_encode failed: " + DnsResponseSummary(response);
+		return false;
+	}
+	if ((size_t)encoded_len != response.size()) {
+		*error = "dns body length mismatch: body=" + std::to_string(response.size()) +
+				 ", encoded=" + std::to_string(encoded_len) + ", " + DnsResponseSummary(response);
+		return false;
+	}
+
+	int answer_count = 0;
+	struct dns_rrs *rrs = dns_get_rrs_start(packet, DNS_RRS_AN, &answer_count);
+	for (int i = 0; i < answer_count && rrs != nullptr; i++, rrs = dns_get_rrs_next(packet, rrs)) {
+		char rr_domain[DNS_MAX_CNAME_LEN] = {0};
+		unsigned char addr[DNS_RR_A_LEN];
+		int ttl = 0;
+
+		if (dns_get_A(rrs, rr_domain, sizeof(rr_domain), &ttl, addr) != 0) {
 			continue;
 		}
 
@@ -1244,6 +1341,88 @@ log-level error
 	EXPECT_EQ(success, stream_count) << first_failure;
 }
 
+TEST(HTTP2, DownstreamDohServerSingleConnectionPostBacklogExactDnsBody)
+{
+	Defer
+	{
+		unlink("/tmp/smartdns-cert.pem");
+		unlink("/tmp/smartdns-key.pem");
+	};
+
+	smartdns::Server server;
+	ASSERT_TRUE(server.Start(R"""(bind-https [::]:60053 -alpn h2
+address /com/1.2.3.4
+speed-check-mode none
+log-level error
+)"""));
+
+	usleep(200000);
+
+	const int stream_count = 2048;
+	const int rounds = 3;
+	HTTP2DoHClient client;
+	ASSERT_TRUE(client.Connect("127.0.0.1", 60053)) << client.LastError();
+
+	for (int round = 0; round < rounds; round++) {
+		std::vector<HTTP2DoHClient::PendingResponse> pending(stream_count);
+		std::vector<uint16_t> query_ids(stream_count);
+		std::vector<std::string> domains(stream_count);
+
+		for (int stream_index = 0; stream_index < stream_count; stream_index++) {
+			query_ids[stream_index] = (uint16_t)(0xA000 + round * stream_count + stream_index);
+			domains[stream_index] = "h2-post-backlog-" + std::to_string(round) + "-" +
+									std::to_string(stream_index) + "-padding-" +
+									std::string((stream_index % 17) + 1, 'x') + ".com";
+			std::vector<uint8_t> query = BuildDnsQuery(domains[stream_index].c_str(), query_ids[stream_index]);
+			ASSERT_FALSE(query.empty());
+			ASSERT_TRUE(client.StartQuery(query, &pending[stream_index])) << client.LastError();
+			if ((stream_index + 1) % 32 == 0) {
+				ASSERT_TRUE(client.PumpPending(&pending, 0)) << client.LastError();
+			}
+		}
+
+		usleep(50000);
+
+		auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+		while (std::chrono::steady_clock::now() < deadline) {
+			ASSERT_TRUE(client.PumpPending(&pending, 1)) << client.LastError();
+			bool all_done = true;
+			for (const auto &item : pending) {
+				if (!item.done) {
+					all_done = false;
+					break;
+				}
+			}
+			if (all_done) {
+				break;
+			}
+		}
+
+		std::string first_failure;
+		int success = 0;
+		for (int stream_index = 0; stream_index < stream_count; stream_index++) {
+			auto &item = pending[stream_index];
+			std::string dns_error;
+			if (item.done && item.status == 200 &&
+				DnsResponseIsValidForQuery(item.response, query_ids[stream_index], domains[stream_index], "1.2.3.4",
+										  &dns_error)) {
+				success++;
+				continue;
+			}
+
+			if (first_failure.empty()) {
+				first_failure = "round=" + std::to_string(round) + ", stream=" + std::to_string(stream_index) +
+								", done=" + std::to_string(item.done) + ", status=" + std::to_string(item.status) +
+								", bytes=" + std::to_string(item.response.size()) + ", item_error=" + item.error +
+								", dns_error=" + dns_error;
+			}
+		}
+
+		client.ClosePending(&pending);
+		ASSERT_EQ(success, stream_count) << first_failure;
+	}
+}
+
 TEST(HTTP2, UdpDownstreamToHttp2UpstreamManyConcurrentQueries)
 {
 	smartdns::Server server_wrap;
@@ -1349,15 +1528,19 @@ log-level error
 			for (size_t i = 0; i < pending_by_client[client_index].size(); i++) {
 				int stream_index = outstanding_by_client[client_index][i];
 				auto &pending = pending_by_client[client_index][i];
-				if (pending.done && pending.ok && DnsResponseIsReply(pending.response)) {
+				std::string domain = BuildConcurrentDomain(client_index, stream_index);
+				std::string dns_error;
+				uint16_t id = 0x5000 + client_index * streams_per_client + stream_index;
+				if (pending.done && pending.ok &&
+					DnsResponseIsValidForQuery(pending.response, id, domain, "1.2.3.4", &dns_error)) {
 					success++;
 					continue;
 				}
 
 				retry_by_client[client_index].push_back(stream_index);
 				if (first_failure.empty()) {
-					first_failure = BuildConcurrentDomain(client_index, stream_index) + ": " +
-									(pending.done ? pending.error : "not completed") +
+					first_failure = domain + ": " + (pending.done ? pending.error : "not completed") +
+									", dns-error=" + dns_error +
 									", bytes=" + std::to_string(pending.response.size()) +
 									", attempt=" + std::to_string(attempt + 1);
 				}
@@ -1384,7 +1567,6 @@ log-level error
 		}
 	}
 
-	EXPECT_GT(retry_count, 0);
 	EXPECT_EQ(success, total_queries) << first_failure;
 }
 

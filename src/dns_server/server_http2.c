@@ -261,10 +261,10 @@ int _dns_server_process_http2(struct dns_server_conn_tls_client *tls_client, str
 
 	/* Handle EPOLLIN - read and process data */
 	if (event->events & EPOLLIN) {
-		struct http2_poll_item poll_items[10];
+		struct http2_poll_item poll_items[128];
 		int poll_count = 0;
 		int loop_count = 0;
-		const int MAX_LOOP_COUNT = 512;
+		const int MAX_LOOP_COUNT = DNS_SERVER_HTTP2_MAX_CONCURRENT_STREAMS;
 
 		/* Ensure handshake is complete */
 		ret = http2_ctx_handshake(ctx);
@@ -284,7 +284,7 @@ int _dns_server_process_http2(struct dns_server_conn_tls_client *tls_client, str
 		/* Poll and process */
 		while (loop_count++ < MAX_LOOP_COUNT) {
 			poll_count = 0;
-			ret = http2_ctx_poll_readable(ctx, poll_items, 10, &poll_count);
+			ret = http2_ctx_poll_readable(ctx, poll_items, sizeof(poll_items) / sizeof(poll_items[0]), &poll_count);
 			if (ret < 0) {
 				if (ret == HTTP2_ERR_EAGAIN) {
 					break;
