@@ -1423,6 +1423,15 @@ int _dns_server_setup_server_query_options(struct dns_request *request,
 	if (server_query_option->dns_group_name) {
 		safe_strncpy(request->dns_group_name, server_query_option->dns_group_name, DNS_GROUP_NAME_LEN);
 	}
+	if (server_query_option->addr_context.clientaddr_len > 0) {
+		_dns_server_request_set_client_addr(request, &server_query_option->addr_context.clientaddr,
+											server_query_option->addr_context.clientaddr_len);
+	}
+
+	if (server_query_option->addr_context.localaddr_len > 0) {
+		memcpy(&request->localaddr, &server_query_option->addr_context.localaddr, sizeof(request->localaddr));
+	}
+	request->local_query_only = server_query_option->addr_context.local_query_only;
 
 	if (server_query_option->ecs_enable_flag & DNS_QUEY_OPTION_ECS_DNS) {
 		request->has_ecs = 1;

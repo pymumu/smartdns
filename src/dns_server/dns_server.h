@@ -373,6 +373,7 @@ struct dns_request {
 	int request_wait;
 	int prefetch;
 	int prefetch_flags;
+	int local_query_only;
 
 	int noproxy;
 

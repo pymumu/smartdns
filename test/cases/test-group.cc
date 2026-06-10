@@ -712,3 +712,22 @@ group-end
 	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 600);
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.1.1.0");
 }
+
+TEST_F(Group, smartdns_domain_in_isolated_group)
+{
+	smartdns::Server server;
+
+	server.Start(R"""(bind [::]:60453 -group isolated
+group-begin isolated -inherit none
+group-end
+)""");
+
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("smartdns A", 60453));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "smartdns");
+	EXPECT_EQ(client.GetAnswer()[0].GetType(), "A");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "127.0.0.1");
+}

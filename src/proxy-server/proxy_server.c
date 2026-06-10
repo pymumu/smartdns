@@ -87,6 +87,7 @@ struct proxy_conn {
 	struct relay_gsock client;
 	struct relay_gsock remote;
 	struct gsocket_address target;
+	char original_host[DNS_MAX_CNAME_LEN];
 	time_t last_active;
 	enum proxy_conn_state_local state;
 	enum listener_type type;
@@ -402,6 +403,21 @@ static void _proxy_conn_set_closing(struct proxy_conn *conn)
 	}
 	conn->closing = 1;
 	list_move_tail(&conn->node, &conn->worker->closing_conns);
+}
+
+static int _proxy_conn_detach_and_free(struct proxy_conn *conn)
+{
+	if (!conn) {
+		return -1;
+	}
+
+	if (conn->ref_count > 1) {
+		return -1;
+	}
+
+	list_del(&conn->node);
+	__proxy_conn_free(conn);
+	return 0;
 }
 
 static struct gsocket *_create_gsocket_listener(const char *host, int port, int type, int reuseport, int is_tproxy)
@@ -754,6 +770,25 @@ static void _proxy_worker_wakeup(struct proxy_worker *worker)
 	unused = write(worker->wakeup_fd, &val, sizeof(val));
 }
 
+static void _proxy_conn_setup_query_addr(struct proxy_conn *conn, struct dns_server_query_option *opt)
+{
+	if (conn == NULL || opt == NULL || conn->client.gs == NULL) {
+		return;
+	}
+
+	opt->addr_context.clientaddr_len = sizeof(opt->addr_context.clientaddr);
+	if (gsocket_getpeername(conn->client.gs, (struct sockaddr *)&opt->addr_context.clientaddr,
+							&opt->addr_context.clientaddr_len) != 0) {
+		opt->addr_context.clientaddr_len = 0;
+	}
+
+	opt->addr_context.localaddr_len = sizeof(opt->addr_context.localaddr);
+	if (gsocket_getsockname(conn->client.gs, (struct sockaddr *)&opt->addr_context.localaddr,
+							&opt->addr_context.localaddr_len) != 0) {
+		opt->addr_context.localaddr_len = 0;
+	}
+}
+
 static int _dns_resolve_callback(const struct dns_result *result, void *user_ptr)
 {
 	struct proxy_conn *conn = (struct proxy_conn *)user_ptr;
@@ -773,14 +808,34 @@ static int _dns_resolve_callback(const struct dns_result *result, void *user_ptr
 		struct dns_server_query_option opt = {0};
 		opt.dns_group_name = conn->group_name;
 		opt.server_flags = BIND_FLAG_NO_SPEED_CHECK;
+		opt.addr_context.local_query_only = conn->remote_dns;
+		_proxy_conn_setup_query_addr(conn, &opt);
 		if (conn->force_aaaa_soa) {
 			opt.server_flags |= BIND_FLAG_FORCE_AAAA_SOA;
 		}
 
 		pthread_mutex_unlock(&conn->worker->lock);
-		dns_server_query(conn->target.host, DNS_T_A, &opt, _dns_resolve_callback, conn);
+		int ret = dns_server_query(conn->target.host, DNS_T_A, &opt, _dns_resolve_callback, conn);
+		if (ret != 0) {
+			pthread_mutex_lock(&conn->worker->lock);
+			if (conn->remote_dns) {
+				conn->state = PSTATE_CONNECTING;
+				_proxy_worker_wakeup(conn->worker);
+			} else {
+				_proxy_conn_set_closing(conn);
+			}
+			pthread_mutex_unlock(&conn->worker->lock);
+			__proxy_conn_put(conn->worker, conn);
+		}
 		return 0;
 	} else {
+		if (conn->remote_dns) {
+			conn->state = PSTATE_CONNECTING;
+			_proxy_worker_wakeup(conn->worker);
+			pthread_mutex_unlock(&conn->worker->lock);
+			__proxy_conn_put(conn->worker, conn);
+			return 0;
+		}
 		tlog(TLOG_DEBUG, "proxy %p resolve failed, no IPs for type %d", conn, result->addr_type);
 		_proxy_conn_set_closing(conn);
 	}
@@ -840,6 +895,9 @@ static int _proxy_server_process_get_target(struct proxy_conn *conn)
 	int res = gsocket_get_proxy_target(conn->client.gs, &conn->target);
 	if (res == 0) {
 		if (conn->target.port != 0) {
+			if (conn->original_host[0] == '\0') {
+				safe_strncpy(conn->original_host, conn->target.host, sizeof(conn->original_host));
+			}
 			conn->state = PSTATE_RESOLVE;
 			return 0;
 		}
@@ -859,15 +917,12 @@ static int _proxy_server_process_resolve(struct proxy_conn *conn)
 	}
 
 	/* 2. Check if remote DNS is preferred */
-	if (conn->remote_dns) {
-		conn->state = PSTATE_CONNECTING;
-		return 0;
-	}
-
 	/* 3. Local Resolution via SmartDNS */
 	struct dns_server_query_option opt = {0};
 	opt.dns_group_name = conn->group_name;
 	opt.server_flags = BIND_FLAG_NO_SPEED_CHECK | BIND_FLAG_NO_DUALSTACK_SELECTION;
+	opt.addr_context.local_query_only = conn->remote_dns;
+	_proxy_conn_setup_query_addr(conn, &opt);
 	if (conn->force_aaaa_soa) {
 		opt.server_flags |= BIND_FLAG_FORCE_AAAA_SOA;
 	}
@@ -880,6 +935,10 @@ static int _proxy_server_process_resolve(struct proxy_conn *conn)
 
 	if (ret != 0) {
 		conn->ref_count--;
+		if (conn->remote_dns) {
+			conn->state = PSTATE_CONNECTING;
+			return 0;
+		}
 		return -1;
 	}
 	if (conn->closing) {
@@ -911,8 +970,13 @@ static void _proxy_conn_print_log(struct proxy_conn *conn)
 		}
 	}
 
-	tlog(TLOG_INFO, "proxy %s:%d connecting to %s:%d via %s", client_ip, client_port, conn->target.host,
-		 conn->target.port, conn->proxy_name[0] ? conn->proxy_name : "direct");
+	if (conn->original_host[0] != '\0' && strcmp(conn->original_host, conn->target.host) != 0) {
+		tlog(TLOG_INFO, "proxy %s:%d connecting to %s -> %s:%d via %s", client_ip, client_port,
+			 conn->original_host, conn->target.host, conn->target.port, conn->proxy_name[0] ? conn->proxy_name : "direct");
+	} else {
+		tlog(TLOG_INFO, "proxy %s:%d connecting to %s:%d via %s", client_ip, client_port, conn->target.host,
+			 conn->target.port, conn->proxy_name[0] ? conn->proxy_name : "direct");
+	}
 }
 
 static int _proxy_push_client_ssl_layer(struct gsocket *gs, SSL_CTX *ctx, const char *tls_host, int skip_cert_verify)
@@ -1267,6 +1331,9 @@ static struct proxy_conn *__proxy_conn_init_from_listener(struct proxy_worker *w
 	conn->force_aaaa_soa = l->force_aaaa_soa;
 	safe_strncpy(conn->tls_host, l->tls_host, sizeof(conn->tls_host));
 	conn->last_active = worker->now;
+	if (l->forward_target.host[0] != '\0') {
+		safe_strncpy(conn->original_host, l->forward_target.host, sizeof(conn->original_host));
+	}
 
 	return conn;
 }
@@ -1608,14 +1675,12 @@ static void _proxy_server_cleanup(struct proxy_worker *worker)
 	list_for_each_entry_safe(conn, tmp, &worker->closing_conns, node)
 	{
 		if (conn->client.buf_len == 0 && conn->remote.buf_len == 0) {
-			list_del(&conn->node);
-			__proxy_conn_free(conn);
+			_proxy_conn_detach_and_free(conn);
 		} else {
 			/* Still has data to drain, check for timeout */
 			if (worker->now - conn->last_active > 10) {
 				tlog(TLOG_DEBUG, "proxy %p connection closed, reason: drain timeout", conn);
-				list_del(&conn->node);
-				__proxy_conn_free(conn);
+				_proxy_conn_detach_and_free(conn);
 			} else {
 				/* Try to flush again */
 				if (conn->client.buf_len > 0) {
@@ -1638,8 +1703,9 @@ static void _proxy_server_cleanup(struct proxy_worker *worker)
 			if (worker->now - conn->connect_start > 10) {
 				tlog(TLOG_DEBUG, "proxy %p connection closed, reason: connect timeout, state %d, age %lld", conn,
 					 conn->state, (long long)(worker->now - conn->connect_start));
-				list_del(&conn->node);
-				__proxy_conn_free(conn);
+				if (_proxy_conn_detach_and_free(conn) != 0) {
+					_proxy_conn_set_closing(conn);
+				}
 			}
 		}
 
@@ -1651,8 +1717,9 @@ static void _proxy_server_cleanup(struct proxy_worker *worker)
 				int timeout = conn->is_udp ? PROXY_UDP_IDLE_TIMEOUT : idle_timeout;
 				if (timeout > 0 && age > timeout) {
 					tlog(TLOG_DEBUG, "proxy connection closed, reason: %s timeout", conn->is_udp ? "udp" : "idle");
-					list_del(&conn->node);
-					__proxy_conn_free(conn);
+					if (_proxy_conn_detach_and_free(conn) != 0) {
+						_proxy_conn_set_closing(conn);
+					}
 				} else {
 					int min_possible_timeout = PROXY_UDP_IDLE_TIMEOUT;
 					if (idle_timeout > 0 && idle_timeout < PROXY_UDP_IDLE_TIMEOUT) {
@@ -1769,7 +1836,7 @@ static SSL_CTX *_init_ssl_server_ctx(int verify_client)
 	return ctx;
 }
 
-static void _proxy_server_need_ssl(int *server, int *server_verify, int *client, int *client_cert)
+static void _proxy_server_need_ssl(int *server_ssl, int *server_verify, int *client, int *client_cert)
 {
 	unsigned long idx;
 	struct dns_socks5_proxy_server_conf *s_conf;
@@ -1778,7 +1845,7 @@ static void _proxy_server_need_ssl(int *server, int *server_verify, int *client,
 	struct dns_proxy_names *pn;
 	struct dns_proxy_servers *ps;
 
-	*server = 0;
+	*server_ssl = 0;
 	*server_verify = 0;
 	*client = 0;
 	*client_cert = 0;
@@ -1786,7 +1853,7 @@ static void _proxy_server_need_ssl(int *server, int *server_verify, int *client,
 	hash_for_each(dns_proxy_table.socks5_proxy, idx, s_conf, node)
 	{
 		if (s_conf->ssl_support) {
-			*server = 1;
+			*server_ssl = 1;
 			if (s_conf->verify_client) {
 				*server_verify = 1;
 			}
@@ -1798,7 +1865,7 @@ static void _proxy_server_need_ssl(int *server, int *server_verify, int *client,
 	hash_for_each(dns_proxy_table.http_proxy, idx, h_conf, node)
 	{
 		if (h_conf->ssl_support) {
-			*server = 1;
+			*server_ssl = 1;
 			if (h_conf->verify_client) {
 				*server_verify = 1;
 			}
@@ -1810,7 +1877,7 @@ static void _proxy_server_need_ssl(int *server, int *server_verify, int *client,
 	hash_for_each(dns_proxy_table.forward, idx, f_conf, node)
 	{
 		if (f_conf->ssl_listen) {
-			*server = 1;
+			*server_ssl = 1;
 			if (f_conf->verify_client) {
 				*server_verify = 1;
 			}
@@ -2124,18 +2191,15 @@ static void _proxy_worker_free(struct proxy_worker *worker)
 	struct proxy_conn *c, *ctmp;
 	list_for_each_entry_safe(c, ctmp, &worker->conns, node)
 	{
-		list_del(&c->node);
-		__proxy_conn_free(c);
+		_proxy_conn_detach_and_free(c);
 	}
 	list_for_each_entry_safe(c, ctmp, &worker->connecting_conns, node)
 	{
-		list_del(&c->node);
-		__proxy_conn_free(c);
+		_proxy_conn_detach_and_free(c);
 	}
 	list_for_each_entry_safe(c, ctmp, &worker->closing_conns, node)
 	{
-		list_del(&c->node);
-		__proxy_conn_free(c);
+		_proxy_conn_detach_and_free(c);
 	}
 	pthread_mutex_unlock(&worker->lock);
 

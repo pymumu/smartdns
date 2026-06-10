@@ -17,11 +17,13 @@
  */
 
 #include "smartdns_domain.h"
+#include "dns_conf_group.h"
 #include "domain_rule.h"
 
 #include <stdio.h>
+#include <string.h>
 
-void _config_setup_smartdns_domain(void)
+static void _config_setup_smartdns_domain_for_current_group(void)
 {
 	char hostname[DNS_MAX_CNAME_LEN];
 	char domainname[DNS_MAX_CNAME_LEN];
@@ -65,4 +67,24 @@ void _config_setup_smartdns_domain(void)
 	}
 
 	_config_domain_rule_flag_set("smartdns", DOMAIN_FLAG_SMARTDNS_DOMAIN, 0);
+}
+
+void _config_setup_smartdns_domain(void)
+{
+	unsigned int i = 0;
+	struct dns_conf_group *conf_group = NULL;
+	struct dns_conf_group_info *saved_group = _config_current_group();
+
+	hash_for_each(dns_conf_rule.group, i, conf_group, node)
+	{
+		struct dns_conf_group_info group_info;
+
+		memset(&group_info, 0, sizeof(group_info));
+		group_info.group_name = conf_group->group_name;
+		group_info.rule = conf_group;
+		_config_set_current_group(&group_info);
+		_config_setup_smartdns_domain_for_current_group();
+	}
+
+	_config_set_current_group(saved_group);
 }

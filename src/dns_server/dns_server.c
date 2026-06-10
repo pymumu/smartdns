@@ -297,6 +297,10 @@ int _dns_server_do_query(struct dns_request *request, int skip_notify_event)
 		goto clean_exit;
 	}
 
+	if (request->local_query_only) {
+		goto errout;
+	}
+
 	/* process speed check rule */
 	_dns_server_process_speed_rule(request);
 
@@ -521,6 +525,7 @@ int dns_server_query(const char *domain, int qtype, struct dns_server_query_opti
 {
 	int ret = -1;
 	struct dns_request *request = NULL;
+	int local_query_only = 0;
 
 	request = _dns_server_new_request();
 	if (request == NULL) {
@@ -531,10 +536,13 @@ int dns_server_query(const char *domain, int qtype, struct dns_server_query_opti
 	safe_strncpy(request->domain, domain, sizeof(request->domain));
 	request->qtype = qtype;
 	_dns_server_setup_server_query_options(request, server_query_option);
+	local_query_only = request->local_query_only;
 	_dns_server_request_set_callback(request, callback, user_ptr);
 	ret = _dns_server_do_query(request, 0);
 	if (ret != 0) {
-		tlog(TLOG_DEBUG, "do query %s failed.\n", domain);
+		if (local_query_only == 0) {
+			tlog(TLOG_DEBUG, "do query %s failed.\n", domain);
+		}
 		goto errout;
 	}
 

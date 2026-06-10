@@ -554,7 +554,7 @@ reply_cache:
 
 out_update_cache:
 	if (dns_cache_get_ttl(dns_cache) == 0) {
-		struct dns_server_query_option dns_query_options;
+		struct dns_server_query_option dns_query_options = {0};
 		int prefetch_flags = 0;
 		dns_query_options.server_flags = request->server_flags;
 		dns_query_options.dns_group_name = request->dns_group_name;

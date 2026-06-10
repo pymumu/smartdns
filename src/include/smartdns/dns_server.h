@@ -22,10 +22,19 @@
 #include "smartdns/dns.h"
 #include "smartdns/dns_client.h"
 #include <stdint.h>
+#include <sys/socket.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+struct dns_server_query_addr_context {
+	struct sockaddr_storage clientaddr;
+	socklen_t clientaddr_len;
+	struct sockaddr_storage localaddr;
+	socklen_t localaddr_len;
+	int local_query_only;
+};
 
 struct dns_server_query_option {
 	uint32_t server_flags;
@@ -33,6 +42,7 @@ struct dns_server_query_option {
 	unsigned long ecs_enable_flag;
 	struct dns_opt_ecs ecs_dns;
 	struct dns_query_ecs_ip ecs_ip;
+	struct dns_server_query_addr_context addr_context;
 };
 
 int dns_is_ipv6_ready(void);

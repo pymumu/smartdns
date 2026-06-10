@@ -751,10 +751,10 @@ static int _smartdns_run(void)
 static void _smartdns_exit(void)
 {
 	_smartdns_plugin_exit();
-	proxy_server_exit();
-	/* Client and ping cleanup may complete server requests. Keep server/cache alive until both are drained. */
+	/* Client and ping cleanup may complete server/proxy requests. Keep proxy/server/cache alive until both are drained. */
 	dns_client_exit();
 	fast_ping_exit();
+	proxy_server_exit();
 	dns_server_exit();
 	proxy_exit();
 	dns_stats_exit();

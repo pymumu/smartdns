@@ -187,6 +187,10 @@ void _dns_server_get_domain_rule_by_domain_ext(struct dns_conf_group *conf,
 
 	/* reverse domain string */
 	domain_len = strlen(domain);
+	while (domain_len > 0 && domain[domain_len - 1] == '.') {
+		domain_len--;
+	}
+
 	if (domain_len >= (int)sizeof(domain_key) - 3) {
 		return;
 	}

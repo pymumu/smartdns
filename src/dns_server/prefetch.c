@@ -59,7 +59,7 @@ errout:
 dns_cache_tmout_action_t _dns_server_prefetch_domain(struct dns_conf_group *conf_group, struct dns_cache *dns_cache)
 {
 	/* If there are still hits, continue pre-fetching */
-	struct dns_server_query_option server_query_option;
+	struct dns_server_query_option server_query_option = {0};
 	int hitnum = dns_cache_hitnum_dec_get(dns_cache);
 	if (hitnum <= 0) {
 		return DNS_CACHE_TMOUT_ACTION_DEL;
@@ -96,7 +96,7 @@ dns_cache_tmout_action_t _dns_server_prefetch_expired_domain(struct dns_conf_gro
 		 dns_cache->info.rcode, (unsigned long long)dns_cache->info.insert_time,
 		 (unsigned long long)dns_cache->info.replace_time);
 
-	struct dns_server_query_option server_query_option;
+	struct dns_server_query_option server_query_option = {0};
 	server_query_option.dns_group_name = dns_cache_get_dns_group_name(dns_cache);
 	server_query_option.server_flags = dns_cache_get_query_flag(dns_cache);
 	server_query_option.ecs_enable_flag = 0;
