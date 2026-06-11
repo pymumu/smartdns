@@ -759,7 +759,12 @@ static int _dns_client_tls_matchName(const char *host, const char *pattern, int 
 
 static int _dns_client_tls_get_cert_CN(X509 *cert, char *cn, int max_cn_len)
 {
-	X509_NAME *cert_name = NULL;
+	const X509_NAME *cert_name = NULL;
+	const X509_NAME_ENTRY *cert_entry = NULL;
+	const ASN1_STRING *cert_data = NULL;
+	const unsigned char *cert_text = NULL;
+	int cert_index = 0;
+	int cert_text_len = 0;
 
 	cert_name = X509_get_subject_name(cert);
 	if (cert_name == NULL) {
@@ -767,10 +772,41 @@ static int _dns_client_tls_get_cert_CN(X509 *cert, char *cn, int max_cn_len)
 		goto errout;
 	}
 
-	if (X509_NAME_get_text_by_NID(cert_name, NID_commonName, cn, max_cn_len) == -1) {
+	cert_index = X509_NAME_get_index_by_NID(cert_name, NID_commonName, -1);
+	if (cert_index < 0) {
 		tlog(TLOG_ERROR, "cannot found x509 name");
 		goto errout;
 	}
+
+	cert_entry = X509_NAME_get_entry(cert_name, cert_index);
+	if (cert_entry == NULL) {
+		tlog(TLOG_ERROR, "get x509 name entry failed.");
+		goto errout;
+	}
+
+	cert_data = X509_NAME_ENTRY_get_data(cert_entry);
+	if (cert_data == NULL) {
+		tlog(TLOG_ERROR, "get x509 name data failed.");
+		goto errout;
+	}
+
+	cert_text_len = ASN1_STRING_length(cert_data);
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+	cert_text = ASN1_STRING_data((ASN1_STRING *)cert_data);
+#else
+	cert_text = ASN1_STRING_get0_data(cert_data);
+#endif
+	if (cert_text == NULL || cert_text_len <= 0 || max_cn_len <= 0) {
+		tlog(TLOG_ERROR, "get x509 name text failed.");
+		goto errout;
+	}
+
+	if (cert_text_len >= max_cn_len) {
+		cert_text_len = max_cn_len - 1;
+	}
+
+	memcpy(cn, cert_text, cert_text_len);
+	cn[cert_text_len] = '\0';
 
 	return 0;
 
@@ -817,13 +853,25 @@ static int _dns_client_verify_SAN(struct dns_server_info *server_info, X509 *cer
 		switch (name->type) {
 		case GEN_DNS: {
 			ASN1_IA5STRING *dns = name->d.dNSName;
+			const unsigned char *dns_data = NULL;
+			int dns_len = 0;
 			if (dns == NULL) {
 				continue;
 			}
 
-			tlog(TLOG_DEBUG, "peer SAN: %s", dns->data);
-			if (_dns_client_tls_matchName(tls_host_verify, (char *)dns->data, dns->length) == 0) {
-				tlog(TLOG_DEBUG, "peer SAN match: %s", dns->data);
+			dns_len = ASN1_STRING_length(dns);
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+			dns_data = ASN1_STRING_data(dns);
+#else
+			dns_data = ASN1_STRING_get0_data(dns);
+#endif
+			if (dns_data == NULL || dns_len <= 0) {
+				continue;
+			}
+
+			tlog(TLOG_DEBUG, "peer SAN: %.*s", dns_len, dns_data);
+			if (_dns_client_tls_matchName(tls_host_verify, (const char *)dns_data, dns_len) == 0) {
+				tlog(TLOG_DEBUG, "peer SAN match: %.*s", dns_len, dns_data);
 				GENERAL_NAMES_free(alt_names);
 				return 0;
 			}
@@ -886,7 +934,7 @@ errout:
 static int _dns_client_tls_verify(struct dns_server_info *server_info)
 {
 	X509 *cert = NULL;
-	X509_PUBKEY *pubkey = NULL;
+	const X509_PUBKEY *pubkey = NULL;
 
 	char cert_fingerprint[256];
 	int i = 0;

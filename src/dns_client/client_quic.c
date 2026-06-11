@@ -293,7 +293,13 @@ int _dns_client_create_socket_quic(struct dns_server_info *server_info, const ch
 		SSL_set_tlsext_host_name(ssl, hostname);
 	}
 
-	SSL_set1_host(ssl, hostname);
+	if (hostname[0] != 0) {
+#if OPENSSL_VERSION_NUMBER >= 0x40000000L
+		SSL_set1_dnsname(ssl, hostname);
+#else
+		SSL_set1_host(ssl, hostname);
+#endif
+	}
 
 	if (alpn == NULL) {
 		tlog(TLOG_INFO, "alpn is null.");
