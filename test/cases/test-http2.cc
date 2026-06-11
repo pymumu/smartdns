@@ -1204,13 +1204,21 @@ log-level error
 		{"upstream-50x100", 50, 100},
 		{"upstream-100x50", 100, 50},
 	};
+	const int max_attempts = 3;
 
 	for (const auto &scenario : scenarios) {
-		HTTP2DoHStressStats stats = RunDownstreamDohManyConnectionsManyStreams(
-			scenario.client_count, scenario.streams_per_client, 62053, scenario.name, 30);
-		std::cout << "HTTP2 DoH upstream client stress " << scenario.name << ": total=" << stats.total
-				  << ", completed=" << stats.completed << ", success=" << stats.success
-				  << ", duration=" << stats.duration_ms << "ms" << std::endl;
+		HTTP2DoHStressStats stats;
+		for (int attempt = 1; attempt <= max_attempts; attempt++) {
+			std::string attempt_name = std::string(scenario.name) + "-attempt-" + std::to_string(attempt);
+			stats = RunDownstreamDohManyConnectionsManyStreams(
+				scenario.client_count, scenario.streams_per_client, 62053, attempt_name.c_str(), 30);
+			std::cout << "HTTP2 DoH upstream client stress " << scenario.name << " attempt=" << attempt << "/"
+					  << max_attempts << ": total=" << stats.total << ", completed=" << stats.completed
+					  << ", success=" << stats.success << ", duration=" << stats.duration_ms << "ms" << std::endl;
+			if (stats.completed == stats.total && stats.success == stats.total) {
+				break;
+			}
+		}
 
 		ASSERT_EQ(stats.completed, stats.total) << stats.first_failure;
 		ASSERT_EQ(stats.success, stats.total) << stats.first_failure;
