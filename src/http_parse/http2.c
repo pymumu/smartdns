@@ -1870,7 +1870,10 @@ static void _http2_ctx_collect_ready_streams(struct http2_ctx *ctx, struct http2
 		int has_body_data = stream->body_buffer_len > stream->body_read_offset;
 		int stream_ended = (stream->end_stream_received || stream->state == HTTP2_STREAM_CLOSED) && !stream->end_stream_read_handled;
 
-		int readable = has_body_data || stream_ended;
+		/* For server-side: once response is fully sent (end_stream_sent), no need to
+		 * report stream-ended readability since the app has already processed the request.
+		 * Only report readable if there is actual body data remaining to be read. */
+		int readable = has_body_data || (stream_ended && !(!ctx->is_client && stream->end_stream_sent));
 		int writable = stream->state == HTTP2_STREAM_OPEN || stream->state == HTTP2_STREAM_HALF_CLOSED_REMOTE;
 
 		if (readable || (check_writable && writable)) {
