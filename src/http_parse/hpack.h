@@ -53,9 +53,13 @@ void hpack_resize_dynamic_table(struct hpack_context *hpack, size_t new_size);
  * @param value Header value
  * @param buf Output buffer
  * @param buf_size Output buffer size
+ * @param no_indexing 1 to use literal without indexing (0x00 prefix),
+ *                    0 for normal incremental indexing (0x40/0x80 prefix).
+ *                    Static table entries are unaffected.
  * @return Number of bytes written, or -1 on error
  */
-int hpack_encode_header(struct hpack_context *hpack, const char *name, const char *value, uint8_t *buf, int buf_size);
+int hpack_encode_header(struct hpack_context *hpack, const char *name, const char *value, uint8_t *buf, int buf_size,
+						int no_indexing);
 
 /**
  * Decode headers

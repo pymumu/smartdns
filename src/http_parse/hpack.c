@@ -655,7 +655,8 @@ static int hpack_find_index(struct hpack_context *hpack, const char *name, const
 
 /* HPACK encoding */
 
-int hpack_encode_header(struct hpack_context *hpack, const char *name, const char *value, uint8_t *buf, int buf_size)
+int hpack_encode_header(struct hpack_context *hpack, const char *name, const char *value, uint8_t *buf, int buf_size,
+						int no_indexing)
 {
 	int index, name_only_index;
 	int offset = 0;
@@ -664,25 +665,38 @@ int hpack_encode_header(struct hpack_context *hpack, const char *name, const cha
 	hpack_find_index(hpack, name, value, &index, &name_only_index);
 
 	if (index > 0) {
-		/* Indexed header field */
-		if (buf_size < 1) {
-			return -1;
+		/* Static table indexed: always safe regardless of no_indexing.
+		 * Dynamic table indexed: fall through to literal if no_indexing is set,
+		 * because the decoder may not have received the dynamic entry yet. */
+		if (index <= (int)HPACK_STATIC_TABLE_SIZE || !no_indexing) {
+			/* Indexed header field */
+			if (buf_size < 1) {
+				return -1;
+			}
+			buf[offset] = 0x80;
+			ret = hpack_encode_integer(index, 7, buf + offset, buf_size - offset);
+			if (ret < 0) {
+				return -1;
+			}
+			return ret;
 		}
-		buf[offset] = 0x80;
-		ret = hpack_encode_integer(index, 7, buf + offset, buf_size - offset);
-		if (ret < 0) {
-			return -1;
-		}
-		return ret;
+		/* Dynamic table index with no_indexing: fall through to literal */
 	}
 
 	if (name_only_index > 0) {
-		/* Literal with incremental indexing - indexed name */
+		/* Literal, indexed name */
 		if (buf_size < 1) {
 			return -1;
 		}
-		buf[offset] = 0x40;
-		ret = hpack_encode_integer(name_only_index, 6, buf + offset, buf_size - offset);
+		if (no_indexing) {
+			/* Literal without indexing (RFC 7541 §6.2.2): 0x00 prefix, 4-bit index */
+			buf[offset] = 0x00;
+			ret = hpack_encode_integer(name_only_index, 4, buf + offset, buf_size - offset);
+		} else {
+			/* Literal with incremental indexing (RFC 7541 §6.2.1): 0x40 prefix, 6-bit index */
+			buf[offset] = 0x40;
+			ret = hpack_encode_integer(name_only_index, 6, buf + offset, buf_size - offset);
+		}
 		if (ret < 0) {
 			return -1;
 		}
@@ -694,15 +708,23 @@ int hpack_encode_header(struct hpack_context *hpack, const char *name, const cha
 		}
 		offset += ret;
 
-		hpack_add_dynamic_entry(hpack, name, value);
+		if (!no_indexing) {
+			hpack_add_dynamic_entry(hpack, name, value);
+		}
 		return offset;
 	}
 
-	/* Literal with incremental indexing - new name */
+	/* Literal with new name */
 	if (buf_size < 1) {
 		return -1;
 	}
-	buf[offset++] = 0x40;
+	if (no_indexing) {
+		/* Literal without indexing (RFC 7541 §6.2.2): 0x00 prefix, 4-bit index (index=0) */
+		buf[offset++] = 0x00;
+	} else {
+		/* Literal with incremental indexing (RFC 7541 §6.2.1): 0x40 prefix, 6-bit index (index=0) */
+		buf[offset++] = 0x40;
+	}
 
 	ret = hpack_encode_string(name, buf + offset, buf_size - offset);
 	if (ret < 0) {
@@ -716,7 +738,9 @@ int hpack_encode_header(struct hpack_context *hpack, const char *name, const cha
 	}
 	offset += ret;
 
-	hpack_add_dynamic_entry(hpack, name, value);
+	if (!no_indexing) {
+		hpack_add_dynamic_entry(hpack, name, value);
+	}
 	return offset;
 }
 
