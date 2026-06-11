@@ -774,7 +774,7 @@ static int _ssl_check_spki(struct ssl_io_ctx *ctx)
 	}
 
 	/* Extract Public Key */
-	X509_PUBKEY *pubkey = X509_get_X509_PUBKEY(cert);
+	const X509_PUBKEY *pubkey = X509_get_X509_PUBKEY(cert);
 	if (!pubkey) {
 		if (cert_need_free) {
 			X509_free(cert);

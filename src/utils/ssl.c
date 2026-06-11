@@ -27,6 +27,7 @@
 #include <openssl/x509v3.h>
 #include <pthread.h>
 #include <sys/stat.h>
+#include <time.h>
 
 #define DNS_MAX_HOSTNAME_LEN 256
 
@@ -71,12 +72,21 @@ int is_cert_valid(const char *cert_file_path)
 		goto out;
 	}
 
+#if OPENSSL_VERSION_NUMBER >= 0x40000000L
+	time_t now = time(NULL);
+	if (ASN1_TIME_cmp_time_t(X509_get_notAfter(cert), now) < 0) {
+#else
 	if (X509_cmp_current_time(X509_get_notAfter(cert)) < 0) {
+#endif
 		tlog(TLOG_WARN, "cert %s expired", cert_file_path);
 		goto out;
 	}
 
+#if OPENSSL_VERSION_NUMBER >= 0x40000000L
+	if (ASN1_TIME_cmp_time_t(X509_get_notBefore(cert), now) > 0) {
+#else
 	if (X509_cmp_current_time(X509_get_notBefore(cert)) > 0) {
+#endif
 		tlog(TLOG_WARN, "cert %s not valid yet", cert_file_path);
 		goto out;
 	}
@@ -316,6 +326,8 @@ static X509 *_generate_smartdns_cert(EVP_PKEY *pkey, X509 *issuer_cert, EVP_PKEY
 {
 	X509 *cert = NULL;
 	X509_EXTENSION *cert_ext = NULL;
+	X509_NAME *name = NULL;
+	const X509_NAME *issuer_name = NULL;
 	int is_ca = 0;
 
 	if (pkey == NULL) {
@@ -338,8 +350,11 @@ static X509 *_generate_smartdns_cert(EVP_PKEY *pkey, X509 *issuer_cert, EVP_PKEY
 
 	X509_set_pubkey(cert, pkey);
 
-	X509_NAME *name = X509_get_subject_name(cert);
-	X509_NAME *issuer_name = name;
+	name = X509_NAME_new();
+	if (name == NULL) {
+		goto errout;
+	}
+	issuer_name = name;
 
 	const unsigned char *country = (unsigned char *)"smartdns";
 	const unsigned char *company = (unsigned char *)"smartdns";
@@ -386,10 +401,18 @@ static X509 *_generate_smartdns_cert(EVP_PKEY *pkey, X509 *issuer_cert, EVP_PKEY
 	X509_add_ext(cert, cert_ext, -1);
 	X509_EXTENSION_free(cert_ext);
 
-	X509_sign(cert, is_ca ? pkey : issuer_key, EVP_sha256());
+	if (X509_sign(cert, is_ca ? pkey : issuer_key, EVP_sha256()) <= 0) {
+		goto errout;
+	}
+
+	X509_NAME_free(name);
 	return cert;
 
 errout:
+	if (name) {
+		X509_NAME_free(name);
+	}
+
 	if (cert) {
 		X509_free(cert);
 	}
