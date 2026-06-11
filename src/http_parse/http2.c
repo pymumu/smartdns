@@ -744,11 +744,6 @@ static int _http2_send_headers_frame(struct http2_ctx *ctx, uint32_t stream_id, 
 	}
 
 	/* Encode headers */
-	/* Server: use literal-without-indexing to prevent HPACK dynamic table desync.
-	 * When multiple streams are processed concurrently and writes are buffered,
-	 * the encoder's dynamic table may be updated before the encoded data reaches
-	 * the client's decoder, causing invalid index references. */
-	int no_indexing = !ctx->is_client;
 	list_for_each_entry(field, &stream->header_list.list, list)
 	{
 		if (header_block_len + 4096 > header_block_size) {
@@ -763,6 +758,11 @@ static int _http2_send_headers_frame(struct http2_ctx *ctx, uint32_t stream_id, 
 			header_block = new_block;
 			header_block_size = new_size;
 		}
+		/* Server: use literal-without-indexing for content-length only,
+		 * because its value changes per response.  Fixed-value headers
+		 * (e.g. :status=200, content-type=application/dns-message) use
+		 * incremental indexing for efficient compression. */
+		int no_indexing = (!ctx->is_client && strcasecmp(field->name, "content-length") == 0);
 		int encode_ret = hpack_encode_header(&ctx->encoder, field->name, field->value, header_block + header_block_len,
 											 header_block_size - header_block_len, no_indexing);
 		if (encode_ret < 0) {
