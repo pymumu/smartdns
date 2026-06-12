@@ -156,7 +156,7 @@ TEST_F(LIBHTTP2, HpackResizeEvictsDynamicEntriesBeforeReuse)
 	uint8_t buf[128] = {0};
 	hpack_init_context(&hpack);
 
-	ASSERT_GT(hpack_encode_header(&hpack, "x-hpack-sync", "dynamic-value", buf, sizeof(buf)), 0);
+	ASSERT_GT(hpack_encode_header(&hpack, "x-hpack-sync", "dynamic-value", buf, sizeof(buf)), 0, 0);
 	ASSERT_GT(hpack.entry_count, 0);
 	ASSERT_GT(hpack.dynamic_table_size, 0U);
 
@@ -165,7 +165,7 @@ TEST_F(LIBHTTP2, HpackResizeEvictsDynamicEntriesBeforeReuse)
 	EXPECT_EQ(hpack.dynamic_table_size, 0U);
 	EXPECT_EQ(hpack.dynamic_table, nullptr);
 
-	ASSERT_GT(hpack_encode_header(&hpack, "x-hpack-sync", "dynamic-value", buf, sizeof(buf)), 0);
+	ASSERT_GT(hpack_encode_header(&hpack, "x-hpack-sync", "dynamic-value", buf, sizeof(buf)), 0, 0);
 	EXPECT_NE(buf[0], 0xbe);
 	EXPECT_EQ(hpack.entry_count, 0);
 
