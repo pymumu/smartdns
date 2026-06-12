@@ -74,6 +74,7 @@ const char *http2_error_to_string(int ret)
 #define HTTP2_RST_INTERNAL_ERROR 2
 #define HTTP2_RST_FLOW_CONTROL_ERROR 3
 #define HTTP2_RST_STREAM_CLOSED 5
+#define HTTP2_RST_REFUSED_STREAM 7
 #define HTTP2_RST_COMPRESSION_ERROR 9
 
 /* HTTP/2 Frame Flags */
@@ -161,6 +162,7 @@ struct http2_ctx {
 	int send_initial_window_size;
 	int recv_initial_window_size;
 	int active_streams;
+	uint32_t max_header_list_size; /* SETTINGS_MAX_HEADER_LIST_SIZE */
 	struct http2_settings settings; /* HTTP/2 settings */
 
 	/* I/O state */
@@ -339,6 +341,15 @@ static int _http2_on_header(void *ctx, const char *name, const char *value)
 		return -1;
 	}
 	return _http2_stream_add_header(stream, name, value);
+}
+
+/* HPACK callback for refused streams: update decoder state only, discard headers */
+static int _http2_on_header_hpack_only(void *ctx, const char *name, const char *value)
+{
+	(void)ctx;
+	(void)name;
+	(void)value;
+	return 0;
 }
 
 static void _http2_free_headers(struct http2_stream *stream)
@@ -771,6 +782,12 @@ static int _http2_send_headers_frame(struct http2_ctx *ctx, uint32_t stream_id, 
 		header_block_len += encode_ret;
 	}
 
+	/* Check max header list size limit */
+	if (ctx->max_header_list_size > 0 && header_block_len > 0 &&
+		(uint32_t)header_block_len > ctx->max_header_list_size) {
+		goto cleanup;
+	}
+
 	/* Send HEADERS frame */
 	uint8_t frame[HTTP2_FRAME_HEADER_SIZE];
 	_http2_write_frame_header(frame, header_block_len, HTTP2_FRAME_HEADERS, flags, stream_id);
@@ -1097,6 +1114,22 @@ static int _http2_process_headers_frame(struct http2_ctx *ctx, int stream_id, co
 	struct http2_stream *stream = _http2_find_stream(ctx, stream_id);
 	if (!stream) {
 		if (frame_type == HTTP2_FRAME_CONTINUATION) {
+			/* Refused stream CONTINUATION: continue accumulating header blocks */
+			if (ctx->continuation_active && ctx->continuation_stream_id == (uint32_t)stream_id) {
+				if (_http2_append_header_block(ctx, data, len) != 0) {
+					_http2_clear_continuation(ctx);
+					return -1;
+				}
+				if (flags & HTTP2_FLAG_END_HEADERS) {
+					if (ctx->header_block_len > 0) {
+						hpack_decode_headers(&ctx->decoder, ctx->header_block_buffer,
+								     ctx->header_block_len, _http2_on_header_hpack_only, NULL);
+					}
+					_http2_clear_continuation(ctx);
+					http2_send_rst_stream(ctx, stream_id, HTTP2_RST_REFUSED_STREAM);
+				}
+				return 0;
+			}
 			_http2_send_goaway(ctx, 0, HTTP2_RST_PROTOCOL_ERROR, NULL, 0);
 			ctx->status = HTTP2_ERR_PROTOCOL;
 			return -1;
@@ -1104,7 +1137,30 @@ static int _http2_process_headers_frame(struct http2_ctx *ctx, int stream_id, co
 
 		stream = _http2_create_stream(ctx, stream_id);
 		if (!stream) {
-			return -1;
+			if (errno != ENOSPC) {
+				return -1;
+			}
+			/* Stream refused (max_concurrent_streams): still decode headers
+			 * to update the HPACK decoder state per RFC 7540 §4.3. */
+			if (_http2_append_header_block(ctx, data, len) != 0) {
+				_http2_clear_continuation(ctx);
+				return -1;
+			}
+			if (flags & HTTP2_FLAG_END_HEADERS) {
+				/* Decode to update HPACK decoder, then discard the result */
+				if (ctx->header_block_len > 0) {
+					hpack_decode_headers(&ctx->decoder, ctx->header_block_buffer,
+							     ctx->header_block_len, _http2_on_header_hpack_only, NULL);
+				}
+				_http2_clear_continuation(ctx);
+				http2_send_rst_stream(ctx, stream_id, HTTP2_RST_REFUSED_STREAM);
+			} else {
+				/* Wait for CONTINUATION frames to finish the header block */
+				ctx->continuation_stream_id = stream_id;
+				ctx->continuation_flags = flags;
+				ctx->continuation_active = 1;
+			}
+			return 0;
 		}
 	} else if (stream->end_stream_received || stream->state == HTTP2_STREAM_CLOSED) {
 		http2_send_rst_stream(ctx, stream_id, HTTP2_RST_STREAM_CLOSED);
@@ -1201,6 +1257,7 @@ static int _http2_process_settings_frame(struct http2_ctx *ctx, const uint8_t *d
 		switch (id) {
 		case HTTP2_SETTINGS_HEADER_TABLE_SIZE:
 			ctx->encoder.max_dynamic_table_size = value;
+			hpack_resize_dynamic_table(&ctx->encoder, value);
 			break;
 		case HTTP2_SETTINGS_ENABLE_PUSH:
 			if (value > 1) {
@@ -1211,6 +1268,9 @@ static int _http2_process_settings_frame(struct http2_ctx *ctx, const uint8_t *d
 			break;
 		case HTTP2_SETTINGS_MAX_CONCURRENT_STREAMS:
 			ctx->settings.max_concurrent_streams = value;
+			break;
+		case HTTP2_SETTINGS_MAX_HEADER_LIST_SIZE:
+			ctx->max_header_list_size = value;
 			break;
 		case HTTP2_SETTINGS_INITIAL_WINDOW_SIZE:
 			if (value > INT_MAX) {
@@ -1467,6 +1527,11 @@ static int _http2_process_frames(struct http2_ctx *ctx)
 			frame_ret = _http2_process_headers_frame(ctx, stream_id, payload, length, flags, HTTP2_FRAME_CONTINUATION);
 			break;
 		case HTTP2_FRAME_SETTINGS:
+			if (stream_id != 0) {
+				_http2_send_goaway(ctx, 0, HTTP2_RST_PROTOCOL_ERROR, NULL, 0);
+				ctx->status = HTTP2_ERR_PROTOCOL;
+				return HTTP2_ERR_PROTOCOL;
+			}
 			frame_ret = _http2_process_settings_frame(ctx, payload, length, flags);
 			break;
 		case HTTP2_FRAME_WINDOW_UPDATE:
@@ -1670,6 +1735,7 @@ static void _http2_ctx_init_common(struct http2_ctx *ctx, const struct http2_ctx
 	ctx->send_initial_window_size = HTTP2_DEFAULT_WINDOW_SIZE;
 	ctx->recv_initial_window_size = HTTP2_DEFAULT_WINDOW_SIZE;
 	ctx->active_streams = 0;
+	ctx->max_header_list_size = 0; /* 0 = unlimited */
 
 	/* Initialize settings with defaults or provided values */
 	if (params->settings) {

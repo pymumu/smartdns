@@ -558,6 +558,11 @@ static int hpack_add_dynamic_entry(struct hpack_context *hpack, const char *name
 		free(last);
 	}
 
+	/* Entry does not fit in the table even after eviction: skip */
+	if (entry_size > hpack->max_dynamic_table_size) {
+		return 0;
+	}
+
 	entry = malloc(sizeof(*entry));
 	if (!entry) {
 		return -1;
