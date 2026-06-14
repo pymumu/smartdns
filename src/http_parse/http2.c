@@ -98,6 +98,7 @@ const char *http2_error_to_string(int ret)
 #define HTTP2_FRAME_HEADER_SIZE 9
 #define HTTP2_MAX_HEADER_TABLE_SIZE 65536
 #define HTTP2_MAX_HEADER_BLOCK_SIZE 65536
+#define HTTP2_INITIAL_HEADER_TABLE_SIZE 4096 /* RFC 7540 Section 6.5.2 */
 #define HTTP2_CONNECTION_PREFACE "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
 #define HTTP2_CONNECTION_PREFACE_LEN 24
 
@@ -1933,6 +1934,11 @@ static void _http2_ctx_init_common(struct http2_ctx *ctx, const struct http2_ctx
 
 	hpack_init_context(&ctx->encoder);
 	hpack_init_context(&ctx->decoder);
+
+	/* Per RFC 7540 Section 6.5.2, the initial SETTINGS_HEADER_TABLE_SIZE
+	 * from the peer is 4096 until explicitly updated by the peer's SETTINGS
+	 * frame (processed in _http2_process_settings_frame). */
+	ctx->encoder.max_dynamic_table_size = HTTP2_INITIAL_HEADER_TABLE_SIZE;
 
 	hash_init(ctx->stream_map);
 	INIT_LIST_HEAD(&ctx->streams);
