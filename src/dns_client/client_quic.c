@@ -487,6 +487,7 @@ static int _dns_client_process_quic_poll(struct dns_server_info *server_info)
 			poll_items[poll_item_count].events = SSL_POLL_EVENT_R;
 			poll_items[poll_item_count].revents = 0;
 			poll_item_count++;
+			_dns_client_conn_stream_get(conn_stream);
 			list_del_init(&conn_stream->server_list);
 			list_add_tail(&conn_stream->server_list, &processed_list);
 		}
@@ -509,7 +510,6 @@ static int _dns_client_process_quic_poll(struct dns_server_info *server_info)
 				conn_stream = SSL_get_ex_data(poll_items[i].desc.value.ssl, 0);
 				if (conn_stream == NULL) {
 					tlog(TLOG_DEBUG, "conn stream is null");
-					SSL_free(poll_items[i].desc.value.ssl);
 					continue;
 				}
 
@@ -520,6 +520,8 @@ static int _dns_client_process_quic_poll(struct dns_server_info *server_info)
 				}
 
 				list_del_init(&conn_stream->server_list);
+				/* Drop the server-list reference and the temporary poll reference. */
+				_dns_client_conn_stream_put(conn_stream);
 				_dns_client_conn_stream_put(conn_stream);
 			}
 		}
@@ -535,7 +537,12 @@ out:
 		return 0;
 	}
 
-	list_splice_tail(&processed_list, &server_info->conn_stream_list);
+	list_for_each_entry_safe(conn_stream, tmp, &processed_list, server_list)
+	{
+		list_del_init(&conn_stream->server_list);
+		list_add_tail(&conn_stream->server_list, &server_info->conn_stream_list);
+		_dns_client_conn_stream_put(conn_stream);
+	}
 	pthread_mutex_unlock(&server_info->lock);
 
 	return poll_ret;

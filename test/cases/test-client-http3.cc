@@ -23,7 +23,9 @@
 #include <openssl/ssl.h>
 #include <vector>
 
+#include "dns_client/conn_stream.h"
 #include "dns_client/client_http3.h"
+#include "smartdns/lib/atomic.h"
 #include "smartdns/http_parse.h"
 
 class ClientHTTP3 : public ::testing::Test
@@ -586,4 +588,30 @@ TEST_F(ClientHTTP3, fragmented_response_without_content_length_accepts_delayed_f
 #else
 	GTEST_SKIP() << "OpenSSL QUIC support is not enabled";
 #endif
+}
+
+TEST_F(ClientHTTP3, quic_poll_reference_keeps_stream_alive_until_poll_done)
+{
+	struct dns_conn_stream *stream = _dns_client_conn_stream_new();
+	ASSERT_NE(stream, nullptr);
+
+	/* Steady state after sending: server list and query list each hold a reference. */
+	_dns_client_conn_stream_get(stream);
+	_dns_client_conn_stream_get(stream);
+	_dns_client_conn_stream_put(stream);
+	ASSERT_EQ(atomic_read(&stream->refcnt), 2);
+
+	/* QUIC poll must hold its own temporary reference while the stream is off the server list. */
+	_dns_client_conn_stream_get(stream);
+	ASSERT_EQ(atomic_read(&stream->refcnt), 3);
+
+	/* Query release must not free the stream while poll still owns it. */
+	_dns_client_conn_stream_put(stream);
+	ASSERT_EQ(atomic_read(&stream->refcnt), 2);
+
+	/* Stream completion removes the server-list reference, but poll still owns the object. */
+	_dns_client_conn_stream_put(stream);
+	ASSERT_EQ(atomic_read(&stream->refcnt), 1);
+
+	_dns_client_conn_stream_put(stream);
 }
