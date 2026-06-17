@@ -74,9 +74,37 @@ out:
 int capget(struct __user_cap_header_struct *header, struct __user_cap_data_struct *cap);
 int capset(struct __user_cap_header_struct *header, struct __user_cap_data_struct *cap);
 
+static int _cap_has(struct __user_cap_data_struct cap[2], int capability)
+{
+	int index = CAP_TO_INDEX(capability);
+
+	if (index < 0 || index >= 2) {
+		return 0;
+	}
+
+	return (cap[index].permitted & CAP_TO_MASK(capability)) != 0;
+}
+
+static void _cap_keep_permitted(struct __user_cap_data_struct keep[2], struct __user_cap_data_struct current[2],
+								const int *capabilities, int capability_num)
+{
+	for (int i = 0; i < capability_num; i++) {
+		int capability = capabilities[i];
+		int index = CAP_TO_INDEX(capability);
+
+		if (index < 0 || index >= 2 || _cap_has(current, capability) == 0) {
+			continue;
+		}
+
+		keep[index].effective |= CAP_TO_MASK(capability);
+		keep[index].permitted |= CAP_TO_MASK(capability);
+	}
+}
+
 int drop_root_privilege(void)
 {
 	struct __user_cap_data_struct cap[2];
+	struct __user_cap_data_struct keep_cap[2];
 	struct __user_cap_header_struct header;
 #ifdef _LINUX_CAPABILITY_VERSION_3
 	header.version = _LINUX_CAPABILITY_VERSION_3;
@@ -87,6 +115,7 @@ int drop_root_privilege(void)
 	uid_t uid = 0;
 	gid_t gid = 0;
 	int unused __attribute__((unused)) = 0;
+	const int keep_capabilities[] = {CAP_NET_RAW, CAP_NET_ADMIN, CAP_NET_BIND_SERVICE, CAP_DAC_READ_SEARCH};
 
 	if (get_uid_gid(&uid, &gid) != 0) {
 		return -1;
@@ -98,14 +127,12 @@ int drop_root_privilege(void)
 	}
 
 	prctl(PR_SET_KEEPCAPS, 1, 0, 0, 0);
-	for (int i = 0; i < 2; i++) {
-		cap[i].effective = (1 << CAP_NET_RAW | 1 << CAP_NET_ADMIN | 1 << CAP_NET_BIND_SERVICE | 1 << CAP_DAC_READ_SEARCH);
-		cap[i].permitted = (1 << CAP_NET_RAW | 1 << CAP_NET_ADMIN | 1 << CAP_NET_BIND_SERVICE | 1 << CAP_DAC_READ_SEARCH);
-	}
+	memset(keep_cap, 0, sizeof(keep_cap));
+	_cap_keep_permitted(keep_cap, cap, keep_capabilities, sizeof(keep_capabilities) / sizeof(keep_capabilities[0]));
 
 	unused = setgid(gid);
 	unused = setuid(uid);
-	if (capset(&header, cap) < 0) {
+	if (capset(&header, keep_cap) < 0) {
 		return -1;
 	}
 
