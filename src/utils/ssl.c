@@ -413,10 +413,12 @@ static X509 *_generate_smartdns_cert(EVP_PKEY *pkey, X509 *issuer_cert, EVP_PKEY
 		cert_ext = NULL;
 	}
 
+	X509V3_CTX ext_ctx;
+	X509V3_set_ctx(&ext_ctx, issuer_cert ? issuer_cert : cert, cert, NULL, NULL, 0);
+	cert_ext = X509V3_EXT_conf_nid(NULL, &ext_ctx, NID_subject_key_identifier, "hash");
 	if (cert_ext != NULL) {
 		X509_add_ext(cert, cert_ext, -1);
 		X509_EXTENSION_free(cert_ext);
-		cert_ext = NULL;
 	} else {
 		tlog(TLOG_WARN, "Failed to create subjectKeyIdentifier extension, continuing");
 	}
