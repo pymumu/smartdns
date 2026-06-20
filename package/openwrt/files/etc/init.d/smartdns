@@ -37,10 +37,31 @@ EXTRA_HELP="        updatefiles      Update files"
 COREDUMP="0"
 RESPAWN="1"
 DO_RELOAD="0"
+DNSMASQ_RESTART="0"
+
+restart_dnsmasq()
+{
+	local defer="$1"
+
+	if [ "$defer" = "1" ]; then
+		DNSMASQ_RESTART="1"
+		return
+	fi
+
+	/etc/init.d/dnsmasq restart
+}
+
+restart_pending_dnsmasq()
+{
+	[ "$DNSMASQ_RESTART" = "1" ] || return
+	DNSMASQ_RESTART="0"
+	/etc/init.d/dnsmasq restart
+}
 
 set_forward_dnsmasq()
 {
 	local PORT="$1"
+	local defer_restart="$2"
 	addr="127.0.0.1#$PORT"
 	# space in suffix is important
 	OLD_SERVER="$(uci -q get dhcp.@dnsmasq[0].server) "
@@ -56,13 +77,14 @@ set_forward_dnsmasq()
 	uci_batch="$uci_batch set dhcp.@dnsmasq[0].domainneeded=0\n"
 	echo -e "$uci_batch" | uci batch -q -
 	uci commit dhcp
-	/etc/init.d/dnsmasq restart
+	restart_dnsmasq "$defer_restart"
 }
 
 stop_forward_dnsmasq()
 {
 	local OLD_PORT="$1"
 	local norestart="$2"
+	local defer_restart="$3"
 	addr="127.0.0.1#$OLD_PORT"
 	OLD_SERVER="$(uci -q get dhcp.@dnsmasq[0].server) "
 	if ! echo "$OLD_SERVER" | grep "^$addr " >/dev/null 2>&1; then
@@ -76,7 +98,7 @@ stop_forward_dnsmasq()
 	uci_batch="$uci_batch set dhcp.@dnsmasq[0].domainneeded=1\n"
 	echo -e "$uci_batch" | uci batch -q -
 	uci commit dhcp
-	[ "$norestart" != "1" ] && /etc/init.d/dnsmasq restart
+	[ "$norestart" != "1" ] && restart_dnsmasq "$defer_restart"
 }
 
 set_main_dns()
@@ -850,6 +872,7 @@ load_service()
 			no_restart_dnsmasq="1"
 			[ "$auto_set_dnsmasq" = "0" ] && no_restart_dnsmasq="0"
 			[ "$old_auto_set_dnsmasq" = "1" ] && stop_main_dns "$no_restart_dnsmasq"
+			[ "$old_auto_set_dnsmasq" = "1" ] && [ "$no_restart_dnsmasq" = "1" ] && restart_dnsmasq "1"
 		}
 		[ "$old_port" != "53" ] && [ "$old_auto_set_dnsmasq" = "1" ] && stop_forward_dnsmasq "$old_port" "1"
 	}
@@ -860,8 +883,8 @@ load_service()
 		[ "$auto_set_dnsmasq" = "0" ] && [ "$old_auto_set_dnsmasq" = "1" ] && stop_main_dns "0"
 	}
 	[ "$port" != "53" ] && {
-		[ "$auto_set_dnsmasq" = "1" ] && set_forward_dnsmasq "$port"
-		[ "$auto_set_dnsmasq" = "0" ] && [ "$old_auto_set_dnsmasq" = "1" ] && stop_forward_dnsmasq "$old_port" "0"
+		[ "$auto_set_dnsmasq" = "1" ] && set_forward_dnsmasq "$port" "1"
+		[ "$auto_set_dnsmasq" = "0" ] && [ "$old_auto_set_dnsmasq" = "1" ] && stop_forward_dnsmasq "$old_port" "0" "1"
 	}
 
 	conf_append_bind "bind" "$port" "$device" "$ipv6_server" "$server_flags"
@@ -928,6 +951,8 @@ load_service()
 	procd_set_param file "$SMARTDNS_CONF"
 	procd_set_param term_timeout 60
 	procd_close_instance
+
+	restart_pending_dnsmasq
 }
 
 unload_service()
