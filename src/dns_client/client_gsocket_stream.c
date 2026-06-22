@@ -289,6 +289,19 @@ static void _dns_client_gstream_pending_drop_for_retry(struct dns_http2_pending 
 	free(pend);
 }
 
+static void _dns_client_gstream_pending_requeue_front(struct dns_server_info *server_info, struct dns_http2_pending *pend)
+{
+	pend->active_tick = get_tick_count();
+
+	pthread_mutex_lock(&server_info->lock);
+	list_add(&pend->list, &server_info->http2_pending_list);
+	atomic_inc(&pend->query->stream_pending_count);
+	if (server_info->gs) {
+		gepoll_mod(client.gepoll, server_info->gs, EPOLLIN | EPOLLOUT, server_info);
+	}
+	pthread_mutex_unlock(&server_info->lock);
+}
+
 void dns_client_gstream_pending_flush(struct dns_server_info *server_info)
 {
 	const struct dns_client_gstream_proto_ops *proto = _dns_client_gstream_get_proto(server_info->type);
@@ -315,8 +328,8 @@ void dns_client_gstream_pending_flush(struct dns_server_info *server_info)
 		if (proto->send_pending(server_info, q, pend->data, pend->data_len) != 0) {
 			dns_client_gstream_flushing_pending--;
 			if (_dns_client_gstream_is_retry_later_error(errno)) {
-				_dns_client_gstream_pending_drop_for_retry(pend, "gstream pending flush deferred");
-				continue;
+				_dns_client_gstream_pending_requeue_front(server_info, pend);
+				break;
 			}
 
 			_dns_client_gstream_pending_drop_for_retry(pend, "gstream pending flush failed");
@@ -366,8 +379,7 @@ int dns_client_gstream_send_query(struct dns_server_info *server_info, struct dn
 	stream_gs = gsocket_open_stream(server_info->gs);
 	if (stream_gs == NULL) {
 		if (proto->queue_while_connecting && _dns_client_gstream_is_retry_later_error(errno)) {
-			errno = EAGAIN;
-			return DNS_SEND_RET_NON_FATAL;
+			return dns_client_gstream_pending_add(server_info, query, pending_packet, pending_packet_len);
 		}
 		if (errno == 0) {
 			errno = ECONNRESET;
@@ -428,6 +440,7 @@ static int _dns_client_gstream_process_events(struct dns_server_info *server_inf
 	int loop_count = 32;
 	int ret = -1;
 	int need_close = 0;
+	int stream_done = 0;
 
 	pthread_mutex_lock(&server_info->lock);
 	if (server_info->gs == NULL || server_info->sp == NULL) {
@@ -471,6 +484,7 @@ static int _dns_client_gstream_process_events(struct dns_server_info *server_inf
 			int done = process_stream(server_info, stream_gs, conn_stream);
 			if (done != 0) {
 				dns_client_gstream_detach(server_info, conn_stream);
+				stream_done = 1;
 			}
 			_dns_client_conn_stream_put(conn_stream);
 		}
@@ -481,6 +495,10 @@ static int _dns_client_gstream_process_events(struct dns_server_info *server_inf
 out:
 	if (ret != 0) {
 		goto finish;
+	}
+
+	if (stream_done) {
+		dns_client_gstream_pending_flush(server_info);
 	}
 
 	int net_events = gstream_poll_get_net_events(server_info->sp);
