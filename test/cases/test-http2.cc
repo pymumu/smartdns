@@ -11,11 +11,14 @@
 #include <cctype>
 #include <cstring>
 #include <fcntl.h>
+#include <map>
 #include <memory>
+#include <mutex>
 #include <netinet/in.h>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 #include <poll.h>
+#include <set>
 #include <string>
 #include <sys/socket.h>
 #include <sys/time.h>
@@ -37,6 +40,397 @@ bool EnsureHTTP2TestCert()
 
 	return generate_cert_key(HTTP2_TEST_KEY_FILE, HTTP2_TEST_CERT_FILE, NULL, "DNS:smartdns,IP:127.0.0.1", 1) == 0;
 }
+
+bool BuildDnsAResponse(const std::vector<uint8_t> &request, const char *ip, std::vector<uint8_t> *response,
+					   std::string *error)
+{
+	unsigned char request_packet_buff[DNS_PACKSIZE];
+	unsigned char response_packet_buff[DNS_PACKSIZE];
+	unsigned char encoded_buff[DNS_PACKSIZE];
+	struct dns_packet *request_packet = (struct dns_packet *)request_packet_buff;
+	struct dns_packet *response_packet = (struct dns_packet *)response_packet_buff;
+	char domain[DNS_MAX_CNAME_LEN] = {0};
+	int qtype = 0;
+	int qclass = 0;
+	int rr_count = 0;
+	struct dns_rrs *rrs = nullptr;
+	unsigned char addr[DNS_RR_A_LEN];
+
+	response->clear();
+	if (dns_decode(request_packet, sizeof(request_packet_buff), (unsigned char *)request.data(), request.size()) != 0) {
+		*error = "decode DNS request failed";
+		return false;
+	}
+
+	rrs = dns_get_rrs_start(request_packet, DNS_RRS_QD, &rr_count);
+	if (rrs == nullptr || rr_count <= 0 || dns_get_domain(rrs, domain, sizeof(domain), &qtype, &qclass) != 0) {
+		*error = "parse DNS question failed";
+		return false;
+	}
+
+	struct dns_head head = {};
+	head.id = request_packet->head.id;
+	head.qr = DNS_QR_ANSWER;
+	head.opcode = DNS_OP_QUERY;
+	head.rd = request_packet->head.rd;
+	head.ra = 1;
+	head.rcode = DNS_RC_NOERROR;
+	if (dns_packet_init(response_packet, sizeof(response_packet_buff), &head) != 0 ||
+		dns_add_domain(response_packet, domain, qtype, qclass) != 0) {
+		*error = "init DNS response failed";
+		return false;
+	}
+
+	if (qtype == DNS_T_A) {
+		if (inet_pton(AF_INET, ip, addr) != 1) {
+			*error = std::string("invalid response IP: ") + ip;
+			return false;
+		}
+		dns_add_A(response_packet, DNS_RRS_AN, domain, 60, addr);
+	}
+
+	int encoded_len = dns_encode(encoded_buff, sizeof(encoded_buff), response_packet);
+	if (encoded_len <= 0) {
+		*error = "encode DNS response failed";
+		return false;
+	}
+
+	response->assign(encoded_buff, encoded_buff + encoded_len);
+	return true;
+}
+
+class LimitedHTTP2DoHUpstream
+{
+  public:
+	~LimitedHTTP2DoHUpstream() { Stop(); }
+
+	bool Start(int port, int max_concurrent_streams, const char *response_ip)
+	{
+		if (!EnsureHTTP2TestCert()) {
+			last_error_ = "generate HTTP/2 test cert failed";
+			return false;
+		}
+
+		response_ip_ = response_ip;
+		max_concurrent_streams_ = max_concurrent_streams;
+
+		ssl_ctx_ = SSL_CTX_new(TLS_server_method());
+		if (ssl_ctx_ == nullptr) {
+			last_error_ = "SSL_CTX_new failed";
+			return false;
+		}
+		if (SSL_CTX_use_certificate_file(ssl_ctx_, HTTP2_TEST_CERT_FILE, SSL_FILETYPE_PEM) != 1 ||
+			SSL_CTX_use_PrivateKey_file(ssl_ctx_, HTTP2_TEST_KEY_FILE, SSL_FILETYPE_PEM) != 1) {
+			last_error_ = "load HTTP/2 test cert failed";
+			return false;
+		}
+		SSL_CTX_set_alpn_select_cb(ssl_ctx_, AlpnSelectCallback, nullptr);
+
+		listen_fd_ = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+		if (listen_fd_ < 0) {
+			last_error_ = std::string("socket failed: ") + strerror(errno);
+			return false;
+		}
+
+		int yes = 1;
+		setsockopt(listen_fd_, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+		setsockopt(listen_fd_, SOL_SOCKET, SO_REUSEPORT, &yes, sizeof(yes));
+
+		struct sockaddr_in addr = {};
+		addr.sin_family = AF_INET;
+		addr.sin_port = htons(port);
+		addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+		if (bind(listen_fd_, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
+			last_error_ = std::string("bind failed: ") + strerror(errno);
+			return false;
+		}
+		if (listen(listen_fd_, 16) != 0) {
+			last_error_ = std::string("listen failed: ") + strerror(errno);
+			return false;
+		}
+
+		run_ = true;
+		thread_ = std::thread(&LimitedHTTP2DoHUpstream::Run, this);
+		return true;
+	}
+
+	void Stop()
+	{
+		run_ = false;
+		if (listen_fd_ >= 0) {
+			shutdown(listen_fd_, SHUT_RDWR);
+		}
+		if (thread_.joinable()) {
+			thread_.join();
+		}
+		for (auto &thread : client_threads_) {
+			if (thread.joinable()) {
+				thread.join();
+			}
+		}
+		client_threads_.clear();
+		if (listen_fd_ >= 0) {
+			close(listen_fd_);
+			listen_fd_ = -1;
+		}
+		if (ssl_ctx_ != nullptr) {
+			SSL_CTX_free(ssl_ctx_);
+			ssl_ctx_ = nullptr;
+		}
+	}
+
+	int RequestCount() const { return request_count_.load(); }
+	const std::string &LastError() const { return last_error_; }
+
+  private:
+	struct Connection {
+		SSL *ssl = nullptr;
+	};
+
+	static int AlpnSelectCallback(SSL *, const unsigned char **out, unsigned char *outlen, const unsigned char *in,
+								  unsigned int inlen, void *)
+	{
+		static const unsigned char h2[] = {'h', '2'};
+		for (unsigned int i = 0; i + 3 <= inlen;) {
+			unsigned int len = in[i++];
+			if (i + len > inlen) {
+				break;
+			}
+			if (len == 2 && memcmp(in + i, h2, sizeof(h2)) == 0) {
+				*out = h2;
+				*outlen = sizeof(h2);
+				return SSL_TLSEXT_ERR_OK;
+			}
+			i += len;
+		}
+
+		return SSL_TLSEXT_ERR_NOACK;
+	}
+
+	static int BioRead(void *private_data, uint8_t *buf, int len)
+	{
+		Connection *conn = (Connection *)private_data;
+		int ret = SSL_read(conn->ssl, buf, len);
+		if (ret > 0) {
+			return ret;
+		}
+
+		int ssl_err = SSL_get_error(conn->ssl, ret);
+		if (ssl_err == SSL_ERROR_WANT_READ || ssl_err == SSL_ERROR_WANT_WRITE) {
+			errno = EAGAIN;
+			return -1;
+		}
+		return ret;
+	}
+
+	static int BioWrite(void *private_data, const uint8_t *buf, int len)
+	{
+		Connection *conn = (Connection *)private_data;
+		int ret = SSL_write(conn->ssl, buf, len);
+		if (ret > 0) {
+			return ret;
+		}
+
+		int ssl_err = SSL_get_error(conn->ssl, ret);
+		if (ssl_err == SSL_ERROR_WANT_READ || ssl_err == SSL_ERROR_WANT_WRITE) {
+			errno = EAGAIN;
+			return -1;
+		}
+		return ret;
+	}
+
+	bool WaitSslAccept(SSL *ssl, int fd)
+	{
+		for (int i = 0; i < 300 && run_; i++) {
+			int ret = SSL_accept(ssl);
+			if (ret == 1) {
+				return true;
+			}
+
+			int ssl_err = SSL_get_error(ssl, ret);
+			if (ssl_err != SSL_ERROR_WANT_READ && ssl_err != SSL_ERROR_WANT_WRITE) {
+				last_error_ = "SSL_accept failed";
+				return false;
+			}
+
+			short events = ssl_err == SSL_ERROR_WANT_WRITE ? POLLOUT : POLLIN;
+			struct pollfd pfd = {fd, events, 0};
+			poll(&pfd, 1, 10);
+		}
+
+		last_error_ = "SSL_accept timed out";
+		return false;
+	}
+
+	bool WaitHttp2Handshake(struct http2_ctx *ctx, int fd)
+	{
+		for (int i = 0; i < 300 && run_; i++) {
+			int ret = http2_ctx_handshake(ctx);
+			if (ret == 1) {
+				return true;
+			}
+			if (ret < 0) {
+				last_error_ = std::string("HTTP/2 handshake failed: ") + http2_error_to_string(ret);
+				return false;
+			}
+
+			struct pollfd pfd = {fd, POLLIN | POLLOUT, 0};
+			poll(&pfd, 1, 10);
+		}
+
+		last_error_ = "HTTP/2 handshake timed out";
+		return false;
+	}
+
+	bool ProcessStream(struct http2_stream *stream, std::vector<uint8_t> *body)
+	{
+		uint8_t buf[1024];
+		while (true) {
+			int len = http2_stream_read_body(stream, buf, sizeof(buf));
+			if (len > 0) {
+				body->insert(body->end(), buf, buf + len);
+				continue;
+			}
+			if (len < 0 && errno != EAGAIN) {
+				return false;
+			}
+			break;
+		}
+
+		if (!http2_stream_is_remote_end(stream)) {
+			return true;
+		}
+
+		std::vector<uint8_t> response;
+		std::string error;
+		if (!BuildDnsAResponse(*body, response_ip_.c_str(), &response, &error)) {
+			return false;
+		}
+
+		char content_length[32];
+		snprintf(content_length, sizeof(content_length), "%zu", response.size());
+		struct http2_header_pair headers[] = {{"content-type", "application/dns-message"},
+											  {"content-length", content_length},
+											  {NULL, NULL}};
+		if (http2_stream_set_response(stream, 200, headers, 2) != 0 ||
+			http2_stream_write_body(stream, response.data(), response.size(), 1) < 0) {
+			return false;
+		}
+
+		request_count_++;
+		return true;
+	}
+
+	void HandleClient(int fd)
+	{
+		int flags = fcntl(fd, F_GETFL, 0);
+		if (flags >= 0) {
+			fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+		}
+
+		Connection conn;
+		conn.ssl = SSL_new(ssl_ctx_);
+		if (conn.ssl == nullptr) {
+			close(fd);
+			return;
+		}
+		SSL_set_fd(conn.ssl, fd);
+		if (!WaitSslAccept(conn.ssl, fd)) {
+			SSL_free(conn.ssl);
+			close(fd);
+			return;
+		}
+
+		struct http2_settings settings = {};
+		settings.max_concurrent_streams = max_concurrent_streams_;
+		struct http2_ctx *ctx = http2_ctx_server_new("limited-doh-upstream", BioRead, BioWrite, &conn, &settings);
+		if (ctx == nullptr || !WaitHttp2Handshake(ctx, fd)) {
+			if (ctx != nullptr) {
+				http2_ctx_close(ctx);
+			}
+			SSL_free(conn.ssl);
+			close(fd);
+			return;
+		}
+
+		std::set<struct http2_stream *> streams;
+		std::map<struct http2_stream *, std::vector<uint8_t>> bodies;
+		while (run_) {
+			struct pollfd pfd = {fd, POLLIN | POLLOUT, 0};
+			poll(&pfd, 1, 10);
+
+			struct http2_poll_item items[16] = {};
+			int count = 0;
+			int ret = http2_ctx_poll(ctx, items, 16, &count);
+			if (ret < 0 && ret != HTTP2_ERR_EAGAIN) {
+				break;
+			}
+
+			for (int i = 0; i < count; i++) {
+				if (items[i].stream == nullptr && items[i].readable) {
+					struct http2_stream *stream = nullptr;
+					while ((stream = http2_ctx_accept_stream(ctx)) != nullptr) {
+						streams.insert(stream);
+						bodies[stream] = std::vector<uint8_t>();
+					}
+				}
+			}
+
+			for (auto it = streams.begin(); it != streams.end();) {
+				struct http2_stream *stream = *it;
+				if (!ProcessStream(stream, &bodies[stream])) {
+					http2_stream_close(stream);
+					bodies.erase(stream);
+					it = streams.erase(it);
+					continue;
+				}
+				if (http2_stream_is_remote_end(stream) && http2_stream_is_end(stream)) {
+					http2_stream_close(stream);
+					bodies.erase(stream);
+					it = streams.erase(it);
+					continue;
+				}
+				++it;
+			}
+		}
+
+		for (auto stream : streams) {
+			http2_stream_close(stream);
+		}
+		http2_ctx_close(ctx);
+		SSL_free(conn.ssl);
+		close(fd);
+	}
+
+	void Run()
+	{
+		while (run_) {
+			struct pollfd pfd = {listen_fd_, POLLIN, 0};
+			int ret = poll(&pfd, 1, 100);
+			if (ret <= 0 || !(pfd.revents & POLLIN)) {
+				continue;
+			}
+
+			int fd = accept4(listen_fd_, nullptr, nullptr, SOCK_CLOEXEC);
+			if (fd < 0) {
+				continue;
+			}
+			std::lock_guard<std::mutex> lock(client_threads_lock_);
+			client_threads_.emplace_back(&LimitedHTTP2DoHUpstream::HandleClient, this, fd);
+		}
+	}
+
+	int listen_fd_ = -1;
+	SSL_CTX *ssl_ctx_ = nullptr;
+	std::thread thread_;
+	std::mutex client_threads_lock_;
+	std::vector<std::thread> client_threads_;
+	std::atomic<bool> run_{false};
+	std::atomic<int> request_count_{0};
+	int max_concurrent_streams_ = 1;
+	std::string response_ip_ = "1.2.3.4";
+	std::string last_error_;
+};
 
 class HTTP2DoHClient
 {
@@ -1460,6 +1854,56 @@ log-level error
 	EXPECT_EQ(stats.total, query_count);
 	EXPECT_EQ(stats.success, query_count) << stats.first_failure;
 	EXPECT_EQ(stats.failure, 0) << stats.first_failure;
+}
+
+TEST(HTTP2, Http2UpstreamMaxConcurrentStreamsDoesNotBlockCompletedResponses)
+{
+	Defer
+	{
+		unlink(HTTP2_TEST_CERT_FILE);
+		unlink(HTTP2_TEST_KEY_FILE);
+		unlink("/tmp/root-ca.key");
+	};
+
+	LimitedHTTP2DoHUpstream h2_upstream;
+	smartdns::MockServer slow_udp_upstream;
+	smartdns::Server server;
+
+	ASSERT_TRUE(h2_upstream.Start(63054, 1, "1.2.3.4")) << h2_upstream.LastError();
+	ASSERT_TRUE(slow_udp_upstream.Start("udp://127.0.0.1:63055",
+										[](smartdns::ServerRequestContext *request) -> smartdns::ServerRequestResult {
+											std::this_thread::sleep_for(std::chrono::seconds(3));
+											smartdns::MockServer::AddIP(request, request->domain.c_str(), "5.6.7.8",
+																		60);
+											return smartdns::SERVER_REQUEST_OK;
+										}));
+
+	ASSERT_TRUE(server.Start(R"""(bind [::]:63053
+server https://127.0.0.1:63054/dns-query -no-check-certificate -alpn h2
+server 127.0.0.1:63055
+speed-check-mode none
+log-level error
+)"""));
+
+	std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+	std::string warmup_error;
+	ASSERT_TRUE(UdpQueryHasA("h2-upstream-warmup.example.com", 63053, 0x8100, "1.2.3.4", &warmup_error))
+		<< warmup_error;
+	int warmup_h2_requests = h2_upstream.RequestCount();
+	ASSERT_GE(warmup_h2_requests, 1);
+
+	const int query_count = 8;
+	ConcurrentUdpQueryStats stats = RunConcurrentUdpAQueries(query_count, 63053, "1.2.3.4");
+	std::cout << "HTTP2 upstream max concurrent reproduction: total=" << stats.total
+			  << ", success=" << stats.success << ", failure=" << stats.failure
+			  << ", h2-requests=" << h2_upstream.RequestCount() << ", duration=" << stats.duration_ms << "ms"
+			  << std::endl;
+
+	EXPECT_EQ(stats.total, query_count);
+	EXPECT_EQ(stats.success, query_count) << stats.first_failure;
+	EXPECT_EQ(stats.failure, 0) << stats.first_failure;
+	EXPECT_GE(h2_upstream.RequestCount(), warmup_h2_requests + query_count);
 }
 
 TEST(HTTP2, DownstreamDohServerHighConcurrencyWithRetry)

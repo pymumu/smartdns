@@ -153,6 +153,18 @@ static int _dns_client_send_http2_stream(struct dns_server_info *server_info, st
 	http2_ctx_get(http2_ctx);
 	pthread_mutex_unlock(&server_info->lock);
 
+	int handshake_ret = http2_ctx_handshake(http2_ctx);
+	if (handshake_ret == 0) {
+		http2_ctx_put(http2_ctx);
+		errno = EAGAIN;
+		return DNS_CLIENT_HTTP2_STREAM_SEND_RETRY_LATER;
+	}
+	if (handshake_ret < 0) {
+		http2_ctx_put(http2_ctx);
+		errno = ECONNRESET;
+		return DNS_CLIENT_HTTP2_STREAM_SEND_CONN_ERROR;
+	}
+
 	/* Create HTTP/2 stream */
 	http2_stream = http2_stream_new(http2_ctx);
 	if (http2_stream == NULL) {
@@ -311,6 +323,51 @@ static struct dns_query_struct *_dns_client_http2_detach_failed_stream(struct dn
 	}
 
 	return query;
+}
+
+static void _dns_client_http2_detach_completed_stream(struct dns_server_info *server_info,
+													  struct dns_conn_stream *conn_stream)
+{
+	struct http2_stream *http2_stream = NULL;
+	int server_need_put = 0;
+	int query_need_put = 0;
+
+	if (conn_stream == NULL) {
+		return;
+	}
+
+	pthread_mutex_lock(&server_info->lock);
+	if (!list_empty(&conn_stream->server_list)) {
+		list_del_init(&conn_stream->server_list);
+		conn_stream->server_info = NULL;
+		server_need_put = 1;
+	}
+
+	http2_stream = conn_stream->http2_stream;
+	conn_stream->http2_stream = NULL;
+	pthread_mutex_unlock(&server_info->lock);
+
+	if (http2_stream != NULL) {
+		http2_stream_close(http2_stream);
+	}
+
+	if (conn_stream->query != NULL) {
+		pthread_mutex_lock(&conn_stream->query->lock);
+		if (!list_empty(&conn_stream->query_list)) {
+			list_del_init(&conn_stream->query_list);
+			query_need_put = 1;
+		}
+		pthread_mutex_unlock(&conn_stream->query->lock);
+		conn_stream->query = NULL;
+	}
+
+	if (server_need_put) {
+		_dns_client_conn_stream_put(conn_stream);
+	}
+
+	if (query_need_put) {
+		_dns_client_conn_stream_put(conn_stream);
+	}
 }
 
 /* Helper function to flush pending HTTP/2 writes */
@@ -775,22 +832,11 @@ static int _dns_client_http2_process_read(struct dns_server_info *server_info)
 			if (poll_items[i].readable) {
 				int stream_ended = _dns_client_http2_process_stream_one(server_info, conn_stream);
 				if (stream_ended) {
-					int need_put = 0;
 					struct dns_query_struct *retry_query = NULL;
 					if (stream_ended < 0) {
 						retry_query = _dns_client_http2_detach_failed_stream(server_info, conn_stream);
 					} else {
-						pthread_mutex_lock(&server_info->lock);
-						if (!list_empty(&conn_stream->server_list)) {
-							list_del_init(&conn_stream->server_list);
-							conn_stream->server_info = NULL;
-							need_put = 1;
-						}
-						pthread_mutex_unlock(&server_info->lock);
-					}
-
-					if (need_put) {
-						_dns_client_conn_stream_put(conn_stream);
+						_dns_client_http2_detach_completed_stream(server_info, conn_stream);
 					}
 
 					if (retry_query != NULL) {
