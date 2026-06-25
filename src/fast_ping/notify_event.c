@@ -85,21 +85,33 @@ static void _fast_ping_process_notify_event(struct fast_ping_notify_event *ping_
 							 &ping_notify_event->tvresult, ping_host->error, ping_host->userptr);
 }
 
+static struct fast_ping_notify_event *_fast_ping_pop_notify_event(void)
+{
+	struct fast_ping_notify_event *ping_notify_event = NULL;
+
+	pthread_mutex_lock(&ping.notify_lock);
+	ping_notify_event = list_first_entry_or_null(&ping.notify_event_list, struct fast_ping_notify_event, list);
+	if (ping_notify_event) {
+		list_del_init(&ping_notify_event->list);
+	}
+	pthread_mutex_unlock(&ping.notify_lock);
+
+	return ping_notify_event;
+}
+
 void *_fast_ping_notify_worker(void *arg)
 {
 	struct fast_ping_notify_event *ping_notify_event = NULL;
 
 	while (atomic_read(&ping.run)) {
 		pthread_mutex_lock(&ping.notify_lock);
-		if (list_empty(&ping.notify_event_list)) {
+		while (atomic_read(&ping.run) && list_empty(&ping.notify_event_list)) {
 			pthread_cond_wait(&ping.notify_cond, &ping.notify_lock);
 		}
 
-		ping_notify_event = list_first_entry_or_null(&ping.notify_event_list, struct fast_ping_notify_event, list);
-		if (ping_notify_event) {
-			list_del_init(&ping_notify_event->list);
-		}
 		pthread_mutex_unlock(&ping.notify_lock);
+
+		ping_notify_event = _fast_ping_pop_notify_event();
 
 		if (ping_notify_event == NULL) {
 			continue;
@@ -115,9 +127,8 @@ void *_fast_ping_notify_worker(void *arg)
 void _fast_ping_remove_all_notify_event(void)
 {
 	struct fast_ping_notify_event *notify_event = NULL;
-	struct fast_ping_notify_event *tmp = NULL;
-	list_for_each_entry_safe(notify_event, tmp, &ping.notify_event_list, list)
-	{
+
+	while ((notify_event = _fast_ping_pop_notify_event()) != NULL) {
 		_fast_ping_process_notify_event(notify_event);
 		_fast_ping_release_notify_event(notify_event);
 	}

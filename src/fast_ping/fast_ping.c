@@ -534,6 +534,19 @@ static void *_fast_ping_work(void *arg)
 	return NULL;
 }
 
+static void _fast_ping_stop_notify_worker(void)
+{
+	void *retval = NULL;
+
+	pthread_mutex_lock(&ping.notify_lock);
+	atomic_set(&ping.run, 0);
+	pthread_cond_signal(&ping.notify_cond);
+	pthread_mutex_unlock(&ping.notify_lock);
+
+	pthread_join(ping.notify_tid, &retval);
+	ping.notify_tid = 0;
+}
+
 int fast_ping_init(void)
 {
 	pthread_attr_t attr;
@@ -594,11 +607,7 @@ int fast_ping_init(void)
 	return 0;
 errout:
 	if (ping.notify_tid) {
-		void *retval = NULL;
-		atomic_set(&ping.run, 0);
-		pthread_cond_signal(&ping.notify_cond);
-		pthread_join(ping.notify_tid, &retval);
-		ping.notify_tid = 0;
+		_fast_ping_stop_notify_worker();
 	}
 
 	if (ping.tid) {
@@ -642,11 +651,7 @@ void fast_ping_exit(void)
 	}
 
 	if (ping.notify_tid) {
-		void *retval = NULL;
-		atomic_set(&ping.run, 0);
-		pthread_cond_signal(&ping.notify_cond);
-		pthread_join(ping.notify_tid, &retval);
-		ping.notify_tid = 0;
+		_fast_ping_stop_notify_worker();
 	}
 
 	if (ping.tid) {
