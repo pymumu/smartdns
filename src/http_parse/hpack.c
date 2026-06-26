@@ -534,6 +534,16 @@ static int hpack_add_dynamic_entry(struct hpack_context *hpack, const char *name
 {
 	struct hpack_dynamic_entry *entry;
 	size_t entry_size = strlen(name) + strlen(value) + 32;
+	char *name_copy = NULL;
+	char *value_copy = NULL;
+
+	name_copy = strdup(name);
+	value_copy = strdup(value);
+	if (!name_copy || !value_copy) {
+		free(name_copy);
+		free(value_copy);
+		return -1;
+	}
 
 	/* Evict entries if necessary */
 	while (hpack->dynamic_table_size + entry_size > hpack->max_dynamic_table_size && hpack->dynamic_table) {
@@ -559,23 +569,20 @@ static int hpack_add_dynamic_entry(struct hpack_context *hpack, const char *name
 	}
 
 	if (entry_size > hpack->max_dynamic_table_size) {
+		free(name_copy);
+		free(value_copy);
 		return 0;
 	}
 
 	entry = malloc(sizeof(*entry));
 	if (!entry) {
+		free(name_copy);
+		free(value_copy);
 		return -1;
 	}
 
-	entry->name = strdup(name);
-	entry->value = strdup(value);
-	if (!entry->name || !entry->value) {
-		free(entry->name);
-		free(entry->value);
-		free(entry);
-		return -1;
-	}
-
+	entry->name = name_copy;
+	entry->value = value_copy;
 	entry->size = entry_size;
 	entry->next = hpack->dynamic_table;
 	hpack->dynamic_table = entry;
