@@ -101,6 +101,7 @@ const char *http2_error_to_string(int ret)
 #define HTTP2_INITIAL_HEADER_TABLE_SIZE 4096 /* RFC 7540 Section 6.5.2 */
 #define HTTP2_CONNECTION_PREFACE "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
 #define HTTP2_CONNECTION_PREFACE_LEN 24
+#define HTTP2_MAX_STREAM_ID UINT32_C(0x7fffffff) /* RFC 9113 Section 5.1.1 */
 
 /* Stream states */
 typedef enum {
@@ -2232,7 +2233,13 @@ struct http2_stream *http2_stream_new(struct http2_ctx *ctx)
 		return NULL;
 	}
 
-	int stream_id = ctx->next_stream_id;
+	if (ctx->next_stream_id > HTTP2_MAX_STREAM_ID) {
+		pthread_mutex_unlock(&ctx->mutex);
+		errno = EOVERFLOW;
+		return NULL;
+	}
+
+	int stream_id = (int)ctx->next_stream_id;
 	ctx->next_stream_id += 2;
 
 	struct http2_stream *stream = _http2_create_stream(ctx, stream_id);
