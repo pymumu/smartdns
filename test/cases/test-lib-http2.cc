@@ -127,6 +127,15 @@ static int HpackCountHeader(void *ctx, const char *name, const char *value)
 	return 0;
 }
 
+static int HpackExpectUafHeader(void *ctx, const char *name, const char *value)
+{
+	int *count = (int *)ctx;
+	EXPECT_STREQ(name, "x-hpack-uaf");
+	EXPECT_STREQ(value, "two");
+	(*count)++;
+	return 0;
+}
+
 TEST_F(LIBHTTP2, HpackDynamicTableSizeUpdateMustPrecedeHeaders)
 {
 	struct hpack_context hpack;
@@ -187,7 +196,7 @@ TEST_F(LIBHTTP2, HpackDecodeIndexedDynamicNameSurvivesEviction)
 		0x7e,              /* literal indexed, name index 62: first dynamic entry */
 		0x03, 't', 'w', 'o'
 	};
-	EXPECT_EQ(hpack_decode_headers(&hpack, reuse_dynamic_name, sizeof(reuse_dynamic_name), HpackCountHeader, &count),
+	EXPECT_EQ(hpack_decode_headers(&hpack, reuse_dynamic_name, sizeof(reuse_dynamic_name), HpackExpectUafHeader, &count),
 			  0);
 	EXPECT_EQ(count, 1);
 	EXPECT_EQ(hpack.entry_count, 1);

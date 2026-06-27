@@ -804,6 +804,13 @@ int hpack_decode_headers(struct hpack_context *hpack, const uint8_t *data, int d
 					return -1;
 				}
 				name = static_name;
+				if (index > HPACK_STATIC_TABLE_SIZE) {
+					allocated_name = strdup(name);
+					if (!allocated_name) {
+						return -1;
+					}
+					name = allocated_name;
+				}
 			} else {
 				ret = hpack_decode_string(data + offset, data_len - offset, &allocated_name);
 				if (ret < 0) {
