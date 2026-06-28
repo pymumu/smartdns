@@ -153,18 +153,6 @@ static int _dns_client_send_http2_stream(struct dns_server_info *server_info, st
 	http2_ctx_get(http2_ctx);
 	pthread_mutex_unlock(&server_info->lock);
 
-	int handshake_ret = http2_ctx_handshake(http2_ctx);
-	if (handshake_ret == 0) {
-		http2_ctx_put(http2_ctx);
-		errno = EAGAIN;
-		return DNS_CLIENT_HTTP2_STREAM_SEND_RETRY_LATER;
-	}
-	if (handshake_ret < 0) {
-		http2_ctx_put(http2_ctx);
-		errno = ECONNRESET;
-		return DNS_CLIENT_HTTP2_STREAM_SEND_CONN_ERROR;
-	}
-
 	/* Create HTTP/2 stream */
 	http2_stream = http2_stream_new(http2_ctx);
 	if (http2_stream == NULL) {
