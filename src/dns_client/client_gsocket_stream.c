@@ -42,6 +42,7 @@ struct dns_client_gstream_proto_ops {
 	dns_client_gstream_send_pending_fn send_pending;
 	dns_client_gstream_process_fn process_stream;
 	int queue_while_connecting;
+	int open_stream_while_connecting;
 	int required_events;
 	int keep_events;
 };
@@ -206,9 +207,9 @@ static int _dns_client_gstream_send_pending_http3(struct dns_server_info *server
 static const struct dns_client_gstream_proto_ops *_dns_client_gstream_get_proto(dns_server_type_t type)
 {
 	static const struct dns_client_gstream_proto_ops protos[] = {
-		{DNS_SERVER_HTTPS, _dns_client_gstream_send_pending_https, dns_client_doh_process_stream, 1, 0, 1},
-		{DNS_SERVER_HTTP3, _dns_client_gstream_send_pending_http3, dns_client_doh_process_stream, 1, 0, 0},
-		{DNS_SERVER_QUIC, _dns_client_gstream_send_pending_quic, dns_client_doq_process_stream, 1, EPOLLIN, 0},
+		{DNS_SERVER_HTTPS, _dns_client_gstream_send_pending_https, dns_client_doh_process_stream, 1, 1, 0, 1},
+		{DNS_SERVER_HTTP3, _dns_client_gstream_send_pending_http3, dns_client_doh_process_stream, 1, 0, 0, 0},
+		{DNS_SERVER_QUIC, _dns_client_gstream_send_pending_quic, dns_client_doq_process_stream, 1, 0, EPOLLIN, 0},
 	};
 
 	for (size_t i = 0; i < sizeof(protos) / sizeof(protos[0]); i++) {
@@ -360,7 +361,8 @@ int dns_client_gstream_send_query(struct dns_server_info *server_info, struct dn
 		return -1;
 	}
 
-	if (proto->queue_while_connecting && server_info->status != DNS_SERVER_STATUS_CONNECTED) {
+	if (proto->queue_while_connecting && server_info->status != DNS_SERVER_STATUS_CONNECTED &&
+		!proto->open_stream_while_connecting) {
 		if (dns_client_gstream_flushing_pending > 0) {
 			errno = EAGAIN;
 			return DNS_SEND_RET_NON_FATAL;

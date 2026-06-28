@@ -637,6 +637,7 @@ static struct gsocket_io *_http2_conn_open_stream(struct gsocket_io *io)
 	}
 
 	if (!ctx->h2_ctx) {
+		errno = EAGAIN;
 		return NULL;
 	}
 
