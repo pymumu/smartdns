@@ -260,6 +260,7 @@ struct dns_nftset_rule {
 	const char *familyname;
 	const char *nfttablename;
 	const char *nftsetname;
+	struct dns_nftset_rule *next;
 };
 
 struct dns_nftset_names {
