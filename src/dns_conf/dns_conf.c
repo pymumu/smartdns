@@ -56,6 +56,7 @@
 #include "srv_record.h"
 #include "txt_record.h"
 
+#include <arpa/inet.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -135,6 +136,38 @@ static int _config_server_name(void *data, int argc, char *argv[])
 	return 0;
 }
 
+static int _config_bind_cert_san(void *data, int argc, char *argv[])
+{
+	char *san = data;
+	size_t len = 0;
+
+	if (argc <= 1) {
+		tlog(TLOG_ERROR, "invalid parameter.");
+		return -1;
+	}
+
+	san[0] = 0;
+	for (int i = 1; i < argc; i++) {
+		unsigned char addr[sizeof(struct in6_addr)];
+		const char *prefix = "DNS:";
+
+		if (strncmp(argv[i], "DNS:", 4) == 0 || strncmp(argv[i], "IP:", 3) == 0) {
+			prefix = "";
+		} else if (inet_pton(AF_INET, argv[i], addr) == 1 || inet_pton(AF_INET6, argv[i], addr) == 1) {
+			prefix = "IP:";
+		}
+
+		int ret = snprintf(san + len, DNS_MAX_PATH - len, "%s%s%s", len > 0 ? "," : "", prefix, argv[i]);
+		if (ret < 0 || (size_t)ret >= DNS_MAX_PATH - len) {
+			tlog(TLOG_ERROR, "bind-cert-san is too long.");
+			return -1;
+		}
+		len += ret;
+	}
+
+	return 0;
+}
+
 static struct config_item _config_item[] = {
 	CONF_CUSTOM("server-name", _config_server_name, NULL),
 	CONF_YESNO("resolv-hostname", &dns_conf.resolv_hostname),
@@ -149,10 +182,12 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("bind-http", _config_bind_ip_http, NULL),
 	CONF_CUSTOM("bind-cert-root-key-file", _config_option_parser_filepath, &dns_conf.bind_root_ca_key_file),
 	CONF_CUSTOM("bind-cert-root-ca-file", _config_option_parser_filepath, &dns_conf.bind_root_ca_file),
+	CONF_YESNOAUTO("bind-cert-generate", &dns_conf.bind_cert_generate),
 	CONF_INT("bind-cert-validity-days", &dns_conf.bind_ca_validity_days, 0, 9999),
 	CONF_CUSTOM("bind-cert-file", _config_option_parser_filepath, &dns_conf.bind_ca_file),
 	CONF_CUSTOM("bind-cert-key-file", _config_option_parser_filepath, &dns_conf.bind_ca_key_file),
 	CONF_STRING("bind-cert-key-pass", dns_conf.bind_ca_key_pass, DNS_MAX_PATH),
+	CONF_CUSTOM("bind-cert-san", _config_bind_cert_san, dns_conf.bind_cert_san),
 	CONF_CUSTOM("server", _config_server_udp, NULL),
 	CONF_CUSTOM("server-tcp", _config_server_tcp, NULL),
 	CONF_CUSTOM("server-tls", _config_server_tls, NULL),
@@ -407,6 +442,7 @@ static void _dns_conf_default_value_init(void)
 	dns_conf.resolv_hostname = 1;
 	dns_conf.cachesize = -1;
 	dns_conf.cache_max_memsize = -1;
+	dns_conf.bind_cert_generate = -1;
 	dns_conf.proxy_server_workers = 2;
 	dns_conf.proxy_server_idle_timeout = 0;
 

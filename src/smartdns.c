@@ -399,13 +399,28 @@ static int _smartdns_create_cert(void)
 	char san[PATH_MAX] = {0};
 	/* 13 month */
 	int validity_days = 13 * 30;
-	char ddns_san[DNS_MAX_CNAME_LEN] = {0};
+	char append_san[DNS_MAX_PATH] = {0};
+	int has_cert_path = dns_conf.bind_ca_file[0] != 0;
+	int has_key_path = dns_conf.bind_ca_key_file[0] != 0;
+	int auto_generate = dns_conf.bind_cert_generate;
 
 	if (dns_conf.need_cert == 0) {
 		return 0;
 	}
 
+	if (auto_generate < 0) {
+		auto_generate = !has_cert_path && !has_key_path;
+	}
+
+	if (auto_generate == 0 && has_cert_path && has_key_path) {
+		return 0;
+	}
+
 	_smartdns_init_cert_path();
+
+	if (auto_generate == 0) {
+		return 0;
+	}
 
 	if (access(dns_conf.bind_ca_file, F_OK) == 0 && access(dns_conf.bind_ca_key_file, F_OK) == 0) {
 		if (is_cert_valid(dns_conf.bind_ca_file) &&
@@ -425,10 +440,15 @@ static int _smartdns_create_cert(void)
 	}
 
 	if (dns_conf_get_ddns_domain()[0] != 0) {
-		snprintf(ddns_san, sizeof(ddns_san), "DNS:%s", dns_conf_get_ddns_domain());
+		snprintf(append_san, sizeof(append_san), "DNS:%s", dns_conf_get_ddns_domain());
 	}
 
-	if (generate_cert_san(san, sizeof(san), ddns_san) != 0) {
+	if (dns_conf.bind_cert_san[0] != 0) {
+		size_t len = strlen(append_san);
+		snprintf(append_san + len, sizeof(append_san) - len, "%s%s", len > 0 ? "," : "", dns_conf.bind_cert_san);
+	}
+
+	if (generate_cert_san(san, sizeof(san), append_san) != 0) {
 		tlog(TLOG_WARN, "generate cert san failed.");
 		return -1;
 	}
