@@ -2704,12 +2704,12 @@ static int http2_try_decompress_body(struct http2_stream *stream)
 	if (content_encoding) {
 		is_gzip = (strcasecmp(content_encoding, "gzip") == 0);
 		int is_deflate = (strcasecmp(content_encoding, "deflate") == 0);
-		should_decompress = (is_gzip || is_deflate);
-	} else if (stream->body_buffer_len > 2) {
-		/* Fallback: check for gzip magic number (0x1f 0x8b) */
-		if (stream->body_buffer[0] == 0x1f && stream->body_buffer[1] == 0x8b) {
-			is_gzip = 1;
+		if (is_gzip || is_deflate) {
 			should_decompress = 1;
+		} else {
+			/* Unsupported Content-Encoding */
+			errno = ENOTSUP;
+			return -1;
 		}
 	}
 
@@ -2729,6 +2729,7 @@ static int http2_try_decompress_body(struct http2_stream *stream)
 		} else {
 			/* Decompression failed, set an error flag or log */
 			/* For now, leave body_decompressed = 0, and let read_body handle error */
+			errno = EINVAL;
 			return -1; /* Indicate failure */
 		}
 	}
