@@ -683,6 +683,9 @@ load_service()
 	config_get bind_cert "$section" "bind_cert" ""
 	config_get bind_cert_key "$section" "bind_cert_key" ""
 	config_get bind_cert_key_pass "$section" "bind_cert_key_pass" ""
+	config_get bind_cert_san "$section" "bind_cert_san" ""
+	config_get bind_cert_generate "$section" "bind_cert_generate" ""
+	config_get bind_cert_root_key "$section" "bind_cert_root_key" ""
 	config_get server_flags "$section" "server_flags" ""
 	config_get_bool ddr "$section" "ddr" "0"
 	[ "$ddr" = "1" ] && server_flags="$server_flags -ddr"
@@ -892,6 +895,16 @@ load_service()
 	[ "$tls_server" = "1" ] && conf_append_bind "bind-tls" "$tls_server_port" "$device" "$ipv6_server" "$server_flags"
 	[ "$doh_server" = "1" ] && conf_append_bind "bind-https" "$doh_server_port" "$device" "$ipv6_server" "$server_flags"
 
+	[ -z "$bind_cert" ] && [ -z "$bind_cert_key" ] && [ "$tls_server$doh_server" != "00" ] && {
+		bind_cert="$SMARTDNS_CONF_DIR/smartdns-cert.pem"
+		bind_cert_key="$SMARTDNS_CONF_DIR/smartdns-key.pem"
+		bind_cert_root_key="$SMARTDNS_CONF_DIR/smartdns-root-key.pem"
+		bind_cert_generate="${bind_cert_generate:-yes}"
+	}
+
+	[ ! -z "$bind_cert_generate" ] && conf_append "bind-cert-generate" "$bind_cert_generate"
+	[ ! -z "$bind_cert_san" ] && conf_append "bind-cert-san" "$bind_cert_san"
+	[ ! -z "$bind_cert_root_key" ] && conf_append "bind-cert-root-key-file" "$bind_cert_root_key"
 	[ ! -z "$bind_cert" ] && conf_append "bind-cert-file" "$bind_cert"
 	[ ! -z "$bind_cert_key" ] && conf_append "bind-cert-key-file" "$bind_cert_key"
 	[ ! -z "$bind_cert_key_pass" ] && conf_append "bind-cert-key-pass" "$bind_cert_key_pass"

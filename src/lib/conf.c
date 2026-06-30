@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <unistd.h>
 
 static const char *current_conf_file = NULL;
@@ -182,6 +183,34 @@ int conf_yesno(const char *item, void *data, int argc, char *argv[])
 	}
 
 	*(item_yesno->data) = yes;
+
+	return 0;
+}
+
+int conf_yesnoauto(const char *item, void *data, int argc, char *argv[])
+{
+	struct config_item_yesno *item_yesno = data;
+	int value = 0;
+
+	if (argc < 2) {
+		return -1;
+	}
+
+	if (strcasecmp("auto", argv[1]) == 0) {
+		value = -1;
+	} else if (strcasecmp("yes", argv[1]) == 0) {
+		value = 1;
+	} else if (strcasecmp("no", argv[1]) == 0) {
+		value = 0;
+	} else {
+		return -1;
+	}
+
+	if (item_yesno->func) {
+		return item_yesno->func(value, item_yesno->data);
+	}
+
+	*(item_yesno->data) = value;
 
 	return 0;
 }

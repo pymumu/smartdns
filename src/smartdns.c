@@ -380,20 +380,38 @@ static int _smartdns_create_cert(void)
 	char san[PATH_MAX] = {0};
 	/* 13 month */
 	int validity_days = 13 * 30;
-	char ddns_san[DNS_MAX_CNAME_LEN] = {0};
+	char append_san[DNS_MAX_PATH] = {0};
+	int has_cert_path = dns_conf.bind_ca_file[0] != 0;
+	int has_key_path = dns_conf.bind_ca_key_file[0] != 0;
+	int auto_generate = dns_conf.bind_cert_generate;
 
 	if (dns_conf.need_cert == 0) {
 		return 0;
 	}
 
-	if (dns_conf.bind_ca_file[0] != 0 && dns_conf.bind_ca_key_file[0] != 0) {
+	if (auto_generate < 0) {
+		auto_generate = !has_cert_path && !has_key_path;
+	}
+
+	if (auto_generate == 0 && has_cert_path && has_key_path) {
 		return 0;
 	}
 
-	conf_get_conf_fullpath("smartdns-cert.pem", dns_conf.bind_ca_file, sizeof(dns_conf.bind_ca_file));
-	conf_get_conf_fullpath("smartdns-key.pem", dns_conf.bind_ca_key_file, sizeof(dns_conf.bind_ca_key_file));
-	conf_get_conf_fullpath("smartdns-root-key.pem", dns_conf.bind_root_ca_key_file,
-						   sizeof(dns_conf.bind_root_ca_key_file));
+	if (dns_conf.bind_ca_file[0] == 0) {
+		conf_get_conf_fullpath("smartdns-cert.pem", dns_conf.bind_ca_file, sizeof(dns_conf.bind_ca_file));
+	}
+	if (dns_conf.bind_ca_key_file[0] == 0) {
+		conf_get_conf_fullpath("smartdns-key.pem", dns_conf.bind_ca_key_file, sizeof(dns_conf.bind_ca_key_file));
+	}
+	if (dns_conf.bind_root_ca_key_file[0] == 0) {
+		conf_get_conf_fullpath("smartdns-root-key.pem", dns_conf.bind_root_ca_key_file,
+							   sizeof(dns_conf.bind_root_ca_key_file));
+	}
+
+	if (auto_generate == 0) {
+		return 0;
+	}
+
 	if (access(dns_conf.bind_ca_file, F_OK) == 0 && access(dns_conf.bind_ca_key_file, F_OK) == 0) {
 		if (is_cert_valid(dns_conf.bind_ca_file)) {
 			return 0;
@@ -410,10 +428,20 @@ static int _smartdns_create_cert(void)
 	}
 
 	if (dns_conf_get_ddns_domain()[0] != 0) {
-		snprintf(ddns_san, sizeof(ddns_san), "DNS:%s", dns_conf_get_ddns_domain());
+		snprintf(append_san, sizeof(append_san), "DNS:%s", dns_conf_get_ddns_domain());
 	}
 
-	if (generate_cert_san(san, sizeof(san), ddns_san) != 0) {
+	if (dns_conf.bind_cert_san[0] != 0) {
+		size_t san_len = strlen(append_san);
+		int len = snprintf(append_san + san_len, sizeof(append_san) - san_len, "%s%s", san_len > 0 ? "," : "",
+						   dns_conf.bind_cert_san);
+		if (len < 0 || (size_t)len >= sizeof(append_san) - san_len) {
+			tlog(TLOG_WARN, "generate cert san failed.");
+			return -1;
+		}
+	}
+
+	if (generate_cert_san(san, sizeof(san), append_san) != 0) {
 		tlog(TLOG_WARN, "generate cert san failed.");
 		return -1;
 	}

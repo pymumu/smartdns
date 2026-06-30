@@ -23,8 +23,51 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <openssl/pem.h>
 #include <openssl/rand.h>
+#include <openssl/x509v3.h>
 #include <sys/socket.h>
+
+static bool cert_has_san(const char *path, int type, const char *value)
+{
+	BIO *bio = BIO_new_file(path, "r");
+	if (bio == nullptr) {
+		return false;
+	}
+
+	X509 *cert = PEM_read_bio_X509(bio, nullptr, nullptr, nullptr);
+	BIO_free(bio);
+	if (cert == nullptr) {
+		return false;
+	}
+
+	GENERAL_NAMES *names = (GENERAL_NAMES *)X509_get_ext_d2i(cert, NID_subject_alt_name, nullptr, nullptr);
+	bool found = false;
+	if (names != nullptr) {
+		for (int i = 0; i < sk_GENERAL_NAME_num(names) && !found; i++) {
+			const GENERAL_NAME *name = sk_GENERAL_NAME_value(names, i);
+			if (name->type != type) {
+				continue;
+			}
+
+			if (type == GEN_DNS) {
+				const ASN1_IA5STRING *dns = name->d.dNSName;
+				found = ASN1_STRING_length(dns) == (int)strlen(value) &&
+						memcmp(ASN1_STRING_get0_data(dns), value, strlen(value)) == 0;
+			} else if (type == GEN_IPADD) {
+				unsigned char addr[16] = {0};
+				int addr_len = inet_pton(AF_INET, value, addr) == 1 ? 4 : inet_pton(AF_INET6, value, addr) == 1 ? 16 : 0;
+				const ASN1_OCTET_STRING *ip = name->d.iPAddress;
+				found = addr_len > 0 && ASN1_STRING_length(ip) == addr_len &&
+						memcmp(ASN1_STRING_get0_data(ip), addr, addr_len) == 0;
+			}
+		}
+		GENERAL_NAMES_free(names);
+	}
+
+	X509_free(cert);
+	return found;
+}
 
 TEST(Bind, tls)
 {
@@ -99,6 +142,64 @@ server-tls 127.0.0.1:60053
 
 	smartdns::Client client;
 	ASSERT_FALSE(client.Query("example.com +time=1", 61053));
+}
+
+TEST(Bind, cert_auto_generate_explicit_path)
+{
+	const char *cert = "/tmp/smartdns-bind-auto-cert.pem";
+	const char *key = "/tmp/smartdns-bind-auto-key.pem";
+	const char *root_key = "/tmp/smartdns-bind-auto-root-key.pem";
+
+	Defer
+	{
+		unlink(cert);
+		unlink(key);
+		unlink(root_key);
+	};
+
+	unlink(cert);
+	unlink(key);
+	unlink(root_key);
+
+	smartdns::Server server;
+	ASSERT_TRUE(server.Start(R"""(
+bind-cert-generate yes
+bind-cert-san router.lan 192.168.1.1
+bind-cert-file /tmp/smartdns-bind-auto-cert.pem
+bind-cert-key-file /tmp/smartdns-bind-auto-key.pem
+bind-cert-root-key-file /tmp/smartdns-bind-auto-root-key.pem
+bind-tls [::]:60053
+)"""));
+
+	EXPECT_EQ(access(cert, F_OK), 0);
+	EXPECT_EQ(access(key, F_OK), 0);
+	EXPECT_EQ(access(root_key, F_OK), 0);
+	EXPECT_TRUE(cert_has_san(cert, GEN_DNS, "router.lan"));
+	EXPECT_TRUE(cert_has_san(cert, GEN_IPADD, "192.168.1.1"));
+}
+
+TEST(Bind, cert_explicit_path_without_auto_generate_skips_generation)
+{
+	const char *cert = "/tmp/smartdns-bind-manual-cert.pem";
+	const char *key = "/tmp/smartdns-bind-manual-key.pem";
+
+	Defer
+	{
+		unlink(cert);
+		unlink(key);
+	};
+
+	unlink(cert);
+	unlink(key);
+
+	smartdns::Server server;
+	ASSERT_TRUE(server.Start(R"""(
+bind-cert-file /tmp/smartdns-bind-manual-cert.pem
+bind-cert-key-file /tmp/smartdns-bind-manual-key.pem
+bind-tls [::]:60053
+)"""));
+	EXPECT_NE(access(cert, F_OK), 0);
+	EXPECT_NE(access(key, F_OK), 0);
 }
 
 TEST(Bind, udp_tcp)
