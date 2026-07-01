@@ -455,17 +455,20 @@ TEST(Bind, cert_auto_generate_explicit_path)
 	const char *cert = "/tmp/smartdns-bind-auto-cert.pem";
 	const char *key = "/tmp/smartdns-bind-auto-key.pem";
 	const char *root_key = "/tmp/smartdns-bind-auto-root-key.pem";
+	const char *root_ca = "/tmp/smartdns-bind-auto-root-ca.pem";
 
 	Defer
 	{
 		unlink(cert);
 		unlink(key);
 		unlink(root_key);
+		unlink(root_ca);
 	};
 
 	unlink(cert);
 	unlink(key);
 	unlink(root_key);
+	unlink(root_ca);
 
 	smartdns::Server server;
 	ASSERT_TRUE(server.Start(R"""(
@@ -473,6 +476,7 @@ bind-cert-generate yes
 bind-cert-file /tmp/smartdns-bind-auto-cert.pem
 bind-cert-key-file /tmp/smartdns-bind-auto-key.pem
 bind-cert-root-key-file /tmp/smartdns-bind-auto-root-key.pem
+bind-cert-root-ca-file /tmp/smartdns-bind-auto-root-ca.pem
 bind-cert-san router.lan 192.168.1.1
 bind-tls [::]:60053
 )"""));
@@ -480,6 +484,7 @@ bind-tls [::]:60053
 	EXPECT_EQ(access(cert, F_OK), 0);
 	EXPECT_EQ(access(key, F_OK), 0);
 	EXPECT_EQ(access(root_key, F_OK), 0);
+	EXPECT_EQ(access(root_ca, F_OK), 0);
 	EXPECT_TRUE(cert_has_san(cert, GEN_DNS, "router.lan"));
 	EXPECT_TRUE(cert_has_san(cert, GEN_IPADD, "192.168.1.1"));
 }

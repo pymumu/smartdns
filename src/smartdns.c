@@ -440,12 +440,20 @@ static int _smartdns_create_cert(void)
 	}
 
 	if (dns_conf_get_ddns_domain()[0] != 0) {
-		snprintf(append_san, sizeof(append_san), "DNS:%s", dns_conf_get_ddns_domain());
+		if (snprintf(append_san, sizeof(append_san), "DNS:%s", dns_conf_get_ddns_domain()) >= (int)sizeof(append_san)) {
+			tlog(TLOG_WARN, "cert san is too long.");
+			return -1;
+		}
 	}
 
 	if (dns_conf.bind_cert_san[0] != 0) {
 		size_t len = strlen(append_san);
-		snprintf(append_san + len, sizeof(append_san) - len, "%s%s", len > 0 ? "," : "", dns_conf.bind_cert_san);
+		int ret = snprintf(append_san + len, sizeof(append_san) - len, "%s%s", len > 0 ? "," : "",
+						   dns_conf.bind_cert_san);
+		if (ret < 0 || ret >= (int)(sizeof(append_san) - len)) {
+			tlog(TLOG_WARN, "cert san is too long.");
+			return -1;
+		}
 	}
 
 	if (generate_cert_san(san, sizeof(san), append_san) != 0) {
