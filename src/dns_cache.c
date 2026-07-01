@@ -736,7 +736,7 @@ errout:
 	return -1;
 }
 
-static int _dns_cache_read_record(int fd, uint32_t cache_number, dns_cache_read_callback callback)
+static int _dns_cache_read_record(int fd, off_t filesize, uint32_t cache_number, dns_cache_read_callback callback)
 {
 	unsigned int i = 0;
 	ssize_t ret = 0;
@@ -768,8 +768,14 @@ static int _dns_cache_read_record(int fd, uint32_t cache_number, dns_cache_read_
 			goto errout;
 		}
 
-		if (data_head.size > 1024 * 8) {
+		if (data_head.size <= 0 || data_head.size > 1024 * 8) {
 			tlog(TLOG_ERROR, "data may invalid, skip load cache.");
+			goto errout;
+		}
+
+		off_t offset = lseek(fd, 0, SEEK_CUR);
+		if (offset < 0 || offset > filesize || (off_t)data_head.size > filesize - offset) {
+			tlog(TLOG_ERROR, "cache data size is invalid, skip load cache.");
 			goto errout;
 		}
 
@@ -822,6 +828,10 @@ static int _dns_cache_file_read(const char *file, dns_cache_read_callback callba
 
 	filesize = lseek(fd, 0, SEEK_END);
 	lseek(fd, 0, SEEK_SET);
+	if (filesize < (off_t)sizeof(struct dns_cache_file)) {
+		tlog(TLOG_ERROR, "cache file is too small.");
+		goto errout;
+	}
 	posix_fadvise(fd, 0, filesize, POSIX_FADV_WILLNEED | POSIX_FADV_SEQUENTIAL);
 
 	struct dns_cache_file cache_file;
@@ -841,8 +851,14 @@ static int _dns_cache_file_read(const char *file, dns_cache_read_callback callba
 		goto errout;
 	}
 
+	off_t min_record_size = (off_t)sizeof(struct dns_cache_record) + (off_t)sizeof(struct dns_cache_data_head) + 1;
+	if (cache_file.cache_number > (uint32_t)((filesize - (off_t)sizeof(cache_file)) / min_record_size)) {
+		tlog(TLOG_ERROR, "cache record count is invalid, skip load cache.");
+		goto errout;
+	}
+
 	tlog(TLOG_INFO, "load cache file %s, total %d records", file, cache_file.cache_number);
-	if (_dns_cache_read_record(fd, cache_file.cache_number, callback) != 0) {
+	if (_dns_cache_read_record(fd, filesize, cache_file.cache_number, callback) != 0) {
 		goto errout;
 	}
 

@@ -942,6 +942,70 @@ TEST_F(LIBHTTP2, InvalidCompressedEndedRequestIsNotReportedReadableAgain)
 	http2_ctx_close(client_ctx);
 }
 
+TEST_F(LIBHTTP2, UnsupportedContentEncodingReadsRawBody)
+{
+	struct http2_ctx *client_ctx = http2_ctx_client_new("test-client", bio_read, bio_write, &client_sock, NULL);
+	struct http2_ctx *server_ctx = http2_ctx_server_new("test-server", bio_read, bio_write, &server_sock, NULL);
+	ASSERT_NE(client_ctx, nullptr);
+	ASSERT_NE(server_ctx, nullptr);
+
+	int client_ret = 0;
+	int server_ret = 0;
+	for (int i = 0; i < 20; i++) {
+		client_ret = http2_ctx_handshake(client_ctx);
+		server_ret = http2_ctx_handshake(server_ctx);
+		if (client_ret == 1 && server_ret == 1) {
+			break;
+		}
+		usleep(1000);
+	}
+	ASSERT_EQ(client_ret, 1);
+	ASSERT_EQ(server_ret, 1);
+
+	const char body[] = "raw-body";
+	char content_length[16];
+	snprintf(content_length, sizeof(content_length), "%zu", sizeof(body) - 1);
+	struct http2_header_pair headers[] = {{"content-type", "application/dns-message"},
+										  {"content-length", content_length},
+										  {"content-encoding", "br"},
+										  {NULL, NULL}};
+
+	struct http2_stream *client_stream = http2_stream_new(client_ctx);
+	ASSERT_NE(client_stream, nullptr);
+	ASSERT_EQ(http2_stream_set_request(client_stream, "POST", "/dns-query", NULL, headers), 0);
+	ASSERT_EQ(http2_stream_write_body(client_stream, (const uint8_t *)body, sizeof(body) - 1, 1),
+			  (int)sizeof(body) - 1);
+	int poll_ret = http2_ctx_poll(client_ctx, NULL, 0, NULL);
+	ASSERT_TRUE(poll_ret >= 0 || poll_ret == HTTP2_ERR_EAGAIN);
+
+	struct http2_stream *server_stream = nullptr;
+	for (int i = 0; i < 20 && server_stream == nullptr; i++) {
+		struct http2_poll_item items[4];
+		int count = 0;
+		ASSERT_GE(http2_ctx_poll_readable(server_ctx, items, 4, &count), 0);
+		for (int j = 0; j < count; j++) {
+			if (items[j].stream == nullptr && items[j].readable) {
+				server_stream = http2_ctx_accept_stream(server_ctx);
+			}
+			if (items[j].stream != nullptr) {
+				http2_stream_put(items[j].stream);
+			}
+		}
+		usleep(1000);
+	}
+	ASSERT_NE(server_stream, nullptr);
+
+	uint8_t buf[32] = {0};
+	ASSERT_EQ(http2_stream_read_body(server_stream, buf, sizeof(buf)), (int)sizeof(body) - 1);
+	EXPECT_EQ(memcmp(buf, body, sizeof(body) - 1), 0);
+	EXPECT_TRUE(http2_stream_is_end(server_stream));
+
+	http2_stream_close(server_stream);
+	http2_stream_close(client_stream);
+	http2_ctx_close(server_ctx);
+	http2_ctx_close(client_ctx);
+}
+
 TEST_F(LIBHTTP2, PollReturnsResponseBeforeGoawayEof)
 {
 	struct http2_ctx *ctx = http2_ctx_client_new("test-client", bio_read, bio_write, &client_sock, NULL);

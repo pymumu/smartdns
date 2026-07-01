@@ -2704,13 +2704,7 @@ static int http2_try_decompress_body(struct http2_stream *stream)
 	if (content_encoding) {
 		is_gzip = (strcasecmp(content_encoding, "gzip") == 0);
 		int is_deflate = (strcasecmp(content_encoding, "deflate") == 0);
-		if (is_gzip || is_deflate) {
-			should_decompress = 1;
-		} else {
-			/* Unsupported Content-Encoding */
-			errno = ENOTSUP;
-			return -1;
-		}
+		should_decompress = is_gzip || is_deflate;
 	}
 
 	if (should_decompress) {
@@ -2829,7 +2823,14 @@ int http2_stream_body_available(struct http2_stream *stream)
 	}
 
 	/* Try to decompress if needed */
-	http2_try_decompress_body(stream);
+	if (http2_try_decompress_body(stream) < 0) {
+		stream->end_stream_read_handled = 1;
+		stream->body_read_offset = stream->body_buffer_len;
+		if (ctx) {
+			pthread_mutex_unlock(&ctx->mutex);
+		}
+		return 0;
+	}
 
 	/* If content is compressed but not yet decompressed, pretend no data available */
 	const char *content_encoding = _http2_stream_get_header_value(stream, "content-encoding");
@@ -2864,7 +2865,14 @@ int http2_stream_is_end(struct http2_stream *stream)
 	}
 
 	/* Try to decompress if needed - this might change body_buffer_len */
-	http2_try_decompress_body(stream);
+	if (http2_try_decompress_body(stream) < 0) {
+		stream->end_stream_read_handled = 1;
+		stream->body_read_offset = stream->body_buffer_len;
+		if (ctx) {
+			pthread_mutex_unlock(&ctx->mutex);
+		}
+		return 1;
+	}
 
 	int is_end = (stream->end_stream_received || stream->state == HTTP2_STREAM_CLOSED) && (stream->body_read_offset >= stream->body_buffer_len);
 

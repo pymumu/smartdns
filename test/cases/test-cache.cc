@@ -450,6 +450,120 @@ cache-persist yes
 	}
 }
 
+TEST_F(Cache, invalid_data_size_file)
+{
+	smartdns::MockServer server_upstream;
+	auto cache_file = "/tmp/smartdns_cache." + smartdns::GenerateRandomString(10);
+	std::string conf = R"""(
+bind [::]:60053@lo
+server 127.0.0.1:62053
+dualstack-ip-selection no
+cache-persist yes
+)""";
+
+	conf += "cache-file " + cache_file;
+	Defer
+	{
+		unlink(cache_file.c_str());
+	};
+
+	struct dns_cache_file file_head;
+	memset(&file_head, 0, sizeof(file_head));
+	file_head.magic = MAGIC_NUMBER;
+	snprintf(file_head.version, sizeof(file_head.version), "%s", dns_cache_file_version());
+	file_head.cache_number = 1;
+
+	struct dns_cache_record record;
+	memset(&record, 0, sizeof(record));
+	record.magic = MAGIC_RECORD;
+
+	struct dns_cache_data_head data_head;
+	memset(&data_head, 0, sizeof(data_head));
+	data_head.magic = MAGIC_CACHE_DATA;
+	data_head.size = -1;
+
+	int fd = open(cache_file.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0640);
+	ASSERT_NE(fd, -1);
+	ASSERT_EQ(write(fd, &file_head, sizeof(file_head)), (ssize_t)sizeof(file_head));
+	ASSERT_EQ(write(fd, &record, sizeof(record)), (ssize_t)sizeof(record));
+	ASSERT_EQ(write(fd, &data_head, sizeof(data_head)), (ssize_t)sizeof(data_head));
+	close(fd);
+
+	server_upstream.Start("udp://0.0.0.0:62053", [](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype == DNS_T_A) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4");
+			return smartdns::SERVER_REQUEST_OK;
+		}
+		return smartdns::SERVER_REQUEST_SOA;
+	});
+
+	smartdns::Server server;
+	server.Start(conf);
+	smartdns::Client client;
+
+	ASSERT_TRUE(client.Query("a.com", 60053));
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+}
+
+TEST_F(Cache, truncated_data_file)
+{
+	smartdns::MockServer server_upstream;
+	auto cache_file = "/tmp/smartdns_cache." + smartdns::GenerateRandomString(10);
+	std::string conf = R"""(
+bind [::]:60053@lo
+server 127.0.0.1:62053
+dualstack-ip-selection no
+cache-persist yes
+)""";
+
+	conf += "cache-file " + cache_file;
+	Defer
+	{
+		unlink(cache_file.c_str());
+	};
+
+	struct dns_cache_file file_head;
+	memset(&file_head, 0, sizeof(file_head));
+	file_head.magic = MAGIC_NUMBER;
+	snprintf(file_head.version, sizeof(file_head.version), "%s", dns_cache_file_version());
+	file_head.cache_number = 1;
+
+	struct dns_cache_record record;
+	memset(&record, 0, sizeof(record));
+	record.magic = MAGIC_RECORD;
+
+	struct dns_cache_data_head data_head;
+	memset(&data_head, 0, sizeof(data_head));
+	data_head.magic = MAGIC_CACHE_DATA;
+	data_head.size = 4;
+
+	int fd = open(cache_file.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0640);
+	ASSERT_NE(fd, -1);
+	ASSERT_EQ(write(fd, &file_head, sizeof(file_head)), (ssize_t)sizeof(file_head));
+	ASSERT_EQ(write(fd, &record, sizeof(record)), (ssize_t)sizeof(record));
+	ASSERT_EQ(write(fd, &data_head, sizeof(data_head)), (ssize_t)sizeof(data_head));
+	close(fd);
+
+	server_upstream.Start("udp://0.0.0.0:62053", [](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype == DNS_T_A) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4");
+			return smartdns::SERVER_REQUEST_OK;
+		}
+		return smartdns::SERVER_REQUEST_SOA;
+	});
+
+	smartdns::Server server;
+	server.Start(conf);
+	smartdns::Client client;
+
+	ASSERT_TRUE(client.Query("a.com", 60053));
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+}
+
 TEST_F(Cache, cname)
 {
 	smartdns::MockServer server_upstream;
