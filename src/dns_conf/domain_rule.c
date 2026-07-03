@@ -117,7 +117,12 @@ struct dns_rule_info {
 	int size;
 	int (*get_size)(struct dns_rule *rule);
 	void (*clone)(struct dns_rule *new_rule, struct dns_rule *old_rule);
+	void (*append)(struct dns_rule *curr_rule, struct dns_rule *new_rule);
+	void (*destroy)(struct dns_rule *rule);
+	unsigned char is_list : 1;
 };
+
+
 
 static int _rule_address_ipv4_get_size(struct dns_rule *rule)
 {
@@ -207,25 +212,130 @@ static void _rule_nftset_clone(struct dns_rule *new_rule, struct dns_rule *old_r
 	}
 }
 
+static void _rule_ipset_clone(struct dns_rule *new_rule, struct dns_rule *old_rule)
+{
+	struct dns_ipset_rule *new_ipset = (struct dns_ipset_rule *)new_rule;
+	struct dns_ipset_rule *old_ipset = (struct dns_ipset_rule *)old_rule;
+	struct dns_ipset_rule *prev = new_ipset;
+
+	new_ipset->next = NULL;
+	for (old_ipset = old_ipset->next; old_ipset; old_ipset = old_ipset->next) {
+		struct dns_ipset_rule *copy = (struct dns_ipset_rule *)_new_dns_rule(old_rule->rule);
+		if (!copy) {
+			break;
+		}
+		copy->ipsetname = old_ipset->ipsetname;
+		copy->next = NULL;
+		prev->next = copy;
+		prev = copy;
+	}
+}
+
+static void _rule_nftset_append(struct dns_rule *curr_rule, struct dns_rule *new_rule)
+{
+	struct dns_nftset_rule *tail = (struct dns_nftset_rule *)curr_rule;
+	struct dns_nftset_rule *new_nft = (struct dns_nftset_rule *)new_rule;
+	while (tail->next) {
+		tail = tail->next;
+	}
+	new_nft->next = NULL;
+	tail->next = new_nft;
+}
+
+static void _rule_ipset_append(struct dns_rule *curr_rule, struct dns_rule *new_rule)
+{
+	struct dns_ipset_rule *tail = (struct dns_ipset_rule *)curr_rule;
+	struct dns_ipset_rule *new_ipset = (struct dns_ipset_rule *)new_rule;
+	while (tail->next) {
+		tail = tail->next;
+	}
+	new_ipset->next = NULL;
+	tail->next = new_ipset;
+}
+
+static void _rule_https_destroy(struct dns_rule *rule)
+{
+	struct dns_https_record_rule *https_rule = (struct dns_https_record_rule *)rule;
+	struct dns_https_record *record, *tmp;
+	if (https_rule->record_list.next != NULL && https_rule->record_list.prev != NULL) {
+		list_for_each_entry_safe(record, tmp, &https_rule->record_list, list)
+		{
+			list_del(&record->list);
+			free(record);
+		}
+	}
+}
+
+static void _rule_srv_destroy(struct dns_rule *rule)
+{
+	struct dns_srv_record_rule *srv_rule = (struct dns_srv_record_rule *)rule;
+	struct dns_srv_record *record, *tmp;
+	if (srv_rule->record_list.next != NULL && srv_rule->record_list.prev != NULL) {
+		list_for_each_entry_safe(record, tmp, &srv_rule->record_list, list)
+		{
+			list_del(&record->list);
+			free(record);
+		}
+	}
+}
+
+static void _rule_txt_destroy(struct dns_rule *rule)
+{
+	struct dns_txt_record_rule *txt_rule = (struct dns_txt_record_rule *)rule;
+	struct dns_txt_record *record, *tmp;
+	if (txt_rule->record_list.next != NULL && txt_rule->record_list.prev != NULL) {
+		list_for_each_entry_safe(record, tmp, &txt_rule->record_list, list)
+		{
+			list_del(&record->list);
+			free(record);
+		}
+	}
+}
+
+static void _rule_nftset_destroy(struct dns_rule *rule)
+{
+	struct dns_nftset_rule *nft = ((struct dns_nftset_rule *)rule)->next;
+	while (nft) {
+		struct dns_nftset_rule *tmp_nft = nft->next;
+		nft->next = NULL;
+		_dns_rule_put(&nft->head);
+		nft = tmp_nft;
+	}
+}
+
+static void _rule_ipset_destroy(struct dns_rule *rule)
+{
+	struct dns_ipset_rule *ipset = ((struct dns_ipset_rule *)rule)->next;
+	while (ipset) {
+		struct dns_ipset_rule *tmp_ipset = ipset->next;
+		ipset->next = NULL;
+		_dns_rule_put(&ipset->head);
+		ipset = tmp_ipset;
+	}
+}
+
 static struct dns_rule_info dns_rule_info_table[DOMAIN_RULE_MAX] = {
-	[DOMAIN_RULE_FLAGS] = {sizeof(struct dns_rule_flags), NULL, NULL},
-	[DOMAIN_RULE_ADDRESS_IPV4] = {sizeof(struct dns_rule_address_IPV4), _rule_address_ipv4_get_size, NULL},
-	[DOMAIN_RULE_ADDRESS_IPV6] = {sizeof(struct dns_rule_address_IPV6), _rule_address_ipv6_get_size, NULL},
-	[DOMAIN_RULE_NAMESERVER] = {sizeof(struct dns_nameserver_rule), NULL, NULL},
-	[DOMAIN_RULE_CHECKSPEED] = {sizeof(struct dns_domain_check_orders), NULL, NULL},
-	[DOMAIN_RULE_IPSET] = {sizeof(struct dns_ipset_rule), NULL, NULL},
-	[DOMAIN_RULE_NFTSET_IP] = {sizeof(struct dns_nftset_rule), NULL, _rule_nftset_clone},
-	[DOMAIN_RULE_IPSET_IPV4] = {sizeof(struct dns_ipset_rule), NULL, NULL},
-	[DOMAIN_RULE_GROUP] = {sizeof(struct dns_group_rule), NULL, NULL},
-	[DOMAIN_RULE_NFTSET_IP6] = {sizeof(struct dns_nftset_rule), NULL, _rule_nftset_clone},
-	[DOMAIN_RULE_IPSET_IPV6] = {sizeof(struct dns_ipset_rule), NULL, NULL},
-	[DOMAIN_RULE_HTTPS] = {sizeof(struct dns_https_record_rule), NULL, _rule_https_clone},
-	[DOMAIN_RULE_SRV] = {sizeof(struct dns_srv_record_rule), NULL, _rule_srv_clone},
-	[DOMAIN_RULE_RESPONSE_MODE] = {sizeof(struct dns_response_mode_rule), NULL, NULL},
-	[DOMAIN_RULE_CNAME] = {sizeof(struct dns_cname_rule), NULL, NULL},
-	[DOMAIN_RULE_TTL] = {sizeof(struct dns_ttl_rule), NULL, NULL},
-	[DOMAIN_RULE_TXT] = {sizeof(struct dns_txt_record_rule), NULL, _rule_txt_clone},
+	[DOMAIN_RULE_FLAGS] = {sizeof(struct dns_rule_flags), NULL, NULL, NULL, NULL, 0},
+	[DOMAIN_RULE_ADDRESS_IPV4] = {sizeof(struct dns_rule_address_IPV4), _rule_address_ipv4_get_size, NULL, NULL, NULL, 0},
+	[DOMAIN_RULE_ADDRESS_IPV6] = {sizeof(struct dns_rule_address_IPV6), _rule_address_ipv6_get_size, NULL, NULL, NULL, 0},
+	[DOMAIN_RULE_NAMESERVER] = {sizeof(struct dns_nameserver_rule), NULL, NULL, NULL, NULL, 0},
+	[DOMAIN_RULE_CHECKSPEED] = {sizeof(struct dns_domain_check_orders), NULL, NULL, NULL, NULL, 0},
+	[DOMAIN_RULE_IPSET] = {sizeof(struct dns_ipset_rule), NULL, _rule_ipset_clone, _rule_ipset_append, _rule_ipset_destroy, 1},
+	[DOMAIN_RULE_NFTSET_IP] = {sizeof(struct dns_nftset_rule), NULL, _rule_nftset_clone, _rule_nftset_append, _rule_nftset_destroy, 1},
+	[DOMAIN_RULE_IPSET_IPV4] = {sizeof(struct dns_ipset_rule), NULL, _rule_ipset_clone, _rule_ipset_append, _rule_ipset_destroy, 1},
+	[DOMAIN_RULE_GROUP] = {sizeof(struct dns_group_rule), NULL, NULL, NULL, NULL, 0},
+	[DOMAIN_RULE_NFTSET_IP6] = {sizeof(struct dns_nftset_rule), NULL, _rule_nftset_clone, _rule_nftset_append, _rule_nftset_destroy, 1},
+	[DOMAIN_RULE_IPSET_IPV6] = {sizeof(struct dns_ipset_rule), NULL, _rule_ipset_clone, _rule_ipset_append, _rule_ipset_destroy, 1},
+
+	[DOMAIN_RULE_HTTPS] = {sizeof(struct dns_https_record_rule), NULL, _rule_https_clone, NULL, _rule_https_destroy, 0},
+	[DOMAIN_RULE_SRV] = {sizeof(struct dns_srv_record_rule), NULL, _rule_srv_clone, NULL, _rule_srv_destroy, 0},
+	[DOMAIN_RULE_RESPONSE_MODE] = {sizeof(struct dns_response_mode_rule), NULL, NULL, NULL, NULL, 0},
+	[DOMAIN_RULE_CNAME] = {sizeof(struct dns_cname_rule), NULL, NULL, NULL, NULL, 0},
+	[DOMAIN_RULE_TTL] = {sizeof(struct dns_ttl_rule), NULL, NULL, NULL, NULL, 0},
+	[DOMAIN_RULE_TXT] = {sizeof(struct dns_txt_record_rule), NULL, _rule_txt_clone, NULL, _rule_txt_destroy, 0},
 };
+
+
 
 void *_new_dns_rule_ext(enum domain_rule domain_rule, int ext_size)
 {
@@ -296,47 +406,12 @@ void _dns_rule_get(struct dns_rule *rule)
 
 static void _dns_rule_free(struct dns_rule *rule)
 {
-	if (rule->rule == DOMAIN_RULE_HTTPS) {
-		struct dns_https_record_rule *https_rule = (struct dns_https_record_rule *)rule;
-		struct dns_https_record *record, *tmp;
-		if (https_rule->record_list.next != NULL && https_rule->record_list.prev != NULL) {
-			list_for_each_entry_safe(record, tmp, &https_rule->record_list, list)
-			{
-				list_del(&record->list);
-				free(record);
-			}
-		}
-	} else if (rule->rule == DOMAIN_RULE_SRV) {
-		struct dns_srv_record_rule *srv_rule = (struct dns_srv_record_rule *)rule;
-		struct dns_srv_record *record, *tmp;
-		if (srv_rule->record_list.next != NULL && srv_rule->record_list.prev != NULL) {
-			list_for_each_entry_safe(record, tmp, &srv_rule->record_list, list)
-			{
-				list_del(&record->list);
-				free(record);
-			}
-		}
-	} else if (rule->rule == DOMAIN_RULE_TXT) {
-		struct dns_txt_record_rule *txt_rule = (struct dns_txt_record_rule *)rule;
-		struct dns_txt_record *record, *tmp;
-		if (txt_rule->record_list.next != NULL && txt_rule->record_list.prev != NULL) {
-			list_for_each_entry_safe(record, tmp, &txt_rule->record_list, list)
-			{
-				list_del(&record->list);
-				free(record);
-			}
-		}
-	} else if (rule->rule == DOMAIN_RULE_NFTSET_IP || rule->rule == DOMAIN_RULE_NFTSET_IP6) {
-		struct dns_nftset_rule *nft = ((struct dns_nftset_rule *)rule)->next;
-		while (nft) {
-			struct dns_nftset_rule *tmp_nft = nft->next;
-			nft->next = NULL;
-			_dns_rule_put(&nft->head);
-			nft = tmp_nft;
-		}
+	if (dns_rule_info_table[rule->rule].destroy) {
+		dns_rule_info_table[rule->rule].destroy(rule);
 	}
 	free(rule);
 }
+
 
 void _dns_rule_put(struct dns_rule *rule)
 {
@@ -718,7 +793,9 @@ int _config_domain_rule_add(const char *domain, enum domain_rule type, void *rul
 	/* add new rule to domain */
 	struct dns_rule *prule = (struct dns_rule *)rule;
 	int is_cloned = 0;
-	if (atomic_read(&prule->refcnt) > 1 && (prule->sub_only != sub_rule_only || prule->root_only != root_rule_only)) {
+	if (atomic_read(&prule->refcnt) > 1 &&
+		(prule->sub_only != sub_rule_only || prule->root_only != root_rule_only ||
+		 dns_rule_info_table[prule->rule].is_list)) {
 		struct dns_rule *new_rule = _dns_rule_clone(prule);
 		if (new_rule) {
 			prule = new_rule;
@@ -728,19 +805,11 @@ int _config_domain_rule_add(const char *domain, enum domain_rule type, void *rul
 	}
 
 	if (domain_rule->rules[type]) {
-		/* nftset: append to chain instead of replacing, so multiple
-		 * nftset targets for the same domain are all preserved. */
-		if (type == DOMAIN_RULE_NFTSET_IP || type == DOMAIN_RULE_NFTSET_IP6) {
-			struct dns_nftset_rule *tail = (struct dns_nftset_rule *)domain_rule->rules[type];
-			struct dns_nftset_rule *new_nft = (struct dns_nftset_rule *)prule;
-			while (tail->next) {
-				tail = tail->next;
-			}
-			new_nft->next = NULL;
+		if (dns_rule_info_table[type].append) {
+			dns_rule_info_table[type].append(domain_rule->rules[type], prule);
 			if (!is_cloned) {
 				_dns_rule_get(prule);
 			}
-			tail->next = new_nft;
 			if (add_domain_rule) {
 				old_domain_rule = art_insert(&_config_current_rule_group()->domain_rule.tree,
 							     (unsigned char *)domain_key, len, add_domain_rule);
@@ -750,6 +819,7 @@ int _config_domain_rule_add(const char *domain, enum domain_rule type, void *rul
 			}
 			return 0;
 		}
+
 		_dns_rule_put(domain_rule->rules[type]);
 		domain_rule->rules[type] = NULL;
 	}

@@ -223,7 +223,9 @@ struct dns_ipset_name {
 struct dns_ipset_rule {
 	struct dns_rule head;
 	const char *ipsetname;
+	struct dns_ipset_rule *next;
 };
+
 
 struct dns_ipset_names {
 	char inet_enable;

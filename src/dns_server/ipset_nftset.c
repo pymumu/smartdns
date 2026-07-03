@@ -25,21 +25,22 @@ void _dns_server_add_ipset_nftset(struct dns_request *request, struct dns_ipset_
 								  struct dns_nftset_rule *nftset_rule, const unsigned char addr[], int addr_len,
 								  int ipset_timeout_value, int nftset_timeout_value)
 {
-	if (ipset_rule != NULL) {
+	for (const struct dns_ipset_rule *cur = ipset_rule; cur; cur = cur->next) {
 		/* add IPV4 to ipset */
 		if (addr_len == DNS_RR_A_LEN) {
 			tlog(TLOG_DEBUG, "IPSET-MATCH: domain: %s, ipset: %s, IP: %d.%d.%d.%d", request->domain,
-				 ipset_rule->ipsetname, addr[0], addr[1], addr[2], addr[3]);
-			ipset_add(ipset_rule->ipsetname, addr, DNS_RR_A_LEN, ipset_timeout_value);
+				 cur->ipsetname, addr[0], addr[1], addr[2], addr[3]);
+			ipset_add(cur->ipsetname, addr, DNS_RR_A_LEN, ipset_timeout_value);
 		} else if (addr_len == DNS_RR_AAAA_LEN) {
 			tlog(TLOG_DEBUG,
 				 "IPSET-MATCH: domain: %s, ipset: %s, IP: "
 				 "%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x:%.2x%.2x",
-				 request->domain, ipset_rule->ipsetname, addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr[6],
+				 request->domain, cur->ipsetname, addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr[6],
 				 addr[7], addr[8], addr[9], addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
-			ipset_add(ipset_rule->ipsetname, addr, DNS_RR_AAAA_LEN, ipset_timeout_value);
+			ipset_add(cur->ipsetname, addr, DNS_RR_AAAA_LEN, ipset_timeout_value);
 		}
 	}
+
 
 	for (const struct dns_nftset_rule *cur = nftset_rule; cur; cur = cur->next) {
 		if (addr_len == DNS_RR_A_LEN) {
