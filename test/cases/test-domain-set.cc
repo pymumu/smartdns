@@ -81,3 +81,65 @@ domain-rules /domain-set:test-set/ -c none --dualstack-ip-selection no -a 9.9.9.
 	EXPECT_EQ(client.GetAnswer()[0].GetType(), "A");
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
 }
+
+TEST_F(DomainSet, nftset_multiple_target_loop_bug)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::Server server;
+	smartdns::TempFile file_set;
+	std::string config = "domain-set -name test-set -file " + file_set.GetPath() + "\n";
+	config += R"""(bind [::]:60053
+server 127.0.0.1:61053
+domain-rules /domain-set:test-set/ -nftset #4:ip#tbl#set1
+domain-rules /domain-set:test-set/ -nftset #4:ip#tbl#set2
+)""";
+
+	server_upstream.Start("udp://0.0.0.0:61053", [&](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype == DNS_T_A) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4");
+			return smartdns::SERVER_REQUEST_OK;
+		}
+		return smartdns::SERVER_REQUEST_SOA;
+	});
+
+	file_set.Write("google.com\n");
+	file_set.Write("baidu.com\n");
+
+	server.Start(config);
+	smartdns::Client client;
+
+	ASSERT_TRUE(client.Query("google.com", 60053));
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+}
+
+TEST_F(DomainSet, ipset_multiple_target_loop_bug)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::Server server;
+	smartdns::TempFile file_set;
+	std::string config = "domain-set -name test-set -file " + file_set.GetPath() + "\n";
+	config += R"""(bind [::]:60053
+server 127.0.0.1:61053
+domain-rules /domain-set:test-set/ -ipset #4:set1
+domain-rules /domain-set:test-set/ -ipset #4:set2
+)""";
+
+	server_upstream.Start("udp://0.0.0.0:61053", [&](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype == DNS_T_A) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4");
+			return smartdns::SERVER_REQUEST_OK;
+		}
+		return smartdns::SERVER_REQUEST_SOA;
+	});
+
+	file_set.Write("google.com\n");
+	file_set.Write("baidu.com\n");
+
+	server.Start(config);
+	smartdns::Client client;
+
+	ASSERT_TRUE(client.Query("google.com", 60053));
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+}
+
+
