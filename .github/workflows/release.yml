@@ -237,12 +237,7 @@ jobs:
       - name: Build All Targets
         run: |
           # 1. Determine release version
-          if [ "${{ github.event_name }}" = "release" ]; then
-            RELEASE_TAG="${{ github.event.release.tag_name }}"
-            export RELEASE_VERSION="${RELEASE_TAG#v}"
-          else
-            export RELEASE_VERSION="$(date +"1.%Y.%m.%d-%H%M")"
-          fi
+          export RELEASE_VERSION="$(date +"1.%Y.%m.%d-%H%M")"
           
           echo "Building Version: ${RELEASE_VERSION}"
           
