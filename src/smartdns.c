@@ -1051,7 +1051,10 @@ static int smartdns_enter_monitor_mode(int argc, char *argv[], int no_deamon)
 		setenv("SMARTDNS_NO_DAEMON", "1", 1);
 	}
 
-	chdir(smartdns_exec_dir());
+	if( 0 != chdir(smartdns_exec_dir()) ) {
+		tlog(TLOG_ERROR, "chdir failed, %s, %s", exec_path, strerror(errno));
+		return -1;
+	}
 	if (readlink("/proc/self/exe", exec_path, sizeof(exec_path) - 1) > 0) {
 		execv(exec_path, argv);
 	} else {
