@@ -796,6 +796,12 @@ int dns_server_run(void)
 				continue;
 			}
 
+			/* neighbor table event */
+			if (unlikely(event->data.fd == server.neigh_netlink_fd)) {
+				_dns_server_process_neighbor_cache_event();
+				continue;
+			}
+
 			struct dns_server_conn_head *conn_head = event->data.ptr;
 			if (conn_head == NULL) {
 				tlog(TLOG_ERROR, "invalid fd\n");
@@ -881,6 +887,7 @@ int dns_server_init(void)
 	}
 
 	memset(&server, 0, sizeof(server));
+	server.neigh_netlink_fd = -1;
 
 	pthread_mutexattr_init(&attr);
 	pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);

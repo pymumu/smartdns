@@ -25,7 +25,9 @@
 extern "C" {
 #endif /*__cplusplus */
 
-struct neighbor_cache_item *_dns_server_neighbor_cache_get_item(const uint8_t *net_addr, int net_addr_len);
+int _dns_server_neighbor_cache_get_mac(const uint8_t *net_addr, int net_addr_len, uint8_t mac[6]);
+
+void _dns_server_process_neighbor_cache_event(void);
 
 struct dns_client_rules *_dns_server_get_client_rules_by_mac(uint8_t *netaddr, int netaddr_len);
 

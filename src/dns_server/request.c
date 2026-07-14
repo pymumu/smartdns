@@ -311,8 +311,22 @@ const struct sockaddr *dns_server_request_get_local_addr(struct dns_request *req
 
 const uint8_t *dns_server_request_get_remote_mac(struct dns_request *request)
 {
+	static const uint8_t zero_mac[6] = {0};
+
 	if (request->conn == NULL) {
 		return NULL;
+	}
+
+	if (memcmp(request->mac, zero_mac, 6) == 0 && request->addr_len > 0) {
+		/* the mac was unknown when the request arrived; replying to the client
+		 * forced the kernel to resolve it, so check the neighbor cache again */
+		uint8_t netaddr[DNS_RR_AAAA_LEN] = {0};
+		int netaddr_len = sizeof(netaddr);
+
+		if (get_raw_addr_by_sockaddr((struct sockaddr_storage *)&request->addr, request->addr_len, netaddr,
+									 &netaddr_len) == 0) {
+			_dns_server_neighbor_cache_get_mac(netaddr, netaddr_len, request->mac);
+		}
 	}
 
 	return request->mac;
@@ -1014,12 +1028,7 @@ void _dns_server_request_set_mac(struct dns_request *request, struct sockaddr_st
 		return;
 	}
 
-	struct neighbor_cache_item *item = _dns_server_neighbor_cache_get_item(netaddr, netaddr_len);
-	if (item) {
-		if (item->has_mac) {
-			memcpy(request->mac, item->mac, 6);
-		}
-	}
+	_dns_server_neighbor_cache_get_mac(netaddr, netaddr_len, request->mac);
 }
 
 int _dns_server_request_set_client_addr(struct dns_request *request, struct sockaddr_storage *from, socklen_t from_len)

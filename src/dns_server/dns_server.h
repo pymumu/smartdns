@@ -415,6 +415,7 @@ struct dns_server {
 	atomic_t run;
 	int epoll_fd;
 	int event_fd;
+	int neigh_netlink_fd;
 	struct list_head conn_list;
 	pthread_mutex_t conn_list_lock;
 
