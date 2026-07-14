@@ -170,8 +170,10 @@ struct http2_ctx {
 	uint32_t peer_max_header_list_size;
 	int send_initial_window_size;
 	int recv_initial_window_size;
-	int active_streams;
-	struct http2_settings settings; /* HTTP/2 settings */
+	int active_local_streams;
+	int active_peer_streams;
+	struct http2_settings settings; /* Local settings advertised to the peer. */
+	uint32_t peer_max_concurrent_streams;
 
 	/* I/O state */
 	int want_read;
@@ -838,9 +840,21 @@ static struct http2_stream *_http2_find_stream(struct http2_ctx *ctx, uint32_t s
 
 static struct http2_stream *_http2_create_stream(struct http2_ctx *ctx, uint32_t stream_id)
 {
-	/* Check concurrent streams limit */
-	if (ctx->active_streams >= ctx->settings.max_concurrent_streams && ctx->settings.max_concurrent_streams > 0) {
-		tlog(TLOG_DEBUG, "HTTP/2: Max concurrent streams limit reached (%d)", ctx->settings.max_concurrent_streams);
+	int is_local_stream = _http2_is_local_stream_id(ctx, stream_id);
+
+	/* SETTINGS_MAX_CONCURRENT_STREAMS is directional. Local settings limit
+	 * peer-initiated streams; peer settings limit locally initiated streams. */
+	if (is_local_stream) {
+		if ((uint32_t)ctx->active_local_streams >= ctx->peer_max_concurrent_streams) {
+			tlog(TLOG_DEBUG, "HTTP/2: Peer max concurrent streams limit reached (%u)",
+				 ctx->peer_max_concurrent_streams);
+			errno = ENOSPC;
+			return NULL;
+		}
+	} else if (ctx->settings.max_concurrent_streams > 0 &&
+			   ctx->active_peer_streams >= ctx->settings.max_concurrent_streams) {
+		tlog(TLOG_DEBUG, "HTTP/2: Local max concurrent streams limit reached (%d)",
+			 ctx->settings.max_concurrent_streams);
 		errno = ENOSPC;
 		return NULL;
 	}
@@ -890,7 +904,11 @@ static struct http2_stream *_http2_create_stream(struct http2_ctx *ctx, uint32_t
 	}
 	hash_add(ctx->stream_map, &stream->hash_node, stream->stream_id);
 	list_add(&stream->node, &ctx->streams);
-	ctx->active_streams++;
+	if (is_local_stream) {
+		ctx->active_local_streams++;
+	} else {
+		ctx->active_peer_streams++;
+	}
 	pthread_mutex_unlock(&ctx->mutex);
 
 	return stream;
@@ -918,7 +936,11 @@ static int _http2_remove_stream(struct http2_stream *stream, int do_put)
 		list_del_init(&stream->node);
 		stream->ctx = NULL; /* Break link to ctx to prevent UAF if ctx dies first */
 		if (ctx) {
-			ctx->active_streams--;
+			if (_http2_is_local_stream_id(ctx, stream->stream_id)) {
+				ctx->active_local_streams--;
+			} else {
+				ctx->active_peer_streams--;
+			}
 		}
 		
 		/* Only release ownership if we successfully removed it from the list.
@@ -1308,7 +1330,7 @@ static int _http2_process_headers_frame(struct http2_ctx *ctx, int stream_id, co
 		}
 
 		if (frame_type == HTTP2_FRAME_HEADERS && ctx->settings.max_concurrent_streams > 0 &&
-			ctx->active_streams >= ctx->settings.max_concurrent_streams) {
+			ctx->active_peer_streams >= ctx->settings.max_concurrent_streams) {
 			refuse_stream = 1;
 		}
 
@@ -1449,7 +1471,7 @@ static int _http2_process_settings_frame(struct http2_ctx *ctx, const uint8_t *d
 			}
 			break;
 		case HTTP2_SETTINGS_MAX_CONCURRENT_STREAMS:
-			ctx->settings.max_concurrent_streams = value;
+			ctx->peer_max_concurrent_streams = value;
 			break;
 		case HTTP2_SETTINGS_INITIAL_WINDOW_SIZE:
 			if (value > INT_MAX) {
@@ -1919,7 +1941,9 @@ static void _http2_ctx_init_common(struct http2_ctx *ctx, const struct http2_ctx
 	ctx->peer_max_header_list_size = HTTP2_MAX_HEADER_BLOCK_SIZE;
 	ctx->send_initial_window_size = HTTP2_DEFAULT_WINDOW_SIZE;
 	ctx->recv_initial_window_size = HTTP2_DEFAULT_WINDOW_SIZE;
-	ctx->active_streams = 0;
+	ctx->active_local_streams = 0;
+	ctx->active_peer_streams = 0;
+	ctx->peer_max_concurrent_streams = UINT32_MAX;
 
 	/* Initialize settings with defaults or provided values */
 	if (params->settings) {

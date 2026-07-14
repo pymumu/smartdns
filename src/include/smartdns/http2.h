@@ -32,7 +32,9 @@ struct http2_stream;
 
 /* HTTP/2 Settings structure */
 struct http2_settings {
-	int max_concurrent_streams; /* -1 = use default (8192), 0 = unlimited */
+	/* Local limit advertised for streams initiated by the peer.
+	 * -1 = use default (8192), 0 = unlimited. */
+	int max_concurrent_streams;
 };
 
 /* Error codes */

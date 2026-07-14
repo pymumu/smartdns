@@ -1483,6 +1483,86 @@ TEST_F(LIBHTTP2, RefusedHeadersStillUpdateHpackDecoder)
 	http2_ctx_close(server_ctx);
 }
 
+TEST_F(LIBHTTP2, PeerMaxConcurrentStreamsDoesNotOverrideServerInboundLimit)
+{
+	struct http2_settings server_settings = {};
+	server_settings.max_concurrent_streams = 1;
+	struct http2_ctx *server_ctx = http2_ctx_server_new("test-server", bio_read, bio_write, &server_sock, &server_settings);
+	ASSERT_NE(server_ctx, nullptr);
+
+	const char preface[] = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+	ASSERT_EQ(write(client_sock, preface, sizeof(preface) - 1), (ssize_t)sizeof(preface) - 1);
+	const uint8_t peer_settings[] = {
+		0x00, 0x03,             /* SETTINGS_MAX_CONCURRENT_STREAMS */
+		0x00, 0x00, 0x00, 0x00, /* zero only limits server-initiated streams */
+	};
+	WriteClientFrame(0x04, 0, 0, peer_settings, sizeof(peer_settings));
+
+	int server_ret = 0;
+	for (int i = 0; i < 50; i++) {
+		server_ret = http2_ctx_handshake(server_ctx);
+		if (server_ret == 1) {
+			break;
+		}
+		usleep(1000);
+	}
+	ASSERT_EQ(server_ret, 1);
+
+	const uint8_t request_headers[] = {
+		0x82, /* :method: GET */
+		0x84, /* :path: / */
+		0x86  /* :scheme: http */
+	};
+	/* Deliberately omit END_STREAM so the first request remains active. */
+	WriteClientFrame(0x01, 0x04, 1, request_headers, sizeof(request_headers));
+	WriteClientFrame(0x01, 0x04, 3, request_headers, sizeof(request_headers));
+
+	std::vector<struct http2_stream *> accepted_streams;
+	for (int i = 0; i < 50; i++) {
+		struct http2_poll_item items[4] = {};
+		int count = 0;
+		int poll_ret = http2_ctx_poll_readable(server_ctx, items, 4, &count);
+		ASSERT_TRUE(poll_ret == 0 || poll_ret == HTTP2_ERR_EAGAIN) << http2_error_to_string(poll_ret);
+		for (int j = 0; j < count; j++) {
+			if (items[j].stream == nullptr && items[j].readable) {
+				struct http2_stream *stream = http2_ctx_accept_stream(server_ctx);
+				if (stream != nullptr) {
+					accepted_streams.push_back(stream);
+				}
+			}
+			if (items[j].stream != nullptr) {
+				http2_stream_put(items[j].stream);
+			}
+		}
+		usleep(1000);
+	}
+
+	ASSERT_EQ(accepted_streams.size(), 1U);
+	EXPECT_EQ(http2_stream_get_id(accepted_streams[0]), 1);
+	for (auto *stream : accepted_streams) {
+		http2_stream_close(stream);
+	}
+	http2_ctx_close(server_ctx);
+}
+
+TEST_F(LIBHTTP2, PeerMaxConcurrentStreamsLimitsLocallyInitiatedStreams)
+{
+	struct http2_ctx *client_ctx = http2_ctx_client_new("test-client", bio_read, bio_write, &client_sock, NULL);
+	ASSERT_NE(client_ctx, nullptr);
+
+	const uint8_t peer_settings[] = {
+		0x00, 0x03,             /* SETTINGS_MAX_CONCURRENT_STREAMS */
+		0x00, 0x00, 0x00, 0x00, /* peer accepts no new client streams */
+	};
+	WriteServerFrame(0x04, 0, 0, peer_settings, sizeof(peer_settings));
+	for (int i = 0; i < 50 && http2_ctx_handshake(client_ctx) != 1; i++) {
+		usleep(1000);
+	}
+
+	EXPECT_EQ(http2_stream_new(client_ctx), nullptr);
+	http2_ctx_close(client_ctx);
+}
+
 TEST_F(LIBHTTP2, StreamNewAfterGoawayFails)
 {
 	struct http2_ctx *ctx = http2_ctx_client_new("test-client", bio_read, bio_write, &client_sock, NULL);
