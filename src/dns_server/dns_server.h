@@ -26,11 +26,21 @@
 #include "smartdns/dns.h"
 #include "smartdns/dns_conf.h"
 #include "smartdns/dns_server.h"
+#ifndef MINIMAL_BUILD
 #include "smartdns/http2.h"
+#endif
 #include "smartdns/tlog.h"
 #include "smartdns/util.h"
 
+#ifndef MINIMAL_BUILD
 #include <openssl/ssl.h>
+#else
+struct ssl_st;
+struct ssl_ctx_st;
+typedef struct ssl_st SSL;
+typedef struct ssl_ctx_st SSL_CTX;
+#include <stdio.h>
+#endif
 #include <pthread.h>
 
 #ifdef __cplusplus

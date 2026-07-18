@@ -145,13 +145,15 @@ int _conf_domain_rule_https_record(const char *domain, const char *host)
 					goto errout;
 				}
 				record->alpn_len = alpn_len;
-			} else if (strncmp(key, "ech", sizeof("ech")) == 0) {
+	#ifndef MINIMAL_BUILD
+		} else if (strncmp(key, "ech", sizeof("ech")) == 0) {
 				int ech_len = SSL_base64_decode(val, record->ech, DNS_MAX_ECH_LEN);
 				if (ech_len < 0) {
 					tlog(TLOG_ERROR, "invalid option value for %s.", key);
 					goto errout;
 				}
 				record->ech_len = ech_len;
+#endif
 			} else if (strncmp(key, "ipv4hint", sizeof("ipv4hint")) == 0) {
 				int addr_len = DNS_RR_A_LEN;
 				if (get_raw_addr_by_ip(val, record->ipv4_addr, &addr_len) != 0) {

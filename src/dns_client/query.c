@@ -332,9 +332,13 @@ int _dns_client_add_hashmap(struct dns_query_struct *query)
 	int loop = 0;
 
 	while (loop++ <= 32) {
+#ifndef MINIMAL_BUILD
 		if (RAND_bytes((unsigned char *)&query->sid, sizeof(query->sid)) != 1) {
 			query->sid = random();
 		}
+#else
+		query->sid = random();
+#endif
 
 		key = hash_string(query->domain);
 		key = jhash(&query->sid, sizeof(query->sid), key);

@@ -22,16 +22,31 @@
 #include "smartdns/dns.h"
 #include "smartdns/dns_conf.h"
 #include "smartdns/dns_stats.h"
+#ifndef MINIMAL_BUILD
 #include "smartdns/http2.h"
-#include "smartdns/lib/atomic.h"
-#include "smartdns/lib/hashtable.h"
-#include "smartdns/lib/list.h"
-#include "smartdns/tlog.h"
-
 #include <openssl/err.h>
 #include <openssl/rand.h>
 #include <openssl/ssl.h>
 #include <openssl/x509v3.h>
+#else
+struct ssl_st;
+struct ssl_ctx_st;
+struct ssl_session_st;
+struct bio_method_st;
+typedef struct ssl_st SSL;
+typedef struct ssl_ctx_st SSL_CTX;
+typedef struct ssl_session_st SSL_SESSION;
+typedef struct bio_method_st BIO_METHOD;
+#include <errno.h>
+#include <pthread.h>
+#include <stdio.h>
+#include <time.h>
+#include <unistd.h>
+#endif
+#include "smartdns/lib/atomic.h"
+#include "smartdns/lib/hashtable.h"
+#include "smartdns/lib/list.h"
+#include "smartdns/tlog.h"
 
 #ifdef __cplusplus
 extern "C" {

@@ -778,6 +778,7 @@ static proxy_handshake_state _proxy_handshake_socks5(struct proxy_conn *proxy_co
 	return PROXY_HANDSHAKE_ERR;
 }
 
+#ifndef MINIMAL_BUILD
 static int _proxy_handshake_http(struct proxy_conn *proxy_conn)
 {
 	int len = 0;
@@ -911,6 +912,7 @@ out:
 
 	return ret;
 }
+#endif
 
 proxy_handshake_state proxy_conn_handshake(struct proxy_conn *proxy_conn)
 {
@@ -926,7 +928,11 @@ proxy_handshake_state proxy_conn_handshake(struct proxy_conn *proxy_conn)
 	case PROXY_SOCKS5:
 		return _proxy_handshake_socks5(proxy_conn);
 	case PROXY_HTTP:
+#ifndef MINIMAL_BUILD
 		return _proxy_handshake_http(proxy_conn);
+#else
+		return PROXY_HANDSHAKE_ERR;
+#endif
 	default:
 		return PROXY_HANDSHAKE_ERR;
 	}

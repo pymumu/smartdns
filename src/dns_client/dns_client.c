@@ -20,14 +20,16 @@
 
 #include "smartdns/util.h"
 
+#ifndef MINIMAL_BUILD
 #include "client_http2.h"
 #include "client_http3.h"
 #include "client_https.h"
-#include "client_mdns.h"
 #include "client_quic.h"
+#include "client_tls.h"
+#endif
+#include "client_mdns.h"
 #include "client_socket.h"
 #include "client_tcp.h"
-#include "client_tls.h"
 #include "client_udp.h"
 #include "conn_stream.h"
 #include "dns_client.h"
@@ -212,10 +214,12 @@ static int _dns_client_process(struct dns_server_info *server_info, struct epoll
 	} else if (server_info->type == DNS_SERVER_TCP) {
 		/* receive from tcp */
 		return _dns_client_process_tcp(server_info, event, now);
+#ifndef MINIMAL_BUILD
 	} else if (server_info->type == DNS_SERVER_TLS || server_info->type == DNS_SERVER_HTTPS ||
 			   server_info->type == DNS_SERVER_QUIC || server_info->type == DNS_SERVER_HTTP3) {
 		/* receive from tls */
 		return _dns_client_process_tls(server_info, event, now);
+#endif
 	} else {
 		return -1;
 	}
@@ -223,6 +227,7 @@ static int _dns_client_process(struct dns_server_info *server_info, struct epoll
 	return 0;
 }
 
+#ifndef MINIMAL_BUILD
 static int _dns_client_send_http(struct dns_server_info *server_info, struct dns_query_struct *query, void *packet_data,
 								 int packet_data_len)
 {
@@ -235,6 +240,7 @@ static int _dns_client_send_http(struct dns_server_info *server_info, struct dns
 	   If ALPN later turns out to be H1, _dns_client_process_https_streams will handle it. */
 	return _dns_client_send_http2(server_info, query, packet_data, packet_data_len);
 }
+#endif
 
 static int _dns_client_check_server_prohibit(struct dns_server_info *server_info, int prohibit_time)
 {
@@ -289,6 +295,7 @@ static int _dns_client_send_one_packet(struct dns_server_info *server_info, stru
 			ret = _dns_client_send_tcp(server_info, packet_data, packet_data_len);
 			send_err = errno;
 			break;
+#ifndef MINIMAL_BUILD
 		case DNS_SERVER_TLS:
 			/* tls query */
 			ret = _dns_client_send_tls(server_info, packet_data, packet_data_len);
@@ -297,11 +304,6 @@ static int _dns_client_send_one_packet(struct dns_server_info *server_info, stru
 		case DNS_SERVER_HTTPS:
 			/* https query - buffer raw data in stream, protocol determined later */
 			ret = _dns_client_send_http(server_info, query, packet_data, packet_data_len);
-			send_err = errno;
-			break;
-		case DNS_SERVER_MDNS:
-			/* mdns query */
-			ret = _dns_client_send_udp_mdns(server_info, packet_data, packet_data_len);
 			send_err = errno;
 			break;
 		case DNS_SERVER_QUIC:
@@ -314,6 +316,14 @@ static int _dns_client_send_one_packet(struct dns_server_info *server_info, stru
 			ret = _dns_client_send_http3(query, server_info, packet_data, packet_data_len);
 			send_err = errno;
 			break;
+#endif
+#ifndef MINIMAL_BUILD
+		case DNS_SERVER_MDNS:
+			/* mdns query */
+			ret = _dns_client_send_udp_mdns(server_info, packet_data, packet_data_len);
+			send_err = errno;
+			break;
+#endif
 		default:
 			/* unsupported query type */
 			ret = -1;
@@ -710,10 +720,12 @@ int dns_client_init(void)
 		goto errout;
 	}
 
+#ifndef MINIMAL_BUILD
 	if (_dns_client_add_mdns_server() != 0) {
 		tlog(TLOG_ERROR, "add mdns server failed.");
 		goto errout;
 	}
+#endif
 
 	client.default_group = _dns_client_get_group(DNS_SERVER_GROUP_DEFAULT);
 	client.epoll_fd = epollfd;
@@ -781,6 +793,7 @@ void dns_client_exit(void)
 
 	pthread_mutex_destroy(&client.server_list_lock);
 	pthread_mutex_destroy(&client.domain_map_lock);
+#ifndef MINIMAL_BUILD
 	if (client.ssl_ctx) {
 		SSL_CTX_free(client.ssl_ctx);
 		client.ssl_ctx = NULL;
@@ -790,6 +803,7 @@ void dns_client_exit(void)
 		SSL_CTX_free(client.ssl_quic_ctx);
 		client.ssl_quic_ctx = NULL;
 	}
+#endif
 
 	is_client_init = 0;
 }
