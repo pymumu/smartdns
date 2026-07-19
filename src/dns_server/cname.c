@@ -93,7 +93,6 @@ int _dns_server_process_cname_pre(struct dns_request *request)
 	request->domain_rule.is_sub_rule[DOMAIN_RULE_CNAME] = domain_rule.is_sub_rule[DOMAIN_RULE_CNAME];
 
 	request->no_select_possible_ip = 1;
-	request->no_cache_cname = 1;
 	safe_strncpy(request->cname, cname->cname, sizeof(request->cname));
 
 	return 0;

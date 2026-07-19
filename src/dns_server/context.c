@@ -1095,8 +1095,6 @@ int _dns_cache_reply_packet(struct dns_server_post_context *context)
 		tlog(TLOG_WARN, "update packet cache failed.");
 	}
 
-	_dns_cache_cname_packet(context);
-
 	return 0;
 }
 

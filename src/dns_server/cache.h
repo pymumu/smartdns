@@ -34,8 +34,6 @@ int _dns_server_cache_init(void);
 
 int _dns_server_process_cache(struct dns_request *request);
 
-int _dns_cache_cname_packet(struct dns_server_post_context *context);
-
 int _dns_server_request_update_cache(struct dns_request *request, int speed, dns_type_t qtype,
 									 struct dns_cache_data *cache_data, int cache_ttl);
 

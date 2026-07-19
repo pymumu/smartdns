@@ -398,7 +398,6 @@ struct dns_request {
 	struct dns_request_pending_list *request_pending_list;
 
 	int no_select_possible_ip;
-	int no_cache_cname;
 	int no_cache;
 	int no_ipalias;
 
