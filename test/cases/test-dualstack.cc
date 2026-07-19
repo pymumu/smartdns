@@ -269,3 +269,48 @@ speed-check-mode ping
 	EXPECT_GT(client.GetAnswer()[1].GetTTL(), 590);
 	EXPECT_EQ(client.GetAnswer()[1].GetData(), "2001:db8::2");
 }
+
+TEST_F(DualStack, ipv6_within_threshold_not_forced_soa)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::Server server;
+
+	server_upstream.Start("udp://0.0.0.0:61053", [&](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype == DNS_T_A) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4");
+			return smartdns::SERVER_REQUEST_OK;
+		} else if (request->qtype == DNS_T_AAAA) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "2001:db8::1");
+			return smartdns::SERVER_REQUEST_OK;
+		}
+		return smartdns::SERVER_REQUEST_SOA;
+	});
+
+	// IPv4 ping: 50ms, IPv6 ping: 60ms. IPv4 returns first, IPv6 arrives 10ms later.
+	// dualstack-ip-selection-threshold is 15ms, so the 10ms difference is WITHIN the
+	// threshold: IPv6 should NOT be dropped in favor of IPv4.
+	//
+	// Buggy behavior: when the IPv4 probe returns first, the AAAA request's own ping
+	// is still -1, so the threshold comparison in _dns_server_force_dualstack is
+	// bypassed and it immediately forces SOA for AAAA (force IPv4 preferred).
+	// Correct behavior: wait for the IPv6 ping, compare 60ms vs 50ms = 10ms < 15ms,
+	// and return the IPv6 address.
+	server.MockPing(PING_TYPE_ICMP, "1.2.3.4", 60, 50);
+	server.MockPing(PING_TYPE_ICMP, "2001:db8::1", 60, 60);
+
+	server.Start(R"""(bind [::]:60053
+server 127.0.0.1:61053
+speed-check-mode ping
+dualstack-ip-selection yes
+dualstack-ip-selection-threshold 15
+)""");
+	smartdns::Client client;
+
+	ASSERT_TRUE(client.Query("a.com AAAA", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetType(), "AAAA");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "2001:db8::1");
+}
