@@ -80,7 +80,7 @@ errout:
 #else
 	tlog(TLOG_ERROR, "http3 is not supported.");
 #endif
-	return 0;
+	return -1;
 }
 
 #if defined(OSSL_QUIC1_VERSION) && !defined (OPENSSL_NO_QUIC)
@@ -92,10 +92,14 @@ int _dns_client_process_recv_http3(struct dns_server_info *server_info, struct d
 	int pkg_len = 0;
 	int has_content_length = 0;
 
-	http_head = http_head_init(4096, HTTP_VERSION_3_0);
-	if (http_head == NULL) {
-		goto errout;
+	if (conn_stream->http_head == NULL) {
+		conn_stream->http_head = http_head_init(4096, HTTP_VERSION_3_0);
+		if (conn_stream->http_head == NULL) {
+			goto errout;
+		}
 	}
+	http_head = conn_stream->http_head;
+	http_head_reset(http_head, HTTP_VERSION_3_0);
 
 	ret = http_head_parse(http_head, conn_stream->recv_buff.data, conn_stream->recv_buff.len);
 	if (ret < 0) {
@@ -150,14 +154,8 @@ int _dns_client_process_recv_http3(struct dns_server_info *server_info, struct d
 	}
 	ret = 0;
 out:
-	http_head_destroy(http_head);
 	return ret;
 errout:
-
-	if (http_head) {
-		http_head_destroy(http_head);
-	}
-
 	return -1;
 }
 #endif
