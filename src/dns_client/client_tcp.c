@@ -18,16 +18,19 @@
 
 #define _GNU_SOURCE
 
-#include "smartdns/http_parse.h"
 #include "smartdns/lib/stringutil.h"
 #include "smartdns/util.h"
 
-#include "client_https.h"
 #include "client_socket.h"
 #include "client_tcp.h"
-#include "client_tls.h"
 #include "conn_stream.h"
 #include "server_info.h"
+
+#ifndef MINIMAL_BUILD
+#include "smartdns/http_parse.h"
+#include "client_https.h"
+#include "client_tls.h"
+#endif
 
 #include <net/if.h>
 #include <netinet/ip.h>
@@ -150,6 +153,7 @@ errout:
 	return -1;
 }
 
+#ifndef MINIMAL_BUILD
 static int _dns_client_process_tcp_buff(struct dns_server_info *server_info)
 {
 	int len = 0;
@@ -252,7 +256,9 @@ out:
 	}
 	return ret;
 }
+#endif
 
+#ifndef MINIMAL_BUILD
 static int _dns_client_process_https_streams(struct dns_server_info *server_info)
 {
 	struct dns_conn_stream *stream, *tmp;
@@ -313,6 +319,7 @@ errout:
 	ret = -1;
 	goto out;
 }
+#endif
 int _dns_client_process_tcp(struct dns_server_info *server_info, struct epoll_event *event, unsigned long now)
 {
 	int len = 0;
@@ -364,9 +371,11 @@ int _dns_client_process_tcp(struct dns_server_info *server_info, struct epoll_ev
 			return 0;
 		}
 
+#ifndef MINIMAL_BUILD
 		if (_dns_client_process_tcp_buff(server_info) != 0) {
 			goto errout;
 		}
+#endif
 	}
 
 	/* when connected */
@@ -400,12 +409,14 @@ int _dns_client_process_tcp(struct dns_server_info *server_info, struct epoll_ev
 			pthread_mutex_unlock(&client.server_list_lock);
 		}
 
+#ifndef MINIMAL_BUILD
 		/* Process HTTPS streams if any */
 		if (server_info->type == DNS_SERVER_HTTPS && server_info->send_buff.len == 0) {
 			if (_dns_client_process_https_streams(server_info) != 0) {
 				goto errout;
 			}
 		}
+#endif
 
 		/* still remain data, retry */
 		if (server_info->send_buff.len > 0) {

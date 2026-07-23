@@ -28,10 +28,12 @@ extern "C" {
 
 int _config_server_udp(void *data, int argc, char *argv[]);
 int _config_server_tcp(void *data, int argc, char *argv[]);
+#ifndef MINIMAL_BUILD
 int _config_server_tls(void *data, int argc, char *argv[]);
 int _config_server_https(void *data, int argc, char *argv[]);
 int _config_server_quic(void *data, int argc, char *argv[]);
 int _config_server_http3(void *data, int argc, char *argv[]);
+#endif
 
 #ifdef __cplusplus
 }

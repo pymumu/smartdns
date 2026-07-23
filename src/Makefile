@@ -100,6 +100,30 @@ ifeq ($(USE_ATOMIC), 0)
  override LDFLAGS += -latomic 
 endif
 
+# Minimal build: only support upstream UDP/TCP servers, no TLS/HTTPS/QUIC/HTTP3/mDNS
+ifdef MINIMAL
+override CFLAGS += -DMINIMAL_BUILD
+override OBJS := $(filter-out \
+	dns_client/client_tls.o \
+	dns_client/client_https.o \
+	dns_client/client_http2.o \
+	dns_client/client_quic.o \
+	dns_client/client_http3.o \
+	dns_client/client_mdns.o \
+	dns_server/server_tls.o \
+	dns_server/server_https.o \
+	dns_server/server_http2.o \
+	dns_server/server_http.o \
+	dns_server/mdns.o \
+	utils/ssl.o \
+	http_parse/http_parse.o \
+	http_parse/http1_parse.o \
+	http_parse/http2.o \
+	http_parse/http3_parse.o \
+	, $(OBJS))
+override LDFLAGS := $(filter-out -lssl -lcrypto, $(LDFLAGS))
+endif
+
 override LDFLAGS += $(EXTRA_LDFLAGS)
 
 .PHONY: all clean

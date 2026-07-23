@@ -17,16 +17,20 @@
  */
 
 #include "client_socket.h"
+#ifndef MINIMAL_BUILD
 #include "client_http3.h"
 #include "client_https.h"
-#include "client_mdns.h"
 #include "client_quic.h"
-#include "client_tcp.h"
 #include "client_tls.h"
+#endif
+#include "client_mdns.h"
+#include "client_tcp.h"
 #include "client_udp.h"
 #include "conn_stream.h"
 
+#ifndef MINIMAL_BUILD
 #include <openssl/ssl.h>
+#endif
 #include <sys/epoll.h>
 
 int _dns_client_create_socket(struct dns_server_info *server_info)
@@ -44,10 +48,13 @@ int _dns_client_create_socket(struct dns_server_info *server_info)
 
 	if (server_info->type == DNS_SERVER_UDP) {
 		ret = _dns_client_create_socket_udp(server_info);
+#ifndef MINIMAL_BUILD
 	} else if (server_info->type == DNS_SERVER_MDNS) {
 		ret = _dns_client_create_socket_udp_mdns(server_info);
+#endif
 	} else if (server_info->type == DNS_SERVER_TCP) {
 		ret = _dns_client_create_socket_tcp(server_info);
+#ifndef MINIMAL_BUILD
 	} else if (server_info->type == DNS_SERVER_TLS) {
 		struct client_dns_server_flag_tls *flag_tls = NULL;
 		flag_tls = &server_info->flags.tls;
@@ -76,6 +83,7 @@ int _dns_client_create_socket(struct dns_server_info *server_info)
 			alpn = flag_https->alpn;
 		}
 		ret = _dns_client_create_socket_quic(server_info, flag_https->hostname, alpn);
+#endif
 	} else {
 		ret = -1;
 	}
@@ -87,12 +95,13 @@ int _dns_client_create_socket(struct dns_server_info *server_info)
 
 void _dns_client_close_socket_ext(struct dns_server_info *server_info, int no_del_conn_list)
 {
-	dns_server_status server_status = DNS_SERVER_STATUS_DISCONNECTED;
-
 	pthread_mutex_lock(&server_info->lock);
-	server_status = server_info->status;
+#ifndef MINIMAL_BUILD
+	dns_server_status server_status = server_info->status;
+#endif
 	server_info->status = DNS_SERVER_STATUS_DISCONNECTED;
 
+#ifndef MINIMAL_BUILD
 	if (server_info->ssl) {
 		/* Shutdown ssl */
 		if (server_status == DNS_SERVER_STATUS_CONNECTED) {
@@ -157,6 +166,7 @@ void _dns_client_close_socket_ext(struct dns_server_info *server_info, int no_de
 		BIO_meth_free(server_info->bio_method);
 		server_info->bio_method = NULL;
 	}
+#endif
 
 	if (server_info->proxy) {
 		proxy_conn_free(server_info->proxy);
@@ -201,6 +211,7 @@ void _dns_client_shutdown_socket(struct dns_server_info *server_info)
 			shutdown(server_info->fd, SHUT_RDWR);
 		}
 		break;
+#ifndef MINIMAL_BUILD
 	case DNS_SERVER_QUIC:
 	case DNS_SERVER_TLS:
 	case DNS_SERVER_HTTP3:
@@ -214,6 +225,7 @@ void _dns_client_shutdown_socket(struct dns_server_info *server_info)
 		}
 		atomic_set(&server_info->is_alive, 0);
 		break;
+#endif
 	case DNS_SERVER_MDNS:
 		break;
 	default:
@@ -227,6 +239,7 @@ int _dns_client_socket_send(struct dns_server_info *server_info)
 		return -1;
 	} else if (server_info->type == DNS_SERVER_TCP) {
 		return send(server_info->fd, server_info->send_buff.data, server_info->send_buff.len, MSG_NOSIGNAL);
+#ifndef MINIMAL_BUILD
 	} else if (server_info->type == DNS_SERVER_TLS || server_info->type == DNS_SERVER_HTTPS ||
 			   server_info->type == DNS_SERVER_QUIC || server_info->type == DNS_SERVER_HTTP3) {
 		int write_len = server_info->send_buff.len;
@@ -244,6 +257,7 @@ int _dns_client_socket_send(struct dns_server_info *server_info)
 			}
 		}
 		return ret;
+#endif
 	} else if (server_info->type == DNS_SERVER_MDNS) {
 		return -1;
 	} else {
@@ -258,6 +272,7 @@ int _dns_client_socket_recv(struct dns_server_info *server_info)
 	} else if (server_info->type == DNS_SERVER_TCP) {
 		return recv(server_info->fd, server_info->recv_buff.data + server_info->recv_buff.len,
 					DNS_TCP_BUFFER - server_info->recv_buff.len, 0);
+#ifndef MINIMAL_BUILD
 	} else if (server_info->type == DNS_SERVER_TLS || server_info->type == DNS_SERVER_HTTPS ||
 			   server_info->type == DNS_SERVER_QUIC || server_info->type == DNS_SERVER_HTTP3) {
 		int ret = _dns_client_socket_ssl_recv(server_info, server_info->recv_buff.data + server_info->recv_buff.len,
@@ -270,6 +285,7 @@ int _dns_client_socket_recv(struct dns_server_info *server_info)
 		}
 
 		return ret;
+#endif
 	} else if (server_info->type == DNS_SERVER_MDNS) {
 		return -1;
 	} else {

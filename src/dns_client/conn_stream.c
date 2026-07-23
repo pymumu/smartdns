@@ -57,6 +57,7 @@ void _dns_client_conn_stream_put(struct dns_conn_stream *stream)
 		return;
 	}
 
+#ifndef MINIMAL_BUILD
 	if (stream->quic_stream) {
 		SSL_free(stream->quic_stream);
 		stream->quic_stream = NULL;
@@ -68,6 +69,7 @@ void _dns_client_conn_stream_put(struct dns_conn_stream *stream)
 		http2_stream_close(http2_stream);
 		stream->server_info = NULL;
 	}
+#endif
 
 	if (stream->query) {
 		pthread_mutex_lock(&stream->query->lock);
@@ -100,6 +102,7 @@ void _dns_client_conn_server_streams_free(struct dns_server_info *server_info, s
 
 		list_del_init(&stream->server_list);
 		stream->server_info = NULL;
+#ifndef MINIMAL_BUILD
 		if (stream->quic_stream) {
 #if defined(OSSL_QUIC1_VERSION) && !defined(OPENSSL_NO_QUIC)
 			SSL_stream_reset(stream->quic_stream, NULL, 0);
@@ -112,6 +115,7 @@ void _dns_client_conn_server_streams_free(struct dns_server_info *server_info, s
 			http2_stream_close(stream->http2_stream);
 			stream->http2_stream = NULL;
 		}
+#endif
 
 		_dns_client_conn_stream_put(stream);
 	}
