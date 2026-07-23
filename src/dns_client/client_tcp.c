@@ -35,6 +35,9 @@
 #include <sys/epoll.h>
 #include <sys/ioctl.h>
 
+static int _dns_client_tcp_fastopen_send(struct dns_server_info *server_info, unsigned char *data, int len,
+										 int from_send_buff);
+
 int _dns_client_create_socket_tcp(struct dns_server_info *server_info)
 {
 	int fd = -1;
@@ -414,9 +417,9 @@ int _dns_client_process_tcp(struct dns_server_info *server_info, struct epoll_ev
 			server_info->status = DNS_SERVER_STATUS_CONNECTED;
 			if (server_info->tfo_cookie_time != 0) {
 				/* keep the confirmed cookie fresh while the connection is healthy */
-				time_t now = 0;
-				time(&now);
-				server_info->tfo_cookie_time = now;
+				time_t cookie_now = 0;
+				time(&cookie_now);
+				server_info->tfo_cookie_time = cookie_now;
 			}
 			tlog(TLOG_DEBUG, "tcp server %s connected", server_info->ip);
 		}
