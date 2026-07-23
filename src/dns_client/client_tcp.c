@@ -372,6 +372,16 @@ int _dns_client_process_tcp(struct dns_server_info *server_info, struct epoll_ev
 	/* when connected */
 	if (event->events & EPOLLOUT) {
 		if (server_info->status == DNS_SERVER_STATUS_CONNECTING) {
+
+			int err = 0;
+			socklen_t len = sizeof(err);
+			if (getsockopt(server_info->fd, SOL_SOCKET, SO_ERROR, &err, &len) != 0 || err != 0) {
+				if (err != 0) {
+					errno = err;
+				}
+				goto errout;
+			}
+
 			server_info->status = DNS_SERVER_STATUS_CONNECTED;
 			tlog(TLOG_DEBUG, "tcp server %s connected", server_info->ip);
 		}
