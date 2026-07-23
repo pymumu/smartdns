@@ -44,6 +44,7 @@ int _dns_client_create_socket_tcp(struct dns_server_info *server_info)
 	const int ip_tos = SOCKET_IP_TOS;
 	struct proxy_conn *proxy = NULL;
 	int ret = 0;
+	int epoll_registered = 0;
 
 	if (server_info->proxy_name[0] != '\0') {
 		proxy = proxy_conn_new(server_info->proxy_name, server_info->ip, server_info->port, 0, 1);
@@ -84,11 +85,6 @@ int _dns_client_create_socket_tcp(struct dns_server_info *server_info)
 		}
 	}
 
-	/* enable tcp fast open */
-	if (setsockopt(fd, IPPROTO_TCP, TCP_FASTOPEN_CONNECT, &yes, sizeof(yes)) != 0) {
-		tlog(TLOG_DEBUG, "enable TCP fast open failed, %s", strerror(errno));
-	}
-
 	setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
 	setsockopt(fd, SOL_SOCKET, SO_PRIORITY, &priority, sizeof(priority));
 	setsockopt(fd, IPPROTO_IP, IP_TOS, &ip_tos, sizeof(ip_tos));
@@ -100,8 +96,28 @@ int _dns_client_create_socket_tcp(struct dns_server_info *server_info)
 		setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &dns_conf.dns_socket_buff_size, sizeof(dns_conf.dns_socket_buff_size));
 	}
 
+	server_info->tfo_use_sendto = 0;
+
 	if (proxy) {
 		ret = proxy_conn_connect(proxy);
+	} else if (server_info->tfo_cookie_time != -1) {
+		/* TCP Fast Open (RFC 7413): probe TFO on connect and reuse it once the server has
+		 * granted a cookie. The kernel only puts the query in the SYN while its cookie cache
+		 * is valid, so an expired/unsupported server transparently falls back to a handshake. */
+		if (server_info->send_buff.len > 0) {
+			/* reopening with pending data, probe TFO now */
+			if (_dns_client_tcp_fastopen_send(server_info, server_info->send_buff.data,
+											  server_info->send_buff.len, 1) == 0) {
+				epoll_registered = 1;
+				ret = 0;
+			} else {
+				server_info->tfo_cookie_time = -1;
+				ret = connect(fd, &server_info->addr, server_info->ai_addrlen);
+			}
+		} else {
+			server_info->tfo_use_sendto = 1;
+			ret = 0;
+		}
 	} else {
 		ret = connect(fd, &server_info->addr, server_info->ai_addrlen);
 	}
@@ -118,12 +134,14 @@ int _dns_client_create_socket_tcp(struct dns_server_info *server_info)
 	server_info->security_status = DNS_CLIENT_SERVER_SECURITY_NOT_APPLICABLE;
 	server_info->proxy = proxy;
 
-	memset(&event, 0, sizeof(event));
-	event.events = EPOLLIN | EPOLLOUT;
-	event.data.ptr = server_info;
-	if (epoll_ctl(client.epoll_fd, EPOLL_CTL_ADD, fd, &event) != 0) {
-		tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
-		return -1;
+	if (epoll_registered == 0 && server_info->tfo_use_sendto == 0) {
+		memset(&event, 0, sizeof(event));
+		event.events = EPOLLIN | EPOLLOUT;
+		event.data.ptr = server_info;
+		if (epoll_ctl(client.epoll_fd, EPOLL_CTL_ADD, fd, &event) != 0) {
+			tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
+			return -1;
+		}
 	}
 
 	tlog(TLOG_DEBUG, "tcp server %s connecting.\n", server_info->ip);
@@ -138,6 +156,7 @@ errout:
 	server_info->proxy = NULL;
 	server_info->security_status = DNS_CLIENT_SERVER_SECURITY_UNKNOW;
 	server_info->ssl_write_len = -1;
+	server_info->tfo_use_sendto = 0;
 
 	if (fd > 0 && proxy == NULL) {
 		close(fd);
@@ -372,17 +391,33 @@ int _dns_client_process_tcp(struct dns_server_info *server_info, struct epoll_ev
 	/* when connected */
 	if (event->events & EPOLLOUT) {
 		if (server_info->status == DNS_SERVER_STATUS_CONNECTING) {
+			int so_error = 0;
+			socklen_t so_error_len = sizeof(so_error);
+			if (getsockopt(server_info->fd, SOL_SOCKET, SO_ERROR, &so_error, &so_error_len) != 0) {
+				so_error = errno;
+			}
 
-			int err = 0;
-			socklen_t len = sizeof(err);
-			if (getsockopt(server_info->fd, SOL_SOCKET, SO_ERROR, &err, &len) != 0 || err != 0) {
-				if (err != 0) {
-					errno = err;
+			if (so_error != 0) {
+				if (server_info->tfo_cookie_time != 0) {
+					/* a connect that carried data in SYN failed, TFO is unusable for this server */
+					tlog(TLOG_INFO, "connect %s:%d with TCP fast open failed, %s", server_info->ip,
+						 server_info->port, strerror(so_error));
+					server_info->tfo_cookie_time = -1;
+				} else {
+					tlog(TLOG_DEBUG, "connect %s:%d failed, %s", server_info->ip, server_info->port,
+						 strerror(so_error));
 				}
+				errno = so_error;
 				goto errout;
 			}
 
 			server_info->status = DNS_SERVER_STATUS_CONNECTED;
+			if (server_info->tfo_cookie_time != 0) {
+				/* keep the confirmed cookie fresh while the connection is healthy */
+				time_t now = 0;
+				time(&now);
+				server_info->tfo_cookie_time = now;
+			}
 			tlog(TLOG_DEBUG, "tcp server %s connected", server_info->ip);
 		}
 
@@ -447,6 +482,82 @@ errout:
 	return -1;
 }
 
+static int _dns_client_tcp_add_epoll(struct dns_server_info *server_info)
+{
+	struct epoll_event event;
+
+	memset(&event, 0, sizeof(event));
+	event.events = EPOLLIN | EPOLLOUT;
+	event.data.ptr = server_info;
+	if (epoll_ctl(client.epoll_fd, EPOLL_CTL_ADD, server_info->fd, &event) != 0) {
+		tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
+		return -1;
+	}
+
+	return 0;
+}
+
+/* Start a TCP Fast Open connection by sending @len bytes from @data with MSG_FASTOPEN.
+ * @from_send_buff is set when @data aliases server_info->send_buff (the pending-data
+ * reopen case), so a partial send is consumed from send_buff instead of re-buffered.
+ * Returns 0 if the open was initiated, -1 if TFO is unusable (caller falls back). */
+static int _dns_client_tcp_fastopen_send(struct dns_server_info *server_info, unsigned char *data, int len,
+										 int from_send_buff)
+{
+	int send_len = 0;
+	time_t now = 0;
+
+	send_len = sendto(server_info->fd, data, len, MSG_FASTOPEN | MSG_NOSIGNAL, &server_info->addr,
+					  server_info->ai_addrlen);
+	if (send_len >= 0) {
+		/* server accepted data in SYN, the cookie is valid; record it */
+		time(&now);
+		server_info->tfo_cookie_time = now;
+		if (from_send_buff) {
+			server_info->send_buff.len -= send_len;
+			if (server_info->send_buff.len > 0) {
+				memmove(server_info->send_buff.data, server_info->send_buff.data + send_len,
+						server_info->send_buff.len);
+			}
+		} else if (send_len < len) {
+			_dns_client_send_data_to_buffer(server_info, data + send_len, len - send_len);
+		}
+		return _dns_client_tcp_add_epoll(server_info);
+	}
+
+	if (errno == EINPROGRESS) {
+		/* no cached cookie: kernel sent a plain SYN and queued @data for after the
+		 * handshake; keep probing TFO on the next connection. */
+		server_info->tfo_cookie_time = 0;
+		if (from_send_buff) {
+			server_info->send_buff.len = 0;
+		}
+		return _dns_client_tcp_add_epoll(server_info);
+	}
+
+	return -1;
+}
+
+static int _dns_client_send_tcp_fastopen(struct dns_server_info *server_info, unsigned char *inpacket, int len)
+{
+	server_info->tfo_use_sendto = 0;
+
+	if (_dns_client_tcp_fastopen_send(server_info, inpacket, len, 0) == 0) {
+		return 0;
+	}
+
+	/* TFO is unusable, rebuild with a normal TCP connection */
+	tlog(TLOG_DEBUG, "TCP fast open to %s:%d failed, %s, fallback to normal TCP.", server_info->ip,
+		 server_info->port, strerror(errno));
+	server_info->tfo_cookie_time = -1;
+	_dns_client_close_socket(server_info);
+	if (_dns_client_create_socket(server_info) != 0) {
+		return -1;
+	}
+
+	return _dns_client_send_data_to_buffer(server_info, inpacket, len);
+}
+
 int _dns_client_send_tcp(struct dns_server_info *server_info, void *packet, unsigned short len)
 {
 	int send_len = 0;
@@ -466,6 +577,11 @@ int _dns_client_send_tcp(struct dns_server_info *server_info, void *packet, unsi
 	len += 2;
 
 	if (server_info->status != DNS_SERVER_STATUS_CONNECTED) {
+		if (server_info->tfo_use_sendto == 1 && server_info->fd > 0 && server_info->proxy == NULL) {
+			/* connection is deferred, initiate it now with TCP fast open */
+			return _dns_client_send_tcp_fastopen(server_info, inpacket, len);
+		}
+
 		return _dns_client_send_data_to_buffer(server_info, inpacket, len);
 	}
 
@@ -519,6 +635,12 @@ void _dns_client_check_tcp(void)
 
 		if (server_info->status == DNS_SERVER_STATUS_CONNECTING) {
 			if (server_info->last_recv + DNS_TCP_CONNECT_TIMEOUT < now) {
+				if (server_info->tfo_cookie_time != 0) {
+					/* a TFO connect carrying data in SYN timed out, TFO is unusable */
+					tlog(TLOG_INFO, "server %s:%d connect with TCP fast open timeout, disable TFO.",
+						 server_info->ip, server_info->port);
+					server_info->tfo_cookie_time = -1;
+				}
 				tlog(TLOG_DEBUG, "server %s:%d connect timeout.", server_info->ip, server_info->port);
 				_dns_client_close_socket(server_info);
 			}

@@ -170,6 +170,7 @@ void _dns_client_close_socket_ext(struct dns_server_info *server_info, int no_de
 	}
 
 	server_info->fd = -1;
+	server_info->tfo_use_sendto = 0;
 	tlog(TLOG_DEBUG, "server %s:%d closed.", server_info->ip, server_info->port);
 
 	/* update send recv time */
