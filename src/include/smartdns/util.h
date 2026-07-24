@@ -35,10 +35,6 @@ extern "C" {
 #ifndef TCP_FASTOPEN_CONNECT
 #define TCP_FASTOPEN_CONNECT 30
 #endif
-
-#ifndef MSG_FASTOPEN
-#define MSG_FASTOPEN 0x20000000
-#endif
 #ifndef TCP_THIN_LINEAR_TIMEOUTS
 #define TCP_THIN_LINEAR_TIMEOUTS 16
 #endif

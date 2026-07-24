@@ -103,12 +103,6 @@ struct dns_server_info {
 	char skip_check_cert;
 	dns_server_status status;
 
-	/* TCP Fast Open state (RFC 7413) */
-	int tfo_use_sendto;     /* 1: connect is deferred, first send should use sendto(MSG_FASTOPEN) */
-	time_t tfo_cookie_time; /* -1: TFO unusable for this server (normal connect only);
-	                        *  0: cookie unknown, probe TFO on connect (first/rediscovery);
-	                        *  >0: server supports TFO, timestamp of last confirmation. */
-
 	struct dns_server_buff send_buff;
 	struct dns_server_buff recv_buff;
 
