@@ -702,11 +702,11 @@ load_service()
 	config_get prefetch_domain "$section" "prefetch_domain" "0"
 	[ "$prefetch_domain" = "1" ] && conf_append "prefetch-domain" "yes"
 
-	config_get serve_expired "$section" "serve_expired" "0"
-	if [ "$serve_expired" = "1" ]; then
-		conf_append "serve-expired" "yes"
-	else
+	config_get serve_expired "$section" "serve_expired" "1"
+	if [ "$serve_expired" = "0" ]; then
 		conf_append "serve-expired" "no"
+	else
+		conf_append "serve-expired" "yes"
 	fi
 
 	config_get cache_size "$section" "cache_size" ""
