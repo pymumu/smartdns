@@ -199,6 +199,10 @@ copy_linker()
 		echo "copy ld-linux symlink failed"
 		return 1
 	fi
+	if [ ! -e "${SMARTDNS_STATIC_DIR}/lib/ld-linux.so" ]; then
+		echo "dynamic linker chain is broken: ${SMARTDNS_STATIC_DIR}/lib/ld-linux.so"
+		return 1
+	fi
 
 	return 0
 }
