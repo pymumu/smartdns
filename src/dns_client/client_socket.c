@@ -154,7 +154,9 @@ void _dns_client_close_socket_ext(struct dns_server_info *server_info, int no_de
 	}
 
 	if (server_info->bio_method) {
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
 		BIO_meth_free(server_info->bio_method);
+#endif
 		server_info->bio_method = NULL;
 	}
 

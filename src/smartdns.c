@@ -492,7 +492,7 @@ int smartdns_get_cert(char *key, char *cert)
 
 static int _smartdns_init_ssl(void)
 {
-#if OPENSSL_API_COMPAT < 0x10100000L
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 	SSL_load_error_strings();
 	SSL_library_init();
 	OpenSSL_add_all_algorithms();
@@ -503,7 +503,7 @@ static int _smartdns_init_ssl(void)
 
 static int _smartdns_destroy_ssl(void)
 {
-#if OPENSSL_API_COMPAT < 0x10100000L
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 	SSL_CRYPTO_thread_cleanup();
 	ERR_free_strings();
 	EVP_cleanup();

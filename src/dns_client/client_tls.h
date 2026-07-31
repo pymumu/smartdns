@@ -23,6 +23,17 @@
 
 #include <sys/epoll.h>
 
+#if defined(OSSL_QUIC1_VERSION) && !defined(OPENSSL_NO_QUIC)
+#define DNS_CLIENT_HAS_OPENSSL_QUIC 1
+#endif
+
+#if defined(DNS_CLIENT_HAS_OPENSSL_QUIC) && OPENSSL_VERSION_NUMBER >= 0x30300000L
+#define DNS_CLIENT_HAS_OPENSSL_QUIC_POLL 1
+#define DNS_CLIENT_SSL_WRITE_FLAGS_CONCLUDE SSL_WRITE_FLAG_CONCLUDE
+#else
+#define DNS_CLIENT_SSL_WRITE_FLAGS_CONCLUDE 0
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif /*__cplusplus */

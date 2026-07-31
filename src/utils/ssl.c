@@ -252,14 +252,17 @@ static void _free_key(struct DNS_EVP_PKEY_CTX *ctx)
 			EVP_PKEY_free(ctx->pkey);
 		}
 #if (OPENSSL_VERSION_NUMBER < 0x30000000L)
+		/* If EVP_PKEY_assign_RSA() succeeded, ownership was transferred to ctx->pkey
+		 * (and ctx->rsa should have been cleared by the caller). If the transfer
+		 * failed, ctx->rsa is still non-NULL and must be freed here. */
 		if (ctx->rsa) {
 			RSA_free(ctx->rsa);
 		}
 		if (ctx->bn) {
 			BN_free(ctx->bn);
 		}
-		free(ctx);
 #endif
+		free(ctx);
 	}
 }
 
@@ -301,25 +304,47 @@ errout:
 
 static struct DNS_EVP_PKEY_CTX *_generate_key(void)
 {
-	struct DNS_EVP_PKEY_CTX *ctx = NULL;
-	ctx = zalloc(1, sizeof(struct DNS_EVP_PKEY_CTX));
-	if (ctx == NULL) {
-		return NULL;
-	}
-
+	struct DNS_EVP_PKEY_CTX *ctx;
 	const int RSA_KEY_LENGTH = 2048;
-#if (OPENSSL_VERSION_NUMBER >= 0x30000000L)
-	ctx->pkey = EVP_RSA_gen(RSA_KEY_LENGTH);
-#else
-	ctx->pkey = EVP_PKEY_new();
-	ctx->rsa = RSA_new();
-	ctx->bn = BN_new();
 
-	BN_set_word(ctx->bn, RSA_F4);
-	RSA_generate_key_ex(ctx->rsa, RSA_KEY_LENGTH, ctx->bn, NULL);
-	EVP_PKEY_assign_RSA(ctx->pkey, ctx->rsa);
+	ctx = zalloc(1, sizeof(*ctx));
+	if (!ctx)
+		return NULL;
+
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+	ctx->pkey = EVP_RSA_gen(RSA_KEY_LENGTH);
+	if (!ctx->pkey)
+		goto err;
+#else
+	ctx->bn = BN_new();
+	if (!ctx->bn)
+		goto err;
+
+	if (BN_set_word(ctx->bn, RSA_F4) != 1)
+		goto err;
+
+	ctx->rsa = RSA_new();
+	if (!ctx->rsa)
+		goto err;
+
+	if (RSA_generate_key_ex(ctx->rsa, RSA_KEY_LENGTH, ctx->bn, NULL) != 1)
+		goto err;
+
+	ctx->pkey = EVP_PKEY_new();
+	if (!ctx->pkey)
+		goto err;
+
+	if (EVP_PKEY_assign_RSA(ctx->pkey, ctx->rsa) != 1)
+		goto err;
+
+	ctx->rsa = NULL; /* ownership transferred */
 #endif
+
 	return ctx;
+
+err:
+	_free_key(ctx);
+	return NULL;
 }
 
 static X509 *_generate_smartdns_cert(EVP_PKEY *pkey, X509 *issuer_cert, EVP_PKEY *issuer_key, const char *san, int days)
@@ -327,7 +352,11 @@ static X509 *_generate_smartdns_cert(EVP_PKEY *pkey, X509 *issuer_cert, EVP_PKEY
 	X509 *cert = NULL;
 	X509_EXTENSION *cert_ext = NULL;
 	X509_NAME *name = NULL;
+#if (OPENSSL_VERSION_NUMBER >= 0x30000000L)
 	const X509_NAME *issuer_name = NULL;
+#else
+	X509_NAME *issuer_name = NULL;
+#endif
 	int is_ca = 0;
 
 	if (pkey == NULL) {
@@ -581,7 +610,7 @@ errout:
 	return -1;
 }
 
-#if OPENSSL_API_COMPAT < 0x10100000
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 #define THREAD_STACK_SIZE (16 * 1024)
 static pthread_mutex_t *lock_cs;
 static long *lock_count;
@@ -629,7 +658,7 @@ void SSL_CRYPTO_thread_setup(void)
 		pthread_mutex_init(&(lock_cs[i]), NULL);
 	}
 
-#if OPENSSL_API_COMPAT < 0x10000000
+#if OPENSSL_VERSION_NUMBER < 0x10000000L
 	CRYPTO_set_id_callback(_pthreads_thread_id);
 #else
 	CRYPTO_THREADID_set_callback(_pthreads_thread_id);
