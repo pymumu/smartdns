@@ -100,34 +100,60 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 	server->subnet_all_query_types = 0;
 
 	if (parse_uri(ip, scheme, server->server, &port, server->path) != 0) {
-		return -1;
+		safe_strncpy(server->server, ip, DNS_MAX_IPLEN);
+		port = PORT_NOT_DEFINED;
+
+		switch (type) {
+		case DNS_SERVER_HTTPS:
+			safe_strncpy(scheme, "https", sizeof(scheme));
+			break;
+		case DNS_SERVER_HTTP3:
+			safe_strncpy(scheme, "h3", sizeof(scheme));
+			break;
+		case DNS_SERVER_QUIC:
+			safe_strncpy(scheme, "quic", sizeof(scheme));
+			break;
+		case DNS_SERVER_TLS:
+			safe_strncpy(scheme, "tls", sizeof(scheme));
+			break;
+		case DNS_SERVER_TCP:
+			safe_strncpy(scheme, "tcp", sizeof(scheme));
+			break;
+		case DNS_SERVER_UDP:
+			safe_strncpy(scheme, "udp", sizeof(scheme));
+			break;
+		default:
+			break;
+		}
 	}
 
 	if (scheme[0] != '\0') {
-		if (strcasecmp(scheme, "https") == 0) {
-			type = DNS_SERVER_HTTPS;
-			default_port = DEFAULT_DNS_HTTPS_PORT;
-		} else if (strcasecmp(scheme, "http3") == 0) {
-			type = DNS_SERVER_HTTP3;
-			default_port = DEFAULT_DNS_HTTPS_PORT;
-		} else if (strcasecmp(scheme, "h3") == 0) {
-			type = DNS_SERVER_HTTP3;
-			default_port = DEFAULT_DNS_HTTPS_PORT;
-		} else if (strcasecmp(scheme, "quic") == 0) {
-			type = DNS_SERVER_QUIC;
-			default_port = DEFAULT_DNS_QUIC_PORT;
-		} else if (strcasecmp(scheme, "tls") == 0) {
-			type = DNS_SERVER_TLS;
-			default_port = DEFAULT_DNS_TLS_PORT;
-		} else if (strcasecmp(scheme, "tcp") == 0) {
-			type = DNS_SERVER_TCP;
-			default_port = DEFAULT_DNS_PORT;
-		} else if (strcasecmp(scheme, "udp") == 0) {
-			type = DNS_SERVER_UDP;
-			default_port = DEFAULT_DNS_PORT;
-		} else {
-			tlog(TLOG_ERROR, "invalid scheme: %s", scheme);
-			return -1;
+		if (type == DNS_SERVER_UDP) {
+			if (strcasecmp(scheme, "https") == 0) {
+				type = DNS_SERVER_HTTPS;
+				default_port = DEFAULT_DNS_HTTPS_PORT;
+			} else if (strcasecmp(scheme, "http3") == 0) {
+				type = DNS_SERVER_HTTP3;
+				default_port = DEFAULT_DNS_HTTPS_PORT;
+			} else if (strcasecmp(scheme, "h3") == 0) {
+				type = DNS_SERVER_HTTP3;
+				default_port = DEFAULT_DNS_HTTPS_PORT;
+			} else if (strcasecmp(scheme, "quic") == 0) {
+				type = DNS_SERVER_QUIC;
+				default_port = DEFAULT_DNS_QUIC_PORT;
+			} else if (strcasecmp(scheme, "tls") == 0) {
+				type = DNS_SERVER_TLS;
+				default_port = DEFAULT_DNS_TLS_PORT;
+			} else if (strcasecmp(scheme, "tcp") == 0) {
+				type = DNS_SERVER_TCP;
+				default_port = DEFAULT_DNS_PORT;
+			} else if (strcasecmp(scheme, "udp") == 0) {
+				type = DNS_SERVER_UDP;
+				default_port = DEFAULT_DNS_PORT;
+			} else {
+				tlog(TLOG_ERROR, "invalid scheme: %s", scheme);
+				return -1;
+			}
 		}
 	}
 
@@ -323,7 +349,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 
 	if (server->type == DNS_SERVER_HTTPS || server->type == DNS_SERVER_HTTP3) {
 		if (server->path[0] == 0) {
-			safe_strncpy(server->path, "/", sizeof(server->path));
+			safe_strncpy(server->path, "/dns-query", sizeof(server->path));
 		}
 
 		if (server->httphost[0] == '\0') {
