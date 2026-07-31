@@ -113,7 +113,13 @@ set_main_dns()
 	uci_batch=""
 	[ "$dnsmasq_port" = "53" ] && {
 		uci_batch="$uci_batch set dhcp.@dnsmasq[0].port=0\n"
-		uci_batch="$uci_batch add_list dhcp.lan.dhcp_option=\"6,$hostip\"\n"
+		# add_list is not idempotent -- this function runs on every
+		# service start/restart/reload (not just once at install), so
+		# unconditionally add_list-ing here appended another duplicate
+		# "6,$hostip" to dhcp.lan.dhcp_option every single time.
+		if ! uci -q get dhcp.lan.dhcp_option 2>/dev/null | tr ' ' '\n' | grep -Fqx "6,$hostip"; then
+			uci_batch="$uci_batch add_list dhcp.lan.dhcp_option=\"6,$hostip\"\n"
+		fi
 	}
 
 	# for some third-party firmware
