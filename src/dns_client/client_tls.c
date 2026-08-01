@@ -62,7 +62,7 @@ static ssize_t _ssl_write_ext2(struct dns_server_info *server, SSL *ssl, const v
 		return SSL_ERROR_SYSCALL;
 	}
 
-#if defined(OSSL_QUIC1_VERSION) && !defined(OPENSSL_NO_QUIC)
+#if defined(DNS_CLIENT_HAS_OPENSSL_QUIC_POLL)
 	ret = SSL_write_ex2(ssl, buff, num, flags, &written);
 #elif OPENSSL_VERSION_NUMBER >= 0x10101000L
 	ret = SSL_write_ex(ssl, buff, num, &written);
@@ -759,9 +759,15 @@ static int _dns_client_tls_matchName(const char *host, const char *pattern, int 
 
 static int _dns_client_tls_get_cert_CN(X509 *cert, char *cn, int max_cn_len)
 {
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
 	const X509_NAME *cert_name = NULL;
 	const X509_NAME_ENTRY *cert_entry = NULL;
 	const ASN1_STRING *cert_data = NULL;
+#else
+	X509_NAME *cert_name = NULL;
+	X509_NAME_ENTRY *cert_entry = NULL;
+	ASN1_STRING *cert_data = NULL;
+#endif
 	const unsigned char *cert_text = NULL;
 	int cert_index = 0;
 	int cert_text_len = 0;
