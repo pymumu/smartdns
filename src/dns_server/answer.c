@@ -257,6 +257,19 @@ static int _dns_server_process_answer_HTTPS(struct dns_rrs *rrs, struct dns_requ
 		return -1;
 	}
 
+	/* Check for duplicate HTTPS records */
+	struct dns_request_https *existing_https = NULL;
+	list_for_each_entry(existing_https, &request->https_svcb_list, list)
+	{
+		if (strncasecmp(existing_https->domain, name, DNS_MAX_CNAME_LEN) == 0 &&
+			strncasecmp(existing_https->target, target, DNS_MAX_CNAME_LEN) == 0 &&
+			existing_https->priority == priority) {
+			/* Duplicate found, skip */
+			tlog(TLOG_DEBUG, "duplicate HTTPS record: domain: %s target: %s priority: %d", name, target, priority);
+			return -2;
+		}
+	}
+
 	https_svcb = zalloc(1, sizeof(*https_svcb));
 	if (https_svcb == NULL) {
 		return -1;

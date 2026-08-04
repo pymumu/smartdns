@@ -113,6 +113,8 @@ int http_head_serialize(struct http_head *http_head, void *buffer, int buffer_le
 
 void http_head_destroy(struct http_head *http_head);
 
+void http_head_reset(struct http_head *http_head, HTTP_VERSION version);
+
 #ifdef __cplusplus
 }
 #endif

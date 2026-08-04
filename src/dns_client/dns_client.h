@@ -23,6 +23,7 @@
 #include "smartdns/dns_conf.h"
 #include "smartdns/dns_stats.h"
 #include "smartdns/http2.h"
+#include "smartdns/http_parse.h"
 #include "smartdns/lib/atomic.h"
 #include "smartdns/lib/hashtable.h"
 #include "smartdns/lib/list.h"
@@ -234,6 +235,7 @@ struct dns_conn_stream {
 	SSL *quic_stream;
 	struct http2_stream *http2_stream;
 	dns_server_type_t type;
+	struct http_head *http_head;
 };
 
 /* query struct */
