@@ -426,7 +426,7 @@ struct dns_server {
 	struct list_head request_list;
 	atomic_t request_num;
 
-	DECLARE_HASHTABLE(request_pending, 4);
+	DECLARE_HASHTABLE(request_pending, 12);
 	pthread_mutex_t request_pending_lock;
 
 	int update_neighbor_cache;
