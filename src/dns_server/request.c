@@ -24,7 +24,9 @@
 #include "dns64.h"
 #include "dns_server.h"
 #include "dualstack.h"
+#ifndef MINIMAL_BUILD
 #include "mdns.h"
+#endif
 #include "neighbor.h"
 #include "ptr.h"
 #include "request_pending.h"
@@ -76,7 +78,9 @@ static int _dns_server_request_complete_with_all_IPs(struct dns_request *request
 		goto out;
 	}
 
+#ifndef MINIMAL_BUILD
 	_dns_server_need_append_mdns_local_cname(request);
+#endif
 
 	if (request->has_soa) {
 		tlog(TLOG_INFO, "result: %s, qtype: %d, SOA", request->domain, request->qtype);
@@ -202,7 +206,9 @@ static void _dns_server_complete_with_multi_ipaddress(struct dns_request *reques
 		return;
 	}
 
+#ifndef MINIMAL_BUILD
 	_dns_server_need_append_mdns_local_cname(request);
+#endif
 
 	_dns_server_post_context_init(&context, request);
 	context.do_cache = 1;

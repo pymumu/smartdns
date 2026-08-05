@@ -22,7 +22,9 @@
 
 #include "smartdns/http2.h"
 
+#ifndef MINIMAL_BUILD
 #include <openssl/ssl.h>
+#endif
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
 
@@ -56,6 +58,7 @@ void _dns_server_conn_release(struct dns_server_conn_head *conn)
 		return;
 	}
 
+#ifndef MINIMAL_BUILD
 	if (conn->type == DNS_CONN_TYPE_TLS_CLIENT || conn->type == DNS_CONN_TYPE_HTTPS_CLIENT) {
 		struct dns_server_conn_tls_client *tls_client = (struct dns_server_conn_tls_client *)conn;
 		if (tls_client->ssl != NULL) {
@@ -81,6 +84,7 @@ void _dns_server_conn_release(struct dns_server_conn_head *conn)
 			http2_stream->stream = NULL;
 		}
 	}
+#endif
 
 	if (conn->fd > 0) {
 		close(conn->fd);
@@ -112,6 +116,7 @@ void _dns_server_close_socket(void)
 	pthread_mutex_lock(&server.conn_list_lock);
 	list_for_each_entry_safe(conn, tmp, &server.conn_list, list)
 	{
+#ifndef MINIMAL_BUILD
 		/* Force cleanup of TLS/HTTPS client connections to prevent memory leaks */
 		if (conn->type == DNS_CONN_TYPE_TLS_CLIENT || conn->type == DNS_CONN_TYPE_HTTPS_CLIENT) {
 			struct dns_server_conn_tls_client *tls_client = (struct dns_server_conn_tls_client *)conn;
@@ -122,6 +127,7 @@ void _dns_server_close_socket(void)
 				tls_client->ssl = NULL;
 			}
 		}
+#endif
 
 		_dns_server_client_close(conn);
 	}
@@ -135,17 +141,18 @@ void _dns_server_close_socket_server(void)
 
 	list_for_each_entry_safe(conn, tmp, &server.conn_list, list)
 	{
-		switch (conn->type) {
-		case DNS_CONN_TYPE_HTTPS_SERVER:
-		case DNS_CONN_TYPE_TLS_SERVER: {
+#ifndef MINIMAL_BUILD
+		if (conn->type == DNS_CONN_TYPE_HTTPS_SERVER || conn->type == DNS_CONN_TYPE_TLS_SERVER) {
 			struct dns_server_conn_tls_server *tls_server = (struct dns_server_conn_tls_server *)conn;
 			if (tls_server->ssl_ctx) {
 				SSL_CTX_free(tls_server->ssl_ctx);
 				tls_server->ssl_ctx = NULL;
 			}
 			_dns_server_client_close(conn);
-			break;
+			continue;
 		}
+#endif
+		switch (conn->type) {
 		case DNS_CONN_TYPE_HTTP_SERVER:
 		case DNS_CONN_TYPE_UDP_SERVER:
 		case DNS_CONN_TYPE_TCP_SERVER:
@@ -172,6 +179,7 @@ int _dns_server_client_close(struct dns_server_conn_head *conn)
 	list_del_init(&conn->list);
 	pthread_mutex_unlock(&server.conn_list_lock);
 
+#ifndef MINIMAL_BUILD
 	if (conn->type == DNS_CONN_TYPE_TLS_CLIENT || conn->type == DNS_CONN_TYPE_HTTPS_CLIENT) {
 		struct dns_server_conn_tls_client *tls_client = (struct dns_server_conn_tls_client *)conn;
 		if (tls_client->http2_ctx != NULL) {
@@ -179,6 +187,7 @@ int _dns_server_client_close(struct dns_server_conn_head *conn)
 			tls_client->http2_ctx = NULL;
 		}
 	}
+#endif
 
 	_dns_server_conn_release(conn);
 

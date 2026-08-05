@@ -29,9 +29,11 @@ extern "C" {
 int _config_add_default_server_if_needed(void);
 int _config_bind_ip_udp(void *data, int argc, char *argv[]);
 int _config_bind_ip_tcp(void *data, int argc, char *argv[]);
+#ifndef MINIMAL_BUILD
 int _config_bind_ip_tls(void *data, int argc, char *argv[]);
 int _config_bind_ip_https(void *data, int argc, char *argv[]);
 int _config_bind_ip_http(void *data, int argc, char *argv[]);
+#endif
 
 void dns_server_bind_destroy(void);
 

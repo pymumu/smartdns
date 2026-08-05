@@ -89,6 +89,7 @@ static int _config_option_parser_filepath(void *data, int argc, char *argv[])
 	return 0;
 }
 
+#ifndef MINIMAL_BUILD
 static int _config_bind_cert_san(void *data, int argc, char *argv[])
 {
 	char *san = data;
@@ -121,6 +122,7 @@ static int _config_bind_cert_san(void *data, int argc, char *argv[])
 
 	return 0;
 }
+#endif
 
 static int _config_log_level(void *data, int argc, char *argv[])
 {
@@ -174,9 +176,12 @@ static struct config_item _config_item[] = {
 	CONF_YESNO("resolv-hostname", &dns_conf.resolv_hostname),
 	CONF_CUSTOM("bind", _config_bind_ip_udp, NULL),
 	CONF_CUSTOM("bind-tcp", _config_bind_ip_tcp, NULL),
+#ifndef MINIMAL_BUILD
 	CONF_CUSTOM("bind-tls", _config_bind_ip_tls, NULL),
 	CONF_CUSTOM("bind-https", _config_bind_ip_https, NULL),
 	CONF_CUSTOM("bind-http", _config_bind_ip_http, NULL),
+#endif
+#ifndef MINIMAL_BUILD
 	CONF_CUSTOM("bind-cert-root-key-file", _config_option_parser_filepath, &dns_conf.bind_root_ca_key_file),
 	CONF_YESNOAUTO("bind-cert-generate", &dns_conf.bind_cert_generate),
 	CONF_CUSTOM("bind-cert-san", _config_bind_cert_san, dns_conf.bind_cert_san),
@@ -184,13 +189,16 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("bind-cert-file", _config_option_parser_filepath, &dns_conf.bind_ca_file),
 	CONF_CUSTOM("bind-cert-key-file", _config_option_parser_filepath, &dns_conf.bind_ca_key_file),
 	CONF_STRING("bind-cert-key-pass", dns_conf.bind_ca_key_pass, DNS_MAX_PATH),
+#endif
 	CONF_CUSTOM("server", _config_server_udp, NULL),
 	CONF_CUSTOM("server-tcp", _config_server_tcp, NULL),
+#ifndef MINIMAL_BUILD
 	CONF_CUSTOM("server-tls", _config_server_tls, NULL),
 	CONF_CUSTOM("server-https", _config_server_https, NULL),
 	CONF_CUSTOM("server-h3", _config_server_http3, NULL),
 	CONF_CUSTOM("server-http3", _config_server_http3, NULL),
 	CONF_CUSTOM("server-quic", _config_server_quic, NULL),
+#endif
 	CONF_YESNO("mdns-lookup", &dns_conf.mdns_lookup),
 	CONF_YESNO("local-ptr-enable", &dns_conf.local_ptr_enable),
 	CONF_CUSTOM("nameserver", _config_nameserver, NULL),

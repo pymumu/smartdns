@@ -21,11 +21,13 @@
 #include "server_tcp.h"
 #include "connection.h"
 #include "dns_server.h"
-#include "server_https.h"
 #include "server_socket.h"
-#include "server_tls.h"
 
+#ifndef MINIMAL_BUILD
+#include "server_https.h"
+#include "server_tls.h"
 #include "smartdns/http_parse.h"
+#endif
 
 #include <errno.h>
 #include <netinet/tcp.h>
@@ -153,6 +155,7 @@ int _dns_server_tcp_socket_send(struct dns_server_conn_tcp_client *tcp_client, v
 {
 	if (tcp_client->head.type == DNS_CONN_TYPE_TCP_CLIENT || tcp_client->head.type == DNS_CONN_TYPE_HTTP_CLIENT) {
 		return send(tcp_client->head.fd, data, data_len, MSG_NOSIGNAL);
+#ifndef MINIMAL_BUILD
 	} else if (tcp_client->head.type == DNS_CONN_TYPE_TLS_CLIENT ||
 			   tcp_client->head.type == DNS_CONN_TYPE_HTTPS_CLIENT) {
 		struct dns_server_conn_tls_client *tls_client = (struct dns_server_conn_tls_client *)tcp_client;
@@ -164,6 +167,7 @@ int _dns_server_tcp_socket_send(struct dns_server_conn_tcp_client *tcp_client, v
 			}
 		}
 		return ret;
+#endif
 	} else {
 		return -1;
 	}
@@ -173,6 +177,7 @@ int _dns_server_tcp_socket_recv(struct dns_server_conn_tcp_client *tcp_client, v
 {
 	if (tcp_client->head.type == DNS_CONN_TYPE_TCP_CLIENT || tcp_client->head.type == DNS_CONN_TYPE_HTTP_CLIENT) {
 		return recv(tcp_client->head.fd, data, data_len, MSG_NOSIGNAL);
+#ifndef MINIMAL_BUILD
 	} else if (tcp_client->head.type == DNS_CONN_TYPE_TLS_CLIENT ||
 			   tcp_client->head.type == DNS_CONN_TYPE_HTTPS_CLIENT) {
 		struct dns_server_conn_tls_client *tls_client = (struct dns_server_conn_tls_client *)tcp_client;
@@ -185,6 +190,7 @@ int _dns_server_tcp_socket_recv(struct dns_server_conn_tcp_client *tcp_client, v
 		}
 
 		return ret;
+#endif
 	} else {
 		return -1;
 	}
@@ -238,8 +244,10 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn_tcp_client
 	int proceed_len = 0;
 	unsigned char *request_data = NULL;
 	int ret = RECV_ERROR_FAIL;
+#ifndef MINIMAL_BUILD
 	int len = 0;
 	struct http_head *http_head = NULL;
+#endif
 	uint8_t *http_decode_data = NULL;
 	char *base64_query = NULL;
 
@@ -252,6 +260,7 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn_tcp_client
 			goto out;
 		}
 
+#ifndef MINIMAL_BUILD
 		if (tcpclient->head.type == DNS_CONN_TYPE_HTTPS_CLIENT || tcpclient->head.type == DNS_CONN_TYPE_HTTP_CLIENT) {
 			if ((total_len - proceed_len) <= 0) {
 				ret = RECV_ERROR_AGAIN;
@@ -342,7 +351,9 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn_tcp_client
 			}
 
 			proceed_len += len;
-		} else {
+		} else
+#endif
+		{
 			if ((total_len - proceed_len) <= (int)sizeof(unsigned short)) {
 				ret = RECV_ERROR_AGAIN;
 				goto out;
@@ -375,10 +386,12 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn_tcp_client
 			goto errout;
 		}
 
+#ifndef MINIMAL_BUILD
 		if (http_head != NULL) {
 			http_head_destroy(http_head);
 			http_head = NULL;
 		}
+#endif
 	}
 
 out:
@@ -389,9 +402,11 @@ out:
 	tcpclient->recvbuff.size -= proceed_len;
 
 errout:
+#ifndef MINIMAL_BUILD
 	if (http_head) {
 		http_head_destroy(http_head);
 	}
+#endif
 
 	if (http_decode_data) {
 		free(http_decode_data);
@@ -401,6 +416,7 @@ errout:
 		free(base64_query);
 	}
 
+#ifndef MINIMAL_BUILD
 	if (tcpclient->head.type == DNS_CONN_TYPE_HTTPS_CLIENT || tcpclient->head.type == DNS_CONN_TYPE_HTTP_CLIENT) {
 		if (ret == RECV_ERROR_BAD_PATH) {
 			_dns_server_reply_http_error(tcpclient, 404, "Not Found", "Not Found");
@@ -408,6 +424,7 @@ errout:
 			_dns_server_reply_http_error(tcpclient, 400, "Bad Request", "Bad Request");
 		}
 	}
+#endif
 
 	return ret;
 }

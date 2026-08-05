@@ -32,8 +32,11 @@
 #include <fcntl.h>
 #include <getopt.h>
 #include <libgen.h>
+#include <linux/limits.h>
+#ifndef MINIMAL_BUILD
 #include <openssl/err.h>
 #include <openssl/ssl.h>
+#endif
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -194,6 +197,7 @@ static int _smartdns_prepare_server_flags(struct client_dns_server_flags *flags,
 		struct client_dns_server_flag_udp *flag_udp = &flags->udp;
 		flag_udp->ttl = server->ttl;
 	} break;
+#ifndef MINIMAL_BUILD
 	case DNS_SERVER_HTTP3:
 	case DNS_SERVER_HTTPS: {
 		struct client_dns_server_flag_https *flag_http = &flags->https;
@@ -228,6 +232,7 @@ static int _smartdns_prepare_server_flags(struct client_dns_server_flags *flags,
 		safe_strncpy(flag_tls->alpn, server->alpn, DNS_MAX_ALPN_LEN);
 		flag_tls->skip_check_cert = server->skip_check_cert;
 	} break;
+#endif
 	case DNS_SERVER_TCP:
 		break;
 	default:
@@ -373,6 +378,7 @@ static int _smartdns_plugin_exit(void)
 	return 0;
 }
 
+#ifndef MINIMAL_BUILD
 static int _smartdns_create_cert(void)
 {
 	uid_t uid = 0;
@@ -489,7 +495,9 @@ int smartdns_get_cert(char *key, char *cert)
 
 	return 0;
 }
+#endif /* MINIMAL_BUILD */
 
+#ifndef MINIMAL_BUILD
 static int _smartdns_init_ssl(void)
 {
 #if OPENSSL_API_COMPAT < 0x10100000L
@@ -510,6 +518,7 @@ static int _smartdns_destroy_ssl(void)
 #endif
 	return 0;
 }
+#endif
 
 static const char *_smartdns_log_path(void)
 {
@@ -671,10 +680,12 @@ static int _smartdns_init(void)
 		goto errout;
 	}
 
+#ifndef MINIMAL_BUILD
 	if (_smartdns_init_ssl() != 0) {
 		tlog(TLOG_ERROR, "init ssl failed.");
 		goto errout;
 	}
+#endif
 
 	if (_smartdns_init_load_from_resolv() != 0) {
 		tlog(TLOG_ERROR, "no dns server found, exit...");
@@ -748,7 +759,9 @@ static void _smartdns_exit(void)
 	dns_server_exit();
 	proxy_exit();
 	dns_stats_exit();
+#ifndef MINIMAL_BUILD
 	_smartdns_destroy_ssl();
+#endif
 	dns_timer_destroy();
 	tlog_exit();
 	dns_server_load_exit();
@@ -903,10 +916,12 @@ static int _smartdns_init_pre(void)
 
 	_set_rlimit();
 
+#ifndef MINIMAL_BUILD
 	if (_smartdns_create_cert() != 0) {
 		tlog(TLOG_ERROR, "create cert failed.");
 		return -1;
 	}
+#endif
 
 	return 0;
 }
@@ -1193,6 +1208,7 @@ int smartdns_main(int argc, char *argv[])
 			return dns_cache_print(optarg);
 			break;
 		case 257:
+#ifndef MINIMAL_BUILD
 			if (dns_is_quic_supported() == 0) {
 				fprintf(stdout, "quic is not supported.\n");
 				return 1;
@@ -1202,6 +1218,11 @@ int smartdns_main(int argc, char *argv[])
 			}
 			return 0;
 			break;
+#else
+			fprintf(stdout, "quic is not supported in minimal build.\n");
+			return 1;
+			break;
+#endif
 		default:
 			fprintf(stderr, "unknown option, please run %s -h for help.\n", argv[0]);
 			return 1;

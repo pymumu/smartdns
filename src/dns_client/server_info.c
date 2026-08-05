@@ -20,7 +20,9 @@
 
 #include "server_info.h"
 #include "client_socket.h"
+#ifndef MINIMAL_BUILD
 #include "client_tls.h"
+#endif
 #include "conn_stream.h"
 #include "ecs.h"
 #include "group.h"
@@ -328,6 +330,7 @@ int _dns_client_server_add(const char *server_ip, const char *server_host, int p
 
 		sock_type = SOCK_DGRAM;
 	} break;
+#ifndef MINIMAL_BUILD
 	case DNS_SERVER_HTTP3: {
 		struct client_dns_server_flag_https *flag_https = &flags->https;
 		spki_data_len = flag_https->spi_len;
@@ -366,6 +369,7 @@ int _dns_client_server_add(const char *server_ip, const char *server_host, int p
 		sock_type = SOCK_STREAM;
 		skip_check_cert = flag_tls->skip_check_cert;
 	} break;
+#endif
 	case DNS_SERVER_TCP:
 		sock_type = SOCK_STREAM;
 		break;
@@ -449,6 +453,7 @@ int _dns_client_server_add(const char *server_ip, const char *server_host, int p
 		goto errout;
 	}
 
+#ifndef MINIMAL_BUILD
 	/* if server type is TLS, create ssl context */
 	if (server_type == DNS_SERVER_TLS || server_type == DNS_SERVER_HTTPS || server_type == DNS_SERVER_QUIC ||
 		server_type == DNS_SERVER_HTTP3) {
@@ -466,6 +471,7 @@ int _dns_client_server_add(const char *server_ip, const char *server_host, int p
 			server_info->skip_check_cert = 1;
 		}
 	}
+#endif
 
 	/* safe address info */
 	if (gai->ai_addrlen > sizeof(server_info->in6)) {
@@ -581,12 +587,14 @@ void _dns_client_server_close(struct dns_server_info *server_info)
 
 	_dns_client_close_socket(server_info);
 
+#ifndef MINIMAL_BUILD
 	if (server_info->ssl_session) {
 		SSL_SESSION_free(server_info->ssl_session);
 		server_info->ssl_session = NULL;
 	}
 
 	server_info->ssl_ctx = NULL;
+#endif
 }
 
 /* remove all servers information */
