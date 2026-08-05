@@ -112,6 +112,7 @@ int _dns_server_reply_SOA_ext(int rcode, struct dns_request *request)
 		request->ip_ttl = DNS_SERVER_SOA_TTL;
 	}
 	request->has_soa = 1;
+	request->force_soa = 1;
 
 	struct dns_server_post_context context;
 	_dns_server_post_context_init(&context, request);
@@ -143,6 +144,7 @@ int _dns_server_qtype_soa(struct dns_request *request)
 		}
 	}
 
+	stats_inc(&dns_stats.request.blocked_count);
 	_dns_server_reply_SOA(DNS_RC_NOERROR, request);
 	tlog(TLOG_DEBUG, "force qtype %d soa", request->qtype);
 	return 0;
