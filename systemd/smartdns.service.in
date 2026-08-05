@@ -8,10 +8,9 @@ StartLimitBurst=0
 StartLimitIntervalSec=60
 
 [Service]
-Type=forking
-PIDFile=@RUNSTATEDIR@/smartdns.pid
+Type=exec
 EnvironmentFile=@SYSCONFDIR@/default/smartdns
-ExecStart=@SBINDIR@/smartdns -p @RUNSTATEDIR@/smartdns.pid $SMART_DNS_OPTS
+ExecStart=@SBINDIR@/smartdns $SMART_DNS_OPTS -f
 Restart=always
 RestartSec=2
 TimeoutStopSec=15
