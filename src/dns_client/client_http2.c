@@ -791,7 +791,9 @@ static int _dns_client_http2_process_read(struct dns_server_info *server_info)
 		/* Poll for stream readiness */
 		ret = http2_ctx_poll_readable(http2_ctx, poll_items, 128, &poll_count);
 		if (ret < 0) {
-			if (ret != HTTP2_ERR_EOF) {
+			if (ret == HTTP2_ERR_PROTOCOL) {
+				tlog(TLOG_WARN, "http2 protocol error from server %s:%d", server_info->ip, server_info->port);
+			} else if (ret != HTTP2_ERR_EOF) {
 				tlog(TLOG_DEBUG, "http2 poll failed, ret=%d", ret);
 			}
 			http2_ctx_put(http2_ctx);

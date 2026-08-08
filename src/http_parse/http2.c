@@ -77,6 +77,28 @@ const char *http2_error_to_string(int ret)
 #define HTTP2_RST_REFUSED_STREAM 7
 #define HTTP2_RST_COMPRESSION_ERROR 9
 
+static const char *_http2_rst_error_to_string(uint32_t error_code)
+{
+	switch (error_code) {
+	case HTTP2_RST_NO_ERROR:
+		return "NO_ERROR";
+	case HTTP2_RST_PROTOCOL_ERROR:
+		return "PROTOCOL_ERROR";
+	case HTTP2_RST_INTERNAL_ERROR:
+		return "INTERNAL_ERROR";
+	case HTTP2_RST_FLOW_CONTROL_ERROR:
+		return "FLOW_CONTROL_ERROR";
+	case HTTP2_RST_STREAM_CLOSED:
+		return "STREAM_CLOSED";
+	case HTTP2_RST_REFUSED_STREAM:
+		return "REFUSED_STREAM";
+	case HTTP2_RST_COMPRESSION_ERROR:
+		return "COMPRESSION_ERROR";
+	default:
+		return "UNKNOWN";
+	}
+}
+
 /* HTTP/2 Frame Flags */
 #define HTTP2_FLAG_END_STREAM 0x01
 #define HTTP2_FLAG_END_HEADERS 0x04
@@ -1382,6 +1404,17 @@ static int _http2_process_headers_frame(struct http2_ctx *ctx, int stream_id, co
 	if (ctx->header_block_len > 0) {
 		if (hpack_decode_headers(&ctx->decoder, ctx->header_block_buffer, ctx->header_block_len, _http2_on_header,
 								 stream) < 0) {
+			/* Log first bytes of header block for diagnosis */
+			int dump_len = ctx->header_block_len > 32 ? 32 : ctx->header_block_len;
+			char hex_dump[128];
+			int hex_pos = 0;
+			for (int i = 0; i < dump_len && hex_pos < (int)sizeof(hex_dump) - 4; i++) {
+				hex_pos += snprintf(hex_dump + hex_pos, sizeof(hex_dump) - hex_pos, "%02x ",
+									ctx->header_block_buffer[i]);
+			}
+			tlog(TLOG_WARN,
+				 "HTTP2: HPACK decode failed for stream %u, header_block_len=%d, first_bytes=[%s], server=%s",
+				 stream_id, ctx->header_block_len, hex_dump, ctx->server ? ctx->server : "");
 			http2_send_rst_stream(ctx, stream_id, HTTP2_RST_COMPRESSION_ERROR);
 			_http2_clear_continuation(ctx);
 			if (use_tmp_stream) {
@@ -1678,6 +1711,9 @@ static int _http2_process_frames(struct http2_ctx *ctx)
 		/* Validate frame length */
 		if (length > ctx->local_max_frame_size || length > INT_MAX ||
 			length > sizeof(ctx->read_buffer) - HTTP2_FRAME_HEADER_SIZE) {
+			tlog(TLOG_WARN,
+				 "HTTP2: frame length exceeds limit, type=%u, stream_id=%u, length=%u, max=%u, server=%s",
+				 type, stream_id, length, ctx->local_max_frame_size, ctx->server ? ctx->server : "");
 			ctx->status = HTTP2_ERR_PROTOCOL;
 			return HTTP2_ERR_PROTOCOL;
 		}
@@ -1774,16 +1810,28 @@ static int _http2_process_frames(struct http2_ctx *ctx)
 			break;
 		case HTTP2_FRAME_GOAWAY:
 			if (length < 8) {
+				tlog(TLOG_WARN, "HTTP2: invalid GOAWAY frame, length=%u", length);
 				ctx->status = HTTP2_ERR_PROTOCOL;
-				return -1;
+				return HTTP2_ERR_PROTOCOL;
+			}
+			{
+				uint32_t goaway_last_stream_id = read_uint32(payload) & 0x7FFFFFFF;
+				uint32_t goaway_error_code = read_uint32(payload + 4);
+				int goaway_debug_len = length - 8;
+				tlog(TLOG_WARN,
+					 "HTTP2: received GOAWAY, last_stream_id=%u, error_code=%u(%s), debug_data_len=%d, server=%s",
+					 goaway_last_stream_id, goaway_error_code, _http2_rst_error_to_string(goaway_error_code),
+					 goaway_debug_len, ctx->server ? ctx->server : "");
 			}
 			ctx->status = HTTP2_ERR_EOF;
-			break;
+			return HTTP2_ERR_EOF;
 		default:
 			/* Ignore unknown frames */
 			break;
 		}
 		if (frame_ret < 0) {
+			tlog(TLOG_WARN, "HTTP2: protocol error processing frame type=%u, stream_id=%u, length=%u, server=%s",
+				 type, stream_id, length, ctx->server ? ctx->server : "");
 			if (ctx->status >= 0) {
 				ctx->status = HTTP2_ERR_PROTOCOL;
 			}
