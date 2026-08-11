@@ -1,5 +1,4 @@
 #include "hpack.h"
-#include "smartdns/tlog.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -188,16 +187,18 @@ struct huffman_decode_entry {
 /* Sorted by code for binary search */
 static const struct huffman_decode_entry huffman_table[] = {
 	/* 5-bit codes */
-	{0x0, 5, '0'},
-	{0x1, 5, '1'},
-	{0x2, 5, '2'},
-	{0x3, 5, 'a'},
-	{0x4, 5, 'c'},
-	{0x5, 5, 'e'},
-	{0x6, 5, 'i'},
-	{0x7, 5, 'o'},
-	{0x8, 5, 's'},
-	{0x9, 5, 't'},
+	{0x00, 5, '0'},
+	{0x01, 5, '1'},
+	{0x02, 5, '2'},
+	{0x03, 5, 'a'},
+	{0x04, 5, 'c'},
+	{0x05, 5, 'e'},
+	{0x06, 5, 'i'},
+	{0x07, 5, 'o'},
+	{0x08, 5, 's'},
+	{0x09, 5, 't'},
+
+	/* 6-bit codes */
 	{0x14, 6, ' '},
 	{0x15, 6, '%'},
 	{0x16, 6, '-'},
@@ -224,6 +225,8 @@ static const struct huffman_decode_entry huffman_table[] = {
 	{0x2b, 6, 'p'},
 	{0x2c, 6, 'r'},
 	{0x2d, 6, 'u'},
+
+	/* 7-bit codes */
 	{0x5c, 7, ':'},
 	{0x5d, 7, 'B'},
 	{0x5e, 7, 'C'},
@@ -256,196 +259,122 @@ static const struct huffman_decode_entry huffman_table[] = {
 	{0x79, 7, 'x'},
 	{0x7a, 7, 'y'},
 	{0x7b, 7, 'z'},
+
+	/* 8-bit codes */
 	{0xf8, 8, '&'},
 	{0xf9, 8, '*'},
 	{0xfa, 8, ','},
 	{0xfb, 8, ';'},
 	{0xfc, 8, 'X'},
 	{0xfd, 8, 'Z'},
+
+	/* 10-bit codes */
 	{0x3f8, 10, '!'},
 	{0x3f9, 10, '"'},
 	{0x3fa, 10, '('},
 	{0x3fb, 10, ')'},
 	{0x3fc, 10, '?'},
-	{0x7fa, 11, '\''},
-	{0x7fb, 11, '+'},
-	{0x7fc, 11, '|'},
-	{0xffa, 12, '#'},
-	{0xffb, 12, '>'},
-	{0x1ff8, 13, 0},
-	{0x1ff9, 13, '$'},
-	{0x1ffa, 13, '@'},
-	{0x1ffb, 13, '['},
-	{0x1ffc, 13, ']'},
-	{0x1ffd, 13, '~'},
-	{0x3ffc, 14, '^'},
-	{0x3ffd, 14, '}'},
-	{0x7ffc, 15, '<'},
-	{0x7ffd, 15, '`'},
-	{0x7ffe, 15, '{'},
-	{0xffec, 20, 224},
-	{0xffed, 20, 226},
-	{0x7fff0, 19, '\\'},
-	{0x7fff1, 19, 195},
-	{0x7fff2, 19, 208},
-	{0xfffe6, 20, 128},
-	{0xfffe7, 20, 130},
-	{0xfffe8, 20, 131},
-	{0xfffe9, 20, 162},
-	{0xfffea, 20, 184},
-	{0xfffeb, 20, 194},
-	{0x1fffdc, 21, 153},
-	{0x1fffdd, 21, 161},
-	{0x1fffde, 21, 167},
-	{0x1fffdf, 21, 172},
-	{0x1fffe0, 21, 176},
-	{0x1fffe1, 21, 177},
-	{0x1fffe2, 21, 179},
-	{0x1fffe3, 21, 209},
-	{0x1fffe4, 21, 216},
-	{0x1fffe5, 21, 217},
-	{0x1fffe6, 21, 227},
-	{0x1fffe7, 21, 229},
-	{0x1fffe8, 21, 230},
-	{0x3fffd2, 22, 129},
-	{0x3fffd3, 22, 132},
-	{0x3fffd4, 22, 133},
-	{0x3fffd5, 22, 134},
-	{0x3fffd6, 22, 136},
-	{0x3fffd7, 22, 146},
-	{0x3fffd8, 22, 154},
-	{0x3fffd9, 22, 156},
-	{0x3fffda, 22, 160},
-	{0x3fffdb, 22, 163},
-	{0x3fffdc, 22, 164},
-	{0x3fffdd, 22, 169},
-	{0x3fffde, 22, 170},
-	{0x3fffdf, 22, 173},
-	{0x3fffe0, 22, 178},
-	{0x3fffe1, 22, 181},
-	{0x3fffe2, 22, 185},
-	{0x3fffe3, 22, 186},
-	{0x3fffe4, 22, 187},
-	{0x3fffe5, 22, 189},
-	{0x3fffe6, 22, 190},
-	{0x3fffe7, 22, 196},
-	{0x3fffe8, 22, 198},
-	{0x3fffe9, 22, 228},
-	{0x3fffea, 22, 232},
-	{0x3fffeb, 22, 233},
-	{0x7fffd8, 23, 1},
-	{0x7fffd9, 23, 135},
-	{0x7fffda, 23, 137},
-	{0x7fffdb, 23, 138},
-	{0x7fffdc, 23, 139},
-	{0x7fffdd, 23, 140},
-	{0x7fffde, 23, 141},
-	{0x7fffdf, 23, 143},
-	{0x7fffe0, 23, 147},
-	{0x7fffe1, 23, 149},
-	{0x7fffe2, 23, 150},
-	{0x7fffe3, 23, 151},
-	{0x7fffe4, 23, 152},
-	{0x7fffe5, 23, 155},
-	{0x7fffe6, 23, 157},
-	{0x7fffe7, 23, 158},
-	{0x7fffe8, 23, 165},
-	{0x7fffe9, 23, 166},
-	{0x7fffea, 23, 168},
-	{0x7fffeb, 23, 174},
-	{0x7fffec, 23, 175},
-	{0x7fffed, 23, 180},
-	{0x7fffee, 23, 182},
-	{0x7fffef, 23, 183},
-	{0x7ffff0, 23, 188},
-	{0x7ffff1, 23, 191},
-	{0x7ffff2, 23, 197},
-	{0x7ffff3, 23, 231},
-	{0x7ffff4, 23, 239},
-	{0xffffea, 24, 9},
-	{0xffffeb, 24, 142},
-	{0xffffec, 24, 144},
-	{0xffffed, 24, 145},
-	{0xffffee, 24, 148},
-	{0xffffef, 24, 159},
-	{0xfffff0, 24, 171},
-	{0xfffff1, 24, 206},
-	{0xfffff2, 24, 215},
-	{0xfffff3, 24, 225},
-	{0xfffff4, 24, 236},
-	{0xfffff5, 24, 237},
-	{0x1ffffed, 25, 199},
-	{0x1ffffee, 25, 207},
-	{0x1ffffef, 25, 234},
-	{0x1fffff0, 25, 235},
-	{0x3ffffe0, 26, 192},
-	{0x3ffffe1, 26, 193},
-	{0x3ffffe2, 26, 200},
-	{0x3ffffe3, 26, 201},
-	{0x3ffffe4, 26, 202},
-	{0x3ffffe5, 26, 205},
-	{0x3ffffe6, 26, 210},
-	{0x3ffffe7, 26, 213},
-	{0x3ffffe8, 26, 218},
-	{0x3ffffe9, 26, 219},
-	{0x3ffffea, 26, 238},
-	{0x3ffffeb, 26, 240},
-	{0x3ffffec, 26, 242},
-	{0x3ffffed, 26, 243},
-	{0x3ffffee, 26, 255},
-	{0x7ffffde, 27, 203},
-	{0x7ffffdf, 27, 204},
-	{0x7ffffe0, 27, 211},
-	{0x7ffffe1, 27, 212},
-	{0x7ffffe2, 27, 214},
-	{0x7ffffe3, 27, 221},
-	{0x7ffffe4, 27, 222},
-	{0x7ffffe5, 27, 223},
-	{0x7ffffe6, 27, 241},
-	{0x7ffffe7, 27, 244},
-	{0x7ffffe8, 27, 245},
-	{0x7ffffe9, 27, 246},
-	{0x7ffffea, 27, 247},
-	{0x7ffffeb, 27, 248},
-	{0x7ffffec, 27, 250},
-	{0x7ffffed, 27, 251},
-	{0x7ffffee, 27, 252},
-	{0x7ffffef, 27, 253},
-	{0x7fffff0, 27, 254},
-	{0xfffffe2, 28, 2},
-	{0xfffffe3, 28, 3},
-	{0xfffffe4, 28, 4},
-	{0xfffffe5, 28, 5},
-	{0xfffffe6, 28, 6},
-	{0xfffffe7, 28, 7},
-	{0xfffffe8, 28, 8},
-	{0xfffffe9, 28, 11},
-	{0xfffffea, 28, 12},
-	{0xfffffeb, 28, 14},
-	{0xfffffec, 28, 15},
-	{0xfffffed, 28, 16},
-	{0xfffffee, 28, 17},
-	{0xfffffef, 28, 18},
-	{0xffffff0, 28, 19},
-	{0xffffff1, 28, 20},
-	{0xffffff2, 28, 21},
-	{0xffffff3, 28, 23},
-	{0xffffff4, 28, 24},
-	{0xffffff5, 28, 25},
-	{0xffffff6, 28, 26},
-	{0xffffff7, 28, 27},
-	{0xffffff8, 28, 28},
-	{0xffffff9, 28, 29},
-	{0xffffffa, 28, 30},
-	{0xffffffb, 28, 31},
-	{0xffffffc, 28, 127},
-	{0xffffffd, 28, 220},
-	{0xffffffe, 28, 249},
-	{0x3ffffffc, 30, 10},
-	{0x3ffffffd, 30, 13},
-	{0x3ffffffe, 30, 22},
-	{0x3fffffff, 30, 256},
 
+	/* 11-bit codes */
+	{0x7fa, 11, '#'},
+	{0x7fb, 11, '>'},
+
+	/* 12-bit codes */
+	{0xffa, 12, '$'},
+	{0xffb, 12, '@'},
+	{0xffc, 12, '['},
+	{0xffd, 12, ']'},
+	{0xffe, 12, '~'},
+
+	/* 13-bit codes */
+	{0x1ff8, 13, '+'},
+	{0x1ff9, 13, '<'},
+	{0x1ffa, 13, '\\'},
+
+	/* 14-bit codes */
+	{0x3ffc, 14, '\''},
+	{0x3ffd, 14, '|'},
+
+	/* 15-bit codes */
+	{0x7ffc, 15, '`'},
+	{0x7ffd, 15, '{'},
+
+	/* 19-bit codes */
+	{0x7fff0, 19, '}'},
+
+	/* 20-bit codes and above - less common characters */
+	{0xffff8, 20, 0x00},
+	{0xffff9, 20, 0x01},
+	{0xffffa, 20, 0x02},
+	{0xffffb, 20, 0x03},
+	{0xffffc, 20, 0x04},
+	{0xffffd, 20, 0x05},
+	{0xffffe, 20, 0x06},
+	{0xfffff, 20, 0x07},
+	{0x1ffff8, 21, 0x08},
+	{0x1ffff9, 21, 0x09},
+	{0x1ffffa, 21, 0x0a},
+	{0x1ffffb, 21, 0x0b},
+	{0x1ffffc, 21, 0x0c},
+	{0x1ffffd, 21, 0x0d},
+	{0x1ffffe, 21, 0x0e},
+	{0x1fffff, 21, 0x0f},
+	{0x3ffff8, 22, 0x10},
+	{0x3ffff9, 22, 0x11},
+	{0x3ffffa, 22, 0x12},
+	{0x3ffffb, 22, 0x13},
+	{0x3ffffc, 22, 0x14},
+	{0x3ffffd, 22, 0x15},
+	{0x3ffffe, 22, 0x16},
+	{0x3fffff, 22, 0x17},
+	{0x7ffff8, 23, 0x18},
+	{0x7ffff9, 23, 0x19},
+	{0x7ffffa, 23, 0x1a},
+	{0x7ffffb, 23, 0x1b},
+	{0x7ffffc, 23, 0x1c},
+	{0x7ffffd, 23, 0x1d},
+	{0x7ffffe, 23, 0x1e},
+	{0x7fffff, 23, 0x1f},
+	{0xfffff8, 24, 0x7f},
+	{0xfffff9, 24, 0x20},
+	{0xfffffa, 24, 0x21},
+	{0xfffffb, 24, 0x22},
+	{0xfffffc, 24, 0x23},
+	{0xfffffd, 24, 0x24},
+	{0xfffffe, 24, 0x25},
+	{0xffffff, 24, 0x26},
+	{0x1fffff8, 25, 0x27},
+	{0x1fffff9, 25, 0x28},
+	{0x1fffffa, 25, 0x29},
+	{0x1fffffb, 25, 0x2a},
+	{0x1fffffc, 25, 0x2b},
+	{0x1fffffd, 25, 0x2c},
+	{0x1fffffe, 25, 0x2d},
+	{0x1ffffff, 25, 0x2e},
+	{0x3fffff8, 26, 0x2f},
+	{0x3fffff9, 26, 0x30},
+	{0x3fffffa, 26, 0x31},
+	{0x3fffffb, 26, 0x32},
+	{0x3fffffc, 26, 0x33},
+	{0x3fffffd, 26, 0x34},
+	{0x3fffffe, 26, 0x35},
+	{0x3ffffff, 26, 0x36},
+	{0x7fffff8, 27, 0x37},
+	{0x7fffff9, 27, 0x38},
+	{0x7fffffa, 27, 0x39},
+	{0x7fffffb, 27, 0x3a},
+	{0x7fffffc, 27, 0x3b},
+	{0x7fffffd, 27, 0x3c},
+	{0x7fffffe, 27, 0x3d},
+	{0x7ffffff, 27, 0x3e},
+	{0xffffff8, 28, 0x3f},
+	{0xffffff9, 28, 0x40},
+	{0xffffffa, 28, 0x41},
+	{0xffffffb, 28, 0x42},
+	{0xffffffc, 28, 0x43},
+	{0xffffffd, 28, 0x44},
+	{0xffffffe, 28, 0x45},
+	{0xfffffff, 28, 0x46},
 };
 
 #define HUFFMAN_TABLE_SIZE (sizeof(huffman_table) / sizeof(huffman_table[0]))
@@ -459,9 +388,14 @@ static int hpack_decode_huffman(const uint8_t *src, size_t src_len, uint8_t *dst
 	size_t i;
 
 	for (i = 0; i < src_len; i++) {
-		int decoded_any = 0;
+		if (nbits > 56) {
+			/* Bit buffer would overflow on next byte */
+			return -1;
+		}
+		bits = (bits << 8) | src[i];
+		nbits += 8;
 
-		/* Try to decode symbols from existing bits first */
+		/* Try to decode symbols */
 		while (nbits >= 5) { /* Minimum code length is 5 bits */
 			int found = 0;
 			int len;
@@ -480,55 +414,6 @@ static int hpack_decode_huffman(const uint8_t *src, size_t src_len, uint8_t *dst
 						dst[dst_pos++] = huffman_table[j].symbol;
 						nbits -= len;
 						bits &= (((uint64_t)1 << nbits) - 1); /* Clear decoded bits */
-						found = 1;
-						decoded_any = 1;
-						break;
-					}
-				}
-
-				if (found) {
-					break;
-				}
-			}
-
-			if (!found) {
-				break; /* Need more bits */
-			}
-
-			/* After decoding a symbol, if nbits is still > 56, we can't safely
-			 * read the next byte (bits << 8 would overflow uint64_t).
-			 * Break out to the outer loop which will read more bytes. */
-			if (nbits > 56) {
-				break;
-			}
-		}
-
-		/* If we couldn't decode any symbol and buffer is too full to read more,
-		 * the data is invalid */
-		if (!decoded_any && nbits > 56) {
-			return -1;
-		}
-
-		bits = (bits << 8) | src[i];
-		nbits += 8;
-
-		/* Try to decode symbols from the newly accumulated bits */
-		while (nbits >= 5) {
-			int found = 0;
-			int len;
-
-			for (len = (nbits > 30 ? 30 : nbits); len >= 5; len--) {
-				uint32_t code = (uint32_t)((bits >> (nbits - len)) & (((uint64_t)1 << len) - 1));
-				size_t j;
-
-				for (j = 0; j < HUFFMAN_TABLE_SIZE; j++) {
-					if (huffman_table[j].nbits == (uint8_t)len && huffman_table[j].bits == code) {
-						if (dst_pos >= dst_len) {
-							return -1;
-						}
-						dst[dst_pos++] = huffman_table[j].symbol;
-						nbits -= len;
-						bits &= (((uint64_t)1 << nbits) - 1);
 						found = 1;
 						break;
 					}
@@ -549,20 +434,8 @@ static int hpack_decode_huffman(const uint8_t *src, size_t src_len, uint8_t *dst
 						/* Valid padding */
 						return dst_pos;
 					}
-					tlog(TLOG_WARN, "HPACK Huffman: invalid padding at byte %zu/%zu, nbits=%d, remaining=0x%x",
-						 i, src_len, nbits, remaining);
-				} else {
-					/* Need more bits to decode - this is normal when current bits
-					 * are insufficient to match any Huffman code. Continue reading. */
 				}
 				break; /* Need more bits */
-			}
-
-			/* After decoding a symbol, if nbits is still > 56, we can't safely
-			 * read the next byte (bits << 8 would overflow uint64_t).
-			 * Break out to the outer loop which will read more bytes. */
-			if (nbits > 56) {
-				break;
 			}
 		}
 	}
@@ -893,28 +766,22 @@ int hpack_decode_headers(struct hpack_context *hpack, const uint8_t *data, int d
 {
 	int offset = 0;
 	int header_field_seen = 0;
-	int header_count = 0;
 
 	while (offset < data_len) {
 		const char *name = NULL;
 		const char *value = NULL;
 		char *allocated_name = NULL;
 		char *allocated_value = NULL;
-		uint8_t first_byte = data[offset];
 
-		if ((first_byte & 0x80) != 0) {
+		if ((data[offset] & 0x80) != 0) {
 			/* Indexed header field */
 			uint64_t index;
 			const char *static_name, *static_value;
 			int ret = hpack_decode_integer(data + offset, data_len - offset, 7, &index);
 			if (ret < 0) {
-				tlog(TLOG_WARN, "HPACK: indexed header integer decode failed at offset=%d/%d, byte=0x%02x",
-					 offset, data_len, first_byte);
 				return -1;
 			}
 			if (hpack_get_entry(hpack, index, &static_name, &static_value) < 0) {
-				tlog(TLOG_WARN, "HPACK: indexed header lookup failed, index=%llu, offset=%d/%d, static_size=%zu, dynamic_count=%d",
-					 (unsigned long long)index, offset, data_len, HPACK_STATIC_TABLE_SIZE, hpack->entry_count);
 				return -1;
 			}
 			offset += ret;
@@ -922,13 +789,11 @@ int hpack_decode_headers(struct hpack_context *hpack, const uint8_t *data, int d
 			name = static_name;
 			value = static_value;
 			header_field_seen = 1;
-		} else if ((first_byte & 0x40) != 0) {
+		} else if ((data[offset] & 0x40) != 0) {
 			/* Literal with incremental indexing */
 			uint64_t index;
 			int ret = hpack_decode_integer(data + offset, data_len - offset, 6, &index);
 			if (ret < 0) {
-				tlog(TLOG_WARN, "HPACK: literal incremental indexing integer decode failed at offset=%d/%d, byte=0x%02x",
-					 offset, data_len, first_byte);
 				return -1;
 			}
 			offset += ret;
@@ -936,8 +801,6 @@ int hpack_decode_headers(struct hpack_context *hpack, const uint8_t *data, int d
 			if (index > 0) {
 				const char *static_name, *static_value;
 				if (hpack_get_entry(hpack, index, &static_name, &static_value) < 0) {
-					tlog(TLOG_WARN, "HPACK: literal incremental indexing name lookup failed, index=%llu, offset=%d/%d",
-						 (unsigned long long)index, offset, data_len);
 					return -1;
 				}
 				name = static_name;
@@ -951,8 +814,6 @@ int hpack_decode_headers(struct hpack_context *hpack, const uint8_t *data, int d
 			} else {
 				ret = hpack_decode_string(data + offset, data_len - offset, &allocated_name);
 				if (ret < 0) {
-					tlog(TLOG_WARN, "HPACK: literal incremental indexing name string decode failed at offset=%d/%d",
-						 offset, data_len);
 					return -1;
 				}
 				offset += ret;
@@ -961,8 +822,6 @@ int hpack_decode_headers(struct hpack_context *hpack, const uint8_t *data, int d
 
 			ret = hpack_decode_string(data + offset, data_len - offset, &allocated_value);
 			if (ret < 0) {
-				tlog(TLOG_WARN, "HPACK: literal incremental indexing value string decode failed at offset=%d/%d",
-					 offset, data_len);
 				free(allocated_name);
 				return -1;
 			}
@@ -973,18 +832,14 @@ int hpack_decode_headers(struct hpack_context *hpack, const uint8_t *data, int d
 				hpack_add_dynamic_entry(hpack, name, value);
 			}
 			header_field_seen = 1;
-		} else if ((first_byte & 0x20) != 0) {
+		} else if ((data[offset] & 0x20) != 0) {
 			/* Dynamic Table Size Update */
 			uint64_t new_size;
 			if (header_field_seen) {
-				tlog(TLOG_WARN, "HPACK: dynamic table size update after header field at offset=%d/%d, byte=0x%02x",
-					 offset, data_len, first_byte);
 				return -1;
 			}
 			int ret = hpack_decode_integer(data + offset, data_len - offset, 5, &new_size);
 			if (ret < 0) {
-				tlog(TLOG_WARN, "HPACK: dynamic table size update integer decode failed at offset=%d/%d, byte=0x%02x",
-					 offset, data_len, first_byte);
 				return -1;
 			}
 			offset += ret;
@@ -996,8 +851,6 @@ int hpack_decode_headers(struct hpack_context *hpack, const uint8_t *data, int d
 			int prefix = 4; /* Both types use 4-bit prefix */
 			int ret = hpack_decode_integer(data + offset, data_len - offset, prefix, &index);
 			if (ret < 0) {
-				tlog(TLOG_WARN, "HPACK: literal no-index integer decode failed at offset=%d/%d, byte=0x%02x",
-					 offset, data_len, first_byte);
 				return -1;
 			}
 			offset += ret;
@@ -1005,16 +858,12 @@ int hpack_decode_headers(struct hpack_context *hpack, const uint8_t *data, int d
 			if (index > 0) {
 				const char *static_name, *static_value;
 				if (hpack_get_entry(hpack, index, &static_name, &static_value) < 0) {
-					tlog(TLOG_WARN, "HPACK: literal no-index name lookup failed, index=%llu, offset=%d/%d",
-						 (unsigned long long)index, offset, data_len);
 					return -1;
 				}
 				name = static_name;
 			} else {
 				ret = hpack_decode_string(data + offset, data_len - offset, &allocated_name);
 				if (ret < 0) {
-					tlog(TLOG_WARN, "HPACK: literal no-index name string decode failed at offset=%d/%d",
-						 offset, data_len);
 					return -1;
 				}
 				offset += ret;
@@ -1023,8 +872,6 @@ int hpack_decode_headers(struct hpack_context *hpack, const uint8_t *data, int d
 
 			ret = hpack_decode_string(data + offset, data_len - offset, &allocated_value);
 			if (ret < 0) {
-				tlog(TLOG_WARN, "HPACK: literal no-index value string decode failed at offset=%d/%d",
-					 offset, data_len);
 				free(allocated_name);
 				return -1;
 			}
@@ -1035,8 +882,6 @@ int hpack_decode_headers(struct hpack_context *hpack, const uint8_t *data, int d
 
 		/* Add header to stream */
 		if (on_header(ctx, name, value) < 0) {
-			tlog(TLOG_WARN, "HPACK: on_header callback failed for header #%d at offset=%d/%d",
-				 header_count, offset, data_len);
 			free(allocated_name);
 			free(allocated_value);
 			return -1;
@@ -1049,7 +894,6 @@ int hpack_decode_headers(struct hpack_context *hpack, const uint8_t *data, int d
 		if (allocated_value) {
 			free(allocated_value);
 		}
-		header_count++;
 	}
 
 	return 0;
