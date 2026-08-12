@@ -294,7 +294,7 @@ static const struct huffman_decode_entry huffman_table[] = {
 
 	/* 14-bit codes */
 	{0x3ffc, 14, '^'},
-	{0x3ffd, 14, '},'},
+	{0x3ffd, 14, '}'},
 
 	/* 15-bit codes */
 	{0x7ffc, 15, '<'},
