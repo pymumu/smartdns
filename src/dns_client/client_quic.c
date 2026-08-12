@@ -467,6 +467,17 @@ static int _dns_client_process_quic_poll(struct dns_server_info *server_info)
 	struct dns_conn_stream *conn_stream = NULL;
 	struct dns_conn_stream *tmp = NULL;
 
+	/*
+	 * Guard the poll loop: dispatching a decoded response below can run
+	 * the query callback (via _dns_client_process_quic_stream_read() ->
+	 * _dns_client_process_recv_http3() -> _dns_client_recv()), which may
+	 * request an immediate retry and normally closes the socket right
+	 * away. That would free server_info->ssl and conn_stream_list entries
+	 * this loop is still iterating/using. Defer any such close until the
+	 * guard is released below.
+	 */
+	_dns_client_process_guard_enter(server_info);
+
 	while (true) {
 		int poll_item_count = 0;
 		size_t poll_process_count = 0;
@@ -534,6 +545,7 @@ out:
 	pthread_mutex_lock(&server_info->lock);
 	if (list_empty(&processed_list)) {
 		pthread_mutex_unlock(&server_info->lock);
+		_dns_client_process_guard_leave(server_info);
 		return 0;
 	}
 
@@ -545,6 +557,7 @@ out:
 	}
 	pthread_mutex_unlock(&server_info->lock);
 
+	_dns_client_process_guard_leave(server_info);
 	return poll_ret;
 }
 

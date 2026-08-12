@@ -137,6 +137,20 @@ struct dns_server_info {
 	char alpn_selected[32];
 
 	dns_server_security_status security_status;
+
+	/*
+	 * Re-entrancy guard for the HTTP/2 and QUIC poll-and-dispatch loops.
+	 * Those loops iterate conn_stream_list / poll the connection-level SSL
+	 * object while dispatching decoded responses to the query callback.
+	 * The callback can request an immediate retry, which normally tears
+	 * down the socket (SSL_free(ssl), conn_stream_list teardown) right
+	 * away. Doing that while still inside the poll loop frees state the
+	 * loop is still using, so instead the close is deferred until the
+	 * loop finishes: see _dns_client_close_socket_ext() and
+	 * _dns_client_process_guard_enter/leave().
+	 */
+	int process_depth;
+	int close_deferred;
 };
 
 struct dns_server_pending_group {

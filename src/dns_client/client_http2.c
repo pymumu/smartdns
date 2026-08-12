@@ -849,29 +849,44 @@ static int _dns_client_http2_process_read(struct dns_server_info *server_info)
 
 int _dns_client_process_http2(struct dns_server_info *server_info, struct epoll_event *event, unsigned long now)
 {
+	int ret = -1;
+
 	if (server_info->http2_ctx == NULL) {
 		if (_dns_client_http2_init_ctx(server_info) < 0) {
 			return -1;
 		}
 	}
 
+	/*
+	 * Guard the whole read/write cycle: a query callback invoked from
+	 * _dns_client_http2_process_read() (via _dns_client_recv()) may request
+	 * an immediate retry, which normally closes the socket right away.
+	 * That would free server_info->ssl/http2_ctx and conn_stream_list
+	 * entries this function is still iterating/using. Defer any such close
+	 * until the guard is released below.
+	 */
+	_dns_client_process_guard_enter(server_info);
+
 	if (event->events & EPOLLOUT) {
 		if (_dns_client_http2_process_write(server_info) < 0) {
-			return -1;
+			goto out;
 		}
 	}
 
 	/* Always process read, as write might have read data (e.g. WINDOW_UPDATE),
 	   or there might be pending data in SSL/HTTP2 buffers */
 	if (_dns_client_http2_process_read(server_info) < 0) {
-		return -1;
+		goto out;
 	}
 
 	if (_dns_client_http2_has_buffered_requests(server_info)) {
 		if (_dns_client_http2_process_write(server_info) < 0) {
-			return -1;
+			goto out;
 		}
 	}
 
-	return 0;
+	ret = 0;
+out:
+	_dns_client_process_guard_leave(server_info);
+	return ret;
 }
