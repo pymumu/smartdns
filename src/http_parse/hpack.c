@@ -294,7 +294,7 @@ static const struct huffman_decode_entry huffman_table[] = {
 
 	/* 14-bit codes */
 	{0x3ffc, 14, '^'},
-	{0x3ffd, 14, '}'},
+	{0x3ffd, 14, '},'},
 
 	/* 15-bit codes */
 	{0x7ffc, 15, '<'},
@@ -307,14 +307,14 @@ static const struct huffman_decode_entry huffman_table[] = {
 	{0x7fff2, 19, 208},
 
 	/* 20-bit codes and above - less common characters */
-	{0xffec, 20, 224},
-	{0xffed, 20, 226},
 	{0xfffe6, 20, 128},
 	{0xfffe7, 20, 130},
 	{0xfffe8, 20, 131},
 	{0xfffe9, 20, 162},
 	{0xfffea, 20, 184},
 	{0xfffeb, 20, 194},
+	{0xfffec, 20, 224},
+	{0xfffed, 20, 226},
 	{0x1fffdc, 21, 153},
 	{0x1fffdd, 21, 161},
 	{0x1fffde, 21, 167},
@@ -395,10 +395,10 @@ static const struct huffman_decode_entry huffman_table[] = {
 	{0xfffff3, 24, 225},
 	{0xfffff4, 24, 236},
 	{0xfffff5, 24, 237},
-	{0x1ffffed, 25, 199},
-	{0x1ffffee, 25, 207},
-	{0x1ffffef, 25, 234},
-	{0x1fffff0, 25, 235},
+	{0x1ffffec, 25, 199},
+	{0x1ffffed, 25, 207},
+	{0x1ffffee, 25, 234},
+	{0x1ffffef, 25, 235},
 	{0x3ffffe0, 26, 192},
 	{0x3ffffe1, 26, 193},
 	{0x3ffffe2, 26, 200},
