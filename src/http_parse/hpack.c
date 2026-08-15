@@ -465,7 +465,6 @@ static const struct huffman_decode_entry huffman_table[] = {
 	{0x3ffffffc, 30, 10},
 	{0x3ffffffd, 30, 13},
 	{0x3ffffffe, 30, 22},
-	{0x3fffffff, 30, 256},
 };
 
 #define HUFFMAN_TABLE_SIZE (sizeof(huffman_table) / sizeof(huffman_table[0]))
