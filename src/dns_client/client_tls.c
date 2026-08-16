@@ -42,11 +42,10 @@
 static ssize_t _ssl_read_ext(struct dns_server_info *server, SSL *ssl, void *buff, int num)
 {
 	ssize_t ret = 0;
-	pthread_mutex_lock(&server->lock);
 	if (server == NULL || buff == NULL || ssl == NULL) {
-		pthread_mutex_unlock(&server->lock);
 		return SSL_ERROR_SYSCALL;
 	}
+	pthread_mutex_lock(&server->lock);
 	ret = SSL_read(ssl, buff, num);
 	pthread_mutex_unlock(&server->lock);
 	return ret;
@@ -56,11 +55,10 @@ static ssize_t _ssl_write_ext2(struct dns_server_info *server, SSL *ssl, const v
 {
 	ssize_t ret = 0;
 	size_t written = 0;
-	pthread_mutex_lock(&server->lock);
 	if (server == NULL || buff == NULL || ssl == NULL) {
-		pthread_mutex_unlock(&server->lock);
 		return SSL_ERROR_SYSCALL;
 	}
+	pthread_mutex_lock(&server->lock);
 
 #if defined(OSSL_QUIC1_VERSION) && !defined(OPENSSL_NO_QUIC)
 	ret = SSL_write_ex2(ssl, buff, num, flags, &written);
@@ -82,12 +80,10 @@ static ssize_t _ssl_write_ext2(struct dns_server_info *server, SSL *ssl, const v
 int _ssl_shutdown(struct dns_server_info *server)
 {
 	int ret = 0;
-	pthread_mutex_lock(&server->lock);
 	if (server == NULL || server->ssl == NULL) {
-		pthread_mutex_unlock(&server->lock);
 		return SSL_ERROR_SYSCALL;
 	}
-
+	pthread_mutex_lock(&server->lock);
 	ret = SSL_shutdown(server->ssl);
 	pthread_mutex_unlock(&server->lock);
 	return ret;
@@ -96,12 +92,10 @@ int _ssl_shutdown(struct dns_server_info *server)
 static int _ssl_get_error_ext(struct dns_server_info *server, SSL *ssl, int ret)
 {
 	int err = 0;
-	pthread_mutex_lock(&server->lock);
 	if (server == NULL || ssl == NULL) {
-		pthread_mutex_unlock(&server->lock);
 		return SSL_ERROR_SYSCALL;
 	}
-
+	pthread_mutex_lock(&server->lock);
 	err = SSL_get_error(ssl, ret);
 	pthread_mutex_unlock(&server->lock);
 	return err;
@@ -115,12 +109,10 @@ static int _ssl_get_error(struct dns_server_info *server, int ret)
 static int _ssl_do_handshake(struct dns_server_info *server)
 {
 	int err = 0;
-	pthread_mutex_lock(&server->lock);
 	if (server == NULL || server->ssl == NULL) {
-		pthread_mutex_unlock(&server->lock);
 		return SSL_ERROR_SYSCALL;
 	}
-
+	pthread_mutex_lock(&server->lock);
 	err = SSL_do_handshake(server->ssl);
 	pthread_mutex_unlock(&server->lock);
 	return err;
@@ -129,11 +121,10 @@ static int _ssl_do_handshake(struct dns_server_info *server)
 int _ssl_do_handevent(struct dns_server_info *server)
 {
 	int err = 0;
-	pthread_mutex_lock(&server->lock);
 	if (server == NULL || server->ssl == NULL) {
-		pthread_mutex_unlock(&server->lock);
 		return SSL_ERROR_SYSCALL;
 	}
+	pthread_mutex_lock(&server->lock);
 #if defined(OSSL_QUIC1_VERSION) && !defined(OPENSSL_NO_QUIC)
 	err = SSL_handle_events(server->ssl);
 #else
@@ -146,29 +137,13 @@ int _ssl_do_handevent(struct dns_server_info *server)
 static int _ssl_session_reused(struct dns_server_info *server)
 {
 	int err = 0;
-	pthread_mutex_lock(&server->lock);
 	if (server == NULL || server->ssl == NULL) {
-		pthread_mutex_unlock(&server->lock);
 		return SSL_ERROR_SYSCALL;
 	}
-
+	pthread_mutex_lock(&server->lock);
 	err = SSL_session_reused(server->ssl);
 	pthread_mutex_unlock(&server->lock);
 	return err;
-}
-
-static SSL_SESSION *_ssl_get1_session(struct dns_server_info *server)
-{
-	SSL_SESSION *ret = NULL;
-	pthread_mutex_lock(&server->lock);
-	if (server == NULL || server->ssl == NULL) {
-		pthread_mutex_unlock(&server->lock);
-		return NULL;
-	}
-
-	ret = SSL_get1_session(server->ssl);
-	pthread_mutex_unlock(&server->lock);
-	return ret;
 }
 
 static void _dns_client_tls_clear_session(struct dns_server_info *server_info)
@@ -911,16 +886,8 @@ static int _dns_client_verify_common_name(struct dns_server_info *server_info, X
 
 	tlog(TLOG_DEBUG, "peer CN: %s", peer_CN);
 
-	/* check tls host */
-	tls_host_verify = _dns_client_server_get_tls_host_verify(server_info);
-	if (tls_host_verify == NULL) {
+	if (_dns_client_tls_matchName(tls_host_verify, peer_CN, strnlen(peer_CN, DNS_MAX_CNAME_LEN)) == 0) {
 		return 0;
-	}
-
-	if (tls_host_verify) {
-		if (_dns_client_tls_matchName(tls_host_verify, peer_CN, strnlen(peer_CN, DNS_MAX_CNAME_LEN)) == 0) {
-			return 0;
-		}
 	}
 
 errout:
@@ -950,10 +917,8 @@ static int _dns_client_tls_verify(struct dns_server_info *server_info)
 		return -1;
 	}
 
-	pthread_mutex_lock(&server_info->lock);
 	cert = SSL_get_peer_certificate(server_info->ssl);
 	if (cert == NULL) {
-		pthread_mutex_unlock(&server_info->lock);
 		tlog(TLOG_ERROR, "get peer certificate failed.");
 		return -1;
 	}
@@ -961,7 +926,6 @@ static int _dns_client_tls_verify(struct dns_server_info *server_info)
 	if (server_info->skip_check_cert == 0) {
 		long res = SSL_get_verify_result(server_info->ssl);
 		if (res != X509_V_OK) {
-			pthread_mutex_unlock(&server_info->lock);
 			tlog(TLOG_WARN, "peer server %s certificate verify failed, %s", server_info->ip,
 				 X509_verify_cert_error_string(res));
 			goto errout;
@@ -969,7 +933,6 @@ static int _dns_client_tls_verify(struct dns_server_info *server_info)
 
 		is_secure = 1;
 	}
-	pthread_mutex_unlock(&server_info->lock);
 
 	switch (_dns_client_verify_SAN(server_info, cert)) {
 	case 0:
@@ -1122,7 +1085,7 @@ int _dns_client_process_tls(struct dns_server_info *server_info, struct epoll_ev
 			}
 
 			/* save ssl session for next request */
-			server_info->ssl_session = _ssl_get1_session(server_info);
+			server_info->ssl_session = SSL_get1_session(server_info->ssl);
 			pthread_mutex_unlock(&server_info->lock);
 		}
 
