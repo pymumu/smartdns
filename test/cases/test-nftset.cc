@@ -17,11 +17,14 @@
  */
 
 
+#include "client.h"
+#include "server.h"
 #include "smartdns/lib/nftset.h"
 #include "gtest/gtest.h"
 #include <arpa/inet.h>
 #include <cstdio>
 #include <string>
+#include <sys/wait.h>
 #include <unistd.h>
 
 /*
@@ -57,11 +60,21 @@ class NftSet : public ::testing::Test
 		return out;
 	}
 
+	/* Runs in a child: nftset keeps its netlink socket process-wide, and servers forked from this process
+	 * later close inherited descriptors, so test.bin itself must never open it. */
 	static int Add(const char *ip, unsigned long timeout)
 	{
 		unsigned char addr[4];
 		inet_pton(AF_INET, ip, addr);
-		return nftset_add("inet", "smartdns_test", "s", addr, 4, timeout);
+		pid_t pid = fork();
+		if (pid == 0) {
+			_exit(nftset_add("inet", "smartdns_test", "s", addr, 4, timeout) == 0 ? 0 : 1);
+		}
+		int status = 0;
+		if (pid < 0 || waitpid(pid, &status, 0) != pid || !WIFEXITED(status)) {
+			return -2;
+		}
+		return WEXITSTATUS(status) == 0 ? 0 : -1;
 	}
 };
 
@@ -105,4 +118,44 @@ TEST_F(NftSet, StaticRangeIsKept)
 	EXPECT_EQ(elements.find("10.0.2.0"), std::string::npos) << elements;
 	EXPECT_EQ(elements.find("10.0.0.254"), std::string::npos) << elements;
 	EXPECT_EQ(elements.find("10.0.1.5"), std::string::npos) << elements;
+}
+
+/* With serve-expired the cached answer is still replied after its TTL, so the address must stay in the set
+ * that long too: element timeout = 3 * TTL + serve-expired-ttl. */
+TEST_F(NftSet, TimeoutCoversServeExpired)
+{
+	ASSERT_EQ(system("ip link set lo up"), 0);
+	smartdns::MockServer server_upstream;
+	smartdns::Server server;
+
+	server_upstream.Start("udp://0.0.0.0:61053", [](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype != DNS_T_A) {
+			return smartdns::SERVER_REQUEST_SOA;
+		}
+		smartdns::MockServer::AddIP(request, request->domain.c_str(), "10.0.3.1", 10);
+		return smartdns::SERVER_REQUEST_OK;
+	});
+
+	ASSERT_TRUE(server.Start(R"""(bind [::]:60053
+server 127.0.0.1:61053
+speed-check-mode none
+nftset-timeout yes
+serve-expired yes
+serve-expired-ttl 600
+rr-ttl-max 10
+nftset /a.com/#4:inet#smartdns_test#s
+)"""));
+
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("a.com A", 60053));
+	std::string elements;
+	for (int i = 0; i < 20; i++) {
+		elements = Elements();
+		if (elements.find("10.0.3.1") != std::string::npos) {
+			break;
+		}
+		usleep(100 * 1000);
+	}
+	/* 3 * 10s + 600s */
+	EXPECT_NE(elements.find("10.0.3.1 timeout 10m30s"), std::string::npos) << elements;
 }
