@@ -23,6 +23,7 @@
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <sys/uio.h>
 #include <unistd.h>
 
 #ifndef likely
@@ -739,9 +740,14 @@ int tlog_stdout_with_color(tlog_level level, const char *buff, int bufflen)
     }
 
     if (color != NULL) {
-        fprintf(stdout, "%s%.*s\033[0m\n", color, bufflen - 1, buff);
+        struct iovec buff_iov[3] = {
+            { .iov_base = color, .iov_len = strlen(color) },
+            { .iov_base = buff,  .iov_len = bufflen - 1 },
+            { .iov_base = "\033[0m\n", .iov_len = 5 }
+        };
+        unused = writev(STDOUT_FILENO, buff_iov, 3);
     } else {
-        fprintf(stdout, "%s", buff);
+        unused = write(STDOUT_FILENO, buff, bufflen);
     }
 
     return bufflen;    
