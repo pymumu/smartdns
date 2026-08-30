@@ -22,6 +22,8 @@
 #![allow(dead_code)]
 #![allow(unused_imports)]
 #![allow(improper_ctypes)]
+#![allow(unknown_lints)]
+#![allow(suspicious_runtime_symbol_definitions)]
 pub mod smartdns_c {
     include!(concat!(env!("OUT_DIR"), "/smartdns_bindings.rs"));
 }
