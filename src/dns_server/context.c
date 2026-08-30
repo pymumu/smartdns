@@ -29,6 +29,32 @@
 #include "rules.h"
 #include "soa.h"
 
+#include <limits.h>
+
+static int _dns_server_get_nftset_timeout_value(const struct dns_conf_group *conf, int timeout_value)
+{
+	if (conf->ipset_nftset.nftset_timeout_enable == 0) {
+		return 0;
+	}
+
+	if (conf->dns_serve_expired == 0 || conf->dns_serve_expired_ttl <= 0) {
+		return timeout_value;
+	}
+
+	if (timeout_value > INT_MAX - conf->dns_serve_expired_ttl) {
+		return INT_MAX;
+	}
+
+	return timeout_value + conf->dns_serve_expired_ttl;
+}
+
+#ifdef TEST
+int dns_server_get_nftset_timeout_for_test(const struct dns_conf_group *conf, int timeout_value)
+{
+	return _dns_server_get_nftset_timeout_value(conf, timeout_value);
+}
+#endif
+
 void _dns_server_post_context_init(struct dns_server_post_context *context, struct dns_request *request)
 {
 	memset(context, 0, sizeof(*context));
@@ -673,9 +699,7 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 		ipset_timeout_value = timeout_value;
 	}
 
-	if (conf->ipset_nftset.nftset_timeout_enable) {
-		nftset_timeout_value = timeout_value;
-	}
+	nftset_timeout_value = _dns_server_get_nftset_timeout_value(conf, timeout_value);
 
 	for (j = 1; j < DNS_RRS_OPT; j++) {
 		rrs = dns_get_rrs_start(context->packet, j, &rr_count);
