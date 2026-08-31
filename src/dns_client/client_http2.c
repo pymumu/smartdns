@@ -708,7 +708,17 @@ static int _dns_client_http2_process_stream_one(struct dns_server_info *server_i
 	if (status > 0 && status != 200) {
 		tlog(TLOG_WARN, "http2 server query from %s:%d failed, server return http code: %d", server_info->ip,
 			 server_info->port, status);
-		server_info->prohibit = 1;
+		/*
+		 * 429 and 503 are transient backpressure for this request; they do not mean the
+		 * server is unavailable. Prohibiting it here shuts down the shared HTTP/2
+		 * connection and takes the upstream out of rotation for up to 60 seconds, which
+		 * is both disproportionate and self-reinforcing: reconnecting sends another
+		 * burst that runs into the same limit again. Fail just this query instead and
+		 * let the caller retry it; other members of the group answer meanwhile.
+		 */
+		if (status != 429 && status != 503) {
+			server_info->prohibit = 1;
+		}
 		return -1;
 	}
 
