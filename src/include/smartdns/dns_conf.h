@@ -714,6 +714,7 @@ struct dns_config {
 	ssize_t cache_max_memsize;
 	struct dns_servers servers[DNS_MAX_SERVERS];
 	int server_num;
+	int bootstrap_num;
 
 	/* proxy servers */
 	struct dns_proxy_servers proxy_servers[PROXY_MAX_SERVERS];
