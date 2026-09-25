@@ -180,6 +180,19 @@ static int dns_server_resolve_callback(const char *domain, dns_result_type rtype
 				request->has_ptr = 0;
 				request->ping_time = -1;
 				request->ip_ttl = 0;
+				/* Clear ip_map so subsequent _dns_server_process_answer() can initiate speed-checks */
+				struct dns_ip_address *addr_map = NULL;
+				struct hlist_node *tmp = NULL;
+				unsigned long bucket = 0;
+
+				pthread_mutex_lock(&request->ip_map_lock);
+				hash_for_each_safe(request->ip_map, bucket, tmp, addr_map, node)
+				{
+					hash_del(&addr_map->node);
+					free(addr_map);
+				}
+				atomic_set(&request->ip_map_num, 0);
+				pthread_mutex_unlock(&request->ip_map_lock);
 			}
 		}
 
