@@ -136,6 +136,34 @@ static int HpackExpectUafHeader(void *ctx, const char *name, const char *value)
 	return 0;
 }
 
+TEST_F(LIBHTTP2, HpackRejectsOverflowingLiteralStringLength)
+{
+	struct hpack_context hpack;
+	const uint8_t invalid_block[] = {
+		0x00, 0x7f, 0x80, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01
+	};
+	int count = 0;
+
+	hpack_init_context(&hpack);
+	EXPECT_LT(hpack_decode_headers(&hpack, invalid_block, sizeof(invalid_block), HpackCountHeader, &count), 0);
+	EXPECT_EQ(count, 0);
+	hpack_free_context(&hpack);
+}
+
+TEST_F(LIBHTTP2, HpackRejectsOverflowingHuffmanStringLength)
+{
+	struct hpack_context hpack;
+	const uint8_t invalid_block[] = {
+		0x00, 0xff, 0x80, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01
+	};
+	int count = 0;
+
+	hpack_init_context(&hpack);
+	EXPECT_LT(hpack_decode_headers(&hpack, invalid_block, sizeof(invalid_block), HpackCountHeader, &count), 0);
+	EXPECT_EQ(count, 0);
+	hpack_free_context(&hpack);
+}
+
 TEST_F(LIBHTTP2, HpackDynamicTableSizeUpdateMustPrecedeHeaders)
 {
 	struct hpack_context hpack;
