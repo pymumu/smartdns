@@ -1,4 +1,5 @@
 #include "hpack.h"
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -132,15 +133,17 @@ static int hpack_decode_integer(const uint8_t *data, int data_len, int prefix_bi
 
 	while (offset < data_len) {
 		uint8_t byte = data[offset++];
-		result += (uint64_t)(byte & 0x7F) << shift;
-		shift += 7;
+		uint64_t chunk = byte & 0x7F;
+
+		if (shift >= 64 || chunk > (UINT64_MAX - result) >> shift) {
+			return -1;
+		}
+		result += chunk << shift;
 		if ((byte & 0x80) == 0) {
 			*value = result;
 			return offset;
 		}
-		if (shift > 63) {
-			return -1;
-		}
+		shift += 7;
 	}
 
 	return -1;
@@ -446,6 +449,7 @@ static int hpack_decode_huffman(const uint8_t *src, size_t src_len, uint8_t *dst
 static int hpack_decode_string(const uint8_t *data, int data_len, char **str)
 {
 	uint64_t len;
+	size_t string_len;
 	int huffman;
 	int offset = 0;
 	int ret;
@@ -461,20 +465,26 @@ static int hpack_decode_string(const uint8_t *data, int data_len, char **str)
 	}
 	offset += ret;
 
-	if (offset + (int)len > data_len) {
+	if (offset > data_len || len > (uint64_t)(data_len - offset) || len > SIZE_MAX - 1) {
 		return -1;
 	}
+	string_len = (size_t)len;
 
 	if (huffman) {
 		/* Huffman decoding */
+		size_t decoded_capacity;
 
-		/* Allocate buffer for decoded string (worst case: same size as encoded) */
-		uint8_t *decoded = malloc(len * 2 + 1); /* Extra space for safety */
+		/* Bound the 2x buffer used for decoded output. */
+		if (string_len > ((size_t)INT_MAX - 1) / 2 || string_len > (SIZE_MAX - 1) / 2) {
+			return -1;
+		}
+		decoded_capacity = string_len * 2;
+		uint8_t *decoded = malloc(decoded_capacity + 1); /* Extra space for safety */
 		if (!decoded) {
 			return -1;
 		}
 
-		int decoded_len = hpack_decode_huffman(data + offset, len, decoded, len * 2);
+		int decoded_len = hpack_decode_huffman(data + offset, string_len, decoded, decoded_capacity);
 		if (decoded_len < 0) {
 			free(decoded);
 			return -1;
@@ -491,16 +501,16 @@ static int hpack_decode_string(const uint8_t *data, int data_len, char **str)
 		free(decoded);
 	} else {
 		/* Literal string */
-		*str = malloc(len + 1);
+		*str = malloc(string_len + 1);
 		if (*str == NULL) {
 			return -1;
 		}
 
-		memcpy(*str, data + offset, len);
-		(*str)[len] = '\0';
+		memcpy(*str, data + offset, string_len);
+		(*str)[string_len] = '\0';
 	}
 
-	offset += len;
+	offset += (int)string_len;
 
 	return offset;
 }
