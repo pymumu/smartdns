@@ -1,0 +1,31 @@
+--- a/etc/smartdns/smartdns.conf
++++ b/etc/smartdns/smartdns.conf
+@@ -78,7 +78,7 @@
+ # cache-persist no
+
+ # cache persist file
+-# cache-file /var/cache/smartdns.cache
++# cache-file /opt/var/cache/smartdns.cache
+
+ # cache persist time
+ # cache-checkpoint-time [second]
+@@ -179,10 +179,10 @@
+ # log-num: number of logs, 0 means disable log
+ log-level info
+
+-# log-file /var/log/smartdns/smartdns.log
++# log-file /opt/var/log/smartdns/smartdns.log
+ # log-size 128k
+ # log-num 2
+ # log-file-mode [mode]: file mode of log file.
+
+ # dns audit
+@@ -189,7 +189,7 @@
+ # audit-enable yes
+ # audit-SOA [yes|no]: enable or disable log soa result.
+ # audit-size size of each audit file, support k,m,g
+-# audit-file /var/log/smartdns/smartdns-audit.log
++# audit-file /opt/var/log/smartdns-audit.log
+ # audit-console [yes|no]: output audit log to console.
+ # audit-syslog [yes|no]: output audit log to syslog.
+ # audit-file-mode [mode]: file mode of audit file.

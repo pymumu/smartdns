@@ -30,6 +30,80 @@
 #include <limits.h>
 #include <stdio.h>
 
+int _config_domain_rule_each_from_geosite(const char *file, int type, set_rule_add_func callback, void *priv)
+{
+	FILE *fp = NULL;
+	char line[MAX_LINE_LEN];
+	char domain[DNS_MAX_CNAME_LEN];
+	int ret = 0;
+	int line_no = 0;
+	int filed_num = 0;
+
+	fp = fopen(file, "r");
+	if (fp == NULL) {
+		tlog(TLOG_WARN, "open file %s error, %s", file, strerror(errno));
+		return 0;
+	}
+
+	line_no = 0;
+	while (fgets(line, MAX_LINE_LEN, fp)) {
+		line_no++;
+		filed_num = sscanf(line, "%255s", domain);
+		if (filed_num <= 0) {
+			continue;
+		}
+
+		if (domain[0] == '#' || domain[0] == '\n') {
+			continue;
+		}
+
+		char buf[DNS_MAX_CNAME_LEN];
+		memset(buf, 0 ,sizeof(buf));
+		if (strncmp(domain, "full:", 5)==0) {
+			safe_strncpy(buf, &domain[5], DNS_MAX_CNAME_LEN);
+			sprintf(domain,"%s",buf);
+		}
+
+		if (strncmp(domain, "domain:", 7)==0) {
+			safe_strncpy(buf, &domain[7], DNS_MAX_CNAME_LEN);
+			sprintf(domain,"%s",buf);
+		}
+
+		if (strncmp(domain, "keyword:", 8)==0) {
+		    if (type==DNS_DOMAIN_SET_GEOSITELIST)
+		       continue;
+			   
+			safe_strncpy(buf, &domain[8], DNS_MAX_CNAME_LEN);
+			sprintf(domain,"^.*%s.*$", buf);
+			if (dns_regexp_insert(domain) !=0 ) {
+			    tlog(TLOG_WARN, "insert regexp %s failed at file %s line %d.", domain, file, line_no);
+				continue;
+			}
+		}
+
+		if (strncmp(domain, "regexp:", 7)==0) {
+		    if (type==DNS_DOMAIN_SET_GEOSITELIST)
+		       continue;
+
+			safe_strncpy(buf, &domain[7], DNS_MAX_CNAME_LEN);
+			sprintf(domain,"%s",buf);
+			if (dns_regexp_insert(domain) !=0 ) {
+			    tlog(TLOG_WARN, "insert regexp %s failed at file %s line %d.", domain, file, line_no);
+				continue;
+			}
+		}
+
+		ret = callback(domain, priv);
+		if (ret != 0) {
+			tlog(TLOG_WARN, "process file %s failed at line %d.", file, line_no);
+			continue;
+		}
+	}
+
+	fclose(fp);
+	return ret;
+}
+
 int _config_set_rule_each_from_list(const char *file, set_rule_add_func callback, void *priv)
 {
 	FILE *fp = NULL;
@@ -47,15 +121,8 @@ int _config_set_rule_each_from_list(const char *file, set_rule_add_func callback
 
 	line_no = 0;
 	while (fgets(line, MAX_LINE_LEN, fp)) {
-		char *p = line;
 		line_no++;
-
-		/* skip UTF-8 BOM */
-		if (line_no == 1 && (unsigned char)line[0] == 0xEF && (unsigned char)line[1] == 0xBB && (unsigned char)line[2] == 0xBF) {
-			p += 3;
-		}
-
-		filed_num = sscanf(p, "%255s", value);
+		filed_num = sscanf(line, "%255s", value);
 		if (filed_num <= 0) {
 			continue;
 		}
@@ -64,23 +131,7 @@ int _config_set_rule_each_from_list(const char *file, set_rule_add_func callback
 			continue;
 		}
 
-		/* Normalize domain */
-		char domain[DNS_MAX_CNAME_LEN];
-		char *d_ptr = value;
-		/* remove prefix . */
-		while (*d_ptr == '.') {
-			if (*(d_ptr + 1) == '\0') {
-				break;
-			}
-			d_ptr++;
-		}
-
-		if (utf8_to_punycode(d_ptr, strlen(d_ptr), domain, sizeof(domain)) <= 0) {
-			tlog(TLOG_WARN, "process file %s failed at line %d, invalid domain %s.", file, line_no, d_ptr);
-			continue;
-		}
-
-		ret = callback(domain, priv);
+		ret = callback(value, priv);
 		if (ret != 0) {
 			tlog(TLOG_WARN, "process file %s failed at line %d.", file, line_no);
 			continue;
