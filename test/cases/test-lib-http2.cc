@@ -13,6 +13,7 @@
 #include <unistd.h>
 #include <vector>
 
+#include "http_parse/hpack.h"
 #include "smartdns/http2.h"
 
 class LIBHTTP2 : public ::testing::Test
@@ -68,7 +69,433 @@ class LIBHTTP2 : public ::testing::Test
 		}
 		return ret;
 	}
+
+	void WriteServerFrame(uint8_t type, uint8_t flags, uint32_t stream_id, const uint8_t *payload, int len)
+	{
+		uint8_t frame[256] = {0};
+		ASSERT_GE(len, 0);
+		ASSERT_LE(len, (int)sizeof(frame) - 9);
+		frame[0] = (len >> 16) & 0xff;
+		frame[1] = (len >> 8) & 0xff;
+		frame[2] = len & 0xff;
+		frame[3] = type;
+		frame[4] = flags;
+		frame[5] = (stream_id >> 24) & 0x7f;
+		frame[6] = (stream_id >> 16) & 0xff;
+		frame[7] = (stream_id >> 8) & 0xff;
+		frame[8] = stream_id & 0xff;
+		if (len > 0) {
+			memcpy(frame + 9, payload, len);
+		}
+		ASSERT_EQ(write(server_sock, frame, 9 + len), 9 + len);
+	}
+
+	void WriteClientFrame(uint8_t type, uint8_t flags, uint32_t stream_id, const uint8_t *payload, int len)
+	{
+		uint8_t frame[256] = {0};
+		ASSERT_GE(len, 0);
+		ASSERT_LE(len, (int)sizeof(frame) - 9);
+		frame[0] = (len >> 16) & 0xff;
+		frame[1] = (len >> 8) & 0xff;
+		frame[2] = len & 0xff;
+		frame[3] = type;
+		frame[4] = flags;
+		frame[5] = (stream_id >> 24) & 0x7f;
+		frame[6] = (stream_id >> 16) & 0xff;
+		frame[7] = (stream_id >> 8) & 0xff;
+		frame[8] = stream_id & 0xff;
+		if (len > 0) {
+			memcpy(frame + 9, payload, len);
+		}
+		ASSERT_EQ(write(client_sock, frame, 9 + len), 9 + len);
+	}
+
+	void StartClientWithServerSettings(struct http2_ctx *ctx)
+	{
+		ASSERT_NE(ctx, nullptr);
+		WriteServerFrame(0x04, 0, 0, NULL, 0);
+		for (int i = 0; i < 20 && http2_ctx_handshake(ctx) != 1; i++) {
+			usleep(1000);
+		}
+	}
 };
+
+static int HpackCountHeader(void *ctx, const char *name, const char *value)
+{
+	int *count = (int *)ctx;
+	(*count)++;
+	return 0;
+}
+
+static int HpackExpectUafHeader(void *ctx, const char *name, const char *value)
+{
+	int *count = (int *)ctx;
+	EXPECT_STREQ(name, "x-hpack-uaf");
+	EXPECT_STREQ(value, "two");
+	(*count)++;
+	return 0;
+}
+
+TEST_F(LIBHTTP2, HpackDynamicTableSizeUpdateMustPrecedeHeaders)
+{
+	struct hpack_context hpack;
+	hpack_init_context(&hpack);
+
+	const uint8_t invalid_block[] = {
+		0x40, 0x03, 'x', '-', 'a', 0x01, 'b', /* literal with incremental indexing */
+		0x20                                      /* dynamic table size update to zero */
+	};
+	int count = 0;
+	EXPECT_LT(hpack_decode_headers(&hpack, invalid_block, sizeof(invalid_block), HpackCountHeader, &count), 0);
+
+	const uint8_t valid_block[] = {
+		0x20,                                    /* dynamic table size update to zero */
+		0x40, 0x03, 'x', '-', 'a', 0x01, 'b' /* literal with incremental indexing */
+	};
+	count = 0;
+	EXPECT_EQ(hpack_decode_headers(&hpack, valid_block, sizeof(valid_block), HpackCountHeader, &count), 0);
+	EXPECT_EQ(count, 1);
+
+	hpack_free_context(&hpack);
+}
+
+TEST_F(LIBHTTP2, HpackResizeEvictsDynamicEntriesBeforeReuse)
+{
+	struct hpack_context hpack;
+	uint8_t buf[128] = {0};
+	hpack_init_context(&hpack);
+
+	ASSERT_GT(hpack_encode_header(&hpack, "x-hpack-sync", "dynamic-value", buf, sizeof(buf)), 0);
+	ASSERT_GT(hpack.entry_count, 0);
+	ASSERT_GT(hpack.dynamic_table_size, 0U);
+
+	hpack_resize_dynamic_table(&hpack, 0);
+	EXPECT_EQ(hpack.entry_count, 0);
+	EXPECT_EQ(hpack.dynamic_table_size, 0U);
+	EXPECT_EQ(hpack.dynamic_table, nullptr);
+
+	ASSERT_GT(hpack_encode_header(&hpack, "x-hpack-sync", "dynamic-value", buf, sizeof(buf)), 0);
+	EXPECT_NE(buf[0], 0xbe);
+	EXPECT_EQ(hpack.entry_count, 0);
+
+	hpack_free_context(&hpack);
+}
+
+TEST_F(LIBHTTP2, HpackDecodeIndexedDynamicNameSurvivesEviction)
+{
+	struct hpack_context hpack;
+	uint8_t buf[128] = {0};
+	int count = 0;
+	hpack_init_context(&hpack);
+
+	ASSERT_GT(hpack_encode_header(&hpack, "x-hpack-uaf", "one", buf, sizeof(buf)), 0);
+	ASSERT_EQ(hpack.entry_count, 1);
+	hpack.max_dynamic_table_size = hpack.dynamic_table_size;
+
+	const uint8_t reuse_dynamic_name[] = {
+		0x7e,              /* literal indexed, name index 62: first dynamic entry */
+		0x03, 't', 'w', 'o'
+	};
+	EXPECT_EQ(hpack_decode_headers(&hpack, reuse_dynamic_name, sizeof(reuse_dynamic_name), HpackExpectUafHeader, &count),
+			  0);
+	EXPECT_EQ(count, 1);
+	EXPECT_EQ(hpack.entry_count, 1);
+	EXPECT_STREQ(hpack.dynamic_table->name, "x-hpack-uaf");
+	EXPECT_STREQ(hpack.dynamic_table->value, "two");
+
+	hpack_free_context(&hpack);
+}
+
+TEST_F(LIBHTTP2, HpackMultipleInitialSizeUpdatesRefreshTable)
+{
+	struct hpack_context hpack;
+	hpack_init_context(&hpack);
+
+	const uint8_t add_entry[] = {
+		0x40, 0x03, 'x', '-', 'a', 0x01, 'b' /* x-a: b */
+	};
+	int count = 0;
+	ASSERT_EQ(hpack_decode_headers(&hpack, add_entry, sizeof(add_entry), HpackCountHeader, &count), 0);
+	ASSERT_GT(hpack.entry_count, 0);
+
+	const uint8_t resize_block[] = {
+		0x3f, 0xe1, 0x03, /* dynamic table size update to 512 */
+		0x20,             /* dynamic table size update to zero */
+		0x82              /* :method: GET */
+	};
+	count = 0;
+	EXPECT_EQ(hpack_decode_headers(&hpack, resize_block, sizeof(resize_block), HpackCountHeader, &count), 0);
+	EXPECT_EQ(count, 1);
+	EXPECT_EQ(hpack.entry_count, 0);
+	EXPECT_EQ(hpack.dynamic_table_size, 0U);
+
+	hpack_free_context(&hpack);
+}
+
+TEST_F(LIBHTTP2, HpackShrunkTableRejectsEvictedDynamicIndex)
+{
+	struct hpack_context hpack;
+	hpack_init_context(&hpack);
+
+	const uint8_t add_entry[] = {
+		0x40, 0x0c, 'x', '-', 'h', 'p', 'a', 'c', 'k', '-', 's', 'y', 'n', 'c',
+		0x0d, 'd', 'y', 'n', 'a', 'm', 'i', 'c', '-', 'v', 'a', 'l', 'u', 'e'
+	};
+	int count = 0;
+	ASSERT_EQ(hpack_decode_headers(&hpack, add_entry, sizeof(add_entry), HpackCountHeader, &count), 0);
+	ASSERT_GT(hpack.entry_count, 0);
+
+	hpack_resize_dynamic_table(&hpack, 0);
+
+	const uint8_t indexed_old_dynamic_entry[] = {
+		0xbe /* dynamic table index 62 */
+	};
+	count = 0;
+	EXPECT_LT(hpack_decode_headers(&hpack, indexed_old_dynamic_entry, sizeof(indexed_old_dynamic_entry),
+								   HpackCountHeader, &count),
+			  0);
+
+	hpack_free_context(&hpack);
+}
+
+TEST_F(LIBHTTP2, HpackDynamicTableSharedAcrossInterleavedStreams)
+{
+	struct http2_ctx *ctx = http2_ctx_server_new("test-server", bio_read, bio_write, &server_sock, NULL);
+	ASSERT_NE(ctx, nullptr);
+
+	const char preface[] = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+	ASSERT_EQ(write(client_sock, preface, sizeof(preface) - 1), (ssize_t)sizeof(preface) - 1);
+	WriteClientFrame(0x04, 0, 0, NULL, 0);
+	for (int i = 0; i < 50 && http2_ctx_handshake(ctx) != 1; i++) {
+		usleep(1000);
+	}
+
+	const uint8_t stream1_headers[] = {
+		0x82, /* :method: GET */
+		0x84, /* :path: / */
+		0x86, /* :scheme: http */
+		0x40, /* literal header with incremental indexing, new name */
+		0x0c, 'x', '-', 'h', 'p', 'a', 'c', 'k', '-', 's', 'y', 'n', 'c',
+		0x0d, 'd', 'y', 'n', 'a', 'm', 'i', 'c', '-', 'v', 'a', 'l', 'u', 'e'
+	};
+	WriteClientFrame(0x01, 0x04, 1, stream1_headers, sizeof(stream1_headers));
+
+	const uint8_t stream3_headers[] = {
+		0x82, /* :method: GET */
+		0x84, /* :path: / */
+		0x86, /* :scheme: http */
+		0xbe  /* dynamic table index 62 from stream 1 */
+	};
+	WriteClientFrame(0x01, 0x05, 3, stream3_headers, sizeof(stream3_headers));
+
+	struct http2_stream *stream1 = nullptr;
+	struct http2_stream *stream3 = nullptr;
+	for (int i = 0; i < 50 && (stream1 == nullptr || stream3 == nullptr); i++) {
+		struct http2_poll_item items[8] = {};
+		int count = 0;
+		int poll_ret = http2_ctx_poll_readable(ctx, items, 8, &count);
+		ASSERT_TRUE(poll_ret == 0 || poll_ret == HTTP2_ERR_EAGAIN) << http2_error_to_string(poll_ret);
+		for (int j = 0; j < count; j++) {
+			if (items[j].stream == nullptr && items[j].readable) {
+				struct http2_stream *accepted = http2_ctx_accept_stream(ctx);
+				if (accepted == nullptr) {
+					continue;
+				}
+				if (http2_stream_get_id(accepted) == 1) {
+					stream1 = accepted;
+				} else if (http2_stream_get_id(accepted) == 3) {
+					stream3 = accepted;
+				} else {
+					http2_stream_close(accepted);
+				}
+			}
+			if (items[j].stream != nullptr) {
+				http2_stream_put(items[j].stream);
+			}
+		}
+		usleep(1000);
+	}
+
+	ASSERT_NE(stream1, nullptr);
+	ASSERT_NE(stream3, nullptr);
+	EXPECT_STREQ(http2_stream_get_header(stream1, "x-hpack-sync"), "dynamic-value");
+	EXPECT_STREQ(http2_stream_get_header(stream3, "x-hpack-sync"), "dynamic-value");
+	EXPECT_FALSE(http2_ctx_is_closed(ctx));
+
+	http2_stream_close(stream3);
+	http2_stream_close(stream1);
+	http2_ctx_close(ctx);
+}
+
+TEST_F(LIBHTTP2, SettingsHeaderTableSizeEvictsResponseEncoderEntries)
+{
+	struct http2_ctx *ctx = http2_ctx_server_new("test-server", bio_read, bio_write, &server_sock, NULL);
+	ASSERT_NE(ctx, nullptr);
+
+	const char preface[] = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+	ASSERT_EQ(write(client_sock, preface, sizeof(preface) - 1), (ssize_t)sizeof(preface) - 1);
+	WriteClientFrame(0x04, 0, 0, NULL, 0);
+	for (int i = 0; i < 50 && http2_ctx_handshake(ctx) != 1; i++) {
+		usleep(1000);
+	}
+
+	const uint8_t request_headers[] = {
+		0x82, /* :method: GET */
+		0x84, /* :path: / */
+		0x86  /* :scheme: http */
+	};
+	WriteClientFrame(0x01, 0x05, 1, request_headers, sizeof(request_headers));
+
+	struct http2_stream *stream = nullptr;
+	for (int i = 0; i < 50 && stream == nullptr; i++) {
+		struct http2_poll_item items[4] = {};
+		int count = 0;
+		ASSERT_GE(http2_ctx_poll_readable(ctx, items, 4, &count), 0);
+		for (int j = 0; j < count; j++) {
+			if (items[j].stream == nullptr && items[j].readable) {
+				stream = http2_ctx_accept_stream(ctx);
+			}
+			if (items[j].stream != nullptr) {
+				http2_stream_put(items[j].stream);
+			}
+		}
+		usleep(1000);
+	}
+	ASSERT_NE(stream, nullptr);
+
+	struct http2_header_pair headers[] = {{"x-hpack-response", "dynamic-value"}};
+	ASSERT_EQ(http2_stream_set_response(stream, 200, headers, 1), 0);
+	uint8_t response_buf[512] = {0};
+	ssize_t response_len = read(client_sock, response_buf, sizeof(response_buf));
+	ASSERT_GT(response_len, 0);
+	ASSERT_NE(memchr(response_buf, 0x40, response_len), nullptr);
+
+	const uint8_t settings_zero[] = {
+		0x00, 0x01,             /* SETTINGS_HEADER_TABLE_SIZE */
+		0x00, 0x00, 0x00, 0x00  /* zero */
+	};
+	WriteClientFrame(0x04, 0, 0, settings_zero, sizeof(settings_zero));
+	{
+		int poll_ret = http2_ctx_poll(ctx, NULL, 0, NULL);
+		ASSERT_TRUE(poll_ret == 0 || poll_ret == HTTP2_ERR_EAGAIN) << http2_error_to_string(poll_ret);
+	}
+
+	http2_stream_close(stream);
+
+	const uint8_t request_headers2[] = {
+		0x82, /* :method: GET */
+		0x84, /* :path: / */
+		0x86  /* :scheme: http */
+	};
+	WriteClientFrame(0x01, 0x05, 3, request_headers2, sizeof(request_headers2));
+
+	stream = nullptr;
+	for (int i = 0; i < 50 && stream == nullptr; i++) {
+		struct http2_poll_item items[4] = {};
+		int count = 0;
+		int poll_ret = http2_ctx_poll_readable(ctx, items, 4, &count);
+		ASSERT_TRUE(poll_ret == 0 || poll_ret == HTTP2_ERR_EAGAIN) << http2_error_to_string(poll_ret);
+		for (int j = 0; j < count; j++) {
+			if (items[j].stream == nullptr && items[j].readable) {
+				stream = http2_ctx_accept_stream(ctx);
+			}
+			if (items[j].stream != nullptr) {
+				http2_stream_put(items[j].stream);
+			}
+		}
+		usleep(1000);
+	}
+	ASSERT_NE(stream, nullptr);
+
+	ASSERT_EQ(http2_stream_set_response(stream, 200, headers, 1), 0);
+	memset(response_buf, 0, sizeof(response_buf));
+	response_len = read(client_sock, response_buf, sizeof(response_buf));
+	ASSERT_GT(response_len, 0);
+	EXPECT_EQ(memchr(response_buf, 0xbe, response_len), nullptr);
+	EXPECT_NE(memchr(response_buf, 0x40, response_len), nullptr);
+
+	http2_stream_close(stream);
+	http2_ctx_close(ctx);
+}
+
+TEST_F(LIBHTTP2, SettingsOnNonZeroStreamFailsProtocol)
+{
+	struct http2_ctx *ctx = http2_ctx_client_new("test-client", bio_read, bio_write, &client_sock, NULL);
+	ASSERT_NE(ctx, nullptr);
+	StartClientWithServerSettings(ctx);
+
+	WriteServerFrame(0x04, 0, 1, NULL, 0);
+	EXPECT_EQ(http2_ctx_poll(ctx, NULL, 0, NULL), HTTP2_ERR_PROTOCOL);
+
+	http2_ctx_close(ctx);
+}
+
+TEST_F(LIBHTTP2, ServerRejectsEnablePushSetting)
+{
+	struct http2_ctx *ctx = http2_ctx_server_new("test-server", bio_read, bio_write, &server_sock, NULL);
+	ASSERT_NE(ctx, nullptr);
+
+	const char preface[] = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+	ASSERT_EQ(write(client_sock, preface, sizeof(preface) - 1), (ssize_t)sizeof(preface) - 1);
+	const uint8_t settings_enable_push[] = {
+		0x00, 0x02,             /* SETTINGS_ENABLE_PUSH */
+		0x00, 0x00, 0x00, 0x01  /* enabled */
+	};
+	WriteClientFrame(0x04, 0, 0, settings_enable_push, sizeof(settings_enable_push));
+
+	EXPECT_EQ(http2_ctx_handshake(ctx), HTTP2_ERR_PROTOCOL);
+
+	http2_ctx_close(ctx);
+}
+
+TEST_F(LIBHTTP2, SettingsMaxHeaderListSizeLimitsResponseHeaders)
+{
+	struct http2_ctx *ctx = http2_ctx_server_new("test-server", bio_read, bio_write, &server_sock, NULL);
+	ASSERT_NE(ctx, nullptr);
+
+	const char preface[] = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+	ASSERT_EQ(write(client_sock, preface, sizeof(preface) - 1), (ssize_t)sizeof(preface) - 1);
+	const uint8_t settings_header_list_size[] = {
+		0x00, 0x06,             /* SETTINGS_MAX_HEADER_LIST_SIZE */
+		0x00, 0x00, 0x00, 0x08  /* very small */
+	};
+	WriteClientFrame(0x04, 0, 0, settings_header_list_size, sizeof(settings_header_list_size));
+
+	for (int i = 0; i < 50 && http2_ctx_handshake(ctx) != 1; i++) {
+		usleep(1000);
+	}
+
+	const uint8_t request_headers[] = {
+		0x82, /* :method: GET */
+		0x84, /* :path: / */
+		0x86  /* :scheme: http */
+	};
+	WriteClientFrame(0x01, 0x05, 1, request_headers, sizeof(request_headers));
+
+	struct http2_stream *stream = nullptr;
+	for (int i = 0; i < 50 && stream == nullptr; i++) {
+		struct http2_poll_item items[4] = {};
+		int count = 0;
+		int poll_ret = http2_ctx_poll_readable(ctx, items, 4, &count);
+		ASSERT_TRUE(poll_ret == 0 || poll_ret == HTTP2_ERR_EAGAIN) << http2_error_to_string(poll_ret);
+		for (int j = 0; j < count; j++) {
+			if (items[j].stream == nullptr && items[j].readable) {
+				stream = http2_ctx_accept_stream(ctx);
+			}
+			if (items[j].stream != nullptr) {
+				http2_stream_put(items[j].stream);
+			}
+		}
+		usleep(1000);
+	}
+	ASSERT_NE(stream, nullptr);
+
+	struct http2_header_pair headers[] = {{"x-large-response-header", "too-large-for-peer"}};
+	EXPECT_LT(http2_stream_set_response(stream, 200, headers, 1), 0);
+
+	http2_stream_close(stream);
+	http2_ctx_close(ctx);
+}
 
 TEST_F(LIBHTTP2, Integrated)
 {
@@ -168,10 +595,12 @@ TEST_F(LIBHTTP2, Integrated)
 		ASSERT_NE(stream, nullptr);
 
 		// Send request
-		struct http2_header_pair headers[] = {
-			{"content-type", "application/json"}, {"content-length", "27"}, {NULL, NULL}};
-		http2_stream_set_request(stream, "POST", "/echo", NULL, headers);
 		const char *request_body = "{\"message\":\"Hello Echo!\"}";
+		char content_length[32];
+		snprintf(content_length, sizeof(content_length), "%zu", strlen(request_body));
+		struct http2_header_pair headers[] = {
+			{"content-type", "application/json"}, {"content-length", content_length}, {NULL, NULL}};
+		http2_stream_set_request(stream, "POST", "/echo", NULL, headers);
 		http2_stream_write_body(stream, (const uint8_t *)request_body, strlen(request_body), 1);
 
 		// Wait for response
@@ -213,6 +642,941 @@ TEST_F(LIBHTTP2, Integrated)
 
 	server_thread.join();
 	client_thread.join();
+}
+
+TEST_F(LIBHTTP2, ResponseHeadersContinuation)
+{
+	struct http2_ctx *ctx = http2_ctx_client_new("test-client", bio_read, bio_write, &client_sock, NULL);
+	ASSERT_NE(ctx, nullptr);
+
+	struct http2_stream *stream = http2_stream_new(ctx);
+	ASSERT_NE(stream, nullptr);
+
+	auto write_frame = [this](uint8_t type, uint8_t flags, uint32_t stream_id, const uint8_t *payload, int len) {
+		uint8_t frame[64] = {0};
+		ASSERT_LE(len, (int)sizeof(frame) - 9);
+		frame[0] = (len >> 16) & 0xff;
+		frame[1] = (len >> 8) & 0xff;
+		frame[2] = len & 0xff;
+		frame[3] = type;
+		frame[4] = flags;
+		frame[5] = (stream_id >> 24) & 0x7f;
+		frame[6] = (stream_id >> 16) & 0xff;
+		frame[7] = (stream_id >> 8) & 0xff;
+		frame[8] = stream_id & 0xff;
+		if (len > 0) {
+			memcpy(frame + 9, payload, len);
+		}
+		ASSERT_EQ(write(server_sock, frame, 9 + len), 9 + len);
+	};
+
+	write_frame(0x04, 0, 0, NULL, 0);
+	for (int i = 0; i < 20 && http2_ctx_handshake(ctx) != 1; i++) {
+		usleep(1000);
+	}
+
+	const uint8_t headers_fragment[] = {0x08};
+	const uint8_t continuation_fragment[] = {0x03, '2', '0', '0'};
+	write_frame(0x01, 0x01, 1, headers_fragment, sizeof(headers_fragment));
+	write_frame(0x09, 0x04, 1, continuation_fragment, sizeof(continuation_fragment));
+
+	for (int i = 0; i < 20 && http2_stream_get_status(stream) != 200; i++) {
+		http2_ctx_poll(ctx, NULL, 0, NULL);
+		usleep(1000);
+	}
+
+	EXPECT_EQ(http2_stream_get_status(stream), 200);
+	EXPECT_TRUE(http2_stream_is_end(stream));
+
+	http2_stream_close(stream);
+	http2_ctx_close(ctx);
+}
+
+TEST_F(LIBHTTP2, ResponseDataFragmentsKeepStreamOpenUntilEndStream)
+{
+	struct http2_ctx *ctx = http2_ctx_client_new("test-client", bio_read, bio_write, &client_sock, NULL);
+	ASSERT_NE(ctx, nullptr);
+
+	struct http2_stream *stream = http2_stream_new(ctx);
+	ASSERT_NE(stream, nullptr);
+
+	StartClientWithServerSettings(ctx);
+
+	const uint8_t headers[] = {
+		0x08, 0x03, '2', '0', '0', /* :status: 200 */
+		0x0f, 0x0d, 0x01, '4'     /* content-length: 4 */
+	};
+	WriteServerFrame(0x01, 0x04, 1, headers, sizeof(headers));
+
+	const uint8_t first_fragment[] = {0xde, 0xad};
+	WriteServerFrame(0x00, 0, 1, first_fragment, sizeof(first_fragment));
+
+	struct http2_poll_item items[10] = {};
+	int count = 0;
+	ASSERT_EQ(http2_ctx_poll_readable(ctx, items, 10, &count), 0);
+	ASSERT_GT(count, 0);
+
+	bool found = false;
+	for (int i = 0; i < count; i++) {
+		if (items[i].stream == nullptr) {
+			continue;
+		}
+
+		if (http2_stream_get_id(items[i].stream) == http2_stream_get_id(stream)) {
+			found = true;
+			uint8_t body[4] = {};
+			EXPECT_EQ(http2_stream_get_status(items[i].stream), 200);
+			ASSERT_EQ(http2_stream_read_body(items[i].stream, body, sizeof(body)), (int)sizeof(first_fragment));
+			EXPECT_EQ(memcmp(body, first_fragment, sizeof(first_fragment)), 0);
+			EXPECT_FALSE(http2_stream_is_end(items[i].stream));
+		}
+		http2_stream_put(items[i].stream);
+	}
+	ASSERT_TRUE(found);
+
+	memset(items, 0, sizeof(items));
+	count = 0;
+	ASSERT_EQ(http2_ctx_poll_readable(ctx, items, 10, &count), 0);
+	EXPECT_EQ(count, 0);
+
+	const uint8_t second_fragment[] = {0xbe, 0xef};
+	WriteServerFrame(0x00, 0x01, 1, second_fragment, sizeof(second_fragment));
+
+	memset(items, 0, sizeof(items));
+	count = 0;
+	ASSERT_EQ(http2_ctx_poll_readable(ctx, items, 10, &count), 0);
+	ASSERT_GT(count, 0);
+
+	found = false;
+	for (int i = 0; i < count; i++) {
+		if (items[i].stream == nullptr) {
+			continue;
+		}
+
+		if (http2_stream_get_id(items[i].stream) == http2_stream_get_id(stream)) {
+			found = true;
+			uint8_t body[4] = {};
+			ASSERT_EQ(http2_stream_read_body(items[i].stream, body, sizeof(body)), (int)sizeof(second_fragment));
+			EXPECT_EQ(memcmp(body, second_fragment, sizeof(second_fragment)), 0);
+			EXPECT_TRUE(http2_stream_is_end(items[i].stream));
+		}
+		http2_stream_put(items[i].stream);
+	}
+	ASSERT_TRUE(found);
+
+	http2_stream_close(stream);
+	http2_ctx_close(ctx);
+}
+
+TEST_F(LIBHTTP2, ResponseEndStreamBeforeContentLengthResetsStreamOnly)
+{
+	struct http2_ctx *ctx = http2_ctx_client_new("test-client", bio_read, bio_write, &client_sock, NULL);
+	ASSERT_NE(ctx, nullptr);
+
+	struct http2_stream *stream = http2_stream_new(ctx);
+	ASSERT_NE(stream, nullptr);
+
+	StartClientWithServerSettings(ctx);
+
+	const uint8_t headers[] = {
+		0x08, 0x03, '2', '0', '0', /* :status: 200 */
+		0x0f, 0x0d, 0x01, '4'     /* content-length: 4 */
+	};
+	WriteServerFrame(0x01, 0x04, 1, headers, sizeof(headers));
+
+	const uint8_t short_body[] = {0xde, 0xad};
+	WriteServerFrame(0x00, 0x01, 1, short_body, sizeof(short_body));
+
+	EXPECT_EQ(http2_ctx_poll(ctx, NULL, 0, NULL), HTTP2_ERR_EAGAIN);
+
+	struct http2_stream *next_stream = http2_stream_new(ctx);
+	ASSERT_NE(next_stream, nullptr);
+
+	http2_stream_close(next_stream);
+	http2_stream_close(stream);
+	http2_ctx_close(ctx);
+}
+
+TEST_F(LIBHTTP2, FullyReadEndedRequestIsNotReportedReadableAgain)
+{
+	struct http2_ctx *client_ctx = http2_ctx_client_new("test-client", bio_read, bio_write, &client_sock, NULL);
+	struct http2_ctx *server_ctx = http2_ctx_server_new("test-server", bio_read, bio_write, &server_sock, NULL);
+	ASSERT_NE(client_ctx, nullptr);
+	ASSERT_NE(server_ctx, nullptr);
+
+	int client_ret = 0;
+	int server_ret = 0;
+	for (int i = 0; i < 20; i++) {
+		client_ret = http2_ctx_handshake(client_ctx);
+		server_ret = http2_ctx_handshake(server_ctx);
+		if (client_ret == 1 && server_ret == 1) {
+			break;
+		}
+		usleep(1000);
+	}
+	ASSERT_EQ(client_ret, 1);
+	ASSERT_EQ(server_ret, 1);
+
+	const char body[] = "dns-query";
+	char content_length[16];
+	snprintf(content_length, sizeof(content_length), "%zu", sizeof(body) - 1);
+	struct http2_header_pair headers[] = {
+		{"content-type", "application/dns-message"}, {"content-length", content_length}, {NULL, NULL}};
+
+	struct http2_stream *client_stream = http2_stream_new(client_ctx);
+	ASSERT_NE(client_stream, nullptr);
+	ASSERT_EQ(http2_stream_set_request(client_stream, "POST", "/dns-query", NULL, headers), 0);
+	ASSERT_EQ(http2_stream_write_body(client_stream, (const uint8_t *)body, sizeof(body) - 1, 1), (int)sizeof(body) - 1);
+	int poll_ret = http2_ctx_poll(client_ctx, NULL, 0, NULL);
+	ASSERT_TRUE(poll_ret >= 0 || poll_ret == HTTP2_ERR_EAGAIN);
+
+	struct http2_stream *server_stream = nullptr;
+	for (int i = 0; i < 20 && server_stream == nullptr; i++) {
+		struct http2_poll_item items[4];
+		int count = 0;
+		ASSERT_GE(http2_ctx_poll_readable(server_ctx, items, 4, &count), 0);
+		for (int j = 0; j < count; j++) {
+			if (items[j].stream == nullptr && items[j].readable) {
+				server_stream = http2_ctx_accept_stream(server_ctx);
+			}
+			if (items[j].stream != nullptr) {
+				http2_stream_put(items[j].stream);
+			}
+		}
+		usleep(1000);
+	}
+	ASSERT_NE(server_stream, nullptr);
+
+	uint8_t buf[32];
+	ASSERT_EQ(http2_stream_read_body(server_stream, buf, sizeof(buf)), (int)sizeof(body) - 1);
+	EXPECT_TRUE(http2_stream_is_end(server_stream));
+
+	struct http2_poll_item items[4];
+	int count = 0;
+	ASSERT_GE(http2_ctx_poll_readable(server_ctx, items, 4, &count), 0);
+	EXPECT_EQ(count, 0);
+	for (int i = 0; i < count; i++) {
+		if (items[i].stream != nullptr) {
+			http2_stream_put(items[i].stream);
+		}
+	}
+
+	http2_stream_close(server_stream);
+	http2_stream_close(client_stream);
+	http2_ctx_close(server_ctx);
+	http2_ctx_close(client_ctx);
+}
+
+TEST_F(LIBHTTP2, InvalidCompressedEndedRequestIsNotReportedReadableAgain)
+{
+	struct http2_ctx *client_ctx = http2_ctx_client_new("test-client", bio_read, bio_write, &client_sock, NULL);
+	struct http2_ctx *server_ctx = http2_ctx_server_new("test-server", bio_read, bio_write, &server_sock, NULL);
+	ASSERT_NE(client_ctx, nullptr);
+	ASSERT_NE(server_ctx, nullptr);
+
+	int client_ret = 0;
+	int server_ret = 0;
+	for (int i = 0; i < 20; i++) {
+		client_ret = http2_ctx_handshake(client_ctx);
+		server_ret = http2_ctx_handshake(server_ctx);
+		if (client_ret == 1 && server_ret == 1) {
+			break;
+		}
+		usleep(1000);
+	}
+	ASSERT_EQ(client_ret, 1);
+	ASSERT_EQ(server_ret, 1);
+
+	const char body[] = "not-a-gzip-body";
+	char content_length[16];
+	snprintf(content_length, sizeof(content_length), "%zu", sizeof(body) - 1);
+	struct http2_header_pair headers[] = {{"content-type", "application/dns-message"},
+										  {"content-length", content_length},
+										  {"content-encoding", "gzip"},
+										  {NULL, NULL}};
+
+	struct http2_stream *client_stream = http2_stream_new(client_ctx);
+	ASSERT_NE(client_stream, nullptr);
+	ASSERT_EQ(http2_stream_set_request(client_stream, "POST", "/dns-query", NULL, headers), 0);
+	ASSERT_EQ(http2_stream_write_body(client_stream, (const uint8_t *)body, sizeof(body) - 1, 1),
+			  (int)sizeof(body) - 1);
+	int poll_ret = http2_ctx_poll(client_ctx, NULL, 0, NULL);
+	ASSERT_TRUE(poll_ret >= 0 || poll_ret == HTTP2_ERR_EAGAIN);
+
+	struct http2_stream *server_stream = nullptr;
+	for (int i = 0; i < 20 && server_stream == nullptr; i++) {
+		struct http2_poll_item items[4];
+		int count = 0;
+		ASSERT_GE(http2_ctx_poll_readable(server_ctx, items, 4, &count), 0);
+		for (int j = 0; j < count; j++) {
+			if (items[j].stream == nullptr && items[j].readable) {
+				server_stream = http2_ctx_accept_stream(server_ctx);
+			}
+			if (items[j].stream != nullptr) {
+				http2_stream_put(items[j].stream);
+			}
+		}
+		usleep(1000);
+	}
+	ASSERT_NE(server_stream, nullptr);
+	EXPECT_TRUE(http2_stream_is_remote_end(server_stream));
+
+	uint8_t buf[32];
+	errno = 0;
+	ASSERT_LT(http2_stream_read_body(server_stream, buf, sizeof(buf)), 0);
+	EXPECT_EQ(errno, EINVAL);
+
+	struct http2_poll_item items[4];
+	int count = 0;
+	ASSERT_GE(http2_ctx_poll_readable(server_ctx, items, 4, &count), 0);
+	EXPECT_EQ(count, 0);
+	for (int i = 0; i < count; i++) {
+		if (items[i].stream != nullptr) {
+			http2_stream_put(items[i].stream);
+		}
+	}
+
+	http2_stream_close(server_stream);
+	http2_stream_close(client_stream);
+	http2_ctx_close(server_ctx);
+	http2_ctx_close(client_ctx);
+}
+
+TEST_F(LIBHTTP2, UnsupportedContentEncodingReadsRawBody)
+{
+	struct http2_ctx *client_ctx = http2_ctx_client_new("test-client", bio_read, bio_write, &client_sock, NULL);
+	struct http2_ctx *server_ctx = http2_ctx_server_new("test-server", bio_read, bio_write, &server_sock, NULL);
+	ASSERT_NE(client_ctx, nullptr);
+	ASSERT_NE(server_ctx, nullptr);
+
+	int client_ret = 0;
+	int server_ret = 0;
+	for (int i = 0; i < 20; i++) {
+		client_ret = http2_ctx_handshake(client_ctx);
+		server_ret = http2_ctx_handshake(server_ctx);
+		if (client_ret == 1 && server_ret == 1) {
+			break;
+		}
+		usleep(1000);
+	}
+	ASSERT_EQ(client_ret, 1);
+	ASSERT_EQ(server_ret, 1);
+
+	const char body[] = "raw-body";
+	char content_length[16];
+	snprintf(content_length, sizeof(content_length), "%zu", sizeof(body) - 1);
+	struct http2_header_pair headers[] = {{"content-type", "application/dns-message"},
+										  {"content-length", content_length},
+										  {"content-encoding", "br"},
+										  {NULL, NULL}};
+
+	struct http2_stream *client_stream = http2_stream_new(client_ctx);
+	ASSERT_NE(client_stream, nullptr);
+	ASSERT_EQ(http2_stream_set_request(client_stream, "POST", "/dns-query", NULL, headers), 0);
+	ASSERT_EQ(http2_stream_write_body(client_stream, (const uint8_t *)body, sizeof(body) - 1, 1),
+			  (int)sizeof(body) - 1);
+	int poll_ret = http2_ctx_poll(client_ctx, NULL, 0, NULL);
+	ASSERT_TRUE(poll_ret >= 0 || poll_ret == HTTP2_ERR_EAGAIN);
+
+	struct http2_stream *server_stream = nullptr;
+	for (int i = 0; i < 20 && server_stream == nullptr; i++) {
+		struct http2_poll_item items[4];
+		int count = 0;
+		ASSERT_GE(http2_ctx_poll_readable(server_ctx, items, 4, &count), 0);
+		for (int j = 0; j < count; j++) {
+			if (items[j].stream == nullptr && items[j].readable) {
+				server_stream = http2_ctx_accept_stream(server_ctx);
+			}
+			if (items[j].stream != nullptr) {
+				http2_stream_put(items[j].stream);
+			}
+		}
+		usleep(1000);
+	}
+	ASSERT_NE(server_stream, nullptr);
+
+	uint8_t buf[32] = {0};
+	ASSERT_EQ(http2_stream_read_body(server_stream, buf, sizeof(buf)), (int)sizeof(body) - 1);
+	EXPECT_EQ(memcmp(buf, body, sizeof(body) - 1), 0);
+	EXPECT_TRUE(http2_stream_is_end(server_stream));
+
+	http2_stream_close(server_stream);
+	http2_stream_close(client_stream);
+	http2_ctx_close(server_ctx);
+	http2_ctx_close(client_ctx);
+}
+
+TEST_F(LIBHTTP2, PollReturnsResponseBeforeGoawayEof)
+{
+	struct http2_ctx *ctx = http2_ctx_client_new("test-client", bio_read, bio_write, &client_sock, NULL);
+	ASSERT_NE(ctx, nullptr);
+
+	struct http2_stream *stream = http2_stream_new(ctx);
+	ASSERT_NE(stream, nullptr);
+
+	auto write_frame = [this](uint8_t type, uint8_t flags, uint32_t stream_id, const uint8_t *payload, int len) {
+		uint8_t frame[64] = {0};
+		ASSERT_LE(len, (int)sizeof(frame) - 9);
+		frame[0] = (len >> 16) & 0xff;
+		frame[1] = (len >> 8) & 0xff;
+		frame[2] = len & 0xff;
+		frame[3] = type;
+		frame[4] = flags;
+		frame[5] = (stream_id >> 24) & 0x7f;
+		frame[6] = (stream_id >> 16) & 0xff;
+		frame[7] = (stream_id >> 8) & 0xff;
+		frame[8] = stream_id & 0xff;
+		if (len > 0) {
+			memcpy(frame + 9, payload, len);
+		}
+		ASSERT_EQ(write(server_sock, frame, 9 + len), 9 + len);
+	};
+
+	write_frame(0x04, 0, 0, NULL, 0);
+	for (int i = 0; i < 20 && http2_ctx_handshake(ctx) != 1; i++) {
+		usleep(1000);
+	}
+
+	const uint8_t headers_fragment[] = {0x08};
+	const uint8_t continuation_fragment[] = {0x03, '2', '0', '0'};
+	write_frame(0x01, 0x01, 1, headers_fragment, sizeof(headers_fragment));
+	write_frame(0x09, 0x04, 1, continuation_fragment, sizeof(continuation_fragment));
+	const uint8_t goaway_payload[] = {0, 0, 0, 1, 0, 0, 0, 0};
+	write_frame(0x07, 0, 0, goaway_payload, sizeof(goaway_payload));
+	ASSERT_EQ(shutdown(server_sock, SHUT_WR), 0);
+
+	struct http2_poll_item items[10] = {};
+	int count = 0;
+	int ret = http2_ctx_poll_readable(ctx, items, 10, &count);
+	EXPECT_EQ(ret, 0);
+	ASSERT_GT(count, 0);
+
+	bool found = false;
+	for (int i = 0; i < count; i++) {
+		if (items[i].stream == nullptr) {
+			continue;
+		}
+
+		if (http2_stream_get_id(items[i].stream) == http2_stream_get_id(stream)) {
+			found = true;
+			EXPECT_TRUE(items[i].readable);
+			EXPECT_EQ(http2_stream_get_status(items[i].stream), 200);
+			EXPECT_TRUE(http2_stream_is_end(items[i].stream));
+		}
+		http2_stream_put(items[i].stream);
+	}
+	EXPECT_TRUE(found);
+
+	http2_stream_close(stream);
+	http2_ctx_close(ctx);
+}
+
+TEST_F(LIBHTTP2, RequestHostHeaderOverridesAuthority)
+{
+	struct http2_ctx *client_ctx = http2_ctx_client_new("1.1.1.1", bio_read, bio_write, &client_sock, NULL);
+	ASSERT_NE(client_ctx, nullptr);
+	struct http2_ctx *server_ctx = http2_ctx_server_new("local-server", bio_read, bio_write, &server_sock, NULL);
+	ASSERT_NE(server_ctx, nullptr);
+
+	int client_ret = 0;
+	int server_ret = 0;
+	for (int i = 0; i < 50; i++) {
+		server_ret = http2_ctx_handshake(server_ctx);
+		client_ret = http2_ctx_handshake(client_ctx);
+		if (client_ret == 1 && server_ret == 1) {
+			break;
+		}
+		usleep(1000);
+	}
+	ASSERT_EQ(client_ret, 1);
+	ASSERT_EQ(server_ret, 1);
+
+	struct http2_stream *client_stream = http2_stream_new(client_ctx);
+	ASSERT_NE(client_stream, nullptr);
+	struct http2_header_pair headers[] = {{"host", "cloudflare-dns.com"}, {NULL, NULL}};
+	ASSERT_EQ(http2_stream_set_request(client_stream, "GET", "/dns-query", NULL, headers), 0);
+
+	struct http2_stream *server_stream = nullptr;
+	for (int i = 0; i < 50 && server_stream == nullptr; i++) {
+		struct http2_poll_item items[10] = {};
+		int count = 0;
+		http2_ctx_poll(server_ctx, items, 10, &count);
+		for (int j = 0; j < count; j++) {
+			if (items[j].stream == nullptr && items[j].readable) {
+				server_stream = http2_ctx_accept_stream(server_ctx);
+			}
+			if (items[j].stream) {
+				http2_stream_put(items[j].stream);
+			}
+		}
+		usleep(1000);
+	}
+
+	ASSERT_NE(server_stream, nullptr);
+	EXPECT_STREQ(http2_stream_get_header(server_stream, ":authority"), "cloudflare-dns.com");
+	EXPECT_EQ(http2_stream_get_header(server_stream, "host"), nullptr);
+
+	http2_stream_close(server_stream);
+	http2_stream_close(client_stream);
+	http2_ctx_close(server_ctx);
+	http2_ctx_close(client_ctx);
+}
+
+TEST_F(LIBHTTP2, InvalidPingLengthFailsProtocol)
+{
+	struct http2_ctx *ctx = http2_ctx_client_new("test-client", bio_read, bio_write, &client_sock, NULL);
+	ASSERT_NE(ctx, nullptr);
+
+	auto write_frame = [this](uint8_t type, uint8_t flags, uint32_t stream_id, const uint8_t *payload, int len) {
+		uint8_t frame[64] = {0};
+		ASSERT_LE(len, (int)sizeof(frame) - 9);
+		frame[0] = (len >> 16) & 0xff;
+		frame[1] = (len >> 8) & 0xff;
+		frame[2] = len & 0xff;
+		frame[3] = type;
+		frame[4] = flags;
+		frame[5] = (stream_id >> 24) & 0x7f;
+		frame[6] = (stream_id >> 16) & 0xff;
+		frame[7] = (stream_id >> 8) & 0xff;
+		frame[8] = stream_id & 0xff;
+		if (len > 0) {
+			memcpy(frame + 9, payload, len);
+		}
+		ASSERT_EQ(write(server_sock, frame, 9 + len), 9 + len);
+	};
+
+	write_frame(0x04, 0, 0, NULL, 0);
+	for (int i = 0; i < 20 && http2_ctx_handshake(ctx) != 1; i++) {
+		usleep(1000);
+	}
+
+	const uint8_t ping_payload[] = {0};
+	write_frame(0x06, 0, 0, ping_payload, sizeof(ping_payload));
+
+	EXPECT_EQ(http2_ctx_poll(ctx, NULL, 0, NULL), HTTP2_ERR_PROTOCOL);
+	http2_ctx_close(ctx);
+}
+
+TEST_F(LIBHTTP2, WriteBodyReturnsPayloadLengthForMultiFrameBody)
+{
+	struct http2_ctx *ctx = http2_ctx_client_new("test-client", bio_read, bio_write, &client_sock, NULL);
+	ASSERT_NE(ctx, nullptr);
+
+	auto write_frame = [this](uint8_t type, uint8_t flags, uint32_t stream_id, const uint8_t *payload, int len) {
+		uint8_t frame[64] = {0};
+		ASSERT_LE(len, (int)sizeof(frame) - 9);
+		frame[0] = (len >> 16) & 0xff;
+		frame[1] = (len >> 8) & 0xff;
+		frame[2] = len & 0xff;
+		frame[3] = type;
+		frame[4] = flags;
+		frame[5] = (stream_id >> 24) & 0x7f;
+		frame[6] = (stream_id >> 16) & 0xff;
+		frame[7] = (stream_id >> 8) & 0xff;
+		frame[8] = stream_id & 0xff;
+		if (len > 0) {
+			memcpy(frame + 9, payload, len);
+		}
+		ASSERT_EQ(write(server_sock, frame, 9 + len), 9 + len);
+	};
+
+	write_frame(0x04, 0, 0, NULL, 0);
+	for (int i = 0; i < 20 && http2_ctx_handshake(ctx) != 1; i++) {
+		usleep(1000);
+	}
+
+	struct http2_stream *stream = http2_stream_new(ctx);
+	ASSERT_NE(stream, nullptr);
+	struct http2_header_pair headers[] = {{"content-type", "application/dns-message"}, {NULL, NULL}};
+	ASSERT_EQ(http2_stream_set_request(stream, "POST", "/dns-query", NULL, headers), 0);
+
+	std::vector<uint8_t> body(20000);
+	for (size_t i = 0; i < body.size(); i++) {
+		body[i] = (uint8_t)(i & 0xff);
+	}
+
+	EXPECT_EQ(http2_stream_write_body(stream, body.data(), body.size(), 1), (int)body.size());
+
+	http2_stream_close(stream);
+	http2_ctx_close(ctx);
+}
+
+TEST_F(LIBHTTP2, ContinuationWithoutHeadersFailsProtocol)
+{
+	struct http2_ctx *ctx = http2_ctx_client_new("test-client", bio_read, bio_write, &client_sock, NULL);
+	ASSERT_NE(ctx, nullptr);
+	StartClientWithServerSettings(ctx);
+
+	const uint8_t payload[] = {0x00};
+	WriteServerFrame(0x09, 0x04, 1, payload, sizeof(payload));
+
+	EXPECT_EQ(http2_ctx_poll(ctx, NULL, 0, NULL), HTTP2_ERR_PROTOCOL);
+	http2_ctx_close(ctx);
+}
+
+TEST_F(LIBHTTP2, HeadersInterruptedByDataFailsProtocol)
+{
+	struct http2_ctx *ctx = http2_ctx_client_new("test-client", bio_read, bio_write, &client_sock, NULL);
+	ASSERT_NE(ctx, nullptr);
+	StartClientWithServerSettings(ctx);
+
+	const uint8_t headers_fragment[] = {0x08};
+	const uint8_t data_payload[] = {0x01};
+	WriteServerFrame(0x01, 0, 1, headers_fragment, sizeof(headers_fragment));
+	WriteServerFrame(0x00, 0, 1, data_payload, sizeof(data_payload));
+
+	EXPECT_EQ(http2_ctx_poll(ctx, NULL, 0, NULL), HTTP2_ERR_PROTOCOL);
+	http2_ctx_close(ctx);
+}
+
+TEST_F(LIBHTTP2, SettingsAckWithPayloadFailsProtocol)
+{
+	struct http2_ctx *ctx = http2_ctx_client_new("test-client", bio_read, bio_write, &client_sock, NULL);
+	ASSERT_NE(ctx, nullptr);
+	StartClientWithServerSettings(ctx);
+
+	const uint8_t settings_payload[] = {0x00, 0x03, 0x00, 0x00, 0x00, 0x64};
+	WriteServerFrame(0x04, 0x01, 0, settings_payload, sizeof(settings_payload));
+
+	EXPECT_EQ(http2_ctx_poll(ctx, NULL, 0, NULL), HTTP2_ERR_PROTOCOL);
+	http2_ctx_close(ctx);
+}
+
+TEST_F(LIBHTTP2, SettingsEnablePushInvalidValueFailsProtocol)
+{
+	struct http2_ctx *ctx = http2_ctx_client_new("test-client", bio_read, bio_write, &client_sock, NULL);
+	ASSERT_NE(ctx, nullptr);
+	StartClientWithServerSettings(ctx);
+
+	const uint8_t settings_payload[] = {0x00, 0x02, 0x00, 0x00, 0x00, 0x02};
+	WriteServerFrame(0x04, 0, 0, settings_payload, sizeof(settings_payload));
+
+	EXPECT_EQ(http2_ctx_poll(ctx, NULL, 0, NULL), HTTP2_ERR_PROTOCOL);
+	http2_ctx_close(ctx);
+}
+
+TEST_F(LIBHTTP2, WindowUpdateZeroIncrementFailsProtocol)
+{
+	struct http2_ctx *ctx = http2_ctx_client_new("test-client", bio_read, bio_write, &client_sock, NULL);
+	ASSERT_NE(ctx, nullptr);
+	StartClientWithServerSettings(ctx);
+
+	const uint8_t window_update_payload[] = {0x00, 0x00, 0x00, 0x00};
+	WriteServerFrame(0x08, 0, 0, window_update_payload, sizeof(window_update_payload));
+
+	EXPECT_EQ(http2_ctx_poll(ctx, NULL, 0, NULL), HTTP2_ERR_PROTOCOL);
+	http2_ctx_close(ctx);
+}
+
+TEST_F(LIBHTTP2, RstStreamOnConnectionStreamFailsProtocol)
+{
+	struct http2_ctx *ctx = http2_ctx_client_new("test-client", bio_read, bio_write, &client_sock, NULL);
+	ASSERT_NE(ctx, nullptr);
+	StartClientWithServerSettings(ctx);
+
+	const uint8_t rst_payload[] = {0x00, 0x00, 0x00, 0x00};
+	WriteServerFrame(0x03, 0, 0, rst_payload, sizeof(rst_payload));
+
+	EXPECT_EQ(http2_ctx_poll(ctx, NULL, 0, NULL), HTTP2_ERR_PROTOCOL);
+	http2_ctx_close(ctx);
+}
+
+TEST_F(LIBHTTP2, DataAfterEndStreamFailsProtocol)
+{
+	struct http2_ctx *ctx = http2_ctx_client_new("test-client", bio_read, bio_write, &client_sock, NULL);
+	ASSERT_NE(ctx, nullptr);
+	StartClientWithServerSettings(ctx);
+
+	struct http2_stream *stream = http2_stream_new(ctx);
+	ASSERT_NE(stream, nullptr);
+
+	const uint8_t headers_fragment[] = {0x08, 0x03, '2', '0', '0'};
+	WriteServerFrame(0x01, 0x05, 1, headers_fragment, sizeof(headers_fragment));
+	for (int i = 0; i < 20 && http2_stream_get_status(stream) != 200; i++) {
+		http2_ctx_poll(ctx, NULL, 0, NULL);
+		usleep(1000);
+	}
+	ASSERT_EQ(http2_stream_get_status(stream), 200);
+
+	const uint8_t data_payload[] = {0x01};
+	WriteServerFrame(0x00, 0, 1, data_payload, sizeof(data_payload));
+	EXPECT_EQ(http2_ctx_poll(ctx, NULL, 0, NULL), HTTP2_ERR_PROTOCOL);
+
+	http2_stream_close(stream);
+	http2_ctx_close(ctx);
+}
+
+TEST_F(LIBHTTP2, DataAfterLocallyClosedStreamDoesNotFailConnection)
+{
+	struct http2_ctx *ctx = http2_ctx_client_new("test-client", bio_read, bio_write, &client_sock, NULL);
+	ASSERT_NE(ctx, nullptr);
+	StartClientWithServerSettings(ctx);
+
+	struct http2_stream *stream = http2_stream_new(ctx);
+	ASSERT_NE(stream, nullptr);
+
+	const uint8_t headers_fragment[] = {0x08, 0x03, '2', '0', '0'};
+	const uint8_t data_payload[] = {0x2a};
+	WriteServerFrame(0x01, 0x04, 1, headers_fragment, sizeof(headers_fragment));
+	WriteServerFrame(0x00, 0x01, 1, data_payload, sizeof(data_payload));
+
+	uint8_t body[8] = {0};
+	int body_len = -1;
+	for (int i = 0; i < 20 && body_len <= 0; i++) {
+		http2_ctx_poll(ctx, NULL, 0, NULL);
+		body_len = http2_stream_read_body(stream, body, sizeof(body));
+		if (body_len <= 0) {
+			usleep(1000);
+		}
+	}
+	ASSERT_EQ(body_len, 1);
+	EXPECT_EQ(body[0], 0x2a);
+	EXPECT_EQ(http2_stream_read_body(stream, body, sizeof(body)), 0);
+
+	http2_stream_close(stream);
+
+	const uint8_t late_data[] = {0x11};
+	WriteServerFrame(0x00, 0, 1, late_data, sizeof(late_data));
+	int late_poll_ret = http2_ctx_poll(ctx, NULL, 0, NULL);
+	EXPECT_TRUE(late_poll_ret == 0 || late_poll_ret == HTTP2_ERR_EAGAIN) << http2_error_to_string(late_poll_ret);
+
+	struct http2_stream *next_stream = http2_stream_new(ctx);
+	ASSERT_NE(next_stream, nullptr);
+	const uint8_t next_headers_fragment[] = {0x08, 0x03, '2', '0', '0'};
+	WriteServerFrame(0x01, 0x05, 3, next_headers_fragment, sizeof(next_headers_fragment));
+	for (int i = 0; i < 20 && http2_stream_get_status(next_stream) != 200; i++) {
+		http2_ctx_poll(ctx, NULL, 0, NULL);
+		usleep(1000);
+	}
+	EXPECT_EQ(http2_stream_get_status(next_stream), 200);
+
+	http2_stream_close(next_stream);
+	http2_ctx_close(ctx);
+}
+
+TEST_F(LIBHTTP2, DataOnIdleStreamFailsProtocol)
+{
+	struct http2_ctx *ctx = http2_ctx_client_new("test-client", bio_read, bio_write, &client_sock, NULL);
+	ASSERT_NE(ctx, nullptr);
+	StartClientWithServerSettings(ctx);
+
+	const uint8_t data_payload[] = {0x01};
+	WriteServerFrame(0x00, 0, 1, data_payload, sizeof(data_payload));
+	EXPECT_EQ(http2_ctx_poll(ctx, NULL, 0, NULL), HTTP2_ERR_PROTOCOL);
+
+	http2_ctx_close(ctx);
+}
+
+TEST_F(LIBHTTP2, RefusedHeadersStillUpdateHpackDecoder)
+{
+	struct http2_settings server_settings = {};
+	server_settings.max_concurrent_streams = 1;
+	struct http2_ctx *server_ctx = http2_ctx_server_new("test-server", bio_read, bio_write, &server_sock, &server_settings);
+	ASSERT_NE(server_ctx, nullptr);
+
+	auto write_client_frame = [this](uint8_t type, uint8_t flags, uint32_t stream_id, const uint8_t *payload, int len) {
+		uint8_t frame[256] = {0};
+		ASSERT_GE(len, 0);
+		ASSERT_LE(len, (int)sizeof(frame) - 9);
+		frame[0] = (len >> 16) & 0xff;
+		frame[1] = (len >> 8) & 0xff;
+		frame[2] = len & 0xff;
+		frame[3] = type;
+		frame[4] = flags;
+		frame[5] = (stream_id >> 24) & 0x7f;
+		frame[6] = (stream_id >> 16) & 0xff;
+		frame[7] = (stream_id >> 8) & 0xff;
+		frame[8] = stream_id & 0xff;
+		if (len > 0) {
+			memcpy(frame + 9, payload, len);
+		}
+		ASSERT_EQ(write(client_sock, frame, 9 + len), 9 + len);
+	};
+
+	const char preface[] = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+	ASSERT_EQ(write(client_sock, preface, sizeof(preface) - 1), (ssize_t)sizeof(preface) - 1);
+	write_client_frame(0x04, 0, 0, NULL, 0);
+
+	int server_ret = 0;
+	for (int i = 0; i < 50; i++) {
+		server_ret = http2_ctx_handshake(server_ctx);
+		if (server_ret == 1) {
+			break;
+		}
+		usleep(1000);
+	}
+	ASSERT_EQ(server_ret, 1);
+
+	const uint8_t hold_headers[] = {
+		0x82, /* :method: GET */
+		0x84, /* :path: / */
+		0x86  /* :scheme: http */
+	};
+	write_client_frame(0x01, 0x05, 1, hold_headers, sizeof(hold_headers));
+
+	struct http2_stream *hold_server_stream = nullptr;
+	for (int i = 0; i < 50 && hold_server_stream == nullptr; i++) {
+		struct http2_poll_item items[4] = {};
+		int count = 0;
+		ASSERT_GE(http2_ctx_poll_readable(server_ctx, items, 4, &count), 0);
+		for (int j = 0; j < count; j++) {
+			if (items[j].stream == nullptr && items[j].readable) {
+				hold_server_stream = http2_ctx_accept_stream(server_ctx);
+			}
+			if (items[j].stream != nullptr) {
+				http2_stream_put(items[j].stream);
+			}
+		}
+		usleep(1000);
+	}
+	ASSERT_NE(hold_server_stream, nullptr);
+
+	const uint8_t refused_headers[] = {
+		0x82,                         /* :method: GET */
+		0x84,                         /* :path: / */
+		0x86,                         /* :scheme: http */
+		0x40,                         /* literal header with incremental indexing, new name */
+		0x0c, 'x',  '-', 'h', 'p', 'a', 'c', 'k', '-', 's', 'y', 'n', 'c',
+		0x0d, 'd',  'y', 'n', 'a', 'm', 'i', 'c', '-', 'v', 'a', 'l', 'u', 'e'
+	};
+	write_client_frame(0x01, 0x05, 3, refused_headers, sizeof(refused_headers));
+
+	for (int i = 0; i < 50; i++) {
+		int poll_ret = http2_ctx_poll_readable(server_ctx, NULL, 0, NULL);
+		ASSERT_TRUE(poll_ret == 0 || poll_ret == HTTP2_ERR_EAGAIN) << http2_error_to_string(poll_ret);
+		usleep(1000);
+	}
+	EXPECT_FALSE(http2_ctx_is_closed(server_ctx));
+
+	http2_stream_close(hold_server_stream);
+
+	const uint8_t accepted_headers[] = {
+		0x82, /* :method: GET */
+		0x84, /* :path: / */
+		0x86, /* :scheme: http */
+		0xbe  /* dynamic table index 62: x-hpack-sync: dynamic-value */
+	};
+	write_client_frame(0x01, 0x05, 5, accepted_headers, sizeof(accepted_headers));
+
+	struct http2_stream *accepted_server_stream = nullptr;
+	for (int i = 0; i < 50 && accepted_server_stream == nullptr; i++) {
+		struct http2_poll_item items[4] = {};
+		int count = 0;
+		int poll_ret = http2_ctx_poll_readable(server_ctx, items, 4, &count);
+		ASSERT_TRUE(poll_ret == 0 || poll_ret == HTTP2_ERR_EAGAIN) << http2_error_to_string(poll_ret);
+		for (int j = 0; j < count; j++) {
+			if (items[j].stream == nullptr && items[j].readable) {
+				accepted_server_stream = http2_ctx_accept_stream(server_ctx);
+			}
+			if (items[j].stream != nullptr) {
+				http2_stream_put(items[j].stream);
+			}
+		}
+		usleep(1000);
+	}
+
+	ASSERT_NE(accepted_server_stream, nullptr);
+	EXPECT_STREQ(http2_stream_get_header(accepted_server_stream, "x-hpack-sync"), "dynamic-value");
+	EXPECT_FALSE(http2_ctx_is_closed(server_ctx));
+
+	http2_stream_close(accepted_server_stream);
+	http2_ctx_close(server_ctx);
+}
+
+TEST_F(LIBHTTP2, PeerMaxConcurrentStreamsDoesNotOverrideServerInboundLimit)
+{
+	struct http2_settings server_settings = {};
+	server_settings.max_concurrent_streams = 1;
+	struct http2_ctx *server_ctx = http2_ctx_server_new("test-server", bio_read, bio_write, &server_sock, &server_settings);
+	ASSERT_NE(server_ctx, nullptr);
+
+	const char preface[] = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+	ASSERT_EQ(write(client_sock, preface, sizeof(preface) - 1), (ssize_t)sizeof(preface) - 1);
+	const uint8_t peer_settings[] = {
+		0x00, 0x03,             /* SETTINGS_MAX_CONCURRENT_STREAMS */
+		0x00, 0x00, 0x00, 0x00, /* zero only limits server-initiated streams */
+	};
+	WriteClientFrame(0x04, 0, 0, peer_settings, sizeof(peer_settings));
+
+	int server_ret = 0;
+	for (int i = 0; i < 50; i++) {
+		server_ret = http2_ctx_handshake(server_ctx);
+		if (server_ret == 1) {
+			break;
+		}
+		usleep(1000);
+	}
+	ASSERT_EQ(server_ret, 1);
+
+	const uint8_t request_headers[] = {
+		0x82, /* :method: GET */
+		0x84, /* :path: / */
+		0x86  /* :scheme: http */
+	};
+	/* Deliberately omit END_STREAM so the first request remains active. */
+	WriteClientFrame(0x01, 0x04, 1, request_headers, sizeof(request_headers));
+	WriteClientFrame(0x01, 0x04, 3, request_headers, sizeof(request_headers));
+
+	std::vector<struct http2_stream *> accepted_streams;
+	for (int i = 0; i < 50; i++) {
+		struct http2_poll_item items[4] = {};
+		int count = 0;
+		int poll_ret = http2_ctx_poll_readable(server_ctx, items, 4, &count);
+		ASSERT_TRUE(poll_ret == 0 || poll_ret == HTTP2_ERR_EAGAIN) << http2_error_to_string(poll_ret);
+		for (int j = 0; j < count; j++) {
+			if (items[j].stream == nullptr && items[j].readable) {
+				struct http2_stream *stream = http2_ctx_accept_stream(server_ctx);
+				if (stream != nullptr) {
+					accepted_streams.push_back(stream);
+				}
+			}
+			if (items[j].stream != nullptr) {
+				http2_stream_put(items[j].stream);
+			}
+		}
+		usleep(1000);
+	}
+
+	ASSERT_EQ(accepted_streams.size(), 1U);
+	EXPECT_EQ(http2_stream_get_id(accepted_streams[0]), 1);
+	for (auto *stream : accepted_streams) {
+		http2_stream_close(stream);
+	}
+	http2_ctx_close(server_ctx);
+}
+
+TEST_F(LIBHTTP2, PeerMaxConcurrentStreamsLimitsLocallyInitiatedStreams)
+{
+	struct http2_ctx *client_ctx = http2_ctx_client_new("test-client", bio_read, bio_write, &client_sock, NULL);
+	ASSERT_NE(client_ctx, nullptr);
+
+	const uint8_t peer_settings[] = {
+		0x00, 0x03,             /* SETTINGS_MAX_CONCURRENT_STREAMS */
+		0x00, 0x00, 0x00, 0x00, /* peer accepts no new client streams */
+	};
+	WriteServerFrame(0x04, 0, 0, peer_settings, sizeof(peer_settings));
+	for (int i = 0; i < 50 && http2_ctx_handshake(client_ctx) != 1; i++) {
+		usleep(1000);
+	}
+
+	EXPECT_EQ(http2_stream_new(client_ctx), nullptr);
+	http2_ctx_close(client_ctx);
+}
+
+TEST_F(LIBHTTP2, StreamNewAfterGoawayFails)
+{
+	struct http2_ctx *ctx = http2_ctx_client_new("test-client", bio_read, bio_write, &client_sock, NULL);
+	ASSERT_NE(ctx, nullptr);
+	StartClientWithServerSettings(ctx);
+
+	const uint8_t goaway_payload[] = {0, 0, 0, 0, 0, 0, 0, 0};
+	WriteServerFrame(0x07, 0, 0, goaway_payload, sizeof(goaway_payload));
+	http2_ctx_poll(ctx, NULL, 0, NULL);
+
+	struct http2_stream *stream = http2_stream_new(ctx);
+	EXPECT_EQ(stream, nullptr);
+
+	http2_ctx_close(ctx);
 }
 
 TEST_F(LIBHTTP2, MultiStream)

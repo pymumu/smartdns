@@ -90,6 +90,19 @@ void _dns_client_close_socket_ext(struct dns_server_info *server_info, int no_de
 	dns_server_status server_status = DNS_SERVER_STATUS_DISCONNECTED;
 
 	pthread_mutex_lock(&server_info->lock);
+	if (server_info->process_depth > 0) {
+		/*
+		 * Called re-entrantly from inside the HTTP/2 or QUIC poll loop
+		 * (e.g. a query callback requested an immediate retry while that
+		 * loop is still iterating conn_stream_list / using server_info->ssl
+		 * or server_info->http2_ctx). Tearing those down here would free
+		 * state the outer loop is still using. Defer the real close until
+		 * the outer loop exits, see _dns_client_process_guard_leave().
+		 */
+		server_info->close_deferred = 1;
+		pthread_mutex_unlock(&server_info->lock);
+		return;
+	}
 	server_status = server_info->status;
 	server_info->status = DNS_SERVER_STATUS_DISCONNECTED;
 
@@ -218,6 +231,33 @@ void _dns_client_shutdown_socket(struct dns_server_info *server_info)
 		break;
 	default:
 		break;
+	}
+}
+
+void _dns_client_process_guard_enter(struct dns_server_info *server_info)
+{
+	pthread_mutex_lock(&server_info->lock);
+	server_info->process_depth++;
+	pthread_mutex_unlock(&server_info->lock);
+}
+
+void _dns_client_process_guard_leave(struct dns_server_info *server_info)
+{
+	int need_close = 0;
+
+	pthread_mutex_lock(&server_info->lock);
+	if (server_info->process_depth > 0) {
+		server_info->process_depth--;
+	}
+
+	if (server_info->process_depth == 0 && server_info->close_deferred) {
+		server_info->close_deferred = 0;
+		need_close = 1;
+	}
+	pthread_mutex_unlock(&server_info->lock);
+
+	if (need_close) {
+		_dns_client_close_socket(server_info);
 	}
 }
 

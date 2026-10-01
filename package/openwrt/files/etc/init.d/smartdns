@@ -37,10 +37,31 @@ EXTRA_HELP="        updatefiles      Update files"
 COREDUMP="0"
 RESPAWN="1"
 DO_RELOAD="0"
+DNSMASQ_RESTART="0"
+
+restart_dnsmasq()
+{
+	local defer="$1"
+
+	if [ "$defer" = "1" ]; then
+		DNSMASQ_RESTART="1"
+		return
+	fi
+
+	/etc/init.d/dnsmasq restart
+}
+
+restart_pending_dnsmasq()
+{
+	[ "$DNSMASQ_RESTART" = "1" ] || return
+	DNSMASQ_RESTART="0"
+	/etc/init.d/dnsmasq restart
+}
 
 set_forward_dnsmasq()
 {
 	local PORT="$1"
+	local defer_restart="$2"
 	addr="127.0.0.1#$PORT"
 	# space in suffix is important
 	OLD_SERVER="$(uci -q get dhcp.@dnsmasq[0].server) "
@@ -56,13 +77,14 @@ set_forward_dnsmasq()
 	uci_batch="$uci_batch set dhcp.@dnsmasq[0].domainneeded=0\n"
 	echo -e "$uci_batch" | uci batch -q -
 	uci commit dhcp
-	/etc/init.d/dnsmasq reload
+	restart_dnsmasq "$defer_restart"
 }
 
 stop_forward_dnsmasq()
 {
 	local OLD_PORT="$1"
 	local norestart="$2"
+	local defer_restart="$3"
 	addr="127.0.0.1#$OLD_PORT"
 	OLD_SERVER="$(uci -q get dhcp.@dnsmasq[0].server) "
 	if ! echo "$OLD_SERVER" | grep "^$addr " >/dev/null 2>&1; then
@@ -76,7 +98,7 @@ stop_forward_dnsmasq()
 	uci_batch="$uci_batch set dhcp.@dnsmasq[0].domainneeded=1\n"
 	echo -e "$uci_batch" | uci batch -q -
 	uci commit dhcp
-	[ "$norestart" != "1" ] && /etc/init.d/dnsmasq reload
+	[ "$norestart" != "1" ] && restart_dnsmasq "$defer_restart"
 }
 
 set_main_dns()
@@ -91,7 +113,13 @@ set_main_dns()
 	uci_batch=""
 	[ "$dnsmasq_port" = "53" ] && {
 		uci_batch="$uci_batch set dhcp.@dnsmasq[0].port=0\n"
-		uci_batch="$uci_batch add_list dhcp.lan.dhcp_option=\"6,$hostip\"\n"
+		# add_list is not idempotent -- this function runs on every
+		# service start/restart/reload (not just once at install), so
+		# unconditionally add_list-ing here appended another duplicate
+		# "6,$hostip" to dhcp.lan.dhcp_option every single time.
+		if ! uci -q get dhcp.lan.dhcp_option 2>/dev/null | tr ' ' '\n' | grep -Fqx "6,$hostip"; then
+			uci_batch="$uci_batch add_list dhcp.lan.dhcp_option=\"6,$hostip\"\n"
+		fi
 	}
 
 	# for some third-party firmware
@@ -107,7 +135,7 @@ set_main_dns()
 
 	echo -e "$uci_batch" | uci batch -q -
 	uci commit dhcp
-	/etc/init.d/dnsmasq reload
+	/etc/init.d/dnsmasq restart
 }
 
 stop_main_dns()
@@ -127,7 +155,7 @@ stop_main_dns()
 	uci_batch="$uci_batch del_list dhcp.lan.dhcp_option=\"6,$hostip\"\n"
 	echo -e "$uci_batch" | uci batch -q -
 	uci commit dhcp
-	[ "$norestart" != "1" ] && /etc/init.d/dnsmasq reload
+	[ "$norestart" != "1" ] && /etc/init.d/dnsmasq restart
 }
 
 clear_iptable()
@@ -576,6 +604,9 @@ load_second_server()
 	config_get seconddns_nftset_name "$section" "seconddns_nftset_name" ""
 	[ -z "$seconddns_nftset_name" ] || ARGS="$ARGS -nftset $seconddns_nftset_name"
 
+	config_get_bool ddr "$section" "ddr" "0"
+	[ "$ddr" = "1" ] && ARGS="$ARGS -ddr"
+
 	config_get_bool bind_device "$section" "bind_device" "0"
 	config_get bind_device_name "$section" "bind_device_name" "${lan_device}"
 	[ ! -z "$bind_device_name" ] && [ "$bind_device" = "1" ] && device="${bind_device_name}"
@@ -626,6 +657,7 @@ load_service()
 	args=""
 	local device=""
 	dnsmasq_lease_file="$(uci -q get dhcp.@dnsmasq[0].leasefile)"
+	odhcpd_lease_file="$(uci -q get dhcp.odhcpd.leasefile)"
 	dnsmasq_port="$(uci -q get dhcp.@dnsmasq[0].port)"
 	resolve_file="$(uci -q get dhcp.@dnsmasq[0].resolvfile)"
 	lan_device="$(uci -q get network.lan.device)"
@@ -657,7 +689,12 @@ load_service()
 	config_get bind_cert "$section" "bind_cert" ""
 	config_get bind_cert_key "$section" "bind_cert_key" ""
 	config_get bind_cert_key_pass "$section" "bind_cert_key_pass" ""
+	config_get bind_cert_san "$section" "bind_cert_san" ""
+	config_get bind_cert_generate "$section" "bind_cert_generate" ""
+	config_get bind_cert_root_key "$section" "bind_cert_root_key" ""
 	config_get server_flags "$section" "server_flags" ""
+	config_get_bool ddr "$section" "ddr" "0"
+	[ "$ddr" = "1" ] && server_flags="$server_flags -ddr"
 
 	config_get auto_update_week_time "$section" "auto_update_week_time" "*"
 	config_get auto_update_day_time "$section" "auto_update_day_time" "5"
@@ -671,18 +708,21 @@ load_service()
 	config_get prefetch_domain "$section" "prefetch_domain" "0"
 	[ "$prefetch_domain" = "1" ] && conf_append "prefetch-domain" "yes"
 
-	config_get serve_expired "$section" "serve_expired" "0"
-	if [ "$serve_expired" = "1" ]; then
-		conf_append "serve-expired" "yes"
-	else
+	config_get serve_expired "$section" "serve_expired" "1"
+	if [ "$serve_expired" = "0" ]; then
 		conf_append "serve-expired" "no"
+	else
+		conf_append "serve-expired" "yes"
 	fi
 
 	config_get cache_size "$section" "cache_size" ""
 	[ -z "$cache_size" ] || conf_append "cache-size" "$cache_size"
 
-	config_get resolve_local_hostnames "$section" "resolve_local_hostnames" "1"
-	[ "$resolve_local_hostnames" = "1" ] && conf_append "dnsmasq-lease-file" "$dnsmasq_lease_file"
+	config_get_bool resolve_local_hostnames "$section" "resolve_local_hostnames" "1"
+	[ "$resolve_local_hostnames" = "1" ] && {
+		conf_append "dnsmasq-lease-file" "$dnsmasq_lease_file"
+		[ -z "$odhcpd_lease_file" ] || conf_append "odhcpd-lease-file" "$odhcpd_lease_file"
+	}
 
 	config_get force_aaaa_soa "$section" "force_aaaa_soa" "0"
 	[ "$force_aaaa_soa" = "1" ] && qtype_soa_list="$qtype_soa_list 28"
@@ -841,6 +881,7 @@ load_service()
 			no_restart_dnsmasq="1"
 			[ "$auto_set_dnsmasq" = "0" ] && no_restart_dnsmasq="0"
 			[ "$old_auto_set_dnsmasq" = "1" ] && stop_main_dns "$no_restart_dnsmasq"
+			[ "$old_auto_set_dnsmasq" = "1" ] && [ "$no_restart_dnsmasq" = "1" ] && restart_dnsmasq "1"
 		}
 		[ "$old_port" != "53" ] && [ "$old_auto_set_dnsmasq" = "1" ] && stop_forward_dnsmasq "$old_port" "1"
 	}
@@ -851,8 +892,8 @@ load_service()
 		[ "$auto_set_dnsmasq" = "0" ] && [ "$old_auto_set_dnsmasq" = "1" ] && stop_main_dns "0"
 	}
 	[ "$port" != "53" ] && {
-		[ "$auto_set_dnsmasq" = "1" ] && set_forward_dnsmasq "$port"
-		[ "$auto_set_dnsmasq" = "0" ] && [ "$old_auto_set_dnsmasq" = "1" ] && stop_forward_dnsmasq "$old_port" "0"
+		[ "$auto_set_dnsmasq" = "1" ] && set_forward_dnsmasq "$port" "1"
+		[ "$auto_set_dnsmasq" = "0" ] && [ "$old_auto_set_dnsmasq" = "1" ] && stop_forward_dnsmasq "$old_port" "0" "1"
 	}
 
 	conf_append_bind "bind" "$port" "$device" "$ipv6_server" "$server_flags"
@@ -860,6 +901,16 @@ load_service()
 	[ "$tls_server" = "1" ] && conf_append_bind "bind-tls" "$tls_server_port" "$device" "$ipv6_server" "$server_flags"
 	[ "$doh_server" = "1" ] && conf_append_bind "bind-https" "$doh_server_port" "$device" "$ipv6_server" "$server_flags"
 
+	[ -z "$bind_cert" ] && [ -z "$bind_cert_key" ] && [ "$tls_server$doh_server" != "00" ] && {
+		bind_cert="$SMARTDNS_CONF_DIR/smartdns-cert.pem"
+		bind_cert_key="$SMARTDNS_CONF_DIR/smartdns-key.pem"
+		bind_cert_root_key="$SMARTDNS_CONF_DIR/smartdns-root-key.pem"
+		bind_cert_generate="${bind_cert_generate:-yes}"
+	}
+
+	[ ! -z "$bind_cert_generate" ] && conf_append "bind-cert-generate" "$bind_cert_generate"
+	[ ! -z "$bind_cert_san" ] && conf_append "bind-cert-san" "$bind_cert_san"
+	[ ! -z "$bind_cert_root_key" ] && conf_append "bind-cert-root-key-file" "$bind_cert_root_key"
 	[ ! -z "$bind_cert" ] && conf_append "bind-cert-file" "$bind_cert"
 	[ ! -z "$bind_cert_key" ] && conf_append "bind-cert-key-file" "$bind_cert_key"
 	[ ! -z "$bind_cert_key_pass" ] && conf_append "bind-cert-key-pass" "$bind_cert_key_pass"
@@ -919,6 +970,8 @@ load_service()
 	procd_set_param file "$SMARTDNS_CONF"
 	procd_set_param term_timeout 60
 	procd_close_instance
+
+	restart_pending_dnsmasq
 }
 
 unload_service()

@@ -534,6 +534,16 @@ static int hpack_add_dynamic_entry(struct hpack_context *hpack, const char *name
 {
 	struct hpack_dynamic_entry *entry;
 	size_t entry_size = strlen(name) + strlen(value) + 32;
+	char *name_copy = NULL;
+	char *value_copy = NULL;
+
+	name_copy = strdup(name);
+	value_copy = strdup(value);
+	if (!name_copy || !value_copy) {
+		free(name_copy);
+		free(value_copy);
+		return -1;
+	}
 
 	/* Evict entries if necessary */
 	while (hpack->dynamic_table_size + entry_size > hpack->max_dynamic_table_size && hpack->dynamic_table) {
@@ -558,20 +568,21 @@ static int hpack_add_dynamic_entry(struct hpack_context *hpack, const char *name
 		free(last);
 	}
 
+	if (entry_size > hpack->max_dynamic_table_size) {
+		free(name_copy);
+		free(value_copy);
+		return 0;
+	}
+
 	entry = malloc(sizeof(*entry));
 	if (!entry) {
+		free(name_copy);
+		free(value_copy);
 		return -1;
 	}
 
-	entry->name = strdup(name);
-	entry->value = strdup(value);
-	if (!entry->name || !entry->value) {
-		free(entry->name);
-		free(entry->value);
-		free(entry);
-		return -1;
-	}
-
+	entry->name = name_copy;
+	entry->value = value_copy;
 	entry->size = entry_size;
 	entry->next = hpack->dynamic_table;
 	hpack->dynamic_table = entry;
@@ -754,6 +765,7 @@ int hpack_decode_headers(struct hpack_context *hpack, const uint8_t *data, int d
 						 void *ctx)
 {
 	int offset = 0;
+	int header_field_seen = 0;
 
 	while (offset < data_len) {
 		const char *name = NULL;
@@ -776,6 +788,7 @@ int hpack_decode_headers(struct hpack_context *hpack, const uint8_t *data, int d
 
 			name = static_name;
 			value = static_value;
+			header_field_seen = 1;
 		} else if ((data[offset] & 0x40) != 0) {
 			/* Literal with incremental indexing */
 			uint64_t index;
@@ -791,6 +804,13 @@ int hpack_decode_headers(struct hpack_context *hpack, const uint8_t *data, int d
 					return -1;
 				}
 				name = static_name;
+				if (index > HPACK_STATIC_TABLE_SIZE) {
+					allocated_name = strdup(name);
+					if (!allocated_name) {
+						return -1;
+					}
+					name = allocated_name;
+				}
 			} else {
 				ret = hpack_decode_string(data + offset, data_len - offset, &allocated_name);
 				if (ret < 0) {
@@ -811,9 +831,13 @@ int hpack_decode_headers(struct hpack_context *hpack, const uint8_t *data, int d
 			if (name && value) {
 				hpack_add_dynamic_entry(hpack, name, value);
 			}
+			header_field_seen = 1;
 		} else if ((data[offset] & 0x20) != 0) {
 			/* Dynamic Table Size Update */
 			uint64_t new_size;
+			if (header_field_seen) {
+				return -1;
+			}
 			int ret = hpack_decode_integer(data + offset, data_len - offset, 5, &new_size);
 			if (ret < 0) {
 				return -1;
@@ -853,6 +877,7 @@ int hpack_decode_headers(struct hpack_context *hpack, const uint8_t *data, int d
 			}
 			offset += ret;
 			value = allocated_value;
+			header_field_seen = 1;
 		}
 
 		/* Add header to stream */

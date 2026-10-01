@@ -99,6 +99,7 @@ enum domain_rule {
 	DOMAIN_RULE_RESPONSE_MODE, /* Response mode */
 	DOMAIN_RULE_CNAME,         /* CNAME rule */
 	DOMAIN_RULE_TTL,           /* TTL control */
+	DOMAIN_RULE_TXT,           /* TXT record */
 
 	DOMAIN_RULE_MAX,
 };
@@ -120,6 +121,7 @@ typedef enum {
 	DNS_BIND_TYPE_TCP,
 	DNS_BIND_TYPE_TLS,
 	DNS_BIND_TYPE_HTTPS,
+	DNS_BIND_TYPE_HTTP,
 } DNS_BIND_TYPE;
 
 typedef enum {
@@ -221,7 +223,9 @@ struct dns_ipset_name {
 struct dns_ipset_rule {
 	struct dns_rule head;
 	const char *ipsetname;
+	struct dns_ipset_rule *next;
 };
+
 
 struct dns_ipset_names {
 	char inet_enable;
@@ -258,6 +262,7 @@ struct dns_nftset_rule {
 	const char *familyname;
 	const char *nfttablename;
 	const char *nftsetname;
+	struct dns_nftset_rule *next;
 };
 
 struct dns_nftset_names {
@@ -341,6 +346,11 @@ struct dns_srv_record_rule {
 	struct list_head record_list;
 };
 
+struct dns_txt_record_rule {
+	struct dns_rule head;
+	struct list_head record_list;
+};
+
 struct dns_group_table {
 	DECLARE_HASHTABLE(group, 8);
 };
@@ -362,6 +372,7 @@ extern struct dns_ptr_table dns_ptr_table;
 typedef enum dns_hosts_type {
 	DNS_HOST_TYPE_HOST = 0,
 	DNS_HOST_TYPE_DNSMASQ = 1,
+	DNS_HOST_TYPE_ODHCPD = 2,
 } dns_hosts_type;
 
 struct dns_hosts {
@@ -665,6 +676,10 @@ struct dns_srv_record {
 	unsigned short port;
 };
 
+struct dns_txt_record {
+	struct list_head list;
+	char text[DNS_MAX_CNAME_LEN];
+};
 
 struct dns_conf_plugin {
 	struct hlist_node node;
@@ -690,8 +705,10 @@ struct dns_config {
 	char bind_ca_file[DNS_MAX_PATH];
 	char bind_ca_key_file[DNS_MAX_PATH];
 	char bind_root_ca_key_file[DNS_MAX_PATH];
+	char bind_cert_san[DNS_MAX_PATH];
 	char bind_ca_key_pass[DNS_MAX_PATH];
 	int bind_ca_validity_days;
+	int bind_cert_generate;
 	char need_cert;
 	int tcp_idle_time;
 	ssize_t cachesize;

@@ -111,8 +111,11 @@ build()
 
 	which apk >/dev/null 2>&1
 	if [ $? -eq 0 ]; then
+		echo "apk tool found. Version:"
+		apk --version || true
 		APK_VER="`echo $VER | sed 's/[-]/-r/'`"
 		ARCH="`echo $ARCH | sed 's/all/noarch/g'`"
+		echo "Building apk package for arch: $ARCH to $OUTPUTDIR/smartdns.$VER.$FILEARCH.apk..."
 		apk mkpkg \
 			--info "name:smartdns" \
 			--info "version:$APK_VER" \
@@ -131,7 +134,7 @@ build()
 			return 1
 		fi
 	else
-		echo "== warning: apk tool not found, skip build apk package. =="
+		echo "== warning: apk tool not found, skip build apk package. PATH=$PATH =="
 	fi
 
 	rm -fr $ROOT/

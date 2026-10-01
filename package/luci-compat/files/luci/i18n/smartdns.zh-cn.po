@@ -532,8 +532,8 @@ msgstr "当结果包含对应范围的IP时，返回SOA。"
 msgid "Resolve Local Hostnames"
 msgstr "解析本地主机名"
 
-msgid "Resolve local hostnames by reading Dnsmasq lease file."
-msgstr "读取Dnsmasq的租约文件解析本地主机名。"
+msgid "Resolve local hostnames by reading Dnsmasq or odhcpd lease files."
+msgstr "读取 Dnsmasq 或 odhcpd 的租约文件解析本地主机名。"
 
 msgid "Resolve local network hostname via mDNS protocol."
 msgstr "使用mDNS协议解析本地网络主机名。"

@@ -55,7 +55,9 @@
 #include "smartdns_domain.h"
 #include "speed_check_mode.h"
 #include "srv_record.h"
+#include "txt_record.h"
 
+#include <arpa/inet.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -84,6 +86,39 @@ static int _config_option_parser_filepath(void *data, int argc, char *argv[])
 	}
 
 	conf_get_conf_fullpath(argv[1], data, DNS_MAX_PATH);
+
+	return 0;
+}
+
+static int _config_bind_cert_san(void *data, int argc, char *argv[])
+{
+	char *san = data;
+	size_t san_len = 0;
+	int i = 0;
+
+	if (argc <= 1) {
+		tlog(TLOG_ERROR, "invalid parameter.");
+		return -1;
+	}
+
+	for (i = 1; i < argc; i++) {
+		unsigned char addr[16] = {0};
+		const char *prefix = "DNS:";
+		const char *value = argv[i];
+		int len = 0;
+
+		if (strncasecmp(value, "DNS:", 4) == 0 || strncasecmp(value, "IP:", 3) == 0) {
+			prefix = "";
+		} else if (inet_pton(AF_INET, value, addr) == 1 || inet_pton(AF_INET6, value, addr) == 1) {
+			prefix = "IP:";
+		}
+
+		len = snprintf(san + san_len, DNS_MAX_PATH - san_len, "%s%s%s", san_len > 0 ? "," : "", prefix, value);
+		if (len < 0 || (size_t)len >= DNS_MAX_PATH - san_len) {
+			return -1;
+		}
+		san_len += len;
+	}
 
 	return 0;
 }
@@ -142,7 +177,10 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("bind-tcp", _config_bind_ip_tcp, NULL),
 	CONF_CUSTOM("bind-tls", _config_bind_ip_tls, NULL),
 	CONF_CUSTOM("bind-https", _config_bind_ip_https, NULL),
+	CONF_CUSTOM("bind-http", _config_bind_ip_http, NULL),
 	CONF_CUSTOM("bind-cert-root-key-file", _config_option_parser_filepath, &dns_conf.bind_root_ca_key_file),
+	CONF_YESNOAUTO("bind-cert-generate", &dns_conf.bind_cert_generate),
+	CONF_CUSTOM("bind-cert-san", _config_bind_cert_san, dns_conf.bind_cert_san),
 	CONF_INT("bind-cert-validity-days", &dns_conf.bind_ca_validity_days, 0, 9999),
 	CONF_CUSTOM("bind-cert-file", _config_option_parser_filepath, &dns_conf.bind_ca_file),
 	CONF_CUSTOM("bind-cert-key-file", _config_option_parser_filepath, &dns_conf.bind_ca_key_file),
@@ -162,6 +200,7 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("cname", _config_cname, NULL),
 	CONF_CUSTOM("srv-record", _config_srv_record, NULL),
 	CONF_CUSTOM("https-record", _config_https_record, NULL),
+	CONF_CUSTOM("txt-record", _config_txt_record, NULL),
 	CONF_CUSTOM("proxy-server", _config_proxy_server, NULL),
 	CONF_YESNO_FUNC("ipset-timeout", _dns_conf_group_yesno, group_member(ipset_nftset.ipset_timeout_enable)),
 	CONF_CUSTOM("ipset", _config_ipset, NULL),
@@ -233,6 +272,7 @@ static struct config_item _config_item[] = {
 	CONF_CUSTOM("ddns-domain", _config_ddns_domain, NULL),
 	CONF_CUSTOM("local-domain", _config_local_domain, NULL),
 	CONF_CUSTOM("dnsmasq-lease-file", _conf_dhcp_lease_dnsmasq_file, NULL),
+	CONF_CUSTOM("odhcpd-lease-file", _conf_dhcp_lease_odhcpd_file, NULL),
 	CONF_CUSTOM("hosts-file", _config_hosts_file, NULL),
 	CONF_CUSTOM("group-begin", _config_group_begin, NULL),
 	CONF_CUSTOM("group-end", _config_group_end, NULL),
@@ -390,6 +430,7 @@ static void _dns_conf_default_value_init(void)
 	dns_conf.resolv_hostname = 1;
 	dns_conf.cachesize = -1;
 	dns_conf.cache_max_memsize = -1;
+	dns_conf.bind_cert_generate = -1;
 
 	dns_conf.default_check_orders.orders[0].type = DOMAIN_CHECK_ICMP;
 	dns_conf.default_check_orders.orders[0].tcp_port = 0;

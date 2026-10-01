@@ -168,6 +168,13 @@ static void _dns_server_delete_request(struct dns_request *request)
 		free(srv);
 	}
 
+	struct dns_request_txt *txt, *tmp_txt;
+	list_for_each_entry_safe(txt, tmp_txt, &request->txt_list, list)
+	{
+		list_del(&txt->list);
+		free(txt);
+	}
+
 	if (request->original_domain) {
 		free(request->original_domain);
 	}
@@ -304,8 +311,22 @@ const struct sockaddr *dns_server_request_get_local_addr(struct dns_request *req
 
 const uint8_t *dns_server_request_get_remote_mac(struct dns_request *request)
 {
+	static const uint8_t zero_mac[6] = {0};
+
 	if (request->conn == NULL) {
 		return NULL;
+	}
+
+	if (memcmp(request->mac, zero_mac, 6) == 0 && request->addr_len > 0) {
+		/* the mac was unknown when the request arrived; replying to the client
+		 * forced the kernel to resolve it, so check the neighbor cache again */
+		uint8_t netaddr[DNS_RR_AAAA_LEN] = {0};
+		int netaddr_len = sizeof(netaddr);
+
+		if (get_raw_addr_by_sockaddr((struct sockaddr_storage *)&request->addr, request->addr_len, netaddr,
+									 &netaddr_len) == 0) {
+			_dns_server_neighbor_cache_get_mac(netaddr, netaddr_len, request->mac);
+		}
 	}
 
 	return request->mac;
@@ -498,6 +519,7 @@ struct dns_request *_dns_server_new_request(void)
 	INIT_LIST_HEAD(&request->check_list);
 	INIT_LIST_HEAD(&request->https_svcb_list);
 	INIT_LIST_HEAD(&request->srv_list);
+	INIT_LIST_HEAD(&request->txt_list);
 	hash_init(request->ip_map);
 	_dns_server_request_get(request);
 	atomic_add(1, &server.request_num);
@@ -700,6 +722,40 @@ int _dns_server_process_srv(struct dns_request *request)
 		srv->weight = srv_record->weight;
 		srv->port = srv_record->port;
 		list_add_tail(&srv->list, &request->srv_list);
+	}
+
+	struct dns_server_post_context context;
+	_dns_server_post_context_init(&context, request);
+	context.do_audit = 1;
+	context.do_reply = 1;
+	context.do_cache = 0;
+	context.do_force_soa = 0;
+	_dns_request_post(&context);
+
+	return 0;
+}
+
+static int _dns_server_process_txt(struct dns_request *request)
+{
+	struct dns_txt_record *txt_record;
+	struct dns_request_txt *txt;
+	struct dns_txt_record_rule *txt_rule =
+		(struct dns_txt_record_rule *)_dns_server_get_dns_rule(request, DOMAIN_RULE_TXT);
+	if (txt_rule == NULL) {
+		return -1;
+	}
+
+	request->rcode = DNS_RC_NOERROR;
+	request->ip_ttl = _dns_server_get_local_ttl(request);
+
+	list_for_each_entry(txt_record, &txt_rule->record_list, list)
+	{
+		txt = zalloc(1, sizeof(*txt));
+		if (txt == NULL) {
+			continue;
+		}
+		safe_strncpy(txt->text, txt_record->text, sizeof(txt->text));
+		list_add_tail(&txt->list, &request->txt_list);
 	}
 
 	struct dns_server_post_context context;
@@ -972,12 +1028,7 @@ void _dns_server_request_set_mac(struct dns_request *request, struct sockaddr_st
 		return;
 	}
 
-	struct neighbor_cache_item *item = _dns_server_neighbor_cache_get_item(netaddr, netaddr_len);
-	if (item) {
-		if (item->has_mac) {
-			memcpy(request->mac, item->mac, 6);
-		}
-	}
+	_dns_server_neighbor_cache_get_mac(netaddr, netaddr_len, request->mac);
 }
 
 int _dns_server_request_set_client_addr(struct dns_request *request, struct sockaddr_storage *from, socklen_t from_len)
@@ -1044,6 +1095,16 @@ int _dns_server_process_special_query(struct dns_request *request)
 			/* pass to upstream server */
 			request->passthrough = 1;
 		}
+		break;
+	case DNS_T_TXT:
+		ret = _dns_server_process_txt(request);
+		if (ret == 0) {
+			goto clean_exit;
+		} else {
+			/* pass to upstream server */
+			request->passthrough = 1;
+		}
+		break;
 	case DNS_T_HTTPS:
 		break;
 	case DNS_T_SVCB:

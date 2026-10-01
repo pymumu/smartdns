@@ -55,6 +55,7 @@ $(SMARTDNS_SYSTEMD): systemd/smartdns.service.in
 help:
 	@echo "Options:"
 	@echo "  WITH_UI=1: Build with smartdns-ui plugin" 
+	@echo "  WITH_ZLIB=auto|1|0: Auto-detect, force enable, or disable zlib support"
 	@echo "  OPTIMIZE_SIZE=1: Optimize size of the smartdns-ui plugin (only for smartdns-ui)"
 	@echo "  DESTDIR: Specify the installation directory prefix"
 
@@ -70,4 +71,3 @@ install: SMARTDNS_BIN
 	install -v -m 0755 -D -t $(DESTDIR)$(SBINDIR) src/smartdns
 	install -v -m 0644 -D -t $(DESTDIR)$(SYSTEMDSYSTEMUNITDIR) systemd/smartdns.service
 	$(call PLUGINS_TARGETS, install)
-

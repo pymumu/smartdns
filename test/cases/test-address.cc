@@ -572,3 +572,62 @@ group-end
 	EXPECT_EQ(client.GetAnswer()[0].GetType(), "A");
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
 }
+
+TEST_F(Address, group_address_dash_followed_by_address)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::Server server;
+
+	server_upstream.Start("udp://0.0.0.0:61053", [&](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype == DNS_T_A) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "9.9.9.9", 700);
+			if (request->domain == "upstream.com") {
+				smartdns::MockServer::AddIP(request, request->domain.c_str(), "9.9.9.8", 700);
+			}
+			return smartdns::SERVER_REQUEST_OK;
+		} else if (request->qtype == DNS_T_AAAA) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "64:ff9b::909:909", 700);
+			return smartdns::SERVER_REQUEST_OK;
+		}
+		return smartdns::SERVER_REQUEST_SOA;
+	});
+
+	server.Start("log-level debug\n"
+		"bind [::]:60053\n"
+		"server 127.0.0.1:61053\n"
+		"speed-check-mode none\n"
+		"group-begin safe\n"
+		"address -\n"
+		"group-end\n"
+		"address /qq.com/-6\n"
+		"address /qq.com/1.2.3.4\n"
+		"address /upstream.com/2.2.2.2\n");
+	smartdns::Client client;
+
+	ASSERT_TRUE(client.Query("qq.com A", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "qq.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 600);
+	EXPECT_EQ(client.GetAnswer()[0].GetType(), "A");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+
+	ASSERT_TRUE(client.Query("upstream.com A", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "upstream.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 600);
+	EXPECT_EQ(client.GetAnswer()[0].GetType(), "A");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "2.2.2.2");
+
+	ASSERT_TRUE(client.Query("qq.com AAAA", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "qq.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 700);
+	EXPECT_EQ(client.GetAnswer()[0].GetType(), "AAAA");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "64:ff9b::909:909");
+}

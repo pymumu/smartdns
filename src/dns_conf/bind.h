@@ -31,6 +31,7 @@ int _config_bind_ip_udp(void *data, int argc, char *argv[]);
 int _config_bind_ip_tcp(void *data, int argc, char *argv[]);
 int _config_bind_ip_tls(void *data, int argc, char *argv[]);
 int _config_bind_ip_https(void *data, int argc, char *argv[]);
+int _config_bind_ip_http(void *data, int argc, char *argv[]);
 
 void dns_server_bind_destroy(void);
 

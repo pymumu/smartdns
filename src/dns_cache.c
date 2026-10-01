@@ -54,6 +54,11 @@ typedef int (*dns_cache_read_callback)(struct dns_cache_record *cache_record, st
 static int is_cache_init;
 static struct dns_cache_head dns_cache_head;
 
+static int _dns_cache_is_ready(void)
+{
+	return is_cache_init != 0 && dns_cache_head.cache_hash.table != NULL && dns_cache_head.cache_hash.size > 0;
+}
+
 int dns_cache_init(int size, int mem_size, dns_cache_callback timeout_callback)
 {
 	int bits = 0;
@@ -231,6 +236,11 @@ static struct dns_cache *_dns_cache_lookup(struct dns_cache_key *cache_key)
 	struct dns_cache *dns_cache_ret = NULL;
 	time_t now = 0;
 
+	if (cache_key == NULL || cache_key->domain == NULL || cache_key->dns_group_name == NULL ||
+		_dns_cache_is_ready() == 0) {
+		return NULL;
+	}
+
 	key = hash_string_case(cache_key->domain);
 	key = jhash(&cache_key->qtype, sizeof(cache_key->qtype), key);
 	key = hash_string_initval(cache_key->dns_group_name, key);
@@ -239,6 +249,10 @@ static struct dns_cache *_dns_cache_lookup(struct dns_cache_key *cache_key)
 	time(&now);
 	/* find cache */
 	pthread_mutex_lock(&dns_cache_head.lock);
+	if (_dns_cache_is_ready() == 0) {
+		goto out;
+	}
+
 	hash_table_for_each_possible(dns_cache_head.cache_hash, dns_cache, node, key)
 	{
 		if (dns_cache->info.qtype != cache_key->qtype) {
@@ -265,6 +279,7 @@ static struct dns_cache *_dns_cache_lookup(struct dns_cache_key *cache_key)
 		dns_cache_get(dns_cache_ret);
 	}
 
+out:
 	pthread_mutex_unlock(&dns_cache_head.lock);
 
 	return dns_cache_ret;
@@ -721,7 +736,7 @@ errout:
 	return -1;
 }
 
-static int _dns_cache_read_record(int fd, uint32_t cache_number, dns_cache_read_callback callback)
+static int _dns_cache_read_record(int fd, off_t filesize, uint32_t cache_number, dns_cache_read_callback callback)
 {
 	unsigned int i = 0;
 	ssize_t ret = 0;
@@ -753,8 +768,14 @@ static int _dns_cache_read_record(int fd, uint32_t cache_number, dns_cache_read_
 			goto errout;
 		}
 
-		if (data_head.size > 1024 * 8) {
+		if (data_head.size <= 0 || data_head.size > 1024 * 8) {
 			tlog(TLOG_ERROR, "data may invalid, skip load cache.");
+			goto errout;
+		}
+
+		off_t offset = lseek(fd, 0, SEEK_CUR);
+		if (offset < 0 || offset > filesize || (off_t)data_head.size > filesize - offset) {
+			tlog(TLOG_ERROR, "cache data size is invalid, skip load cache.");
 			goto errout;
 		}
 
@@ -807,6 +828,10 @@ static int _dns_cache_file_read(const char *file, dns_cache_read_callback callba
 
 	filesize = lseek(fd, 0, SEEK_END);
 	lseek(fd, 0, SEEK_SET);
+	if (filesize < (off_t)sizeof(struct dns_cache_file)) {
+		tlog(TLOG_ERROR, "cache file is too small.");
+		goto errout;
+	}
 	posix_fadvise(fd, 0, filesize, POSIX_FADV_WILLNEED | POSIX_FADV_SEQUENTIAL);
 
 	struct dns_cache_file cache_file;
@@ -826,8 +851,14 @@ static int _dns_cache_file_read(const char *file, dns_cache_read_callback callba
 		goto errout;
 	}
 
+	off_t min_record_size = (off_t)sizeof(struct dns_cache_record) + (off_t)sizeof(struct dns_cache_data_head) + 1;
+	if (cache_file.cache_number > (uint32_t)((filesize - (off_t)sizeof(cache_file)) / min_record_size)) {
+		tlog(TLOG_ERROR, "cache record count is invalid, skip load cache.");
+		goto errout;
+	}
+
 	tlog(TLOG_INFO, "load cache file %s, total %d records", file, cache_file.cache_number);
-	if (_dns_cache_read_record(fd, cache_file.cache_number, callback) != 0) {
+	if (_dns_cache_read_record(fd, filesize, cache_file.cache_number, callback) != 0) {
 		goto errout;
 	}
 
@@ -1055,12 +1086,13 @@ void dns_cache_destroy(void)
 		return;
 	}
 
+	is_cache_init = 0;
+	dns_cache_head.size = 0;
+
 	dns_cache_flush();
 
 	pthread_mutex_destroy(&dns_cache_head.lock);
 	hash_table_free(dns_cache_head.cache_hash, free);
-
-	is_cache_init = 0;
 }
 
 int dns_cache_foreach(dns_cache_foreach_cb cb, void *userdata)

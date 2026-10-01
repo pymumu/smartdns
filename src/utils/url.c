@@ -73,7 +73,7 @@ int urldecode(char *dst, int dst_maxlen, const char *src)
 
 int parse_uri_ext(const char *value, char *scheme, char *user, char *password, char *host, int *port, char *path)
 {
-	char *scheme_end = NULL;
+	const char *scheme_end = NULL;
 	int field_len = 0;
 	const char *process_ptr = value;
 	char user_pass_host_part[PATH_MAX];
@@ -147,13 +147,13 @@ int parse_uri_ext(const char *value, char *scheme, char *user, char *password, c
 int parse_ip(const char *value, char *ip, int *port)
 {
 	int offset = 0;
-	char *colon = NULL;
+	const char *colon = NULL;
 
 	colon = strstr(value, ":");
 
 	if (strstr(value, "[")) {
 		/* ipv6 with port */
-		char *bracket_end = strstr(value, "]");
+		const char *bracket_end = strstr(value, "]");
 		if (bracket_end == NULL) {
 			return -1;
 		}

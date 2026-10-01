@@ -16,34 +16,21 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef _DNS_SERVER_CACHE_
-#define _DNS_SERVER_CACHE_
+#ifndef _DNS_SERVER_HTTP_
+#define _DNS_SERVER_HTTP_
 
 #include "dns_server.h"
-#include "smartdns/dns_cache.h"
+#include <sys/epoll.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif /*__cplusplus */
 
-int _dns_server_cache_save(int check_lock);
+int _dns_server_socket_http(struct dns_bind_ip *bind_ip);
 
-void _dns_server_save_cache_to_file(void);
+int _dns_server_reply_http(struct dns_request *request, struct dns_server_conn_tcp_client *tcpclient, void *packet,
+						   unsigned short len);
 
-int _dns_server_cache_init(void);
-
-int _dns_server_process_cache(struct dns_request *request);
-
-int _dns_server_request_update_cache(struct dns_request *request, int speed, dns_type_t qtype,
-									 struct dns_cache_data *cache_data, int cache_ttl);
-
-int _dns_cache_packet(struct dns_server_post_context *context);
-
-int _dns_cache_try_keep_old_cache(struct dns_request *request);
-
-int _dns_cache_specify_packet(struct dns_server_post_context *context);
-
-int _dns_server_expired_cache_ttl(struct dns_cache *cache, int serve_expired_ttl);
 #ifdef __cplusplus
 }
 #endif /*__cplusplus */

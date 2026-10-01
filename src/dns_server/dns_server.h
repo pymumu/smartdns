@@ -78,6 +78,8 @@ typedef enum {
 	DNS_CONN_TYPE_HTTPS_SERVER,
 	DNS_CONN_TYPE_HTTPS_CLIENT,
 	DNS_CONN_TYPE_HTTP2_STREAM,
+	DNS_CONN_TYPE_HTTP_SERVER,
+	DNS_CONN_TYPE_HTTP_CLIENT,
 } DNS_CONN_TYPE;
 
 typedef enum DNS_CHILD_POST_RESULT {
@@ -275,6 +277,11 @@ struct dns_request_srv {
 	unsigned short port;
 };
 
+struct dns_request_txt {
+	struct list_head list;
+	char text[DNS_MAX_CNAME_LEN];
+};
+
 struct dns_request {
 	atomic_t refcnt;
 
@@ -343,6 +350,7 @@ struct dns_request {
 	int is_cache_reply;
 
 	struct list_head srv_list;
+	struct list_head txt_list;
 
 	atomic_t notified;
 	atomic_t do_callback;
@@ -390,7 +398,6 @@ struct dns_request {
 	struct dns_request_pending_list *request_pending_list;
 
 	int no_select_possible_ip;
-	int no_cache_cname;
 	int no_cache;
 	int no_ipalias;
 
@@ -407,6 +414,7 @@ struct dns_server {
 	atomic_t run;
 	int epoll_fd;
 	int event_fd;
+	int neigh_netlink_fd;
 	struct list_head conn_list;
 	pthread_mutex_t conn_list_lock;
 
@@ -418,7 +426,7 @@ struct dns_server {
 	struct list_head request_list;
 	atomic_t request_num;
 
-	DECLARE_HASHTABLE(request_pending, 4);
+	DECLARE_HASHTABLE(request_pending, 12);
 	pthread_mutex_t request_pending_lock;
 
 	int update_neighbor_cache;

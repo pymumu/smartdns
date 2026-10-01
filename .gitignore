@@ -11,3 +11,10 @@ package/target
 package/*.gz
 package/*.ipk
 target
+
+# Release build files and scripts
+build-static.sh
+smartdns-*
+*.ipk
+*.apk
+*.deb

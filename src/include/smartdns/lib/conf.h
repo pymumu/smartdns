@@ -122,6 +122,13 @@ struct config_enum {
 			.data = value, .func = func_value                                                                          \
 		}                                                                                                              \
 	}
+#define CONF_YESNOAUTO_FUNC(key, func_value, value)                                                                    \
+	{                                                                                                                  \
+		key, conf_yesnoauto, &(struct config_item_yesno)                                                               \
+		{                                                                                                              \
+			.data = value, .func = func_value                                                                          \
+		}                                                                                                              \
+	}
 #define CONF_SIZE_FUNC(key, func_value, value, min_value, max_value)                                                   \
 	{                                                                                                                  \
 		key, conf_size, &(struct config_item_size)                                                                     \
@@ -152,6 +159,8 @@ struct config_enum {
 #define CONF_STRING(key, value, len_value) CONF_STRING_FUNC(key, NULL, value, len_value)
 
 #define CONF_YESNO(key, value) CONF_YESNO_FUNC(key, NULL, value)
+
+#define CONF_YESNOAUTO(key, value) CONF_YESNOAUTO_FUNC(key, NULL, value)
 
 #define CONF_SIZE(key, value, min_value, max_value) CONF_SIZE_FUNC(key, NULL, value, min_value, max_value)
 
@@ -184,6 +193,8 @@ extern int conf_int_base(const char *item, void *data, int argc, char *argv[]);
 extern int conf_string(const char *item, void *data, int argc, char *argv[]);
 
 extern int conf_yesno(const char *item, void *data, int argc, char *argv[]);
+
+extern int conf_yesnoauto(const char *item, void *data, int argc, char *argv[]);
 
 extern int conf_size(const char *item, void *data, int argc, char *argv[]);
 

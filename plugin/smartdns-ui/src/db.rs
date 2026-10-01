@@ -771,12 +771,12 @@ impl DB {
 
         if let Some(v) = &param.domain {
             if let Some(m) = &param.domain_filter_mode {
-                match m.as_str() {
-                    "endwith" => {
+                match m.to_lowercase().as_str() {
+                    "endswith" => {
                         sql_where.push("domain LIKE ?".to_string());
                         sql_param.push(format!("{}%", v));
                     }
-                    "startwith" => {
+                    "startswith" => {
                         sql_where.push("domain LIKE ?".to_string());
                         sql_param.push(format!("%{}", v));
                     }
@@ -787,6 +787,9 @@ impl DB {
                     "equals" => {
                         sql_where.push("domain = ?".to_string());
                         sql_param.push(v.to_string());
+                    }
+                    "notempty" => {
+                        sql_where.push("domain IS NOT NULL AND domain <> ''".to_string());
                     }
                     _ => return Err("domain_filter_mode param error".into()),
                 }

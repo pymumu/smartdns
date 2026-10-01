@@ -123,6 +123,12 @@ int netlink_get_neighbors(int family, const uint8_t *target_ip, int target_ip_le
 						  int (*callback)(const uint8_t *net_addr, int net_addr_len, const uint8_t mac[6], void *arg),
 						  void *arg);
 
+/* parse an RTM_NEWNEIGH netlink message, returns 0 when it carries a usable
+ * unicast ip -> mac mapping with a verified, non-zero 6-byte lladdr */
+struct nlmsghdr;
+int netlink_parse_neighbor(const struct nlmsghdr *nlh, const uint8_t **out_net_addr, int *out_net_addr_len,
+						   const uint8_t **out_mac);
+
 void SSL_CRYPTO_thread_setup(void);
 
 void SSL_CRYPTO_thread_cleanup(void);

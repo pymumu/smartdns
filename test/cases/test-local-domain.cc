@@ -157,3 +157,46 @@ local-domain lan
 	EXPECT_EQ(client.GetAnswer()[0].GetName(), "1.3.2.1.in-addr.arpa");
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "pc.");
 }
+
+TEST(LocalDomain, odhcpd_lease_file)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::Server server;
+	smartdns::TempFile leases_file;
+
+	server_upstream.Start("udp://0.0.0.0:61053",
+						  [](struct smartdns::ServerRequestContext *request) { return smartdns::SERVER_REQUEST_SOA; });
+
+	leases_file.Write("# br-lan 0004653d60cac997c988b9304f1cd0cca92b 2b506735 raspberrypi 1780021250 144 128 2408:8256:348a:d42::144/128\n");
+	leases_file.Write("# br-lan 000300011679091f79c4 0 broken\\x20- 1780019744 70b 128 2408:8256:348a:d42::70b/128\n");
+	leases_file.Write("# br-lan 0004586a9257860ef067b074cf1dea75c4f9 8ae02880 rock-5b 1780020967 efe 128 2408:8256:348a:d42::efe/128\n");
+
+	std::string conf = R"""(bind [::]:60053
+server 127.0.0.1:61053
+dualstack-ip-selection no
+speed-check-mode none
+local-domain lan
+)""";
+	conf += "odhcpd-lease-file " + leases_file.GetPath() + "\n";
+
+	server.Start(conf);
+	smartdns::Client client;
+
+	ASSERT_TRUE(client.Query("raspberrypi AAAA", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "2408:8256:348a:d42::144");
+
+	ASSERT_TRUE(client.Query("rock-5b.lan AAAA", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "2408:8256:348a:d42::efe");
+
+	ASSERT_TRUE(client.Query("-x 2408:8256:348a:d42::efe", 60053));
+	std::cout << client.GetResult() << std::endl;
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "rock-5b.");
+}

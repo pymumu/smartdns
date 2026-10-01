@@ -1,0 +1,422 @@
+name: Build and Release Artifacts
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+on:
+  release:
+    types: [published]
+  schedule:
+    - cron: '0 18 * * *' # Daily at 18:00 UTC (02:00 AM Beijing Time)
+  workflow_dispatch: # Allows manual trigger from GitHub UI for testing
+
+permissions:
+  contents: write
+
+jobs:
+  check_updates:
+    name: Check for updates (Schedule only)
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.decision.outputs.should_run }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Make decision
+        id: decision
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            # Fetch the nightly tag from origin
+            git fetch origin refs/tags/nightly:refs/tags/nightly || true
+            if git rev-parse refs/tags/nightly >/dev/null 2>&1; then
+              NIGHTLY_SHA=$(git rev-parse refs/tags/nightly)
+              CURRENT_SHA=$(git rev-parse HEAD)
+              if [ "$NIGHTLY_SHA" = "$CURRENT_SHA" ]; then
+                echo "Current commit ($CURRENT_SHA) is the same as the existing nightly tag. Skipping scheduled build."
+                echo "should_run=false" >> $GITHUB_OUTPUT
+              else
+                echo "New commits detected since the last nightly tag. Running scheduled build."
+                echo "should_run=true" >> $GITHUB_OUTPUT
+              fi
+            else
+              echo "No existing nightly tag found. Running build."
+              echo "should_run=true" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "Not a scheduled run (event: ${{ github.event_name }}). Running build."
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          fi
+
+  build-release:
+    name: Build Cross-Compiled Artifacts
+    needs: check_updates
+    if: needs.check_updates.outputs.should_run == 'true'
+    runs-on: ubuntu-22.04
+
+    steps:
+      # 1. Checkout the repository
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      # 2. Setup Node.js (needed for webui compilation)
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+
+      # 3. Setup Rust (needed for smartdns-ui compilation)
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # 4. Install Cargo Cache to speed up builds
+      - name: Cache Cargo Dependencies
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            plugin/smartdns-ui/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('plugin/smartdns-ui/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      # 5. Install system dependencies
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtest-dev dnsperf jq wget unzip tar make gcc
+          
+          # Download and install Alpine's apk.static dynamically
+          APK_FILE=$(wget -qO- https://dl-cdn.alpinelinux.org/alpine/latest-stable/main/x86_64/ | grep -oE 'apk-tools-static-[0-9][a-zA-Z0-9.-]*\.apk' | head -n 1)
+          wget "https://dl-cdn.alpinelinux.org/alpine/latest-stable/main/x86_64/$APK_FILE" -O /tmp/apk-tools-static.apk
+          tar -zxf /tmp/apk-tools-static.apk -C /tmp
+          sudo cp /tmp/sbin/apk.static /usr/local/bin/apk
+          sudo cp /tmp/sbin/apk.static /usr/bin/apk
+          sudo chmod +x /usr/local/bin/apk /usr/bin/apk
+          apk --version
+
+      # 6. Cache Bindgen CLI
+      - name: Cache Bindgen CLI
+        uses: actions/cache@v5
+        id: cache-bindgen
+        with:
+          path: ~/.cargo/bin/bindgen
+          key: ${{ runner.os }}-bindgen-cli-0.69.5
+
+      # 7. Install bindgen-cli globally in cargo (required by smartdns-ui Makefile)
+      - name: Install Bindgen CLI
+        if: steps.cache-bindgen.outputs.cache-hit != 'true'
+        run: |
+          cargo install --force --locked bindgen-cli
+
+      # 8. Cache Musl Toolchains and OpenSSL
+      - name: Cache Musl Toolchains and OpenSSL
+        uses: actions/cache@v5
+        id: cache-toolchain
+        with:
+          path: ~/toolchain
+          key: ${{ runner.os }}-toolchains-openssl-3.5.4-v2
+
+      # 9. Link Cached Toolchains to /opt/toolchain (Runs always so paths match)
+      - name: Link Cached Toolchains
+        run: |
+          sudo mkdir -p /opt
+          sudo ln -sfn "$HOME/toolchain" /opt/toolchain
+
+      # 10. Download and extract musl-cross toolchains
+      - name: Setup Musl Cross-Compilers
+        if: steps.cache-toolchain.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/toolchain
+          
+          # Robust download with retry and verification
+          download_and_extract() {
+            local url="$1"
+            local dest_dir="$2"
+            local tmp_file="/tmp/toolchain.tgz"
+            local max_attempts=5
+            local attempt=1
+            
+            while [ $attempt -le $max_attempts ]; do
+              echo "Downloading $url (Attempt $attempt/$max_attempts)..."
+              rm -f "$tmp_file"
+              if wget -q --timeout=30 --tries=3 "$url" -O "$tmp_file"; then
+                if gzip -t "$tmp_file" >/dev/null 2>&1; then
+                  echo "Download successful and verified."
+                  tar -C "$dest_dir" -xzf "$tmp_file"
+                  rm -f "$tmp_file"
+                  return 0
+                else
+                  echo "Downloaded file is corrupted/incomplete."
+                fi
+              fi
+              echo "Attempt $attempt failed. Retrying in 5 seconds..."
+              sleep 5
+              attempt=$((attempt+1))
+            done
+            echo "Failed to download $url after $max_attempts attempts."
+            return 1
+          }
+
+          declare -A toolchains=(
+            ["mips"]="https://github.com/OpenListTeam/musl-compilers/releases/download/2025-06-12/mips-linux-musl-cross.tgz mips-linux-musl-cross mips-unknown-linux-musl"
+            ["mipsel"]="https://github.com/OpenListTeam/musl-compilers/releases/download/2025-06-12/mipsel-linux-musl-cross.tgz mipsel-linux-musl-cross mipsel-unknown-linux-musl"
+            ["arm"]="https://github.com/OpenListTeam/musl-compilers/releases/download/2025-06-12/arm-linux-musleabi-cross.tgz arm-linux-musleabi-cross arm-unknown-linux-musleabi"
+            ["aarch64"]="https://github.com/OpenListTeam/musl-compilers/releases/download/2025-06-12/aarch64-linux-musl-cross.tgz aarch64-linux-musl-cross aarch64-unknown-linux-musl"
+            ["x86_64"]="https://github.com/OpenListTeam/musl-compilers/releases/download/2025-06-12/x86_64-linux-musl-cross.tgz x86_64-linux-musl-cross x86_64-unknown-linux-musl"
+            ["i686"]="https://github.com/OpenListTeam/musl-compilers/releases/download/2025-06-12/i686-linux-musl-cross.tgz i686-linux-musl-cross i686-unknown-linux-musl"
+          )
+          
+          for arch in "${!toolchains[@]}"; do
+            read -r url dir_name target_name <<< "${toolchains[$arch]}"
+            echo "==========================================="
+            echo "Installing $arch toolchain..."
+            echo "==========================================="
+            download_and_extract "$url" "$HOME/toolchain"
+            ln -s "$dir_name" "$HOME/toolchain/$target_name"
+            
+            # Symlink all prefix commands to their -unknown- equivalents
+            prefix_from=$(echo "$dir_name" | sed 's/-cross//')
+            prefix_to="$target_name"
+            
+            for f in "$HOME/toolchain/$dir_name/bin/$prefix_from"-*; do
+              if [ -f "$f" ]; then
+                base=$(basename "$f")
+                new_base=$(echo "$base" | sed "s/$prefix_from/$prefix_to/")
+                ln -s "$f" "$HOME/toolchain/$dir_name/bin/$new_base"
+              fi
+            done
+            
+            # Create a symlink to "objdump" so that the target's objdump is called instead of host's objdump
+            ln -s "${prefix_from}-objdump" "$HOME/toolchain/$dir_name/bin/objdump"
+          done
+
+      # 11. Download and compile OpenSSL for each target
+      - name: Compile OpenSSL for Cross-Compilers
+        if: steps.cache-toolchain.outputs.cache-hit != 'true'
+        run: |
+          wget -q https://github.com/openssl/openssl/releases/download/openssl-3.5.4/openssl-3.5.4.tar.gz -O /tmp/openssl-3.5.4.tar.gz
+          
+          build_openssl() {
+            local cc_path="$1"
+            local target="$2"
+            echo "==========================================="
+            echo "Building OpenSSL for $cc_path ($target)..."
+            echo "==========================================="
+            local sysroot=$($cc_path --print-sysroot)
+            mkdir -p /tmp/build-openssl
+            cd /tmp/build-openssl
+            rm -rf openssl-3.5.4
+            tar -xzf /tmp/openssl-3.5.4.tar.gz
+            cd openssl-3.5.4
+            
+            CC="$cc_path" ./Configure "$target" \
+              --prefix="$sysroot" \
+              no-shared no-tests no-apps \
+              no-argon2 no-aria no-async no-bf no-blake2 no-camellia no-cmp no-cms \
+              no-comp no-des no-dh no-dsa no-ec2m no-engine no-gost \
+              no-http no-idea no-legacy no-md4 no-mdc2 no-multiblock \
+              no-nextprotoneg no-ocb no-ocsp no-rc2 no-rc4 no-rmd160 \
+              no-scrypt no-seed no-siphash no-siv no-sm2 no-sm3 no-sm4 \
+              no-srp no-srtp no-ts no-whirlpool no-ssl-trace no-ssl no-ssl3 -Os
+              
+            make -j$(nproc)
+            sudo make install_sw
+          }
+          
+          # Compile OpenSSL for each target in parallel or sequence
+          build_openssl "/opt/toolchain/mips-unknown-linux-musl/bin/mips-unknown-linux-musl-gcc" "linux-generic32"
+          build_openssl "/opt/toolchain/mipsel-unknown-linux-musl/bin/mipsel-unknown-linux-musl-gcc" "linux-generic32"
+          build_openssl "/opt/toolchain/arm-unknown-linux-musleabi/bin/arm-unknown-linux-musleabi-gcc" "linux-armv4"
+          build_openssl "/opt/toolchain/aarch64-unknown-linux-musl/bin/aarch64-unknown-linux-musl-gcc" "linux-aarch64"
+          build_openssl "/opt/toolchain/x86_64-unknown-linux-musl/bin/x86_64-unknown-linux-musl-gcc" "linux-x86_64"
+          build_openssl "/opt/toolchain/i686-unknown-linux-musl/bin/i686-unknown-linux-musl-gcc" "linux-elf"
+
+      # 9. Run the build script
+      - name: Build All Targets
+        run: |
+          # 1. Determine release version
+          export RELEASE_VERSION="$(date +"1.%Y.%m.%d-%H%M")"
+          
+          echo "Building Version: ${RELEASE_VERSION}"
+          
+          # 2. Write build-static.sh on-the-fly (not committed to repo)
+          cat << 'EOF' > build-static.sh
+          #!/bin/sh
+          set -e
+
+          ORIG_PATH="$PATH"
+          CURR_DIR=$(cd $(dirname $0);pwd)
+          VER="${RELEASE_VERSION:-$(date +"1.%Y.%m.%d-%H%M")}"
+          CODE_DIR=$(pwd)
+
+          build()
+          {
+              local BUILD_OPT
+              BUILD_OPT="$BUILD_OPT --platform $2" 
+              BUILD_OPT="$BUILD_OPT --arch all" 
+              BUILD_OPT="$BUILD_OPT --filearch=$1-$2-all " 
+              BUILD_OPT="$BUILD_OPT --ver $VER" 
+              BUILD_OPT="$BUILD_OPT --outputdir $CURR_DIR" 
+              if [ ! -z "$CORSS_TOOL" ]; then
+                  BUILD_OPT="$BUILD_OPT --cross-tool $CORSS_TOOL"
+              fi
+              if [ "$3" = "nobuild" ]; then
+                  BUILD_OPT="$BUILD_OPT --only-package"
+              fi
+              if [ "$4" = "ui" ]; then
+                  BUILD_OPT="$BUILD_OPT --with-ui"
+              fi
+
+              chmod +x $CODE_DIR/package/build-pkg.sh
+
+              # Prepend target's toolchain bin directory to PATH so correct gcc/strip/objdump are used
+              export PATH="$ORIG_PATH"
+              if [ -n "$CC" ]; then
+                  local TC_BIN_DIR=$(dirname "$CC")
+                  export PATH="$TC_BIN_DIR:$PATH"
+              fi
+
+              $CODE_DIR/package/build-pkg.sh  $BUILD_OPT || { echo "build-pkg.sh failed for $1 $2"; exit 1; }
+              if [ "$3" != "nobuild" ] && [ "$4" = "" ]; then
+                  cp $CODE_DIR/src/smartdns $CURR_DIR/smartdns-$1 || { echo "Failed to copy smartdns binary"; exit 1; }
+              fi
+          }
+
+          clean() 
+          {
+              make -C $CODE_DIR clean || true
+          }
+
+          rm -f $CURR_DIR/smartdns.*
+          rm -f $CURR_DIR/*.ipk
+          rm -f $CURR_DIR/*.apk
+          rm -f $CURR_DIR/*.deb
+          rm -f $CURR_DIR/smartdns-*
+
+          unset CC
+
+          export STATIC=yes
+          export CFLAGS="-DFEATURE_CHECK_EDNS -O2 -g -Wall -Wstrict-prototypes -fno-omit-frame-pointer -Wstrict-aliasing -funwind-tables -Wmissing-prototypes -Wshadow -Wextra -Wno-unused-parameter -Wno-implicit-fallthrough"
+
+          build all luci nobuild
+          build all luci-lite nobuild
+          build all luci-compat nobuild
+
+          # mips
+          export CC=/opt/toolchain/mips-unknown-linux-musl/bin/mips-unknown-linux-musl-gcc
+          build mips optware
+          build mips openwrt nobuild
+          build mips debian nobuild
+          clean
+          unset CC
+
+          # mipsel
+          export CC=/opt/toolchain/mipsel-unknown-linux-musl/bin/mipsel-unknown-linux-musl-gcc
+          build mipsel optware
+          build mipsel openwrt nobuild
+          build mipsel debian nobuild
+          clean
+          unset CC
+
+          # arm
+          export CC=/opt/toolchain/arm-unknown-linux-musleabi/bin/arm-unknown-linux-musleabi-gcc
+          build arm optware 
+          build arm optware "" ui
+          build arm openwrt nobuild ui
+          build arm debian nobuild ui
+          build arm linux nobuild ui
+          unset CC
+
+          # aarch64
+          export CC=/opt/toolchain/aarch64-unknown-linux-musl/bin/aarch64-unknown-linux-musl-gcc
+          build aarch64 optware 
+          build aarch64 optware "" ui
+          build aarch64 openwrt nobuild ui 
+          build aarch64 debian nobuild ui
+          build aarch64 linux nobuild ui
+          clean
+          unset CC
+
+          # x86-64
+          export CC=/opt/toolchain/x86_64-unknown-linux-musl/bin/x86_64-unknown-linux-musl-gcc
+          build x86_64 optware 
+          build x86_64 openwrt "" ui
+          build x86_64 debian nobuild ui
+          build x86_64 linux nobuild ui
+          clean
+
+          # x86
+          export CC=/opt/toolchain/i686-unknown-linux-musl/bin/i686-unknown-linux-musl-gcc
+          build x86 optware 
+          build x86 openwrt "" ui
+          build x86 debian nobuild ui
+          build x86 linux nobuild ui
+          clean
+
+          make -C $CODE_DIR/src clean || true
+          EOF
+
+          chmod +x build-static.sh
+          ./build-static.sh
+
+          echo "=== List of all files generated in workspace ==="
+          ls -la
+          echo "================================================="
+
+          # 3. Gather all built release assets into a single clean directory
+          echo "==========================================="
+          echo "Gathering release assets..."
+          echo "==========================================="
+          mkdir -p release-assets
+          
+          # Move Luci / APK / IPK all-architecture plugins and all compiled binaries/packages
+          mv luci-app-smartdns* release-assets/ 2>/dev/null || true
+          mv smartdns-* release-assets/ 2>/dev/null || true
+          mv *.ipk release-assets/ 2>/dev/null || true
+          mv *.apk release-assets/ 2>/dev/null || true
+          mv *.deb release-assets/ 2>/dev/null || true
+          mv *.tar.gz release-assets/ 2>/dev/null || true
+          
+          echo "=== List of all files in release-assets ==="
+          ls -la release-assets/
+          echo "==========================================="
+
+      # 10. Upload all packages and binaries individually to the GitHub Release (only on release event)
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v3
+        if: github.event_name == 'release'
+        with:
+          files: release-assets/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 11. Clean up Nightly Release to prevent stale files
+      - name: Clean up Nightly Release
+        if: github.event_name != 'release'
+        run: |
+          gh release delete nightly --cleanup-tag --yes || true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 12. Upload all packages and binaries individually to the GitHub Nightly Release (on non-release events like schedule/workflow_dispatch)
+      - name: Upload Nightly Release Assets
+        uses: softprops/action-gh-release@v3
+        if: github.event_name != 'release'
+        with:
+          tag_name: nightly
+          name: "SmartDNS Nightly Build"
+          body: |
+            This release contains the latest automated Nightly build of SmartDNS.
+
+            - **Commit**: ${{ github.sha }}
+            - **Branch**: `${{ github.ref_name }}`
+            - **Build Time**: ${{ github.event.head_commit.timestamp || github.event.repository.updated_at }}
+
+            These packages are automatically compiled and updated on every nightly build / manual run.
+          prerelease: true
+          files: release-assets/*
+          overwrite_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -80,6 +80,21 @@ response-mode fastest-response
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
 }
 
+TEST_F(Cache, update_timer_after_destroy)
+{
+	struct dns_cache_key cache_key;
+
+	ASSERT_EQ(dns_cache_init(16, 0, NULL), 0);
+	dns_cache_destroy();
+
+	cache_key.domain = "shutdown.example";
+	cache_key.qtype = DNS_T_A;
+	cache_key.dns_group_name = "";
+	cache_key.query_flag = 0;
+
+	EXPECT_EQ(dns_cache_update_timer(&cache_key, 300), -1);
+}
+
 TEST_F(Cache, max_reply_ttl)
 {
 	smartdns::MockServer server_upstream;
@@ -435,6 +450,120 @@ cache-persist yes
 	}
 }
 
+TEST_F(Cache, invalid_data_size_file)
+{
+	smartdns::MockServer server_upstream;
+	auto cache_file = "/tmp/smartdns_cache." + smartdns::GenerateRandomString(10);
+	std::string conf = R"""(
+bind [::]:60053@lo
+server 127.0.0.1:62053
+dualstack-ip-selection no
+cache-persist yes
+)""";
+
+	conf += "cache-file " + cache_file;
+	Defer
+	{
+		unlink(cache_file.c_str());
+	};
+
+	struct dns_cache_file file_head;
+	memset(&file_head, 0, sizeof(file_head));
+	file_head.magic = MAGIC_NUMBER;
+	snprintf(file_head.version, sizeof(file_head.version), "%s", dns_cache_file_version());
+	file_head.cache_number = 1;
+
+	struct dns_cache_record record;
+	memset(&record, 0, sizeof(record));
+	record.magic = MAGIC_RECORD;
+
+	struct dns_cache_data_head data_head;
+	memset(&data_head, 0, sizeof(data_head));
+	data_head.magic = MAGIC_CACHE_DATA;
+	data_head.size = -1;
+
+	int fd = open(cache_file.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0640);
+	ASSERT_NE(fd, -1);
+	ASSERT_EQ(write(fd, &file_head, sizeof(file_head)), (ssize_t)sizeof(file_head));
+	ASSERT_EQ(write(fd, &record, sizeof(record)), (ssize_t)sizeof(record));
+	ASSERT_EQ(write(fd, &data_head, sizeof(data_head)), (ssize_t)sizeof(data_head));
+	close(fd);
+
+	server_upstream.Start("udp://0.0.0.0:62053", [](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype == DNS_T_A) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4");
+			return smartdns::SERVER_REQUEST_OK;
+		}
+		return smartdns::SERVER_REQUEST_SOA;
+	});
+
+	smartdns::Server server;
+	server.Start(conf);
+	smartdns::Client client;
+
+	ASSERT_TRUE(client.Query("a.com", 60053));
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+}
+
+TEST_F(Cache, truncated_data_file)
+{
+	smartdns::MockServer server_upstream;
+	auto cache_file = "/tmp/smartdns_cache." + smartdns::GenerateRandomString(10);
+	std::string conf = R"""(
+bind [::]:60053@lo
+server 127.0.0.1:62053
+dualstack-ip-selection no
+cache-persist yes
+)""";
+
+	conf += "cache-file " + cache_file;
+	Defer
+	{
+		unlink(cache_file.c_str());
+	};
+
+	struct dns_cache_file file_head;
+	memset(&file_head, 0, sizeof(file_head));
+	file_head.magic = MAGIC_NUMBER;
+	snprintf(file_head.version, sizeof(file_head.version), "%s", dns_cache_file_version());
+	file_head.cache_number = 1;
+
+	struct dns_cache_record record;
+	memset(&record, 0, sizeof(record));
+	record.magic = MAGIC_RECORD;
+
+	struct dns_cache_data_head data_head;
+	memset(&data_head, 0, sizeof(data_head));
+	data_head.magic = MAGIC_CACHE_DATA;
+	data_head.size = 4;
+
+	int fd = open(cache_file.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0640);
+	ASSERT_NE(fd, -1);
+	ASSERT_EQ(write(fd, &file_head, sizeof(file_head)), (ssize_t)sizeof(file_head));
+	ASSERT_EQ(write(fd, &record, sizeof(record)), (ssize_t)sizeof(record));
+	ASSERT_EQ(write(fd, &data_head, sizeof(data_head)), (ssize_t)sizeof(data_head));
+	close(fd);
+
+	server_upstream.Start("udp://0.0.0.0:62053", [](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype == DNS_T_A) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4");
+			return smartdns::SERVER_REQUEST_OK;
+		}
+		return smartdns::SERVER_REQUEST_SOA;
+	});
+
+	smartdns::Server server;
+	server.Start(conf);
+	smartdns::Client client;
+
+	ASSERT_TRUE(client.Query("a.com", 60053));
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+}
+
 TEST_F(Cache, cname)
 {
 	smartdns::MockServer server_upstream;
@@ -442,15 +571,23 @@ TEST_F(Cache, cname)
 
 	server_upstream.Start("udp://0.0.0.0:61053", [](struct smartdns::ServerRequestContext *request) {
 		std::string domain = request->domain;
-		std::string cname = "cname." + domain;
 		if (request->qtype != DNS_T_A) {
 			return smartdns::SERVER_REQUEST_SOA;
 		}
 
-		unsigned char addr[4] = {1, 2, 3, 4};
-		dns_add_domain(request->response_packet, domain.c_str(), DNS_T_A, DNS_C_IN);
-		dns_add_CNAME(request->response_packet, DNS_RRS_AN, domain.c_str(), 300, cname.c_str());
-		dns_add_A(request->response_packet, DNS_RRS_AN, cname.c_str(), 300, addr);
+		if (domain == "a.com") {
+			unsigned char addr[4] = {1, 2, 3, 4};
+			dns_add_domain(request->response_packet, domain.c_str(), DNS_T_A, DNS_C_IN);
+			dns_add_CNAME(request->response_packet, DNS_RRS_AN, domain.c_str(), 300, "cdn.other.example");
+			/* The additional section is not an independent cache response for the CNAME target. */
+			dns_add_A(request->response_packet, DNS_RRS_NR, "cdn.other.example", 300, addr);
+		} else if (domain == "cdn.other.example") {
+			unsigned char addr[4] = {5, 6, 7, 8};
+			dns_add_A(request->response_packet, DNS_RRS_AN, domain.c_str(), 300, addr);
+		} else {
+			return smartdns::SERVER_REQUEST_SOA;
+		}
+
 		request->response_packet->head.rcode = DNS_RC_NOERROR;
 		return smartdns::SERVER_REQUEST_OK;
 	});
@@ -466,16 +603,16 @@ cache-size 100
 	EXPECT_EQ(client.GetStatus(), "NOERROR");
 	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
 	EXPECT_GE(client.GetAnswer()[0].GetTTL(), 3);
-	EXPECT_EQ(client.GetAnswer()[0].GetData(), "cname.a.com.");
-	EXPECT_EQ(client.GetAnswer()[1].GetName(), "cname.a.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "cdn.other.example.");
+	EXPECT_EQ(client.GetAnswer()[1].GetName(), "cdn.other.example");
 	EXPECT_GE(client.GetAnswer()[1].GetTTL(), 3);
 	EXPECT_EQ(client.GetAnswer()[1].GetData(), "1.2.3.4");
 
-	ASSERT_TRUE(client.Query("cname.a.com A", 60053));
+	/* A CNAME response must not pre-populate the independent target cache key. */
+	ASSERT_TRUE(client.Query("cdn.other.example A", 60053));
 	std::cout << client.GetResult() << std::endl;
 	ASSERT_EQ(client.GetAnswerNum(), 1);
 	EXPECT_EQ(client.GetStatus(), "NOERROR");
-	EXPECT_EQ(client.GetAnswer()[0].GetName(), "cname.a.com");
-	EXPECT_GE(client.GetAnswer()[0].GetTTL(), 590);
-	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "cdn.other.example");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "5.6.7.8");
 }

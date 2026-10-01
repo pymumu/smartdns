@@ -372,8 +372,8 @@ static int _config_bind_ip(int argc, char *argv[], DNS_BIND_TYPE type)
 			bind_ip->ssl_cert_file = dns_conf.bind_ca_file;
 			bind_ip->ssl_cert_key_file = dns_conf.bind_ca_key_file;
 			bind_ip->ssl_cert_key_pass = dns_conf.bind_ca_key_pass;
-			dns_conf.need_cert = 1;
 		}
+		dns_conf.need_cert = 1;
 	}
 	tlog(TLOG_DEBUG, "bind ip %s, type: %d, flag: %X", ip, type, server_flag);
 
@@ -442,4 +442,9 @@ int _config_bind_ip_tls(void *data, int argc, char *argv[])
 int _config_bind_ip_https(void *data, int argc, char *argv[])
 {
 	return _config_bind_ip(argc, argv, DNS_BIND_TYPE_HTTPS);
+}
+
+int _config_bind_ip_http(void *data, int argc, char *argv[])
+{
+	return _config_bind_ip(argc, argv, DNS_BIND_TYPE_HTTP);
 }

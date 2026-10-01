@@ -160,7 +160,26 @@ static void _dns_server_check_complete_dualstack(struct dns_request *request, st
 		return;
 	}
 
-	if (request->ping_time <= (request->conf->dns_dualstack_ip_selection_threshold * 10)) {
+	if (request->ping_time <= 0) {
+		return;
+	}
+
+	/* The paired request has not finished its speed test yet (ping_time == -1).
+	 * Only give up on it early when, even if it responded right now, its speed
+	 * could not come within the selection threshold of this request. The paired
+	 * request's eventual ping time is at least how long it has already been
+	 * probing, so use that elapsed time as its best-case speed. Otherwise wait
+	 * for its own speed test to complete, so the threshold comparison in
+	 * _dns_server_force_dualstack stays accurate.
+	 *
+	 * Without this, a request whose ping is still pending is forced to SOA based
+	 * only on this request's absolute ping time exceeding the threshold, which
+	 * makes dualstack-ip-selection-threshold ineffective when both addresses
+	 * respond at nearly the same time. */
+	unsigned long elapsed_ping_time = (get_tick_count() - dualstack_request->send_tick) * 10;
+	unsigned long threshold_ping_time =
+		(unsigned long)request->ping_time + (request->conf->dns_dualstack_ip_selection_threshold * 10);
+	if (elapsed_ping_time <= threshold_ping_time) {
 		return;
 	}
 

@@ -93,6 +93,7 @@ int _dns_server_tcp_accept(struct dns_server_conn_tcp_server *tcpserver, struct 
 	struct dns_server_conn_tcp_client *tcpclient = NULL;
 	socklen_t addr_len = sizeof(addr);
 	int fd = -1;
+	DNS_CONN_TYPE client_type = DNS_CONN_TYPE_TCP_CLIENT;
 
 	fd = accept4(tcpserver->head.fd, (struct sockaddr *)&addr, &addr_len, SOCK_NONBLOCK | SOCK_CLOEXEC);
 	if (fd < 0) {
@@ -100,12 +101,16 @@ int _dns_server_tcp_accept(struct dns_server_conn_tcp_server *tcpserver, struct 
 		return -1;
 	}
 
+	if (tcpserver->head.type == DNS_CONN_TYPE_HTTP_SERVER) {
+		client_type = DNS_CONN_TYPE_HTTP_CLIENT;
+	}
+
 	tcpclient = zalloc(1, sizeof(*tcpclient));
 	if (tcpclient == NULL) {
 		tlog(TLOG_ERROR, "malloc for tcpclient failed.");
 		goto errout;
 	}
-	_dns_server_conn_head_init(&tcpclient->head, fd, DNS_CONN_TYPE_TCP_CLIENT);
+	_dns_server_conn_head_init(&tcpclient->head, fd, client_type);
 	tcpclient->head.server_flags = tcpserver->head.server_flags;
 	tcpclient->head.dns_group = tcpserver->head.dns_group;
 	tcpclient->head.ipset_nftset_rule = tcpserver->head.ipset_nftset_rule;
@@ -146,7 +151,7 @@ errout:
 
 int _dns_server_tcp_socket_send(struct dns_server_conn_tcp_client *tcp_client, void *data, int data_len)
 {
-	if (tcp_client->head.type == DNS_CONN_TYPE_TCP_CLIENT) {
+	if (tcp_client->head.type == DNS_CONN_TYPE_TCP_CLIENT || tcp_client->head.type == DNS_CONN_TYPE_HTTP_CLIENT) {
 		return send(tcp_client->head.fd, data, data_len, MSG_NOSIGNAL);
 	} else if (tcp_client->head.type == DNS_CONN_TYPE_TLS_CLIENT ||
 			   tcp_client->head.type == DNS_CONN_TYPE_HTTPS_CLIENT) {
@@ -166,7 +171,7 @@ int _dns_server_tcp_socket_send(struct dns_server_conn_tcp_client *tcp_client, v
 
 int _dns_server_tcp_socket_recv(struct dns_server_conn_tcp_client *tcp_client, void *data, int data_len)
 {
-	if (tcp_client->head.type == DNS_CONN_TYPE_TCP_CLIENT) {
+	if (tcp_client->head.type == DNS_CONN_TYPE_TCP_CLIENT || tcp_client->head.type == DNS_CONN_TYPE_HTTP_CLIENT) {
 		return recv(tcp_client->head.fd, data, data_len, MSG_NOSIGNAL);
 	} else if (tcp_client->head.type == DNS_CONN_TYPE_TLS_CLIENT ||
 			   tcp_client->head.type == DNS_CONN_TYPE_HTTPS_CLIENT) {
@@ -247,7 +252,7 @@ static int _dns_server_tcp_process_one_request(struct dns_server_conn_tcp_client
 			goto out;
 		}
 
-		if (tcpclient->head.type == DNS_CONN_TYPE_HTTPS_CLIENT) {
+		if (tcpclient->head.type == DNS_CONN_TYPE_HTTPS_CLIENT || tcpclient->head.type == DNS_CONN_TYPE_HTTP_CLIENT) {
 			if ((total_len - proceed_len) <= 0) {
 				ret = RECV_ERROR_AGAIN;
 				goto out;
@@ -396,7 +401,7 @@ errout:
 		free(base64_query);
 	}
 
-	if (tcpclient->head.type == DNS_CONN_TYPE_HTTPS_CLIENT) {
+	if (tcpclient->head.type == DNS_CONN_TYPE_HTTPS_CLIENT || tcpclient->head.type == DNS_CONN_TYPE_HTTP_CLIENT) {
 		if (ret == RECV_ERROR_BAD_PATH) {
 			_dns_server_reply_http_error(tcpclient, 404, "Not Found", "Not Found");
 		} else if (ret == RECV_ERROR_FAIL || ret == RECV_ERROR_INVALID_PACKET) {
@@ -524,7 +529,7 @@ void _dns_server_tcp_idle_check(void)
 	list_for_each_entry_safe(conn, tmp, &server.conn_list, list)
 	{
 		if (conn->type != DNS_CONN_TYPE_TCP_CLIENT && conn->type != DNS_CONN_TYPE_TLS_CLIENT &&
-			conn->type != DNS_CONN_TYPE_HTTPS_CLIENT) {
+			conn->type != DNS_CONN_TYPE_HTTPS_CLIENT && conn->type != DNS_CONN_TYPE_HTTP_CLIENT) {
 			continue;
 		}
 

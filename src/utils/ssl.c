@@ -27,6 +27,7 @@
 #include <openssl/x509v3.h>
 #include <pthread.h>
 #include <sys/stat.h>
+#include <time.h>
 
 #define DNS_MAX_HOSTNAME_LEN 256
 
@@ -71,12 +72,21 @@ int is_cert_valid(const char *cert_file_path)
 		goto out;
 	}
 
+#if OPENSSL_VERSION_NUMBER >= 0x40000000L
+	time_t now = time(NULL);
+	if (ASN1_TIME_cmp_time_t(X509_get_notAfter(cert), now) < 0) {
+#else
 	if (X509_cmp_current_time(X509_get_notAfter(cert)) < 0) {
+#endif
 		tlog(TLOG_WARN, "cert %s expired", cert_file_path);
 		goto out;
 	}
 
+#if OPENSSL_VERSION_NUMBER >= 0x40000000L
+	if (ASN1_TIME_cmp_time_t(X509_get_notBefore(cert), now) > 0) {
+#else
 	if (X509_cmp_current_time(X509_get_notBefore(cert)) > 0) {
+#endif
 		tlog(TLOG_WARN, "cert %s not valid yet", cert_file_path);
 		goto out;
 	}
@@ -316,6 +326,8 @@ static X509 *_generate_smartdns_cert(EVP_PKEY *pkey, X509 *issuer_cert, EVP_PKEY
 {
 	X509 *cert = NULL;
 	X509_EXTENSION *cert_ext = NULL;
+	X509_NAME *name = NULL;
+	const X509_NAME *issuer_name = NULL;
 	int is_ca = 0;
 
 	if (pkey == NULL) {
@@ -338,58 +350,91 @@ static X509 *_generate_smartdns_cert(EVP_PKEY *pkey, X509 *issuer_cert, EVP_PKEY
 
 	X509_set_pubkey(cert, pkey);
 
-	X509_NAME *name = X509_get_subject_name(cert);
-	X509_NAME *issuer_name = name;
+	name = X509_NAME_new();
+	if (name == NULL) {
+		goto errout;
+	}
+	issuer_name = name;
 
 	const unsigned char *country = (unsigned char *)"smartdns";
 	const unsigned char *company = (unsigned char *)"smartdns";
 	const unsigned char *common_name = (unsigned char *)(is_ca ? "SmartDNS Root" : "smartdns");
-	const char *CA_BASIC_CONSTRAINTS = is_ca ? "CA:TRUE" : "CA:FALSE";
-	const char *KEY_USAGE = is_ca ? "keyCertSign,cRLSign" : "digitalSignature,keyEncipherment";
-	const char *EXT_KEY_USAGE = is_ca ? "clientAuth,serverAuth,codeSigning,timeStamping" : "serverAuth";
 
 	X509_NAME_add_entry_by_txt(name, "C", MBSTRING_ASC, country, -1, -1, 0);
 	X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC, common_name, -1, -1, 0);
 	if (is_ca) {
 		X509_NAME_add_entry_by_txt(name, "O", MBSTRING_ASC, company, -1, -1, 0);
 	} else {
-		issuer_name = X509_get_subject_name(issuer_cert);
+		if (issuer_cert != NULL) {
+			issuer_name = X509_get_subject_name(issuer_cert);
+		}
 	}
 	X509_set_subject_name(cert, name);
 	X509_set_issuer_name(cert, issuer_name);
 
-	if (san != NULL) {
+	if (san != NULL && san[0] != '\0') {
 		cert_ext = X509V3_EXT_conf_nid(NULL, NULL, NID_subject_alt_name, san);
 		if (cert_ext == NULL) {
 			goto errout;
 		}
 		X509_add_ext(cert, cert_ext, -1);
 		X509_EXTENSION_free(cert_ext);
+		cert_ext = NULL;
 	}
 
-	// Add X509v3 extensions
-	cert_ext = X509V3_EXT_conf_nid(NULL, NULL, NID_basic_constraints, CA_BASIC_CONSTRAINTS);
+	const char *basic_constraints = is_ca ? "critical,CA:TRUE" : "CA:FALSE";
+	cert_ext = X509V3_EXT_conf_nid(NULL, NULL, NID_basic_constraints, basic_constraints);
+	if (cert_ext == NULL) {
+		tlog(TLOG_ERROR, "Failed to create basicConstraints extension");
+		goto errout;
+	}
 	X509_add_ext(cert, cert_ext, -1);
 	X509_EXTENSION_free(cert_ext);
+	cert_ext = NULL;
 
-	cert_ext = X509V3_EXT_conf_nid(NULL, NULL, NID_key_usage, KEY_USAGE);
+	const char *key_usage = is_ca ? "critical,keyCertSign,cRLSign" : "digitalSignature,keyEncipherment";
+	cert_ext = X509V3_EXT_conf_nid(NULL, NULL, NID_key_usage, key_usage);
+	if (cert_ext == NULL) {
+		tlog(TLOG_ERROR, "Failed to create keyUsage extension");
+		goto errout;
+	}
 	X509_add_ext(cert, cert_ext, -1);
 	X509_EXTENSION_free(cert_ext);
+	cert_ext = NULL;
 
-	if (EXT_KEY_USAGE != NULL) {
-		cert_ext = X509V3_EXT_conf_nid(NULL, NULL, NID_ext_key_usage, EXT_KEY_USAGE);
+	if (!is_ca) {
+		cert_ext = X509V3_EXT_conf_nid(NULL, NULL, NID_ext_key_usage, "serverAuth");
+		if (cert_ext == NULL) {
+			tlog(TLOG_ERROR, "Failed to create extKeyUsage extension");
+			goto errout;
+		}
 		X509_add_ext(cert, cert_ext, -1);
 		X509_EXTENSION_free(cert_ext);
+		cert_ext = NULL;
 	}
 
-	cert_ext = X509V3_EXT_conf_nid(NULL, NULL, NID_subject_key_identifier, "hash");
-	X509_add_ext(cert, cert_ext, -1);
-	X509_EXTENSION_free(cert_ext);
+	X509V3_CTX ext_ctx;
+	X509V3_set_ctx(&ext_ctx, issuer_cert ? issuer_cert : cert, cert, NULL, NULL, 0);
+	cert_ext = X509V3_EXT_conf_nid(NULL, &ext_ctx, NID_subject_key_identifier, "hash");
+	if (cert_ext != NULL) {
+		X509_add_ext(cert, cert_ext, -1);
+		X509_EXTENSION_free(cert_ext);
+	} else {
+		tlog(TLOG_WARN, "Failed to create subjectKeyIdentifier extension, continuing");
+	}
 
-	X509_sign(cert, is_ca ? pkey : issuer_key, EVP_sha256());
+	if (X509_sign(cert, is_ca ? pkey : issuer_key, EVP_sha256()) <= 0) {
+		goto errout;
+	}
+
+	X509_NAME_free(name);
 	return cert;
 
 errout:
+	if (name) {
+		X509_NAME_free(name);
+	}
+
 	if (cert) {
 		X509_free(cert);
 	}
@@ -690,16 +735,15 @@ int SSL_base64_decode_ext(const char *in, unsigned char *out, int max_outlen, in
 		goto errout;
 	}
 
-	/* Subtract padding bytes from |outlen| */
-	while (in[--inlen] == '=') {
+	/* Adjust output length by counting '=' in in_data (not 'in') */
+	int pos = inlen;
+	while (pos > 0 && in_data[--pos] == '=') {
 		--outlen;
 	}
 
 	if (in_padding_data) {
 		free(in_padding_data);
 	}
-
-	outlen -= padding_len;
 
 	return outlen;
 errout:
