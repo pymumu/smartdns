@@ -207,6 +207,20 @@ TEST_F(LIBHTTP2, HpackRejectsOverflowingHuffmanStringLength)
 	hpack_free_context(&hpack);
 }
 
+TEST_F(LIBHTTP2, HpackRejectsDynamicTableSizeAboveLimit)
+{
+	struct hpack_context hpack;
+	const uint8_t at_limit[] = {0x3f, 0xe1, 0xff, 0x03};    /* size update to 65536 */
+	const uint8_t above_limit[] = {0x3f, 0xe2, 0xff, 0x03}; /* size update to 65537 */
+	int count = 0;
+
+	hpack_init_context(&hpack);
+	EXPECT_EQ(hpack_decode_headers(&hpack, at_limit, sizeof(at_limit), HpackCountHeader, &count), 0);
+	EXPECT_LT(hpack_decode_headers(&hpack, above_limit, sizeof(above_limit), HpackCountHeader, &count), 0);
+	EXPECT_EQ(hpack.max_dynamic_table_size, (size_t)HPACK_MAX_DYNAMIC_TABLE_SIZE);
+	hpack_free_context(&hpack);
+}
+
 TEST_F(LIBHTTP2, HpackDynamicTableSizeUpdateMustPrecedeHeaders)
 {
 	struct hpack_context hpack;

@@ -938,6 +938,10 @@ int hpack_decode_headers(struct hpack_context *hpack, const uint8_t *data, int d
 				return -1;
 			}
 			offset += ret;
+			/* above the advertised limit is a decoding error, and would let the peer grow the table unbounded */
+			if (new_size > HPACK_MAX_DYNAMIC_TABLE_SIZE) {
+				return -1;
+			}
 			hpack_resize_dynamic_table(hpack, new_size);
 			continue; /* Continue to next field */
 		} else {

@@ -8,6 +8,10 @@
 extern "C" {
 #endif
 
+/* Largest dynamic table this decoder accepts: the SETTINGS_HEADER_TABLE_SIZE it advertises
+ * (RFC 7541 section 4.2, RFC 9113 section 6.5.2). */
+#define HPACK_MAX_DYNAMIC_TABLE_SIZE 65536
+
 /* HPACK dynamic table entry */
 struct hpack_dynamic_entry {
 	char *name;
