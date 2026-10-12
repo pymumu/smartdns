@@ -24,7 +24,9 @@
 
 #include "smartdns/http_parse.h"
 
-static int _dns_client_http3_has_content_length(struct http_head *http_head)
+/* Only referenced from the QUIC enabled paths below; without QUIC support the
+ * whole file compiles down to stubs and this would be unused. */
+static __attribute__((unused)) int _dns_client_http3_has_content_length(struct http_head *http_head)
 {
 	const char *content_len = http_head_get_fields_value(http_head, "content-length");
 	return content_len != NULL && content_len[0] != '\0';
@@ -33,7 +35,7 @@ static int _dns_client_http3_has_content_length(struct http_head *http_head)
 int _dns_client_send_http3(struct dns_query_struct *query, struct dns_server_info *server_info, void *packet,
 						   unsigned short len)
 {
-#if defined(OSSL_QUIC1_VERSION) && !defined (OPENSSL_NO_QUIC)
+#if SMARTDNS_OPENSSL_HAVE_QUIC
 	int http_len = 0;
 	int ret = 0;
 	unsigned char inpacket_data[DNS_IN_PACKSIZE];
@@ -83,7 +85,7 @@ errout:
 	return 0;
 }
 
-#if defined(OSSL_QUIC1_VERSION) && !defined (OPENSSL_NO_QUIC)
+#if SMARTDNS_OPENSSL_HAVE_QUIC
 int _dns_client_process_recv_http3(struct dns_server_info *server_info, struct dns_conn_stream *conn_stream)
 {
 	int ret = 0;

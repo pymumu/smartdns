@@ -25,7 +25,16 @@ ifndef CFLAGS
  else
   CFLAGS = -O2
  endif
- CFLAGS +=-fPIC -Wall -Wstrict-prototypes -fno-omit-frame-pointer -Wstrict-aliasing -funwind-tables -Wmissing-prototypes -Wshadow -Wextra -Wno-unused-parameter -Wno-implicit-fallthrough
+ CFLAGS +=-fPIC -Wall -Wstrict-prototypes -fno-omit-frame-pointer -Wstrict-aliasing -funwind-tables -Wmissing-prototypes -Wshadow -Wextra -Wno-unused-parameter
+endif
+
+# Keep in sync with src/Makefile: pin the language standard and only pass
+# -Wno-implicit-fallthrough when the compiler actually knows it (GCC 7+).
+override CFLAGS += -std=gnu11
+HASH := \#
+HAS_FALLTHROUGH_WARN := $(shell printf 'int main(void) { return 0; }' | $(CC) -Wimplicit-fallthrough -x c - -o /dev/null >/dev/null 2>&1 && echo -n 1 || echo -n 0)
+ifeq ($(HAS_FALLTHROUGH_WARN), 1)
+override CFLAGS += -Wno-implicit-fallthrough
 endif
 
 override CFLAGS +=-Iinclude -I../../src/include -I../../src

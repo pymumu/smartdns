@@ -129,6 +129,8 @@ struct nlmsghdr;
 int netlink_parse_neighbor(const struct nlmsghdr *nlh, const uint8_t **out_net_addr, int *out_net_addr_len,
 						   const uint8_t **out_mac);
 
+/* Always defined, for every supported OpenSSL version: on 1.1.0 and later they
+ * are no-ops because OpenSSL became thread safe and dropped the callbacks. */
 void SSL_CRYPTO_thread_setup(void);
 
 void SSL_CRYPTO_thread_cleanup(void);

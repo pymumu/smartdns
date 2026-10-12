@@ -29,6 +29,7 @@
 
 #include <netinet/icmp6.h>
 #include <netinet/ip_icmp.h>
+#include <pthread.h>
 
 #ifdef __cplusplus
 extern "C" {

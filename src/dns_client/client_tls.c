@@ -29,13 +29,11 @@
 #include "smartdns/lib/stringutil.h"
 #include "smartdns/util.h"
 
+#include "smartdns/lib/openssl_compat.h"
+
 #include <net/if.h>
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
-#include <openssl/err.h>
-#include <openssl/rand.h>
-#include <openssl/ssl.h>
-#include <openssl/x509v3.h>
 #include <sys/epoll.h>
 #include <sys/ioctl.h>
 
@@ -62,14 +60,7 @@ static ssize_t _ssl_write_ext2(struct dns_server_info *server, SSL *ssl, const v
 		return SSL_ERROR_SYSCALL;
 	}
 
-#if defined(OSSL_QUIC1_VERSION) && !defined(OPENSSL_NO_QUIC)
-	ret = SSL_write_ex2(ssl, buff, num, flags, &written);
-#elif OPENSSL_VERSION_NUMBER >= 0x10101000L
-	ret = SSL_write_ex(ssl, buff, num, &written);
-#else
-	ret = SSL_write(ssl, buff, num);
-	written = ret;
-#endif
+	ret = dns_SSL_write(ssl, buff, num, flags, &written);
 	pthread_mutex_unlock(&server->lock);
 
 	if (ret <= 0) {
@@ -134,7 +125,7 @@ int _ssl_do_handevent(struct dns_server_info *server)
 		pthread_mutex_unlock(&server->lock);
 		return SSL_ERROR_SYSCALL;
 	}
-#if defined(OSSL_QUIC1_VERSION) && !defined(OPENSSL_NO_QUIC)
+#if SMARTDNS_OPENSSL_HAVE_QUIC
 	err = SSL_handle_events(server->ssl);
 #else
 	err = SSL_ERROR_SYSCALL;
@@ -326,30 +317,25 @@ SSL_CTX *_ssl_ctx_get(int is_quic)
 		return *ssl_ctx;
 	}
 
-#if (OPENSSL_VERSION_NUMBER >= 0x10100000L)
-#if (OPENSSL_VERSION_NUMBER >= 0x30200000L)
 	if (is_quic) {
+#if SMARTDNS_OPENSSL_HAVE_QUIC
 		*ssl_ctx = SSL_CTX_new(OSSL_QUIC_client_method());
+#else
+		/* QUIC needs OpenSSL 3.2+; NULL tells the caller it is unsupported.
+		 * Must release the lock, so fall through to errout instead of returning. */
+		goto errout;
+#endif
 	} else {
-		*ssl_ctx = SSL_CTX_new(TLS_client_method());
+		*ssl_ctx = SSL_CTX_new(dns_TLS_client_method());
 	}
-#else
-	if (is_quic) {
-		return NULL;
-	}
-	*ssl_ctx = SSL_CTX_new(TLS_client_method());
-#endif
-#else
-	*ssl_ctx = SSL_CTX_new(SSLv23_client_method());
-#endif
 
 	if (*ssl_ctx == NULL) {
 		tlog(TLOG_ERROR, "init ssl failed.");
 		goto errout;
 	}
 
-	SSL_CTX_set_options(*ssl_ctx, SSL_OP_ALL | SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION);
 	SSL_CTX_set_session_cache_mode(*ssl_ctx, SSL_SESS_CACHE_CLIENT);
+	dns_ssl_ctx_setup_defaults(*ssl_ctx);
 	SSL_CTX_sess_set_cache_size(*ssl_ctx, DNS_MAX_SERVERS);
 	if (_dns_client_set_trusted_cert(*ssl_ctx) != 0) {
 		if (explicit_ca_config) {
@@ -590,7 +576,8 @@ int _dns_client_socket_ssl_send_ext(struct dns_server_info *server, SSL *ssl, co
 			return -1;
 		}
 
-		tlog(TLOG_WARN, "server %s SSL write fail error: %s", server->ip, ERR_error_string(ssl_err, buff));
+		ERR_error_string_n(ssl_err, buff, sizeof(buff));
+		tlog(TLOG_WARN, "server %s SSL write fail error: %s", server->ip, buff);
 		errno = EFAULT;
 		ret = -1;
 	} break;
@@ -659,7 +646,8 @@ int _dns_client_socket_ssl_recv_ext(struct dns_server_info *server, SSL *ssl, vo
 			break;
 		}
 
-		tlog(TLOG_WARN, "server %s SSL read fail error: %s", server->ip, ERR_error_string(ssl_err, buff));
+		ERR_error_string_n(ssl_err, buff, sizeof(buff));
+		tlog(TLOG_WARN, "server %s SSL read fail error: %s", server->ip, buff);
 		errno = EFAULT;
 		ret = -1;
 	} break;
@@ -772,30 +760,26 @@ static int _dns_client_tls_get_cert_CN(X509 *cert, char *cn, int max_cn_len)
 		goto errout;
 	}
 
-	cert_index = X509_NAME_get_index_by_NID(cert_name, NID_commonName, -1);
+	cert_index = X509_NAME_get_index_by_NID(dns_unconst(X509_NAME *, cert_name), NID_commonName, -1);
 	if (cert_index < 0) {
 		tlog(TLOG_ERROR, "cannot found x509 name");
 		goto errout;
 	}
 
-	cert_entry = X509_NAME_get_entry(cert_name, cert_index);
+	cert_entry = X509_NAME_get_entry(dns_unconst(X509_NAME *, cert_name), cert_index);
 	if (cert_entry == NULL) {
 		tlog(TLOG_ERROR, "get x509 name entry failed.");
 		goto errout;
 	}
 
-	cert_data = X509_NAME_ENTRY_get_data(cert_entry);
+	cert_data = X509_NAME_ENTRY_get_data(dns_unconst(X509_NAME_ENTRY *, cert_entry));
 	if (cert_data == NULL) {
 		tlog(TLOG_ERROR, "get x509 name data failed.");
 		goto errout;
 	}
 
 	cert_text_len = ASN1_STRING_length(cert_data);
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-	cert_text = ASN1_STRING_data((ASN1_STRING *)cert_data);
-#else
-	cert_text = ASN1_STRING_get0_data(cert_data);
-#endif
+	cert_text = dns_ASN1_STRING_get0_data(cert_data);
 	if (cert_text == NULL || cert_text_len <= 0 || max_cn_len <= 0) {
 		tlog(TLOG_ERROR, "get x509 name text failed.");
 		goto errout;
@@ -860,11 +844,7 @@ static int _dns_client_verify_SAN(struct dns_server_info *server_info, X509 *cer
 			}
 
 			dns_len = ASN1_STRING_length(dns);
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-			dns_data = ASN1_STRING_data(dns);
-#else
-			dns_data = ASN1_STRING_get0_data(dns);
-#endif
+			dns_data = dns_ASN1_STRING_get0_data(dns);
 			if (dns_data == NULL || dns_len <= 0) {
 				continue;
 			}
@@ -951,7 +931,7 @@ static int _dns_client_tls_verify(struct dns_server_info *server_info)
 	}
 
 	pthread_mutex_lock(&server_info->lock);
-	cert = SSL_get_peer_certificate(server_info->ssl);
+	cert = dns_SSL_get1_peer_certificate(server_info->ssl);
 	if (cert == NULL) {
 		pthread_mutex_unlock(&server_info->lock);
 		tlog(TLOG_ERROR, "get peer certificate failed.");
@@ -994,7 +974,7 @@ static int _dns_client_tls_verify(struct dns_server_info *server_info)
 	}
 
 	/* get spki pin */
-	key_len = i2d_X509_PUBKEY(pubkey, NULL);
+	key_len = i2d_X509_PUBKEY(dns_unconst(X509_PUBKEY *, pubkey), NULL);
 	if (key_len <= 0) {
 		tlog(TLOG_ERROR, "get x509 public key failed.");
 		goto errout;
@@ -1007,7 +987,7 @@ static int _dns_client_tls_verify(struct dns_server_info *server_info)
 		goto errout;
 	}
 
-	i2d_X509_PUBKEY(pubkey, &key_data_tmp);
+	i2d_X509_PUBKEY(dns_unconst(X509_PUBKEY *, pubkey), &key_data_tmp);
 
 	/* Get the SHA256 value of SPKI */
 	key_sha256 = SSL_SHA256(key_data, key_len, NULL);
@@ -1154,7 +1134,7 @@ int _dns_client_process_tls(struct dns_server_info *server_info, struct epoll_ev
 
 	if (server_info->type == DNS_SERVER_QUIC || server_info->type == DNS_SERVER_HTTP3) {
 /* QUIC */
-#if defined(OSSL_QUIC1_VERSION) && !defined(OPENSSL_NO_QUIC)
+#if SMARTDNS_OPENSSL_HAVE_QUIC
 		return _dns_client_process_quic(server_info, event, now);
 #else
 		tlog(TLOG_ERROR, "quic/http3 is not supported.");

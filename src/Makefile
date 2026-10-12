@@ -34,11 +34,28 @@ ifndef CFLAGS
  else
   CFLAGS = -O2
  endif
- CFLAGS +=-Wall -Wstrict-prototypes -fno-omit-frame-pointer -Wstrict-aliasing -funwind-tables -Wmissing-prototypes -Wshadow -Wextra -Wno-unused-parameter -Wno-implicit-fallthrough
+ CFLAGS +=-Wall -Wstrict-prototypes -fno-omit-frame-pointer -Wstrict-aliasing -funwind-tables -Wmissing-prototypes -Wshadow -Wextra -Wno-unused-parameter
 endif
 
+# Pin the language standard. GCC defaults moved from gnu11 (6.x) to gnu17 (11.x)
+# and then to gnu23 (15.x); C23 turns typeof/bool/true/false into keywords and
+# drops old style parameter lists, so leaving it implicit makes the build
+# compiler dependent.
+override CFLAGS += -std=gnu11
+
 HASH := \#
-HAS_UNWIND := $(shell printf '$(HASH)include <unwind.h>\nvoid main() { _Unwind_Backtrace(0, 0);}' | $(CC) -x c - -o /dev/null >/dev/null 2>&1 && echo -n 1 || echo -n 0)
+# -Wimplicit-fallthrough only exists from GCC 7 onwards. Probe with the
+# enabling (-Wxxx) form, not the -Wno-xxx form: GCC accepts an unknown -Wno-xxx
+# silently and returns 0, whereas an unknown -Wxxx makes the compile fail, so
+# only the enabling form actually detects an old compiler.
+HAS_FALLTHROUGH_WARN := $(shell printf 'int main(void) { return 0; }' | $(CC) -Wimplicit-fallthrough -x c - -o /dev/null >/dev/null 2>&1 && echo -n 1 || echo -n 0)
+ifeq ($(HAS_FALLTHROUGH_WARN), 1)
+override CFLAGS += -Wno-implicit-fallthrough
+endif
+
+# Feature probes must use a conforming main(): `void main()` is undefined and
+# a stricter/newer compiler can reject it, silently turning the feature off.
+HAS_UNWIND := $(shell printf '$(HASH)include <unwind.h>\nint main(void) { _Unwind_Backtrace(0, 0); return 0; }' | $(CC) -x c - -o /dev/null >/dev/null 2>&1 && echo -n 1 || echo -n 0)
 ifeq ($(HAS_UNWIND), 1)
 override CFLAGS += -DHAVE_UNWIND_BACKTRACE
 endif
@@ -94,7 +111,7 @@ else
  override LDFLAGS += -lssl -lcrypto -lpthread -ldl -lm -rdynamic
 endif
 
-USE_ATOMIC := $(shell printf '$(HASH)include <stdint.h>\nvoid main() { uint64_t value=0;__atomic_add_fetch(&value, 1, __ATOMIC_SEQ_CST);__atomic_load_n(&value,__ATOMIC_SEQ_CST);}' | $(CC) -x c - -o /dev/null >/dev/null 2>&1 && echo -n 1 || echo -n 0)
+USE_ATOMIC := $(shell printf '$(HASH)include <stdint.h>\nint main(void) { uint64_t value=0;__atomic_add_fetch(&value, 1, __ATOMIC_SEQ_CST);__atomic_load_n(&value,__ATOMIC_SEQ_CST); return 0; }' | $(CC) -x c - -o /dev/null >/dev/null 2>&1 && echo -n 1 || echo -n 0)
 ifeq ($(USE_ATOMIC), 0)
  override CFLAGS += -DUSE_ATOMIC
  override LDFLAGS += -latomic 

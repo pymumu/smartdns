@@ -26,7 +26,8 @@
 #include "client_udp.h"
 #include "conn_stream.h"
 
-#include <openssl/ssl.h>
+#include "smartdns/lib/openssl_compat.h"
+
 #include <sys/epoll.h>
 
 int _dns_client_create_socket(struct dns_server_info *server_info)
@@ -119,7 +120,7 @@ void _dns_client_close_socket_ext(struct dns_server_info *server_info, int no_de
 			list_for_each_entry_safe(conn_stream, tmp, &server_info->conn_stream_list, server_list)
 			{
 				if (conn_stream->quic_stream) {
-#if defined(OSSL_QUIC1_VERSION) && !defined(OPENSSL_NO_QUIC)
+#if SMARTDNS_OPENSSL_HAVE_QUIC
 					SSL_stream_reset(conn_stream->quic_stream, NULL, 0);
 #endif
 					SSL_free(conn_stream->quic_stream);
@@ -166,10 +167,15 @@ void _dns_client_close_socket_ext(struct dns_server_info *server_info, int no_de
 		server_info->http2_ctx = NULL;
 	}
 
+#if SMARTDNS_OPENSSL_HAVE_QUIC
+	/* bio_method is only ever allocated by the QUIC BIO setup, and
+	 * BIO_meth_free() does not exist before OpenSSL 1.1.0. Without QUIC the
+	 * field is always NULL, so nothing is skipped here. */
 	if (server_info->bio_method) {
 		BIO_meth_free(server_info->bio_method);
 		server_info->bio_method = NULL;
 	}
+#endif
 
 	if (server_info->proxy) {
 		proxy_conn_free(server_info->proxy);

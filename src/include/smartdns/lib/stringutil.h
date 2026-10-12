@@ -33,15 +33,21 @@ static inline char *safe_strncpy(char *dest, const char *src, size_t n)
 		return NULL;
 	}
 	
-#if __GNUC__  > 7
+/*
+ * -Wstringop-truncation was introduced in GCC 8. clang is excluded explicitly
+ * because it reports __GNUC__ as 4 and has no such warning.
+ * Deliberately not using SMARTDNS_GCC_VERSION here: pulling in gcc_builtin.h
+ * would also drag the min()/max() macros into every translation unit.
+ */
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 8
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wstringop-truncation"
 #endif
 	char *ret = strncpy(dest, src, n - 1);
-    if (n > 0) {
-	    dest[n - 1] = '\0';
-    }
-#if __GNUC__  > 7
+	if (n > 0) {
+		dest[n - 1] = '\0';
+	}
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 8
 #pragma GCC diagnostic pop
 #endif
 	return ret;
