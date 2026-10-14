@@ -28,10 +28,13 @@
 #include "smartdns/lib/list.h"
 #include "smartdns/tlog.h"
 
-#include <openssl/err.h>
-#include <openssl/rand.h>
-#include <openssl/ssl.h>
-#include <openssl/x509v3.h>
+#include "smartdns/lib/openssl_compat.h"
+
+/*
+ * Explicit: OpenSSL 3.x headers happen to pull in <pthread.h>, but 1.0.x do
+ * not, and GCC 14+ turns the resulting implicit declaration into an error.
+ */
+#include <pthread.h>
 
 #ifdef __cplusplus
 extern "C" {

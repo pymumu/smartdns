@@ -26,16 +26,14 @@
 #include "conn_stream.h"
 #include "server_info.h"
 
+#include "smartdns/lib/openssl_compat.h"
+
 #include <net/if.h>
 #include <netinet/ip.h>
-#include <openssl/err.h>
-#include <openssl/rand.h>
-#include <openssl/ssl.h>
-#include <openssl/x509v3.h>
 #include <sys/epoll.h>
 #include <sys/ioctl.h>
 
-#if defined(OSSL_QUIC1_VERSION) && !defined (OPENSSL_NO_QUIC)
+#if SMARTDNS_OPENSSL_HAVE_QUIC
 static int _dns_client_quic_bio_recvmmsg(BIO *bio, BIO_MSG *msg, size_t stride, size_t num_msg, uint64_t flags,
 										 size_t *msgs_processed)
 {
@@ -214,7 +212,7 @@ errout:
 
 int _dns_client_create_socket_quic(struct dns_server_info *server_info, const char *hostname, const char *alpn)
 {
-#if defined(OSSL_QUIC1_VERSION) && !defined (OPENSSL_NO_QUIC)
+#if SMARTDNS_OPENSSL_HAVE_QUIC
 	int fd = -1;
 	unsigned char alpn_data[DNS_MAX_ALPN_LEN];
 	int32_t alpn_len = 0;
@@ -294,11 +292,7 @@ int _dns_client_create_socket_quic(struct dns_server_info *server_info, const ch
 	}
 
 	if (hostname[0] != 0) {
-#if OPENSSL_VERSION_NUMBER >= 0x40000000L
-		SSL_set1_dnsname(ssl, hostname);
-#else
-		SSL_set1_host(ssl, hostname);
-#endif
+		dns_SSL_set1_peer_dnsname(ssl, hostname);
 	}
 
 	if (alpn == NULL) {
@@ -369,7 +363,7 @@ errout:
 #endif
 }
 
-#if defined(OSSL_QUIC1_VERSION) && !defined (OPENSSL_NO_QUIC)
+#if SMARTDNS_OPENSSL_HAVE_QUIC
 static int _dns_client_process_quic_stream_read(struct dns_server_info *server_info,
 												struct dns_conn_stream *conn_stream, SSL *quic_stream)
 {
@@ -691,7 +685,7 @@ errout:
 }
 #endif
 
-#if defined(OSSL_QUIC1_VERSION) && !defined (OPENSSL_NO_QUIC)
+#if SMARTDNS_OPENSSL_HAVE_QUIC
 static int _dns_client_quic_pending_data(struct dns_conn_stream *stream, struct dns_server_info *server_info,
 										 struct dns_query_struct *query, void *packet, int len)
 {
@@ -860,7 +854,7 @@ out:
 int _dns_client_send_quic(struct dns_query_struct *query, struct dns_server_info *server_info, void *packet,
 						  unsigned short len)
 {
-#if defined(OSSL_QUIC1_VERSION) && !defined (OPENSSL_NO_QUIC)
+#if SMARTDNS_OPENSSL_HAVE_QUIC
 	unsigned char inpacket_data[DNS_IN_PACKSIZE];
 	unsigned char *inpacket = inpacket_data;
 

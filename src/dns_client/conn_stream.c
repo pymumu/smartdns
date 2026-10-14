@@ -101,7 +101,7 @@ void _dns_client_conn_server_streams_free(struct dns_server_info *server_info, s
 		list_del_init(&stream->server_list);
 		stream->server_info = NULL;
 		if (stream->quic_stream) {
-#if defined(OSSL_QUIC1_VERSION) && !defined(OPENSSL_NO_QUIC)
+#if SMARTDNS_OPENSSL_HAVE_QUIC
 			SSL_stream_reset(stream->quic_stream, NULL, 0);
 #endif
 			SSL_free(stream->quic_stream);

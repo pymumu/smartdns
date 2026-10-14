@@ -23,6 +23,9 @@ CXXFLAGS += -g
 CXXFLAGS += -DTEST
 CXXFLAGS += -I./ -I../src -I../src/include
 CXXFLAGS += -fno-omit-frame-pointer -Wstrict-aliasing -funwind-tables
+# Pin the C++ standard: gtest 1.13+ requires C++14 and the GCC default has
+# changed across the 6.x .. 15.x range we support.
+CXXFLAGS += -std=c++14
 
 TEST_SOURCES := $(wildcard *.cc) $(wildcard */*.cc) $(wildcard */*/*.cc)
 TEST_OBJECTS := $(patsubst %.cc, %.o, $(TEST_SOURCES))

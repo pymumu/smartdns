@@ -20,6 +20,34 @@
 #ifndef _TOOLS_LINUX_COMPILER_H_
 #define _TOOLS_LINUX_COMPILER_H_
 
+/*
+ * Compiler capability macros.
+ *
+ * smartdns must build with any GCC from 6.x upwards. Anything that only exists
+ * in newer releases therefore has to be probed instead of assumed, and probes
+ * themselves need a fallback so that they stay valid on the old compilers.
+ */
+#ifdef __GNUC__
+# define SMARTDNS_GCC_VERSION (__GNUC__ * 10000 + __GNUC_MINOR__ * 100 + __GNUC_PATCHLEVEL__)
+#else
+# define SMARTDNS_GCC_VERSION 0
+#endif
+
+/*
+ * __has_attribute() arrived in GCC 5 and __has_builtin() in GCC 10; neither is
+ * present on every compiler we support, and referencing them without a
+ * fallback is itself a preprocessing error.
+ */
+#ifndef __has_attribute
+# define __has_attribute(x) 0
+#endif
+#ifndef __has_builtin
+# define __has_builtin(x) 0
+#endif
+#ifndef __has_feature
+# define __has_feature(x) 0
+#endif
+
 #ifndef __compiletime_error
 # define __compiletime_error(message)
 #endif
@@ -32,8 +60,12 @@
 # define __always_inline	inline __attribute__((always_inline))
 #endif
 
-#ifndef noinline
-#define noinline
+/* GCC has supported noinline for far longer than the 6.x floor. */
+#undef noinline
+#if defined(__GNUC__) && (__GNUC__ >= 3 || __has_attribute(noinline))
+# define noinline __attribute__((__noinline__))
+#else
+# define noinline
 #endif
 
 /* Are two types/vars the same type (ignoring qualifiers)? */
@@ -92,14 +124,18 @@
 # define __init
 #endif
 
-#ifndef noinline
-# define noinline
-#endif
+#define uninitialized_var(x) x
 
-#define uninitialized_var(x) x = *(&(x))
-
+/*
+ * __attribute__((fallthrough)) exists from GCC 7 onwards. On GCC 6 the warning
+ * it silences does not exist either, so an empty expansion is correct there.
+ */
 #ifndef __fallthrough
-# define __fallthrough
+# if __has_attribute(fallthrough) || SMARTDNS_GCC_VERSION >= 70000
+#  define __fallthrough __attribute__((__fallthrough__))
+# else
+#  define __fallthrough
+# endif
 #endif
 
 #define DIV_ROUND_UP(n,d) (((n) + (d) - 1) / (d))

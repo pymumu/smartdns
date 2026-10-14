@@ -20,20 +20,32 @@
 #include "smartdns/tlog.h"
 #include "smartdns/util.h"
 
+#include "smartdns/lib/openssl_compat.h"
+
 #include <ifaddrs.h>
 #include <linux/limits.h>
-#include <openssl/crypto.h>
-#include <openssl/ssl.h>
-#include <openssl/x509v3.h>
 #include <pthread.h>
 #include <sys/stat.h>
 #include <time.h>
 
 #define DNS_MAX_HOSTNAME_LEN 256
 
+/*
+ * Default TLS settings applied to every SSL_CTX we create. Without them the
+ * protocol range, the cipher list and even the availability of ECDHE follow
+ * whatever the linked OpenSSL happens to default to, which means the same
+ * smartdns build negotiates different TLS depending on the host.
+ */
+#define DNS_SSL_DEFAULT_CIPHER_LIST                                                                                    \
+	"ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:"                         \
+	"ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:"                           \
+	"HIGH:!aNULL:!eNULL:!EXPORT:!DES:!3DES:!MD5:!RC4:!PSK"
+
+#define DNS_SSL_DEFAULT_CIPHERSUITES "TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256"
+
 struct DNS_EVP_PKEY_CTX {
 	EVP_PKEY *pkey;
-#if (OPENSSL_VERSION_NUMBER < 0x30000000L)
+#if SMARTDNS_OPENSSL_BEFORE(SMARTDNS_OPENSSL_V_3_0_0)
 	RSA *rsa;
 	BIGNUM *bn;
 #endif
@@ -64,29 +76,20 @@ int is_cert_valid(const char *cert_file_path)
 		goto out;
 	}
 
-	if (X509_get_notAfter(cert) == NULL) {
+	if (dns_X509_get0_notAfter(cert) == NULL) {
 		goto out;
 	}
 
-	if (X509_get_notBefore(cert) == NULL) {
+	if (dns_X509_get0_notBefore(cert) == NULL) {
 		goto out;
 	}
 
-#if OPENSSL_VERSION_NUMBER >= 0x40000000L
-	time_t now = time(NULL);
-	if (ASN1_TIME_cmp_time_t(X509_get_notAfter(cert), now) < 0) {
-#else
-	if (X509_cmp_current_time(X509_get_notAfter(cert)) < 0) {
-#endif
+	if (dns_ASN1_TIME_cmp_now(dns_X509_get0_notAfter(cert)) < 0) {
 		tlog(TLOG_WARN, "cert %s expired", cert_file_path);
 		goto out;
 	}
 
-#if OPENSSL_VERSION_NUMBER >= 0x40000000L
-	if (ASN1_TIME_cmp_time_t(X509_get_notBefore(cert), now) > 0) {
-#else
-	if (X509_cmp_current_time(X509_get_notBefore(cert)) > 0) {
-#endif
+	if (dns_ASN1_TIME_cmp_now(dns_X509_get0_notBefore(cert)) > 0) {
 		tlog(TLOG_WARN, "cert %s not valid yet", cert_file_path);
 		goto out;
 	}
@@ -247,20 +250,27 @@ errout:
 
 static void _free_key(struct DNS_EVP_PKEY_CTX *ctx)
 {
-	if (ctx) {
-		if (ctx->pkey) {
-			EVP_PKEY_free(ctx->pkey);
-		}
-#if (OPENSSL_VERSION_NUMBER < 0x30000000L)
-		if (ctx->rsa) {
-			RSA_free(ctx->rsa);
-		}
-		if (ctx->bn) {
-			BN_free(ctx->bn);
-		}
-		free(ctx);
-#endif
+	if (ctx == NULL) {
+		return;
 	}
+
+	if (ctx->pkey) {
+		EVP_PKEY_free(ctx->pkey);
+	}
+#if SMARTDNS_OPENSSL_BEFORE(SMARTDNS_OPENSSL_V_3_0_0)
+	/*
+	 * Only frees the RSA when ownership was *not* handed to pkey by
+	 * EVP_PKEY_assign_RSA(); _generate_key() clears the pointer on success to
+	 * avoid a double free.
+	 */
+	if (ctx->rsa) {
+		RSA_free(ctx->rsa);
+	}
+	if (ctx->bn) {
+		BN_free(ctx->bn);
+	}
+#endif
+	free(ctx);
 }
 
 static struct DNS_EVP_PKEY_CTX *_read_key_from_file(const char *key_path)
@@ -308,18 +318,47 @@ static struct DNS_EVP_PKEY_CTX *_generate_key(void)
 	}
 
 	const int RSA_KEY_LENGTH = 2048;
-#if (OPENSSL_VERSION_NUMBER >= 0x30000000L)
+#if SMARTDNS_OPENSSL_AT_LEAST(SMARTDNS_OPENSSL_V_3_0_0)
 	ctx->pkey = EVP_RSA_gen(RSA_KEY_LENGTH);
 #else
 	ctx->pkey = EVP_PKEY_new();
-	ctx->rsa = RSA_new();
-	ctx->bn = BN_new();
+	if (ctx->pkey == NULL) {
+		goto errout;
+	}
 
-	BN_set_word(ctx->bn, RSA_F4);
-	RSA_generate_key_ex(ctx->rsa, RSA_KEY_LENGTH, ctx->bn, NULL);
-	EVP_PKEY_assign_RSA(ctx->pkey, ctx->rsa);
+	ctx->rsa = RSA_new();
+	if (ctx->rsa == NULL) {
+		goto errout;
+	}
+
+	ctx->bn = BN_new();
+	if (ctx->bn == NULL) {
+		goto errout;
+	}
+
+	if (BN_set_word(ctx->bn, RSA_F4) != 1) {
+		goto errout;
+	}
+
+	if (RSA_generate_key_ex(ctx->rsa, RSA_KEY_LENGTH, ctx->bn, NULL) != 1) {
+		goto errout;
+	}
+
+	/* Transfers ownership of rsa to pkey. */
+	if (EVP_PKEY_assign_RSA(ctx->pkey, ctx->rsa) != 1) {
+		goto errout;
+	}
+	ctx->rsa = NULL;
 #endif
+
+	if (ctx->pkey == NULL) {
+		goto errout;
+	}
+
 	return ctx;
+errout:
+	_free_key(ctx);
+	return NULL;
 }
 
 static X509 *_generate_smartdns_cert(EVP_PKEY *pkey, X509 *issuer_cert, EVP_PKEY *issuer_key, const char *san, int days)
@@ -345,8 +384,9 @@ static X509 *_generate_smartdns_cert(EVP_PKEY *pkey, X509 *issuer_cert, EVP_PKEY
 
 	X509_set_version(cert, 2);
 	ASN1_INTEGER_set(X509_get_serialNumber(cert), rand());
-	X509_gmtime_adj(X509_get_notBefore(cert), 0);
-	X509_gmtime_adj(X509_get_notAfter(cert), days * 24 * 3600);
+	/* The mutable accessor is required here: OpenSSL 4.0 made the const one read-only. */
+	X509_gmtime_adj(dns_X509_getm_notBefore(cert), 0);
+	X509_gmtime_adj(dns_X509_getm_notAfter(cert), (long)days * 24 * 3600);
 
 	X509_set_pubkey(cert, pkey);
 
@@ -370,10 +410,10 @@ static X509 *_generate_smartdns_cert(EVP_PKEY *pkey, X509 *issuer_cert, EVP_PKEY
 		}
 	}
 	X509_set_subject_name(cert, name);
-	X509_set_issuer_name(cert, issuer_name);
+	X509_set_issuer_name(cert, dns_unconst(X509_NAME *, issuer_name));
 
 	if (san != NULL && san[0] != '\0') {
-		cert_ext = X509V3_EXT_conf_nid(NULL, NULL, NID_subject_alt_name, san);
+		cert_ext = X509V3_EXT_conf_nid(NULL, NULL, NID_subject_alt_name, dns_unconst(char *, san));
 		if (cert_ext == NULL) {
 			goto errout;
 		}
@@ -383,7 +423,7 @@ static X509 *_generate_smartdns_cert(EVP_PKEY *pkey, X509 *issuer_cert, EVP_PKEY
 	}
 
 	const char *basic_constraints = is_ca ? "critical,CA:TRUE" : "CA:FALSE";
-	cert_ext = X509V3_EXT_conf_nid(NULL, NULL, NID_basic_constraints, basic_constraints);
+	cert_ext = X509V3_EXT_conf_nid(NULL, NULL, NID_basic_constraints, dns_unconst(char *, basic_constraints));
 	if (cert_ext == NULL) {
 		tlog(TLOG_ERROR, "Failed to create basicConstraints extension");
 		goto errout;
@@ -393,7 +433,7 @@ static X509 *_generate_smartdns_cert(EVP_PKEY *pkey, X509 *issuer_cert, EVP_PKEY
 	cert_ext = NULL;
 
 	const char *key_usage = is_ca ? "critical,keyCertSign,cRLSign" : "digitalSignature,keyEncipherment";
-	cert_ext = X509V3_EXT_conf_nid(NULL, NULL, NID_key_usage, key_usage);
+	cert_ext = X509V3_EXT_conf_nid(NULL, NULL, NID_key_usage, dns_unconst(char *, key_usage));
 	if (cert_ext == NULL) {
 		tlog(TLOG_ERROR, "Failed to create keyUsage extension");
 		goto errout;
@@ -511,7 +551,7 @@ int generate_cert_key(const char *key_path, const char *cert_path, const char *r
 		return -1;
 	}
 
-	if (PEM_write_bio_PrivateKey(server_key_file, server_key_ctx->pkey, NULL, NULL, 0, NULL, NULL) != 1) {
+	if (dns_PEM_write_bio_PrivateKey(server_key_file, server_key_ctx->pkey) != 1) {
 		return -1;
 	}
 
@@ -530,7 +570,7 @@ int generate_cert_key(const char *key_path, const char *cert_path, const char *r
 			goto errout;
 		}
 
-		if (PEM_write_bio_PrivateKey(root_key_file, ca_key_ctx->pkey, NULL, NULL, 0, NULL, NULL) != 1) {
+		if (dns_PEM_write_bio_PrivateKey(root_key_file, ca_key_ctx->pkey) != 1) {
 			goto errout;
 		}
 		BIO_free_all(root_key_file);
@@ -581,7 +621,12 @@ errout:
 	return -1;
 }
 
-#if OPENSSL_API_COMPAT < 0x10100000
+/*
+ * Keyed on the library version, not on OPENSSL_API_COMPAT: the latter describes
+ * which API level the caller wants hidden and can be set from the command line,
+ * which previously produced a declaration in util.h with no matching definition.
+ */
+#if SMARTDNS_NEED_LEGACY_THREAD_CB
 #define THREAD_STACK_SIZE (16 * 1024)
 static pthread_mutex_t *lock_cs;
 static long *lock_count;
@@ -602,6 +647,16 @@ static __attribute__((unused)) unsigned long _pthreads_thread_id(void)
 
 	ret = (unsigned long)pthread_self();
 	return (ret);
+}
+
+/*
+ * Separate callback for CRYPTO_THREADID_set_callback(): it wants
+ * void (*)(CRYPTO_THREADID *), not unsigned long (*)(void). The mismatch only
+ * surfaces on OpenSSL 1.0.x, because 1.1.0 dropped these callbacks entirely.
+ */
+static __attribute__((unused)) void _pthreads_thread_id_crypto(CRYPTO_THREADID *id)
+{
+	CRYPTO_THREADID_set_numeric(id, (unsigned long)pthread_self());
 }
 
 void SSL_CRYPTO_thread_setup(void)
@@ -629,10 +684,10 @@ void SSL_CRYPTO_thread_setup(void)
 		pthread_mutex_init(&(lock_cs[i]), NULL);
 	}
 
-#if OPENSSL_API_COMPAT < 0x10000000
+#if SMARTDNS_OPENSSL_BEFORE(SMARTDNS_OPENSSL_V_1_0_0)
 	CRYPTO_set_id_callback(_pthreads_thread_id);
 #else
-	CRYPTO_THREADID_set_callback(_pthreads_thread_id);
+	CRYPTO_THREADID_set_callback(_pthreads_thread_id_crypto);
 #endif
 	CRYPTO_set_locking_callback(_pthreads_locking_callback);
 }
@@ -654,28 +709,43 @@ void SSL_CRYPTO_thread_cleanup(void)
 	lock_cs = NULL;
 	lock_count = NULL;
 }
+#else
+/*
+ * OpenSSL 1.1.0+ is thread safe by construction and removed the locking
+ * callbacks. Both entry points remain defined because util.h declares them
+ * unconditionally and smartdns.c calls them on every build.
+ */
+void SSL_CRYPTO_thread_setup(void)
+{
+}
+
+void SSL_CRYPTO_thread_cleanup(void)
+{
+}
 #endif
 
 unsigned char *SSL_SHA256(const unsigned char *d, size_t n, unsigned char *md)
 {
 	static unsigned char m[SHA256_DIGEST_LENGTH];
+	unsigned int digest_len = 0;
 
 	if (md == NULL) {
 		md = m;
 	}
 
-	EVP_MD_CTX *ctx = EVP_MD_CTX_create();
+	EVP_MD_CTX *ctx = dns_EVP_MD_CTX_new();
 	if (ctx == NULL) {
 		return NULL;
 	}
 
-	EVP_MD_CTX_init(ctx);
-	EVP_DigestInit_ex(ctx, EVP_sha256(), NULL);
-	EVP_DigestUpdate(ctx, d, n);
-	EVP_DigestFinal_ex(ctx, m, NULL);
-	EVP_MD_CTX_destroy(ctx);
+	if (EVP_DigestInit_ex(ctx, EVP_sha256(), NULL) != 1 || EVP_DigestUpdate(ctx, d, n) != 1 ||
+		EVP_DigestFinal_ex(ctx, md, &digest_len) != 1) {
+		dns_EVP_MD_CTX_free(ctx);
+		return NULL;
+	}
+	dns_EVP_MD_CTX_free(ctx);
 
-	return (md);
+	return md;
 }
 
 int SSL_base64_decode_ext(const char *in, unsigned char *out, int max_outlen, int url_safe, int auto_padding)
@@ -780,9 +850,67 @@ errout:
 
 int dns_is_quic_supported(void)
 {
-#if defined(OSSL_QUIC1_VERSION) && !defined (OPENSSL_NO_QUIC)
+#if SMARTDNS_OPENSSL_HAVE_QUIC
 	return 1;
 #else
 	return 0;
 #endif
+}
+
+void dns_ssl_ctx_setup_defaults(SSL_CTX *ssl_ctx)
+{
+	long options = 0;
+
+	if (ssl_ctx == NULL) {
+		return;
+	}
+
+	options = SSL_OP_ALL | SSL_OP_CIPHER_SERVER_PREFERENCE | SSL_OP_SINGLE_DH_USE;
+#ifdef SSL_OP_NO_COMPRESSION
+	options |= SSL_OP_NO_COMPRESSION;
+#endif
+#ifdef SSL_OP_NO_SSLv2
+	options |= SSL_OP_NO_SSLv2;
+#endif
+	options |= SSL_OP_NO_SSLv3;
+#ifdef SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION
+	options |= SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION;
+#endif
+
+#if SMARTDNS_HAVE_PROTO_VERSION_API
+	/*
+	 * Pin the negotiated range. Without it the lower bound follows whatever the
+	 * linked OpenSSL defaults to (TLS 1.0 on 1.0.x, TLS 1.2 on 3.x) plus any
+	 * distro crypto policy, so the same smartdns config behaves per-host.
+	 */
+	SSL_CTX_set_min_proto_version(ssl_ctx, TLS1_2_VERSION);
+#ifdef TLS1_3_VERSION
+	SSL_CTX_set_max_proto_version(ssl_ctx, TLS1_3_VERSION);
+#else
+	SSL_CTX_set_max_proto_version(ssl_ctx, TLS1_2_VERSION);
+#endif
+#else
+	/* 1.0.x has no *_proto_version API, so express the same floor as options. */
+#ifdef SSL_OP_NO_TLSv1
+	options |= SSL_OP_NO_TLSv1;
+#endif
+#ifdef SSL_OP_NO_TLSv1_1
+	options |= SSL_OP_NO_TLSv1_1;
+#endif
+#endif
+
+	SSL_CTX_set_options(ssl_ctx, options);
+
+	if (SSL_CTX_set_cipher_list(ssl_ctx, DNS_SSL_DEFAULT_CIPHER_LIST) != 1) {
+		tlog(TLOG_WARN, "set default cipher list failed.");
+	}
+
+#if SMARTDNS_HAVE_TLS13
+	if (SSL_CTX_set_ciphersuites(ssl_ctx, DNS_SSL_DEFAULT_CIPHERSUITES) != 1) {
+		tlog(TLOG_DEBUG, "set default TLS 1.3 ciphersuites failed.");
+	}
+#endif
+
+	/* 1.0.x needs ECDH enabled explicitly, otherwise ECDHE cannot be negotiated. */
+	dns_SSL_CTX_set_ecdh_auto(ssl_ctx);
 }

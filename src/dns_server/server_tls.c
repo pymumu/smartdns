@@ -29,8 +29,7 @@
 
 #include <errno.h>
 #include <netinet/tcp.h>
-#include <openssl/err.h>
-#include <openssl/ssl.h>
+#include "smartdns/lib/openssl_compat.h"
 #include <pthread.h>
 #include <string.h>
 #include <sys/epoll.h>
@@ -470,6 +469,7 @@ int _dns_server_socket_tls(struct dns_bind_ip *bind_ip, DNS_CONN_TYPE conn_type)
 	const SSL_METHOD *method = NULL;
 	SSL_CTX *ssl_ctx = NULL;
 	const int on = 1;
+	char ssl_err_buff[256] = {0};
 
 	host_ip = bind_ip->ip;
 	ssl_cert_file = bind_ip->ssl_cert_file;
@@ -492,20 +492,17 @@ int _dns_server_socket_tls(struct dns_bind_ip *bind_ip, DNS_CONN_TYPE conn_type)
 
 	setsockopt(fd, SOL_TCP, TCP_FASTOPEN, &on, sizeof(on));
 
-#if (OPENSSL_VERSION_NUMBER >= 0x10100000L)
-	method = TLS_server_method();
+	method = dns_TLS_server_method();
 	if (method == NULL) {
 		goto errout;
 	}
-#else
-	method = SSLv23_server_method();
-#endif
 
 	ssl_ctx = SSL_CTX_new(method);
 	if (ssl_ctx == NULL) {
 		goto errout;
 	}
 
+	dns_ssl_ctx_setup_defaults(ssl_ctx);
 	SSL_CTX_set_session_cache_mode(ssl_ctx,
 								   SSL_SESS_CACHE_BOTH | SSL_SESS_CACHE_NO_INTERNAL | SSL_SESS_CACHE_NO_AUTO_CLEAR);
 	SSL_CTX_set_default_passwd_cb(ssl_ctx, _dns_server_socket_tls_ssl_pass_callback);
@@ -513,13 +510,15 @@ int _dns_server_socket_tls(struct dns_bind_ip *bind_ip, DNS_CONN_TYPE conn_type)
 
 	/* Set the key and cert */
 	if (ssl_cert_file[0] != '\0' && SSL_CTX_use_certificate_chain_file(ssl_ctx, ssl_cert_file) <= 0) {
-		tlog(TLOG_ERROR, "load cert %s failed, %s", ssl_cert_file, ERR_error_string(ERR_get_error(), NULL));
+		ERR_error_string_n(ERR_get_error(), ssl_err_buff, sizeof(ssl_err_buff));
+		tlog(TLOG_ERROR, "load cert %s failed, %s", ssl_cert_file, ssl_err_buff);
 		goto errout;
 	}
 
 	if (ssl_cert_key_file[0] != '\0' &&
 		SSL_CTX_use_PrivateKey_file(ssl_ctx, ssl_cert_key_file, SSL_FILETYPE_PEM) <= 0) {
-		tlog(TLOG_ERROR, "load cert key %s failed, %s", ssl_cert_key_file, ERR_error_string(ERR_get_error(), NULL));
+		ERR_error_string_n(ERR_get_error(), ssl_err_buff, sizeof(ssl_err_buff));
+		tlog(TLOG_ERROR, "load cert key %s failed, %s", ssl_cert_key_file, ssl_err_buff);
 		goto errout;
 	}
 

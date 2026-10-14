@@ -32,8 +32,7 @@
 #include <fcntl.h>
 #include <getopt.h>
 #include <libgen.h>
-#include <openssl/err.h>
-#include <openssl/ssl.h>
+#include "smartdns/lib/openssl_compat.h"
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -492,19 +491,22 @@ int smartdns_get_cert(char *key, char *cert)
 
 static int _smartdns_init_ssl(void)
 {
-#if OPENSSL_API_COMPAT < 0x10100000L
+	/* No-op on OpenSSL 1.1.0+, which initialises itself. */
+	SSL_CRYPTO_thread_setup();
+#if SMARTDNS_NEED_LEGACY_INIT
 	SSL_load_error_strings();
 	SSL_library_init();
 	OpenSSL_add_all_algorithms();
-	SSL_CRYPTO_thread_setup();
+#else
+	OPENSSL_init_ssl(OPENSSL_INIT_LOAD_SSL_STRINGS | OPENSSL_INIT_LOAD_CRYPTO_STRINGS, NULL);
 #endif
 	return 0;
 }
 
 static int _smartdns_destroy_ssl(void)
 {
-#if OPENSSL_API_COMPAT < 0x10100000L
 	SSL_CRYPTO_thread_cleanup();
+#if SMARTDNS_NEED_LEGACY_INIT
 	ERR_free_strings();
 	EVP_cleanup();
 #endif

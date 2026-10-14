@@ -495,7 +495,7 @@ void _dns_client_check_tcp(void)
 			continue;
 		}
 
-#if defined(OSSL_QUIC1_VERSION) && !defined(OPENSSL_NO_QUIC)
+#if SMARTDNS_OPENSSL_HAVE_QUIC
 		if (server_info->type == DNS_SERVER_QUIC || server_info->type == DNS_SERVER_HTTP3) {
 			if (server_info->ssl) {
 				_ssl_do_handevent(server_info);
