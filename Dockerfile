@@ -57,6 +57,8 @@ RUN cd /build/smartdns && \
 
 FROM busybox:stable-musl
 COPY --from=smartdns-builder /release/ /
+COPY --from=smartdns-builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 EXPOSE 53/udp 6080/tcp
 VOLUME ["/etc/smartdns/", "/var/lib/smartdns/"]
 
