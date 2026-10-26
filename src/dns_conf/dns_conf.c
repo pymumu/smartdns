@@ -392,6 +392,7 @@ void dns_server_load_exit(void)
 	_config_proxy_table_destroy();
 	_config_plugin_table_destroy();
 	_config_plugin_table_conf_destroy();
+	_config_domain_rule_pool_clear();
 
 	dns_conf.server_num = 0;
 	dns_server_bind_destroy();

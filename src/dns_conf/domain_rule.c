@@ -67,13 +67,15 @@ static struct dns_domain_rule *_alloc_domain_rule(uint8_t capacity)
 
 	memset(rule, 0, size);
 	rule->capacity = capacity;
+	atomic_set(&rule->refcnt, 1);
 
 	return rule;
 }
 
 /*
  * Ensure the domain rule has enough capacity for the given rule type
- * Reallocates if necessary, preserving existing rules
+ * Returns a private copy when growing or detaching a shared leaf.
+ * The caller replaces the ART value and releases the old leaf on success.
  */
 static struct dns_domain_rule *_ensure_domain_rule_capacity(struct dns_domain_rule *domain_rule, enum domain_rule type)
 {
@@ -87,30 +89,76 @@ static struct dns_domain_rule *_ensure_domain_rule_capacity(struct dns_domain_ru
 		return _alloc_domain_rule(capacity);
 	}
 
-	if (type < domain_rule->capacity) {
+	if (type < domain_rule->capacity && atomic_read(&domain_rule->refcnt) == 1) {
 		return domain_rule;
 	}
 
-	uint8_t new_capacity = _get_required_capacity(type, domain_rule->capacity);
+	uint8_t new_capacity = type < domain_rule->capacity ? domain_rule->capacity :
+		_get_required_capacity(type, domain_rule->capacity);
 	if (new_capacity == 0) {
 		return NULL;
 	}
 
-	if (new_capacity <= domain_rule->capacity) {
-		return domain_rule;
-	}
-
-	size_t new_size = sizeof(struct dns_domain_rule) + new_capacity * sizeof(struct dns_rule *);
-	struct dns_domain_rule *new_rule = realloc(domain_rule, new_size);
+	struct dns_domain_rule *new_rule = _alloc_domain_rule(new_capacity);
 	if (new_rule == NULL) {
 		return NULL;
 	}
 
-	uint8_t old_capacity = new_rule->capacity;
-	memset((void *)(new_rule->rules + old_capacity), 0, (new_capacity - old_capacity) * sizeof(struct dns_rule *));
-	new_rule->capacity = new_capacity;
+	for (int i = 0; i < domain_rule->capacity; i++) {
+		if (domain_rule->rules[i]) {
+			_dns_rule_get(domain_rule->rules[i]);
+			new_rule->rules[i] = domain_rule->rules[i];
+		}
+	}
 
 	return new_rule;
+}
+
+/* Large block lists commonly contain the same flags-only value at every leaf.
+ * Keep a bounded configuration-lifetime pool; full/colliding buckets simply
+ * retain private values. Shared leaves and their flags must never be mutated.
+ * Query paths do not consult this pool. Each entry owns one leaf reference.
+ */
+#define DOMAIN_RULE_POOL_SIZE 1024
+#define DOMAIN_RULE_POOL_PROBES 8
+static struct dns_domain_rule *domain_rule_pool[DOMAIN_RULE_POOL_SIZE];
+
+static struct dns_domain_rule *_domain_rule_intern_flags(struct dns_domain_rule *rule)
+{
+	if (rule->capacity != 1 || rule->rules[DOMAIN_RULE_FLAGS] == NULL) {
+		return rule;
+	}
+	struct dns_rule_flags *flags = (struct dns_rule_flags *)rule->rules[DOMAIN_RULE_FLAGS];
+	uint32_t hash = flags->flags * 2654435761U ^ flags->is_flag_set * 2246822519U ^
+		(unsigned int)flags->head.sub_only * 3266489917U ^ (unsigned int)flags->head.root_only;
+	hash ^= hash >> 16;
+	hash ^= hash >> 8;
+	for (unsigned int i = 0; i < DOMAIN_RULE_POOL_PROBES; i++) {
+		struct dns_domain_rule **slot = &domain_rule_pool[(hash + i) & (DOMAIN_RULE_POOL_SIZE - 1)];
+		if (*slot == rule) {
+			return rule;
+		}
+		if (*slot == NULL) {
+			atomic_inc(&rule->refcnt);
+			*slot = rule;
+			return rule;
+		}
+		struct dns_rule_flags *other = (struct dns_rule_flags *)(*slot)->rules[DOMAIN_RULE_FLAGS];
+		if (flags->flags == other->flags && flags->is_flag_set == other->is_flag_set &&
+			flags->head.sub_only == other->head.sub_only && flags->head.root_only == other->head.root_only) {
+			atomic_inc(&(*slot)->refcnt);
+			return *slot;
+		}
+	}
+	return rule;
+}
+
+void _config_domain_rule_pool_clear(void)
+{
+	for (unsigned int i = 0; i < DOMAIN_RULE_POOL_SIZE; i++) {
+		_config_domain_rule_free(domain_rule_pool[i]);
+		domain_rule_pool[i] = NULL;
+	}
 }
 
 struct dns_rule_info {
@@ -559,6 +607,9 @@ int _config_domain_rule_free(struct dns_domain_rule *domain_rule)
 	if (domain_rule == NULL) {
 		return 0;
 	}
+	if (!atomic_dec_and_test(&domain_rule->refcnt)) {
+		return 0;
+	}
 
 	/* Iterate only through allocated capacity, not DOMAIN_RULE_MAX */
 	for (i = 0; i < domain_rule->capacity; i++) {
@@ -644,30 +695,42 @@ int _config_domain_rule_flag_set(const char *domain, unsigned int flag, unsigned
 
 	/* Get existing domain rule */
 	domain_rule = art_search(&_config_current_rule_group()->domain_rule.tree, (unsigned char *)domain_key, len);
-	if (domain_rule == NULL) {
-		/* Allocate new domain rule with minimum capacity for flags */
-		domain_rule = _alloc_domain_rule(_get_required_capacity(DOMAIN_RULE_FLAGS, 0));
-		if (domain_rule == NULL) {
-			goto errout;
+	if (domain_rule && domain_rule->rules[DOMAIN_RULE_FLAGS]) {
+		rule_flags = (struct dns_rule_flags *)domain_rule->rules[DOMAIN_RULE_FLAGS];
+		unsigned int wanted_flags = is_clear ? rule_flags->flags & ~flag : rule_flags->flags | flag;
+		if (wanted_flags == rule_flags->flags && (rule_flags->is_flag_set | flag) == rule_flags->is_flag_set &&
+			rule_flags->head.sub_only == sub_rule_only && rule_flags->head.root_only == root_rule_only) {
+			return 0;
 		}
+	}
+	old_domain_rule = domain_rule;
+	domain_rule = _ensure_domain_rule_capacity(domain_rule, DOMAIN_RULE_FLAGS);
+	if (domain_rule == NULL) {
+		goto errout;
+	}
+	if (domain_rule != old_domain_rule) {
 		add_domain_rule = domain_rule;
 	}
 
 	/* add new rule to domain */
 	if (domain_rule->rules[DOMAIN_RULE_FLAGS] == NULL) {
 		rule_flags = _new_dns_rule(DOMAIN_RULE_FLAGS);
+		if (rule_flags == NULL) {
+			goto errout;
+		}
 		rule_flags->flags = 0;
 		domain_rule->rules[DOMAIN_RULE_FLAGS] = (struct dns_rule *)rule_flags;
 	}
 
 	rule_flags = (struct dns_rule_flags *)domain_rule->rules[DOMAIN_RULE_FLAGS];
-	if (atomic_read(&rule_flags->head.refcnt) > 1 && (rule_flags->head.sub_only != sub_rule_only || rule_flags->head.root_only != root_rule_only)) {
+	if (atomic_read(&rule_flags->head.refcnt) > 1) {
 		struct dns_rule_flags *new_flags = (struct dns_rule_flags *)_dns_rule_clone(&rule_flags->head);
-		if (new_flags) {
-			_dns_rule_put(&rule_flags->head);
-			domain_rule->rules[DOMAIN_RULE_FLAGS] = (struct dns_rule *)new_flags;
-			rule_flags = new_flags;
+		if (new_flags == NULL) {
+			goto errout;
 		}
+		_dns_rule_put(&rule_flags->head);
+		domain_rule->rules[DOMAIN_RULE_FLAGS] = (struct dns_rule *)new_flags;
+		rule_flags = new_flags;
 	}
 	rule_flags->head.sub_only = sub_rule_only;
 	rule_flags->head.root_only = root_rule_only;
@@ -677,6 +740,13 @@ int _config_domain_rule_flag_set(const char *domain, unsigned int flag, unsigned
 		rule_flags->flags &= ~flag;
 	}
 	rule_flags->is_flag_set |= flag;
+	struct dns_domain_rule *shared_rule = _domain_rule_intern_flags(domain_rule);
+	if (shared_rule != domain_rule) {
+		/* An unpublished copy owns its own reference. An existing ART leaf
+		 * is released below only after replacement, never twice. */
+		_config_domain_rule_free(add_domain_rule);
+		add_domain_rule = shared_rule;
+	}
 
 	/* update domain rule */
 	if (add_domain_rule) {
@@ -690,11 +760,11 @@ int _config_domain_rule_flag_set(const char *domain, unsigned int flag, unsigned
 	return 0;
 errout:
 	if (add_domain_rule) {
-		free(add_domain_rule);
+		_config_domain_rule_free(add_domain_rule);
 	}
 
 	tlog(TLOG_ERROR, "add domain %s rule failed", domain);
-	return 0;
+	return -1;
 }
 
 int _config_domain_rule_remove(const char *domain, enum domain_rule type)
@@ -726,8 +796,17 @@ int _config_domain_rule_remove(const char *domain, enum domain_rule type)
 		return -1;
 	}
 
-	if (domain_rule->rules[type] == NULL) {
+	if (type >= domain_rule->capacity || domain_rule->rules[type] == NULL) {
 		return 0;
+	}
+	struct dns_domain_rule *private_rule = _ensure_domain_rule_capacity(domain_rule, type);
+	if (private_rule == NULL) {
+		return -1;
+	}
+	if (private_rule != domain_rule) {
+		art_insert(&_config_current_rule_group()->domain_rule.tree, (unsigned char *)domain_key, len, private_rule);
+		_config_domain_rule_free(domain_rule);
+		domain_rule = private_rule;
 	}
 
 	_dns_rule_put(domain_rule->rules[type]);
@@ -767,8 +846,6 @@ int _config_domain_rule_add(const char *domain, enum domain_rule type, void *rul
 	/* Get existing domain rule */
 	domain_rule = art_search(&_config_current_rule_group()->domain_rule.tree, (unsigned char *)domain_key, len);
 
-	/* Track if this is a new allocation (before capacity expansion) */
-	int was_new_allocation = (domain_rule == NULL);
 	struct dns_domain_rule *old_ptr = domain_rule;
 
 	/* Ensure capacity for the new rule type */
@@ -778,16 +855,9 @@ int _config_domain_rule_add(const char *domain, enum domain_rule type, void *rul
 		goto errout;
 	}
 
-	/* Set add_domain_rule if this was a new allocation or if realloc moved the memory */
-	if (was_new_allocation) {
+	/* Publish new/private/grown values only after applying the rule. */
+	if (domain_rule != old_ptr) {
 		add_domain_rule = domain_rule;
-	} else if (domain_rule != old_ptr) {
-		/* Memory was moved by realloc, need to update ART tree
-		 * Note: old_ptr is already freed by realloc, so we don't free it again */
-		old_domain_rule =
-			art_insert(&_config_current_rule_group()->domain_rule.tree, (unsigned char *)domain_key, len, domain_rule);
-		/* old_domain_rule == old_ptr, already freed by realloc, don't free again */
-		add_domain_rule = NULL;
 	}
 
 	/* add new rule to domain */
@@ -797,11 +867,12 @@ int _config_domain_rule_add(const char *domain, enum domain_rule type, void *rul
 		(prule->sub_only != sub_rule_only || prule->root_only != root_rule_only ||
 		 dns_rule_info_table[prule->rule].is_list)) {
 		struct dns_rule *new_rule = _dns_rule_clone(prule);
-		if (new_rule) {
-			prule = new_rule;
-			rule = (void *)new_rule;
-			is_cloned = 1;
+		if (new_rule == NULL) {
+			goto errout;
 		}
+		prule = new_rule;
+		rule = (void *)new_rule;
+		is_cloned = 1;
 	}
 
 	if (domain_rule->rules[type]) {
@@ -843,7 +914,7 @@ int _config_domain_rule_add(const char *domain, enum domain_rule type, void *rul
 	return 0;
 errout:
 	if (add_domain_rule) {
-		free(add_domain_rule);
+		_config_domain_rule_free(add_domain_rule);
 	}
 
 	tlog(TLOG_ERROR, "add domain %s rule failed", domain);

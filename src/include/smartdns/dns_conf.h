@@ -278,6 +278,7 @@ extern struct dns_nftset_names dns_conf_nftset;
 
 struct dns_domain_rule {
 	unsigned char capacity;   /* Current allocated capacity (max 255) */
+	atomic_t refcnt;          /* ART leaves and the bounded immutable-rule pool */
 	struct dns_rule *rules[]; /* Flexible array member */
 };
 

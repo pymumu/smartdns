@@ -201,6 +201,7 @@ static int _config_domain_rule_iter_copy(void *data, const unsigned char *key, u
 		return -1;
 	}
 	new_domain_rule->capacity = old_domain_rule->capacity;
+	atomic_set(&new_domain_rule->refcnt, 1);
 
 	/* Copy rules using actual capacity, not DOMAIN_RULE_MAX */
 	for (int i = 0; i < old_domain_rule->capacity; i++) {
