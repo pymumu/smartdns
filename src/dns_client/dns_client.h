@@ -33,6 +33,11 @@
 #include <openssl/ssl.h>
 #include <openssl/x509v3.h>
 
+/* pthread.h was previously reached transitively through OpenSSL headers
+ * (3.x pulls it in, 1.0.x does not); include it explicitly so the pthread
+ * types used below are always available regardless of the OpenSSL version. */
+#include <pthread.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif /*__cplusplus */

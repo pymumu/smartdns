@@ -335,7 +335,10 @@ SSL_CTX *_ssl_ctx_get(int is_quic)
 	}
 #else
 	if (is_quic) {
-		return NULL;
+		/* QUIC is not available in this OpenSSL build; go through the
+		 * unified error path so server_list_lock is released and NULL is
+		 * returned consistently. */
+		goto errout;
 	}
 	*ssl_ctx = SSL_CTX_new(TLS_client_method());
 #endif

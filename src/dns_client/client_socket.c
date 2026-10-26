@@ -241,10 +241,12 @@ again:
 	http2_ctx_to_put = server_info->http2_ctx;
 	server_info->http2_ctx = NULL;
 
+#if defined(OSSL_QUIC1_VERSION) && !defined (OPENSSL_NO_QUIC)
 	if (server_info->bio_method) {
 		BIO_meth_free(server_info->bio_method);
 		server_info->bio_method = NULL;
 	}
+#endif
 
 	if (server_info->proxy) {
 		proxy_conn_free(server_info->proxy);
