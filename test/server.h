@@ -57,10 +57,13 @@ class Server
 	bool Start(const std::string &conf, enum CONF_TYPE type = CONF_TYPE_STRING);
 	void Stop(bool graceful = true);
 	bool IsRunning();
+	/* waitpid() status of the last stopped forked server, -1 if unknown */
+	int GetWaitStatus();
 
   private:
 	static void StartPost(void *arg);
 	pid_t pid_;
+	int wait_status_{-1};
 	std::thread thread_;
 	int fd_;
 	std::string conf_file_;

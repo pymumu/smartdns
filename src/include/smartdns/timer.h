@@ -33,6 +33,9 @@ int dns_timer_del(struct tw_timer_list *timer);
 
 int dns_timer_mod(struct tw_timer_list *timer, unsigned long expires);
 
+/* stop firing timers, the base stays valid for dns_timer_del until dns_timer_destroy */
+void dns_timer_stop(void);
+
 void dns_timer_destroy(void);
 
 #ifdef __cplusplus

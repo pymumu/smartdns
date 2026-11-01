@@ -33,6 +33,13 @@ int dns_timer_init(void)
 	return 0;
 }
 
+void dns_timer_stop(void)
+{
+	if (dns_timer_base != NULL) {
+		tw_stop_timers(dns_timer_base);
+	}
+}
+
 void dns_timer_destroy(void)
 {
 	if (dns_timer_base != NULL) {

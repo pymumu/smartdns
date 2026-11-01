@@ -387,8 +387,7 @@ cache-persist no
 
 			smartdns_reg_post_func(Server::StartPost, this);
 			dns_ping_cap_force_enable = 1;
-			smartdns_test_main(args.size(), argv, fds[1], 0);
-			_exit(1);
+			_exit(smartdns_test_main(args.size(), argv, fds[1], 0));
 		} else if (pid < 0) {
 			return false;
 		}
@@ -445,7 +444,10 @@ void Server::Stop(bool graceful)
 	}
 
 	if (pid_ > 0) {
-		waitpid(pid_, nullptr, 0);
+		int status = 0;
+		if (waitpid(pid_, &status, 0) == pid_) {
+			wait_status_ = status;
+		}
 	}
 
 	conf_temp_file_.Close();
@@ -459,11 +461,22 @@ bool Server::IsRunning()
 		return false;
 	}
 
-	if (waitpid(pid_, nullptr, WNOHANG) == 0) {
+	int status = 0;
+	pid_t ret = waitpid(pid_, &status, WNOHANG);
+	if (ret == 0) {
 		return true;
 	}
 
+	if (ret == pid_) {
+		wait_status_ = status;
+	}
+
 	return kill(pid_, 0) == 0;
+}
+
+int Server::GetWaitStatus()
+{
+	return wait_status_;
 }
 
 Server::~Server()

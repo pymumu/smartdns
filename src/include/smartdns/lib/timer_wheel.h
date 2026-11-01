@@ -38,6 +38,9 @@ struct tw_timer_list {
 
 struct tw_base *tw_init_timers(void);
 
+/* stop the runner thread; timers can still be added/deleted but never fire */
+void tw_stop_timers(struct tw_base *);
+
 int tw_cleanup_timers(struct tw_base *);
 
 void tw_add_timer(struct tw_base *, struct tw_timer_list *);
