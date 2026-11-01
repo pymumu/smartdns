@@ -524,25 +524,18 @@ static int _nftset_process_setflags(uint32_t flags, const unsigned char addr[], 
 		*timeout = 0;
 	}
 
-	if ((flags & NFT_SET_INTERVAL) && addr_end != NULL) {
-		if (addr_len == 4) {
-			addr_end[0] = addr[0];
-			addr_end[1] = addr[1];
-			addr_end[2] = addr[2];
-			addr_end[3] = addr[3] + 1;
-			if (addr_end[3] == 0) {
-				return -1;
-			}
-
-			*interval_addr_len = 4;
-		} else if (addr_len == 16) {
-			memcpy(addr_end, addr, 16);
-			addr_end[15] = addr[15] + 1;
-			if (addr_end[15] == 0) {
-				return -1;
-			}
-			*interval_addr_len = 16;
+	if ((flags & NFT_SET_INTERVAL) && addr_end != NULL && (addr_len == 4 || addr_len == 16)) {
+		/* interval end is addr + 1, carried across bytes (x.x.x.255 -> x.x.(x+1).0) */
+		int i = addr_len - 1;
+		memcpy(addr_end, addr, addr_len);
+		while (i >= 0 && ++addr_end[i] == 0) {
+			i--;
 		}
+		if (i < 0) {
+			/* the last address of the family has no end */
+			return -1;
+		}
+		*interval_addr_len = addr_len;
 	} else {
 		*interval_addr = NULL;
 		*interval_addr_len = 0;
@@ -722,24 +715,6 @@ int nftset_add(const char *familyname, const char *tablename, const char *setnam
 			   int addr_len, unsigned long timeout)
 {
 	int nffamily = _nftset_get_nffamily_from_str(familyname);
-	int ip_exists = _nftset_test_ip_exists(nffamily, tablename, setname, addr, addr_len);
-
-	if (ip_exists) {
-		if (dns_conf.nftset_debug_enable) {
-			char ip_str[INET6_ADDRSTRLEN];
-			if (addr_len == 4) {
-				inet_ntop(AF_INET, addr, ip_str, sizeof(ip_str));
-			} else if (addr_len == 16) {
-				inet_ntop(AF_INET6, addr, ip_str, sizeof(ip_str));
-			} else {
-				snprintf(ip_str, sizeof(ip_str), "unknown");
-			}
-			tlog(TLOG_DEBUG, "nftset skip adding existing ip: family=%d, table=%s, set=%s, ip=%s", nffamily, tablename,
-				 setname, ip_str);
-		}
-		return 0;
-	}
-
 	uint8_t buf[PAYLOAD_MAX];
 	uint8_t addr_end_buff[16] = {0};
 	uint8_t *addr_end = addr_end_buff;
@@ -773,11 +748,32 @@ int nftset_add(const char *familyname, const char *tablename, const char *setnam
 		addr_end_len = 0;
 	}
 
-	if (timeout > 0) {
-		_nftset_del(nffamily, tablename, setname, addr, addr_len, addr_end, addr_end_len);
+	int ip_exists = _nftset_test_ip_exists(nffamily, tablename, setname, addr, addr_len);
+	if (ip_exists && timeout == 0) {
+		if (dns_conf.nftset_debug_enable) {
+			char ip_str[INET6_ADDRSTRLEN];
+			if (addr_len == 4) {
+				inet_ntop(AF_INET, addr, ip_str, sizeof(ip_str));
+			} else if (addr_len == 16) {
+				inet_ntop(AF_INET6, addr, ip_str, sizeof(ip_str));
+			} else {
+				snprintf(ip_str, sizeof(ip_str), "unknown");
+			}
+			tlog(TLOG_DEBUG, "nftset skip adding existing ip: family=%d, table=%s, set=%s, ip=%s", nffamily, tablename,
+				 setname, ip_str);
+		}
+		return 0;
 	}
 
 	_nftset_start_batch(next, &next);
+	if (ip_exists) {
+		/*
+		 * Refresh the timeout: delete and add in one batch (one transaction), so the address never
+		 * leaves the set. If it is only covered by a wider range the delete fails and the batch is
+		 * rejected as a whole, leaving the range untouched.
+		 */
+		_nftset_del_element(nffamily, tablename, setname, addr, addr_len, addr_end, addr_end_len, next, &next);
+	}
 	_nftset_add_element(nffamily, tablename, setname, addr, addr_len, addr_end, addr_end_len, timeout, next, &next);
 	_nftset_end_batch(next, &next);
 	buffer_len = (uint8_t *)next - buf;
