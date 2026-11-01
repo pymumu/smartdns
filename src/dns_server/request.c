@@ -801,6 +801,8 @@ int _dns_server_pre_process_server_flags(struct dns_request *request)
 	}
 
 	if (request->qtype == DNS_T_HTTPS && _dns_server_has_bind_flag(request, BIND_FLAG_FORCE_HTTPS_SOA) == 0) {
+		stats_inc(&dns_stats.request.blocked_count);
+		request->force_soa = 1;
 		_dns_server_reply_SOA(DNS_RC_NOERROR, request);
 		return 0;
 	}
