@@ -551,14 +551,20 @@ int _dns_client_send_http2(struct dns_server_info *server_info, struct dns_query
 	}
 	stream->type = DNS_SERVER_HTTPS;
 
+	/* status/http2_ctx are changed by the client thread, snapshot them under the lock */
+	pthread_mutex_lock(&server_info->lock);
+	int is_connected = server_info->status == DNS_SERVER_STATUS_CONNECTED;
+	int has_http2_ctx = server_info->http2_ctx != NULL;
+	pthread_mutex_unlock(&server_info->lock);
+
 	/* If not connected, buffer the data and return */
-	if (server_info->status != DNS_SERVER_STATUS_CONNECTED) {
+	if (!is_connected) {
 		ret = _dns_client_http2_pending_data(stream, server_info, query, packet, len, EPOLLIN | EPOLLOUT);
 		goto out;
 	}
 
 	/* If connected but context not ready, buffer it too (will be flushed in process_http2) */
-	if (server_info->http2_ctx == NULL) {
+	if (!has_http2_ctx) {
 		ret = _dns_client_http2_pending_data(stream, server_info, query, packet, len, EPOLLIN | EPOLLOUT);
 		goto out;
 	}

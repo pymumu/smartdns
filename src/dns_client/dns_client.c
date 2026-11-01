@@ -227,7 +227,10 @@ static int _dns_client_send_http(struct dns_server_info *server_info, struct dns
 								 int packet_data_len)
 {
 	/* If ALPN is negotiated and is NOT h2, use HTTP/1.1 */
-	if (server_info->alpn_selected[0] != '\0' && strncmp(server_info->alpn_selected, "h2", 2) != 0) {
+	pthread_mutex_lock(&server_info->lock);
+	int use_http1 = server_info->alpn_selected[0] != '\0' && strncmp(server_info->alpn_selected, "h2", 2) != 0;
+	pthread_mutex_unlock(&server_info->lock);
+	if (use_http1) {
 		return _dns_client_send_http1(server_info, packet_data, packet_data_len);
 	}
 
