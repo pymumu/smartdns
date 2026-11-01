@@ -673,5 +673,22 @@ errout:
 
 int load_conf(const char *file, const struct config_item items[], conf_error_handler handler)
 {
-	return load_conf_file(file, items, handler);
+	static int load_depth;
+	int ret = 0;
+
+	/*
+	 * After a load, current_conf_file intentionally keeps pointing at the top-level file (used to
+	 * locate files next to it). A new top-level load must not start from an earlier load's pointer,
+	 * which may be gone (e.g. a server run in-process before this one). Includes keep the state.
+	 */
+	if (load_depth == 0) {
+		current_conf_file = NULL;
+		current_conf_lineno = 0;
+	}
+
+	load_depth++;
+	ret = load_conf_file(file, items, handler);
+	load_depth--;
+
+	return ret;
 }
