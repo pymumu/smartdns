@@ -2,6 +2,7 @@
 #include "gtest/gtest.h"
 #include "dns_conf/domain_rule.h"
 #include "dns_conf/dns_conf_group.h"
+#include <cstddef>
 #include <string>
 
 extern "C" { extern struct dns_conf_group_info *dns_conf_current_group_info; }
@@ -110,3 +111,10 @@ TEST_F(DomainRuleSharing, BoundedPoolFallbackPreservesEveryDistinctValueAcrossTe
 	}
 }
 
+
+/* The reference count must fit the padding after capacity: every leaf, shared or not, pays for the header. */
+TEST(DomainRuleLayout, HeaderStaysPointerAligned)
+{
+	EXPECT_LE(offsetof(struct dns_domain_rule, rules), sizeof(void *) > 4 ? sizeof(void *) : 8);
+	EXPECT_EQ(sizeof(atomic32_t), 4U);
+}

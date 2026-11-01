@@ -67,7 +67,7 @@ static struct dns_domain_rule *_alloc_domain_rule(uint8_t capacity)
 
 	memset(rule, 0, size);
 	rule->capacity = capacity;
-	atomic_set(&rule->refcnt, 1);
+	atomic32_set(&rule->refcnt, 1);
 
 	return rule;
 }
@@ -89,7 +89,8 @@ static struct dns_domain_rule *_ensure_domain_rule_capacity(struct dns_domain_ru
 		return _alloc_domain_rule(capacity);
 	}
 
-	if (type < domain_rule->capacity && atomic_read(&domain_rule->refcnt) == 1) {
+	/* a shared rule (refcnt > 1) is immutable: copy it before changing it */
+	if (type < domain_rule->capacity && atomic32_read(&domain_rule->refcnt) == 1) {
 		return domain_rule;
 	}
 
@@ -139,14 +140,14 @@ static struct dns_domain_rule *_domain_rule_intern_flags(struct dns_domain_rule 
 			return rule;
 		}
 		if (*slot == NULL) {
-			atomic_inc(&rule->refcnt);
+			atomic32_inc(&rule->refcnt);
 			*slot = rule;
 			return rule;
 		}
 		struct dns_rule_flags *other = (struct dns_rule_flags *)(*slot)->rules[DOMAIN_RULE_FLAGS];
 		if (flags->flags == other->flags && flags->is_flag_set == other->is_flag_set &&
 			flags->head.sub_only == other->head.sub_only && flags->head.root_only == other->head.root_only) {
-			atomic_inc(&(*slot)->refcnt);
+			atomic32_inc(&(*slot)->refcnt);
 			return *slot;
 		}
 	}
@@ -607,7 +608,7 @@ int _config_domain_rule_free(struct dns_domain_rule *domain_rule)
 	if (domain_rule == NULL) {
 		return 0;
 	}
-	if (!atomic_dec_and_test(&domain_rule->refcnt)) {
+	if (!atomic32_dec_and_test(&domain_rule->refcnt)) {
 		return 0;
 	}
 
