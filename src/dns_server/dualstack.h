@@ -29,6 +29,8 @@ extern int is_ipv6_ready;
 
 int _dns_server_force_dualstack(struct dns_request *request);
 
+void _dns_server_ipv6_check_conf_init(void);
+
 void _dns_server_set_dualstack_selection(struct dns_request *request);
 
 int _dns_server_query_dualstack(struct dns_request *request);

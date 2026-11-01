@@ -22,6 +22,7 @@
 #include "smartdns/dns.h"
 #include "smartdns/fast_ping.h"
 #include "include/utils.h"
+#include <atomic>
 #include <functional>
 #include <string>
 #include <sys/socket.h>
@@ -70,6 +71,7 @@ class Server
 	struct sigaction saved_sigterm_ {};
 	struct sigaction saved_sigpipe_ {};
 	bool signals_saved_{false};
+	std::atomic<bool> thread_done_{true};
 	std::thread thread_;
 	int fd_;
 	std::string conf_file_;

@@ -34,7 +34,6 @@ void _fast_ping_install_filter_v6(int sock)
 	ICMP6_FILTER_SETPASS(ICMP6_ECHO_REPLY, &icmp6_filter);
 	setsockopt(sock, IPPROTO_ICMPV6, ICMP6_FILTER, &icmp6_filter, sizeof(struct icmp6_filter));
 
-	static int once;
 	static struct sock_filter insns[] = {
 		BPF_STMT(BPF_LD | BPF_H | BPF_ABS, 4),                       /* Load icmp echo ident */
 		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0xAAAA, 0, 1),           /* Ours? */
@@ -46,12 +45,7 @@ void _fast_ping_install_filter_v6(int sock)
 	};
 	static struct sock_fprog filter = {sizeof insns / sizeof(insns[0]), insns};
 
-	if (once) {
-		return;
-	}
-	once = 1;
-
-	/* Patch bpflet for current identifier. */
+	/* Patch bpflet for current identifier, on every new socket. */
 	insns[1] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, htons(ping.ident), 0, 1);
 
 	if (setsockopt(sock, SOL_SOCKET, SO_ATTACH_FILTER, &filter, sizeof(filter))) {

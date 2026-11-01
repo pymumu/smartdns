@@ -647,19 +647,23 @@ errout:
 }
 
 #ifdef TEST
+/* Recorded per dns_server_init: a server forked after an in-process run must not inherit it. */
+static pid_t test_parent_pid;
+
+static void _dns_server_record_parent(void)
+{
+	test_parent_pid = getppid();
+}
+
 static void _dns_server_check_need_exit(void)
 {
-	static int parent_pid = 0;
-	if (parent_pid == 0) {
-		parent_pid = getppid();
-	}
-
-	if (parent_pid != getppid()) {
+	if (test_parent_pid != getppid()) {
 		tlog(TLOG_WARN, "parent process exit, exit too.");
 		dns_server_stop();
 	}
 }
 #else
+#define _dns_server_record_parent()
 #define _dns_server_check_need_exit()
 #endif
 
@@ -871,7 +875,7 @@ int dns_server_init(void)
 	int epollfd = -1;
 	int ret = -1;
 
-	_dns_server_check_need_exit();
+	_dns_server_record_parent();
 
 	if (is_server_init == 1) {
 		return -1;
@@ -920,6 +924,7 @@ int dns_server_init(void)
 		goto errout;
 	}
 
+	_dns_server_ipv6_check_conf_init();
 	dns_server_check_ipv6_ready();
 	tlog(TLOG_INFO, "%s",
 		 (is_ipv6_ready) ? "IPV6 is ready, enable IPV6 features"
