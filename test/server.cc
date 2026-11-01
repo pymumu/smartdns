@@ -392,6 +392,10 @@ cache-persist no
 			return false;
 		}
 	} else if (mode_ == CREATE_MODE_THREAD) {
+		sigaction(SIGINT, nullptr, &saved_sigint_);
+		sigaction(SIGTERM, nullptr, &saved_sigterm_);
+		sigaction(SIGPIPE, nullptr, &saved_sigpipe_);
+		signals_saved_ = true;
 		thread_ = std::thread([&]() {
 			std::vector<std::string> args = {"smartdns", "-f", "-x", "-c", conf_file_, "-p", "-", "-S"};
 			char *argv[args.size() + 1];
@@ -433,6 +437,13 @@ void Server::Stop(bool graceful)
 	if (thread_.joinable()) {
 		dns_server_stop();
 		thread_.join();
+	}
+
+	if (signals_saved_) {
+		sigaction(SIGINT, &saved_sigint_, nullptr);
+		sigaction(SIGTERM, &saved_sigterm_, nullptr);
+		sigaction(SIGPIPE, &saved_sigpipe_, nullptr);
+		signals_saved_ = false;
 	}
 
 	if (pid_ > 0) {

@@ -26,6 +26,7 @@
 #include "gtest/gtest.h"
 #include <map>
 #include <mutex>
+#include <signal.h>
 
 class QtypeSOA : public ::testing::Test
 {
@@ -314,6 +315,11 @@ TEST_F(QtypeSOA, BlockedStatusOnlyForBlockingSOA)
 	smartdns::TempFile hosts_file;
 	struct smartdns_operations ops = {};
 
+	struct sigaction old_sigint;
+	struct sigaction old_sigterm;
+	sigaction(SIGINT, nullptr, &old_sigint);
+	sigaction(SIGTERM, nullptr, &old_sigterm);
+
 	ops.server_query_complete = BlockedQueryComplete;
 	hosts_file.Write("1.2.3.4 hosts.com\n");
 
@@ -350,4 +356,12 @@ hosts-file )""" + hosts_file.GetPath() + "\n");
 	EXPECT_EQ(blocked_result["a.com 16"], 1);
 	EXPECT_EQ(blocked_result["b.com 65"], 1);
 	EXPECT_EQ(dns_stats_request_blocked_get() - blocked_before, 2);
+
+	/* the in-process server must hand Ctrl+C / SIGTERM back to the test binary */
+	server.Stop();
+	struct sigaction cur;
+	sigaction(SIGINT, nullptr, &cur);
+	EXPECT_EQ((void *)cur.sa_handler, (void *)old_sigint.sa_handler);
+	sigaction(SIGTERM, nullptr, &cur);
+	EXPECT_EQ((void *)cur.sa_handler, (void *)old_sigterm.sa_handler);
 }
