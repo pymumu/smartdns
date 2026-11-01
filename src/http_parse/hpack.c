@@ -518,19 +518,14 @@ static int hpack_decode_huffman(const uint8_t *src, size_t src_len, uint8_t *dst
 			}
 
 			if (!found) {
-				/* No match found - might need more bits or it's padding */
-				if (i == src_len - 1) {
-					/* Last byte - remaining bits should be padding (all 1s) */
-					uint32_t padding_mask = (1U << nbits) - 1;
-					uint32_t remaining = (uint32_t)(bits & padding_mask);
-					if (remaining == padding_mask) {
-						/* Valid padding */
-						return dst_pos;
-					}
-				}
 				break; /* Need more bits */
 			}
 		}
+	}
+
+	/* RFC 7541 5.2: padding is at most 7 bits and must be the EOS prefix (all 1s) */
+	if (nbits > 7 || bits != (((uint64_t)1 << nbits) - 1)) {
+		return -1;
 	}
 
 	return dst_pos;

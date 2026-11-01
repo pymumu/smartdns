@@ -127,6 +127,15 @@ static int HpackCountHeader(void *ctx, const char *name, const char *value)
 	return 0;
 }
 
+static int HpackExpectHuffmanHeader(void *ctx, const char *name, const char *value)
+{
+	int *count = (int *)ctx;
+	EXPECT_STREQ(name, "x");
+	EXPECT_STREQ(value, "www.example.com");
+	(*count)++;
+	return 0;
+}
+
 static int HpackExpectUafHeader(void *ctx, const char *name, const char *value)
 {
 	int *count = (int *)ctx;
@@ -134,6 +143,40 @@ static int HpackExpectUafHeader(void *ctx, const char *name, const char *value)
 	EXPECT_STREQ(value, "two");
 	(*count)++;
 	return 0;
+}
+
+TEST_F(LIBHTTP2, HpackDecodesHuffmanString)
+{
+	struct hpack_context hpack;
+	/* RFC 7541 C.4.1 Huffman encoding of "www.example.com" */
+	const uint8_t block[] = {0x00, 0x01, 'x',  0x8c, 0xf1, 0xe3, 0xc2, 0xe5,
+							 0xf2, 0x3a, 0x6b, 0xa0, 0xab, 0x90, 0xf4, 0xff};
+	int count = 0;
+
+	hpack_init_context(&hpack);
+	EXPECT_EQ(hpack_decode_headers(&hpack, block, sizeof(block), HpackExpectHuffmanHeader, &count), 0);
+	EXPECT_EQ(count, 1);
+	hpack_free_context(&hpack);
+}
+
+TEST_F(LIBHTTP2, HpackRejectsInvalidHuffmanPadding)
+{
+	/* 'a' is 00011; padding must be at most 7 bits of 1s */
+	const uint8_t valid_block[] = {0x00, 0x01, 'x', 0x81, 0x1f};
+	const uint8_t zero_padding_block[] = {0x00, 0x01, 'x', 0x81, 0x18};
+	const uint8_t long_padding_block[] = {0x00, 0x01, 'x', 0x82, 0x1f, 0xff};
+	struct hpack_context hpack;
+	int count = 0;
+
+	hpack_init_context(&hpack);
+	EXPECT_EQ(hpack_decode_headers(&hpack, valid_block, sizeof(valid_block), HpackCountHeader, &count), 0);
+	EXPECT_EQ(count, 1);
+	EXPECT_LT(hpack_decode_headers(&hpack, zero_padding_block, sizeof(zero_padding_block), HpackCountHeader, &count),
+			  0);
+	EXPECT_LT(hpack_decode_headers(&hpack, long_padding_block, sizeof(long_padding_block), HpackCountHeader, &count),
+			  0);
+	EXPECT_EQ(count, 1);
+	hpack_free_context(&hpack);
 }
 
 TEST_F(LIBHTTP2, HpackRejectsOverflowingLiteralStringLength)
