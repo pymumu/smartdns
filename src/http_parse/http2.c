@@ -157,6 +157,7 @@ struct http2_ctx {
 
 	/* Connection state */
 	int status; /* 0: connected, <0: error code */
+	int io_closed; /* set by http2_ctx_disconnect, no more bio calls */
 	int handshake_complete;
 	int settings_received;
 	int preface_received; /* Server: has received client preface */
@@ -1632,6 +1633,10 @@ static int _http2_process_frames(struct http2_ctx *ctx)
 		return -1;
 	}
 
+	if (ctx->io_closed) {
+		return ctx->status;
+	}
+
 	ctx->want_read = 0;
 
 	/* Server: verify connection preface */
@@ -2535,6 +2540,13 @@ int http2_stream_write_body(struct http2_stream *stream, const uint8_t *data, in
 	}
 	pthread_mutex_lock(&ctx->mutex);
 
+	if (ctx->status < 0) {
+		/* closed or disconnected: data could never be sent */
+		pthread_mutex_unlock(&ctx->mutex);
+		errno = ECONNRESET;
+		return -1;
+	}
+
 	if (_http2_stream_has_pending_send(stream)) {
 		if (_http2_stream_queue_send_body(stream, data, len, end_stream) != 0) {
 			pthread_mutex_unlock(&ctx->mutex);
@@ -2991,6 +3003,22 @@ int http2_ctx_want_write(struct http2_ctx *ctx)
 	pthread_mutex_unlock(&ctx->mutex);
 
 	return want_write;
+}
+
+void http2_ctx_disconnect(struct http2_ctx *ctx)
+{
+	if (!ctx) {
+		return;
+	}
+
+	pthread_mutex_lock(&ctx->mutex);
+	ctx->io_closed = 1;
+	if (ctx->status >= 0) {
+		ctx->status = HTTP2_ERR_EOF;
+	}
+	ctx->want_read = 0;
+	ctx->want_write = 0;
+	pthread_mutex_unlock(&ctx->mutex);
 }
 
 int http2_ctx_is_closed(struct http2_ctx *ctx)

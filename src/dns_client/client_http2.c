@@ -632,26 +632,32 @@ static int _dns_client_http2_init_ctx(struct dns_server_info *server_info)
 		return 0;
 	}
 
-	pthread_mutex_lock(&server_info->lock);
-	if (server_info->http2_ctx == NULL) {
-		http2_ctx = http2_ctx_client_new(https_flag->httphost, _http2_bio_read, _http2_bio_write, server_info, NULL);
-		if (http2_ctx == NULL) {
-			pthread_mutex_unlock(&server_info->lock);
-			tlog(TLOG_ERROR, "init http2 context failed.");
-			return -1;
-		}
-		server_info->http2_ctx = http2_ctx;
-		/* server_info now owns the context (refcount=1 from _new) */
-		pthread_mutex_unlock(&server_info->lock);
+	/*
+	 * Created outside server_info->lock: creating sends the preface, which takes the
+	 * context mutex and then server_info->lock in the bio callback. Only the client
+	 * thread creates the context, so there is no creation race.
+	 */
+	http2_ctx = http2_ctx_client_new(https_flag->httphost, _http2_bio_read, _http2_bio_write, server_info, NULL);
+	if (http2_ctx == NULL) {
+		tlog(TLOG_ERROR, "init http2 context failed.");
+		return -1;
+	}
 
-		/* Perform HTTP/2 handshake */
-		ret = http2_ctx_handshake(http2_ctx);
-		if (ret < 0) {
-			tlog(TLOG_ERROR, "http2 handshake failed.");
-			return -1;
-		}
-	} else {
+	pthread_mutex_lock(&server_info->lock);
+	if (server_info->http2_ctx != NULL) {
 		pthread_mutex_unlock(&server_info->lock);
+		http2_ctx_put(http2_ctx);
+		return 0;
+	}
+	/* server_info now owns the context (refcount=1 from _new) */
+	server_info->http2_ctx = http2_ctx;
+	pthread_mutex_unlock(&server_info->lock);
+
+	/* Perform HTTP/2 handshake */
+	ret = http2_ctx_handshake(http2_ctx);
+	if (ret < 0) {
+		tlog(TLOG_ERROR, "http2 handshake failed.");
+		return -1;
 	}
 
 	return 0;

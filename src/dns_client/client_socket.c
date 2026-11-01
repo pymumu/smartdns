@@ -25,6 +25,7 @@
 #include "client_tls.h"
 #include "client_udp.h"
 #include "conn_stream.h"
+#include "smartdns/http2.h"
 
 #include <openssl/ssl.h>
 #include <sys/epoll.h>
@@ -85,9 +86,66 @@ int _dns_client_create_socket(struct dns_server_info *server_info)
 	return ret;
 }
 
+#define DNS_CLIENT_HTTP2_CLOSE_BATCH 32
+
+/*
+ * Lock order is http2_ctx->mutex -> server_info->lock: the HTTP/2 layer does its
+ * TLS I/O through bio callbacks that take server_info->lock while holding the
+ * context mutex. So closing must never take the context mutex (stream close,
+ * context release) while holding server_info->lock.
+ *
+ * Returns the context still owned by server_info (with a reference), after
+ * disconnecting it and closing all of its streams, or NULL.
+ */
+static struct http2_ctx *_dns_client_close_http2_streams(struct dns_server_info *server_info)
+{
+	struct http2_ctx *http2_ctx = NULL;
+	struct http2_stream *streams[DNS_CLIENT_HTTP2_CLOSE_BATCH];
+	struct dns_conn_stream *conn_stream = NULL;
+	int count = 0;
+	int i = 0;
+
+	pthread_mutex_lock(&server_info->lock);
+	http2_ctx = http2_ctx_get(server_info->http2_ctx);
+	pthread_mutex_unlock(&server_info->lock);
+
+	if (http2_ctx == NULL) {
+		return NULL;
+	}
+
+	/* No thread calls bio_read/bio_write for this context after this. */
+	http2_ctx_disconnect(http2_ctx);
+
+	do {
+		count = 0;
+		pthread_mutex_lock(&server_info->lock);
+		list_for_each_entry(conn_stream, &server_info->conn_stream_list, server_list)
+		{
+			if (conn_stream->http2_stream == NULL) {
+				continue;
+			}
+
+			streams[count++] = conn_stream->http2_stream;
+			conn_stream->http2_stream = NULL;
+			if (count >= DNS_CLIENT_HTTP2_CLOSE_BATCH) {
+				break;
+			}
+		}
+		pthread_mutex_unlock(&server_info->lock);
+
+		for (i = 0; i < count; i++) {
+			http2_stream_close(streams[i]);
+		}
+	} while (count == DNS_CLIENT_HTTP2_CLOSE_BATCH);
+
+	return http2_ctx;
+}
+
 void _dns_client_close_socket_ext(struct dns_server_info *server_info, int no_del_conn_list)
 {
 	dns_server_status server_status = DNS_SERVER_STATUS_DISCONNECTED;
+	struct http2_ctx *closed_http2_ctx = NULL;
+	struct http2_ctx *http2_ctx_to_put = NULL;
 
 	pthread_mutex_lock(&server_info->lock);
 	if (server_info->process_depth > 0) {
@@ -102,6 +160,29 @@ void _dns_client_close_socket_ext(struct dns_server_info *server_info, int no_de
 		server_info->close_deferred = 1;
 		pthread_mutex_unlock(&server_info->lock);
 		return;
+	}
+	pthread_mutex_unlock(&server_info->lock);
+
+again:
+	if (server_info->type == DNS_SERVER_HTTPS) {
+		closed_http2_ctx = _dns_client_close_http2_streams(server_info);
+	}
+
+	pthread_mutex_lock(&server_info->lock);
+	if (server_info->process_depth > 0) {
+		/* The poll loop was entered meanwhile, let it finish the close. */
+		server_info->close_deferred = 1;
+		pthread_mutex_unlock(&server_info->lock);
+		http2_ctx_put(closed_http2_ctx);
+		return;
+	}
+
+	if (server_info->http2_ctx != NULL && server_info->http2_ctx != closed_http2_ctx) {
+		/* Reconnected meanwhile: its streams were not closed yet, do it outside the lock. */
+		pthread_mutex_unlock(&server_info->lock);
+		http2_ctx_put(closed_http2_ctx);
+		closed_http2_ctx = NULL;
+		goto again;
 	}
 	server_status = server_info->status;
 	server_info->status = DNS_SERVER_STATUS_DISCONNECTED;
@@ -138,13 +219,9 @@ void _dns_client_close_socket_ext(struct dns_server_info *server_info, int no_de
 			struct dns_conn_stream *conn_stream = NULL;
 			struct dns_conn_stream *tmp = NULL;
 
+			/* http2 streams were closed by _dns_client_close_http2_streams() */
 			list_for_each_entry_safe(conn_stream, tmp, &server_info->conn_stream_list, server_list)
 			{
-				if (conn_stream->http2_stream) {
-					http2_stream_close(conn_stream->http2_stream);
-					conn_stream->http2_stream = NULL;
-				}
-
 				if (no_del_conn_list == 1) {
 					continue;
 				}
@@ -160,11 +237,9 @@ void _dns_client_close_socket_ext(struct dns_server_info *server_info, int no_de
 		server_info->ssl_write_len = -1;
 	}
 
-	/* Clean up HTTP/2 context (connection-level) */
-	if (server_info->http2_ctx) {
-		http2_ctx_put(server_info->http2_ctx);
-		server_info->http2_ctx = NULL;
-	}
+	/* Clean up HTTP/2 context (connection-level), released after unlock */
+	http2_ctx_to_put = server_info->http2_ctx;
+	server_info->http2_ctx = NULL;
 
 	if (server_info->bio_method) {
 		BIO_meth_free(server_info->bio_method);
@@ -190,6 +265,9 @@ void _dns_client_close_socket_ext(struct dns_server_info *server_info, int no_de
 	time(&server_info->last_recv);
 
 	pthread_mutex_unlock(&server_info->lock);
+
+	http2_ctx_put(http2_ctx_to_put);
+	http2_ctx_put(closed_http2_ctx);
 }
 
 void _dns_client_close_socket(struct dns_server_info *server_info)

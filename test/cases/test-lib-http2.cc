@@ -501,6 +501,64 @@ TEST_F(LIBHTTP2, SettingsOnNonZeroStreamFailsProtocol)
 	http2_ctx_close(ctx);
 }
 
+struct HTTP2CountingBio {
+	int fd;
+	int calls;
+};
+
+static int HTTP2CountingBioRead(void *private_data, uint8_t *buf, int len)
+{
+	auto *bio = (struct HTTP2CountingBio *)private_data;
+	bio->calls++;
+	int ret = read(bio->fd, buf, len);
+	if (ret < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+		errno = EAGAIN;
+		return -1;
+	}
+	return ret;
+}
+
+static int HTTP2CountingBioWrite(void *private_data, const uint8_t *buf, int len)
+{
+	auto *bio = (struct HTTP2CountingBio *)private_data;
+	bio->calls++;
+	int ret = write(bio->fd, buf, len);
+	if (ret < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+		errno = EAGAIN;
+		return -1;
+	}
+	return ret;
+}
+
+/* The DNS client closes a connection by disconnecting the context first; after that the
+ * HTTP/2 layer must never call the bio callbacks (they take server_info->lock). */
+TEST_F(LIBHTTP2, DisconnectStopsAllBioCalls)
+{
+	struct HTTP2CountingBio bio = {client_sock, 0};
+	struct http2_ctx *ctx = http2_ctx_client_new("test-client", HTTP2CountingBioRead, HTTP2CountingBioWrite, &bio, NULL);
+	ASSERT_NE(ctx, nullptr);
+	StartClientWithServerSettings(ctx);
+
+	struct http2_stream *stream = http2_stream_new(ctx);
+	ASSERT_NE(stream, nullptr);
+	struct http2_header_pair headers[] = {{"content-type", "application/dns-message"}, {NULL, NULL}};
+	EXPECT_EQ(http2_stream_set_request(stream, "POST", "/dns-query", NULL, headers), 0);
+	EXPECT_GT(bio.calls, 0);
+
+	http2_ctx_disconnect(ctx);
+	EXPECT_EQ(http2_ctx_is_closed(ctx), 1);
+	int calls = bio.calls;
+
+	/* incoming data, polling, writing and closing the stream (RST) must all stay off the bio */
+	WriteServerFrame(0x06, 0, 0, (const uint8_t *)"12345678", 8);
+	EXPECT_LT(http2_ctx_poll(ctx, NULL, 0, NULL), 0);
+	EXPECT_LT(http2_stream_write_body(stream, (const uint8_t *)"x", 1, 1), 0);
+	http2_stream_close(stream);
+	EXPECT_EQ(bio.calls, calls);
+
+	http2_ctx_close(ctx);
+}
+
 TEST_F(LIBHTTP2, ServerRejectsEnablePushSetting)
 {
 	struct http2_ctx *ctx = http2_ctx_server_new("test-server", bio_read, bio_write, &server_sock, NULL);
