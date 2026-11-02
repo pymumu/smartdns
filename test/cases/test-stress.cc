@@ -26,6 +26,10 @@ bool udp_dns_query(const std::string& domain, int port) {
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
     if (sock < 0) return false;
 
+    // smartdns answers within its upstream timeout; no reply in 10s means the request was dropped
+    struct timeval tv = {10, 0};
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
     struct sockaddr_in addr;
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;

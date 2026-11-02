@@ -19,6 +19,8 @@
 #ifndef _GENERIC_ATOMIC_H
 #define _GENERIC_ATOMIC_H
 
+#include <stdint.h>
+
 /**
  * Atomic type.
  */
@@ -169,6 +171,33 @@ static inline long atomic_inc_and_test(atomic_t *v)
 static inline long atomic_add_negative(long i, atomic_t *v)
 {
 	return (__atomic_add_fetch(&v->counter, i, __ATOMIC_SEQ_CST) < 0);
+}
+
+/*
+ * 32-bit counter for size-critical structs (atomic_t is a long).
+ */
+typedef struct {
+	uint32_t counter;
+} atomic32_t;
+
+static inline uint32_t atomic32_read(const atomic32_t *v)
+{
+	return __atomic_load_n(&v->counter, __ATOMIC_SEQ_CST);
+}
+
+static inline void atomic32_set(atomic32_t *v, uint32_t i)
+{
+	__atomic_store_n(&v->counter, i, __ATOMIC_SEQ_CST);
+}
+
+static inline void atomic32_inc(atomic32_t *v)
+{
+	__atomic_add_fetch(&v->counter, 1, __ATOMIC_SEQ_CST);
+}
+
+static inline int atomic32_dec_and_test(atomic32_t *v)
+{
+	return !(__atomic_sub_fetch(&v->counter, 1, __ATOMIC_SEQ_CST));
 }
 
 #endif

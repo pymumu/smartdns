@@ -190,27 +190,11 @@ static int _config_domain_rule_iter_copy(void *data, const unsigned char *key, u
 {
 	art_tree *dest_tree = data;
 	struct dns_domain_rule *old_domain_rule = NULL;
-	struct dns_domain_rule *new_domain_rule = NULL;
+	struct dns_domain_rule *domain_rule = (struct dns_domain_rule *)value;
 
-	old_domain_rule = (struct dns_domain_rule *)value;
-
-	/* Allocate new domain rule with same capacity as original */
-	size_t size = sizeof(struct dns_domain_rule) + old_domain_rule->capacity * sizeof(struct dns_rule *);
-	new_domain_rule = zalloc(1, size);
-	if (new_domain_rule == NULL) {
-		return -1;
-	}
-	new_domain_rule->capacity = old_domain_rule->capacity;
-
-	/* Copy rules using actual capacity, not DOMAIN_RULE_MAX */
-	for (int i = 0; i < old_domain_rule->capacity; i++) {
-		if (old_domain_rule->rules[i]) {
-			_dns_rule_get(old_domain_rule->rules[i]);
-			new_domain_rule->rules[i] = old_domain_rule->rules[i];
-		}
-	}
-
-	old_domain_rule = art_insert(dest_tree, key, key_len, new_domain_rule);
+	/* Share the inherited rule; changes in the new group copy it first (copy-on-write). */
+	atomic32_inc(&domain_rule->refcnt);
+	old_domain_rule = art_insert(dest_tree, key, key_len, domain_rule);
 	if (old_domain_rule) {
 		_config_domain_rule_free(old_domain_rule);
 	}

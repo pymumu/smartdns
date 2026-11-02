@@ -32,37 +32,28 @@ int dns_is_ipv6_ready(void)
 	return is_ipv6_ready;
 }
 
-void dns_server_check_ipv6_ready(void)
+/* Refreshed by every dns_server_init(): an earlier run in the same process must not leak in. */
+static int is_icmp_check_set;
+static int is_tcp_check_set;
+static int is_tcp_syn_check_set;
+
+void _dns_server_ipv6_check_conf_init(void)
 {
-	static int do_get_conf = 0;
-	static int is_icmp_check_set;
-	static int is_tcp_check_set;
-	static int is_tcp_syn_check_set;
+	is_icmp_check_set = dns_conf.has_icmp_check == 1;
+	is_tcp_check_set = dns_conf.has_tcp_check == 1;
+	is_tcp_syn_check_set = dns_conf.has_tcp_syn_check == 1;
 
-	if (do_get_conf == 0) {
-		if (dns_conf.has_icmp_check == 1) {
-			is_icmp_check_set = 1;
-		}
-
-		if (dns_conf.has_tcp_check == 1) {
-			is_tcp_check_set = 1;
-		}
-
-		if (dns_conf.has_tcp_syn_check == 1) {
-			is_tcp_syn_check_set = 1;
-		}
-
-		if (is_icmp_check_set == 0) {
-			tlog(TLOG_INFO, "ICMP ping is disabled, no ipv6 icmp check feature");
-		}
-
-		if (is_tcp_syn_check_set == 0) {
-			tlog(TLOG_INFO, "TCP-SYN ping is disabled, no ipv6 tcp-syn check feature");
-		}
-
-		do_get_conf = 1;
+	if (is_icmp_check_set == 0) {
+		tlog(TLOG_INFO, "ICMP ping is disabled, no ipv6 icmp check feature");
 	}
 
+	if (is_tcp_syn_check_set == 0) {
+		tlog(TLOG_INFO, "TCP-SYN ping is disabled, no ipv6 tcp-syn check feature");
+	}
+}
+
+void dns_server_check_ipv6_ready(void)
+{
 	if (is_icmp_check_set) {
 		struct ping_host_struct *check_ping = fast_ping_start(PING_TYPE_ICMP, "2001::", 1, 0, 100, NULL, NULL);
 		if (check_ping) {

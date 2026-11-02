@@ -127,6 +127,15 @@ static int HpackCountHeader(void *ctx, const char *name, const char *value)
 	return 0;
 }
 
+static int HpackExpectHuffmanHeader(void *ctx, const char *name, const char *value)
+{
+	int *count = (int *)ctx;
+	EXPECT_STREQ(name, "x");
+	EXPECT_STREQ(value, "www.example.com");
+	(*count)++;
+	return 0;
+}
+
 static int HpackExpectUafHeader(void *ctx, const char *name, const char *value)
 {
 	int *count = (int *)ctx;
@@ -134,6 +143,82 @@ static int HpackExpectUafHeader(void *ctx, const char *name, const char *value)
 	EXPECT_STREQ(value, "two");
 	(*count)++;
 	return 0;
+}
+
+TEST_F(LIBHTTP2, HpackDecodesHuffmanString)
+{
+	struct hpack_context hpack;
+	/* RFC 7541 C.4.1 Huffman encoding of "www.example.com" */
+	const uint8_t block[] = {0x00, 0x01, 'x',  0x8c, 0xf1, 0xe3, 0xc2, 0xe5,
+							 0xf2, 0x3a, 0x6b, 0xa0, 0xab, 0x90, 0xf4, 0xff};
+	int count = 0;
+
+	hpack_init_context(&hpack);
+	EXPECT_EQ(hpack_decode_headers(&hpack, block, sizeof(block), HpackExpectHuffmanHeader, &count), 0);
+	EXPECT_EQ(count, 1);
+	hpack_free_context(&hpack);
+}
+
+TEST_F(LIBHTTP2, HpackRejectsInvalidHuffmanPadding)
+{
+	/* 'a' is 00011; padding must be at most 7 bits of 1s */
+	const uint8_t valid_block[] = {0x00, 0x01, 'x', 0x81, 0x1f};
+	const uint8_t zero_padding_block[] = {0x00, 0x01, 'x', 0x81, 0x18};
+	const uint8_t long_padding_block[] = {0x00, 0x01, 'x', 0x82, 0x1f, 0xff};
+	struct hpack_context hpack;
+	int count = 0;
+
+	hpack_init_context(&hpack);
+	EXPECT_EQ(hpack_decode_headers(&hpack, valid_block, sizeof(valid_block), HpackCountHeader, &count), 0);
+	EXPECT_EQ(count, 1);
+	EXPECT_LT(hpack_decode_headers(&hpack, zero_padding_block, sizeof(zero_padding_block), HpackCountHeader, &count),
+			  0);
+	EXPECT_LT(hpack_decode_headers(&hpack, long_padding_block, sizeof(long_padding_block), HpackCountHeader, &count),
+			  0);
+	EXPECT_EQ(count, 1);
+	hpack_free_context(&hpack);
+}
+
+TEST_F(LIBHTTP2, HpackRejectsOverflowingLiteralStringLength)
+{
+	struct hpack_context hpack;
+	const uint8_t invalid_block[] = {
+		0x00, 0x7f, 0x80, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01
+	};
+	int count = 0;
+
+	hpack_init_context(&hpack);
+	EXPECT_LT(hpack_decode_headers(&hpack, invalid_block, sizeof(invalid_block), HpackCountHeader, &count), 0);
+	EXPECT_EQ(count, 0);
+	hpack_free_context(&hpack);
+}
+
+TEST_F(LIBHTTP2, HpackRejectsOverflowingHuffmanStringLength)
+{
+	struct hpack_context hpack;
+	const uint8_t invalid_block[] = {
+		0x00, 0xff, 0x80, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01
+	};
+	int count = 0;
+
+	hpack_init_context(&hpack);
+	EXPECT_LT(hpack_decode_headers(&hpack, invalid_block, sizeof(invalid_block), HpackCountHeader, &count), 0);
+	EXPECT_EQ(count, 0);
+	hpack_free_context(&hpack);
+}
+
+TEST_F(LIBHTTP2, HpackRejectsDynamicTableSizeAboveLimit)
+{
+	struct hpack_context hpack;
+	const uint8_t at_limit[] = {0x3f, 0xe1, 0xff, 0x03};    /* size update to 65536 */
+	const uint8_t above_limit[] = {0x3f, 0xe2, 0xff, 0x03}; /* size update to 65537 */
+	int count = 0;
+
+	hpack_init_context(&hpack);
+	EXPECT_EQ(hpack_decode_headers(&hpack, at_limit, sizeof(at_limit), HpackCountHeader, &count), 0);
+	EXPECT_LT(hpack_decode_headers(&hpack, above_limit, sizeof(above_limit), HpackCountHeader, &count), 0);
+	EXPECT_EQ(hpack.max_dynamic_table_size, (size_t)HPACK_MAX_DYNAMIC_TABLE_SIZE);
+	hpack_free_context(&hpack);
 }
 
 TEST_F(LIBHTTP2, HpackDynamicTableSizeUpdateMustPrecedeHeaders)
@@ -426,6 +511,64 @@ TEST_F(LIBHTTP2, SettingsOnNonZeroStreamFailsProtocol)
 
 	WriteServerFrame(0x04, 0, 1, NULL, 0);
 	EXPECT_EQ(http2_ctx_poll(ctx, NULL, 0, NULL), HTTP2_ERR_PROTOCOL);
+
+	http2_ctx_close(ctx);
+}
+
+struct HTTP2CountingBio {
+	int fd;
+	int calls;
+};
+
+static int HTTP2CountingBioRead(void *private_data, uint8_t *buf, int len)
+{
+	auto *bio = (struct HTTP2CountingBio *)private_data;
+	bio->calls++;
+	int ret = read(bio->fd, buf, len);
+	if (ret < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+		errno = EAGAIN;
+		return -1;
+	}
+	return ret;
+}
+
+static int HTTP2CountingBioWrite(void *private_data, const uint8_t *buf, int len)
+{
+	auto *bio = (struct HTTP2CountingBio *)private_data;
+	bio->calls++;
+	int ret = write(bio->fd, buf, len);
+	if (ret < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+		errno = EAGAIN;
+		return -1;
+	}
+	return ret;
+}
+
+/* The DNS client closes a connection by disconnecting the context first; after that the
+ * HTTP/2 layer must never call the bio callbacks (they take server_info->lock). */
+TEST_F(LIBHTTP2, DisconnectStopsAllBioCalls)
+{
+	struct HTTP2CountingBio bio = {client_sock, 0};
+	struct http2_ctx *ctx = http2_ctx_client_new("test-client", HTTP2CountingBioRead, HTTP2CountingBioWrite, &bio, NULL);
+	ASSERT_NE(ctx, nullptr);
+	StartClientWithServerSettings(ctx);
+
+	struct http2_stream *stream = http2_stream_new(ctx);
+	ASSERT_NE(stream, nullptr);
+	struct http2_header_pair headers[] = {{"content-type", "application/dns-message"}, {NULL, NULL}};
+	EXPECT_EQ(http2_stream_set_request(stream, "POST", "/dns-query", NULL, headers), 0);
+	EXPECT_GT(bio.calls, 0);
+
+	http2_ctx_disconnect(ctx);
+	EXPECT_EQ(http2_ctx_is_closed(ctx), 1);
+	int calls = bio.calls;
+
+	/* incoming data, polling, writing and closing the stream (RST) must all stay off the bio */
+	WriteServerFrame(0x06, 0, 0, (const uint8_t *)"12345678", 8);
+	EXPECT_LT(http2_ctx_poll(ctx, NULL, 0, NULL), 0);
+	EXPECT_LT(http2_stream_write_body(stream, (const uint8_t *)"x", 1, 1), 0);
+	http2_stream_close(stream);
+	EXPECT_EQ(bio.calls, calls);
 
 	http2_ctx_close(ctx);
 }

@@ -335,7 +335,10 @@ SSL_CTX *_ssl_ctx_get(int is_quic)
 	}
 #else
 	if (is_quic) {
-		return NULL;
+		/* QUIC is not available in this OpenSSL build; go through the
+		 * unified error path so server_list_lock is released and NULL is
+		 * returned consistently. */
+		goto errout;
 	}
 	*ssl_ctx = SSL_CTX_new(TLS_client_method());
 #endif
@@ -1129,6 +1132,8 @@ int _dns_client_process_tls(struct dns_server_info *server_info, struct epoll_ev
 		/* Detect negotiated ALPN protocol */
 		const unsigned char *alpn_data = NULL;
 		unsigned int alpn_len = 0;
+		/* alpn_selected and status are read by query senders on other threads */
+		pthread_mutex_lock(&server_info->lock);
 		SSL_get0_alpn_selected(server_info->ssl, &alpn_data, &alpn_len);
 		if (alpn_data && alpn_len > 0 && alpn_len < sizeof(server_info->alpn_selected)) {
 			memcpy(server_info->alpn_selected, alpn_data, alpn_len);
@@ -1139,6 +1144,7 @@ int _dns_client_process_tls(struct dns_server_info *server_info, struct epoll_ev
 		}
 
 		server_info->status = DNS_SERVER_STATUS_CONNECTED;
+		pthread_mutex_unlock(&server_info->lock);
 		memset(&fd_event, 0, sizeof(fd_event));
 		fd_event.events = EPOLLIN | EPOLLOUT;
 		fd_event.data.ptr = server_info;

@@ -742,6 +742,8 @@ static int _smartdns_run(void)
 static void _smartdns_exit(void)
 {
 	_smartdns_plugin_exit();
+	/* Stop cache timers first so no expiry callback runs while client/server are being freed. */
+	dns_timer_stop();
 	/* Client and ping cleanup may complete server requests. Keep server/cache alive until both are drained. */
 	dns_client_exit();
 	fast_ping_exit();

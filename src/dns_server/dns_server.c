@@ -180,6 +180,19 @@ static int dns_server_resolve_callback(const char *domain, dns_result_type rtype
 				request->has_ptr = 0;
 				request->ping_time = -1;
 				request->ip_ttl = 0;
+				/* Clear ip_map so subsequent _dns_server_process_answer() can initiate speed-checks */
+				struct dns_ip_address *addr_map = NULL;
+				struct hlist_node *tmp = NULL;
+				unsigned long bucket = 0;
+
+				pthread_mutex_lock(&request->ip_map_lock);
+				hash_for_each_safe(request->ip_map, bucket, tmp, addr_map, node)
+				{
+					hash_del(&addr_map->node);
+					free(addr_map);
+				}
+				atomic_set(&request->ip_map_num, 0);
+				pthread_mutex_unlock(&request->ip_map_lock);
 			}
 		}
 
@@ -647,19 +660,23 @@ errout:
 }
 
 #ifdef TEST
+/* Recorded per dns_server_init: a server forked after an in-process run must not inherit it. */
+static pid_t test_parent_pid;
+
+static void _dns_server_record_parent(void)
+{
+	test_parent_pid = getppid();
+}
+
 static void _dns_server_check_need_exit(void)
 {
-	static int parent_pid = 0;
-	if (parent_pid == 0) {
-		parent_pid = getppid();
-	}
-
-	if (parent_pid != getppid()) {
+	if (test_parent_pid != getppid()) {
 		tlog(TLOG_WARN, "parent process exit, exit too.");
 		dns_server_stop();
 	}
 }
 #else
+#define _dns_server_record_parent()
 #define _dns_server_check_need_exit()
 #endif
 
@@ -871,7 +888,7 @@ int dns_server_init(void)
 	int epollfd = -1;
 	int ret = -1;
 
-	_dns_server_check_need_exit();
+	_dns_server_record_parent();
 
 	if (is_server_init == 1) {
 		return -1;
@@ -920,6 +937,7 @@ int dns_server_init(void)
 		goto errout;
 	}
 
+	_dns_server_ipv6_check_conf_init();
 	dns_server_check_ipv6_ready();
 	tlog(TLOG_INFO, "%s",
 		 (is_ipv6_ready) ? "IPV6 is ready, enable IPV6 features"

@@ -41,6 +41,19 @@ void _dns_client_close_socket_ext(struct dns_server_info *server_info, int no_de
 
 void _dns_client_shutdown_socket(struct dns_server_info *server_info);
 
+/*
+ * Re-entrancy guard around the HTTP/2 and QUIC poll-and-dispatch loops.
+ * Call _dns_client_process_guard_enter() before iterating conn_stream_list /
+ * polling the connection, and _dns_client_process_guard_leave() when done.
+ * While the guard is held, _dns_client_close_socket()/_ext() defer the
+ * actual teardown instead of freeing state the loop is still using; the
+ * deferred close is executed by _dns_client_process_guard_leave() once the
+ * outermost guard exits.
+ */
+void _dns_client_process_guard_enter(struct dns_server_info *server_info);
+
+void _dns_client_process_guard_leave(struct dns_server_info *server_info);
+
 #ifdef __cplusplus
 }
 #endif /*__cplusplus */

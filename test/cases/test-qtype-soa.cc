@@ -20,7 +20,13 @@
 #include "smartdns/dns.h"
 #include "include/utils.h"
 #include "server.h"
+#include "smartdns/dns_plugin.h"
+#include "smartdns/dns_server.h"
+#include "smartdns/dns_stats.h"
 #include "gtest/gtest.h"
+#include <map>
+#include <mutex>
+#include <signal.h>
 
 class QtypeSOA : public ::testing::Test
 {
@@ -289,4 +295,73 @@ cache-persist no)""");
 	EXPECT_EQ(client.GetAuthority()[0].GetName(), "a.com");
 	EXPECT_EQ(client.GetAuthority()[0].GetTTL(), 30);
 	EXPECT_EQ(client.GetAuthority()[0].GetType(), "SOA");
+}
+
+static std::mutex blocked_lock;
+static std::map<std::string, int> blocked_result;
+
+static void BlockedQueryComplete(struct dns_request *request)
+{
+	std::string key = std::string(dns_server_request_get_domain(request)) + " " +
+					  std::to_string(dns_server_request_get_qtype(request));
+	std::lock_guard<std::mutex> lock(blocked_lock);
+	blocked_result[key] = dns_server_request_is_blocked(request);
+}
+
+TEST_F(QtypeSOA, BlockedStatusOnlyForBlockingSOA)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::Server server(smartdns::Server::CREATE_MODE_THREAD);
+	smartdns::TempFile hosts_file;
+	struct smartdns_operations ops = {};
+
+	struct sigaction old_sigint;
+	struct sigaction old_sigterm;
+	sigaction(SIGINT, nullptr, &old_sigint);
+	sigaction(SIGTERM, nullptr, &old_sigterm);
+
+	ops.server_query_complete = BlockedQueryComplete;
+	hosts_file.Write("1.2.3.4 hosts.com\n");
+
+	server_upstream.Start("udp://0.0.0.0:61053", [](struct smartdns::ServerRequestContext *request) {
+		return smartdns::SERVER_REQUEST_SOA;
+	});
+
+	server.Start(R"""(bind [::]:60053
+bind [::]:60153 -force-https-soa
+server 127.0.0.1:61053
+force-qtype-SOA 16
+speed-check-mode none
+hosts-file )""" + hosts_file.GetPath() + "\n");
+	ASSERT_EQ(dns_server_plugin_init(), 0);
+	ASSERT_EQ(smartdns_operations_register(&ops), 0);
+	uint64_t blocked_before = dns_stats_request_blocked_get();
+
+	smartdns::Client client;
+	/* IPv4-only hosts entry: AAAA gets SOA, not a block */
+	ASSERT_TRUE(client.Query("hosts.com AAAA", 60053));
+	ASSERT_EQ(client.GetAuthorityNum(), 1);
+	EXPECT_EQ(client.GetAuthority()[0].GetType(), "SOA");
+	ASSERT_TRUE(client.Query("a.com TXT", 60053));
+	ASSERT_EQ(client.GetAuthorityNum(), 1);
+	EXPECT_EQ(client.GetAuthority()[0].GetType(), "SOA");
+	ASSERT_TRUE(client.Query("b.com HTTPS", 60153));
+	ASSERT_EQ(client.GetAuthorityNum(), 1);
+	EXPECT_EQ(client.GetAuthority()[0].GetType(), "SOA");
+
+	smartdns_operations_unregister(&ops);
+	std::lock_guard<std::mutex> lock(blocked_lock);
+	ASSERT_EQ(blocked_result.size(), 3);
+	EXPECT_EQ(blocked_result["hosts.com 28"], 0);
+	EXPECT_EQ(blocked_result["a.com 16"], 1);
+	EXPECT_EQ(blocked_result["b.com 65"], 1);
+	EXPECT_EQ(dns_stats_request_blocked_get() - blocked_before, 2);
+
+	/* the in-process server must hand Ctrl+C / SIGTERM back to the test binary */
+	server.Stop();
+	struct sigaction cur;
+	sigaction(SIGINT, nullptr, &cur);
+	EXPECT_EQ((void *)cur.sa_handler, (void *)old_sigint.sa_handler);
+	sigaction(SIGTERM, nullptr, &cur);
+	EXPECT_EQ((void *)cur.sa_handler, (void *)old_sigterm.sa_handler);
 }

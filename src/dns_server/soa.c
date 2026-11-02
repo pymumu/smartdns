@@ -143,6 +143,8 @@ int _dns_server_qtype_soa(struct dns_request *request)
 		}
 	}
 
+	stats_inc(&dns_stats.request.blocked_count);
+	request->force_soa = 1;
 	_dns_server_reply_SOA(DNS_RC_NOERROR, request);
 	tlog(TLOG_DEBUG, "force qtype %d soa", request->qtype);
 	return 0;

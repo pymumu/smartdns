@@ -46,7 +46,7 @@ tokio-tungstenite = "0.23.1"
 tempfile = "3.27.0"
 
 [build-dependencies]
-bindgen = "0.69.5"
+bindgen = "0.72.1"
 
 [profile.release-optmize-size]
 inherits = "release"

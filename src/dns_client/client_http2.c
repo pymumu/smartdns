@@ -551,14 +551,20 @@ int _dns_client_send_http2(struct dns_server_info *server_info, struct dns_query
 	}
 	stream->type = DNS_SERVER_HTTPS;
 
+	/* status/http2_ctx are changed by the client thread, snapshot them under the lock */
+	pthread_mutex_lock(&server_info->lock);
+	int is_connected = server_info->status == DNS_SERVER_STATUS_CONNECTED;
+	int has_http2_ctx = server_info->http2_ctx != NULL;
+	pthread_mutex_unlock(&server_info->lock);
+
 	/* If not connected, buffer the data and return */
-	if (server_info->status != DNS_SERVER_STATUS_CONNECTED) {
+	if (!is_connected) {
 		ret = _dns_client_http2_pending_data(stream, server_info, query, packet, len, EPOLLIN | EPOLLOUT);
 		goto out;
 	}
 
 	/* If connected but context not ready, buffer it too (will be flushed in process_http2) */
-	if (server_info->http2_ctx == NULL) {
+	if (!has_http2_ctx) {
 		ret = _dns_client_http2_pending_data(stream, server_info, query, packet, len, EPOLLIN | EPOLLOUT);
 		goto out;
 	}
@@ -632,26 +638,32 @@ static int _dns_client_http2_init_ctx(struct dns_server_info *server_info)
 		return 0;
 	}
 
-	pthread_mutex_lock(&server_info->lock);
-	if (server_info->http2_ctx == NULL) {
-		http2_ctx = http2_ctx_client_new(https_flag->httphost, _http2_bio_read, _http2_bio_write, server_info, NULL);
-		if (http2_ctx == NULL) {
-			pthread_mutex_unlock(&server_info->lock);
-			tlog(TLOG_ERROR, "init http2 context failed.");
-			return -1;
-		}
-		server_info->http2_ctx = http2_ctx;
-		/* server_info now owns the context (refcount=1 from _new) */
-		pthread_mutex_unlock(&server_info->lock);
+	/*
+	 * Created outside server_info->lock: creating sends the preface, which takes the
+	 * context mutex and then server_info->lock in the bio callback. Only the client
+	 * thread creates the context, so there is no creation race.
+	 */
+	http2_ctx = http2_ctx_client_new(https_flag->httphost, _http2_bio_read, _http2_bio_write, server_info, NULL);
+	if (http2_ctx == NULL) {
+		tlog(TLOG_ERROR, "init http2 context failed.");
+		return -1;
+	}
 
-		/* Perform HTTP/2 handshake */
-		ret = http2_ctx_handshake(http2_ctx);
-		if (ret < 0) {
-			tlog(TLOG_ERROR, "http2 handshake failed.");
-			return -1;
-		}
-	} else {
+	pthread_mutex_lock(&server_info->lock);
+	if (server_info->http2_ctx != NULL) {
 		pthread_mutex_unlock(&server_info->lock);
+		http2_ctx_put(http2_ctx);
+		return 0;
+	}
+	/* server_info now owns the context (refcount=1 from _new) */
+	server_info->http2_ctx = http2_ctx;
+	pthread_mutex_unlock(&server_info->lock);
+
+	/* Perform HTTP/2 handshake */
+	ret = http2_ctx_handshake(http2_ctx);
+	if (ret < 0) {
+		tlog(TLOG_ERROR, "http2 handshake failed.");
+		return -1;
 	}
 
 	return 0;
@@ -849,29 +861,44 @@ static int _dns_client_http2_process_read(struct dns_server_info *server_info)
 
 int _dns_client_process_http2(struct dns_server_info *server_info, struct epoll_event *event, unsigned long now)
 {
+	int ret = -1;
+
 	if (server_info->http2_ctx == NULL) {
 		if (_dns_client_http2_init_ctx(server_info) < 0) {
 			return -1;
 		}
 	}
 
+	/*
+	 * Guard the whole read/write cycle: a query callback invoked from
+	 * _dns_client_http2_process_read() (via _dns_client_recv()) may request
+	 * an immediate retry, which normally closes the socket right away.
+	 * That would free server_info->ssl/http2_ctx and conn_stream_list
+	 * entries this function is still iterating/using. Defer any such close
+	 * until the guard is released below.
+	 */
+	_dns_client_process_guard_enter(server_info);
+
 	if (event->events & EPOLLOUT) {
 		if (_dns_client_http2_process_write(server_info) < 0) {
-			return -1;
+			goto out;
 		}
 	}
 
 	/* Always process read, as write might have read data (e.g. WINDOW_UPDATE),
 	   or there might be pending data in SSL/HTTP2 buffers */
 	if (_dns_client_http2_process_read(server_info) < 0) {
-		return -1;
+		goto out;
 	}
 
 	if (_dns_client_http2_has_buffered_requests(server_info)) {
 		if (_dns_client_http2_process_write(server_info) < 0) {
-			return -1;
+			goto out;
 		}
 	}
 
-	return 0;
+	ret = 0;
+out:
+	_dns_client_process_guard_leave(server_info);
+	return ret;
 }

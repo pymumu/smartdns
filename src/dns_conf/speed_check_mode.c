@@ -147,14 +147,12 @@ int _dns_conf_speed_check_mode_verify(void)
 				dns_conf.has_tcp_check = 1;
 			}
 
-			if (dns_has_raw_cap == 0) {
-				if (check_orders->orders[i].type == DOMAIN_CHECK_TCP_SYN) {
-					if (dns_has_raw_cap == 0) {
-						tcp_sync_fallback = 1;
-						check_orders->orders[i].type = DOMAIN_CHECK_TCP;
-					} else {
-						dns_conf.has_tcp_syn_check = 1;
-					}
+			if (check_orders->orders[i].type == DOMAIN_CHECK_TCP_SYN) {
+				if (dns_has_raw_cap == 0) {
+					tcp_sync_fallback = 1;
+					check_orders->orders[i].type = DOMAIN_CHECK_TCP;
+				} else {
+					dns_conf.has_tcp_syn_check = 1;
 				}
 			}
 

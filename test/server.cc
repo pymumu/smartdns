@@ -91,7 +91,8 @@ void MockServer::Run()
 			socklen_t addrlen = sizeof(from);
 			unsigned char in_buff[4096];
 			int query_id = 0;
-			int len = recvfrom(fd_, in_buff, sizeof(in_buff), 0, (struct sockaddr *)&from, &addrlen);
+			/* never block: a datagram reported by poll can still be gone, and Stop() waits for this loop */
+			int len = recvfrom(fd_, in_buff, sizeof(in_buff), MSG_DONTWAIT, (struct sockaddr *)&from, &addrlen);
 			if (len < 0) {
 				continue;
 			}
@@ -387,13 +388,19 @@ cache-persist no
 
 			smartdns_reg_post_func(Server::StartPost, this);
 			dns_ping_cap_force_enable = 1;
-			smartdns_test_main(args.size(), argv, fds[1], 0);
-			_exit(1);
+			_exit(smartdns_test_main(args.size(), argv, fds[1], 0));
 		} else if (pid < 0) {
 			return false;
 		}
 	} else if (mode_ == CREATE_MODE_THREAD) {
-		thread_ = std::thread([&]() {
+		sigaction(SIGINT, nullptr, &saved_sigint_);
+		sigaction(SIGTERM, nullptr, &saved_sigterm_);
+		sigaction(SIGPIPE, nullptr, &saved_sigpipe_);
+		signals_saved_ = true;
+		/* own copy of the notify fd: Start() closes fds[] on return, the server may still report later */
+		int notify_fd = dup(fds[1]);
+		thread_done_ = false;
+		thread_ = std::thread([this, notify_fd]() {
 			std::vector<std::string> args = {"smartdns", "-f", "-x", "-c", conf_file_, "-p", "-", "-S"};
 			char *argv[args.size() + 1];
 			for (size_t i = 0; i < args.size(); i++) {
@@ -402,8 +409,12 @@ cache-persist no
 
 			smartdns_reg_post_func(Server::StartPost, this);
 			dns_ping_cap_force_enable = 1;
-			smartdns_test_main(args.size(), argv, fds[1], 1);
+			smartdns_test_main(args.size(), argv, notify_fd, 1);
 			smartdns_reg_post_func(nullptr, nullptr);
+			if (notify_fd >= 0) {
+				close(notify_fd);
+			}
+			thread_done_ = true;
 		});
 	} else {
 		return false;
@@ -413,27 +424,46 @@ cache-persist no
 	pfd[0].fd = fds[0];
 	pfd[0].events = POLLIN;
 
-	int ret = poll(pfd, 1, 10000);
-	if (ret == 0) {
-		if (thread_.joinable()) {
-			thread_.join();
-		}
+	int ret = 0;
+	do {
+		ret = poll(pfd, 1, 10000);
+	} while (ret < 0 && errno == EINTR);
 
-		if (pid > 0) {
-			kill(pid, SIGKILL);
-		}
+	pid_ = pid;
+	if (ret <= 0) {
+		Stop(false);
 		return false;
 	}
 
-	pid_ = pid;
+	if (mode_ == CREATE_MODE_THREAD) {
+		/* 1: running, 2: init failed and smartdns_test_main is returning */
+		uint64_t notify_value = 0;
+		if (read(fds[0], &notify_value, sizeof(notify_value)) != sizeof(notify_value) || notify_value != 1) {
+			Stop(false);
+			return false;
+		}
+		return true;
+	}
+
 	return pid > 0;
 }
 
 void Server::Stop(bool graceful)
 {
 	if (thread_.joinable()) {
-		dns_server_stop();
+		/* a stop issued while the server is still starting can be overwritten, repeat until it ends */
+		while (thread_done_ == false) {
+			dns_server_stop();
+			usleep(10 * 1000);
+		}
 		thread_.join();
+	}
+
+	if (signals_saved_) {
+		sigaction(SIGINT, &saved_sigint_, nullptr);
+		sigaction(SIGTERM, &saved_sigterm_, nullptr);
+		sigaction(SIGPIPE, &saved_sigpipe_, nullptr);
+		signals_saved_ = false;
 	}
 
 	if (pid_ > 0) {
@@ -445,7 +475,10 @@ void Server::Stop(bool graceful)
 	}
 
 	if (pid_ > 0) {
-		waitpid(pid_, nullptr, 0);
+		int status = 0;
+		if (waitpid(pid_, &status, 0) == pid_) {
+			wait_status_ = status;
+		}
 	}
 
 	conf_temp_file_.Close();
@@ -459,11 +492,22 @@ bool Server::IsRunning()
 		return false;
 	}
 
-	if (waitpid(pid_, nullptr, WNOHANG) == 0) {
+	int status = 0;
+	pid_t ret = waitpid(pid_, &status, WNOHANG);
+	if (ret == 0) {
 		return true;
 	}
 
+	if (ret == pid_) {
+		wait_status_ = status;
+	}
+
 	return kill(pid_, 0) == 0;
+}
+
+int Server::GetWaitStatus()
+{
+	return wait_status_;
 }
 
 Server::~Server()

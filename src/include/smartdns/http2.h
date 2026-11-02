@@ -169,6 +169,14 @@ int http2_ctx_want_write(struct http2_ctx *ctx);
  */
 int http2_ctx_is_closed(struct http2_ctx *ctx);
 
+/**
+ * Stop all I/O on the context: bio_read/bio_write are never called again,
+ * pending frames are dropped and streams see the connection as closed.
+ * Waits for an in-progress poll/send on the context to finish.
+ * @param ctx HTTP/2 context
+ */
+void http2_ctx_disconnect(struct http2_ctx *ctx);
+
 /* Stream Management APIs */
 
 /**

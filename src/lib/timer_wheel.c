@@ -25,6 +25,7 @@
 #include <sys/select.h>
 #include <sys/time.h>
 #include <sys/types.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "smartdns/lib/timer_wheel.h"
@@ -50,6 +51,12 @@ struct tw_base {
 	pthread_spinlock_t lock;
 
 	pthread_t runner;
+	int runner_alive;
+
+	/* protects stop, wakes the runner from its sleep */
+	pthread_mutex_t stop_lock;
+	pthread_cond_t stop_cond;
+	int stop;
 
 	unsigned long jiffies;
 
@@ -216,33 +223,30 @@ unblock:
 	return ret;
 }
 
+void tw_stop_timers(struct tw_base *base)
+{
+	if (base->runner_alive == 0) {
+		return;
+	}
+
+	pthread_mutex_lock(&base->stop_lock);
+	base->stop = 1;
+	pthread_cond_signal(&base->stop_cond);
+	pthread_mutex_unlock(&base->stop_lock);
+
+	pthread_join(base->runner, NULL);
+	base->runner_alive = 0;
+}
+
 int tw_cleanup_timers(struct tw_base *base)
 {
-	int ret = 0;
-	void *res = NULL;
+	tw_stop_timers(base);
 
-	ret = pthread_cancel(base->runner);
-	if (ret != 0) {
-		goto errout;
-	}
-	ret = pthread_join(base->runner, &res);
-	if (ret != 0) {
-		goto errout;
-	}
-	if (res != PTHREAD_CANCELED) {
-		goto errout;
-	}
-
-	ret = pthread_spin_destroy(&base->lock);
-	if (ret != 0) {
-		goto errout;
-	}
-
+	pthread_cond_destroy(&base->stop_cond);
+	pthread_mutex_destroy(&base->stop_lock);
+	pthread_spin_destroy(&base->lock);
 	free(base);
 	return 0;
-
-errout:
-	return -1;
 }
 
 static inline void run_timers(struct tw_base *base)
@@ -321,7 +325,26 @@ static void *timer_work(void *arg)
 			sleep_time = 0;
 		}
 
-		usleep(sleep_time * 1000);
+		struct timespec deadline;
+		clock_gettime(CLOCK_MONOTONIC, &deadline);
+		deadline.tv_sec += sleep_time / 1000;
+		deadline.tv_nsec += (long)(sleep_time % 1000) * 1000000;
+		if (deadline.tv_nsec >= 1000000000) {
+			deadline.tv_sec++;
+			deadline.tv_nsec -= 1000000000;
+		}
+
+		pthread_mutex_lock(&base->stop_lock);
+		while (base->stop == 0) {
+			if (pthread_cond_timedwait(&base->stop_cond, &base->stop_lock, &deadline) != 0) {
+				break;
+			}
+		}
+		int stop = base->stop;
+		pthread_mutex_unlock(&base->stop_lock);
+		if (stop) {
+			break;
+		}
 	}
 
 	return NULL;
@@ -363,12 +386,26 @@ struct tw_base *tw_init_timers(void)
 	}
 	base->jiffies = tv.tv_sec;
 
-	ret = pthread_create(&base->runner, NULL, timer_work, base);
+	pthread_condattr_t cond_attr;
+	pthread_condattr_init(&cond_attr);
+	pthread_condattr_setclock(&cond_attr, CLOCK_MONOTONIC);
+	ret = pthread_cond_init(&base->stop_cond, &cond_attr);
+	pthread_condattr_destroy(&cond_attr);
 	if (ret != 0) {
 		goto errout1;
 	}
+	pthread_mutex_init(&base->stop_lock, NULL);
+
+	ret = pthread_create(&base->runner, NULL, timer_work, base);
+	if (ret != 0) {
+		goto errout0;
+	}
+	base->runner_alive = 1;
 	return base;
 
+errout0:
+	pthread_mutex_destroy(&base->stop_lock);
+	pthread_cond_destroy(&base->stop_cond);
 errout1:
 	(void)pthread_spin_destroy(&base->lock);
 errout2:

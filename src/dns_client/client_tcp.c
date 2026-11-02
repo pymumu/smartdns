@@ -374,8 +374,8 @@ int _dns_client_process_tcp(struct dns_server_info *server_info, struct epoll_ev
 		if (server_info->status == DNS_SERVER_STATUS_CONNECTING) {
 
 			int err = 0;
-			socklen_t len = sizeof(err);
-			if (getsockopt(server_info->fd, SOL_SOCKET, SO_ERROR, &err, &len) != 0 || err != 0) {
+			socklen_t err_len = sizeof(err);
+			if (getsockopt(server_info->fd, SOL_SOCKET, SO_ERROR, &err, &err_len) != 0 || err != 0) {
 				if (err != 0) {
 					errno = err;
 				}

@@ -32,7 +32,6 @@
 
 static void _fast_ping_install_filter_v4(int sock)
 {
-	static int once;
 	static struct sock_filter insns[] = {
 		BPF_STMT(BPF_LDX | BPF_B | BPF_MSH, 0),                    /* Skip IP header. F..g BSD... Look into ping6. */
 		BPF_STMT(BPF_LD | BPF_H | BPF_IND, 4),                     /* Load icmp echo ident */
@@ -46,12 +45,7 @@ static void _fast_ping_install_filter_v4(int sock)
 
 	static struct sock_fprog filter = {sizeof insns / sizeof(insns[0]), insns};
 
-	if (once) {
-		return;
-	}
-	once = 1;
-
-	/* Patch bpflet for current identifier. */
+	/* Patch bpflet for current identifier, on every new socket. */
 	insns[2] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, htons(ping.ident), 0, 1);
 
 	if (setsockopt(sock, SOL_SOCKET, SO_ATTACH_FILTER, &filter, sizeof(filter))) {

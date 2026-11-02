@@ -669,6 +669,11 @@ static int _dns_server_setup_ipset_nftset_packet(struct dns_server_post_context 
 		timeout_value = _dns_server_get_conf_ttl(request, 0) * 3;
 	}
 
+	/* expired cache answers are still replied: keep the address in the set while they may be served */
+	if (request->conf->dns_serve_expired && request->conf->dns_serve_expired_ttl > 0) {
+		timeout_value += request->conf->dns_serve_expired_ttl;
+	}
+
 	if (conf->ipset_nftset.ipset_timeout_enable) {
 		ipset_timeout_value = timeout_value;
 	}

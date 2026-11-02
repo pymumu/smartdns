@@ -419,6 +419,10 @@ int dns_server_request_is_blocked(struct dns_request *request)
 		return 0;
 	}
 
+	if (request->force_soa) {
+		return 1;
+	}
+
 	if (request->qtype == DNS_T_HTTPS || request->qtype == DNS_T_SVCB) {
 		uint32_t flags = _dns_server_get_rule_flags(request);
 		if (flags & DOMAIN_FLAG_ADDR_HTTPS_SOA) {
@@ -797,6 +801,8 @@ int _dns_server_pre_process_server_flags(struct dns_request *request)
 	}
 
 	if (request->qtype == DNS_T_HTTPS && _dns_server_has_bind_flag(request, BIND_FLAG_FORCE_HTTPS_SOA) == 0) {
+		stats_inc(&dns_stats.request.blocked_count);
+		request->force_soa = 1;
 		_dns_server_reply_SOA(DNS_RC_NOERROR, request);
 		return 0;
 	}

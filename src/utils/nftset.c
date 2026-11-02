@@ -47,6 +47,9 @@ struct nlmsgreq {
 
 enum { PAYLOAD_MAX = 2048 };
 
+/* result of the element lookup; UNKNOWN when the kernel did not answer in time */
+enum { NFTSET_IP_NOT_EXIST = 0, NFTSET_IP_EXIST, NFTSET_IP_UNKNOWN };
+
 static int nftset_fd;
 
 static int _nftset_get_nffamily_from_str(const char *family)
@@ -524,25 +527,18 @@ static int _nftset_process_setflags(uint32_t flags, const unsigned char addr[], 
 		*timeout = 0;
 	}
 
-	if ((flags & NFT_SET_INTERVAL) && addr_end != NULL) {
-		if (addr_len == 4) {
-			addr_end[0] = addr[0];
-			addr_end[1] = addr[1];
-			addr_end[2] = addr[2];
-			addr_end[3] = addr[3] + 1;
-			if (addr_end[3] == 0) {
-				return -1;
-			}
-
-			*interval_addr_len = 4;
-		} else if (addr_len == 16) {
-			memcpy(addr_end, addr, 16);
-			addr_end[15] = addr[15] + 1;
-			if (addr_end[15] == 0) {
-				return -1;
-			}
-			*interval_addr_len = 16;
+	if ((flags & NFT_SET_INTERVAL) && addr_end != NULL && (addr_len == 4 || addr_len == 16)) {
+		/* interval end is addr + 1, carried across bytes (x.x.x.255 -> x.x.(x+1).0) */
+		int i = addr_len - 1;
+		memcpy(addr_end, addr, addr_len);
+		while (i >= 0 && ++addr_end[i] == 0) {
+			i--;
 		}
+		if (i < 0) {
+			/* the last address of the family has no end */
+			return -1;
+		}
+		*interval_addr_len = addr_len;
 	} else {
 		*interval_addr = NULL;
 		*interval_addr_len = 0;
@@ -614,9 +610,9 @@ static int _nftset_test_ip_exists(int nffamily, const char *tablename, const cha
 		/* errorno=11 */
 		else if (errno == EAGAIN || errno == EWOULDBLOCK) {
 			if (dns_conf.nftset_debug_enable) {
-				tlog(TLOG_DEBUG, "nftset test ip: EAGAIN error, assuming ip exists");
+				tlog(TLOG_DEBUG, "nftset test ip: EAGAIN error, existence unknown");
 			}
-			return 1;
+			return NFTSET_IP_UNKNOWN;
 		}
 
 		if (dns_conf.nftset_debug_enable) {
@@ -636,13 +632,13 @@ static int _nftset_test_ip_exists(int nffamily, const char *tablename, const cha
 		return 0;
 	}
 
-	int ip_exists = 0;
+	int ip_exists = NFTSET_IP_NOT_EXIST;
 
 	struct nlmsghdr *nlh = (struct nlmsghdr *)result;
 
 	/* If a successful response is received, it indicates that the IP already exists */
 	if (nlh->nlmsg_type == (NFNL_SUBSYS_NFTABLES << 8 | NFT_MSG_NEWSETELEM)) {
-		ip_exists = 1;
+		ip_exists = NFTSET_IP_EXIST;
 	}
 
 	/* Received an error message */
@@ -650,7 +646,7 @@ static int _nftset_test_ip_exists(int nffamily, const char *tablename, const cha
 		struct nlmsgerr *err = (struct nlmsgerr *)NLMSG_DATA(nlh);
 
 		if (err->error == -ENOENT) {
-			ip_exists = 0;
+			ip_exists = NFTSET_IP_NOT_EXIST;
 		} else if (dns_conf.nftset_debug_enable) {
 			tlog(TLOG_DEBUG, "nftset test ip error: family=%d, table=%s, set=%s, error=%d", nffamily, tablename,
 				 setname, -err->error);
@@ -722,24 +718,6 @@ int nftset_add(const char *familyname, const char *tablename, const char *setnam
 			   int addr_len, unsigned long timeout)
 {
 	int nffamily = _nftset_get_nffamily_from_str(familyname);
-	int ip_exists = _nftset_test_ip_exists(nffamily, tablename, setname, addr, addr_len);
-
-	if (ip_exists) {
-		if (dns_conf.nftset_debug_enable) {
-			char ip_str[INET6_ADDRSTRLEN];
-			if (addr_len == 4) {
-				inet_ntop(AF_INET, addr, ip_str, sizeof(ip_str));
-			} else if (addr_len == 16) {
-				inet_ntop(AF_INET6, addr, ip_str, sizeof(ip_str));
-			} else {
-				snprintf(ip_str, sizeof(ip_str), "unknown");
-			}
-			tlog(TLOG_DEBUG, "nftset skip adding existing ip: family=%d, table=%s, set=%s, ip=%s", nffamily, tablename,
-				 setname, ip_str);
-		}
-		return 0;
-	}
-
 	uint8_t buf[PAYLOAD_MAX];
 	uint8_t addr_end_buff[16] = {0};
 	uint8_t *addr_end = addr_end_buff;
@@ -773,11 +751,41 @@ int nftset_add(const char *familyname, const char *tablename, const char *setnam
 		addr_end_len = 0;
 	}
 
-	if (timeout > 0) {
+	int ip_exists = _nftset_test_ip_exists(nffamily, tablename, setname, addr, addr_len);
+	if (ip_exists == NFTSET_IP_EXIST && timeout == 0) {
+		if (dns_conf.nftset_debug_enable) {
+			char ip_str[INET6_ADDRSTRLEN];
+			if (addr_len == 4) {
+				inet_ntop(AF_INET, addr, ip_str, sizeof(ip_str));
+			} else if (addr_len == 16) {
+				inet_ntop(AF_INET6, addr, ip_str, sizeof(ip_str));
+			} else {
+				snprintf(ip_str, sizeof(ip_str), "unknown");
+			}
+			tlog(TLOG_DEBUG, "nftset skip adding existing ip: family=%d, table=%s, set=%s, ip=%s", nffamily, tablename,
+				 setname, ip_str);
+		}
+		return 0;
+	}
+
+	if (ip_exists != NFTSET_IP_EXIST && timeout > 0) {
+		/*
+		 * An element that timed out but is not garbage collected yet is not found, but can still block the
+		 * add on some kernels. Delete it in its own message: the element may not exist at all, which would
+		 * reject a combined batch.
+		 */
 		_nftset_del(nffamily, tablename, setname, addr, addr_len, addr_end, addr_end_len);
 	}
 
 	_nftset_start_batch(next, &next);
+	if (ip_exists == NFTSET_IP_EXIST) {
+		/*
+		 * Refresh the timeout: delete and add in one batch (one transaction), so the address never
+		 * leaves the set. If it is only covered by a wider range the delete fails and the batch is
+		 * rejected as a whole, leaving the range untouched.
+		 */
+		_nftset_del_element(nffamily, tablename, setname, addr, addr_len, addr_end, addr_end_len, next, &next);
+	}
 	_nftset_add_element(nffamily, tablename, setname, addr, addr_len, addr_end, addr_end_len, timeout, next, &next);
 	_nftset_end_batch(next, &next);
 	buffer_len = (uint8_t *)next - buf;

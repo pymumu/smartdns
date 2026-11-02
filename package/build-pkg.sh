@@ -159,7 +159,7 @@ copy_linker()
 	LINK_PATH=`$CC -print-file-name=$LINKER_NAME`
 	if [ "${LINK_PATH#/}" = "$LINK_PATH" ]; then
 		# LINK_PATH is not absolute, fallback to find it in the toolchain directory
-		local TC_DIR=$(dirname $(dirname $CC))
+		local TC_DIR=$(readlink -f "$(dirname "$(dirname "$CC")")")
 		echo "LINKER_NAME not found by print-file-name. Searching in $TC_DIR..."
 		local FOUND_PATH=$(find "$TC_DIR" -name "$LINKER_NAME" -print -quit 2>/dev/null)
 		if [ -n "$FOUND_PATH" ]; then
@@ -171,13 +171,14 @@ copy_linker()
 		fi
 	fi
 
-	SYM_LINKER_NAME=`readlink -f $LINK_PATH`
+	SYM_LINKER_NAME=`readlink -f "$LINK_PATH"`
+	LIBC_REAL_PATH=`readlink -f "$LIBC_PATH"`
 
 	echo "linker: $LINK_PATH"
 	echo "sym linker: $SYM_LINKER_NAME"
 	echo "libc: $LIBC_PATH"
 
-	if [ "$SYM_LINKER_NAME" = "$LIBC_PATH" ]; then
+	if [ "$SYM_LINKER_NAME" = "$LIBC_REAL_PATH" ]; then
 		ln -f -s $(basename $LIBC_PATH) $SMARTDNS_STATIC_DIR/lib/$(basename $LINKER_NAME)
 	else
 		cp $LINK_PATH $SMARTDNS_STATIC_DIR/lib -af
@@ -196,6 +197,10 @@ copy_linker()
 	ln -f -s ${LINKER_NAME} ${SMARTDNS_STATIC_DIR}/lib/ld-linux.so
 	if [ $? -ne 0 ]; then
 		echo "copy ld-linux symlink failed"
+		return 1
+	fi
+	if [ ! -e "${SMARTDNS_STATIC_DIR}/lib/ld-linux.so" ]; then
+		echo "dynamic linker chain is broken: ${SMARTDNS_STATIC_DIR}/lib/ld-linux.so"
 		return 1
 	fi
 

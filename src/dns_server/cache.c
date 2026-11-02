@@ -395,7 +395,8 @@ int _dns_server_process_cache(struct dns_request *request)
 	}
 
 reply_cache:
-	if (dns_cache_get_ttl(dns_cache) <= 0 && request->no_serve_expired == 1) {
+	if (dns_cache_get_ttl(dns_cache) <= 0 &&
+		(request->no_serve_expired == 1 || request->conf->dns_serve_expired == 0)) {
 		goto out;
 	}
 
