@@ -22,8 +22,11 @@
 #include "smartdns/lib/nftset.h"
 #include "gtest/gtest.h"
 #include <arpa/inet.h>
+#include <atomic>
 #include <cstdio>
 #include <string>
+#include <thread>
+#include <vector>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -76,7 +79,64 @@ class NftSet : public ::testing::Test
 		}
 		return WEXITSTATUS(status) == 0 ? 0 : -1;
 	}
+
+	static int AddConcurrent(const std::vector<std::string> &ips, unsigned long timeout)
+	{
+		pid_t pid = fork();
+		if (pid == 0) {
+			std::atomic<int> failures{0};
+			std::vector<std::thread> workers;
+			workers.reserve(ips.size());
+			for (const auto &ip : ips) {
+				workers.emplace_back([&failures, ip, timeout]() {
+					unsigned char addr[4];
+					if (inet_pton(AF_INET, ip.c_str(), addr) != 1 ||
+						nftset_add("inet", "smartdns_test", "s", addr, sizeof(addr), timeout) != 0) {
+						failures.fetch_add(1);
+					}
+				});
+			}
+			for (auto &worker : workers) {
+				worker.join();
+			}
+			_exit(failures.load() == 0 ? 0 : 1);
+		}
+
+		int status = 0;
+		if (pid < 0 || waitpid(pid, &status, 0) != pid || !WIFEXITED(status)) {
+			return -2;
+		}
+		return WEXITSTATUS(status) == 0 ? 0 : -1;
+	}
 };
+
+TEST_F(NftSet, ConcurrentAddsKeepRepliesAssociated)
+{
+	std::vector<std::string> ips;
+	for (int i = 1; i <= 16; i++) {
+		ips.push_back("10.0." + std::to_string(i) + ".1");
+	}
+	ASSERT_EQ(AddConcurrent(ips, 30), 0);
+
+	std::string elements;
+	for (int retry = 0; retry < 20; retry++) {
+		elements = Elements();
+		bool all_present = true;
+		for (const auto &ip : ips) {
+			if (elements.find(ip) == std::string::npos) {
+				all_present = false;
+				break;
+			}
+		}
+		if (all_present) {
+			break;
+		}
+		usleep(50 * 1000);
+	}
+	for (const auto &ip : ips) {
+		EXPECT_NE(elements.find(ip), std::string::npos) << elements;
+	}
+}
 
 TEST_F(NftSet, ReAddRefreshesTimeout)
 {

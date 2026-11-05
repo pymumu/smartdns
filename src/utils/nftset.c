@@ -19,6 +19,7 @@
 #define _GNU_SOURCE
 
 #include "smartdns/lib/nftset.h"
+#include "smartdns/lib/atomic.h"
 #include "smartdns/dns_conf.h"
 #include "smartdns/tlog.h"
 
@@ -29,6 +30,7 @@
 #include <linux/rtnetlink.h>
 #include <memory.h>
 #include <poll.h>
+#include <pthread.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -50,7 +52,56 @@ enum { PAYLOAD_MAX = 2048 };
 /* result of the element lookup; UNKNOWN when the kernel did not answer in time */
 enum { NFTSET_IP_NOT_EXIST = 0, NFTSET_IP_EXIST, NFTSET_IP_UNKNOWN };
 
-static int nftset_fd;
+enum { NFTSET_SOCKET_POOL_SIZE = 2 };
+
+struct nftset_socket_slot {
+	int fd;
+	pthread_mutex_t lock;
+};
+
+#define NFTSET_SOCKET_SLOT_INITIALIZER { .fd = -1, .lock = PTHREAD_MUTEX_INITIALIZER }
+static struct nftset_socket_slot nftset_socket_pool[NFTSET_SOCKET_POOL_SIZE] = {
+	NFTSET_SOCKET_SLOT_INITIALIZER,
+	NFTSET_SOCKET_SLOT_INITIALIZER,
+};
+#undef NFTSET_SOCKET_SLOT_INITIALIZER
+
+static atomic_t nftset_socket_cursor = ATOMIC_INIT(0);
+static atomic_t nftset_sequence = ATOMIC_INIT(0);
+
+/* Lock one socket slot for the complete request/response exchange. */
+static struct nftset_socket_slot *_nftset_socket_acquire(void)
+{
+	unsigned int first = (unsigned int)atomic_inc_return(&nftset_socket_cursor) % NFTSET_SOCKET_POOL_SIZE;
+
+	for (unsigned int i = 0; i < NFTSET_SOCKET_POOL_SIZE; i++) {
+		struct nftset_socket_slot *slot = &nftset_socket_pool[(first + i) % NFTSET_SOCKET_POOL_SIZE];
+		if (pthread_mutex_trylock(&slot->lock) == 0) {
+			return slot;
+		}
+	}
+
+	struct nftset_socket_slot *slot = &nftset_socket_pool[first];
+	pthread_mutex_lock(&slot->lock);
+	return slot;
+}
+
+static uint32_t _nftset_assign_sequence(void *msg, int msg_len)
+{
+	uint32_t seq = (uint32_t)atomic_inc_return(&nftset_sequence);
+	if (seq == 0) {
+		seq = (uint32_t)atomic_inc_return(&nftset_sequence);
+	}
+
+	int remaining = msg_len;
+	struct nlmsghdr *nlh = (struct nlmsghdr *)msg;
+	while (NLMSG_OK(nlh, remaining)) {
+		nlh->nlmsg_seq = seq;
+		nlh = NLMSG_NEXT(nlh, remaining);
+	}
+
+	return seq;
+}
 
 static int _nftset_get_nffamily_from_str(const char *family)
 {
@@ -178,14 +229,14 @@ static int _nftset_end_batch(void *buf, void **nextbuf)
 	return 0;
 }
 
-static int _nftset_socket_init(void)
+static int _nftset_socket_init(struct nftset_socket_slot *slot)
 {
 	struct sockaddr_nl addr = {0};
 	addr.nl_family = AF_NETLINK;
 	addr.nl_pid = 0;
 	int fd = -1;
 
-	if (nftset_fd > 0) {
+	if (slot->fd >= 0) {
 		return 0;
 	}
 
@@ -195,57 +246,71 @@ static int _nftset_socket_init(void)
 	}
 
 	if (bind(fd, (struct sockaddr *)(&addr), sizeof(addr)) < 0) {
+		int saved_errno = errno;
 		close(fd);
+		errno = saved_errno;
 		return -2;
 	}
 
-	nftset_fd = fd;
-
+	slot->fd = fd;
 	return 0;
 }
 
 static int _nftset_socket_request(void *msg, int msg_len, void *ret_msg, int ret_msg_len)
 {
 	int ret = -1;
-	struct pollfd pfds;
-	int do_recv = 0;
+	int saved_errno = 0;
 	int len = 0;
-	const int max_retries = 3;
+	int do_recv = 0;
 	int retry_count = 0;
+	int stale_msg_count = 0;
+	int wait_for_data = 1;
+	const int max_retries = 3;
+	struct pollfd pfds;
+	struct timespec deadline;
+	struct nftset_socket_slot *slot = NULL;
+	uint8_t recv_buff[PAYLOAD_MAX];
+	uint8_t matching_buff[PAYLOAD_MAX];
+	uint32_t seq = 0;
 
-	if (_nftset_socket_init() != 0) {
-		if (dns_conf.nftset_debug_enable) {
-			tlog(TLOG_DEBUG, "nftset socket init failed, errno=%d", errno);
-		}
+	if (msg == NULL || msg_len < (int)sizeof(struct nlmsghdr) ||
+		(ret_msg != NULL && ret_msg_len <= 0)) {
+		errno = EINVAL;
 		return -1;
 	}
 
-	/* clear pending error message*/
+	slot = _nftset_socket_acquire();
+	if (_nftset_socket_init(slot) != 0) {
+		if (dns_conf.nftset_debug_enable) {
+			tlog(TLOG_DEBUG, "nftset socket init failed, errno=%d", errno);
+		}
+		goto out;
+	}
+
+	/* All messages in a batch use one unique sequence number. */
+	seq = _nftset_assign_sequence(msg, msg_len);
+
+	/* Clear replies left by a previous completed or timed-out request on this slot. */
 	for (;;) {
-		uint8_t buff[1024];
-		ret = recv(nftset_fd, buff, sizeof(buff), MSG_DONTWAIT);
+		ret = recv(slot->fd, recv_buff, sizeof(recv_buff), MSG_DONTWAIT);
 		if (ret < 0) {
-			if (errno != EAGAIN && errno != EWOULDBLOCK) {
-				if (dns_conf.nftset_debug_enable) {
-					tlog(TLOG_DEBUG, "nftset clear pending msg error, errno=%d", errno);
-				}
+			if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR && dns_conf.nftset_debug_enable) {
+				tlog(TLOG_DEBUG, "nftset clear pending msg error, errno=%d", errno);
 			}
 			break;
 		}
 	}
 
-	/* send message with retry */
+	/* Send message with retry. */
 	while (retry_count < max_retries) {
-		len = send(nftset_fd, msg, msg_len, 0);
+		len = send(slot->fd, msg, msg_len, 0);
 		if (len == msg_len) {
 			break;
 		}
 
 		if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
 			retry_count++;
-			struct timespec waiter;
-			waiter.tv_sec = 0;
-			waiter.tv_nsec = 10000 * retry_count;
+			struct timespec waiter = {.tv_sec = 0, .tv_nsec = 10000 * retry_count};
 			nanosleep(&waiter, NULL);
 			continue;
 		}
@@ -253,84 +318,168 @@ static int _nftset_socket_request(void *msg, int msg_len, void *ret_msg, int ret
 		if (dns_conf.nftset_debug_enable) {
 			tlog(TLOG_DEBUG, "nftset send msg failed, errno=%d, retries=%d", errno, retry_count);
 		}
-		return -1;
+		goto out;
 	}
 
 	if (retry_count >= max_retries) {
 		if (dns_conf.nftset_debug_enable) {
 			tlog(TLOG_DEBUG, "nftset send msg failed after max retries");
 		}
-		return -1;
+		goto out;
 	}
 
 	if (ret_msg == NULL || ret_msg_len <= 0) {
-		return 0;
+		ret = 0;
+		goto out;
 	}
 
-	pfds.fd = nftset_fd;
+	pfds.fd = slot->fd;
 	pfds.events = POLLIN;
 	pfds.revents = 0;
-	ret = poll(&pfds, 1, 100);
-	if (ret <= 0) {
-		if (dns_conf.nftset_debug_enable) {
-			tlog(TLOG_DEBUG, "nftset poll timeout or error, ret=%d, errno=%d", ret, errno);
-		}
-		return -1;
-	}
-
-	if ((pfds.revents & POLLIN) == 0) {
-		if (dns_conf.nftset_debug_enable) {
-			tlog(TLOG_DEBUG, "nftset poll no data, revents=0x%x", pfds.revents);
-		}
-		return -1;
-	}
-
 	memset(ret_msg, 0, ret_msg_len);
 	len = 0;
+	if (clock_gettime(CLOCK_MONOTONIC, &deadline) != 0) {
+		goto out;
+	}
+	deadline.tv_nsec += 100000000;
+	if (deadline.tv_nsec >= 1000000000) {
+		deadline.tv_sec++;
+		deadline.tv_nsec -= 1000000000;
+	}
+
 	for (;;) {
-		ret = recv(nftset_fd, ret_msg + len, ret_msg_len - len, 0);
-		if (ret < 0) {
-			if (errno == EAGAIN && do_recv == 1) {
-				break;
+		if (wait_for_data) {
+			struct timespec now;
+			if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
+				goto out;
+			}
+			long long remaining_ns = ((long long)deadline.tv_sec - now.tv_sec) * 1000000000LL +
+								 deadline.tv_nsec - now.tv_nsec;
+			if (remaining_ns <= 0) {
+				if (do_recv) {
+					ret = 0;
+					break;
+				}
+				errno = ETIMEDOUT;
+				goto out;
 			}
 
+			int timeout_ms = (int)((remaining_ns + 999999LL) / 1000000LL);
+			pfds.revents = 0;
+			ret = poll(&pfds, 1, timeout_ms);
+			if (ret < 0 && errno == EINTR) {
+				continue;
+			}
+			if (ret <= 0) {
+				if (ret == 0 && do_recv) {
+					ret = 0;
+					break;
+				}
+				if (ret == 0) {
+					errno = ETIMEDOUT;
+				}
+				if (dns_conf.nftset_debug_enable) {
+					tlog(TLOG_DEBUG, "nftset poll timeout or error, ret=%d, errno=%d", ret, errno);
+				}
+				goto out;
+			}
+
+			if ((pfds.revents & POLLIN) == 0) {
+				if (dns_conf.nftset_debug_enable) {
+					tlog(TLOG_DEBUG, "nftset poll no data, revents=0x%x", pfds.revents);
+				}
+				errno = EIO;
+				goto out;
+			}
+		}
+
+		wait_for_data = 0;
+		ret = recv(slot->fd, recv_buff, sizeof(recv_buff), MSG_DONTWAIT);
+		if (ret < 0) {
+			if ((errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) && do_recv) {
+				ret = 0;
+				break;
+			}
+			if ((errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) && stale_msg_count > 0) {
+				wait_for_data = 1;
+				continue;
+			}
 			if (dns_conf.nftset_debug_enable) {
 				tlog(TLOG_DEBUG, "nftset recv msg failed, errno=%d", errno);
 			}
-			return -1;
+			goto out;
 		}
 
+		int remaining = ret;
+		int matched_len = 0;
+		struct nlmsghdr *response = (struct nlmsghdr *)recv_buff;
+		while (NLMSG_OK(response, remaining)) {
+			int copy_len = NLMSG_ALIGN(response->nlmsg_len);
+			if (copy_len > remaining) {
+				copy_len = response->nlmsg_len;
+			}
+			if (response->nlmsg_seq == seq) {
+				if (matched_len + copy_len > (int)sizeof(recv_buff)) {
+					errno = ENOSPC;
+					goto out;
+				}
+				memcpy(matching_buff + matched_len, response, copy_len);
+				matched_len += copy_len;
+			}
+			response = NLMSG_NEXT(response, remaining);
+		}
+
+		if (matched_len > 0) {
+			memcpy(recv_buff, matching_buff, matched_len);
+		}
+		if (matched_len == 0) {
+			if (++stale_msg_count > 32) {
+				errno = ETIMEDOUT;
+				goto out;
+			}
+			wait_for_data = 1;
+			continue;
+		}
+
+		if (matched_len > ret_msg_len - len) {
+			errno = ENOSPC;
+			goto out;
+		}
+		memcpy((uint8_t *)ret_msg + len, recv_buff, matched_len);
 		do_recv = 1;
-		len += ret;
-
-		if (len >= ret_msg_len) {
-			break;
-		}
+		len += matched_len;
 
 		struct nlmsghdr *nlh = (struct nlmsghdr *)ret_msg;
 		if (nlh->nlmsg_type == NLMSG_ERROR) {
+			if (nlh->nlmsg_len < NLMSG_LENGTH(sizeof(struct nlmsgerr))) {
+				errno = EBADMSG;
+				goto out;
+			}
 			struct nlmsgerr *err = (struct nlmsgerr *)NLMSG_DATA(nlh);
 			if (err->error != 0) {
 				errno = -err->error;
 				if (dns_conf.nftset_debug_enable) {
 					tlog(TLOG_DEBUG, "nftset recv error msg, error=%d", err->error);
 				}
-				return -1;
+				goto out;
 			}
 			continue;
 		}
 
-		/* Correctly handle the NFT_MSG_GETSETELEM response */
+		/* Correctly handle the NFT_MSG_GETSETELEM response. */
 		if (nlh->nlmsg_type == (NFNL_SUBSYS_NFTABLES << 8 | NFT_MSG_NEWSETELEM)) {
+			ret = 0;
 			break;
 		}
 
 		if (nlh->nlmsg_type == (NFNL_SUBSYS_NFTABLES << 8 | NFT_MSG_GETSETELEM)) {
+			wait_for_data = 1;
 			continue;
 		}
 
 		if (nlh->nlmsg_type & (NFNL_SUBSYS_NFTABLES << 8)) {
 			if (nlh->nlmsg_type & NLMSG_DONE) {
+				ret = 0;
 				break;
 			}
 		}
@@ -339,10 +488,15 @@ static int _nftset_socket_request(void *msg, int msg_len, void *ret_msg, int ret
 		if (dns_conf.nftset_debug_enable) {
 			tlog(TLOG_DEBUG, "nftset unsupported msg type, type=0x%x", nlh->nlmsg_type);
 		}
-		return -1;
+		goto out;
 	}
 
-	return 0;
+	ret = 0;
+out:
+	saved_errno = errno;
+	pthread_mutex_unlock(&slot->lock);
+	errno = saved_errno;
+	return ret;
 }
 
 static int _nftset_socket_send(void *msg, int msg_len)

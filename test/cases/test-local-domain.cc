@@ -167,7 +167,7 @@ TEST(LocalDomain, odhcpd_lease_file)
 	server_upstream.Start("udp://0.0.0.0:61053",
 						  [](struct smartdns::ServerRequestContext *request) { return smartdns::SERVER_REQUEST_SOA; });
 
-	leases_file.Write("# br-lan 0004653d60cac997c988b9304f1cd0cca92b 2b506735 raspberrypi 1780021250 144 128 2408:8256:348a:d42::144/128\n");
+	leases_file.Write("# br-lan 0004653d60cac997c988b9304f1cd0cca92b 2b506735 odhcpd-test-host 1780021250 144 128 2408:8256:348a:d42::144/128\n");
 	leases_file.Write("# br-lan 000300011679091f79c4 0 broken\\x20- 1780019744 70b 128 2408:8256:348a:d42::70b/128\n");
 	leases_file.Write("# br-lan 0004586a9257860ef067b074cf1dea75c4f9 8ae02880 rock-5b 1780020967 efe 128 2408:8256:348a:d42::efe/128\n");
 
@@ -182,7 +182,7 @@ local-domain lan
 	server.Start(conf);
 	smartdns::Client client;
 
-	ASSERT_TRUE(client.Query("raspberrypi AAAA", 60053));
+	ASSERT_TRUE(client.Query("odhcpd-test-host AAAA", 60053));
 	std::cout << client.GetResult() << std::endl;
 	ASSERT_EQ(client.GetAnswerNum(), 1);
 	EXPECT_EQ(client.GetStatus(), "NOERROR");

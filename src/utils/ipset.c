@@ -21,6 +21,7 @@
 #include <errno.h>
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
+#include <pthread.h>
 
 #define NFNL_SUBSYS_IPSET 6
 
@@ -63,7 +64,8 @@ struct ipset_netlink_msg {
 	__be16 res_id;
 };
 
-static int ipset_fd;
+static int ipset_fd = -1;
+static pthread_mutex_t ipset_socket_init_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static inline void _ipset_add_attr(struct nlmsghdr *netlink_head, uint16_t type, size_t len, const void *data)
 {
@@ -77,17 +79,21 @@ static inline void _ipset_add_attr(struct nlmsghdr *netlink_head, uint16_t type,
 
 static int _ipset_socket_init(void)
 {
-	if (ipset_fd > 0) {
-		return 0;
+	int ret = 0;
+
+	pthread_mutex_lock(&ipset_socket_init_lock);
+	if (ipset_fd >= 0) {
+		goto out;
 	}
 
 	ipset_fd = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_NETFILTER);
-
 	if (ipset_fd < 0) {
-		return -1;
+		ret = -1;
 	}
 
-	return 0;
+out:
+	pthread_mutex_unlock(&ipset_socket_init_lock);
+	return ret;
 }
 
 static int _ipset_operate(const char *ipset_name, const unsigned char addr[], int addr_len, unsigned long timeout,
