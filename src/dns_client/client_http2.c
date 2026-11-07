@@ -715,6 +715,8 @@ static int _dns_client_http2_process_stream_one(struct dns_server_info *server_i
 		return 1;
 	}
 
+	if (http2_stream_is_reset(http2_stream)) return -1;
+
 	/* Check HTTP status code first */
 	int status = http2_stream_get_status(http2_stream);
 	if (status > 0 && status != 200) {
@@ -744,6 +746,9 @@ static int _dns_client_http2_process_stream_one(struct dns_server_info *server_i
 		}
 		break;
 	}
+
+	if (response_len < 0 && errno != EAGAIN && errno != EWOULDBLOCK) return -1;
+	if (http2_stream_is_reset(http2_stream)) return -1;
 
 	if (!http2_stream_is_end(http2_stream)) {
 		return 0;
@@ -823,6 +828,7 @@ static int _dns_client_http2_process_read(struct dns_server_info *server_info)
 
 			conn_stream = (struct dns_conn_stream *)http2_stream_get_ex_data(stream);
 			if (conn_stream == NULL) {
+				http2_stream_abort(http2_stream_get(stream));
 				http2_stream_put(stream);
 				continue;
 			}

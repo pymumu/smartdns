@@ -62,6 +62,9 @@ void _dns_client_query_release(struct dns_query_struct *query)
 	{
 		list_del_init(&stream->query_list);
 		stream->query = NULL;
+		/* Retire HTTP/2 work immediately; QUIC poll owns its descriptor snapshot. */
+		if (stream->http2_stream || stream->type == DNS_SERVER_HTTPS)
+			_dns_client_conn_stream_cancel(stream);
 		_dns_client_conn_stream_put(stream);
 	}
 

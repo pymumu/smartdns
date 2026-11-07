@@ -29,6 +29,8 @@ void _dns_client_conn_stream_put(struct dns_conn_stream *stream);
 
 void _dns_client_conn_stream_get(struct dns_conn_stream *stream);
 
+void _dns_client_conn_stream_cancel(struct dns_conn_stream *stream);
+
 struct dns_conn_stream *_dns_client_conn_stream_new(void);
 
 void _dns_client_conn_server_streams_free(struct dns_server_info *server_info, struct dns_query_struct *query);
