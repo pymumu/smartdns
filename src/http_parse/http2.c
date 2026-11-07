@@ -815,6 +815,9 @@ static int _http2_send_headers_frame(struct http2_ctx *ctx, uint32_t stream_id, 
 	ret = 0;
 
 cleanup:
+	/* Header encoding mutates shared HPACK state before bytes are queued.
+	 * A failed block cannot be retried on this compression context. */
+	if (ret < 0) ctx->status = HTTP2_ERR_PROTOCOL;
 	free(header_block);
 	return ret;
 }
@@ -1383,7 +1386,9 @@ static int _http2_process_headers_frame(struct http2_ctx *ctx, int stream_id, co
 	if (ctx->header_block_len > 0) {
 		if (hpack_decode_headers(&ctx->decoder, ctx->header_block_buffer, ctx->header_block_len, _http2_on_header,
 								 stream) < 0) {
-			http2_send_rst_stream(ctx, stream_id, HTTP2_RST_COMPRESSION_ERROR);
+			/* HPACK state is shared by every stream on this connection. */
+			_http2_send_goaway(ctx, ctx->max_peer_stream_id_seen, HTTP2_RST_COMPRESSION_ERROR, NULL, 0);
+			ctx->status = HTTP2_ERR_PROTOCOL;
 			_http2_clear_continuation(ctx);
 			if (use_tmp_stream) {
 				_http2_free_tmp_stream(&tmp_stream);
@@ -1457,7 +1462,7 @@ static int _http2_process_settings_frame(struct http2_ctx *ctx, const uint8_t *d
 			if (value > HTTP2_MAX_HEADER_TABLE_SIZE) {
 				value = HTTP2_MAX_HEADER_TABLE_SIZE;
 			}
-			hpack_resize_dynamic_table(&ctx->encoder, value);
+			hpack_set_encoder_table_size(&ctx->encoder, value);
 			break;
 		case HTTP2_SETTINGS_ENABLE_PUSH:
 			if (value > 1) {
