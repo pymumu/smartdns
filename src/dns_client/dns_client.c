@@ -675,7 +675,6 @@ static void *_dns_client_work(void *arg)
 
 int dns_client_init(void)
 {
-	pthread_attr_t attr;
 	int epollfd = -1;
 	int fd_wakeup = -1;
 	int ret = 0;
@@ -689,7 +688,6 @@ int dns_client_init(void)
 	}
 
 	memset(&client, 0, sizeof(client));
-	pthread_attr_init(&attr);
 	atomic_set(&client.dns_server_num, 0);
 	atomic_set(&client.dns_server_prohibit_num, 0);
 	atomic_set(&client.run_period, 0);
@@ -723,9 +721,9 @@ int dns_client_init(void)
 	atomic_set(&client.run, 1);
 
 	/* start work task */
-	ret = pthread_create(&client.tid, &attr, _dns_client_work, NULL);
+	ret = pthread_create(&client.tid, NULL, _dns_client_work, NULL);
 	if (ret != 0) {
-		tlog(TLOG_ERROR, "create client work thread failed, %s\n", strerror(errno));
+		tlog(TLOG_ERROR, "create client work thread failed, %s\n", strerror(ret));
 		goto errout;
 	}
 

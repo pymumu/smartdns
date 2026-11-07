@@ -21,6 +21,7 @@
 #include "include/utils.h"
 #include "server.h"
 #include "gtest/gtest.h"
+#include <atomic>
 
 class Server : public ::testing::Test
 {
@@ -183,8 +184,8 @@ max-query-limit 2
 )""");
 
 	std::vector<std::thread> threads;
-	int success_num = 0;
-	int refused_num = 0;
+	std::atomic<int> success_num{0};
+	std::atomic<int> refused_num{0};
 	for (int i = 0; i < 5; i++) {
 		auto t = std::thread([&]() {
 			smartdns::Client client;
@@ -208,8 +209,8 @@ max-query-limit 2
 		t.join();
 	}
 
-	EXPECT_EQ(success_num, 2);
-	EXPECT_EQ(refused_num, 3);
+	EXPECT_EQ(success_num.load(), 2);
+	EXPECT_EQ(refused_num.load(), 3);
 
 	for (int i = 0; i < 5; i++) {
 		smartdns::Client client;
