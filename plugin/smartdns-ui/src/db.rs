@@ -28,7 +28,21 @@ use std::vec;
 
 use chrono::Local;
 use rusqlite::Transaction;
-use rusqlite::{Connection, OpenFlags, Result};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, Result};
+
+fn client_top_query(conn: &Connection, timestamp: u64) -> Result<&'static str> {
+    let oldest: Option<u64> = conn
+        .query_row("SELECT timestamp FROM domain ORDER BY timestamp LIMIT 1", [], |row| row.get(0))
+        .optional()?;
+    // Without ANALYZE, SQLite may scan the entire client index just to avoid
+    // grouping a time range. Do not fetch expired history from the main table.
+    // Keep client-order aggregation when the requested window covers all rows.
+    if oldest.is_some_and(|oldest| oldest < timestamp) {
+        Ok("SELECT client, COUNT(*) FROM domain INDEXED BY idx_domain_timestamp WHERE timestamp >= ? GROUP BY client ORDER BY COUNT(*) DESC LIMIT 20")
+    } else {
+        Ok("SELECT client, COUNT(*) FROM domain WHERE timestamp >= ? GROUP BY client ORDER BY COUNT(*) DESC LIMIT 20")
+    }
+}
 
 pub struct DB {
     conn: Mutex<Option<Connection>>,
@@ -1013,7 +1027,7 @@ impl DB {
         };
 
         let timestamp_now = smartdns::get_utc_time_ms();
-        let sql = "SELECT client, COUNT(*) FROM domain WHERE timestamp >= ? GROUP BY client ORDER BY COUNT(*) DESC LIMIT 20";
+        let sql = client_top_query(&conn, timestamp)?;
         self.debug_query_plan(&conn, sql.to_string(), &vec![timestamp.to_string()]);
         let mut stmt = conn.prepare(sql)?;
         let rows = stmt.query_map([timestamp.to_string()], |row| {
@@ -1803,5 +1817,60 @@ impl DB {
 impl Drop for DB {
     fn drop(&mut self) {
         self.close();
+    }
+}
+
+#[cfg(test)]
+mod ranking_tests {
+    use super::*;
+
+    fn fixture() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE domain(timestamp BIGINT NOT NULL, client TEXT NOT NULL);
+             CREATE INDEX idx_domain_timestamp ON domain(timestamp);
+             CREATE INDEX idx_domain_client ON domain(client);",
+        ).unwrap();
+        conn
+    }
+
+    #[test]
+    fn partial_history_client_ranking_uses_time_range_and_preserves_top_twenty() {
+        let mut conn = fixture();
+        let tx = conn.transaction().unwrap();
+        for _ in 0..1000 {
+            tx.execute("INSERT INTO domain VALUES(99, 'expired')", []).unwrap();
+        }
+        for client in 0..25 {
+            for _ in 0..25-client {
+                tx.execute("INSERT INTO domain VALUES(100, ?)", [format!("client-{client:02}")]).unwrap();
+            }
+        }
+        tx.commit().unwrap();
+        let query = client_top_query(&conn, 100).unwrap();
+        let run = |query: &str| -> Vec<(String, u64)> {
+            conn.prepare(query).unwrap().query_map([100], |row| Ok((row.get(0)?, row.get(1)?)))
+                .unwrap().map(|row| row.unwrap()).collect()
+        };
+        let original = "SELECT client, COUNT(*) FROM domain WHERE timestamp >= ? GROUP BY client ORDER BY COUNT(*) DESC LIMIT 20";
+        let actual = run(query);
+        assert_eq!(actual, run(original));
+        assert_eq!(actual.len(), 20);
+        assert_eq!(actual[0], ("client-00".to_string(), 25));
+        assert!(!actual.iter().any(|(client, _)| client == "expired"));
+        let plans: Vec<String> = conn.prepare(&format!("EXPLAIN QUERY PLAN {query}")).unwrap()
+            .query_map([100], |row| row.get(3)).unwrap().map(|row| row.unwrap()).collect();
+        assert!(plans.iter().any(|plan| plan.contains("SEARCH domain USING INDEX idx_domain_timestamp")), "{plans:?}");
+        assert_eq!(conn.query_row("SELECT COUNT(*) FROM domain", [], |row| row.get::<_, u64>(0)).unwrap(), 1325);
+    }
+
+    #[test]
+    fn empty_and_whole_history_rankings_keep_client_order_aggregation() {
+        let conn = fixture();
+        assert!(!client_top_query(&conn, 100).unwrap().contains("INDEXED BY"));
+        conn.execute("INSERT INTO domain VALUES(100, 'client')", []).unwrap();
+        assert!(!client_top_query(&conn, 100).unwrap().contains("INDEXED BY"));
+        assert!(!client_top_query(&conn, 0).unwrap().contains("INDEXED BY"));
+        assert!(client_top_query(&conn, 101).unwrap().contains("INDEXED BY idx_domain_timestamp"));
     }
 }
