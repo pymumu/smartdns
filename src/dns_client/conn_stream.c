@@ -19,6 +19,7 @@
 #include "conn_stream.h"
 
 #include "smartdns/util.h"
+#include "smartdns/http_parse.h"
 
 struct dns_conn_stream *_dns_client_conn_stream_new(void)
 {
@@ -33,6 +34,7 @@ struct dns_conn_stream *_dns_client_conn_stream_new(void)
 	INIT_LIST_HEAD(&stream->query_list);
 	stream->quic_stream = NULL;
 	stream->http2_stream = NULL;
+	stream->http_head = NULL;
 	stream->server_info = NULL;
 	stream->query = NULL;
 	atomic_set(&stream->refcnt, 1);
@@ -67,6 +69,11 @@ void _dns_client_conn_stream_put(struct dns_conn_stream *stream)
 		stream->http2_stream = NULL;
 		http2_stream_close(http2_stream);
 		stream->server_info = NULL;
+	}
+
+	if (stream->http_head) {
+		http_head_destroy(stream->http_head);
+		stream->http_head = NULL;
 	}
 
 	if (stream->query) {
