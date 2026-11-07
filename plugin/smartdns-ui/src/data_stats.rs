@@ -55,6 +55,14 @@ struct DataStatsItem {
     request_dropped: Arc<Mutex<u64>>,
 }
 
+#[cfg(any(test, not(target_has_atomic = "64")))]
+fn add_locked_drop_count(counter: &Mutex<u64>, count: u64) {
+    let mut value = counter.lock().unwrap();
+    *value = value.saturating_add(count);
+}
+
+const DAY_MS: u64 = 24 * 3600 * 1000;
+
 impl DataStatsItem {
     pub fn new() -> Self {
         #[cfg(target_has_atomic = "64")]
@@ -95,13 +103,23 @@ impl DataStatsItem {
     pub fn add_request_drop(&self, count: u64) {
         #[cfg(target_has_atomic = "64")]
         {
-            self.request_dropped.fetch_and(count, Ordering::Relaxed);
+            // Observational counter only: saturation prevents a full counter wrapping
+            // back to a misleading zero. Match the non-atomic implementation.
+            let mut value = self.request_dropped.load(Ordering::Relaxed);
+            loop {
+                match self.request_dropped.compare_exchange_weak(
+                    value, value.saturating_add(count),
+                    Ordering::Relaxed, Ordering::Relaxed,
+                ) {
+                    Ok(_) => break,
+                    Err(current) => value = current,
+                }
+            }
         }
 
         #[cfg(not(target_has_atomic = "64"))]
         {
-            let mut dropped = self.request_dropped.lock().unwrap();
-            *dropped += count;
+            add_locked_drop_count(&self.request_dropped, count);
         }
     }
 
@@ -415,11 +433,15 @@ impl DataStats {
     }
 
     pub fn refresh(self: &Arc<Self>) {
-        let now = get_utc_time_ms();
+        self.refresh_at(get_utc_time_ms());
+    }
 
+    // Capture wall clock once for every retention/aggregation cutoff. Saturating
+    // subtraction handles clocks before the retention window without wrapping.
+    fn refresh_at(self: &Arc<Self>, now: u64) {
         let ret = self
             .db
-            .delete_domain_before_timestamp(now - self.conf.read().unwrap().max_log_age_ms as u64);
+            .delete_domain_before_timestamp(now.saturating_sub(self.conf.read().unwrap().max_log_age_ms));
         if let Err(e) = ret {
             if e.to_string() != "Query returned no rows" {
               dns_log!(
@@ -430,21 +452,21 @@ impl DataStats {
             }
         }
 
-        let ret = self.db.refresh_client_top_list(now - 7 * 24 * 3600 * 1000);
+        let ret = self.db.refresh_client_top_list(now.saturating_sub(7 * DAY_MS));
         if let Err(e) = ret {
             dns_log!(LogLevel::WARN, "refresh client top list error: {}", e);
         }
 
-        let ret = self.db.refresh_domain_top_list(now - 7 * 24 * 3600 * 1000);
+        let ret = self.db.refresh_domain_top_list(now.saturating_sub(7 * DAY_MS));
         if let Err(e) = ret {
             dns_log!(LogLevel::WARN, "refresh domain top list error: {}", e);
         }
         let _ = self
             .db
-            .delete_hourly_query_count_before_timestamp(30 * 24 * 3600 * 1000);
+            .delete_hourly_query_count_before_timestamp(now.saturating_sub(30 * DAY_MS));
         let _ = self
             .db
-            .delete_daily_query_count_before_timestamp(90 * 24 * 3600 * 1000);
+            .delete_daily_query_count_before_timestamp(now.saturating_sub(90 * DAY_MS));
     }
 
     async fn update_stats(self: &Arc<Self>) {
@@ -519,5 +541,137 @@ impl DataStats {
 impl Drop for DataStats {
     fn drop(&mut self) {
         self.stop_worker();
+    }
+}
+
+#[cfg(test)]
+mod regression_tests {
+    use super::*;
+
+    #[test]
+    fn request_drop_accumulates_and_saturates() {
+        let data = DataStatsItem::new();
+        data.add_request_drop(3);
+        data.add_request_drop(7);
+        data.add_request_drop(0);
+        assert_eq!(data.get_request_drop(), 10);
+        data.add_request_drop(u64::MAX);
+        data.add_request_drop(1);
+        assert_eq!(data.get_request_drop(), u64::MAX);
+        // Exercise the actual 32-bit fallback algorithm on atomic-64 hosts too.
+        let fallback = Mutex::new(0);
+        add_locked_drop_count(&fallback, 3);
+        add_locked_drop_count(&fallback, 7);
+        assert_eq!(*fallback.lock().unwrap(), 10);
+        add_locked_drop_count(&fallback, u64::MAX);
+        add_locked_drop_count(&fallback, 1);
+        assert_eq!(*fallback.lock().unwrap(), u64::MAX);
+    }
+
+    #[test]
+    fn request_drop_parallel_updates_are_not_lost() {
+        let data = Arc::new(DataStatsItem::new());
+        let fallback = Arc::new(Mutex::new(0));
+        let mut workers = Vec::new();
+        for _ in 0..4 {
+            let data = data.clone();
+            let fallback = fallback.clone();
+            workers.push(std::thread::spawn(move || {
+                for _ in 0..32 {
+                    data.add_request_drop(2);
+                    add_locked_drop_count(&fallback, 2);
+                }
+            }));
+        }
+        for worker in workers { worker.join().unwrap(); }
+        assert_eq!(data.get_request_drop(), 256);
+        assert_eq!(*fallback.lock().unwrap(), 256);
+    }
+
+    #[test]
+    fn request_drop_parallel_saturation_does_not_wrap() {
+        let data = Arc::new(DataStatsItem::new());
+        let fallback = Arc::new(Mutex::new(u64::MAX - 128));
+        data.add_request_drop(u64::MAX - 128);
+        let barrier = Arc::new(std::sync::Barrier::new(8));
+        let mut workers = Vec::new();
+        for _ in 0..8 {
+            let data = data.clone();
+            let fallback = fallback.clone();
+            let barrier = barrier.clone();
+            workers.push(std::thread::spawn(move || {
+                barrier.wait();
+                for _ in 0..32 {
+                    data.add_request_drop(2);
+                    add_locked_drop_count(&fallback, 2);
+                }
+            }));
+        }
+        for worker in workers { worker.join().unwrap(); }
+        assert_eq!(data.get_request_drop(), u64::MAX);
+        assert_eq!(*fallback.lock().unwrap(), u64::MAX);
+    }
+
+    #[test]
+    fn request_drop_persistent_initialization_accumulates_without_reset() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("drop-init.db");
+        let db = Arc::new(DB::new());
+        db.open(path.to_str().unwrap()).unwrap();
+        db.set_status_data("request_drop", &(u64::MAX - 4).to_string()).unwrap();
+        let conf = Arc::new(RwLock::new(DataServerConfig {
+            data_path: dir.path().to_str().unwrap().to_owned(),
+            db_file: path.to_str().unwrap().to_owned(),
+            max_log_age_ms: 30 * DAY_MS,
+        }));
+        let stats = DataStats::new(db.clone(), conf.clone());
+        assert_eq!(stats.get_request_drop(), 0);
+        stats.add_request_drop(2);
+        stats.load_status_data().unwrap();
+        assert_eq!(stats.get_request_drop(), u64::MAX - 2);
+        stats.add_request_drop(1);
+        stats.save_status_data().unwrap();
+        let restarted = DataStats::new(db.clone(), conf);
+        assert_eq!(restarted.get_request_drop(), 0);
+        restarted.load_status_data().unwrap();
+        assert_eq!(restarted.get_request_drop(), u64::MAX - 1);
+        restarted.add_request_drop(2);
+        restarted.save_status_data().unwrap();
+        assert_eq!(db.get_status_data_list().unwrap()["request_drop"], u64::MAX.to_string());
+    }
+
+    #[test]
+    fn retention_uses_absolute_cutoffs_and_inclusive_boundary() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("retention.db");
+        let db = Arc::new(DB::new());
+        db.open(path.to_str().unwrap()).unwrap();
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        let now = 100 * DAY_MS;
+        let hourly = now - 30 * DAY_MS;
+        let daily = now - 90 * DAY_MS;
+        for (table, cutoff) in [("domain_hourly_count", hourly), ("domain_daily_count", daily)] {
+            for timestamp in [cutoff - 1, cutoff, cutoff + 1] {
+                conn.execute(&format!("INSERT INTO {table}(timestamp, count) VALUES (?, 1)"), [timestamp]).unwrap();
+            }
+        }
+        let conf = Arc::new(RwLock::new(DataServerConfig {
+            data_path: dir.path().to_str().unwrap().to_owned(),
+            db_file: path.to_str().unwrap().to_owned(),
+            max_log_age_ms: 30 * DAY_MS,
+        }));
+        let stats = DataStats::new(db, conf);
+        stats.refresh_at(now);
+        for (table, expected) in [("domain_hourly_count", hourly + 1), ("domain_daily_count", daily + 1)] {
+            let rows: (u64, u64) = conn.query_row(
+                &format!("SELECT COUNT(*), MIN(timestamp) FROM {table}"), [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            ).unwrap();
+            assert_eq!(rows, (1, expected));
+        }
+        // A wall clock rollback must not wrap to a huge cutoff and erase data.
+        stats.refresh_at(DAY_MS);
+        let count: u64 = conn.query_row("SELECT COUNT(*) FROM domain_hourly_count", [], |r| r.get(0)).unwrap();
+        assert_eq!(count, 1);
     }
 }
