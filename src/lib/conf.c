@@ -29,6 +29,7 @@
 
 static const char *current_conf_file = NULL;
 static int current_conf_lineno = 0;
+static char top_conf_file[PATH_MAX];
 
 const char *conf_get_conf_file(void)
 {
@@ -520,6 +521,7 @@ static int load_conf_file(const char *file, const struct config_item *items, con
 	int current_line_wrap = 0;
 	int is_func_found = 0;
 	const char *last_file = NULL;
+	int last_lineno = 0;
 
 	if (handler == NULL) {
 		handler = load_conf_printf;
@@ -635,27 +637,35 @@ static int load_conf_file(const char *file, const struct config_item *items, con
 			conf_getopt_reset();
 			/* call item function */
 			last_file = current_conf_file;
+			last_lineno = current_conf_lineno;
 			current_conf_file = file;
 			current_conf_lineno = line_no;
 			call_ret = items[i].item_func(items[i].item, items[i].data, argc, argv);
 			ret = handler(key, value, file, line_no, call_ret);
+			/* The filename may belong to a caller's stack or a finished thread.
+			 * Restore the outer directive even on handler failure and when NULL. */
+			current_conf_file = last_file;
+			current_conf_lineno = last_lineno;
 			if (ret != 0) {
 				conf_getopt_reset();
 				goto errout;
 			}
 
 			conf_getopt_reset();
-			if (last_file) {
-				current_conf_file = last_file;
-			}
-
 			last_item_index = i;
 			is_func_found = 1;
 			break;
 		}
 
 		if (is_func_found == 0) {
-			if (handler(key, value, file, line_no, CONF_RET_NOENT) != 0) {
+			last_file = current_conf_file;
+			last_lineno = current_conf_lineno;
+			current_conf_file = file;
+			current_conf_lineno = line_no;
+			ret = handler(key, value, file, line_no, CONF_RET_NOENT);
+			current_conf_file = last_file;
+			current_conf_lineno = last_lineno;
+			if (ret != 0) {
 				goto errout;
 			}
 		}
@@ -674,21 +684,21 @@ errout:
 int load_conf(const char *file, const struct config_item items[], conf_error_handler handler)
 {
 	static int load_depth;
-	int ret = 0;
-
-	/*
-	 * After a load, current_conf_file intentionally keeps pointing at the top-level file (used to
-	 * locate files next to it). A new top-level load must not start from an earlier load's pointer,
-	 * which may be gone (e.g. a server run in-process before this one). Includes keep the state.
-	 */
 	if (load_depth == 0) {
-		current_conf_file = NULL;
+		size_t len = strnlen(file, sizeof(top_conf_file));
+		if (len == sizeof(top_conf_file)) {
+			errno = ENAMETOOLONG;
+			return -1;
+		}
+		/* Startup still resolves default certificates relative to this file.
+		 * Own the name rather than retaining a caller's stack or string. */
+		memmove(top_conf_file, file, len + 1);
+		current_conf_file = top_conf_file;
 		current_conf_lineno = 0;
+		file = top_conf_file;
 	}
-
 	load_depth++;
-	ret = load_conf_file(file, items, handler);
+	int ret = load_conf_file(file, items, handler);
 	load_depth--;
-
 	return ret;
 }
