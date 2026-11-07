@@ -698,8 +698,12 @@ static int _dns_cache_read_to_cache(struct dns_cache_record *cache_record, struc
 		info->replace_time = now;
 	}
 
-	int passed_time = now - info->replace_time;
-	int timeout = info->timeout - passed_time;
+	/* Persisted timestamps are untrusted. Saturate age before narrowing and
+     * keep lifetime arithmetic wide, including prefetch's TTL sum. */
+    double elapsed = difftime(now, info->replace_time);
+    int passed_time = elapsed > INT32_MAX ? INT32_MAX : (int)elapsed;
+    int64_t timeout = (int64_t)info->timeout - passed_time;
+    if (now < info->insert_time) info->insert_time = now;
 
 	struct dns_conf_group *rule_group = dns_server_get_rule_group(info->dns_group_name);
 
@@ -717,8 +721,8 @@ static int _dns_cache_read_to_cache(struct dns_cache_record *cache_record, struc
 		}
 	}
 
-	if ((timeout > expired_time + info->ttl) && expired_time > 0) {
-		timeout = expired_time + info->ttl;
+	if ((timeout > (int64_t)expired_time + info->ttl) && expired_time > 0) {
+		timeout = (int64_t)expired_time + info->ttl;
 	}
 
 	if (timeout < DNS_CACHE_READ_TIMEOUT * 2) {
@@ -760,6 +764,14 @@ static int _dns_cache_read_record(int fd, off_t filesize, uint32_t cache_number,
 			tlog(TLOG_ERROR, "magic is invalid.");
 			goto errout;
 		}
+
+        const struct dns_cache_info *info = &cache_record.info;
+        if (info->ttl < 0 || info->timeout < 0 || info->insert_time < 0 || info->replace_time < 0 ||
+            info->hitnum < 0 || info->hitnum > DNS_CACHE_MAX_HITNUM ||
+            info->hitnum_update_add < 0 || info->hitnum_update_add > DNS_CACHE_HITNUM_STEP_MAX) {
+            tlog(TLOG_ERROR, "invalid persisted cache metadata, skip load cache.");
+            goto errout;
+        }
 
 		ret = read(fd, &data_head, sizeof(data_head));
 		if (ret != sizeof(data_head)) {

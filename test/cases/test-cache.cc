@@ -16,6 +16,12 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <climits>
+#include <limits>
+#include <cstddef>
+#include <cstring>
+#include <iterator>
+#include <vector>
 #include "client.h"
 #include "smartdns/dns.h"
 #include "include/utils.h"
@@ -615,4 +621,48 @@ cache-size 100
 	EXPECT_EQ(client.GetStatus(), "NOERROR");
 	EXPECT_EQ(client.GetAnswer()[0].GetName(), "cdn.other.example");
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "5.6.7.8");
+}
+
+TEST_F(Cache, PersistedLifetimeAndCountersAreValidatedBeforeUse)
+{
+    smartdns::MockServer upstream;
+    auto file="/tmp/smartdns_cache.metadata."+smartdns::GenerateRandomString(10);
+    Defer { unlink(file.c_str()); };
+    ASSERT_TRUE(upstream.Start("udp://127.0.0.1:62053",[](smartdns::ServerRequestContext *r) {
+        smartdns::MockServer::AddIP(r,r->domain.c_str(),"1.2.3.4");
+        return smartdns::SERVER_REQUEST_OK;
+    }));
+    std::string conf="bind 127.0.0.1:60053\nserver 127.0.0.1:62053\ncache-size 16\n"
+        "speed-check-mode none\ndualstack-ip-selection no\ncache-persist yes\n"
+        "prefetch-domain yes\nserve-expired yes\nserve-expired-prefetch-time 60\ncache-file "+file+"\n";
+    { smartdns::Server server; ASSERT_TRUE(server.Start(conf)); smartdns::Client client;
+      ASSERT_TRUE(client.Query("metadata.test",60053)); server.Stop(); }
+    std::ifstream in(file,std::ios::binary);
+    std::vector<char> saved((std::istreambuf_iterator<char>(in)),{}); in.close();
+    ASSERT_GE(saved.size(),sizeof(dns_cache_file)+sizeof(dns_cache_record));
+    dns_cache_record original; memcpy(&original,saved.data()+sizeof(dns_cache_file),sizeof(original));
+    ASSERT_EQ(original.magic,MAGIC_RECORD);
+    for (int variant=0;variant<8;variant++) {
+        SCOPED_TRACE(variant);
+        auto record=original;
+        switch (variant) {
+        case 0: record.info.ttl=INT_MAX; record.info.timeout=INT_MAX; break;
+        case 1: record.info.replace_time=-INT_MAX; record.info.timeout=INT_MAX; break;
+        case 2: record.info.replace_time=record.info.insert_time=(std::numeric_limits<time_t>::max)(); break;
+        case 3: record.info.insert_time=-1; break;
+        case 4: record.info.timeout=INT_MIN; break;
+        case 5: record.info.ttl=INT_MIN; break;
+        case 6: record.info.hitnum=INT_MAX; break;
+        case 7: record.info.hitnum_update_add=INT_MAX; break;
+        }
+        auto changed=saved; memcpy(changed.data()+sizeof(dns_cache_file),&record,sizeof(record));
+        { std::ofstream out(file,std::ios::binary|std::ios::trunc); out.write(changed.data(),changed.size()); }
+        smartdns::Server server; ASSERT_TRUE(server.Start(conf)); smartdns::Client client;
+        for (int repeat=0;repeat<2;repeat++) {
+            ASSERT_TRUE(client.Query("metadata.test",60053));
+            EXPECT_EQ(client.GetStatus(),"NOERROR"); ASSERT_EQ(client.GetAnswerNum(),1);
+            EXPECT_EQ(client.GetAnswer()[0].GetData(),"1.2.3.4");
+        }
+        server.Stop();
+    }
 }
