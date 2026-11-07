@@ -345,6 +345,7 @@ static int _config_server(int argc, char *argv[], dns_server_type_t type, int de
 		server->server_flag |= SERVER_FLAG_EXCLUDE_DEFAULT;
 		_dns_conf_get_group_set("bootstrap-dns", server);
 		dns_conf_exist_bootstrap_dns = 1;
+		dns_conf.bootstrap_num++;
 	}
 
 	return 0;
