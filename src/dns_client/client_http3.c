@@ -19,6 +19,7 @@
 #define _GNU_SOURCE
 
 #include "client_http3.h"
+#include "client_http3_control.h"
 #include "client_quic.h"
 #include "conn_stream.h"
 
@@ -98,6 +99,12 @@ int _dns_client_process_recv_http3(struct dns_server_info *server_info, struct d
 	}
 
 	ret = http_head_parse(http_head, conn_stream->recv_buff.data, conn_stream->recv_buff.len);
+    if (ret == HTTP3_PARSE_FRAME_UNEXPECTED || ret == HTTP3_PARSE_QPACK_ERROR || ret == HTTP3_PARSE_PUSH_FORBIDDEN) {
+        uint64_t error = ret == HTTP3_PARSE_QPACK_ERROR ? 0x200 :
+            ret == HTTP3_PARSE_PUSH_FORBIDDEN ? 0x108 : 0x105;
+        _dns_http3_connection_error(server_info, error);
+        goto errout;
+    }
 	if (ret < 0) {
 		if (ret == -1) {
 			errno = EAGAIN;

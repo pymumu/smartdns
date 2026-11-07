@@ -21,6 +21,7 @@
 
 #include "client_http3.h"
 #include "client_quic.h"
+#include "client_http3_control.h"
 #include "client_socket.h"
 #include "client_tls.h"
 #include "conn_stream.h"
@@ -277,6 +278,8 @@ int _dns_client_create_socket_quic(struct dns_server_info *server_info, const ch
 
 	SSL_set_blocking_mode(ssl, 0);
 	SSL_set_default_stream_mode(ssl, SSL_DEFAULT_STREAM_MODE_NONE);
+	if (server_info->type == DNS_SERVER_HTTP3)
+		SSL_set_incoming_stream_policy(ssl, SSL_INCOMING_STREAM_POLICY_ACCEPT, 0);
 	if (_dns_client_setup_quic_ssl_bio(server_info, ssl, fd, proxy) != 0) {
 		tlog(TLOG_ERROR, "ssl set fd failed.");
 		goto errout;
@@ -391,23 +394,41 @@ static int _dns_client_process_quic_stream_read(struct dns_server_info *server_i
 			}
 
 			tlog(TLOG_ERROR, "recv failed, %s", strerror(errno));
+			stream_ret = -1;
 			break;
 		}
 
 		if (read_len == 0) {
+            pthread_mutex_lock(&server_info->lock);
+            int finished = SSL_get_stream_read_state(quic_stream) == SSL_STREAM_STATE_FINISHED;
+            pthread_mutex_unlock(&server_info->lock);
+            if (!finished) return -1;
+			if (!conn_stream->query) return -1;
 			conn_stream->recv_done = 1;
 			if (server_info->type == DNS_SERVER_HTTP3 && conn_stream->recv_buff.len > 0) {
 				stream_ret = _dns_client_process_recv_http3(server_info, conn_stream);
 				if (stream_ret > 0) {
 					stream_ret = -1;
 				}
-			} else {
-				stream_ret = -1;
-			}
-			break;
-		}
+            } else if (server_info->type == DNS_SERVER_QUIC && conn_stream->recv_buff.len >= 14) {
+                unsigned short framed;
+                unsigned char *data = conn_stream->recv_buff.data;
+                memcpy(&framed, data, 2);
+                int len = ntohs(framed);
+                stream_ret = -1;
+                if (len >= 12 && len < DNS_IN_PACKSIZE && conn_stream->recv_buff.len == len + 2 &&
+                    data[2] == 0 && data[3] == 0) {
+                    unsigned short qid = htons(conn_stream->query_id);
+                    memcpy(data + 2, &qid, 2);
+                    stream_ret = _dns_client_recv(server_info, data + 2, len, &server_info->addr, server_info->ai_addrlen);
+                }
+            } else {
+                stream_ret = -1;
+            }
+            break;
+        }
 
-		conn_stream->recv_buff.len += read_len;
+        conn_stream->recv_buff.len += read_len;
 
 		if (conn_stream->query == NULL) {
 			stream_ret = -1;
@@ -423,30 +444,17 @@ static int _dns_client_process_quic_stream_read(struct dns_server_info *server_i
 		}
 
 		if (server_info->type == DNS_SERVER_QUIC) {
-			unsigned short qid = htons(conn_stream->query->sid);
-			if (conn_stream->recv_buff.len < 2) {
-				errno = EAGAIN;
-				continue;
-			}
-
-			int msg_len = ntohs(*((unsigned short *)(conn_stream->recv_buff.data)));
-			if (msg_len <= 0 || msg_len >= DNS_IN_PACKSIZE) {
-				break;
-			}
-
-			if (msg_len > conn_stream->recv_buff.len - 2) {
-				errno = EAGAIN;
-				continue;
-			}
-
-			memcpy(conn_stream->recv_buff.data + 2, &qid, 2);
-			if (_dns_client_recv(server_info, conn_stream->recv_buff.data + 2, conn_stream->recv_buff.len - 2,
-								 &server_info->addr, server_info->ai_addrlen) != 0) {
-				break;
-			}
-			stream_ret = 0;
-			break;
-		}
+            if (conn_stream->recv_buff.len >= 2) {
+                unsigned short framed;
+                memcpy(&framed, conn_stream->recv_buff.data, 2);
+                int len = ntohs(framed);
+                if (len < 12 || len >= DNS_IN_PACKSIZE || conn_stream->recv_buff.len > len + 2) {
+                    stream_ret = -1;
+                    break;
+                }
+            }
+            continue;
+        }
 
 		stream_ret = -1;
 		break;
@@ -455,110 +463,115 @@ static int _dns_client_process_quic_stream_read(struct dns_server_info *server_i
 	return stream_ret;
 }
 
-static int _dns_client_process_quic_poll(struct dns_server_info *server_info)
+/* Snapshot references keep SSL descriptors alive even when dispatching one
+ * response tears down another query in the same batch. */
+static int _dns_client_process_quic_poll(struct dns_server_info *server)
 {
-	LIST_HEAD(processed_list);
-	static int MAX_POLL_ITEM_COUNT = 128;
-	SSL_POLL_ITEM poll_items[MAX_POLL_ITEM_COUNT];
-	memset(poll_items, 0, sizeof(poll_items));
-	static const struct timeval nz_timeout = {0, 0};
-	int poll_ret = 0;
-	int ret = 0;
-	struct dns_conn_stream *conn_stream = NULL;
-	struct dns_conn_stream *tmp = NULL;
-
-	/*
-	 * Guard the poll loop: dispatching a decoded response below can run
-	 * the query callback (via _dns_client_process_quic_stream_read() ->
-	 * _dns_client_process_recv_http3() -> _dns_client_recv()), which may
-	 * request an immediate retry and normally closes the socket right
-	 * away. That would free server_info->ssl and conn_stream_list entries
-	 * this loop is still iterating/using. Defer any such close until the
-	 * guard is released below.
-	 */
-	_dns_client_process_guard_enter(server_info);
-
-	while (true) {
-		int poll_item_count = 0;
-		size_t poll_process_count = 0;
-		size_t poll_retcount = 0;
-
-		pthread_mutex_lock(&server_info->lock);
-		list_for_each_entry_safe(conn_stream, tmp, &server_info->conn_stream_list, server_list)
-		{
-			if (conn_stream->quic_stream == NULL) {
-				continue;
-			}
-
-			if (poll_item_count >= MAX_POLL_ITEM_COUNT) {
-				break;
-			}
-
-			poll_items[poll_item_count].desc = SSL_as_poll_descriptor(conn_stream->quic_stream);
-			poll_items[poll_item_count].events = SSL_POLL_EVENT_R;
-			poll_items[poll_item_count].revents = 0;
-			poll_item_count++;
-			_dns_client_conn_stream_get(conn_stream);
-			list_del_init(&conn_stream->server_list);
-			list_add_tail(&conn_stream->server_list, &processed_list);
+	SSL_POLL_ITEM items[128] = {0};
+	struct dns_conn_stream *streams[128];
+	SSL *snapshots[128];
+	struct dns_conn_stream *stream, *tmp;
+	const struct timeval zero = {0};
+	size_t count = 0, ready = 0;
+	int result = 0;
+	_dns_client_process_guard_enter(server);
+	pthread_mutex_lock(&server->lock);
+	list_for_each_entry_safe(stream, tmp, &server->conn_stream_list, server_list) {
+		if (!stream->query) {
+			list_del_init(&stream->server_list);
+			stream->server_info = NULL;
+			_dns_client_conn_stream_put(stream);
+			continue;
 		}
-		pthread_mutex_unlock(&server_info->lock);
-
-		if (poll_item_count <= 0) {
-			_ssl_do_handevent(server_info);
-			break;
-		}
-
-		ret = SSL_poll(poll_items, poll_item_count, sizeof(SSL_POLL_ITEM), &nz_timeout, 0, &poll_retcount);
-		if (ret <= 0) {
-			tlog(TLOG_DEBUG, "SSL_poll failed, %d", ret);
-			goto errout;
-		}
-
-		for (int i = 0; i < MAX_POLL_ITEM_COUNT && poll_process_count < poll_retcount; i++) {
-			if (poll_items[i].revents & SSL_POLL_EVENT_R) {
-				poll_process_count++;
-				conn_stream = SSL_get_ex_data(poll_items[i].desc.value.ssl, 0);
-				if (conn_stream == NULL) {
-					tlog(TLOG_DEBUG, "conn stream is null");
-					continue;
-				}
-
-				int stream_ret =
-					_dns_client_process_quic_stream_read(server_info, conn_stream, poll_items[i].desc.value.ssl);
-				if (stream_ret > 0) {
-					continue;
-				}
-
-				list_del_init(&conn_stream->server_list);
-				/* Drop the server-list reference and the temporary poll reference. */
-				_dns_client_conn_stream_put(conn_stream);
-				_dns_client_conn_stream_put(conn_stream);
-			}
-		}
+		if (!stream->quic_stream) continue;
+		if (!SSL_up_ref(stream->quic_stream)) { result = -1; break; }
+		snapshots[count] = stream->quic_stream;
+		streams[count] = stream;
+		_dns_client_conn_stream_get(stream);
+		items[count].desc = SSL_as_poll_descriptor(stream->quic_stream);
+		items[count].events = SSL_POLL_EVENT_R | SSL_POLL_EVENT_ER | SSL_POLL_EVENT_EW;
+		if (++count == 128) break;
 	}
-	poll_ret = 0;
-	goto out;
-errout:
-	poll_ret = -1;
+	/* Rotate only after collecting, so no stream is collected twice. */
+	for (size_t i = 0; i < count; i++)
+		list_move_tail(&streams[i]->server_list, &server->conn_stream_list);
+	int polled = !result && count ? SSL_poll(items, count, sizeof(items[0]), &zero,
+						 SSL_POLL_FLAG_NO_HANDLE_EVENTS, &ready) : !result;
+	pthread_mutex_unlock(&server->lock);
+	if (polled != 1) {
+		result = -1;
+		goto out;
+	}
+	for (size_t i = 0; i < count; i++) {
+		stream = streams[i];
+		if (!items[i].revents) continue;
+        pthread_mutex_lock(&server->lock);
+        int active = stream->server_info == server && stream->quic_stream == snapshots[i];
+        pthread_mutex_unlock(&server->lock);
+        if (!active) continue;
+		int ended = items[i].revents & (SSL_POLL_EVENT_ER | SSL_POLL_EVENT_EW);
+		if (!ended && stream->query)
+			ended = _dns_client_process_quic_stream_read(server, stream, snapshots[i]) <= 0;
+		if (!stream->query) ended = 1;
+		if (!ended) continue;
+		pthread_mutex_lock(&server->lock);
+		int linked = stream->server_info == server && !list_empty(&stream->server_list);
+		if (linked) {
+			list_del_init(&stream->server_list);
+			stream->server_info = NULL;
+		}
+		pthread_mutex_unlock(&server->lock);
+		if (linked) _dns_client_conn_stream_put(stream);
+	}
 out:
-	pthread_mutex_lock(&server_info->lock);
-	if (list_empty(&processed_list)) {
-		pthread_mutex_unlock(&server_info->lock);
-		_dns_client_process_guard_leave(server_info);
+    pthread_mutex_lock(&server->lock);
+    for (size_t i = 0; i < count; i++) {
+        SSL_free(snapshots[i]);
+        _dns_client_conn_stream_put(streams[i]);
+    }
+    pthread_mutex_unlock(&server->lock);
+	_dns_client_process_guard_leave(server);
+	return result;
+}
+
+/* Check decoded application readiness separately from kernel socket readiness.
+ * Caller holds the endpoint mutex. No SSL state is advanced by this check. */
+int _dns_client_quic_timeout(struct dns_server_info *server, int timeout)
+{
+	if (!server->ssl) return timeout;
+	struct timeval tv;
+	int infinite;
+	if (SSL_get_event_timeout(server->ssl, &tv, &infinite) && !infinite) {
+		uint64_t ms = (uint64_t)tv.tv_sec * 1000 + (tv.tv_usec + 999) / 1000;
+		if (ms < (uint64_t)timeout) timeout = (int)ms;
+	}
+	SSL_POLL_ITEM items[128] = {0};
+	size_t count = 0, ready = 0;
+	const struct timeval zero = {0};
+	items[count++] = (SSL_POLL_ITEM){.desc = SSL_as_poll_descriptor(server->ssl),
+		.events = SSL_POLL_EVENT_EC | (server->type == DNS_SERVER_HTTP3 ? SSL_POLL_EVENT_ISU | SSL_POLL_EVENT_ISB : 0)};
+	struct dns_conn_stream *stream;
+	list_for_each_entry(stream, &server->conn_stream_list, server_list) {
+		if (!stream->query) return 0;
+		if (!stream->quic_stream) {
+			if (server->type == DNS_SERVER_HTTP3 && !_dns_http3_request_allowed(server, NULL)) continue;
+			items[0].events |= SSL_POLL_EVENT_OSB;
+			continue;
+		}
+		items[count++] = (SSL_POLL_ITEM){.desc = SSL_as_poll_descriptor(stream->quic_stream),
+			.events = SSL_POLL_EVENT_R | SSL_POLL_EVENT_ER | SSL_POLL_EVENT_EW |
+				(stream->send_buff.len && (server->type != DNS_SERVER_HTTP3 ||
+                    _dns_http3_request_allowed(server, stream->quic_stream)) ? SSL_POLL_EVENT_W : 0)};
+		if (count == 128) {
+			if (SSL_poll(items, count, sizeof(items[0]), &zero, SSL_POLL_FLAG_NO_HANDLE_EVENTS, &ready) == 1 && ready)
+				return 0;
+			count = 1;
+		}
+	}
+	if (SSL_poll(items, count, sizeof(items[0]), &zero, SSL_POLL_FLAG_NO_HANDLE_EVENTS, &ready) == 1 && ready)
 		return 0;
-	}
-
-	list_for_each_entry_safe(conn_stream, tmp, &processed_list, server_list)
-	{
-		list_del_init(&conn_stream->server_list);
-		list_add_tail(&conn_stream->server_list, &server_info->conn_stream_list);
-		_dns_client_conn_stream_put(conn_stream);
-	}
-	pthread_mutex_unlock(&server_info->lock);
-
-	_dns_client_process_guard_leave(server_info);
-	return poll_ret;
+	if (server->type == DNS_SERVER_HTTP3 && _dns_http3_control_pending(server)) return 0;
+	return timeout;
 }
 
 static void _dns_client_quic_consume_send_buffer(struct dns_conn_stream *conn_stream, int send_len)
@@ -580,20 +593,20 @@ static int _dns_client_quic_handle_send_result(struct dns_conn_stream *conn_stre
 {
 	if (send_len < 0) {
 		if (errno == EAGAIN) {
-			*epoll_events = EPOLLIN | EPOLLOUT;
+			*epoll_events = EPOLLIN;
 			return 0;
 		}
 		return -1;
 	}
 
 	if (send_len == 0) {
-		*epoll_events = EPOLLIN | EPOLLOUT;
+		*epoll_events = EPOLLIN;
 		return 0;
 	}
 
 	_dns_client_quic_consume_send_buffer(conn_stream, send_len);
 	if (conn_stream->send_buff.len > 0) {
-		*epoll_events = EPOLLIN | EPOLLOUT;
+		*epoll_events = EPOLLIN;
 	}
 
 	return 0;
@@ -602,11 +615,20 @@ static int _dns_client_quic_handle_send_result(struct dns_conn_stream *conn_stre
 static int _dns_client_quic_flush_stream(struct dns_server_info *server_info, struct dns_conn_stream *conn_stream,
 										 int *epoll_events)
 {
-	if (conn_stream->send_buff.len <= 0) {
+	if (conn_stream->send_buff.len <= 0 || !conn_stream->query) {
 		return 0;
 	}
+	if (server_info->type == DNS_SERVER_HTTP3) {
+        int control = _dns_http3_control_poll(server_info);
+        if (control) return control < 0 ? -1 : 0;
+    }
 
 	if (conn_stream->quic_stream == NULL) {
+        SSL_POLL_ITEM credit = {.desc = SSL_as_poll_descriptor(server_info->ssl), .events = SSL_POLL_EVENT_OSB};
+        const struct timeval zero = {0};
+        size_t ready = 0;
+        if (SSL_poll(&credit, 1, sizeof(credit), &zero, SSL_POLL_FLAG_NO_HANDLE_EVENTS, &ready) != 1) return -1;
+        if (!(credit.revents & SSL_POLL_EVENT_OSB)) return 0;
 		conn_stream->quic_stream = SSL_new_stream(server_info->ssl, 0);
 		if (conn_stream->quic_stream == NULL) {
 			return -1;
@@ -629,65 +651,55 @@ static int _dns_client_quic_flush_stream(struct dns_server_info *server_info, st
 	return 0;
 }
 
-int _dns_client_process_quic(struct dns_server_info *server_info, struct epoll_event *event, unsigned long now)
+int _dns_client_process_quic(struct dns_server_info *server, struct epoll_event *event, unsigned long now)
 {
-	if (event->events & EPOLLIN) {
-		_ssl_do_handevent(server_info);
-
-		/* connection is closed, reconnect */
-		if (SSL_get_shutdown(server_info->ssl) != 0) {
-			int ret = 0;
-			_dns_client_close_socket_ext(server_info, 1);
-			pthread_mutex_lock(&server_info->lock);
-			server_info->recv_buff.len = 0;
-			if (!list_empty(&server_info->conn_stream_list)) {
-				/* still remain request data, reconnect and send*/
-				ret = _dns_client_create_socket(server_info);
-			} else {
-				ret = 0;
-			}
-			pthread_mutex_unlock(&server_info->lock);
-			tlog(TLOG_DEBUG, "quic server %s:%d peer close", server_info->ip, server_info->port);
-			return ret;
-		}
-
-		if (_dns_client_process_quic_poll(server_info) != 0) {
-			goto errout;
+	int ret = -1;
+	_dns_client_process_guard_enter(server);
+	if (event->events & (EPOLLIN | EPOLLERR | EPOLLOUT)) {
+		if (_ssl_do_handevent(server) != 1) goto out;
+	}
+	if (server->type == DNS_SERVER_HTTP3 && _dns_http3_control_poll(server) < 0) goto out;
+	if (_dns_client_process_quic_poll(server) < 0) goto out;
+	if (server->type == DNS_SERVER_HTTP3 && _dns_http3_control_poll(server) < 0) goto out;
+    pthread_mutex_lock(&server->lock);
+    int shutdown = SSL_get_shutdown(server->ssl);
+    pthread_mutex_unlock(&server->lock);
+    if (shutdown) goto out;
+	pthread_mutex_lock(&server->lock);
+	struct dns_conn_stream *stream;
+	int events = EPOLLIN;
+	list_for_each_entry(stream, &server->conn_stream_list, server_list) {
+		if (server->type == DNS_SERVER_HTTP3 &&
+			!_dns_http3_request_allowed(server, stream->quic_stream)) continue;
+		if (_dns_client_quic_flush_stream(server, stream, &events) < 0) {
+			pthread_mutex_unlock(&server->lock);
+			goto out;
 		}
 	}
-
-	if (event->events & EPOLLOUT) {
-		int epoll_events = EPOLLIN;
-		struct dns_conn_stream *conn_stream = NULL;
-		pthread_mutex_lock(&server_info->lock);
-		list_for_each_entry(conn_stream, &server_info->conn_stream_list, server_list)
-		{
-			if (conn_stream->send_buff.len <= 0) {
-				continue;
-			}
-
-			if (_dns_client_quic_flush_stream(server_info, conn_stream, &epoll_events) != 0) {
-				pthread_mutex_unlock(&server_info->lock);
-				goto errout;
-			}
-		}
-		pthread_mutex_unlock(&server_info->lock);
-
-		if (server_info->fd > 0) {
-			/* clear epollout event */
-			struct epoll_event mod_event;
-			memset(&mod_event, 0, sizeof(mod_event));
-			mod_event.events = epoll_events;
-			mod_event.data.ptr = server_info;
-			if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &mod_event) != 0) {
-				tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
-				goto errout;
-			}
+	if (SSL_net_write_desired(server->ssl)) events |= EPOLLOUT;
+	if (server->fd >= 0) {
+		struct epoll_event changed = {.events = events, .data.ptr = server};
+		if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server->fd, &changed)) {
+			pthread_mutex_unlock(&server->lock);
+			goto out;
 		}
 	}
-	return 0;
-errout:
-	return -1;
+	pthread_mutex_unlock(&server->lock);
+	/* SSL_write can consume datagrams and make a different stream readable. */
+	if (_dns_client_process_quic_poll(server) < 0) goto out;
+	if (server->type == DNS_SERVER_HTTP3 && _dns_http3_control_poll(server) < 0) goto out;
+    pthread_mutex_lock(&server->lock);
+    int drained = server->type == DNS_SERVER_HTTP3 && _dns_http3_drain_complete(server);
+    pthread_mutex_unlock(&server->lock);
+    if (drained) _dns_client_close_socket(server);
+	ret = 0;
+out:
+	if (ret < 0) {
+		if (server->type == DNS_SERVER_HTTP3) _dns_http3_control_shutdown(server);
+		_dns_client_close_socket(server);
+	}
+	_dns_client_process_guard_leave(server);
+	return ret;
 }
 #endif
 
@@ -725,6 +737,7 @@ static int _dns_client_quic_pending_data(struct dns_conn_stream *stream, struct 
 	if (list_empty(&stream->query_list)) {
 		pthread_mutex_lock(&query->lock);
 		stream->query = query;
+		stream->query_id = query->sid;
 		list_add_tail(&stream->query_list, &query->conn_stream_list);
 		pthread_mutex_unlock(&query->lock);
 		_dns_client_conn_stream_get(stream);
@@ -764,96 +777,24 @@ errout:
 	return -1;
 }
 
-int _dns_client_send_quic_data(struct dns_query_struct *query, struct dns_server_info *server_info, void *packet,
-							   unsigned short len)
+int _dns_client_send_quic_data(struct dns_query_struct *query, struct dns_server_info *server,
+                               void *packet, unsigned short len)
 {
-	int send_len = 0;
-	int ret = 0;
-
-	_dns_client_conn_server_streams_free(server_info, query);
-
-	if (server_info->ssl == NULL) {
-		tlog(TLOG_DEBUG, "ssl is invalid, server %s", server_info->ip);
-		return -1;
-	}
-
-	struct dns_conn_stream *stream = _dns_client_conn_stream_new();
-	if (stream == NULL) {
-		tlog(TLOG_ERROR, "malloc memory failed.");
-		return -1;
-	}
-	stream->type = server_info->type;
-
-	if (server_info->status != DNS_SERVER_STATUS_CONNECTED) {
-		ret = _dns_client_quic_pending_data(stream, server_info, query, packet, len);
-		goto out;
-	}
-
-	/* run quic handevent */
-	_ssl_do_handevent(server_info);
-
-	SSL *quic_stream = SSL_new_stream(server_info->ssl, 0);
-	if (quic_stream == NULL) {
-		struct epoll_event event;
-		_dns_client_shutdown_socket(server_info);
-		ret = _dns_client_quic_pending_data(stream, server_info, query, packet, len);
-		if (ret != 0) {
-			errno = ECONNRESET;
-			goto out;
-		}
-
-		/* clear epollout event */
-		memset(&event, 0, sizeof(event));
-		event.events = EPOLLIN;
-		event.data.ptr = server_info;
-		if (epoll_ctl(client.epoll_fd, EPOLL_CTL_MOD, server_info->fd, &event) != 0) {
-			if (errno == ENOENT) {
-				goto out;
-			}
-			tlog(TLOG_ERROR, "epoll ctl failed, %s", strerror(errno));
-			ret = -1;
-		}
-		goto out;
-	}
-
-	pthread_mutex_lock(&server_info->lock);
-	stream->server_info = server_info;
-	list_add_tail(&stream->server_list, &server_info->conn_stream_list);
-	_dns_client_conn_stream_get(stream);
-
-	pthread_mutex_lock(&query->lock);
-	stream->query = query;
-	list_add_tail(&stream->query_list, &query->conn_stream_list);
-	pthread_mutex_unlock(&query->lock);
-	_dns_client_conn_stream_get(stream);
-	pthread_mutex_unlock(&server_info->lock);
-
-	/* bind stream */
-	SSL_set_ex_data(quic_stream, 0, stream);
-	stream->quic_stream = quic_stream;
-
-	send_len = _dns_client_socket_ssl_send_ext(server_info, quic_stream, packet, len, SSL_WRITE_FLAG_CONCLUDE);
-	if (send_len <= 0) {
-		if (errno == EAGAIN || server_info->ssl == NULL) {
-			/* save data to buffer, and retry when EPOLLOUT is available */
-			ret = _dns_client_quic_pending_data(stream, server_info, query, packet, len);
-			goto out;
-		} else if (server_info->ssl && errno != ENOMEM) {
-			_dns_client_shutdown_socket(server_info);
-		}
-		ret = -1;
-		goto out;
-	} else if (send_len < len) {
-		/* save remain data to buffer, and retry when EPOLLOUT is available */
-		ret = _dns_client_quic_pending_data(stream, server_info, query, packet + send_len, len - send_len);
-		goto out;
-	}
-out:
-	if (stream) {
-		_dns_client_conn_stream_put(stream);
-	}
-
-	return ret;
+    if (!server->ssl) { errno = EINVAL; return -1; }
+    _dns_client_conn_server_streams_free(server, query);
+    struct dns_conn_stream *stream = _dns_client_conn_stream_new();
+    if (!stream) return -1;
+    stream->type = server->type;
+    int ret = _dns_client_quic_pending_data(stream, server, query, packet, len);
+    if (!ret && server->status == DNS_SERVER_STATUS_CONNECTED) {
+        int events = EPOLLIN;
+        pthread_mutex_lock(&server->lock);
+        if (server->type != DNS_SERVER_HTTP3 || _dns_http3_request_allowed(server, NULL))
+            ret = _dns_client_quic_flush_stream(server, stream, &events);
+        pthread_mutex_unlock(&server->lock);
+    }
+    _dns_client_conn_stream_put(stream);
+    return ret;
 }
 #endif
 
