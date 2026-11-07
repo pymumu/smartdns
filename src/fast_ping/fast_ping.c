@@ -142,17 +142,33 @@ errout:
 	return -1;
 }
 
+#ifdef TEST
+/* Test-only observation/failure injection at the transport boundary. */
+extern int fast_ping_test_send_hook(struct ping_host_struct *ping_host, int before) __attribute__((weak));
+#endif
+
 static int _fast_ping_sendping(struct ping_host_struct *ping_host)
 {
 	int ret = -1;
 	struct fast_ping_fake_ip *fake = NULL;
 	gettimeofday(&ping_host->last, NULL);
+	/* A loopback response can be processed before the transport returns. */
+	ping_host->error = 0;
+	ping_host->send = 1;
+
+#ifdef TEST
+	if (fast_ping_test_send_hook && fast_ping_test_send_hook(ping_host, 1) != 0) {
+		goto send_done;
+	}
+#endif
 
 	fake = _fast_ping_fake_find(ping_host->type, &ping_host->addr, ping_host->addr_len);
 	if (fake) {
 		ret = _fast_ping_send_fake(ping_host, fake);
+		int saved_errno = errno;
 		_fast_ping_fake_put(fake);
-		return ret;
+		errno = saved_errno;
+		goto send_done;
 	}
 
 	if (ping_host->type == FAST_PING_ICMP) {
@@ -167,15 +183,19 @@ static int _fast_ping_sendping(struct ping_host_struct *ping_host)
 		ret = _fast_ping_sendping_udp(ping_host);
 	}
 
-	ping_host->send = 1;
-
+send_done:
 	if (ret != 0) {
 		ping_host->error = errno;
-		return ret;
-	} else {
-		ping_host->error = 0;
+		ping_host->send = 0;
+		return -1;
 	}
 
+#ifdef TEST
+	if (fast_ping_test_send_hook) {
+		fast_ping_test_send_hook(ping_host, 0);
+	}
+#endif
+	/* Do not overwrite send: the receiver may already have cleared it. */
 	return 0;
 }
 
@@ -284,30 +304,40 @@ struct ping_host_struct *fast_ping_start(PING_TYPE type, const char *host, int c
 		/* already take ownership by find. */
 		ping_host->fake = fake;
 		ping_host->fake_time_fd = fake_time_fd;
+		fake_time_fd = -1;
 		fake = NULL;
 	}
 
 	addrkey = _fast_ping_hash_key(ping_host->sid, &ping_host->addr);
 
+	/* Keep separate caller, startup and map references. Publish before any I/O,
+	 * but leave run clear so the periodic worker cannot race the first send. */
 	_fast_ping_host_get(ping_host);
 	_fast_ping_host_get(ping_host);
-	// for ping race condition, get reference count twice
+	pthread_mutex_lock(&ping.map_lock);
+	_fast_ping_host_get(ping_host);
+	hash_add(ping.addrmap, &ping_host->addr_node, addrkey);
+	pthread_mutex_unlock(&ping.map_lock);
+
 	if (_fast_ping_sendping(ping_host) != 0) {
 		goto errout_remove;
 	}
 
 	pthread_mutex_lock(&ping.map_lock);
-	_fast_ping_host_get(ping_host);
-	if (hash_empty(ping.addrmap)) {
+	/* A one-shot response may have already removed the map reference. */
+	if (hash_hashed(&ping_host->addr_node)) {
+		ping_host->run = 1;
 		_fast_ping_wakeup_thread();
 	}
-	hash_add(ping.addrmap, &ping_host->addr_node, addrkey);
-	ping_host->run = 1;
 	pthread_mutex_unlock(&ping.map_lock);
 	freeaddrinfo(gai);
 	_fast_ping_host_put(ping_host);
 	return ping_host;
 errout_remove:
+	/* Failed starts return NULL and report ERROR synchronously, not END.
+	 * Remove the published entry before the callback can observe it. */
+	atomic_inc_return(&ping_host->notified);
+	_fast_ping_host_remove(ping_host);
 	ping_host->ping_callback(ping_host, ping_host->host, PING_RESULT_ERROR, &ping_host->addr, ping_host->addr_len,
 							 ping_host->seq, ping_host->ttl, NULL, ping_host->error, ping_host->userptr);
 	fast_ping_stop(ping_host);
