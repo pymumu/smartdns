@@ -116,10 +116,36 @@ void _dns_client_conn_server_streams_free(struct dns_server_info *server_info, s
 	{
 		list_del_init(&stream->server_list);
 		if (stream->http2_stream) {
-			http2_stream_close(stream->http2_stream);
+			http2_stream_abort(stream->http2_stream);
 			stream->http2_stream = NULL;
 		}
 
 		_dns_client_conn_stream_put(stream);
 	}
+}
+/* The caller holds a reference and has already detached the query list.
+ * Do not take the HTTP/2 context mutex under the endpoint mutex. */
+void _dns_client_conn_stream_cancel(struct dns_conn_stream *stream)
+{
+	struct dns_server_info *server = stream->server_info;
+	struct http2_stream *http2 = NULL;
+	int put_server = 0;
+    /* A detached stream is already being closed by its current owner. */
+    if (!server) return;
+    pthread_mutex_lock(&server->lock);
+    if (stream->server_info != server) {
+        pthread_mutex_unlock(&server->lock);
+        return;
+    }
+	if (!list_empty(&stream->server_list)) {
+		list_del_init(&stream->server_list);
+		stream->server_info = NULL;
+		put_server = 1;
+	}
+	http2 = stream->http2_stream;
+	stream->http2_stream = NULL;
+	stream->send_buff.len = 0;
+	pthread_mutex_unlock(&server->lock);
+	if (http2) http2_stream_abort(http2);
+	if (put_server) _dns_client_conn_stream_put(stream);
 }
