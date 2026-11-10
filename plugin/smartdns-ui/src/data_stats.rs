@@ -419,7 +419,9 @@ impl DataStats {
 
         let ret = self
             .db
-            .delete_domain_before_timestamp(now - self.conf.read().unwrap().max_log_age_ms as u64);
+            .delete_domain_before_timestamp(
+                now.saturating_sub(self.conf.read().unwrap().max_log_age_ms as u64),
+            );
         if let Err(e) = ret {
             if e.to_string() != "Query returned no rows" {
               dns_log!(
@@ -430,21 +432,21 @@ impl DataStats {
             }
         }
 
-        let ret = self.db.refresh_client_top_list(now - 7 * 24 * 3600 * 1000);
+        let ret = self.db.refresh_client_top_list(now.saturating_sub(7 * 24 * 3600 * 1000));
         if let Err(e) = ret {
             dns_log!(LogLevel::WARN, "refresh client top list error: {}", e);
         }
 
-        let ret = self.db.refresh_domain_top_list(now - 7 * 24 * 3600 * 1000);
+        let ret = self.db.refresh_domain_top_list(now.saturating_sub(7 * 24 * 3600 * 1000));
         if let Err(e) = ret {
             dns_log!(LogLevel::WARN, "refresh domain top list error: {}", e);
         }
         let _ = self
             .db
-            .delete_hourly_query_count_before_timestamp(30 * 24 * 3600 * 1000);
+            .delete_hourly_query_count_before_timestamp(now.saturating_sub(30 * 24 * 3600 * 1000));
         let _ = self
             .db
-            .delete_daily_query_count_before_timestamp(90 * 24 * 3600 * 1000);
+            .delete_daily_query_count_before_timestamp(now.saturating_sub(90 * 24 * 3600 * 1000));
     }
 
     async fn update_stats(self: &Arc<Self>) {
