@@ -25,6 +25,8 @@ struct hpack_context {
 	struct hpack_dynamic_entry *dynamic_table;
 	size_t dynamic_table_size;
 	size_t max_dynamic_table_size;
+	size_t pending_min_size;
+	int pending_size_update;
 	int entry_count;
 };
 
@@ -49,6 +51,8 @@ void hpack_free_context(struct hpack_context *hpack);
  * @param new_size New size
  */
 void hpack_resize_dynamic_table(struct hpack_context *hpack, size_t new_size);
+/* Encoder size changes must use this setter to synchronize the next encoded block. */
+void hpack_set_encoder_table_size(struct hpack_context *hpack, size_t new_size);
 
 /**
  * Encode a header
