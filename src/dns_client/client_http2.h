@@ -28,6 +28,10 @@
 extern "C" {
 #endif
 
+#ifdef TEST
+int dns_client_http2_test_process_write(struct dns_server_info *server_info);
+#endif
+
 /**
  * Send DNS query over HTTP/2
  * @param server_info Server information
