@@ -1033,10 +1033,14 @@ impl DB {
         };
 
         let timestamp_now = smartdns::get_utc_time_ms();
-        let sql = "SELECT client, COUNT(*) FROM domain WHERE timestamp >= ? GROUP BY client ORDER BY COUNT(*) DESC LIMIT 20";
-        self.debug_query_plan(&conn, sql.to_string(), &vec![timestamp.to_string()]);
+        let sql = "SELECT client, COUNT(*) FROM domain WHERE timestamp >= ?1 AND timestamp <= ?2 GROUP BY client ORDER BY COUNT(*) DESC LIMIT 20";
+        self.debug_query_plan(
+            &conn,
+            sql.to_string(),
+            &vec![timestamp.to_string(), timestamp_now.to_string()],
+        );
         let mut stmt = conn.prepare(sql)?;
-        let rows = stmt.query_map([timestamp.to_string()], |row| {
+        let rows = stmt.query_map([timestamp.to_string(), timestamp_now.to_string()], |row| {
             Ok(ClientQueryCount {
                 client_ip: row.get(0)?,
                 count: row.get(1)?,
@@ -1157,6 +1161,7 @@ impl DB {
                     domain_daily_count \
                  WHERE \
                     timestamp >= strftime('%s', 'now') * 1000 - ? * 1000 \
+                    AND timestamp <= strftime('%s', 'now') * 1000
                  ORDER BY \
                     timestamp DESC;\
                  ",
@@ -1226,6 +1231,7 @@ impl DB {
                     domain_hourly_count \
                  WHERE \
                     timestamp >= strftime('%s', 'now') * 1000 - ? * 1000 \
+                    AND timestamp <= strftime('%s', 'now') * 1000
                  ORDER BY \
                     timestamp DESC;\
                  ";
@@ -1267,10 +1273,14 @@ impl DB {
         };
 
         let timestamp_now = smartdns::get_utc_time_ms();
-        let sql = "SELECT domain, COUNT(*) FROM domain WHERE timestamp >= ? GROUP BY domain ORDER BY COUNT(*) DESC LIMIT 20";
-        self.debug_query_plan(&conn, sql.to_string(), &vec![timestamp.to_string()]);
+        let sql = "SELECT domain, COUNT(*) FROM domain WHERE timestamp >= ?1 AND timestamp <= ?2 GROUP BY domain ORDER BY COUNT(*) DESC LIMIT 20";
+        self.debug_query_plan(
+            &conn,
+            sql.to_string(),
+            &vec![timestamp.to_string(), timestamp_now.to_string()],
+        );
         let mut stmt = conn.prepare(sql)?;
-        let rows = stmt.query_map([timestamp.to_string()], |row| {
+        let rows = stmt.query_map([timestamp.to_string(), timestamp_now.to_string()], |row| {
             Ok(DomainQueryCount {
                 domain: row.get(0)?,
                 count: row.get(1)?,
@@ -1322,7 +1332,7 @@ impl DB {
 
         let conn = conn.as_ref().unwrap();
 
-        let mut stmt = conn.prepare("SELECT domain, count, timestamp_start, timestamp_end FROM top_domain_list DESC LIMIT ?")?;
+        let mut stmt = conn.prepare("SELECT domain, count, timestamp_start, timestamp_end FROM top_domain_list ORDER BY count DESC LIMIT ?")?;
         let rows = stmt.query_map([count.to_string()], |row| {
             Ok(DomainQueryCount {
                 domain: row.get(0)?,
