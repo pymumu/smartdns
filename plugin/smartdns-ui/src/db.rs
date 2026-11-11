@@ -1302,7 +1302,7 @@ impl DB {
 
         let conn = conn.as_ref().unwrap();
 
-        let mut stmt = conn.prepare("SELECT domain, count, timestamp_start, timestamp_end FROM top_domain_list DESC LIMIT ?")?;
+        let mut stmt = conn.prepare("SELECT domain, count, timestamp_start, timestamp_end FROM top_domain_list ORDER BY count DESC LIMIT ?")?;
         let rows = stmt.query_map([count.to_string()], |row| {
             Ok(DomainQueryCount {
                 domain: row.get(0)?,
