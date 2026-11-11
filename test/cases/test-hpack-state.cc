@@ -31,6 +31,8 @@ TEST(HeaderCompression, EncoderSettingsShrinkAndGrowSynchronizeNextHeaderBlock) 
 namespace {
 thread_local int fail_hpack_strdup;
 }
+// Test-only control shared with HTTP/2 failure-path tests.
+void FailHpackStrdupAfter(int calls) { fail_hpack_strdup = calls; }
 extern "C" char *__real_strdup(const char *);
 extern "C" char *__wrap_strdup(const char *s)
 {

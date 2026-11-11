@@ -772,6 +772,7 @@ static int _dns_client_http2_process_read(struct dns_server_info *server_info)
 	struct http2_poll_item poll_items[128];
 	int poll_count = 0;
 	int loop_count = 0;
+	int drain_terminal = 0;
 	const int MAX_LOOP_COUNT = 512;
 	struct dns_conn_stream *conn_stream = NULL;
 	int ret = 0;
@@ -799,7 +800,9 @@ static int _dns_client_http2_process_read(struct dns_server_info *server_info)
 	}
 
 	/* Poll and process streams until no more ready */
-	while (loop_count++ < MAX_LOOP_COUNT) {
+	/* Keep the live-connection work budget. Once fatal, input is stopped and
+	 * the finite set of already buffered results must be drained before close. */
+	while (drain_terminal || loop_count++ < MAX_LOOP_COUNT) {
 		/* Poll for stream readiness */
 		ret = http2_ctx_poll_readable(http2_ctx, poll_items, 128, &poll_count);
 		if (ret < 0) {
@@ -814,6 +817,7 @@ static int _dns_client_http2_process_read(struct dns_server_info *server_info)
 			break;
 		}
 
+		drain_terminal = http2_ctx_is_closed(http2_ctx);
 		/* Process each ready stream */
 		for (i = 0; i < poll_count; i++) {
 			struct http2_stream *stream = poll_items[i].stream;
@@ -823,7 +827,13 @@ static int _dns_client_http2_process_read(struct dns_server_info *server_info)
 
 			conn_stream = (struct dns_conn_stream *)http2_stream_get_ex_data(stream);
 			if (conn_stream == NULL) {
-				http2_stream_put(stream);
+				if (drain_terminal) {
+					/* No application owner can consume this ready result. Close
+					 * it using the poll reference so terminal draining advances. */
+					http2_stream_close(stream);
+				} else {
+					http2_stream_put(stream);
+				}
 				continue;
 			}
 
@@ -851,12 +861,17 @@ static int _dns_client_http2_process_read(struct dns_server_info *server_info)
 			http2_stream_put(stream);
 		}
 
+		/* Drain all ready batches even if the same input also made the
+		 * context fatal. Polling a failed context only drains buffered results;
+		 * it performs no more BIO calls. */
 		if (poll_count < 128) {
 			break;
 		}
 	}
+	/* A short batch must not hide a fatal status until another socket event. */
+	ret = http2_ctx_is_closed(http2_ctx) ? -1 : 0;
 	http2_ctx_put(http2_ctx);
-	return 0;
+	return ret;
 }
 
 int _dns_client_process_http2(struct dns_server_info *server_info, struct epoll_event *event, unsigned long now)
