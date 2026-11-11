@@ -145,6 +145,90 @@ acl-enable yes
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
 }
 
+TEST_F(ClientRule, keep_bind_flags)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::Server server;
+	std::atomic<int> upstream_count{0};
+
+	server_upstream.Start("udp://0.0.0.0:61053", [&](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype != DNS_T_A) {
+			return smartdns::SERVER_REQUEST_SOA;
+		}
+
+		upstream_count++;
+		smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4", 611);
+		return smartdns::SERVER_REQUEST_OK;
+	});
+
+	server.MockPing(PING_TYPE_ICMP, "1.2.3.4", 60, 10);
+
+	/* a client rule without options must not drop the flags of the bind */
+	server.Start(R"""(bind [::]:60053 -no-cache -no-serve-expired
+server udp://127.0.0.1:61053
+acl-enable yes
+client-rules 127.0.0.1
+)""");
+	smartdns::Client client;
+	for (int i = 0; i < 2; i++) {
+		ASSERT_TRUE(client.Query("b.com", 60053));
+		std::cout << client.GetResult() << std::endl;
+		ASSERT_EQ(client.GetAnswerNum(), 1);
+		EXPECT_EQ(client.GetStatus(), "NOERROR");
+		EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+	}
+
+	EXPECT_EQ(upstream_count, 2);
+}
+
+TEST_F(ClientRule, flags_add_to_bind_flags)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::Server server;
+	std::atomic<int> upstream_a_count{0};
+	std::atomic<int> upstream_aaaa_count{0};
+
+	server_upstream.Start("udp://0.0.0.0:61053", [&](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype == DNS_T_A) {
+			upstream_a_count++;
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "1.2.3.4", 611);
+			return smartdns::SERVER_REQUEST_OK;
+		}
+
+		if (request->qtype == DNS_T_AAAA) {
+			upstream_aaaa_count++;
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "64:ff9b::102:304", 611);
+			return smartdns::SERVER_REQUEST_OK;
+		}
+
+		return smartdns::SERVER_REQUEST_SOA;
+	});
+
+	server.MockPing(PING_TYPE_ICMP, "1.2.3.4", 60, 10);
+	server.MockPing(PING_TYPE_ICMP, "64:ff9b::102:304", 60, 10);
+
+	/* -force-aaaa-soa comes from the bind, -no-cache from the client rule */
+	server.Start(R"""(bind [::]:60053 -force-aaaa-soa
+server udp://127.0.0.1:61053
+client-rules 127.0.0.1 -no-cache
+)""");
+	smartdns::Client client;
+	for (int i = 0; i < 2; i++) {
+		ASSERT_TRUE(client.Query("b.com", 60053));
+		std::cout << client.GetResult() << std::endl;
+		ASSERT_EQ(client.GetAnswerNum(), 1);
+		EXPECT_EQ(client.GetStatus(), "NOERROR");
+		EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.2.3.4");
+	}
+	EXPECT_EQ(upstream_a_count, 2);
+
+	ASSERT_TRUE(client.Query("b.com AAAA", 60053));
+	std::cout << client.GetResult() << std::endl;
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	EXPECT_EQ(client.GetAnswerNum(), 0);
+	EXPECT_EQ(upstream_aaaa_count, 0);
+}
+
 
 TEST_F(ClientRule, in_group_nameserver) 
 {
