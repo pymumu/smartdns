@@ -18,6 +18,8 @@
 
 #define _GNU_SOURCE
 
+#include <limits.h>
+
 #include "smartdns/util.h"
 
 #include "client_http2.h"
@@ -597,6 +599,45 @@ static void _dns_client_period_run(unsigned int msec)
 	}
 }
 
+#if defined(OSSL_QUIC1_VERSION) && !defined(OPENSSL_NO_QUIC)
+static int _dns_client_quic_pending(unsigned long now, int timeout)
+{
+	struct dns_server_info *server = NULL;
+	pthread_mutex_lock(&client.server_list_lock);
+	if (!list_empty(&client.dns_server_list)) {
+		server = list_first_entry(&client.dns_server_list, struct dns_server_info, list);
+		dns_client_server_info_get(server);
+	}
+	pthread_mutex_unlock(&client.server_list_lock);
+	while (server) {
+		struct dns_server_info *next = NULL;
+		pthread_mutex_lock(&client.server_list_lock);
+		if (!list_empty(&server->list) && server->list.next != &client.dns_server_list) {
+			next = list_entry(server->list.next, struct dns_server_info, list);
+			dns_client_server_info_get(next);
+		}
+		pthread_mutex_unlock(&client.server_list_lock);
+		if (server->type == DNS_SERVER_QUIC || server->type == DNS_SERVER_HTTP3) {
+			pthread_mutex_lock(&server->lock);
+			/* A ready endpoint must not make later idle endpoints appear ready. */
+			int due = _dns_client_quic_timeout(server, INT_MAX);
+			pthread_mutex_unlock(&server->lock);
+			if (due == 0 && server->ssl) {
+				struct epoll_event event = {.events = EPOLLIN, .data.ptr = server};
+				_dns_client_process(server, &event, now);
+				pthread_mutex_lock(&server->lock);
+				due = _dns_client_quic_timeout(server, INT_MAX);
+				pthread_mutex_unlock(&server->lock);
+			}
+			if (due < timeout) timeout = due;
+		}
+		dns_client_server_info_release(server);
+		server = next;
+	}
+	return timeout;
+}
+#endif
+
 static void *_dns_client_work(void *arg)
 {
 	struct epoll_event events[DNS_MAX_EVENTS + 1];
@@ -644,6 +685,9 @@ static void *_dns_client_work(void *arg)
 			sleep_time = 0;
 		}
 
+		#if defined(OSSL_QUIC1_VERSION) && !defined(OPENSSL_NO_QUIC)
+		sleep_time = _dns_client_quic_pending(now, sleep_time);
+#endif
 		num = epoll_wait(client.epoll_fd, events, DNS_MAX_EVENTS, sleep_time);
 		if (num < 0) {
 			usleep(100000);
