@@ -52,10 +52,19 @@ void _dns_server_ipv6_check_conf_init(void)
 	}
 }
 
+/* These probes are stopped by their caller. The default END callback also
+ * stops its host and can run before fast_ping_start returns. */
+static void _dns_server_ipv6_check_result(struct ping_host_struct *host, const char *name,
+										FAST_PING_RESULT result, struct sockaddr *addr, socklen_t addr_len,
+										int seq, int ttl, struct timeval *tv, int error, void *data)
+{
+}
+
 void dns_server_check_ipv6_ready(void)
 {
 	if (is_icmp_check_set) {
-		struct ping_host_struct *check_ping = fast_ping_start(PING_TYPE_ICMP, "2001::", 1, 0, 100, NULL, NULL);
+		struct ping_host_struct *check_ping = fast_ping_start(PING_TYPE_ICMP, "2001::", 1, 0, 100,
+																_dns_server_ipv6_check_result, NULL);
 		if (check_ping) {
 			fast_ping_stop(check_ping);
 			is_ipv6_ready = 1;
@@ -69,7 +78,8 @@ void dns_server_check_ipv6_ready(void)
 	}
 
 	if (is_tcp_check_set) {
-		struct ping_host_struct *check_ping = fast_ping_start(PING_TYPE_TCP, "2001::", 1, 0, 100, NULL, NULL);
+		struct ping_host_struct *check_ping = fast_ping_start(PING_TYPE_TCP, "2001::", 1, 0, 100,
+																_dns_server_ipv6_check_result, NULL);
 		if (check_ping) {
 			fast_ping_stop(check_ping);
 			is_ipv6_ready = 1;
@@ -83,7 +93,8 @@ void dns_server_check_ipv6_ready(void)
 	}
 
 	if (is_tcp_syn_check_set) {
-		struct ping_host_struct *check_ping = fast_ping_start(PING_TYPE_TCP_SYN, "2001::", 1, 0, 100, NULL, NULL);
+		struct ping_host_struct *check_ping = fast_ping_start(PING_TYPE_TCP_SYN, "2001::", 1, 0, 100,
+																_dns_server_ipv6_check_result, NULL);
 		if (check_ping) {
 			fast_ping_stop(check_ping);
 			is_ipv6_ready = 1;
