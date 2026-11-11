@@ -233,7 +233,9 @@ struct http2_header_pair {
  * @param path Request path
  * @param scheme Scheme (e.g., "https"), if NULL defaults to "https"
  * @param headers Array of additional headers (NULL-terminated, last element must have name=NULL)
- * @return 0 on success, -1 on error
+ * Header assembly allocation failure returns -1 with errno=ENOMEM, without
+ * replacing existing fields, encoding headers, or changing stream state.
+ * @return 0 when headers are sent or queued, -1 on error
  */
 int http2_stream_set_request(struct http2_stream *stream, const char *method, const char *path,
 							 const char *scheme, const struct http2_header_pair *headers);
@@ -244,7 +246,9 @@ int http2_stream_set_request(struct http2_stream *stream, const char *method, co
  * @param status HTTP status code (e.g., 200, 404)
  * @param headers Array of additional headers
  * @param header_count Number of headers in the array
- * @return 0 on success, -1 on error
+ * Header assembly allocation failure returns -1 with errno=ENOMEM, without
+ * replacing existing fields, encoding headers, or changing stream state.
+ * @return 0 when headers are sent or queued, -1 on error
  */
 int http2_stream_set_response(struct http2_stream *stream, int status, const struct http2_header_pair *headers,
 							  int header_count);
