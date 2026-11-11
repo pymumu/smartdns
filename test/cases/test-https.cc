@@ -664,6 +664,54 @@ cache-persist no)""");
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1 b.com. alpn=\"h2,h3-19\" port=443 ech=AEX+DQA=");
 }
 
+TEST_F(HTTPS, filter_ip_nospeed_check_dnssec)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::Server server;
+
+	server_upstream.Start("udp://0.0.0.0:61053", [&](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype != DNS_T_HTTPS) {
+			return smartdns::SERVER_REQUEST_SOA;
+		}
+
+		struct dns_packet *packet = request->response_packet;
+		struct dns_rr_nested svcparam_buffer;
+
+		dns_add_HTTPS_start(&svcparam_buffer, packet, DNS_RRS_AN, request->domain.c_str(), 3, 1, "b.com");
+		const char alph[] = "\x02h2\x05h3-19";
+		int alph_len = sizeof(alph) - 1;
+		dns_HTTPS_add_alpn(&svcparam_buffer, alph, alph_len);
+		dns_HTTPS_add_port(&svcparam_buffer, 443);
+		unsigned char add_v4[] = {1, 2, 3, 4};
+		unsigned char *addr[1] = {add_v4};
+		dns_HTTPS_add_ipv4hint(&svcparam_buffer, addr, 1);
+		unsigned char add_v6[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+		addr[0] = add_v6;
+		dns_HTTPS_add_ipv6hint(&svcparam_buffer, addr, 1);
+		dns_add_HTTPS_end(&svcparam_buffer);
+
+		return smartdns::SERVER_REQUEST_OK;
+	});
+
+	server.Start(R"""(bind [::]:60053
+server 127.0.0.1:61053
+log-console yes
+dualstack-ip-selection no
+speed-check-mode none
+https-record noipv4hint,noipv6hint
+log-level debug
+cache-persist no)""");
+	smartdns::Client client;
+	/* DO bit set: the filtered answer is returned, not dropped */
+	ASSERT_TRUE(client.Query("a.com HTTPS +dnssec", 60053));
+	std::cout << client.GetResult() << std::endl;
+	EXPECT_EQ(client.GetStatus(), "NOERROR");
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
+	EXPECT_EQ(client.GetAnswer()[0].GetType(), "HTTPS");
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1 b.com. alpn=\"h2,h3-19\" port=443");
+}
+
 TEST_F(HTTPS, multi_filter_ip)
 {
 	smartdns::MockServer server_upstream;
