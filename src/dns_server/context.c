@@ -1103,12 +1103,78 @@ int _dns_cache_reply_packet(struct dns_server_post_context *context)
 	return 0;
 }
 
+/* The upstream packet is replied as is here, so apply max-reply-ip-num like _dns_rrs_add_all_best_ip() does */
+static int _dns_server_passthrough_limit_ip(struct dns_server_post_context *context)
+{
+	struct dns_request *request = context->request;
+	struct dns_packet *packet = (struct dns_packet *)context->packet_buff;
+	struct dns_rrs *rrs = NULL;
+	struct dns_rrs *prev = NULL;
+	int max_ip_num = request->conf->dns_max_reply_ip_num;
+	int rr_count = 0;
+	int ip_num = 0;
+	int encode_len = 0;
+	int i = 0;
+
+	/* dropping records from a signed RRset would break DNSSEC validation */
+	if ((context->qtype != DNS_T_A && context->qtype != DNS_T_AAAA) || request->edns0_do) {
+		return 0;
+	}
+
+	rrs = dns_get_rrs_start(context->packet, DNS_RRS_AN, &rr_count);
+	for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(context->packet, rrs)) {
+		if (rrs->type == context->qtype) {
+			ip_num++;
+		}
+	}
+
+	if (ip_num <= max_ip_num) {
+		return 0;
+	}
+
+	/* trim a copy, the caller may still process the full upstream answer */
+	if (dns_decode(packet, sizeof(context->packet_buff), context->inpacket, context->inpacket_len) != 0) {
+		return -1;
+	}
+
+	ip_num = 0;
+	rrs = dns_get_rrs_start(packet, DNS_RRS_AN, &rr_count);
+	for (i = 0; i < rr_count && rrs; i++, rrs = dns_get_rrs_next(packet, rrs)) {
+		if (rrs->type == context->qtype && ++ip_num > max_ip_num) {
+			if (prev) {
+				prev->next = rrs->next;
+			} else {
+				packet->answers = rrs->next;
+			}
+			packet->head.ancount--;
+			continue;
+		}
+		prev = rrs;
+	}
+
+	encode_len = dns_encode(context->inpacket_buff, sizeof(context->inpacket_buff), packet);
+	if (encode_len <= 0) {
+		return -1;
+	}
+
+	context->packet = packet;
+	context->inpacket = context->inpacket_buff;
+	context->inpacket_len = encode_len;
+	context->inpacket_maxlen = sizeof(context->inpacket_buff);
+
+	return 0;
+}
+
 int _dns_server_reply_passthrough(struct dns_server_post_context *context)
 {
 	struct dns_request *request = context->request;
 
 	if (atomic_inc_return(&request->notified) != 1) {
 		return 0;
+	}
+
+	if (_dns_server_passthrough_limit_ip(context) != 0) {
+		tlog(TLOG_DEBUG, "limit reply ip number for %s failed.", request->domain);
 	}
 
 	_dns_server_get_answer(context);
