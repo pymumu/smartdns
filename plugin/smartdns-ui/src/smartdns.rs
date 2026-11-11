@@ -966,10 +966,10 @@ impl Plugin {
 #[derive(Serialize)]
 pub struct CachedDomainInfo { pub id: u64, pub domain: String, pub qtype: u16, pub cached_time: i64, pub ttl_remaining: i32 }
 
-extern "C" fn cache_foreach_cb(domain: *const c_char, qtype: u16, ttl_remaining: i32, insert_time: i64, userdata: *mut c_void) {
+extern "C" fn cache_foreach_cb(domain: *const c_char, qtype: u16, ttl_remaining: i32, insert_time: smartdns_c::time_t, userdata: *mut c_void) {
     let domains = unsafe { &mut *(userdata as *mut Vec<CachedDomainInfo>) };
     let domain_str = unsafe { CStr::from_ptr(domain).to_string_lossy().into_owned() };
-    domains.push(CachedDomainInfo { id: 0, domain: domain_str, qtype, cached_time: insert_time, ttl_remaining });
+    domains.push(CachedDomainInfo { id: 0, domain: domain_str, qtype, cached_time: insert_time as i64, ttl_remaining });
 }
 
 pub fn get_cached_domains() -> Vec<CachedDomainInfo> {
@@ -1045,6 +1045,21 @@ impl fmt::Display for Stats {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cache_callback_preserves_native_timestamp_width() {
+        eprintln!("cache callback ABI: pointer_bytes={} time_t_bytes={} time_t_max={}",
+            std::mem::size_of::<*const c_void>(), std::mem::size_of::<smartdns_c::time_t>(),
+            smartdns_c::time_t::MAX);
+        let callback: smartdns_c::dns_cache_foreach_cb = Some(cache_foreach_cb);
+        let name = CString::new("timestamp.test").unwrap();
+        let mut domains = Vec::<CachedDomainInfo>::new();
+        for timestamp in [0, 1, smartdns_c::time_t::MAX] {
+            unsafe { callback.unwrap()(name.as_ptr(), 1, 600, timestamp, &mut domains as *mut _ as *mut c_void); }
+            assert_eq!(domains.last().unwrap().cached_time, timestamp as i64);
+        }
+        assert_eq!(domains.len(), 3);
+    }
 
     #[test]
     fn test_dns_log() {
