@@ -43,7 +43,8 @@ int _dns_server_request_set_client_rules(struct dns_request *request, struct dns
 	if (client_rule->rules[CLIENT_RULE_FLAGS]) {
 		struct client_rule_flags *flags = (struct client_rule_flags *)client_rule->rules[CLIENT_RULE_FLAGS];
 		if (flags) {
-			request->server_flags = flags->flags;
+			/* only override the bind flags the rule sets, keep the others */
+			request->server_flags = (request->server_flags & ~flags->is_flag_set) | (flags->flags & flags->is_flag_set);
 		}
 	}
 
