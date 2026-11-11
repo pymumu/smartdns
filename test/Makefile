@@ -1,4 +1,3 @@
-
 # Copyright (C) 2018-2025 Ruilin Peng (Nick) <pymumu@gmail.com>.
 #
 # smartdns is free software: you can redistribute it and/or modify
@@ -71,3 +70,5 @@ $(SMARTDNS_TEST_LIB):
 clean:
 	$(RM) $(OBJS) $(BIN)
 	$(MAKE) -C $(SMARTDNS_SRC_DIR) clean
+
+LDFLAGS += -Wl,--wrap=http2_stream_set_ex_data,--wrap=http2_stream_close
