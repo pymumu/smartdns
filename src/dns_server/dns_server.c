@@ -120,8 +120,8 @@ static int _dns_server_resolve_callback_reply_passthrough(struct dns_request *re
 	int ret = 0;
 
 	ret = _dns_server_passthrough_rule_check(request, domain, packet, result_flag, &ttl);
-	if (ret == 0) {
-		return 0;
+	if (ret != -1) {
+		return ret;
 	}
 
 	ttl = _dns_server_get_conf_ttl(request, ttl);
@@ -153,8 +153,14 @@ static int dns_server_resolve_callback(const char *domain, dns_result_type rtype
 			 dns_client_get_server_type(server_info), domain, request->qtype, packet->head.rcode, request->id);
 
 		if (request->passthrough == 1 && atomic_read(&request->notified) == 0) {
-			return _dns_server_resolve_callback_reply_passthrough(request, domain, packet, inpacket, inpacket_len,
-																  result_flag);
+			ret = _dns_server_resolve_callback_reply_passthrough(request, domain, packet, inpacket, inpacket_len,
+																 result_flag);
+			if (ret != 1) {
+				return ret;
+			}
+
+			/* Rules rewrite this answer, so it cannot be passed through: process it as without the DO bit. */
+			request->passthrough = 2;
 		}
 
 		if (request->prefetch == 0 && request->response_mode == DNS_RESPONSE_MODE_FASTEST_RESPONSE &&
@@ -162,7 +168,7 @@ static int dns_server_resolve_callback(const char *domain, dns_result_type rtype
 			struct dns_server_post_context context;
 			int ttl = 0;
 			ret = _dns_server_passthrough_rule_check(request, domain, packet, result_flag, &ttl);
-			if (ret != 0) {
+			if (ret == -1) {
 				_dns_server_post_context_init_from(&context, request, packet, inpacket, inpacket_len);
 				context.do_cache = 1;
 				context.do_audit = 1;
