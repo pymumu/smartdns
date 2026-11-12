@@ -395,6 +395,7 @@ void dns_server_load_exit(void)
 	_config_domain_rule_pool_clear();
 
 	dns_conf.server_num = 0;
+	dns_conf.bootstrap_num = 0;
 	dns_server_bind_destroy();
 
 	if (dns_conf.log_syslog == 1 || dns_conf.audit_syslog == 1) {
