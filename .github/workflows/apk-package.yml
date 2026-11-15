@@ -48,8 +48,8 @@ jobs:
           make -j2 CC=x86_64-openwrt-linux-musl-gcc STATIC=1 WITH_ZLIB=0 HAS_UNWIND=0 VER="$version" \
             EXTRA_CFLAGS="-I$target/usr/include" EXTRA_LDFLAGS="-L$target/usr/lib"
           mkdir -p artifacts
-          STATIC=yes sh package/openwrt/make.sh --arch x86_64 --ver "$version" \
-            --filearch x86_64-openwrt -o "$GITHUB_WORKSPACE/artifacts"
+          STATIC=yes sh package/openwrt/make.sh --arch all --ver "$version" \
+            --filearch x86_64-openwrt-all -o "$GITHUB_WORKSPACE/artifacts"
           printf 'Commit: %s\nSDK: OpenWrt 25.12.0 x86_64\nVersion: %s\n' \
             "$(git rev-parse HEAD)" "$version" > artifacts/BUILD-INFO.txt
       - name: Verify native APK metadata

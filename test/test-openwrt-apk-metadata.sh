@@ -86,6 +86,8 @@ check_eq "CI aarch64 filearch is unknown"     "$(openwrt_apk_resolve_arch all aa
 check_eq "CI x86(32) filearch is unknown"     "$(openwrt_apk_resolve_arch all x86-openwrt-all)" "unknown"
 check_eq "plain noarch is never derived"      "$(openwrt_apk_resolve_arch noarch x)" "unknown"
 check_eq "empty arch is never derived"        "$(openwrt_apk_resolve_arch "" x)" "unknown"
+check_eq "noarch + x86_64 filearch is unknown"  "$(openwrt_apk_resolve_arch noarch x86_64-openwrt-all)" "unknown"
+check_eq "empty arch + x86_64 filearch is unknown" "$(openwrt_apk_resolve_arch "" x86_64-openwrt-all)" "unknown"
 
 # --- 2. real fakeroot + apk mkpkg metadata --------------------------------
 
@@ -118,6 +120,8 @@ printf '#!/bin/sh\nexit 0\n' > "$POSTINST"
 printf '#!/bin/sh\nexit 0\n' > "$PRERM"
 
 OUT="$WORK/smartdns.1.2025.11.15-r0000.x86_64-openwrt-all.apk"
+printf 'STALE-OLD-ARTIFACT' > "$WORK/stale-marker"
+printf 'STALE-OLD-ARTIFACT' > "$OUT"
 openwrt_apk_build "$PAYLOAD" "$OUT" x86_64 1.2025.11.15-r0000 "$POSTINST" "$PRERM"
 RC_BUILD=$?
 check_eq "openwrt_apk_build succeeds (rc=0)" "$RC_BUILD" "0"
@@ -127,6 +131,7 @@ if [ "$RC_BUILD" -ne 0 ]; then
 fi
 check_eq "apk output file exists" "$([ -f "$OUT" ] && echo yes || echo no)" "yes"
 check_eq "helper verify dump cleaned up" "$([ -f "$OUT.adbdump" ] && echo yes || echo no)" "no"
+check_eq "stale old artifact replaced on success" "$(cmp -s "$WORK/stale-marker" "$OUT" && echo kept-stale || echo replaced)" "replaced"
 
 # 2a. dump the built package with `apk adbdump` (ADB format). Write to a
 # file and check the exit code first: a failed or truncated dump must never
@@ -218,6 +223,26 @@ PATH="$SAVE_PATH"
 check_eq "non-root ownership rejected despite mkpkg success (rc=1)" "$RC_STUB" "1"
 check_eq "rejected artifact deleted"  "$([ -f "$OUT_STUB" ] && echo yes || echo no)" "no"
 check_eq "verify dump cleaned up"     "$([ -f "$OUT_STUB.adbdump" ] && echo yes || echo no)" "no"
+
+# 3d. a previously valid artifact at the output path must byte-survive every
+# failure path (mkpkg failure and verification rejection): only this run's
+# private candidate is cleaned up, never the old output.
+OLD_OUT="$WORK/keep-old.apk"
+OLD_MARK="$WORK/old-marker"
+printf 'OLD-VALID-BYTES' > "$OLD_MARK"
+cp "$OLD_MARK" "$OLD_OUT"
+openwrt_apk_build "$PAYLOAD" "$OLD_OUT" x86_64 1.0-r1 "$WORK/no-such-postinst" "$PRERM" >/dev/null 2>&1
+check_eq "mkpkg failure keeps old artifact (rc=1)" "$?" "1"
+check_eq "old artifact bytes intact after mkpkg failure" "$(cmp -s "$OLD_MARK" "$OLD_OUT" && echo yes || echo no)" "yes"
+check_eq "no candidate left after mkpkg failure" "$(ls "$WORK"/.smartdns-apk-candidate.* 2>/dev/null | wc -l)" "0"
+SAVE_PATH="$PATH"
+PATH="$STUB_BIN:$PATH"
+openwrt_apk_build "$PAYLOAD" "$OLD_OUT" x86_64 1.0-r1 "$POSTINST" "$PRERM" >/dev/null 2>&1
+RC_OLD_STUB=$?
+PATH="$SAVE_PATH"
+check_eq "verification rejection keeps old artifact (rc=1)" "$RC_OLD_STUB" "1"
+check_eq "old artifact bytes intact after rejection" "$(cmp -s "$OLD_MARK" "$OLD_OUT" && echo yes || echo no)" "yes"
+check_eq "no candidate left after rejection" "$(ls "$WORK"/.smartdns-apk-candidate.* 2>/dev/null | wc -l)" "0"
 
 # --- 4. tool availability semantics ----------------------------------------
 
