@@ -71,9 +71,10 @@ openwrt_apk_arch_notice()
 # them) and no workspace file is really chowned. A static apk binary ignores
 # LD_PRELOAD (hence fakeroot), so after mkpkg succeeds the built package is
 # re-dumped with apk adbdump and rejected unless every acl user/group is root.
-# Packaging and verification run on a private mktemp candidate in the output
-# directory; the final output is replaced by mv only after full success, so a
-# failed run never destroys a previously valid artifact.
+# Packaging and verification run inside a private mktemp -d workdir in the
+# output directory (0700); the final output is replaced by mv -fT only after
+# full success, so a failed run never destroys a previously valid artifact
+# and an existing directory destination never swallows the package.
 #
 # Return codes: 0 = apk built and verified; 1 = failure (propagates, build
 # fails; also used for verification rejection); 2 = apk tool not available
@@ -96,15 +97,17 @@ openwrt_apk_build()
 		return 1
 	fi
 
-	# Build and verify a private candidate next to the output (same file
-	# system); only a fully verified candidate replaces the final output via
-	# mv, so the previous artifact at _output survives every failure path.
-	# Subshell + internal trap: the caller's trap is never touched.
+	# Build and verify inside a private mktemp -d workdir in the output
+	# directory (0700, same file system; shared output dirs stay private).
+	# Only a fully verified candidate replaces the final output via mv -fT
+	# (destination is a file), so the previous artifact at _output survives
+	# every failure path. Subshell + internal trap: the caller's trap is
+	# never touched; mkpkg intermediates stay inside the workdir.
 	_output_dir=$(dirname "$_output")
-	_candidate=$(mktemp "$_output_dir/.smartdns-apk-candidate.XXXXXX") || return 1
-	rm -f "$_candidate"
+	_workdir=$(mktemp -d "$_output_dir/.smartdns-apk-pkg.XXXXXX") || return 1
+	_candidate="$_workdir/pkg.apk"
 	(
-		trap 'rm -f "$_candidate" "$_candidate.adbdump"' EXIT INT TERM
+		trap '[ -n "$_workdir" ] && rm -fr "$_workdir"' EXIT INT TERM
 
 		fakeroot -- sh -c '
 			set -e
@@ -131,7 +134,7 @@ openwrt_apk_build()
 		# Post-verify the candidate: dump it and confirm root:root ownership for
 		# every acl (at least one user/group pair). Redirect to a file so a
 		# failed dump can never pass silently through a pipeline.
-		_verify_dump="$_candidate.adbdump"
+		_verify_dump="$_workdir/pkg.adbdump"
 		if ! apk adbdump "$_candidate" > "$_verify_dump" 2>/dev/null; then
 			echo "build apk package failed: adbdump verification of the artifact failed."
 			exit 1
@@ -143,7 +146,7 @@ openwrt_apk_build()
 			exit 1
 		fi
 
-		mv -f "$_candidate" "$_output" || exit 1
+		mv -fT "$_candidate" "$_output" || exit 1
 	)
 	if [ $? -ne 0 ]; then
 		return 1

@@ -234,7 +234,7 @@ cp "$OLD_MARK" "$OLD_OUT"
 openwrt_apk_build "$PAYLOAD" "$OLD_OUT" x86_64 1.0-r1 "$WORK/no-such-postinst" "$PRERM" >/dev/null 2>&1
 check_eq "mkpkg failure keeps old artifact (rc=1)" "$?" "1"
 check_eq "old artifact bytes intact after mkpkg failure" "$(cmp -s "$OLD_MARK" "$OLD_OUT" && echo yes || echo no)" "yes"
-check_eq "no candidate left after mkpkg failure" "$(ls "$WORK"/.smartdns-apk-candidate.* 2>/dev/null | wc -l)" "0"
+check_eq "no workdir left after mkpkg failure" "$(ls -d "$WORK"/.smartdns-apk-pkg.* 2>/dev/null | wc -l)" "0"
 SAVE_PATH="$PATH"
 PATH="$STUB_BIN:$PATH"
 openwrt_apk_build "$PAYLOAD" "$OLD_OUT" x86_64 1.0-r1 "$POSTINST" "$PRERM" >/dev/null 2>&1
@@ -242,7 +242,33 @@ RC_OLD_STUB=$?
 PATH="$SAVE_PATH"
 check_eq "verification rejection keeps old artifact (rc=1)" "$RC_OLD_STUB" "1"
 check_eq "old artifact bytes intact after rejection" "$(cmp -s "$OLD_MARK" "$OLD_OUT" && echo yes || echo no)" "yes"
-check_eq "no candidate left after rejection" "$(ls "$WORK"/.smartdns-apk-candidate.* 2>/dev/null | wc -l)" "0"
+check_eq "no workdir left after rejection" "$(ls -d "$WORK"/.smartdns-apk-pkg.* 2>/dev/null | wc -l)" "0"
+
+# 3e. destination traps: an existing directory (or a symlink to one) at the
+# output path must never swallow the package; the directory and its contents
+# stay unchanged. mv -fT makes the destination a file.
+DIR_OUT="$WORK/dir-out"
+mkdir -p "$DIR_OUT" || exit 1
+printf 'DIR-CONTENT' > "$WORK/dir-content-marker"
+cp "$WORK/dir-content-marker" "$DIR_OUT/keepme"
+openwrt_apk_build "$PAYLOAD" "$DIR_OUT" x86_64 1.0-r1 "$POSTINST" "$PRERM" >/dev/null 2>&1
+check_eq "directory destination fails (rc=1)" "$?" "1"
+check_eq "directory still a directory" "$([ -d "$DIR_OUT" ] && echo yes || echo no)" "yes"
+check_eq "directory content unchanged" "$(cmp -s "$WORK/dir-content-marker" "$DIR_OUT/keepme" && echo yes || echo no)" "yes"
+check_eq "no apk moved into directory" "$(ls "$DIR_OUT" | wc -l)" "1"
+check_eq "no workdir left after directory failure" "$(ls -d "$WORK"/.smartdns-apk-pkg.* 2>/dev/null | wc -l)" "0"
+
+SYM_DIR="$WORK/sym-target"
+mkdir -p "$SYM_DIR" || exit 1
+cp "$WORK/dir-content-marker" "$SYM_DIR/keepme"
+ln -s "$SYM_DIR" "$WORK/sym-out"
+openwrt_apk_build "$PAYLOAD" "$WORK/sym-out" x86_64 1.0-r1 "$POSTINST" "$PRERM" >/dev/null 2>&1
+RC_SYM=$?
+check_eq "symlink-to-directory destination succeeds via mv -fT" "$RC_SYM" "0"
+check_eq "symlink replaced by regular apk file" "$([ -f "$WORK/sym-out" ] && [ ! -L "$WORK/sym-out" ] && echo yes || echo no)" "yes"
+check_eq "symlinked directory content unchanged" "$(cmp -s "$WORK/dir-content-marker" "$SYM_DIR/keepme" && echo yes || echo no)" "yes"
+check_eq "no apk moved into symlinked directory" "$(ls "$SYM_DIR" | wc -l)" "1"
+check_eq "no workdir left after symlink success" "$(ls -d "$WORK"/.smartdns-apk-pkg.* 2>/dev/null | wc -l)" "0"
 
 # --- 4. tool availability semantics ----------------------------------------
 
