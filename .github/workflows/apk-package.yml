@@ -1,0 +1,77 @@
+name: OpenWrt APK package
+
+on:
+  pull_request:
+    branches: [ master ]
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      SDK_ARCHIVE: openwrt-sdk-25.12.0-x86-64_gcc-14.3.0_musl.Linux-x86_64.tar.zst
+      SDK_BASE: https://downloads.openwrt.org/releases/25.12.0/targets/x86/64
+    steps:
+      - uses: actions/checkout@v5
+      - name: Prepare official SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes zstd fakeroot
+          cd "$RUNNER_TEMP"
+          curl --fail --location --retry 3 -o "$SDK_ARCHIVE" "$SDK_BASE/$SDK_ARCHIVE"
+          curl --fail --location --retry 3 -o sha256sums "$SDK_BASE/sha256sums"
+          awk -v file="$SDK_ARCHIVE" '$2 == file || $2 == "*" file {print $1 "  " file; found=1} END {exit !found}' sha256sums | sha256sum --check --status
+          tar --use-compress-program=unzstd -xf "$SDK_ARCHIVE"
+          mv "${SDK_ARCHIVE%.tar.zst}" sdk
+          cd sdk
+          ./scripts/feeds update base
+          ./scripts/feeds install openssl
+          make defconfig
+          make package/openssl/compile V=s -j2
+      - name: Build static x86_64 candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk="$RUNNER_TEMP/sdk"
+          export STAGING_DIR="$sdk/staging_dir"
+          export STAGING_DIR_HOST="$sdk/staging_dir/host"
+          toolchains=("$STAGING_DIR"/toolchain-*)
+          test "${#toolchains[@]}" -eq 1
+          export PATH="${toolchains[0]}/bin:$sdk/staging_dir/host/bin:$PATH"
+          target="$STAGING_DIR/target-x86_64_musl"
+          version="1.$(date -u +%Y.%m.%d)-${GITHUB_RUN_NUMBER}"
+          make -j2 CC=x86_64-openwrt-linux-musl-gcc STATIC=1 WITH_ZLIB=0 HAS_UNWIND=0 VER="$version" \
+            EXTRA_CFLAGS="-I$target/usr/include" EXTRA_LDFLAGS="-L$target/usr/lib"
+          mkdir -p artifacts
+          STATIC=yes sh package/openwrt/make.sh --arch x86_64 --ver "$version" \
+            --filearch x86_64-openwrt -o "$GITHUB_WORKSPACE/artifacts"
+          printf 'Commit: %s\nSDK: OpenWrt 25.12.0 x86_64\nVersion: %s\n' \
+            "$(git rev-parse HEAD)" "$version" > artifacts/BUILD-INFO.txt
+      - name: Verify native APK metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="$RUNNER_TEMP/sdk/staging_dir/host/bin:$PATH"
+          export STAGING_DIR_HOST="$RUNNER_TEMP/sdk/staging_dir/host"
+          sh test/test-openwrt-apk-metadata.sh
+          for artifact in artifacts/*.apk; do
+            apk verify --allow-untrusted "$artifact"
+            apk adbdump "$artifact" > "$RUNNER_TEMP/candidate.adb"
+            awk '
+              $1 == "arch:" { if ($2 != "x86_64") exit 1; arch=1 }
+              $1 == "user:" || $1 == "group:" { if ($2 != "root") exit 1; owners++ }
+              END { if (!arch || !owners) exit 1 }
+            ' "$RUNNER_TEMP/candidate.adb"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: smartdns-openwrt-x86_64
+          path: |
+            artifacts/*.apk
+            artifacts/BUILD-INFO.txt
+          if-no-files-found: error

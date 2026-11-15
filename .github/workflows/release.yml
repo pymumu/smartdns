@@ -85,16 +85,21 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtest-dev dnsperf jq wget unzip tar make gcc
+          sudo apt-get install -y libgtest-dev dnsperf jq wget unzip tar make gcc fakeroot zstd
           
-          # Download and install Alpine's apk.static dynamically
-          APK_FILE=$(wget -qO- https://dl-cdn.alpinelinux.org/alpine/latest-stable/main/x86_64/ | grep -oE 'apk-tools-static-[0-9][a-zA-Z0-9.-]*\.apk' | head -n 1)
-          wget "https://dl-cdn.alpinelinux.org/alpine/latest-stable/main/x86_64/$APK_FILE" -O /tmp/apk-tools-static.apk
-          tar -zxf /tmp/apk-tools-static.apk -C /tmp
-          sudo cp /tmp/sbin/apk.static /usr/local/bin/apk
-          sudo cp /tmp/sbin/apk.static /usr/bin/apk
-          sudo chmod +x /usr/local/bin/apk /usr/bin/apk
-          apk --version
+          # fakeroot requires dynamically linked apk-tools.
+          SDK_ARCHIVE=openwrt-sdk-25.12.0-x86-64_gcc-14.3.0_musl.Linux-x86_64.tar.zst
+          SDK_BASE=https://downloads.openwrt.org/releases/25.12.0/targets/x86/64
+          mkdir -p "$RUNNER_TEMP/apk-sdk"
+          cd "$RUNNER_TEMP/apk-sdk"
+          curl --fail --location --retry 3 -o "$SDK_ARCHIVE" "$SDK_BASE/$SDK_ARCHIVE"
+          curl --fail --location --retry 3 -o sha256sums "$SDK_BASE/sha256sums"
+          awk -v file="$SDK_ARCHIVE" '$2 == file || $2 == "*" file {print $1 "  " file; found=1} END {exit !found}' sha256sums | sha256sum --check --status
+          tar --use-compress-program=unzstd -xf "$SDK_ARCHIVE"
+          APK_BIN="$RUNNER_TEMP/apk-sdk/${SDK_ARCHIVE%.tar.zst}/staging_dir/host/bin"
+          echo "$APK_BIN" >> "$GITHUB_PATH"
+          echo "STAGING_DIR_HOST=${APK_BIN%/bin}" >> "$GITHUB_ENV"
+          "$APK_BIN/apk" --version
 
       # 6. Cache Bindgen CLI
       - name: Cache Bindgen CLI
