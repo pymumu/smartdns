@@ -813,9 +813,13 @@ impl DB {
         }
 
         if let Some(v) = &param.domain_group {
+          if v == "default" {
+              sql_where.push("domain_group = ''".to_string());
+          } else {
             sql_where.push("domain_group = ?".to_string());
             sql_param.push(v.clone());
             order_timestamp_first = false;
+          }
         }
 
         if let Some(v) = &param.reply_code {
