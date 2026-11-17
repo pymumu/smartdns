@@ -29,6 +29,8 @@ int _dns_server_local_addr_cache_destroy(void);
 
 int _dns_server_local_addr_cache_init(void);
 
+int _dns_server_local_addr_cache_is_exact(unsigned char *addr, int addr_len);
+
 void _dns_server_process_local_addr_cache(int fd_netlink, struct epoll_event *event, unsigned long now);
 
 #ifdef __cplusplus

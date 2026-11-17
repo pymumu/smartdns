@@ -19,6 +19,7 @@
 #include "ptr.h"
 #include "context.h"
 #include "dns_server.h"
+#include "local_addr.h"
 #include "mdns.h"
 #include "request.h"
 #include "rules.h"
@@ -252,9 +253,6 @@ int _dns_server_process_local_ptr(struct dns_request *request)
 	unsigned char ptr_addr[16];
 	int ptr_addr_len = 0;
 	int found = 0;
-	prefix_t prefix;
-	radix_node_t *node = NULL;
-	struct local_addr_cache_item *addr_cache_item = NULL;
 	struct dns_nameserver_rule *ptr_nameserver_rule;
 
 	if (_dns_server_parser_addr_from_apra(request->domain, ptr_addr, &ptr_addr_len, sizeof(ptr_addr)) != 0) {
@@ -270,21 +268,7 @@ int _dns_server_process_local_ptr(struct dns_request *request)
 		goto out;
 	}
 
-	if (prefix_from_blob(ptr_addr, ptr_addr_len, ptr_addr_len * 8, &prefix) == NULL) {
-		goto out;
-	}
-
-	node = radix_search_best(server.local_addr_cache.addr, &prefix);
-	if (node == NULL) {
-		goto out;
-	}
-
-	if (node->data == NULL) {
-		goto out;
-	}
-
-	addr_cache_item = node->data;
-	if (addr_cache_item->mask_len == ptr_addr_len * 8) {
+	if (_dns_server_local_addr_cache_is_exact(ptr_addr, ptr_addr_len)) {
 		found = 1;
 		goto out;
 	}

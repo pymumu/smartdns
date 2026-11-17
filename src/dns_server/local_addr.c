@@ -25,6 +25,9 @@
 #include <string.h>
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
+#include <pthread.h>
+
+static pthread_rwlock_t local_addr_cache_lock = PTHREAD_RWLOCK_INITIALIZER;
 
 static void _dns_server_local_addr_cache_add(unsigned char *netaddr, int netaddr_len, int prefix_len)
 {
@@ -36,6 +39,11 @@ static void _dns_server_local_addr_cache_add(unsigned char *netaddr, int netaddr
 		return;
 	}
 
+	pthread_rwlock_wrlock(&local_addr_cache_lock);
+	if (server.local_addr_cache.addr == NULL) {
+		goto out_unlock;
+	}
+
 	node = radix_lookup(server.local_addr_cache.addr, &prefix);
 	if (node == NULL) {
 		goto errout;
@@ -44,7 +52,7 @@ static void _dns_server_local_addr_cache_add(unsigned char *netaddr, int netaddr
 	if (node->data == NULL) {
 		addr_cache_item = zalloc(1, sizeof(struct local_addr_cache_item));
 		if (addr_cache_item == NULL) {
-			return;
+			goto out_unlock;
 		}
 	} else {
 		addr_cache_item = node->data;
@@ -54,14 +62,14 @@ static void _dns_server_local_addr_cache_add(unsigned char *netaddr, int netaddr
 	memcpy(addr_cache_item->ip_addr, netaddr, netaddr_len);
 	addr_cache_item->mask_len = prefix_len;
 	node->data = addr_cache_item;
-
+	pthread_rwlock_unlock(&local_addr_cache_lock);
 	return;
 errout:
 	if (addr_cache_item) {
 		free(addr_cache_item);
 	}
-
-	return;
+out_unlock:
+	pthread_rwlock_unlock(&local_addr_cache_lock);
 }
 
 static void _dns_server_local_addr_cache_del(unsigned char *netaddr, int netaddr_len, int prefix_len)
@@ -73,9 +81,14 @@ static void _dns_server_local_addr_cache_del(unsigned char *netaddr, int netaddr
 		return;
 	}
 
+	pthread_rwlock_wrlock(&local_addr_cache_lock);
+	if (server.local_addr_cache.addr == NULL) {
+		goto out_unlock;
+	}
+
 	node = radix_search_exact(server.local_addr_cache.addr, &prefix);
 	if (node == NULL) {
-		return;
+		goto out_unlock;
 	}
 
 	if (node->data != NULL) {
@@ -84,6 +97,32 @@ static void _dns_server_local_addr_cache_del(unsigned char *netaddr, int netaddr
 
 	node->data = NULL;
 	radix_remove(server.local_addr_cache.addr, node);
+out_unlock:
+	pthread_rwlock_unlock(&local_addr_cache_lock);
+}
+
+int _dns_server_local_addr_cache_is_exact(unsigned char *addr, int addr_len)
+{
+	prefix_t prefix;
+	radix_node_t *node = NULL;
+	struct local_addr_cache_item *addr_cache_item = NULL;
+	int is_exact = 0;
+
+	if (prefix_from_blob(addr, addr_len, addr_len * 8, &prefix) == NULL) {
+		return 0;
+	}
+
+	pthread_rwlock_rdlock(&local_addr_cache_lock);
+	if (server.local_addr_cache.addr != NULL) {
+		node = radix_search_best(server.local_addr_cache.addr, &prefix);
+		if (node != NULL && node->data != NULL) {
+			addr_cache_item = node->data;
+			is_exact = addr_cache_item->mask_len == addr_len * 8;
+		}
+	}
+	pthread_rwlock_unlock(&local_addr_cache_lock);
+
+	return is_exact;
 }
 
 void _dns_server_process_local_addr_cache(int fd_netlink, struct epoll_event *event, unsigned long now)
@@ -168,14 +207,19 @@ static void _dns_server_local_addr_cache_item_free(radix_node_t *node, void *cbc
 
 int _dns_server_local_addr_cache_destroy(void)
 {
+	int fd_netlink = -1;
+
+	pthread_rwlock_wrlock(&local_addr_cache_lock);
 	if (server.local_addr_cache.addr) {
 		Destroy_Radix(server.local_addr_cache.addr, _dns_server_local_addr_cache_item_free, NULL);
 		server.local_addr_cache.addr = NULL;
 	}
+	fd_netlink = server.local_addr_cache.fd_netlink;
+	server.local_addr_cache.fd_netlink = -1;
+	pthread_rwlock_unlock(&local_addr_cache_lock);
 
-	if (server.local_addr_cache.fd_netlink > 0) {
-		close(server.local_addr_cache.fd_netlink);
-		server.local_addr_cache.fd_netlink = -1;
+	if (fd_netlink > 0) {
+		close(fd_netlink);
 	}
 
 	return 0;
@@ -184,10 +228,13 @@ int _dns_server_local_addr_cache_destroy(void)
 int _dns_server_local_addr_cache_init(void)
 {
 	int fd = -1;
+	radix_tree_t *addr_tree = NULL;
 	struct sockaddr_nl sa;
 
+	_dns_server_local_addr_cache_destroy();
+	pthread_rwlock_wrlock(&local_addr_cache_lock);
 	server.local_addr_cache.fd_netlink = -1;
-	server.local_addr_cache.addr = NULL;
+	pthread_rwlock_unlock(&local_addr_cache_lock);
 
 	if (dns_conf.local_ptr_enable == 0) {
 		return 0;
@@ -216,8 +263,11 @@ int _dns_server_local_addr_cache_init(void)
 		goto errout;
 	}
 
-	server.local_addr_cache.fd_netlink = fd;
-	server.local_addr_cache.addr = New_Radix();
+	addr_tree = New_Radix();
+	if (addr_tree == NULL) {
+		tlog(TLOG_ERROR, "create local address radix tree failed");
+		goto errout;
+	}
 
 	struct {
 		struct nlmsghdr nh;
@@ -235,8 +285,15 @@ int _dns_server_local_addr_cache_init(void)
 		goto errout;
 	}
 
+	pthread_rwlock_wrlock(&local_addr_cache_lock);
+	server.local_addr_cache.fd_netlink = fd;
+	server.local_addr_cache.addr = addr_tree;
+	pthread_rwlock_unlock(&local_addr_cache_lock);
 	return 0;
 errout:
+	if (addr_tree != NULL) {
+		Destroy_Radix(addr_tree, NULL, NULL);
+	}
 	if (fd > 0) {
 		close(fd);
 	}
