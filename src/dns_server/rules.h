@@ -45,6 +45,7 @@ void _dns_server_get_domain_rule_by_domain_ext(struct dns_conf_group *conf,
 											   struct dns_request_domain_rule *request_domain_rule, int rule_index,
 											   const char *domain, int out_log);
 
+/* -1: pass the answer through, 0: drop it, 1: rules rewrite it */
 int _dns_server_passthrough_rule_check(struct dns_request *request, const char *domain, struct dns_packet *packet,
 									   unsigned int result_flag, int *pttl);
 
