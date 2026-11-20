@@ -425,7 +425,7 @@ int dns_server_request_is_blocked(struct dns_request *request)
 
 	if (request->qtype == DNS_T_HTTPS || request->qtype == DNS_T_SVCB) {
 		uint32_t flags = _dns_server_get_rule_flags(request);
-		if (flags & DOMAIN_FLAG_ADDR_HTTPS_SOA) {
+		if (flags & (DOMAIN_FLAG_ADDR_HTTPS_SOA | DOMAIN_FLAG_ADDR_SOA)) {
 			return 1;
 		}
 		return 0;
