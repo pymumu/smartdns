@@ -748,6 +748,10 @@ int http_head_parse_http3_0(struct http_head *http_head, const uint8_t *data, in
 			return -3;
 		}
 
+        if (frame_type == 2 || frame_type == 3 || frame_type == 4 || frame_type == 6 ||
+            frame_type == 7 || frame_type == 8 || frame_type == 9 || frame_type == 13)
+            return HTTP3_PARSE_FRAME_UNEXPECTED;
+        if (frame_type == 5) return HTTP3_PARSE_PUSH_FORBIDDEN;
 		if ((uint64_t)(data_len - offset) < frame_len) {
 			return -1;
 		}
@@ -755,9 +759,7 @@ int http_head_parse_http3_0(struct http_head *http_head, const uint8_t *data, in
 		if (frame_type == HTTP3_HEADER_FRAME) {
 			int header_len = 0;
 			header_len = _http3_parse_headers_payload(http_head, data + offset, frame_len);
-			if (header_len < 0) {
-				return header_len;
-			}
+            if (header_len < 0) return header_len == -3 ? -3 : HTTP3_PARSE_QPACK_ERROR;
 
 			if (_http_head_setup_http3_0_httpcode(http_head) != 0) {
 				return -1;

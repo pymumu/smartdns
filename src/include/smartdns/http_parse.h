@@ -19,6 +19,11 @@
 #ifndef HTTP_PARSER_H
 #define HTTP_PARSER_H
 
+/* Complete HTTP/3 frames with invalid protocol content are not incomplete input. */
+#define HTTP3_PARSE_FRAME_UNEXPECTED (-10)
+#define HTTP3_PARSE_QPACK_ERROR (-11)
+#define HTTP3_PARSE_PUSH_FORBIDDEN (-12)
+
 #ifdef __cplusplus
 extern "C" {
 #endif

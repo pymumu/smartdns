@@ -36,6 +36,10 @@ int _dns_client_send_quic_data(struct dns_query_struct *query, struct dns_server
 							   unsigned short len);
 
 int _dns_client_process_quic(struct dns_server_info *server_info, struct epoll_event *event, unsigned long now);
+#if defined(OSSL_QUIC1_VERSION) && !defined(OPENSSL_NO_QUIC)
+int _dns_client_quic_timeout(struct dns_server_info *server, int timeout);
+#endif
+
 #ifdef __cplusplus
 }
 #endif /*__cplusplus */

@@ -54,6 +54,7 @@ CXXFLAGS += $(ZLIB_CXXFLAGS)
 LDFLAGS += -lssl -lcrypto -lpthread -ldl -lgtest -lstdc++ -lm -rdynamic
 LDFLAGS += $(ZLIB_LDFLAGS)
 LDFLAGS += $(EXTRA_LDFLAGS)
+LDFLAGS += -Wl,--wrap=_dns_client_socket_ssl_recv_ext,--wrap=_dns_client_recv
 
 .PHONY: all clean test $(SMARTDNS_TEST_LIB)
 
