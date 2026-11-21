@@ -104,7 +104,8 @@ class LimitedHTTP2DoHUpstream
   public:
 	~LimitedHTTP2DoHUpstream() { Stop(); }
 
-	bool Start(int port, int max_concurrent_streams, const char *response_ip)
+	bool Start(int port, int max_concurrent_streams, const char *response_ip,
+			   int fatal_after_responses = 0, int warmup_responses = 0)
 	{
 		if (!EnsureHTTP2TestCert()) {
 			last_error_ = "generate HTTP/2 test cert failed";
@@ -112,6 +113,8 @@ class LimitedHTTP2DoHUpstream
 		}
 
 		response_ip_ = response_ip;
+		fatal_after_responses_ = fatal_after_responses;
+		warmup_responses_ = warmup_responses;
 		max_concurrent_streams_ = max_concurrent_streams;
 
 		ssl_ctx_ = SSL_CTX_new(TLS_server_method());
@@ -180,11 +183,16 @@ class LimitedHTTP2DoHUpstream
 	}
 
 	int RequestCount() const { return request_count_.load(); }
+	int ConnectionCount() const { return connection_count_.load(); }
+	bool FatalBatchSent() const { return fatal_batch_sent_.load(); }
+	bool FatalPeerClosed() const { return fatal_peer_closed_.load(); }
 	const std::string &LastError() const { return last_error_; }
 
   private:
 	struct Connection {
 		SSL *ssl = nullptr;
+		bool capture_writes = false;
+		std::vector<uint8_t> captured;
 	};
 
 	static int AlpnSelectCallback(SSL *, const unsigned char **out, unsigned char *outlen, const unsigned char *in,
@@ -226,6 +234,10 @@ class LimitedHTTP2DoHUpstream
 	static int BioWrite(void *private_data, const uint8_t *buf, int len)
 	{
 		Connection *conn = (Connection *)private_data;
+		if (conn->capture_writes) {
+			conn->captured.insert(conn->captured.end(), buf, buf + len);
+			return len;
+		}
 		int ret = SSL_write(conn->ssl, buf, len);
 		if (ret > 0) {
 			return ret;
@@ -321,8 +333,54 @@ class LimitedHTTP2DoHUpstream
 		return true;
 	}
 
+	// Emit the completed response and a fatal frame as ONE TLS application record.
+	// Afterward do not write or close the socket: only the client can cause EOF.
+	bool SendFatalBatchAndWaitForClose(Connection *conn, int fd)
+	{
+		// A GOAWAY without its mandatory eight-byte payload is a protocol error.
+		const uint8_t malformed_goaway[] = {0, 0, 0, 7, 0, 0, 0, 0, 0};
+		if (conn->captured.empty() || conn->captured.size() + sizeof(malformed_goaway) >= 16384) {
+			return false;
+		}
+		conn->captured.insert(conn->captured.end(), malformed_goaway,
+							  malformed_goaway + sizeof(malformed_goaway));
+		auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+		while (run_ && std::chrono::steady_clock::now() < deadline) {
+			int ret = SSL_write(conn->ssl, conn->captured.data(), conn->captured.size());
+			if (ret == (int)conn->captured.size()) {
+				fatal_batch_sent_ = true;
+				break;
+			}
+			int error = SSL_get_error(conn->ssl, ret);
+			if (error != SSL_ERROR_WANT_READ && error != SSL_ERROR_WANT_WRITE) {
+				return false;
+			}
+			struct pollfd pfd = {fd, (short)(error == SSL_ERROR_WANT_READ ? POLLIN : POLLOUT), 0};
+			poll(&pfd, 1, 10);
+		}
+		if (!fatal_batch_sent_) {
+			return false;
+		}
+		while (run_) {
+			uint8_t ignored[1024];
+			int ret = SSL_read(conn->ssl, ignored, sizeof(ignored));
+			if (ret <= 0) {
+				int error = SSL_get_error(conn->ssl, ret);
+				if (error != SSL_ERROR_WANT_READ && error != SSL_ERROR_WANT_WRITE) {
+					fatal_peer_closed_ = true;
+					return true;
+				}
+			}
+			struct pollfd pfd = {fd, POLLIN, 0};
+			poll(&pfd, 1, 10);
+		}
+		return false;
+	}
+
 	void HandleClient(int fd)
 	{
+		const int connection_number = ++connection_count_;
+		const bool inject_fatal = fatal_after_responses_ > 0 && connection_number == 1;
 		int flags = fcntl(fd, F_GETFL, 0);
 		if (flags >= 0) {
 			fcntl(fd, F_SETFL, flags | O_NONBLOCK);
@@ -353,6 +411,7 @@ class LimitedHTTP2DoHUpstream
 			return;
 		}
 
+		conn.capture_writes = inject_fatal && warmup_responses_ == 0;
 		std::set<struct http2_stream *> streams;
 		std::map<struct http2_stream *, std::vector<uint8_t>> bodies;
 		while (run_) {
@@ -376,6 +435,13 @@ class LimitedHTTP2DoHUpstream
 				}
 			}
 
+			// Poll items own references independently of accepted-stream ownership.
+			for (int i = 0; i < count; i++) {
+				if (items[i].stream != nullptr) {
+					http2_stream_put(items[i].stream);
+				}
+			}
+
 			for (auto it = streams.begin(); it != streams.end();) {
 				struct http2_stream *stream = *it;
 				if (!ProcessStream(stream, &bodies[stream])) {
@@ -391,6 +457,13 @@ class LimitedHTTP2DoHUpstream
 					continue;
 				}
 				++it;
+			}
+			if (inject_fatal && request_count_.load() >= warmup_responses_) {
+				conn.capture_writes = true;
+			}
+			if (inject_fatal && request_count_.load() >= warmup_responses_ + fatal_after_responses_) {
+				SendFatalBatchAndWaitForClose(&conn, fd);
+				break;
 			}
 		}
 
@@ -427,6 +500,11 @@ class LimitedHTTP2DoHUpstream
 	std::vector<std::thread> client_threads_;
 	std::atomic<bool> run_{false};
 	std::atomic<int> request_count_{0};
+	std::atomic<int> connection_count_{0};
+	std::atomic<bool> fatal_batch_sent_{false};
+	std::atomic<bool> fatal_peer_closed_{false};
+	int fatal_after_responses_ = 0;
+	int warmup_responses_ = 0;
 	int max_concurrent_streams_ = 1;
 	std::string response_ip_ = "1.2.3.4";
 	std::string last_error_;
@@ -1904,6 +1982,144 @@ log-level error
 	EXPECT_EQ(stats.success, query_count) << stats.first_failure;
 	EXPECT_EQ(stats.failure, 0) << stats.first_failure;
 	EXPECT_GE(h2_upstream.RequestCount(), warmup_h2_requests + query_count);
+}
+
+// One ready stream is deliberately below the client's 128-item poll batch.
+// A second query is not sent until retirement has already been observed, so it
+// cannot provide the extra socket event that hid the short-batch failure.
+TEST(HTTP2, Http2UpstreamShortReadyBatchFatalRetiresWithoutAnotherEvent)
+{
+	Defer
+	{
+		unlink(HTTP2_TEST_CERT_FILE);
+		unlink(HTTP2_TEST_KEY_FILE);
+		unlink("/tmp/root-ca.key");
+	};
+
+	LimitedHTTP2DoHUpstream upstream;
+	smartdns::Server server;
+	ASSERT_TRUE(upstream.Start(63054, 16, "1.2.3.4", true)) << upstream.LastError();
+	ASSERT_TRUE(server.Start(R"""(bind [::]:63053
+server https://127.0.0.1:63054/dns-query -no-check-certificate -alpn h2
+speed-check-mode none
+cache-size 0
+log-level error
+)"""));
+
+	int fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+	ASSERT_GE(fd, 0);
+	Defer { close(fd); };
+	struct sockaddr_in addr = {};
+	addr.sin_family = AF_INET;
+	addr.sin_port = htons(63053);
+	addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+	ASSERT_EQ(connect(fd, (struct sockaddr *)&addr, sizeof(addr)), 0);
+
+	const std::string domain = "h2-ready-before-fatal.example.com";
+	const uint16_t query_id = 0x8910;
+	std::vector<uint8_t> query = BuildDnsQuery(domain.c_str(), query_id);
+	ASSERT_FALSE(query.empty());
+	ASSERT_EQ(send(fd, query.data(), query.size(), 0), (ssize_t)query.size());
+	struct pollfd pfd = {fd, POLLIN, 0};
+	ASSERT_EQ(poll(&pfd, 1, 3000), 1) << "completed DNS response was lost with the fatal frame";
+	uint8_t response[DNS_PACKSIZE];
+	ssize_t size = recv(fd, response, sizeof(response), MSG_DONTWAIT);
+	ASSERT_GT(size, 0);
+	std::string error;
+	ASSERT_TRUE(DnsResponseIsValidForQuery(std::vector<uint8_t>(response, response + size), query_id,
+										domain, "1.2.3.4", &error)) << error;
+	ASSERT_TRUE(upstream.FatalBatchSent());
+	ASSERT_EQ(upstream.RequestCount(), 1);
+
+	// Keep the upstream peer silent and open. In particular, no server FIN,
+	// timeout, second query, or subsequent TLS record may force client cleanup.
+	auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(750);
+	while (!upstream.FatalPeerClosed() && std::chrono::steady_clock::now() < deadline) {
+		std::this_thread::sleep_for(std::chrono::milliseconds(5));
+	}
+	ASSERT_TRUE(upstream.FatalPeerClosed()) << "short ready batch masked the fatal connection status";
+	EXPECT_EQ(upstream.ConnectionCount(), 1);
+	EXPECT_EQ(poll(&pfd, 1, 100), 0) << "first DNS response was delivered more than once";
+
+	ASSERT_TRUE(UdpQueryHasA("h2-after-fatal.example.com", 63053, 0x8911, "1.2.3.4", &error)) << error;
+	EXPECT_EQ(upstream.ConnectionCount(), 2) << "subsequent query must use a fresh TLS connection";
+	EXPECT_EQ(upstream.RequestCount(), 2);
+	EXPECT_EQ(poll(&pfd, 1, 100), 0) << "first query received a duplicate during recovery";
+}
+
+// More than one client poll batch must survive a fatal frame in the same input.
+TEST(HTTP2, Http2UpstreamFatalDrains129ReadyResponsesBeforeRetiring)
+{
+	Defer
+	{
+		unlink(HTTP2_TEST_CERT_FILE);
+		unlink(HTTP2_TEST_KEY_FILE);
+		unlink("/tmp/root-ca.key");
+	};
+	const int queries = 129;
+	LimitedHTTP2DoHUpstream upstream;
+	smartdns::Server server;
+	ASSERT_TRUE(upstream.Start(63054, 256, "1.2.3.4", queries, 1)) << upstream.LastError();
+	ASSERT_TRUE(server.Start(R"""(bind [::]:63053
+server https://127.0.0.1:63054/dns-query -no-check-certificate -alpn h2
+speed-check-mode none
+cache-size 0
+log-level error
+)"""));
+	std::string warmup_error;
+	ASSERT_TRUE(UdpQueryHasA("batch-warmup.test", 63053, 0x8fff, "1.2.3.4", &warmup_error)) << warmup_error;
+	ASSERT_EQ(upstream.RequestCount(), 1);
+	ASSERT_FALSE(upstream.FatalBatchSent());
+	int fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+	ASSERT_GE(fd, 0);
+	Defer { close(fd); };
+	struct sockaddr_in addr = {};
+	addr.sin_family = AF_INET;
+	addr.sin_port = htons(63053);
+	addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+	ASSERT_EQ(connect(fd, (struct sockaddr *)&addr, sizeof(addr)), 0);
+
+	// Short distinct question names keep all 129 responses below one TLS record.
+	for (int i = 0; i < queries; i++) {
+		std::string domain = "f" + std::to_string(i) + ".test";
+		auto query = BuildDnsQuery(domain.c_str(), 0x9000 + i);
+		ASSERT_FALSE(query.empty());
+		ASSERT_EQ(send(fd, query.data(), query.size(), 0), (ssize_t)query.size());
+	}
+	std::set<uint16_t> received;
+	auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+	while (received.size() < queries && std::chrono::steady_clock::now() < deadline) {
+		struct pollfd pfd = {fd, POLLIN, 0};
+		if (poll(&pfd, 1, 20) <= 0) { continue; }
+		uint8_t response[DNS_PACKSIZE];
+		ssize_t size = recv(fd, response, sizeof(response), MSG_DONTWAIT);
+		ASSERT_GE(size, 12);
+		uint16_t id = (uint16_t(response[0]) << 8) | response[1];
+		ASSERT_GE(id, 0x9000);
+		ASSERT_LT(id, 0x9000 + queries);
+		ASSERT_TRUE(received.insert(id).second) << "duplicate response " << id;
+		std::string error;
+		std::string domain = "f" + std::to_string(id - 0x9000) + ".test";
+		ASSERT_TRUE(DnsResponseIsValidForQuery(std::vector<uint8_t>(response, response + size), id,
+											domain, "1.2.3.4", &error)) << error;
+	}
+	ASSERT_EQ(received.size(), queries) << "fatal status discarded a later ready batch";
+	ASSERT_TRUE(upstream.FatalBatchSent());
+	deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(750);
+	while (!upstream.FatalPeerClosed() && std::chrono::steady_clock::now() < deadline) {
+		std::this_thread::sleep_for(std::chrono::milliseconds(5));
+	}
+	EXPECT_TRUE(upstream.FatalPeerClosed());
+	// A dropped response must not be hidden by a retry on a second connection.
+	EXPECT_EQ(upstream.ConnectionCount(), 1);
+	EXPECT_EQ(upstream.RequestCount(), queries + 1);
+	struct pollfd pfd = {fd, POLLIN, 0};
+	EXPECT_EQ(poll(&pfd, 1, 100), 0);
+	std::string error;
+	ASSERT_TRUE(UdpQueryHasA("after-batch.test", 63053, 0x9100, "1.2.3.4", &error)) << error;
+	EXPECT_EQ(upstream.ConnectionCount(), 2);
+	EXPECT_EQ(upstream.RequestCount(), queries + 2);
+	EXPECT_EQ(poll(&pfd, 1, 100), 0);
 }
 
 TEST(HTTP2, DownstreamDohServerHighConcurrencyWithRetry)
