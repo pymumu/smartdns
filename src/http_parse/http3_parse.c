@@ -410,6 +410,9 @@ static int http3_build_body_payload(const uint8_t *body, int body_len, uint8_t *
 
 static int _quicvarint_decode(const uint8_t *buffer, int buffer_len, uint64_t *value)
 {
+	if (buffer_len <= 0) {
+		return -1;
+	}
 	if ((buffer[0] & 0xC0) == 0x00) {
 		if (buffer_len < 1) {
 			return -1;
@@ -447,7 +450,7 @@ static int _quic_read_varint(const uint8_t *buffer, int buffer_len, uint64_t *va
 	if (n < 1 || n > 8) {
 		return -2;
 	}
-	if (buffer_len == 0) {
+	if (buffer_len <= 0) {
 		return -1;
 	}
 
@@ -467,6 +470,9 @@ static int _quic_read_varint(const uint8_t *buffer, int buffer_len, uint64_t *va
 
 	while (p < buffer + buffer_len) {
 		uint8_t b = *p;
+		if ((uint64_t)(b & 127) > (UINT64_MAX - i) >> m) {
+			return -2;
+		}
 		i += (uint64_t)(b & 127) << m;
 		if ((b & 128) == 0) {
 			*value = i;
@@ -528,8 +534,8 @@ static int _http3_parse_headers_payload(struct http_head *http_head, const uint8
 {
 	int offset = 0;
 	int offset_ret = 0;
-	int insert_count = 0;
-	int delta_base = 0;
+	uint64_t insert_count = 0;
+	uint64_t delta_base = 0;
 	struct qpack_header_field *header = NULL;
 	const char *name = NULL;
 	const char *value = NULL;
@@ -543,14 +549,25 @@ static int _http3_parse_headers_payload(struct http_head *http_head, const uint8
 		return -1;
 	}
 
-	insert_count = data[0];
-	delta_base = data[1];
-
-	if (insert_count != 0 || delta_base != 0) {
+	offset_ret = _quic_read_varint(data, data_len, &insert_count, 8);
+	if (offset_ret < 0) {
+		return offset_ret;
+	}
+	offset = offset_ret;
+	if (offset >= data_len) {
+		return -1;
+	}
+	int negative_base = data[offset] & 0x80;
+	offset_ret = _quic_read_varint(data + offset, data_len - offset, &delta_base, 7);
+	if (offset_ret < 0) {
+		return offset_ret;
+	}
+	offset += offset_ret;
+	/* Static-only sections require RIC=0. Positive Base is unused and legal;
+	 * negative Base would underflow when RIC=0 (RFC 9204 section 4.5.1.2). */
+	if (insert_count != 0 || negative_base) {
 		return -2;
 	}
-
-	offset += 2;
 
 	while (offset < data_len) {
 		index = -1;
@@ -576,7 +593,7 @@ static int _http3_parse_headers_payload(struct http_head *http_head, const uint8
 			}
 			offset += offset_ret;
 
-			header = qpack_get_static_header_field(index);
+			header = index > INT_MAX ? NULL : qpack_get_static_header_field((int)index);
 			if (header == NULL) {
 				return -2;
 			}
@@ -594,13 +611,14 @@ static int _http3_parse_headers_payload(struct http_head *http_head, const uint8
 			}
 			offset += offset_ret;
 
-			header = qpack_get_static_header_field(index);
+			header = index > INT_MAX ? NULL : qpack_get_static_header_field((int)index);
 			if (header == NULL) {
 				return -2;
 			}
 
 			name = header->name;
 
+			if (offset >= data_len) return -1;
 			b = data[offset];
 			if ((b & 0x80) > 0) {
 				use_huffman = 1;
@@ -643,10 +661,8 @@ static int _http3_parse_headers_payload(struct http_head *http_head, const uint8
 			}
 			name = buffer_name;
 
-			b = data[offset];
-			if ((b & 0x80) > 0) {
-				use_huffman = 1;
-			}
+			if (offset >= data_len) return -1;
+			use_huffman = (data[offset] & 0x80) != 0;
 
 			buffer_value = (char *)_http_head_buffer_get_end(http_head);
 			buffer_left_len = _http_head_buffer_left_len(http_head);
@@ -666,7 +682,7 @@ static int _http3_parse_headers_payload(struct http_head *http_head, const uint8
 		}
 
 		if (http_head_add_fields(http_head, name, value) != 0) {
-			break;
+			return -3;
 		}
 	}
 
