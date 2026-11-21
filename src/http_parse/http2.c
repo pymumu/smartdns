@@ -128,6 +128,7 @@ struct http2_stream {
 	int body_buffer_len;
 	int body_read_offset;
 	int end_stream_received;
+	int reset_received;
 	int end_stream_sent;
 	int end_stream_read_handled; /* Flag to track if EOF has been reported to app */
 	int accepted;                /* Flag to track if stream has been accepted by app */
@@ -1773,6 +1774,9 @@ static int _http2_process_frames(struct http2_ctx *ctx)
 			{
 				struct http2_stream *rst_stream = _http2_find_stream(ctx, stream_id);
 				if (rst_stream) {
+                    /* A reset cannot invalidate a response already completed by END_STREAM. */
+                    if (!ctx->is_client || !rst_stream->end_stream_received)
+                        __atomic_store_n(&rst_stream->reset_received, 1, __ATOMIC_RELEASE);
 					rst_stream->state = HTTP2_STREAM_CLOSED;
 				}
 			}
@@ -2329,6 +2333,33 @@ void http2_stream_close(struct http2_stream *stream)
 
 	http2_stream_put(stream);
 	http2_stream_put(stream);
+}
+
+void http2_stream_abort(struct http2_stream *stream)
+{
+	if (!stream) return;
+	http2_stream_get(stream);
+	struct http2_ctx *ctx = stream->ctx;
+	if (ctx) {
+		pthread_mutex_lock(&ctx->mutex);
+        int send_rst = ctx->status >= 0 && stream->state != HTTP2_STREAM_IDLE &&
+            stream->state != HTTP2_STREAM_CLOSED && !(stream->end_stream_sent && stream->end_stream_received);
+		_http2_stream_clear_pending_send(stream);
+		stream->close_after_send = 0;
+		stream->state = HTTP2_STREAM_CLOSED;
+		stream->ex_data = NULL;
+		if (send_rst)
+			http2_send_rst_stream(ctx, stream->stream_id, 8); /* CANCEL */
+		pthread_mutex_unlock(&ctx->mutex);
+		_http2_remove_stream(stream, 1);
+	}
+	http2_stream_put(stream);
+	http2_stream_put(stream);
+}
+
+int http2_stream_is_reset(struct http2_stream *stream)
+{
+	return stream ? __atomic_load_n(&stream->reset_received, __ATOMIC_ACQUIRE) : 0;
 }
 
 int http2_stream_get_id(struct http2_stream *stream)
