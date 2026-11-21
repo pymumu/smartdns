@@ -603,7 +603,9 @@ impl API {
     ///     page_size: u32: Page size <br>
     ///     domain: String: Domain <br>
     ///     domain_type: String: Domain type <br>
+    ///     domain_type_filter_mode: String: Domain type filter mode, equals or notequals <br>
     ///     domain_group: String: Domain group <br>
+    ///     domain_group_filter_mode: String: Domain group filter mode, equals or notequals <br>
     ///     client: String: Client <br>
     ///     reply_code: String: Reply code <br>
     ///
@@ -628,7 +630,9 @@ impl API {
         let domain = API::params_get_value(&params, "domain");
         let domain_filter_mode = API::params_get_value(&params, "domain_filter_mode");
         let domain_type = API::params_get_value(&params, "domain_type");
+        let domain_type_filter_mode = API::params_get_value(&params, "domain_type_filter_mode");
         let domain_group = API::params_get_value(&params, "domain_group");
+        let domain_group_filter_mode = API::params_get_value(&params, "domain_group_filter_mode");
         let client = API::params_get_value(&params, "client");
         let reply_code = API::params_get_value(&params, "reply_code");
         let order = API::params_get_value(&params, "order");
@@ -652,7 +656,9 @@ impl API {
         param.domain = domain;
         param.domain_filter_mode = domain_filter_mode;
         param.domain_type = domain_type;
+        param.domain_type_filter_mode = domain_type_filter_mode;
         param.domain_group = domain_group;
+        param.domain_group_filter_mode = domain_group_filter_mode;
         param.client = client;
         param.reply_code = reply_code;
         param.order = order;
