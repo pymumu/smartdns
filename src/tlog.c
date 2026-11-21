@@ -2086,7 +2086,6 @@ static void tlog_fork_parent(void)
 
 static void tlog_fork_child(void)
 {
-    pthread_attr_t attr;
     tlog_log *next;
     if (tlog.root == NULL) {
         return;
@@ -2102,10 +2101,9 @@ static void tlog_fork_child(void)
         next = next->next;
     }
 
-    pthread_attr_init(&attr);
-    int ret = pthread_create(&tlog.tid, &attr, _tlog_work, NULL);
+    int ret = pthread_create(&tlog.tid, NULL, _tlog_work, NULL);
     if (ret != 0) {
-        fprintf(stderr, "tlog: create tlog work thread failed, %s\n", strerror(errno));
+        fprintf(stderr, "tlog: create tlog work thread failed, %s\n", strerror(ret));
         goto errout;
     }
 
@@ -2122,7 +2120,6 @@ out:
 
 int tlog_init(const char *logfile, int maxlogsize, int maxlogcount, int buffsize, unsigned int flag)
 {
-    pthread_attr_t attr;
     int ret;
     struct tlog_log *log = NULL;
 
@@ -2140,7 +2137,6 @@ int tlog_init(const char *logfile, int maxlogsize, int maxlogcount, int buffsize
     tlog.is_wait = 0;
 
     _tlog_get_gzip_cmd_path();
-    pthread_attr_init(&attr);
     pthread_cond_init(&tlog.cond, NULL);
     pthread_mutex_init(&tlog.lock, NULL);
     __atomic_store_n(&tlog.run, 1, __ATOMIC_RELAXED);
@@ -2160,9 +2156,9 @@ int tlog_init(const char *logfile, int maxlogsize, int maxlogcount, int buffsize
     tlog.root = log;
     tlog.root_format = _tlog_root_default_format;
 
-    ret = pthread_create(&tlog.tid, &attr, _tlog_work, NULL);
+    ret = pthread_create(&tlog.tid, NULL, _tlog_work, NULL);
     if (ret != 0) {
-        fprintf(stderr, "tlog: create tlog work thread failed, %s\n", strerror(errno));
+        fprintf(stderr, "tlog: create tlog work thread failed, %s\n", strerror(ret));
         goto errout;
     }
 

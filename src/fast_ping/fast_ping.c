@@ -549,7 +549,6 @@ static void _fast_ping_stop_notify_worker(void)
 
 int fast_ping_init(void)
 {
-	pthread_attr_t attr;
 	int epollfd = -1;
 	int ret = 0;
 	bool_print_log = 1;
@@ -563,7 +562,6 @@ int fast_ping_init(void)
 	}
 
 	memset(&ping, 0, sizeof(ping));
-	pthread_attr_init(&attr);
 
 	epollfd = epoll_create1(EPOLL_CLOEXEC);
 	if (epollfd < 0) {
@@ -585,13 +583,13 @@ int fast_ping_init(void)
 	atomic_set(&ping.run, 1);
 
 	ping.epoll_fd = epollfd;
-	ret = pthread_create(&ping.tid, &attr, _fast_ping_work, NULL);
+	ret = pthread_create(&ping.tid, NULL, _fast_ping_work, NULL);
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "create ping work thread failed, %s\n", strerror(ret));
 		goto errout;
 	}
 
-	ret = pthread_create(&ping.notify_tid, &attr, _fast_ping_notify_worker, NULL);
+	ret = pthread_create(&ping.notify_tid, NULL, _fast_ping_notify_worker, NULL);
 	if (ret != 0) {
 		tlog(TLOG_ERROR, "create ping notifier work thread failed, %s\n", strerror(ret));
 		goto errout;
