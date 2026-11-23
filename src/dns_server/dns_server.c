@@ -209,6 +209,7 @@ static int dns_server_resolve_callback(const char *domain, dns_result_type rtype
 		tlog(TLOG_ERROR, "request failed, %s", domain);
 		return -1;
 	} else {
+		_dns_server_process_ip_rule_cname(request);
 		_dns_server_query_end(request);
 	}
 

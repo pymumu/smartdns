@@ -29,6 +29,8 @@ int _dns_server_process_cname_pre(struct dns_request *request);
 
 int _dns_server_process_cname(struct dns_request *request);
 
+void _dns_server_process_ip_rule_cname(struct dns_request *request);
+
 #ifdef __cplusplus
 }
 #endif /*__cplusplus */

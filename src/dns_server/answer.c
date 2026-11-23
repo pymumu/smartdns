@@ -25,7 +25,30 @@
 #include "soa.h"
 #include "speed_check.h"
 
+#include <arpa/inet.h>
 #include <math.h>
+
+static void _dns_server_record_ip_rule_cname_original(struct dns_request *request, char *cname, unsigned char *addr,
+													  int addr_len, int ttl)
+{
+	char ip[INET6_ADDRSTRLEN] = {0};
+	int ip_ttl = _dns_server_get_conf_ttl(request, ttl);
+	dns_type_t addr_type = addr_len == DNS_RR_A_LEN ? DNS_T_A : DNS_T_AAAA;
+
+	if (request->ip_ttl == 0 || ip_ttl < request->ip_ttl) {
+		request->ip_ttl = ip_ttl;
+	}
+	request->rcode = DNS_RC_NOERROR;
+	request->has_ip = 1;
+	request->ip_addr_type = addr_type;
+	memcpy(request->ip_addr, addr, addr_len);
+	_dns_ip_address_check_add(request, cname, addr, addr_type, 0, NULL);
+	inet_ntop(addr_len == DNS_RR_A_LEN ? AF_INET : AF_INET6, addr, ip, sizeof(ip));
+	_dns_server_request_get(request);
+	if (_dns_server_check_speed(request, ip) != 0) {
+		_dns_server_request_release(request);
+	}
+}
 
 static int _dns_server_process_answer_A_IP(struct dns_request *request, char *cname, unsigned char addr[4], int ttl,
 										   unsigned int result_flag)
@@ -43,6 +66,9 @@ static int _dns_server_process_answer_A_IP(struct dns_request *request, char *cn
 	ip_check_result = _dns_server_process_ip_rule(request, addr, 4, DNS_T_A, result_flag, &alias);
 	if (ip_check_result == 0) {
 		/* match */
+		if (request->ip_rule_cname[0] != '\0') {
+			_dns_server_record_ip_rule_cname_original(request, cname, addr, DNS_RR_A_LEN, ttl);
+		}
 		return -1;
 	} else if (ip_check_result == -2 || ip_check_result == -3) {
 		/* skip, nxdomain */
@@ -113,6 +139,9 @@ static int _dns_server_process_answer_AAAA_IP(struct dns_request *request, char 
 	ip_check_result = _dns_server_process_ip_rule(request, addr, 16, DNS_T_AAAA, result_flag, &alias);
 	if (ip_check_result == 0) {
 		/* match */
+		if (request->ip_rule_cname[0] != '\0') {
+			_dns_server_record_ip_rule_cname_original(request, cname, addr, DNS_RR_AAAA_LEN, ttl);
+		}
 		return -1;
 	} else if (ip_check_result == -2 || ip_check_result == -3) {
 		/* skip, nxdomain */

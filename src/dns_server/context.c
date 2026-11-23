@@ -118,6 +118,9 @@ static int _dns_rrs_add_all_best_ip(struct dns_server_post_context *context)
 	if (request->passthrough == 2) {
 		ignore_speed = 1;
 	}
+	if (request->ip_rule_cname[0] != '\0') {
+		ignore_speed = 1;
+	}
 
 	while (true) {
 		pthread_mutex_lock(&request->ip_map_lock);
@@ -782,6 +785,10 @@ static int _dns_result_child_post(struct dns_server_post_context *context)
 		parent_context.do_reply = context->do_reply;
 		parent_context.reply_ttl = context->reply_ttl;
 		parent_context.cache_ttl = context->cache_ttl;
+		if (parent_request->ip_rule_cname[0] != '\0' && parent_request->ip_ttl > 0) {
+			parent_context.reply_ttl = parent_request->ip_ttl;
+			parent_context.cache_ttl = parent_request->ip_ttl;
+		}
 		parent_context.skip_notify_count = context->skip_notify_count;
 		parent_context.select_all_best_ip = 1;
 		parent_context.no_release_parent = context->no_release_parent;

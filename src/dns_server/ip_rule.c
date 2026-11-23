@@ -134,6 +134,11 @@ static int _dns_server_ip_rule_check(struct dns_request *request, struct dns_ip_
 		goto match;
 	}
 
+	if (request->no_ip_rule_cname == 0 && (request->qtype == DNS_T_A || request->qtype == DNS_T_AAAA) &&
+		ip_rules->rules[IP_RULE_CNAME] != NULL) {
+		goto match;
+	}
+
 rule_not_found:
 	if (result_flag & DNSSERVER_FLAG_WHITELIST_IP) {
 		if (rule_flags == NULL) {
@@ -195,6 +200,18 @@ int _dns_server_process_ip_rule(struct dns_request *request, unsigned char *addr
 	ret = _dns_server_ip_rule_check(request, ip_rules, result_flag);
 	if (ret != 0) {
 		return ret;
+	}
+
+	if (request->no_ip_rule_cname == 0 && (request->qtype == DNS_T_A || request->qtype == DNS_T_AAAA) &&
+		ip_rules != NULL && ip_rules->rules[IP_RULE_CNAME] != NULL) {
+		struct ip_rule_cname *rule = container_of(ip_rules->rules[IP_RULE_CNAME], struct ip_rule_cname, head);
+		if (request->ip_rule_cname[0] == '\0') {
+			safe_strncpy(request->ip_rule_cname, rule->cname, sizeof(request->ip_rule_cname));
+		}
+		if (request->ip_rule_cname_original_count < MAX_IP_NUM) {
+			memcpy(request->ip_rule_cname_originals[request->ip_rule_cname_original_count++], addr, addr_len);
+		}
+		return 0;
 	}
 
 	if (ip_rules->rules[IP_RULE_ALIAS] && alias != NULL) {

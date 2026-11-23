@@ -17,8 +17,78 @@
  */
 
 #include "cname.h"
+#include "address.h"
 #include "request.h"
 #include "rules.h"
+
+static DNS_CHILD_POST_RESULT _dns_server_process_ip_rule_cname_callback(struct dns_request *request,
+																		struct dns_request *child_request,
+																		int is_first_resp)
+{
+	unsigned long bucket = 0;
+	struct dns_ip_address *addr_map = NULL;
+	struct hlist_node *tmp = NULL;
+	int addr_len = child_request->qtype == DNS_T_A ? DNS_RR_A_LEN : DNS_RR_AAAA_LEN;
+
+	if (child_request->has_ip == 0 || (child_request->qtype != DNS_T_A && child_request->qtype != DNS_T_AAAA)) {
+		return DNS_CHILD_POST_SUCCESS;
+	}
+
+	pthread_mutex_lock(&child_request->ip_map_lock);
+	hash_for_each(child_request->ip_map, bucket, addr_map, node)
+	{
+		if (addr_map->addr_type != child_request->qtype) {
+			continue;
+		}
+		_dns_ip_address_check_add(request, child_request->domain, addr_map->ip_addr, child_request->qtype,
+								  addr_map->ping_time, NULL);
+	}
+	pthread_mutex_unlock(&child_request->ip_map_lock);
+
+	pthread_mutex_lock(&request->ip_map_lock);
+	hash_for_each_safe(request->ip_map, bucket, tmp, addr_map, node)
+	{
+		if (addr_map->addr_type != child_request->qtype) {
+			continue;
+		}
+		for (int i = 0; i < request->ip_rule_cname_original_count; i++) {
+			if (memcmp(addr_map->ip_addr, request->ip_rule_cname_originals[i], addr_len) == 0) {
+				hash_del(&addr_map->node);
+				atomic_dec(&request->ip_map_num);
+				free(addr_map);
+				break;
+			}
+		}
+	}
+	pthread_mutex_unlock(&request->ip_map_lock);
+	request->ip_rule_cname_original_count = 0;
+	request->has_ip = 1;
+	memcpy(request->ip_addr, child_request->ip_addr, addr_len);
+	return DNS_CHILD_POST_SUCCESS;
+}
+
+void _dns_server_process_ip_rule_cname(struct dns_request *request)
+{
+	struct dns_request *child_request = NULL;
+
+	if (request->ip_rule_cname[0] == '\0' || (request->qtype != DNS_T_A && request->qtype != DNS_T_AAAA)) {
+		return;
+	}
+	child_request = _dns_server_new_child_request(request, request->ip_rule_cname, request->qtype,
+												  _dns_server_process_ip_rule_cname_callback);
+	if (child_request == NULL) {
+		return;
+	}
+	child_request->no_ip_rule_cname = 1;
+	request->request_wait++;
+	if (_dns_server_do_query(child_request, 0) == 0) {
+		_dns_server_request_release_complete(child_request, 0);
+		return;
+	}
+	request->request_wait--;
+	request->child_request = NULL;
+	_dns_server_request_release(child_request);
+}
 
 static int _dns_server_has_exact_local_record(struct dns_request *request)
 {

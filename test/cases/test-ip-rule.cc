@@ -22,6 +22,8 @@
 #include "server.h"
 #include "gtest/gtest.h"
 
+#include <atomic>
+
 class IPRule : public ::testing::Test
 {
   protected:
@@ -378,4 +380,98 @@ speed-check-mode none
 	EXPECT_EQ(client.GetStatus(), "NOERROR");
 	EXPECT_EQ(client.GetAnswer()[0].GetName(), "a.com");
 	EXPECT_EQ(client.GetAnswer()[0].GetData(), "1.1.1.1");
+}
+
+TEST_F(IPRule, cname_replaces_address_without_cname_and_uses_source_ttl)
+{
+	smartdns::MockServer upstream;
+	smartdns::Server server;
+	ASSERT_TRUE(upstream.Start("udp://127.0.0.1:61053", [](struct smartdns::ServerRequestContext *request) {
+		if (request->domain == "target.test") {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(),
+										request->qtype == DNS_T_A ? "203.0.113.9" : "2001:db8:1::9", 300);
+		} else {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(),
+										request->qtype == DNS_T_A ? "192.0.2.1" : "2001:db8::1", 77);
+		}
+		return smartdns::SERVER_REQUEST_OK;
+	}));
+	ASSERT_TRUE(server.Start(R"(bind 127.0.0.1:60053
+server 127.0.0.1:61053
+speed-check-mode none
+dualstack-ip-selection no
+cache-size 0
+rr-ttl-min 1
+ip-rules 192.0.2.1/32 -cname target.test
+ip-rules 2001:db8::1/128 -cname target.test
+)"));
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("source.test A", 60053));
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "203.0.113.9");
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 77);
+	ASSERT_TRUE(client.Query("source.test AAAA", 60053));
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "2001:db8:1::9");
+	EXPECT_EQ(client.GetAnswer()[0].GetTTL(), 77);
+}
+
+TEST_F(IPRule, cname_keeps_unmatched_address_and_falls_back_without_target_address)
+{
+	smartdns::MockServer upstream;
+	smartdns::Server server;
+	ASSERT_TRUE(upstream.Start("udp://127.0.0.1:61053", [](struct smartdns::ServerRequestContext *request) {
+		if (request->domain == "target.test") {
+			return smartdns::SERVER_REQUEST_SOA;
+		}
+		smartdns::MockServer::AddIP(request, request->domain.c_str(), "192.0.2.1", 80);
+		smartdns::MockServer::AddIP(request, request->domain.c_str(), "198.51.100.2", 80);
+		return smartdns::SERVER_REQUEST_OK;
+	}));
+	ASSERT_TRUE(server.Start(R"(bind 127.0.0.1:60053
+server 127.0.0.1:61053
+speed-check-mode none
+dualstack-ip-selection no
+cache-size 0
+rr-ttl-min 1
+ip-rules 192.0.2.1/32 -cname target.test
+)"));
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("mixed.test A", 60053));
+	ASSERT_EQ(client.GetAnswerNum(), 2);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "192.0.2.1");
+	EXPECT_EQ(client.GetAnswer()[1].GetData(), "198.51.100.2");
+}
+
+TEST_F(IPRule, cname_child_does_not_recurse_and_target_is_cached)
+{
+	smartdns::MockServer upstream;
+	smartdns::Server server;
+	std::atomic<int> target_queries(0);
+	ASSERT_TRUE(
+		upstream.Start("udp://127.0.0.1:61053", [&target_queries](struct smartdns::ServerRequestContext *request) {
+			if (request->domain == "target.test") {
+				target_queries++;
+				smartdns::MockServer::AddIP(request, request->domain.c_str(), "192.0.2.99", 300);
+			} else {
+				smartdns::MockServer::AddIP(request, request->domain.c_str(), "192.0.2.1", 90);
+			}
+			return smartdns::SERVER_REQUEST_OK;
+		}));
+	ASSERT_TRUE(server.Start(R"(bind 127.0.0.1:60053
+server 127.0.0.1:61053
+speed-check-mode none
+dualstack-ip-selection no
+cache-size 1024
+rr-ttl-min 1
+ip-rules 192.0.2.0/24 -cname target.test
+)"));
+	smartdns::Client client;
+	ASSERT_TRUE(client.Query("one.test A", 60053));
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "192.0.2.99");
+	ASSERT_TRUE(client.Query("two.test A", 60053));
+	ASSERT_EQ(client.GetAnswerNum(), 1);
+	EXPECT_EQ(client.GetAnswer()[0].GetData(), "192.0.2.99");
+	EXPECT_EQ(target_queries.load(), 1);
 }

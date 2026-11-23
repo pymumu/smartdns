@@ -87,6 +87,7 @@ int _config_ip_rules(void *data, int argc, char *argv[])
 		{"bogus-nxdomain", no_argument, NULL, 'n'},
 		{"ignore-ip", no_argument, NULL, 'i'},
 		{"ip-alias", required_argument, NULL, 'a'},
+		{"cname", required_argument, NULL, 261},
 		{NULL, no_argument, NULL, 0}
 	};
 	/* clang-format on */
@@ -134,6 +135,23 @@ int _config_ip_rules(void *data, int argc, char *argv[])
 			if (_conf_ip_alias(ip_cidr, optarg) != 0) {
 				goto errout;
 			}
+			break;
+		}
+		case 261: {
+			struct ip_rule_cname *rule = NULL;
+			if (optarg == NULL || optarg[0] == '\0' || strlen(optarg) >= DNS_MAX_CNAME_LEN) {
+				goto errout;
+			}
+			rule = _new_dns_ip_rule(IP_RULE_CNAME);
+			if (rule == NULL) {
+				goto errout;
+			}
+			safe_strncpy(rule->cname, optarg, sizeof(rule->cname));
+			if (_config_ip_rule_add(ip_cidr, IP_RULE_CNAME, rule) != 0) {
+				_dns_ip_rule_put(&rule->head);
+				goto errout;
+			}
+			_dns_ip_rule_put(&rule->head);
 			break;
 		}
 		default:
@@ -316,6 +334,12 @@ int _config_ip_rule_add(const char *ip_cidr, enum ip_rule type, void *rule)
 
 	ip_rules->rules[type] = rule;
 	_dns_ip_rule_get(rule);
+	if (type == IP_RULE_CNAME) {
+		struct dns_conf_group *group = _config_current_rule_group();
+		if (group != NULL) {
+			group->has_ip_rule_cname = 1;
+		}
+	}
 
 	return 0;
 errout:
@@ -342,6 +366,9 @@ static void *_new_dns_ip_rule_ext(enum ip_rule ip_rule, int ext_size)
 		break;
 	case IP_RULE_ALIAS:
 		size = sizeof(struct ip_rule_alias);
+		break;
+	case IP_RULE_CNAME:
+		size = sizeof(struct ip_rule_cname);
 		break;
 	default:
 		return NULL;

@@ -400,6 +400,10 @@ struct dns_request {
 	int no_select_possible_ip;
 	int no_cache;
 	int no_ipalias;
+	int no_ip_rule_cname;
+	char ip_rule_cname[DNS_MAX_CNAME_LEN];
+	unsigned char ip_rule_cname_originals[MAX_IP_NUM][DNS_RR_AAAA_LEN];
+	int ip_rule_cname_original_count;
 
 	int has_cname_loop;
 
