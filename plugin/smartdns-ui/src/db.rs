@@ -650,9 +650,9 @@ impl DB {
 
         for d in data {
             let ret = stmt.execute(rusqlite::params![
-                &d.timestamp.to_string(),
+                &(d.timestamp as i64),
                 &d.domain,
-                &d.domain_type.to_string(),
+                &(d.domain_type as i64),
                 &d.client,
                 &d.domain_group,
                 &d.reply_code,
