@@ -146,6 +146,7 @@ void _dns_client_close_socket_ext(struct dns_server_info *server_info, int no_de
 	dns_server_status server_status = DNS_SERVER_STATUS_DISCONNECTED;
 	struct http2_ctx *closed_http2_ctx = NULL;
 	struct http2_ctx *http2_ctx_to_put = NULL;
+	int close_fd = -1;
 
 	pthread_mutex_lock(&server_info->lock);
 	if (server_info->process_depth > 0) {
@@ -248,15 +249,16 @@ again:
 	}
 #endif
 
+	close_fd = server_info->fd;
+	if (close_fd > 0 && client.epoll_fd > 0 && close_fd != client.epoll_fd && close_fd != client.fd_wakeup) {
+		epoll_ctl(client.epoll_fd, EPOLL_CTL_DEL, close_fd, NULL);
+	}
+
 	if (server_info->proxy) {
 		proxy_conn_free(server_info->proxy);
 		server_info->proxy = NULL;
-	} else if (server_info->fd > 0) {
-		close(server_info->fd);
-	}
-
-	if (server_info->fd > 0) {
-		epoll_ctl(client.epoll_fd, EPOLL_CTL_DEL, server_info->fd, NULL);
+	} else if (close_fd > 0) {
+		close(close_fd);
 	}
 
 	server_info->fd = -1;
