@@ -308,13 +308,14 @@ disable_auto_update()
 
 enable_auto_update()
 {
-	grep "0 $auto_update_day_time * * $auto_update_week_time /etc/init.d/smartdns updatefiles" /etc/crontabs/root 2>/dev/null
+	local cron_entry="0 $auto_update_day_time * * $auto_update_week_time /etc/init.d/smartdns updatefiles"
+	grep -Fqx "$cron_entry" /etc/crontabs/root 2>/dev/null
 	if [ $? -eq 0 ]; then
 		return 
 	fi
 
 	disable_auto_update 1
-	echo "0 $auto_update_day_time * * $auto_update_week_time /etc/init.d/smartdns updatefiles" >> /etc/crontabs/root
+	echo "$cron_entry" >> /etc/crontabs/root
 	restart_crond
 }
 
