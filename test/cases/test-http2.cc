@@ -4,13 +4,18 @@
 #include "smartdns/http2.h"
 #include "smartdns/util.h"
 #include "gtest/gtest.h"
+#include "dns_client/dns_client.h"
+#undef min
+#undef max
 #include <arpa/inet.h>
+#include <algorithm>
 #include <atomic>
 #include <cerrno>
 #include <chrono>
 #include <cctype>
 #include <cstring>
 #include <fcntl.h>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -25,6 +30,34 @@
 #include <thread>
 #include <unistd.h>
 #include <vector>
+
+namespace {
+std::atomic<bool> pause_h2_publication{false};
+std::atomic<http2_stream *> pending_h2_publication{nullptr};
+std::atomic<bool> early_h2_reply_consumed{false};
+}
+extern "C" void __real_http2_stream_set_ex_data(http2_stream *, void *);
+extern "C" void __wrap_http2_stream_set_ex_data(http2_stream *stream, void *data)
+{
+    __real_http2_stream_set_ex_data(stream, data);
+    if (!data || !pause_h2_publication.load() || pthread_equal(pthread_self(), client.tid)) return;
+    /* The old connected send has put a real request on the wire but has not
+     * published query/endpoint ownership. Let its reader finish a fast reply
+     * before this producer resumes. No packet or response is fabricated. */
+    early_h2_reply_consumed = false;
+    pending_h2_publication = stream;
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (!early_h2_reply_consumed.load() && std::chrono::steady_clock::now() < deadline)
+        poll(nullptr, 0, 1);
+    pending_h2_publication = nullptr;
+}
+extern "C" void __real_http2_stream_close(http2_stream *);
+extern "C" void __wrap_http2_stream_close(http2_stream *stream)
+{
+    bool pending = stream && stream == pending_h2_publication.load() && pthread_equal(pthread_self(), client.tid);
+    __real_http2_stream_close(stream);
+    if (pending) early_h2_reply_consumed = true;
+}
 
 namespace
 {
@@ -180,11 +213,22 @@ class LimitedHTTP2DoHUpstream
 	}
 
 	int RequestCount() const { return request_count_.load(); }
+	int HeaderCount() const { return header_count_.load(); }
+	int ResetCount() const { return reset_count_.load(); }
+	int BodyBytes() const { return body_bytes_.load(); }
+	void PauseWindow() { pause_window_ = true; }
+	bool InitialSettingsAcknowledged() const { return settings_acks_ > 0; }
+	bool WindowPaused() const { return zero_window_sent_ && settings_acks_ > pause_ack_base_; }
+	void ReleaseWindow() { release_window_ = true; }
+	bool WindowRestored() const { return window_restored_.load(); }
 	const std::string &LastError() const { return last_error_; }
 
   private:
 	struct Connection {
 		SSL *ssl = nullptr;
+		LimitedHTTP2DoHUpstream *owner = nullptr;
+		bool preface_read = false;
+		std::vector<uint8_t> trace;
 	};
 
 	static int AlpnSelectCallback(SSL *, const unsigned char **out, unsigned char *outlen, const unsigned char *in,
@@ -212,6 +256,22 @@ class LimitedHTTP2DoHUpstream
 		Connection *conn = (Connection *)private_data;
 		int ret = SSL_read(conn->ssl, buf, len);
 		if (ret > 0) {
+			{
+				auto &wire = conn->trace;
+				wire.insert(wire.end(), buf, buf + ret);
+				if (!conn->preface_read && wire.size() >= 24) {
+					wire.erase(wire.begin(), wire.begin() + 24);
+					conn->preface_read = true;
+				}
+				while (conn->preface_read && wire.size() >= 9) {
+					size_t n = (wire[0] << 16) | (wire[1] << 8) | wire[2];
+					if (wire.size() < n + 9) break;
+					if (wire[3] == 3) conn->owner->reset_count_++;
+					if (wire[3] == 4 && (wire[4] & 1)) conn->owner->settings_acks_++;
+					if (wire[3] == 0) conn->owner->body_bytes_ += n;
+					wire.erase(wire.begin(), wire.begin() + n + 9);
+				}
+			}
 			return ret;
 		}
 
@@ -329,12 +389,14 @@ class LimitedHTTP2DoHUpstream
 		}
 
 		Connection conn;
+		conn.owner = this;
 		conn.ssl = SSL_new(ssl_ctx_);
 		if (conn.ssl == nullptr) {
 			close(fd);
 			return;
 		}
 		SSL_set_fd(conn.ssl, fd);
+		SSL_set_mode(conn.ssl, SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
 		if (!WaitSslAccept(conn.ssl, fd)) {
 			SSL_free(conn.ssl);
 			close(fd);
@@ -356,6 +418,15 @@ class LimitedHTTP2DoHUpstream
 		std::set<struct http2_stream *> streams;
 		std::map<struct http2_stream *, std::vector<uint8_t>> bodies;
 		while (run_) {
+			if (pause_window_ && !zero_window_sent_) {
+				static const uint8_t pause[] = {0,0,6,4,0,0,0,0,0, 0,4,0,0,0,0};
+				pause_ack_base_ = settings_acks_.load();
+				if (SSL_write(conn.ssl, pause, sizeof(pause)) == sizeof(pause)) zero_window_sent_ = true;
+			}
+			if (release_window_ && !window_restored_) {
+				static const uint8_t restore[] = {0,0,6,4,0,0,0,0,0, 0,4,0,0,255,255};
+				if (SSL_write(conn.ssl, restore, sizeof(restore)) == sizeof(restore)) window_restored_ = true;
+			}
 			struct pollfd pfd = {fd, POLLIN | POLLOUT, 0};
 			poll(&pfd, 1, 10);
 
@@ -370,6 +441,7 @@ class LimitedHTTP2DoHUpstream
 				if (items[i].stream == nullptr && items[i].readable) {
 					struct http2_stream *stream = nullptr;
 					while ((stream = http2_ctx_accept_stream(ctx)) != nullptr) {
+						header_count_++;
 						streams.insert(stream);
 						bodies[stream] = std::vector<uint8_t>();
 					}
@@ -392,6 +464,8 @@ class LimitedHTTP2DoHUpstream
 				}
 				++it;
 			}
+			for (int i = 0; i < count; i++)
+				if (items[i].stream) http2_stream_put(items[i].stream);
 		}
 
 		for (auto stream : streams) {
@@ -427,10 +501,101 @@ class LimitedHTTP2DoHUpstream
 	std::vector<std::thread> client_threads_;
 	std::atomic<bool> run_{false};
 	std::atomic<int> request_count_{0};
+	std::atomic<int> header_count_{0}, reset_count_{0}, body_bytes_{0};
+	std::atomic<bool> release_window_{false}, window_restored_{false};
+	std::atomic<bool> pause_window_{false}, zero_window_sent_{false};
+	std::atomic<int> settings_acks_{0}, pause_ack_base_{0};
 	int max_concurrent_streams_ = 1;
 	std::string response_ip_ = "1.2.3.4";
 	std::string last_error_;
 };
+
+TEST(HTTP2, ConnectedDohRequestsPreserveFastReplyBeforePublication)
+{
+    LimitedHTTP2DoHUpstream upstream;
+    ASSERT_TRUE(upstream.Start(63054, 8, "192.0.2.19")) << upstream.LastError();
+    smartdns::Server server(smartdns::Server::CREATE_MODE_THREAD);
+    ASSERT_TRUE(server.Start(R"(bind 127.0.0.1:60053
+server https://127.0.0.1:63054/dns-query -no-check-certificate -alpn h2
+cache-size 0
+speed-check-mode none
+dualstack-ip-selection no
+)"));
+    Defer { pause_h2_publication = false; pending_h2_publication = nullptr; };
+    // Establish the connection before forcing the connected-path interleaving.
+    for (const char *name : {"first.ownership.test", "second.ownership.test"}) {
+        pause_h2_publication = upstream.RequestCount() != 0;
+        smartdns::Client query;
+        ASSERT_TRUE(query.Query(std::string(name) + " +time=4", 60053));
+        EXPECT_EQ(query.GetStatus(), "NOERROR");
+        ASSERT_EQ(query.GetAnswerNum(), 1);
+        EXPECT_EQ(query.GetAnswer()[0].GetData(), "192.0.2.19");
+    }
+    // A valid first response must not be discarded and recovered by retransmit.
+    EXPECT_EQ(upstream.RequestCount(), 2);
+}
+
+TEST(HTTP2, CancelledZeroWindowDnsQueryDoesNotResumeAfterCredit)
+{
+    auto wait = [](const std::function<bool()> &ready, int milliseconds = 3000) {
+        auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(milliseconds);
+        do { if (ready()) return true; poll(nullptr, 0, 1); }
+        while (std::chrono::steady_clock::now() < end);
+        return ready();
+    };
+    auto pending_query = [] {
+        bool pending = false;
+        pthread_mutex_lock(&::client.domain_map_lock);
+        dns_query_struct *query;
+        list_for_each_entry(query, &::client.dns_request_list, dns_request_list)
+            if (strcmp(query->domain, "cancelled.h2.test") == 0) pending = true;
+        pthread_mutex_unlock(&::client.domain_map_lock);
+        return pending;
+    };
+    LimitedHTTP2DoHUpstream h2;
+    ASSERT_TRUE(h2.Start(63054, 1, "192.0.2.19")) << h2.LastError();
+    smartdns::MockServer alternate;
+    ASSERT_TRUE(alternate.Start("udp://127.0.0.1:63055", [&](smartdns::ServerRequestContext *r) {
+        if (r->domain != "cancelled.h2.test") return smartdns::SERVER_REQUEST_NO_RESPONSE;
+        if (!wait([&] { return h2.HeaderCount() > 1; })) return smartdns::SERVER_REQUEST_NO_RESPONSE;
+        if (!wait(pending_query)) return smartdns::SERVER_REQUEST_NO_RESPONSE;
+        smartdns::MockServer::AddIP(r, r->domain.c_str(), "192.0.2.20", 600);
+        return smartdns::SERVER_REQUEST_OK;
+    }));
+    smartdns::Server server(smartdns::Server::CREATE_MODE_THREAD);
+    ASSERT_TRUE(server.Start(R"(bind 127.0.0.1:60053
+server https://127.0.0.1:63054/dns-query -no-check-certificate -alpn h2
+server 127.0.0.1:63055
+cache-size 0
+speed-check-mode none
+dualstack-ip-selection no
+)"));
+    smartdns::Client client;
+    ASSERT_TRUE(client.Query("warmup.h2.test +time=4 +tries=1", 60053));
+    ASSERT_EQ(client.GetStatus(), "NOERROR");
+    ASSERT_TRUE(wait([&] { return h2.InitialSettingsAcknowledged(); }));
+    h2.PauseWindow();
+    ASSERT_TRUE(wait([&] { return h2.WindowPaused(); }));
+    int previous_bytes = h2.BodyBytes();
+    int previous_resets = h2.ResetCount();
+    ASSERT_TRUE(client.Query("cancelled.h2.test +time=4 +tries=1", 60053));
+    EXPECT_EQ(client.GetStatus(), "NOERROR");
+    ASSERT_EQ(client.GetAnswerNum(), 1);
+    EXPECT_EQ(client.GetAnswer()[0].GetData(), "192.0.2.20");
+    EXPECT_EQ(h2.BodyBytes(), previous_bytes);
+    // A downstream answer precedes the ordinary upstream query-end callback.
+    ASSERT_TRUE(wait([&] { return !pending_query(); }));
+    h2.ReleaseWindow();
+    ASSERT_TRUE(wait([&] { return h2.WindowRestored(); }));
+    EXPECT_TRUE(wait([&] { return h2.ResetCount() > previous_resets; }));
+    EXPECT_EQ(h2.ResetCount(), previous_resets + 1);
+    EXPECT_FALSE(wait([&] { return h2.BodyBytes() != previous_bytes; }, 500));
+    ASSERT_TRUE(client.Query("replacement.h2.test +time=4 +tries=1", 60053));
+    EXPECT_EQ(client.GetStatus(), "NOERROR");
+    ASSERT_EQ(client.GetAnswerNum(), 1);
+    EXPECT_EQ(client.GetAnswer()[0].GetData(), "192.0.2.19");
+    EXPECT_EQ(h2.RequestCount(), 2);
+}
 
 class HTTP2DoHClient
 {

@@ -116,7 +116,7 @@ void _dns_client_conn_server_streams_free(struct dns_server_info *server_info, s
 	{
 		list_del_init(&stream->server_list);
 		if (stream->http2_stream) {
-			http2_stream_close(stream->http2_stream);
+			http2_stream_abort(stream->http2_stream);
 			stream->http2_stream = NULL;
 		}
 

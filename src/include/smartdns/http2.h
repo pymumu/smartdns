@@ -196,6 +196,11 @@ struct http2_stream *http2_stream_new(struct http2_ctx *ctx);
  * @param stream Stream to close
  */
 void http2_stream_close(struct http2_stream *stream);
+/* Consume caller ownership and discard body data not yet queued for transport.
+ * Bytes already queued on the connection cannot be withdrawn; CANCEL follows them. */
+void http2_stream_abort(struct http2_stream *stream);
+/* Peer reset is distinct from a normally completed response body. */
+int http2_stream_is_reset(struct http2_stream *stream);
 
 /**
  * Increase reference count of stream
