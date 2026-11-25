@@ -257,6 +257,7 @@ int _dns_server_passthrough_rule_check(struct dns_request *request, const char *
 	int j = 0;
 	struct dns_rrs *rrs = NULL;
 	int ip_check_result = 0;
+	struct dns_iplist_ip_addresses *alias = NULL;
 
 	if (packet->head.rcode != DNS_RC_NOERROR && packet->head.rcode != DNS_RC_NXDOMAIN) {
 		if (request->rcode == DNS_RC_SERVFAIL) {
@@ -296,11 +297,17 @@ int _dns_server_passthrough_rule_check(struct dns_request *request, const char *
 					 addr[3]);
 
 				/* ip rule check */
-				ip_check_result = _dns_server_process_ip_rule(request, addr, 4, DNS_T_A, result_flag, NULL);
+				ip_check_result = _dns_server_process_ip_rule(request, addr, 4, DNS_T_A, result_flag, &alias);
 				if (ip_check_result == 0 || ip_check_result == -2 || ip_check_result == -3) {
 					/* match, skip, nxdomain */
 					_dns_server_request_release(request);
 					return 0;
+				}
+
+				if (alias != NULL) {
+					/* ip-alias rewrites the answer */
+					_dns_server_request_release(request);
+					return 1;
 				}
 
 				/* Ad blocking result */
@@ -338,11 +345,17 @@ int _dns_server_passthrough_rule_check(struct dns_request *request, const char *
 					 name, ttl_tmp, addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr[6], addr[7], addr[8],
 					 addr[9], addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]);
 
-				ip_check_result = _dns_server_process_ip_rule(request, addr, 16, DNS_T_AAAA, result_flag, NULL);
+				ip_check_result = _dns_server_process_ip_rule(request, addr, 16, DNS_T_AAAA, result_flag, &alias);
 				if (ip_check_result == 0 || ip_check_result == -2 || ip_check_result == -3) {
 					/* match, skip, nxdomain */
 					_dns_server_request_release(request);
 					return 0;
+				}
+
+				if (alias != NULL) {
+					/* ip-alias rewrites the answer */
+					_dns_server_request_release(request);
+					return 1;
 				}
 
 				/* Ad blocking result */
@@ -366,7 +379,7 @@ int _dns_server_passthrough_rule_check(struct dns_request *request, const char *
 					if (https_record_rule->filter.no_ipv4hint || https_record_rule->filter.no_ipv6hint || 
 						https_record_rule->filter.no_ech) {
 						/* Need to filter, do not passthrough */
-						return 0;
+						return 1;
 					}
 				}
 			} break;
