@@ -177,3 +177,47 @@ speed-check-mode ping
 	}
 	EXPECT_GT(result.ip_num, 0);
 }
+
+/* The immediate reply forwards the upstream packet: it must still honour max-reply-ip-num, with and without cache. */
+static void FastestResponseMaxReplyIPNum(const std::string &cache_size)
+{
+	smartdns::MockServer server_upstream;
+	smartdns::Server server;
+
+	server_upstream.Start("udp://0.0.0.0:61053", [](struct smartdns::ServerRequestContext *request) {
+		if (request->qtype != DNS_T_A) {
+			return smartdns::SERVER_REQUEST_SOA;
+		}
+		for (int i = 1; i <= 32; i++) {
+			smartdns::MockServer::AddIP(request, request->domain.c_str(), "10.0.0." + std::to_string(i));
+		}
+		return smartdns::SERVER_REQUEST_OK;
+	});
+
+	std::string conf = R"""(bind [::]:60053
+server 127.0.0.1:61053
+response-mode fastest-response
+max-reply-ip-num 8
+)""";
+	server.Start(conf + "cache-size " + cache_size + "\n");
+
+	smartdns::Client client;
+	for (int i = 0; i < 2; i++) {
+		ASSERT_TRUE(client.Query("a.com", 60053));
+		std::cout << client.GetResult() << std::endl;
+		EXPECT_EQ(client.GetStatus(), "NOERROR");
+		ASSERT_GT(client.GetAnswerNum(), 0);
+		EXPECT_LE(client.GetAnswerNum(), 8);
+		usleep(600 * 1000);
+	}
+}
+
+TEST_F(FastestResponse, max_reply_ip_num_no_cache)
+{
+	FastestResponseMaxReplyIPNum("0");
+}
+
+TEST_F(FastestResponse, max_reply_ip_num_cache)
+{
+	FastestResponseMaxReplyIPNum("1024");
+}
