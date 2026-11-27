@@ -473,6 +473,43 @@ int http_head_serialize(struct http_head *http_head, void *buffer, int buffer_le
 	return -2;
 }
 
+void http_head_reset(struct http_head *http_head, HTTP_VERSION version)
+{
+	struct http_head_fields *fields = NULL, *tmp;
+	struct http_params *params = NULL, *tmp_params;
+
+	list_for_each_entry_safe(fields, tmp, &http_head->field_head.list, list)
+	{
+		list_del(&fields->list);
+		free(fields);
+	}
+
+	list_for_each_entry_safe(params, tmp_params, &http_head->params.list, list)
+	{
+		list_del(&params->list);
+		free(params);
+	}
+
+	INIT_LIST_HEAD(&http_head->field_head.list);
+	hash_init(http_head->field_map);
+	INIT_LIST_HEAD(&http_head->params.list);
+	hash_init(http_head->params_map);
+
+	http_head->http_version = version;
+	http_head->head_type = HTTP_HEAD_INVALID;
+	http_head->method = HTTP_METHOD_INVALID;
+	http_head->url = NULL;
+	http_head->version = NULL;
+	http_head->code = 0;
+	http_head->code_msg = NULL;
+	http_head->buff_len = 0;
+	http_head->head_ok = 0;
+	http_head->head_len = 0;
+	http_head->data = NULL;
+	http_head->data_len = 0;
+	http_head->expect_data_len = 0;
+}
+
 void http_head_destroy(struct http_head *http_head)
 {
 	struct http_head_fields *fields = NULL, *tmp;
