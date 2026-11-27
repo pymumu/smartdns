@@ -95,7 +95,7 @@ impl DataStatsItem {
     pub fn add_request_drop(&self, count: u64) {
         #[cfg(target_has_atomic = "64")]
         {
-            self.request_dropped.fetch_and(count, Ordering::Relaxed);
+            self.request_dropped.fetch_add(count, Ordering::Relaxed);
         }
 
         #[cfg(not(target_has_atomic = "64"))]
