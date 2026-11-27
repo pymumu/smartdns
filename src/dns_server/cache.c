@@ -26,13 +26,17 @@
 #include "soa.h"
 
 #include <errno.h>
+#include <limits.h>
 #include <signal.h>
 #include <string.h>
 #include <sys/wait.h>
 
 int _dns_server_expired_cache_ttl(struct dns_cache *cache, int serve_expired_ttl)
 {
-	return cache->info.insert_time + cache->info.ttl + serve_expired_ttl - time(NULL);
+	double ttl = (double)cache->info.ttl + serve_expired_ttl - difftime(time(NULL), cache->info.insert_time);
+	if (ttl > INT_MAX) return INT_MAX;
+	if (ttl < INT_MIN) return INT_MIN;
+	return (int)ttl;
 }
 
 static int _dns_cache_is_specify_packet(int qtype)
@@ -54,16 +58,12 @@ static int _dns_cache_is_specify_packet(int qtype)
 
 static int _dns_server_get_cache_timeout(struct dns_request *request, struct dns_cache_key *cache_key, int ttl)
 {
-	int timeout = 0;
+	int64_t timeout = 0;
 	int prefetch_time = 0;
 	int is_serve_expired = request->conf->dns_serve_expired;
 
-	if (request->rcode != DNS_RC_NOERROR) {
-		return ttl + 1;
-	}
-
-	if (request->is_mdns_lookup == 1) {
-		return ttl + 1;
+	if (request->rcode != DNS_RC_NOERROR || request->is_mdns_lookup == 1) {
+		return ttl == INT_MAX ? INT_MAX : ttl + 1;
 	}
 
 	if (request->conf->dns_prefetch) {
@@ -97,7 +97,7 @@ static int _dns_server_get_cache_timeout(struct dns_request *request, struct dns
 			} else if (cache_key != NULL) {
 				struct dns_cache *old_cache = dns_cache_lookup(cache_key);
 				if (old_cache) {
-					time_t next_ttl = _dns_server_expired_cache_ttl(old_cache, request->conf->dns_serve_expired_ttl) -
+					int64_t next_ttl = (int64_t)_dns_server_expired_cache_ttl(old_cache, request->conf->dns_serve_expired_ttl) -
 									  old_cache->info.ttl + ttl;
 					if (next_ttl < timeout) {
 						timeout = next_ttl;
@@ -121,7 +121,7 @@ static int _dns_server_get_cache_timeout(struct dns_request *request, struct dns
 		timeout = 1;
 	}
 
-	return timeout;
+	return timeout > INT_MAX ? INT_MAX : (int)timeout;
 }
 
 int _dns_server_request_update_cache(struct dns_request *request, int speed, dns_type_t qtype,

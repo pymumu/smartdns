@@ -26,6 +26,7 @@
 #include "smartdns/util.h"
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <string.h>
@@ -569,16 +570,11 @@ out:
 
 int dns_cache_get_ttl(struct dns_cache *dns_cache)
 {
-	time_t now = 0;
-	int ttl = 0;
-	time(&now);
-
-	ttl = dns_cache->info.insert_time + dns_cache->info.ttl - now;
-	if (ttl < 0) {
+	double ttl = dns_cache->info.ttl - difftime(time(NULL), dns_cache->info.insert_time);
+	if (ttl <= 0) {
 		return 0;
 	}
-
-	return ttl;
+	return ttl > INT_MAX ? INT_MAX : (int)ttl;
 }
 
 struct dns_cache_data *dns_cache_get_data(struct dns_cache *dns_cache)
@@ -694,14 +690,18 @@ static int _dns_cache_read_to_cache(struct dns_cache_record *cache_record, struc
 	int expired_time = 0;
 
 	time_t now = time(NULL);
-	if (now < info->replace_time) {
-		info->replace_time = now;
-	}
-
-	int passed_time = now - info->replace_time;
-	int timeout = info->timeout - passed_time;
-
+	/* A clock rollback leaves the persisted age unknown; do not grant a new TTL. */
+	if (now < info->replace_time || now < info->insert_time) return 0;
 	struct dns_conf_group *rule_group = dns_server_get_rule_group(info->dns_group_name);
+	double remaining = info->ttl - difftime(now, info->insert_time);
+	if (rule_group->dns_serve_expired && info->rcode == DNS_RC_NOERROR)
+		remaining += rule_group->dns_serve_expired_ttl;
+	if (remaining <= 0) return 0;
+
+	/* Bound elapsed age before narrowing; valid TTLs can reach INT_MAX. */
+	double elapsed = difftime(now, info->replace_time);
+	int passed_time = elapsed > INT_MAX ? INT_MAX : (int)elapsed;
+	int64_t timeout = (int64_t)info->timeout - passed_time;
 
 	if (rule_group->dns_prefetch) {
 		if (rule_group->dns_serve_expired) {
@@ -717,16 +717,17 @@ static int _dns_cache_read_to_cache(struct dns_cache_record *cache_record, struc
 		}
 	}
 
-	if ((timeout > expired_time + info->ttl) && expired_time > 0) {
-		timeout = expired_time + info->ttl;
+	if ((timeout > (int64_t)expired_time + info->ttl) && expired_time > 0) {
+		timeout = (int64_t)expired_time + info->ttl;
 	}
 
 	if (timeout < DNS_CACHE_READ_TIMEOUT * 2) {
 		timeout = DNS_CACHE_READ_TIMEOUT + (rand() % DNS_CACHE_READ_TIMEOUT);
 	}
+	if (timeout > remaining) timeout = (int64_t)remaining;
 
 	dns_cache_data_get(cache_data);
-	if (_dns_cache_insert(&cache_record->info, cache_data, head, timeout) != 0) {
+	if (_dns_cache_insert(&cache_record->info, cache_data, head, (int)timeout) != 0) {
 		tlog(TLOG_ERROR, "insert cache data failed.");
 		dns_cache_data_put(cache_data);
 		cache_data = NULL;
@@ -781,6 +782,17 @@ static int _dns_cache_read_record(int fd, off_t filesize, uint32_t cache_number,
 		if (offset < 0 || offset > filesize || (off_t)data_head.size > filesize - offset) {
 			tlog(TLOG_ERROR, "cache data size is invalid, skip load cache.");
 			goto errout;
+		}
+
+		/* Semantic metadata errors do not invalidate later records. Only skip
+		 * after both record framing and the payload boundary are trustworthy. */
+		const struct dns_cache_info *info = &cache_record.info;
+		if (info->ttl < 0 || info->timeout < 0 || info->insert_time < 0 || info->replace_time < 0 ||
+			info->hitnum < 0 || info->hitnum > DNS_CACHE_MAX_HITNUM ||
+			info->hitnum_update_add < 0 || info->hitnum_update_add > DNS_CACHE_HITNUM_STEP_MAX) {
+			tlog(TLOG_WARN, "invalid persisted cache metadata, skip record.");
+			if (lseek(fd, data_head.size, SEEK_CUR) != offset + data_head.size) goto errout;
+			continue;
 		}
 
 		data_size = data_head.size + sizeof(data_head);
