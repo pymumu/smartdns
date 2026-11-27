@@ -546,6 +546,7 @@ int qpack_huffman_decode(const uint8_t *bytes, const uint8_t *bytes_max, uint8_t
 	size_t decoded_index = 0;
 	int index = 0;
 	int was_all_ones = 1;
+	int tail_bits = 0;
 
 	while (1) {
 		int bit;
@@ -567,6 +568,7 @@ int qpack_huffman_decode(const uint8_t *bytes, const uint8_t *bytes_max, uint8_t
 			bit = (val_in >> 63) & 1;
 			val_in <<= 1;
 			bits_in--;
+			tail_bits++;
 			if (bit) {
 				index += _qpack_huffman_val[index];
 			} else {
@@ -574,18 +576,19 @@ int qpack_huffman_decode(const uint8_t *bytes, const uint8_t *bytes_max, uint8_t
 				was_all_ones = 0;
 			}
 			if (index >= 512) {
-				break;
+				return -1; /* EOS is never a decoded symbol. */
 			}
 		} else if (decoded_index < max_decoded) {
 			decoded[decoded_index++] = _qpack_huffman_val[index];
 			index = 0;
 			was_all_ones = 1;
+			tail_bits = 0;
 		} else {
 			return -1;
 		}
 	}
 
-	if (!was_all_ones) {
+	if (!was_all_ones || tail_bits > 7) {
 		ret = -1;
 	}
 
