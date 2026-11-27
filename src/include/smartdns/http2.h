@@ -45,6 +45,7 @@ enum {
 	HTTP2_ERR_IO = -3,
 	HTTP2_ERR_PROTOCOL = -4,
 	HTTP2_ERR_HTTP1 = -5,
+	HTTP2_ERR_INTERNAL = -6,
 };
 
 /* Convert error code to string */
@@ -192,7 +193,8 @@ struct http2_stream *http2_stream_new(struct http2_ctx *ctx);
  */
 
 /**
- * Close a stream and release ownership
+ * Close a stream and release ownership. Client requests are canceled, including
+ * flow-blocked body data. Server responses can drain already queued body data.
  * @param stream Stream to close
  */
 void http2_stream_close(struct http2_stream *stream);
