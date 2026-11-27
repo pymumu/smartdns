@@ -41,7 +41,6 @@ After=syslog.target network-online.target
 [Service]
 Type=simple
 ExecStart=/usr/sbin/smartdns -c /etc/smartdns/smartdns.conf -f
-PIDFile=/run/smartdns.pid
 Restart=on-failure
 KillMode=process
 
