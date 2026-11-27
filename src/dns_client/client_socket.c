@@ -24,6 +24,7 @@
 #include "client_tcp.h"
 #include "client_tls.h"
 #include "client_udp.h"
+#include "client_http3_control.h"
 #include "conn_stream.h"
 #include "smartdns/http2.h"
 
@@ -188,6 +189,7 @@ again:
 	server_info->status = DNS_SERVER_STATUS_DISCONNECTED;
 
 	if (server_info->ssl) {
+		_dns_http3_control_free(server_info);
 		/* Shutdown ssl */
 		if (server_status == DNS_SERVER_STATUS_CONNECTED) {
 			_ssl_shutdown(server_info);
