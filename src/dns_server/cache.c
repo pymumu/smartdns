@@ -480,7 +480,7 @@ void _dns_server_save_cache_to_file(void)
 
 	/* server is busy, skip*/
 	pthread_mutex_lock(&server.request_list_lock);
-	if (list_empty(&server.request_list) != 0) {
+	if (!list_empty(&server.request_list)) {
 		pthread_mutex_unlock(&server.request_list_lock);
 		return;
 	}
